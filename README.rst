@@ -33,7 +33,7 @@ Python Library for Healthcare AI (PyHealth)
    :alt: Maintainability
 
 
-.. image:: https://img.shields.io/github/license/yzhao062/pyhealth.svg
+.. image:: https://img.shields.io/github/license/yzhao062/pyhealth
    :target: https://github.com/yzhao062/pyhealth/blob/master/LICENSE
    :alt: License
 
