@@ -22,8 +22,8 @@ from sklearn.utils.estimator_checks import check_estimator
 from sklearn.metrics import roc_auc_score
 from scipy.stats import rankdata
 
-# temporary solution for relative imports in case pyod is not installed
-# if pyod is installed, no need to use the following line
+# temporary solution for relative imports in case pyhealth is not installed
+# if pyhealth is installed, no need to use the following line
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from pyhealth.data.base_mimic import parallel_parse_tables
