@@ -244,7 +244,7 @@ Type                     Abbr                     Metric                        
 Binary Classification    average_precision_score  Compute micro/macro average precision (AP) from prediction scores                                       pyhealth.evaluation.xxx.get_avg_results
 Binary Classification    roc_auc_score            Compute micro/macro ROC AUC score from prediction scores                                                pyhealth.evaluation.xxx.get_avg_results
 Binary Classification    recall, precision, f1    Get recall, precision, and f1 values                                                                    pyhealth.evaluation.xxx.get_predict_results
-Multi Classification
+Multi Classification     To be done here
 =======================  =======================  ======================================================================================================  ===============================================
 
 
@@ -330,7 +330,7 @@ Quick Start for Running Predictive Models
 `"examples/learning_models/lstm_cms_example.py" <https://github.com/yzhao062/pyhealth/blob/master/examples/learning_models/lstm_cms_example.py>`_
 demonstrates the basic API of using LSTM for phenotyping prediction. **It is noted that the API across all other algorithms are consistent/similar**.
 
-**If you do not have the preprocessed datasets yet, download the datasets folder from PyHealth repository, and run \\examples\\learning_models\\extract_data_run_before_learning.py to prepare the datasets.**
+**If you do not have the preprocessed datasets yet, download the \\datasets folder (cms.zip and mimic.zip) from PyHealth repository, and run \\examples\\learning_models\\extract_data_run_before_learning.py to prepare/unzip the datasets.**
 
 
 #. Setup the datasets. X and y should be in x_data and y_data, respectively.

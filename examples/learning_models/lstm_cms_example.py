@@ -21,8 +21,8 @@ from pyhealth import evaluation
 
 if __name__ == "__main__":
     # override here to specify where the data locates
-    root_dir = ''
-    root_dir = os.path.abspath(os.path.join(__file__, "../../.."))
+    # root_dir = ''
+    # root_dir = os.path.abspath(os.path.join(__file__, "../../.."))
 
     expdata_id = '2020.0802.data.phenotyping.test.v4'
 
