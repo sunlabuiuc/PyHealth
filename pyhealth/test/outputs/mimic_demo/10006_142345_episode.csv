@@ -1,0 +1,7 @@
+secs_since_entry,capillary refill rate,diastolic blood pressure,fraction inspired oxygen,glascow coma scale eye opening,glascow coma scale motor response,glascow coma scale total,glascow coma scale verbal response,glucose,heart rate,height,mean blood pressure,oxygen saturation,respiratory rate,systolic blood pressure,temperature,weight,ph
+21600,,51.0,,4 Spontaneously,6 Obeys Commands,15,5 Oriented,84,92,,73.666702270507812,99.0,19,119.0,36.38889,,
+43200,,50.0,,4 Spontaneously,6 Obeys Commands,15,5 Oriented,93,76,,72.333297729492188,100.0,22,117.0,37.555557,,
+64800,,51.0,,4 Spontaneously,6 Obeys Commands,15,5 Oriented,232,71,,74.333297729492188,98.0,20,121.0,37.38889,,
+86400,,48.0,,4 Spontaneously,6 Obeys Commands,15,5 Oriented,101,79,,70.666702270507812,99.0,26,116.0,36.555557,,
+108000,,58.0,,4 Spontaneously,6 Obeys Commands,15,5 Oriented,73,81,,85.333297729492188,97.0,21,140.0,37.055557,,
+129600,,51.0,,4 Spontaneously,6 Obeys Commands,15,5 Oriented,75,66,,84,98.0,14,150.0,37.0556,,

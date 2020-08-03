@@ -1,0 +1,135 @@
+row_id,category,sectionrange,sectionheader,subsectionrange,subsectionheader,codesuffix,mincodeinsubsection,maxcodeinsubsection
+1,1,99201-99499,Evaluation and management,99201-99216,Office/other outpatient services,,99201,99216
+2,1,99201-99499,Evaluation and management,99217-99220,Hospital observation services,,99217,99220
+3,1,99201-99499,Evaluation and management,99221-99239,Hospital inpatient services,,99221,99239
+4,1,99201-99499,Evaluation and management,99241-99255,Consultations,,99241,99255
+5,1,99201-99499,Evaluation and management,99261-99263,Follow-up inpatient consultations (deleted codes),,99261,99263
+6,1,99201-99499,Evaluation and management,99271-99275,Confirmatory consultation for a new or established patient (deleted codes),,99271,99275
+7,1,99201-99499,Evaluation and management,99281-99288,Emergency department services,,99281,99288
+8,1,99201-99499,Evaluation and management,99291-99292,Critical care services,,99291,99292
+9,1,99201-99499,Evaluation and management,99304-99318,Nursing facility services,,99304,99318
+10,1,99201-99499,Evaluation and management,99324-99337,"Domiciliary, rest home (boarding home) or custodial care services",,99324,99337
+11,1,99201-99499,Evaluation and management,99339-99340,"Domiciliary, rest home (assisted living facility), or home care plan oversight services",,99339,99340
+12,1,99201-99499,Evaluation and management,99341-99350,Home health services,,99341,99350
+13,1,99201-99499,Evaluation and management,99354-99360,Prolonged services,,99354,99360
+14,1,99201-99499,Evaluation and management,99361-99362,Team Conferences (deleted codes),,99361,99362
+15,1,99201-99499,Evaluation and management,99363-99368,Case management services,,99363,99368
+16,1,99201-99499,Evaluation and management,99371-99373,Telephone care (deleted codes),,99371,99373
+17,1,99201-99499,Evaluation and management,99374-99380,Care plan oversight services,,99374,99380
+18,1,99201-99499,Evaluation and management,99381-99429,Preventive medicine services,,99381,99429
+19,1,99201-99499,Evaluation and management,99441-99444,Non-face-to-face physician services,,99441,99444
+20,1,99201-99499,Evaluation and management,99450-99456,Special evaluation and management services,,99450,99456
+21,1,99201-99499,Evaluation and management,99460-99465,Newborn care services,,99460,99465
+22,1,99201-99499,Evaluation and management,99466-99480,"Inpatient neonatal intensive, and pediatric/neonatal critical, care services",,99466,99480
+23,1,99201-99499,Evaluation and management,99487-99489,Complex chronic care coordination services,,99487,99489
+24,1,99201-99499,Evaluation and management,99495-99496,Transitional care management services,,99495,99496
+25,1,99201-99499,Evaluation and management,99499,Other evaluation and management services,,99499,99499
+26,1,00100-01999; 99100-99150,Anesthesia,00100-00222,Head,,100,222
+27,1,00100-01999; 99100-99150,Anesthesia,00300-00352,Neck,,300,352
+28,1,00100-01999; 99100-99150,Anesthesia,00400-00474,Thorax,,400,474
+29,1,00100-01999; 99100-99150,Anesthesia,00500-00580,Intrathoracic,,500,580
+30,1,00100-01999; 99100-99150,Anesthesia,00600-00670,Spine and spinal cord,,600,670
+31,1,00100-01999; 99100-99150,Anesthesia,00700-00797,Upper abdomen,,700,797
+32,1,00100-01999; 99100-99150,Anesthesia,00800-00882,Lower abdomen,,800,882
+33,1,00100-01999; 99100-99150,Anesthesia,00902-00952,Perineum,,902,952
+34,1,00100-01999; 99100-99150,Anesthesia,01112-01190,Pelvis (except hip),,1112,1190
+35,1,00100-01999; 99100-99150,Anesthesia,01200-01274,Upper leg (except knee),,1200,1274
+36,1,00100-01999; 99100-99150,Anesthesia,01320-01444,Knee and popliteal area,,1320,1444
+37,1,00100-01999; 99100-99150,Anesthesia,01462-01522,Lower leg (below knee),,1462,1522
+38,1,00100-01999; 99100-99150,Anesthesia,01610-01682,Shoulder and axillary,,1610,1682
+39,1,00100-01999; 99100-99150,Anesthesia,01710-01782,Upper arm and elbow,,1710,1782
+40,1,00100-01999; 99100-99150,Anesthesia,01810-01860,"Forearm, wrist and hand",,1810,1860
+41,1,00100-01999; 99100-99150,Anesthesia,01916-01936,Radiological procedures,,1916,1936
+42,1,00100-01999; 99100-99150,Anesthesia,01951-01953,Burn excisions or debridement,,1951,1953
+43,1,00100-01999; 99100-99150,Anesthesia,01958-01969,Obstetric,,1958,1969
+44,1,00100-01999; 99100-99150,Anesthesia,01990-01999,Other procedures,,1990,1999
+45,1,00100-01999; 99100-99150,Anesthesia,99100-99140,Qualifying circumstances for anesthesia,,99100,99140
+46,1,00100-01999; 99100-99150,Anesthesia,99141-99142,Conscious sedation (deleted codes),,99141,99142
+47,1,00100-01999; 99100-99150,Anesthesia,99143-99150,Moderate (conscious) sedation,,99143,99150
+48,1,10000-69990,Surgery,10000-10022,General,,10000,10022
+49,1,10000-69990,Surgery,10040-19499,Integumentary system,,10040,19499
+50,1,10000-69990,Surgery,20000-29999,Musculoskeletal system,,20000,29999
+51,1,10000-69990,Surgery,30000-32999,Respiratory system,,30000,32999
+52,1,10000-69990,Surgery,33010-37799,Cardiovascular system,,33010,37799
+53,1,10000-69990,Surgery,38100-38999,Hemic and lymphatic systems,,38100,38999
+54,1,10000-69990,Surgery,39000-39599,Mediastinum and diaphragm,,39000,39599
+55,1,10000-69990,Surgery,40490-49999,Digestive system,,40490,49999
+56,1,10000-69990,Surgery,50010-53899,Urinary system,,50010,53899
+57,1,10000-69990,Surgery,54000-55899,Male genital system,,54000,55899
+58,1,10000-69990,Surgery,55920-55980,Reproductive system and intersex,,55920,55980
+59,1,10000-69990,Surgery,56340-56340,"Laparoscopy, Surgical; Cholecystectomy (deleted code)",,56340,56340
+60,1,10000-69990,Surgery,56405-58999,Female genital system,,56405,58999
+61,1,10000-69990,Surgery,59000-59899,Maternity care and delivery,,59000,59899
+62,1,10000-69990,Surgery,60000-60699,Endocrine system,,60000,60699
+63,1,10000-69990,Surgery,61000-64999,Nervous system,,61000,64999
+64,1,10000-69990,Surgery,65091-68899,Eye and ocular adnexa,,65091,68899
+65,1,10000-69990,Surgery,69000-69979,Auditory system,,69000,69979
+66,1,10000-69990,Surgery,69990-69990,Operating microscope (deleted code),,69990,69990
+67,1,70000-79999,Radiology,70000-76499,Diagnostic imaging,,70000,76499
+68,1,70000-79999,Radiology,76506-76999,Diagnostic ultrasound,,76506,76999
+69,1,70000-79999,Radiology,77001-77032,Radiologic guidance,,77001,77032
+70,1,70000-79999,Radiology,77051-77059,Breast mammography,,77051,77059
+71,1,70000-79999,Radiology,77071-77084,Bone/joint studies,,77071,77084
+72,1,70000-79999,Radiology,77261-77799,Radiation oncology,,77261,77799
+73,1,70000-79999,Radiology,78000-79999,Nuclear medicine,,78000,79999
+74,1,80000-89398,Pathology and laboratory,80000-80076,Organ or disease-oriented panels,,80000,80076
+75,1,80000-89398,Pathology and laboratory,80100-80103,Drug testing,,80100,80103
+76,1,80000-89398,Pathology and laboratory,80150-80299,Therapeutic drug assays,,80150,80299
+77,1,80000-89398,Pathology and laboratory,80400-80440,Evocative/suppression testing,,80400,80440
+78,1,80000-89398,Pathology and laboratory,80500-80502,Consultations (clinical pathology),,80500,80502
+79,1,80000-89398,Pathology and laboratory,81000-81099,Urinalysis,,81000,81099
+80,1,80000-89398,Pathology and laboratory,82000-84999,Chemistry,,82000,84999
+81,1,80000-89398,Pathology and laboratory,85002-85999,Hematology and coagulation,,85002,85999
+82,1,80000-89398,Pathology and laboratory,86000-86849,Immunology,,86000,86849
+83,1,80000-89398,Pathology and laboratory,86850-86999,Transfusion medicine,,86850,86999
+84,1,80000-89398,Pathology and laboratory,87001-87999,Microbiology,,87001,87999
+85,1,80000-89398,Pathology and laboratory,88000-88099,Anatomic pathology (postmortem),,88000,88099
+86,1,80000-89398,Pathology and laboratory,88104-88199,Cytopathology,,88104,88199
+87,1,80000-89398,Pathology and laboratory,88230-88299,Cytogenetic studies,,88230,88299
+88,1,80000-89398,Pathology and laboratory,88300-88399,Surgical pathology,,88300,88399
+89,1,80000-89398,Pathology and laboratory,88720-88741,In vivo (transcutaneous) lab procedures,,88720,88741
+90,1,80000-89398,Pathology and laboratory,89049-89240,Other procedures,,89049,89240
+91,1,80000-89398,Pathology and laboratory,89250-89398,Reproductive medicine procedures,,89250,89398
+92,1,90281-99099; 99151-99199; 99500-99607,Medicine,90281-90399,"Immune globulins, serum or recombinant prods",,90281,90399
+93,1,90281-99099; 99151-99199; 99500-99607,Medicine,90465-90474,Immunization administration for vaccines/toxoids,,90465,90474
+94,1,90281-99099; 99151-99199; 99500-99607,Medicine,90476-90749,"Vaccines, toxoids",,90476,90749
+95,1,90281-99099; 99151-99199; 99500-99607,Medicine,90801-90899,Psychiatry,,90801,90899
+96,1,90281-99099; 99151-99199; 99500-99607,Medicine,90901-90911,Biofeedback,,90901,90911
+97,1,90281-99099; 99151-99199; 99500-99607,Medicine,90918-90925,End-Stage Renal Disease Services (deleted codes),,90918,90925
+98,1,90281-99099; 99151-99199; 99500-99607,Medicine,90935-90999,Dialysis,,90935,90999
+99,1,90281-99099; 99151-99199; 99500-99607,Medicine,91000-91299,Gastroenterology,,91000,91299
+100,1,90281-99099; 99151-99199; 99500-99607,Medicine,92002-92499,Ophthalmology,,92002,92499
+101,1,90281-99099; 99151-99199; 99500-99607,Medicine,92502-92700,Special otorhinolaryngologic services,,92502,92700
+102,1,90281-99099; 99151-99199; 99500-99607,Medicine,92950-93799,Cardiovascular,,92950,93799
+103,1,90281-99099; 99151-99199; 99500-99607,Medicine,93875-93990,Noninvasive vascular diagnostic studies,,93875,93990
+104,1,90281-99099; 99151-99199; 99500-99607,Medicine,94002-94799,Pulmonary,,94002,94799
+105,1,90281-99099; 99151-99199; 99500-99607,Medicine,95004-95199,Allergy and clinical immunology,,95004,95199
+106,1,90281-99099; 99151-99199; 99500-99607,Medicine,95250-95251,Endocrinology,,95250,95251
+107,1,90281-99099; 99151-99199; 99500-99607,Medicine,95803-96020,Neurology and neuromuscular procedures,,95803,96020
+108,1,90281-99099; 99151-99199; 99500-99607,Medicine,96101-96125,"Central nervous system assessments/tests (neuro-cognitive, mental status, speech testing)",,96101,96125
+109,1,90281-99099; 99151-99199; 99500-99607,Medicine,96150-96155,Health and behavior assessment/intervention,,96150,96155
+110,1,90281-99099; 99151-99199; 99500-99607,Medicine,96360-96549,"Hydration, therapeutic, prophylactic, diagnostic injections and infusions, and chemotherapy and other highly complex drug or highly complex biologic agent administration",,96360,96549
+111,1,90281-99099; 99151-99199; 99500-99607,Medicine,96567-96571,Photodynamic therapy,,96567,96571
+112,1,90281-99099; 99151-99199; 99500-99607,Medicine,96900-96999,Special dermatological procedures,,96900,96999
+113,1,90281-99099; 99151-99199; 99500-99607,Medicine,97001-97799,Physical medicine and rehabilitation,,97001,97799
+114,1,90281-99099; 99151-99199; 99500-99607,Medicine,97802-97804,Medical nutrition therapy,,97802,97804
+115,1,90281-99099; 99151-99199; 99500-99607,Medicine,97810-97814,Acupuncture,,97810,97814
+116,1,90281-99099; 99151-99199; 99500-99607,Medicine,98925-98929,Osteopathic manipulative treatment,,98925,98929
+117,1,90281-99099; 99151-99199; 99500-99607,Medicine,98940-98943,Chiropractic manipulative treatment,,98940,98943
+118,1,90281-99099; 99151-99199; 99500-99607,Medicine,98960-98962,Education and training for patient self-management,,98960,98962
+119,1,90281-99099; 99151-99199; 99500-99607,Medicine,98966-98969,Non-face-to-face nonphysician services,,98966,98969
+120,1,90281-99099; 99151-99199; 99500-99607,Medicine,99000-99091,"Special services, procedures and reports",,99000,99091
+121,1,90281-99099; 99151-99199; 99500-99607,Medicine,99170-99199,Other services and procedures,,99170,99199
+122,1,90281-99099; 99151-99199; 99500-99607,Medicine,99500-99602,Home health procedures/services,,99500,99602
+123,1,90281-99099; 99151-99199; 99500-99607,Medicine,99605-99607,Medication therapy management services,,99605,99607
+124,2,0001F-7025F,Performance measurement,0001F-0015F,Composite measures,F,1,15
+125,2,0001F-7025F,Performance measurement,0500F-0575F,Patient management,F,500,575
+126,2,0001F-7025F,Performance measurement,1000F-1220F,Patient history,F,1000,1220
+127,2,0001F-7025F,Performance measurement,2000F-2050F,Physical examination,F,2000,2050
+128,2,0001F-7025F,Performance measurement,3006F-3573F,Diagnostic/screening processes or results,F,3006,3573
+129,2,0001F-7025F,Performance measurement,4000F-4306F,"Therapeutic, preventive or other interventions",F,4000,4306
+130,2,0001F-7025F,Performance measurement,5005F-5100F,Follow-up or other outcomes,F,5005,5100
+131,2,0001F-7025F,Performance measurement,6005F-6045F,Patient safety,F,6005,6045
+132,2,0001F-7025F,Performance measurement,7010F-7025F,Structural Measures,F,7010,7025
+133,3,0016T-0207T,Emerging technology,0016T-0207T,Temporary codes,T,16,207
+134,3,0256T-0259T,Emerging technology,0256T-0259T,Temporary codes,T,256,259

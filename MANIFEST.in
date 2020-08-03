@@ -1,0 +1,5 @@
+prune examples
+prune notebooks
+prune pyhealth/test
+include README.rst
+include requirements.txt

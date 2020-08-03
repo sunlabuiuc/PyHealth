@@ -1,0 +1,754 @@
+row_id,itemid,label,fluid,category,loinc_code
+1,50800,SPECIMEN TYPE,BLOOD,BLOOD GAS,
+2,50801,Alveolar-arterial Gradient,Blood,Blood Gas,19991-9
+3,50802,Base Excess,Blood,Blood Gas,11555-0
+4,50803,"Calculated Bicarbonate, Whole Blood",Blood,Blood Gas,1959-6
+5,50804,Calculated Total CO2,Blood,Blood Gas,34728-6
+6,50805,Carboxyhemoglobin,Blood,Blood Gas,20563-3
+7,50806,"Chloride, Whole Blood",Blood,Blood Gas,2069-3
+8,50807,Comments,Blood,Blood Gas,
+9,50808,Free Calcium,Blood,Blood Gas,1994-3
+10,50809,Glucose,Blood,Blood Gas,2339-0
+11,50810,"Hematocrit, Calculated",Blood,Blood Gas,20570-8
+12,50811,Hemoglobin,Blood,Blood Gas,718-7
+13,50812,Intubated,Blood,Blood Gas,
+14,50813,Lactate,Blood,Blood Gas,32693-4
+15,50814,Methemoglobin,Blood,Blood Gas,2614-6
+16,50815,O2 Flow,Blood,Blood Gas,3151-8
+17,50816,Oxygen,Blood,Blood Gas,19994-3
+18,50817,Oxygen Saturation,Blood,Blood Gas,20564-1
+19,50818,pCO2,Blood,Blood Gas,11557-6
+20,50819,PEEP,Blood,Blood Gas,20077-4
+21,50820,pH,Blood,Blood Gas,11558-4
+22,50821,pO2,Blood,Blood Gas,11556-8
+23,50822,"Potassium, Whole Blood",Blood,Blood Gas,6298-4
+24,50823,Required O2,Blood,Blood Gas,
+25,50824,"Sodium, Whole Blood",Blood,Blood Gas,2947-0
+26,50825,Temperature,Blood,Blood Gas,
+27,50826,Tidal Volume,Blood,Blood Gas,20112-9
+28,50827,Ventilation Rate,Blood,Blood Gas,
+29,50828,Ventilator,Blood,Blood Gas,
+30,50829,Fluid Type,Other Body Fluid,Blood Gas,14725-6
+31,50830,"pCO2, Body Fluid",Other Body Fluid,Blood Gas,2023-0
+32,50831,pH,Other Body Fluid,Blood Gas,2748-2
+33,50832,"pO2, Body Fluid",Other Body Fluid,Blood Gas,2706-0
+34,50833,Potassium,Other Body Fluid,Blood Gas,2821-7
+35,50834,"Sodium, Body Fluid",Other Body Fluid,Blood Gas,2950-4
+36,50835,"Albumin, Ascites",Ascites,Chemistry,1749-1
+37,50836,"Amylase, Ascites",Ascites,Chemistry,1797-0
+38,50837,"Bicarbonate, Ascites",Ascites,Chemistry,54360-3
+39,50838,"Bilirubin, Total, Ascites",Ascites,Chemistry,14422-0
+40,50839,"Chloride, Ascites",Ascites,Chemistry,33366-6
+41,50840,"Cholesterol, Ascites",Ascites,Chemistry,14441-0
+42,50841,"Creatinine, Ascites",Ascites,Chemistry,12191-3
+43,50842,"Glucose, Ascites",Ascites,Chemistry,2347-3
+44,50843,"Lactate Dehydrogenase, Ascites",Ascites,Chemistry,2531-2
+45,50844,"Lipase, Ascites",Ascites,Chemistry,32722-1
+46,50845,"Miscellaneous, Ascites",Ascites,Chemistry,
+47,50846,"Osmolality, Ascites",Ascites,Chemistry,2691-4
+48,50847,"Potassium, Ascites",Ascites,Chemistry,49789-1
+49,50848,"Sodium, Ascites",Ascites,Chemistry,49790-9
+50,50849,"Total Protein, Ascites",Ascites,Chemistry,2883-7
+51,50850,"Triglycerides, Ascites",Ascites,Chemistry,14447-7
+52,50851,"Urea Nitrogen, Ascites",Ascites,Chemistry,12265-5
+53,50852,% Hemoglobin A1c,Blood,Chemistry,4548-4
+54,50853,25-OH Vitamin D,Blood,Chemistry,
+55,50854,Absolute A1c,Blood,Chemistry,4548-4
+56,50855,Absolute Hemoglobin,Blood,Chemistry,718-7
+57,50856,Acetaminophen,Blood,Chemistry,3297-9
+58,50857,Acetone,Blood,Chemistry,5567-3
+59,50858,Acid Phosphatase,Blood,Chemistry,1715-2
+60,50859,"Acid Phosphatase, Non-Prostatic",Blood,Chemistry,
+61,50860,"AFP, Maternal Screen",Blood,Chemistry,
+62,50861,Alanine Aminotransferase (ALT),Blood,Chemistry,1742-6
+63,50862,Albumin,Blood,Chemistry,1751-7
+64,50863,Alkaline Phosphatase,Blood,Chemistry,6768-6
+65,50864,Alpha-Fetoprotein,Blood,Chemistry,1834-1
+66,50865,Amikacin,Blood,Chemistry,
+67,50866,Ammonia,Blood,Chemistry,16362-6
+68,50867,Amylase,Blood,Chemistry,1798-8
+69,50868,Anion Gap,Blood,Chemistry,1863-0
+70,50869,Anti-DGP (IgA/IgG),Blood,Chemistry,
+71,50870,"Anti-Gliadin Antibody, IgA",Blood,Chemistry,7893-1
+72,50871,Anti-Mitochondrial Antibody,Blood,Chemistry,14236-4
+73,50872,Anti-Neutrophil Cytoplasmic Antibody,Blood,Chemistry,35279-9
+74,50873,Anti-Nuclear Antibody,Blood,Chemistry,5047-6
+75,50874,"Anti-Nuclear Antibody, Titer",Blood,Chemistry,8061-4
+76,50875,Anti-Parietal Cell Antibody,Blood,Chemistry,26969-6
+77,50876,Anti-Smooth Muscle Antibody,Blood,Chemistry,14252-1
+78,50877,Anti-Thyroglobulin Antibodies,Blood,Chemistry,5380-1
+79,50878,Asparate Aminotransferase (AST),Blood,Chemistry,1920-8
+80,50879,Barbiturate Screen,Blood,Chemistry,3376-1
+81,50880,Benzodiazepine Screen,Blood,Chemistry,42662-7
+82,50881,Beta-2 Microglobulin,Blood,Chemistry,32731-2
+83,50882,Bicarbonate,Blood,Chemistry,1963-8
+84,50883,"Bilirubin, Direct",Blood,Chemistry,1968-7
+85,50884,"Bilirubin, Indirect",Blood,Chemistry,1971-1
+86,50885,"Bilirubin, Total",Blood,Chemistry,1975-2
+87,50886,Blood Culture Hold,Blood,Chemistry,
+88,50887,Blue Top Hold,Blood,Chemistry,
+89,50888,Blue Top Hold Frozen,Blood,Chemistry,
+90,50889,C-Reactive Protein,Blood,Chemistry,1988-5
+91,50890,C3,Blood,Chemistry,4485-9
+92,50891,C4,Blood,Chemistry,4498-2
+93,50892,CA-125,Blood,Chemistry,10334-1
+94,50893,"Calcium, Total",Blood,Chemistry,2000-8
+95,50894,Calculated Free Testosterone,Blood,Chemistry,2991-8
+96,50895,Calculated TBG,Blood,Chemistry,3027-0
+97,50896,Calculated Thyroxine (T4) Index,Blood,Chemistry,32215-6
+98,50897,Call,Blood,Chemistry,
+99,50898,Cancer Antigen 27.29,Blood,Chemistry,17842-6
+100,50899,Carbamazepine,Blood,Chemistry,3432-2
+101,50900,Carcinoembyronic Antigen (CEA),Blood,Chemistry,2039-6
+102,50901,Centromere,Blood,Chemistry,16570-4
+103,50902,Chloride,Blood,Chemistry,2075-0
+104,50903,Cholesterol Ratio (Total/HDL),Blood,Chemistry,9322-9
+105,50904,"Cholesterol, HDL",Blood,Chemistry,2085-9
+106,50905,"Cholesterol, LDL, Calculated",Blood,Chemistry,2090-9
+107,50906,"Cholesterol, LDL, Measured",Blood,Chemistry,18262-6
+108,50907,"Cholesterol, Total",Blood,Chemistry,2093-3
+109,50908,CK-MB Index,Blood,Chemistry,20569-0
+110,50909,Cortisol,Blood,Chemistry,2143-6
+111,50910,Creatine Kinase (CK),Blood,Chemistry,2157-6
+112,50911,"Creatine Kinase, MB Isoenzyme",Blood,Chemistry,6773-6
+113,50912,Creatinine,Blood,Chemistry,2160-0
+114,50913,Cryoglobulin,Blood,Chemistry,5117-7
+115,50914,Cyclosporin,Blood,Chemistry,3521-2
+116,50915,D-Dimer,Blood,Chemistry,
+117,50916,DHEA-Sulfate,Blood,Chemistry,2191-5
+118,50917,Digoxin,Blood,Chemistry,10535-3
+119,50918,Double Stranded DNA,Blood,Chemistry,5130-0
+120,50919,EDTA Hold,Blood,Chemistry,
+121,50920,Estimated GFR (MDRD equation),Blood,Chemistry,33914-3
+122,50921,Estradiol,Blood,Chemistry,2243-4
+123,50922,Ethanol,Blood,Chemistry,5642-4
+124,50923,Fax,Blood,Chemistry,
+125,50924,Ferritin,Blood,Chemistry,2276-4
+126,50925,Folate,Blood,Chemistry,2284-8
+127,50926,Follicle Stimulating Hormone,Blood,Chemistry,15067-2
+128,50927,Gamma Glutamyltransferase,Blood,Chemistry,2324-2
+129,50928,Gastrin,Blood,Chemistry,2333-3
+130,50929,Gentamicin,Blood,Chemistry,35668-3
+131,50930,Globulin,Blood,Chemistry,2336-6
+132,50931,Glucose,Blood,Chemistry,2345-7
+133,50932,Gray Top Hold (plasma),Blood,Chemistry,
+134,50933,Green Top Hold (plasma),Blood,Chemistry,
+135,50934,H,Blood,Chemistry,
+136,50935,Haptoglobin,Blood,Chemistry,4542-7
+137,50936,"HCG, Maternal Screen",Blood,Chemistry,
+138,50937,Hepatitis A Virus Antibody,Blood,Chemistry,5183-9
+139,50938,Hepatitis A Virus IgM Antibody,Blood,Chemistry,22314-9
+140,50939,"Hepatitis B Core Antibody, IgM",Blood,Chemistry,31204-1
+141,50940,Hepatitis B Surface Antibody,Blood,Chemistry,5193-8
+142,50941,Hepatitis B Surface Antigen,Blood,Chemistry,5196-1
+143,50942,Hepatitis B Virus Core Antibody,Blood,Chemistry,5187-0
+144,50943,Hepatitis C Virus Antibody,Blood,Chemistry,16128-1
+145,50944,HIV Antibody,Blood,Chemistry,5220-9
+146,50945,Homocysteine,Blood,Chemistry,13965-9
+147,50946,Human Chorionic Gonadotropin,Blood,Chemistry,2119-6
+148,50947,I,Blood,Chemistry,
+149,50948,Immunofixation,Blood,Chemistry,49275-1
+150,50949,Immunoglobulin A,Blood,Chemistry,2458-8
+151,50950,Immunoglobulin G,Blood,Chemistry,2465-3
+152,50951,Immunoglobulin M,Blood,Chemistry,2472-9
+153,50952,Iron,Blood,Chemistry,2498-4
+154,50953,"Iron Binding Capacity, Total",Blood,Chemistry,2500-7
+155,50954,Lactate Dehydrogenase (LD),Blood,Chemistry,2532-0
+156,50955,Light Green Top Hold,Blood,Chemistry,
+157,50956,Lipase,Blood,Chemistry,3040-3
+158,50957,Lithium,Blood,Chemistry,3719-2
+159,50958,Luteinizing Hormone,Blood,Chemistry,1599-0
+160,50959,Macro Prolactin,Blood,Chemistry,
+161,50960,Magnesium,Blood,Chemistry,2601-3
+162,50961,Methotrexate,Blood,Chemistry,
+163,50962,N-Acetylprocainamide (NAPA),Blood,Chemistry,3834-9
+164,50963,NTproBNP,Blood,Chemistry,33762-6
+165,50964,"Osmolality, Measured",Blood,Chemistry,2692-2
+166,50965,Parathyroid Hormone,Blood,Chemistry,2731-8
+167,50966,Phenobarbital,Blood,Chemistry,3947-9
+168,50967,Phenytoin,Blood,Chemistry,3967-7
+169,50968,"Phenytoin, Free",Blood,Chemistry,3969-3
+170,50969,"Phenytoin, Percent Free",Blood,Chemistry,10548-6
+171,50970,Phosphate,Blood,Chemistry,2777-1
+172,50971,Potassium,Blood,Chemistry,2823-3
+173,50972,Procainamide,Blood,Chemistry,3982-6
+174,50973,Prolactin,Blood,Chemistry,2842-3
+175,50974,Prostate Specific Antigen,Blood,Chemistry,2857-1
+176,50975,Protein Electrophoresis,Blood,Chemistry,24351-9
+177,50976,"Protein, Total",Blood,Chemistry,2885-2
+178,50977,Quinidine,Blood,Chemistry,6694-4
+179,50978,Rapamycin,Blood,Chemistry,29247-4
+180,50979,Red Top Hold,Blood,Chemistry,
+181,50980,Rheumatoid Factor,Blood,Chemistry,6928-6
+182,50981,Salicylate,Blood,Chemistry,4023-8
+183,50982,Sex Hormone Binding Globulin,Blood,Chemistry,2942-1
+184,50983,Sodium,Blood,Chemistry,2951-2
+185,50984,Stat,Blood,Chemistry,
+186,50985,Study Tubes,Blood,Chemistry,
+187,50986,tacroFK,Blood,Chemistry,
+188,50988,Testosterone,Blood,Chemistry,2986-8
+189,50989,"Testosterone, Free",Blood,Chemistry,2991-8
+190,50990,Theophylline,Blood,Chemistry,4049-3
+191,50991,Thyroglobulin,Blood,Chemistry,3013-0
+192,50992,Thyroid Peroxidase Antibodies,Blood,Chemistry,8099-4
+193,50993,Thyroid Stimulating Hormone,Blood,Chemistry,3016-3
+194,50994,Thyroxine (T4),Blood,Chemistry,3026-2
+195,50995,"Thyroxine (T4), Free",Blood,Chemistry,3024-7
+196,50996,"Tissue Transglutaminase Ab, IgA",Blood,Chemistry,31017-7
+197,50997,Tobramycin,Blood,Chemistry,35670-9
+198,50998,Transferrin,Blood,Chemistry,2500-7
+199,50999,Tricyclic Antidepressant Screen,Blood,Chemistry,4073-3
+200,51000,Triglycerides,Blood,Chemistry,1644-4
+201,51001,Triiodothyronine (T3),Blood,Chemistry,3053-6
+202,51002,Troponin I,Blood,Chemistry,10839-9
+203,51003,Troponin T,Blood,Chemistry,6598-7
+204,51004,"UE3, Maternal Screen",Blood,Chemistry,
+205,51005,Uptake Ratio,Blood,Chemistry,3050-2
+206,51006,Urea Nitrogen,Blood,Chemistry,3094-0
+207,51007,Uric Acid,Blood,Chemistry,3084-1
+208,51008,Valproic Acid,Blood,Chemistry,4086-5
+209,51009,Vancomycin,Blood,Chemistry,20578-1
+210,51010,Vitamin B12,Blood,Chemistry,2170-9
+211,51011,<Albumin>,Cerebrospinal Fluid (CSF),Chemistry,1746-7
+212,51012,"Bilirubin, Total, CSF",Cerebrospinal Fluid (CSF),Chemistry,1973-7
+213,51013,"Chloride, CSF",Cerebrospinal Fluid (CSF),Chemistry,
+214,51014,"Glucose, CSF",Cerebrospinal Fluid (CSF),Chemistry,2342-4
+215,51015,"Lactate Dehydrogenase, CSF",Cerebrospinal Fluid (CSF),Chemistry,2528-8
+216,51016,"Miscellaneous, CSF",Cerebrospinal Fluid (CSF),Chemistry,
+217,51017,"PEP, CSF",Cerebrospinal Fluid (CSF),Chemistry,24352-7
+218,51018,"Total Protein, CSF",Cerebrospinal Fluid (CSF),Chemistry,2880-3
+219,51019,"Albumin, Joint Fluid",Joint Fluid,Chemistry,
+220,51020,"Amylase, Joint Fluid",Joint Fluid,Chemistry,14388-3
+221,51021,"Creatinine, Joint Fluid",Joint Fluid,Chemistry,14401-4
+222,51022,"Glucose, Joint Fluid",Joint Fluid,Chemistry,2348-1
+223,51023,"LD, Joint Fluid",Joint Fluid,Chemistry,2533-8
+224,51024,"Total Protein, Joint Fluid",Joint Fluid,Chemistry,2886-0
+225,51025,"Albumin, Body Fluid",Other Body Fluid,Chemistry,1747-5
+226,51026,"Amylase, Body Fluid",Other Body Fluid,Chemistry,1795-4
+227,51027,"Bicarbonate, Other Fluid",Other Body Fluid,Chemistry,11211-0
+228,51028,"Bilirubin, Total, Body Fluid",Other Body Fluid,Chemistry,1974-5
+229,51029,"Calcium, Body Fluid",Other Body Fluid,Chemistry,15155-5
+230,51030,"Chloride, Body Fluid",Other Body Fluid,Chemistry,2072-7
+231,51031,"Cholesterol, Body Fluid",Other Body Fluid,Chemistry,12183-0
+232,51032,"Creatinine, Body Fluid",Other Body Fluid,Chemistry,12190-5
+233,51033,FetalFN,Other Body Fluid,Chemistry,
+234,51034,"Glucose, Body Fluid",Other Body Fluid,Chemistry,2344-0
+235,51035,"LD, Body Fluid",Other Body Fluid,Chemistry,2529-6
+236,51036,"Lipase, Body Fluid",Other Body Fluid,Chemistry,15212-4
+237,51037,"Magnesium, Body Fluid",Other Body Fluid,Chemistry,29365-4
+238,51038,"Miscellaneous, Body Fluid",Other Body Fluid,Chemistry,
+239,51039,"Osmolality, Body Fluid",Other Body Fluid,Chemistry,15200-9
+240,51040,"Phosphate, Body Fluid",Other Body Fluid,Chemistry,12242-4
+241,51041,"Potassium, Body Fluid",Other Body Fluid,Chemistry,2821-7
+242,51042,"Sodium, Body Fluid",Other Body Fluid,Chemistry,2950-4
+243,51043,"Total Protein, Body Fluid",Other Body Fluid,Chemistry,2881-1
+244,51044,Triglycer,Other Body Fluid,Chemistry,12228-3
+245,51045,"Urea Nitrogen, Body Fluid",Other Body Fluid,Chemistry,3093-2
+246,51046,"Albumin, Pleural",Pleural,Chemistry,1748-3
+247,51047,"Amylase, Pleural",Pleural,Chemistry,1796-2
+248,51048,"Bicarbonate, Pleural",Pleural,Chemistry,54361-1
+249,51049,"Bilirubin, Total, Pleural",Pleural,Chemistry,14421-2
+250,51050,"Chloride, Pleural",Pleural,Chemistry,53627-6
+251,51051,"Cholesterol, Pleural",Pleural,Chemistry,9618-0
+252,51052,"Creatinine, Pleural",Pleural,Chemistry,14399-0
+253,51053,"Glucose, Pleural",Pleural,Chemistry,2346-5
+254,51054,"Lactate Dehydrogenase, Pleural",Pleural,Chemistry,2530-4
+255,51055,"Lipase, Pleural",Pleural,Chemistry,
+256,51056,"Miscellaneous, Pleural",Pleural,Chemistry,
+257,51057,"Potassium, Pleural",Pleural,Chemistry,
+258,51058,"Sodium, Pleural",Pleural,Chemistry,
+259,51059,"Total Protein, Pleural",Pleural,Chemistry,2882-9
+260,51060,"Triglycerides, Pleural",Pleural,Chemistry,9619-8
+261,51061,"Bicarbonate, Stool",Stool,Chemistry,14040-0
+262,51062,"Chloride, Stool",Stool,Chemistry,15158-9
+263,51063,"Osmolality, Stool",Stool,Chemistry,2693-0
+264,51064,"Potassium, Stool",Stool,Chemistry,15202-5
+265,51065,"Sodium, Stool",Stool,Chemistry,15207-4
+266,51066,24 hr Calcium,Urine,Chemistry,6874-2
+267,51067,24 hr Creatinine,Urine,Chemistry,2162-6
+268,51068,24 hr Protein,Urine,Chemistry,2889-4
+269,51069,"Albumin, Urine",Urine,Chemistry,1754-1
+270,51070,"Albumin/Creatinine, Urine",Urine,Chemistry,14958-3
+271,51071,"Amphetamine Screen, Urine",Urine,Chemistry,3349-8
+272,51072,"Amylase, Urine",Urine,Chemistry,1799-6
+273,51073,"Amylase/Creatinine Ratio, Urine",Urine,Chemistry,34235-2
+274,51074,"Barbiturate Screen, Urine",Urine,Chemistry,3377-9
+275,51075,"Benzodiazepine Screen, Urine",Urine,Chemistry,3390-2
+276,51076,"Bicarbonate, Urine",Urine,Chemistry,1964-6
+277,51077,"Calcium, Urine",Urine,Chemistry,2004-0
+278,51078,"Chloride, Urine",Urine,Chemistry,2078-4
+279,51079,"Cocaine, Urine",Urine,Chemistry,3397-7
+280,51080,Creatinine Clearance,Urine,Chemistry,33558-8
+281,51081,"Creatinine, Serum",Urine,Chemistry,
+282,51082,"Creatinine, Urine",Urine,Chemistry,2161-8
+283,51083,"Ethanol, Urine",Urine,Chemistry,5644-0
+284,51084,"Glucose, Urine",Urine,Chemistry,2350-7
+285,51085,"HCG, Urine, Qualitative",Urine,Chemistry,2106-3
+286,51086,"Immunofixation, Urine",Urine,Chemistry,49276-9
+287,51087,Length of Urine Collection,Urine,Chemistry,13362-9
+288,51088,"Magnesium, Urine",Urine,Chemistry,2598-1
+289,51089,Marijuana,Urine,Chemistry,3427-2
+290,51090,"Methadone, Urine",Urine,Chemistry,3773-9
+291,51091,"Myoglobin, Urine",Urine,Chemistry,2640-1
+292,51092,"Opiate Screen, Urine",Urine,Chemistry,3879-4
+293,51093,"Osmolality, Urine",Urine,Chemistry,2695-5
+294,51094,pH,Urine,Chemistry,2756-5
+295,51095,"Phosphate, Urine",Urine,Chemistry,2778-9
+296,51096,Porphobilinogen Screen,Urine,Chemistry,2809-2
+297,51097,"Potassium, Urine",Urine,Chemistry,2828-2
+298,51098,"Prot. Electrophoresis, Urine",Urine,Chemistry,13438-7
+299,51099,Protein/Creatinine Ratio,Urine,Chemistry,2890-2
+300,51100,"Sodium, Urine",Urine,Chemistry,2955-3
+301,51101,Total Collection Time,Urine,Chemistry,13362-9
+302,51102,"Total Protein, Urine",Urine,Chemistry,2887-8
+303,51103,Uhold,Urine,Chemistry,
+304,51104,"Urea Nitrogen, Urine",Urine,Chemistry,3095-7
+305,51105,"Uric Acid, Urine",Urine,Chemistry,3086-6
+306,51106,Urine Creatinine,Urine,Chemistry,
+307,51107,"Urine tube, held",Urine,Chemistry,
+308,51108,Urine Volume,Urine,Chemistry,28009-9
+309,51109,"Urine Volume, Total",Urine,Chemistry,28009-9
+310,51110,Atypical Lymphocytes,Ascites,Hematology,33369-0
+311,51111,Bands,Ascites,Hematology,
+312,51112,Basophils,Ascites,Hematology,35069-4
+313,51113,Blasts,Ascites,Hematology,
+314,51114,Eosinophils,Ascites,Hematology,30380-0
+315,51115,"Hematocrit, Ascites",Ascites,Hematology,
+316,51116,Lymphocytes,Ascites,Hematology,26482-0
+317,51117,Macrophage,Ascites,Hematology,40517-5
+318,51118,Mesothelial Cell,Ascites,Hematology,30432-9
+319,51119,Metamyelocytes,Ascites,Hematology,
+320,51120,Monocytes,Ascites,Hematology,26488-7
+321,51121,Myelocytes,Ascites,Hematology,
+322,51122,Nucleated RBC,Ascites,Hematology,
+323,51123,Other,Ascites,Hematology,
+324,51124,Plasma,Ascites,Hematology,40518-3
+325,51125,Polys,Ascites,Hematology,26520-7
+326,51126,Promyelocytes,Ascites,Hematology,
+327,51127,"RBC, Ascites",Ascites,Hematology,26457-2
+328,51128,"WBC, Ascites",Ascites,Hematology,26468-9
+329,51129,Young,Ascites,Hematology,
+330,51130,Absolute CD3 Count,Blood,Hematology,8124-0
+331,51131,Absolute CD4 Count,Blood,Hematology,8128-1
+332,51132,Absolute CD8 Count,Blood,Hematology,8138-0
+333,51133,Absolute Lymphocyte Count,Blood,Hematology,26474-7
+334,51134,Acanthocytes,Blood,Hematology,7789-1
+335,51135,ADP,Blood,Hematology,
+336,51136,Alpha Antiplasmin,Blood,Hematology,
+337,51137,Anisocytosis,Blood,Hematology,702-1
+338,51138,Anticardiolipin Antibody IgG,Blood,Hematology,8065-5
+339,51139,Anticardiolipin Antibody IgM,Blood,Hematology,3182-3
+340,51140,Antithrombin,Blood,Hematology,27811-9
+341,51141,APT Test,Blood,Hematology,
+342,51142,Arachadonic Acid,Blood,Hematology,
+343,51143,Atypical Lymphocytes,Blood,Hematology,733-6
+344,51144,Bands,Blood,Hematology,763-3
+345,51145,Basophilic Stippling,Blood,Hematology,703-9
+346,51146,Basophils,Blood,Hematology,704-7
+347,51147,Bite Cells,Blood,Hematology,10371-3
+348,51148,Blasts,Blood,Hematology,708-8
+349,51149,Bleeding Time,Blood,Hematology,11067-6
+350,51150,Blood Parasite Smear,Blood,Hematology,24429-3
+351,51151,Burr Cells,Blood,Hematology,7790-9
+352,51152,CD10,Blood,Hematology,8107-5
+353,51153,CD103,Blood,Hematology,
+354,51154,CD117,Blood,Hematology,17107-4
+355,51155,CD11c,Blood,Hematology,8109-1
+356,51156,CD13,Blood,Hematology,8110-9
+357,51157,CD138,Blood,Hematology,42869-8
+358,51158,CD14,Blood,Hematology,8111-7
+359,51159,CD15,Blood,Hematology,17117-3
+360,51160,CD16/56,Blood,Hematology,18267-5
+361,51161,CD16,Blood,Hematology,8115-8
+362,51162,CD16/56 Absolute Count,Blood,Hematology,
+363,51163,CD16/56%,Blood,Hematology,
+364,51164,CD19,Blood,Hematology,8117-4
+365,51165,CD19 %,Blood,Hematology,
+366,51166,CD19 Absolute Count,Blood,Hematology,
+367,51167,CD2,Blood,Hematology,8118-2
+368,51168,CD20,Blood,Hematology,8119-0
+369,51169,CD20 %,Blood,Hematology,
+370,51170,CD20 Absolute Count,Blood,Hematology,
+371,51171,CD22,Blood,Hematology,14017-8
+372,51172,CD23,Blood,Hematology,14018-6
+373,51173,CD25,Blood,Hematology,
+374,51174,CD3 %,Blood,Hematology,
+375,51175,CD3 Absolute Count,Blood,Hematology,
+376,51176,"CD3 Cells, Percent",Blood,Hematology,8122-4
+377,51177,CD33,Blood,Hematology,8102-6
+378,51178,CD34,Blood,Hematology,8125-7
+379,51179,CD38,Blood,Hematology,8126-5
+380,51180,"CD4 Cells, Percent",Blood,Hematology,8127-3
+381,51181,CD4/CD8 Ratio,Blood,Hematology,8129-9
+382,51182,CD41,Blood,Hematology,17148-8
+383,51183,CD45,Blood,Hematology,8130-7
+384,51184,CD5,Blood,Hematology,8132-3
+385,51185,CD5 %,Blood,Hematology,
+386,51186,CD5 Absolute Count,Blood,Hematology,
+387,51187,CD55,Blood,Hematology,17175-1
+388,51188,CD56,Blood,Hematology,8133-1
+389,51189,CD57,Blood,Hematology,
+390,51190,CD59,Blood,Hematology,17177-7
+391,51191,CD64,Blood,Hematology,17183-5
+392,51192,CD7,Blood,Hematology,8135-6
+393,51193,CD71,Blood,Hematology,8136-4
+394,51194,"CD8 Cells, Percent",Blood,Hematology,8137-2
+395,51195,Collagen,Blood,Hematology,
+396,51196,D-Dimer,Blood,Hematology,48065-7
+397,51197,Elliptocytes,Blood,Hematology,6681-1
+398,51198,Envelope Cells,Blood,Hematology,681-7
+399,51199,Eosinophil Count,Blood,Hematology,26449-9
+400,51200,Eosinophils,Blood,Hematology,711-2
+401,51201,Epinepherine,Blood,Hematology,
+402,51202,Factor II,Blood,Hematology,3289-6
+403,51203,Factor IX,Blood,Hematology,3188-0
+404,51204,Factor V,Blood,Hematology,3193-0
+405,51205,Factor VII,Blood,Hematology,3198-9
+406,51206,Factor VIII,Blood,Hematology,3209-4
+407,51207,Factor VIII Inhibitor,Blood,Hematology,3204-5
+408,51208,Factor X,Blood,Hematology,3218-5
+409,51209,Factor XI,Blood,Hematology,3226-8
+410,51210,Factor XII,Blood,Hematology,3232-6
+411,51211,Factor XIII,Blood,Hematology,3240-9
+412,51212,Fetal Hemoglobin,Blood,Hematology,4576-5
+413,51213,Fibrin Degradation Products,Blood,Hematology,30226-5
+414,51214,"Fibrinogen, Functional",Blood,Hematology,3255-7
+415,51215,FMC-7,Blood,Hematology,17220-5
+416,51216,Fragmented Cells,Blood,Hematology,10373-9
+417,51217,Glyco A,Blood,Hematology,17221-3
+418,51218,Granulocyte Count,Blood,Hematology,30394-1
+419,51219,H/O Smear,Blood,Hematology,38924-7
+420,51220,Heinz Body Prep,Blood,Hematology,48068-1
+421,51221,Hematocrit,Blood,Hematology,4544-3
+422,51222,Hemoglobin,Blood,Hematology,718-7
+423,51223,Hemoglobin A2,Blood,Hematology,4552-6
+424,51224,Hemoglobin C,Blood,Hematology,4561-7
+425,51225,Hemoglobin F,Blood,Hematology,9749-3
+426,51226,Hemogloblin A,Blood,Hematology,10346-5
+427,51227,Hemogloblin S,Blood,Hematology,4622-7
+428,51228,Heparin,Blood,Hematology,13055-9
+429,51229,"Heparin, LMW",Blood,Hematology,32684-3
+430,51230,HLA-DR,Blood,Hematology,32621-5
+431,51231,Howell-Jolly Bodies,Blood,Hematology,7793-3
+432,51232,Hypersegmented Neutrophils,Blood,Hematology,766-6
+433,51233,Hypochromia,Blood,Hematology,728-6
+434,51234,Immunophenotyping,Blood,Hematology,
+435,51235,Inhibitor Screen,Blood,Hematology,
+436,51236,Inpatient Hematology/Oncology Smear,Blood,Hematology,
+437,51237,INR(PT),Blood,Hematology,5895-7
+438,51238,Kappa,Blood,Hematology,
+439,51239,Lambda,Blood,Hematology,
+440,51240,Large Platelets,Blood,Hematology,34167-7
+441,51241,Leukocyte Alkaline Phosphatase,Blood,Hematology,4659-9
+442,51242,LUC,Blood,Hematology,
+443,51243,Lupus Anticoagulant,Blood,Hematology,
+444,51244,Lymphocytes,Blood,Hematology,731-0
+445,51245,"Lymphocytes, Percent",Blood,Hematology,26478-8
+446,51246,Macrocytes,Blood,Hematology,738-5
+447,51247,MacroOvalocytes,Blood,Hematology,10376-2
+448,51248,MCH,Blood,Hematology,785-6
+449,51249,MCHC,Blood,Hematology,786-4
+450,51250,MCV,Blood,Hematology,787-2
+451,51251,Metamyelocytes,Blood,Hematology,28541-1
+452,51252,Microcytes,Blood,Hematology,741-9
+453,51253,Monocyte Count,Blood,Hematology,26484-6
+454,51254,Monocytes,Blood,Hematology,742-7
+455,51255,Myelocytes,Blood,Hematology,26498-6
+456,51256,Neutrophils,Blood,Hematology,761-7
+457,51257,Nucleated Red Cells,Blood,Hematology,772-4
+458,51258,Osmotic Fragility,Blood,Hematology,34964-7
+459,51259,Other Cells,Blood,Hematology,729-4
+460,51260,Ovalocytes,Blood,Hematology,774-0
+461,51261,Pappenheimer Bodies,Blood,Hematology,7795-8
+462,51262,Pencil Cells,Blood,Hematology,10377-0
+463,51263,Plasma Cells,Blood,Hematology,13047-6
+464,51264,Platelet Clumps,Blood,Hematology,40741-1
+465,51265,Platelet Count,Blood,Hematology,777-3
+466,51266,Platelet Smear,Blood,Hematology,778-1
+467,51267,Poikilocytosis,Blood,Hematology,779-9
+468,51268,Polychromasia,Blood,Hematology,10378-8
+469,51269,Promyelocytes,Blood,Hematology,781-5
+470,51270,"Protein C, Antigen",Blood,Hematology,27820-0
+471,51271,"Protein C, Functional",Blood,Hematology,27818-4
+472,51272,"Protein S, Antigen",Blood,Hematology,27823-4
+473,51273,"Protein S, Functional",Blood,Hematology,31102-7
+474,51274,PT,Blood,Hematology,5902-2
+475,51275,PTT,Blood,Hematology,3173-2
+476,51276,Quantitative G6PD,Blood,Hematology,32546-4
+477,51277,RDW,Blood,Hematology,788-0
+478,51278,Red Blood Cell Fragments,Blood,Hematology,
+479,51279,Red Blood Cells,Blood,Hematology,789-8
+480,51280,Reptilase Time,Blood,Hematology,6683-7
+481,51281,Reptilase Time Control,Blood,Hematology,
+482,51282,"Reticulocyte Count, Absolute",Blood,Hematology,14196-0
+483,51283,"Reticulocyte Count, Automated",Blood,Hematology,17849-1
+484,51284,"Reticulocyte Count, Manual",Blood,Hematology,31112-6
+485,51285,"Reticulocyte, Cellular Hemoglobin",Blood,Hematology,
+486,51286,Ristocetin,Blood,Hematology,
+487,51287,Schistocytes,Blood,Hematology,800-3
+488,51288,Sedimentation Rate,Blood,Hematology,4537-7
+489,51289,Serum Viscosity,Blood,Hematology,3128-6
+490,51290,Sickle Cell Preparation,Blood,Hematology,6864-3
+491,51291,Sickle Cells,Blood,Hematology,801-1
+492,51292,Spherocytes,Blood,Hematology,802-9
+493,51293,Sugar Water Test,Blood,Hematology,12260-6
+494,51294,Target Cells,Blood,Hematology,10381-2
+495,51295,TdT,Blood,Hematology,
+496,51296,Teardrop Cells,Blood,Hematology,7791-7
+497,51297,Thrombin,Blood,Hematology,3243-3
+498,51298,Von Willebrand Factor Activity,Blood,Hematology,6014-5
+499,51299,Von Willebrand Factor Antigen,Blood,Hematology,6012-9
+500,51300,WBC Count,Blood,Hematology,26464-8
+501,51301,White Blood Cells,Blood,Hematology,804-5
+502,51302,Young Cells,Blood,Hematology,51633-6
+503,51303,CD10,Bone Marrow,Hematology,51216-0
+504,51304,CD103,Bone Marrow,Hematology,51221-0
+505,51305,CD117,Bone Marrow,Hematology,42866-4
+506,51306,CD11c,Bone Marrow,Hematology,33202-3
+507,51307,CD13,Bone Marrow,Hematology,51237-6
+508,51308,CD138,Bone Marrow,Hematology,
+509,51309,CD14,Bone Marrow,Hematology,32507-6
+510,51310,CD15,Bone Marrow,Hematology,51251-7
+511,51311,CD16,Bone Marrow,Hematology,
+512,51312,CD16/56,Bone Marrow,Hematology,51255-8
+513,51313,CD19,Bone Marrow,Hematology,32525-8
+514,51314,CD2,Bone Marrow,Hematology,32527-4
+515,51315,CD20,Bone Marrow,Hematology,
+516,51316,CD22,Bone Marrow,Hematology,
+517,51317,CD23,Bone Marrow,Hematology,51268-1
+518,51318,CD25,Bone Marrow,Hematology,
+519,51319,CD3,Bone Marrow,Hematology,32529-0
+520,51320,CD33,Bone Marrow,Hematology,51293-9
+521,51321,CD34,Bone Marrow,Hematology,57400-4
+522,51322,CD38,Bone Marrow,Hematology,
+523,51323,CD4,Bone Marrow,Hematology,51301-0
+524,51324,CD41,Bone Marrow,Hematology,51319-2
+525,51325,CD45,Bone Marrow,Hematology,51340-8
+526,51326,CD5,Bone Marrow,Hematology,35640-2
+527,51327,CD55,Bone Marrow,Hematology,51344-0
+528,51328,CD56,Bone Marrow,Hematology,
+529,51329,CD57,Bone Marrow,Hematology,
+530,51330,CD59,Bone Marrow,Hematology,51358-0
+531,51331,CD64,Bone Marrow,Hematology,51365-5
+532,51332,CD7,Bone Marrow,Hematology,35641-0
+533,51333,CD71,Bone Marrow,Hematology,
+534,51334,CD8,Bone Marrow,Hematology,51372-1
+535,51335,FMC-7,Bone Marrow,Hematology,
+536,51336,Glyco A,Bone Marrow,Hematology,33208-0
+537,51337,HLA-DR,Bone Marrow,Hematology,51380-4
+538,51338,Immunophenotyping,Bone Marrow,Hematology,
+539,51339,Iron Stain,Bone Marrow,Hematology,13513-7
+540,51340,Kappa,Bone Marrow,Hematology,
+541,51341,Lambda,Bone Marrow,Hematology,
+542,51342,Wright Giemsa,Bone Marrow,Hematology,10355-6
+543,51343,Atypical Lymphocytes,Cerebrospinal Fluid (CSF),Hematology,30416-2
+544,51344,Bands,Cerebrospinal Fluid (CSF),Hematology,26509-0
+545,51345,Basophils,Cerebrospinal Fluid (CSF),Hematology,30374-3
+546,51346,Blasts,Cerebrospinal Fluid (CSF),Hematology,26447-3
+547,51347,Eosinophils,Cerebrospinal Fluid (CSF),Hematology,26451-5
+548,51348,"Hematocrit, CSF",Cerebrospinal Fluid (CSF),Hematology,30398-2
+549,51349,Hypersegmented Neutrophils,Cerebrospinal Fluid (CSF),Hematology,26506-6
+550,51350,Immunophenotyping,Cerebrospinal Fluid (CSF),Hematology,
+551,51351,Lymphs,Cerebrospinal Fluid (CSF),Hematology,26479-6
+552,51352,Macrophage,Cerebrospinal Fluid (CSF),Hematology,30426-1
+553,51353,Mesothelial cells,Cerebrospinal Fluid (CSF),Hematology,30429-5
+554,51354,Metamyelocytes,Cerebrospinal Fluid (CSF),Hematology,30366-9
+555,51355,Monocytes,Cerebrospinal Fluid (CSF),Hematology,26486-1
+556,51356,Myelocytes,Cerebrospinal Fluid (CSF),Hematology,30447-7
+557,51357,NRBC,Cerebrospinal Fluid (CSF),Hematology,48778-5
+558,51358,Other,Cerebrospinal Fluid (CSF),Hematology,
+559,51359,Plasma,Cerebrospinal Fluid (CSF),Hematology,47413-0
+560,51360,Polys,Cerebrospinal Fluid (CSF),Hematology,26517-3
+561,51361,Promyelocytes,Cerebrospinal Fluid (CSF),Hematology,
+562,51362,"RBC, CSF",Cerebrospinal Fluid (CSF),Hematology,26454-9
+563,51363,"WBC, CSF",Cerebrospinal Fluid (CSF),Hematology,26465-5
+564,51364,Young,Cerebrospinal Fluid (CSF),Hematology,
+565,51365,Atypical Lymphocytes,Joint Fluid,Hematology,33371-6
+566,51366,Bands,Joint Fluid,Hematology,33361-7
+567,51367,Basophils,Joint Fluid,Hematology,17833-5
+568,51368,Eosinophils,Joint Fluid,Hematology,17834-3
+569,51369,"Hematocrit, Joint Fluid",Joint Fluid,Hematology,
+570,51370,"Joint Crystals, Birefringence",Joint Fluid,Hematology,
+571,51371,"Joint Crystals, Comment",Joint Fluid,Hematology,
+572,51372,"Joint Crystals, Location",Joint Fluid,Hematology,
+573,51373,"Joint Crystals, Number",Joint Fluid,Hematology,
+574,51374,"Joint Crystals, Shape",Joint Fluid,Hematology,
+575,51375,Lymphocytes,Joint Fluid,Hematology,26483-8
+576,51376,Macrophage,Joint Fluid,Hematology,33376-5
+577,51377,Mesothelial Cells,Joint Fluid,Hematology,33365-8
+578,51378,Metamyelocytes,Joint Fluid,Hematology,
+579,51379,Monocytes,Joint Fluid,Hematology,17835-0
+580,51380,NRBC,Joint Fluid,Hematology,48040-0
+581,51381,Other,Joint Fluid,Hematology,
+582,51382,Polys,Joint Fluid,Hematology,26522-3
+583,51383,"RBC, Joint Fluid",Joint Fluid,Hematology,26458-0
+584,51384,"WBC, Joint Fluid",Joint Fluid,Hematology,26469-7
+585,51385,Atypical Lymphocytes,Other Body Fluid,Hematology,30417-0
+586,51386,Bands,Other Body Fluid,Hematology,26510-8
+587,51387,Basophils,Other Body Fluid,Hematology,28543-7
+588,51388,CD10,Other Body Fluid,Hematology,51217-8
+589,51389,CD103,Other Body Fluid,Hematology,
+590,51390,CD117,Other Body Fluid,Hematology,42867-2
+591,51391,CD11c,Other Body Fluid,Hematology,51232-7
+592,51392,CD13,Other Body Fluid,Hematology,51238-4
+593,51393,CD138,Other Body Fluid,Hematology,42871-4
+594,51394,CD14,Other Body Fluid,Hematology,51248-3
+595,51395,CD15,Other Body Fluid,Hematology,51252-5
+596,51396,CD16,Other Body Fluid,Hematology,
+597,51397,CD16/56,Other Body Fluid,Hematology,18268-3
+598,51398,CD19,Other Body Fluid,Hematology,17829-3
+599,51399,CD2,Other Body Fluid,Hematology,17827-7
+600,51400,CD20,Other Body Fluid,Hematology,57418-6
+601,51401,CD22,Other Body Fluid,Hematology,42875-5
+602,51402,CD23,Other Body Fluid,Hematology,51269-9
+603,51403,CD25,Other Body Fluid,Hematology,
+604,51404,CD3,Other Body Fluid,Hematology,17826-9
+605,51405,CD33,Other Body Fluid,Hematology,51294-7
+606,51406,CD34,Other Body Fluid,Hematology,
+607,51407,CD38,Other Body Fluid,Hematology,51299-6
+608,51408,CD4,Other Body Fluid,Hematology,17822-8
+609,51409,CD4/CD8 Ratio,Other Body Fluid,Hematology,18266-7
+610,51410,CD41,Other Body Fluid,Hematology,51320-0
+611,51411,CD45,Other Body Fluid,Hematology,17823-6
+612,51412,CD5,Other Body Fluid,Hematology,57423-6
+613,51413,CD56,Other Body Fluid,Hematology,57424-4
+614,51414,CD57,Other Body Fluid,Hematology,
+615,51415,CD64,Other Body Fluid,Hematology,51366-3
+616,51416,CD7,Other Body Fluid,Hematology,57425-1
+617,51417,CD71,Other Body Fluid,Hematology,57426-9
+618,51418,CD8,Other Body Fluid,Hematology,17824-4
+619,51419,Eosinophils,Other Body Fluid,Hematology,26452-3
+620,51420,FMC-7,Other Body Fluid,Hematology,57428-5
+621,51421,Glyco A,Other Body Fluid,Hematology,57430-1
+622,51422,"Hematocrit, Other Fluid",Other Body Fluid,Hematology,11153-4
+623,51423,HLA-DR,Other Body Fluid,Hematology,51381-2
+624,51424,Immunophenotyping,Other Body Fluid,Hematology,
+625,51425,Kappa,Other Body Fluid,Hematology,
+626,51426,Lambda,Other Body Fluid,Hematology,
+627,51427,Lymphocytes,Other Body Fluid,Hematology,11031-2
+628,51428,Macrophage,Other Body Fluid,Hematology,12230-9
+629,51429,Mesothelial cells,Other Body Fluid,Hematology,28544-5
+630,51430,Metamyelocytes,Other Body Fluid,Hematology,17801-2
+631,51431,Monos,Other Body Fluid,Hematology,10330-9
+632,51432,Myelocytes,Other Body Fluid,Hematology,17800-4
+633,51433,NRBC,Other Body Fluid,Hematology,
+634,51434,Other Cell,Other Body Fluid,Hematology,
+635,51435,Plasma,Other Body Fluid,Hematology,17803-8
+636,51436,Polys,Other Body Fluid,Hematology,26518-1
+637,51437,Promyelocytes,Other Body Fluid,Hematology,17799-8
+638,51438,"RBC, Other Fluid",Other Body Fluid,Hematology,26455-6
+639,51439,"WBC, Other Fluid",Other Body Fluid,Hematology,26466-3
+640,51440,Atypical Lymphocytes,Pleural,Hematology,33370-8
+641,51441,Bands,Pleural,Hematology,
+642,51442,Basophils,Pleural,Hematology,35070-2
+643,51443,Blasts,Pleural,Hematology,
+644,51444,Eosinophils,Pleural,Hematology,30379-2
+645,51445,"Hematocrit, Pleural",Pleural,Hematology,
+646,51446,Lymphocytes,Pleural,Hematology,26481-2
+647,51447,Macrophages,Pleural,Hematology,40520-9
+648,51448,Mesothelial Cells,Pleural,Hematology,30431-1
+649,51449,Metamyelocytes,Pleural,Hematology,
+650,51450,Monos,Pleural,Hematology,33362-5
+651,51451,Myelocytes,Pleural,Hematology,
+652,51452,NRBC,Pleural,Hematology,
+653,51453,Other,Pleural,Hematology,
+654,51454,Plasma Cells,Pleural,Hematology,40522-5
+655,51455,Polys,Pleural,Hematology,26519-9
+656,51456,Promyelocytes,Pleural,Hematology,
+657,51457,"RBC, Pleural",Pleural,Hematology,26456-4
+658,51458,"WBC, Pleural",Pleural,Hematology,26467-1
+659,51459,Young Cells,Pleural,Hematology,
+660,51460,"Blood, Occult",Stool,Hematology,2335-8
+661,51461,Ammonium Biurate,Urine,Hematology,12454-5
+662,51462,Amorphous Crystals,Urine,Hematology,8246-1
+663,51463,Bacteria,Urine,Hematology,5769-5
+664,51464,Bilirubin,Urine,Hematology,5770-3
+665,51465,Bilirubin Crystals,Urine,Hematology,5771-1
+666,51466,Blood,Urine,Hematology,5794-3
+667,51467,Broad Casts,Urine,Hematology,18487-9
+668,51468,Calcium Carbonate Crystals,Urine,Hematology,5773-7
+669,51469,Calcium Oxalate Crystals,Urine,Hematology,5774-5
+670,51470,Calcium Phosphate Crystals,Urine,Hematology,5775-2
+671,51471,Cellular Cast,Urine,Hematology,
+672,51472,Cholesterol Crystals,Urine,Hematology,5777-8
+673,51473,Cysteine Crystals,Urine,Hematology,5782-8
+674,51474,Eosinophils,Urine,Hematology,25156-1
+675,51475,Epithelial Casts,Urine,Hematology,
+676,51476,Epithelial Cells,Urine,Hematology,5787-7
+677,51477,Free Fat,Urine,Hematology,53359-6
+678,51478,Glucose,Urine,Hematology,5792-7
+679,51479,Granular Casts,Urine,Hematology,5793-5
+680,51480,Hematocrit,Urine,Hematology,17809-5
+681,51481,Hemosiderin,Urine,Hematology,4644-1
+682,51482,Hyaline Casts,Urine,Hematology,5796-8
+683,51483,Hyphenated Yeast,Urine,Hematology,41865-7
+684,51484,Ketone,Urine,Hematology,5797-6
+685,51485,Leucine Crystals,Urine,Hematology,5798-4
+686,51486,Leukocytes,Urine,Hematology,5799-2
+687,51487,Nitrite,Urine,Hematology,5802-4
+688,51488,Non-squamous Epithelial Cells,Urine,Hematology,41284-1
+689,51489,NonSquamous Epithelial Cell,Urine,Hematology,41284-1
+690,51490,Oval Fat Body,Urine,Hematology,
+691,51491,pH,Urine,Hematology,5803-2
+692,51492,Protein,Urine,Hematology,5804-0
+693,51493,RBC,Urine,Hematology,5808-1
+694,51494,RBC Casts,Urine,Hematology,5807-3
+695,51495,RBC Clumps,Urine,Hematology,
+696,51496,"Reducing Substances, Urine",Urine,Hematology,
+697,51497,Renal Epithelial Cells,Urine,Hematology,26052-1
+698,51498,Specific Gravity,Urine,Hematology,5811-5
+699,51499,Sperm,Urine,Hematology,8248-7
+700,51500,Sulfonamides,Urine,Hematology,5812-3
+701,51501,Transitional Epithelial Cells,Urine,Hematology,30089-7
+702,51502,Trichomonas,Urine,Hematology,32724-7
+703,51503,Triple Phosphate Crystals,Urine,Hematology,5814-9
+704,51504,Tyrosine Crystals,Urine,Hematology,5815-6
+705,51505,Uric Acid Crystals,Urine,Hematology,5817-2
+706,51506,Urine Appearance,Urine,Hematology,5767-9
+707,51507,"Urine Casts, Other",Urine,Hematology,9842-6
+708,51508,Urine Color,Urine,Hematology,5778-6
+709,51509,Urine Comments,Urine,Hematology,
+710,51510,"Urine Crystals, Other",Urine,Hematology,5783-6
+711,51511,Urine Fat Bodies,Urine,Hematology,2272-3
+712,51512,Urine Mucous,Urine,Hematology,8247-9
+713,51513,Urine Specimen Type,Urine,Hematology,19159-3
+714,51514,Urobilinogen,Urine,Hematology,5818-0
+715,51515,Waxy Casts,Urine,Hematology,5819-8
+716,51516,WBC,Urine,Hematology,5821-4
+717,51517,WBC Casts,Urine,Hematology,5820-6
+718,51518,WBC Clumps,Urine,Hematology,
+719,51519,Yeast,Urine,Hematology,5822-2
+720,51520,ANTI-MC,BLOOD,CHEMISTRY,32042-4
+721,51521,"ACID PHOSPHATASE, PROSTATIC",BLOOD,CHEMISTRY,
+722,51522,PG,OTHER BODY FLUID,CHEMISTRY,48785-0
+723,51523,GR HOLD,URINE,CHEMISTRY,
+724,51524,FATTY,URINE,HEMATOLOGY,5789-3
+725,51525,Billed,BLOOD,CHEMISTRY,
+726,51526,FRUCAMN+,BLOOD,CHEMISTRY,
+727,51527,MS-DIA,BLOOD,CHEMISTRY,
+728,51528,STDY HOLD,BLOOD,CHEMISTRY,
+729,51529,Estimated Actual Glucose,BLOOD,CHEMISTRY,
+730,51530,AF-AFP,OTHER BODY FLUID,CHEMISTRY,
+731,51531,STDYURINE,URINE,CHEMISTRY,
+732,51532,PLASMGN,BLOOD,HEMATOLOGY,
+733,51533,WBCP,BLOOD,HEMATOLOGY,
+734,51534,MYELOS,JOINT FLUID,HEMATOLOGY,
+735,51535,CD55,OTHER BODY FLUID,HEMATOLOGY,
+736,51536,CD59,OTHER BODY FLUID,HEMATOLOGY,
+737,51537,TDT,OTHER BODY FLUID,HEMATOLOGY,
+738,51540,PROBLEM SPECIMEN,BLOOD,CHEMISTRY,
+739,51541,PROBLEM SPECIMEN,BLOOD,HEMATOLOGY,
+740,51542,PROBLEM SPECIMEN,URINE,HEMATOLOGY,
+741,51543,VOIDED SPECIMEN,BLOOD,CHEMISTRY,
+742,51544,VOIDED SPECIMEN,OTHER BODY FLUID,BLOOD GAS,
+743,51545,VOIDED SPECIMEN,BLOOD,BLOOD GAS,
+744,51546,VOIDED SPECIMEN,CSF,CHEMISTRY,
+745,51547,VOIDED SPECIMEN,OTHER BODY FLUID,CHEMISTRY,
+746,51548,VOIDED SPECIMEN,URINE,HEMATOLOGY,
+747,51549,VOIDED SPECIMEN,ASCITES,CHEMISTRY,
+748,51550,VOIDED SPECIMEN,BLOOD,HEMATOLOGY,
+749,51551,VOIDED SPECIMEN,OTHER BODY FLUID,HEMATOLOGY,
+750,51552,VOIDED SPECIMEN,STOOL,CHEMISTRY,
+751,51553,VOIDED SPECIMEN,URINE,CHEMISTRY,
+752,51554,VOIDED SPECIMEN,JOINT FLUID,HEMATOLOGY,
+753,51555,SURFACTANT ALBUMIN RATIO,OTHER BODY FLUID,CHEMISTRY,

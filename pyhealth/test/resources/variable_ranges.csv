@@ -1,0 +1,67 @@
+LEVEL2,LEVEL1,OUTLIER LOW,VALID LOW,IMPUTE,VALID HIGH,OUTLIER HIGH
+Alanine aminotransferase,,0,2,34,10000,11000
+Albumin,,0,0.6,3.1,6,60
+Alkaline phosphate,,0,20,106,3625,4000
+Anion Gap,,0,5,13,50,55
+Asparate aminotransferase,,0,6,40,20000,22000
+Basophils,,,,,,
+Bicarbonate,,0,0,25,60,66
+Bilirubin,Bilirubin (total),0,0.1,0.9,60,66
+Bilirubin,Bilirubin (conjugated),,,,,
+Bilirubin,Bilirubin (unconjugated),,,,,
+Blood culture,,,,,,
+Blood urea nitrogen,,0,0,23,250,275
+Calcium,,,,,,
+Calcium ionized,,,,,,
+Capillary refill rate,,0,0,0,1,1
+Chloride,,0,50,104,175,200
+Cholesterol,,0,32,160,600,660
+Creatinine,,0,0.1,1,60,66
+Diastolic blood pressure,,0,0,59,375,375
+Eosinophils,,,,,,
+Fraction inspired oxygen,,0.2,0.21,0.21,1,1.1
+Glascow coma scale eye opening,,1,1,4,4,4
+Glascow coma scale motor response,,1,1,6,6,6
+Glascow coma scale total,,3,3,11,15,15
+Glascow coma scale verbal response,,1,1,4,5,5
+Glucose,,0,33,128,2000,2200
+Heart rate,,0,0,86,350,390
+Height,,0,0,170,240,275
+Hematocrit,,0,0,30.2,75,100
+Hemoglobin,,0,0,10.2,25,30
+Lactate,,0,0.4,1.8,30,33
+Lactate dehydrogenase,,0,54,263,33000,35000
+Lactic acid,,,,,,
+Lymphocytes,,,,,,
+Magnesium,,0,0,2,20,22
+Mean blood pressure,,0,14,77,330,375
+Mean corpuscular hemoglobin,,,,,,
+Mean corpuscular hemoglobin concentration,,,,,,
+Mean corpuscular volume,,,,,,
+Oxygen saturation,,0,0,98,100,150
+Monocytes,,,,,,
+Neutrophils,,,,,,
+Partial pressure of carbon dioxide,,0,0,40,200,220
+Partial pressure of oxygen,,0,32,112,700,770
+Partial thromboplastin time,,0,18.8,34.4,150,150
+Peak inspiratory pressure,,0,14,20,38,40
+pH,,6.3,6.3,7.4,8.4,10
+Phosphate,,0,0.5,3.4,20,22
+Platelets,,0,0,208,2000,2200
+Positive end-expiratory pressure,,0,0,6,25,30
+Potassium,,0,0,4.1,12,15
+Prothrombin time,,0,9.9,14.5,97.1,150
+Pupillary response left,,,,,,
+Pupillary response right,,,,,,
+Pupillary size left,,,,,,
+Pupillary size right,,,,,,
+Red blood cell count,,,,,,
+Respiratory rate,,0,0,19,300,330
+Sodium,,0,50,142,225,250
+Systolic blood pressure,,0,0,118,375,375
+Temperature,,14.2,26,37,45,47
+Troponin-I,,0,0.01,2.3,49.6,575
+Troponin-T,,0,0.01,0.1,20.85,24
+Urine output,,0,0,80,1200,2445
+Weight,,0,0,81.8,250,250
+White blood cell count,,0,0,9.9,1000,1100
