@@ -34,7 +34,7 @@ setup(
     url='https://github.com/yzhao062/pyhealth',
     download_url='https://github.com/yzhao062/pyhealth/archive/master.zip',
     keywords=['heathcare AI', 'healthcare', 'machine learning',
-              'data mining', 'neural networks'],
+              'data mining', 'neural networks', 'deep learning'],
     packages=find_packages(exclude=['test']),
     include_package_data=True,
     install_requires=requirements,
