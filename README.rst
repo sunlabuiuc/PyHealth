@@ -12,6 +12,10 @@ Python Library for Healthcare AI (PyHealth)
    :alt: Documentation status
 
 
+.. image:: https://travis-ci.org/yzhao062/pyhealth.svg?branch=master
+   :target: https://travis-ci.org/yzhao062/pyhealth
+   :alt: Build Status
+
 
 .. image:: https://img.shields.io/github/stars/yzhao062/pyhealth.svg
    :target: https://github.com/yzhao062/pyhealth/stargazers
