@@ -40,7 +40,7 @@ Python Library for Healthcare AI (PyHealth)
 
 -----
 
-**Development Status**: **As of 08/02/2020, PyHealth is under active development and in its alpha stage. Please follow, star, and fork to get the latest functions**!
+**Development Status**: **As of 08/04/2020, PyHealth is under active development and in its alpha stage. Please follow, star, and fork to get the latest functions**!
 
 
 **PyHealth** is a comprehensive and flexible **Python library** for **healthcare AI**, designed for both **ML researchers** and **medical practitioners**.
@@ -167,15 +167,18 @@ Alternatively, you could clone and run setup.py file:
 * joblib
 * numpy>=1.13
 * numba>=0.35
-* pandas>=0.24
-* scipy>=0.19.1
+* pandas>=0.25
+* scipy>=0.20
 * scikit_learn>=0.20
-* torch
+* tqdm
+* torch (this should be installed manually)
+* xgboost (this should be installed manually)
 * xlrd >= 1.0.0
 
 **Warning 1**\ :
 PyHealth has multiple neural network based models, e.g., LSTM, which are
-implemented in PyTorch. However, PyHealth does **NOT** install these DL libraries for you. This reduces the risk of interfering with your local copies.
+implemented in PyTorch. However, PyHealth does **NOT** install these DL libraries for you.
+This reduces the risk of interfering with your local copies.
 If you want to use neural-net based models, please make sure PyTorch is installed.
 Similarly, models depending on **xgboost**, would **NOT** enforce xgboost installation by default.
 
