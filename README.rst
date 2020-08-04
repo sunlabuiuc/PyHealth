@@ -17,6 +17,11 @@ Python Library for Healthcare AI (PyHealth)
    :alt: Build Status
 
 
+.. image:: https://circleci.com/gh/yzhao062/PyHealth.svg?style=svg
+   :target: https://circleci.com/gh/yzhao062/PyHealth
+   :alt: Circle CI
+
+
 .. image:: https://img.shields.io/github/stars/yzhao062/pyhealth.svg
    :target: https://github.com/yzhao062/pyhealth/stargazers
    :alt: GitHub stars
