@@ -77,9 +77,12 @@ class TestMIMIC(unittest.TestCase):
 
         # enforce and convert to lower case
         var_list = [item.lower() for item in var_list]
-
+        print(os.getcwd())
+        print(os.getcwd())
+        print(os.getcwd())
         event_mapping_df = read_csv_to_df(
-            os.path.join('resources', 'itemid_to_variable_map.csv'))
+            os.path.join('examples', 'data_generation', 'resources',
+                         'itemid_to_variable_map.csv'))
         event_mapping_df['level2'] = event_mapping_df['level2'].str.lower()
 
         key_df = event_mapping_df[event_mapping_df['level2'].isin(var_list)]
@@ -88,16 +91,16 @@ class TestMIMIC(unittest.TestCase):
         #################################################################
         # read in tables
         patient_df = read_csv_to_df(
-            os.path.join('data', 'mimic-iii-clinical-database-demo-1.4',
+            os.path.join('examples', 'data_generation', 'data', 'mimic-iii-clinical-database-demo-1.4',
                          'PATIENTS.csv'))
         patient_id_list = patient_df['subject_id'].tolist()
 
         admission_df = read_csv_to_df(
-            os.path.join('data', 'mimic-iii-clinical-database-demo-1.4',
+            os.path.join('examples', 'data_generation', 'data', 'mimic-iii-clinical-database-demo-1.4',
                          'ADMISSIONS.csv'))
 
         icu_df = read_csv_to_df(
-            os.path.join('data', 'mimic-iii-clinical-database-demo-1.4',
+            os.path.join('examples', 'data_generation', 'data', 'mimic-iii-clinical-database-demo-1.4',
                          'ICUSTAYS.csv'))
 
         events_vars = ['subject_id',
@@ -124,7 +127,7 @@ class TestMIMIC(unittest.TestCase):
 
         event_df = read_csv_to_df(
             # os.path.join('data', 'mimic-iii-clinical-database-demo-1.4',
-            os.path.join('data', 'mimic-iii-clinical-database-demo-1.4',
+            os.path.join('examples', 'data_generation','data', 'mimic-iii-clinical-database-demo-1.4',
                          'CHARTEVENTS.csv'), usecols=events_vars,
             dtype=dtypes_dict,
             low_memory=True)
@@ -133,7 +136,7 @@ class TestMIMIC(unittest.TestCase):
         event_df = event_df[event_df['itemid'].isin(key_items)]
 
         oevent_df = read_csv_to_df(
-            os.path.join('data', 'mimic-iii-clinical-database-demo-1.4',
+            os.path.join('examples', 'data_generation','data', 'mimic-iii-clinical-database-demo-1.4',
                          'OUTPUTEVENTS.csv'), usecols=events_vars,
             dtype=dtypes_dict,
             low_memory=True)
