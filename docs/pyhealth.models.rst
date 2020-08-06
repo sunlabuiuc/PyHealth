@@ -20,6 +20,14 @@ pyhealth.models.base module
    :undoc-members:
    :show-inheritance:
 
+pyhealth.models.dipole module
+-----------------------------
+
+.. automodule:: pyhealth.models.dipole
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 pyhealth.models.embedgru module
 -------------------------------
 
@@ -40,6 +48,30 @@ pyhealth.models.lstm module
 ---------------------------
 
 .. automodule:: pyhealth.models.lstm
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+pyhealth.models.raim module
+---------------------------
+
+.. automodule:: pyhealth.models.raim
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+pyhealth.models.retain module
+-----------------------------
+
+.. automodule:: pyhealth.models.retain
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+pyhealth.models.tlstm module
+----------------------------
+
+.. automodule:: pyhealth.models.tlstm
    :members:
    :undoc-members:
    :show-inheritance:

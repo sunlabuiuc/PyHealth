@@ -34,7 +34,7 @@ if __name__ == "__main__":
 
     # initialize the model for training
     expmodel_id = '2020.0802.model.phenotyping.test.v1'
-    clf = LSTM(expmodel_id=expmodel_id, task='phenotyping', n_epoch=100)
+    clf = LSTM(expmodel_id=expmodel_id, n_epoch=100)
     clf.fit(cur_dataset.train, cur_dataset.valid)
 
     # load the best model for inference

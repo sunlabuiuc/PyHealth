@@ -1,3 +1,5 @@
 v<0.0.0>, <08/01/2020> -- Initial release.
 v<0.0.1>, <08/03/2020> -- Initial release & minor example fix.
 v<0.0.2>, <08/04/2020> -- Set up autotests.
+v<0.0.2>, <08/05/2020> -- Enable read the docs.
+v<0.0.2>, <08/06/2020> -- Add models and remove task parameter from model invocation.
