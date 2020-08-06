@@ -24,7 +24,7 @@ if __name__ == "__main__":
     # root_dir = ''
     # root_dir = os.path.abspath(os.path.join(__file__, "../../.."))
 
-    expdata_id = '2020.0802.data.mortality.test.v1'
+    expdata_id = '2020.0802.data.mortality.test.v2'
 
     # set up the datasets
     cur_dataset = mimic_expdata_generator(expdata_id, root_dir=root_dir)
@@ -33,8 +33,8 @@ if __name__ == "__main__":
     # cur_dataset.show_data()
 
     # initialize the model for training
-    expmodel_id = '2020.0802.data.mortality.test.v1'
-    clf = GRU(expmodel_id=expmodel_id, task='mortality', n_epoch=100)
+    expmodel_id = '2020.0802.data.mortality.test.v2'
+    clf = GRU(expmodel_id=expmodel_id, n_epoch=100)
     clf.fit(cur_dataset.train, cur_dataset.valid)
 
     # load the best model for inference
