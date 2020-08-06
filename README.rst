@@ -90,7 +90,7 @@ PyHealth is featured for:
 
        # initialize the model for training
        from pyhealth.models.lstm import LSTM
-       clf = LSTM(exp_id, task='phenotyping')
+       clf = LSTM(exp_id)  # LSTM related parameters can be set here
        clf.fit(cur_dataset.train, cur_dataset.valid)
 
        # load the best model for inference
@@ -363,7 +363,7 @@ demonstrates the basic API of using LSTM for phenotyping prediction. **It is not
 
       # initialize the model for training
       from pyhealth.models.lstm import LSTM
-      clf = LSTM(exp_id, task='phenotyping')
+      clf = LSTM(exp_id)
       clf.fit(cur_dataset.train, cur_dataset.valid)
 
 #. Load the best shot of the training, predict on the test datasets
