@@ -14,7 +14,7 @@ from torch.nn import Softmax
 from torch.nn import LogSoftmax
 
 loss_dict = {
-    'phenotyping': {
+    'multilabel': {
         'L1LossSigmoid': {'activate': Sigmoid, 'lossfunc': L1Loss},
         'L1LossSoftmax': {'activate': Softmax, 'lossfunc': L1Loss},
         'MSELossSigmoid': {'activate': Sigmoid, 'lossfunc': MSELoss},
@@ -22,7 +22,7 @@ loss_dict = {
         'CELossSigmoid': {'activate': LogSigmoid, 'lossfunc': BCELoss},
         'CELossSoftmax': {'activate': LogSoftmax, 'lossfunc': BCELoss}
     },
-    'mortality': {
+    'binaryclass': {
         'L1LossSigmoid': {'activate': Sigmoid, 'lossfunc': L1Loss},
         'MSELossSigmoid': {'activate': Sigmoid, 'lossfunc': MSELoss},
         'BCELossSigmoid': {'activate': Sigmoid, 'lossfunc': BCELoss}
@@ -32,7 +32,7 @@ loss_dict = {
 class callLoss(nn.Module):
         
     def __init__(self,
-                 task = 'phenotyping',
+                 task = 'multilabel',
                  loss_name = 'L1LossSigmoid',
                  target_repl = False,
                  target_repl_coef = 0,

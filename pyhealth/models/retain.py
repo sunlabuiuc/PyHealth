@@ -3,40 +3,105 @@ import torch
 import torch.nn as nn
 import pickle
 import warnings
+import tqdm
+from tqdm._tqdm import trange
 from ..utils.loss import callLoss
 from .base import BaseControler
 
 warnings.filterwarnings('ignore')
 
+class RetainAttention(nn.Module):
+
+    def __init__(self, embed_size, hidden_size):
+        super(RetainAttention, self).__init__()
+        self.embed_size = embed_size        
+        self.hidden_size = hidden_size
+        self.attention_beta = nn.Linear(hidden_size, embed_size)
+        self.activate_beta = nn.Tanh()
+        self.attention_alpha = nn.Linear(hidden_size, 1)
+        self.activate_alpha = nn.Softmax(dim = -1)
+        
+    def forward(self, data_alpha, data_beta, data_embed, data_mask):
+        # shape of data_alpha: <n_batch, n_seq, hidden_size>         
+        # shape of data_beta : <n_batch, n_seq, hidden_size>         
+        # shape of data_embed: <n_batch, n_seq, embed_size>   
+        # shape of data_mask: <n_batch, n_seq>   
+        
+        # generate beta weights
+        n_batch, n_seq, hidden_size = data_beta.shape
+        # shape of beta_weights: <n_batch, n_seq, embed_size>   
+        beta_weights = self.activate_beta(self.attention_beta(data_beta.reshape(-1, hidden_size))).reshape(n_batch, n_seq, self.embed_size)
+
+        # generate alpha weights
+        n_batch, n_seq, hidden_size = data_alpha.shape
+        # shape of _ori_correlate_value: <n_batch, 1, n_seq>   
+        _correlate_value = self.attention_alpha(data_alpha.reshape(-1, hidden_size)).reshape(n_batch, n_seq).unsqueeze(1)
+        # shape of attention_value_format: <n_batch, 1, n_seq>   
+        attention_value_format = torch.exp(_correlate_value)
+        # shape of ensemble flag format: <1, n_seq, n_seq> 
+        # if n_seq = 3, ensemble_flag_format can get below flag data
+        #  [[[ 1  1  1 ] 
+        #    [ 0  1  1 ]
+        #    [ 0  0  1 ]]]
+        ensemble_flag = torch.triu(torch.ones([n_seq, n_seq]), diagonal = 0).unsqueeze(0)
+        # shape of _format_mask: <n_batch, 1, n_seq>   
+        _format_mask = data_mask.unsqueeze(1)
+        # shape of ensemble flag format: <1, n_seq, n_seq> 
+        ensemble_flag_format = ensemble_flag * _format_mask
+        # shape of accumulate_attention_value: <n_batch, n_seq, 1>
+        accumulate_attention_value = torch.sum(attention_value_format * ensemble_flag_format, -1).unsqueeze(-1) + 1e-10
+        # shape of each_attention_value: <n_batch, n_seq, n_seq>
+        each_attention_value = attention_value_format * ensemble_flag_format
+        # shape of attention_weight_format: <n_batch, n_seq, n_seq>
+        alpha_weights = each_attention_value/accumulate_attention_value
+        
+        # shape of _visit_beta_weights: <n_batch, 1, n_seq, embed_size>
+        _visit_beta_weights = beta_weights.unsqueeze(1)
+        # shape of _visit_alpha_weights: <n_batch, n_seq, n_seq, 1>
+        _visit_alpha_weights = alpha_weights.unsqueeze(-1)
+        # shape of _visit_data_embed: <n_batch, 1, n_seq, embed_size>           
+        _visit_data_embed = data_embed.unsqueeze(1)
+        
+        # shape of mix_weights: <n_batch, n_seq, n_seq, embed_size>
+        mix_weights = _visit_beta_weights * _visit_alpha_weights
+        # shape of weighted_output: <n_batch, n_seq, embed_size>        
+        weighted_output = torch.sum(mix_weights * _visit_data_embed, dim = -2)
+        
+        return weighted_output
+
 class callPredictor(nn.Module):
     def __init__(self, 
                  input_size = None,
-                 layer_hidden_sizes = [10,20,15],
-                 num_layers = 3,
+                 embed_size = 16,
+                 hidden_size = 8,
                  bias = True,
                  dropout = 0.5,
-                 bidirectional = True,
                  batch_first = True,
                  label_size = 1):
         super(callPredictor, self).__init__()
         assert input_size != None and isinstance(input_size, int), 'fill in correct input_size' 
-        self.num_layers = num_layers
-        self.rnn_models = []
-        if bidirectional:
-            layer_input_sizes = [input_size] + [2 * chs for chs in layer_hidden_sizes]
-        else:
-            layer_input_sizes = [input_size] + layer_hidden_sizes
-        for i in range(num_layers):
-            self.rnn_models.append(nn.GRU(input_size = layer_input_sizes[i],
-                                     hidden_size = layer_hidden_sizes[i],
-                                     num_layers = num_layers,
+ 
+        self.input_size = input_size        
+        self.embed_size = embed_size
+        self.hidden_size = hidden_size
+        self.label_size = label_size
+
+        self.embed_func = nn.Linear(self.input_size, self.embed_size)
+        self.rnn_model_alpha = nn.GRU(input_size = embed_size,
+                                      hidden_size = hidden_size,
+                                      bias = bias,
+                                      dropout = dropout,
+                                      bidirectional = False,
+                                      batch_first = batch_first)
+        self.rnn_model_beta = nn.GRU(input_size = embed_size,
+                                     hidden_size = hidden_size,
                                      bias = bias,
                                      dropout = dropout,
-                                     bidirectional = bidirectional,
-                                     batch_first = batch_first))
-        self.label_size = label_size
-        self.output_size = layer_input_sizes[-1]
-        self.output_func = nn.Linear(self.output_size, self.label_size)
+                                     bidirectional = False,
+                                     batch_first = batch_first)
+ 
+        self.attention_func = RetainAttention(self.embed_size, self.hidden_size)
+        self.predict_func = nn.Linear(self.embed_size, self.label_size)
             
     def forward(self, input_data):
         
@@ -70,17 +135,21 @@ class callPredictor(nn.Module):
         X = input_data['X']
         M = input_data['M']
         cur_M = input_data['cur_M']
-        _data = X
-        for temp_rnn_model in self.rnn_models:
-            _data, _ = temp_rnn_model(_data)
-        outputs = _data
-        all_output = outputs * M.unsqueeze(-1)
-        n_batchsize, n_timestep, n_featdim = all_output.shape
-        all_output = self.output_func(outputs.reshape(n_batchsize*n_timestep, n_featdim)).reshape(n_batchsize, n_timestep, self.label_size)
+        n_batchsize, n_timestep, n_orifeatdim = X.shape
+        _ori_X = X.view(-1, n_orifeatdim)
+        _embed_X = self.embed_func(_ori_X)        
+        _embed_X = _embed_X.reshape(n_batchsize, n_timestep, self.embed_size)        
+        _embed_alpha, _ = self.rnn_model_alpha(_embed_X)
+        _embed_beta, _ = self.rnn_model_beta(_embed_X)
+        weight_outputs = self.attention_func(_embed_alpha, _embed_beta, _embed_X, M)
+        
+        weight_outputs_reshape = weight_outputs.view(-1, self.embed_size)
+        all_output = self.predict_func(weight_outputs_reshape).\
+                         reshape(n_batchsize, n_timestep, self.label_size) * M.unsqueeze(-1)
         cur_output = (all_output * cur_M.unsqueeze(-1)).sum(dim=1)
         return all_output, cur_output
 
-class GRU(BaseControler):
+class Retain(BaseControler):
 
     def __init__(self, 
                  expmodel_id = 'test.new', 
@@ -89,10 +158,10 @@ class GRU(BaseControler):
                  learn_ratio = 1e-4,
                  weight_decay = 1e-4,
                  n_epoch_saved = 1,
-                 layer_hidden_sizes = [10,20,15],
+                 embed_size = 16,
+                 hidden_size = 8,
                  bias = True,
                  dropout = 0.5,
-                 bidirectional = True,
                  batch_first = True,
                  loss_name = 'L1LossSigmoid',
                  target_repl = False,
@@ -102,7 +171,7 @@ class GRU(BaseControler):
                  use_gpu = False
                  ):
         """
-        Applies a multi-layer Gated recurrent unit (GRU) RNN to an healthcare data sequence.
+        Applies an Attention-based Bidirectional Recurrent Neural Networks for an healthcare data sequence
 
 
         Parameters
@@ -125,10 +194,13 @@ class GRU(BaseControler):
   
         n_epoch_saved : int, optional (default = 1)
             frequency of saving checkpoints at the end of epochs
+        
+        embed_size: int, optional (default = 16)
+            The number of the embeded features of original input
             
-        layer_hidden_sizes : list, optional (default = [10,20,15])
-            The number of features of the hidden state h of each layer
-            
+        hidden_size : int, optional (default = 8)
+            The number of features of the hidden state h
+ 
         bias : bool, optional (default = True)
             If False, then the layer does not use bias weights b_ih and b_hh. 
             
@@ -136,9 +208,6 @@ class GRU(BaseControler):
             If non-zero, introduces a Dropout layer on the outputs of each GRU layer except the last layer, 
             with dropout probability equal to dropout. 
 
-        bidirectional : bool, optional (default = True)
-            If True, becomes a bidirectional GRU. 
-            
         batch_first : bool, optional (default = False)
             If True, then the input and output tensors are provided as (batch, seq, feature). 
              
@@ -150,17 +219,16 @@ class GRU(BaseControler):
 
         """
  
-        super(GRU, self).__init__(expmodel_id)
+        super(Retain, self).__init__(expmodel_id)
         self.n_batchsize = n_batchsize
         self.n_epoch = n_epoch
         self.learn_ratio = learn_ratio
         self.weight_decay = weight_decay
         self.n_epoch_saved = n_epoch_saved
-        self.layer_hidden_sizes = layer_hidden_sizes
-        self.num_layers = len(layer_hidden_sizes)
+        self.embed_size = embed_size
+        self.hidden_size = hidden_size
         self.bias = bias
         self.dropout = dropout
-        self.bidirectional = bidirectional
         self.batch_first = batch_first
         self.loss_name = loss_name
         self.target_repl = target_repl
@@ -168,6 +236,7 @@ class GRU(BaseControler):
         self.aggregate = aggregate
         self.optimizer_name = optimizer_name
         self.use_gpu = use_gpu
+        self._set_reverse()
         self._args_check()
         
     def _build_model(self):
@@ -180,11 +249,10 @@ class GRU(BaseControler):
         
         _config = {
             'input_size': self.input_size,
-            'layer_hidden_sizes': self.layer_hidden_sizes,
-            'num_layers': self.num_layers,
+            'embed_size': self.embed_size,
+            'hidden_size': self.hidden_size,
             'bias': self.bias,
             'dropout': self.dropout,
-            'bidirectional': self.bidirectional,
             'batch_first': self.batch_first,
             'label_size': self.label_size
             }
@@ -264,7 +332,7 @@ class GRU(BaseControler):
         predictor_config = self._load_predictor_config()
         self.predictor = callPredictor(**predictor_config).to(self.device)
         self._load_model(loaded_epoch)
-
+ 
 
     def _args_check(self):
         """
@@ -283,16 +351,14 @@ class GRU(BaseControler):
             'fill in correct weight_decay (float, >=0.)'
         assert isinstance(self.n_epoch_saved,int) and self.n_epoch_saved>0 and self.n_epoch_saved < self.n_epoch, \
             'fill in correct n_epoch (int, >0 and <{0}).format(self.n_epoch)'
-        assert isinstance(self.layer_hidden_sizes,list) and len(self.layer_hidden_sizes)>0, \
-            'fill in correct layer_hidden_sizes (list, such as [10,20,15])'
-        assert isinstance(self.num_layers,int) and self.num_layers>0, \
-            'fill in correct num_layers (int, >0)'
+        assert isinstance(self.embed_size,int) and self.embed_size>0, \
+            'fill in correct embed_size (int, >0)'
+        assert isinstance(self.hidden_size,int) and self.hidden_size>0, \
+            'fill in correct hidden_size (int, 8)'
         assert isinstance(self.bias,bool), \
             'fill in correct bias (bool)'
         assert isinstance(self.dropout,float) and self.dropout>0. and self.dropout<1., \
             'fill in correct learn_ratio (float, >0 and <1.)'
-        assert isinstance(self.bidirectional,bool), \
-            'fill in correct bidirectional (bool)'
         assert isinstance(self.batch_first,bool), \
             'fill in correct batch_first (bool)'
         assert isinstance(self.target_repl,bool), \

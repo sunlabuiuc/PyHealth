@@ -1,43 +1,94 @@
 import os
+import math
 import torch
 import torch.nn as nn
+from torch.autograd import Variable
+from torch.nn import Parameter
+from torch.nn import LSTMCell
+from torch import Tensor
 import pickle
 import warnings
+import tqdm
+from tqdm._tqdm import trange
 from ..utils.loss import callLoss
 from .base import BaseControler
 
 warnings.filterwarnings('ignore')
 
+class RaimExtract(nn.Module):
+
+    def __init__(self, input_size, window_size, hidden_size):
+        super(RaimExtract, self).__init__()
+
+        self.input_size = input_size
+        self.window_size = window_size
+        self.hidden_size = hidden_size
+
+        self.w_h_alpha = nn.Linear(self.hidden_size, self.window_size)
+        self.w_a_alpha = nn.Linear(self.input_size, 1)
+
+        self.w_h_beta = nn.Linear(self.hidden_size, self.input_size)
+        self.w_a_beta = nn.Linear(self.window_size, 1)
+
+        self.activate_func = nn.Tanh()
+        self.weights_func = nn.Softmax(dim = -1)
+
+    def forward(self, input_data, h_t_1):
+        # shape of input_data : <n_batch, window_size, input_size> 
+        # shape of h_t_1      : <n_batch, hidden_size>         
+        # shape of _alpha_weights : <n_batch, window_size> 
+        _alpha_weights = self.activate_func(self.w_h_alpha(h_t_1) +\
+                                            self.w_a_alpha(input_data.reshape(-1, self.input_size)).\
+                                            squeeze().\
+                                            reshape(-1, self.window_size)
+                                           )
+        _alpha_weights = self.weights_func(_alpha_weights)
+
+        # shape of _beta_weights : <n_batch, input_size> 
+        _beta_weights = self.activate_func(self.w_h_beta(h_t_1) +\
+                                           self.w_a_beta(input_data.permute(0, 2, 1).\
+                                                         reshape(-1, self.window_size)).\
+                                           squeeze().\
+                                           reshape(-1, self.input_size)
+                                          )
+        _beta_weights = self.weights_func(_beta_weights)
+
+        # shape of _alpha_weights_v : <n_batch, window_size, 1> 
+        _alpha_weights_v = _alpha_weights.unsqueeze(-1)
+        # shape of _beta_weights_v  : <n_batch, 1, input_size> 
+        _beta_weights_v = _beta_weights.unsqueeze(1)
+
+        # shape of weight_A  : <n_batch, window_size, input_size> 
+        weight_A = _alpha_weights_v * _beta_weights_v
+
+        # shape of output_v  : <n_batch, input_size> 
+        output_v = torch.sum(weight_A * input_data, dim = 1)
+        
+        return output_v
+
 class callPredictor(nn.Module):
+
     def __init__(self, 
                  input_size = None,
-                 layer_hidden_sizes = [10,20,15],
-                 num_layers = 3,
-                 bias = True,
-                 dropout = 0.5,
-                 bidirectional = True,
+                 window_size = 3,
+                 hidden_size = 16,
+                 output_size = 8,
                  batch_first = True,
+                 dropout = 0.5,
                  label_size = 1):
         super(callPredictor, self).__init__()
         assert input_size != None and isinstance(input_size, int), 'fill in correct input_size' 
-        self.num_layers = num_layers
-        self.rnn_models = []
-        if bidirectional:
-            layer_input_sizes = [input_size] + [2 * chs for chs in layer_hidden_sizes]
-        else:
-            layer_input_sizes = [input_size] + layer_hidden_sizes
-        for i in range(num_layers):
-            self.rnn_models.append(nn.GRU(input_size = layer_input_sizes[i],
-                                     hidden_size = layer_hidden_sizes[i],
-                                     num_layers = num_layers,
-                                     bias = bias,
-                                     dropout = dropout,
-                                     bidirectional = bidirectional,
-                                     batch_first = batch_first))
+        self.input_size = input_size
+        self.window_size = window_size
+        self.hidden_size = hidden_size
+        self.output_size = output_size
         self.label_size = label_size
-        self.output_size = layer_input_sizes[-1]
-        self.output_func = nn.Linear(self.output_size, self.label_size)
-            
+        self.rnn_raimf = RaimExtract(input_size, window_size, hidden_size) 
+        self.rnn_unit = LSTMCell(input_size, hidden_size) 
+        self.predict_func = nn.Linear(self.output_size, self.label_size)
+        self.pad = nn.ConstantPad1d((self.window_size-1, 0), 0.)
+        
+
     def forward(self, input_data):
         
         """
@@ -66,22 +117,39 @@ class callPredictor(nn.Module):
 
         
         """
-        
         X = input_data['X']
         M = input_data['M']
         cur_M = input_data['cur_M']
-        _data = X
-        for temp_rnn_model in self.rnn_models:
-            _data, _ = temp_rnn_model(_data)
-        outputs = _data
-        all_output = outputs * M.unsqueeze(-1)
-        n_batchsize, n_timestep, n_featdim = all_output.shape
-        all_output = self.output_func(outputs.reshape(n_batchsize*n_timestep, n_featdim)).reshape(n_batchsize, n_timestep, self.label_size)
+        T = input_data['T']
+        batchsize, n_timestep, n_f = input_data['X'].shape
+        # shape of X     : <batchsize, n_timestep, n_featdim>        
+        # shape of pad_X : <batchsize, n_timestep + window_size - 1, n_featdim>        
+        pad_X = self.pad(X.permute(0,2,1)).permute(0,2,1)
+        
+        h0 = Variable(torch.zeros(batchsize, self.hidden_size))
+        c0 = Variable(torch.zeros(batchsize, self.hidden_size))
+        outs = []        
+        hn = h0
+        cn = c0
+        for i in range(self.window_size-1, n_timestep+self.window_size-1):
+            cur_x = pad_X[ : , i - self.window_size + 1 : i + 1, : ]
+            z_value = self.rnn_raimf(cur_x, hn)
+            hn, cn = self.rnn_unit(z_value, (hn, cn))
+            outs.append(hn)
+        outputs = torch.stack(outs, dim =1)
+        n_batchsize, n_timestep, n_featdim = outputs.shape
+        all_output = self.predict_func(outputs.reshape(n_batchsize*n_timestep, n_featdim)).\
+                        reshape(n_batchsize, n_timestep, self.label_size) * M.unsqueeze(-1)
         cur_output = (all_output * cur_M.unsqueeze(-1)).sum(dim=1)
         return all_output, cur_output
 
-class GRU(BaseControler):
-
+class RAIM(BaseControler):
+    
+    """
+    
+    Recurrent Attentive and Intensive Model(RAIM) for jointly analyzing continuous monitoring data and discrete clinical events
+    
+    """
     def __init__(self, 
                  expmodel_id = 'test.new', 
                  n_epoch = 100,
@@ -89,10 +157,11 @@ class GRU(BaseControler):
                  learn_ratio = 1e-4,
                  weight_decay = 1e-4,
                  n_epoch_saved = 1,
-                 layer_hidden_sizes = [10,20,15],
+                 window_size = 3,
+                 hidden_size = 8,
+                 output_size = 8,
                  bias = True,
                  dropout = 0.5,
-                 bidirectional = True,
                  batch_first = True,
                  loss_name = 'L1LossSigmoid',
                  target_repl = False,
@@ -102,7 +171,7 @@ class GRU(BaseControler):
                  use_gpu = False
                  ):
         """
-        Applies a multi-layer Gated recurrent unit (GRU) RNN to an healthcare data sequence.
+        Applies an Attention-based Bidirectional Recurrent Neural Networks for an healthcare data sequence
 
 
         Parameters
@@ -125,10 +194,16 @@ class GRU(BaseControler):
   
         n_epoch_saved : int, optional (default = 1)
             frequency of saving checkpoints at the end of epochs
-            
-        layer_hidden_sizes : list, optional (default = [10,20,15])
-            The number of features of the hidden state h of each layer
-            
+
+        window_size : int, optional (default = 3)
+            The size of observe window of sequence
+
+        hidden_size : int, optional (default = 8)
+            The number of features of the hidden state h
+
+        output_size: int, optional (default = 8)
+            The number of the embeded features of rnn output
+
         bias : bool, optional (default = True)
             If False, then the layer does not use bias weights b_ih and b_hh. 
             
@@ -136,9 +211,6 @@ class GRU(BaseControler):
             If non-zero, introduces a Dropout layer on the outputs of each GRU layer except the last layer, 
             with dropout probability equal to dropout. 
 
-        bidirectional : bool, optional (default = True)
-            If True, becomes a bidirectional GRU. 
-            
         batch_first : bool, optional (default = False)
             If True, then the input and output tensors are provided as (batch, seq, feature). 
              
@@ -150,17 +222,17 @@ class GRU(BaseControler):
 
         """
  
-        super(GRU, self).__init__(expmodel_id)
+        super(RAIM, self).__init__(expmodel_id)
         self.n_batchsize = n_batchsize
         self.n_epoch = n_epoch
         self.learn_ratio = learn_ratio
         self.weight_decay = weight_decay
         self.n_epoch_saved = n_epoch_saved
-        self.layer_hidden_sizes = layer_hidden_sizes
-        self.num_layers = len(layer_hidden_sizes)
+        self.window_size = window_size
+        self.hidden_size = hidden_size
+        self.output_size = output_size
         self.bias = bias
         self.dropout = dropout
-        self.bidirectional = bidirectional
         self.batch_first = batch_first
         self.loss_name = loss_name
         self.target_repl = target_repl
@@ -168,6 +240,7 @@ class GRU(BaseControler):
         self.aggregate = aggregate
         self.optimizer_name = optimizer_name
         self.use_gpu = use_gpu
+        self._set_reverse()
         self._args_check()
         
     def _build_model(self):
@@ -180,11 +253,10 @@ class GRU(BaseControler):
         
         _config = {
             'input_size': self.input_size,
-            'layer_hidden_sizes': self.layer_hidden_sizes,
-            'num_layers': self.num_layers,
-            'bias': self.bias,
+            'window_size': self.window_size,
+            'hidden_size': self.hidden_size,
+            'output_size': self.output_size,
             'dropout': self.dropout,
-            'bidirectional': self.bidirectional,
             'batch_first': self.batch_first,
             'label_size': self.label_size
             }
@@ -264,7 +336,7 @@ class GRU(BaseControler):
         predictor_config = self._load_predictor_config()
         self.predictor = callPredictor(**predictor_config).to(self.device)
         self._load_model(loaded_epoch)
-
+  
 
     def _args_check(self):
         """
@@ -283,16 +355,16 @@ class GRU(BaseControler):
             'fill in correct weight_decay (float, >=0.)'
         assert isinstance(self.n_epoch_saved,int) and self.n_epoch_saved>0 and self.n_epoch_saved < self.n_epoch, \
             'fill in correct n_epoch (int, >0 and <{0}).format(self.n_epoch)'
-        assert isinstance(self.layer_hidden_sizes,list) and len(self.layer_hidden_sizes)>0, \
-            'fill in correct layer_hidden_sizes (list, such as [10,20,15])'
-        assert isinstance(self.num_layers,int) and self.num_layers>0, \
-            'fill in correct num_layers (int, >0)'
+        assert isinstance(self.window_size,int) and self.window_size>0, \
+            'fill in correct window_size (int, 3)'
+        assert isinstance(self.hidden_size,int) and self.hidden_size>0, \
+            'fill in correct hidden_size (int, 8)'
+        assert isinstance(self.output_size,int) and self.output_size>0, \
+            'fill in correct output_size (int, >0)'
         assert isinstance(self.bias,bool), \
             'fill in correct bias (bool)'
         assert isinstance(self.dropout,float) and self.dropout>0. and self.dropout<1., \
             'fill in correct learn_ratio (float, >0 and <1.)'
-        assert isinstance(self.bidirectional,bool), \
-            'fill in correct bidirectional (bool)'
         assert isinstance(self.batch_first,bool), \
             'fill in correct batch_first (bool)'
         assert isinstance(self.target_repl,bool), \
