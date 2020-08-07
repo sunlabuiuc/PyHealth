@@ -7,6 +7,8 @@ Welcome to PyHealth's documentation!
 ====================================
 
 
+**Deployment & Documentation & Stats**
+
 .. image:: https://img.shields.io/pypi/v/pyhealth.svg?color=brightgreen
    :target: https://pypi.org/project/pyhealth/
    :alt: PyPI version
@@ -17,16 +19,6 @@ Welcome to PyHealth's documentation!
    :alt: Documentation status
 
 
-.. image:: https://travis-ci.org/yzhao062/pyhealth.svg?branch=master
-   :target: https://travis-ci.org/yzhao062/pyhealth
-   :alt: Build Status
-
-
-.. image:: https://circleci.com/gh/yzhao062/PyHealth.svg?style=svg
-   :target: https://circleci.com/gh/yzhao062/PyHealth
-   :alt: Circle CI
-
-
 .. image:: https://img.shields.io/github/stars/yzhao062/pyhealth.svg
    :target: https://github.com/yzhao062/pyhealth/stargazers
    :alt: GitHub stars
@@ -35,6 +27,31 @@ Welcome to PyHealth's documentation!
 .. image:: https://img.shields.io/github/forks/yzhao062/pyhealth.svg?color=blue
    :target: https://github.com/yzhao062/pyhealth/network
    :alt: GitHub forks
+
+
+.. image:: https://pepy.tech/badge/pyhealth
+   :target: https://pepy.tech/project/pyhealth
+   :alt: Downloads
+
+
+.. image:: https://pepy.tech/badge/pyhealth/month
+   :target: https://pepy.tech/project/pyhealth
+   :alt: Downloads
+
+
+-----
+
+
+**Build Status & Coverage & Maintainability & License**
+
+.. image:: https://travis-ci.org/yzhao062/pyhealth.svg?branch=master
+   :target: https://travis-ci.org/yzhao062/pyhealth
+   :alt: Build Status
+
+
+.. image:: https://circleci.com/gh/yzhao062/PyHealth.svg?style=svg
+   :target: https://circleci.com/gh/yzhao062/PyHealth
+   :alt: Circle CI
 
 
 .. image:: https://ci.appveyor.com/api/projects/status/1kupdy87etks5n3r/branch/master?svg=true
@@ -53,6 +70,7 @@ Welcome to PyHealth's documentation!
 
 
 -----
+
 
 **Development Status**: **As of 08/05/2020, PyHealth is under active development and in its alpha stage. Please follow, star, and fork to get the latest functions**!
 
