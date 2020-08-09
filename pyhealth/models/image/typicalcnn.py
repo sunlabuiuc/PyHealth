@@ -3,106 +3,35 @@ import torch
 import torch.nn as nn
 import pickle
 import warnings
-from ..utils.loss import callLoss
-from .base import BaseControler
+import torchvision.models as models
+from ._loss import callLoss
+from ._dlbase import BaseControler
 
 warnings.filterwarnings('ignore')
 
-class callPredictor(nn.Module):
-    def __init__(self, 
-                 input_size = None,
-                 layer_hidden_sizes = [10,20,15],
-                 num_layers = 3,
-                 bias = True,
-                 dropout = 0.5,
-                 bidirectional = True,
-                 batch_first = True,
-                 label_size = 1):
-        super(callPredictor, self).__init__()
-        assert input_size != None and isinstance(input_size, int), 'fill in correct input_size' 
-        self.num_layers = num_layers
-        self.rnn_models = []
-        if bidirectional:
-            layer_input_sizes = [input_size] + [2 * chs for chs in layer_hidden_sizes]
-        else:
-            layer_input_sizes = [input_size] + layer_hidden_sizes
-        for i in range(num_layers):
-            self.rnn_models.append(nn.LSTM(input_size = layer_input_sizes[i],
-                                     hidden_size = layer_hidden_sizes[i],
-                                     num_layers = num_layers,
-                                     bias = bias,
-                                     dropout = dropout,
-                                     bidirectional = bidirectional,
-                                     batch_first = batch_first))
-        self.label_size = label_size
-        self.output_size = layer_input_sizes[-1]
-        self.output_func = nn.Linear(self.output_size, self.label_size)
-            
-    def forward(self, input_data):
-        
-        """
-        
-        Parameters
-        
-        ----------
-        input_data = {
-                      'X': shape (batchsize, n_timestep, n_featdim)
-                      'M': shape (batchsize, n_timestep)
-                      'cur_M': shape (batchsize, n_timestep)
-                      'T': shape (batchsize, n_timestep)
-                     }
-        
-        Return
-        
-        ----------
-        
-        all_output, shape (batchsize, n_timestep, n_labels)
-            
-            predict output of each time step
-            
-        cur_output, shape (batchsize, n_labels)
-        
-            predict output of last time step
-
-        
-        """
-        
-        X = input_data['X']
-        M = input_data['M']
-        cur_M = input_data['cur_M']
-        _data = X
-        for temp_rnn_model in self.rnn_models:
-            _data, _ = temp_rnn_model(_data)
-        outputs = _data
-        all_output = outputs * M.unsqueeze(-1)
-        n_batchsize, n_timestep, n_featdim = all_output.shape
-        all_output = self.output_func(outputs.reshape(n_batchsize*n_timestep, n_featdim)).reshape(n_batchsize, n_timestep, self.label_size)
-        cur_output = (all_output * cur_M.unsqueeze(-1)).sum(dim=1)
-        return all_output, cur_output
-
-class LSTM(BaseControler):
+class TypicalCNN(BaseControler):
 
     def __init__(self, 
                  expmodel_id = 'test.new', 
+                 cnn_name = 'resnet18',
+                 pretrained = False,
                  n_epoch = 100,
                  n_batchsize = 5,
+                 load_size = 255,
+                 crop_size = 224,
                  learn_ratio = 1e-4,
                  weight_decay = 1e-4,
                  n_epoch_saved = 1,
-                 layer_hidden_sizes = [10,20,15],
                  bias = True,
                  dropout = 0.5,
-                 bidirectional = True,
                  batch_first = True,
-                 loss_name = 'L1LossSigmoid',
-                 target_repl = False,
-                 target_repl_coef = 0.,
+                 loss_name = 'L1LossSoftmax',
                  aggregate = 'sum',
                  optimizer_name = 'adam',
                  use_gpu = False
                  ):
         """
-        Applies a multi-layer long short-term memory (LSTM) RNN to an healthcare data sequence.
+        Several typical & popular CNN networks for medical image prediction 
 
 
         Parameters
@@ -110,13 +39,25 @@ class LSTM(BaseControler):
         ----------
         exp_id : str, optional (default='init.test') 
             name of current experiment
+       
+        cnn_name : str, optional (default = 'resnet18')
+            name of typical/popular CNN networks
+        
+        pretrained : bool, optional (default = False)
+            used for pre-trained model load, True -> load pretrained model; False -> not load
             
         n_epoch : int, optional (default = 100)
             number of epochs with the initial learning rate
             
         n_batchsize : int, optional (default = 5)
             batch size for model training
-   
+        
+        load_size : int, optional (default = 255)
+            scale images to this size
+
+        crop_size : int, optional (default = 224)
+            crop load_sized image into to this size
+            
         learn_ratio : float, optional (default = 1e-4)
             initial learning rate for adam
   
@@ -126,15 +67,6 @@ class LSTM(BaseControler):
         n_epoch_saved : int, optional (default = 1)
             frequency of saving checkpoints at the end of epochs
             
-        layer_hidden_sizes : list, optional (default = [10,20,15])
-            The number of features of the hidden state h of each layer
-            
-        num_layers : int, optional (default = 1)
-            Number of recurrent layers. E.g., setting num_layers=2 would 
-            mean stacking two LSTMs together to form a stacked LSTM, with 
-            the second LSTM taking in outputs of the first LSTM and computing 
-            the final results. 
-            
         bias : bool, optional (default = True)
             If False, then the layer does not use bias weights b_ih and b_hh. 
             
@@ -142,9 +74,6 @@ class LSTM(BaseControler):
             If non-zero, introduces a Dropout layer on the outputs of each LSTM layer except the last layer, 
             with dropout probability equal to dropout. 
 
-        bidirectional : bool, optional (default = True)
-            If True, becomes a bidirectional LSTM. 
-            
         batch_first : bool, optional (default = False)
             If True, then the input and output tensors are provided as (batch, seq, feature). 
              
@@ -156,26 +85,49 @@ class LSTM(BaseControler):
 
         """
  
-        super(LSTM, self).__init__(expmodel_id)
+        super(TypicalCNN, self).__init__(expmodel_id)
+        self.cnn_name = cnn_name
+        self.pretrained = pretrained
         self.n_batchsize = n_batchsize
         self.n_epoch = n_epoch
+        self.load_size = load_size
+        self.crop_size = crop_size
         self.learn_ratio = learn_ratio
         self.weight_decay = weight_decay
         self.n_epoch_saved = n_epoch_saved
-        self.layer_hidden_sizes = layer_hidden_sizes
-        self.num_layers = len(layer_hidden_sizes)
         self.bias = bias
         self.dropout = dropout
-        self.bidirectional = bidirectional
         self.batch_first = batch_first
         self.loss_name = loss_name
-        self.target_repl = target_repl
-        self.target_repl_coef = target_repl_coef
         self.aggregate = aggregate
         self.optimizer_name = optimizer_name
         self.use_gpu = use_gpu
         self._args_check()
-        
+ 
+    def _get_predictor(self):
+        # create model
+        if self.pretrained:
+            print("=> using pre-trained model '{}'".format(self.cnn_name))
+            predictor = models.__dict__[self.cnn_name](pretrained=True)
+        else:
+            print("=> creating model '{}'".format(self.cnn_name))
+            predictor = models.__dict__[self.cnn_name](pretrained=False)
+        # modify model-output 
+        if self.cnn_name == 'resnet18':
+            predictor.fc = torch.nn.Linear(512, self.label_size, bias=True)
+        elif self.cnn_name == 'resnet50':
+            predictor.fc = torch.nn.Linear(2048, self.label_size, bias=True)
+        elif self.cnn_name == 'resnet101':
+            predictor.fc = torch.nn.Linear(2048, self.label_size, bias=True)
+        elif self.cnn_name == 'resnet152':
+            predictor.fc = torch.nn.Linear(2048, self.label_size, bias=True)
+        elif self.cnn_name == 'densenet121':
+            predictor.classifier = torch.nn.Linear(1024, self.label_size, bias=True)
+        elif self.cnn_name == 'densenet161':
+            predictor.classifier = torch.nn.Linear(2208, self.label_size, bias=True)
+        print('    Total params: %.2fM' % (sum(p.numel() for p in predictor.parameters())/1000000.0))
+        return predictor
+    
     def _build_model(self):
         """
         
@@ -183,28 +135,18 @@ class LSTM(BaseControler):
  
         
         """
-        
-        _config = {
-            'input_size': self.input_size,
-            'layer_hidden_sizes': self.layer_hidden_sizes,
-            'num_layers': self.num_layers,
-            'bias': self.bias,
-            'dropout': self.dropout,
-            'bidirectional': self.bidirectional,
-            'batch_first': self.batch_first,
-            'label_size': self.label_size
-            }
-        self.predictor = callPredictor(**_config).to(self.device)
-        self.predictor= torch.nn.DataParallel(self.predictor)
+        _config = {'label_size': self.label_size}
         self._save_predictor_config(_config)
-        self.criterion = callLoss(task = self.task,
+        predictor = self._get_predictor()
+        self.predictor = predictor.to(self.device)
+        self.predictor= torch.nn.DataParallel(self.predictor)
+        self.criterion = callLoss(task = self.task_type,
                                   loss_name = self.loss_name,
-                                  target_repl = self.target_repl,
-                                  target_repl_coef = self.target_repl_coef,
                                   aggregate = self.aggregate)
+
         self.optimizer = self._get_optimizer(self.optimizer_name)
 
-    def fit(self, train_data, valid_data):
+    def fit(self, train_data, valid_data, assign_task_type = None):
         
         """
         Parameters
@@ -231,6 +173,9 @@ class LSTM(BaseControler):
 
             The input valid samples dict.
 
+        assign_task_type: str (default = None)
+            predifine task type to model mapping <feature, label>
+            current support ['binary','multiclass','multilabel','regression']
 
         Returns
 
@@ -241,6 +186,7 @@ class LSTM(BaseControler):
             Fitted estimator.
 
         """
+        self.task_type = assign_task_type
         self._data_check([train_data, valid_data])
         self._build_model()
         train_reader = self._get_reader(train_data, 'train')
@@ -267,8 +213,10 @@ class LSTM(BaseControler):
 
         """
 
-        predictor_config = self._load_predictor_config()
-        self.predictor = callPredictor(**predictor_config).to(self.device)
+        _config = self._load_predictor_config()
+        self.label_size = _config['label_size']
+        predictor = self._get_predictor()
+        self.predictor = predictor.to(self.device)
         self._load_model(loaded_epoch)
  
 
@@ -279,32 +227,28 @@ class LSTM(BaseControler):
  
         
         """
+        assert isinstance(self.cnn_name,str) and self.cnn_name in ['resnet18'], \
+            'fill in correct cnn_name (str, [\'resnet18\'])'
+        assert isinstance(self.pretrained,bool), \
+            'fill in correct pretrained (bool)'
         assert isinstance(self.n_batchsize,int) and self.n_batchsize>0, \
             'fill in correct n_batchsize (int, >0)'
         assert isinstance(self.n_epoch,int) and self.n_epoch>0, \
             'fill in correct n_epoch (int, >0)'
+        assert isinstance(self.load_size,int) and self.load_size>0, \
+            'fill in correct load_size (int, >0)'
+        assert isinstance(self.crop_size,int) and self.crop_size>0 and self.crop_size<self.load_size, \
+            'fill in correct crop_size (int, >0, <{0})'.format(self.load_size)
         assert isinstance(self.learn_ratio,float) and self.learn_ratio>0., \
             'fill in correct learn_ratio (float, >0.)'
         assert isinstance(self.weight_decay,float) and self.weight_decay>=0., \
             'fill in correct weight_decay (float, >=0.)'
         assert isinstance(self.n_epoch_saved,int) and self.n_epoch_saved>0 and self.n_epoch_saved < self.n_epoch, \
             'fill in correct n_epoch (int, >0 and <{0}).format(self.n_epoch)'
-        assert isinstance(self.layer_hidden_sizes,list) and len(self.layer_hidden_sizes)>0, \
-            'fill in correct layer_hidden_sizes (list, such as [10,20,15])'
-        assert isinstance(self.num_layers,int) and self.num_layers>0, \
-            'fill in correct num_layers (int, >0)'
         assert isinstance(self.bias,bool), \
             'fill in correct bias (bool)'
         assert isinstance(self.dropout,float) and self.dropout>0. and self.dropout<1., \
             'fill in correct learn_ratio (float, >0 and <1.)'
-        assert isinstance(self.bidirectional,bool), \
-            'fill in correct bidirectional (bool)'
-        assert isinstance(self.batch_first,bool), \
-            'fill in correct batch_first (bool)'
-        assert isinstance(self.target_repl,bool), \
-            'fill in correct target_repl (bool)'
-        assert isinstance(self.target_repl_coef,float) and self.target_repl_coef>=0. and self.target_repl_coef<=1., \
-            'fill in correct target_repl_coef (float, >=0 and <=1.)'
         assert isinstance(self.aggregate,str) and self.aggregate in ['sum','avg'], \
             'fill in correct aggregate (str, [\'sum\',\'avg\'])'
         assert isinstance(self.optimizer_name,str) and self.optimizer_name in ['adam'], \

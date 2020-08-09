@@ -1,91 +1,108 @@
 import os
-import math
 import torch
 import torch.nn as nn
-from torch.autograd import Variable
-from torch.nn import Parameter
-from torch import Tensor
 import pickle
 import warnings
 import tqdm
 from tqdm._tqdm import trange
-from ..utils.loss import callLoss
-from .base import BaseControler
+from ._loss import callLoss
+from ._dlbase import BaseControler
 
 warnings.filterwarnings('ignore')
 
-class tLSTMCell(nn.Module):
+class RetainAttention(nn.Module):
 
-    def __init__(self, input_size, hidden_size):
-        super(tLSTMCell, self).__init__()
-        self.input_size = input_size
+    def __init__(self, embed_size, hidden_size):
+        super(RetainAttention, self).__init__()
+        self.embed_size = embed_size        
         self.hidden_size = hidden_size
-        self.x2h = nn.Linear(self.input_size, 4 * self.hidden_size)
-        self.h2h = nn.Linear(self.hidden_size, 4 * self.hidden_size)
-        self.c2h = nn.Linear(self.hidden_size, self.hidden_size)
-        self.activate_func_c = nn.Tanh()
-        self.activate_func_h = nn.Sigmoid()
-        self.activate_func_t = nn.Tanh()
-        self.reset_parameters()
+        self.attention_beta = nn.Linear(hidden_size, embed_size)
+        self.activate_beta = nn.Tanh()
+        self.attention_alpha = nn.Linear(hidden_size, 1)
+        self.activate_alpha = nn.Softmax(dim = -1)
+        
+    def forward(self, data_alpha, data_beta, data_embed, data_mask):
+        # shape of data_alpha: <n_batch, n_seq, hidden_size>         
+        # shape of data_beta : <n_batch, n_seq, hidden_size>         
+        # shape of data_embed: <n_batch, n_seq, embed_size>   
+        # shape of data_mask: <n_batch, n_seq>   
+        
+        # generate beta weights
+        n_batch, n_seq, hidden_size = data_beta.shape
+        # shape of beta_weights: <n_batch, n_seq, embed_size>   
+        beta_weights = self.activate_beta(self.attention_beta(data_beta.reshape(-1, hidden_size))).reshape(n_batch, n_seq, self.embed_size)
 
-    def reset_parameters(self):
-        std = 1.0 / math.sqrt(self.hidden_size)
-        for w in self.parameters():
-            w.data.uniform_(-std, std)
-    
-    def forward(self, data_x, data_t, h_t_1, c_t_1):   
-#         print (data_x.shape)
-#         print (data_t.shape)
-#         print (h_t_1.shape)
-#         print (c_t_1.shape)
-
-        # shape of data_x    : <n_batch, input_size> 
-        # shape of data_t    : <n_batch, 1> 
-        # shape of data_h_t_1: <n_batch, hidden_size> 
-        # shape of data_s_t_1: <n_batch, hidden_size> 
+        # generate alpha weights
+        n_batch, n_seq, hidden_size = data_alpha.shape
+        # shape of _ori_correlate_value: <n_batch, 1, n_seq>   
+        _correlate_value = self.attention_alpha(data_alpha.reshape(-1, hidden_size)).reshape(n_batch, n_seq).unsqueeze(1)
+        # shape of attention_value_format: <n_batch, 1, n_seq>   
+        attention_value_format = torch.exp(_correlate_value)
+        # shape of ensemble flag format: <1, n_seq, n_seq> 
+        # if n_seq = 3, ensemble_flag_format can get below flag data
+        #  [[[ 1  1  1 ] 
+        #    [ 0  1  1 ]
+        #    [ 0  0  1 ]]]
+        ensemble_flag = torch.triu(torch.ones([n_seq, n_seq]), diagonal = 0).unsqueeze(0)
+        # shape of _format_mask: <n_batch, 1, n_seq>   
+        _format_mask = data_mask.unsqueeze(1)
+        # shape of ensemble flag format: <1, n_seq, n_seq> 
+        ensemble_flag_format = ensemble_flag * _format_mask
+        # shape of accumulate_attention_value: <n_batch, n_seq, 1>
+        accumulate_attention_value = torch.sum(attention_value_format * ensemble_flag_format, -1).unsqueeze(-1) + 1e-10
+        # shape of each_attention_value: <n_batch, n_seq, n_seq>
+        each_attention_value = attention_value_format * ensemble_flag_format
+        # shape of attention_weight_format: <n_batch, n_seq, n_seq>
+        alpha_weights = each_attention_value/accumulate_attention_value
         
-        # shape of gate_set  : <n_batch, 4 * hidden_size> 
-        gate_set = self.x2h(data_x)  + self.h2h(h_t_1)
-        # shape of f_t       : <n_batch, hidden_size> 
-        # shape of i_t       : <n_batch, hidden_size> 
-        # shape of o_t       : <n_batch, hidden_size> 
-        # shape of c_hat     : <n_batch, hidden_size> 
-        _f_t, _i_t, _o_t, _c_hat = gate_set.chunk(4, -1)
-        f_t = self.activate_func_h(_f_t)
-        i_t = self.activate_func_h(_i_t)
-        o_t = self.activate_func_h(_o_t)
-        c_cur = self.activate_func_c(_c_hat)
+        # shape of _visit_beta_weights: <n_batch, 1, n_seq, embed_size>
+        _visit_beta_weights = beta_weights.unsqueeze(1)
+        # shape of _visit_alpha_weights: <n_batch, n_seq, n_seq, 1>
+        _visit_alpha_weights = alpha_weights.unsqueeze(-1)
+        # shape of _visit_data_embed: <n_batch, 1, n_seq, embed_size>           
+        _visit_data_embed = data_embed.unsqueeze(1)
         
-        # shape of c_s_t_1   : <n_batch, hidden_size> 
-        c_s_t_1 = self.activate_func_c(self.c2h(c_t_1))
-        c_s_t_1_hat = c_s_t_1 * self.activate_func_t(data_t)
-        c_T_t_1 = c_t_1 - c_s_t_1
-        c_star_t_1 = c_T_t_1 + c_s_t_1_hat
+        # shape of mix_weights: <n_batch, n_seq, n_seq, embed_size>
+        mix_weights = _visit_beta_weights * _visit_alpha_weights
+        # shape of weighted_output: <n_batch, n_seq, embed_size>        
+        weighted_output = torch.sum(mix_weights * _visit_data_embed, dim = -2)
         
-        # shape of c_t       : <n_batch, hidden_size> 
-        # shape of h_t       : <n_batch, hidden_size> 
-        c_t = f_t * c_star_t_1 + i_t * c_cur
-        h_t = o_t * self.activate_func_c(c_t)
-        return (h_t, c_t)
+        return weighted_output
 
 class callPredictor(nn.Module):
-    
     def __init__(self, 
                  input_size = None,
-                 hidden_size = 16,
-                 output_size = 8,
-                 batch_first = True,
+                 embed_size = 16,
+                 hidden_size = 8,
+                 bias = True,
                  dropout = 0.5,
+                 batch_first = True,
                  label_size = 1):
         super(callPredictor, self).__init__()
         assert input_size != None and isinstance(input_size, int), 'fill in correct input_size' 
-        self.input_size = input_size
+ 
+        self.input_size = input_size        
+        self.embed_size = embed_size
         self.hidden_size = hidden_size
         self.label_size = label_size
-        self.output_size = output_size
-        self.predict_func = nn.Linear(self.output_size, self.label_size)
-        self.rnn_unit = tLSTMCell(input_size, hidden_size) 
 
+        self.embed_func = nn.Linear(self.input_size, self.embed_size)
+        self.rnn_model_alpha = nn.GRU(input_size = embed_size,
+                                      hidden_size = hidden_size,
+                                      bias = bias,
+                                      dropout = dropout,
+                                      bidirectional = False,
+                                      batch_first = batch_first)
+        self.rnn_model_beta = nn.GRU(input_size = embed_size,
+                                     hidden_size = hidden_size,
+                                     bias = bias,
+                                     dropout = dropout,
+                                     bidirectional = False,
+                                     batch_first = batch_first)
+ 
+        self.attention_func = RetainAttention(self.embed_size, self.hidden_size)
+        self.predict_func = nn.Linear(self.embed_size, self.label_size)
+            
     def forward(self, input_data):
         
         """
@@ -114,33 +131,26 @@ class callPredictor(nn.Module):
 
         
         """
+        
         X = input_data['X']
         M = input_data['M']
         cur_M = input_data['cur_M']
-        T = input_data['T']
-        batchsize, n_timestep, _ = X.shape
-        h0 = Variable(torch.zeros(batchsize, self.hidden_size))
-        c0 = Variable(torch.zeros(batchsize, self.hidden_size))
-        outputs = []      
-        h_t, c_t = h0, c0
-        for t in range(n_timestep):
-            h_t, c_t = self.rnn_unit(X[:,t,:], T[:, t].reshape(-1, 1), h_t, c_t) 
-            outputs.append(h_t)
-        outputs = torch.stack(outputs, dim=1)
-        n_batchsize, n_timestep, n_featdim = outputs.shape
-        all_output = self.predict_func(outputs.reshape(n_batchsize*n_timestep, n_featdim)).\
-                        reshape(n_batchsize, n_timestep, self.label_size) * M.unsqueeze(-1)
+        n_batchsize, n_timestep, n_orifeatdim = X.shape
+        _ori_X = X.view(-1, n_orifeatdim)
+        _embed_X = self.embed_func(_ori_X)        
+        _embed_X = _embed_X.reshape(n_batchsize, n_timestep, self.embed_size)        
+        _embed_alpha, _ = self.rnn_model_alpha(_embed_X)
+        _embed_beta, _ = self.rnn_model_beta(_embed_X)
+        weight_outputs = self.attention_func(_embed_alpha, _embed_beta, _embed_X, M)
+        
+        weight_outputs_reshape = weight_outputs.view(-1, self.embed_size)
+        all_output = self.predict_func(weight_outputs_reshape).\
+                         reshape(n_batchsize, n_timestep, self.label_size) * M.unsqueeze(-1)
         cur_output = (all_output * cur_M.unsqueeze(-1)).sum(dim=1)
         return all_output, cur_output
 
-class tLSTM(BaseControler):
-    
-    """
-    
-    Time-Aware LSTM (T-LSTM), A kind of time-aware RNN neural network;
-        Used to handle irregular time intervals in longitudinal patient records.
-    
-    """
+class Retain(BaseControler):
+
     def __init__(self, 
                  expmodel_id = 'test.new', 
                  n_epoch = 100,
@@ -148,8 +158,8 @@ class tLSTM(BaseControler):
                  learn_ratio = 1e-4,
                  weight_decay = 1e-4,
                  n_epoch_saved = 1,
+                 embed_size = 16,
                  hidden_size = 8,
-                 output_size = 8,
                  bias = True,
                  dropout = 0.5,
                  batch_first = True,
@@ -184,13 +194,13 @@ class tLSTM(BaseControler):
   
         n_epoch_saved : int, optional (default = 1)
             frequency of saving checkpoints at the end of epochs
-                   
+        
+        embed_size: int, optional (default = 16)
+            The number of the embeded features of original input
+            
         hidden_size : int, optional (default = 8)
             The number of features of the hidden state h
-
-        output_size: int, optional (default = 8)
-            The number of the embeded features of rnn output
-
+ 
         bias : bool, optional (default = True)
             If False, then the layer does not use bias weights b_ih and b_hh. 
             
@@ -209,14 +219,14 @@ class tLSTM(BaseControler):
 
         """
  
-        super(tLSTM, self).__init__(expmodel_id)
+        super(Retain, self).__init__(expmodel_id)
         self.n_batchsize = n_batchsize
         self.n_epoch = n_epoch
         self.learn_ratio = learn_ratio
         self.weight_decay = weight_decay
         self.n_epoch_saved = n_epoch_saved
+        self.embed_size = embed_size
         self.hidden_size = hidden_size
-        self.output_size = output_size
         self.bias = bias
         self.dropout = dropout
         self.batch_first = batch_first
@@ -239,8 +249,9 @@ class tLSTM(BaseControler):
         
         _config = {
             'input_size': self.input_size,
+            'embed_size': self.embed_size,
             'hidden_size': self.hidden_size,
-            'output_size': self.output_size,
+            'bias': self.bias,
             'dropout': self.dropout,
             'batch_first': self.batch_first,
             'label_size': self.label_size
@@ -248,14 +259,14 @@ class tLSTM(BaseControler):
         self.predictor = callPredictor(**_config).to(self.device)
         self.predictor= torch.nn.DataParallel(self.predictor)
         self._save_predictor_config(_config)
-        self.criterion = callLoss(task = self.task,
+        self.criterion = callLoss(task = self.task_type,
                                   loss_name = self.loss_name,
                                   target_repl = self.target_repl,
                                   target_repl_coef = self.target_repl_coef,
                                   aggregate = self.aggregate)
         self.optimizer = self._get_optimizer(self.optimizer_name)
 
-    def fit(self, train_data, valid_data):
+    def fit(self, train_data, valid_data, assign_task_type = None):
         
         """
         Parameters
@@ -282,6 +293,9 @@ class tLSTM(BaseControler):
 
             The input valid samples dict.
 
+        assign_task_type: str (default = None)
+            predifine task type to model mapping <feature, label>
+            current support ['binary','multiclass','multilabel','regression']
 
         Returns
 
@@ -292,6 +306,7 @@ class tLSTM(BaseControler):
             Fitted estimator.
 
         """
+        self.task_type = assign_task_type
         self._data_check([train_data, valid_data])
         self._build_model()
         train_reader = self._get_reader(train_data, 'train')
@@ -340,10 +355,10 @@ class tLSTM(BaseControler):
             'fill in correct weight_decay (float, >=0.)'
         assert isinstance(self.n_epoch_saved,int) and self.n_epoch_saved>0 and self.n_epoch_saved < self.n_epoch, \
             'fill in correct n_epoch (int, >0 and <{0}).format(self.n_epoch)'
+        assert isinstance(self.embed_size,int) and self.embed_size>0, \
+            'fill in correct embed_size (int, >0)'
         assert isinstance(self.hidden_size,int) and self.hidden_size>0, \
             'fill in correct hidden_size (int, 8)'
-        assert isinstance(self.output_size,int) and self.output_size>0, \
-            'fill in correct output_size (int, >0)'
         assert isinstance(self.bias,bool), \
             'fill in correct bias (bool)'
         assert isinstance(self.dropout,float) and self.dropout>0. and self.dropout<1., \

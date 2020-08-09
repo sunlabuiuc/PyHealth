@@ -3,8 +3,8 @@ import torch
 import torch.nn as nn
 import pickle
 import warnings
-from ..utils.loss import callLoss
-from .base import BaseControler
+from ._loss import callLoss
+from ._dlbase import BaseControler
 
 warnings.filterwarnings('ignore')
 
@@ -226,11 +226,10 @@ class callPredictor(nn.Module):
         cur_output = (all_output * cur_M.unsqueeze(-1)).sum(dim=1)
         return all_output, cur_output
 
-class AttentionModel(BaseControler):
+class Dipole(BaseControler):
 
     def __init__(self, 
                  expmodel_id = 'test.new', 
-                 task = 'phenotyping',
                  n_epoch = 100,
                  n_batchsize = 5,
                  learn_ratio = 1e-4,
@@ -260,9 +259,6 @@ class AttentionModel(BaseControler):
         ----------
         exp_id : str, optional (default='init.test') 
             name of current experiment
-            
-        task : str, optional (default='phenotyping')
-            name of current healthcare task
             
         n_epoch : int, optional (default = 100)
             number of epochs with the initial learning rate
@@ -319,8 +315,7 @@ class AttentionModel(BaseControler):
 
         """
  
-        super(AttentionModel, self).__init__(expmodel_id)
-        self.task = task
+        super(Dipole, self).__init__(expmodel_id)
         self.n_batchsize = n_batchsize
         self.n_epoch = n_epoch
         self.learn_ratio = learn_ratio
@@ -365,14 +360,14 @@ class AttentionModel(BaseControler):
         self.predictor = callPredictor(**_config).to(self.device)
         self.predictor= torch.nn.DataParallel(self.predictor)
         self._save_predictor_config(_config)
-        self.criterion = callLoss(task = self.task,
+        self.criterion = callLoss(task = self.task_type,
                                   loss_name = self.loss_name,
                                   target_repl = self.target_repl,
                                   target_repl_coef = self.target_repl_coef,
                                   aggregate = self.aggregate)
-        self.optimizer = self._get_optimizer()
+        self.optimizer = self._get_optimizer(self.optimizer_name)
 
-    def fit(self, train_data, valid_data):
+    def fit(self, train_data, valid_data, assign_task_type = None):
         
         """
         Parameters
@@ -399,7 +394,10 @@ class AttentionModel(BaseControler):
 
             The input valid samples dict.
 
-
+        assign_task_type: str (default = None)
+            predifine task type to model mapping <feature, label>
+            current support ['binary','multiclass','multilabel','regression']
+                
         Returns
 
         -------
@@ -409,34 +407,13 @@ class AttentionModel(BaseControler):
             Fitted estimator.
 
         """
-        self.input_size = train_data['feat_n']
-        self.label_size = train_data['label_n']
-
+        self.task_type = assign_task_type
+        self._data_check([train_data, valid_data])
         self._build_model()
-
         train_reader = self._get_reader(train_data, 'train')
         valid_reader = self._get_reader(valid_data, 'valid')
-        
-        best_score = 1e5
-        for epoch in range(0, self.n_epoch):
-            print('\nEpoch: [{0}|{1}]'.format(epoch + 1, self.n_epoch))
-            self._train(train_reader)
-            self._valid(valid_reader)
-            test_score = self.acc['valid'][-1]
-            print ('Train Loss : {:.3f}, Valid Loss : {:.3f}'.format(self.acc['train'][-1], self.acc['valid'][-1]))
-            unit = {'epoch': epoch,
-                    'state_dict': self.predictor.state_dict(),
-                    'score': test_score,
-                    'best_score': best_score,
-                    'optimizer' : self.optimizer.state_dict()}
-            if test_score<best_score:
-                best_score = test_score
-                unit['best_score'] = best_score
-                self._save_checkpoint(unit, epoch, is_best = True)
-            if epoch%self.n_epoch_saved == 0:
-                self._save_checkpoint(unit, epoch, is_best = False)
-            self._save_checkpoint(unit, -1, is_best = False)
-
+        self._fit_model(train_reader, valid_reader)
+  
     def load_model(self, loaded_epoch = ''):
         """
         Parameters
@@ -459,65 +436,7 @@ class AttentionModel(BaseControler):
 
         predictor_config = self._load_predictor_config()
         self.predictor = callPredictor(**predictor_config).to(self.device)
-        if loaded_epoch != '':
-            self._loaded_epoch = loaded_epoch
-        else:
-            self._loaded_epoch = 'best'
-        load_checkpoint_path = os.path.join(self.checkout_dir, self._loaded_epoch + '.checkpoint.pth.tar')
-        if os.path.exists(load_checkpoint_path):
-            try:
-                checkpoint = torch.load(load_checkpoint_path)
-            except:
-                checkpoint = torch.load(load_checkpoint_path, map_location = 'cpu')
-            self.predictor.load_state_dict({key[7:]: value for key, value in checkpoint['state_dict'].items()})
-            print ('load '+self._loaded_epoch+'-th epoch model')  
-        else:
-            print ('no exist '+self._loaded_epoch+'-th epoch model, please dbcheck in dir {0}'.format(self.checkout_dir))
-
-    def get_results(self):
-        
-        """
-        
-        Load saved prediction results in current ExpID
-            truth_value: proj_root/experiments_records/*****(exp_id)/results/y.xxx
-            predict_value: proj_root/experiments_records/*****(exp_id)/results/hat_y.xxx
-            xxx represents the loaded model
-        
-        """
-        try:
-            hat_y = pickle.load(open(os.path.join(self.result_dir, 'hat_y.'+self._loaded_epoch),'rb'))
-        except IOError:
-            print ('Error: cannot find file {0} or load failed'.format(os.path.join(self.result_dir, 'hat_y.'+self._loaded_epoch)))
-        try:
-            y = pickle.load(open(os.path.join(self.result_dir, 'y.'+self._loaded_epoch),'rb'))
-        except IOError:
-            print ('Error: cannot find file {0} or load failed'.format(os.path.join(self.result_dir, 'y.'+self._loaded_epoch)))
-
-        results = {'hat_y': hat_y, 'y': y}
-        
-        return results
-  
-    def inference(self, test_data):
-        """
-        Parameters
-
-        ----------
-
-        test_data : {
-                      'x':list[episode_file_path], 
-                      'y':list[label], 
-                      'l':list[seq_len], 
-                      'feat_n': n of feature space, 
-                      'label_n': n of label space
-                      }
-
-            The input test samples dict.
- 
- 
-        """
-        test_reader = self._get_reader(test_data, 'test')
-        self._test(test_reader)
- 
+        self._load_model(loaded_epoch)
 
     def _args_check(self):
         """
@@ -526,8 +445,6 @@ class AttentionModel(BaseControler):
  
         
         """
-        assert isinstance(self.task,str) and self.task in ['mortality','phenotyping'], \
-            'fill in correct task (str, [\'mortality\',\'phenotyping\'])'
         assert isinstance(self.n_batchsize,int) and self.n_batchsize>0, \
             'fill in correct n_batchsize (int, >0)'
         assert isinstance(self.n_epoch,int) and self.n_epoch>0, \
@@ -566,6 +483,4 @@ class AttentionModel(BaseControler):
             'fill in correct use_gpu (bool)'
         assert isinstance(self.loss_name,str), \
             'fill in correct optimizer_name (str)'
-
-        self.loss_name = self._get_lossname(self.loss_name)
         self.device = self._get_device()

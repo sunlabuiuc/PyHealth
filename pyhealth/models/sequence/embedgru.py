@@ -3,14 +3,15 @@ import torch
 import torch.nn as nn
 import pickle
 import warnings
-from ..utils.loss import callLoss
-from .base import BaseControler
+from ._loss import callLoss
+from ._dlbase import BaseControler
 
 warnings.filterwarnings('ignore')
 
 class callPredictor(nn.Module):
     def __init__(self, 
                  input_size = None,
+                 embed_size = 16,
                  layer_hidden_sizes = [10,20,15],
                  num_layers = 3,
                  bias = True,
@@ -22,10 +23,16 @@ class callPredictor(nn.Module):
         assert input_size != None and isinstance(input_size, int), 'fill in correct input_size' 
         self.num_layers = num_layers
         self.rnn_models = []
+        self.input_size = input_size        
+        self.embed_size = embed_size
         if bidirectional:
-            layer_input_sizes = [input_size] + [2 * chs for chs in layer_hidden_sizes]
+            layer_input_sizes = [embed_size] + [2 * chs for chs in layer_hidden_sizes]
         else:
-            layer_input_sizes = [input_size] + layer_hidden_sizes
+            layer_input_sizes = [embed_size] + layer_hidden_sizes
+        self.label_size = label_size
+        self.output_size = layer_input_sizes[-1]
+
+        self.embed_func = nn.Linear(self.input_size, self.embed_size)
         for i in range(num_layers):
             self.rnn_models.append(nn.GRU(input_size = layer_input_sizes[i],
                                      hidden_size = layer_hidden_sizes[i],
@@ -34,8 +41,6 @@ class callPredictor(nn.Module):
                                      dropout = dropout,
                                      bidirectional = bidirectional,
                                      batch_first = batch_first))
-        self.label_size = label_size
-        self.output_size = layer_input_sizes[-1]
         self.output_func = nn.Linear(self.output_size, self.label_size)
             
     def forward(self, input_data):
@@ -70,7 +75,10 @@ class callPredictor(nn.Module):
         X = input_data['X']
         M = input_data['M']
         cur_M = input_data['cur_M']
-        _data = X
+        batchsize, n_timestep, n_orifeatdim = X.shape
+        _ori_X = X.view(-1, n_orifeatdim)
+        _embed_X = self.embed_func(_ori_X)
+        _data = _embed_X.reshape(batchsize, n_timestep, self.embed_size)
         for temp_rnn_model in self.rnn_models:
             _data, _ = temp_rnn_model(_data)
         outputs = _data
@@ -80,7 +88,7 @@ class callPredictor(nn.Module):
         cur_output = (all_output * cur_M.unsqueeze(-1)).sum(dim=1)
         return all_output, cur_output
 
-class GRU(BaseControler):
+class EmbedGRU(BaseControler):
 
     def __init__(self, 
                  expmodel_id = 'test.new', 
@@ -89,6 +97,7 @@ class GRU(BaseControler):
                  learn_ratio = 1e-4,
                  weight_decay = 1e-4,
                  n_epoch_saved = 1,
+                 embed_size = 16,
                  layer_hidden_sizes = [10,20,15],
                  bias = True,
                  dropout = 0.5,
@@ -102,7 +111,8 @@ class GRU(BaseControler):
                  use_gpu = False
                  ):
         """
-        Applies a multi-layer Gated recurrent unit (GRU) RNN to an healthcare data sequence.
+        On an healthcare data sequence, firstly embed original features into embeded feature space, 
+            then applies a multi-layer Gated recurrent unit (GRU) RNN.
 
 
         Parameters
@@ -125,6 +135,9 @@ class GRU(BaseControler):
   
         n_epoch_saved : int, optional (default = 1)
             frequency of saving checkpoints at the end of epochs
+        
+        embed_size: int, optional (default = 16)
+            The number of the embeded features of original input
             
         layer_hidden_sizes : list, optional (default = [10,20,15])
             The number of features of the hidden state h of each layer
@@ -150,12 +163,13 @@ class GRU(BaseControler):
 
         """
  
-        super(GRU, self).__init__(expmodel_id)
+        super(EmbedGRU, self).__init__(expmodel_id)
         self.n_batchsize = n_batchsize
         self.n_epoch = n_epoch
         self.learn_ratio = learn_ratio
         self.weight_decay = weight_decay
         self.n_epoch_saved = n_epoch_saved
+        self.embed_size = embed_size
         self.layer_hidden_sizes = layer_hidden_sizes
         self.num_layers = len(layer_hidden_sizes)
         self.bias = bias
@@ -180,6 +194,7 @@ class GRU(BaseControler):
         
         _config = {
             'input_size': self.input_size,
+            'embed_size': self.embed_size,
             'layer_hidden_sizes': self.layer_hidden_sizes,
             'num_layers': self.num_layers,
             'bias': self.bias,
@@ -191,14 +206,14 @@ class GRU(BaseControler):
         self.predictor = callPredictor(**_config).to(self.device)
         self.predictor= torch.nn.DataParallel(self.predictor)
         self._save_predictor_config(_config)
-        self.criterion = callLoss(task = self.task,
+        self.criterion = callLoss(task = self.task_type,
                                   loss_name = self.loss_name,
                                   target_repl = self.target_repl,
                                   target_repl_coef = self.target_repl_coef,
                                   aggregate = self.aggregate)
         self.optimizer = self._get_optimizer(self.optimizer_name)
 
-    def fit(self, train_data, valid_data):
+    def fit(self, train_data, valid_data, assign_task_type = None):
         
         """
         Parameters
@@ -225,6 +240,9 @@ class GRU(BaseControler):
 
             The input valid samples dict.
 
+        assign_task_type: str (default = None)
+            predifine task type to model mapping <feature, label>
+            current support ['binary','multiclass','multilabel','regression']
 
         Returns
 
@@ -235,6 +253,7 @@ class GRU(BaseControler):
             Fitted estimator.
 
         """
+        self.task_type = assign_task_type
         self._data_check([train_data, valid_data])
         self._build_model()
         train_reader = self._get_reader(train_data, 'train')
@@ -265,7 +284,6 @@ class GRU(BaseControler):
         self.predictor = callPredictor(**predictor_config).to(self.device)
         self._load_model(loaded_epoch)
 
-
     def _args_check(self):
         """
         
@@ -283,6 +301,8 @@ class GRU(BaseControler):
             'fill in correct weight_decay (float, >=0.)'
         assert isinstance(self.n_epoch_saved,int) and self.n_epoch_saved>0 and self.n_epoch_saved < self.n_epoch, \
             'fill in correct n_epoch (int, >0 and <{0}).format(self.n_epoch)'
+        assert isinstance(self.embed_size,int) and self.embed_size>0, \
+            'fill in correct embed_size (int, >0)'
         assert isinstance(self.layer_hidden_sizes,list) and len(self.layer_hidden_sizes)>0, \
             'fill in correct layer_hidden_sizes (list, such as [10,20,15])'
         assert isinstance(self.num_layers,int) and self.num_layers>0, \

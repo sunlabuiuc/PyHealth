@@ -1,48 +1,89 @@
 import os
+import math
 import torch
 import torch.nn as nn
+from torch.autograd import Variable
+from torch.nn import Parameter
+from torch import Tensor
 import pickle
 import warnings
-from ..utils.loss import callLoss
-from .base import BaseControler
+from ._loss import callLoss
+from ._dlbase import BaseControler
 
 warnings.filterwarnings('ignore')
 
+class tLSTMCell(nn.Module):
+
+    def __init__(self, input_size, hidden_size):
+        super(tLSTMCell, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.x2h = nn.Linear(self.input_size, 4 * self.hidden_size)
+        self.h2h = nn.Linear(self.hidden_size, 4 * self.hidden_size)
+        self.c2h = nn.Linear(self.hidden_size, self.hidden_size)
+        self.activate_func_c = nn.Tanh()
+        self.activate_func_h = nn.Sigmoid()
+        self.activate_func_t = nn.Tanh()
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        std = 1.0 / math.sqrt(self.hidden_size)
+        for w in self.parameters():
+            w.data.uniform_(-std, std)
+    
+    def forward(self, data_x, data_t, h_t_1, c_t_1):   
+#         print (data_x.shape)
+#         print (data_t.shape)
+#         print (h_t_1.shape)
+#         print (c_t_1.shape)
+
+        # shape of data_x    : <n_batch, input_size> 
+        # shape of data_t    : <n_batch, 1> 
+        # shape of data_h_t_1: <n_batch, hidden_size> 
+        # shape of data_s_t_1: <n_batch, hidden_size> 
+        
+        # shape of gate_set  : <n_batch, 4 * hidden_size> 
+        gate_set = self.x2h(data_x)  + self.h2h(h_t_1)
+        # shape of f_t       : <n_batch, hidden_size> 
+        # shape of i_t       : <n_batch, hidden_size> 
+        # shape of o_t       : <n_batch, hidden_size> 
+        # shape of c_hat     : <n_batch, hidden_size> 
+        _f_t, _i_t, _o_t, _c_hat = gate_set.chunk(4, -1)
+        f_t = self.activate_func_h(_f_t)
+        i_t = self.activate_func_h(_i_t)
+        o_t = self.activate_func_h(_o_t)
+        c_cur = self.activate_func_c(_c_hat)
+        
+        # shape of c_s_t_1   : <n_batch, hidden_size> 
+        c_s_t_1 = self.activate_func_c(self.c2h(c_t_1))
+        c_s_t_1_hat = c_s_t_1 * self.activate_func_t(data_t)
+        c_T_t_1 = c_t_1 - c_s_t_1
+        c_star_t_1 = c_T_t_1 + c_s_t_1_hat
+        
+        # shape of c_t       : <n_batch, hidden_size> 
+        # shape of h_t       : <n_batch, hidden_size> 
+        c_t = f_t * c_star_t_1 + i_t * c_cur
+        h_t = o_t * self.activate_func_c(c_t)
+        return (h_t, c_t)
+
 class callPredictor(nn.Module):
+    
     def __init__(self, 
                  input_size = None,
-                 embed_size = 16,
-                 layer_hidden_sizes = [10,20,15],
-                 num_layers = 3,
-                 bias = True,
-                 dropout = 0.5,
-                 bidirectional = True,
+                 hidden_size = 16,
+                 output_size = 8,
                  batch_first = True,
+                 dropout = 0.5,
                  label_size = 1):
         super(callPredictor, self).__init__()
         assert input_size != None and isinstance(input_size, int), 'fill in correct input_size' 
-        self.num_layers = num_layers
-        self.rnn_models = []
-        self.input_size = input_size        
-        self.embed_size = embed_size
-        if bidirectional:
-            layer_input_sizes = [embed_size] + [2 * chs for chs in layer_hidden_sizes]
-        else:
-            layer_input_sizes = [embed_size] + layer_hidden_sizes
+        self.input_size = input_size
+        self.hidden_size = hidden_size
         self.label_size = label_size
-        self.output_size = layer_input_sizes[-1]
+        self.output_size = output_size
+        self.predict_func = nn.Linear(self.output_size, self.label_size)
+        self.rnn_unit = tLSTMCell(input_size, hidden_size) 
 
-        self.embed_func = nn.Linear(self.input_size, self.embed_size)
-        for i in range(num_layers):
-            self.rnn_models.append(nn.GRU(input_size = layer_input_sizes[i],
-                                     hidden_size = layer_hidden_sizes[i],
-                                     num_layers = num_layers,
-                                     bias = bias,
-                                     dropout = dropout,
-                                     bidirectional = bidirectional,
-                                     batch_first = batch_first))
-        self.output_func = nn.Linear(self.output_size, self.label_size)
-            
     def forward(self, input_data):
         
         """
@@ -71,25 +112,33 @@ class callPredictor(nn.Module):
 
         
         """
-        
         X = input_data['X']
         M = input_data['M']
         cur_M = input_data['cur_M']
-        batchsize, n_timestep, n_orifeatdim = X.shape
-        _ori_X = X.view(-1, n_orifeatdim)
-        _embed_X = self.embed_func(_ori_X)
-        _data = _embed_X.reshape(batchsize, n_timestep, self.embed_size)
-        for temp_rnn_model in self.rnn_models:
-            _data, _ = temp_rnn_model(_data)
-        outputs = _data
-        all_output = outputs * M.unsqueeze(-1)
-        n_batchsize, n_timestep, n_featdim = all_output.shape
-        all_output = self.output_func(outputs.reshape(n_batchsize*n_timestep, n_featdim)).reshape(n_batchsize, n_timestep, self.label_size)
+        T = input_data['T']
+        batchsize, n_timestep, _ = X.shape
+        h0 = Variable(torch.zeros(batchsize, self.hidden_size))
+        c0 = Variable(torch.zeros(batchsize, self.hidden_size))
+        outputs = []      
+        h_t, c_t = h0, c0
+        for t in range(n_timestep):
+            h_t, c_t = self.rnn_unit(X[:,t,:], T[:, t].reshape(-1, 1), h_t, c_t) 
+            outputs.append(h_t)
+        outputs = torch.stack(outputs, dim=1)
+        n_batchsize, n_timestep, n_featdim = outputs.shape
+        all_output = self.predict_func(outputs.reshape(n_batchsize*n_timestep, n_featdim)).\
+                        reshape(n_batchsize, n_timestep, self.label_size) * M.unsqueeze(-1)
         cur_output = (all_output * cur_M.unsqueeze(-1)).sum(dim=1)
         return all_output, cur_output
 
-class EmbedGRU(BaseControler):
-
+class tLSTM(BaseControler):
+    
+    """
+    
+    Time-Aware LSTM (T-LSTM), A kind of time-aware RNN neural network;
+        Used to handle irregular time intervals in longitudinal patient records.
+    
+    """
     def __init__(self, 
                  expmodel_id = 'test.new', 
                  n_epoch = 100,
@@ -97,11 +146,10 @@ class EmbedGRU(BaseControler):
                  learn_ratio = 1e-4,
                  weight_decay = 1e-4,
                  n_epoch_saved = 1,
-                 embed_size = 16,
-                 layer_hidden_sizes = [10,20,15],
+                 hidden_size = 8,
+                 output_size = 8,
                  bias = True,
                  dropout = 0.5,
-                 bidirectional = True,
                  batch_first = True,
                  loss_name = 'L1LossSigmoid',
                  target_repl = False,
@@ -111,8 +159,7 @@ class EmbedGRU(BaseControler):
                  use_gpu = False
                  ):
         """
-        On an healthcare data sequence, firstly embed original features into embeded feature space, 
-            then applies a multi-layer Gated recurrent unit (GRU) RNN.
+        Applies an Attention-based Bidirectional Recurrent Neural Networks for an healthcare data sequence
 
 
         Parameters
@@ -135,13 +182,13 @@ class EmbedGRU(BaseControler):
   
         n_epoch_saved : int, optional (default = 1)
             frequency of saving checkpoints at the end of epochs
-        
-        embed_size: int, optional (default = 16)
-            The number of the embeded features of original input
-            
-        layer_hidden_sizes : list, optional (default = [10,20,15])
-            The number of features of the hidden state h of each layer
-            
+                   
+        hidden_size : int, optional (default = 8)
+            The number of features of the hidden state h
+
+        output_size: int, optional (default = 8)
+            The number of the embeded features of rnn output
+
         bias : bool, optional (default = True)
             If False, then the layer does not use bias weights b_ih and b_hh. 
             
@@ -149,9 +196,6 @@ class EmbedGRU(BaseControler):
             If non-zero, introduces a Dropout layer on the outputs of each GRU layer except the last layer, 
             with dropout probability equal to dropout. 
 
-        bidirectional : bool, optional (default = True)
-            If True, becomes a bidirectional GRU. 
-            
         batch_first : bool, optional (default = False)
             If True, then the input and output tensors are provided as (batch, seq, feature). 
              
@@ -163,18 +207,16 @@ class EmbedGRU(BaseControler):
 
         """
  
-        super(EmbedGRU, self).__init__(expmodel_id)
+        super(tLSTM, self).__init__(expmodel_id)
         self.n_batchsize = n_batchsize
         self.n_epoch = n_epoch
         self.learn_ratio = learn_ratio
         self.weight_decay = weight_decay
         self.n_epoch_saved = n_epoch_saved
-        self.embed_size = embed_size
-        self.layer_hidden_sizes = layer_hidden_sizes
-        self.num_layers = len(layer_hidden_sizes)
+        self.hidden_size = hidden_size
+        self.output_size = output_size
         self.bias = bias
         self.dropout = dropout
-        self.bidirectional = bidirectional
         self.batch_first = batch_first
         self.loss_name = loss_name
         self.target_repl = target_repl
@@ -194,26 +236,23 @@ class EmbedGRU(BaseControler):
         
         _config = {
             'input_size': self.input_size,
-            'embed_size': self.embed_size,
-            'layer_hidden_sizes': self.layer_hidden_sizes,
-            'num_layers': self.num_layers,
-            'bias': self.bias,
+            'hidden_size': self.hidden_size,
+            'output_size': self.output_size,
             'dropout': self.dropout,
-            'bidirectional': self.bidirectional,
             'batch_first': self.batch_first,
             'label_size': self.label_size
             }
         self.predictor = callPredictor(**_config).to(self.device)
         self.predictor= torch.nn.DataParallel(self.predictor)
         self._save_predictor_config(_config)
-        self.criterion = callLoss(task = self.task,
+        self.criterion = callLoss(task = self.task_type,
                                   loss_name = self.loss_name,
                                   target_repl = self.target_repl,
                                   target_repl_coef = self.target_repl_coef,
                                   aggregate = self.aggregate)
         self.optimizer = self._get_optimizer(self.optimizer_name)
 
-    def fit(self, train_data, valid_data):
+    def fit(self, train_data, valid_data, assign_task_type = None):
         
         """
         Parameters
@@ -240,6 +279,9 @@ class EmbedGRU(BaseControler):
 
             The input valid samples dict.
 
+        assign_task_type: str (default = None)
+            predifine task type to model mapping <feature, label>
+            current support ['binary','multiclass','multilabel','regression']
 
         Returns
 
@@ -250,6 +292,7 @@ class EmbedGRU(BaseControler):
             Fitted estimator.
 
         """
+        self.task_type = assign_task_type
         self._data_check([train_data, valid_data])
         self._build_model()
         train_reader = self._get_reader(train_data, 'train')
@@ -279,6 +322,7 @@ class EmbedGRU(BaseControler):
         predictor_config = self._load_predictor_config()
         self.predictor = callPredictor(**predictor_config).to(self.device)
         self._load_model(loaded_epoch)
+ 
 
     def _args_check(self):
         """
@@ -297,18 +341,14 @@ class EmbedGRU(BaseControler):
             'fill in correct weight_decay (float, >=0.)'
         assert isinstance(self.n_epoch_saved,int) and self.n_epoch_saved>0 and self.n_epoch_saved < self.n_epoch, \
             'fill in correct n_epoch (int, >0 and <{0}).format(self.n_epoch)'
-        assert isinstance(self.embed_size,int) and self.embed_size>0, \
-            'fill in correct embed_size (int, >0)'
-        assert isinstance(self.layer_hidden_sizes,list) and len(self.layer_hidden_sizes)>0, \
-            'fill in correct layer_hidden_sizes (list, such as [10,20,15])'
-        assert isinstance(self.num_layers,int) and self.num_layers>0, \
-            'fill in correct num_layers (int, >0)'
+        assert isinstance(self.hidden_size,int) and self.hidden_size>0, \
+            'fill in correct hidden_size (int, 8)'
+        assert isinstance(self.output_size,int) and self.output_size>0, \
+            'fill in correct output_size (int, >0)'
         assert isinstance(self.bias,bool), \
             'fill in correct bias (bool)'
         assert isinstance(self.dropout,float) and self.dropout>0. and self.dropout<1., \
             'fill in correct learn_ratio (float, >0 and <1.)'
-        assert isinstance(self.bidirectional,bool), \
-            'fill in correct bidirectional (bool)'
         assert isinstance(self.batch_first,bool), \
             'fill in correct batch_first (bool)'
         assert isinstance(self.target_repl,bool), \
