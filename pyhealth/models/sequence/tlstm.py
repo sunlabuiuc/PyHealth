@@ -74,7 +74,8 @@ class callPredictor(nn.Module):
                  output_size = 8,
                  batch_first = True,
                  dropout = 0.5,
-                 label_size = 1):
+                 label_size = 1,
+                 device = None):
         super(callPredictor, self).__init__()
         assert input_size != None and isinstance(input_size, int), 'fill in correct input_size' 
         self.input_size = input_size
@@ -83,6 +84,7 @@ class callPredictor(nn.Module):
         self.output_size = output_size
         self.predict_func = nn.Linear(self.output_size, self.label_size)
         self.rnn_unit = tLSTMCell(input_size, hidden_size) 
+        self.device = device
 
     def forward(self, input_data):
         
@@ -117,8 +119,8 @@ class callPredictor(nn.Module):
         cur_M = input_data['cur_M']
         T = input_data['T']
         batchsize, n_timestep, _ = X.shape
-        h0 = Variable(torch.zeros(batchsize, self.hidden_size))
-        c0 = Variable(torch.zeros(batchsize, self.hidden_size))
+        h0 = Variable(torch.zeros(batchsize, self.hidden_size)).to(self.device)
+        c0 = Variable(torch.zeros(batchsize, self.hidden_size)).to(self.device)
         outputs = []      
         h_t, c_t = h0, c0
         for t in range(n_timestep):
@@ -156,7 +158,8 @@ class tLSTM(BaseControler):
                  target_repl_coef = 0.,
                  aggregate = 'sum',
                  optimizer_name = 'adam',
-                 use_gpu = False
+                 use_gpu = False,
+                 gpu_ids = '0'
                  ):
         """
         Applies an Attention-based Bidirectional Recurrent Neural Networks for an healthcare data sequence
@@ -205,6 +208,9 @@ class tLSTM(BaseControler):
         use_gpu : bool, optional (default=False) 
             If yes, use GPU recources; else use CPU recources 
 
+				gpu_ids : str, optional (default='') 
+										If yes, assign concrete used gpu ids such as '0,2,6'; else use '0' 
+
         """
  
         super(tLSTM, self).__init__(expmodel_id)
@@ -224,6 +230,7 @@ class tLSTM(BaseControler):
         self.aggregate = aggregate
         self.optimizer_name = optimizer_name
         self.use_gpu = use_gpu
+        self.gpu_ids = gpu_ids
         self._args_check()
         
     def _build_model(self):
@@ -240,11 +247,13 @@ class tLSTM(BaseControler):
             'output_size': self.output_size,
             'dropout': self.dropout,
             'batch_first': self.batch_first,
-            'label_size': self.label_size
+            'label_size': self.label_size,
+            'device': self.device
             }
         self.predictor = callPredictor(**_config).to(self.device)
-        self.predictor= torch.nn.DataParallel(self.predictor)
-        self._save_predictor_config(_config)
+        if self.dataparallal:
+            self.predictor= torch.nn.DataParallel(self.predictor)
+        self._save_predictor_config({key: value for key, value in _config.items() if key != 'device'})
         self.criterion = callLoss(task = self.task_type,
                                   loss_name = self.loss_name,
                                   target_repl = self.target_repl,
@@ -320,6 +329,7 @@ class tLSTM(BaseControler):
         """
 
         predictor_config = self._load_predictor_config()
+        predictor_config['device'] = self.device
         self.predictor = callPredictor(**predictor_config).to(self.device)
         self._load_model(loaded_epoch)
  
@@ -363,4 +373,6 @@ class tLSTM(BaseControler):
             'fill in correct use_gpu (bool)'
         assert isinstance(self.loss_name,str), \
             'fill in correct optimizer_name (str)'
+        assert isinstance(self.gpu_ids,str), \
+            'fill in correct use_gpu (str, \'0,2,7\')'
         self.device = self._get_device()

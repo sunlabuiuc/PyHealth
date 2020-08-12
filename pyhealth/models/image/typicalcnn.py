@@ -28,7 +28,8 @@ class TypicalCNN(BaseControler):
                  loss_name = 'L1LossSoftmax',
                  aggregate = 'sum',
                  optimizer_name = 'adam',
-                 use_gpu = False
+                 use_gpu = False,
+                 gpu_ids = '0'
                  ):
         """
         Several typical & popular CNN networks for medical image prediction 
@@ -83,6 +84,9 @@ class TypicalCNN(BaseControler):
         use_gpu : bool, optional (default=False) 
             If yes, use GPU recources; else use CPU recources 
 
+				gpu_ids : str, optional (default='') 
+										If yes, assign concrete used gpu ids such as '0,2,6'; else use '0' 
+
         """
  
         super(TypicalCNN, self).__init__(expmodel_id)
@@ -102,6 +106,7 @@ class TypicalCNN(BaseControler):
         self.aggregate = aggregate
         self.optimizer_name = optimizer_name
         self.use_gpu = use_gpu
+        self.gpu_ids = gpu_ids
         self._args_check()
  
     def _get_predictor(self):
@@ -139,7 +144,8 @@ class TypicalCNN(BaseControler):
         self._save_predictor_config(_config)
         predictor = self._get_predictor()
         self.predictor = predictor.to(self.device)
-        self.predictor= torch.nn.DataParallel(self.predictor)
+        if self.dataparallal:
+            self.predictor= torch.nn.DataParallel(self.predictor)
         self.criterion = callLoss(task = self.task_type,
                                   loss_name = self.loss_name,
                                   aggregate = self.aggregate)
