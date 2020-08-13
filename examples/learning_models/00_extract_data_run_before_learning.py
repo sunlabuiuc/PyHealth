@@ -34,3 +34,12 @@ if __name__ == "__main__":
         print('Extracting mimic demo files now...')
         zip.extractall()
         print('Done!')
+
+    with ZipFile(os.path.join(data_dir, 'image.zip'), 'r') as zip:
+        # # printing all the contents of the zip file
+        # zip.printdir()
+
+        # extracting all the files
+        print('Extracting image files now...')
+        zip.extractall()
+        print('Done!')
