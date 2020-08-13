@@ -12,5 +12,6 @@ All Models
 
    pyhealth.data
    pyhealth.evaluation
-   pyhealth.models
+   pyhealth.models.sequence
+   pyhealth.models.image
    pyhealth.utils
