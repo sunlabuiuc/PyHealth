@@ -51,7 +51,7 @@ class BaseControler(object):
         self.predictor = None
         self.criterion = None
         self.optimizer = None
-
+        self.dataparallal = False
 
     @abc.abstractmethod
     def _build_model(self):
@@ -61,7 +61,14 @@ class BaseControler(object):
         if self.use_gpu:
             if torch.cuda.is_available():
                 device = torch.device("cuda")
-                print ('use GPU recource')
+                if ',' in self.gpu_ids:
+                    ids = self.gpu_ids.split(',')
+                    if len(ids) > 1:
+                        os.environ['CUDA_VISIBLE_DEVICES'] = self.gpu_ids
+                        self.dataparallal = True
+                        print ('use {0} GPUs recource'.format(len(ids)))
+                else:
+                    print ('use GPU recource')
             else:
                 device = torch.device("cpu")
                 print ('not find effcient GPU, use CPU recource')
@@ -334,7 +341,7 @@ class BaseControler(object):
             timetick = Variable(timetick).float().to(self.device)
             data_input = {'X':inputs,'cur_M':cur_masks,'M':masks, 'T':timetick}
             _, h = self.predictor(data_input)
-            if self.task in ['multiclass']:
+            if self.task_type in ['multiclass']:
                 prob_h = F.softmax(h, dim = -1)
             else:
                 prob_h = F.sigmoid(h)
@@ -380,7 +387,10 @@ class BaseControler(object):
                 checkpoint = torch.load(load_checkpoint_path)
             except:
                 checkpoint = torch.load(load_checkpoint_path, map_location = 'cpu')
-            self.predictor.load_state_dict({key[7:]: value for key, value in checkpoint['state_dict'].items()})
+            try:
+                self.predictor.load_state_dict({key: value for key, value in checkpoint['state_dict'].items()})
+            except:
+                self.predictor.load_state_dict({key[7:]: value for key, value in checkpoint['state_dict'].items()})							
             print ('load '+self._loaded_epoch+'-th epoch model')  
         else:
             print ('no exist '+self._loaded_epoch+'-th epoch model, please dbcheck in dir {0}'.format(self.checkout_dir))

@@ -10,11 +10,12 @@ warnings.filterwarnings('ignore')
 
 class LocationAttention(nn.Module):
 
-    def __init__(self, hidden_size):
+    def __init__(self, hidden_size, device):
         super(LocationAttention, self).__init__()
         self.hidden_size = hidden_size
         self.attention_value_ori_func = nn.Linear(self.hidden_size, 1)
-        
+        self.device = device
+
     def forward(self, input_data):
         # shape of input_data: <n_batch, n_seq, hidden_size>         
         n_batch, n_seq, hidden_size = input_data.shape
@@ -29,9 +30,9 @@ class LocationAttention(nn.Module):
         #  [[[ 0  0  0 
         #      1  0  0
         #      1  1  0 ]]]
-        ensemble_flag_format = torch.triu(torch.ones([n_seq, n_seq]), diagonal = 1).permute(1, 0).unsqueeze(0)
+        ensemble_flag_format = torch.triu(torch.ones([n_seq, n_seq]), diagonal = 1).permute(1, 0).unsqueeze(0).to(self.device)
         # shape of accumulate_attention_value: <n_batch, n_seq, 1>
-        accumulate_attention_value = torch.sum(attention_value_format * ensemble_flag_format, -1).unsqueeze(-1) + 1e-10
+        accumulate_attention_value = torch.sum(attention_value_format * ensemble_flag_format, -1).unsqueeze(-1) + 1e-9
         # shape of each_attention_value: <n_batch, n_seq, n_seq>
         each_attention_value = attention_value_format * ensemble_flag_format
         # shape of attention_weight_format: <n_batch, n_seq, n_seq>
@@ -48,11 +49,12 @@ class LocationAttention(nn.Module):
 
 class GeneralAttention(nn.Module):
 
-    def __init__(self, hidden_size):
+    def __init__(self, hidden_size, device):
         super(GeneralAttention, self).__init__()
         self.hidden_size = hidden_size
         self.correlated_value_ori_func = nn.Linear(self.hidden_size, self.hidden_size)
-        
+        self.device = device
+
     def forward(self, input_data):
         # shape of input_data: <n_batch, n_seq, hidden_size>         
         n_batch, n_seq, hidden_size = input_data.shape
@@ -73,7 +75,7 @@ class GeneralAttention(nn.Module):
         #  [[[ 0  0  0 
         #      1  0  0
         #      1  1  0 ]]]
-        ensemble_flag_format = torch.triu(torch.ones([n_seq, n_seq]), diagonal = 1).permute(1, 0).unsqueeze(0)
+        ensemble_flag_format = torch.triu(torch.ones([n_seq, n_seq]), diagonal = 1).permute(1, 0).unsqueeze(0).to(self.device)
         # shape of accumulate_attention_value: <n_batch, n_seq, 1>
         accumulate_attention_value = torch.sum(attention_value_format * ensemble_flag_format, -1).unsqueeze(-1) + 1e-10
         # shape of each_attention_value: <n_batch, n_seq, n_seq>
@@ -91,14 +93,15 @@ class GeneralAttention(nn.Module):
         return weighted_output
 
 class ConcatenationAttention(nn.Module):
-    def __init__(self, hidden_size, attention_dim = 16):
+    def __init__(self, hidden_size, attention_dim = 16, device = None):
         super(ConcatenationAttention, self).__init__()
         self.hidden_size = hidden_size
         self.attention_dim = attention_dim        
         self.attention_map_func = nn.Linear(2 * self.hidden_size, self.attention_dim)
         self.activate_func = nn.Tanh()
         self.correlated_value_ori_func = nn.Linear(self.attention_dim, 1)
-        
+        self.device = device
+				
     def forward(self, input_data):
         # shape of input_data: <n_batch, n_seq, hidden_size>         
         n_batch, n_seq, hidden_size = input_data.shape
@@ -122,7 +125,7 @@ class ConcatenationAttention(nn.Module):
         #  [[[ 0  0  0 
         #      1  0  0
         #      1  1  0 ]]]
-        ensemble_flag_format = torch.triu(torch.ones([n_seq, n_seq]), diagonal = 1).permute(1, 0).unsqueeze(0)
+        ensemble_flag_format = torch.triu(torch.ones([n_seq, n_seq]), diagonal = 1).permute(1, 0).unsqueeze(0).to(self.device)
         # shape of accumulate_attention_value: <n_batch, n_seq, 1>
         accumulate_attention_value = torch.sum(attention_value_format * ensemble_flag_format, -1).unsqueeze(-1) + 1e-10
         # shape of each_attention_value: <n_batch, n_seq, n_seq>
@@ -150,7 +153,8 @@ class callPredictor(nn.Module):
                  batch_first = True,
                  label_size = 1,
                  attention_type = 'location_based',
-                 attention_dim = 8):
+                 attention_dim = 8,
+                 device = None):
         super(callPredictor, self).__init__()
         assert input_size != None and isinstance(input_size, int), 'fill in correct input_size' 
  
@@ -159,7 +163,7 @@ class callPredictor(nn.Module):
         self.hidden_size = hidden_size
         self.output_size = output_size
         self.label_size = label_size
-
+				
         self.embed_func = nn.Linear(self.input_size, self.embed_size)
         self.rnn_model = nn.GRU(input_size = embed_size,
                                  hidden_size = hidden_size,
@@ -168,11 +172,11 @@ class callPredictor(nn.Module):
                                  bidirectional = True,
                                  batch_first = batch_first)
         if attention_type == 'location_based':
-            self.attention_func = LocationAttention(2*hidden_size)
+            self.attention_func = LocationAttention(2*hidden_size, device)
         elif attention_type == 'general':
-            self.attention_func = GeneralAttention(2*hidden_size)
+            self.attention_func = GeneralAttention(2*hidden_size, device)
         elif attention_type == 'concatenation_based':
-            self.attention_func = ConcatenationAttention(2*hidden_size, attention_dim = attention_dim)
+            self.attention_func = ConcatenationAttention(2*hidden_size, attention_dim = attention_dim, device = device)
         else:
             raise Exception('fill in correct attention_type, [location_based, general, concatenation_based]')
         self.output_func = nn.Linear(4 * hidden_size, self.output_size) 
@@ -207,7 +211,7 @@ class callPredictor(nn.Module):
 
         
         """
-        
+
         X = input_data['X']
         M = input_data['M']
         cur_M = input_data['cur_M']
@@ -248,7 +252,8 @@ class Dipole(BaseControler):
                  target_repl_coef = 0.,
                  aggregate = 'sum',
                  optimizer_name = 'adam',
-                 use_gpu = False
+                 use_gpu = False,
+                 gpu_ids = '0'
                  ):
         """
         Applies an Attention-based Bidirectional Recurrent Neural Networks for an healthcare data sequence
@@ -313,6 +318,9 @@ class Dipole(BaseControler):
         use_gpu : bool, optional (default=False) 
             If yes, use GPU recources; else use CPU recources 
 
+				gpu_ids : str, optional (default='') 
+										If yes, assign concrete used gpu ids such as '0,2,6'; else use '0' 
+
         """
  
         super(Dipole, self).__init__(expmodel_id)
@@ -335,6 +343,7 @@ class Dipole(BaseControler):
         self.aggregate = aggregate
         self.optimizer_name = optimizer_name
         self.use_gpu = use_gpu
+        self.gpu_ids = gpu_ids
         self._args_check()
         
     def _build_model(self):
@@ -355,11 +364,14 @@ class Dipole(BaseControler):
             'batch_first': self.batch_first,
             'label_size': self.label_size,
             'attention_type': self.attention_type,
-            'attention_dim': self.attention_dim
+            'attention_dim': self.attention_dim,
+            'device': self.device
             }
-        self.predictor = callPredictor(**_config).to(self.device)
-        self.predictor= torch.nn.DataParallel(self.predictor)
-        self._save_predictor_config(_config)
+        self.predictor = callPredictor(**_config)
+        self.predictor.to(self.device)
+        if self.dataparallal:
+            self.predictor= torch.nn.DataParallel(self.predictor)
+        self._save_predictor_config({key: value for key, value in _config.items() if key != 'device'})
         self.criterion = callLoss(task = self.task_type,
                                   loss_name = self.loss_name,
                                   target_repl = self.target_repl,
@@ -435,6 +447,7 @@ class Dipole(BaseControler):
         """
 
         predictor_config = self._load_predictor_config()
+        predictor_config['device'] = self.device
         self.predictor = callPredictor(**predictor_config).to(self.device)
         self._load_model(loaded_epoch)
 
@@ -483,4 +496,6 @@ class Dipole(BaseControler):
             'fill in correct use_gpu (bool)'
         assert isinstance(self.loss_name,str), \
             'fill in correct optimizer_name (str)'
+        assert isinstance(self.gpu_ids,str), \
+            'fill in correct use_gpu (str, \'0,2,7\')'
         self.device = self._get_device()

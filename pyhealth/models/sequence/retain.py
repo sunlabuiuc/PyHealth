@@ -12,7 +12,7 @@ warnings.filterwarnings('ignore')
 
 class RetainAttention(nn.Module):
 
-    def __init__(self, embed_size, hidden_size):
+    def __init__(self, embed_size, hidden_size, device):
         super(RetainAttention, self).__init__()
         self.embed_size = embed_size        
         self.hidden_size = hidden_size
@@ -20,6 +20,7 @@ class RetainAttention(nn.Module):
         self.activate_beta = nn.Tanh()
         self.attention_alpha = nn.Linear(hidden_size, 1)
         self.activate_alpha = nn.Softmax(dim = -1)
+        self.device = device
         
     def forward(self, data_alpha, data_beta, data_embed, data_mask):
         # shape of data_alpha: <n_batch, n_seq, hidden_size>         
@@ -43,7 +44,7 @@ class RetainAttention(nn.Module):
         #  [[[ 1  1  1 ] 
         #    [ 0  1  1 ]
         #    [ 0  0  1 ]]]
-        ensemble_flag = torch.triu(torch.ones([n_seq, n_seq]), diagonal = 0).unsqueeze(0)
+        ensemble_flag = torch.triu(torch.ones([n_seq, n_seq]), diagonal = 0).unsqueeze(0).to(self.device)
         # shape of _format_mask: <n_batch, 1, n_seq>   
         _format_mask = data_mask.unsqueeze(1)
         # shape of ensemble flag format: <1, n_seq, n_seq> 
@@ -77,7 +78,8 @@ class callPredictor(nn.Module):
                  bias = True,
                  dropout = 0.5,
                  batch_first = True,
-                 label_size = 1):
+                 label_size = 1,
+                 device = None):
         super(callPredictor, self).__init__()
         assert input_size != None and isinstance(input_size, int), 'fill in correct input_size' 
  
@@ -85,7 +87,7 @@ class callPredictor(nn.Module):
         self.embed_size = embed_size
         self.hidden_size = hidden_size
         self.label_size = label_size
-
+        self.device = device
         self.embed_func = nn.Linear(self.input_size, self.embed_size)
         self.rnn_model_alpha = nn.GRU(input_size = embed_size,
                                       hidden_size = hidden_size,
@@ -100,7 +102,7 @@ class callPredictor(nn.Module):
                                      bidirectional = False,
                                      batch_first = batch_first)
  
-        self.attention_func = RetainAttention(self.embed_size, self.hidden_size)
+        self.attention_func = RetainAttention(self.embed_size, self.hidden_size, self.device)
         self.predict_func = nn.Linear(self.embed_size, self.label_size)
             
     def forward(self, input_data):
@@ -168,7 +170,8 @@ class Retain(BaseControler):
                  target_repl_coef = 0.,
                  aggregate = 'sum',
                  optimizer_name = 'adam',
-                 use_gpu = False
+                 use_gpu = False,
+                 gpu_ids = '0'
                  ):
         """
         Applies an Attention-based Bidirectional Recurrent Neural Networks for an healthcare data sequence
@@ -217,6 +220,9 @@ class Retain(BaseControler):
         use_gpu : bool, optional (default=False) 
             If yes, use GPU recources; else use CPU recources 
 
+				gpu_ids : str, optional (default='') 
+										If yes, assign concrete used gpu ids such as '0,2,6'; else use '0' 
+
         """
  
         super(Retain, self).__init__(expmodel_id)
@@ -236,6 +242,7 @@ class Retain(BaseControler):
         self.aggregate = aggregate
         self.optimizer_name = optimizer_name
         self.use_gpu = use_gpu
+        self.gpu_ids = gpu_ids
         self._set_reverse()
         self._args_check()
         
@@ -254,11 +261,13 @@ class Retain(BaseControler):
             'bias': self.bias,
             'dropout': self.dropout,
             'batch_first': self.batch_first,
-            'label_size': self.label_size
+            'label_size': self.label_size,
+            'device': self.device
             }
         self.predictor = callPredictor(**_config).to(self.device)
-        self.predictor= torch.nn.DataParallel(self.predictor)
-        self._save_predictor_config(_config)
+        if self.dataparallal:
+            self.predictor= torch.nn.DataParallel(self.predictor)
+        self._save_predictor_config({key: value for key, value in _config.items() if key != 'device'})
         self.criterion = callLoss(task = self.task_type,
                                   loss_name = self.loss_name,
                                   target_repl = self.target_repl,
@@ -334,6 +343,7 @@ class Retain(BaseControler):
         """
 
         predictor_config = self._load_predictor_config()
+        predictor_config['device'] = self.device
         self.predictor = callPredictor(**predictor_config).to(self.device)
         self._load_model(loaded_epoch)
  
@@ -377,4 +387,6 @@ class Retain(BaseControler):
             'fill in correct use_gpu (bool)'
         assert isinstance(self.loss_name,str), \
             'fill in correct optimizer_name (str)'
+        assert isinstance(self.gpu_ids,str), \
+            'fill in correct use_gpu (str, \'0,2,7\')'
         self.device = self._get_device()
