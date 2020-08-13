@@ -70,8 +70,11 @@ scripts to generate the customized datasets.
 Quick Start for Running Predictive Models
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-`"examples/learning_models/lstm_cms_example.py" <https://github.com/yzhao062/pyhealth/blob/master/examples/learning_models/lstm_cms_example.py>`_
-demonstrates the basic API of using LSTM for phenotyping prediction. **It is noted that the API across all other algorithms are consistent/similar**.
+Before running examples, you need the datasets. Please download from the GitHub repository `"datasets" <https://github.com/yzhao062/PyHealth/tree/master/datasets>`_.
+You can either unzip them manually or running our script `"00_extract_data_run_before_learning.py" <https://github.com/yzhao062/pyhealth/blob/master/examples/learning_models/00_extract_data_run_before_learning.py>`_
+
+`"examples/learning_models/example_sequence_gpu_mortality.py" <https://github.com/yzhao062/pyhealth/blob/master/examples/learning_models/example_sequence_gpu_mortality.py>`_
+demonstrates the basic API of using GRU for mortality prediction. **It is noted that the API across all other algorithms are consistent/similar**.
 
 **If you do not have the preprocessed datasets yet, download the \\datasets folder (cms.zip and mimic.zip) from PyHealth repository, and run \\examples\\learning_models\\extract_data_run_before_learning.py to prepare/unzip the datasets.**
 
@@ -81,10 +84,11 @@ demonstrates the basic API of using LSTM for phenotyping prediction. **It is not
    .. code-block:: python
 
       # load pre-processed CMS dataset
-      from pyhealth.data.expdata_generator import cms as cms_expdata_generator
+      from pyhealth.data.expdata_generator import sequencedata as expdata_generator
 
-      cur_dataset = cms_expdata_generator(exp_id=exp_id, sel_task='phenotyping')
-      cur_dataset.get_exp_data()
+      expdata_id = '2020.0810.data.mortality.mimic'
+      cur_dataset = expdata_generator(exp_id=exp_id)
+      cur_dataset.get_exp_data(sel_task='mortality', )
       cur_dataset.load_exp_data()
 
 
@@ -93,8 +97,10 @@ demonstrates the basic API of using LSTM for phenotyping prediction. **It is not
    .. code-block:: python
 
       # initialize the model for training
-      from pyhealth.models.lstm import LSTM
-      clf = LSTM(exp_id)
+      from pyhealth.models.sequence.lstm import LSTM
+      # enable GPU
+      clf = LSTM(expmodel_id=expmodel_id, n_batchsize=20, use_gpu=True,
+          n_epoch=100, gpu_ids='0,1')
       clf.fit(cur_dataset.train, cur_dataset.valid)
 
 #. Load the best shot of the training, predict on the test datasets
@@ -112,7 +118,7 @@ demonstrates the basic API of using LSTM for phenotyping prediction. **It is not
    .. code-block:: python
 
       # evaluate the model
-      from pyhealth import evaluation
-      evaluator = evaluation.__dict__['phenotyping']
-      r = evaluator(pred_results['hat_y'], pred_results['y'])
+      from pyhealth.evaluation.evaluator import func
+      r = func(pred_results['hat_y'], pred_results['y'])
+      print(r)
 
