@@ -4,18 +4,10 @@ pyhealth.utils package
 Submodules
 ----------
 
-pyhealth.utils.checklist module
--------------------------------
+pyhealth.utils.check module
+---------------------------
 
-.. automodule:: pyhealth.utils.checklist
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-pyhealth.utils.loss module
---------------------------
-
-.. automodule:: pyhealth.utils.loss
+.. automodule:: pyhealth.utils.check
    :members:
    :undoc-members:
    :show-inheritance:
@@ -35,7 +27,6 @@ pyhealth.utils.utility\_parallel module
    :members:
    :undoc-members:
    :show-inheritance:
-
 
 Module contents
 ---------------

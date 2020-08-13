@@ -1,9 +1,10 @@
 import numpy as np
 import pickle
 import os
-
+from ..utils.check import label_check
 from .binaryclass import evaluator as binary_eval
 from .multilabel import evaluator as multilabel_eval
+from .multilabel import evaluator as multiclass_eval
 
 def check_evalu_type(hat_y, y):
     try:
@@ -49,24 +50,12 @@ def check_evalu_type(hat_y, y):
 evalu_func_mapping_dict = {
     'binaryclass': binary_eval, 
     'multilabel': multilabel_eval, 
-    'multiclass': None, 
+    'multiclass': multiclass_eval, 
     'regression': None
 }
 
 def func(hat_y, y, evalu_type = None):
-    pre_evalu_type = check_evalu_type(hat_y, y)
-    if evalu_type != None:
-        if evalu_type is ['binary', 'multilabel', 'multiclass', 'regression']:
-            if evalu_type == pre_evalu_type:
-                evalu_type = pre_evalu_type
-            else:
-                raise Exception('current data not support the filled evaluation-type {0}, evaluation-type {1} is suggested'\
-                                .format(evalu_type, pre_evalu_type))                
-        else:
-            raise Exception('fill in correct evaluation type [\'binary\', \'multilabel\', \'multiclass\', \'regression\'], \
-                                or Without fill in Anyvalue')
-    else:
-        evalu_type = pre_evalu_type
+    evalu_type = label_check(y, hat_y, evalu_type)
     print ('current data evaluate using {0} evaluation-type'.format(evalu_type))
     evalu_func = evalu_func_mapping_dict[evalu_type]
     return evalu_func(hat_y, y)

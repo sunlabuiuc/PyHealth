@@ -54,7 +54,7 @@ Welcome to PyHealth's documentation!
 
 -----
 
-**Development Status**: **As of 08/05/2020, PyHealth is under active development and in its alpha stage. Please follow, star, and fork to get the latest functions**!
+**Development Status**: **As of 08/12/2020, PyHealth is under active development and in its alpha stage. Please follow, star, and fork to get the latest functions**!
 
 
 **PyHealth** is a comprehensive and flexible **Python library** for **healthcare AI**, designed for both **ML researchers** and **medical practitioners**.
@@ -77,36 +77,40 @@ PyHealth is featured for:
 
 * **Unified APIs, detailed documentation, and interactive examples** across various datasets and algorithms.
 * **Advanced models**\ , including **latest deep learning models** and **classical machine learning models**.
+* **Wide coverage**, supporting **sequence data**, **image data**, and **text data** like clinical notes.
 * **Optimized performance with JIT and parallelization** when possible, using `numba <https://github.com/numba/numba>`_ and `joblib <https://github.com/joblib/joblib>`_.
 * **Customizable modules and flexible design**: each module may be turned on/off or totally replaced by custom functions. The trained models can be easily exported and reloaded for fast exexution and deployment.
 
-**API Demo for LSTM on Phenotyping Prediction**\ :
+
+**API Demo for LSTM on Phenotyping Prediction with GPU**\ :
 
 
    .. code-block:: python
 
+      # load pre-processed CMS dataset
+      from pyhealth.data.expdata_generator import sequencedata as expdata_generator
 
-       # load pre-processed CMS dataset
-       from pyhealth.data.expdata_generator import cms as cms_expdata_generator
+      expdata_id = '2020.0810.data.mortality.mimic'
+      cur_dataset = expdata_generator(exp_id=exp_id)
+      cur_dataset.get_exp_data(sel_task='mortality', )
+      cur_dataset.load_exp_data()
 
-       cur_dataset = cms_expdata_generator(exp_id=exp_id, sel_task='phenotyping')
-       cur_dataset.get_exp_data()
-       cur_dataset.load_exp_data()
+      # initialize the model for training
+      from pyhealth.models.sequence.lstm import LSTM
+      # enable GPU
+      clf = LSTM(expmodel_id=expmodel_id, n_batchsize=20, use_gpu=True,
+          n_epoch=100, gpu_ids='0,1')
+      clf.fit(cur_dataset.train, cur_dataset.valid)
 
-       # initialize the model for training
-       from pyhealth.models.lstm import LSTM
-       clf = LSTM(exp_id)
-       clf.fit(cur_dataset.train, cur_dataset.valid)
+      # load the best model for inference
+      clf.load_model()
+      clf.inference(cur_dataset.test)
+      pred_results = clf.get_results()
 
-       # load the best model for inference
-       clf.load_model()
-       clf.inference(cur_dataset.test)
-       pred_results = clf.get_results()
-
-       # evaluate the model
-       from pyhealth import evaluation
-       evaluator = evaluation.__dict__['phenotyping']
-       r = evaluator(pred_results['hat_y'], pred_results['y'])
+      # evaluate the model
+      from pyhealth.evaluation.evaluator import func
+      r = func(pred_results['hat_y'], pred_results['y'])
+      print(r)
 
 
 **Citing PyHealth**\ :
@@ -154,27 +158,29 @@ EHU-Claim            CMS               DE-SynPUF: CMS 2008-2010 Data Entrepreneu
 
 You may download the above datasets at the links. The structure of the generated datasets can be found in datasets folder:
 
-* \\datasets\\cms\\x_datat\\...csv
+* \\datasets\\cms\\x_data\\...csv
 * \\datasets\\cms\\y_data\\phenotyping.csv
 * \\datasets\\cms\\y_data\\mortality.csv
 
-The processed datasets (X,y) should be put in x_data, y_data correspondingly, to be appropriately digested by deep learning models.
+The processed datasets (X,y) should be put in x_data, y_data correspondingly, to be appropriately digested by deep learning models. We include some sample datasets under \\datasets folder.
+
 
 **(ii) Machine Learning and Deep Learning Models** :
 
-===================  ================  ======================================================================================================  =====  ========================================
+===================  ================  ========================================  ======================================================================================================  =====  ========================================
 Type                 Abbr              Algorithm                                                                                               Year   Ref
-===================  ================  ======================================================================================================  =====  ========================================
-Classical Models     LogisticReg       Logistic Regression                                                                                     N/A
-Classical Models     XGBoost           XGBoost: A scalable tree boosting system                                                                2016   [#Chen2016Xgboost]_
-Neural Networks      LSTM              Long short-term memory                                                                                  1997   [#Hochreiter1997Long]_
-Neural Networks      GRU               Gated recurrent unit                                                                                    2014   [#Cho2014Learning]_
-Neural Networks      RETAIN            RETAIN: An Interpretable Predictive Model for Healthcare using Reverse Time Attention Mechanism         2016   [#Choi2016RETAIN]_
-Neural Networks      Dipole            Dipole: Diagnosis Prediction in Healthcare via Attention-based Bidirectional Recurrent Neural Networks  2017   [#Ma2017Dipole]_
-Neural Networks      tLSTM             Patient Subtyping via Time-Aware LSTM Networks                                                          2017   [#Baytas2017tLSTM]_
-Neural Networks      RAIM              RAIM: Recurrent Attentive and Intensive Model of Multimodal Patient Monitoring Data                     2018   [#Xu2018RAIM]_
-Neural Networks      StageNet          StageNet: Stage-Aware Neural Networks for Health Risk Prediction                                        2020   [#Gao2020StageNet]_
-===================  ================  ======================================================================================================  =====  ========================================
+===================  ================  ========================================  ======================================================================================================  =====  ========================================
+Classical Models     LogisticReg       pyhealth.models.sequence.lr               Logistic Regression                                                                                     N/A
+Classical Models     XGBoost           pyhealth.models.sequence.lr.xgboost       XGBoost: A scalable tree boosting system                                                                2016   [#Chen2016Xgboost]_
+Neural Networks      LSTM              pyhealth.models.sequence.lstm             Long short-term memory                                                                                  1997   [#Hochreiter1997Long]_
+Neural Networks      GRU               pyhealth.models.sequence.gru              Gated recurrent unit                                                                                    2014   [#Cho2014Learning]_
+Neural Networks      RETAIN            pyhealth.models.sequence.retain           RETAIN: An Interpretable Predictive Model for Healthcare using Reverse Time Attention Mechanism         2016   [#Choi2016RETAIN]_
+Neural Networks      Dipole            pyhealth.models.sequence.dipole           Dipole: Diagnosis Prediction in Healthcare via Attention-based Bidirectional Recurrent Neural Networks  2017   [#Ma2017Dipole]_
+Neural Networks      tLSTM             pyhealth.models.sequence.tlstm            Patient Subtyping via Time-Aware LSTM Networks                                                          2017   [#Baytas2017tLSTM]_
+Neural Networks      RAIM              pyhealth.models.sequence.raim             RAIM: Recurrent Attentive and Intensive Model of Multimodal Patient Monitoring Data                     2018   [#Xu2018RAIM]_
+Neural Networks      StageNet          pyhealth.models.sequence.stagenet         StageNet: Stage-Aware Neural Networks for Health Risk Prediction                                        2020   [#Gao2020StageNet]_
+===================  ================  ========================================  ======================================================================================================  =====  ========================================
+
 
 Examples of running ML and DL models can be found below, or directly at \\examples\\learning_examples\\
 
