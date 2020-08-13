@@ -75,6 +75,7 @@ Welcome to PyHealth's documentation!
 .. image:: https://raw.githubusercontent.com/yzhao062/PyHealth/master/docs/images/logo.png
    :target: https://raw.githubusercontent.com/yzhao062/PyHealth/master/docs/images/logo.png
    :alt: PyHealth Logo
+   :align: center
 
 
 **Development Status**: **As of 08/12/2020, PyHealth is under active development and in its alpha stage. Please follow, star, and fork to get the latest functions**!
