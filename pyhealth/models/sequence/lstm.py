@@ -258,7 +258,7 @@ class LSTM(BaseControler):
         self._fit_model(train_reader, valid_reader)
   
     def load_model(self, 
-                   loaded_epoch = ''，
+                   loaded_epoch = '',
                    loaded_model_kit = None):
         """
         Parameters
