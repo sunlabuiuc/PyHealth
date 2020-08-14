@@ -1,3 +1,9 @@
+# -*- coding: utf-8 -*-
+
+# Author: Zhi Qiao <mingshan_ai@163.com>
+
+# License: BSD 2 clause
+
 import os
 import torch
 import torch.nn as nn
@@ -258,7 +264,7 @@ class LSTM(BaseControler):
         self._fit_model(train_reader, valid_reader)
   
     def load_model(self, 
-                   loaded_epoch = '',
+                   loaded_epoch = ''，
                    loaded_model_kit = None):
         """
         Parameters
