@@ -1,3 +1,9 @@
+# -*- coding: utf-8 -*-
+
+# Author: Zhi Qiao <mingshan_ai@163.com>
+
+# License: BSD 2 clause
+
 import os
 import torch
 import torch.nn as nn
@@ -253,21 +259,21 @@ class Retain(BaseControler):
  
         
         """
-        
-        _config = {
-            'input_size': self.input_size,
-            'embed_size': self.embed_size,
-            'hidden_size': self.hidden_size,
-            'bias': self.bias,
-            'dropout': self.dropout,
-            'batch_first': self.batch_first,
-            'label_size': self.label_size,
-            'device': self.device
-            }
-        self.predictor = callPredictor(**_config).to(self.device)
+        if self.is_loadmodel is False:        
+            _config = {
+                'input_size': self.input_size,
+                'embed_size': self.embed_size,
+                'hidden_size': self.hidden_size,
+                'bias': self.bias,
+                'dropout': self.dropout,
+                'batch_first': self.batch_first,
+                'label_size': self.label_size,
+                'device': self.device
+                }
+            self.predictor = callPredictor(**_config).to(self.device)
+            self._save_predictor_config({key: value for key, value in _config.items() if key != 'device'})
         if self.dataparallal:
             self.predictor= torch.nn.DataParallel(self.predictor)
-        self._save_predictor_config({key: value for key, value in _config.items() if key != 'device'})
         self.criterion = callLoss(task = self.task_type,
                                   loss_name = self.loss_name,
                                   target_repl = self.target_repl,

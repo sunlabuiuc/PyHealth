@@ -1,3 +1,9 @@
+# -*- coding: utf-8 -*-
+
+# Author: Zhi Qiao <mingshan_ai@163.com>
+
+# License: BSD 2 clause
+
 import os
 import torch
 import torch.nn as nn
@@ -353,25 +359,25 @@ class Dipole(BaseControler):
  
         
         """
-        
-        _config = {
-            'input_size': self.input_size,
-            'embed_size': self.embed_size,
-            'hidden_size': self.hidden_size,
-            'output_size': self.output_size,
-            'bias': self.bias,
-            'dropout': self.dropout,
-            'batch_first': self.batch_first,
-            'label_size': self.label_size,
-            'attention_type': self.attention_type,
-            'attention_dim': self.attention_dim,
-            'device': self.device
-            }
-        self.predictor = callPredictor(**_config)
-        self.predictor.to(self.device)
+        if self.is_loadmodel is False:
+            _config = {
+                'input_size': self.input_size,
+                'embed_size': self.embed_size,
+                'hidden_size': self.hidden_size,
+                'output_size': self.output_size,
+                'bias': self.bias,
+                'dropout': self.dropout,
+                'batch_first': self.batch_first,
+                'label_size': self.label_size,
+                'attention_type': self.attention_type,
+                'attention_dim': self.attention_dim,
+                'device': self.device
+                }
+            self.predictor = callPredictor(**_config)
+            self.predictor.to(self.device)
+            self._save_predictor_config({key: value for key, value in _config.items() if key != 'device'})
         if self.dataparallal:
             self.predictor= torch.nn.DataParallel(self.predictor)
-        self._save_predictor_config({key: value for key, value in _config.items() if key != 'device'})
         self.criterion = callLoss(task = self.task_type,
                                   loss_name = self.loss_name,
                                   target_repl = self.target_repl,
@@ -426,7 +432,10 @@ class Dipole(BaseControler):
         valid_reader = self._get_reader(valid_data, 'valid')
         self._fit_model(train_reader, valid_reader)
   
-    def load_model(self, loaded_epoch = ''):
+    def load_model(self, 
+                   loaded_epoch = '',
+                   config_file_path = '',
+                   model_file_path = ''):
         """
         Parameters
 
@@ -446,10 +455,10 @@ class Dipole(BaseControler):
 
         """
 
-        predictor_config = self._load_predictor_config()
+        predictor_config = self._load_predictor_config(config_file_path)
         predictor_config['device'] = self.device
         self.predictor = callPredictor(**predictor_config).to(self.device)
-        self._load_model(loaded_epoch)
+        self._load_model(loaded_epoch, model_file_path)
 
     def _args_check(self):
         """

@@ -15,22 +15,77 @@ from ._dlbase import BaseControler
 
 warnings.filterwarnings('ignore')
 
-class TypicalCNN(BaseControler):
+class conv_layer(nn.Module):
+
+    def __init__(self, 
+                 input_channel = None,
+                 output_channel = None,
+                 bias = False
+                ):
+        super(conv_layer, self).__init__()
+        self.conv = nn.Conv2d(input_channel, output_channel, kernel_size=3, stride=1, padding=1, bias=bias)
+        
+        self.bn = nn.BatchNorm2d(output_channel)
+        self.activate = nn.ReLU(inplace=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+		
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.bn(x)
+        x = self.activate(x)
+        x = self.maxpool(x)
+        return x
+
+class callPredictor(nn.Module):
+
+    def __init__(self, 
+                 input_channel = 3,
+                 conv_channel = [8, 8, 6],
+                 fc_size = [64, 16],
+                 label_size = 1
+                ):
+        super(callPredictor, self).__init__()
+        
+        self.conv_layers = nn.ModuleList([])
+        in_c = input_channel
+        for out_c in conv_channel:
+            self.conv_layers.append(conv_layer(in_c, out_c))
+            in_c = out_c
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc_layers = nn.ModuleList([])
+        fc_in_d = in_c
+        for fc_out_d in fc_size:
+            self.fc_layers.append(nn.Linear(fc_in_d, fc_out_d))
+            fc_in_d = fc_out_d
+        self.label_size = label_size
+        self.output_size = fc_in_d
+        self.output_func = nn.Linear(self.output_size, self.label_size)
+
+    def forward(self, x):
+        
+        for conv_layer in self.conv_layers:
+            x = conv_layer(x)
+        x = self.avgpool(x)
+        x = torch.flatten(x, 1)
+        for fc_layer in self.fc_layers:
+            x = fc_layer(x)
+        x = self.output_func(x)
+        return x
+
+
+class BasicCNN(BaseControler):
 
     def __init__(self, 
                  expmodel_id = 'test.new', 
-                 cnn_name = 'resnet18',
-                 pretrained = False,
                  n_epoch = 100,
                  n_batchsize = 5,
                  load_size = 255,
                  crop_size = 224,
+                 conv_channel = [8, 8, 6],
+                 fc_size = [64, 16],
                  learn_ratio = 1e-4,
                  weight_decay = 1e-4,
                  n_epoch_saved = 1,
-                 bias = True,
-                 dropout = 0.5,
-                 batch_first = True,
                  loss_name = 'L1LossSoftmax',
                  aggregate = 'sum',
                  optimizer_name = 'adam',
@@ -47,12 +102,6 @@ class TypicalCNN(BaseControler):
         exp_id : str, optional (default='init.test') 
             name of current experiment
        
-        cnn_name : str, optional (default = 'resnet18')
-            name of typical/popular CNN networks
-        
-        pretrained : bool, optional (default = False)
-            used for pre-trained model load, True -> load pretrained model; False -> not load
-            
         n_epoch : int, optional (default = 100)
             number of epochs with the initial learning rate
             
@@ -64,7 +113,13 @@ class TypicalCNN(BaseControler):
 
         crop_size : int, optional (default = 224)
             crop load_sized image into to this size
-            
+
+        conv_channel : list, optional (default = [8, 8, 6])
+            define number of conv layer, and output channel number of each conv layer 
+						
+        fc_size : list, optional (default = [64, 16])
+            define number of fc layer, and output feature dim of each fc layer 
+
         learn_ratio : float, optional (default = 1e-4)
             initial learning rate for adam
   
@@ -73,17 +128,7 @@ class TypicalCNN(BaseControler):
   
         n_epoch_saved : int, optional (default = 1)
             frequency of saving checkpoints at the end of epochs
-            
-        bias : bool, optional (default = True)
-            If False, then the layer does not use bias weights b_ih and b_hh. 
-            
-        dropout : float, optional (default = 0.5)
-            If non-zero, introduces a Dropout layer on the outputs of each LSTM layer except the last layer, 
-            with dropout probability equal to dropout. 
 
-        batch_first : bool, optional (default = False)
-            If True, then the input and output tensors are provided as (batch, seq, feature). 
-             
         loss_name : str, optional (default='SigmoidCELoss') 
             Name or objective function.
 
@@ -95,19 +140,16 @@ class TypicalCNN(BaseControler):
 
         """
  
-        super(TypicalCNN, self).__init__(expmodel_id)
-        self.cnn_name = cnn_name
-        self.pretrained = pretrained
+        super(BasicCNN, self).__init__(expmodel_id)
         self.n_batchsize = n_batchsize
         self.n_epoch = n_epoch
         self.load_size = load_size
         self.crop_size = crop_size
+        self.conv_channel = conv_channel
+        self.fc_size = fc_size
         self.learn_ratio = learn_ratio
         self.weight_decay = weight_decay
         self.n_epoch_saved = n_epoch_saved
-        self.bias = bias
-        self.dropout = dropout
-        self.batch_first = batch_first
         self.loss_name = loss_name
         self.aggregate = aggregate
         self.optimizer_name = optimizer_name
@@ -115,30 +157,6 @@ class TypicalCNN(BaseControler):
         self.gpu_ids = gpu_ids
         self._args_check()
  
-    def _get_predictor(self):
-        # create model
-        if self.pretrained:
-            print("=> using pre-trained model '{}'".format(self.cnn_name))
-            predictor = models.__dict__[self.cnn_name](pretrained=True)
-        else:
-            print("=> creating model '{}'".format(self.cnn_name))
-            predictor = models.__dict__[self.cnn_name](pretrained=False)
-        # modify model-output 
-        if self.cnn_name == 'resnet18':
-            predictor.fc = torch.nn.Linear(512, self.label_size, bias=True)
-        elif self.cnn_name == 'resnet50':
-            predictor.fc = torch.nn.Linear(2048, self.label_size, bias=True)
-        elif self.cnn_name == 'resnet101':
-            predictor.fc = torch.nn.Linear(2048, self.label_size, bias=True)
-        elif self.cnn_name == 'resnet152':
-            predictor.fc = torch.nn.Linear(2048, self.label_size, bias=True)
-        elif self.cnn_name == 'densenet121':
-            predictor.classifier = torch.nn.Linear(1024, self.label_size, bias=True)
-        elif self.cnn_name == 'densenet161':
-            predictor.classifier = torch.nn.Linear(2208, self.label_size, bias=True)
-        print('    Total params: %.2fM' % (sum(p.numel() for p in predictor.parameters())/1000000.0))
-        return predictor
-    
     def _build_model(self):
         """
         
@@ -146,16 +164,20 @@ class TypicalCNN(BaseControler):
  
         
         """
-        _config = {'label_size': self.label_size}
-        self._save_predictor_config(_config)
-        predictor = self._get_predictor()
-        self.predictor = predictor.to(self.device)
+        _config = {
+             'input_channel': 3,
+             'conv_channel': self.conv_channel,
+             'fc_size': self.fc_size,
+             'label_size': self.label_size
+            }
+        self.predictor = callPredictor(**_config)
+        self.predictor.to(self.device)
         if self.dataparallal:
             self.predictor= torch.nn.DataParallel(self.predictor)
+        self._save_predictor_config(_config)
         self.criterion = callLoss(task = self.task_type,
                                   loss_name = self.loss_name,
                                   aggregate = self.aggregate)
-
         self.optimizer = self._get_optimizer(self.optimizer_name)
 
     def fit(self, train_data, valid_data, assign_task_type = None):
@@ -225,10 +247,8 @@ class TypicalCNN(BaseControler):
 
         """
 
-        _config = self._load_predictor_config()
-        self.label_size = _config['label_size']
-        predictor = self._get_predictor()
-        self.predictor = predictor.to(self.device)
+        predictor_config = self._load_predictor_config()
+        self.predictor = callPredictor(**predictor_config).to(self.device)
         self._load_model(loaded_epoch)
  
 
@@ -239,10 +259,6 @@ class TypicalCNN(BaseControler):
  
         
         """
-        assert isinstance(self.cnn_name,str) and self.cnn_name in ['resnet18'], \
-            'fill in correct cnn_name (str, [\'resnet18\'])'
-        assert isinstance(self.pretrained,bool), \
-            'fill in correct pretrained (bool)'
         assert isinstance(self.n_batchsize,int) and self.n_batchsize>0, \
             'fill in correct n_batchsize (int, >0)'
         assert isinstance(self.n_epoch,int) and self.n_epoch>0, \
@@ -257,10 +273,6 @@ class TypicalCNN(BaseControler):
             'fill in correct weight_decay (float, >=0.)'
         assert isinstance(self.n_epoch_saved,int) and self.n_epoch_saved>0 and self.n_epoch_saved < self.n_epoch, \
             'fill in correct n_epoch (int, >0 and <{0}).format(self.n_epoch)'
-        assert isinstance(self.bias,bool), \
-            'fill in correct bias (bool)'
-        assert isinstance(self.dropout,float) and self.dropout>0. and self.dropout<1., \
-            'fill in correct learn_ratio (float, >0 and <1.)'
         assert isinstance(self.aggregate,str) and self.aggregate in ['sum','avg'], \
             'fill in correct aggregate (str, [\'sum\',\'avg\'])'
         assert isinstance(self.optimizer_name,str) and self.optimizer_name in ['adam'], \
@@ -269,4 +281,8 @@ class TypicalCNN(BaseControler):
             'fill in correct use_gpu (bool)'
         assert isinstance(self.loss_name,str), \
             'fill in correct optimizer_name (str)'
+        assert isinstance(self.conv_channel,list), \
+            'fill in correct conv_channel (list, [8, 8, 6])'
+        assert isinstance(self.fc_size,list), \
+            'fill in correct fc_size (list, [64, 16])'
         self.device = self._get_device()

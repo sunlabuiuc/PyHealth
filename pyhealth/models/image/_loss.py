@@ -1,3 +1,9 @@
+# -*- coding: utf-8 -*-
+
+# Author: Zhi Qiao <mingshan_ai@163.com>
+
+# License: BSD 2 clause
+
 import os
 import torch
 import torch.nn as nn
@@ -13,6 +19,20 @@ from torch.nn import LogSigmoid
 from torch.nn import Softmax
 from torch.nn import LogSoftmax
 
+class md_NNLoss(nn.Module):
+        
+    def __init__(self,
+                 reduction = 'sum'):
+        super(md_NNLoss, self).__init__()
+        self.reduction = reduction
+
+    def forward(self, neg_log_hat_y, y):
+        if self.reduction == 'sum':
+            return -1 * torch.sum(neg_log_hat_y*y)
+        elif self.reduction == 'mean':
+            return -1 * torch.mean(neg_log_hat_y*y)
+        
+
 loss_dict = {
     'multilabel': {
         'L1LossSigmoid': {'activate': Sigmoid, 'lossfunc': L1Loss},
@@ -23,7 +43,8 @@ loss_dict = {
         'CELossSoftmax': {'activate': LogSoftmax, 'lossfunc': BCELoss}
     },
     'multiclass' : {
-        'L1LossSoftmax': {'activate': LogSoftmax, 'lossfunc': L1Loss}
+        'L1LossSoftmax': {'activate': LogSoftmax, 'lossfunc': L1Loss},
+        'CELossSoftmax': {'activate': LogSoftmax, 'lossfunc': md_NNLoss},
     },
     'binaryclass': {
         'L1LossSigmoid': {'activate': Sigmoid, 'lossfunc': L1Loss},
