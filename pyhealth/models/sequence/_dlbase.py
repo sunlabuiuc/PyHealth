@@ -15,20 +15,20 @@ import numpy as np
 import warnings
 import json
 import abc
-import six
+from abc import ABCMeta
 import tqdm
 from tqdm._tqdm import trange
 from ._loss import loss_dict
 from pyhealth.utils.check import *
 from pyhealth.data.data_reader.sequence import dl_reader
 
-@six.add_metaclass(abc.ABCMeta)
-class BaseControler(object):
+
+class BaseController(metaclass=ABCMeta):
     """
     Abstract class for all healthcare predict algorithms.
     
     """
-    
+
     @abc.abstractmethod
     def __init__(self, expmodel_id):
         """
@@ -48,7 +48,7 @@ class BaseControler(object):
         # make saving directory if needed
         if not os.path.isdir(self.checkout_dir):
             os.makedirs(self.checkout_dir)
-            
+
         if not os.path.isdir(self.result_dir):
             os.makedirs(self.result_dir)
 
@@ -116,7 +116,7 @@ class BaseControler(object):
 
 
         """
-        
+
         feat_n_check = set([])
         label_n_check = set([])
         task_type_check = set([])
@@ -127,12 +127,12 @@ class BaseControler(object):
             feat_n_check.add(each_data['feat_n'])
             label_n_check.add(np.shape(np.array(each_data['y']))[1])
             task_type_check.add(label_check(each_data['y'], hat_y = None, assign_task_type = self.task_type))
-            
+
         if len(feat_n_check) != 1:
             raise Exception('feat_n is inconformity in data')
         if len(task_type_check) != 1:
             raise Exception('task_type is inconformity in data')
-        
+
         pre_task_type = list(task_type_check)[0]
         if self.task_type == None:
             self.task_type = pre_task_type
@@ -145,7 +145,7 @@ class BaseControler(object):
         self.loss_name = self._get_lossname(self.loss_name)
         print ('current task can beed seen as {0}; loss func {1} is used for optimization'\
                    .format(self.task_type, self.loss_name))
-        
+
     def _get_lossname(self, loss_name):
         if self.task_type == 'multilabel':
             if loss_name == None or loss_name == '':
@@ -168,10 +168,10 @@ class BaseControler(object):
              return optim.Adam(self.predictor.parameters(),
                                lr=self.learn_ratio,
                                weight_decay=self.weight_decay)
- 
+
     def _set_reverse(self):
         self.reverse = True
- 
+
     def _get_reader(self, data, dtype = 'train'):
         """
         Parameters
@@ -206,8 +206,8 @@ class BaseControler(object):
         if self.reverse is False:
             _dataset = dl_reader.DatasetReader(data)
         else:
-            _dataset = dl_reader.DatasetReader(data, reverse = True)            
- 
+            _dataset = dl_reader.DatasetReader(data, reverse = True)
+
         _loader = torch.utils.data.DataLoader(_dataset,
                                               batch_size=self.n_batchsize,
                                               drop_last = True,
@@ -238,7 +238,7 @@ class BaseControler(object):
         torch.save(state, filepath)
 
     def _train_model(self, train_loader):
-        
+
         """
         Parameters
 
@@ -268,7 +268,7 @@ class BaseControler(object):
             data_input = {'X':inputs,'cur_M':cur_masks,'M':masks, 'T':timetick}
             all_h, h = self.predictor(data_input)
             if self.target_repl:
-                data_output = {'all_hat_y': all_h, 'hat_y':h,'y':targets,'mask':masks} 
+                data_output = {'all_hat_y': all_h, 'hat_y':h,'y':targets,'mask':masks}
             else:
                 data_output = {'hat_y':h,'y':targets}
             loss = self.criterion(data_output)
@@ -307,7 +307,7 @@ class BaseControler(object):
             data_input = {'X':inputs,'cur_M':cur_masks,'M':masks, 'T':timetick}
             all_h, h = self.predictor(data_input)
             if self.target_repl:
-                data_output = {'all_hat_y': all_h, 'hat_y':h,'y':targets,'mask':masks} 
+                data_output = {'all_hat_y': all_h, 'hat_y':h,'y':targets,'mask':masks}
             else:
                 data_output = {'hat_y':h,'y':targets}
             loss = self.criterion(data_output)
@@ -395,8 +395,8 @@ class BaseControler(object):
             try:
                 self.predictor.load_state_dict({key: value for key, value in checkpoint['state_dict'].items()})
             except:
-                self.predictor.load_state_dict({key[7:]: value for key, value in checkpoint['state_dict'].items()})							
-            print ('load '+self._loaded_epoch+'-th epoch model')  
+                self.predictor.load_state_dict({key[7:]: value for key, value in checkpoint['state_dict'].items()})
+            print ('load '+self._loaded_epoch+'-th epoch model')
         else:
             print ('no exist '+self._loaded_epoch+'-th epoch model, please dbcheck in dir {0}'.format(self.checkout_dir))
 
@@ -447,15 +447,15 @@ class BaseControler(object):
 #         ----------
 
 #         test_data : {
-#                       'x':list[episode_file_path], 
-#                       'y':list[label], 
-#                       'l':list[seq_len], 
-#                       'feat_n': n of feature space, 
+#                       'x':list[episode_file_path],
+#                       'y':list[label],
+#                       'l':list[seq_len],
+#                       'feat_n': n of feature space,
 #                       'label_n': n of label space
 #                       }
 
 #             The input test samples dict.
- 
+
 #         pass
 
     def inference(self, test_data):
@@ -482,14 +482,12 @@ class BaseControler(object):
 
     @abc.abstractmethod
     def load_model(self, loaded_epoch = ''):
-        """
+        """Load the trained model in progress.
+
         Parameters
-
         ----------
-
-        loaded_epoch : str, loaded model name 
-        
-            we save the model by <epoch_count>.epoch, latest.epoch, best.epoch
+        loaded_epoch : str, loaded model name
+            We save the model by <epoch_count>.epoch, latest.epoch, best.epoch
 
         Returns
 
@@ -504,7 +502,7 @@ class BaseControler(object):
         pass
 
     def get_results(self):
-        
+
         """
         
         Load saved prediction results in current ExpID
@@ -523,5 +521,5 @@ class BaseControler(object):
             print ('Error: cannot find file {0} or load failed'.format(os.path.join(self.result_dir, 'y.'+self._loaded_epoch)))
 
         results = {'hat_y': hat_y, 'y': y}
-        
+
         return results

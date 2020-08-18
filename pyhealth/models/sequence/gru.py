@@ -10,7 +10,7 @@ import torch.nn as nn
 import pickle
 import warnings
 from ._loss import callLoss
-from ._dlbase import BaseControler
+from ._dlbase import BaseController
 
 warnings.filterwarnings('ignore')
 
@@ -86,7 +86,7 @@ class callPredictor(nn.Module):
         cur_output = (all_output * cur_M.unsqueeze(-1)).sum(dim=1)
         return all_output, cur_output
 
-class GRU(BaseControler):
+class GRU(BaseController):
 
     def __init__(self, 
                  expmodel_id = 'test.new', 
