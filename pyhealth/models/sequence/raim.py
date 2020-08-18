@@ -261,22 +261,21 @@ class RAIM(BaseController):
  
         
         """
-        
-        _config = {
-            'input_size': self.input_size,
-            'window_size': self.window_size,
-            'hidden_size': self.hidden_size,
-            'output_size': self.output_size,
-            'dropout': self.dropout,
-            'batch_first': self.batch_first,
-            'label_size': self.label_size,
-            'device': self.device
-            }
-        self.predictor = callPredictor(**_config).to(self.device)
-        self.predictor.to(self.device)
+        if self.is_loadmodel is False:        
+            _config = {
+                'input_size': self.input_size,
+                'window_size': self.window_size,
+                'hidden_size': self.hidden_size,
+                'output_size': self.output_size,
+                'dropout': self.dropout,
+                'batch_first': self.batch_first,
+                'label_size': self.label_size,
+                'device': self.device
+                }
+            self.predictor = callPredictor(**_config).to(self.device)
+            self._save_predictor_config({key: value for key, value in _config.items() if key != 'device'})
         if self.dataparallal:
             self.predictor= torch.nn.DataParallel(self.predictor)
-        self._save_predictor_config({key: value for key, value in _config.items() if key != 'device'})
         self.criterion = callLoss(task = self.task_type,
                                   loss_name = self.loss_name,
                                   target_repl = self.target_repl,
@@ -331,7 +330,10 @@ class RAIM(BaseController):
         valid_reader = self._get_reader(valid_data, 'valid')
         self._fit_model(train_reader, valid_reader)
   
-    def load_model(self, loaded_epoch = ''):
+    def load_model(self, 
+                   loaded_epoch = '',
+                   config_file_path = '',
+                   model_file_path = ''):
         """
         Parameters
 
@@ -351,10 +353,10 @@ class RAIM(BaseController):
 
         """
 
-        predictor_config = self._load_predictor_config()
+        predictor_config = self._load_predictor_config(config_file_path)
         predictor_config['device'] = self.device
         self.predictor = callPredictor(**predictor_config).to(self.device)
-        self._load_model(loaded_epoch)
+        self._load_model(loaded_epoch, model_file_path)
   
 
     def _args_check(self):
