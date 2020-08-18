@@ -46,7 +46,7 @@ if __name__ == "__main__":
     # initialize the model for training
     expmodel_id = '2020.0811.model.phenotyping.test.v2'
     clf = Dipole(expmodel_id=expmodel_id, n_batchsize=20, use_gpu=False,
-                 n_epoch=30)
+                 n_epoch=100)
     clf.fit(cur_dataset.train, cur_dataset.valid)
 
     # load the best model for inference

@@ -1,0 +1,16 @@
+name: pyhealth
+dependencies:
+  - combo
+  - joblib
+  - nose
+  - numba
+  - numpy
+  - pandas
+  - scikit-learn
+  - scipy
+  - tensorflow
+  - xgboost
+  - torch
+  - tqdm
+  - xlrd >= 1.0.0
+  - pip

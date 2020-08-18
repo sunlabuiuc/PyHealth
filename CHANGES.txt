@@ -6,4 +6,5 @@ v<0.0.2>, <08/06/2020> -- Add models and remove task parameter from model invoca
 v<0.0.3>, <08/10/2020> -- Massive code refactoring.
 v<0.0.3>, <08/11/2020> -- Add GPU support.
 v<0.0.3>, <08/12/2020> -- Add support for image and clinical notes.
+v<0.0.4>, <08/16/2020> -- Documentation update and binder setup.
 
