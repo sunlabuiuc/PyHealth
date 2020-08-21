@@ -14,7 +14,7 @@ from torch import Tensor
 import pickle
 import warnings
 from ._loss import callLoss
-from ._dlbase import BaseController
+from ._dlbase import BaseControler
 
 warnings.filterwarnings('ignore')
 
@@ -139,7 +139,7 @@ class callPredictor(nn.Module):
         cur_output = (all_output * cur_M.unsqueeze(-1)).sum(dim=1)
         return all_output, cur_output
 
-class tLSTM(BaseController):
+class tLSTM(BaseControler):
     
     """
     

@@ -57,6 +57,7 @@ class BaseControler(object):
         self.criterion = None
         self.optimizer = None
         self.dataparallal = False
+        self.is_loadmodel = False
 
     @abc.abstractmethod
     def _build_model(self):
@@ -217,9 +218,14 @@ class BaseControler(object):
         with open(temp_path, "w", encoding='utf-8') as f:
             f.write(json.dumps(predictor_config, indent=4))
 
-    def _load_predictor_config(self):
-        temp_path = os.path.join(self.checkout_dir, 'predictor_config.json')
-        assert os.path.exists(temp_path), 'cannot find predictor_config.json, please it in dir {0}'.format(self.checkout_dir)
+    def _load_predictor_config(self, config_file_path = ''):
+        if config_file_path == '':
+            temp_path = os.path.join(self.checkout_dir, 'predictor_config.json')
+            assert os.path.exists(temp_path), 'cannot find predictor_config.json, please it in dir {0}'.format(self.checkout_dir)
+        else:
+            temp_path = config_file_path
+            assert os.path.exists(temp_path), 'cannot find predictor_config file from path: {0}'.format(config_file_path)
+        print ('load predictor config file from {0}'.format(temp_path))
         with open(temp_path, 'r') as f:
             predictor_config = json.load(f)
         return predictor_config
@@ -348,12 +354,19 @@ class BaseControler(object):
                 self._save_checkpoint(unit, epoch, is_best = False)
             self._save_checkpoint(unit, -1, is_best = False)
 
-    def _load_model(self, loaded_epoch = ''):
-        if loaded_epoch != '':
-            self._loaded_epoch = loaded_epoch
+    def _load_model(self, 
+                    loaded_epoch = '',  
+                    model_file_path = ''):
+        if model_file_path != '':
+            load_checkpoint_path = model_file_path
+            print ('load model from {0}'.format(model_file_path))
         else:
-            self._loaded_epoch = 'best'
-        load_checkpoint_path = os.path.join(self.checkout_dir, self._loaded_epoch + '.checkpoint.pth.tar')
+            if loaded_epoch != '':
+                self._loaded_epoch = loaded_epoch
+            else:
+                self._loaded_epoch = 'best'
+            load_checkpoint_path = os.path.join(self.checkout_dir, self._loaded_epoch + '.checkpoint.pth.tar')
+            print ('load '+self._loaded_epoch+'-th epoch model')
         if os.path.exists(load_checkpoint_path):
             try:
                 checkpoint = torch.load(load_checkpoint_path)
@@ -362,10 +375,10 @@ class BaseControler(object):
             try:
                 self.predictor.load_state_dict({key: value for key, value in checkpoint['state_dict'].items()})
             except:
-                self.predictor.load_state_dict({key[7:]: value for key, value in checkpoint['state_dict'].items()})							
-            print ('load '+self._loaded_epoch+'-th epoch model')  
+                self.predictor.load_state_dict({key[7:]: value for key, value in checkpoint['state_dict'].items()})							  
         else:
             print ('no exist '+self._loaded_epoch+'-th epoch model, please dbcheck in dir {0}'.format(self.checkout_dir))
+        self.is_loadmodel = True
 
     @abc.abstractmethod
     def fit(self, train_data, valid_data):

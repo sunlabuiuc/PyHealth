@@ -23,11 +23,11 @@ class conv_layer(nn.Module):
                  bias = False
                 ):
         super(conv_layer, self).__init__()
-        self.conv = nn.Conv2d(input_channel, output_channel, kernel_size=3, stride=1, padding=1, bias=bias)
+        self.conv = nn.Conv1d(input_channel, output_channel, kernel_size=3, stride=1, padding=1, bias=bias)
         
-        self.bn = nn.BatchNorm2d(output_channel)
+        self.bn = nn.BatchNorm1d(output_channel)
         self.activate = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.maxpool = nn.MaxPool1d(kernel_size=3, stride=2, padding=1)
 		
     def forward(self, x):
         x = self.conv(x)
@@ -39,7 +39,7 @@ class conv_layer(nn.Module):
 class callPredictor(nn.Module):
 
     def __init__(self, 
-                 input_channel = 3,
+                 input_channel = 1,
                  conv_channel = [8, 8, 6],
                  fc_size = [64, 16],
                  label_size = 1
@@ -51,7 +51,7 @@ class callPredictor(nn.Module):
         for out_c in conv_channel:
             self.conv_layers.append(conv_layer(in_c, out_c))
             in_c = out_c
-        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.avgpool = nn.AdaptiveAvgPool1d((1))
         self.fc_layers = nn.ModuleList([])
         fc_in_d = in_c
         for fc_out_d in fc_size:
@@ -79,9 +79,7 @@ class BasicCNN(BaseControler):
                  expmodel_id = 'test.new', 
                  n_epoch = 100,
                  n_batchsize = 5,
-                 load_size = 255,
-                 crop_size = 224,
-                 conv_channel = [8, 8, 6],
+                 conv_channel = [8, 8],
                  fc_size = [64, 16],
                  learn_ratio = 1e-4,
                  weight_decay = 1e-4,
@@ -93,7 +91,7 @@ class BasicCNN(BaseControler):
                  gpu_ids = '0'
                  ):
         """
-        Several typical & popular CNN networks for medical image prediction 
+        Several typical & popular CNN networks for ECG prediction 
 
 
         Parameters
@@ -108,12 +106,6 @@ class BasicCNN(BaseControler):
         n_batchsize : int, optional (default = 5)
             batch size for model training
         
-        load_size : int, optional (default = 255)
-            scale images to this size
-
-        crop_size : int, optional (default = 224)
-            crop load_sized image into to this size
-
         conv_channel : list, optional (default = [8, 8, 6])
             define number of conv layer, and output channel number of each conv layer 
 						
@@ -143,8 +135,6 @@ class BasicCNN(BaseControler):
         super(BasicCNN, self).__init__(expmodel_id)
         self.n_batchsize = n_batchsize
         self.n_epoch = n_epoch
-        self.load_size = load_size
-        self.crop_size = crop_size
         self.conv_channel = conv_channel
         self.fc_size = fc_size
         self.learn_ratio = learn_ratio
@@ -166,14 +156,14 @@ class BasicCNN(BaseControler):
         """
         if self.is_loadmodel is False:        
             _config = {
-                 'input_channel': 3,
+                 'input_channel': 1,
                  'conv_channel': self.conv_channel,
                  'fc_size': self.fc_size,
                  'label_size': self.label_size
                 }
             self.predictor = callPredictor(**_config).to(self.device)
             self._save_predictor_config(_config)
-
+            
         if self.dataparallal:
             self.predictor= torch.nn.DataParallel(self.predictor)
         self.criterion = callLoss(task = self.task_type,
@@ -267,10 +257,6 @@ class BasicCNN(BaseControler):
             'fill in correct n_batchsize (int, >0)'
         assert isinstance(self.n_epoch,int) and self.n_epoch>0, \
             'fill in correct n_epoch (int, >0)'
-        assert isinstance(self.load_size,int) and self.load_size>0, \
-            'fill in correct load_size (int, >0)'
-        assert isinstance(self.crop_size,int) and self.crop_size>0 and self.crop_size<self.load_size, \
-            'fill in correct crop_size (int, >0, <{0})'.format(self.load_size)
         assert isinstance(self.learn_ratio,float) and self.learn_ratio>0., \
             'fill in correct learn_ratio (float, >0.)'
         assert isinstance(self.weight_decay,float) and self.weight_decay>=0., \

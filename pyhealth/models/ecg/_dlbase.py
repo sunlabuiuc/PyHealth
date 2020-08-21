@@ -20,7 +20,7 @@ import tqdm
 from tqdm._tqdm import trange
 from ._loss import loss_dict
 from pyhealth.utils.check import *
-from pyhealth.data.data_reader.sequence import dl_reader
+from pyhealth.data.data_reader.ecg import dl_reader
 
 @six.add_metaclass(abc.ABCMeta)
 class BaseControler(object):
@@ -97,15 +97,11 @@ class BaseControler(object):
         datalist = [data1 = {
                       'x':list[episode_file_path], 
                       'y':list[label], 
-                      'l':list[seq_len], 
-                      'feat_n': n of feature space, 
                       'label_n': n of label space
                     },
                     data2 = {
                       'x':list[episode_file_path], 
                       'y':list[label], 
-                      'l':list[seq_len], 
-                      'feat_n': n of feature space, 
                       'label_n': n of label space
                     }, ...
                     ]
@@ -118,19 +114,12 @@ class BaseControler(object):
 
         """
         
-        feat_n_check = set([])
         label_n_check = set([])
         task_type_check = set([])
         for each_data in datalist:
-            for each_x_path in each_data['x']:
-                if os.path.exists(each_x_path) is False:
-                    raise Exception('episode file not exist')
-            feat_n_check.add(each_data['feat_n'])
             label_n_check.add(np.shape(np.array(each_data['y']))[1])
             task_type_check.add(label_check(each_data['y'], hat_y = None, assign_task_type = self.task_type))
             
-        if len(feat_n_check) != 1:
-            raise Exception('feat_n is inconformity in data')
         if len(task_type_check) != 1:
             raise Exception('task_type is inconformity in data')
         
@@ -141,17 +130,22 @@ class BaseControler(object):
             pass
         else:
             raise Exception('predifine task-type {0}, but data support task-type {1}'.format(self.task_type, pre_task_type))
-        self.input_size = list(feat_n_check)[0]
         self.label_size = list(label_n_check)[0]
         self.loss_name = self._get_lossname(self.loss_name)
-        print ('current task can beed seen as {0}; loss func {1} is used for optimization'\
-                   .format(self.task_type, self.loss_name))
+        print ('current task can beed seen as {0}'.format(self.task_type))
         
     def _get_lossname(self, loss_name):
         if self.task_type == 'multilabel':
             if loss_name == None or loss_name == '':
                 _loss_name = 'CELossSigmoid'
             elif loss_name in loss_dict['multilabel'].keys():
+                _loss_name = loss_name
+            else:
+                raise Exception('input correct lossfun name')
+        elif self.task_type == 'multiclass':
+            if loss_name == None or loss_name == '':
+                _loss_name = 'L1LossSoftmax'
+            elif loss_name in loss_dict['multiclass'].keys():
                 _loss_name = loss_name
             else:
                 raise Exception('input correct lossfun name')
@@ -204,10 +198,7 @@ class BaseControler(object):
             refer to torch.utils.data.dataloader
         
         """
-        if self.reverse is False:
-            _dataset = dl_reader.DatasetReader(data)
-        else:
-            _dataset = dl_reader.DatasetReader(data, reverse = True)            
+        _dataset = dl_reader.DatasetReader(data)            
  
         _loader = torch.utils.data.DataLoader(_dataset,
                                               batch_size=self.n_batchsize,
@@ -262,22 +253,11 @@ class BaseControler(object):
         self.predictor.train()
         for batch_idx, databatch in enumerate(train_loader):
             inputs = databatch['X']
-            cur_masks = databatch['cur_M']
-            masks = databatch['M']
             targets = databatch['Y']
-            timetick = databatch['T']
             inputs = Variable(inputs).float().to(self.device)
-            masks = Variable(masks).float().to(self.device)
-            cur_masks = Variable(cur_masks).float().to(self.device)
             targets = Variable(targets).float().to(self.device)
-            timetick = Variable(timetick).float().to(self.device)
-            data_input = {'X':inputs,'cur_M':cur_masks,'M':masks, 'T':timetick}
-            all_h, h = self.predictor(data_input)
-            if self.target_repl:
-                data_output = {'all_hat_y': all_h, 'hat_y':h,'y':targets,'mask':masks} 
-            else:
-                data_output = {'hat_y':h,'y':targets}
-            loss = self.criterion(data_output)
+            outputs = self.predictor(inputs)
+            loss = self.criterion({'hat_y': outputs, 'y': targets})
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
@@ -301,22 +281,11 @@ class BaseControler(object):
         loss_v = []
         for batch_idx, databatch in enumerate(valid_loader):
             inputs = databatch['X']
-            cur_masks = databatch['cur_M']
-            masks = databatch['M']
             targets = databatch['Y']
-            timetick = databatch['T']
             inputs = Variable(inputs).float().to(self.device)
-            masks = Variable(masks).float().to(self.device)
-            cur_masks = Variable(cur_masks).float().to(self.device)
             targets = Variable(targets).float().to(self.device)
-            timetick = Variable(timetick).float().to(self.device)
-            data_input = {'X':inputs,'cur_M':cur_masks,'M':masks, 'T':timetick}
-            all_h, h = self.predictor(data_input)
-            if self.target_repl:
-                data_output = {'all_hat_y': all_h, 'hat_y':h,'y':targets,'mask':masks} 
-            else:
-                data_output = {'hat_y':h,'y':targets}
-            loss = self.criterion(data_output)
+            outputs = self.predictor(inputs)
+            loss = self.criterion({'hat_y': outputs, 'y': targets})
             loss_v.append(loss.cpu().data.numpy())
         self.acc['valid'].append(np.mean(np.array(loss_v)))
 
@@ -341,22 +310,15 @@ class BaseControler(object):
         real_v = []
         for batch_idx, databatch in enumerate(test_loader):
             inputs = databatch['X']
-            cur_masks = databatch['cur_M']
-            masks = databatch['M']
             targets = databatch['Y']
-            timetick = databatch['T']
             inputs = Variable(inputs).float().to(self.device)
-            masks = Variable(masks).float().to(self.device)
-            cur_masks = Variable(cur_masks).float().to(self.device)
             targets = Variable(targets).float().to(self.device)
-            timetick = Variable(timetick).float().to(self.device)
-            data_input = {'X':inputs,'cur_M':cur_masks,'M':masks, 'T':timetick}
-            _, h = self.predictor(data_input)
+            outputs = self.predictor(inputs)
             if self.task_type in ['multiclass']:
-                prob_h = F.softmax(h, dim = -1)
+                prob_h = F.softmax(outputs, dim = -1)
             else:
-                prob_h = F.sigmoid(h)
-            pre_v.append(h.cpu().detach().numpy())
+                prob_h = F.sigmoid(outputs)
+            pre_v.append(outputs.cpu().detach().numpy())
             prob_v.append(prob_h.cpu().detach().numpy())
             real_v.append(targets.cpu().detach().numpy())
         pickle.dump(np.concatenate(pre_v, 0), open(os.path.join(self.result_dir, 'hat_ori_y.'+self._loaded_epoch),'wb'))
@@ -423,8 +385,6 @@ class BaseControler(object):
         train_data : {
                       'x':list[episode_file_path], 
                       'y':list[label], 
-                      'l':list[seq_len], 
-                      'feat_n': n of feature space, 
                       'label_n': n of label space
                       }
 
@@ -433,8 +393,6 @@ class BaseControler(object):
         valid_data : {
                       'x':list[episode_file_path], 
                       'y':list[label], 
-                      'l':list[seq_len], 
-                      'feat_n': n of feature space, 
                       'label_n': n of label space
                       }
 
@@ -480,8 +438,6 @@ class BaseControler(object):
         test_data : {
                       'x':list[episode_file_path], 
                       'y':list[label], 
-                      'l':list[seq_len], 
-                      'feat_n': n of feature space, 
                       'label_n': n of label space
                       }
 

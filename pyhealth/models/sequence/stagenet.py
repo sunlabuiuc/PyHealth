@@ -15,7 +15,7 @@ from torch import Tensor
 import pickle
 import warnings
 from ._loss import callLoss
-from ._dlbase import BaseController
+from ._dlbase import BaseControler
 
 warnings.filterwarnings('ignore')
 
@@ -192,7 +192,7 @@ class callPredictor(nn.Module):
         cur_output = (all_output * cur_M.unsqueeze(-1)).sum(dim=1)
         return all_output, cur_output
 
-class StageNet(BaseController):
+class StageNet(BaseControler):
     
     """
     
@@ -301,23 +301,22 @@ class StageNet(BaseController):
  
         
         """
-        
-        _config = {
-             'input_dim' : self.input_size, 
-             'hidden_dim' : self.hidden_size, 
-             'conv_size' : self.conv_size, 
-             'levels' : self.levels, 
-             'dropconnect' : self.dropconnect, 
-             'dropout' : self.dropout, 
-             'dropres' : self.dropres,
-             'label_size' : self.label_size,
-             'device' : self.device
-            }
-
-        self.predictor = callPredictor(**_config).to(self.device)
+        if self.is_loadmodel is False:                
+            _config = {
+                 'input_dim' : self.input_size, 
+                 'hidden_dim' : self.hidden_size, 
+                 'conv_size' : self.conv_size, 
+                 'levels' : self.levels, 
+                 'dropconnect' : self.dropconnect, 
+                 'dropout' : self.dropout, 
+                 'dropres' : self.dropres,
+                 'label_size' : self.label_size,
+                 'device' : self.device
+                }
+            self.predictor = callPredictor(**_config).to(self.device)
+            self._save_predictor_config({key: value for key, value in _config.items() if key != 'device'})
         if self.dataparallal:
             self.predictor= torch.nn.DataParallel(self.predictor)
-        self._save_predictor_config({key: value for key, value in _config.items() if key != 'device'})
         self.criterion = callLoss(task = self.task_type,
                                   loss_name = self.loss_name,
                                   target_repl = self.target_repl,
@@ -372,7 +371,10 @@ class StageNet(BaseController):
         valid_reader = self._get_reader(valid_data, 'valid')
         self._fit_model(train_reader, valid_reader)
   
-    def load_model(self, loaded_epoch = ''):
+    def load_model(self, 
+                   loaded_epoch = '',
+                   config_file_path = '',
+                   model_file_path = ''):
         """
         Parameters
 
@@ -392,11 +394,10 @@ class StageNet(BaseController):
 
         """
 
-        predictor_config = self._load_predictor_config()
+        predictor_config = self._load_predictor_config(config_file_path)
         predictor_config['device'] = self.device
         self.predictor = callPredictor(**predictor_config).to(self.device)
-        self._load_model(loaded_epoch)
- 
+        self._load_model(loaded_epoch, model_file_path)
 
     def _args_check(self):
         """
