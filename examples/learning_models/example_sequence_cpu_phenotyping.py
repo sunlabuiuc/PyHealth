@@ -7,19 +7,20 @@
 # environment setting
 import os
 import sys
+from pathlib import Path
 
-sys.path.append(
-    os.path.abspath(os.path.join(os.path.dirname("__file__"), '..')))
-root_dir = os.path.abspath(os.path.join(__file__, "../../.."))
+# this should be learning_models
+curr_dir = os.getcwd()
+
+# this should be pyhealth, which is two level up from learning_models library
+root_dir = Path(curr_dir).parents[1]
 os.chdir(root_dir)
 
-sys.path.append(root_dir)
-
 ### May choose any of these models
-from pyhealth.models.sequence.dipole import Dipole
+# from pyhealth.models.sequence.dipole import model
 # from pyhealth.models.sequence.lstm import LSTM as model
-# from pyhealth.models.sequence.gru import GRU as GRU
-# from pyhealth.models.sequence.embedgru import EmbedGRU as model
+# from pyhealth.models.sequence.gru import GRU as model
+from pyhealth.models.sequence.embedgru import EmbedGRU as model
 # from pyhealth.models.sequence.retain import Retain as model
 # from pyhealth.models.sequence.raim import RAIM as model
 # from pyhealth.models.sequence.tlstm import tLSTM as model
@@ -45,7 +46,7 @@ if __name__ == "__main__":
 
     # initialize the model for training
     expmodel_id = '2020.0811.model.phenotyping.test.v2'
-    clf = Dipole(expmodel_id=expmodel_id, n_batchsize=20, use_gpu=False,
+    clf = model(expmodel_id=expmodel_id, n_batchsize=20, use_gpu=False,
                  n_epoch=100)
     clf.fit(cur_dataset.train, cur_dataset.valid)
 

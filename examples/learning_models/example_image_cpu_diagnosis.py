@@ -8,12 +8,14 @@
 import os
 import sys
 
-sys.path.append(
-    os.path.abspath(os.path.join(os.path.dirname("__file__"), '..')))
-root_dir = os.path.abspath(os.path.join(__file__, "../../.."))
-os.chdir(root_dir)
+from pathlib import Path
 
-sys.path.append(root_dir)
+# this should be learning_models
+curr_dir = os.getcwd()
+
+# this should be pyhealth, which is two level up from learning_models library
+root_dir = Path(curr_dir).parents[1]
+os.chdir(root_dir)
 
 from pyhealth.data.expdata_generator import imagedata as expdata_generator
 from pyhealth.models.image.typicalcnn import TypicalCNN as model
