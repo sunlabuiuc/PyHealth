@@ -76,7 +76,7 @@ Python Library for Healthcare AI (PyHealth)
    :alt: PyHealth Logo
    :align: center
 
-**Development Status**: **As of 08/18/2020, PyHealth is under active development and in its alpha stage. Please follow, star, and fork to get the latest functions**!
+**Development Status**: **As of 08/25/2020, PyHealth is under active development and in its alpha stage. Please follow, star, and fork to get the latest functions**!
 
 
 **PyHealth** is a comprehensive and flexible **Python library** for **healthcare AI**, designed for both **ML researchers** and **medical practitioners**.
