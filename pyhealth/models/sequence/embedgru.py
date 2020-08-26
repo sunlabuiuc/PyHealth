@@ -1,3 +1,9 @@
+# -*- coding: utf-8 -*-
+
+# Author: Zhi Qiao <mingshan_ai@163.com>
+
+# License: BSD 2 clause
+
 import os
 import torch
 import torch.nn as nn
@@ -196,22 +202,23 @@ class EmbedGRU(BaseControler):
  
         
         """
-        
-        _config = {
-            'input_size': self.input_size,
-            'embed_size': self.embed_size,
-            'layer_hidden_sizes': self.layer_hidden_sizes,
-            'num_layers': self.num_layers,
-            'bias': self.bias,
-            'dropout': self.dropout,
-            'bidirectional': self.bidirectional,
-            'batch_first': self.batch_first,
-            'label_size': self.label_size
-            }
-        self.predictor = callPredictor(**_config).to(self.device)
+        if self.is_loadmodel is False:        
+            _config = {
+                'input_size': self.input_size,
+                'embed_size': self.embed_size,
+                'layer_hidden_sizes': self.layer_hidden_sizes,
+                'num_layers': self.num_layers,
+                'bias': self.bias,
+                'dropout': self.dropout,
+                'bidirectional': self.bidirectional,
+                'batch_first': self.batch_first,
+                'label_size': self.label_size
+                }
+            self.predictor = callPredictor(**_config).to(self.device)
+            self._save_predictor_config(_config)
+
         if self.dataparallal:
             self.predictor= torch.nn.DataParallel(self.predictor)
-        self._save_predictor_config(_config)
         self.criterion = callLoss(task = self.task_type,
                                   loss_name = self.loss_name,
                                   target_repl = self.target_repl,
@@ -265,8 +272,11 @@ class EmbedGRU(BaseControler):
         train_reader = self._get_reader(train_data, 'train')
         valid_reader = self._get_reader(valid_data, 'valid')
         self._fit_model(train_reader, valid_reader)
-  
-    def load_model(self, loaded_epoch = ''):
+
+    def load_model(self, 
+                   loaded_epoch = '',
+                   config_file_path = '',
+                   model_file_path = ''):
         """
         Parameters
 
@@ -286,9 +296,9 @@ class EmbedGRU(BaseControler):
 
         """
 
-        predictor_config = self._load_predictor_config()
+        predictor_config = self._load_predictor_config(config_file_path)
         self.predictor = callPredictor(**predictor_config).to(self.device)
-        self._load_model(loaded_epoch)
+        self._load_model(loaded_epoch, model_file_path)
 
     def _args_check(self):
         """

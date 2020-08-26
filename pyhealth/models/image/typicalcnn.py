@@ -1,3 +1,9 @@
+# -*- coding: utf-8 -*-
+
+# Author: Zhi Qiao <mingshan_ai@163.com>
+
+# License: BSD 2 clause
+
 import os
 import torch
 import torch.nn as nn
@@ -140,10 +146,11 @@ class TypicalCNN(BaseControler):
  
         
         """
-        _config = {'label_size': self.label_size}
-        self._save_predictor_config(_config)
-        predictor = self._get_predictor()
-        self.predictor = predictor.to(self.device)
+        if self.is_loadmodel is False:        
+            _config = {'label_size': self.label_size}
+            self.predictor = self._get_predictor().to(self.device)
+            self._save_predictor_config(_config)
+
         if self.dataparallal:
             self.predictor= torch.nn.DataParallel(self.predictor)
         self.criterion = callLoss(task = self.task_type,
@@ -199,7 +206,10 @@ class TypicalCNN(BaseControler):
         valid_reader = self._get_reader(valid_data, 'valid')
         self._fit_model(train_reader, valid_reader)
   
-    def load_model(self, loaded_epoch = ''):
+    def load_model(self, 
+                   loaded_epoch = '',
+                   config_file_path = '',
+                   model_file_path = ''):
         """
         Parameters
 
@@ -219,12 +229,10 @@ class TypicalCNN(BaseControler):
 
         """
 
-        _config = self._load_predictor_config()
+        _config = self._load_predictor_config(config_file_path)
         self.label_size = _config['label_size']
-        predictor = self._get_predictor()
-        self.predictor = predictor.to(self.device)
-        self._load_model(loaded_epoch)
- 
+        self.predictor = self._get_predictor().to(self.device)
+        self._load_model(loaded_epoch, model_file_path) 
 
     def _args_check(self):
         """

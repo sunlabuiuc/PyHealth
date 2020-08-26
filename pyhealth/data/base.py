@@ -2,11 +2,10 @@
 # Author: Yue Zhao <zhaoy@cmu.edu>
 # License: BSD 2 clause
 import abc
-import six
+from abc import ABCMeta
 
 
-@six.add_metaclass(abc.ABCMeta)
-class Standard_Template(object):
+class Standard_Template(metaclass=ABCMeta):
     """Abstract Class which can be inherited by various datasets,
     Key information and memory friendly information will be saved in the
     data dictionary. Otherwise, save the event and sequence location instead.

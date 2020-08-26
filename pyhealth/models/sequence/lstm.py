@@ -1,3 +1,9 @@
+# -*- coding: utf-8 -*-
+
+# Author: Zhi Qiao <mingshan_ai@163.com>
+
+# License: BSD 2 clause
+
 import os
 import torch
 import torch.nn as nn
@@ -187,22 +193,21 @@ class LSTM(BaseControler):
  
         
         """
-        
-        _config = {
-            'input_size': self.input_size,
-            'layer_hidden_sizes': self.layer_hidden_sizes,
-            'num_layers': self.num_layers,
-            'bias': self.bias,
-            'dropout': self.dropout,
-            'bidirectional': self.bidirectional,
-            'batch_first': self.batch_first,
-            'label_size': self.label_size
-            }
-        self.predictor = callPredictor(**_config)
-        self.predictor.to(self.device)
+        if self.is_loadmodel is False:        
+            _config = {
+                'input_size': self.input_size,
+                'layer_hidden_sizes': self.layer_hidden_sizes,
+                'num_layers': self.num_layers,
+                'bias': self.bias,
+                'dropout': self.dropout,
+                'bidirectional': self.bidirectional,
+                'batch_first': self.batch_first,
+                'label_size': self.label_size
+                }
+            self.predictor = callPredictor(**_config).to(self.device)
+            self._save_predictor_config(_config)
         if self.dataparallal:
             self.predictor= torch.nn.DataParallel(self.predictor)
-        self._save_predictor_config(_config)
         self.criterion = callLoss(task = self.task_type,
                                   loss_name = self.loss_name,
                                   target_repl = self.target_repl,
@@ -259,7 +264,8 @@ class LSTM(BaseControler):
   
     def load_model(self, 
                    loaded_epoch = '',
-                   loaded_model_kit = None):
+                   config_file_path = '',
+                   model_file_path = ''):
         """
         Parameters
 
@@ -278,12 +284,10 @@ class LSTM(BaseControler):
             loaded estimator.
 
         """
-        if loaded_model_kit == None:
-            pass
-        predictor_config = self._load_predictor_config()
+
+        predictor_config = self._load_predictor_config(config_file_path)
         self.predictor = callPredictor(**predictor_config).to(self.device)
-        self._load_model(loaded_epoch)
- 
+        self._load_model(loaded_epoch, model_file_path)
 
     def _args_check(self):
         """

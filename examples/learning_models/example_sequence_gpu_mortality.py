@@ -4,13 +4,14 @@ from __future__ import print_function
 # environment setting
 import os
 import sys
+from pathlib import Path
 
-sys.path.append(
-    os.path.abspath(os.path.join(os.path.dirname("__file__"), '..')))
-root_dir = os.path.abspath(os.path.join(__file__, "../../.."))
+# this should be learning_models
+curr_dir = os.getcwd()
+
+# this should be pyhealth, which is two level up from learning_models library
+root_dir = Path(curr_dir).parents[1]
 os.chdir(root_dir)
-
-sys.path.append(root_dir)
 
 ### May choose any of these models
 # from pyhealth.models.sequence.dipole import Dipole as model

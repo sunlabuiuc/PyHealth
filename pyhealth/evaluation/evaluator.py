@@ -1,3 +1,9 @@
+# -*- coding: utf-8 -*-
+
+# Author: Zhi Qiao <mingshan_ai@163.com>
+
+# License: BSD 2 clause
+
 import numpy as np
 import pickle
 import os

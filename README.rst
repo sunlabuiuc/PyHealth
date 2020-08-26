@@ -14,6 +14,10 @@ Python Library for Healthcare AI (PyHealth)
    :alt: Documentation status
 
 
+.. image:: https://mybinder.org/badge_logo.svg
+   :target: https://mybinder.org/v2/gh/yzhao062/pyhealth/master
+   :alt: MyBinder
+
 .. image:: https://img.shields.io/github/stars/yzhao062/pyhealth.svg
    :target: https://github.com/yzhao062/pyhealth/stargazers
    :alt: GitHub stars
@@ -72,16 +76,16 @@ Python Library for Healthcare AI (PyHealth)
    :alt: PyHealth Logo
    :align: center
 
-**Development Status**: **As of 08/12/2020, PyHealth is under active development and in its alpha stage. Please follow, star, and fork to get the latest functions**!
+**Development Status**: **As of 08/25/2020, PyHealth is under active development and in its alpha stage. Please follow, star, and fork to get the latest functions**!
 
 
 **PyHealth** is a comprehensive and flexible **Python library** for **healthcare AI**, designed for both **ML researchers** and **medical practitioners**.
-The library is proudly developed and maintained by researchers at `Carnegie Mellon University <https://www.cmu.edu/>`_, `IQVIA <https://www.iqvia.com/>`_, and `University of Illinois at Urbana-Champaign <https://illinois.edu/>`_.
+The library is proudly developed and maintained by researchers from `Carnegie Mellon University <https://www.cmu.edu/>`_, `IQVIA <https://www.iqvia.com/>`_, and `University of Illinois at Urbana-Champaign <https://illinois.edu/>`_.
 PyHealth makes many important healthcare tasks become accessible, such as **phenotyping prediction**, **mortality prediction**,
-**ICU length stay forecasting**, etc. Running these prediction tasks with deep learning models can be as short as 10 lines of code.
+and **ICU length stay forecasting**, etc. Running these prediction tasks with deep learning models can be as short as 10 lines of code in PyHealth.
 
 
-PyHealth comes with three major modules: (i) *data preprocessing module*; (ii) *learning module*
+**PyHealth comes with three major modules**: (i) *data preprocessing module*; (ii) *learning module*
 and (iii) *evaluation module*. Typically, one can run the data prep module to prepare the data, then feed to the learning module for prediction, and finally assess
 the result with the evaluation module.
 Users can use the full system as mentioned or just selected modules based on the own need:
@@ -92,11 +96,11 @@ Users can use the full system as mentioned or just selected modules based on the
 
 PyHealth is featured for:
 
-* **Unified APIs, detailed documentation, and interactive examples** across various datasets and algorithms.
+* **Unified APIs, detailed documentation, and interactive examples** across various types of datasets and algorithms.
 * **Advanced models**\ , including **latest deep learning models** and **classical machine learning models**.
 * **Wide coverage**, supporting **sequence data**, **image data**, and **text data** like clinical notes.
 * **Optimized performance with JIT and parallelization** when possible, using `numba <https://github.com/numba/numba>`_ and `joblib <https://github.com/joblib/joblib>`_.
-* **Customizable modules and flexible design**: each module may be turned on/off or totally replaced by custom functions. The trained models can be easily exported and reloaded for fast exexution and deployment.
+* **Customizable modules and flexible design**: each module may be turned on/off or totally replaced by custom functions. The trained models can be easily exported and reloaded for fast execution and deployment.
 
 **API Demo for LSTM on Phenotyping Prediction**\ :
 
@@ -240,13 +244,14 @@ Preprocessed Datasets & Implemented Algorithms
 
 **(i) Preprocessed Datasets** (customized data preprocessing function is provided in the example folders):
 
-===================  ================  ======================================================================================================    ======================================================    ===============================================================================================================
-Type                 Abbr              Description                                                                                               Processed Function                                        Link
-===================  ================  ======================================================================================================    ======================================================    ===============================================================================================================
-EHR-ICU              MIMIC III         A relational database containing tables of data relating to patients who stayed within ICU.               \\examples\\data_generation\\dataloader_mimic             https://mimic.physionet.org/gettingstarted/overview/
-EHR-ICU              MIMIC_demo        The MIMIC-III demo database is limited to 100 patients and excludes the noteevents table.                 \\examples\\data_generation\\dataloader_mimic_demo        https://mimic.physionet.org/gettingstarted/demo/
-EHU-Claim            CMS               DE-SynPUF: CMS 2008-2010 Data Entrepreneurs Synthetic Public Use File                                     \\examples\\data_generation\\dataloader_cms               https://www.cms.gov/Research-Statistics-Data-and-Systems/Downloadable-Public-Use-Files/SynPUFs
-===================  ================  ======================================================================================================    ======================================================    ===============================================================================================================
+====================  ================  ======================================================================================================    ======================================================    ===============================================================================================================
+Type                  Abbr              Description                                                                                               Processed Function                                        Link
+====================  ================  ======================================================================================================    ======================================================    ===============================================================================================================
+Sequence: EHR-ICU     MIMIC III         A relational database containing tables of data relating to patients who stayed within ICU.               \\examples\\data_generation\\dataloader_mimic             https://mimic.physionet.org/gettingstarted/overview/
+Sequence: EHR-ICU     MIMIC_demo        The MIMIC-III demo database is limited to 100 patients and excludes the noteevents table.                 \\examples\\data_generation\\dataloader_mimic_demo        https://mimic.physionet.org/gettingstarted/demo/
+Sequence: EHU-Claim   CMS               DE-SynPUF: CMS 2008-2010 Data Entrepreneurs Synthetic Public Use File                                     \\examples\\data_generation\\dataloader_cms               https://www.cms.gov/Research-Statistics-Data-and-Systems/Downloadable-Public-Use-Files/SynPUFs
+Image: Chest X-ray    Pediatric         Pediatric Chest X-ray Pneumonia (Bacterial vs Viral vs Normal) Dataset                                    N/A                                                       https://academictorrents.com/details/951f829a8eeb4d2839c4a535db95078a9175010b
+====================  ================  ======================================================================================================    ======================================================    ===============================================================================================================
 
 You may download the above datasets at the links. The structure of the generated datasets can be found in datasets folder:
 
@@ -254,15 +259,16 @@ You may download the above datasets at the links. The structure of the generated
 * \\datasets\\cms\\y_data\\phenotyping.csv
 * \\datasets\\cms\\y_data\\mortality.csv
 
+
 The processed datasets (X,y) should be put in x_data, y_data correspondingly, to be appropriately digested by deep learning models. We include some sample datasets under \\datasets folder.
 
 **(ii) Machine Learning and Deep Learning Models** :
 
 ===================  ================  ========================================  ======================================================================================================  =====  ========================================
-Type                 Abbr              Algorithm                                                                                               Year   Ref
+Type                 Abbr              Class                                     Algorithm                                                                                               Year   Ref
 ===================  ================  ========================================  ======================================================================================================  =====  ========================================
-Classical Models     LogisticReg       pyhealth.models.sequence.lr               Logistic Regression                                                                                     N/A
-Classical Models     XGBoost           pyhealth.models.sequence.lr.xgboost       XGBoost: A scalable tree boosting system                                                                2016   [#Chen2016Xgboost]_
+Classical Models     RandomForest      pyhealth.models.sequence.rf               Random Forests                                                                                          2000   [#Breiman2001Random]_
+Classical Models     XGBoost           pyhealth.models.sequence.xgboost          XGBoost: A scalable tree boosting system                                                                2016   [#Chen2016Xgboost]_
 Neural Networks      LSTM              pyhealth.models.sequence.lstm             Long short-term memory                                                                                  1997   [#Hochreiter1997Long]_
 Neural Networks      GRU               pyhealth.models.sequence.gru              Gated recurrent unit                                                                                    2014   [#Cho2014Learning]_
 Neural Networks      RETAIN            pyhealth.models.sequence.retain           RETAIN: An Interpretable Predictive Model for Healthcare using Reverse Time Attention Mechanism         2016   [#Choi2016RETAIN]_
@@ -444,7 +450,9 @@ beyond EHR data, but also the images and clinical notes.
 Reference
 ^^^^^^^^^
 
-.. [#Baytas2017tLSTM] Baytas, I.M., Xiao, C., Zhang, X., Wang, F., Jain, A.K. and Zhou, J., 2017, August. Patient subtyping via time-aware lstm networks. In Proceedings of the 23rd ACM SIGKDD international conference on knowledge discovery and data mining (pp. 65-74).
+.. [#Baytas2017tLSTM] Baytas, I.M., Xiao, C., Zhang, X., Wang, F., Jain, A.K. and Zhou, J., 2017, August. Patient subtyping via time-aware lstm networks. In *KDD*.
+
+.. [#Breiman2001Random] Breiman, L., 2001. Random forests. *Machine learning*, 45(1), pp.5-32.
 
 .. [#Chen2016Xgboost] Chen, T. and Guestrin, C., 2016, August. Xgboost: A scalable tree boosting system. In *KDD*.
 

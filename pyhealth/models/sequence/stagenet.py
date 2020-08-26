@@ -1,100 +1,116 @@
 # -*- coding: utf-8 -*-
 
-# Author: Zhi Qiao <mingshan_ai@163.com>
+"""StageNet model. Adapted and modified from
 
-# License: BSD 2 clause
+https://github.com/v1xerunt/StageNet
 
+"""
 import os
 import math
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
 from torch.nn import Parameter
-from torch.nn import LSTMCell
 from torch import Tensor
 import pickle
 import warnings
-import tqdm
-from tqdm._tqdm import trange
 from ._loss import callLoss
 from ._dlbase import BaseControler
 
 warnings.filterwarnings('ignore')
 
-class RaimExtract(nn.Module):
-
-    def __init__(self, input_size, window_size, hidden_size):
-        super(RaimExtract, self).__init__()
-
-        self.input_size = input_size
-        self.window_size = window_size
-        self.hidden_size = hidden_size
-
-        self.w_h_alpha = nn.Linear(self.hidden_size, self.window_size)
-        self.w_a_alpha = nn.Linear(self.input_size, 1)
-
-        self.w_h_beta = nn.Linear(self.hidden_size, self.input_size)
-        self.w_a_beta = nn.Linear(self.window_size, 1)
-
-        self.activate_func = nn.Tanh()
-        self.weights_func = nn.Softmax(dim = -1)
-
-    def forward(self, input_data, h_t_1):
-        # shape of input_data : <n_batch, window_size, input_size> 
-        # shape of h_t_1      : <n_batch, hidden_size>         
-        # shape of _alpha_weights : <n_batch, window_size> 
-        _alpha_weights = self.activate_func(self.w_h_alpha(h_t_1) +\
-                                            self.w_a_alpha(input_data.reshape(-1, self.input_size)).\
-                                            squeeze().\
-                                            reshape(-1, self.window_size)
-                                           )
-        _alpha_weights = self.weights_func(_alpha_weights)
-
-        # shape of _beta_weights : <n_batch, input_size> 
-        _beta_weights = self.activate_func(self.w_h_beta(h_t_1) +\
-                                           self.w_a_beta(input_data.permute(0, 2, 1).\
-                                                         reshape(-1, self.window_size)).\
-                                           squeeze().\
-                                           reshape(-1, self.input_size)
-                                          )
-        _beta_weights = self.weights_func(_beta_weights)
-
-        # shape of _alpha_weights_v : <n_batch, window_size, 1> 
-        _alpha_weights_v = _alpha_weights.unsqueeze(-1)
-        # shape of _beta_weights_v  : <n_batch, 1, input_size> 
-        _beta_weights_v = _beta_weights.unsqueeze(1)
-
-        # shape of weight_A  : <n_batch, window_size, input_size> 
-        weight_A = _alpha_weights_v * _beta_weights_v
-
-        # shape of output_v  : <n_batch, input_size> 
-        output_v = torch.sum(weight_A * input_data, dim = 1)
-        
-        return output_v
-
 class callPredictor(nn.Module):
 
     def __init__(self, 
-                 input_size = None,
-                 window_size = 3,
-                 hidden_size = 16,
-                 output_size = 8,
-                 batch_first = True,
-                 dropout = 0.5,
-                 label_size = 1,
-                 device = None):
+                 input_dim = None, 
+                 hidden_dim = 384, 
+                 conv_size = 10, 
+                 levels = 3, 
+                 dropconnect = 0.3, 
+                 dropout = 0.3, 
+                 dropres = 0.3,
+                 label_size = None,
+                 device = None
+                 ):
+
         super(callPredictor, self).__init__()
-        assert input_size != None and isinstance(input_size, int), 'fill in correct input_size' 
-        self.input_size = input_size
-        self.window_size = window_size
-        self.hidden_size = hidden_size
-        self.output_size = output_size
-        self.label_size = label_size
-        self.rnn_raimf = RaimExtract(input_size, window_size, hidden_size) 
-        self.rnn_unit = LSTMCell(input_size, hidden_size) 
-        self.predict_func = nn.Linear(self.output_size, self.label_size)
-        self.pad = nn.ConstantPad1d((self.window_size-1, 0), 0.)
+
+        assert hidden_dim % levels == 0
+        self.dropout = dropout
+        self.dropconnect = dropconnect
+        self.dropres = dropres
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+        self.conv_dim = hidden_dim
+        self.conv_size = conv_size
+        self.output_dim = label_size
+        self.levels = levels
+        self.chunk_size = hidden_dim // levels
         self.device = device
+
+        self.kernel = nn.Linear(int(input_dim+1), int(hidden_dim*4+levels*2))
+        nn.init.xavier_uniform_(self.kernel.weight)
+        nn.init.zeros_(self.kernel.bias)
+        self.recurrent_kernel = nn.Linear(int(hidden_dim+1), int(hidden_dim*4+levels*2))
+        nn.init.orthogonal_(self.recurrent_kernel.weight)
+        nn.init.zeros_(self.recurrent_kernel.bias)
+
+        self.nn_scale = nn.Linear(int(hidden_dim), int(hidden_dim // 6))
+        self.nn_rescale = nn.Linear(int(hidden_dim // 6), int(hidden_dim))
+        self.nn_conv = nn.Conv1d(int(hidden_dim), int(self.conv_dim), int(conv_size), 1)
+        self.nn_output = nn.Linear(int(self.conv_dim), int(self.output_dim))
+
+        if self.dropconnect:
+            self.nn_dropconnect = nn.Dropout(p=dropconnect)
+            self.nn_dropconnect_r = nn.Dropout(p=dropconnect)
+        if self.dropout:
+            self.nn_dropout = nn.Dropout(p=dropout)
+            self.nn_dropres = nn.Dropout(p=dropres)
+
+    def cumax(self, x, mode='l2r'):
+
+        if mode == 'l2r':
+            x = torch.softmax(x, dim=-1)
+            x = torch.cumsum(x, dim=-1)
+            return x
+        elif mode == 'r2l':
+            x = torch.flip(x, [-1])
+            x = torch.softmax(x, dim=-1)
+            x = torch.cumsum(x, dim=-1)
+            return torch.flip(x, [-1])
+        else:
+            return x
+
+    def step(self, inputs, c_last, h_last, interval):
+
+        x_in = inputs
+        # Integrate inter-visit time intervals
+        interval = interval.unsqueeze(-1)
+        x_out1 = self.kernel(torch.cat((x_in, interval), dim=-1))
+        x_out2 = self.recurrent_kernel(torch.cat((h_last, interval), dim=-1))
+
+        if self.dropconnect:
+            x_out1 = self.nn_dropconnect(x_out1)
+            x_out2 = self.nn_dropconnect_r(x_out2)
+        x_out = x_out1 + x_out2
+        f_master_gate = self.cumax(x_out[:, :self.levels], 'l2r')
+        f_master_gate = f_master_gate.unsqueeze(2)
+        i_master_gate = self.cumax(x_out[:, self.levels:self.levels*2], 'r2l')
+        i_master_gate = i_master_gate.unsqueeze(2)
+        x_out = x_out[:, self.levels*2:]
+        x_out = x_out.reshape(-1, self.levels*4, self.chunk_size)
+        f_gate = torch.sigmoid(x_out[:, :self.levels])
+        i_gate = torch.sigmoid(x_out[:, self.levels:self.levels*2])
+        o_gate = torch.sigmoid(x_out[:, self.levels*2:self.levels*3])
+        c_in = torch.tanh(x_out[:, self.levels*3:])
+        c_last = c_last.reshape(-1, self.levels, self.chunk_size)
+        overlap = f_master_gate * i_master_gate
+        c_out = overlap * (f_gate * c_last + i_gate * c_in) + (f_master_gate - overlap) * c_last + (i_master_gate - overlap) * c_in
+        h_out = o_gate * torch.tanh(c_out)
+        c_out = c_out.reshape(-1, self.hidden_dim)
+        h_out = h_out.reshape(-1, self.hidden_dim)
+        out = torch.cat([h_out, f_master_gate[..., 0], i_master_gate[..., 0]], 1)
+        return out, c_out, h_out
 
     def forward(self, input_data):
         
@@ -128,33 +144,59 @@ class callPredictor(nn.Module):
         M = input_data['M']
         cur_M = input_data['cur_M']
         T = input_data['T']
-        batchsize, n_timestep, n_f = input_data['X'].shape
-        # shape of X     : <batchsize, n_timestep, n_featdim>        
-        # shape of pad_X : <batchsize, n_timestep + window_size - 1, n_featdim>        
-        pad_X = self.pad(X.permute(0,2,1)).permute(0,2,1)
-        
-        h0 = Variable(torch.zeros(batchsize, self.hidden_size)).to(self.device)
-        c0 = Variable(torch.zeros(batchsize, self.hidden_size)).to(self.device)
-        outs = []        
-        hn = h0
-        cn = c0
-        for i in range(self.window_size-1, n_timestep+self.window_size-1):
-            cur_x = pad_X[ : , i - self.window_size + 1 : i + 1, : ]
-            z_value = self.rnn_raimf(cur_x, hn)
-            hn, cn = self.rnn_unit(z_value, (hn, cn))
-            outs.append(hn)
-        outputs = torch.stack(outs, dim =1)
-        n_batchsize, n_timestep, n_featdim = outputs.shape
-        all_output = self.predict_func(outputs.reshape(n_batchsize*n_timestep, n_featdim)).\
-                        reshape(n_batchsize, n_timestep, self.label_size) * M.unsqueeze(-1)
+
+        batch_size, time_step, feature_dim = X.size()
+        c_out = torch.zeros(batch_size, self.hidden_dim).to(self.device)
+        h_out = torch.zeros(batch_size, self.hidden_dim).to(self.device)
+        tmp_h = torch.zeros_like(h_out, dtype=torch.float32).view(-1).repeat(self.conv_size).view(self.conv_size, batch_size, self.hidden_dim).to(self.device)
+        tmp_dis = torch.zeros((self.conv_size, batch_size)).to(self.device)
+        h = []
+        origin_h = []
+        distance = []
+
+        for t in range(time_step):
+            out, c_out, h_out = self.step(X[:, t, :], c_out, h_out, T[:, t])
+            cur_distance = 1 - torch.mean(out[..., self.hidden_dim:self.hidden_dim+self.levels], -1)
+            cur_distance_in = torch.mean(out[..., self.hidden_dim+self.levels:], -1)
+            origin_h.append(out[..., :self.hidden_dim])
+            tmp_h = torch.cat((tmp_h[1:], out[..., :self.hidden_dim].unsqueeze(0)), 0)
+            tmp_dis = torch.cat((tmp_dis[1:], cur_distance.unsqueeze(0)), 0)
+            distance.append(cur_distance)
+            #Re-weighted convolution operation
+            local_dis = tmp_dis.permute(1, 0)
+            local_dis = torch.cumsum(local_dis, dim=1)
+            local_dis = torch.softmax(local_dis, dim=1)
+            local_h = tmp_h.permute(1, 2, 0)
+            local_h = local_h * local_dis.unsqueeze(1)
+            #Re-calibrate Progression patterns
+            local_theme = torch.mean(local_h, dim=-1)
+            local_theme = self.nn_scale(local_theme)
+            local_theme = torch.relu(local_theme)
+            local_theme = self.nn_rescale(local_theme)
+            local_theme = torch.sigmoid(local_theme)
+            local_h = self.nn_conv(local_h).squeeze(-1)
+            local_h = local_theme * local_h
+            h.append(local_h)  
+
+        origin_h = torch.stack(origin_h).permute(1, 0, 2)
+        rnn_outputs = torch.stack(h).permute(1, 0, 2)
+        if self.dropres > 0.0:
+            origin_h = self.nn_dropres(origin_h)
+        rnn_outputs = rnn_outputs + origin_h
+        rnn_outputs = rnn_outputs.contiguous().view(-1, rnn_outputs.size(-1))
+        if self.dropout > 0.0:
+            rnn_outputs = self.nn_dropout(rnn_outputs)
+        output = self.nn_output(rnn_outputs)
+        output = output.contiguous().view(batch_size, time_step, self.output_dim)
+        all_output = torch.sigmoid(output)
         cur_output = (all_output * cur_M.unsqueeze(-1)).sum(dim=1)
         return all_output, cur_output
 
-class RAIM(BaseControler):
+class StageNet(BaseControler):
     
     """
     
-    Recurrent Attentive and Intensive Model(RAIM) for jointly analyzing continuous monitoring data and discrete clinical events
+    StageNet: Stage-Aware Neural Networks for Health Risk Prediction.
     
     """
     def __init__(self, 
@@ -164,11 +206,12 @@ class RAIM(BaseControler):
                  learn_ratio = 1e-4,
                  weight_decay = 1e-4,
                  n_epoch_saved = 1,
-                 window_size = 3,
-                 hidden_size = 8,
-                 output_size = 8,
-                 bias = True,
-                 dropout = 0.5,
+                 hidden_size = 384, 
+                 conv_size = 10, 
+                 levels = 3, 
+                 dropconnect = 0.3, 
+                 dropout = 0.3, 
+                 dropres = 0.3,
                  batch_first = True,
                  loss_name = 'L1LossSigmoid',
                  target_repl = False,
@@ -202,22 +245,18 @@ class RAIM(BaseControler):
   
         n_epoch_saved : int, optional (default = 1)
             frequency of saving checkpoints at the end of epochs
+                   
+        hidden_size : int, optional (default = 384)
 
-        window_size : int, optional (default = 3)
-            The size of observe window of sequence
+        conv_size : int, optional (default = 10) 
 
-        hidden_size : int, optional (default = 8)
-            The number of features of the hidden state h
+        levels : int, optional (default = 3)
 
-        output_size: int, optional (default = 8)
-            The number of the embeded features of rnn output
+        dropconnect : int, optional (default = 0.3) 
 
-        bias : bool, optional (default = True)
-            If False, then the layer does not use bias weights b_ih and b_hh. 
-            
-        dropout : float, optional (default = 0.5)
-            If non-zero, introduces a Dropout layer on the outputs of each GRU layer except the last layer, 
-            with dropout probability equal to dropout. 
+        dropout : int, optional (default = 0.3) 
+
+        dropres : int, optional (default = 0.3)
 
         batch_first : bool, optional (default = False)
             If True, then the input and output tensors are provided as (batch, seq, feature). 
@@ -233,17 +272,18 @@ class RAIM(BaseControler):
 
         """
  
-        super(RAIM, self).__init__(expmodel_id)
+        super(StageNet, self).__init__(expmodel_id)
         self.n_batchsize = n_batchsize
         self.n_epoch = n_epoch
         self.learn_ratio = learn_ratio
         self.weight_decay = weight_decay
         self.n_epoch_saved = n_epoch_saved
-        self.window_size = window_size
-        self.hidden_size = hidden_size
-        self.output_size = output_size
-        self.bias = bias
-        self.dropout = dropout
+        self.hidden_size = hidden_size 
+        self.conv_size = conv_size
+        self.levels = levels
+        self.dropconnect = dropconnect 
+        self.dropout = dropout 
+        self.dropres = dropres
         self.batch_first = batch_first
         self.loss_name = loss_name
         self.target_repl = target_repl
@@ -261,16 +301,17 @@ class RAIM(BaseControler):
  
         
         """
-        if self.is_loadmodel is False:        
+        if self.is_loadmodel is False:                
             _config = {
-                'input_size': self.input_size,
-                'window_size': self.window_size,
-                'hidden_size': self.hidden_size,
-                'output_size': self.output_size,
-                'dropout': self.dropout,
-                'batch_first': self.batch_first,
-                'label_size': self.label_size,
-                'device': self.device
+                 'input_dim' : self.input_size, 
+                 'hidden_dim' : self.hidden_size, 
+                 'conv_size' : self.conv_size, 
+                 'levels' : self.levels, 
+                 'dropconnect' : self.dropconnect, 
+                 'dropout' : self.dropout, 
+                 'dropres' : self.dropres,
+                 'label_size' : self.label_size,
+                 'device' : self.device
                 }
             self.predictor = callPredictor(**_config).to(self.device)
             self._save_predictor_config({key: value for key, value in _config.items() if key != 'device'})
@@ -357,7 +398,6 @@ class RAIM(BaseControler):
         predictor_config['device'] = self.device
         self.predictor = callPredictor(**predictor_config).to(self.device)
         self._load_model(loaded_epoch, model_file_path)
-  
 
     def _args_check(self):
         """
@@ -376,16 +416,18 @@ class RAIM(BaseControler):
             'fill in correct weight_decay (float, >=0.)'
         assert isinstance(self.n_epoch_saved,int) and self.n_epoch_saved>0 and self.n_epoch_saved < self.n_epoch, \
             'fill in correct n_epoch (int, >0 and <{0}).format(self.n_epoch)'
-        assert isinstance(self.window_size,int) and self.window_size>0, \
-            'fill in correct window_size (int, 3)'
         assert isinstance(self.hidden_size,int) and self.hidden_size>0, \
             'fill in correct hidden_size (int, 8)'
-        assert isinstance(self.output_size,int) and self.output_size>0, \
-            'fill in correct output_size (int, >0)'
-        assert isinstance(self.bias,bool), \
-            'fill in correct bias (bool)'
-        assert isinstance(self.dropout,float) and self.dropout>0. and self.dropout<1., \
-            'fill in correct learn_ratio (float, >0 and <1.)'
+        assert isinstance(self.conv_size,int) and self.conv_size>0, \
+            'fill in correct conv_size (int, 10)'
+        assert isinstance(self.levels,int) and self.levels>0, \
+            'fill in correct levels (int, 10)'
+        assert isinstance(self.dropconnect,float) and self.dropconnect>=0. and self.dropconnect<1., \
+            'fill in correct dropconnect (float, >=0 and <1.)'
+        assert isinstance(self.dropout,float) and self.dropout>=0. and self.dropout<1., \
+            'fill in correct dropout (float, >=0 and <1.)'
+        assert isinstance(self.dropres,float) and self.dropres>=0. and self.dropres<1., \
+            'fill in correct dropres (float, >=0 and <1.)'
         assert isinstance(self.batch_first,bool), \
             'fill in correct batch_first (bool)'
         assert isinstance(self.target_repl,bool), \
