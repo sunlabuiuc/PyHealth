@@ -76,10 +76,12 @@ Python Library for Healthcare AI (PyHealth)
    :alt: PyHealth Logo
    :align: center
 
-**Development Status**: **As of 08/25/2020, PyHealth is under active development and in its alpha stage. Please follow, star, and fork to get the latest functions**!
+**Development Status**: **As of 09/18/2020, PyHealth is under active development and in its alpha stage. Please follow, star, and fork to get the latest functions**!
 
 
-**PyHealth** is a comprehensive and flexible **Python library** for **healthcare AI**, designed for both **ML researchers** and **medical practitioners**.
+**PyHealth** is a comprehensive and flexible **Python package** for **healthcare AI**, designed for both **ML researchers** and **medical practitioners**.
+**PyHealth** accepts diverse healthcare data such as longitudinal electronic health records (EHRs), continuous signials (ECG, EEG), and clinical notes (to be added), and supports various predictive modeling methods using deep learning and other advanced machine learning algorithms published in the literature. 
+
 The library is proudly developed and maintained by researchers from `Carnegie Mellon University <https://www.cmu.edu/>`_, `IQVIA <https://www.iqvia.com/>`_, and `University of Illinois at Urbana-Champaign <https://illinois.edu/>`_.
 PyHealth makes many important healthcare tasks become accessible, such as **phenotyping prediction**, **mortality prediction**,
 and **ICU length stay forecasting**, etc. Running these prediction tasks with deep learning models can be as short as 10 lines of code in PyHealth.
