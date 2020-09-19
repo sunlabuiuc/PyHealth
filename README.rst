@@ -79,7 +79,7 @@ Python Library for Healthcare AI (PyHealth)
 **Development Status**: **As of 09/18/2020, PyHealth is under active development and in its alpha stage. Please follow, star, and fork to get the latest functions**!
 
 
-**PyHealth** is a comprehensive and flexible **Python package** for **healthcare AI**, designed for both **ML researchers** and **medical practitioners**.
+**PyHealth** is a comprehensive **Python package** for **healthcare AI**, designed for both **ML researchers** and **healthcare and medical practitioners**.
 **PyHealth** accepts diverse healthcare data such as longitudinal electronic health records (EHRs), continuous signials (ECG, EEG), and clinical notes (to be added), and supports various predictive modeling methods using deep learning and other advanced machine learning algorithms published in the literature. 
 
 The library is proudly developed and maintained by researchers from `Carnegie Mellon University <https://www.cmu.edu/>`_, `IQVIA <https://www.iqvia.com/>`_, and `University of Illinois at Urbana-Champaign <https://illinois.edu/>`_.
@@ -88,12 +88,11 @@ and **ICU length stay forecasting**, etc. Running these prediction tasks with de
 
 
 **PyHealth comes with three major modules**: (i) *data preprocessing module*; (ii) *learning module*
-and (iii) *evaluation module*. Typically, one can run the data prep module to prepare the data, then feed to the learning module for prediction, and finally assess
-the result with the evaluation module.
-Users can use the full system as mentioned or just selected modules based on the own need:
+and (iii) *evaluation module*. Typically, one can run the data prep module to prepare the data, then feed to the learning module for model training and prediction, and finally assess the results with the evaluation module.
+Users can use the full system as mentioned or just selected modules based on their own needs:
 
 * **Deep learning researchers** may directly use the processed data along with the proposed new models.
-* **Medical personnel**, may leverage our data preprocessing module to convert the medical data to the format that learning models could digest, and then perform the inference tasks to get insights from the data.
+* **Healthcare and Medical personnel**, may leverage our data preprocessing module to convert the medical data to the format that machine learning models could digest, and then perform the inference tasks to get insights from the data. This package can support them in various health analytics tasks including disease detection, risk prediction, patient subtyping, health monitoring, etc.
 
 
 PyHealth is featured for:
