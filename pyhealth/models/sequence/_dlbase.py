@@ -37,6 +37,7 @@ class BaseControler(object):
     def __init__(self, expmodel_id):
 
         check_model_dir(expmodel_id=expmodel_id)
+        # TODO: should remove "./" or other hardcoded system specific strings.
         self.checkout_dir = os.path.join('./experiments_records', expmodel_id,
                                          'checkouts')
         self.result_dir = os.path.join('./experiments_records', expmodel_id,
