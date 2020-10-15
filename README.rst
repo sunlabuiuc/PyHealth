@@ -403,8 +403,7 @@ demonstrates the basic API of using GRU for mortality prediction. **It is noted 
       # initialize the model for training
       from pyhealth.models.sequence.lstm import LSTM
       # enable GPU
-      clf = LSTM(expmodel_id=expmodel_id, n_batchsize=20, use_gpu=True,
-          n_epoch=100, gpu_ids='0,1')
+      clf = LSTM(expmodel_id=expmodel_id, n_batchsize=20, use_gpu=True, n_epoch=100)
       clf.fit(cur_dataset.train, cur_dataset.valid)
 
 #. Load the best shot of the training, predict on the test datasets
