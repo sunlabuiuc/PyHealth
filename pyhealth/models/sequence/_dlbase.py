@@ -22,33 +22,32 @@ from ._loss import loss_dict
 from pyhealth.utils.check import *
 from pyhealth.data.data_reader.sequence import dl_reader
 
+
 @six.add_metaclass(abc.ABCMeta)
 class BaseControler(object):
+    """Abstract class for all healthcare predict algorithms.
+
+    Parameters
+    ----------
+    expmodel_id : str, optional (default='init.test')
+        name of current experiment
     """
-    Abstract class for all healthcare predict algorithms.
-    
-    """
-    
+
     @abc.abstractmethod
     def __init__(self, expmodel_id):
-        """
 
-        Parameters
-
-        ----------
-        exp_id : str, optional (default='init.test') 
-            name of current experiment
-            
-        """
-        check_model_dir(expmodel_id =  expmodel_id)
-        self.checkout_dir = os.path.join('./experiments_records', expmodel_id, 'checkouts')
-        self.result_dir = os.path.join('./experiments_records', expmodel_id, 'results')
-        self.acc = {'train':[],'valid':[]}
+        check_model_dir(expmodel_id=expmodel_id)
+        # TODO: should remove "./" or other hardcoded system specific strings.
+        self.checkout_dir = os.path.join('./experiments_records', expmodel_id,
+                                         'checkouts')
+        self.result_dir = os.path.join('./experiments_records', expmodel_id,
+                                       'results')
+        self.acc = {'train': [], 'valid': []}
         self.reverse = False
         # make saving directory if needed
         if not os.path.isdir(self.checkout_dir):
             os.makedirs(self.checkout_dir)
-            
+
         if not os.path.isdir(self.result_dir):
             os.makedirs(self.result_dir)
 
@@ -72,23 +71,23 @@ class BaseControler(object):
                     if len(ids) > 1:
                         os.environ['CUDA_VISIBLE_DEVICES'] = self.gpu_ids
                         self.dataparallal = True
-                        print ('use {0} GPUs recource'.format(len(ids)))
+                        print('use {0} GPUs recource'.format(len(ids)))
                 else:
-                    print ('use GPU recource')
+                    print('use GPU recource')
             else:
                 device = torch.device("cpu")
-                print ('not find effcient GPU, use CPU recource')
+                print('not find effcient GPU, use CPU recource')
         else:
             device = torch.device("cpu")
-            print ('use CPU recource')
+            print('use CPU recource')
         return device
 
     def _data_check(self, datalist):
 
-        """
-        
-        Target to 1) check train_data/valid_data valid, if not give tips about data problem
-                  2) check loss function valid, if not recommend proper loss func
+        """Target to 1) check train_data/valid_data valid,
+                     if not give tips about data problem
+                     2) check loss function valid, if not recommend
+                     proper loss func
         
         Parameters
 
@@ -117,7 +116,7 @@ class BaseControler(object):
 
 
         """
-        
+
         feat_n_check = set([])
         label_n_check = set([])
         task_type_check = set([])
@@ -127,26 +126,30 @@ class BaseControler(object):
                     raise Exception('episode file not exist')
             feat_n_check.add(each_data['feat_n'])
             label_n_check.add(np.shape(np.array(each_data['y']))[1])
-            task_type_check.add(label_check(each_data['y'], hat_y = None, assign_task_type = self.task_type))
-            
+            task_type_check.add(label_check(each_data['y'], hat_y=None,
+                                            assign_task_type=self.task_type))
+
         if len(feat_n_check) != 1:
             raise Exception('feat_n is inconformity in data')
         if len(task_type_check) != 1:
             raise Exception('task_type is inconformity in data')
-        
+
         pre_task_type = list(task_type_check)[0]
         if self.task_type == None:
             self.task_type = pre_task_type
         elif self.task_type == pre_task_type:
             pass
         else:
-            raise Exception('predifine task-type {0}, but data support task-type {1}'.format(self.task_type, pre_task_type))
+            raise Exception(
+                'predifine task-type {0}, but data support task-type {1}'.format(
+                    self.task_type, pre_task_type))
         self.input_size = list(feat_n_check)[0]
         self.label_size = list(label_n_check)[0]
         self.loss_name = self._get_lossname(self.loss_name)
-        print ('current task can beed seen as {0}; loss func {1} is used for optimization'\
-                   .format(self.task_type, self.loss_name))
-        
+        print(
+            'current task can beed seen as {0}; loss func {1} is used for optimization' \
+                .format(self.task_type, self.loss_name))
+
     def _get_lossname(self, loss_name):
         if self.task_type == 'multilabel':
             if loss_name == None or loss_name == '':
@@ -166,52 +169,47 @@ class BaseControler(object):
 
     def _get_optimizer(self, optimizer_name):
         if optimizer_name == 'adam':
-             return optim.Adam(self.predictor.parameters(),
-                               lr=self.learn_ratio,
-                               weight_decay=self.weight_decay)
- 
+            return optim.Adam(self.predictor.parameters(),
+                              lr=self.learn_ratio,
+                              weight_decay=self.weight_decay)
+
     def _set_reverse(self):
         self.reverse = True
- 
-    def _get_reader(self, data, dtype = 'train'):
-        """
+
+    def _get_reader(self, data, dtype='train'):
+        """NEED DESCRIPTION HERE.
+
         Parameters
-
         ----------
-
-        data : {
-                  'x':list[episode_file_path], 
-                  'y':list[label], 
-                  'l':list[seq_len], 
-                  'feat_n': n of feature space, 
+        data :  {
+                  'x':list[episode_file_path],
+                  'y':list[label],
+                  'l':list[seq_len],
+                  'feat_n': n of feature space,
                   'label_n': n of label space
                }
 
             The input samples dict.
- 
-        dtype: str, (default='train')
-        
-            dtype in ['train','valid','test'], different type imapct whether use shuffle for data
- 
-        Return
-        
-        ----------
-        
-        data_loader : dataloader of input data dict
-        
-            Combines a dataset and a sampler, and provides single- or multi-process iterators over the dataset.
 
-            refer to torch.utils.data.dataloader
-        
+        dtype : str, (default='train')
+            dtype in ['train','valid','test'], different type imapct whether use shuffle for data
+
+        Returns
+        -------
+        data_loader : dataloader of input data dict
+            Combines a dataset and a sampler, and provides single- or
+            multi-process iterators over the dataset.
+            Refer to torch.utils.data.dataloader
         """
+
         if self.reverse is False:
             _dataset = dl_reader.DatasetReader(data)
         else:
-            _dataset = dl_reader.DatasetReader(data, reverse = True)            
- 
+            _dataset = dl_reader.DatasetReader(data, reverse=True)
+
         _loader = torch.utils.data.DataLoader(_dataset,
                                               batch_size=self.n_batchsize,
-                                              drop_last = True,
+                                              drop_last=True,
                                               shuffle=True if dtype == 'train' else False)
         return _loader
 
@@ -222,38 +220,42 @@ class BaseControler(object):
         with open(temp_path, "w", encoding='utf-8') as f:
             f.write(json.dumps(predictor_config, indent=4))
 
-    def _load_predictor_config(self, config_file_path = ''):
+    def _load_predictor_config(self, config_file_path=''):
         if config_file_path == '':
-            temp_path = os.path.join(self.checkout_dir, 'predictor_config.json')
-            assert os.path.exists(temp_path), 'cannot find predictor_config.json, please it in dir {0}'.format(self.checkout_dir)
+            temp_path = os.path.join(self.checkout_dir,
+                                     'predictor_config.json')
+            assert os.path.exists(
+                temp_path), 'cannot find predictor_config.json, please it in dir {0}'.format(
+                self.checkout_dir)
         else:
             temp_path = config_file_path
-            assert os.path.exists(temp_path), 'cannot find predictor_config file from path: {0}'.format(config_file_path)
-        print ('load predictor config file from {0}'.format(temp_path))
+            assert os.path.exists(
+                temp_path), 'cannot find predictor_config file from path: {0}'.format(
+                config_file_path)
+        print('load predictor config file from {0}'.format(temp_path))
         with open(temp_path, 'r') as f:
             predictor_config = json.load(f)
         return predictor_config
 
-    def _save_checkpoint(self, state, epoch_id, is_best, filename='checkpoint.pth.tar'):
-        if epoch_id<0:
-            filepath = os.path.join(self.checkout_dir, 'latest.'+filename)
+    def _save_checkpoint(self, state, epoch_id, is_best,
+                         filename='checkpoint.pth.tar'):
+        if epoch_id < 0:
+            filepath = os.path.join(self.checkout_dir, 'latest.' + filename)
         elif is_best:
-            filepath = os.path.join(self.checkout_dir, 'best.'+filename)
+            filepath = os.path.join(self.checkout_dir, 'best.' + filename)
         else:
-            filepath = os.path.join(self.checkout_dir, str(epoch_id)+'.'+filename)
+            filepath = os.path.join(self.checkout_dir,
+                                    str(epoch_id) + '.' + filename)
         torch.save(state, filepath)
 
     def _train_model(self, train_loader):
-        
-        """
+        """NEED DESCRIPTION HERE.
+
         Parameters
-
         ----------
-
         train_loader : dataloader of train data
-        
-            Combines a dataset and a sampler, and provides single- or multi-process iterators over the dataset.
-
+            Combines a dataset and a sampler, and provides single- or
+            multi-process iterators over the dataset.
             refer to torch.utils.data.dataloader
 
         """
@@ -271,12 +273,14 @@ class BaseControler(object):
             cur_masks = Variable(cur_masks).float().to(self.device)
             targets = Variable(targets).float().to(self.device)
             timetick = Variable(timetick).float().to(self.device)
-            data_input = {'X':inputs,'cur_M':cur_masks,'M':masks, 'T':timetick}
+            data_input = {'X': inputs, 'cur_M': cur_masks, 'M': masks,
+                          'T': timetick}
             all_h, h = self.predictor(data_input)
             if self.target_repl:
-                data_output = {'all_hat_y': all_h, 'hat_y':h,'y':targets,'mask':masks} 
+                data_output = {'all_hat_y': all_h, 'hat_y': h, 'y': targets,
+                               'mask': masks}
             else:
-                data_output = {'hat_y':h,'y':targets}
+                data_output = {'hat_y': h, 'y': targets}
             loss = self.criterion(data_output)
             self.optimizer.zero_grad()
             loss.backward()
@@ -285,15 +289,13 @@ class BaseControler(object):
         self.acc['train'].append(np.mean(np.array(loss_v)))
 
     def _valid_model(self, valid_loader):
-        """
+        """NEED DESCRIPTION HERE.
+
         Parameters
-
         ----------
-
         valid_loader : dataloader of valid data
-        
-            Combines a dataset and a sampler, and provides single- or multi-process iterators over the dataset.
-
+            Combines a dataset and a sampler, and provides single- or
+            multi-process iterators over the dataset.
             refer to torch.utils.data.dataloader
 
         """
@@ -310,28 +312,27 @@ class BaseControler(object):
             cur_masks = Variable(cur_masks).float().to(self.device)
             targets = Variable(targets).float().to(self.device)
             timetick = Variable(timetick).float().to(self.device)
-            data_input = {'X':inputs,'cur_M':cur_masks,'M':masks, 'T':timetick}
+            data_input = {'X': inputs, 'cur_M': cur_masks, 'M': masks,
+                          'T': timetick}
             all_h, h = self.predictor(data_input)
             if self.target_repl:
-                data_output = {'all_hat_y': all_h, 'hat_y':h,'y':targets,'mask':masks} 
+                data_output = {'all_hat_y': all_h, 'hat_y': h, 'y': targets,
+                               'mask': masks}
             else:
-                data_output = {'hat_y':h,'y':targets}
+                data_output = {'hat_y': h, 'y': targets}
             loss = self.criterion(data_output)
             loss_v.append(loss.cpu().data.numpy())
         self.acc['valid'].append(np.mean(np.array(loss_v)))
 
     def _test_model(self, test_loader):
-        """
+        """NEED DESCRIPTION HERE.
+
         Parameters
-
         ----------
-
         test_loader : dataloader of test data
-        
-            Combines a dataset and a sampler, and provides single- or multi-process iterators over the dataset.
-
+            Combines a dataset and a sampler, and provides single- or
+            multi-process iterators over the dataset.
             refer to torch.utils.data.dataloader
-
         """
 
         # switch to train mode
@@ -350,18 +351,24 @@ class BaseControler(object):
             cur_masks = Variable(cur_masks).float().to(self.device)
             targets = Variable(targets).float().to(self.device)
             timetick = Variable(timetick).float().to(self.device)
-            data_input = {'X':inputs,'cur_M':cur_masks,'M':masks, 'T':timetick}
+            data_input = {'X': inputs, 'cur_M': cur_masks, 'M': masks,
+                          'T': timetick}
             _, h = self.predictor(data_input)
             if self.task_type in ['multiclass']:
-                prob_h = F.softmax(h, dim = -1)
+                prob_h = F.softmax(h, dim=-1)
             else:
                 prob_h = F.sigmoid(h)
             pre_v.append(h.cpu().detach().numpy())
             prob_v.append(prob_h.cpu().detach().numpy())
             real_v.append(targets.cpu().detach().numpy())
-        pickle.dump(np.concatenate(pre_v, 0), open(os.path.join(self.result_dir, 'hat_ori_y.'+self._loaded_epoch),'wb'))
-        pickle.dump(np.concatenate(prob_v, 0), open(os.path.join(self.result_dir, 'hat_y.'+self._loaded_epoch),'wb'))
-        pickle.dump(np.concatenate(real_v, 0), open(os.path.join(self.result_dir, 'y.'+self._loaded_epoch),'wb'))
+        pickle.dump(np.concatenate(pre_v, 0), open(
+            os.path.join(self.result_dir, 'hat_ori_y.' + self._loaded_epoch),
+            'wb'))
+        pickle.dump(np.concatenate(prob_v, 0), open(
+            os.path.join(self.result_dir, 'hat_y.' + self._loaded_epoch),
+            'wb'))
+        pickle.dump(np.concatenate(real_v, 0), open(
+            os.path.join(self.result_dir, 'y.' + self._loaded_epoch), 'wb'))
 
     def _fit_model(self, train_reader, valid_reader):
         best_score = 1e5
@@ -373,44 +380,51 @@ class BaseControler(object):
             valid_loss = self.acc['valid'][-1]
             train_loss_str = '{:.3f}'.format(self.acc['train'][-1])
             valid_loss_str = '{:.3f}'.format(self.acc['valid'][-1])
-            tqdm_trange.set_description(f'tr=>epoch={epoch} Valid Loss: {valid_loss_str}, Train Loss: {train_loss_str}')
+            tqdm_trange.set_description(
+                f'tr=>epoch={epoch} Valid Loss: {valid_loss_str}, Train Loss: {train_loss_str}')
             unit = {'epoch': epoch,
                     'state_dict': self.predictor.state_dict(),
                     'score': valid_loss,
                     'best_score': best_score,
-                    'optimizer' : self.optimizer.state_dict()}
-            if valid_loss<best_score:
+                    'optimizer': self.optimizer.state_dict()}
+            if valid_loss < best_score:
                 best_score = valid_loss
                 unit['best_score'] = valid_loss
-                self._save_checkpoint(unit, epoch, is_best = True)
-            if epoch%self.n_epoch_saved == 0:
-                self._save_checkpoint(unit, epoch, is_best = False)
-            self._save_checkpoint(unit, -1, is_best = False)
+                self._save_checkpoint(unit, epoch, is_best=True)
+            if epoch % self.n_epoch_saved == 0:
+                self._save_checkpoint(unit, epoch, is_best=False)
+            self._save_checkpoint(unit, -1, is_best=False)
 
-    def _load_model(self, 
-                    loaded_epoch = '',  
-                    model_file_path = ''):
+    def _load_model(self, loaded_epoch='', model_file_path=''):
         if model_file_path != '':
             load_checkpoint_path = model_file_path
-            print ('load model from {0}'.format(model_file_path))
+            print('load model from {0}'.format(model_file_path))
         else:
             if loaded_epoch != '':
                 self._loaded_epoch = loaded_epoch
             else:
                 self._loaded_epoch = 'best'
-            load_checkpoint_path = os.path.join(self.checkout_dir, self._loaded_epoch + '.checkpoint.pth.tar')
-            print ('load '+self._loaded_epoch+'-th epoch model')
+            load_checkpoint_path = os.path.join(self.checkout_dir,
+                                                self._loaded_epoch + '.checkpoint.pth.tar')
+            print('load ' + self._loaded_epoch + '-th epoch model')
         if os.path.exists(load_checkpoint_path):
             try:
                 checkpoint = torch.load(load_checkpoint_path)
             except:
-                checkpoint = torch.load(load_checkpoint_path, map_location = 'cpu')
+                checkpoint = torch.load(load_checkpoint_path,
+                                        map_location='cpu')
             try:
-                self.predictor.load_state_dict({key: value for key, value in checkpoint['state_dict'].items()})
+                self.predictor.load_state_dict({key: value for key, value in
+                                                checkpoint[
+                                                    'state_dict'].items()})
             except:
-                self.predictor.load_state_dict({key[7:]: value for key, value in checkpoint['state_dict'].items()})							  
+                self.predictor.load_state_dict(
+                    {key[7:]: value for key, value in
+                     checkpoint['state_dict'].items()})
         else:
-            print ('no exist '+self._loaded_epoch+'-th epoch model, please dbcheck in dir {0}'.format(self.checkout_dir))
+            print(
+                'no exist ' + self._loaded_epoch + '-th epoch model, please dbcheck in dir {0}'.format(
+                    self.checkout_dir))
         self.is_loadmodel = True
 
     @abc.abstractmethod
@@ -453,48 +467,50 @@ class BaseControler(object):
 
         pass
 
-#     @abc.abstractmethod
-#     def inference(self, test_data):
-#         Parameters
+    #     @abc.abstractmethod
+    #     def inference(self, test_data):
+    #         Parameters
 
-#         ----------
+    #         ----------
 
-#         test_data : {
-#                       'x':list[episode_file_path], 
-#                       'y':list[label], 
-#                       'l':list[seq_len], 
-#                       'feat_n': n of feature space, 
-#                       'label_n': n of label space
-#                       }
+    #         test_data : {
+    #                       'x':list[episode_file_path],
+    #                       'y':list[label],
+    #                       'l':list[seq_len],
+    #                       'feat_n': n of feature space,
+    #                       'label_n': n of label space
+    #                       }
 
-#             The input test samples dict.
- 
-#         pass
+    #             The input test samples dict.
+
+    #         pass
 
     def inference(self, test_data):
-        """
+        """NEED DESCRIPTION HERE.
+
         Parameters
-
         ----------
-
-        test_data : {
-                      'x':list[episode_file_path], 
-                      'y':list[label], 
-                      'l':list[seq_len], 
-                      'feat_n': n of feature space, 
+        test_data : data dictionary
+            The input test samples dict.
+            test_data : {
+                      'x':list[episode_file_path],
+                      'y':list[label],
+                      'l':list[seq_len],
+                      'feat_n': n of feature space,
                       'label_n': n of label space
                       }
 
-            The input test samples dict.
- 
- 
+        Returns
+        -------
+
         """
+
         self._data_check([test_data])
         test_reader = self._get_reader(test_data, 'test')
         self._test_model(test_reader)
 
     @abc.abstractmethod
-    def load_model(self, loaded_epoch = ''):
+    def load_model(self, loaded_epoch=''):
         """
         Parameters
 
@@ -517,7 +533,7 @@ class BaseControler(object):
         pass
 
     def get_results(self):
-        
+
         """
         
         Load saved prediction results in current ExpID
@@ -527,14 +543,20 @@ class BaseControler(object):
         
         """
         try:
-            hat_y = pickle.load(open(os.path.join(self.result_dir, 'hat_y.'+self._loaded_epoch),'rb'))
+            hat_y = pickle.load(open(
+                os.path.join(self.result_dir, 'hat_y.' + self._loaded_epoch),
+                'rb'))
         except IOError:
-            print ('Error: cannot find file {0} or load failed'.format(os.path.join(self.result_dir, 'hat_y.'+self._loaded_epoch)))
+            print('Error: cannot find file {0} or load failed'.format(
+                os.path.join(self.result_dir, 'hat_y.' + self._loaded_epoch)))
         try:
-            y = pickle.load(open(os.path.join(self.result_dir, 'y.'+self._loaded_epoch),'rb'))
+            y = pickle.load(
+                open(os.path.join(self.result_dir, 'y.' + self._loaded_epoch),
+                     'rb'))
         except IOError:
-            print ('Error: cannot find file {0} or load failed'.format(os.path.join(self.result_dir, 'y.'+self._loaded_epoch)))
+            print('Error: cannot find file {0} or load failed'.format(
+                os.path.join(self.result_dir, 'y.' + self._loaded_epoch)))
 
         results = {'hat_y': hat_y, 'y': y}
-        
+
         return results
