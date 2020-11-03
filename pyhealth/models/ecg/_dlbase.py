@@ -20,7 +20,6 @@ import tqdm
 from tqdm._tqdm import trange
 from ._loss import loss_dict
 from pyhealth.utils.check import *
-from pyhealth.data.data_reader.ecg import dl_reader
 
 @six.add_metaclass(abc.ABCMeta)
 class BaseControler(object):
@@ -130,6 +129,7 @@ class BaseControler(object):
             pass
         else:
             raise Exception('predifine task-type {0}, but data support task-type {1}'.format(self.task_type, pre_task_type))
+ 
         self.label_size = list(label_n_check)[0]
         self.loss_name = self._get_lossname(self.loss_name)
         print ('current task can beed seen as {0}'.format(self.task_type))
@@ -167,45 +167,6 @@ class BaseControler(object):
     def _set_reverse(self):
         self.reverse = True
  
-    def _get_reader(self, data, dtype = 'train'):
-        """
-        Parameters
-
-        ----------
-
-        data : {
-                  'x':list[episode_file_path], 
-                  'y':list[label], 
-                  'l':list[seq_len], 
-                  'feat_n': n of feature space, 
-                  'label_n': n of label space
-               }
-
-            The input samples dict.
- 
-        dtype: str, (default='train')
-        
-            dtype in ['train','valid','test'], different type imapct whether use shuffle for data
- 
-        Return
-        
-        ----------
-        
-        data_loader : dataloader of input data dict
-        
-            Combines a dataset and a sampler, and provides single- or multi-process iterators over the dataset.
-
-            refer to torch.utils.data.dataloader
-        
-        """
-        _dataset = dl_reader.DatasetReader(data)            
- 
-        _loader = torch.utils.data.DataLoader(_dataset,
-                                              batch_size=self.n_batchsize,
-                                              drop_last = True,
-                                              shuffle=True if dtype == 'train' else False)
-        return _loader
-
     def _save_predictor_config(self, predictor_config):
         temp_path = os.path.join(self.checkout_dir, "predictor_config.json")
         if os.path.exists(temp_path):

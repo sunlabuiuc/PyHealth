@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
 
-# Author: Zhi Qiao <mingshan_ai@163.com>
-
 # License: BSD 2 clause
 
 import os
@@ -10,50 +8,30 @@ import torch.nn as nn
 import pickle
 import warnings
 import torchvision.models as models
+from torch.nn import LSTM
 from ._loss import callLoss
 from ._dlbase import BaseControler
+from pyhealth.data.data_reader.ecg import dblstm_ws_reader
 
 warnings.filterwarnings('ignore')
-
-class conv_layer(nn.Module):
-
-    def __init__(self, 
-                 input_channel = None,
-                 output_channel = None,
-                 bias = False
-                ):
-        super(conv_layer, self).__init__()
-        self.conv = nn.Conv1d(input_channel, output_channel, kernel_size=3, stride=1, padding=1, bias=bias)
-        
-        self.bn = nn.BatchNorm1d(output_channel)
-        self.activate = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool1d(kernel_size=3, stride=2, padding=1)
-		
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.bn(x)
-        x = self.activate(x)
-        x = self.maxpool(x)
-        return x
 
 class callPredictor(nn.Module):
 
     def __init__(self, 
-                 input_channel = 1,
-                 conv_channel = [8, 8, 6],
-                 fc_size = [64, 16],
-                 label_size = 1
+                 n_level,
+                 input_size,
+                 hidden_sizes = [64, 32],
+                 fc_size = [128],
+                 label_size = 4
                 ):
         super(callPredictor, self).__init__()
-        
-        self.conv_layers = nn.ModuleList([])
-        in_c = input_channel
-        for out_c in conv_channel:
-            self.conv_layers.append(conv_layer(in_c, out_c))
-            in_c = out_c
-        self.avgpool = nn.AdaptiveAvgPool1d((1))
+        self.rnn_layers = nn.ModuleList([])
+        in_f = input_size
+        for unit_f in hidden_sizes:
+            self.rnn_layers.append(LSTM(in_f, unit_f, bias = True, bidirectional = True))
+            in_f = unit_f * 2
         self.fc_layers = nn.ModuleList([])
-        fc_in_d = in_c
+        fc_in_d = in_f * (n_level+2)
         for fc_out_d in fc_size:
             self.fc_layers.append(nn.Linear(fc_in_d, fc_out_d))
             fc_in_d = fc_out_d
@@ -62,25 +40,23 @@ class callPredictor(nn.Module):
         self.output_func = nn.Linear(self.output_size, self.label_size)
 
     def forward(self, x):
-        
-        for conv_layer in self.conv_layers:
-            x = conv_layer(x)
-        x = self.avgpool(x)
-        x = torch.flatten(x, 1)
+        for rnn_layer in self.rnn_layers:
+            x, _ = rnn_layer(x)
+        x = torch.flatten(x, start_dim=1)
         for fc_layer in self.fc_layers:
             x = fc_layer(x)
         x = self.output_func(x)
         return x
 
-
-class BasicCNN(BaseControler):
+class DBLSTM_WS(BaseControler):
 
     def __init__(self, 
                  expmodel_id = 'test.new', 
+                 n_level = 4,
                  n_epoch = 100,
                  n_batchsize = 5,
-                 conv_channel = [8, 8],
-                 fc_size = [64, 16],
+                 hidden_sizes = [64, 32],
+                 fc_size = [128],
                  learn_ratio = 1e-4,
                  weight_decay = 1e-4,
                  n_epoch_saved = 1,
@@ -90,8 +66,11 @@ class BasicCNN(BaseControler):
                  use_gpu = False,
                  gpu_ids = '0'
                  ):
+
         """
-        Several typical & popular CNN networks for ECG prediction 
+ 
+        DBLSTM-WS: A deep bidirectional LSTM network based on wavelet sequences for 
+            classifying electrocardiogram (ECG) signals. 
 
 
         Parameters
@@ -99,17 +78,20 @@ class BasicCNN(BaseControler):
         ----------
         exp_id : str, optional (default='init.test') 
             name of current experiment
-       
+
+        n_level: int, optional (default = 4)
+            number of levels for level-filter
+ 
         n_epoch : int, optional (default = 100)
             number of epochs with the initial learning rate
             
         n_batchsize : int, optional (default = 5)
             batch size for model training
         
-        conv_channel : list, optional (default = [8, 8, 6])
-            define number of conv layer, and output channel number of each conv layer 
-						
-        fc_size : list, optional (default = [64, 16])
+        hidden_sizes : list, optional (default = [64, 32])
+            define number of hidden unit of each bi-lstm layer 
+
+        fc_size : list, optional (default = [128])
             define number of fc layer, and output feature dim of each fc layer 
 
         learn_ratio : float, optional (default = 1e-4)
@@ -127,15 +109,16 @@ class BasicCNN(BaseControler):
         use_gpu : bool, optional (default=False) 
             If yes, use GPU recources; else use CPU recources 
 
-				gpu_ids : str, optional (default='') 
-										If yes, assign concrete used gpu ids such as '0,2,6'; else use '0' 
+            gpu_ids : str, optional (default='') 
+                    If yes, assign concrete used gpu ids such as '0,2,6'; else use '0' 
 
         """
  
-        super(BasicCNN, self).__init__(expmodel_id)
+        super(DBLSTM_WS, self).__init__(expmodel_id)
         self.n_batchsize = n_batchsize
         self.n_epoch = n_epoch
-        self.conv_channel = conv_channel
+        self.n_level = n_level
+        self.hidden_sizes = hidden_sizes
         self.fc_size = fc_size
         self.learn_ratio = learn_ratio
         self.weight_decay = weight_decay
@@ -148,6 +131,7 @@ class BasicCNN(BaseControler):
         self._args_check()
  
     def _build_model(self):
+
         """
         
         Build the crucial components for model training 
@@ -156,8 +140,9 @@ class BasicCNN(BaseControler):
         """
         if self.is_loadmodel is False:        
             _config = {
-                 'input_channel': 1,
-                 'conv_channel': self.conv_channel,
+                 'n_level': self.n_level,
+                 'input_size': self.input_size,
+                 'hidden_sizes': self.hidden_sizes,
                  'fc_size': self.fc_size,
                  'label_size': self.label_size
                 }
@@ -170,6 +155,46 @@ class BasicCNN(BaseControler):
                                   loss_name = self.loss_name,
                                   aggregate = self.aggregate)
         self.optimizer = self._get_optimizer(self.optimizer_name)
+
+    def _get_reader(self, data, dtype = 'train'):
+        """
+        Parameters
+
+        ----------
+
+        data : {
+                  'x':list[episode_file_path], 
+                  'y':list[label], 
+                  'l':list[seq_len], 
+                  'feat_n': n of feature space, 
+                  'label_n': n of label space
+               }
+
+            The input samples dict.
+ 
+        dtype: str, (default='train')
+        
+            dtype in ['train','valid','test'], different type imapct whether use shuffle for data
+ 
+        Return
+        
+        ----------
+        
+        data_loader : dataloader of input data dict
+        
+            Combines a dataset and a sampler, and provides single- or multi-process iterators over the dataset.
+
+            refer to torch.utils.data.dataloader
+        
+        """
+        _dataset = dblstm_ws_reader.DatasetReader(data)            
+        self.input_size = _dataset.n_feat
+        _loader = torch.utils.data.DataLoader(_dataset,
+                                              batch_size=self.n_batchsize,
+                                              drop_last = True,
+                                              shuffle=True if dtype == 'train' else False)
+        return _loader
+
 
     def fit(self, train_data, valid_data, assign_task_type = None):
         
@@ -213,15 +238,16 @@ class BasicCNN(BaseControler):
         """
         self.task_type = assign_task_type
         self._data_check([train_data, valid_data])
-        self._build_model()
         train_reader = self._get_reader(train_data, 'train')
         valid_reader = self._get_reader(valid_data, 'valid')
+        self._build_model()
         self._fit_model(train_reader, valid_reader)
   
     def load_model(self, 
                    loaded_epoch = '',
                    config_file_path = '',
                    model_file_path = ''):
+
         """
         Parameters
 
@@ -247,6 +273,7 @@ class BasicCNN(BaseControler):
  
 
     def _args_check(self):
+
         """
         
         Check args whether valid/not and give tips
@@ -255,6 +282,8 @@ class BasicCNN(BaseControler):
         """
         assert isinstance(self.n_batchsize,int) and self.n_batchsize>0, \
             'fill in correct n_batchsize (int, >0)'
+        assert isinstance(self.n_level,int) and self.n_level>0, \
+            'fill in correct n_level (int, >0)' 
         assert isinstance(self.n_epoch,int) and self.n_epoch>0, \
             'fill in correct n_epoch (int, >0)'
         assert isinstance(self.learn_ratio,float) and self.learn_ratio>0., \
@@ -271,8 +300,8 @@ class BasicCNN(BaseControler):
             'fill in correct use_gpu (bool)'
         assert isinstance(self.loss_name,str), \
             'fill in correct optimizer_name (str)'
-        assert isinstance(self.conv_channel,list), \
-            'fill in correct conv_channel (list, [8, 8, 6])'
+        assert isinstance(self.hidden_sizes,list), \
+            'fill in correct hidden_sizes (list, [64, 32])'
         assert isinstance(self.fc_size,list), \
-            'fill in correct fc_size (list, [64, 16])'
+            'fill in correct fc_size (list, [128])'
         self.device = self._get_device()
