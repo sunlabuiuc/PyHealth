@@ -9,5 +9,6 @@ tqdm
 xlrd >= 1.0.0
 torch
 torchvision
+xgboost
 # torch  please install this by yourself
 # xgboost  please install this by yourself
