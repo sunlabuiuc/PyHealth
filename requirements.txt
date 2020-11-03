@@ -7,5 +7,7 @@ scipy>=0.20
 scikit_learn>=0.20
 tqdm
 xlrd >= 1.0.0
+torch
+torchvision
 # torch  please install this by yourself
 # xgboost  please install this by yourself
