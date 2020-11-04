@@ -12,6 +12,7 @@ import warnings
 import torchvision.models as models
 from ._loss import callLoss
 from ._dlbase import BaseControler
+from pyhealth.data.data_reader.ecg import dl_reader
 
 warnings.filterwarnings('ignore')
 
@@ -203,7 +204,6 @@ class Conv1D(BaseControler):
         
         """
         _dataset = dl_reader.DatasetReader(data)            
- 
         _loader = torch.utils.data.DataLoader(_dataset,
                                               batch_size=self.n_batchsize,
                                               drop_last = True,
