@@ -17,19 +17,27 @@ def time_series_get(fpath):
 
 class DatasetReader(BaseDataset):
 
-    def __init__(self, data, reverse = False):
-        BaseDataset.__init__(self, data)     
-        self.series_paths = data['x']
+    def __init__(self, data, reverse = False, data_type = 'distribute', maxlength_seq = 200):
+        BaseDataset.__init__(self, data)
+        self.data_type = data_type
+        self.feat_info = data['x']
+        if data_type == 'aggregation':
+            self.time = data['t']
         self.label_list = data['y']
-        self.seq_len = max(data['l']) if max(data['l'])<200 else 200
+        self.seq_len = max(data['l']) if max(data['l'])<maxlength_seq else maxlength_seq
         self.reverse = reverse
         
     def __getitem__(self, index):
-        xpath = self.series_paths[index]
-        s_data = time_series_get(xpath)
-        data = s_data[:self.seq_len, 1: ]
+        if self.data_type == 'distribute':
+            xpath = self.feat_info[index]
+            s_data = time_series_get(xpath)
+            data = s_data[:self.seq_len, 1: ]
+            time = s_data[:self.seq_len, 0]
+        else:
+            data = self.feat_info[index]
+            time = self.time[index]
+
         l, w = np.shape(data)
-        time = s_data[:self.seq_len, 0]
         time[1:] = time[1:] - time[:-1]
         time[0] = 0.
         if self.reverse:
@@ -50,5 +58,6 @@ class DatasetReader(BaseDataset):
         return {'X': np.array(x_series), 'M': np.array(x_mask), 'cur_M': np.array(x_mask_cur), 'Y': np.array(label), 'T':np.array(x_time)}
 
     def __len__(self):
-        return len(self.series_paths)
+        return len(self.feat_info)
+
 

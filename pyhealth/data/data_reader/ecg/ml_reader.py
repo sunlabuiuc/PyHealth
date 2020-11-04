@@ -14,15 +14,18 @@ import pickle
 
 class DatasetReader:
 
-    def __init__(self, data, task_type = None): 
-        self.series = data['x']
-        self.label = data['y']
+    def __init__(self, data, task_type = None, data_type = 'aggregation'): 
+        self.data_type = data_type
+        if data_type == 'aggregation':
+            self.series = data['x']
+            self.label = data['y']
+        else:
+            raise 'distribut reader coming...'
         self.task_type = task_type
         
     def get_data(self):
         if self.task_type is None:
             raise Exception('fill in correct task-type xxx from [\'binaryclass\', \'multiclass\', \'multilabel\', \'regression\']')
-        target_x = np.array(self.series)
         if self.task_type == 'multilabel':
             label_y = np.array(self.label)
         else:
@@ -34,4 +37,7 @@ class DatasetReader:
             else:
                 labels = np.array(self.label)
             label_y = labels.reshape(-1, 1)
-        return {'X': target_x, 'Y': label_y}
+        if self.data_type == 'aggregation':
+            target_x = np.array(self.series)
+            return {'X': target_x, 'Y': label_y}
+

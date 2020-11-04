@@ -16,6 +16,7 @@ from torch import Tensor
 import torch.nn.functional as F
 from torch import Tensor
 from torch.autograd import Variable
+import numpy as np
 
 warnings.filterwarnings('ignore')
 
@@ -466,7 +467,8 @@ class MINA(BaseControler):
                                     K_train_beat[:, 0, :], K_train_beat[:, 1, :], K_train_beat[:, 2, :], K_train_beat[:, 3, :],
                                     K_train_rhythm[:, 0, :], K_train_rhythm[:, 1, :], K_train_rhythm[:, 2, :], K_train_rhythm[:, 3, :],
                                     K_train_freq)
-
+            targets = databatch['Y']
+            targets = Variable(targets).float().to(self.device)
             if self.task_type in ['multiclass']:
                 prob_h = F.softmax(outputs, dim = -1)
             else:

@@ -19,6 +19,12 @@ from pyhealth.models.sequence.rf import RandomForest
 from pyhealth.data.expdata_generator import sequencedata as expdata_generator
 from pyhealth.evaluation.evaluator import func
 
+import sys 
+if sys.version_info >= (3, 6):
+    import zipfile
+else:
+    import zipfile36 as zipfile
+
 class TestSequentialModel(unittest.TestCase):
     
     expdata_id = 'test.sequence.model'
@@ -50,6 +56,7 @@ class TestSequentialModel(unittest.TestCase):
         assert np.shape(pred_results['hat_y']) == np.shape(pred_results['y'])
         assert True not in np.isnan(pred_results['hat_y']).tolist()
         assert True not in np.isnan(pred_results['hat_y']*0).tolist()
+
 
     def test_02_lstm_gpu(self):
         cur_dataset = expdata_generator(self.expdata_id)

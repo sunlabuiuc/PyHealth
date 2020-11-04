@@ -36,7 +36,7 @@ class TestDatareader(unittest.TestCase):
                                                  task = 'binaryclass')()
         seq_ds = seq_ml_reader.DatasetReader(data, 
                                              sub_group = test_sub_group, 
-                                             data_type = 'aggregation', 
+                                             data_type = 'aggregation',
                                              task_type = 'binaryclass').get_data()
         assert np.shape(seq_ds['X'])[0] == test_n_sample
         assert np.shape(seq_ds['X'])[1] == test_n_feat * test_sub_group
@@ -53,8 +53,8 @@ class TestDatareader(unittest.TestCase):
                                                  task = 'multiclass',
                                                  n_class = test_n_class)()
         seq_ds = seq_ml_reader.DatasetReader(data, 
-                                             sub_group = test_sub_group, 
-                                             data_type = 'aggregation', 
+                                             sub_group = test_sub_group,
+                                             data_type = 'aggregation',
                                              task_type = 'multiclass').get_data()
         assert np.shape(seq_ds['X'])[0] == test_n_sample
         assert np.shape(seq_ds['X'])[1] == test_n_feat * test_sub_group
@@ -72,7 +72,7 @@ class TestDatareader(unittest.TestCase):
                                                  n_class = test_n_class)()
         seq_ds = seq_ml_reader.DatasetReader(data, 
                                              sub_group = test_sub_group, 
-                                             data_type = 'aggregation', 
+                                             data_type = 'aggregation',
                                              task_type = 'multilabel').get_data()
         assert np.shape(seq_ds['X'])[0] == test_n_sample
         assert np.shape(seq_ds['X'])[1] == test_n_feat * test_sub_group
@@ -86,7 +86,7 @@ class TestDatareader(unittest.TestCase):
                                                  n_feat = test_n_feat,
                                                  task = 'binaryclass',
                                                  n_class = 2)()
-        seq_ds = seq_dl_reader.DatasetReader(data, data_type = 'aggregation')
+        seq_ds = seq_dl_reader.DatasetReader(data,data_type = 'aggregation')
         seq_loader = torch.utils.data.DataLoader(seq_ds, batch_size=test_batch_size)
         for batch_idx, databatch in enumerate(seq_loader):
             assert databatch['X'].size()[0] == test_batch_size
@@ -105,7 +105,7 @@ class TestDatareader(unittest.TestCase):
                                                  n_feat = test_n_feat,
                                                  task = 'multiclass',
                                                  n_class = test_n_class)()
-        seq_ds = seq_dl_reader.DatasetReader(data, data_type = 'aggregation')
+        seq_ds = seq_dl_reader.DatasetReader(data,data_type = 'aggregation')
         seq_loader = torch.utils.data.DataLoader(seq_ds, batch_size=test_batch_size)
         for batch_idx, databatch in enumerate(seq_loader):
             assert databatch['X'].size()[0] == test_batch_size
@@ -124,7 +124,7 @@ class TestDatareader(unittest.TestCase):
                                                  n_feat = test_n_feat,
                                                  task = 'multilabel',
                                                  n_class = test_n_class)()
-        seq_ds = seq_dl_reader.DatasetReader(data, data_type = 'aggregation')
+        seq_ds = seq_dl_reader.DatasetReader(data,data_type = 'aggregation')
         seq_loader = torch.utils.data.DataLoader(seq_ds, batch_size=test_batch_size)
         for batch_idx, databatch in enumerate(seq_loader):
             assert databatch['X'].size()[0] == test_batch_size
@@ -144,7 +144,7 @@ class TestDatareader(unittest.TestCase):
                                                  n_feat = test_n_feat,
                                                  task = 'regression',
                                                  n_class = 2)()
-        seq_ds = seq_dl_reader.DatasetReader(data, data_type = 'aggregation')
+        seq_ds = seq_dl_reader.DatasetReader(data,data_type = 'aggregation')
         seq_loader = torch.utils.data.DataLoader(seq_ds, batch_size=test_batch_size)
         for batch_idx, databatch in enumerate(seq_loader):
             assert databatch['X'].size()[0] == test_batch_size

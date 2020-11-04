@@ -17,10 +17,11 @@ def time_series_get(fpath):
 
 class DatasetReader:
 
-    def __init__(self, data, sub_group = 2, task_type = None): 
-        self.series_paths = data['x']
+    def __init__(self, data, sub_group = 2, task_type = None, data_type = 'distribute'): 
+        self.data_type = data_type
+        self.feat_info = data['x']
         self.label_list = data['y']
-        self.seq_len = data['l']
+        self.seq_len = data['l']            
         self.sub_group = sub_group
         self.task_type = task_type
         
@@ -28,9 +29,12 @@ class DatasetReader:
         if self.task_type is None:
             raise Exception('fill in correct task-type xxx from [\'binaryclass\', \'multiclass\', \'multilabel\', \'regression\']')
         target_x = []
-        for index in range(len(self.series_paths)):
-            xpath = self.series_paths[index]
-            s_data = time_series_get(xpath)[:, 1:]
+        for index in range(len(self.feat_info)):
+            if self.data_type == 'distribute':
+                xpath = self.feat_info[index]
+                s_data = time_series_get(xpath)[:, 1:]
+            else:
+                s_data = self.feat_info[index]
             sub_group_len = int(self.seq_len[index]/self.sub_group)
             cur_target_x = []
             for i in range(self.sub_group):
@@ -42,12 +46,12 @@ class DatasetReader:
             label_y = np.array(self.label_list)
         else:
             labels = []
-            if self.task_type == 'multilabel':
-                if self.task_type == 'multiclass':
-                    for rowlabel in self.label_list:
-                        labels.append(np.argmax(np.array(rowlabel)))
+            if self.task_type == 'multiclass':
+                for rowlabel in self.label_list:
+                    labels.append(np.argmax(np.array(rowlabel)))
                 labels = np.array(labels)
             else:
                 labels = np.array(self.label_list)
             label_y = labels.reshape(-1, 1)
         return {'X': target_x, 'Y': label_y}
+

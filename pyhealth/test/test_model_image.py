@@ -9,6 +9,13 @@ from pyhealth.data.expdata_generator import imagedata as expdata_generator
 from pyhealth.models.image.typicalcnn import TypicalCNN
 from pyhealth.models.image.basicnn import BasicCNN
 
+import sys 
+if sys.version_info >= (3, 6):
+    import zipfile
+else:
+    import zipfile36 as zipfile
+
+
 class TestImageModel(unittest.TestCase):
     
     expdata_id = 'test.image.model'
