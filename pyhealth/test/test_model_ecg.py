@@ -83,102 +83,6 @@ class TestImageModel(unittest.TestCase):
         assert True not in np.isnan(pred_results['hat_y']).tolist()
         assert True not in np.isnan(pred_results['hat_y']*0).tolist()
 
-    def test_02_dblstm_ws_cpu(self):
-        cur_dataset = expdata_generator(self.expdata_id)
-        cur_dataset.load_exp_data()
-        expmodel_id = 'test.dblstm_ws.cpu'
-        clf = DBLSTM_WS(expmodel_id=expmodel_id, 
-                   n_batchsize=20, 
-                   use_gpu=False,
-                   n_epoch=3)
-        clf.fit(cur_dataset.train, cur_dataset.valid)
-        clf.load_model()
-        clf.inference(cur_dataset.test)
-        pred_results = clf.get_results()
-        assert np.shape(pred_results['hat_y']) == np.shape(pred_results['y'])
-        assert True not in np.isnan(pred_results['hat_y']).tolist()
-        assert True not in np.isnan(pred_results['hat_y']*0).tolist()
-
-    def test_02_deepres1d_cpu(self):
-        cur_dataset = expdata_generator(self.expdata_id)
-        cur_dataset.load_exp_data()
-        expmodel_id = 'test.deepres1d.cpu'
-        clf = DeepRES1D(expmodel_id=expmodel_id, 
-                   n_batchsize=20, 
-                   use_gpu=False,
-                   n_epoch=3)
-        clf.fit(cur_dataset.train, cur_dataset.valid)
-        clf.load_model()
-        clf.inference(cur_dataset.test)
-        pred_results = clf.get_results()
-        assert np.shape(pred_results['hat_y']) == np.shape(pred_results['y'])
-        assert True not in np.isnan(pred_results['hat_y']).tolist()
-        assert True not in np.isnan(pred_results['hat_y']*0).tolist()
-
-    def test_02_denseconv_cpu(self):
-        cur_dataset = expdata_generator(self.expdata_id)
-        cur_dataset.load_exp_data()
-        expmodel_id = 'test.denseconv.cpu'
-        clf = DenseConv(expmodel_id=expmodel_id, 
-                   n_batchsize=20, 
-                   use_gpu=False,
-                   n_epoch=3)
-        clf.fit(cur_dataset.train, cur_dataset.valid)
-        clf.load_model()
-        clf.inference(cur_dataset.test)
-        pred_results = clf.get_results()
-        assert np.shape(pred_results['hat_y']) == np.shape(pred_results['y'])
-        assert True not in np.isnan(pred_results['hat_y']).tolist()
-        assert True not in np.isnan(pred_results['hat_y']*0).tolist()
-
-    def test_02_mina_cpu(self):
-        cur_dataset = expdata_generator(self.expdata_id)
-        cur_dataset.load_exp_data()
-        expmodel_id = 'test.mina.cpu'
-        clf = MINA(expmodel_id=expmodel_id, 
-                   n_batchsize=20, 
-                   use_gpu=False,
-                   n_epoch=3)
-        clf.fit(cur_dataset.train, cur_dataset.valid)
-        clf.load_model()
-        clf.inference(cur_dataset.test)
-        pred_results = clf.get_results()
-        assert np.shape(pred_results['hat_y']) == np.shape(pred_results['y'])
-        assert True not in np.isnan(pred_results['hat_y']).tolist()
-        assert True not in np.isnan(pred_results['hat_y']*0).tolist()
-
-    def test_02_rcrnet_cpu(self):
-        cur_dataset = expdata_generator(self.expdata_id)
-        cur_dataset.load_exp_data()
-        expmodel_id = 'test.rcrnet.cpu'
-        clf = RCRNet(expmodel_id=expmodel_id, 
-                   n_batchsize=20, 
-                   use_gpu=False,
-                   n_epoch=3)
-        clf.fit(cur_dataset.train, cur_dataset.valid)
-        clf.load_model()
-        clf.inference(cur_dataset.test)
-        pred_results = clf.get_results()
-        assert np.shape(pred_results['hat_y']) == np.shape(pred_results['y'])
-        assert True not in np.isnan(pred_results['hat_y']).tolist()
-        assert True not in np.isnan(pred_results['hat_y']*0).tolist()
-
-    def test_02_sdaelstm_cpu(self):
-        cur_dataset = expdata_generator(self.expdata_id)
-        cur_dataset.load_exp_data()
-        expmodel_id = 'test.sdaelstm.cpu'
-        clf = SDAELSTM(expmodel_id=expmodel_id, 
-                   n_batchsize=20, 
-                   use_gpu=False,
-                   n_epoch=3)
-        clf.fit(cur_dataset.train, cur_dataset.valid)
-        clf.load_model()
-        clf.inference(cur_dataset.test)
-        pred_results = clf.get_results()
-        assert np.shape(pred_results['hat_y']) == np.shape(pred_results['y'])
-        assert True not in np.isnan(pred_results['hat_y']).tolist()
-        assert True not in np.isnan(pred_results['hat_y']*0).tolist()
-
     def test_02_xgboost(self):
         cur_dataset = expdata_generator(self.expdata_id)
         cur_dataset.load_exp_data()
@@ -198,12 +102,6 @@ class TestImageModel(unittest.TestCase):
         shutil.rmtree(os.path.join('./experiments_records', 'test.conv1d.gpu'))
         shutil.rmtree(os.path.join('./experiments_records', 'test.randomforest'))
         shutil.rmtree(os.path.join('./experiments_records', 'test.xgboost'))
-        shutil.rmtree(os.path.join('./experiments_records', 'test.sdaelstm.cpu'))
-        shutil.rmtree(os.path.join('./experiments_records', 'test.rcrnet.cpu'))
-        shutil.rmtree(os.path.join('./experiments_records', 'test.mina.cpu'))
-        shutil.rmtree(os.path.join('./experiments_records', 'test.denseconv.cpu'))
-        shutil.rmtree(os.path.join('./experiments_records', 'test.deepres1d.cpu'))
-        shutil.rmtree(os.path.join('./experiments_records', 'test.dblstm_ws.cpu'))
 
 
 
