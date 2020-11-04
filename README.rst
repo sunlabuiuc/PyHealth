@@ -99,7 +99,7 @@ PyHealth is featured for:
 
 * **Unified APIs, detailed documentation, and interactive examples** across various types of datasets and algorithms.
 * **Advanced models**\ , including **latest deep learning models** and **classical machine learning models**.
-* **Wide coverage**, supporting **sequence data**, **image data**, and **text data** like clinical notes.
+* **Wide coverage**, supporting **sequence data**, **image data**, **series data** and **text data** like clinical notes.
 * **Optimized performance with JIT and parallelization** when possible, using `numba <https://github.com/numba/numba>`_ and `joblib <https://github.com/joblib/joblib>`_.
 * **Customizable modules and flexible design**: each module may be turned on/off or totally replaced by custom functions. The trained models can be easily exported and reloaded for fast execution and deployment.
 
@@ -215,6 +215,11 @@ Alternatively, you could clone and run setup.py file:
 * torch (this should be installed manually)
 * xgboost (this should be installed manually)
 * xlrd >= 1.0.0
+* zipfile36
+* PyWavelets
+* torch
+* torchvision
+* xgboost
 
 **Warning 1**\ :
 PyHealth has multiple neural network based models, e.g., LSTM, which are
