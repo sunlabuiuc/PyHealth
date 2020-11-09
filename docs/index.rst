@@ -83,10 +83,9 @@ Welcome to PyHealth's documentation!
    :align: center
 
 
-**Development Status**: **As of 08/25/2020, PyHealth is under active development and in its alpha stage. Please follow, star, and fork to get the latest functions**!
+**PyHealth** is a comprehensive **Python package** for **healthcare AI**, designed for both **ML researchers** and **healthcare and medical practitioners**.
+**PyHealth** accepts diverse healthcare data such as longitudinal electronic health records (EHRs), continuous signials (ECG, EEG), and clinical notes (to be added), and supports various predictive modeling methods using deep learning and other advanced machine learning algorithms published in the literature.
 
-
-**PyHealth** is a comprehensive and flexible **Python library** for **healthcare AI**, designed for both **ML researchers** and **medical practitioners**.
 The library is proudly developed and maintained by researchers from `Carnegie Mellon University <https://www.cmu.edu/>`_, `IQVIA <https://www.iqvia.com/>`_, and `University of Illinois at Urbana-Champaign <https://illinois.edu/>`_.
 PyHealth makes many important healthcare tasks become accessible, such as **phenotyping prediction**, **mortality prediction**,
 and **ICU length stay forecasting**, etc. Running these prediction tasks with deep learning models can be as short as 10 lines of code in PyHealth.
@@ -105,7 +104,7 @@ PyHealth is featured for:
 
 * **Unified APIs, detailed documentation, and interactive examples** across various types of datasets and algorithms.
 * **Advanced models**\ , including **latest deep learning models** and **classical machine learning models**.
-* **Wide coverage**, supporting **sequence data**, **image data**, and **text data** like clinical notes.
+* **Wide coverage**, supporting **sequence data**, **image data**, **series data** and **text data** like clinical notes.
 * **Optimized performance with JIT and parallelization** when possible, using `numba <https://github.com/numba/numba>`_ and `joblib <https://github.com/joblib/joblib>`_.
 * **Customizable modules and flexible design**: each module may be turned on/off or totally replaced by custom functions. The trained models can be easily exported and reloaded for fast execution and deployment.
 
@@ -115,30 +114,32 @@ PyHealth is featured for:
 
    .. code-block:: python
 
-      # load pre-processed CMS dataset
-      from pyhealth.data.expdata_generator import sequencedata as expdata_generator
 
-      expdata_id = '2020.0810.data.mortality.mimic'
-      cur_dataset = expdata_generator(exp_id=exp_id)
-      cur_dataset.get_exp_data(sel_task='mortality', )
-      cur_dataset.load_exp_data()
+       # load pre-processed CMS dataset
+       from pyhealth.data.expdata_generator import sequencedata as expdata_generator
 
-      # initialize the model for training
-      from pyhealth.models.sequence.lstm import LSTM
-      # enable GPU
-      clf = LSTM(expmodel_id=expmodel_id, n_batchsize=20, use_gpu=True,
-          n_epoch=100, gpu_ids='0,1')
-      clf.fit(cur_dataset.train, cur_dataset.valid)
+       expdata_id = '2020.0810.data.mortality.mimic'
+       cur_dataset = expdata_generator(exp_id=exp_id)
+       cur_dataset.get_exp_data(sel_task='mortality', )
+       cur_dataset.load_exp_data()
 
-      # load the best model for inference
-      clf.load_model()
-      clf.inference(cur_dataset.test)
-      pred_results = clf.get_results()
+       # initialize the model for training
+       from pyhealth.models.sequence.lstm import LSTM
+       # enable GPU
+       expmodel_id = 'test.model.lstm.0001'
+       clf = LSTM(expmodel_id=expmodel_id, n_batchsize=20, use_gpu=True, n_epoch=100)
+       clf.fit(cur_dataset.train, cur_dataset.valid)
 
-      # evaluate the model
-      from pyhealth.evaluation.evaluator import func
-      r = func(pred_results['hat_y'], pred_results['y'])
-      print(r)
+       # load the best model for inference
+       clf.load_model()
+       clf.inference(cur_dataset.test)
+       pred_results = clf.get_results()
+
+       # evaluate the model
+       from pyhealth.evaluation.evaluator import func
+       r = func(pred_results['hat_y'], pred_results['y'])
+       print(r)
+
 
 
 **Citing PyHealth**\ :
@@ -183,6 +184,7 @@ Sequence: EHR-ICU     MIMIC III         A relational database containing tables 
 Sequence: EHR-ICU     MIMIC_demo        The MIMIC-III demo database is limited to 100 patients and excludes the noteevents table.                 \\examples\\data_generation\\dataloader_mimic_demo        https://mimic.physionet.org/gettingstarted/demo/
 Sequence: EHU-Claim   CMS               DE-SynPUF: CMS 2008-2010 Data Entrepreneurs Synthetic Public Use File                                     \\examples\\data_generation\\dataloader_cms               https://www.cms.gov/Research-Statistics-Data-and-Systems/Downloadable-Public-Use-Files/SynPUFs
 Image: Chest X-ray    Pediatric         Pediatric Chest X-ray Pneumonia (Bacterial vs Viral vs Normal) Dataset                                    N/A                                                       https://academictorrents.com/details/951f829a8eeb4d2839c4a535db95078a9175010b
+Series: ECG           PhysioNet         AF Classification from a short single lead ECG recording Dataset.                                         N/A                                                       https://archive.physionet.org/challenge/2017/#challenge-data
 ====================  ================  ======================================================================================================    ======================================================    ===============================================================================================================
 
 You may download the above datasets at the links. The structure of the generated datasets can be found in datasets folder:
