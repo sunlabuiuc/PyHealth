@@ -4,7 +4,7 @@ numpy>=1.13
 numba>=0.35
 pandas>=0.25
 scipy>=0.20
-scikit_learn=0.22
+scikit_learn==0.22
 tqdm
 xlrd >= 1.0.0
 zipfile36
