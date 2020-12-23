@@ -411,14 +411,23 @@ demonstrates the basic API of using GRU for mortality prediction. **It is noted 
       # enable GPU
       expmodel_id = 'test.model.lstm.0001'
       clf = LSTM(expmodel_id=expmodel_id, n_batchsize=20, use_gpu=True, n_epoch=100)
-      clf.fit(cur_dataset.train, cur_dataset.valid)
 
-#. Load the best shot of the training, predict on the test datasets
+#. Model loading, Load the saved model, default for 'best', maybe can personally set via '0', 'latest', etc.
 
    .. code-block:: python
 
-      # load the best model for inference
       clf.load_model()
+
+#. Model training, parameters are learnt on the train datasets and verified on valid datasets
+
+   .. code-block:: python
+
+      clf.fit(cur_dataset.train, cur_dataset.valid)
+
+#. Model inferring, make prediction on the test datasets
+
+   .. code-block:: python
+
       clf.inference(cur_dataset.test)
       pred_results = clf.get_results()
 
