@@ -144,14 +144,14 @@ If you use PyHealth in a scientific publication, we would appreciate
 citations to the following paper::
 
     @article{zhao2020pyhealth,
-      author  = {Zhao, Yue and Qiao, Zhi and Xiao, Cao and Glass, Lucas and Hu, Xiyang and Sun, Jimeng},
+      author  = {Zhao, Yue and Qiao, Zhi and Xiao, Cao and Glass, Lucas and Sun, Jimeng},
       title   = {PyHealth: A Python Library for Healthcare AI},
       year    = {2020},
     }
 
 or::
 
-    Zhao, Y., Qiao, Z., Xiao, C., Glass, L., Hu, X and Sun, J., 2020. PyHealth: A Python Library for Healthcare AI.
+    Zhao, Y., Qiao, Z., Xiao, C., Glass, L. and Sun, J., 2020. PyHealth: A Python Library for Healthcare AI.
 
 
 **Key Links and Resources**\ :
