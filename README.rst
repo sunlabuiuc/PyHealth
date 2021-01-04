@@ -1,5 +1,5 @@
-Python Library for Healthcare AI (PyHealth)
-===========================================
+A Python Library for Health Predictive Models (PyHealth)
+========================================================
 
 
 **Deployment & Documentation & Stats**
