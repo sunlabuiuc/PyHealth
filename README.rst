@@ -76,7 +76,7 @@ A Python Library for Health Predictive Models (PyHealth)
    :alt: PyHealth Logo
    :align: center
 
-**Development Status**: **As of 11/09/2020, PyHealth is under active development and in its alpha stage. Please follow, star, and fork to get the latest functions**!
+**Development Status**: **As of 01/04/2021, PyHealth is under active development and in its alpha stage. Please follow, star, and fork to get the latest functions**!
 
 
 **PyHealth** is a comprehensive **Python package** for **healthcare AI**, designed for both **ML researchers** and **healthcare and medical practitioners**.
@@ -145,13 +145,13 @@ citations to the following paper::
 
     @article{zhao2020pyhealth,
       author  = {Zhao, Yue and Qiao, Zhi and Xiao, Cao and Glass, Lucas and Sun, Jimeng},
-      title   = {PyHealth: A Python Library for Healthcare AI},
-      year    = {2020},
+      title   = {PyHealth: A Python Library for Health Predictive Models},
+      year    = {2021},
     }
 
 or::
 
-    Zhao, Y., Qiao, Z., Xiao, C., Glass, L. and Sun, J., 2020. PyHealth: A Python Library for Healthcare AI.
+    Zhao, Y., Qiao, Z., Xiao, C., Glass, L. and Sun, J., 2021. PyHealth: A Python Library for Health Predictive Models.
 
 
 **Key Links and Resources**\ :
