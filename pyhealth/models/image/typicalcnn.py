@@ -16,6 +16,63 @@ from ._dlbase import BaseControler
 warnings.filterwarnings('ignore')
 
 class TypicalCNN(BaseControler):
+    """Several typical & popular CNN networks for medical image prediction
+
+
+    Parameters
+
+    ----------
+    exp_id : str, optional (default='init.test')
+        name of current experiment
+
+    cnn_name : str, optional (default = 'resnet18')
+        name of typical/popular CNN networks
+
+    pretrained : bool, optional (default = False)
+        used for pre-trained model load, True -> load pretrained model;
+        False -> not load
+
+    n_epoch : int, optional (default = 100)
+        number of epochs with the initial learning rate
+
+    n_batchsize : int, optional (default = 5)
+        batch size for model training
+
+    load_size : int, optional (default = 255)
+        scale images to this size
+
+    crop_size : int, optional (default = 224)
+        crop load_sized image into to this size
+
+    learn_ratio : float, optional (default = 1e-4)
+        initial learning rate for adam
+
+    weight_decay : float, optional (default = 1e-4)
+        weight decay (L2 penalty)
+
+    n_epoch_saved : int, optional (default = 1)
+        frequency of saving checkpoints at the end of epochs
+
+    bias : bool, optional (default = True)
+        If False, then the layer does not use bias weights b_ih and b_hh.
+
+    dropout : float, optional (default = 0.5)
+        If non-zero, introduces a Dropout layer on the outputs of each LSTM layer except the last layer,
+        with dropout probability equal to dropout.
+
+    batch_first : bool, optional (default = False)
+        If True, then the input and output tensors are provided as (batch, seq, feature).
+
+    loss_name : str, optional (default='SigmoidCELoss')
+        Name or objective function.
+
+    use_gpu : bool, optional (default=False)
+        If yes, use GPU resources; else use CPU resources
+
+            gpu_ids : str, optional (default='')
+                                    If yes, assign concrete used gpu ids such as '0,2,6'; else use '0'
+
+    """
 
     def __init__(self, 
                  expmodel_id = 'test.new', 
@@ -37,63 +94,6 @@ class TypicalCNN(BaseControler):
                  use_gpu = False,
                  gpu_ids = '0'
                  ):
-        """
-        Several typical & popular CNN networks for medical image prediction 
-
-
-        Parameters
-
-        ----------
-        exp_id : str, optional (default='init.test') 
-            name of current experiment
-       
-        cnn_name : str, optional (default = 'resnet18')
-            name of typical/popular CNN networks
-        
-        pretrained : bool, optional (default = False)
-            used for pre-trained model load, True -> load pretrained model; False -> not load
-            
-        n_epoch : int, optional (default = 100)
-            number of epochs with the initial learning rate
-            
-        n_batchsize : int, optional (default = 5)
-            batch size for model training
-        
-        load_size : int, optional (default = 255)
-            scale images to this size
-
-        crop_size : int, optional (default = 224)
-            crop load_sized image into to this size
-            
-        learn_ratio : float, optional (default = 1e-4)
-            initial learning rate for adam
-  
-        weight_decay : float, optional (default = 1e-4)
-            weight decay (L2 penalty)
-  
-        n_epoch_saved : int, optional (default = 1)
-            frequency of saving checkpoints at the end of epochs
-            
-        bias : bool, optional (default = True)
-            If False, then the layer does not use bias weights b_ih and b_hh. 
-            
-        dropout : float, optional (default = 0.5)
-            If non-zero, introduces a Dropout layer on the outputs of each LSTM layer except the last layer, 
-            with dropout probability equal to dropout. 
-
-        batch_first : bool, optional (default = False)
-            If True, then the input and output tensors are provided as (batch, seq, feature). 
-             
-        loss_name : str, optional (default='SigmoidCELoss') 
-            Name or objective function.
-
-        use_gpu : bool, optional (default=False) 
-            If yes, use GPU recources; else use CPU recources 
-
-				gpu_ids : str, optional (default='') 
-										If yes, assign concrete used gpu ids such as '0,2,6'; else use '0' 
-
-        """
  
         super(TypicalCNN, self).__init__(expmodel_id)
         self.cnn_name = cnn_name
@@ -140,11 +140,7 @@ class TypicalCNN(BaseControler):
         return predictor
     
     def _build_model(self):
-        """
-        
-        Build the crucial components for model training 
- 
-        
+        """Build the crucial components for model training
         """
         if self.is_loadmodel is False:        
             _config = {'label_size': self.label_size}
@@ -160,7 +156,6 @@ class TypicalCNN(BaseControler):
         self.optimizer = self._get_optimizer(self.optimizer_name)
 
     def fit(self, train_data, valid_data, assign_task_type = None):
-        
         """
         Parameters
 
@@ -235,9 +230,7 @@ class TypicalCNN(BaseControler):
         self._load_model(loaded_epoch, model_file_path) 
 
     def _args_check(self):
-        """
-        
-        Check args whether valid/not and give tips
+        """Check args whether valid/not and give tips
  
         
         """

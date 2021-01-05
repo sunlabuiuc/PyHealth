@@ -283,6 +283,13 @@ Neural Networks      Dipole            pyhealth.models.sequence.dipole          
 Neural Networks      tLSTM             pyhealth.models.sequence.tlstm            Patient Subtyping via Time-Aware LSTM Networks                                                          2017   [#Baytas2017tLSTM]_
 Neural Networks      RAIM              pyhealth.models.sequence.raim             RAIM: Recurrent Attentive and Intensive Model of Multimodal Patient Monitoring Data                     2018   [#Xu2018RAIM]_
 Neural Networks      StageNet          pyhealth.models.sequence.stagenet         StageNet: Stage-Aware Neural Networks for Health Risk Prediction                                        2020   [#Gao2020StageNet]_
+Neural Networks      CNN               pyhealth.models.sequence.basiccnn         Face recognition: A convolutional neural-network approach                                               1997   [#Lawrence1997Face]_
+Neural Networks      Vggnet            pyhealth.models.sequence.typicalcnn       Very deep convolutional networks for large-scale image recognition                                      2014
+Neural Networks      Inception         pyhealth.models.sequence.typicalcnn
+Neural Networks      Resnet            pyhealth.models.sequence.typicalcnn
+Neural Networks      Resnext           pyhealth.models.sequence.typicalcnn
+Neural Networks      Densenet          pyhealth.models.sequence.typicalcnn
+Neural Networks      Mobilenet         pyhealth.models.sequence.typicalcnn
 ===================  ================  ========================================  ======================================================================================================  =====  ========================================
 
 Examples of running ML and DL models can be found below, or directly at \\examples\\learning_examples\\
@@ -479,6 +486,8 @@ Reference
 .. [#Gao2020StageNet] Gao, J., Xiao, C., Wang, Y., Tang, W., Glass, L.M. and Sun, J., 2020, April. StageNet: Stage-Aware Neural Networks for Health Risk Prediction. In Proceedings of The Web Conference 2020 (pp. 530-540).
 
 .. [#Hochreiter1997Long] Hochreiter, S. and Schmidhuber, J., 1997. Long short-term memory. *Neural computation*, 9(8), pp.1735-1780.
+
+.. [#Lawrence1997Face] Lawrence, S., Giles, C.L., Tsoi, A.C. and Back, A.D., 1997. Face recognition: A convolutional neural-network approach. *IEEE transactions on neural networks*, 8(1), pp.98-113.
 
 .. [#Ma2017Dipole] Ma, F., Chitta, R., Zhou, J., You, Q., Sun, T. and Gao, J., 2017, August. Dipole: Diagnosis prediction in healthcare via attention-based bidirectional recurrent neural networks. In Proceedings of the 23rd ACM SIGKDD international conference on knowledge discovery and data mining (pp. 1903-1911).
 

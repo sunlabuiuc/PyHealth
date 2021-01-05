@@ -60,6 +60,14 @@ pyhealth.models.sequence.rf module
    :undoc-members:
    :show-inheritance:
 
+pyhealth.models.sequence.stagenet module
+----------------------------------
+
+.. automodule:: pyhealth.models.sequence.stagenet
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 pyhealth.models.sequence.tlstm module
 -------------------------------------
 

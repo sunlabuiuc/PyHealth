@@ -211,6 +211,13 @@ Neural Networks      Dipole            :class:`pyhealth.models.sequence.dipole.D
 Neural Networks      tLSTM             :class:`pyhealth.models.sequence.tlstm.tLSTM`                 Patient Subtyping via Time-Aware LSTM Networks                                                          2017   [#Baytas2017tLSTM]_
 Neural Networks      RAIM              :class:`pyhealth.models.sequence.raim.RAIM`                   RAIM: Recurrent Attentive and Intensive Model of Multimodal Patient Monitoring Data                     2018   [#Xu2018RAIM]_
 Neural Networks      StageNet          :class:`pyhealth.models.sequence.stagenet.StageNet`           StageNet: Stage-Aware Neural Networks for Health Risk Prediction                                        2020   [#Gao2020StageNet]_
+Neural Networks      CNN               :class:`pyhealth.models.sequence.basiccnn.BasicCNN`           Face recognition: A convolutional neural-network approach                                               1997   :cite:`a-lawrence1997face`
+Neural Networks      Vggnet            :class:`pyhealth.models.sequence.typicalcnn.TypicalCNN`       Very deep convolutional networks for large-scale image recognition                                      2014
+Neural Networks      Inception         :class:`pyhealth.models.sequence.typicalcnn.TypicalCNN`
+Neural Networks      Resnet            :class:`pyhealth.models.sequence.typicalcnn.TypicalCNN`
+Neural Networks      Resnext           :class:`pyhealth.models.sequence.typicalcnn.TypicalCNN`
+Neural Networks      Densenet          :class:`pyhealth.models.sequence.typicalcnn.TypicalCNN`
+Neural Networks      Mobilenet         :class:`pyhealth.models.sequence.typicalcnn.TypicalCNN`
 ===================  ================  ============================================================  ======================================================================================================  =====  ========================================
 
 
