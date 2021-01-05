@@ -199,6 +199,9 @@ The processed datasets (X,y) should be put in x_data, y_data correspondingly, to
 
 **(ii) Machine Learning and Deep Learning Models** :
 
+
+**For sequence data**:
+
 ===================  ================  ============================================================  ======================================================================================================  =====  ========================================
 Type                 Abbr              Class                                                         Algorithm                                                                                               Year   Ref
 ===================  ================  ============================================================  ======================================================================================================  =====  ========================================
@@ -211,14 +214,37 @@ Neural Networks      Dipole            :class:`pyhealth.models.sequence.dipole.D
 Neural Networks      tLSTM             :class:`pyhealth.models.sequence.tlstm.tLSTM`                 Patient Subtyping via Time-Aware LSTM Networks                                                          2017   [#Baytas2017tLSTM]_
 Neural Networks      RAIM              :class:`pyhealth.models.sequence.raim.RAIM`                   RAIM: Recurrent Attentive and Intensive Model of Multimodal Patient Monitoring Data                     2018   [#Xu2018RAIM]_
 Neural Networks      StageNet          :class:`pyhealth.models.sequence.stagenet.StageNet`           StageNet: Stage-Aware Neural Networks for Health Risk Prediction                                        2020   [#Gao2020StageNet]_
-Neural Networks      CNN               :class:`pyhealth.models.sequence.basiccnn.BasicCNN`           Face recognition: A convolutional neural-network approach                                               1997   :cite:`a-lawrence1997face`
-Neural Networks      Vggnet            :class:`pyhealth.models.sequence.typicalcnn.TypicalCNN`       Very deep convolutional networks for large-scale image recognition                                      2014
-Neural Networks      Inception         :class:`pyhealth.models.sequence.typicalcnn.TypicalCNN`
-Neural Networks      Resnet            :class:`pyhealth.models.sequence.typicalcnn.TypicalCNN`
-Neural Networks      Resnext           :class:`pyhealth.models.sequence.typicalcnn.TypicalCNN`
-Neural Networks      Densenet          :class:`pyhealth.models.sequence.typicalcnn.TypicalCNN`
-Neural Networks      Mobilenet         :class:`pyhealth.models.sequence.typicalcnn.TypicalCNN`
 ===================  ================  ============================================================  ======================================================================================================  =====  ========================================
+
+
+**For image data**:
+
+===================  ================  =================================================================================  ======================================================================================================  =====  ========================================
+Type                 Abbr              Class                                                                              Algorithm                                                                                               Year   Ref
+===================  ================  =================================================================================  ======================================================================================================  =====  ========================================
+Neural Networks      CNN               :class:`pyhealth.models.sequence.basiccnn.BasicCNN`                                Face recognition: A convolutional neural-network approach                                               1997   :cite:`a-lawrence1997face`
+Neural Networks      Vggnet            :class:`pyhealth.models.sequence.typicalcnn.TypicalCNN`                            Very deep convolutional networks for large-scale image recognition                                      2014Neural Networks      Inception         pyhealth.models.sequence.typicalcnn       Rethinking the Inception Architecture for Computer Vision
+Neural Networks      Resnet            pyhealth.models.sequence.typicalcnn                                                Deep Residual Learning for Image Recognition
+Neural Networks      Resnext           pyhealth.models.sequence.typicalcnn                                                Aggregated Residual Transformations for Deep Neural Networks
+Neural Networks      Densenet          pyhealth.models.sequence.typicalcnn                                                Densely Connected Convolutional Networks
+Neural Networks      Mobilenet         pyhealth.models.sequence.typicalcnn                                                MobileNets: Efficient Convolutional Neural Networks for Mobile Vision Applications
+===================  ================  =================================================================================  ======================================================================================================  =====  ========================================
+
+
+**For ecg/egg data**:
+
+===================  ================  ========================================  ======================================================================================================  =====  ========================================
+Type                 Abbr              Class                                     Algorithm                                                                                               Year   Ref
+===================  ================  ========================================  ======================================================================================================  =====  ========================================
+Classical Models     RandomForest      pyhealth.models.ecg.rf                    Random Forests                                                                                          2000   [#Breiman2001Random]_
+Classical Models     XGBoost           pyhealth.models.ecg.xgboost               XGBoost: A scalable tree boosting system                                                                2016   [#Chen2016Xgboost]_
+Neural Networks      BasicCNN1D        pyhealth.models.ecg.conv1d                Face recognition: A convolutional neural-network approach                                               1997   [#Lawrence1997Face]_
+Neural Networks      DBLSTM-WS         pyhealth.models.ecg.dblstm_ws             A novel wavelet sequence based on deep bidirectional LSTM network model for ECG signal classification   2018
+Neural Networks      DeepRes1D         pyhealth.models.ecg.deepres1d             Heartbeat classification using deep residual convolutional neural network from 2-lead electrocardiogram 2019
+Neural Networks      AE+BiLSTM         pyhealth.models.ecg.sdaelstm              Automatic Classification of CAD ECG Signals With SDAE and Bidirectional Long Short-Term Network         2019
+Neural Networks      KRCRnet           pyhealth.models.ecg.rcrnet                K-margin-based Residual-Convolution-Recurrent Neural Network for Atrial Fibrillation Detection          2019
+Neural Networks      MINA              pyhealth.models.ecg.mina                  MINA: Multilevel Knowledge-Guided Attention for Modeling Electrocardiography Signals                    2019
+===================  ================  ========================================  ======================================================================================================  =====  ========================================
 
 
 Examples of running ML and DL models can be found below, or directly at \\examples\\learning_examples\\
