@@ -1,0 +1,27 @@
+Paris B-LOC
+is O
+the O
+capital O
+of O
+France B-LOC
+. O
+
+His O
+name O
+wasn't O
+James B-PER
+. O
+
+Paris B-LOC
+is O
+the O
+capital O
+of O
+France B-LOC
+. O
+
+His O
+name O
+wasn't O
+James B-PER
+. O
