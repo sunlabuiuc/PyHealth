@@ -1,0 +1,27 @@
+My O
+name O
+is O
+Hicham B-PER
+E-B I-PER
+. O
+
+I O
+don't O
+live O
+in O
+New-York B-LOC
+. O
+
+My O
+name O
+is O
+Hicham B-PER
+E-B I-PER
+. O
+
+I O
+don't O
+live O
+in O
+New-York B-LOC
+. O
