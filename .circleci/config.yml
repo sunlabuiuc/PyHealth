@@ -46,7 +46,7 @@ jobs:
       # run tests!
       - run:
           name: run tests
-          no_output_timeout: 3h
+          no_output_timeout: 5h
           command: |
             . venv/bin/activate
             pytest
