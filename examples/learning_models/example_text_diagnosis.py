@@ -31,7 +31,7 @@ from pyhealth.evaluation.evaluator import func
 #from pyhealth.models.text.multirescnn import MultiResCNN as model
 from pyhealth.models.text.dcan import DCAN as model
 #from pyhealth.models.text.rf import RandomForest as model
-#from pyhealth.models.text.xgboost import XGBoost as model
+#from pyhealth.models.text.xgboost import XGBoostECG as model
 
 if __name__ == "__main__":
     # override here to specify where the data locates
