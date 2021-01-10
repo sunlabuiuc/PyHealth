@@ -422,7 +422,7 @@ demonstrates the basic API of using GRU for mortality prediction. **It is noted 
 
 **Note**: **If you do not have the preprocessed datasets yet, download the \\datasets folder (cms.zip and mimic.zip) from PyHealth repository, and run \\examples\\learning_models\\extract_data_run_before_learning.py to prepare/unzip the datasets.**
 
-**Note**: **For `"certain examples" <https://github.com/yzhao062/PyHealth/blob/master/examples/learning_models/example_text_diagnosis.py>`_, pretrained bert models are needed.**
+**Note**: For `"certain examples" <https://github.com/yzhao062/PyHealth/blob/master/examples/learning_models/example_text_diagnosis.py>`_, pretrained bert models are needed.
 You will need to download these pretrained models at:
 
 * BERT+BioBERT: https://github.com/EmilyAlsentzer/clinicalBERT
