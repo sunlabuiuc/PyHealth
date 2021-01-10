@@ -21,7 +21,7 @@ from pyhealth.models.sequence.lstm import LSTM as model
 # from pyhealth.models.sequence.retain import Retain as model
 # from pyhealth.models.sequence.raim import RAIM as model
 # from pyhealth.models.sequence.tlstm import tLSTM as model
-# from pyhealth.models.sequence.xgboost import XGBoost as model
+# from pyhealth.models.sequence.xgboost import XGBoostECG as model
 # from pyhealth.models.sequence.rf import RandomForest as model
 
 from pyhealth.data.expdata_generator import sequencedata as expdata_generator

@@ -26,7 +26,7 @@ from pyhealth.models.ecg.conv1d import Conv1D as model
 #from pyhealth.models.ecg.mina import MINA as model
 #from pyhealth.models.ecg.rcrnet import RCRNet as model
 #from pyhealth.models.ecg.rf import RandomForest as model
-#from pyhealth.models.ecg.xgboost import XGBoost as model
+#from pyhealth.models.ecg.xgboost import XGBoostECG as model
 from pyhealth.evaluation.evaluator import func
 
 data_dir = os.path.join(root_dir, 'datasets', 'ecg')

@@ -14,7 +14,7 @@ from pyhealth.models.ecg.mina import MINA
 from pyhealth.models.ecg.rcrnet import RCRNet
 from pyhealth.models.ecg.sdaelstm import SDAELSTM
 from pyhealth.models.ecg.rf import RandomForest
-from pyhealth.models.ecg.xgboost import XGBoost
+from pyhealth.models.ecg.xgboost_ecg import XGBoostECG
 
 import sys 
 if sys.version_info >= (3, 6):
@@ -87,7 +87,7 @@ class TestImageModel(unittest.TestCase):
         cur_dataset = expdata_generator(self.expdata_id)
         cur_dataset.load_exp_data()
         expmodel_id = 'test.xgboost'
-        clf = XGBoost(expmodel_id=expmodel_id)
+        clf = XGBoostECG(expmodel_id=expmodel_id)
         clf.fit(cur_dataset.train, cur_dataset.valid)
         clf.load_model()
         clf.inference(cur_dataset.test)

@@ -13,7 +13,7 @@ from pyhealth.models.sequence.retain import Retain
 from pyhealth.models.sequence.raim import RAIM
 from pyhealth.models.sequence.tlstm import tLSTM
 from pyhealth.models.sequence.stagenet import StageNet
-from pyhealth.models.sequence.xgboost import XGBoost
+from pyhealth.models.sequence.xgboost_seq import XGBoostSequence
 from pyhealth.models.sequence.rf import RandomForest
 
 from pyhealth.data.expdata_generator import sequencedata as expdata_generator
@@ -190,7 +190,7 @@ class TestSequentialModel(unittest.TestCase):
         cur_dataset = expdata_generator(self.expdata_id)
         cur_dataset.load_exp_data()
         expmodel_id = 'test.xgboost'
-        clf = XGBoost(expmodel_id=expmodel_id)
+        clf = XGBoostSequence(expmodel_id=expmodel_id)
         clf.fit(cur_dataset.train, cur_dataset.valid)
         clf.load_model()
         clf.inference(cur_dataset.test)

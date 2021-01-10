@@ -18,7 +18,7 @@ from pyhealth.data.data_reader.text import ml_reader
 from sklearn.multioutput import MultiOutputClassifier
 warnings.filterwarnings('ignore')
 
-class XGBoost:
+class XGBoostText:
 
     def __init__(self, 
                  expmodel_id = 'test.new', 
@@ -44,7 +44,7 @@ class XGBoost:
                  max_samples=None
                 ):
         """
-        XGboost from public XGBoost Lib.
+        XGboost from public XGBoostText Lib.
 
 
         Parameters

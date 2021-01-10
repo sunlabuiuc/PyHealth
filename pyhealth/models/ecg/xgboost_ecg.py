@@ -13,11 +13,11 @@ import joblib
 from xgboost import XGBClassifier
 from xgboost import XGBRFRegressor
 from pyhealth.utils.check import *
-from pyhealth.data.data_reader.sequence import ml_reader
+from pyhealth.data.data_reader.ecg import ml_reader
 from sklearn.multioutput import MultiOutputClassifier
 warnings.filterwarnings('ignore')
 
-class XGBoost:
+class XGBoostECG:
 
     def __init__(self, 
                  expmodel_id = 'test.new', 
@@ -42,7 +42,7 @@ class XGBoost:
                  max_samples=None
                 ):
         """
-        XGboost from public XGBoost Lib.
+        XGboost from public XGBoostECG Lib.
 
 
         Parameters
@@ -122,9 +122,6 @@ class XGBoost:
         label_n_check = set([])
         task_type_check = set([])
         for each_data in datalist:
-            for each_x_path in each_data['x']:
-                if os.path.exists(each_x_path) is False:
-                    raise Exception('episode file not exist')
             feat_n_check.add(each_data['feat_n'])
             label_n_check.add(np.shape(np.array(each_data['y']))[1])
             task_type_check.add(label_check(each_data['y'], hat_y = None, assign_task_type = self.task_type))
@@ -222,9 +219,6 @@ class XGBoost:
         label_n_check = set([])
         task_type_check = set([])
         for each_data in datalist:
-            for each_x_path in each_data['x']:
-                if os.path.exists(each_x_path) is False:
-                    raise Exception('episode file not exist')
             feat_n_check.add(each_data['feat_n'])
             label_n_check.add(np.shape(np.array(each_data['y']))[1])
             task_type_check.add(label_check(each_data['y'], hat_y = None, assign_task_type = self.task_type))
@@ -252,7 +246,6 @@ class XGBoost:
         train_data : {
                       'x':list[episode_file_path], 
                       'y':list[label], 
-                      'l':list[seq_len], 
                       'feat_n': n of feature space, 
                       'label_n': n of label space
                       }
@@ -262,7 +255,6 @@ class XGBoost:
         valid_data : {
                       'x':list[episode_file_path], 
                       'y':list[label], 
-                      'l':list[seq_len], 
                       'feat_n': n of feature space, 
                       'label_n': n of label space
                       }
@@ -371,7 +363,12 @@ class XGBoost:
             real_v = _y.reshape(-1, 1)
             prob_v = self.predictor.predict_proba(_X)[:, 1].reshape(-1, 1)
         elif self.task_type in ['multiclass']:
-            real_v = np.array(_y)
+            real_v = []
+            for sub_y in _y:
+                row_y = np.zeros(data_dict['label_n'])
+                row_y[sub_y] = 1
+                real_v.append(row_y)
+            real_v = np.array(real_v)
             prob_v = self.predictor.predict_proba(_X).reshape(-1, np.shape(real_v)[1])
         elif self.task_type in ['multilabel']:
             real_v = np.array(_y)
