@@ -52,3 +52,12 @@ if __name__ == "__main__":
         print('Extracting ecg files now...')
         zip.extractall()
         print('Done!')
+
+    with ZipFile(os.path.join(data_dir, 'text.zip'), 'r') as zip:
+        # # printing all the contents of the zip file
+        # zip.printdir()
+
+        # extracting all the files
+        print('Extracting text files now...')
+        zip.extractall()
+        print('Done!')
