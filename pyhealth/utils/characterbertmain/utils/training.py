@@ -15,7 +15,7 @@ import torch
 from torch.utils.data import SequentialSampler, RandomSampler, DataLoader
 from transformers import AdamW, get_linear_schedule_with_warmup
 
-from utils.misc import set_seed
+from .misc import set_seed
 
 
 def train(args, dataset, model, tokenizer, labels, pad_token_label_id):
