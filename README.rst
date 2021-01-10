@@ -305,18 +305,18 @@ Neural Networks      Mobilenet         pyhealth.models.sequence.typicalcnn      
 
 **For ecg/egg data**:
 
-===================  ================  ========================================  ======================================================================================================  =====  ========================================
-Type                 Abbr              Class                                     Algorithm                                                                                               Year   Ref
-===================  ================  ========================================  ======================================================================================================  =====  ========================================
-Classical Models     RandomForest      pyhealth.models.ecg.rf                    Random Forests                                                                                          2000   [#Breiman2001Random]_
-Classical Models     XGBoost           pyhealth.models.ecg.xgboost               XGBoost: A scalable tree boosting system                                                                2016   [#Chen2016Xgboost]_
-Neural Networks      BasicCNN1D        pyhealth.models.ecg.conv1d                Face recognition: A convolutional neural-network approach                                               1997   [#Lawrence1997Face]_
-Neural Networks      DBLSTM-WS         pyhealth.models.ecg.dblstm_ws             A novel wavelet sequence based on deep bidirectional LSTM network model for ECG signal classification   2018
-Neural Networks      DeepRes1D         pyhealth.models.ecg.deepres1d             Heartbeat classification using deep residual convolutional neural network from 2-lead electrocardiogram 2019
-Neural Networks      AE+BiLSTM         pyhealth.models.ecg.sdaelstm              Automatic Classification of CAD ECG Signals With SDAE and Bidirectional Long Short-Term Network         2019
-Neural Networks      KRCRnet           pyhealth.models.ecg.rcrnet                K-margin-based Residual-Convolution-Recurrent Neural Network for Atrial Fibrillation Detection          2019
-Neural Networks      MINA              pyhealth.models.ecg.mina                  MINA: Multilevel Knowledge-Guided Attention for Modeling Electrocardiography Signals                    2019
-===================  ================  ========================================  ======================================================================================================  =====  ========================================
+===================  ================  ========================================  ========================================================================================================  =====  ========================================
+Type                 Abbr              Class                                     Algorithm                                                                                                 Year   Ref
+===================  ================  ========================================  ========================================================================================================  =====  ========================================
+Classical Models     RandomForest      pyhealth.models.ecg.rf                    Random Forests                                                                                            2000   [#Breiman2001Random]_
+Classical Models     XGBoost           pyhealth.models.ecg.xgboost               XGBoost: A scalable tree boosting system                                                                  2016   [#Chen2016Xgboost]_
+Neural Networks      BasicCNN1D        pyhealth.models.ecg.conv1d                Face recognition: A convolutional neural-network approach                                                 1997   [#Lawrence1997Face]_
+Neural Networks      DBLSTM-WS         pyhealth.models.ecg.dblstm_ws             A novel wavelet sequence based on deep bidirectional LSTM network model for ECG signal classification     2018
+Neural Networks      DeepRes1D         pyhealth.models.ecg.deepres1d             Heartbeat classification using deep residual convolutional neural network from 2-lead electrocardiogram   2019
+Neural Networks      AE+BiLSTM         pyhealth.models.ecg.sdaelstm              Automatic Classification of CAD ECG Signals With SDAE and Bidirectional Long Short-Term Network           2019
+Neural Networks      KRCRnet           pyhealth.models.ecg.rcrnet                K-margin-based Residual-Convolution-Recurrent Neural Network for Atrial Fibrillation Detection            2019
+Neural Networks      MINA              pyhealth.models.ecg.mina                  MINA: Multilevel Knowledge-Guided Attention for Modeling Electrocardiography Signals                      2019
+===================  ================  ========================================  ========================================================================================================  =====  ========================================
 
 
 Examples of running ML and DL models can be found below, or directly at \\examples\\learning_examples\\
@@ -414,14 +414,21 @@ Quick Start for Running Predictive Models
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 
-Before running examples, you need the datasets. Please download from the GitHub repository `"datasets" <https://github.com/yzhao062/PyHealth/tree/master/datasets>`_.
+**Note**: Before running examples, you need the datasets. Please download from the GitHub repository `"datasets" <https://github.com/yzhao062/PyHealth/tree/master/datasets>`_.
 You can either unzip them manually or running our script `"00_extract_data_run_before_learning.py" <https://github.com/yzhao062/pyhealth/blob/master/examples/learning_models/00_extract_data_run_before_learning.py>`_
 
-`"examples/learning_models/example_sequence_gpu_mortality.py" <https://github.com/yzhao062/pyhealth/blob/master/examples/learning_models/example_sequence_gpu_mortality.py>`_
+**Note**: `"examples/learning_models/example_sequence_gpu_mortality.py" <https://github.com/yzhao062/pyhealth/blob/master/examples/learning_models/example_sequence_gpu_mortality.py>`_
 demonstrates the basic API of using GRU for mortality prediction. **It is noted that the API across all other algorithms are consistent/similar**.
 
-**If you do not have the preprocessed datasets yet, download the \\datasets folder (cms.zip and mimic.zip) from PyHealth repository, and run \\examples\\learning_models\\extract_data_run_before_learning.py to prepare/unzip the datasets.**
+**Note**: **If you do not have the preprocessed datasets yet, download the \\datasets folder (cms.zip and mimic.zip) from PyHealth repository, and run \\examples\\learning_models\\extract_data_run_before_learning.py to prepare/unzip the datasets.**
 
+**Note**: **For `"certain examples" <https://github.com/yzhao062/PyHealth/blob/master/examples/learning_models/example_text_diagnosis.py>`_, pretrained bert models are needed.**
+You will need to download these pretrained models at:
+
+* BERT+BioBERT: https://github.com/EmilyAlsentzer/clinicalBERT
+* CharacterBERT+BioCharacterBERT: https://github.com/helboukkouri/character-bert
+
+Please download, unzip, and save to ./auxiliary folder.
 
 #. Setup the datasets. X and y should be in x_data and y_data, respectively.
 
@@ -488,7 +495,7 @@ Blueprint & Development Plan
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 The long term goal of PyHealth is to become a comprehensive healthcare AI toolkit that supports
-beyond EHR data, but also the images and clinical notes.
+all sorts of data types and predictive tasks.
 
 - The compatibility and the support of OMOP format datasets
 - Model persistence (save, load, and portability)
