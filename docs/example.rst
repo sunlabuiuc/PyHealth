@@ -70,14 +70,21 @@ scripts to generate the customized datasets.
 Quick Start for Running Predictive Models
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Before running examples, you need the datasets. Please download from the GitHub repository `"datasets" <https://github.com/yzhao062/PyHealth/tree/master/datasets>`_.
+**Note**: Before running examples, you need the datasets. Please download from the GitHub repository `"datasets" <https://github.com/yzhao062/PyHealth/tree/master/datasets>`_.
 You can either unzip them manually or running our script `"00_extract_data_run_before_learning.py" <https://github.com/yzhao062/pyhealth/blob/master/examples/learning_models/00_extract_data_run_before_learning.py>`_
 
-`"examples/learning_models/example_sequence_gpu_mortality.py" <https://github.com/yzhao062/pyhealth/blob/master/examples/learning_models/example_sequence_gpu_mortality.py>`_
+**Note**: `"examples/learning_models/example_sequence_gpu_mortality.py" <https://github.com/yzhao062/pyhealth/blob/master/examples/learning_models/example_sequence_gpu_mortality.py>`_
 demonstrates the basic API of using GRU for mortality prediction. **It is noted that the API across all other algorithms are consistent/similar**.
 
-**If you do not have the preprocessed datasets yet, download the \\datasets folder (cms.zip and mimic.zip) from PyHealth repository, and run \\examples\\learning_models\\extract_data_run_before_learning.py to prepare/unzip the datasets.**
+**Note**: **If you do not have the preprocessed datasets yet, download the \\datasets folder (cms.zip and mimic.zip) from PyHealth repository, and run \\examples\\learning_models\\extract_data_run_before_learning.py to prepare/unzip the datasets.**
 
+**Note**: **For `"certain examples" <https://github.com/yzhao062/PyHealth/blob/master/examples/learning_models/example_text_diagnosis.py>`_, pretrained bert models are needed.**
+You will need to download these pretrained models at:
+
+* BERT+BioBERT: https://github.com/EmilyAlsentzer/clinicalBERT
+* CharacterBERT+BioCharacterBERT: https://github.com/helboukkouri/character-bert
+
+Please download, unzip, and save to ./auxiliary folder.
 
 #. Setup the datasets. X and y should be in x_data and y_data, respectively.
 
