@@ -10,4 +10,5 @@ v<0.0.4>, <08/16/2020> -- Documentation update and binder setup.
 v<0.0.5>, <08/20/2020> -- Add ECG models.
 v<0.0.5>, <11/20/2020> -- Refactor most models.
 v<0.0.6>, <01/04/2021> -- Model refactor and paper submission.
+v<0.0.6>, <01/10/2021> -- Code refactor for relative import.
 

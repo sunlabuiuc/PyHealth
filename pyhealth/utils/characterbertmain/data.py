@@ -6,7 +6,7 @@ from collections import namedtuple
 from tqdm import tqdm
 from transformers import BasicTokenizer
 
-from utils.data import retokenize
+from .utils.data import retokenize
 
 DATA_PATH = 'data/'
 ClassificationExample = namedtuple(

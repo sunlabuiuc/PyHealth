@@ -9,7 +9,7 @@ import datetime
 import tqdm
 import numpy as np
 import sklearn.metrics as sklearn_metrics
-import metrics.sequence_labelling as seqeval_metrics
+from ..metrics.sequence_labelling import precision_score, f1_score, recall_score
 
 import torch
 from torch.utils.data import SequentialSampler, RandomSampler, DataLoader
@@ -207,9 +207,9 @@ def evaluate(args, eval_dataset, model, labels, pad_token_label_id):
 
         results = {
             "loss": eval_loss,
-            "precision": seqeval_metrics.precision_score(out_label_list, preds_list),
-            "recall": seqeval_metrics.recall_score(out_label_list, preds_list),
-            "f1": seqeval_metrics.f1_score(out_label_list, preds_list),
+            "precision": precision_score(out_label_list, preds_list),
+            "recall": recall_score(out_label_list, preds_list),
+            "f1": f1_score(out_label_list, preds_list),
         }
 
     logging.info("***** Eval results *****")
