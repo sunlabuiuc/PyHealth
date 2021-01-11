@@ -22,11 +22,11 @@ def get_entities(seq, suffix=False):
     Returns:
         list: list of (chunk_type, chunk_start, chunk_end).
 
-    Example:
-        >>> from seqeval.metrics.sequence_labeling import get_entities
-        >>> seq = ['B-PER', 'I-PER', 'O', 'B-LOC']
-        >>> get_entities(seq)
-        [('PER', 0, 1), ('LOC', 3, 3)]
+    # Example:
+    #     # >>> from seqeval.metrics.sequence_labeling import get_entities
+    #     >>> seq = ['B-PER', 'I-PER', 'O', 'B-LOC']
+    #     >>> get_entities(seq)
+    #     [('PER', 0, 1), ('LOC', 3, 3)]
     """
     # for nested list
     if any(isinstance(s, list) for s in seq):
@@ -132,11 +132,11 @@ def f1_score(y_true, y_pred, average='micro', suffix=False):
         score : float.
 
     Example:
-        >>> from seqeval.metrics import f1_score
+        # >>> from seqeval.metrics import f1_score
         >>> y_true = [['O', 'O', 'O', 'B-MISC', 'I-MISC', 'I-MISC', 'O'], ['B-PER', 'I-PER', 'O']]
         >>> y_pred = [['O', 'O', 'B-MISC', 'I-MISC', 'I-MISC', 'I-MISC', 'O'], ['B-PER', 'I-PER', 'O']]
         >>> f1_score(y_true, y_pred)
-        0.50
+        0.5
     """
     true_entities = set(get_entities(y_true, suffix))
     pred_entities = set(get_entities(y_pred, suffix))
@@ -167,11 +167,11 @@ def accuracy_score(y_true, y_pred):
         score : float.
 
     Example:
-        >>> from seqeval.metrics import accuracy_score
+        # >>> from seqeval.metrics import accuracy_score
         >>> y_true = [['O', 'O', 'O', 'B-MISC', 'I-MISC', 'I-MISC', 'O'], ['B-PER', 'I-PER', 'O']]
         >>> y_pred = [['O', 'O', 'B-MISC', 'I-MISC', 'I-MISC', 'I-MISC', 'O'], ['B-PER', 'I-PER', 'O']]
         >>> accuracy_score(y_true, y_pred)
-        0.80
+        0.8
     """
     if any(isinstance(s, list) for s in y_true):
         y_true = [item for sublist in y_true for item in sublist]
@@ -202,11 +202,11 @@ def precision_score(y_true, y_pred, average='micro', suffix=False):
         score : float.
 
     Example:
-        >>> from seqeval.metrics import precision_score
+        # >>> from seqeval.metrics import precision_score
         >>> y_true = [['O', 'O', 'O', 'B-MISC', 'I-MISC', 'I-MISC', 'O'], ['B-PER', 'I-PER', 'O']]
         >>> y_pred = [['O', 'O', 'B-MISC', 'I-MISC', 'I-MISC', 'I-MISC', 'O'], ['B-PER', 'I-PER', 'O']]
         >>> precision_score(y_true, y_pred)
-        0.50
+        0.5
     """
     true_entities = set(get_entities(y_true, suffix))
     pred_entities = set(get_entities(y_pred, suffix))
@@ -236,11 +236,11 @@ def recall_score(y_true, y_pred, average='micro', suffix=False):
         score : float.
 
     Example:
-        >>> from seqeval.metrics import recall_score
+        # >>> from seqeval.metrics import recall_score
         >>> y_true = [['O', 'O', 'O', 'B-MISC', 'I-MISC', 'I-MISC', 'O'], ['B-PER', 'I-PER', 'O']]
         >>> y_pred = [['O', 'O', 'B-MISC', 'I-MISC', 'I-MISC', 'I-MISC', 'O'], ['B-PER', 'I-PER', 'O']]
         >>> recall_score(y_true, y_pred)
-        0.50
+        0.5
     """
     true_entities = set(get_entities(y_true, suffix))
     pred_entities = set(get_entities(y_pred, suffix))
@@ -263,13 +263,13 @@ def performance_measure(y_true, y_pred):
 
     Returns:
         performance_dict : dict
-
-    Example:
-        >>> from seqeval.metrics import performance_measure
-        >>> y_true = [['O', 'O', 'O', 'B-MISC', 'I-MISC', 'O', 'B-ORG'], ['B-PER', 'I-PER', 'O']]
-        >>> y_pred = [['O', 'O', 'B-MISC', 'I-MISC', 'I-MISC', 'O', 'O'], ['B-PER', 'I-PER', 'O']]
-        >>> performance_measure(y_true, y_pred)
-        (3, 3, 1, 4)
+    #
+    # Example:
+    #     # >>> from seqeval.metrics import performance_measure
+    #     >>> y_true = [['O', 'O', 'O', 'B-MISC', 'I-MISC', 'O', 'B-ORG'], ['B-PER', 'I-PER', 'O']]
+    #     >>> y_pred = [['O', 'O', 'B-MISC', 'I-MISC', 'I-MISC', 'O', 'O'], ['B-PER', 'I-PER', 'O']]
+    #     >>> performance_measure(y_true, y_pred)
+    #     (3, 3, 1, 4)
     """
     performace_dict = dict()
     if any(isinstance(s, list) for s in y_true):
@@ -296,20 +296,20 @@ def classification_report(y_true, y_pred, digits=2, suffix=False):
 
     Returns:
         report : string. Text summary of the precision, recall, F1 score for each class.
-
-    Examples:
-        >>> from seqeval.metrics import classification_report
-        >>> y_true = [['O', 'O', 'O', 'B-MISC', 'I-MISC', 'I-MISC', 'O'], ['B-PER', 'I-PER', 'O']]
-        >>> y_pred = [['O', 'O', 'B-MISC', 'I-MISC', 'I-MISC', 'I-MISC', 'O'], ['B-PER', 'I-PER', 'O']]
-        >>> print(classification_report(y_true, y_pred))
-                     precision    recall  f1-score   support
-        <BLANKLINE>
-               MISC       0.00      0.00      0.00         1
-                PER       1.00      1.00      1.00         1
-        <BLANKLINE>
-          micro avg       0.50      0.50      0.50         2
-          macro avg       0.50      0.50      0.50         2
-        <BLANKLINE>
+    #
+    # Examples:
+    #     # >>> from seqeval.metrics import classification_report
+    #     >>> y_true = [['O', 'O', 'O', 'B-MISC', 'I-MISC', 'I-MISC', 'O'], ['B-PER', 'I-PER', 'O']]
+    #     >>> y_pred = [['O', 'O', 'B-MISC', 'I-MISC', 'I-MISC', 'I-MISC', 'O'], ['B-PER', 'I-PER', 'O']]
+    #     >>> print(classification_report(y_true, y_pred))
+    #                  precision    recall  f1-score   support
+    #     <BLANKLINE>
+    #            MISC       0.00      0.00      0.00         1
+    #             PER       1.00      1.00      1.00         1
+    #     <BLANKLINE>
+    #       micro avg       0.50      0.50      0.50         2
+    #       macro avg       0.50      0.50      0.50         2
+    #     <BLANKLINE>
     """
     true_entities = set(get_entities(y_true, suffix))
     pred_entities = set(get_entities(y_pred, suffix))
