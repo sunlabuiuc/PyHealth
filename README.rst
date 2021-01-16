@@ -138,20 +138,21 @@ PyHealth is featured for:
 
 **Citing PyHealth**\ :
 
-`PyHealth paper <https://github.com/yzhao062/pyhealth>`_ is under review at
+`PyHealth paper <https://arxiv.org/abs/2101.04209>`_ is under review at
 `JMLR <http://www.jmlr.org/>`_ (machine learning open-source software track).
 If you use PyHealth in a scientific publication, we would appreciate
 citations to the following paper::
 
-    @article{zhao2020pyhealth,
-      author  = {Zhao, Yue and Qiao, Zhi and Xiao, Cao and Glass, Lucas and Sun, Jimeng},
-      title   = {PyHealth: A Python Library for Health Predictive Models},
-      year    = {2021},
+    @article{zhao2021pyhealth,
+      title={PyHealth: A Python Library for Health Predictive Models},
+      author={Zhao, Yue and Qiao, Zhi and Xiao, Cao and Glass, Lucas and Sun, Jimeng},
+      journal={arXiv preprint arXiv:2101.04209},
+      year={2021}
     }
 
 or::
 
-    Zhao, Y., Qiao, Z., Xiao, C., Glass, L. and Sun, J., 2021. PyHealth: A Python Library for Health Predictive Models.
+    Zhao, Y., Qiao, Z., Xiao, C., Glass, L. and Sun, J., 2021. PyHealth: A Python Library for Health Predictive Models. arXiv preprint arXiv:2101.04209.
 
 
 **Key Links and Resources**\ :
