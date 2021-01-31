@@ -440,7 +440,7 @@ Please download, unzip, and save to ./auxiliary folder.
 
       expdata_id = '2020.0810.data.mortality.mimic'
       cur_dataset = expdata_generator(exp_id=expdata_id)
-      cur_dataset.get_exp_data(sel_task='mortality', )
+      cur_dataset.get_exp_data(sel_task='mortality')
       cur_dataset.load_exp_data()
 
 
