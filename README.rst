@@ -439,7 +439,7 @@ Please download, unzip, and save to ./auxiliary folder.
       from pyhealth.data.expdata_generator import sequencedata as expdata_generator
 
       expdata_id = '2020.0810.data.mortality.mimic'
-      cur_dataset = expdata_generator(exp_id=exp_id)
+      cur_dataset = expdata_generator(exp_id=expdata_id)
       cur_dataset.get_exp_data(sel_task='mortality', )
       cur_dataset.load_exp_data()
 
