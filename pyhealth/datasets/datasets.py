@@ -95,7 +95,7 @@ class MIMIC_III:
     """
     def __init__(self, table_names=['med', 'diag', 'prod'], code_map=None):
         # path to each single file
-        root = '/srv/local/datasets/physionet.org/files/mimiciii/1.4'
+        root = '/srv/local/data/physionet.org/files/mimiciii/1.4'
         self.med_path = os.path.join(root, 'PRESCRIPTIONS.csv')
         self.diag_path = os.path.join(root, 'DIAGNOSES_ICD.csv')
         self.prod_path = os.path.join(root, 'PROCEDURES_ICD.csv')
