@@ -16,10 +16,10 @@
 - Procedure code
 
 ## Output
-- Mortality prediction
-- Length-of-stay estimation
-- Drug recommendation
-- Phenotyping
+- Mortality prediction (binary classification)
+- Length-of-stay estimation (multi-class classification)
+- Drug recommendation (multi-label classification)
+- Phenotyping (multi-label classification)
 
 ## Model
 

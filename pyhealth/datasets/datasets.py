@@ -1,13 +1,13 @@
+import os
+
 import numpy as np
 import pandas as pd
-import os
 import torch
 from torch.utils.data import Dataset, DataLoader
-from MedCode import CodeMapping
+
+
 # check https://github.com/ycq091044/MedCode
 # $ MedCode to get more instructions
-from urllib import request
-from collections import defaultdict
 
 def collate_func_RETAIN(cur_patient, voc_size):
     """ datasets is a list of sample from the dataset """
@@ -20,20 +20,22 @@ def collate_func_RETAIN(cur_patient, voc_size):
         input_tmp += [voc_size[0] + voc_size[1]] * (max_len - len(input_tmp))
         X.append(input_tmp)
         y[idx, visit[2]] = 1
-        
+
     X = torch.LongTensor(X)
     y = torch.FloatTensor(y)
     return X, y
 
+
 class CustomDataset(Dataset):
     def __init__(self, patients):
         self.patients = patients
-        
+
     def __len__(self):
         return len(self.patients)
-    
+
     def __getitem__(self, index):
         return self.patients[index]
+
 
 class CodetoIndex:
     """
@@ -44,9 +46,10 @@ class CodetoIndex:
         - the mapping dict is stored in
             - self.code_to_idx = {'a': 1, 'b': 2, 'c': 3}
     """
+
     def __init__(self):
         self.code_to_idx = {}
-    
+
     def build(self, code_list):
         """
         Build the code to index mapping by feeding on raw code list
@@ -57,7 +60,7 @@ class CodetoIndex:
         for code in code_list:
             if code not in self.code_to_idx:
                 self.code_to_idx[code] = len(self.code_to_idx)
-            
+
     def _len(self):
         return len(self.code_to_idx)
 
@@ -71,7 +74,7 @@ class CodetoIndex:
         """
         idx = str(self.code_to_idx.get(code, -1))
         return idx
-    
+
     def encodes(self, code_list):
         """
         encode a list of code
@@ -84,6 +87,7 @@ class CodetoIndex:
         result = ','.join([self.encode(code) for code in code_list])
         return result
 
+
 class MIMIC_III:
     """
     MIMIC-III datasets object
@@ -93,6 +97,7 @@ class MIMIC_III:
         - target_code = 'ATC4'
         - code_map = {RxNorm: ATC4} mapping dict
     """
+
     def __init__(self, table_names=['med', 'diag', 'prod'], code_map=None):
         # path to each single file
         root = '/srv/local/data/physionet.org/files/mimiciii/1.4'
@@ -130,10 +135,11 @@ class MIMIC_III:
         """
         for name in self.table_names:
             cur_table = pd.read_csv(eval("self.{}_path".format(name)))
+            # TODO: fillna with pad may not be ideal
             cur_table.fillna(method='pad', inplace=True)
             cur_table.drop_duplicates(inplace=True)
             self.tables[name] = cur_table
-            print ("loaded the {} table!".format(name))
+            print("loaded the {} table!".format(name))
 
     def _get_pat_and_visit_dicts(self):
         """
@@ -151,8 +157,8 @@ class MIMIC_III:
                     if HAMD_id not in self.visit_dict:
                         self.visit_dict[HAMD_id] = {}
                     self.visit_dict[HAMD_id][name] = HADM_info
-        print ("generated .pat_to_visit!")
-        print ("generated .visit_dict!")
+        print("generated .pat_to_visit!")
+        print("generated .visit_dict!")
 
     def _encode_visit_info(self, code_map):
 
@@ -198,16 +204,17 @@ class MIMIC_III:
             encoded_visit_dict[visit_id]['prod'] = prod_map.encodes(cur_prod)
 
         self.encoded_visit_dict = encoded_visit_dict
-        print ("generated .encoded_visit_dict!")
+        print("generated .encoded_visit_dict!")
 
         self.maps = {
             'med': med_map,
             'diag': diag_map,
             'prod': prod_map,
         }
-        self.voc_size = (len(self.maps['diag'].code_to_idx), len(self.maps['prod'].code_to_idx), len(self.maps['med'].code_to_idx))
-        
-        print ("generated .maps (for code to index mappings)!")
+        self.voc_size = (
+        len(self.maps['diag'].code_to_idx), len(self.maps['prod'].code_to_idx), len(self.maps['med'].code_to_idx))
+
+        print("generated .maps (for code to index mappings)!")
 
     def get_dataloader(self, MODEL):
         """
@@ -238,21 +245,14 @@ class MIMIC_III:
         data_train = data[:split_point]
         eval_len = int(len(data[split_point:]) / 2)
         data_test = data[split_point:split_point + eval_len]
-        data_val = data[split_point+eval_len:]
+        data_val = data[split_point + eval_len:]
 
         if MODEL in ['RETAIN']:
-            self.train_loader = DataLoader(CustomDataset(data_train), batch_size=64, shuffle=True, \
-                collate_fn=lambda x: collate_func_RETAIN(x[0], self.voc_size))
-            self.val_loader = DataLoader(CustomDataset(data_val), batch_size=64, shuffle=False, \
-                collate_fn=lambda x: collate_func_RETAIN(x[0], self.voc_size))
-            self.test_loader = DataLoader(CustomDataset(data_test), batch_size=64, shuffle=False, \
-                collate_fn=lambda x: collate_func_RETAIN(x[0], self.voc_size))
-            print ("generated train/val/test dataloaders for RETAIN model!")
-
-
-
-        
-
-
-
-
+            # TODO: should support batch forward later
+            self.train_loader = DataLoader(CustomDataset(data_train), batch_size=1, shuffle=True, \
+                                           collate_fn=lambda x: collate_func_RETAIN(x[0], self.voc_size))
+            self.val_loader = DataLoader(CustomDataset(data_val), batch_size=1, shuffle=False, \
+                                         collate_fn=lambda x: collate_func_RETAIN(x[0], self.voc_size))
+            self.test_loader = DataLoader(CustomDataset(data_test), batch_size=1, shuffle=False, \
+                                          collate_fn=lambda x: collate_func_RETAIN(x[0], self.voc_size))
+            print("generated train/val/test dataloaders for RETAIN model!")
