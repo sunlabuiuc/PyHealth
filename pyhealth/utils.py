@@ -196,3 +196,22 @@ def multi_label_metric(y_gt, y_pred, y_prob):
     avg_f1 = average_f1(avg_prc, avg_recall)
 
     return ja, prauc, np.mean(avg_prc), np.mean(avg_recall), np.mean(avg_f1)
+
+
+def ddi_rate_score(record, ddi_adj):
+    # ddi rate
+    all_cnt = 0
+    dd_cnt = 0
+    for patient in record:
+        for adm in patient:
+            med_code_set = adm
+            for i, med_i in enumerate(med_code_set):
+                for j, med_j in enumerate(med_code_set):
+                    if j <= i:
+                        continue
+                    all_cnt += 1
+                    if ddi_adj[med_i, med_j] == 1:
+                        dd_cnt += 1
+    if all_cnt == 0:
+        return 0
+    return dd_cnt / all_cnt

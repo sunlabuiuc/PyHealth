@@ -1,3 +1,4 @@
+from urllib.robotparser import RequestRate
 import numpy as np
 import pandas as pd
 import os
@@ -9,8 +10,8 @@ from MedCode import CodeMapping
 from urllib import request
 from collections import defaultdict
 
-def collate_func_RETAIN(cur_patient, voc_size):
-    """ datasets is a list of sample from the dataset """
+def collate_fn_RETAIN(cur_patient, voc_size):
+    """ data is a list of sample from the dataset """
     max_len = max([len(visit[0]) + len(visit[1]) for visit in cur_patient])
     X = []
     y = torch.zeros((len(cur_patient), voc_size[2]))
@@ -24,6 +25,19 @@ def collate_func_RETAIN(cur_patient, voc_size):
     X = torch.LongTensor(X)
     y = torch.FloatTensor(y)
     return X, y
+
+def collate_fn_MICRON(cur_patient, voc_size):
+    """ data is a list of sample from the dataset """
+    diag = torch.zeros((len(cur_patient), voc_size[0]))
+    prod = torch.zeros((len(cur_patient), voc_size[1]))
+    y = torch.zeros((len(cur_patient), voc_size[2]))
+    for idx, visit in enumerate(cur_patient):
+        diag[idx, visit[0]] = 1
+        prod[idx, visit[1]] = 1
+        y[idx, visit[2]] = 1
+        
+    return diag.long(), prod.long(), y.float()
+
 
 class CustomDataset(Dataset):
     def __init__(self, patients):
@@ -93,7 +107,7 @@ class MIMIC_III:
         - target_code = 'ATC4'
         - code_map = {RxNorm: ATC4} mapping dict
     """
-    def __init__(self, table_names=['med', 'diag', 'prod'], code_map=None):
+    def __init__(self, table_names=['med', 'diag', 'prod']):
         # path to each single file
         root = '/srv/local/data/physionet.org/files/mimiciii/1.4'
         self.med_path = os.path.join(root, 'PRESCRIPTIONS.csv')
@@ -116,10 +130,18 @@ class MIMIC_III:
         self.train_loader = None
         self.test_loader = None
         self.vocab_size = None
+        self.ddi_adj = None
 
         self._get_data_tables()
         self._get_pat_and_visit_dicts()
-        self._encode_visit_info(code_map)
+
+        # map med coding to ATC3
+        # First generate RxNorm (the raw drug coding) to ATC4, then use [:-1] to get ATC3
+        target_code = 'ATC4'
+        tool = CodeMapping('RxNorm', target_code)
+        tool.load_mapping()
+        self._encode_visit_info(tool.RxNorm_to_ATC4)
+        self._generate_ddi_matrix_ATC3()
 
     def _get_data_tables(self):
         """
@@ -209,6 +231,41 @@ class MIMIC_III:
         
         print ("generated .maps (for code to index mappings)!")
 
+    # get ddi matrix based on ATC3 coding
+    def _generate_ddi_matrix_ATC3(self):
+        cid2atc_dic = defaultdict(set)
+        med_voc_size = self.voc_size[2]
+
+        cid_to_ATC6 = request.urlopen("https://drive.google.com/uc?id=1CVfa91nDu3S_NTxnn5GT93o-UfZGyewI").readlines()
+        for line in cid_to_ATC6:
+            line_ls = str(line[:-1]).split(',')
+            cid = line_ls[0]
+            atcs = line_ls[1:]
+            for atc in atcs:
+                if atc[:4] in self.maps['med'].code_to_idx:
+                    cid2atc_dic[cid[2:]].add(atc[:4])
+
+        # load ddi_df
+        print ('load severe ddi pairs from https://drive.google.com/uc?id=1R88OIhn-DbOYmtmVYICmjBSOIsEljJMh!')
+        print ('all ddi pairs can be extracted from https://drive.google.com/file/d/1mnPc0O0ztz0fkv3HF-dpmBb8PLWsEoDz/view?usp=sharing!')
+        ddi_df = pd.read_csv(request.urlopen('https://drive.google.com/uc?id=1R88OIhn-DbOYmtmVYICmjBSOIsEljJMh'))
+
+        # ddi adj
+        ddi_adj = np.zeros((med_voc_size, med_voc_size))
+        for index, row in ddi_df.iterrows():
+            # ddi
+            cid1 = row['STITCH 1']
+            cid2 = row['STITCH 2']
+
+            # cid -> atc_level3
+            for atc_i in cid2atc_dic[cid1]:
+                for atc_j in cid2atc_dic[cid2]:
+                    ddi_adj[self.maps['med'].code_to_idx[atc_i], self.maps['med'].code_to_idx[atc_j]] = 1
+                    ddi_adj[self.maps['med'].code_to_idx[atc_j], self.maps['med'].code_to_idx[atc_i]] = 1
+
+        self.ddi_adj = ddi_adj
+
+
     def get_dataloader(self, MODEL):
         """
         get the dataloaders for MODEL, since different models has different datasets loader (input formats are different)
@@ -241,13 +298,21 @@ class MIMIC_III:
         data_val = data[split_point+eval_len:]
 
         if MODEL in ['RETAIN']:
-            self.train_loader = DataLoader(CustomDataset(data_train), batch_size=64, shuffle=True, \
-                collate_fn=lambda x: collate_func_RETAIN(x[0], self.voc_size))
-            self.val_loader = DataLoader(CustomDataset(data_val), batch_size=64, shuffle=False, \
-                collate_fn=lambda x: collate_func_RETAIN(x[0], self.voc_size))
-            self.test_loader = DataLoader(CustomDataset(data_test), batch_size=64, shuffle=False, \
-                collate_fn=lambda x: collate_func_RETAIN(x[0], self.voc_size))
+            self.train_loader = DataLoader(CustomDataset(data_train), batch_size=1, shuffle=True, \
+                collate_fn=lambda x: collate_fn_RETAIN(x[0], self.voc_size))
+            self.val_loader = DataLoader(CustomDataset(data_val), batch_size=1, shuffle=False, \
+                collate_fn=lambda x: collate_fn_RETAIN(x[0], self.voc_size))
+            self.test_loader = DataLoader(CustomDataset(data_test), batch_size=1, shuffle=False, \
+                collate_fn=lambda x: collate_fn_RETAIN(x[0], self.voc_size))
             print ("generated train/val/test dataloaders for RETAIN model!")
+        elif MODEL in ['MICRON']:
+            self.train_loader = DataLoader(CustomDataset(data_train), batch_size=1, shuffle=True, \
+                collate_fn=lambda x: collate_fn_MICRON(x[0], self.voc_size))
+            self.val_loader = DataLoader(CustomDataset(data_val), batch_size=1, shuffle=False, \
+                collate_fn=lambda x: collate_fn_MICRON(x[0], self.voc_size))
+            self.test_loader = DataLoader(CustomDataset(data_test), batch_size=1, shuffle=False, \
+                collate_fn=lambda x: collate_fn_MICRON(x[0], self.voc_size))
+            print ("generated train/val/test dataloaders for MICRON model!")
 
 
 
