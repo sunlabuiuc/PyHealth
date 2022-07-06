@@ -10,7 +10,7 @@ from urllib import request
 from collections import defaultdict
 
 def collate_func_RETAIN(cur_patient, voc_size):
-    """ data is a list of sample from the dataset """
+    """ datasets is a list of sample from the dataset """
     max_len = max([len(visit[0]) + len(visit[1]) for visit in cur_patient])
     X = []
     y = torch.zeros((len(cur_patient), voc_size[2]))
@@ -86,7 +86,7 @@ class CodetoIndex:
 
 class MIMIC_III:
     """
-    MIMIC-III data object
+    MIMIC-III datasets object
         - the original MIMIC-III medication is encoded by RxNorm (the column name uses "NDC")
         - when initialize, input the target_code and the according code_map
     For example, 
@@ -95,7 +95,7 @@ class MIMIC_III:
     """
     def __init__(self, table_names=['med', 'diag', 'prod'], code_map=None):
         # path to each single file
-        root = '/srv/local/data/physionet.org/files/mimiciii/1.4'
+        root = '/srv/local/datasets/physionet.org/files/mimiciii/1.4'
         self.med_path = os.path.join(root, 'PRESCRIPTIONS.csv')
         self.diag_path = os.path.join(root, 'DIAGNOSES_ICD.csv')
         self.prod_path = os.path.join(root, 'PROCEDURES_ICD.csv')
@@ -211,12 +211,12 @@ class MIMIC_III:
 
     def get_dataloader(self, MODEL):
         """
-        get the dataloaders for MODEL, since different models has different data loader (input formats are different)
-            - data <list>: each element is a patient record
-                - data[0] <list>: each element is a visit
-                    - data[0][0] <list>: diag encoded list for this visit
-                    - data[0][1] <list>: prod encoded list for this visit
-                    - data[0][2] <list>: med encoded list for this visit
+        get the dataloaders for MODEL, since different models has different datasets loader (input formats are different)
+            - datasets <list>: each element is a patient record
+                - datasets[0] <list>: each element is a visit
+                    - datasets[0][0] <list>: diag encoded list for this visit
+                    - datasets[0][1] <list>: prod encoded list for this visit
+                    - datasets[0][2] <list>: med encoded list for this visit
         """
         data = []
         for _, visit_ls in self.pat_to_visit.items():
@@ -233,7 +233,7 @@ class MIMIC_III:
             if len(cur_pat) <= 1: continue
             data.append(cur_pat)
 
-        # data split
+        # datasets split
         split_point = int(len(data) * 2 / 3)
         data_train = data[:split_point]
         eval_len = int(len(data[split_point:]) / 2)

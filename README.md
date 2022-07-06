@@ -1,4 +1,32 @@
-# PyHealth OMOP Development PLAN
+# PyHealth
+
+## Environment
+- pytorch: 1.12.0
+- pytorch-lightning: 1.6.4
+
+## Dataset
+- MIMIC-III
+- MIMIC-IV
+- eICU
+- OMOP CDM
+
+## Input
+- Condition code
+- Drug code
+- Procedure code
+
+## Output
+- Mortality prediction
+- Length-of-stay estimation
+- Drug recommendation
+- Phenotyping
+
+## Model
+
+
+
+
+
 
 ### datasets.py
 - provide process for MIMIC-III, eICU and MIMIC-IV

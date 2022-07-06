@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-from utils import multi_label_metric
+from pyhealth.utils import multi_label_metric
 
 class RETAIN(LightningModule):
     def __init__(self, voc_size, emb_size=64):
