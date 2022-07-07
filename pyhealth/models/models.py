@@ -587,7 +587,7 @@ class SafeDrug(pl.LightningModule):
         # load 'voc_size', 'ddi_adj', 'ddi_mask_H', 'med_molecule_info' from dataset
         voc_size = dataset.voc_size
         ddi_adj = dataset.ddi_adj
-        ddi_mask_H = dataset.mask_H
+        ddi_mask_H = dataset.ddi_mask_H
         med_molecule_info = dataset.med_molecule_info
 
         self.voc_size = voc_size
@@ -663,18 +663,18 @@ class SafeDrug(pl.LightningModule):
             result, loss_ddi = self.forward(diag[:i+1], prod[:i+1])
             loss_bce = F.binary_cross_entropy_with_logits(result, y[i:i+1])
 
-            # get current_ddi
-            result = F.sigmoid(result).detach().cpu().numpy()[0]
-            result[result >= 0.5] = 1
-            result[result < 0.5] = 0
-            y_label = np.where(result == 1)[0]
-            current_ddi_rate = ddi_rate_score([[y_label]], self.ddi_adj)
+            # # get current_ddi
+            # result = F.sigmoid(result).detach().cpu().numpy()[0]
+            # result[result >= 0.5] = 1
+            # result[result < 0.5] = 0
+            # y_label = np.where(result == 1)[0]
+            # current_ddi_rate = ddi_rate_score([[y_label]], self.ddi_adj)
                 
-            if current_ddi_rate <= target_ddi:
-                loss += loss_bce
-            else:
-                beta = min(0, 1 + (target_ddi - current_ddi_rate) / kp)
-                loss += beta * loss_bce + (1 - beta) * loss_ddi
+            # if current_ddi_rate <= target_ddi:
+            loss += loss_bce + 1e-2 * loss_ddi
+            # else:
+            #     beta = min(0, 1 + (target_ddi - current_ddi_rate) / kp)
+            #     loss += beta * loss_bce + (1 - beta) * loss_ddi
 
         self.log('train_loss', loss)
         return loss
@@ -725,8 +725,8 @@ class SafeDrug(pl.LightningModule):
 
                     # prediction med set
                     y_pred_tmp = target_output.copy()
-                    y_pred_tmp[y_pred_tmp >= 0.4] = 1
-                    y_pred_tmp[y_pred_tmp < 0.4] = 0
+                    y_pred_tmp[y_pred_tmp >= 0.5] = 1
+                    y_pred_tmp[y_pred_tmp < 0.5] = 0
                     y_pred.append(y_pred_tmp)
 
                     # prediction label
