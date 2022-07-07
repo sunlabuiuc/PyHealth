@@ -2,7 +2,6 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.nn.parameter import Parameter
 import numpy as np
 from pyhealth.utils import multi_label_metric, ddi_rate_score
 
@@ -29,7 +28,7 @@ class RETAIN(pl.LightningModule):
 
         # bipartite matrix
         self.ddi_adj = ddi_adj
-        self.tensor_ddi_adj = Parameter(torch.FloatTensor(ddi_adj), requires_grad=False)
+        self.tensor_ddi_adj = nn.Parameter(torch.FloatTensor(ddi_adj), requires_grad=False)
 
     def forward(self, input):
         visit_emb = self.embedding(input) # (visit, max_len, emb)
@@ -120,7 +119,7 @@ class RETAIN(pl.LightningModule):
 
         ddi_rate = ddi_rate_score(smm_record, self.ddi_adj)
         print('--- Test Summary ---')
-        print('\nDDI rate: {:.4}\nJaccard: {:.4}\nPRAUC: {:.4}\nAVG_PRC: {:.4}\nAVG_RECALL: {:.4}\nAVG_F1: {:.4}\nAVG_MED: {:.4}\n'.format(
+        print('DDI rate: {:.4}\nJaccard: {:.4}\nPRAUC: {:.4}\nAVG_PRC: {:.4}\nAVG_RECALL: {:.4}\nAVG_F1: {:.4}\nAVG_MED: {:.4}\n'.format(
             ddi_rate, np.mean(ja), np.mean(prauc), np.mean(avg_p), np.mean(avg_r), np.mean(avg_f1), med_cnt / visit_cnt
         ))
 
@@ -144,7 +143,7 @@ class MICRON(pl.LightningModule):
         )
         # bipartite matrix
         self.ddi_adj = ddi_adj
-        self.tensor_ddi_adj = Parameter(torch.FloatTensor(ddi_adj), requires_grad=False)
+        self.tensor_ddi_adj = nn.Parameter(torch.FloatTensor(ddi_adj), requires_grad=False)
 
     def embedding(self, diag, prod):
         # get diag and prod embeddings
@@ -265,10 +264,217 @@ class MICRON(pl.LightningModule):
 
         ddi_rate = ddi_rate_score(smm_record, self.ddi_adj)
         print('--- Test Summary ---')
-        print('\nDDI rate: {:.4}\nJaccard: {:.4}\nPRAUC: {:.4}\nAVG_PRC: {:.4}\nAVG_RECALL: {:.4}\nAVG_F1: {:.4}\nAVG_MED: {:.4}\n'.format(
+        print('DDI rate: {:.4}\nJaccard: {:.4}\nPRAUC: {:.4}\nAVG_PRC: {:.4}\nAVG_RECALL: {:.4}\nAVG_F1: {:.4}\nAVG_MED: {:.4}\n'.format(
             ddi_rate, np.mean(ja), np.mean(prauc), np.mean(avg_p), np.mean(avg_r), np.mean(avg_f1), med_cnt / visit_cnt
         ))
 
-    
+class GraphConvolution(nn.Module):
+    """
+    Simple GCN layer, similar to https://arxiv.org/abs/1609.02907
+    """
 
+    def __init__(self, in_features, out_features, bias=True):
+        super(GraphConvolution, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.weight = Parameter(torch.FloatTensor(in_features, out_features))
+        if bias:
+            self.bias = Parameter(torch.FloatTensor(out_features))
+        else:
+            self.register_parameter('bias', None)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        stdv = 1. / self.weight.size(1)**0.5
+        self.weight.data.uniform_(-stdv, stdv)
+        if self.bias is not None:
+            self.bias.data.uniform_(-stdv, stdv)
+
+    def forward(self, input, adj):
+        support = torch.mm(input, self.weight)
+        output = torch.mm(adj, support)
+        if self.bias is not None:
+            return output + self.bias
+        else:
+            return output
+
+    def __repr__(self):
+        return self.__class__.__name__ + ' (' \
+               + str(self.in_features) + ' -> ' \
+               + str(self.out_features) + ')'
+
+class GCN(nn.Module):
+    def __init__(self, voc_size, emb_dim, adj):
+        super(GCN, self).__init__()
+        self.voc_size = voc_size
+        self.emb_dim = emb_dim
+
+        adj = self.normalize(adj + np.eye(adj.shape[0]))
+
+        self.adj = Parameter(torch.FloatTensor(adj), requires_grad=False)
+        self.x = Parameter(torch.eye(voc_size), requires_grad=False)
+
+        self.gcn1 = GraphConvolution(voc_size, emb_dim)
+        self.dropout = nn.Dropout(p=0.3)
+        self.gcn2 = GraphConvolution(emb_dim, emb_dim)
+
+    def forward(self):
+        node_embedding = self.gcn1(self.x, self.adj)
+        node_embedding = F.relu(node_embedding)
+        node_embedding = self.dropout(node_embedding)
+        node_embedding = self.gcn2(node_embedding, self.adj)
+        return node_embedding
+
+    def normalize(self, mx):
+        """Row-normalize sparse matrix"""
+        rowsum = np.array(mx.sum(1))
+        r_inv = np.power(rowsum, -1).flatten()
+        r_inv[np.isinf(r_inv)] = 0.
+        r_mat_inv = np.diagflat(r_inv)
+        mx = r_mat_inv.dot(mx)
+        return mx
+
+class GAMENet(pl.LightningModule):
+    def __init__(self, voc_size, ehr_adj, ddi_adj, emb_dim=64, ddi_in_memory=True):
+        super(GAMENet, self).__init__()
+        self.voc_size = voc_size
+        self.tensor_ddi_adj = nn.Parameter(torch.FloatTensor(ddi_adj), requires_grad=False)
+        self.ddi_in_memory = ddi_in_memory
+        self.embeddings = nn.ModuleList(
+            [nn.Embedding(voc_size[i], emb_dim) for i in range(2)])
+        self.dropout = nn.Dropout(p=0.5)
+        self.encoders = nn.ModuleList([nn.GRU(emb_dim, emb_dim, batch_first=True) for _ in range(2)])
+        self.query = nn.Sequential(
+            nn.ReLU(),
+            nn.Linear(emb_dim * 2, emb_dim),
+        )
+
+        self.ddi_adj = ddi_adj
+        self.ehr_gcn = GCN(voc_size=voc_size[2], emb_dim=emb_dim, adj=ehr_adj)
+        self.ddi_gcn = GCN(voc_size=voc_size[2], emb_dim=emb_dim, adj=ddi_adj)
+        self.inter = nn.Parameter(torch.FloatTensor(1))
+
+        self.output = nn.Sequential(
+            nn.ReLU(),
+            nn.Linear(emb_dim * 3, emb_dim * 2),
+            nn.ReLU(),
+            nn.Linear(emb_dim * 2, voc_size[2])
+        )
+
+    def forward(self, diag, prod, med_before):
+        """
+        diag: (seq, #diag)
+        prod: (seq, #prod)
+        """
+        # generate medical embeddings and queries
+        i1 = self.dropout(self.embeddings[0](diag)).sum(1) # (seq, emb_dim)
+        i2 = self.dropout(self.embeddings[1](prod)).sum(1) # (seq, emb_dim)
+
+        o1, _ = self.encoders[0](i1) # (seq, emb_dim)
+        o2, _ = self.encoders[1](i2) 
+        patient_representations = torch.cat([o1, o2], dim=1) # (seq, emb_dim*2)
+        queries = self.query(patient_representations) # (seq, emb_dim*2)
+
+        # graph memory module
+        '''I:generate current input'''
+        query = queries[-1:] # (1, emb_dim)
+
+        '''G:generate graph memory bank and insert history information'''
+        if self.ddi_in_memory:
+            drug_memory = self.ehr_gcn() - self.ddi_gcn() * self.inter  # (size, dim)
+        else:
+            drug_memory = self.ehr_gcn()
+
+        if diag.shape[0] > 1:
+            history_keys = queries[:-1] # (seq-1, emb_dim)
+            history_values = med_before # (seq-1, med_size)
+            
+        '''O:read from global memory bank and dynamic memory bank'''
+        key_weights1 = F.softmax(torch.mm(query, drug_memory.t()), dim=-1)  # (1, med_size)
+        fact1 = torch.mm(key_weights1, drug_memory)  # (1, emb_dim)
+
+        if diag.shape[0] > 1:
+            visit_weight = F.softmax(torch.mm(query, history_keys.t())) # (1, seq-1)
+            weighted_values = visit_weight.mm(history_values) # (1, size)
+            fact2 = torch.mm(weighted_values, drug_memory) # (1, dim)
+        else:
+            fact2 = fact1
+        '''R:convert O and predict'''
+        output = self.output(torch.cat([query, fact1, fact2], dim=-1)) # (1, dim)
+
+        neg_pred_prob = F.sigmoid(output)
+        neg_pred_prob = neg_pred_prob.t() * neg_pred_prob  # (voc_size, voc_size)
+        loss_ddi = neg_pred_prob.mul(self.tensor_ddi_adj).mean()
+
+        return output, loss_ddi
+
+    def configure_optimizers(self, lr=5e-4):
+        optimizer = torch.optim.Adam(self.parameters(), lr=lr)
+        return optimizer
+    
+    def training_step(self, train_batch, batch_idx):
+        loss = 0
+        diag, prod, y = train_batch
+        for i in range(len(diag)):
+            result, loss_ddi = self.forward(diag[:i+1], prod[:i+1], y[:i])
+            loss += F.binary_cross_entropy_with_logits(result, y[i:i+1]) + 1e-2 * loss_ddi
+            self.log('train_loss', loss)
+            return loss
+
+    def validation_step(self, val_batch, batch_idx):
+        loss = 0
+        diag, prod, y = val_batch
+        for i in range(len(diag)):
+            result, loss_ddi = self.forward(diag[:i+1], prod[:i+1], y[:i])
+            loss += F.binary_cross_entropy_with_logits(result, y[i:i+1]) + 1e-2 * loss_ddi
+            self.log('val_loss', loss)
+
+    def summary(self, test_dataloaders, ckpt_path):
+        # load the best model
+        self.model = torch.load(ckpt_path)
+        self.eval()
+
+        ja, prauc, avg_p, avg_r, avg_f1 = [[] for _ in range(5)]
+        med_cnt, visit_cnt = 0, 0
+        smm_record = []
+
+        with torch.no_grad():
+            for diag, prod, y in test_dataloaders:
+                y_gt, y_pred, y_pred_prob, y_pred_label = [], [], [], []
+
+                for i in range(len(diag)):
+                    target_output, _ = self.forward(diag[:i+1], prod[:i+1], y[:i])
+                    y_gt.append(y[i].cpu().numpy())
+
+                    # prediction prob
+                    target_output = F.sigmoid(target_output).cpu().numpy()[0]
+                    y_pred_prob.append(target_output)
+
+                    # prediction med set
+                    y_pred_tmp = target_output.copy()
+                    y_pred_tmp[y_pred_tmp >= 0.4] = 1
+                    y_pred_tmp[y_pred_tmp < 0.4] = 0
+                    y_pred.append(y_pred_tmp)
+
+                    # prediction label
+                    y_pred_label_tmp = np.where(y_pred_tmp == 1)[0]
+                    y_pred_label.append(y_pred_label_tmp)
+                    med_cnt += len(y_pred_label_tmp)
+                    visit_cnt += 1
+
+                smm_record.append(y_pred_label)
+                adm_ja, adm_prauc, adm_avg_p, adm_avg_r, adm_avg_f1 =\
+                        multi_label_metric(np.array(y_gt), np.array(y_pred), np.array(y_pred_prob))
+                
+                ja.append(adm_ja)
+                prauc.append(adm_prauc)
+                avg_p.append(adm_avg_p)
+                avg_r.append(adm_avg_r)
+                avg_f1.append(adm_avg_f1)
+
+        ddi_rate = ddi_rate_score(smm_record, self.ddi_adj)
+        print('--- Test Summary ---')
+        print('DDI rate: {:.4}\nJaccard: {:.4}\nPRAUC: {:.4}\nAVG_PRC: {:.4}\nAVG_RECALL: {:.4}\nAVG_F1: {:.4}\nAVG_MED: {:.4}\n'.format(
+            ddi_rate, np.mean(ja), np.mean(prauc), np.mean(avg_p), np.mean(avg_r), np.mean(avg_f1), med_cnt / visit_cnt
+        ))
 

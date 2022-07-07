@@ -1,10 +1,12 @@
 import numpy as np
 import pandas as pd
-from pytorch_lightning import LightningModule, Trainer
+from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint
 
-import pyhealth.datasets as datasets
-import pyhealth.models as models
+import sys
+sys.path.append("./")
+import pyhealth.datasets.datasets as datasets
+import pyhealth.models.models as models
 import pyhealth.utils as utils
 import torch
 print(torch.cuda.is_available())
@@ -32,7 +34,7 @@ print ('--- train and test ---')
 checkpoint_callback = ModelCheckpoint(dirpath='./model_cpt')
 trainer = Trainer(
     gpus=1,
-    max_epochs=1,
+    max_epochs=5,
     progress_bar_refresh_rate=5,
     callbacks=[checkpoint_callback],
 )

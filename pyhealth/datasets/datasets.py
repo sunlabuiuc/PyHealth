@@ -38,7 +38,6 @@ def collate_fn_MICRON(cur_patient, voc_size):
         
     return diag.long(), prod.long(), y.float()
 
-
 class CustomDataset(Dataset):
     def __init__(self, patients):
         self.patients = patients
@@ -142,6 +141,7 @@ class MIMIC_III:
         tool.load_mapping()
         self._encode_visit_info(tool.RxNorm_to_ATC4)
         self._generate_ddi_matrix_ATC3()
+        # self._summarize()
 
     def _get_data_tables(self):
         """
@@ -265,6 +265,20 @@ class MIMIC_III:
 
         self.ddi_adj = ddi_adj
 
+    def _generate_ehr_matrix_for_GAMENet(self, data_train):
+        """
+        generate the ehr graph adj for GAMENet model input
+        - loop over the training data to check whether any med pair appear
+        """
+        ehr_adj = np.zeros((self.voc_size[2], self.voc_size[2]))
+        for patient in data_train:
+            for visit in patient:
+                for idx1, med1 in enumerate(visit[2]):
+                    for idx2, med2 in enumerate(visit[2]):
+                        if idx1 >= idx2: continue
+                        ehr_adj[med1, med2] = 1
+                        ehr_adj[med2, med1] = 1
+        return ehr_adj
 
     def get_dataloader(self, MODEL):
         """
@@ -305,6 +319,17 @@ class MIMIC_III:
             self.test_loader = DataLoader(CustomDataset(data_test), batch_size=1, shuffle=False, \
                 collate_fn=lambda x: collate_fn_RETAIN(x[0], self.voc_size))
             print ("generated train/val/test dataloaders for RETAIN model!")
+
+        elif MODEL in ['GAMENet']:
+            self.train_loader = DataLoader(CustomDataset(data_train), batch_size=1, shuffle=True, \
+                collate_fn=lambda x: collate_fn_MICRON(x[0], self.voc_size))
+            self.val_loader = DataLoader(CustomDataset(data_val), batch_size=1, shuffle=False, \
+                collate_fn=lambda x: collate_fn_MICRON(x[0], self.voc_size))
+            self.test_loader = DataLoader(CustomDataset(data_test), batch_size=1, shuffle=False, \
+                collate_fn=lambda x: collate_fn_MICRON(x[0], self.voc_size))
+            self.ehr_adj = self._generate_ehr_matrix_for_GAMENet(data_train)
+            print ("generated train/val/test dataloaders for GAMENet model!")
+
         elif MODEL in ['MICRON']:
             self.train_loader = DataLoader(CustomDataset(data_train), batch_size=1, shuffle=True, \
                 collate_fn=lambda x: collate_fn_MICRON(x[0], self.voc_size))
