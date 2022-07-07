@@ -9,6 +9,7 @@ from MedCode import CodeMapping
 # $ MedCode to get more instructions
 from urllib import request
 from collections import defaultdict
+from rdkit import Chem
 
 def collate_fn_RETAIN(cur_patient, voc_size):
     """ data is a list of sample from the dataset """
@@ -97,6 +98,69 @@ class CodetoIndex:
         result = ','.join([self.encode(code) for code in code_list])
         return result
 
+def create_atoms(mol, atom_dict):
+    """Transform the atom types in a molecule (e.g., H, C, and O)
+    into the indices (e.g., H=0, C=1, and O=2).
+    Note that each atom index considers the aromaticity.
+    """
+    atoms = [a.GetSymbol() for a in mol.GetAtoms()]
+    for a in mol.GetAromaticAtoms():
+        i = a.GetIdx()
+        atoms[i] = (atoms[i], 'aromatic')
+    atoms = [atom_dict[a] for a in atoms]
+    return np.array(atoms)
+
+def create_ijbonddict(mol, bond_dict):
+    """Create a dictionary, in which each key is a node ID
+    and each value is the tuples of its neighboring node
+    and chemical bond (e.g., single and double) IDs.
+    """
+    i_jbond_dict = defaultdict(lambda: [])
+    for b in mol.GetBonds():
+        i, j = b.GetBeginAtomIdx(), b.GetEndAtomIdx()
+        bond = bond_dict[str(b.GetBondType())]
+        i_jbond_dict[i].append((j, bond))
+        i_jbond_dict[j].append((i, bond))
+    return i_jbond_dict
+
+def extract_fingerprints(radius, atoms, i_jbond_dict, fingerprint_dict, edge_dict):
+    """Extract the fingerprints from a molecular graph
+    based on Weisfeiler-Lehman algorithm.
+    """
+
+    if (len(atoms) == 1) or (radius == 0):
+        nodes = [fingerprint_dict[a] for a in atoms]
+
+    else:
+        nodes = atoms
+        i_jedge_dict = i_jbond_dict
+
+        for _ in range(radius):
+
+            """Update each node ID considering its neighboring nodes and edges.
+            The updated node IDs are the fingerprint IDs.
+            """
+            nodes_ = []
+            for i, j_edge in i_jedge_dict.items():
+                neighbors = [(nodes[j], edge) for j, edge in j_edge]
+                fingerprint = (nodes[i], tuple(sorted(neighbors)))
+                nodes_.append(fingerprint_dict[fingerprint])
+
+            """Also update each edge ID considering
+            its two nodes on both sides.
+            """
+            i_jedge_dict_ = defaultdict(lambda: [])
+            for i, j_edge in i_jedge_dict.items():
+                for j, edge in j_edge:
+                    both_side = tuple(sorted((nodes[i], nodes[j])))
+                    edge = edge_dict[(both_side, edge)]
+                    i_jedge_dict_[i].append((j, edge))
+
+            nodes = nodes_
+            i_jedge_dict = i_jedge_dict_
+
+    return np.array(nodes)
+
 class MIMIC_III:
     """
     MIMIC-III datasets object
@@ -137,10 +201,10 @@ class MIMIC_III:
         # map med coding to ATC3
         # First generate RxNorm (the raw drug coding) to ATC4, then use [:-1] to get ATC3
         target_code = 'ATC4'
-        tool = CodeMapping('RxNorm', target_code)
-        tool.load_mapping()
-        self._encode_visit_info(tool.RxNorm_to_ATC4)
-        self._generate_ddi_matrix_ATC3()
+        self.tool = CodeMapping('RxNorm', target_code)
+        self.tool.load()
+        self._encode_visit_info(self.tool.RxNorm_to_ATC4)
+        self._generate_ddi_adj()
         # self._summarize()
 
     def _get_data_tables(self):
@@ -232,11 +296,18 @@ class MIMIC_III:
         print ("generated .maps (for code to index mappings)!")
 
     # get ddi matrix based on ATC3 coding
-    def _generate_ddi_matrix_ATC3(self):
+    def _generate_ddi_adj(self):
         cid2atc_dic = defaultdict(set)
         med_voc_size = self.voc_size[2]
 
-        cid_to_ATC6 = request.urlopen("https://drive.google.com/uc?id=1CVfa91nDu3S_NTxnn5GT93o-UfZGyewI").readlines()
+        if not os.path.exists('./data/drug-atc.csv'):
+            cid_to_ATC6 = request.urlopen("https://drive.google.com/uc?id=1CVfa91nDu3S_NTxnn5GT93o-UfZGyewI").readlines()
+            with open('./data/drug-atc.csv', 'w') as outfile:
+                for line in cid_to_ATC6:
+                    print (str(line[:-1]), file=outfile)
+        else:
+            cid_to_ATC6 = open('./data/drug-atc.csv', 'r').readlines()
+
         for line in cid_to_ATC6:
             line_ls = str(line[:-1]).split(',')
             cid = line_ls[0]
@@ -247,9 +318,13 @@ class MIMIC_III:
 
         # load ddi_df
         print ('load severe ddi pairs from https://drive.google.com/uc?id=1R88OIhn-DbOYmtmVYICmjBSOIsEljJMh!')
-        print ('all ddi pairs can be extracted from https://drive.google.com/file/d/1mnPc0O0ztz0fkv3HF-dpmBb8PLWsEoDz/view?usp=sharing!')
-        ddi_df = pd.read_csv(request.urlopen('https://drive.google.com/uc?id=1R88OIhn-DbOYmtmVYICmjBSOIsEljJMh'))
-
+        print ('ddi info is from https://drive.google.com/file/d/1mnPc0O0ztz0fkv3HF-dpmBb8PLWsEoDz/view?usp=sharing!')
+        if not os.path.exists('./data/drug-DDI-TOP40.csv'):
+            ddi_df = pd.read_csv(request.urlopen('https://drive.google.com/uc?id=1R88OIhn-DbOYmtmVYICmjBSOIsEljJMh'))
+            ddi_df.to_csv('./data/drug-DDI-TOP40.csv', index=False)
+        else:
+            ddi_df = pd.read_csv('./data/drug-DDI-TOP40.csv')
+            
         # ddi adj
         ddi_adj = np.zeros((med_voc_size, med_voc_size))
         for index, row in ddi_df.iterrows():
@@ -265,7 +340,7 @@ class MIMIC_III:
 
         self.ddi_adj = ddi_adj
 
-    def _generate_ehr_matrix_for_GAMENet(self, data_train):
+    def _generate_ehr_adj_for_GAMENet(self, data_train):
         """
         generate the ehr graph adj for GAMENet model input
         - loop over the training data to check whether any med pair appear
@@ -279,6 +354,88 @@ class MIMIC_III:
                         ehr_adj[med1, med2] = 1
                         ehr_adj[med2, med1] = 1
         return ehr_adj
+
+    def _generate_ddi_mask_H_for_SafeDrug(self, ATC4_to_SMILES):
+        # idx_to_SMILES
+        SMILES = [[] for _ in range(self.voc_size[2])]
+        # each idx contains what segments
+        fraction = [[] for _ in range(self.voc_size[2])]
+        
+        for atc4, smiles_ls in ATC4_to_SMILES.items():
+            if atc4[:-1] in self.maps['med'].code_to_idx:
+                pos = self.maps['med'].code_to_idx[atc4[:-1]]
+                SMILES[pos] += smiles_ls
+                for smiles in smiles_ls:
+                    if smiles != 'nan':
+                        try:
+                            m = Chem.BRICS.BRICSDecompose(Chem.MolFromSmiles(smiles))
+                            for frac in m:
+                                fraction[pos].add(frac)
+                        except:
+                            pass
+        # all segment set
+        fraction_set = []
+        for i in fraction:
+            fraction_set += i
+        fraction_set = list(set(fraction_set)) # set of all segments
+
+        # ddi_mask
+        ddi_mask_H = np.zeros((self.voc_size[2], len(fraction_set)))
+        for idx, cur_fraction in enumerate(fraction):
+            for frac in cur_fraction:
+                ddi_mask_H[idx, fraction_set.index(frac)] = 1
+        return ddi_mask_H, SMILES
+
+    def _generate_med_molecule_info_for_SafeDrug(self, SMILES, radius=1):
+
+        atom_dict = defaultdict(lambda: len(atom_dict))
+        bond_dict = defaultdict(lambda: len(bond_dict))
+        fingerprint_dict = defaultdict(lambda: len(fingerprint_dict))
+        edge_dict = defaultdict(lambda: len(edge_dict))
+        MPNNSet, average_index = [], []
+
+        for smilesList in SMILES:
+            """Create each data with the above defined functions."""
+            counter = 0 # counter how many drugs are under that ATC-3
+            for smiles in smilesList:
+                try:
+                    mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+                    atoms = create_atoms(mol, atom_dict)
+                    molecular_size = len(atoms)
+                    i_jbond_dict = create_ijbonddict(mol, bond_dict)
+                    fingerprints = extract_fingerprints(radius, atoms, i_jbond_dict,
+                                                        fingerprint_dict, edge_dict)
+                    adjacency = Chem.GetAdjacencyMatrix(mol)
+                    # if fingerprints.shape[0] == adjacency.shape[0]:
+                    for _ in range(adjacency.shape[0] - fingerprints.shape[0]):
+                        fingerprints = np.append(fingerprints, 1)
+                    
+                    fingerprints = torch.LongTensor(fingerprints)
+                    adjacency = torch.FloatTensor(adjacency)
+                    MPNNSet.append((fingerprints, adjacency, molecular_size))
+                    counter += 1
+                except:
+                    continue
+            
+            average_index.append(counter)
+
+            """Transform the above each data of numpy
+            to pytorch tensor on a device (i.e., CPU or GPU).
+            """
+
+        N_fingerprint = len(fingerprint_dict)
+        # transform into projection matrix
+        n_col = sum(average_index)
+        n_row = len(average_index)
+
+        average_projection = np.zeros((n_row, n_col))
+        col_counter = 0
+        for i, item in enumerate(average_index):
+            if item > 0:
+                average_projection[i, col_counter : col_counter + item] = 1 / item
+            col_counter += item
+
+        return [MPNNSet, N_fingerprint, torch.FloatTensor(average_projection)]
 
     def get_dataloader(self, MODEL):
         """
@@ -327,7 +484,7 @@ class MIMIC_III:
                 collate_fn=lambda x: collate_fn_MICRON(x[0], self.voc_size))
             self.test_loader = DataLoader(CustomDataset(data_test), batch_size=1, shuffle=False, \
                 collate_fn=lambda x: collate_fn_MICRON(x[0], self.voc_size))
-            self.ehr_adj = self._generate_ehr_matrix_for_GAMENet(data_train)
+            self.ehr_adj = self._generate_ehr_adj_for_GAMENet(data_train)
             print ("generated train/val/test dataloaders for GAMENet model!")
 
         elif MODEL in ['MICRON']:
@@ -338,6 +495,19 @@ class MIMIC_III:
             self.test_loader = DataLoader(CustomDataset(data_test), batch_size=1, shuffle=False, \
                 collate_fn=lambda x: collate_fn_MICRON(x[0], self.voc_size))
             print ("generated train/val/test dataloaders for MICRON model!")
+
+        elif MODEL in ['SafeDrug']:
+            # SafeDrug model needs a mapping to SMILES strings
+            self.train_loader = DataLoader(CustomDataset(data_train), batch_size=1, shuffle=True, \
+                collate_fn=lambda x: collate_fn_MICRON(x[0], self.voc_size))
+            self.val_loader = DataLoader(CustomDataset(data_val), batch_size=1, shuffle=False, \
+                collate_fn=lambda x: collate_fn_MICRON(x[0], self.voc_size))
+            self.test_loader = DataLoader(CustomDataset(data_test), batch_size=1, shuffle=False, \
+                collate_fn=lambda x: collate_fn_MICRON(x[0], self.voc_size))
+            self.tool.add_new_code("SMILES")
+            self.ddi_mask_H, SMILES = self._generate_ddi_mask_H_for_SafeDrug(self.tool.ATC4_to_SMILES)
+            self.med_molecule_info = self._generate_med_molecule_info_for_SafeDrug(SMILES)
+            print ("generated train/val/test dataloaders for SafeDrug model!")
 
 
 
