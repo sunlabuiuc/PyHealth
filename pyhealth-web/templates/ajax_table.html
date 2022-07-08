@@ -4,13 +4,13 @@
   <table id="data" class="table table-striped">
     <thead>
       <tr>
-        <th>Run ID</th>
-        <th>Trigger Time</th>
-        <th>Dataset</th>
-        <th>Task Name</th>
-        <th>ML Model</th>
-        <th>Status</th>
-        <th>Json</th>
+        <th style="text-align:center">Run ID</th>
+        <th style="text-align:center">Trigger Time</th>
+        <th style="text-align:center">Dataset</th>
+        <th style="text-align:center">Task Name</th>
+        <th style="text-align:center">ML Model</th>
+        <th style="text-align:center">Status</th>
+        <th style="text-align:center">Json</th>
       </tr>
     </thead>
     <tbody>
@@ -37,12 +37,12 @@
         }],
         columns: [
           {data: 'run_id'},
-          {data: 'trigger_time', searchable: false},
+          {data: 'trigger_time'},
           {data: 'dataset', orderable: false},
-          {data: 'task_name', orderable: false, searchable: false},
-          {data: 'model', orderable: false, searchable: false},
-          {data: 'run_stats', orderable: false, searchable: false},
-          {data: 'downloads', orderable: false, searchable: false},
+          {data: 'task_name', orderable: false},
+          {data: 'model', orderable: false},
+          {data: 'run_stats'},
+          {data: 'downloads', orderable: false},
         ],
       });
     });

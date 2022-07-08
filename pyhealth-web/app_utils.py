@@ -49,6 +49,10 @@ def create_new_record(Job, db, config):
     trigger_ML_task(Job, db, run_id, trigger_time, config)
 
 def trigger_ML_task(Job, db, run_id, trigger_time, config):
-    output_file = run_healthcare_ml_job(run_id, trigger_time, config)
-    Job.query.filter_by(run_id=run_id).update(dict(run_stats='SUCCESS', downloads=output_file))
-    db.session.commit()
+    try:
+        output_file = run_healthcare_ml_job(run_id, trigger_time, config)
+        Job.query.filter_by(run_id=run_id).update(dict(run_stats='SUCCESS', downloads=output_file))
+    except:
+        Job.query.filter_by(run_id=run_id).update(dict(run_stats='FAILURE', downloads="Wait"))
+    finally:
+        db.session.commit()

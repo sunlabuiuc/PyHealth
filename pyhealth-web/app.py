@@ -1,7 +1,8 @@
-from flask import Flask, render_template, request, redirect, url_for
+from flask import Flask, render_template, request, redirect, url_for, send_file, current_app
 from flask_sqlalchemy import SQLAlchemy
 from app_utils import create_new_record
 from concurrent.futures import ThreadPoolExecutor
+import os
 
 executor = ThreadPoolExecutor(10)
 
@@ -52,6 +53,12 @@ def create_job():
     # trigger a ML job
     executor.submit(create_new_record, Job, db, config)
     return redirect(url_for('home'))
+
+@app.route('/download/<path:file_path>')
+def downloadFile(file_path):
+    path = os.path.join(current_app.root_path, file_path)
+    print (path)
+    return send_file(path, as_attachment=True)
 
 
 if __name__ == "__main__":

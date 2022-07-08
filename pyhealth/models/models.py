@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from pyhealth.utils import multi_label_metric, ddi_rate_score
+import json
 
 class RETAIN(pl.LightningModule):
     def __init__(self, dataset, emb_dim=64):
@@ -16,6 +17,8 @@ class RETAIN(pl.LightningModule):
         self.emb_dim = emb_dim
         self.input_len = voc_size[0] + voc_size[1] + voc_size[2]
         self.output_len = voc_size[2]
+        self.pat_info_test = dataset.pat_info_test
+        self.maps = dataset.maps
 
         self.embedding = nn.Sequential(
             nn.Embedding(self.input_len + 1, self.emb_dim, padding_idx=self.input_len),
@@ -78,7 +81,7 @@ class RETAIN(pl.LightningModule):
             loss += F.binary_cross_entropy_with_logits(output_logits, y[i:i+1]) + 1e-2 * ddi_loss
         self.log('val_loss', loss)
 
-    def summary(self, test_dataloaders, ckpt_path):
+    def summary(self, output_path, test_dataloaders, ckpt_path):
         # load the best model
         self.model = torch.load(ckpt_path)
         self.eval()
@@ -98,6 +101,7 @@ class RETAIN(pl.LightningModule):
                     # prediction prob
                     target_output = F.sigmoid(target_output).cpu().numpy()[0]
                     y_pred_prob.append(target_output)
+                    self.pat_info_test[step][i].append(target_output)
 
                     # prediction med set
                     y_pred_tmp = target_output.copy()
@@ -127,12 +131,72 @@ class RETAIN(pl.LightningModule):
             ddi_rate, np.mean(ja), np.mean(prauc), np.mean(avg_p), np.mean(avg_r), np.mean(avg_f1), med_cnt / visit_cnt
         ))
 
+        self.prepare_output(output_path)
+
+    def prepare_output(self, output_path):
+        """
+        write self.pat_info_test to json format:
+        {
+            patient_id_1: {
+                visit_id_1: {
+                    "diagnoses": [xxx],
+                    "procedures": [xxx],
+                    "real_prescription": [xxx],
+                    "predicted_prescription": [xxx],
+                    "prediction_logits": {
+                        "ATC3-1": xxx,
+                        "ATC3-2": xxx,
+                        ...
+                    }
+                },
+                visit_id_2: {
+                        ...
+                    }
+                },
+                ...
+            },
+            patient_id_2: {
+                ...
+            },
+            ...
+        }
+        """
+        nested_dict = {}
+        for cur_pat in self.pat_info_test:
+            for cur_visit in cur_pat:
+                pat_id = cur_visit[3]
+                visit_id = cur_visit[4]
+                diag = self.maps['diag'].decodes(cur_visit[0])
+                if -1 in diag: diag.remove(-1)
+                prod = self.maps['prod'].decodes(cur_visit[1])
+                if -1 in prod: prod.remove(-1)
+                gt_med = self.maps['med'].decodes(cur_visit[2])
+                if -1 in gt_med: gt_med.remove(-1)
+                pre_logits = cur_visit[5]
+                pre_med = np.where(pre_logits >= 0.5)[0]
+                if pat_id not in nested_dict:
+                    nested_dict[pat_id] = {}
+                nested_dict[pat_id][visit_id] = {
+                    "diagnoses": diag,
+                    "procedures": prod,
+                    "real_prescription": gt_med,
+                    "predicted_prescription": self.maps['med'].decodes(pre_med),
+                    "prediction_logits": {
+                        atc3: str(np.round(logit, 4)) for atc3, logit in zip(self.maps['med'].code_to_idx.keys(), pre_logits)
+                    }
+                }
+
+        with open(output_path, "w") as outfile:
+            json.dump(nested_dict, outfile)
+
 class MICRON(pl.LightningModule):
     def __init__(self, dataset, emb_dim=64):
         super(MICRON, self).__init__()
         # voc_size, ddi_adj from dataset
         voc_size = dataset.voc_size
         ddi_adj = dataset.ddi_adj
+        self.pat_info_test = dataset.pat_info_test
+        self.maps = dataset.maps
 
         self.voc_size = voc_size
         # embedding tables for diag and prod
@@ -219,7 +283,7 @@ class MICRON(pl.LightningModule):
         loss += loss_bce + loss_rec #+ 1e-4 * loss_ddi
         self.log('val_loss', loss)
 
-    def summary(self, test_dataloaders, ckpt_path, threshold1=0.8, threshold2=0.2):
+    def summary(self, output_path, test_dataloaders, ckpt_path, threshold1=0.8, threshold2=0.2):
         # load the best model
         self.model = torch.load(ckpt_path)
         self.eval()
@@ -230,7 +294,7 @@ class MICRON(pl.LightningModule):
         smm_record = []
 
         with torch.no_grad():
-            for diag, prod, y in test_dataloaders:
+            for step, (diag, prod, y) in enumerate(test_dataloaders):
                 y_gt, y_pred, y_pred_prob, y_pred_label = [], [], [], []
 
                 for idx in range(len(diag)):
@@ -249,6 +313,7 @@ class MICRON(pl.LightningModule):
                     y_pred_tmp = F.sigmoid(representation_base).detach().cpu().numpy()[0]
                     y_pred_prob.append(y_pred_tmp)
                     prob_list.append(y_pred_tmp)
+                    self.pat_info_test[step][idx].append(y_pred_tmp)
                     
                     # prediction med set
                     y_old[y_pred_tmp>=threshold1] = 1
@@ -274,6 +339,64 @@ class MICRON(pl.LightningModule):
         print('DDI rate: {:.4}\nJaccard: {:.4}\nPRAUC: {:.4}\nAVG_PRC: {:.4}\nAVG_RECALL: {:.4}\nAVG_F1: {:.4}\nAVG_MED: {:.4}\n'.format(
             ddi_rate, np.mean(ja), np.mean(prauc), np.mean(avg_p), np.mean(avg_r), np.mean(avg_f1), med_cnt / visit_cnt
         ))
+
+        self.prepare_output(output_path)
+
+    def prepare_output(self, output_path):
+        """
+        write self.pat_info_test to json format:
+        {
+            patient_id_1: {
+                visit_id_1: {
+                    "diagnoses": [xxx],
+                    "procedures": [xxx],
+                    "real_prescription": [xxx],
+                    "predicted_prescription": [xxx],
+                    "prediction_logits": {
+                        "ATC3-1": xxx,
+                        "ATC3-2": xxx,
+                        ...
+                    }
+                },
+                visit_id_2: {
+                        ...
+                    }
+                },
+                ...
+            },
+            patient_id_2: {
+                ...
+            },
+            ...
+        }
+        """
+        nested_dict = {}
+        for cur_pat in self.pat_info_test:
+            for cur_visit in cur_pat:
+                pat_id = cur_visit[3]
+                visit_id = cur_visit[4]
+                diag = self.maps['diag'].decodes(cur_visit[0])
+                if -1 in diag: diag.remove(-1)
+                prod = self.maps['prod'].decodes(cur_visit[1])
+                if -1 in prod: prod.remove(-1)
+                gt_med = self.maps['med'].decodes(cur_visit[2])
+                if -1 in gt_med: gt_med.remove(-1)
+                pre_logits = cur_visit[5]
+                pre_med = np.where(pre_logits >= 0.5)[0]
+                if pat_id not in nested_dict:
+                    nested_dict[pat_id] = {}
+                nested_dict[pat_id][visit_id] = {
+                    "diagnoses": diag,
+                    "procedures": prod,
+                    "real_prescription": gt_med,
+                    "predicted_prescription": self.maps['med'].decodes(pre_med),
+                    "prediction_logits": {
+                        atc3: str(np.round(logit, 4)) for atc3, logit in zip(self.maps['med'].code_to_idx.keys(), pre_logits)
+                    }
+                }
+
+        with open(output_path, "w") as outfile:
+            json.dump(nested_dict, outfile)
 
 class _GraphConvolution(nn.Module):
     """
@@ -348,6 +471,8 @@ class GAMENet(pl.LightningModule):
         voc_size = dataset.voc_size
         ddi_adj = dataset.ddi_adj
         ehr_adj = dataset.ehr_adj
+        self.pat_info_test = dataset.pat_info_test
+        self.maps = dataset.maps
 
         self.voc_size = voc_size
         self.tensor_ddi_adj = nn.Parameter(torch.FloatTensor(ddi_adj), requires_grad=False)
@@ -441,7 +566,7 @@ class GAMENet(pl.LightningModule):
             loss += F.binary_cross_entropy_with_logits(result, y[i:i+1]) + 1e-2 * loss_ddi
         self.log('val_loss', loss)
 
-    def summary(self, test_dataloaders, ckpt_path):
+    def summary(self, output_path, test_dataloaders, ckpt_path):
         # load the best model
         self.model = torch.load(ckpt_path)
         self.eval()
@@ -451,7 +576,7 @@ class GAMENet(pl.LightningModule):
         smm_record = []
 
         with torch.no_grad():
-            for diag, prod, y in test_dataloaders:
+            for step, (diag, prod, y) in enumerate(test_dataloaders):
                 y_gt, y_pred, y_pred_prob, y_pred_label = [], [], [], []
 
                 for i in range(len(diag)):
@@ -461,6 +586,7 @@ class GAMENet(pl.LightningModule):
                     # prediction prob
                     target_output = F.sigmoid(target_output).cpu().numpy()[0]
                     y_pred_prob.append(target_output)
+                    self.pat_info_test[step][i].append(target_output)
 
                     # prediction med set
                     y_pred_tmp = target_output.copy()
@@ -489,6 +615,64 @@ class GAMENet(pl.LightningModule):
         print('DDI rate: {:.4}\nJaccard: {:.4}\nPRAUC: {:.4}\nAVG_PRC: {:.4}\nAVG_RECALL: {:.4}\nAVG_F1: {:.4}\nAVG_MED: {:.4}\n'.format(
             ddi_rate, np.mean(ja), np.mean(prauc), np.mean(avg_p), np.mean(avg_r), np.mean(avg_f1), med_cnt / visit_cnt
         ))
+
+        self.prepare_output(output_path)
+
+    def prepare_output(self, output_path):
+        """
+        write self.pat_info_test to json format:
+        {
+            patient_id_1: {
+                visit_id_1: {
+                    "diagnoses": [xxx],
+                    "procedures": [xxx],
+                    "real_prescription": [xxx],
+                    "predicted_prescription": [xxx],
+                    "prediction_logits": {
+                        "ATC3-1": xxx,
+                        "ATC3-2": xxx,
+                        ...
+                    }
+                },
+                visit_id_2: {
+                        ...
+                    }
+                },
+                ...
+            },
+            patient_id_2: {
+                ...
+            },
+            ...
+        }
+        """
+        nested_dict = {}
+        for cur_pat in self.pat_info_test:
+            for cur_visit in cur_pat:
+                pat_id = cur_visit[3]
+                visit_id = cur_visit[4]
+                diag = self.maps['diag'].decodes(cur_visit[0])
+                if -1 in diag: diag.remove(-1)
+                prod = self.maps['prod'].decodes(cur_visit[1])
+                if -1 in prod: prod.remove(-1)
+                gt_med = self.maps['med'].decodes(cur_visit[2])
+                if -1 in gt_med: gt_med.remove(-1)
+                pre_logits = cur_visit[5]
+                pre_med = np.where(pre_logits >= 0.5)[0]
+                if pat_id not in nested_dict:
+                    nested_dict[pat_id] = {}
+                nested_dict[pat_id][visit_id] = {
+                    "diagnoses": diag,
+                    "procedures": prod,
+                    "real_prescription": gt_med,
+                    "predicted_prescription": self.maps['med'].decodes(pre_med),
+                    "prediction_logits": {
+                        atc3: str(np.round(logit, 4)) for atc3, logit in zip(self.maps['med'].code_to_idx.keys(), pre_logits)
+                    }
+                }
+
+        with open(output_path, "w") as outfile:
+            json.dump(nested_dict, outfile)
 
 class _MaskLinear(nn.Module):
     def __init__(self, in_features, out_features, bias=True):
@@ -589,6 +773,8 @@ class SafeDrug(pl.LightningModule):
         ddi_adj = dataset.ddi_adj
         ddi_mask_H = dataset.ddi_mask_H
         med_molecule_info = dataset.med_molecule_info
+        self.pat_info_test = dataset.pat_info_test
+        self.maps = dataset.maps
 
         self.voc_size = voc_size
         # pre-embedding
@@ -702,7 +888,7 @@ class SafeDrug(pl.LightningModule):
 
         self.log('val_loss', loss)
 
-    def summary(self, test_dataloaders, ckpt_path):
+    def summary(self, output_path, test_dataloaders, ckpt_path):
         # load the best model
         self.model = torch.load(ckpt_path)
         self.eval()
@@ -712,7 +898,7 @@ class SafeDrug(pl.LightningModule):
         smm_record = []
 
         with torch.no_grad():
-            for diag, prod, y in test_dataloaders:
+            for step, (diag, prod, y) in enumerate(test_dataloaders):
                 y_gt, y_pred, y_pred_prob, y_pred_label = [], [], [], []
 
                 for i in range(len(diag)):
@@ -722,6 +908,7 @@ class SafeDrug(pl.LightningModule):
                     # prediction prob
                     target_output = F.sigmoid(target_output).cpu().numpy()[0]
                     y_pred_prob.append(target_output)
+                    self.pat_info_test[step][i].append(target_output)
 
                     # prediction med set
                     y_pred_tmp = target_output.copy()
@@ -750,3 +937,61 @@ class SafeDrug(pl.LightningModule):
         print('DDI rate: {:.4}\nJaccard: {:.4}\nPRAUC: {:.4}\nAVG_PRC: {:.4}\nAVG_RECALL: {:.4}\nAVG_F1: {:.4}\nAVG_MED: {:.4}\n'.format(
             ddi_rate, np.mean(ja), np.mean(prauc), np.mean(avg_p), np.mean(avg_r), np.mean(avg_f1), med_cnt / visit_cnt
         ))
+
+        self.prepare_output(output_path)
+
+    def prepare_output(self, output_path):
+        """
+        write self.pat_info_test to json format:
+        {
+            patient_id_1: {
+                visit_id_1: {
+                    "diagnoses": [xxx],
+                    "procedures": [xxx],
+                    "real_prescription": [xxx],
+                    "predicted_prescription": [xxx],
+                    "prediction_logits": {
+                        "ATC3-1": xxx,
+                        "ATC3-2": xxx,
+                        ...
+                    }
+                },
+                visit_id_2: {
+                        ...
+                    }
+                },
+                ...
+            },
+            patient_id_2: {
+                ...
+            },
+            ...
+        }
+        """
+        nested_dict = {}
+        for cur_pat in self.pat_info_test:
+            for cur_visit in cur_pat:
+                pat_id = cur_visit[3]
+                visit_id = cur_visit[4]
+                diag = self.maps['diag'].decodes(cur_visit[0])
+                if -1 in diag: diag.remove(-1)
+                prod = self.maps['prod'].decodes(cur_visit[1])
+                if -1 in prod: prod.remove(-1)
+                gt_med = self.maps['med'].decodes(cur_visit[2])
+                if -1 in gt_med: gt_med.remove(-1)
+                pre_logits = cur_visit[5]
+                pre_med = np.where(pre_logits >= 0.5)[0]
+                if pat_id not in nested_dict:
+                    nested_dict[pat_id] = {}
+                nested_dict[pat_id][visit_id] = {
+                    "diagnoses": diag,
+                    "procedures": prod,
+                    "real_prescription": gt_med,
+                    "predicted_prescription": self.maps['med'].decodes(pre_med),
+                    "prediction_logits": {
+                        atc3: str(np.round(logit, 4)) for atc3, logit in zip(self.maps['med'].code_to_idx.keys(), pre_logits)
+                    }
+                }
+
+        with open(output_path, "w") as outfile:
+            json.dump(nested_dict, outfile)

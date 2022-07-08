@@ -10,35 +10,43 @@ import pyhealth.models.models as models
 import pyhealth.utils as utils
 import torch
 import os
+import pickle
 
-root = '/home/chaoqiy2/github/PyHealth-OMOP/pyhealth-web/downloads'
+output_root = '/home/chaoqiy2/github/PyHealth-OMOP/pyhealth-web/downloads'
+download_root = '/download/downloads'
 
-def default_return(output_file):
-    with open(output_file, 'w') as outfile:
+def default_return(path):
+    with open(path, 'w') as outfile:
         print ({"result": "None"}, file=outfile)
 
 def run_healthcare_ml_job(run_id, trigger_time, config):
 
     # config load
-    dataset = config['dataset']
+    data = config['dataset']
     task = config['task']
     model = config['model']
 
-    output_file = os.path.join(root, "{}_{}_{}_{}_{}.json".format(
+    output_file = "{}_{}_{}_{}_{}.json".format(
         run_id,
-        dataset,
+        data,
         task,
         model,
         trigger_time.timestamp()
-        )
     )
 
+    output_path = os.path.join(output_root, output_file)
+    download_path = os.path.join(download_root, output_file)
+
     # load MIMIC-III
-    if dataset == 'mimic_iii':
-        dataset = datasets.MIMIC_III()
+    if not os.path.exists('./data/{}.pkl'.format(data)):
+        if data == 'mimic_iii':
+            dataset = datasets.MIMIC_III()
+        else:
+            default_return(output_path)
+            return download_path
+        pickle.dump(dataset, open('./data/{}.pkl'.format(data), 'wb'))
     else:
-        default_return(output_file)
-        return output_file
+        dataset = pickle.load(open('./data/{}.pkl'.format(data), 'rb'))
 
     # initialize the model and build the dataloaders
     if model == 'safedrug':
@@ -66,8 +74,8 @@ def run_healthcare_ml_job(run_id, trigger_time, config):
             emb_dim=64,
         )
     else:
-        default_return(output_file)
-        return output_file
+        default_return(output_path)
+        return download_path
 
     if task == 'drug_rec':
         # set trainer with checkpoint
@@ -88,12 +96,12 @@ def run_healthcare_ml_job(run_id, trigger_time, config):
 
         # test the best model
         model.summary(
-            output_file=output_file,
+            output_path=output_path,
             test_dataloaders=dataset.test_loader,
             ckpt_path=checkpoint_callback.best_model_path,
         )
     else:
-        default_return(output_file)
-        return output_file
+        default_return(output_path)
+        return download_path
 
-    return output_file
+    return download_path

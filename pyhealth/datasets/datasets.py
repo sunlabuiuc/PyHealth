@@ -36,7 +36,6 @@ def collate_fn_MICRON(cur_patient, voc_size):
         diag[idx, visit[0]] = 1
         prod[idx, visit[1]] = 1
         y[idx, visit[2]] = 1
-        
     return diag.long(), prod.long(), y.float()
 
 class CustomDataset(Dataset):
@@ -49,17 +48,19 @@ class CustomDataset(Dataset):
     def __getitem__(self, index):
         return self.patients[index]
 
-class CodetoIndex:
+class CodeIndexing:
     """
-    This Class is used to store the Code-to-index dict object
+    This Class is used to store the Code-to-index and index-to-Code dict object
     For example: 
         - ['a', 'b', 'c', 'a'], ['b', 'c'], ... are the inputs
         - we transform them into [1,2,3,1], [2,3]
         - the mapping dict is stored in
             - self.code_to_idx = {'a': 1, 'b': 2, 'c': 3}
+            - self.idx_to_code = {1: 'a', 2: 'b', 3: 'c'}
     """
     def __init__(self):
         self.code_to_idx = {}
+        self.idx_to_code = {}
     
     def build(self, code_list):
         """
@@ -70,9 +71,11 @@ class CodetoIndex:
         if len(code_list) == 0: return
         for code in code_list:
             if code not in self.code_to_idx:
-                self.code_to_idx[code] = len(self.code_to_idx)
+                cur_idx = len(self.code_to_idx)
+                self.code_to_idx[code] = cur_idx
+                self.idx_to_code[cur_idx] = code
             
-    def _len(self):
+    def __len__(self):
         return len(self.code_to_idx)
 
     def encode(self, code):
@@ -81,9 +84,20 @@ class CodetoIndex:
         INPUT
             - code <string> or <int>: based on the format of each code
         OUTPUT
-            - idx <int>: look up the code_to_idx mapping and get the idx
+            - idx <string>: look up the code_to_idx mapping and get the idx
         """
-        idx = str(self.code_to_idx.get(code, -1))
+        idx = self.code_to_idx.get(code, -1)
+        return idx
+    
+    def decode(self, idx):
+        """
+        decode single idx
+        INPUT
+            - idx <int>: the idx of the code
+        OUTPUT
+            - code <string> or <int>: based on the format of each code
+        """
+        idx = str(self.idx_to_code.get(idx, -1))
         return idx
     
     def encodes(self, code_list):
@@ -95,7 +109,19 @@ class CodetoIndex:
             - result <list>: a list of their indices
         """
         if len(code_list) == 0: return ''
-        result = ','.join([self.encode(code) for code in code_list])
+        result = ','.join([str(self.encode(code)) for code in code_list])
+        return result
+
+    def decodes(self, idx_list):
+        """
+        decode a list of idx
+        INPUT
+            - idx_list <list>: a list of indices
+        OUTPUT
+            - result <list>: a list of raw codes
+        """
+        if len(idx_list) == 0: return ''
+        result = [self.decode(idx) for idx in idx_list]
         return result
 
 def create_atoms(mol, atom_dict):
@@ -243,9 +269,9 @@ class MIMIC_III:
     def _encode_visit_info(self, code_map):
 
         # initialize code-to-index map
-        med_map = CodetoIndex()
-        diag_map = CodetoIndex()
-        prod_map = CodetoIndex()
+        med_map = CodeIndexing()
+        diag_map = CodeIndexing()
+        prod_map = CodeIndexing()
 
         def get_atc3(x):
             # one rxnorm maps to one or more ATC3
@@ -291,7 +317,7 @@ class MIMIC_III:
             'diag': diag_map,
             'prod': prod_map,
         }
-        self.voc_size = (len(self.maps['diag'].code_to_idx), len(self.maps['prod'].code_to_idx), len(self.maps['med'].code_to_idx))
+        self.voc_size = (len(diag_map), len(prod_map), len(med_map))
         
         print ("generated .maps (for code to index mappings)!")
 
@@ -335,8 +361,8 @@ class MIMIC_III:
             # cid -> atc_level3
             for atc_i in cid2atc_dic[cid1]:
                 for atc_j in cid2atc_dic[cid2]:
-                    ddi_adj[self.maps['med'].code_to_idx[atc_i], self.maps['med'].code_to_idx[atc_j]] = 1
-                    ddi_adj[self.maps['med'].code_to_idx[atc_j], self.maps['med'].code_to_idx[atc_i]] = 1
+                    ddi_adj[self.maps['med'].encode(atc_i), self.maps['med'].encode(atc_j)] = 1
+                    ddi_adj[self.maps['med'].encode(atc_j), self.maps['med'].encode(atc_i)] = 1
 
         self.ddi_adj = ddi_adj
 
@@ -363,7 +389,7 @@ class MIMIC_III:
         
         for atc4, smiles_ls in ATC4_to_SMILES.items():
             if atc4[:-1] in self.maps['med'].code_to_idx:
-                pos = self.maps['med'].code_to_idx[atc4[:-1]]
+                pos = self.maps['med'].encode(atc4[:-1])
                 SMILES[pos] += smiles_ls
                 for smiles in smiles_ls:
                     if smiles != 'nan':
@@ -447,7 +473,7 @@ class MIMIC_III:
                     - datasets[0][2] <list>: med encoded list for this visit
         """
         data = []
-        for _, visit_ls in self.pat_to_visit.items():
+        for pat_id, visit_ls in self.pat_to_visit.items():
             visit_ls = sorted(visit_ls)
             cur_pat = []
             for visit_id in visit_ls:
@@ -457,7 +483,7 @@ class MIMIC_III:
                 cur_diag_info = list(map(int, cur_diag.split(',')))
                 cur_prod_info = list(map(int, cur_prod.split(',')))
                 cur_med_info = list(map(int, cur_med.split(',')))
-                cur_pat.append([cur_diag_info, cur_prod_info, cur_med_info])
+                cur_pat.append([cur_diag_info, cur_prod_info, cur_med_info, pat_id, visit_id])
             if len(cur_pat) <= 1: continue
             data.append(cur_pat)
 
@@ -467,6 +493,7 @@ class MIMIC_III:
         eval_len = int(len(data[split_point:]) / 2)
         data_test = data[split_point:split_point + eval_len]
         data_val = data[split_point+eval_len:]
+        self.pat_info_test = data_test
 
         if MODEL in ['RETAIN']:
             self.train_loader = DataLoader(CustomDataset(data_train), batch_size=1, shuffle=True, \
