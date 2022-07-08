@@ -4,7 +4,7 @@ from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint
 
 import sys
-sys.path.append("./home/chaoqiy2/github/PyHealth-OMOP")
+sys.path.append("/home/chaoqiy2/github/PyHealth-OMOP")
 import pyhealth.datasets.datasets as datasets
 import pyhealth.models.models as models
 import pyhealth.utils as utils
@@ -16,7 +16,6 @@ root = '/home/chaoqiy2/github/PyHealth-OMOP/pyhealth-web/downloads'
 def default_return(output_file):
     with open(output_file, 'w') as outfile:
         print ({"result": "None"}, file=outfile)
-        return output_file
 
 def run_healthcare_ml_job(run_id, trigger_time, config):
 
@@ -39,6 +38,7 @@ def run_healthcare_ml_job(run_id, trigger_time, config):
         dataset = datasets.MIMIC_III()
     else:
         default_return(output_file)
+        return output_file
 
     # initialize the model and build the dataloaders
     if model == 'safedrug':
@@ -67,6 +67,7 @@ def run_healthcare_ml_job(run_id, trigger_time, config):
         )
     else:
         default_return(output_file)
+        return output_file
 
     if task == 'drug_rec':
         # set trainer with checkpoint
@@ -93,5 +94,6 @@ def run_healthcare_ml_job(run_id, trigger_time, config):
         )
     else:
         default_return(output_file)
+        return output_file
 
     return output_file

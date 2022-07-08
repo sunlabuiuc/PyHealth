@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <table id="data" class="table table-striped">
+    <thead>
+      <tr>
+        <th>Run ID</th>
+        <th>Trigger Time</th>
+        <th>Dataset</th>
+        <th>Task Name</th>
+        <th>ML Model</th>
+        <th>Status</th>
+        <th>Json</th>
+      </tr>
+    </thead>
+    <tbody>
+    </tbody>
+  </table>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    $(document).ready(function () {
+      $('#data').DataTable({
+        ajax: '/api/data',
+        columnDefs: [{
+            "targets": -1,
+            "render": function (data, type, row) {
+                if (data == "Wait") {
+                    return ""
+                  }
+                else {
+                    var href = '<a href="' + data + '">Download</a>';
+                    return href;
+                }
+            }
+        }],
+        columns: [
+          {data: 'run_id'},
+          {data: 'trigger_time', searchable: false},
+          {data: 'dataset', orderable: false},
+          {data: 'task_name', orderable: false, searchable: false},
+          {data: 'model', orderable: false, searchable: false},
+          {data: 'run_stats', orderable: false, searchable: false},
+          {data: 'downloads', orderable: false, searchable: false},
+        ],
+      });
+    });
+  </script>
+{% endblock %}
