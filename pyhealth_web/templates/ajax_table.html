@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block url %}
+<label><a href={{jupyter_url}}>Open and Define New Healthcare ML Jobs</a></label> 
+{% endblock %}
+
+{% block content %}
+  <table id="data" class="table table-striped">
+    <thead>
+      <tr>
+        <th style="text-align:center">Run ID</th>
+        <th style="text-align:center">Trigger Time</th>
+        <th style="text-align:center">Dataset</th>
+        <th style="text-align:center">Task Name</th>
+        <th style="text-align:center">ML Model</th>
+        <th style="text-align:center">Status</th>
+        <th style="text-align:center">Json</th>
+      </tr>
+    </thead>
+    <tbody>
+    </tbody>
+  </table>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    $(document).ready(function () {
+      $('#data').DataTable({
+        ajax: '/api/data',
+        columnDefs: [{
+            "targets": -1,
+            "render": function (data, type, row) {
+                if (data == "") {
+                    return ""
+                  }
+                else {
+                    var href = '<a href="' + data + '">Download</a>';
+                    return href;
+                }
+            }
+        }],
+        columns: [
+          {data: 'run_id'},
+          {data: 'trigger_time'},
+          {data: 'dataset', orderable: false},
+          {data: 'task_name', orderable: false},
+          {data: 'model', orderable: false},
+          {data: 'run_stats'},
+          {data: 'downloads', orderable: false},
+        ],
+      });
+    });
+  </script>
+{% endblock %}
