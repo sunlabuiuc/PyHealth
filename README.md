@@ -1,5 +1,9 @@
 # PyHealth
 
+## Run Interactive Web
+```python
+python pyhealth-web/app.py # you can set the port in the script
+```
 ## Environment
 - pytorch: 1.12.0
 - pytorch-lightning: 1.6.4
