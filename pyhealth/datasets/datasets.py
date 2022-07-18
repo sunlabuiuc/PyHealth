@@ -10,6 +10,7 @@ from MedCode import CodeMapping
 from urllib import request
 from collections import defaultdict
 from rdkit import Chem
+from tqdm import tqdm
 
 def collate_fn_RETAIN(cur_patient, voc_size):
     """ data is a list of sample from the dataset """
@@ -197,12 +198,6 @@ class MIMIC_III:
         - code_map = {RxNorm: ATC4} mapping dict
     """
     def __init__(self, table_names=['med', 'diag', 'prod']):
-        # path to each single file
-        root = '/srv/local/data/physionet.org/files/mimiciii/1.4'
-        self.med_path = os.path.join(root, 'PRESCRIPTIONS.csv')
-        self.diag_path = os.path.join(root, 'DIAGNOSES_ICD.csv')
-        self.prod_path = os.path.join(root, 'PROCEDURES_ICD.csv')
-
         # table_names
         self.table_names = table_names
         # {table_name: df}
@@ -240,13 +235,67 @@ class MIMIC_III:
         OUTPUT:
             - self.tables <dict>: key is the table name, value is the dataframe for each table
         """
-        for name in self.table_names:
-            cur_table = pd.read_csv(eval("self.{}_path".format(name)))
-            cur_table.fillna(method='pad', inplace=True)
-            cur_table.drop_duplicates(inplace=True)
-            self.tables[name] = cur_table
-            print ("loaded the {} table!".format(name))
+        import psycopg2 as psql
+        conn = psql.connect(
+            database = "postgres",
+            user = 'postgres',
+            password = 'chaoqi',
+            host = '127.0.0.1',
+            port = '5432',
+        )
+        cursor = conn.cursor()
 
+        def fetch_diagnosis():
+            cursor.execute("set search_path to omop;")
+            cursor.execute(
+                """
+                SELECT person_id, visit_occurrence_id, condition_concept_id FROM condition_occurrence
+                """
+            )
+            data = cursor.fetchall()
+            diag = pd.DataFrame(data, columns=['person_id', 'visit_occurrence_id', 'condition_concept_id'])
+            diag.fillna(method='pad', inplace=True)
+            diag.drop_duplicates(inplace=True)
+            return diag
+
+        def fetch_procedure():
+            cursor.execute("set search_path to omop;")
+            cursor.execute(
+                """
+                SELECT person_id, visit_occurrence_id, procedure_concept_id FROM procedure_occurrence
+                """
+            )
+            data = cursor.fetchall()
+            prod = pd.DataFrame(data, columns=['person_id', 'visit_occurrence_id', 'procedure_concept_id'])
+            prod.fillna(method='pad', inplace=True)
+            prod.drop_duplicates(inplace=True)
+            return prod
+
+        def fetch_medication():
+            cursor.execute("set search_path to mimiciii;")
+            cursor.execute(
+                """
+                SELECT x.mimic_id, y.mimic_id, x.NDC
+                FROM (
+                    SELECT b.mimic_id, a.hadm_id, a.ndc 
+                    FROM prescriptions as a 
+                    LEFT JOIN patients as b 
+                    ON a.subject_id = b.subject_id
+                ) as x
+                LEFT JOIN admissions as y
+                ON x.hadm_id = y.hadm_id
+                """
+            )
+            data = cursor.fetchall()
+            med = pd.DataFrame(data, columns=['person_id', 'visit_occurrence_id', 'drug_concept_id'])
+            med.fillna(method='pad', inplace=True)
+            med.drop_duplicates(inplace=True)
+            return med
+
+        self.tables['med'] = fetch_medication()
+        self.tables['diag'] = fetch_diagnosis()
+        self.tables['prod'] = fetch_procedure()
+    
     def _get_pat_and_visit_dicts(self):
         """
         INPUT:
@@ -256,9 +305,9 @@ class MIMIC_III:
             - self.visit_dict <dict>: key is the visit id, value is a dict of <table_name: df>
         """
         for name, df in self.tables.items():
-            for pat_id, pat_info in df.groupby('SUBJECT_ID'):
+            for pat_id, pat_info in tqdm(df.groupby('person_id')):
                 self.pat_to_visit[pat_id] = []
-                for HAMD_id, HADM_info in pat_info.groupby('HADM_ID'):
+                for HAMD_id, HADM_info in pat_info.groupby('visit_occurrence_id'):
                     self.pat_to_visit[pat_id].append(HAMD_id)
                     if HAMD_id not in self.visit_dict:
                         self.visit_dict[HAMD_id] = {}
@@ -283,18 +332,18 @@ class MIMIC_III:
             return result
 
         encoded_visit_dict = {}
-        for visit_id, value in self.visit_dict.items():
+        for visit_id, value in tqdm(self.visit_dict.items()):
 
             # if one of them does not exist, then drop this visit
             if 'med' not in value or 'diag' not in value or 'prod' not in value: continue
             cur_med, cur_diag, cur_prod = value['med'], value['diag'], value['prod']
 
             # RxNorm->ATC3 coded med
-            cur_med = get_atc3(["{:011}".format(med) for med in cur_med.NDC.unique().astype('int')])
+            cur_med = get_atc3(["{:011}".format(med) for med in cur_med.drug_concept_id.unique().astype('int')])
             # ICD9 coded diag
-            cur_diag = cur_diag.ICD9_CODE.unique()
+            cur_diag = cur_diag.condition_concept_id.unique()
             # ICD9 coded prod
-            cur_prod = cur_prod.ICD9_CODE.unique()
+            cur_prod = cur_prod.procedure_concept_id.unique()
 
             # if one of them does not exist, then drop this visit
             if len(cur_med) * len(cur_diag) * len(cur_prod) == 0: continue
@@ -318,7 +367,7 @@ class MIMIC_III:
             'prod': prod_map,
         }
         self.voc_size = (len(diag_map), len(prod_map), len(med_map))
-        
+
         print ("generated .maps (for code to index mappings)!")
 
     # get ddi matrix based on ATC3 coding

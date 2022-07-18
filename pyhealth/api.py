@@ -4,7 +4,7 @@ from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint
 
 import sys
-sys.path.append("/home/chaoqiy2/github/PyHealth-OMOP")
+sys.path.append("/mnt/disks/ssd_new/github/PyHealth-OMOP")
 import pyhealth.datasets.datasets as datasets
 import pyhealth.models.models as models
 import pyhealth.utils as utils
@@ -12,7 +12,7 @@ import torch
 import os
 import pickle
 
-output_root = '/home/chaoqiy2/github/PyHealth-OMOP/pyhealth-web/downloads'
+output_root = '/mnt/disks/ssd_new/github/PyHealth-OMOP/pyhealth-web/downloads'
 download_root = '/download/downloads'
 
 def default_return(path):

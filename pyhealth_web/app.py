@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, send_file, current_app
 from flask_sqlalchemy import SQLAlchemy
-from app_utils import create_new_record
+from app_utils import create_new_record, create_new_jupyter_notebook
 from concurrent.futures import ThreadPoolExecutor
 import os
 
@@ -40,7 +40,7 @@ db.create_all()
 @app.route("/")
 @app.route("/home", methods=["GET", "POST"])
 def home():
-    return render_template('ajax_table.html', title='PyHealth OMOP (alpha)')
+    return render_template('ajax_table.html', jupyter_url='#', title='PyHealth OMOP (alpha)')
 
 @app.route('/api/data')
 def data():
@@ -48,11 +48,15 @@ def data():
 
 @app.route('/create_job', methods=["GET", "POST"])
 def create_job():
-    output = request.form.to_dict()
-    config = {'dataset': output['dataset'], 'task': output['task'], 'model': output['model']} 
-    # trigger a ML job
-    executor.submit(create_new_record, Job, db, config)
-    return redirect(url_for('home'))
+    new_jupyter_notebook_url = create_new_jupyter_notebook()
+    return render_template('ajax_table.html', jupyter_url=new_jupyter_notebook_url, title='PyHealth OMOP (alpha)')
+
+# def old_create_job():
+#     output = request.form.to_dict()
+#     config = {'dataset': output['dataset'], 'task': output['task'], 'model': output['model']} 
+#     trigger a ML job
+#     executor.submit(create_new_record, Job, db, config)
+#     return redirect(url_for('home'))
 
 @app.route('/download/<path:file_path>')
 def downloadFile(file_path):

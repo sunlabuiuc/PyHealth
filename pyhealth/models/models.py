@@ -131,7 +131,7 @@ class RETAIN(pl.LightningModule):
             ddi_rate, np.mean(ja), np.mean(prauc), np.mean(avg_p), np.mean(avg_r), np.mean(avg_f1), med_cnt / visit_cnt
         ))
 
-        self.prepare_output(output_path)
+        # self.prepare_output(output_path)
 
     def prepare_output(self, output_path):
         """

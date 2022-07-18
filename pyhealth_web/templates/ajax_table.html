@@ -1,5 +1,9 @@
 {% extends "base.html" %}
 
+{% block url %}
+<label><a href={{jupyter_url}}>Open and Define New Healthcare ML Jobs</a></label> 
+{% endblock %}
+
 {% block content %}
   <table id="data" class="table table-striped">
     <thead>
@@ -26,7 +30,7 @@
         columnDefs: [{
             "targets": -1,
             "render": function (data, type, row) {
-                if (data == "Wait") {
+                if (data == "") {
                     return ""
                   }
                 else {

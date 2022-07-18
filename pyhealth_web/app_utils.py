@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 import os
 import time
 import sys
-sys.path.append("/home/chaoqiy2/github/PyHealth-OMOP")
+sys.path.append("/mnt/disks/ssd_new/github/PyHealth-OMOP")
 from pyhealth.api import run_healthcare_ml_job
 
 dataset_mapping = {
@@ -25,6 +25,14 @@ model_mapping = {
     "micron": "(MICRON) Drug Replacement Prediction Model",
     "retain": "(RETAIN) General Healthcare Predictive Model",
 }
+
+def create_new_jupyter_notebook():
+    # copy from template
+    cur_time = datetime.now().timestamp()
+    new_jupyter_notebook = 'new_job_{}.ipynb'.format(cur_time)
+    os.system('cp pyhealth_web/jupyter-pool/template.ipynb pyhealth_web/jupyter-pool/pool/{}'.format(new_jupyter_notebook))
+    new_url = 'http://34.71.72.180:23456/notebooks/pool/{}'.format(new_jupyter_notebook)
+    return new_url
 
 def create_new_record(Job, db, config):
     # trigger_time = datetime.now(timezone(timedelta(hours=0), 'EST'))
