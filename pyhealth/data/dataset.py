@@ -20,12 +20,12 @@ class TaskDataset(Dataset):
     def __init__(self, base_dataset):
         self.base_dataset = base_dataset
         self.preprocess()
-        self.all_vocabs = self.get_all_vocabs()
+        self.all_tokens = self.get_all_tokens()
 
     def preprocess(self):
         raise NotImplementedError
 
-    def get_all_vocabs(self):
+    def get_all_tokens(self):
         raise NotImplementedError
 
     def __len__(self):
@@ -85,7 +85,7 @@ class DrugRecommendationDataset(TaskDataset):
 
         self.processed_patients = processed_patients
 
-    def get_all_vocabs(self):
+    def get_all_tokens(self):
         conditions = []
         procedures = []
         drugs = []
@@ -103,11 +103,15 @@ class DrugRecommendationDataset(TaskDataset):
         return len(self.processed_patients)
 
     def __getitem__(self, index):
-        data = []
+        conditions = []
+        procedures = []
+        drugs = []
         patient = self.processed_patients[index]
         for visit in patient.visits:
-            data.append([visit.conditions, visit.procedures, visit.drugs])
-        return data
+            conditions.append(visit.conditions)
+            procedures.append(visit.procedures)
+            drugs.append(visit.drugs)
+        return conditions, procedures, drugs
 
 
 class MortalityPredictionDataset(TaskDataset):
@@ -126,5 +130,5 @@ if __name__ == "__main__":
     print(task_taskset)
     print(len(task_taskset))
     print(task_taskset[0])
-    print(task_taskset.all_vocabs.keys())
+    print(task_taskset.all_tokens.keys())
     pass

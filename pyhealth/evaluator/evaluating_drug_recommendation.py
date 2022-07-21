@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from pyhealth.utils import multi_label_metric
+from pyhealth.utils_old import multi_label_metric
 
 
 class DrugRecommendationEvaluator(nn.Module):

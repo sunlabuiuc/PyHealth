@@ -3,13 +3,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-from pyhealth.utils import multi_label_metric, ddi_rate_score
+from pyhealth.utils_old import multi_label_metric, ddi_rate_score
 import json
 
 class RETAIN(pl.LightningModule):
     def __init__(self, dataset, emb_dim=64):
         super(RETAIN, self).__init__()
-        # voc_size, ddi_adj from dataset
+        # voc_size, ddi_adj from datasets
         voc_size = dataset.voc_size
         ddi_adj = dataset.ddi_adj
 
@@ -192,7 +192,7 @@ class RETAIN(pl.LightningModule):
 class MICRON(pl.LightningModule):
     def __init__(self, dataset, emb_dim=64):
         super(MICRON, self).__init__()
-        # voc_size, ddi_adj from dataset
+        # voc_size, ddi_adj from datasets
         voc_size = dataset.voc_size
         ddi_adj = dataset.ddi_adj
         self.pat_info_test = dataset.pat_info_test
@@ -467,7 +467,7 @@ class _GCN(nn.Module):
 class GAMENet(pl.LightningModule):
     def __init__(self, dataset, emb_dim=64, ddi_in_memory=True):
         super(GAMENet, self).__init__()
-        # voc_size, ddi_adj, ehr_adj from dataset
+        # voc_size, ddi_adj, ehr_adj from datasets
         voc_size = dataset.voc_size
         ddi_adj = dataset.ddi_adj
         ehr_adj = dataset.ehr_adj
@@ -768,7 +768,7 @@ class _MolecularGraphNeuralNetwork(nn.Module):
 class SafeDrug(pl.LightningModule):
     def __init__(self, dataset, emb_dim=64):
         super(SafeDrug, self).__init__()
-        # load 'voc_size', 'ddi_adj', 'ddi_mask_H', 'med_molecule_info' from dataset
+        # load 'voc_size', 'ddi_adj', 'ddi_mask_H', 'med_molecule_info' from datasets
         voc_size = dataset.voc_size
         ddi_adj = dataset.ddi_adj
         ddi_mask_H = dataset.ddi_mask_H
