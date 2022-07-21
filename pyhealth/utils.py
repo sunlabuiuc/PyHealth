@@ -1,198 +1,232 @@
-from sklearn.metrics import roc_auc_score, f1_score, average_precision_score
+import base64
+import csv
+import glob
+import json
+import logging
+import os
+import pickle
+import random
+import smtplib
+import sys
+from datetime import datetime
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from itertools import chain
+
+try:
+    import git
+    import credentials
+except ModuleNotFoundError:
+    pass
+
 import numpy as np
 import pandas as pd
-import sys
-import warnings
-warnings.filterwarnings('ignore')
+import torch
+from torch.nn.utils.rnn import pad_sequence
 
-def sequence_output_process(output_logits, filter_token):
-    pind = np.argsort(output_logits, axis=-1)[:, ::-1]
+try:
+    import pynvml  # provides utility for NVIDIA management
 
-    out_list = []
-    break_flag = False
-    for i in range(len(pind)):
-        if break_flag:
-            break
-        for j in range(pind.shape[1]):
-            label = pind[i][j]
-            if label in filter_token:
-                break_flag = True
-                break
-            if label not in out_list:
-                out_list.append(label)
-                break
-    y_pred_prob_tmp = []
-    for idx, item in enumerate(out_list):
-        y_pred_prob_tmp.append(output_logits[idx, item])
-    sorted_predict = [x for _, x in sorted(zip(y_pred_prob_tmp, out_list), reverse=True)]
-    return out_list, sorted_predict
+    HAS_NVML = True
+except:
+    HAS_NVML = False
+
+project_path = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)), os.pardir))
+data_path = project_path + '/data/'
+config_path = project_path + '/hparams'
 
 
-def sequence_metric(y_gt, y_pred, y_prob, y_label):
-    def average_prc(y_gt, y_label):
-        score = []
-        for b in range(y_gt.shape[0]):
-            target = np.where(y_gt[b]==1)[0]
-            out_list = y_label[b]
-            inter = set(out_list) & set(target)
-            prc_score = 0 if len(out_list) == 0 else len(inter) / len(out_list)
-            score.append(prc_score)
-        return score
+def dict_to_str(dict, delimiter=', '):
+    msg = []
+    for k, v in dict.items():
+        assert isinstance(v, float)
+        msg.append(f'{k} {v:.4f}')
+    msg = delimiter.join(msg)
+    return msg
 
 
-    def average_recall(y_gt, y_label):
-        score = []
-        for b in range(y_gt.shape[0]):
-            target = np.where(y_gt[b] == 1)[0]
-            out_list = y_label[b]
-            inter = set(out_list) & set(target)
-            recall_score = 0 if len(target) == 0 else len(inter) / len(target)
-            score.append(recall_score)
-        return score
+def dict_to_csv(dict, filename, orient):
+    df = pd.DataFrame.from_dict(dict, orient=orient)
+    df.to_csv(filename)
+    return
 
 
-    def average_f1(average_prc, average_recall):
-        score = []
-        for idx in range(len(average_prc)):
-            if (average_prc[idx] + average_recall[idx]) == 0:
-                score.append(0)
-            else:
-                score.append(2*average_prc[idx]*average_recall[idx] / (average_prc[idx] + average_recall[idx]))
-        return score
+def get_source_file_list(suffix=None):
+    if suffix is None:
+        suffix = ['py', 'ipynb']
+    return nested_list_reduce([glob.glob(f'{project_path}/src/**/*.{suffix}', recursive=True) for suffix in suffix])
 
 
-    def jaccard(y_gt, y_label):
-        score = []
-        for b in range(y_gt.shape[0]):
-            target = np.where(y_gt[b] == 1)[0]
-            out_list = y_label[b]
-            inter = set(out_list) & set(target)
-            union = set(out_list) | set(target)
-            jaccard_score = 0 if union == 0 else len(inter) / len(union)
-            score.append(jaccard_score)
-        return np.mean(score)
-
-    def f1(y_gt, y_pred):
-        all_micro = []
-        for b in range(y_gt.shape[0]):
-            all_micro.append(f1_score(y_gt[b], y_pred[b], average='macro'))
-        return np.mean(all_micro)
-
-    def roc_auc(y_gt, y_pred_prob):
-        all_micro = []
-        for b in range(len(y_gt)):
-            all_micro.append(roc_auc_score(y_gt[b], y_pred_prob[b], average='macro'))
-        return np.mean(all_micro)
-
-    def precision_auc(y_gt, y_prob):
-        all_micro = []
-        for b in range(len(y_gt)):
-            all_micro.append(average_precision_score(y_gt[b], y_prob[b], average='macro'))
-        return np.mean(all_micro)
-
-    def precision_at_k(y_gt, y_prob_label, k):
-        precision = 0
-        for i in range(len(y_gt)):
-            TP = 0
-            for j in y_prob_label[i][:k]:
-                if y_gt[i, j] == 1:
-                    TP += 1
-            precision += TP / k
-        return precision / len(y_gt)
-    try:
-        auc = roc_auc(y_gt, y_prob)
-    except ValueError:
-        auc = 0
-    f1 = f1(y_gt, y_pred)
-    prauc = precision_auc(y_gt, y_prob)
-    ja = jaccard(y_gt, y_label)
-    avg_prc = average_prc(y_gt, y_label)
-    avg_recall = average_recall(y_gt, y_label)
-    avg_f1 = average_f1(avg_prc, avg_recall)
-
-    return ja, prauc, np.mean(avg_prc), np.mean(avg_recall), np.mean(avg_f1)
+def nested_list_reduce(nested_list):
+    return list(chain(*nested_list))
 
 
-def multi_label_metric(y_gt, y_pred, y_prob):
+def read_csv(filename):
+    logging.info(f'Reading csv from {filename}')
+    data = []
+    with open(filename, 'r') as file:
+        csv_reader = csv.DictReader(file, delimiter=',')
+        for row in csv_reader:
+            data.append(row)
+    header = list(data[0].keys())
+    return header, data
 
-    def jaccard(y_gt, y_pred):
-        score = []
-        for b in range(y_gt.shape[0]):
-            target = np.where(y_gt[b] == 1)[0]
-            out_list = np.where(y_pred[b] == 1)[0]
-            inter = set(out_list) & set(target)
-            union = set(out_list) | set(target)
-            jaccard_score = 0 if union == 0 else len(inter) / len(union)
-            score.append(jaccard_score)
-        return np.mean(score)
 
-    def average_prc(y_gt, y_pred):
-        score = []
-        for b in range(y_gt.shape[0]):
-            target = np.where(y_gt[b] == 1)[0]
-            out_list = np.where(y_pred[b] == 1)[0]
-            inter = set(out_list) & set(target)
-            prc_score = 0 if len(out_list) == 0 else len(inter) / len(out_list)
-            score.append(prc_score)
-        return score
+def read_txt(filename):
+    logging.info(f'Reading txt from {filename}')
+    data = []
+    with open(filename, 'r') as file:
+        lines = file.read().splitlines()
+        for line in lines:
+            data.append(line)
+    return data
 
-    def average_recall(y_gt, y_pred):
-        score = []
-        for b in range(y_gt.shape[0]):
-            target = np.where(y_gt[b] == 1)[0]
-            out_list = np.where(y_pred[b] == 1)[0]
-            inter = set(out_list) & set(target)
-            recall_score = 0 if len(target) == 0 else len(inter) / len(target)
-            score.append(recall_score)
-        return score
 
-    def average_f1(average_prc, average_recall):
-        score = []
-        for idx in range(len(average_prc)):
-            if average_prc[idx] + average_recall[idx] == 0:
-                score.append(0)
-            else:
-                score.append(2*average_prc[idx]*average_recall[idx] / (average_prc[idx] + average_recall[idx]))
-        return score
+def write_txt(filename, data):
+    logging.info(f'Writing txt to {filename}')
+    with open(filename, 'w') as file:
+        for line in data:
+            file.write(line + '\n')
+    return
 
-    def f1(y_gt, y_pred):
-        all_micro = []
-        for b in range(y_gt.shape[0]):
-            all_micro.append(f1_score(y_gt[b], y_pred[b], average='macro'))
-        return np.mean(all_micro)
 
-    def roc_auc(y_gt, y_prob):
-        all_micro = []
-        for b in range(len(y_gt)):
-            all_micro.append(roc_auc_score(y_gt[b], y_prob[b], average='macro'))
-        return np.mean(all_micro)
+def read_json(filename):
+    logging.info(f'Reading json from {filename}')
+    with open(filename, 'r') as file:
+        data = json.load(file)
+    return data
 
-    def precision_auc(y_gt, y_prob):
-        all_micro = []
-        for b in range(len(y_gt)):
-            all_micro.append(average_precision_score(y_gt[b], y_prob[b], average='macro'))
-        return np.mean(all_micro)
 
-    def precision_at_k(y_gt, y_prob, k=3):
-        precision = 0
-        sort_index = np.argsort(y_prob, axis=-1)[:, ::-1][:, :k]
-        for i in range(len(y_gt)):
-            TP = 0
-            for j in range(len(sort_index[i])):
-                if y_gt[i, sort_index[i, j]] == 1:
-                    TP += 1
-            precision += TP / len(sort_index[i])
-        return precision / len(y_gt)
+def write_json(filename, data):
+    logging.info(f'Writing to {filename}')
+    with open(filename, 'w') as file:
+        json.dump(data, file)
+    return
 
-    # macro f1
-    f1 = f1(y_gt, y_pred)
-    # precision
-    prauc = precision_auc(y_gt, y_prob)
-    # jaccard
-    ja = jaccard(y_gt, y_pred)
-    # pre, recall, f1
-    avg_prc = average_prc(y_gt, y_pred)
-    avg_recall = average_recall(y_gt, y_pred)
-    avg_f1 = average_f1(avg_prc, avg_recall)
 
-    return ja, prauc, np.mean(avg_prc), np.mean(avg_recall), np.mean(avg_f1)
+def create_directory(directory):
+    if not os.path.exists(directory):
+        logging.info(f'Creating directory {directory}')
+        os.makedirs(directory)
+
+
+def pickle_load(filename):
+    logging.info(f'Data loaded from {filename}')
+    with open(filename, 'rb') as f:
+        return pickle.load(f)
+
+
+def pickle_dump(data, filename):
+    logging.info(f'Data saved to {filename}')
+    with open(filename, 'wb') as f:
+        pickle.dump(data, f)
+
+
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+    os.environ['PYTHONHASHSEED'] = str(seed)
+
+
+# TODO: gpu auto-select doesn't work
+def get_device(auto_gpu=False):
+    cuda = torch.cuda.is_available()
+    device = torch.device('cuda' if cuda else 'cpu')
+    logging.info(f'Device: {device}')
+    if device.type == 'cuda' and auto_gpu:
+        gpu_idx = auto_select_gpu()
+        os.environ['CUDA_VISIBLE_DEVICES'] = gpu_idx
+        logging.info(f'CUDA_VISIBLE_DEVICES: {gpu_idx}')
+    return device
+
+
+def get_git_hash(short=True):
+    repo = git.Repo(path=project_path)
+    sha = repo.head.object.hexsha
+    if short:
+        sha = sha[:7]
+    return sha
+
+
+def get_exp_name(*args, **kwargs):
+    """ exp name will be: {date}-{time}-{*args} """
+    args = [arg for arg in args if arg.strip()]  # remove empty arg
+    kwargs = [f'{k}:{v}' for k, v in kwargs.items()]
+    return '-'.join([datetime.now().strftime('%y%m%d-%H%M%S'), get_git_hash()] + [*args] + [*kwargs])
+
+
+def auto_select_gpu():
+    """ select gpu which has largest free memory """
+    if HAS_NVML:
+        pynvml.nvmlInit()
+        deviceCount = pynvml.nvmlDeviceGetCount()
+        logging.debug(f'Found {deviceCount} GPUs')
+        largest_free_mem = 0
+        largest_free_idx = 0
+        for i in range(deviceCount):
+            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+            info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            free_mem = info.free / 1024. / 1024.  # convert to MB
+            total_mem = info.total / 1024. / 1024.
+            logging.debug(f'GPU {i} memory: {free_mem:.0f}MB / {total_mem:.0f}MB')
+            if free_mem > largest_free_mem:
+                largest_free_mem = free_mem
+                largest_free_idx = i
+        pynvml.nvmlShutdown()
+        logging.info(f'Using largest free memory GPU {largest_free_idx} with free memory {largest_free_mem:.0f}MB')
+        return str(largest_free_idx)
+    else:
+        logging.warning('pynvml is not installed, gpu auto-selection is disabled!')
+        return ''
+
+
+def base64_decode(s):
+    return base64.b64decode(s.encode()).decode()
+
+
+def send_email(subject, contents):
+    # set up the SMTP server
+    server = smtplib.SMTP('smtp.gmail.com', 587)
+    server.starttls()
+    server.login(credentials.SENDER_EMAIL_ADDRESS, base64_decode(credentials.PASSWORD))
+    # email contents
+    msg = MIMEMultipart()
+    msg['From'] = credentials.SENDER_EMAIL_ADDRESS
+    msg['To'] = credentials.RECEIVER_EMAIL_ADDRESS
+    msg['Subject'] = subject
+    body = contents
+    msg.attach(MIMEText(body, 'plain'))
+    text = msg.as_string()
+    # send email
+    server.sendmail(credentials.SENDER_EMAIL_ADDRESS, credentials.RECEIVER_EMAIL_ADDRESS, text)
+    server.quit()
+    return
+
+
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+
+def custom_cat(lst):
+    lst = list(chain(*[list(i) for i in lst]))
+    ret = pad_sequence(lst, batch_first=True)
+    return ret
+
+
+if __name__ == '__main__':
+    logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+    logging.debug(project_path)
+    logging.debug(data_path)
+    logging.debug(get_exp_name('A', 'B', 'C', arg1='1', arg='2', arg3='3'))
+    logging.debug(dict_to_str({'a': 0.352, 'b': 0.371, 'c': 0.626}))
+    logging.debug(get_git_hash())
+    logging.debug(get_git_hash(short=False))
+    logging.debug(get_source_file_list())
+    auto_select_gpu()
+    send_email('test', 'test')
