@@ -8,7 +8,7 @@ from pyhealth.utils import create_directory, pickle_dump, pickle_load
 
 
 class MIMIC3BaseDataset(BaseDataset):
-    """ MIMIC-III dataset """
+    """ Base dataset for MIMIC-III """
 
     def __init__(self, root):
         self.root = root
@@ -27,33 +27,37 @@ class MIMIC3BaseDataset(BaseDataset):
             pickle_dump(patients, os.path.join(str(Path.home()), ".cache/pyhealth/mimic3.data"))
         else:
             patients = pickle_load(os.path.join(str(Path.home()), ".cache/pyhealth/mimic3.data"))
-        dataset_info = {"dataset": "MIMIC-III"}
-        super(MIMIC3BaseDataset, self).__init__(patients=patients, dataset_info=dataset_info)
+        super(MIMIC3BaseDataset, self).__init__(dataset_name="MIMIC-III", patients=patients)
 
     def parse_patients(self):
-        patients_df = pd.read_csv(os.path.join(self.root, "PATIENTS.csv"))
+        patients_df = pd.read_csv(os.path.join(self.root, "PATIENTS.csv"),
+                                  dtype={'SUBJECT_ID': str})
         return patients_df
 
     def parse_admissions(self):
-        admissions_df = pd.read_csv(os.path.join(self.root, "ADMISSIONS.csv"))
+        admissions_df = pd.read_csv(os.path.join(self.root, "ADMISSIONS.csv"),
+                                    dtype={'SUBJECT_ID': str, 'HADM_ID': str})
         return admissions_df
 
     def parse_diagnoses_icd(self):
-        diagnoses_icd_df = pd.read_csv(os.path.join(self.root, "DIAGNOSES_ICD.csv"))
+        diagnoses_icd_df = pd.read_csv(os.path.join(self.root, "DIAGNOSES_ICD.csv"),
+                                       dtype={'SUBJECT_ID': str, "HADM_ID": str, "ICD9_CODE": str})
         diagnoses_icd_df = diagnoses_icd_df.sort_values(['SUBJECT_ID', 'HADM_ID', 'SEQ_NUM'], ascending=True)
         diagnoses_icd_df = diagnoses_icd_df.groupby(['SUBJECT_ID', 'HADM_ID']).ICD9_CODE.agg(DIAG=list)
         diagnoses_icd_df = diagnoses_icd_df.reset_index()
         return diagnoses_icd_df
 
     def parse_procedures_icd(self):
-        procedures_icd_df = pd.read_csv(os.path.join(self.root, "PROCEDURES_ICD.csv"))
+        procedures_icd_df = pd.read_csv(os.path.join(self.root, "PROCEDURES_ICD.csv"),
+                                        dtype={'SUBJECT_ID': str, "HADM_ID": str, "ICD9_CODE": str})
         procedures_icd_df = procedures_icd_df.sort_values(['SUBJECT_ID', 'HADM_ID', 'SEQ_NUM'], ascending=True)
         procedures_icd_df = procedures_icd_df.groupby(['SUBJECT_ID', 'HADM_ID']).ICD9_CODE.agg(PROC=list)
         procedures_icd_df = procedures_icd_df.reset_index()
         return procedures_icd_df
 
     def parse_prescriptions(self):
-        prescriptions_df = pd.read_csv(os.path.join(self.root, "PRESCRIPTIONS.csv"))
+        prescriptions_df = pd.read_csv(os.path.join(self.root, "PRESCRIPTIONS.csv"),
+                                       dtype={'SUBJECT_ID': str, "HADM_ID": str, "NDC": str})
         prescriptions_df = prescriptions_df.groupby(['SUBJECT_ID', 'HADM_ID']).NDC.agg(PRES=list)
         prescriptions_df = prescriptions_df.reset_index()
         return prescriptions_df
@@ -77,10 +81,7 @@ class MIMIC3BaseDataset(BaseDataset):
         for patient_id, row in data.groupby("SUBJECT_ID"):
             visit_ids = row.HADM_ID.tolist()
             visits = [visit_id_to_visit_dict[visit_id] for visit_id in visit_ids]
-            patient_info = {"gender": row.GENDER,
-                            "birth_datetime": row.DOB,
-                            "death_datetime": row.DOD}
-            patient = Patient(patient_id=patient_id, visits=visits, patient_info=patient_info)
+            patient = Patient(patient_id=patient_id, visits=visits)
             patients.append(patient)
         return patients
 

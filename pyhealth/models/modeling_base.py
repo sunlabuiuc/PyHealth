@@ -6,6 +6,7 @@ VALID_MODE = [
     "multilabel"
 ]
 
+# TODO: put common model functions in basemodel class
 
 class BaseModel(nn.Module):
     def __init__(
