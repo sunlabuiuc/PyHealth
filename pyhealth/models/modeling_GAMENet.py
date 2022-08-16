@@ -1,14 +1,81 @@
+from gettext import npgettext
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
 
 from pyhealth.models.tokenizer import Tokenizer
 
+class _GraphConvolution(nn.Module):
+    """
+    Simple GCN layer, similar to https://arxiv.org/abs/1609.02907
+    """
 
-class RETAIN(pl.LightningModule):
+    def __init__(self, in_features, out_features, bias=True):
+        super(_GraphConvolution, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.weight = nn.Parameter(torch.FloatTensor(in_features, out_features))
+        if bias:
+            self.bias = nn.Parameter(torch.FloatTensor(out_features))
+        else:
+            self.register_parameter('bias', None)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        stdv = 1. / self.weight.size(1)**0.5
+        self.weight.data.uniform_(-stdv, stdv)
+        if self.bias is not None:
+            self.bias.data.uniform_(-stdv, stdv)
+
+    def forward(self, input, adj):
+        support = torch.mm(input, self.weight)
+        output = torch.mm(adj, support)
+        if self.bias is not None:
+            return output + self.bias
+        else:
+            return output
+
+    def __repr__(self):
+        return self.__class__.__name__ + ' (' \
+               + str(self.in_features) + ' -> ' \
+               + str(self.out_features) + ')'
+
+class _GCN(nn.Module):
+    def __init__(self, voc_size, emb_dim, adj):
+        super(_GCN, self).__init__()
+        self.voc_size = voc_size
+        self.emb_dim = emb_dim
+
+        adj = self.normalize(adj + np.eye(adj.shape[0]))
+
+        self.adj = nn.Parameter(torch.FloatTensor(adj), requires_grad=False)
+        self.x = nn.Parameter(torch.eye(voc_size), requires_grad=False)
+
+        self.gcn1 = _GraphConvolution(voc_size, emb_dim)
+        self.dropout = nn.Dropout(p=0.3)
+        self.gcn2 = _GraphConvolution(emb_dim, emb_dim)
+
+    def forward(self):
+        node_embedding = self.gcn1(self.x, self.adj)
+        node_embedding = F.relu(node_embedding)
+        node_embedding = self.dropout(node_embedding)
+        node_embedding = self.gcn2(node_embedding, self.adj)
+        return node_embedding
+
+    def normalize(self, mx):
+        """Row-normalize sparse matrix"""
+        rowsum = np.array(mx.sum(1))
+        r_inv = np.power(rowsum, -1).flatten()
+        r_inv[np.isinf(r_inv)] = 0.
+        r_mat_inv = np.diagflat(r_inv)
+        mx = r_mat_inv.dot(mx)
+        return mx
+
+class GAMENet(pl.LightningModule):
     def __init__(self, dataset, emb_dim=64):
-        super(RETAIN, self).__init__()
+        super(GAMENet, self).__init__()
 
         self.condition_tokenizer = Tokenizer(dataset.all_tokens['conditions'])
         self.procedure_tokenizer = Tokenizer(dataset.all_tokens['procedures'])
@@ -28,44 +95,67 @@ class RETAIN(pl.LightningModule):
             nn.Dropout(0.5)
         )
 
-        self.alpha_gru = nn.GRU(emb_dim, emb_dim, batch_first=True)
-        self.beta_gru = nn.GRU(emb_dim, emb_dim, batch_first=True)
+        self.dropout = nn.Dropout(p=0.5)
+        self.encoders = nn.ModuleList([nn.GRU(emb_dim, emb_dim, batch_first=True) for _ in range(2)])
+        self.query = nn.Sequential(
+            nn.ReLU(),
+            nn.Linear(emb_dim * 2, emb_dim),
+        )
 
-        self.alpha_li = nn.Linear(emb_dim, 1)
-        self.beta_li = nn.Linear(emb_dim, emb_dim)
+        # TODO: prepare adj
+        self.ehr_gcn = _GCN(voc_size=self.output_len, emb_dim=emb_dim, adj=np.eye(self.output_len))
+        self.inter = nn.Parameter(torch.FloatTensor(1))
 
-        self.output = nn.Linear(emb_dim, self.output_len)
+        self.output = nn.Sequential(
+            nn.ReLU(),
+            nn.Linear(emb_dim * 3, emb_dim * 2),
+            nn.ReLU(),
+            nn.Linear(emb_dim * 2, self.output_len)
+        )
 
-        # bipartite matrix
-        # self.ddi_adj = ddi_adj
-        # self.tensor_ddi_adj = nn.Parameter(torch.FloatTensor(ddi_adj), requires_grad=False)
-
-    def forward(self, conditions, procedures):
+    def forward(self, conditions, procedures, drugs):
         conditions = self.condition_tokenizer(conditions).cuda()
         procedures = self.procedure_tokenizer(procedures).cuda()
         conditions_emb = self.condition_embedding(conditions).sum(dim=1)
         procedures_emb = self.procedure_embedding(procedures).sum(dim=1)
-        visit_emb = conditions_emb + procedures_emb  # (visit, emb)
 
-        g, _ = self.alpha_gru(visit_emb.unsqueeze(dim=0))  # g: (1, visit, emb)
-        h, _ = self.beta_gru(visit_emb.unsqueeze(dim=0))  # h: (1, visit, emb)
+        o1, _ = self.encoders[0](conditions_emb) # (seq, emb_dim)
+        o2, _ = self.encoders[1](procedures_emb) 
+        patient_representations = torch.cat([o1, o2], dim=1) # (seq, emb_dim*2)
+        queries = self.query(patient_representations) # (seq, emb_dim*2)
 
-        g = g.squeeze(dim=0)  # (visit, emb)
-        h = h.squeeze(dim=0)  # (visit, emb)
-        attn_g = torch.softmax(self.alpha_li(g), dim=-1)  # (visit, 1)
-        attn_h = torch.tanh(self.beta_li(h))  # (visit, emb)
+        # graph memory module
+        '''I:generate current input'''
+        query = queries[-1:] # (1, emb_dim)
 
-        c = attn_g * attn_h * visit_emb  # (visit, emb)
-        c = torch.sum(c, dim=0).unsqueeze(dim=0)  # (1, emb)
+        '''G:generate graph memory bank and insert history information'''
+        drug_memory = self.ehr_gcn()
 
-        drug_rep = self.output(c)
-        # ddi_loss
-        # neg_pred_prob = F.sigmoid(drug_rep)
-        # neg_pred_prob = neg_pred_prob.T @ neg_pred_prob  # (voc_size, voc_size)
-        # ddi_loss = 1 / self.voc_size[2] * neg_pred_prob.mul(self.tensor_ddi_adj).sum()
-        # return  drug_rep, ddi_loss
+        if conditions.shape[0] > 1:
+            history_keys = queries[:-1] # (seq-1, emb_dim)
+            drugs_index = self.drug_tokenizer(drugs) # (seq-1, med_size)
+            drugs_multihot = torch.zeros(len(drugs), self.drug_tokenizer.get_vocabulary_size()).cuda()
+            for i in range(len(drugs)):
+                drugs_multihot[i][drugs_index[i]] = 1
+            history_values = drugs_multihot
+            
+        '''O:read from global memory bank and dynamic memory bank'''
+        key_weights1 = F.softmax(torch.mm(query, drug_memory.t()), dim=-1)  # (1, med_size)
+        fact1 = torch.mm(key_weights1, drug_memory)  # (1, emb_dim)
 
-        return drug_rep
+        if conditions.shape[0] > 1:
+            visit_weight = torch.softmax(torch.mm(query, history_keys.t()), 1) # (1, seq-1)
+            weighted_values = visit_weight.mm(history_values) # (1, size)
+            fact2 = torch.mm(weighted_values, drug_memory) # (1, dim)
+        else:
+            fact2 = fact1
+        '''R:convert O and predict'''
+        output = self.output(torch.cat([query, fact1, fact2], dim=-1)) # (1, dim)
+
+        neg_pred_prob = torch.sigmoid(output)
+        neg_pred_prob = neg_pred_prob.t() * neg_pred_prob  # (voc_size, voc_size)
+
+        return output
 
     def configure_optimizers(self, lr=5e-4):
         optimizer = torch.optim.Adam(self.parameters(), lr=lr)
@@ -75,7 +165,7 @@ class RETAIN(pl.LightningModule):
         loss = 0
         conditions, procedures, drugs = train_batch.values()
         for i in range(len(conditions)):
-            output_logits = self.forward(conditions[:i + 1], procedures[:i + 1])
+            output_logits = self.forward(conditions[:i + 1], procedures[:i + 1], drugs[:i])
             drugs_index = self.drug_tokenizer(drugs[i: i + 1]).cuda()
             drugs_multihot = torch.zeros(1, self.drug_tokenizer.get_vocabulary_size()).cuda()
             drugs_multihot[0][drugs_index[0]] = 1
@@ -87,7 +177,7 @@ class RETAIN(pl.LightningModule):
         loss = 0
         conditions, procedures, drugs = val_batch.values()
         for i in range(len(conditions)):
-            output_logits = self.forward(conditions[:i + 1], procedures[:i + 1])
+            output_logits = self.forward(conditions[:i + 1], procedures[:i + 1], drugs[:i])
             drugs_index = self.drug_tokenizer(drugs[i: i + 1]).cuda()
             drugs_multihot = torch.zeros(1, self.drug_tokenizer.get_vocabulary_size()).cuda()
             drugs_multihot[0][drugs_index[0]] = 1

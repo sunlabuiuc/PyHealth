@@ -51,7 +51,7 @@ class RNN(pl.LightningModule):
     def training_step(self, train_batch, batch_idx):
         # TODO: batch processing
         loss = 0
-        conditions, procedures, drugs = train_batch['conditions'], train_batch['procedures'], train_batch['drugs']
+        conditions, procedures, drugs = train_batch.values()
         for i in range(len(conditions)):
             output_logits = self.forward(conditions[:i + 1], procedures[:i + 1])
             drugs_index = self.drug_tokenizer(drugs[i: i + 1])
@@ -62,7 +62,7 @@ class RNN(pl.LightningModule):
 
     def validation_step(self, val_batch, batch_idx):
         loss = 0
-        conditions, procedures, drugs = val_batch['conditions'], val_batch['procedures'], val_batch['drugs']
+        conditions, procedures, drugs = val_batch.values()
         for i in range(len(conditions)):
             output_logits = self.forward(conditions[:i + 1], procedures[:i + 1])
             drugs_index = self.drug_tokenizer(drugs[i: i + 1])

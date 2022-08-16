@@ -101,39 +101,73 @@ class DrugRecommendationEvaluator(nn.Module):
 
     def evaluate(
             self,
-            dataloader,
-            device,
+            dataloader
     ):
         self.model.eval()
+        if self.model.device.type == 'cpu':
+            self.model.to('cuda')
         ja, prauc, avg_p, avg_r, avg_f1 = [[] for _ in range(5)]
         med_cnt, visit_cnt = 0, 0
         with torch.no_grad():
             for step, test_batch in enumerate(dataloader):
-                conditions, procedures, drugs = test_batch['conditions'], test_batch['procedures'], test_batch['drugs']
+                conditions, procedures, drugs = test_batch.values()
                 y_gt, y_pred, y_pred_prob, y_pred_label = [], [], [], []
-                for i in range(len(conditions)):
-                    target_output = self.model(conditions[:i + 1], procedures[:i + 1])
+                if self.model.__class__.__name__ == 'MICRON':
+                    for idx in range(len(conditions)):
+                        if idx == 0:
+                            representation_base = self.model.embedding(conditions[idx: idx + 1], procedures[idx: idx + 1])
+                            drugs_index = self.model.drug_tokenizer(drugs[idx: idx + 1])
+                            drugs_multihot_old = torch.zeros(1, self.model.drug_tokenizer.get_vocabulary_size())
+                            drugs_multihot_old[0][drugs_index[0]] = 1
+                            continue
 
-                    drugs_index = self.model.drug_tokenizer(drugs[i: i + 1])
-                    drugs_multihot = torch.zeros(1, self.model.drug_tokenizer.get_vocabulary_size())
-                    drugs_multihot[0][drugs_index[0]] = 1
-                    y_gt.append(drugs_multihot[0].numpy())
+                        drugs_index = self.model.drug_tokenizer(drugs[idx: idx + 1])
+                        drugs_multihot = torch.zeros(1, self.model.drug_tokenizer.get_vocabulary_size())
+                        drugs_multihot[0][drugs_index[0]] = 1
+                        y_gt.append(drugs_multihot[0].numpy())
 
-                    # prediction prob
-                    target_output = torch.sigmoid(target_output).cpu().numpy()[0]
-                    y_pred_prob.append(target_output)
+                        _, _, residual, _ = self.model(conditions[idx-1:idx+1], procedures[idx-1:idx+1])
+                        # prediction prod
+                        representation_base += residual
+                        y_pred_tmp = torch.sigmoid(representation_base).cpu().numpy()[0]
+                        y_pred_prob.append(y_pred_tmp)
+                        
+                        # prediction med set
+                        drugs_multihot_old[0][y_pred_tmp >= 0.8] = 1
+                        drugs_multihot_old[0][y_pred_tmp < 0.2] = 0
+                        y_pred.append(drugs_multihot_old[0].numpy())
 
-                    # prediction med set
-                    y_pred_tmp = target_output.copy()
-                    y_pred_tmp[y_pred_tmp >= 0.4] = 1
-                    y_pred_tmp[y_pred_tmp < 0.4] = 0
-                    y_pred.append(y_pred_tmp)
+                        # prediction label
+                        y_pred_label_tmp = np.where(drugs_multihot_old == 1)[0]
+                        y_pred_label.append(sorted(y_pred_label_tmp))
+                        visit_cnt += 1
+                        med_cnt += len(y_pred_label_tmp)
+                else:
+                    for i in range(len(conditions)):
+                        if self.model.__class__.__name__ == 'GAMENet':
+                            target_output = self.model(conditions[:i + 1], procedures[:i + 1], drugs[:i])
+                        else:
+                            target_output = self.model(conditions[:i + 1], procedures[:i + 1])
+                        drugs_index = self.model.drug_tokenizer(drugs[i: i + 1])
+                        drugs_multihot = torch.zeros(1, self.model.drug_tokenizer.get_vocabulary_size())
+                        drugs_multihot[0][drugs_index[0]] = 1
+                        y_gt.append(drugs_multihot[0].numpy())
 
-                    # prediction label
-                    y_pred_label_tmp = np.where(y_pred_tmp == 1)[0]
-                    y_pred_label.append(y_pred_label_tmp)
-                    med_cnt += len(y_pred_label_tmp)
-                    visit_cnt += 1
+                        # prediction prob
+                        target_output = torch.sigmoid(target_output).cpu().numpy()[0]
+                        y_pred_prob.append(target_output)
+
+                        # prediction med set
+                        y_pred_tmp = target_output.copy()
+                        y_pred_tmp[y_pred_tmp >= 0.4] = 1
+                        y_pred_tmp[y_pred_tmp < 0.4] = 0
+                        y_pred.append(y_pred_tmp)
+
+                        # prediction label
+                        y_pred_label_tmp = np.where(y_pred_tmp == 1)[0]
+                        y_pred_label.append(y_pred_label_tmp)
+                        med_cnt += len(y_pred_label_tmp)
+                        visit_cnt += 1
 
                 adm_ja, adm_prauc, adm_avg_p, adm_avg_r, adm_avg_f1 = \
                     multi_label_metric(np.array(y_gt), np.array(y_pred), np.array(y_pred_prob))
