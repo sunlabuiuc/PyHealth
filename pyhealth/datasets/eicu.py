@@ -15,7 +15,7 @@ class eICUBaseDataset(BaseDataset):
         if not os.path.exists(os.path.join(str(Path.home()), ".cache/pyhealth/eicu.data")):
             patients_df, unique_visits = self.parse_patients()
             diagnosis_df, diagnosis_dict = self.parse_diagnosis(unique_visits)
-            lab_df, lab_dict = self.parse_lab(unique_visits)
+            lab_df, lab_dict = self.parse_labexuit(unique_visits)
             medication_df, medication_dict = self.parse_medication(unique_visits)
             treatment_df, treatment_dict = self.parse_treatment(unique_visits)
             physicalExam_df, physicalExam_dict = self.parse_physicalExam(unique_visits)
