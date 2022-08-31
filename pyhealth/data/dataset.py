@@ -25,6 +25,29 @@ class BaseDataset(ABC):
     def __str__(self):
         return f"Dataset {self.dataset_name}"
 
+    def info(self):
+        info = """
+        ----- Output Data Structure -----
+        Dataset.patients: [
+            {
+                patient_id: patient_id, 
+                visits: [
+                    {
+                        visit_id: visit_id, 
+                        patient_id: patient_id, 
+                        conditions: [List], 
+                        procedures: [List],
+                        drugs: [List],
+                        visit_info: <dict>
+                    }
+                    ...
+                ]                    
+            } 
+            ...
+        ]
+        """
+        print (info)
+
 
 class TaskDataset(ABC, Dataset):
     """ Abstract task dataset class which will be inherited by specific tasks """

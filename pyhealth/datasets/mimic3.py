@@ -1,11 +1,11 @@
 import os
 from pathlib import Path
-
 import pandas as pd
+# import sys
+# sys.path.append('/home/chaoqiy2/github/PyHealth-OMOP')
 
 from pyhealth.data import Visit, Patient, BaseDataset
 from pyhealth.utils import create_directory, pickle_dump, pickle_load
-
 
 class MIMIC3BaseDataset(BaseDataset):
     """ Base dataset for MIMIC-III """
@@ -80,7 +80,7 @@ class MIMIC3BaseDataset(BaseDataset):
         patients = []
         for patient_id, row in data.groupby("SUBJECT_ID"):
             visit_ids = row.HADM_ID.tolist()
-            visits = [visit_id_to_visit_dict[visit_id] for visit_id in visit_ids]
+            visits = [visit_id_to_visit_dict[visit_id] for visit_id in sorted(visit_ids)]
             patient = Patient(patient_id=patient_id, visits=visits)
             patients.append(patient)
         return patients

@@ -1,7 +1,7 @@
 from pytorch_lightning import Trainer
 from torch.utils.data import DataLoader
 
-from pyhealth.data.dataset import DrugRecommendationDataset
+from pyhealth.data.dataset import DrugRecDataLoader
 from pyhealth.datasets import MIMIC3BaseDataset
 from pyhealth.models import RETAIN
 from pyhealth.evaluator import DrugRecommendationEvaluator
@@ -9,7 +9,7 @@ from pyhealth.evaluator import DrugRecommendationEvaluator
 # dataset
 base_dataset = MIMIC3BaseDataset(root="/srv/local/data/physionet.org/files/mimiciii/1.4")
 # task
-task_taskset = DrugRecommendationDataset(base_dataset)
+task_taskset = DrugRecDataLoader(base_dataset)
 # model
 model = RETAIN(task_taskset)
 # trainer

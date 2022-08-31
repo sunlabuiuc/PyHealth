@@ -2,7 +2,8 @@ import os
 from pathlib import Path
 
 import pandas as pd
-
+import sys
+sys.path.append('/home/chaoqiy2/github/PyHealth-OMOP')
 from pyhealth.data import Visit, Patient, BaseDataset
 from pyhealth.utils import create_directory, pickle_dump, pickle_load
 
@@ -30,15 +31,17 @@ class OMOPBaseDataset(BaseDataset):
         super(OMOPBaseDataset, self).__init__(dataset_name="OMOP", patients=patients)
 
     def parse_patients(self):
-        patients_df = pd.read_csv(os.path.join(self.root, "person.csv"))
+        patients_df = pd.read_csv(os.path.join(self.root, "person.csv"), sep="\t",
+                        dtype={'person_id': str})
         return patients_df
 
     def parse_visits(self):
-        visits_df = pd.read_csv(os.path.join(self.root, "visit_occurrence.csv"))
+        visits_df = pd.read_csv(os.path.join(self.root, "visit_occurrence.csv"), sep="\t",
+                        dtype={'person_id': str, "visit_occurrence_id": str})
         return visits_df
 
     def parse_diagnoses(self):
-        diagnoses_df = pd.read_csv(os.path.join(self.root, "condition_occurrence.csv"),
+        diagnoses_df = pd.read_csv(os.path.join(self.root, "condition_occurrence.csv"), sep="\t",
                                        dtype={'person_id': str, "visit_occurrence_id": str, "condition_concept_id": str})
         diagnoses_df = diagnoses_df[['person_id', 'visit_occurrence_id', 'condition_concept_id']]
         diagnoses_df = diagnoses_df.sort_values(['person_id', 'visit_occurrence_id'], ascending=True)
@@ -47,7 +50,7 @@ class OMOPBaseDataset(BaseDataset):
         return diagnoses_df
 
     def parse_procedures(self):
-        procedures_df = pd.read_csv(os.path.join(self.root, "procedure_occurrence.csv"),
+        procedures_df = pd.read_csv(os.path.join(self.root, "procedure_occurrence.csv"), sep="\t",
                                        dtype={'person_id': str, "visit_occurrence_id": str, "procedure_concept_id": str})
         procedures_df = procedures_df[['person_id', 'visit_occurrence_id', 'procedure_concept_id']]
         procedures_df = procedures_df.sort_values(['person_id', 'visit_occurrence_id'], ascending=True)
@@ -56,7 +59,7 @@ class OMOPBaseDataset(BaseDataset):
         return procedures_df
 
     def parse_prescriptions(self):
-        prescriptions_df = pd.read_csv(os.path.join(self.root, "drug_exposure.csv"),
+        prescriptions_df = pd.read_csv(os.path.join(self.root, "drug_exposure.csv"), sep="\t", 
                                        dtype={'person_id': str, "visit_occurrence_id": str, "drug_concept_id": str})
         prescriptions_df = prescriptions_df[['person_id', 'visit_occurrence_id', 'drug_concept_id']]
         prescriptions_df = prescriptions_df.sort_values(['person_id', 'visit_occurrence_id'], ascending=True)
@@ -89,7 +92,7 @@ class OMOPBaseDataset(BaseDataset):
 
 
 if __name__ == "__main__":
-    base_dataset = OMOPBaseDataset(root="xxx")
+    base_dataset = OMOPBaseDataset(root="/srv/local/data/zw12/pyhealth/raw_data/synpuf1k_omop_cdm_5.2.2")
     print(base_dataset)
     print(type(base_dataset))
     print(len(base_dataset))

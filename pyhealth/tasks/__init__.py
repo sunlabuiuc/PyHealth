@@ -1,1 +1,1 @@
-from .drug_recommendation import DrugRecommendationDataset
+from .drug_recommendation import DrugRecDataset

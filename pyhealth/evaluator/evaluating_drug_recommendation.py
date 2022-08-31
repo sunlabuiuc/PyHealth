@@ -91,7 +91,7 @@ def multi_label_metric(y_gt, y_pred, y_prob):
     return ja, prauc, np.mean(avg_prc), np.mean(avg_recall), np.mean(avg_f1)
 
 
-class DrugRecommendationEvaluator(nn.Module):
+class DrugRecEvaluator(nn.Module):
     def __init__(
             self,
             model,
@@ -116,13 +116,13 @@ class DrugRecommendationEvaluator(nn.Module):
                     for idx in range(len(conditions)):
                         if idx == 0:
                             representation_base = self.model.embedding(conditions[idx: idx + 1], procedures[idx: idx + 1])
-                            drugs_index = self.model.drug_tokenizer(drugs[idx: idx + 1])
-                            drugs_multihot_old = torch.zeros(1, self.model.drug_tokenizer.get_vocabulary_size())
+                            drugs_index = drugs[idx: idx + 1]
+                            drugs_multihot_old = torch.zeros(1, self.model.voc_size[2])
                             drugs_multihot_old[0][drugs_index[0]] = 1
                             continue
 
-                        drugs_index = self.model.drug_tokenizer(drugs[idx: idx + 1])
-                        drugs_multihot = torch.zeros(1, self.model.drug_tokenizer.get_vocabulary_size())
+                        drugs_index = drugs[idx: idx + 1]
+                        drugs_multihot = torch.zeros(1, self.model.voc_size[2])
                         drugs_multihot[0][drugs_index[0]] = 1
                         y_gt.append(drugs_multihot[0].numpy())
 
@@ -148,8 +148,8 @@ class DrugRecommendationEvaluator(nn.Module):
                             target_output = self.model(conditions[:i + 1], procedures[:i + 1], drugs[:i])
                         else:
                             target_output = self.model(conditions[:i + 1], procedures[:i + 1])
-                        drugs_index = self.model.drug_tokenizer(drugs[i: i + 1])
-                        drugs_multihot = torch.zeros(1, self.model.drug_tokenizer.get_vocabulary_size())
+                        drugs_index = drugs[i: i + 1]
+                        drugs_multihot = torch.zeros(1, self.model.voc_size[2])
                         drugs_multihot[0][drugs_index[0]] = 1
                         y_gt.append(drugs_multihot[0].numpy())
 

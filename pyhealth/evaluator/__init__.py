@@ -1,1 +1,1 @@
-from .evaluating_drug_recommendation import DrugRecommendationEvaluator
+from .evaluating_drug_recommendation import DrugRecEvaluator

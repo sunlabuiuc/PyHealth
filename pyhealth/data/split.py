@@ -13,10 +13,10 @@ def random_split(dataset, ratios):
 
 if __name__ == "__main__":
     from pyhealth.datasets import MIMIC3BaseDataset
-    from pyhealth.tasks.drug_recommendation import DrugRecommendationDataset
+    from pyhealth.tasks.drug_recommendation import DrugRecDataLoader
 
     base_dataset = MIMIC3BaseDataset(root="/srv/local/data/physionet.org/files/mimiciii/1.4")
-    drug_recommendation_dataset = DrugRecommendationDataset(base_dataset)
+    drug_recommendation_dataset = DrugRecDataLoader(base_dataset)
     print(len(drug_recommendation_dataset))
     print(drug_recommendation_dataset[0])
     tmp = random_split(drug_recommendation_dataset,

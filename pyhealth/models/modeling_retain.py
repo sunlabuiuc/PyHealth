@@ -7,24 +7,22 @@ from pyhealth.models.tokenizer import Tokenizer
 
 
 class RETAIN(pl.LightningModule):
-    def __init__(self, dataset, emb_dim=64):
+    def __init__(self, voc_size, params, emb_dim=64):
         super(RETAIN, self).__init__()
 
-        self.condition_tokenizer = Tokenizer(dataset.all_tokens['conditions'])
-        self.procedure_tokenizer = Tokenizer(dataset.all_tokens['procedures'])
-        self.drug_tokenizer = Tokenizer(dataset.all_tokens['drugs'])
-
         # ddi_adj = dataset.ddi_adj
+        self.params = params
+        self.voc_size = voc_size
 
         self.emb_dim = emb_dim
-        self.output_len = self.drug_tokenizer.get_vocabulary_size()
+        self.output_len = voc_size[2]
 
         self.condition_embedding = nn.Sequential(
-            nn.Embedding(self.condition_tokenizer.get_vocabulary_size(), self.emb_dim, padding_idx=0),
+            nn.Embedding(voc_size[0], self.emb_dim, padding_idx=0),
             nn.Dropout(0.5)
         )
         self.procedure_embedding = nn.Sequential(
-            nn.Embedding(self.procedure_tokenizer.get_vocabulary_size(), self.emb_dim, padding_idx=0),
+            nn.Embedding(voc_size[1], self.emb_dim, padding_idx=0),
             nn.Dropout(0.5)
         )
 
@@ -41,8 +39,8 @@ class RETAIN(pl.LightningModule):
         # self.tensor_ddi_adj = nn.Parameter(torch.FloatTensor(ddi_adj), requires_grad=False)
 
     def forward(self, conditions, procedures):
-        conditions = self.condition_tokenizer(conditions).cuda()
-        procedures = self.procedure_tokenizer(procedures).cuda()
+        conditions = conditions.cuda()
+        procedures = procedures.cuda()
         conditions_emb = self.condition_embedding(conditions).sum(dim=1)
         procedures_emb = self.procedure_embedding(procedures).sum(dim=1)
         visit_emb = conditions_emb + procedures_emb  # (visit, emb)
@@ -76,8 +74,8 @@ class RETAIN(pl.LightningModule):
         conditions, procedures, drugs = train_batch.values()
         for i in range(len(conditions)):
             output_logits = self.forward(conditions[:i + 1], procedures[:i + 1])
-            drugs_index = self.drug_tokenizer(drugs[i: i + 1]).cuda()
-            drugs_multihot = torch.zeros(1, self.drug_tokenizer.get_vocabulary_size()).cuda()
+            drugs_index = drugs[i: i + 1].cuda()
+            drugs_multihot = torch.zeros(1, self.output_len).cuda()
             drugs_multihot[0][drugs_index[0]] = 1
             loss += F.binary_cross_entropy_with_logits(output_logits, drugs_multihot)
         # self.log('train_loss', loss)
@@ -88,8 +86,8 @@ class RETAIN(pl.LightningModule):
         conditions, procedures, drugs = val_batch.values()
         for i in range(len(conditions)):
             output_logits = self.forward(conditions[:i + 1], procedures[:i + 1])
-            drugs_index = self.drug_tokenizer(drugs[i: i + 1]).cuda()
-            drugs_multihot = torch.zeros(1, self.drug_tokenizer.get_vocabulary_size()).cuda()
+            drugs_index = drugs[i: i + 1].cuda()
+            drugs_multihot = torch.zeros(1, self.output_len).cuda()
             drugs_multihot[0][drugs_index[0]] = 1
             loss += F.binary_cross_entropy_with_logits(output_logits, drugs_multihot)
         # self.log('val_loss', loss)

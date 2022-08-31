@@ -2,6 +2,8 @@ import os
 from pathlib import Path
 
 import pandas as pd
+# import sys
+# sys.path.append('/home/chaoqiy2/github/PyHealth-OMOP')
 
 from pyhealth.data import Visit, Patient, BaseDataset
 from pyhealth.utils import create_directory, pickle_dump, pickle_load
@@ -40,32 +42,32 @@ class MIMIC4BaseDataset(BaseDataset):
         return admissions_df
 
     def parse_diagnoses_icd(self):
-        diagnoses_icd_df = pd.read_csv(os.path.join(self.root, "diagnosis_icd.csv"),
-                                       dtype={'subject_id': str, "hadm_id": str, "icd1_code": str})
+        diagnoses_icd_df = pd.read_csv(os.path.join(self.root, "diagnoses_icd.csv"),
+                                       dtype={'subject_id': str, "hadm_id": str, "icd_code": str})
         diagnoses_icd_df = diagnoses_icd_df.sort_values(['subject_id', 'hadm_id', 'seq_num'], ascending=True)
-        diagnoses_icd_df = diagnoses_icd_df.groupby(['subject_id', 'hadm_id']).icd9_code.agg(diag=list)
+        diagnoses_icd_df = diagnoses_icd_df.groupby(['subject_id', 'hadm_id']).icd_code.agg(diag=list)
         diagnoses_icd_df = diagnoses_icd_df.reset_index()
         return diagnoses_icd_df
 
     def parse_procedures_icd(self):
         procedures_icd_df = pd.read_csv(os.path.join(self.root, "procedures_icd.csv"),
-                                        dtype={'subject_id': str, "hadm_id": str, "icd9_code": str})
+                                        dtype={'subject_id': str, "hadm_id": str, "icd_code": str})
         procedures_icd_df = procedures_icd_df.sort_values(['subject_id', 'hadm_id', 'seq_num'], ascending=True)
-        procedures_icd_df = procedures_icd_df.groupby(['subject_id', 'hadm_id']).icd9_code.agg(proc=list)
+        procedures_icd_df = procedures_icd_df.groupby(['subject_id', 'hadm_id']).icd_code.agg(proc=list)
         procedures_icd_df = procedures_icd_df.reset_index()
         return procedures_icd_df
 
     def parse_prescriptions(self):
         prescriptions_df = pd.read_csv(os.path.join(self.root, "prescriptions.csv"),
                                        dtype={'subject_id': str, "hadm_id": str, "ndc": str})
-        prescriptions_df = prescriptions_df.groupby(['subject_id', 'hamd_id']).ndc.agg(pres=list)
+        prescriptions_df = prescriptions_df.groupby(['subject_id', 'hadm_id']).ndc.agg(pres=list)
         prescriptions_df = prescriptions_df.reset_index()
         return prescriptions_df
 
     @staticmethod
     def merge_data(patients_df, admissions_df, diagnoses_icd_df, procedures_icd_df, prescriptions_df):
         data = patients_df.merge(admissions_df, on='subject_id', how="outer")
-        data = data.merge(diagnoses_icd_df, on=['subject_id', 'hamd_id'], how="outer")
+        data = data.merge(diagnoses_icd_df, on=['subject_id', 'hadm_id'], how="outer")
         data = data.merge(procedures_icd_df, on=['subject_id', 'hadm_id'], how="outer")
         data = data.merge(prescriptions_df, on=['subject_id', 'hadm_id'], how="outer")
         data = data.sort_values(['subject_id', 'admittime'], ascending=True)
