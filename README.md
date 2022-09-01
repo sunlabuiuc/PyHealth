@@ -1,5 +1,4 @@
 # PyHealth-OMOP
----
 ### The working ML pipeline in the package
 > dataset instance -> task-specific dataset -> ML model -> trainer -> evaluator
 
