@@ -6,10 +6,10 @@ Core Development & Advisory Team (Current)
 --------------------------------
 
 
-Dr. Zhenbang Wu (Ph.D. Student @ University of Illinois Urbana-Champaign)
+Zhenbang Wu (Ph.D. Student @ University of Illinois Urbana-Champaign)
 
 
-Dr. Chaoqi Yang (Ph.D. Student @ University of Illinois Urbana-Champaign)
+Chaoqi Yang (Ph.D. Student @ University of Illinois Urbana-Champaign)
 
 
 Patrick Jiang (M.S. Student @ University of Illinois Urbana-Champaign)
