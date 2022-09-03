@@ -10,7 +10,6 @@ VALID_MODE = [
     "multilabel"
 ]
 
-
 class BaseModel(pl.LightningModule):
     def __init__(self, voc_size, params, model, emb_dim=64, mode: str = "binary"):
         super(BaseModel, self).__init__()
