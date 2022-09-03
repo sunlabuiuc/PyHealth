@@ -4,8 +4,8 @@
 ----
 
 
-All Models
-^^^^^^^^^^
+All Models & Tasks
+^^^^^^^^^^^^^^^^^^
 
 .. toctree::
    :maxdepth: 4

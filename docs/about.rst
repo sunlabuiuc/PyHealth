@@ -6,10 +6,10 @@ Core Development & Advisory Team (Current)
 --------------------------------
 
 
-Zhenbang Wu (Ph.D. Student @ University of Illinois Urbana-Champaign)
+Zhenbang Wu (Ph.D. Student @ University of Illinois Urbana-Champaign): `Homepage <https://zzachw.github.io/>`_
 
 
-Chaoqi Yang (Ph.D. Student @ University of Illinois Urbana-Champaign)
+Chaoqi Yang (Ph.D. Student @ University of Illinois Urbana-Champaign): `Linkedin <https://www.linkedin.com/in/chaoqi-yang-059a97148/>`_
 
 
 Patrick Jiang (M.S. Student @ University of Illinois Urbana-Champaign)

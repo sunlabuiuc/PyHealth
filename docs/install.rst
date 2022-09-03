@@ -13,16 +13,11 @@ You could install our package by:
 **Required Dependencies**\ :
 
 
-* Python 3.5, 3.6, or 3.7
-* combo>=0.0.8
-* joblib
+* Python 3.5, 3.6, 3.7 or 3.8
 * numpy>=1.13
 * numba>=0.35
 * pandas>=0.25
-* scipy>=0.20
 * scikit_learn>=0.20
-* tqdm
-* xlrd >= 1.0.0
 * torch==1.12
 * pytorch-lightning==1.6
 
@@ -36,6 +31,7 @@ Similarly, models depending on **xgboost**, would **NOT** enforce xgboost instal
 
 **CUDA Setting**\ :
 
+To run PyHealth, you also need CUDA and cudatoolkit that support your GPU well. `More info <https://developer.nvidia.com/cuda-gpus/>`_
 
 For example, if you use NVIDIA RTX A6000 as your GPU for training, you should install a compatible cudatoolkit using:
 
