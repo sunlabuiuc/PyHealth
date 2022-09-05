@@ -2,8 +2,8 @@ import os
 from pathlib import Path
 import numpy as np
 import pandas as pd
-# import sys
-# sys.path.append('/home/chaoqiy2/github/PyHealth-OMOP')
+import sys
+sys.path.append('/home/chaoqiy2/github/PyHealth-OMOP')
 
 from pyhealth.data import Visit, Patient, BaseDataset
 from pyhealth.utils import create_directory, pickle_dump, pickle_load
@@ -12,23 +12,35 @@ from pyhealth.utils import create_directory, pickle_dump, pickle_load
 class eICUBaseDataset(BaseDataset):
     """ Base dataset for eICU """
 
-    def __init__(self, root):
+    def __init__(self, root, files=['conditions', 'procedures', 'drugs']):
+        """
+        files can include (no order): conditions, procedures, drugs, labs, physicalExams
+        """
         self.root = root
+        self.files = files
+        self.all_files = ['conditions', 'procedures', 'drugs', 'labs', 'physicalExams']
+
         if not os.path.exists(os.path.join(str(Path.home()), ".cache/pyhealth/eicu.data")):
             patients_df, unique_visits = self.parse_patients()
-            diagnosis_df, diagnosis_dict = self.parse_diagnosis(unique_visits)
-            # lab_df, lab_dict = self.parse_lab(unique_visits)
-            medication_df, medication_dict = self.parse_medication(unique_visits)
-            treatment_df, treatment_dict = self.parse_treatment(unique_visits)
-            # physicalExam_df, physicalExam_dict = self.parse_physicalExam(unique_visits)
-            patients = self.merge_data(
-                patients_df,
-                diagnosis_dict,
-            #    lab_dict,
-                medication_dict,
-                treatment_dict,
-                # physicalExam_dict,
-            )
+
+            merge_artifacts = {}
+            if 'conditions' in self.files:
+                diagnosis_df, diagnosis_dict = self.parse_diagnosis(unique_visits)
+                merge_artifacts['conditions'] = diagnosis_dict
+            if 'procedures' in self.files:
+                treatment_df, treatment_dict = self.parse_treatment(unique_visits)
+                merge_artifacts['procedures'] = treatment_dict
+            if 'drugs' in self.files:
+                medication_df, medication_dict = self.parse_medication(unique_visits)
+                merge_artifacts['drugs'] = medication_dict
+            if 'labs' in self.files:
+                lab_df, lab_dict = self.parse_lab(unique_visits)
+                merge_artifacts['labs'] = lab_dict
+            if 'physicalExams' in self.files:
+                physicalExam_df, physicalExam_dict = self.parse_physicalExam(unique_visits)
+                merge_artifacts['physicalExams'] = physicalExam_dict
+            patients = self.merge_data(self.files, self.all_files, patients_df, merge_artifacts)
+
             create_directory(os.path.join(str(Path.home()), ".cache/pyhealth"))
             pickle_dump(patients, os.path.join(str(Path.home()), ".cache/pyhealth/eicu.data"))
         else:
@@ -61,7 +73,7 @@ class eICUBaseDataset(BaseDataset):
         return lab_df, lab_dict
 
     def parse_medication(self, unique_visits):
-        medication_df = pd.read_csv(os.path.join(self.root, "medication.csv"))
+        medication_df = pd.read_csv(os.path.join(self.root, "medication.csv"), low_memory=False)
         medication_dict = dict.fromkeys(unique_visits)
         for stay_id, content in medication_df.groupby("patientunitstayid"):
             medication_dict[stay_id] = np.unique(self._solve_nested_list(content["drugname"].tolist()))
@@ -83,17 +95,17 @@ class eICUBaseDataset(BaseDataset):
 
     @staticmethod
     def merge_data(
-        patients_df,
-        diagnosis_dict,
-        # lab_dict,
-        medication_dict,
-        treatment_dict,
-        # physicalExam_dict
-    ):
+            files,
+            all_files,
+            patients_df,
+            merge_artifacts,
+        ):
         """
         conditions: diagnosis 
         procedures: treatment
         drugs: medications
+        labs: lab
+        physicalExams: physicalExam
         """
         patients = []
         # enumerate patients
@@ -101,13 +113,20 @@ class eICUBaseDataset(BaseDataset):
             visits = []
             # enumerate visits
             for visit_id in p_content.patientunitstayid.tolist():
-                if (visit_id in diagnosis_dict) and (visit_id in medication_dict) and (visit_id in treatment_dict):
-                    visit = Visit(visit_id=visit_id,
-                            patient_id=patient_id,
-                            conditions=diagnosis_dict[visit_id],
-                            procedures=treatment_dict[visit_id],
-                            drugs=medication_dict[visit_id])
-                    visits.append(visit)
+                visit_info = {}
+                for f in all_files:
+                    if (f in files) and (visit_id in merge_artifacts[f]):
+                        visit_info[f] = merge_artifacts[f][visit_id]
+                    else:
+                        visit_info[f] = None
+                visit = Visit(visit_id=visit_id,
+                        patient_id=patient_id,
+                        conditions=visit_info['conditions'],
+                        procedures=visit_info['procedures'],
+                        drugs=visit_info['drugs'],
+                        labs=visit_info['labs'],
+                        physicalExams=visit_info['physicalExams'])
+                visits.append(visit)
             patient = Patient(patient_id=patient_id, visits=visits)
             patients.append(patient)
         return patients

@@ -11,12 +11,16 @@ class Visit:
             conditions: List[str],
             procedures: List[str],
             drugs: List[str],
+            labs: List[str] = None,
+            physicalExams: List[str] = None,
             visit_info: Optional[dict] = None
     ):
         self.visit_id = visit_id
         self.patient_id = patient_id
         self.conditions = conditions
         self.procedures = procedures
+        self.labs = labs
+        self.physicalExams = physicalExams
         self.drugs = drugs
         self.visit_info = visit_info
 
