@@ -11,6 +11,7 @@ from pyhealth.data import Visit, Patient, TaskDataset
 from pyhealth.models.tokenizer import Tokenizer
 from rdkit import Chem
 
+
 class DrugRecDataset(TaskDataset):
     """ Dataset for drug recommendation task """
 
@@ -108,6 +109,9 @@ class DrugRecDataset(TaskDataset):
         }
         """
         print (info)
+
+    def task(self):
+        return "DrugRec"
 
     def generate_ddi_adj(self):
         cid2atc_dic = defaultdict(set)
