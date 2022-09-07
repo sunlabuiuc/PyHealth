@@ -25,7 +25,7 @@ class BaseModel:
 
         # Import model
         if model == 'XGBoost':
-            self.model = XGBClassifier()
+            self.model = XGBClassifier(objective='binary:logistic', tree_method='gpu_hist')
         elif model == 'SVM':
             self.model = LinearSVC()
 
@@ -33,7 +33,6 @@ class BaseModel:
 
         # For different tasks, we use different loss and output format
         if dataset.task() == 'DrugRec':
-            self.model = self.model(objective='binary:logistic', tree_method='gpu_hist')
             self.predictor = MultiOutputClassifier(self.model)
 
         # TODO: Add more tasks
