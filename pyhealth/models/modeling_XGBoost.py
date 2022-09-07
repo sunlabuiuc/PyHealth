@@ -89,11 +89,13 @@ class XGBoost:
             preds = np.array(preds)[:, :, 1].T  # take the positive class
             test_preds += preds / 5
 
-            print('Mean loss across folds', np.mean(val_losses))
-            print('STD  loss across folds', np.std(val_losses))
+            print('Mean loss across folds: ', np.mean(val_losses))
+            print('STD  loss across folds: ', np.std(val_losses))
 
     def predict(self, X_test):
         if X_test is None:
-            return self.predictor.predict(self.X_test)
+            res = self.predictor.predict(self.X_test)
+            print('BCE loss: ', log_loss(res, self.y_test))
+            return res
         else:
             return self.predictor.predict(X_test)
