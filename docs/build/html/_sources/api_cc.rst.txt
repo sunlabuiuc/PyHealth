@@ -1,5 +1,42 @@
-APIs
-==============
+Models
+======
+
+
+
+Base Models
+^^^^^^^^^^^
+
+
+RNN
+^^^
+
+
+RETAIN
+^^^^^^
+
+
+SafeDrug
+^^^^^^^^
+
+
+MICRON
+^^^^^^
+
+GAMENet
+^^^^^^^
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 Full API Reference: (https://pyhealth.readthedocs.io/en/latest/pyhealth.html). API cheatsheet for most learning models:
 
@@ -10,3 +47,6 @@ Full API Reference: (https://pyhealth.readthedocs.io/en/latest/pyhealth.html). A
 Model load and reload:
 
 * :func:`pyhealth.models.sequence._dlbase.load_model` : Load the best model so far.
+
+.. toctree::
+   :maxdepth: 4

@@ -1,11 +1,23 @@
+Tasks
+=====
+
+
+Drug Recommendation
+^^^^^^^^^^^^^^^^^^^
 
 
 
-----
 
 
-All Models & Tasks
-^^^^^^^^^^^^^^^^^^
+Length of Stay Prediction
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+
+Mortality
+^^^^^^^^^
+
+Readmission
+^^^^^^^^^^^
 
 .. toctree::
    :maxdepth: 4
