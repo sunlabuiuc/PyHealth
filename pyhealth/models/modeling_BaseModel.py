@@ -34,10 +34,10 @@ class BaseModel:
             self.model = SVC(kernel='linear', probability=True)
             self.class_num_constraint = 1
         elif model == 'LR':
-            self.model = LogisticRegression(random_state=101)
+            self.model = LogisticRegression(max_iter=200)
             self.class_num_constraint = 1
         elif model == 'DT':
-            self.model = DecisionTreeClassifier(random_state=101)
+            self.model = DecisionTreeClassifier()
 
         # TODO: Add more models
 
@@ -193,6 +193,8 @@ class BaseModel:
                 for i in range(len(y_train_[0])):
                     if y_train_[:, i].sum() == 0:
                         y_train_[0, i] = 1
+                    if y_train_[:, i].sum() == len(y_train_):
+                        y_train_[0, i] = 0
 
             self.predictor.fit(X_train_, y_train_)
             val_pred = self.predictor.predict_proba(X_val)  # list of preds per class
