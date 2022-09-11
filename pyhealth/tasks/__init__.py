@@ -1,1 +1,2 @@
 from .drug_recommendation import DrugRecDataset
+from .med2vec_code_embedding import Med2VecDataset

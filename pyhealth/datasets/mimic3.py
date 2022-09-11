@@ -62,6 +62,14 @@ class MIMIC3BaseDataset(BaseDataset):
         prescriptions_df = prescriptions_df.reset_index()
         return prescriptions_df
 
+    def raw_admissions(self):
+        admissions_df = pd.read_csv(os.path.join(self.root, "ADMISSIONS.csv"))
+        return admissions_df
+
+    def raw_diagnosis(self):
+        diagnoses_df = pd.read_csv(os.path.join(self.root, "DIAGNOSES_ICD.csv"))
+        return diagnoses_df
+
     @staticmethod
     def merge_data(patients_df, admissions_df, diagnoses_icd_df, procedures_icd_df, prescriptions_df):
         data = patients_df.merge(admissions_df, on='SUBJECT_ID', how="outer")
