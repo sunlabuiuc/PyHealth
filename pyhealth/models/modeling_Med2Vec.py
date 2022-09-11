@@ -146,9 +146,11 @@ class Med2Vec:
             self.mnt_metric = 'val_loss'
             self.mnt_best = math.inf
 
+            torch.cuda.set_device('cuda:0')
             self.device, device_ids = self.prepare_gpu(n_gpu)
             if len(device_ids) > 1:
                 self.model = torch.nn.DataParallel(model, device_ids=device_ids)
+                self.model.cuda()
 
             self.epochs = 1000
             self.save_period = 10
@@ -162,11 +164,9 @@ class Med2Vec:
                 self._resume_checkpoint(resume)
 
         def prepare_gpu(self, n_gpu_use):
-            """
-            setup GPU device if available, move model into configured device
-            只能使用最多一个GPU
-            """
+            
             n_gpu = torch.cuda.device_count()
+            print('Num of available GPUs: ', n_gpu)
             if n_gpu_use > 0 and n_gpu == 0:
                 self.logger.warning(
                     "Warning: There\'s no GPU available on this machine, training will be performed on CPU.")
@@ -258,7 +258,7 @@ class Med2Vec:
                 self.optimizer.zero_grad()
                 probits, emb_w = self.model(data.float(), d)  # 每个visit的预测输出
                 # 计算输出到周围visit的loss
-                loss_dict = self.loss(data, mask.float(), probits, self.model.bce_loss, emb_w, ivec, jvec, window=5)
+                loss_dict = self.loss(data, mask.float(), probits, nn.BCEWithLogitsLoss(), emb_w, ivec, jvec, window=5)
                 loss = loss_dict['visit_loss'] + loss_dict['code_loss']  # 不同级别的loss相加
                 loss.backward()  # 前馈计算梯度
                 self.optimizer.step()  # 更新参数
@@ -307,7 +307,7 @@ class Med2Vec:
                     data, ivec, jvec, mask, d = x.to(self.device), ivec.to(self.device), jvec.to(self.device), mask.to(
                         self.device), d.to(self.device)
                     probits, emb_w = self.model(data.float(), d)
-                    loss_dict = self.loss(data, mask.float(), probits, self.model.bce_loss, emb_w, ivec, jvec,
+                    loss_dict = self.loss(data, mask.float(), probits, nn.BCEWithLogitsLoss(), emb_w, ivec, jvec,
                                           window=5)
                     loss = loss_dict['visit_loss'] + loss_dict['code_loss']
                     self.logger.info(
@@ -425,7 +425,7 @@ class Med2Vec:
 
         n_samples = len(data_loader.sampler)
         log = {'loss': total_loss / n_samples}
-        log.update({met.__name__: total_metrics[i].item() / n_samples for i, met in enumerate(metric_fns)})
+        log.update({met.__name__: total_metrics[i].item() / n_samples for i, met in enumerate(metrics)})
         print(log)
 
 

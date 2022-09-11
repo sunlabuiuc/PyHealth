@@ -97,12 +97,15 @@ class Med2VecDataset(TaskDataset):
                 ivec.append(i)
                 jvec.append(j)  # code to code coordination, code pairs in one visit
         return x, torch.LongTensor(ivec), torch.LongTensor(jvec), d
+    
+    def set_all_tokens(self):
+        return ''
+    
+    def preprocess(self):
+        return ''
 
     def __len__(self):
-        if self.train:
-            return len(self.train_data)
-        else:
-            return len(self.test_data)
+        return len(self.processed_data)
 
     def __getitem__(self, index):
         if self.processed_data is None:
