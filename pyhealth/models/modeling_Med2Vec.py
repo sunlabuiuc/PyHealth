@@ -19,8 +19,8 @@ class Med2Vec:
         super(Med2Vec, self).__init__()
 
         self.Med2VecDataset = med2vec_dataset
-
         self.vocabulary_size = med2vec_dataset.num_codes
+        self.model = self.Med2VecModel(self.vocabulary_size)
 
     class Med2VecModel(nn.Module):
         def __init__(self, voc_size, demographics_size=0, embedding_size=256, hidden_size=512):
@@ -159,7 +159,9 @@ class Med2Vec:
             self.start_epoch = 1
 
             start_time = datetime.now().strftime('%m%d_%H%M%S')
-            self.checkpoint_dir = os.path.join("./ckpt/", start_time)
+            self.checkpoint_dir = os.path.join("m2v_ckpt", start_time)
+            os.makedirs(self.checkpoint_dir)
+
             if resume:
                 self._resume_checkpoint(resume)
 
@@ -206,7 +208,7 @@ class Med2Vec:
                             self.logger.info('    {:15s}: {}'.format(str(key), value))
 
                 # evaluate model performance according to configured metric, save best checkpoint as model_best
-                best = False
+                best = True
                 if self.mnt_mode != 'off':
                     try:
                         # check whether model performance improved or not, according to specified metric(mnt_metric)
@@ -233,9 +235,9 @@ class Med2Vec:
                             self.early_stop))
                         break
 
-                # if epoch % self.save_period == 0:
-                #     self._save_checkpoint(epoch, save_best=best)
-                #     "每save_period个epoch存储一次，同时把最好的那个改名叫model_best"
+                if epoch % self.save_period == 0:
+                    self._save_checkpoint(epoch, save_best=best)
+                    
 
         def _eval_metrics(self, output, target, **kwargs):
             acc_metrics = np.zeros(len(self.metrics))
@@ -356,12 +358,8 @@ class Med2Vec:
             self.model.load_state_dict(checkpoint['state_dict'])
 
             # load optimizer state from checkpoint only when optimizer type is not changed.
-            if checkpoint['config']['optimizer']['type'] != self.config['optimizer']['type']:
-                self.logger.warning(
-                    'Warning: Optimizer type given in config file is different from that of checkpoint. ' + \
-                    'Optimizer parameters not being resumed.')
-            else:
-                self.optimizer.load_state_dict(checkpoint['optimizer'])
+            
+            self.optimizer.load_state_dict(checkpoint['optimizer'])
 
             self.train_logger = checkpoint['logger']
             self.logger.info("Checkpoint '{}' (epoch {}) loaded".format(resume_path, self.start_epoch))
@@ -371,7 +369,7 @@ class Med2Vec:
         data_loader = self.get_loader()
         valid_data_loader = data_loader.split_validation()
 
-        model = self.Med2VecModel(self.vocabulary_size)
+        model = self.model
 
         # get function handles of loss and metrics
         loss = med2vec_loss
@@ -391,23 +389,27 @@ class Med2Vec:
         logging.info('training ...')
         trainer.train()
 
-    def test(self, resume, n_gpu=1):
+    def test(self, resume=None, n_gpu=1):
         data_loader = self.get_loader(batch_size=512, shuffle=False, validation_split=0.0, num_workers=2)
-        model = self.Med2VecModel(self.vocabulary_size)
-        model.summary()
+        
+
         loss_fn = med2vec_loss
         metrics = [recall_k]
+        if resume is not None:
+            checkpoint = torch.load(resume)
+            state_dict = checkpoint['state_dict']
 
-        checkpoint = torch.load(resume)
-        state_dict = checkpoint['state_dict']
-        if n_gpu > 1:
-            model = torch.nn.DataParallel(model)
-        model.load_state_dict(state_dict)
-
-        # prepare model for testing
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        model = model.to(device)
-        model.eval()
+            model = self.Med2VecModel(self.vocabulary_size)
+            #         model.summary()
+            if n_gpu > 1:
+                model = torch.nn.DataParallel(model)
+            model.load_state_dict(state_dict)
+            # prepare model for testing
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            model = model.to(device)
+            model.eval()
+        else:
+            model = self.model
 
         total_loss = 0.0
         total_metrics = torch.zeros(len(metrics))
