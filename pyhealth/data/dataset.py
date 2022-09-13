@@ -7,17 +7,17 @@ from pyhealth.data import Patient
 
 
 class BaseDataset(ABC):
-    """ Abstract base dataset class which will be inherited by specific datasets """
+    """ Abstract dataset structure 
+        will be inherited by specific datasets
+    """
 
     def __init__(
             self,
             dataset_name: str,
             patients=List[Patient],
-            dataset_info: Optional[dict] = None
     ):
         self.dataset_name = dataset_name
         self.patients = patients
-        self.dataset_info = dataset_info
 
     def __len__(self):
         return len(self.patients)
@@ -28,29 +28,39 @@ class BaseDataset(ABC):
     def info(self):
         info = """
         ----- Output Data Structure -----
-        Dataset.patients: [
-            {
-                patient_id: patient_id, 
-                visits: [
-                    {
-                        visit_id: visit_id, 
-                        patient_id: patient_id, 
-                        conditions: [List], 
-                        procedures: [List],
-                        drugs: [List],
-                        visit_info: <dict>
-                    }
-                    ...
-                ]                    
-            } 
-            ...
-        ]
+        Dataset.patients dict[str, Patient]
+            - key: patient_id
+            - value: <Patient> object
+        
+        <Patient>
+            - patient_id: str
+            - visits: dict[str, Visit]
+                - key: visit_id
+                - value: <Visit> object
+        
+        <Visit>
+            - visit_id: str
+            - patient_id: str
+            - encounter_time: float
+            - duration: float
+            - mortality_status: bool = False,
+            - conditions: List[Event] = [],
+            - procedures: List[Event] = [],
+            - drugs: List[Event] = [],
+            - labs: List[Event] = [],
+            - physicalExams: List[Event] = []
+
+        <Event>
+            - code: str
+            - time: float
         """
         print (info)
 
 
 class TaskDataset(ABC, Dataset):
-    """ Abstract task dataset class which will be inherited by specific tasks """
+    """ Abstract task dataset class which 
+        will be inherited by specific tasks 
+    """
 
     def __init__(self, base_dataset):
         self.base_dataset = base_dataset
