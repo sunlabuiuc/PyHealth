@@ -113,18 +113,21 @@ class CNN:
             return len(self.inputs)
 
     def train(self, lr=1e-4, batch_size=32, save_freq=5, test_freq=200, max_epoch=35,
-              save_path="cnn_ckpt/", logdir='logs/cnn_logs/', epoch=0, iteration=0, task='drug_rec'):
+              save_path="cnn_ckpt/", logdir='logs/cnn_logs/', epoch=0, iteration=0, 
+              task='drug_rec', n_gpus=5, save=False):
         if task == 'drug_rec':
+            print('--------prepare training data---------')
             self.cnn_train = self.CNNDrugRecDataSet(self.train_dataset, self.voc_size, self.max_visits)
+            print('--------prepare testing data----------')
             self.cnn_test = self.CNNDrugRecDataSet(self.test_dataset, self.voc_size, self.max_visits)
         self.train_dataloader = DataLoader(self.cnn_train, batch_size=batch_size, shuffle=False, drop_last=True)
         self.test_dataloader = DataLoader(self.cnn_test, batch_size=batch_size, drop_last=True)
         num_train_batches = int(np.ceil(len(self.train_dataset) / batch_size))
-        n_classes = self.cnn_train[0][1]
+        n_classes = len(self.cnn_train[0][1])
 
         model = self.CNNModel(self.model, n_classes)
         model.train()
-        device, device_ids = prepare_gpu(n_gpu_use=8)
+        device, device_ids = prepare_gpu(n_gpu_use=n_gpus)
         if len(device_ids) > 1:
             model = torch.nn.DataParallel(model, device_ids=device_ids)
             model.cuda()
@@ -138,7 +141,8 @@ class CNN:
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
         criterion = nn.BCELoss()
-
+        
+        print('-------- Start Training ----------')
         while True:
             batch_losses = []
             for inputs, targets in tqdm(self.train_dataloader):
@@ -187,14 +191,14 @@ class CNN:
 
             loss_value = np.mean(batch_losses)
             print("epoch:{:2d} iter:{:3d} train: loss:{:.3f}".format(epoch, iteration, loss_value))
-            if epoch % save_freq == 0:
+            if (epoch % save_freq  == 0) and (save == True):
                 checkpoint_save(model, save_path, epoch)
             epoch += 1
             if max_epoch < epoch:
                 self.trained_model = model
                 break
 
-    def predict(self, num_sample):
+    def eval(self, num_sample):
         # Run inference on the test data
         self.trained_model.eval()
         sample = 0
