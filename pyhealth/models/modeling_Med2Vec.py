@@ -186,7 +186,8 @@ class Med2Vec:
             """
             Full training logic
             """
-            for epoch in range(self.start_epoch, self.epochs + 1):
+            for epoch in tqdm(range(self.start_epoch, self.epochs + 1)):
+
                 result = self._train_epoch(epoch)
 
                 # save logged informations into log dict
@@ -364,7 +365,7 @@ class Med2Vec:
             self.train_logger = checkpoint['logger']
             self.logger.info("Checkpoint '{}' (epoch {}) loaded".format(resume_path, self.start_epoch))
 
-    def train(self):
+    def train(self, n_gpu=3):
 
         data_loader = self.get_loader()
         valid_data_loader = data_loader.split_validation()
@@ -384,7 +385,7 @@ class Med2Vec:
                                       resume=False,
                                       data_loader=data_loader,
                                       valid_data_loader=valid_data_loader,
-                                      lr_scheduler=lr_scheduler, n_gpu=3)
+                                      lr_scheduler=lr_scheduler, n_gpu=n_gpu)
 
         logging.info('training ...')
         trainer.train()
