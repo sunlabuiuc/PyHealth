@@ -67,5 +67,5 @@ from pyhealth.codemap import CrossMap
 NDC_to_RxNorm = CrossMap('NDC', 'RxNorm')
 # AZITHROMYCIN tablet
 NDC_to_RxNorm['76413-153-06']
-# >> ['68084027801', '59762306003']
+>> ['68084027801', '59762306003']
 ```
