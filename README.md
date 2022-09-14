@@ -30,7 +30,7 @@ params = drug_rec_dataset.params
 #### Step 3: load the healthcare predictive model
 ```python
 from pyhealth.models import RETAIN
-model = RETAIN(voc_size, params)
+model = RETAIN(voc_size, params).train(drug_rec_ds)
 ```
 #### Step 4: Model training
 ```python
