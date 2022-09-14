@@ -53,3 +53,13 @@ from pyhealth.evaluator import DrugRecEvaluator
 evaluator = DrugRecEvaluator(model)
 evaluator.evaluate(drug_rec_test_loader)
 ```
+
+### Step 6: Code mappings
+```python
+from pyhealth.codemap import InnerMap
+ICD = InnerMap('icd-10')
+ICD['I50. 9'] # heart failure
+ICD.patient('I50. 9')
+ICD.siblings('I50. 9')
+ICD.children('I50. 9')
+```
