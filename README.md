@@ -65,6 +65,7 @@ ICD.children('I50. 9')
 
 from pyhealth.codemap import CrossMap
 NDC_to_RxNorm = CrossMap('NDC', 'RxNorm')
-NDC_to_RxNorm['76413-153-06'] # AZITHROMYCIN tablet
->> ['68084027801', '59762306003']
+# AZITHROMYCIN tablet
+NDC_to_RxNorm['76413-153-06']
+# >> ['68084027801', '59762306003']
 ```
