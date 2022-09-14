@@ -16,7 +16,7 @@ For use cases, users can either use our package for the entire ML pipeline or bo
 #### Step 1: Load the dataset instance
 ```python
 from pyhealth.datasets import MIMIC3BaseDataset
-base_dataset = MIMIC3BaseDataset(root="/srv/local/data/physionet.org/files/mimiciii/1.4")
+base_ds = MIMIC3BaseDataset(root="...", files=['conditions', ...])
 ```
 #### Step 2: Process for obtaining task-specific instance
 ```python
