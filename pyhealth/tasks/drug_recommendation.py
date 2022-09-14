@@ -251,6 +251,29 @@ class DrugRecDataset(TaskDataset):
 
         return [MPNNSet, N_fingerprint, torch.FloatTensor(average_projection)]
 
+    def info(self):
+        info = """
+        ----- Output Data Structure -----
+        TaskDataset.patients dict[str, Patient]
+            - key: patient_id
+            - value: <Patient> object
+        
+        <Patient>
+            - patient_id: str
+            - visits: dict[str, Visit]
+                - key: visit_id
+                - value: <DrugRecVisit> object
+        
+        <DrugRecVisit>
+            - visit_id: str
+            - patient_id: str
+            - conditions: List = [],
+            - procedures: List = [],
+            - drugs: List = [],
+            - labs: List = [],
+            - physicalExams: List = []
+        """
+        print (info)
 
 if __name__ == "__main__":
     from pyhealth.datasets import MIMIC3BaseDataset
