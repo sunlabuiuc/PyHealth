@@ -62,4 +62,9 @@ ICD['I50. 9'] # heart failure
 ICD.patient('I50. 9')
 ICD.siblings('I50. 9')
 ICD.children('I50. 9')
+
+from pyhealth.codemap import CrossMap
+NDC_to_RxNorm = CrossMap('NDC', 'RxNorm')
+NDC_to_RxNorm['76413-153-06'] # AZITHROMYCIN tablet
+>> ['68084027801', '59762306003']
 ```
