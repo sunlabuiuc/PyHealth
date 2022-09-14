@@ -197,7 +197,7 @@ class eICUBaseDataset(BaseDataset):
         elif type(code_ls) == type("string"):
             out_ls = code_ls.split(", ")
         else:
-            out_ls = list(code_ls)
+            out_ls = [code_ls]
         
         for code in out_ls:
             event_ls.append(Event(code, time))
