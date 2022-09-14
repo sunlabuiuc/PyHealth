@@ -5,3 +5,4 @@ from .modeling_GAMENet import GAMENet
 from .modeling_SafeDrug import SafeDrug
 from .modeling_BaseModel import BaseModel
 from .modeling_Med2Vec import Med2Vec
+from .modeling_CNN import CNN
