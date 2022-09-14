@@ -21,7 +21,7 @@ base_ds = MIMIC3BaseDataset(root="...", files=['conditions', ...])
 #### Step 2: Process for obtaining task-specific instance
 ```python
 from pyhealth.tasks import DrugRecDataset
-drug_rec_dataset = DrugRecDataset(base_dataset)
+drug_rec_ds = DrugRecDataset(base_ds)
 
 # task-specific artifacts for each downstream model
 voc_size = drug_rec_dataset.voc_size
