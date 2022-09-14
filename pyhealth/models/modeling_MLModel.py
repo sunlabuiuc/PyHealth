@@ -8,10 +8,10 @@ from sklearn.metrics import log_loss
 from sklearn.model_selection import KFold
 
 
-class BaseModel:
+class MLModel:
 
     def __init__(self, dataset, model, feature_mode=0):
-        super(BaseModel, self).__init__()
+        super(MLModel, self).__init__()
 
         self.dataset = dataset
         self.feature_mode = feature_mode
