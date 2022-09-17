@@ -11,6 +11,8 @@ from torch.utils.data.dataloader import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 import warnings
 
+from pyhealth.evaluator.evaluating_drug_recommendation import multi_label_metric
+
 
 class CNN:
     def __init__(self, dataset, model='resnet'):
@@ -198,18 +200,58 @@ class CNN:
                 self.trained_model = model
                 break
 
-    def eval(self, num_sample):
-        # Run inference on the test data
-        self.trained_model.eval()
-        sample = 0
-        for inputs, targets in self.train_dataloader:
-            sample += 1
-            with torch.no_grad():
-                raw_pred = self.trained_model(inputs).cpu().numpy()[0]
-                raw_pred = np.array(raw_pred > 0.5, dtype=float)
-                print(raw_pred)
-            if sample > num_sample:
-                break
+    # def eval(self, num_sample):
+    #     # Run inference on the test data
+    #     self.trained_model.eval()
+    #     sample = 0
+    #     for inputs, targets in self.train_dataloader:
+    #         sample += 1
+    #         with torch.no_grad():
+    #             raw_pred = self.trained_model(inputs).cpu().numpy()[0]
+    #             raw_pred = np.array(raw_pred > 0.5, dtype=float)
+    #             print(raw_pred)
+    #         if sample > num_sample:
+    #             break
+    def summary(self, test_dataloader=None, ckpt_path=None):
+        if self.trained_model is None:
+            n_classes = len(self.cnn_train[0][1])
+            model = self.CNNModel(self.model, n_classes)
+            model.load_state_dict(torch.load(ckpt_path))
+        else:
+            model = self.trained_model
+        model.eval()
+
+        ja, prauc, avg_p, avg_r, avg_f1 = [[] for _ in range(5)]
+        med_cnt, visit_cnt = 0, 0
+        smm_record = []
+
+        if test_dataloader is None:
+            test_dataloader = self.test_dataloader
+
+        with torch.no_grad():
+            for step, (X, y) in enumerate(test_dataloader):
+                y_gt, y_pred, y_pred_prob = [], [], []
+                y_gt = y.cpu().numpy()
+                y_pred_prob = model(X).cpu().numpy()
+                y_pred = np.array(y_pred_prob > 0.4, dtype=float)
+
+                adm_ja, adm_prauc, adm_avg_p, adm_avg_r, adm_avg_f1 = \
+                    multi_label_metric(np.array(y_gt), np.array(y_pred), np.array(y_pred_prob))
+
+                ja.append(adm_ja)
+                prauc.append(adm_prauc)
+                avg_p.append(adm_avg_p)
+                avg_r.append(adm_avg_r)
+                avg_f1.append(adm_avg_f1)
+
+        print('--- Test Summary ---')
+        print(
+            'Jaccard: {:.4}\nPRAUC: {:.4}\nAVG_PRC: {:.4}\nAVG_RECALL: {:.4}\nAVG_F1: {:.4}\nAVG_MED: {:.4}\n'.format(
+                np.mean(ja), np.mean(prauc), np.mean(avg_p), np.mean(avg_r), np.mean(avg_f1),
+                med_cnt / visit_cnt
+            ))
+
+
 
 
 def prepare_gpu(n_gpu_use):
@@ -224,7 +266,7 @@ def prepare_gpu(n_gpu_use):
     return device, list_ids
 
 
-def calculate_metrics(pred, target, threshold=0.5):
+def calculate_metrics(pred, target, threshold=0.4):
     pred = np.array(pred > threshold, dtype=float)
     return {'micro/precision': precision_score(y_true=target, y_pred=pred, average='micro'),
             'micro/recall': recall_score(y_true=target, y_pred=pred, average='micro'),
