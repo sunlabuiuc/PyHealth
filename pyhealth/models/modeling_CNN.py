@@ -29,6 +29,7 @@ class CNN:
         self.cnn_test = None
         self.test_dataloader = None
         self.train_dataloader = None
+        self.test_visit_cnt = 0
         for i in range(len(dataset)):
             item = dataset.__getitem__(i)
             if i <= idx:
@@ -65,19 +66,22 @@ class CNN:
             print('Features are in shapes of ', max_visits, '*', features)
 
             self.transform = transforms.Compose([
-                transforms.Resize((512, 512)),
+#                 transforms.Resize((512, 512)),
                 transforms.Normalize(0.00030047886384355915,
                                      0.017331721677190905)
             ])
 
             input_data_list = []
             label_list = []
+            self.test_visit_cnt = 0
+
             for i in tqdm(range(len(dataset))):
                 condition_procedure = np.zeros((max_visits, condition_voc + procedure_voc))
                 drug_multi_hot = np.zeros(drug_voc)
                 conditions_ = dataset[i]['conditions']
                 procedures_ = dataset[i]['procedures']
                 drugs_ = dataset[i]['drugs']
+                self.test_visit_cnt += len(conditions_)
 
                 # inputs
                 for j in range(len(conditions_)):
@@ -122,6 +126,7 @@ class CNN:
             self.cnn_train = self.CNNDrugRecDataSet(self.train_dataset, self.voc_size, self.max_visits)
             print('--------prepare testing data----------')
             self.cnn_test = self.CNNDrugRecDataSet(self.test_dataset, self.voc_size, self.max_visits)
+            self.test_visit_cnt = cnn_test.test_visit_cnt
         self.train_dataloader = DataLoader(self.cnn_train, batch_size=batch_size, shuffle=False, drop_last=True)
         self.test_dataloader = DataLoader(self.cnn_test, batch_size=batch_size, drop_last=True)
         num_train_batches = int(np.ceil(len(self.train_dataset) / batch_size))
@@ -189,6 +194,7 @@ class CNN:
                                                       result['samples/f1']))
 
                     model.train()
+                    
                 iteration += 1
 
             loss_value = np.mean(batch_losses)
@@ -196,6 +202,7 @@ class CNN:
             if (epoch % save_freq  == 0) and (save == True):
                 checkpoint_save(model, save_path, epoch)
             epoch += 1
+            self.trained_model = model
             if max_epoch < epoch:
                 self.trained_model = model
                 break
@@ -222,9 +229,8 @@ class CNN:
         model.eval()
 
         ja, prauc, avg_p, avg_r, avg_f1 = [[] for _ in range(5)]
-        med_cnt, visit_cnt = 0, 0
-        for i in range(len(drug_rec_dataset)):
-            visit_cnt += len(drug_rec_dataset[i]['conditions'])
+        med_cnt=0
+        
         smm_record = []
 
         if test_dataloader is None:
@@ -253,7 +259,7 @@ class CNN:
         print(
             'Jaccard: {:.4}\nPRAUC: {:.4}\nAVG_PRC: {:.4}\nAVG_RECALL: {:.4}\nAVG_F1: {:.4}\nAVG_MED: {:.4}\n'.format(
                 np.mean(ja), np.mean(prauc), np.mean(avg_p), np.mean(avg_r), np.mean(avg_f1),
-                med_cnt / visit_cnt
+                med_cnt / self.test_visit_cnt
             ))
 
 
