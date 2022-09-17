@@ -223,13 +223,15 @@ class CNN:
 
         ja, prauc, avg_p, avg_r, avg_f1 = [[] for _ in range(5)]
         med_cnt, visit_cnt = 0, 0
+        for i in range(len(drug_rec_dataset)):
+            visit_cnt += len(drug_rec_dataset[i]['conditions'])
         smm_record = []
 
         if test_dataloader is None:
             test_dataloader = self.test_dataloader
 
         with torch.no_grad():
-            for step, (X, y) in enumerate(test_dataloader):
+            for step, (X, y) in tqdm(enumerate(test_dataloader)):
                 y_gt, y_pred, y_pred_prob = [], [], []
                 y_gt = y.cpu().numpy()
                 y_pred_prob = model(X).cpu().numpy()
@@ -243,6 +245,9 @@ class CNN:
                 avg_p.append(adm_avg_p)
                 avg_r.append(adm_avg_r)
                 avg_f1.append(adm_avg_f1)
+                
+                y_pred_label_tmp = np.where(y_pred == 1)[0]
+                med_cnt += len(y_pred_label_tmp)
 
         print('--- Test Summary ---')
         print(
