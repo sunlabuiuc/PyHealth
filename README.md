@@ -69,3 +69,20 @@ NDC_to_RxNorm = CrossMap('NDC', 'RxNorm')
 NDC_to_RxNorm['76413-153-06']
 >> ['68084027801', '59762306003']
 ```
+
+### 3. Google Colab
+We also have an accessible Google Colab demo: [Link](https://colab.research.google.com/drive/1xFa5QvFfnfQqfbJe-XWPgTJotqVWV0kv#scrollTo=9-xyoGXuEZAN)
+- Some datasets are available on our google cloud storage: https://console.cloud.google.com/storage/browser/pyhealth
+
+For example, to read the file 'admissions.csv' as a dataframe, you can simply do as follows:
+
+```python
+import pandas as pd
+df_admissions = pd.read_csv("https://storage.googleapis.com/pyhealth/mimiciii-demo/1.4/ADMISSIONS.csv")
+```
+You can also set the storage path as the root to preprocess datasets:
+
+```python
+from pyhealth.datasets import MIMIC3BaseDataset
+base_dataset = MIMIC3BaseDataset(root="https://storage.googleapis.com/pyhealth/mimiciii-demo/1.4/")
+```
