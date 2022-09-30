@@ -44,8 +44,8 @@
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Documentation</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="api_cc.html">APIs</a></li>
-<li class="toctree-l1"><a class="reference internal" href="api.html">All Models</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_cc.html">Models</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">Tasks</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Additional Information</span></p>
 <ul>
@@ -79,6 +79,416 @@
              
   <section id="welcome-to-pyhealth-s-documentation">
 <h1>Welcome to PyHealth’s documentation!<a class="headerlink" href="#welcome-to-pyhealth-s-documentation" title="Permalink to this headline"></a></h1>
+<p><strong>Deployment &amp; Documentation &amp; Stats</strong></p>
+<a class="reference external image-reference" href="https://pypi.org/project/pyhealth/"><img alt="PyPI version" src="https://img.shields.io/pypi/v/pyhealth.svg?color=brightgreen" /></a>
+<a class="reference external image-reference" href="https://pyhealth.readthedocs.io/en/latest/?badge=latest"><img alt="Documentation status" src="https://readthedocs.org/projects/pyhealth/badge/?version=latest" /></a>
+<a class="reference external image-reference" href="https://mybinder.org/v2/gh/yzhao062/pyhealth/master"><img alt="MyBinder" src="https://mybinder.org/badge_logo.svg" /></a>
+<a class="reference external image-reference" href="https://github.com/yzhao062/pyhealth/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/yzhao062/pyhealth.svg" /></a>
+<a class="reference external image-reference" href="https://github.com/yzhao062/pyhealth/network"><img alt="GitHub forks" src="https://img.shields.io/github/forks/yzhao062/pyhealth.svg?color=blue" /></a>
+<a class="reference external image-reference" href="https://pepy.tech/project/pyhealth"><img alt="Downloads" src="https://pepy.tech/badge/pyhealth" /></a>
+<a class="reference external image-reference" href="https://pepy.tech/project/pyhealth"><img alt="Downloads" src="https://pepy.tech/badge/pyhealth/month" /></a>
+<hr class="docutils" />
+<p><strong>Build Status &amp; Coverage &amp; Maintainability &amp; License</strong></p>
+<a class="reference external image-reference" href="https://travis-ci.org/yzhao062/pyhealth"><img alt="Build Status" src="https://travis-ci.org/yzhao062/pyhealth.svg?branch=master" /></a>
+<a class="reference external image-reference" href="https://circleci.com/gh/yzhao062/PyHealth"><img alt="Circle CI" src="https://circleci.com/gh/yzhao062/PyHealth.svg?style=svg" /></a>
+<a class="reference external image-reference" href="https://ci.appveyor.com/project/yzhao062/pyhealth/branch/master"><img alt="Build status" src="https://ci.appveyor.com/api/projects/status/1kupdy87etks5n3r/branch/master?svg=true" /></a>
+<a class="reference external image-reference" href="https://codeclimate.com/github/yzhao062/pyhealth/maintainability"><img alt="Maintainability" src="https://api.codeclimate.com/v1/badges/bdc3d8d0454274c753c4/maintainability" /></a>
+<a class="reference external image-reference" href="https://github.com/yzhao062/pyhealth/blob/master/LICENSE"><img alt="License" src="https://img.shields.io/github/license/yzhao062/pyhealth" /></a>
+<hr class="docutils" />
+<a class="reference external image-reference" href="https://raw.githubusercontent.com/yzhao062/PyHealth/master/docs/images/logo.png"><img alt="PyHealth Logo" class="align-center" src="https://raw.githubusercontent.com/yzhao062/PyHealth/master/docs/images/logo.png" /></a>
+<p><strong>PyHealth</strong> is a comprehensive <strong>Python package</strong> for <strong>healthcare AI</strong>, designed for both <strong>ML researchers</strong> and <strong>healthcare and medical practitioners</strong>.
+<strong>PyHealth</strong> accepts diverse healthcare data such as longitudinal electronic health records (EHRs), continuous signials (ECG, EEG), and clinical notes (to be added), and supports various predictive modeling methods using deep learning and other advanced machine learning algorithms published in the literature.</p>
+<p>The library is proudly developed and maintained by researchers from <a class="reference external" href="https://illinois.edu/">University of Illinois at Urbana-Champaign</a> (current), <a class="reference external" href="https://www.cmu.edu/">Carnegie Mellon University</a> and <a class="reference external" href="https://www.iqvia.com/">IQVIA</a> (previously).
+PyHealth makes many important healthcare tasks become accessible, such as <strong>phenotyping prediction</strong>, <strong>mortality prediction</strong>,
+and <strong>ICU length stay forecasting</strong>, etc. Running these prediction tasks with deep learning models can be as short as 10 lines of code in PyHealth.</p>
+<p><strong>PyHealth comes with three major modules</strong>: (i) <em>data preprocessing module</em>; (ii) <em>learning module</em>
+and (iii) <em>evaluation module</em>. Typically, one can run the data prep module to prepare the data, then feed to the learning module for prediction, and finally assess
+the result with the evaluation module.
+Users can use the full system as mentioned or just selected modules based on the own need:</p>
+<ul class="simple">
+<li><p><strong>Deep learning researchers</strong> may directly use the processed data along with the proposed new models.</p></li>
+<li><p><strong>Medical personnel</strong>, may leverage our data preprocessing module to convert the medical data to the format that learning models could digest, and then perform the inference tasks to get insights from the data.</p></li>
+</ul>
+<p>PyHealth is featured for:</p>
+<ul class="simple">
+<li><p><strong>Unified APIs, detailed documentation, and interactive examples</strong> across various types of datasets and algorithms.</p></li>
+<li><p><strong>Advanced models</strong>, including <strong>latest deep learning models</strong> and <strong>classical machine learning models</strong>.</p></li>
+<li><p><strong>Wide coverage</strong>, supporting <strong>sequence data</strong>, <strong>image data</strong>, <strong>series data</strong> and <strong>text data</strong> like clinical notes.</p></li>
+<li><p><strong>Optimized performance with JIT and parallelization</strong> when possible, using <a class="reference external" href="https://github.com/numba/numba">numba</a> and <a class="reference external" href="https://github.com/joblib/joblib">joblib</a>.</p></li>
+<li><p><strong>Customizable modules and flexible design</strong>: each module may be turned on/off or totally replaced by custom functions. The trained models can be easily exported and reloaded for fast execution and deployment.</p></li>
+</ul>
+<p><strong>Demo for RETAIN on Drug Recommendation with GPU</strong>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># load Dataset and transform it to OMOP form</span>
+<span class="kn">from</span> <span class="nn">pyhealth.datasets</span> <span class="kn">import</span> <span class="n">MIMIC3BaseDataset</span>
+
+<span class="n">base_dataset</span> <span class="o">=</span> <span class="n">MIMIC3BaseDataset</span><span class="p">(</span><span class="n">root</span><span class="o">=</span><span class="s2">&quot;/srv/local/data/physionet.org/files/mimiciii/1.4&quot;</span><span class="p">)</span>
+
+<span class="c1"># create task-specific dataset</span>
+<span class="kn">from</span> <span class="nn">pyhealth.tasks</span> <span class="kn">import</span> <span class="n">DrugRecDataset</span>
+<span class="n">drug_rec_dataset</span> <span class="o">=</span> <span class="n">DrugRecDataset</span><span class="p">(</span><span class="n">base_dataset</span><span class="p">)</span>
+
+<span class="n">voc_size</span> <span class="o">=</span> <span class="n">drug_rec_dataset</span><span class="o">.</span><span class="n">voc_size</span>
+<span class="n">params</span> <span class="o">=</span> <span class="n">drug_rec_dataset</span><span class="o">.</span><span class="n">params</span>
+
+<span class="c1"># select model</span>
+<span class="kn">from</span> <span class="nn">pyhealth.models</span> <span class="kn">import</span> <span class="n">RETAIN</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">RETAIN</span><span class="p">(</span><span class="n">voc_size</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span>
+
+<span class="c1"># create dataloader</span>
+<span class="kn">from</span> <span class="nn">pyhealth.data</span> <span class="kn">import</span> <span class="n">split</span>
+<span class="kn">from</span> <span class="nn">torch.utils.data</span> <span class="kn">import</span> <span class="n">DataLoader</span>
+
+<span class="n">drug_rec_trainset</span><span class="p">,</span> <span class="n">drug_rec_valset</span><span class="p">,</span> <span class="n">drug_rec_testset</span> <span class="o">=</span> <span class="n">split</span><span class="o">.</span><span class="n">random_split</span><span class="p">(</span><span class="n">drug_rec_dataset</span><span class="p">,</span> <span class="p">[</span><span class="mf">0.8</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">])</span>
+<span class="n">drug_rec_train_loader</span> <span class="o">=</span> <span class="n">DataLoader</span><span class="p">(</span><span class="n">drug_rec_trainset</span><span class="p">,</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">collate_fn</span><span class="o">=</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+<span class="n">drug_rec_val_loader</span> <span class="o">=</span> <span class="n">DataLoader</span><span class="p">(</span><span class="n">drug_rec_valset</span><span class="p">,</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">collate_fn</span><span class="o">=</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+<span class="n">drug_rec_test_loader</span> <span class="o">=</span> <span class="n">DataLoader</span><span class="p">(</span><span class="n">drug_rec_testset</span><span class="p">,</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">collate_fn</span><span class="o">=</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+
+<span class="c1"># train</span>
+<span class="kn">from</span> <span class="nn">pytorch_lightning</span> <span class="kn">import</span> <span class="n">Trainer</span>
+
+<span class="n">trainer</span> <span class="o">=</span> <span class="n">Trainer</span><span class="p">(</span>
+    <span class="n">gpus</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">max_epochs</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+    <span class="n">progress_bar_refresh_rate</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">trainer</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span>
+    <span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span>
+    <span class="n">train_dataloaders</span><span class="o">=</span><span class="n">drug_rec_train_loader</span><span class="p">,</span>
+    <span class="n">val_dataloaders</span><span class="o">=</span><span class="n">drug_rec_val_loader</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># evaluation</span>
+<span class="kn">from</span> <span class="nn">pyhealth.evaluator</span> <span class="kn">import</span> <span class="n">DrugRecEvaluator</span>
+<span class="n">evaluator</span> <span class="o">=</span> <span class="n">DrugRecEvaluator</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+<span class="n">evaluator</span><span class="o">.</span><span class="n">evaluate</span><span class="p">(</span><span class="n">drug_rec_test_loader</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Citing PyHealth</strong>:</p>
+<p><a class="reference external" href="https://arxiv.org/abs/2101.04209">PyHealth paper</a> is under review at
+<a class="reference external" href="http://www.jmlr.org/">JMLR</a> (machine learning open-source software track).
+If you use PyHealth in a scientific publication, we would appreciate
+citations to the following paper:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="nd">@article</span><span class="p">{</span><span class="n">zhao2021pyhealth</span><span class="p">,</span>
+  <span class="n">title</span><span class="o">=</span><span class="p">{</span><span class="n">PyHealth</span><span class="p">:</span> <span class="n">A</span> <span class="n">Python</span> <span class="n">Library</span> <span class="k">for</span> <span class="n">Health</span> <span class="n">Predictive</span> <span class="n">Models</span><span class="p">},</span>
+  <span class="n">author</span><span class="o">=</span><span class="p">{</span><span class="n">Zhao</span><span class="p">,</span> <span class="n">Yue</span> <span class="ow">and</span> <span class="n">Qiao</span><span class="p">,</span> <span class="n">Zhi</span> <span class="ow">and</span> <span class="n">Xiao</span><span class="p">,</span> <span class="n">Cao</span> <span class="ow">and</span> <span class="n">Glass</span><span class="p">,</span> <span class="n">Lucas</span> <span class="ow">and</span> <span class="n">Sun</span><span class="p">,</span> <span class="n">Jimeng</span><span class="p">},</span>
+  <span class="n">journal</span><span class="o">=</span><span class="p">{</span><span class="n">arXiv</span> <span class="n">preprint</span> <span class="n">arXiv</span><span class="p">:</span><span class="mf">2101.04209</span><span class="p">},</span>
+  <span class="n">year</span><span class="o">=</span><span class="p">{</span><span class="mi">2021</span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>or:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">Zhao</span><span class="p">,</span> <span class="n">Y</span><span class="o">.</span><span class="p">,</span> <span class="n">Qiao</span><span class="p">,</span> <span class="n">Z</span><span class="o">.</span><span class="p">,</span> <span class="n">Xiao</span><span class="p">,</span> <span class="n">C</span><span class="o">.</span><span class="p">,</span> <span class="n">Glass</span><span class="p">,</span> <span class="n">L</span><span class="o">.</span> <span class="ow">and</span> <span class="n">Sun</span><span class="p">,</span> <span class="n">J</span><span class="o">.</span><span class="p">,</span> <span class="mf">2021.</span> <span class="n">PyHealth</span><span class="p">:</span> <span class="n">A</span> <span class="n">Python</span> <span class="n">Library</span> <span class="k">for</span> <span class="n">Health</span> <span class="n">Predictive</span> <span class="n">Models</span><span class="o">.</span> <span class="n">arXiv</span> <span class="n">preprint</span> <span class="n">arXiv</span><span class="p">:</span><span class="mf">2101.04209</span><span class="o">.</span>
+</pre></div>
+</div>
+<p><strong>Key Links and Resources</strong>:</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/yzhao062/pyhealth">View the latest codes on Github</a></p></li>
+<li><p><a class="reference external" href="https://mybinder.org/v2/gh/yzhao062/pyhealth/master">Execute Interactive Jupyter Notebooks</a></p></li>
+<li><p><a class="reference external" href="https://github.com/yzhao062/pyhealth">Check out the PyHealth paper</a></p></li>
+</ul>
+<hr class="docutils" />
+<section id="preprocessed-datasets-implemented-algorithms">
+<h2>Preprocessed Datasets &amp; Implemented Algorithms<a class="headerlink" href="#preprocessed-datasets-implemented-algorithms" title="Permalink to this headline"></a></h2>
+<p><strong>(i) Preprocessed Datasets</strong> (customized data preprocessing function is provided in the example folders):</p>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 7%" />
+<col style="width: 5%" />
+<col style="width: 34%" />
+<col style="width: 18%" />
+<col style="width: 37%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Type</p></th>
+<th class="head"><p>Abbr</p></th>
+<th class="head"><p>Description</p></th>
+<th class="head"><p>Processed Function</p></th>
+<th class="head"><p>Link</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Sequence: EHR-ICU</p></td>
+<td><p>MIMIC III</p></td>
+<td><p>A relational database containing tables of data relating to patients who stayed within ICU.</p></td>
+<td><p>\examples\data_generation\dataloader_mimic</p></td>
+<td><p><a class="reference external" href="https://mimic.physionet.org/gettingstarted/overview/">https://mimic.physionet.org/gettingstarted/overview/</a></p></td>
+</tr>
+<tr class="row-odd"><td><p>Sequence: EHR-ICU</p></td>
+<td><p>MIMIC_demo</p></td>
+<td><p>The MIMIC-III demo database is limited to 100 patients and excludes the noteevents table.</p></td>
+<td><p>\examples\data_generation\dataloader_mimic_demo</p></td>
+<td><p><a class="reference external" href="https://mimic.physionet.org/gettingstarted/demo/">https://mimic.physionet.org/gettingstarted/demo/</a></p></td>
+</tr>
+<tr class="row-even"><td><p>Sequence: EHU-Claim</p></td>
+<td><p>CMS</p></td>
+<td><p>DE-SynPUF: CMS 2008-2010 Data Entrepreneurs Synthetic Public Use File</p></td>
+<td><p>\examples\data_generation\dataloader_cms</p></td>
+<td><p><a class="reference external" href="https://www.cms.gov/Research-Statistics-Data-and-Systems/Downloadable-Public-Use-Files/SynPUFs">https://www.cms.gov/Research-Statistics-Data-and-Systems/Downloadable-Public-Use-Files/SynPUFs</a></p></td>
+</tr>
+<tr class="row-odd"><td><p>Image: Chest X-ray</p></td>
+<td><p>Pediatric</p></td>
+<td><p>Pediatric Chest X-ray Pneumonia (Bacterial vs Viral vs Normal) Dataset</p></td>
+<td><p>N/A</p></td>
+<td><p><a class="reference external" href="https://academictorrents.com/details/951f829a8eeb4d2839c4a535db95078a9175010b">https://academictorrents.com/details/951f829a8eeb4d2839c4a535db95078a9175010b</a></p></td>
+</tr>
+<tr class="row-even"><td><p>Series: ECG</p></td>
+<td><p>PhysioNet</p></td>
+<td><p>AF Classification from a short single lead ECG recording Dataset.</p></td>
+<td><p>N/A</p></td>
+<td><p><a class="reference external" href="https://archive.physionet.org/challenge/2017/#challenge-data">https://archive.physionet.org/challenge/2017/#challenge-data</a></p></td>
+</tr>
+</tbody>
+</table>
+<p>You may download the above datasets at the links. The structure of the generated datasets can be found in datasets folder:</p>
+<ul class="simple">
+<li><p>\datasets\cms\x_data\…csv</p></li>
+<li><p>\datasets\cms\y_data\phenotyping.csv</p></li>
+<li><p>\datasets\cms\y_data\mortality.csv</p></li>
+</ul>
+<p>The processed datasets (X,y) should be put in x_data, y_data correspondingly, to be appropriately digested by deep learning models. We include some sample datasets under \datasets folder.</p>
+<p><strong>(ii) Machine Learning and Deep Learning Models</strong> :</p>
+<p><strong>For sequence data</strong>:</p>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 8%" />
+<col style="width: 7%" />
+<col style="width: 25%" />
+<col style="width: 42%" />
+<col style="width: 2%" />
+<col style="width: 17%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Type</p></th>
+<th class="head"><p>Abbr</p></th>
+<th class="head"><p>Class</p></th>
+<th class="head"><p>Algorithm</p></th>
+<th class="head"><p>Year</p></th>
+<th class="head"><p>Ref</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Classical Models</p></td>
+<td><p>RandomForest</p></td>
+<td><p><code class="xref py py-class docutils literal notranslate"><span class="pre">pyhealth.models.sequence.rf.RandomForest</span></code></p></td>
+<td><p>Random forests</p></td>
+<td><p>2000</p></td>
+<td><p><a href="#id1"><span class="problematic" id="id2">:cite:`a-breiman2001random`</span></a></p></td>
+</tr>
+<tr class="row-odd"><td><p>Classical Models</p></td>
+<td><p>XGBoost</p></td>
+<td><p><code class="xref py py-class docutils literal notranslate"><span class="pre">pyhealth.models.sequence.xgboost.XGBoost</span></code></p></td>
+<td><p>XGBoost: A scalable tree boosting system</p></td>
+<td><p>2016</p></td>
+<td><p><a href="#id15"><span class="problematic" id="id3">[#Chen2016Xgboost]_</span></a></p></td>
+</tr>
+<tr class="row-even"><td><p>Neural Networks</p></td>
+<td><p>LSTM</p></td>
+<td><p><code class="xref py py-class docutils literal notranslate"><span class="pre">pyhealth.models.sequence.lstm.LSTM</span></code></p></td>
+<td><p>Long short-term memory</p></td>
+<td><p>1997</p></td>
+<td><p><a href="#id16"><span class="problematic" id="id4">[#Hochreiter1997Long]_</span></a></p></td>
+</tr>
+<tr class="row-odd"><td><p>Neural Networks</p></td>
+<td><p>GRU</p></td>
+<td><p><code class="xref py py-class docutils literal notranslate"><span class="pre">pyhealth.models.sequence.gru.GRU</span></code></p></td>
+<td><p>Gated recurrent unit</p></td>
+<td><p>2014</p></td>
+<td><p><a href="#id17"><span class="problematic" id="id5">[#Cho2014Learning]_</span></a></p></td>
+</tr>
+<tr class="row-even"><td><p>Neural Networks</p></td>
+<td><p>RETAIN</p></td>
+<td><p><code class="xref py py-class docutils literal notranslate"><span class="pre">pyhealth.models.sequence.retain.RetainAttention</span></code></p></td>
+<td><p>RETAIN: An Interpretable Predictive Model for Healthcare using Reverse Time Attention Mechanism</p></td>
+<td><p>2016</p></td>
+<td><p><a href="#id18"><span class="problematic" id="id6">[#Choi2016RETAIN]_</span></a></p></td>
+</tr>
+<tr class="row-odd"><td><p>Neural Networks</p></td>
+<td><p>Dipole</p></td>
+<td><p><code class="xref py py-class docutils literal notranslate"><span class="pre">pyhealth.models.sequence.dipole.Dipole</span></code></p></td>
+<td><p>Dipole: Diagnosis Prediction in Healthcare via Attention-based Bidirectional Recurrent Neural Networks</p></td>
+<td><p>2017</p></td>
+<td><p><a href="#id19"><span class="problematic" id="id7">[#Ma2017Dipole]_</span></a></p></td>
+</tr>
+<tr class="row-even"><td><p>Neural Networks</p></td>
+<td><p>tLSTM</p></td>
+<td><p><code class="xref py py-class docutils literal notranslate"><span class="pre">pyhealth.models.sequence.tlstm.tLSTM</span></code></p></td>
+<td><p>Patient Subtyping via Time-Aware LSTM Networks</p></td>
+<td><p>2017</p></td>
+<td><p><a href="#id20"><span class="problematic" id="id8">[#Baytas2017tLSTM]_</span></a></p></td>
+</tr>
+<tr class="row-odd"><td><p>Neural Networks</p></td>
+<td><p>RAIM</p></td>
+<td><p><code class="xref py py-class docutils literal notranslate"><span class="pre">pyhealth.models.sequence.raim.RAIM</span></code></p></td>
+<td><p>RAIM: Recurrent Attentive and Intensive Model of Multimodal Patient Monitoring Data</p></td>
+<td><p>2018</p></td>
+<td><p><a href="#id21"><span class="problematic" id="id9">[#Xu2018RAIM]_</span></a></p></td>
+</tr>
+<tr class="row-even"><td><p>Neural Networks</p></td>
+<td><p>StageNet</p></td>
+<td><p><code class="xref py py-class docutils literal notranslate"><span class="pre">pyhealth.models.sequence.stagenet.StageNet</span></code></p></td>
+<td><p>StageNet: Stage-Aware Neural Networks for Health Risk Prediction</p></td>
+<td><p>2020</p></td>
+<td><p><a href="#id22"><span class="problematic" id="id10">[#Gao2020StageNet]_</span></a></p></td>
+</tr>
+</tbody>
+</table>
+<p><strong>For image data</strong>:</p>
+<p><strong>For ecg/egg data</strong>:</p>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 8%" />
+<col style="width: 7%" />
+<col style="width: 18%" />
+<col style="width: 46%" />
+<col style="width: 2%" />
+<col style="width: 18%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Type</p></th>
+<th class="head"><p>Abbr</p></th>
+<th class="head"><p>Class</p></th>
+<th class="head"><p>Algorithm</p></th>
+<th class="head"><p>Year</p></th>
+<th class="head"><p>Ref</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Classical Models</p></td>
+<td><p>RandomForest</p></td>
+<td><p>pyhealth.models.ecg.rf</p></td>
+<td><p>Random Forests</p></td>
+<td><p>2000</p></td>
+<td><p><a href="#id23"><span class="problematic" id="id11">[#Breiman2001Random]_</span></a></p></td>
+</tr>
+<tr class="row-odd"><td><p>Classical Models</p></td>
+<td><p>XGBoost</p></td>
+<td><p>pyhealth.models.ecg.xgboost</p></td>
+<td><p>XGBoost: A scalable tree boosting system</p></td>
+<td><p>2016</p></td>
+<td><p><a href="#id24"><span class="problematic" id="id12">[#Chen2016Xgboost]_</span></a></p></td>
+</tr>
+<tr class="row-even"><td><p>Neural Networks</p></td>
+<td><p>BasicCNN1D</p></td>
+<td><p>pyhealth.models.ecg.conv1d</p></td>
+<td><p>Face recognition: A convolutional neural-network approach</p></td>
+<td><p>1997</p></td>
+<td><p><a href="#id25"><span class="problematic" id="id13">[#Lawrence1997Face]_</span></a></p></td>
+</tr>
+<tr class="row-odd"><td><p>Neural Networks</p></td>
+<td><p>DBLSTM-WS</p></td>
+<td><p>pyhealth.models.ecg.dblstm_ws</p></td>
+<td><p>A novel wavelet sequence based on deep bidirectional LSTM network model for ECG signal classification</p></td>
+<td><p>2018</p></td>
+<td></td>
+</tr>
+<tr class="row-even"><td><p>Neural Networks</p></td>
+<td><p>DeepRes1D</p></td>
+<td><p>pyhealth.models.ecg.deepres1d</p></td>
+<td><p>Heartbeat classification using deep residual convolutional neural network from 2-lead electrocardiogram</p></td>
+<td><p>2019</p></td>
+<td></td>
+</tr>
+<tr class="row-odd"><td><p>Neural Networks</p></td>
+<td><p>AE+BiLSTM</p></td>
+<td><p>pyhealth.models.ecg.sdaelstm</p></td>
+<td><p>Automatic Classification of CAD ECG Signals With SDAE and Bidirectional Long Short-Term Network</p></td>
+<td><p>2019</p></td>
+<td></td>
+</tr>
+<tr class="row-even"><td><p>Neural Networks</p></td>
+<td><p>KRCRnet</p></td>
+<td><p>pyhealth.models.ecg.rcrnet</p></td>
+<td><p>K-margin-based Residual-Convolution-Recurrent Neural Network for Atrial Fibrillation Detection</p></td>
+<td><p>2019</p></td>
+<td></td>
+</tr>
+<tr class="row-odd"><td><p>Neural Networks</p></td>
+<td><p>MINA</p></td>
+<td><p>pyhealth.models.ecg.mina</p></td>
+<td><p>MINA: Multilevel Knowledge-Guided Attention for Modeling Electrocardiography Signals</p></td>
+<td><p>2019</p></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>Examples of running ML and DL models can be found below, or directly at \examples\learning_examples\</p>
+<p><strong>(iii) Evaluation Metrics</strong> :</p>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 12%" />
+<col style="width: 12%" />
+<col style="width: 52%" />
+<col style="width: 24%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Type</p></th>
+<th class="head"><p>Abbr</p></th>
+<th class="head"><p>Metric</p></th>
+<th class="head"><p>Method</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Binary Classification</p></td>
+<td><p>average_precision_score</p></td>
+<td><p>Compute micro/macro average precision (AP) from prediction scores</p></td>
+<td><p>pyhealth.evaluation.xxx.get_avg_results</p></td>
+</tr>
+<tr class="row-odd"><td><p>Binary Classification</p></td>
+<td><p>roc_auc_score</p></td>
+<td><p>Compute micro/macro ROC AUC score from prediction scores</p></td>
+<td><p>pyhealth.evaluation.xxx.get_avg_results</p></td>
+</tr>
+<tr class="row-even"><td><p>Binary Classification</p></td>
+<td><p>recall, precision, f1</p></td>
+<td><p>Get recall, precision, and f1 values</p></td>
+<td><p>pyhealth.evaluation.xxx.get_predict_results</p></td>
+</tr>
+<tr class="row-odd"><td><p>Multi Classification</p></td>
+<td><p>To be done here</p></td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p><strong>(iv) Supported Tasks</strong>:</p>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 11%" />
+<col style="width: 11%" />
+<col style="width: 50%" />
+<col style="width: 28%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Type</p></th>
+<th class="head"><p>Abbr</p></th>
+<th class="head"><p>Description</p></th>
+<th class="head"><p>Method</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Multi-classification</p></td>
+<td><p>phenotyping</p></td>
+<td><p>Predict the diagnosis code of a patient based on other information, e.g., procedures</p></td>
+<td><p>\examples\data_generation\generate_phenotyping_xxx.py</p></td>
+</tr>
+<tr class="row-odd"><td><p>Binary Classification</p></td>
+<td><p>mortality prediction</p></td>
+<td><p>Predict whether a patient may pass away during the hospital</p></td>
+<td><p>\examples\data_generation\generate_mortality_xxx.py</p></td>
+</tr>
+<tr class="row-even"><td><p>Regression</p></td>
+<td><p>ICU stay length pred</p></td>
+<td><p>Forecast the length of an ICU stay</p></td>
+<td><p>\examples\data_generation\generate_icu_length_xxx.py</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="algorithm-benchmark">
+<h2>Algorithm Benchmark<a class="headerlink" href="#algorithm-benchmark" title="Permalink to this headline"></a></h2>
+<p><strong>The comparison among of implemented models</strong> will be made available later
+with a benchmark paper. TBA soon :)</p>
 <hr class="docutils" />
 <div class="toctree-wrapper compound">
 </div>
@@ -88,6 +498,7 @@
 </div>
 <hr class="docutils" />
 <p class="rubric">References</p>
+</section>
 </section>
 <section id="indices-and-tables">
 <h1>Indices and tables<a class="headerlink" href="#indices-and-tables" title="Permalink to this headline"></a></h1>

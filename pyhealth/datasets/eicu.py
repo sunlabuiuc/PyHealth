@@ -2,119 +2,210 @@ import os
 from pathlib import Path
 import numpy as np
 import pandas as pd
-# import sys
-# sys.path.append('/home/chaoqiy2/github/PyHealth-OMOP')
+import sys
+sys.path.append('/home/chaoqiy2/github/PyHealth-OMOP')
 
-from pyhealth.data import Visit, Patient, BaseDataset
+from pyhealth.data import Event, Visit, Patient, BaseDataset
 from pyhealth.utils import create_directory, pickle_dump, pickle_load
-
+from tqdm import tqdm
 
 class eICUBaseDataset(BaseDataset):
-    """ Base dataset for eICU """
+    """ Base dataset for eICU 
+        1. it contains a superset of information used for all relevant tasks
+        2. it will be inputted into a task module for further data cleaning
+    """
 
-    def __init__(self, root):
+    def __init__(self, root, files=['conditions', 'procedures', 'drugs']):
+        """
+        INPUT
+            - root: root directory of the dataset
+            - files: list of files to be parsed (no order), i.e., conditions, procedures, drugs, labs, physicalExams
+        OUTPUT
+            - patients: a <pyhealth.data.Patient> object
+        """
         self.root = root
+        self.files = files
+        self.all_support_files = ['conditions', 'procedures', 'drugs', 'labs', 'physicalExams']
+
         if not os.path.exists(os.path.join(str(Path.home()), ".cache/pyhealth/eicu.data")):
-            patients_df, unique_visits = self.parse_patients()
-            diagnosis_df, diagnosis_dict = self.parse_diagnosis(unique_visits)
-            # lab_df, lab_dict = self.parse_lab(unique_visits)
-            medication_df, medication_dict = self.parse_medication(unique_visits)
-            treatment_df, treatment_dict = self.parse_treatment(unique_visits)
-            # physicalExam_df, physicalExam_dict = self.parse_physicalExam(unique_visits)
-            patients = self.merge_data(
-                patients_df,
-                diagnosis_dict,
-            #    lab_dict,
-                medication_dict,
-                treatment_dict,
-                # physicalExam_dict,
-            )
+            # get visit-level static features
+            visits = self.parse_patients()
+            patients = {}
+
+            print ("structured all patients and visits")
+            # process based on self.files
+            if 'conditions' in self.files:
+                self.parse_diagnosis(visits, patients)
+                print ("processed conditions")
+            if 'procedures' in self.files:
+                self.parse_treatment(visits, patients)
+                print ("processed procedures")
+            if 'drugs' in self.files:
+                self.parse_medication(visits, patients)
+                print ("processed drugs")
+            if 'labs' in self.files:
+                self.parse_lab(visits, patients)
+                print ("processed labs")
+            if 'physicalExams' in self.files:
+                self.parse_physicalExam(visits, patients)
+                print ("processed physicalExams")
+
+            # save to cache
             create_directory(os.path.join(str(Path.home()), ".cache/pyhealth"))
             pickle_dump(patients, os.path.join(str(Path.home()), ".cache/pyhealth/eicu.data"))
         else:
             patients = pickle_load(os.path.join(str(Path.home()), ".cache/pyhealth/eicu.data"))
         super(eICUBaseDataset, self).__init__(dataset_name="eICU", patients=patients)
 
-    def _solve_nested_list(self, ls):
-        out_ls = []
-        for item in ls:
-            if type(item) == type("string"):
-                out_ls += item.split(', ')
-        return out_ls
+
     def parse_patients(self):
+        """ func to parse patient table """
         patients_df = pd.read_csv(os.path.join(self.root, "patient.csv"))
-        unique_visits = patients_df.patientunitstayid.unique()
-        return patients_df, unique_visits
+        visits = {}
+        for patient_id, patient_info in tqdm(patients_df.groupby("uniquepid")):
+            for visit_id, visit_info in patient_info.groupby("patientunitstayid"):
+                # visit statistics
+                encounter_time = float(visit_info["hospitaladmitoffset"].values[0])
+                duration = float(visit_info["unitdischargeoffset"].values[0])
+                mortality = visit_info['unitdischargestatus'].values[0] == "Expire"                
+                cur_visit = Visit(
+                    visit_id, 
+                    patient_id,
+                    encounter_time,
+                    duration,
+                    mortality,
+                )
+                visits[visit_id] = cur_visit
+        return visits
 
-    def parse_diagnosis(self, unique_visits):
+    def parse_diagnosis(self, visits, patients):
+        """ func to parse diagnosis table """
         diagnosis_df = pd.read_csv(os.path.join(self.root, "diagnosis.csv"))
-        diagnosis_dict = dict.fromkeys(unique_visits)
-        for stay_id, content in diagnosis_df.groupby("patientunitstayid"):
-            diagnosis_dict[stay_id] = np.unique(self._solve_nested_list(content["icd9code"].tolist()))
-        return diagnosis_df, diagnosis_dict
-    
-    def parse_lab(self, unique_visits):
-        lab_df = pd.read_csv(os.path.join(self.root, "lab.csv"))
-        lab_dict = dict.fromkeys(unique_visits)
-        for stay_id, content in lab_df.groupby("patientunitstayid"):
-            lab_dict[stay_id] = np.unique(self._solve_nested_list(content["labname"].tolist()))
-        return lab_df, lab_dict
+        for visit_id, visit_info in tqdm(diagnosis_df.groupby("patientunitstayid")):
+            if visit_id not in visits: continue
 
-    def parse_medication(self, unique_visits):
-        medication_df = pd.read_csv(os.path.join(self.root, "medication.csv"))
-        medication_dict = dict.fromkeys(unique_visits)
-        for stay_id, content in medication_df.groupby("patientunitstayid"):
-            medication_dict[stay_id] = np.unique(self._solve_nested_list(content["drugname"].tolist()))
-        return medication_df, medication_dict
+            # load diagnosis with time info
+            cur_diagnosis = []
+            for code, time in visit_info[["icd9code", "diagnosisoffset"]].values:
+                cur_diagnosis += self.process_nested_code(code, time)
+                
+            if len(cur_diagnosis) == 0: continue
+            # add diagnosis to patients dict
+            patient_id = visits[visit_id].patient_id
+            if patient_id not in patients: # register patient if not exist
+                patients[patient_id] = Patient(patient_id)
+            if visit_id not in patients[patient_id].visits: # register visit if not exist
+                visits[visit_id].conditions = cur_diagnosis
+                patients[patient_id].visits[visit_id] = visits[visit_id]
+            else:
+                patients[patient_id].visits[visit_id].conditions = cur_diagnosis
 
-    def parse_treatment(self, unique_visits):
+    def parse_lab(self, visits, patients):
+        """ func to parse lab table """
+        lab_df = pd.read_csv(os.path.join(self.root, "lab.csv")).iloc[:5000]
+        for visit_id, visit_info in tqdm(lab_df.groupby("patientunitstayid")):
+            if visit_id not in visits: continue
+
+            # load lab with time info
+            cur_lab = []
+            for code, time in visit_info[["labname", "labresultoffset"]].values:
+                cur_lab += self.process_nested_code(code, time)
+            
+            if len(cur_lab) == 0: continue
+            # add labs to patients dict
+            patient_id = visits[visit_id].patient_id
+            if patient_id not in patients: # register patient if not exist
+                patients[patient_id] = Patient(patient_id)
+            if visit_id not in patients[patient_id].visits: # register visit if not exist
+                visits[visit_id].labs = cur_lab
+                patients[patient_id].visits[visit_id] = visits[visit_id]
+            else:
+                patients[patient_id].visits[visit_id].labs = cur_lab
+
+        
+    def parse_medication(self, visits, patients):
+        """ func to parse medication table """
+        medication_df = pd.read_csv(os.path.join(self.root, "medication.csv"), low_memory=False)
+        for visit_id, visit_info in tqdm(medication_df.groupby("patientunitstayid")):
+            if visit_id not in visits: continue
+            
+            # load drugs with time info
+            cur_medication = []
+            for code, time in visit_info[["drugname", "drugstartoffset"]].values:
+                cur_medication += self.process_nested_code(code, time)
+            
+            if len(cur_medication) == 0: continue
+            # add medication to patients dict
+            patient_id = visits[visit_id].patient_id
+            if patient_id not in patients: # register patient if not exist
+                patients[patient_id] = Patient(patient_id)
+            if visit_id not in patients[patient_id].visits: # register visit if not exist
+                visits[visit_id].drugs = cur_medication
+                patients[patient_id].visits[visit_id] = visits[visit_id]
+            else:
+                patients[patient_id].visits[visit_id].drugs = cur_medication
+
+    def parse_treatment(self, visits, patients):
+        """ func to parse treatment table """
         treatment_df = pd.read_csv(os.path.join(self.root, "treatment.csv"))
-        treatment_dict = dict.fromkeys(unique_visits)
-        for stay_id, content in treatment_df.groupby("patientunitstayid"):
-            treatment_dict[stay_id] = np.unique(self._solve_nested_list(content["treatmentstring"].tolist()))
-        return treatment_df, treatment_dict
+        for visit_id, visit_info in tqdm(treatment_df.groupby("patientunitstayid")):
+            if visit_id not in visits: continue
+            
+            # load procedures with time info
+            cur_treatment = [] 
+            for code, time in visit_info[["treatmentstring", "treatmentoffset"]].values:
+                cur_treatment += self.process_nested_code(code, time)
+            
+            if len(cur_treatment) == 0: continue
+            # add medication to patients dict
+            patient_id = visits[visit_id].patient_id
+            if patient_id not in patients: # register patient if not exist
+                patients[patient_id] = Patient(patient_id)
+            if visit_id not in patients[patient_id].visits: # register visit if not exist
+                visits[visit_id].procedures = cur_treatment
+                patients[patient_id].visits[visit_id] = visits[visit_id]
+            else:
+                patients[patient_id].visits[visit_id].procedures = cur_treatment
 
-    def parse_physicalExam(self, unique_visits):
+    def parse_physicalExam(self, visits, patients):
+        """ func to parse physicalExam table """
         physicalExam_df = pd.read_csv(os.path.join(self.root, "physicalExam.csv"))
-        physicalExam_dict = dict.fromkeys(unique_visits)
-        for stay_id, content in physicalExam_df.groupby("patientunitstayid"):
-            physicalExam_dict[stay_id] = np.unique(self._solve_nested_list(content["physicalExamPath"].tolist()))
-        return physicalExam_df, physicalExam_dict
+        for visit_id, visit_info in tqdm(physicalExam_df.groupby("patientunitstayid")):
+            if visit_id not in visits: continue
+            
+            # load physicalExam with time info
+            cur_physicalExam = []
+            for code, time in visit_info[["physicalexampath", "physicalexamoffset"]].values:
+                cur_physicalExam += self.process_nested_code(code, time)
+            
+            if len(cur_physicalExam) == 0: continue
+            # add medication to patients dict
+            patient_id = visits[visit_id].patient_id
+            if patient_id not in patients: # register patient if not exist
+                patients[patient_id] = Patient(patient_id)
+            if visit_id not in patients[patient_id].visits: # register visit if not exist
+                visits[visit_id].physicalExams = cur_physicalExam
+                patients[patient_id].visits[visit_id] = visits[visit_id]
+            else:
+                patients[patient_id].visits[visit_id].physicalExams = cur_physicalExam
 
     @staticmethod
-    def merge_data(
-        patients_df,
-        diagnosis_dict,
-        # lab_dict,
-        medication_dict,
-        treatment_dict,
-        # physicalExam_dict
-    ):
-        """
-        conditions: diagnosis 
-        procedures: treatment
-        drugs: medications
-        """
-        patients = []
-        # enumerate patients
-        for patient_id, p_content in patients_df.groupby("uniquepid"):
-            visits = []
-            # enumerate visits
-            for visit_id in p_content.patientunitstayid.tolist():
-                if (visit_id in diagnosis_dict) and (visit_id in medication_dict) and (visit_id in treatment_dict):
-                    visit = Visit(visit_id=visit_id,
-                            patient_id=patient_id,
-                            conditions=diagnosis_dict[visit_id],
-                            procedures=treatment_dict[visit_id],
-                            drugs=medication_dict[visit_id])
-                    visits.append(visit)
-            patient = Patient(patient_id=patient_id, visits=visits)
-            patients.append(patient)
-        return patients
+    def process_nested_code(code_ls, time):
+        event_ls = []
+        if code_ls != code_ls:
+            return event_ls
+        elif type(code_ls) == type("string"):
+            out_ls = code_ls.split(", ")
+        else:
+            out_ls = [code_ls]
+        
+        for code in out_ls:
+            event_ls.append(Event(code, time))
+        return event_ls
 
 
 if __name__ == "__main__":
-    base_dataset = eICUBaseDataset(root="/srv/local/data/physionet.org/files/eicu-crd/2.0")
-    print(base_dataset)
-    print(type(base_dataset))
-    print(len(base_dataset))
+    dataset = eICUBaseDataset(root="/srv/local/data/physionet.org/files/eicu-crd/2.0", files=['conditions', 'procedures', 'drugs'])
+    print(dataset)
+    print(type(dataset))
+    print(len(dataset))

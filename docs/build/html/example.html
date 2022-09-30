@@ -19,7 +19,7 @@
     <link rel="author" title="About these documents" href="about.html" />
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="APIs" href="api_cc.html" />
+    <link rel="next" title="Models" href="api_cc.html" />
     <link rel="prev" title="Installation" href="install.html" /> 
 </head>
 
@@ -42,15 +42,17 @@
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="install.html">Installation</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Examples</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#quick-start-for-data-processing">Quick Start for Data Processing</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#quick-start-for-running-predictive-models">Quick Start for Running Predictive Models</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#step-1-create-dataset">Step 1: Create dataset</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#step-2-select-healthcare-predictive-model">Step 2: Select healthcare predictive model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#step-3-create-dataloader">Step 3: Create dataloader</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#step-4-train-predict-evaluate">Step 4: Train &amp; Predict &amp; Evaluate</a></li>
 </ul>
 </li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Documentation</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="api_cc.html">APIs</a></li>
-<li class="toctree-l1"><a class="reference internal" href="api.html">All Models</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_cc.html">Models</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">Tasks</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Additional Information</span></p>
 <ul>
@@ -84,115 +86,110 @@
              
   <section id="examples">
 <h1>Examples<a class="headerlink" href="#examples" title="Permalink to this headline"></a></h1>
-<section id="quick-start-for-data-processing">
-<h2>Quick Start for Data Processing<a class="headerlink" href="#quick-start-for-data-processing" title="Permalink to this headline"></a></h2>
-<p>We propose the idea of standard template, a formalized schema for healthcare datasets.
-Ideally, as long as the data is scanned as the template we defined, the downstream
-task processing and the use of ML models will be easy and standard. In short, it has the following structure:
-<strong>add a figure here</strong>. The dataloader for different datasets can be found in examples/data_generation.
-Using <a class="reference external" href="https://github.com/yzhao062/pyhealth/blob/master/examples/data_generation/dataloader_mimic_demo_parallel.py">“examples/data_generation/dataloader_mimic_demo.py”</a>
-as an exmaple:</p>
-<ol class="arabic">
-<li><p>First read in patient, admission, and event tables.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">pyhealth.utils.utility</span> <span class="kn">import</span> <span class="n">read_csv_to_df</span>
-<span class="n">patient_df</span> <span class="o">=</span> <span class="n">read_csv_to_df</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="s1">&#39;data&#39;</span><span class="p">,</span> <span class="s1">&#39;mimic-iii-clinical-database-demo-1.4&#39;</span><span class="p">,</span> <span class="s1">&#39;PATIENTS.csv&#39;</span><span class="p">))</span>
-<span class="n">admission_df</span> <span class="o">=</span> <span class="n">read_csv_to_df</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="s1">&#39;data&#39;</span><span class="p">,</span> <span class="s1">&#39;mimic-iii-clinical-database-demo-1.4&#39;</span><span class="p">,</span> <span class="s1">&#39;ADMISSIONS.csv&#39;</span><span class="p">))</span>
-<span class="o">...</span>
-</pre></div>
-</div>
-</li>
-<li><p>Then invoke the parallel program to parse the tables in n_jobs cores.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">pyhealth.data.base_mimic</span> <span class="kn">import</span> <span class="n">parallel_parse_tables</span>
-<span class="n">all_results</span> <span class="o">=</span> <span class="n">Parallel</span><span class="p">(</span><span class="n">n_jobs</span><span class="o">=</span><span class="n">n_jobs</span><span class="p">,</span> <span class="n">max_nbytes</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="kc">True</span><span class="p">)(</span>
-<span class="n">delayed</span><span class="p">(</span><span class="n">parallel_parse_tables</span><span class="p">)(</span>
-     <span class="n">patient_df</span><span class="o">=</span><span class="n">patient_df</span><span class="p">,</span>
-     <span class="n">admission_df</span><span class="o">=</span><span class="n">admission_df</span><span class="p">,</span>
-     <span class="n">icu_df</span><span class="o">=</span><span class="n">icu_df</span><span class="p">,</span>
-     <span class="n">event_df</span><span class="o">=</span><span class="n">event_df</span><span class="p">,</span>
-     <span class="n">event_mapping_df</span><span class="o">=</span><span class="n">event_mapping_df</span><span class="p">,</span>
-     <span class="n">duration</span><span class="o">=</span><span class="n">duration</span><span class="p">,</span>
-     <span class="n">save_dir</span><span class="o">=</span><span class="n">save_dir</span><span class="p">)</span>
- <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_jobs</span><span class="p">))</span>
-</pre></div>
-</div>
-</li>
-<li><p>The processed sequential data will be saved in the prespecified directory.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">patient_data_loc</span><span class="p">,</span> <span class="s1">&#39;w&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">outfile</span><span class="p">:</span>
-    <span class="n">json</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">patient_data_list</span><span class="p">,</span> <span class="n">outfile</span><span class="p">)</span>
-</pre></div>
-</div>
-</li>
-</ol>
-<p>The provided examples in PyHealth mainly focus on scanning the data tables in the schema we have, and <strong>generate episode datasets</strong>.
-For instance, <a class="reference external" href="https://github.com/yzhao062/pyhealth/blob/master/examples/data_generation/dataloader_mimic_demo_parallel.py">“examples/data_generation/dataloader_mimic_demo.py”</a>
-demonstrates the basic procedure of processing MIMIC III demo datasets.</p>
-<ol class="arabic">
-<li><p>The next step is to generate episode/sequence data for mortality prediction. See <a class="reference external" href="https://github.com/yzhao062/pyhealth/blob/master/examples/data_generation/generate_mortality_prediction_mimic_demo.py">“examples/data_generation/generate_mortality_prediction_mimic_demo.py”</a></p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">patient_data_loc</span><span class="p">,</span> <span class="s1">&#39;w&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">outfile</span><span class="p">:</span>
-    <span class="n">json</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">patient_data_list</span><span class="p">,</span> <span class="n">outfile</span><span class="p">)</span>
-</pre></div>
-</div>
-</li>
-</ol>
-<p>By this step, the dataset has been processed for generating X, y for phenotyping prediction. <strong>It is noted that the API across most datasets are similar</strong>.
-One may easily replicate this procedure by calling the data generation scripts in \examples\data_generation. You may also modify the parameters in the
-scripts to generate the customized datasets.</p>
-<p><strong>Preprocessed datasets are also available at \datasets\cms and \datasets\mimic</strong>.</p>
-</section>
-<hr class="docutils" />
-<section id="quick-start-for-running-predictive-models">
-<h2>Quick Start for Running Predictive Models<a class="headerlink" href="#quick-start-for-running-predictive-models" title="Permalink to this headline"></a></h2>
-<p><strong>Note</strong>: Before running examples, you need the datasets. Please download from the GitHub repository <a class="reference external" href="https://github.com/yzhao062/PyHealth/tree/master/datasets">“datasets”</a>.
-You can either unzip them manually or running our script <a class="reference external" href="https://github.com/yzhao062/pyhealth/blob/master/examples/learning_models/00_extract_data_run_before_learning.py">“00_extract_data_run_before_learning.py”</a></p>
-<p><strong>Note</strong>: <a class="reference external" href="https://github.com/yzhao062/pyhealth/blob/master/examples/learning_models/example_sequence_gpu_mortality.py">“examples/learning_models/example_sequence_gpu_mortality.py”</a>
-demonstrates the basic API of using GRU for mortality prediction. <strong>It is noted that the API across all other algorithms are consistent/similar</strong>.</p>
-<p><strong>Note</strong>: <strong>If you do not have the preprocessed datasets yet, download the \datasets folder (cms.zip and mimic.zip) from PyHealth repository, and run \examples\learning_models\extract_data_run_before_learning.py to prepare/unzip the datasets.</strong></p>
-<p><strong>Note</strong>: For <a class="reference external" href="https://github.com/yzhao062/PyHealth/blob/master/examples/learning_models/example_text_diagnosis.py">“certain examples”</a>, pretrained bert models are needed.
-You will need to download these pretrained models at:</p>
-<ul class="simple">
-<li><p>BERT+BioBERT: <a class="reference external" href="https://github.com/EmilyAlsentzer/clinicalBERT">https://github.com/EmilyAlsentzer/clinicalBERT</a></p></li>
-<li><p>CharacterBERT+BioCharacterBERT: <a class="reference external" href="https://github.com/helboukkouri/character-bert">https://github.com/helboukkouri/character-bert</a></p></li>
-</ul>
-<p>Please download, unzip, and save to ./auxiliary folder.</p>
-<ol class="arabic">
-<li><p>Setup the datasets. X and y should be in x_data and y_data, respectively.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># load pre-processed CMS dataset</span>
-<span class="kn">from</span> <span class="nn">pyhealth.data.expdata_generator</span> <span class="kn">import</span> <span class="n">sequencedata</span> <span class="k">as</span> <span class="n">expdata_generator</span>
+<p><strong>Demo for RETAIN on Drug Recommendation with GPU</strong>:</p>
+<section id="step-1-create-dataset">
+<h2>Step 1: Create dataset<a class="headerlink" href="#step-1-create-dataset" title="Permalink to this headline"></a></h2>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># load Dataset and transform it to OMOP form</span>
+<span class="kn">from</span> <span class="nn">pyhealth.datasets</span> <span class="kn">import</span> <span class="n">MIMIC3BaseDataset</span>
 
-<span class="n">expdata_id</span> <span class="o">=</span> <span class="s1">&#39;2020.0810.data.mortality.mimic&#39;</span>
-<span class="n">cur_dataset</span> <span class="o">=</span> <span class="n">expdata_generator</span><span class="p">(</span><span class="n">exp_id</span><span class="o">=</span><span class="n">exp_id</span><span class="p">)</span>
-<span class="n">cur_dataset</span><span class="o">.</span><span class="n">get_exp_data</span><span class="p">(</span><span class="n">sel_task</span><span class="o">=</span><span class="s1">&#39;mortality&#39;</span><span class="p">,</span> <span class="p">)</span>
-<span class="n">cur_dataset</span><span class="o">.</span><span class="n">load_exp_data</span><span class="p">()</span>
+<span class="n">base_dataset</span> <span class="o">=</span> <span class="n">MIMIC3BaseDataset</span><span class="p">(</span><span class="n">root</span><span class="o">=</span><span class="s2">&quot;/srv/local/data/physionet.org/files/mimiciii/1.4&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
-</li>
-<li><p>Initialize a LSTM model, you may set up the parameters of the LSTM, e.g., n_epoch, learning_rate, etc,.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># initialize the model for training</span>
-<span class="kn">from</span> <span class="nn">pyhealth.models.sequence.lstm</span> <span class="kn">import</span> <span class="n">LSTM</span>
-<span class="c1"># enable GPU</span>
-<span class="n">clf</span> <span class="o">=</span> <span class="n">LSTM</span><span class="p">(</span><span class="n">expmodel_id</span><span class="o">=</span><span class="n">expmodel_id</span><span class="p">,</span> <span class="n">n_batchsize</span><span class="o">=</span><span class="mi">20</span><span class="p">,</span> <span class="n">use_gpu</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-    <span class="n">n_epoch</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">gpu_ids</span><span class="o">=</span><span class="s1">&#39;0,1&#39;</span><span class="p">)</span>
-<span class="n">clf</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">cur_dataset</span><span class="o">.</span><span class="n">train</span><span class="p">,</span> <span class="n">cur_dataset</span><span class="o">.</span><span class="n">valid</span><span class="p">)</span>
+<div class="highlight-javascript notranslate"><div class="highlight"><pre><span></span><span class="o">-----</span> <span class="nx">Output</span> <span class="nx">Data</span> <span class="nx">Structure</span> <span class="o">-----</span>
+<span class="nx">Dataset</span><span class="p">.</span><span class="nx">patients</span><span class="o">:</span> <span class="p">[</span>
+   <span class="p">{</span>
+       <span class="s2">&quot;patient_id&quot;</span><span class="o">:</span> <span class="nx">patient_id</span><span class="p">,</span>
+       <span class="s2">&quot;visits&quot;</span><span class="o">:</span> <span class="p">[</span>
+           <span class="p">{</span>
+               <span class="s2">&quot;visit_id&quot;</span><span class="o">:</span> <span class="nx">visit_id</span><span class="p">,</span>
+               <span class="s2">&quot;patient_id&quot;</span><span class="o">:</span> <span class="nx">patient_id</span><span class="p">,</span>
+               <span class="s2">&quot;conditions&quot;</span><span class="o">:</span> <span class="p">[</span><span class="nx">List</span><span class="p">],</span>
+               <span class="s2">&quot;procedures&quot;</span><span class="o">:</span> <span class="p">[</span><span class="nx">List</span><span class="p">],</span>
+               <span class="s2">&quot;drugs&quot;</span><span class="o">:</span> <span class="p">[</span><span class="nx">List</span><span class="p">],</span>
+               <span class="s2">&quot;visit_info&quot;</span><span class="o">:</span> <span class="o">&lt;</span><span class="nx">dict</span><span class="o">&gt;</span>
+           <span class="p">}</span>
+           <span class="p">...</span>
+       <span class="p">]</span>
+   <span class="p">}</span>
+   <span class="p">...</span>
+<span class="p">]</span>
 </pre></div>
 </div>
-</li>
-<li><p>Load the best shot of the training, predict on the test datasets</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># load the best model for inference</span>
-<span class="n">clf</span><span class="o">.</span><span class="n">load_model</span><span class="p">()</span>
-<span class="n">clf</span><span class="o">.</span><span class="n">inference</span><span class="p">(</span><span class="n">cur_dataset</span><span class="o">.</span><span class="n">test</span><span class="p">)</span>
-<span class="n">pred_results</span> <span class="o">=</span> <span class="n">clf</span><span class="o">.</span><span class="n">get_results</span><span class="p">()</span>
+<ul class="simple">
+<li><p><strong>User can use this module for data processing</strong></p></li>
+<li><p><strong>[researchers from CS]</strong> build their own model on top of it</p></li>
+<li><p><strong>[reserachers from medical area]</strong> use the models in the package</p></li>
+</ul>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># create task-specific dataset</span>
+<span class="kn">from</span> <span class="nn">pyhealth.tasks</span> <span class="kn">import</span> <span class="n">DrugRecDataset</span>
+<span class="n">drug_rec_dataset</span> <span class="o">=</span> <span class="n">DrugRecDataset</span><span class="p">(</span><span class="n">base_dataset</span><span class="p">)</span>
+<span class="n">drug_rec_dataset</span><span class="o">.</span><span class="n">info</span><span class="p">()</span>
 </pre></div>
 </div>
-</li>
-<li><p>Evaluation on the model. Multiple metrics are supported.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># evaluate the model</span>
-<span class="kn">from</span> <span class="nn">pyhealth.evaluation.evaluator</span> <span class="kn">import</span> <span class="n">func</span>
-<span class="n">r</span> <span class="o">=</span> <span class="n">func</span><span class="p">(</span><span class="n">pred_results</span><span class="p">[</span><span class="s1">&#39;hat_y&#39;</span><span class="p">],</span> <span class="n">pred_results</span><span class="p">[</span><span class="s1">&#39;y&#39;</span><span class="p">])</span>
-<span class="nb">print</span><span class="p">(</span><span class="n">r</span><span class="p">)</span>
+<div class="highlight-javascript notranslate"><div class="highlight"><pre><span></span><span class="o">-----</span> <span class="nx">Output</span> <span class="nx">Data</span> <span class="nx">Structure</span> <span class="o">-----</span>
+<span class="o">&gt;&gt;</span> <span class="nx">drug_rec_dataloader</span><span class="p">[</span><span class="mf">0</span><span class="p">]</span>
+<span class="o">&gt;&gt;</span> <span class="p">{</span>
+   <span class="s2">&quot;conditions&quot;</span><span class="o">:</span> <span class="nx">List</span><span class="p">[</span><span class="nx">tensor</span><span class="p">],</span>
+   <span class="s2">&quot;procedures&quot;</span><span class="o">:</span> <span class="nx">List</span><span class="p">[</span><span class="nx">tensor</span><span class="p">],</span>
+   <span class="s2">&quot;drugs&quot;</span><span class="o">:</span> <span class="nx">List</span><span class="p">[</span><span class="nx">tensor</span><span class="p">]</span>
+<span class="p">}</span>
 </pre></div>
 </div>
-</li>
-</ol>
+</section>
+<section id="step-2-select-healthcare-predictive-model">
+<h2>Step 2: Select healthcare predictive model<a class="headerlink" href="#step-2-select-healthcare-predictive-model" title="Permalink to this headline"></a></h2>
+<p>For this example, we select <a class="reference external" href="https://arxiv.org/abs/1608.05745/">RETAIN</a> as the healthcare predictive model.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">voc_size</span> <span class="o">=</span> <span class="n">drug_rec_dataset</span><span class="o">.</span><span class="n">voc_size</span>
+<span class="n">params</span> <span class="o">=</span> <span class="n">drug_rec_dataset</span><span class="o">.</span><span class="n">params</span>
+
+<span class="kn">from</span> <span class="nn">pyhealth.models</span> <span class="kn">import</span> <span class="n">RETAIN</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">RETAIN</span><span class="p">(</span><span class="n">voc_size</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="step-3-create-dataloader">
+<h2>Step 3: Create dataloader<a class="headerlink" href="#step-3-create-dataloader" title="Permalink to this headline"></a></h2>
+<p>Then, we create train/val/test dataloader in PyTorch format.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">pyhealth.data</span> <span class="kn">import</span> <span class="n">split</span>
+<span class="kn">from</span> <span class="nn">torch.utils.data</span> <span class="kn">import</span> <span class="n">DataLoader</span>
+
+<span class="n">drug_rec_trainset</span><span class="p">,</span> <span class="n">drug_rec_valset</span><span class="p">,</span> <span class="n">drug_rec_testset</span> <span class="o">=</span> <span class="n">split</span><span class="o">.</span><span class="n">random_split</span><span class="p">(</span><span class="n">drug_rec_dataset</span><span class="p">,</span> <span class="p">[</span><span class="mf">0.8</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">])</span>
+<span class="n">drug_rec_train_loader</span> <span class="o">=</span> <span class="n">DataLoader</span><span class="p">(</span><span class="n">drug_rec_trainset</span><span class="p">,</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">collate_fn</span><span class="o">=</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+<span class="n">drug_rec_val_loader</span> <span class="o">=</span> <span class="n">DataLoader</span><span class="p">(</span><span class="n">drug_rec_valset</span><span class="p">,</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">collate_fn</span><span class="o">=</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+<span class="n">drug_rec_test_loader</span> <span class="o">=</span> <span class="n">DataLoader</span><span class="p">(</span><span class="n">drug_rec_testset</span><span class="p">,</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">collate_fn</span><span class="o">=</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+</pre></div>
+</div>
+</section>
+<section id="step-4-train-predict-evaluate">
+<h2>Step 4: Train &amp; Predict &amp; Evaluate<a class="headerlink" href="#step-4-train-predict-evaluate" title="Permalink to this headline"></a></h2>
+<p>Finally, we <strong>train</strong> our model:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># train</span>
+<span class="kn">from</span> <span class="nn">pytorch_lightning</span> <span class="kn">import</span> <span class="n">Trainer</span>
+
+<span class="n">trainer</span> <span class="o">=</span> <span class="n">Trainer</span><span class="p">(</span>
+    <span class="n">gpus</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">max_epochs</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+    <span class="n">progress_bar_refresh_rate</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">trainer</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span>
+    <span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span>
+    <span class="n">train_dataloaders</span><span class="o">=</span><span class="n">drug_rec_train_loader</span><span class="p">,</span>
+    <span class="n">val_dataloaders</span><span class="o">=</span><span class="n">drug_rec_val_loader</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>and make <strong>drug recommendation (prediction)</strong> with the trained model:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># evaluation</span>
+<span class="kn">from</span> <span class="nn">pyhealth.evaluator</span> <span class="kn">import</span> <span class="n">DrugRecEvaluator</span>
+<span class="n">evaluator</span> <span class="o">=</span> <span class="n">DrugRecEvaluator</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+<span class="n">evaluator</span><span class="o">.</span><span class="n">evaluate</span><span class="p">(</span><span class="n">drug_rec_test_loader</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>Evaluation</strong>:</p>
+<div class="highlight-javascript notranslate"><div class="highlight"><pre><span></span><span class="nx">Jaccard</span><span class="o">:</span> <span class="mf">0.132</span><span class="p">,</span>  <span class="nx">PRAUC</span><span class="o">:</span> <span class="mf">0.3148</span><span class="p">,</span> <span class="nx">AVG_PRC</span><span class="o">:</span> <span class="mf">0.5275</span><span class="p">,</span> <span class="nx">AVG_RECALL</span><span class="o">:</span> <span class="mf">0.1575</span><span class="p">,</span> <span class="nx">AVG_F1</span><span class="o">:</span> <span class="mf">0.2291</span><span class="p">,</span> <span class="nx">AVG_MED</span><span class="o">:</span> <span class="mf">14.08</span>
+</pre></div>
+</div>
 </section>
 </section>
 
@@ -201,7 +198,7 @@ You will need to download these pretrained models at:</p>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
         <a href="install.html" class="btn btn-neutral float-left" title="Installation" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="api_cc.html" class="btn btn-neutral float-right" title="APIs" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="api_cc.html" class="btn btn-neutral float-right" title="Models" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

@@ -1,12 +1,51 @@
-APIs
-==============
+Models
+======
 
-Full API Reference: (https://pyhealth.readthedocs.io/en/latest/pyhealth.html). API cheatsheet for most learning models:
+The majority of learning algorithms for healthcare are supported by PyHealth, ranging from traditional machine learning
+algorithms (logistic regression, decision tree, SVM, etc) to the state-of-the-art deep learning algorithms (RETAIN, GAMENet, etc).
+
+This document is to describe the parameters and attributes of these models.
+
+
+Base Models
+^^^^^^^^^^^
+
+
+RNN
+^^^
+
+
+RETAIN
+^^^^^^
+
+
+SafeDrug
+^^^^^^^^
+
+
+MICRON
+^^^^^^
+
+GAMENet
+^^^^^^^
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 * :func:`pyhealth.models.sequence._dlbase.fit` : Fit a learning model.
-* :func:`pyhealth.models.sequence._dlbase.inference` : Predict on X using the fitted estimator.
-* **evaluator(y, y^hat)**\ : Model evaluation.
 
-Model load and reload:
 
-* :func:`pyhealth.models.sequence._dlbase.load_model` : Load the best model so far.
+.. toctree::
+   :maxdepth: 4

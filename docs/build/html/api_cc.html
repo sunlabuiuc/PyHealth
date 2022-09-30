@@ -4,7 +4,7 @@
   <meta charset="utf-8" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>APIs &mdash; PyHealth v1.0 documentation</title>
+  <title>Models &mdash; PyHealth v1.0 documentation</title>
       <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
       <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
   <!--[if lt IE 9]>
@@ -19,7 +19,7 @@
     <link rel="author" title="About these documents" href="about.html" />
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="All Models" href="api.html" />
+    <link rel="next" title="Tasks" href="api.html" />
     <link rel="prev" title="Examples" href="example.html" /> 
 </head>
 
@@ -45,8 +45,18 @@
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Documentation</span></p>
 <ul class="current">
-<li class="toctree-l1 current"><a class="current reference internal" href="#">APIs</a></li>
-<li class="toctree-l1"><a class="reference internal" href="api.html">All Models</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Models</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#base-models">Base Models</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#rnn">RNN</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#retain">RETAIN</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#safedrug">SafeDrug</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#micron">MICRON</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#gamenet">GAMENet</a><ul class="simple">
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">Tasks</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Additional Information</span></p>
 <ul>
@@ -68,7 +78,7 @@
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
       <li><a href="index.html" class="icon icon-home"></a> &raquo;</li>
-      <li>APIs</li>
+      <li>Models</li>
       <li class="wy-breadcrumbs-aside">
             <a href="_sources/api_cc.rst.txt" rel="nofollow"> View page source</a>
       </li>
@@ -78,18 +88,34 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
              
-  <section id="apis">
-<h1>APIs<a class="headerlink" href="#apis" title="Permalink to this headline"></a></h1>
-<p>Full API Reference: (<a class="reference external" href="https://pyhealth.readthedocs.io/en/latest/pyhealth.html">https://pyhealth.readthedocs.io/en/latest/pyhealth.html</a>). API cheatsheet for most learning models:</p>
+  <section id="models">
+<h1>Models<a class="headerlink" href="#models" title="Permalink to this headline"></a></h1>
+<p>The majority of learning algorithms for healthcare are supported by PyHealth, ranging from traditional machine learning
+algorithms (logistic regression, decision tree, SVM, etc) to the state-of-the-art deep learning algorithms (RETAIN, GAMENet, etc).</p>
+<p>This document is to describe the parameters and attributes of these models.</p>
+<section id="base-models">
+<h2>Base Models<a class="headerlink" href="#base-models" title="Permalink to this headline"></a></h2>
+</section>
+<section id="rnn">
+<h2>RNN<a class="headerlink" href="#rnn" title="Permalink to this headline"></a></h2>
+</section>
+<section id="retain">
+<h2>RETAIN<a class="headerlink" href="#retain" title="Permalink to this headline"></a></h2>
+</section>
+<section id="safedrug">
+<h2>SafeDrug<a class="headerlink" href="#safedrug" title="Permalink to this headline"></a></h2>
+</section>
+<section id="micron">
+<h2>MICRON<a class="headerlink" href="#micron" title="Permalink to this headline"></a></h2>
+</section>
+<section id="gamenet">
+<h2>GAMENet<a class="headerlink" href="#gamenet" title="Permalink to this headline"></a></h2>
 <ul class="simple">
 <li><p><code class="xref py py-func docutils literal notranslate"><span class="pre">pyhealth.models.sequence._dlbase.fit()</span></code> : Fit a learning model.</p></li>
-<li><p><code class="xref py py-func docutils literal notranslate"><span class="pre">pyhealth.models.sequence._dlbase.inference()</span></code> : Predict on X using the fitted estimator.</p></li>
-<li><p><strong>evaluator(y, y^hat)</strong>: Model evaluation.</p></li>
 </ul>
-<p>Model load and reload:</p>
-<ul class="simple">
-<li><p><code class="xref py py-func docutils literal notranslate"><span class="pre">pyhealth.models.sequence._dlbase.load_model()</span></code> : Load the best model so far.</p></li>
-</ul>
+<div class="toctree-wrapper compound">
+</div>
+</section>
 </section>
 
 
@@ -97,7 +123,7 @@
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
         <a href="example.html" class="btn btn-neutral float-left" title="Examples" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="api.html" class="btn btn-neutral float-right" title="All Models" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="api.html" class="btn btn-neutral float-right" title="Tasks" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

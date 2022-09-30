@@ -10,6 +10,8 @@ from pathlib import Path
 from pyhealth.data import Visit, Patient, TaskDataset
 from pyhealth.models.tokenizer import Tokenizer
 from rdkit import Chem
+from tqdm import tqdm
+
 
 class DrugRecDataset(TaskDataset):
     """ Dataset for drug recommendation task """
@@ -34,12 +36,16 @@ class DrugRecDataset(TaskDataset):
             return [i for i in lst if not i != i]
 
         processed_patients = []
-        for patient in self.base_dataset.patients:
+        patients = self.base_dataset.patients
+        print('preprocessing')
+        for pid in tqdm(patients):
             processed_visits = []
-            for visit in patient.visits:
+            patient = patients[pid]
+            for vid in patient.visits:
+                visit = patient.visits[vid]
                 conditions = list(set(remove_nan_from_list(visit.conditions)))
                 procedures = list(set(remove_nan_from_list(visit.procedures)))
-                drugs = list(set(remove_nan_from_list(visit.drugs))) #get_atc3(["{:011}".format(int(med)) for med in set(remove_nan_from_list(visit.drugs))])
+                drugs = list(set(remove_nan_from_list(visit.drugs)))  # get_atc3(["{:011}".format(int(med)) for med in set(remove_nan_from_list(visit.drugs))])
                 # exclude: visits without condition, procedure, or drug code
                 if len(conditions) * len(procedures) * len(drugs) == 0:
                     continue
@@ -108,6 +114,9 @@ class DrugRecDataset(TaskDataset):
         }
         """
         print (info)
+
+    def task(self):
+        return "DrugRec"
 
     def generate_ddi_adj(self):
         cid2atc_dic = defaultdict(set)
@@ -247,6 +256,29 @@ class DrugRecDataset(TaskDataset):
 
         return [MPNNSet, N_fingerprint, torch.FloatTensor(average_projection)]
 
+    def info(self):
+        info = """
+        ----- Output Data Structure -----
+        TaskDataset.patients dict[str, Patient]
+            - key: patient_id
+            - value: <Patient> object
+        
+        <Patient>
+            - patient_id: str
+            - visits: dict[str, Visit]
+                - key: visit_id
+                - value: <DrugRecVisit> object
+        
+        <DrugRecVisit>
+            - visit_id: str
+            - patient_id: str
+            - conditions: List = [],
+            - procedures: List = [],
+            - drugs: List = [],
+            - labs: List = [],
+            - physicalExams: List = []
+        """
+        print (info)
 
 if __name__ == "__main__":
     from pyhealth.datasets import MIMIC3BaseDataset

@@ -1,5 +1,4 @@
 # PyHealth-OMOP
----
 ### The working ML pipeline in the package
 > dataset instance -> task-specific dataset -> ML model -> trainer -> evaluator
 
@@ -17,12 +16,12 @@ For use cases, users can either use our package for the entire ML pipeline or bo
 #### Step 1: Load the dataset instance
 ```python
 from pyhealth.datasets import MIMIC3BaseDataset
-base_dataset = MIMIC3BaseDataset(root="/srv/local/data/physionet.org/files/mimiciii/1.4")
+base_ds = MIMIC3BaseDataset(root="...", files=['conditions', ...])
 ```
 #### Step 2: Process for obtaining task-specific instance
 ```python
 from pyhealth.tasks import DrugRecDataset
-drug_rec_dataset = DrugRecDataset(base_dataset)
+drug_rec_ds = DrugRecDataset(base_ds)
 
 # task-specific artifacts for each downstream model
 voc_size = drug_rec_dataset.voc_size
@@ -31,7 +30,7 @@ params = drug_rec_dataset.params
 #### Step 3: load the healthcare predictive model
 ```python
 from pyhealth.models import RETAIN
-model = RETAIN(voc_size, params)
+model = RETAIN(voc_size, params).train(drug_rec_ds)
 ```
 #### Step 4: Model training
 ```python
@@ -53,4 +52,37 @@ trainer.fit(model=model, train_dataloaders=drug_rec_train_loader, val_dataloader
 from pyhealth.evaluator import DrugRecEvaluator
 evaluator = DrugRecEvaluator(model)
 evaluator.evaluate(drug_rec_test_loader)
+```
+
+### Step 6: Code mappings
+```python
+from pyhealth.codemap import InnerMap
+ICD = InnerMap('icd-10')
+ICD['I50. 9'] # heart failure
+ICD.patient('I50. 9')
+ICD.siblings('I50. 9')
+ICD.children('I50. 9')
+
+from pyhealth.codemap import CrossMap
+NDC_to_RxNorm = CrossMap('NDC', 'RxNorm')
+# AZITHROMYCIN tablet
+NDC_to_RxNorm['76413-153-06']
+>> ['68084027801', '59762306003']
+```
+
+### 3. Google Colab
+We also have an accessible Google Colab demo: [Link](https://colab.research.google.com/drive/1xFa5QvFfnfQqfbJe-XWPgTJotqVWV0kv#scrollTo=9-xyoGXuEZAN)
+- Some datasets are available on our google cloud storage: https://console.cloud.google.com/storage/browser/pyhealth
+
+For example, to read the file 'admissions.csv' as a dataframe, you can simply do as follows:
+
+```python
+import pandas as pd
+df_admissions = pd.read_csv("https://storage.googleapis.com/pyhealth/mimiciii-demo/1.4/ADMISSIONS.csv")
+```
+You can also set the storage path as the root to preprocess datasets:
+
+```python
+from pyhealth.datasets import MIMIC3BaseDataset
+base_dataset = MIMIC3BaseDataset(root="https://storage.googleapis.com/pyhealth/mimiciii-demo/1.4/")
 ```
