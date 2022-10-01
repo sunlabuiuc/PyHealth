@@ -1,13 +1,16 @@
 import os
-from pathlib import Path
-import pandas as pd
 import sys
+from pathlib import Path
+
+import pandas as pd
+
 sys.path.append('/home/chaoqiy2/github/PyHealth-OMOP')
 
 from pyhealth.data import Event, Visit, Patient, BaseDataset
-from pyhealth.utils import create_directory, pickle_dump, pickle_load
+from pyhealth.utils import create_directory, dump_pickle, load_pickle
 from tqdm import tqdm
 from datetime import datetime
+
 
 class MIMIC3BaseDataset(BaseDataset):
     """ Base dataset for MIMIC-III 
@@ -36,38 +39,38 @@ class MIMIC3BaseDataset(BaseDataset):
             visits = self.parse_patients()
             patients = {}
 
-            print ("structured all patients and visits")
+            print("structured all patients and visits")
             # process based on self.files
             if 'conditions' in self.files:
                 self.parse_diagnoses_icd(visits, patients)
-                print ("processed conditions")
+                print("processed conditions")
             if 'procedures' in self.files:
                 self.parse_procedures_icd(visits, patients)
-                print ("processed procedures")
+                print("processed procedures")
             if 'drugs' in self.files:
                 self.parse_prescriptions(visits, patients)
-                print ("processed drugs")
+                print("processed drugs")
             if 'labs' in self.files:
                 self.parse_lab_results(visits, patients)
-                print ("processed labs")
-            
+                print("processed labs")
+
             # save to cache
             create_directory(os.path.join(str(Path.home()), ".cache/pyhealth"))
-            pickle_dump(patients, os.path.join(str(Path.home()), ".cache/pyhealth/mimic3.data"))
+            dump_pickle(patients, os.path.join(str(Path.home()), ".cache/pyhealth/mimic3.data"))
         else:
-            patients = pickle_load(os.path.join(str(Path.home()), ".cache/pyhealth/mimic3.data"))
+            patients = load_pickle(os.path.join(str(Path.home()), ".cache/pyhealth/mimic3.data"))
         super(MIMIC3BaseDataset, self).__init__(dataset_name="MIMIC-III", patients=patients)
 
     def parse_patients(self):
         """ func to parse patient table """
         patients_df = pd.read_csv(os.path.join(self.root, "PATIENTS.csv"), \
-            dtype={'SUBJECT_ID': str})
+                                  dtype={'SUBJECT_ID': str})
         patients_df = patients_df[['SUBJECT_ID', 'GENDER', 'DOB', 'DOD_HOSP']]
         admission_df = pd.read_csv(os.path.join(self.root, "ADMISSIONS.csv"), \
-            dtype={'SUBJECT_ID': str, "HADM_ID": str, "ICD9_CODE": str})
+                                   dtype={'SUBJECT_ID': str, "HADM_ID": str, "ICD9_CODE": str})
         admission_df = admission_df[['SUBJECT_ID', 'HADM_ID', 'ADMITTIME', 'DISCHTIME', 'ADMISSION_TYPE', \
-                        'ADMISSION_LOCATION', 'RELIGION', 'MARITAL_STATUS', 'ETHNICITY', 'DIAGNOSIS', \
-                        'HOSPITAL_EXPIRE_FLAG']]
+                                     'ADMISSION_LOCATION', 'RELIGION', 'MARITAL_STATUS', 'ETHNICITY', 'DIAGNOSIS', \
+                                     'HOSPITAL_EXPIRE_FLAG']]
         patients_admission_df = admission_df.merge(patients_df, on='SUBJECT_ID')
 
         visits = {}
@@ -78,7 +81,7 @@ class MIMIC3BaseDataset(BaseDataset):
                 duration = self.diffhours(encounter_time, visit_info["DISCHTIME"].values[0])
                 mortality = visit_info["HOSPITAL_EXPIRE_FLAG"].values[0]
                 cur_visit = Visit(
-                    visit_id, 
+                    visit_id,
                     patient_id,
                     encounter_time,
                     duration,
@@ -92,7 +95,7 @@ class MIMIC3BaseDataset(BaseDataset):
             for diagnosis time, MIMIC-III seems to perform diagnosis when admitted into hospital
             thus, we use the admission time as diagnosis time
         """
-        print (len(visits))
+        print(len(visits))
         diagnoses_icd_df = pd.read_csv(os.path.join(self.root, "DIAGNOSES_ICD.csv"),
                                        dtype={'SUBJECT_ID': str, "HADM_ID": str, "ICD9_CODE": str})
         diagnoses_icd_df = diagnoses_icd_df.sort_values(['SUBJECT_ID', 'HADM_ID', 'SEQ_NUM'], ascending=True)
@@ -103,13 +106,13 @@ class MIMIC3BaseDataset(BaseDataset):
             encounter_time = visits[visit_id].encounter_time
             for code in visit_info['ICD9_CODE'].values:
                 cur_diagnosis += self.process_nested_code(code, self.diffhours(encounter_time, encounter_time))
-            
+
             if len(cur_diagnosis) == 0: continue
             # add diagnosis to patient dict
             patient_id = visits[visit_id].patient_id
-            if patient_id not in patients: # register patient if not exist
+            if patient_id not in patients:  # register patient if not exist
                 patients[patient_id] = Patient(patient_id)
-            if visit_id not in patients[patient_id].visits: # register visit if not exist
+            if visit_id not in patients[patient_id].visits:  # register visit if not exist
                 visits[visit_id].conditions = cur_diagnosis
                 patients[patient_id].visits[visit_id] = visits[visit_id]
             else:
@@ -128,13 +131,13 @@ class MIMIC3BaseDataset(BaseDataset):
             encounter_time = visits[visit_id].encounter_time
             for code, time in visit_info[['ITEMID', 'STARTTIME']].values:
                 cur_procedures += self.process_nested_code(code, self.diffhours(encounter_time, time))
-            
+
             if len(cur_procedures) == 0: continue
             # add procedures to patient dict
             patient_id = visits[visit_id].patient_id
-            if patient_id not in patients: # register patient if not exist
+            if patient_id not in patients:  # register patient if not exist
                 patients[patient_id] = Patient(patient_id)
-            if visit_id not in patients[patient_id].visits: # register visit if not exist
+            if visit_id not in patients[patient_id].visits:  # register visit if not exist
                 visits[visit_id].procedures = cur_procedures
                 patients[patient_id].visits[visit_id] = visits[visit_id]
             else:
@@ -152,13 +155,13 @@ class MIMIC3BaseDataset(BaseDataset):
             for code, time in visit_info[['NDC', 'STARTDATE']].values:
                 if time == time:
                     cur_prescriptions += self.process_nested_code(code, self.diffhours(encounter_time, time))
-            
+
             if len(cur_prescriptions) == 0: continue
             # add prescription to patient dict
             patient_id = visits[visit_id].patient_id
-            if patient_id not in patients: # register patient if not exist
+            if patient_id not in patients:  # register patient if not exist
                 patients[patient_id] = Patient(patient_id)
-            if visit_id not in patients[patient_id].visits: # register visit if not exist
+            if visit_id not in patients[patient_id].visits:  # register visit if not exist
                 visits[visit_id].drugs = cur_prescriptions
                 patients[patient_id].visits[visit_id] = visits[visit_id]
             else:
@@ -166,7 +169,7 @@ class MIMIC3BaseDataset(BaseDataset):
 
     def parse_lab_results(self, visits, patients):
         lab_results_df = pd.read_csv(os.path.join(self.root, "LABEVENTS.csv"),
-                                       dtype={'SUBJECT_ID': str, "HADM_ID": str, "ITEMID": str})
+                                     dtype={'SUBJECT_ID': str, "HADM_ID": str, "ITEMID": str})
         for visit_id, visit_info in tqdm(lab_results_df.groupby("HADM_ID")):
             if visit_id not in visits: continue
             # load lab results with time info
@@ -174,13 +177,13 @@ class MIMIC3BaseDataset(BaseDataset):
             encounter_time = visits[visit_id].encounter_time
             for code, time in visit_info[['ITEMID', 'CHARTTIME']].values:
                 cur_lab_results += self.process_nested_code(code, self.diffhours(encounter_time, time))
-            
+
             if len(cur_lab_results) == 0: continue
             # add lab results to patient dict
             patient_id = visits[visit_id].patient_id
-            if patient_id not in patients: # register patient if not exist
+            if patient_id not in patients:  # register patient if not exist
                 patients[patient_id] = Patient(patient_id)
-            if visit_id not in patients[patient_id].visits: # register visit if not exist
+            if visit_id not in patients[patient_id].visits:  # register visit if not exist
                 visits[visit_id].labs = cur_lab_results
                 patients[patient_id].visits[visit_id] = visits[visit_id]
             else:
@@ -205,7 +208,7 @@ class MIMIC3BaseDataset(BaseDataset):
             out_ls = code_ls.split(", ")
         else:
             out_ls = [code_ls]
-        
+
         for code in out_ls:
             event_ls.append(Event(code, time))
         return event_ls
@@ -213,7 +216,7 @@ class MIMIC3BaseDataset(BaseDataset):
 
 if __name__ == "__main__":
     dataset = MIMIC3BaseDataset(root="/srv/local/data/physionet.org/files/mimiciii/1.4", \
-        files=['conditions', 'procedures', 'drugs', 'labs'])
+                                files=['conditions', 'procedures', 'drugs', 'labs'])
     print(dataset)
     print(type(dataset))
     print(len(dataset))
