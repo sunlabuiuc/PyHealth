@@ -1,6 +1,7 @@
 .idea
 examples/data/raw/*
 examples/data/processed/*
+output/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
