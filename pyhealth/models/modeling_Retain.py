@@ -4,13 +4,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 class RetainLayer(nn.Module):
-    def __init__(self, voc_size, emb_dim=64, device=torch.device('cpu:0')):
+    def __init__(self, voc_size, emb_dim=64, device=torch.device("cpu:0")):
         super(RetainLayer, self).__init__()
         self.device = device
 
-        self.embedding = nn.ModuleList(
-            [nn.Embedding(s + 1, emb_dim) for s in voc_size])
+        self.embedding = nn.ModuleList([nn.Embedding(s + 1, emb_dim) for s in voc_size])
 
         self.dropout = nn.Dropout(p=0.5)
         self.alpha_gru = nn.GRU(emb_dim, emb_dim, batch_first=True)
@@ -23,24 +23,25 @@ class RetainLayer(nn.Module):
 
         visit_emb_ls = []
         for idx, input in enumerate(x):
-            cur_emb = self.embedding[idx](input) # (batch, visit, code_len, dim)
-            visit_emb_ls.append(torch.sum(cur_emb, dim=2)) # (batch, visit, dim)
-        visit_emb = torch.stack(visit_emb_ls, dim=2).mean(2) # (batch, visit, dim)
+            cur_emb = self.embedding[idx](input)  # (batch, visit, code_len, dim)
+            visit_emb_ls.append(torch.sum(cur_emb, dim=2))  # (batch, visit, dim)
+        visit_emb = torch.stack(visit_emb_ls, dim=2).mean(2)  # (batch, visit, dim)
 
-        g, _ = self.alpha_gru(visit_emb) # (batch, visit, dim)
-        h, _ = self.beta_gru(visit_emb) # (batch, visit, dim)
+        g, _ = self.alpha_gru(visit_emb)  # (batch, visit, dim)
+        h, _ = self.beta_gru(visit_emb)  # (batch, visit, dim)
 
         # to mask out the visit
-        attn_g = torch.softmax(self.alpha_li(g), dim=1) # (batch, visit, 1)
-        attn_h = torch.tanh(self.beta_li(h)) # (batch, visit, emb)
+        attn_g = torch.softmax(self.alpha_li(g), dim=1)  # (batch, visit, 1)
+        attn_h = torch.tanh(self.beta_li(h))  # (batch, visit, emb)
 
-        c = attn_g * attn_h * visit_emb # (batch, visit, emb)
-        c = torch.sum(c, dim=1) # (batch, emb)
+        c = attn_g * attn_h * visit_emb  # (batch, visit, emb)
+        c = torch.sum(c, dim=1)  # (batch, emb)
 
         return c
 
+
 class RetainDrugRec(nn.Module):
-    def __init__(self, voc_size, tokenizers, emb_dim=64, device=torch.device('cpu:0')):
+    def __init__(self, voc_size, tokenizers, emb_dim=64, device=torch.device("cpu:0")):
         super(RetainDrugRec, self).__init__()
         self.device = device
         self.retain = RetainLayer(voc_size, emb_dim, device)
@@ -51,18 +52,25 @@ class RetainDrugRec(nn.Module):
         self.drug_fc = nn.Linear(emb_dim, self.drug_tokenizer.get_vocabulary_size())
 
     def forward(
-        self, 
-        conditions,
-        procedures,
-        drugs,
-        padding_mask=None
+        self, conditions, procedures, drugs, padding_mask=None, device=None, **kwargs
     ):
-        diagT = self.condition_tokenizer.batch_tokenize(conditions)
-        procT = self.procedure_tokenizer.batch_tokenize(procedures)
+        diagT = self.condition_tokenizer.batch_tokenize(conditions).to(device)
+        procT = self.procedure_tokenizer.batch_tokenize(procedures).to(device)
         x = [diagT, procT]
         c = self.retain(x, padding_mask)
         logits = self.drug_fc(c)
-        return logits
+        y_prob = torch.sigmoid(logits)
+
+        # target
+        y = torch.zeros(diagT.shape[0], self.drug_tokenizer.get_vocabulary_size())
+        for idx, sample in enumerate(drugs):
+            y[idx, self.drug_tokenizer(sample[-1:])[0]] = 1
+
+        # loss
+        loss = F.binary_cross_entropy_with_logits(y_prob, y.to(device))
+
+        return {"loss": loss, "y_prob": y_prob, "y_true": y}
+
 
 class RETAIN(pl.LightningModule):
     def __init__(self, voc_size, params, emb_dim=64):
@@ -76,12 +84,10 @@ class RETAIN(pl.LightningModule):
         self.output_len = voc_size[2]
 
         self.condition_embedding = nn.Sequential(
-            nn.Embedding(voc_size[0], self.emb_dim, padding_idx=0),
-            nn.Dropout(0.5)
+            nn.Embedding(voc_size[0], self.emb_dim, padding_idx=0), nn.Dropout(0.5)
         )
         self.procedure_embedding = nn.Sequential(
-            nn.Embedding(voc_size[1], self.emb_dim, padding_idx=0),
-            nn.Dropout(0.5)
+            nn.Embedding(voc_size[1], self.emb_dim, padding_idx=0), nn.Dropout(0.5)
         )
 
         self.alpha_gru = nn.GRU(emb_dim, emb_dim, batch_first=True)
@@ -131,8 +137,8 @@ class RETAIN(pl.LightningModule):
         loss = 0
         conditions, procedures, drugs = train_batch.values()
         for i in range(len(conditions)):
-            output_logits = self.forward(conditions[:i + 1], procedures[:i + 1])
-            drugs_index = drugs[i: i + 1].cuda()
+            output_logits = self.forward(conditions[: i + 1], procedures[: i + 1])
+            drugs_index = drugs[i : i + 1].cuda()
             drugs_multihot = torch.zeros(1, self.output_len).cuda()
             drugs_multihot[0][drugs_index[0]] = 1
             loss += F.binary_cross_entropy_with_logits(output_logits, drugs_multihot)
@@ -143,8 +149,8 @@ class RETAIN(pl.LightningModule):
         loss = 0
         conditions, procedures, drugs = val_batch.values()
         for i in range(len(conditions)):
-            output_logits = self.forward(conditions[:i + 1], procedures[:i + 1])
-            drugs_index = drugs[i: i + 1].cuda()
+            output_logits = self.forward(conditions[: i + 1], procedures[: i + 1])
+            drugs_index = drugs[i : i + 1].cuda()
             drugs_multihot = torch.zeros(1, self.output_len).cuda()
             drugs_multihot[0][drugs_index[0]] = 1
             loss += F.binary_cross_entropy_with_logits(output_logits, drugs_multihot)
@@ -164,7 +170,7 @@ class RETAIN(pl.LightningModule):
                 y_gt, y_pred, y_pred_prob, y_pred_label = [], [], [], []
 
                 for i in range(len(X)):
-                    target_output, _ = self.forward(X[:i + 1])
+                    target_output, _ = self.forward(X[: i + 1])
                     y_gt.append(y[i].cpu().numpy())
 
                     # prediction prob
@@ -185,8 +191,15 @@ class RETAIN(pl.LightningModule):
                     visit_cnt += 1
 
                 smm_record.append(y_pred_label)
-                adm_ja, adm_prauc, adm_avg_p, adm_avg_r, adm_avg_f1 = \
-                    multi_label_metric(np.array(y_gt), np.array(y_pred), np.array(y_pred_prob))
+                (
+                    adm_ja,
+                    adm_prauc,
+                    adm_avg_p,
+                    adm_avg_r,
+                    adm_avg_f1,
+                ) = multi_label_metric(
+                    np.array(y_gt), np.array(y_pred), np.array(y_pred_prob)
+                )
 
                 ja.append(adm_ja)
                 prauc.append(adm_prauc)
@@ -195,12 +208,18 @@ class RETAIN(pl.LightningModule):
                 avg_f1.append(adm_avg_f1)
 
         ddi_rate = ddi_rate_score(smm_record, self.ddi_adj)
-        print('--- Test Summary ---')
+        print("--- Test Summary ---")
         print(
-            'DDI rate: {:.4}\nJaccard: {:.4}\nPRAUC: {:.4}\nAVG_PRC: {:.4}\nAVG_RECALL: {:.4}\nAVG_F1: {:.4}\nAVG_MED: {:.4}\n'.format(
-                ddi_rate, np.mean(ja), np.mean(prauc), np.mean(avg_p), np.mean(avg_r), np.mean(avg_f1),
-                med_cnt / visit_cnt
-            ))
+            "DDI rate: {:.4}\nJaccard: {:.4}\nPRAUC: {:.4}\nAVG_PRC: {:.4}\nAVG_RECALL: {:.4}\nAVG_F1: {:.4}\nAVG_MED: {:.4}\n".format(
+                ddi_rate,
+                np.mean(ja),
+                np.mean(prauc),
+                np.mean(avg_p),
+                np.mean(avg_r),
+                np.mean(avg_f1),
+                med_cnt / visit_cnt,
+            )
+        )
 
         # self.prepare_output(output_path)
 
@@ -237,12 +256,15 @@ class RETAIN(pl.LightningModule):
             for cur_visit in cur_pat:
                 pat_id = cur_visit[3]
                 visit_id = cur_visit[4]
-                diag = self.maps['diag'].decodes(cur_visit[0])
-                if -1 in diag: diag.remove(-1)
-                prod = self.maps['prod'].decodes(cur_visit[1])
-                if -1 in prod: prod.remove(-1)
-                gt_med = self.maps['med'].decodes(cur_visit[2])
-                if -1 in gt_med: gt_med.remove(-1)
+                diag = self.maps["diag"].decodes(cur_visit[0])
+                if -1 in diag:
+                    diag.remove(-1)
+                prod = self.maps["prod"].decodes(cur_visit[1])
+                if -1 in prod:
+                    prod.remove(-1)
+                gt_med = self.maps["med"].decodes(cur_visit[2])
+                if -1 in gt_med:
+                    gt_med.remove(-1)
                 pre_logits = cur_visit[5]
                 pre_med = np.where(pre_logits >= 0.5)[0]
                 if pat_id not in nested_dict:
@@ -251,23 +273,27 @@ class RETAIN(pl.LightningModule):
                     "diagnoses": diag,
                     "procedures": prod,
                     "real_prescription": gt_med,
-                    "predicted_prescription": self.maps['med'].decodes(pre_med),
+                    "predicted_prescription": self.maps["med"].decodes(pre_med),
                     "prediction_logits": {
-                        atc3: str(np.round(logit, 4)) for atc3, logit in
-                        zip(self.maps['med'].code_to_idx.keys(), pre_logits)
-                    }
+                        atc3: str(np.round(logit, 4))
+                        for atc3, logit in zip(
+                            self.maps["med"].code_to_idx.keys(), pre_logits
+                        )
+                    },
                 }
 
         with open(output_path, "w") as outfile:
             json.dump(nested_dict, outfile)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     from pyhealth.datasets.mimic3 import MIMIC3BaseDataset
     from pyhealth.data.dataset import DrugRecommendationDataset
     from torch.utils.data import DataLoader
 
-    base_dataset = MIMIC3BaseDataset(root="/srv/local/data/physionet.org/files/mimiciii/1.4")
+    base_dataset = MIMIC3BaseDataset(
+        root="/srv/local/data/physionet.org/files/mimiciii/1.4"
+    )
     task_taskset = DrugRecommendationDataset(base_dataset)
     data_loader = DataLoader(task_taskset, batch_size=1, collate_fn=lambda x: x[0])
     data_loader_iter = iter(data_loader)

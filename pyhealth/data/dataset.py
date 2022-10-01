@@ -7,14 +7,14 @@ from pyhealth.data import Patient
 
 
 class BaseDataset(ABC):
-    """ Abstract dataset structure 
-        will be inherited by specific datasets
+    """Abstract dataset structure
+    will be inherited by specific datasets
     """
 
     def __init__(
-            self,
-            dataset_name: str,
-            patients=List[Patient],
+        self,
+        dataset_name: str,
+        patients=List[Patient],
     ):
         self.dataset_name = dataset_name
         self.patients = patients
@@ -54,11 +54,12 @@ class BaseDataset(ABC):
             - code: str
             - time: float
         """
-        print (info)
+        print(info)
+
 
 class TaskDataset(ABC, Dataset):
-    """ Abstract task dataset class which 
-        will be inherited by specific tasks 
+    """Abstract task dataset class which
+    will be inherited by specific tasks
     """
 
     def __init__(self, base_dataset):

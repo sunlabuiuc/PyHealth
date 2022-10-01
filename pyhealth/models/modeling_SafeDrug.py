@@ -7,6 +7,7 @@ import numpy as np
 
 from pyhealth.models.tokenizer import Tokenizer
 
+
 class _GraphConvolution(nn.Module):
     """
     Simple GCN layer, similar to https://arxiv.org/abs/1609.02907
@@ -20,11 +21,11 @@ class _GraphConvolution(nn.Module):
         if bias:
             self.bias = nn.Parameter(torch.FloatTensor(out_features))
         else:
-            self.register_parameter('bias', None)
+            self.register_parameter("bias", None)
         self.reset_parameters()
 
     def reset_parameters(self):
-        stdv = 1. / self.weight.size(1)**0.5
+        stdv = 1.0 / self.weight.size(1) ** 0.5
         self.weight.data.uniform_(-stdv, stdv)
         if self.bias is not None:
             self.bias.data.uniform_(-stdv, stdv)
@@ -38,9 +39,15 @@ class _GraphConvolution(nn.Module):
             return output
 
     def __repr__(self):
-        return self.__class__.__name__ + ' (' \
-               + str(self.in_features) + ' -> ' \
-               + str(self.out_features) + ')'
+        return (
+            self.__class__.__name__
+            + " ("
+            + str(self.in_features)
+            + " -> "
+            + str(self.out_features)
+            + ")"
+        )
+
 
 class _GCN(nn.Module):
     def __init__(self, voc_size, emb_dim, adj):
@@ -68,10 +75,11 @@ class _GCN(nn.Module):
         """Row-normalize sparse matrix"""
         rowsum = np.array(mx.sum(1))
         r_inv = np.power(rowsum, -1).flatten()
-        r_inv[np.isinf(r_inv)] = 0.
+        r_inv[np.isinf(r_inv)] = 0.0
         r_mat_inv = np.diagflat(r_inv)
         mx = r_mat_inv.dot(mx)
         return mx
+
 
 class _MaskLinear(nn.Module):
     def __init__(self, in_features, out_features, bias=True):
@@ -82,11 +90,11 @@ class _MaskLinear(nn.Module):
         if bias:
             self.bias = nn.Parameter(torch.FloatTensor(out_features))
         else:
-            self.register_parameter('bias', None)
+            self.register_parameter("bias", None)
         self.reset_parameters()
 
     def reset_parameters(self):
-        stdv = 1. / self.weight.size(1) ** 0.5
+        stdv = 1.0 / self.weight.size(1) ** 0.5
         self.weight.data.uniform_(-stdv, stdv)
         if self.bias is not None:
             self.bias.data.uniform_(-stdv, stdv)
@@ -101,16 +109,23 @@ class _MaskLinear(nn.Module):
             return output
 
     def __repr__(self):
-        return self.__class__.__name__ + ' (' \
-               + str(self.in_features) + ' -> ' \
-               + str(self.out_features) + ')'
+        return (
+            self.__class__.__name__
+            + " ("
+            + str(self.in_features)
+            + " -> "
+            + str(self.out_features)
+            + ")"
+        )
+
 
 class _MolecularGraphNeuralNetwork(nn.Module):
     def __init__(self, N_fingerprint, dim, layer_hidden):
         super(_MolecularGraphNeuralNetwork, self).__init__()
         self.embed_fingerprint = nn.Embedding(N_fingerprint, dim)
-        self.W_fingerprint = nn.ModuleList([nn.Linear(dim, dim)
-                                            for _ in range(layer_hidden)])
+        self.W_fingerprint = nn.ModuleList(
+            [nn.Linear(dim, dim) for _ in range(layer_hidden)]
+        )
         self.layer_hidden = layer_hidden
 
     def pad(self, matrices, pad_value):
@@ -127,7 +142,7 @@ class _MolecularGraphNeuralNetwork(nn.Module):
         i, j = 0, 0
         for k, matrix in enumerate(matrices):
             m, n = shapes[k]
-            pad_matrices[i:i+m, j:j+n] = matrix
+            pad_matrices[i : i + m, j : j + n] = matrix
             i += m
             j += n
         return pad_matrices
@@ -164,13 +179,14 @@ class _MolecularGraphNeuralNetwork(nn.Module):
 
         return molecular_vectors
 
+
 class SafeDrug(pl.LightningModule):
     def __init__(self, dataset, emb_dim=64):
         super(SafeDrug, self).__init__()
 
-        self.condition_tokenizer = Tokenizer(dataset.all_tokens['conditions'])
-        self.procedure_tokenizer = Tokenizer(dataset.all_tokens['procedures'])
-        self.drug_tokenizer = Tokenizer(dataset.all_tokens['drugs'])
+        self.condition_tokenizer = Tokenizer(dataset.all_tokens["conditions"])
+        self.procedure_tokenizer = Tokenizer(dataset.all_tokens["procedures"])
+        self.drug_tokenizer = Tokenizer(dataset.all_tokens["drugs"])
 
         # ddi_adj = dataset.ddi_adj
 
@@ -178,19 +194,26 @@ class SafeDrug(pl.LightningModule):
         self.output_len = self.drug_tokenizer.get_vocabulary_size()
 
         self.condition_embedding = nn.Sequential(
-            nn.Embedding(self.condition_tokenizer.get_vocabulary_size(), self.emb_dim, padding_idx=0),
-            nn.Dropout(0.5)
+            nn.Embedding(
+                self.condition_tokenizer.get_vocabulary_size(),
+                self.emb_dim,
+                padding_idx=0,
+            ),
+            nn.Dropout(0.5),
         )
         self.procedure_embedding = nn.Sequential(
-            nn.Embedding(self.procedure_tokenizer.get_vocabulary_size(), self.emb_dim, padding_idx=0),
-            nn.Dropout(0.5)
+            nn.Embedding(
+                self.procedure_tokenizer.get_vocabulary_size(),
+                self.emb_dim,
+                padding_idx=0,
+            ),
+            nn.Dropout(0.5),
         )
 
-        self.encoders = nn.ModuleList([nn.GRU(emb_dim, emb_dim, batch_first=True) for _ in range(2)])
-        self.query = nn.Sequential(
-                nn.ReLU(),
-                nn.Linear(2 * emb_dim, emb_dim)
+        self.encoders = nn.ModuleList(
+            [nn.GRU(emb_dim, emb_dim, batch_first=True) for _ in range(2)]
         )
+        self.query = nn.Sequential(nn.ReLU(), nn.Linear(2 * emb_dim, emb_dim))
 
         # TODO: get the ddi_mask_H
         # bipartite local embedding
@@ -199,7 +222,7 @@ class SafeDrug(pl.LightningModule):
             nn.Linear(emb_dim, ddi_mask_H.shape[1])
         )
         self.bipartite_output = _MaskLinear(ddi_mask_H.shape[1], self.output_len, False)
-        
+
         # TODO: get the molecule information
         # MPNN global embedding
         # MPNNSet, N_fingerprints, average_projection = med_molecule_info
@@ -208,32 +231,38 @@ class SafeDrug(pl.LightningModule):
         # self.MPNN = _MolecularGraphNeuralNetwork(N_fingerprints, emb_dim, layer_hidden=2)
         # self.MPNN_emb = self.MPNN(self.MPNN_molecule_Set)
 
-        self.MPNN_emb = nn.Parameter(torch.randn(self.output_len, emb_dim), requires_grad=True)
+        self.MPNN_emb = nn.Parameter(
+            torch.randn(self.output_len, emb_dim), requires_grad=True
+        )
         self.MPNN_output = nn.Linear(self.output_len, self.output_len)
         self.MPNN_layernorm = nn.LayerNorm(self.output_len)
 
-        self.tensor_ddi_mask_H = nn.Parameter(torch.FloatTensor(ddi_mask_H), requires_grad=False)
-        
+        self.tensor_ddi_mask_H = nn.Parameter(
+            torch.FloatTensor(ddi_mask_H), requires_grad=False
+        )
+
     def forward(self, conditions, procedures):
         conditions = self.condition_tokenizer(conditions).cuda()
         procedures = self.procedure_tokenizer(procedures).cuda()
         conditions_emb = self.condition_embedding(conditions).sum(dim=1)
         procedures_emb = self.procedure_embedding(procedures).sum(dim=1)
 
-        o1, _ = self.encoders[0](conditions_emb) # (seq, emb_dim)
-        o2, _ = self.encoders[1](procedures_emb) 
-        patient_representations = torch.cat([o1, o2], dim=1) # (seq, emb_dim*2)
-        query = self.query(patient_representations)[-1:, :] # (seq, dim)
-        
-	    # MPNN embedding
+        o1, _ = self.encoders[0](conditions_emb)  # (seq, emb_dim)
+        o2, _ = self.encoders[1](procedures_emb)
+        patient_representations = torch.cat([o1, o2], dim=1)  # (seq, emb_dim*2)
+        query = self.query(patient_representations)[-1:, :]  # (seq, dim)
+
+        # MPNN embedding
         MPNN_match = torch.sigmoid(torch.mm(query, self.MPNN_emb.t()))
         MPNN_att = self.MPNN_layernorm(MPNN_match + self.MPNN_output(MPNN_match))
-        
-	    # local embedding
-        bipartite_emb = self.bipartite_output(torch.sigmoid(self.bipartite_transform(query)), self.tensor_ddi_mask_H.t())
-        
+
+        # local embedding
+        bipartite_emb = self.bipartite_output(
+            torch.sigmoid(self.bipartite_transform(query)), self.tensor_ddi_mask_H.t()
+        )
+
         result = torch.mul(bipartite_emb, MPNN_att)
-        
+
         neg_pred_prob = torch.sigmoid(result)
         neg_pred_prob = neg_pred_prob.t() * neg_pred_prob  # (voc_size, voc_size)
         return result
@@ -246,9 +275,11 @@ class SafeDrug(pl.LightningModule):
         loss = 0
         conditions, procedures, drugs = train_batch.values()
         for i in range(len(conditions)):
-            output_logits = self.forward(conditions[:i + 1], procedures[:i + 1])
-            drugs_index = self.drug_tokenizer(drugs[i: i + 1]).cuda()
-            drugs_multihot = torch.zeros(1, self.drug_tokenizer.get_vocabulary_size()).cuda()
+            output_logits = self.forward(conditions[: i + 1], procedures[: i + 1])
+            drugs_index = self.drug_tokenizer(drugs[i : i + 1]).cuda()
+            drugs_multihot = torch.zeros(
+                1, self.drug_tokenizer.get_vocabulary_size()
+            ).cuda()
             drugs_multihot[0][drugs_index[0]] = 1
             loss += F.binary_cross_entropy_with_logits(output_logits, drugs_multihot)
         # self.log('train_loss', loss)
@@ -258,9 +289,11 @@ class SafeDrug(pl.LightningModule):
         loss = 0
         conditions, procedures, drugs = val_batch.values()
         for i in range(len(conditions)):
-            output_logits = self.forward(conditions[:i + 1], procedures[:i + 1])
-            drugs_index = self.drug_tokenizer(drugs[i: i + 1]).cuda()
-            drugs_multihot = torch.zeros(1, self.drug_tokenizer.get_vocabulary_size()).cuda()
+            output_logits = self.forward(conditions[: i + 1], procedures[: i + 1])
+            drugs_index = self.drug_tokenizer(drugs[i : i + 1]).cuda()
+            drugs_multihot = torch.zeros(
+                1, self.drug_tokenizer.get_vocabulary_size()
+            ).cuda()
             drugs_multihot[0][drugs_index[0]] = 1
             loss += F.binary_cross_entropy_with_logits(output_logits, drugs_multihot)
         # self.log('val_loss', loss)
@@ -279,7 +312,7 @@ class SafeDrug(pl.LightningModule):
                 y_gt, y_pred, y_pred_prob, y_pred_label = [], [], [], []
 
                 for i in range(len(X)):
-                    target_output, _ = self.forward(X[:i + 1])
+                    target_output, _ = self.forward(X[: i + 1])
                     y_gt.append(y[i].cpu().numpy())
 
                     # prediction prob
@@ -300,8 +333,15 @@ class SafeDrug(pl.LightningModule):
                     visit_cnt += 1
 
                 smm_record.append(y_pred_label)
-                adm_ja, adm_prauc, adm_avg_p, adm_avg_r, adm_avg_f1 = \
-                    multi_label_metric(np.array(y_gt), np.array(y_pred), np.array(y_pred_prob))
+                (
+                    adm_ja,
+                    adm_prauc,
+                    adm_avg_p,
+                    adm_avg_r,
+                    adm_avg_f1,
+                ) = multi_label_metric(
+                    np.array(y_gt), np.array(y_pred), np.array(y_pred_prob)
+                )
 
                 ja.append(adm_ja)
                 prauc.append(adm_prauc)
@@ -310,12 +350,18 @@ class SafeDrug(pl.LightningModule):
                 avg_f1.append(adm_avg_f1)
 
         ddi_rate = ddi_rate_score(smm_record, self.ddi_adj)
-        print('--- Test Summary ---')
+        print("--- Test Summary ---")
         print(
-            'DDI rate: {:.4}\nJaccard: {:.4}\nPRAUC: {:.4}\nAVG_PRC: {:.4}\nAVG_RECALL: {:.4}\nAVG_F1: {:.4}\nAVG_MED: {:.4}\n'.format(
-                ddi_rate, np.mean(ja), np.mean(prauc), np.mean(avg_p), np.mean(avg_r), np.mean(avg_f1),
-                med_cnt / visit_cnt
-            ))
+            "DDI rate: {:.4}\nJaccard: {:.4}\nPRAUC: {:.4}\nAVG_PRC: {:.4}\nAVG_RECALL: {:.4}\nAVG_F1: {:.4}\nAVG_MED: {:.4}\n".format(
+                ddi_rate,
+                np.mean(ja),
+                np.mean(prauc),
+                np.mean(avg_p),
+                np.mean(avg_r),
+                np.mean(avg_f1),
+                med_cnt / visit_cnt,
+            )
+        )
 
         # self.prepare_output(output_path)
 
@@ -352,12 +398,15 @@ class SafeDrug(pl.LightningModule):
             for cur_visit in cur_pat:
                 pat_id = cur_visit[3]
                 visit_id = cur_visit[4]
-                diag = self.maps['diag'].decodes(cur_visit[0])
-                if -1 in diag: diag.remove(-1)
-                prod = self.maps['prod'].decodes(cur_visit[1])
-                if -1 in prod: prod.remove(-1)
-                gt_med = self.maps['med'].decodes(cur_visit[2])
-                if -1 in gt_med: gt_med.remove(-1)
+                diag = self.maps["diag"].decodes(cur_visit[0])
+                if -1 in diag:
+                    diag.remove(-1)
+                prod = self.maps["prod"].decodes(cur_visit[1])
+                if -1 in prod:
+                    prod.remove(-1)
+                gt_med = self.maps["med"].decodes(cur_visit[2])
+                if -1 in gt_med:
+                    gt_med.remove(-1)
                 pre_logits = cur_visit[5]
                 pre_med = np.where(pre_logits >= 0.5)[0]
                 if pat_id not in nested_dict:
@@ -366,23 +415,27 @@ class SafeDrug(pl.LightningModule):
                     "diagnoses": diag,
                     "procedures": prod,
                     "real_prescription": gt_med,
-                    "predicted_prescription": self.maps['med'].decodes(pre_med),
+                    "predicted_prescription": self.maps["med"].decodes(pre_med),
                     "prediction_logits": {
-                        atc3: str(np.round(logit, 4)) for atc3, logit in
-                        zip(self.maps['med'].code_to_idx.keys(), pre_logits)
-                    }
+                        atc3: str(np.round(logit, 4))
+                        for atc3, logit in zip(
+                            self.maps["med"].code_to_idx.keys(), pre_logits
+                        )
+                    },
                 }
 
         with open(output_path, "w") as outfile:
             json.dump(nested_dict, outfile)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     from pyhealth.datasets.mimic3 import MIMIC3BaseDataset
     from pyhealth.data.dataset import DrugRecommendationDataset
     from torch.utils.data import DataLoader
 
-    base_dataset = MIMIC3BaseDataset(root="/srv/local/data/physionet.org/files/mimiciii/1.4")
+    base_dataset = MIMIC3BaseDataset(
+        root="/srv/local/data/physionet.org/files/mimiciii/1.4"
+    )
     task_taskset = DrugRecommendationDataset(base_dataset)
     data_loader = DataLoader(task_taskset, batch_size=1, collate_fn=lambda x: x[0])
     data_loader_iter = iter(data_loader)

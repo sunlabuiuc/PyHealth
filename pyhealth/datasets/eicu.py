@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 import sys
+
 sys.path.append("/home/chaoqiy2/github/PyHealth-OMOP")
 
 from pyhealth.data import Event, Visit, Patient, BaseDataset
@@ -63,9 +64,13 @@ class eICUBaseDataset(BaseDataset):
 
             # save to cache
             create_directory(os.path.join(str(Path.home()), ".cache/pyhealth"))
-            dump_pickle(patients, os.path.join(str(Path.home()), ".cache/pyhealth/eicu.data"))
+            dump_pickle(
+                patients, os.path.join(str(Path.home()), ".cache/pyhealth/eicu.data")
+            )
         else:
-            patients = load_pickle(os.path.join(str(Path.home()), ".cache/pyhealth/eicu.data"))
+            patients = load_pickle(
+                os.path.join(str(Path.home()), ".cache/pyhealth/eicu.data")
+            )
         super(eICUBaseDataset, self).__init__(dataset_name="eICU", patients=patients)
 
     def parse_patients(self):
@@ -77,7 +82,7 @@ class eICUBaseDataset(BaseDataset):
                 # visit statistics
                 encounter_time = float(visit_info["hospitaladmitoffset"].values[0])
                 duration = float(visit_info["unitdischargeoffset"].values[0])
-                mortality = visit_info['unitdischargestatus'].values[0] == "Expire"
+                mortality = visit_info["unitdischargestatus"].values[0] == "Expire"
                 cur_visit = Visit(
                     visit_id,
                     patient_id,
@@ -100,12 +105,15 @@ class eICUBaseDataset(BaseDataset):
             for code, time in visit_info[["icd9code", "diagnosisoffset"]].values:
                 cur_diagnosis += self.process_nested_code(code, time)
 
-            if len(cur_diagnosis) == 0: continue
+            if len(cur_diagnosis) == 0:
+                continue
             # add diagnosis to patients dict
             patient_id = visits[visit_id].patient_id
             if patient_id not in patients:  # register patient if not exist
                 patients[patient_id] = Patient(patient_id)
-            if visit_id not in patients[patient_id].visits:  # register visit if not exist
+            if (
+                visit_id not in patients[patient_id].visits
+            ):  # register visit if not exist
                 visits[visit_id].conditions = cur_diagnosis
                 patients[patient_id].visits[visit_id] = visits[visit_id]
             else:
@@ -123,12 +131,15 @@ class eICUBaseDataset(BaseDataset):
             for code, time in visit_info[["labname", "labresultoffset"]].values:
                 cur_lab += self.process_nested_code(code, time)
 
-            if len(cur_lab) == 0: continue
+            if len(cur_lab) == 0:
+                continue
             # add labs to patients dict
             patient_id = visits[visit_id].patient_id
             if patient_id not in patients:  # register patient if not exist
                 patients[patient_id] = Patient(patient_id)
-            if visit_id not in patients[patient_id].visits:  # register visit if not exist
+            if (
+                visit_id not in patients[patient_id].visits
+            ):  # register visit if not exist
                 visits[visit_id].labs = cur_lab
                 patients[patient_id].visits[visit_id] = visits[visit_id]
             else:
@@ -140,19 +151,23 @@ class eICUBaseDataset(BaseDataset):
             os.path.join(self.root, "medication.csv"), low_memory=False
         )
         for visit_id, visit_info in tqdm(medication_df.groupby("patientunitstayid")):
-            if visit_id not in visits: continue
+            if visit_id not in visits:
+                continue
 
             # load drugs with time info
             cur_medication = []
             for code, time in visit_info[["drugname", "drugstartoffset"]].values:
                 cur_medication += self.process_nested_code(code, time)
 
-            if len(cur_medication) == 0: continue
+            if len(cur_medication) == 0:
+                continue
             # add medication to patients dict
             patient_id = visits[visit_id].patient_id
             if patient_id not in patients:  # register patient if not exist
                 patients[patient_id] = Patient(patient_id)
-            if visit_id not in patients[patient_id].visits:  # register visit if not exist
+            if (
+                visit_id not in patients[patient_id].visits
+            ):  # register visit if not exist
                 visits[visit_id].drugs = cur_medication
                 patients[patient_id].visits[visit_id] = visits[visit_id]
             else:
@@ -162,19 +177,23 @@ class eICUBaseDataset(BaseDataset):
         """func to parse treatment table"""
         treatment_df = pd.read_csv(os.path.join(self.root, "treatment.csv"))
         for visit_id, visit_info in tqdm(treatment_df.groupby("patientunitstayid")):
-            if visit_id not in visits: continue
+            if visit_id not in visits:
+                continue
 
             # load procedures with time info
             cur_treatment = []
             for code, time in visit_info[["treatmentstring", "treatmentoffset"]].values:
                 cur_treatment += self.process_nested_code(code, time)
 
-            if len(cur_treatment) == 0: continue
+            if len(cur_treatment) == 0:
+                continue
             # add medication to patients dict
             patient_id = visits[visit_id].patient_id
             if patient_id not in patients:  # register patient if not exist
                 patients[patient_id] = Patient(patient_id)
-            if visit_id not in patients[patient_id].visits:  # register visit if not exist
+            if (
+                visit_id not in patients[patient_id].visits
+            ):  # register visit if not exist
                 visits[visit_id].procedures = cur_treatment
                 patients[patient_id].visits[visit_id] = visits[visit_id]
             else:
@@ -184,7 +203,8 @@ class eICUBaseDataset(BaseDataset):
         """func to parse physicalExam table"""
         physicalExam_df = pd.read_csv(os.path.join(self.root, "physicalExam.csv"))
         for visit_id, visit_info in tqdm(physicalExam_df.groupby("patientunitstayid")):
-            if visit_id not in visits: continue
+            if visit_id not in visits:
+                continue
 
             # load physicalExam with time info
             cur_physicalExam = []
@@ -193,12 +213,15 @@ class eICUBaseDataset(BaseDataset):
             ].values:
                 cur_physicalExam += self.process_nested_code(code, time)
 
-            if len(cur_physicalExam) == 0: continue
+            if len(cur_physicalExam) == 0:
+                continue
             # add medication to patients dict
             patient_id = visits[visit_id].patient_id
             if patient_id not in patients:  # register patient if not exist
                 patients[patient_id] = Patient(patient_id)
-            if visit_id not in patients[patient_id].visits:  # register visit if not exist
+            if (
+                visit_id not in patients[patient_id].visits
+            ):  # register visit if not exist
                 visits[visit_id].physicalExams = cur_physicalExam
                 patients[patient_id].visits[visit_id] = visits[visit_id]
             else:
@@ -220,8 +243,10 @@ class eICUBaseDataset(BaseDataset):
 
 
 if __name__ == "__main__":
-    dataset = eICUBaseDataset(root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
-                              files=['conditions', 'procedures', 'drugs'])
+    dataset = eICUBaseDataset(
+        root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
+        files=["conditions", "procedures", "drugs"],
+    )
     print(dataset)
     print(type(dataset))
     print(len(dataset))

@@ -9,21 +9,22 @@ from pathlib import Path
 from pyhealth.data import Patient, TaskDataset
 from pyhealth.models.tokenizer import Tokenizer
 
-from tqdm import tqdm   
+from tqdm import tqdm
+
 
 class DrugRecVisit:
-    """ Contains information about a single visit (for drug recommendation task) """
+    """Contains information about a single visit (for drug recommendation task)"""
 
     def __init__(
-            self,
-            visit_id: str,
-            patient_id: str,
-            conditions: List[str] = [],
-            procedures: List[str] = [],
-            drugs: List[str] = [],
-            labs: List[str] = [],
-            physicalExams: List[str] = [],
-            admission_time: float = 0.0,
+        self,
+        visit_id: str,
+        patient_id: str,
+        conditions: List[str] = [],
+        procedures: List[str] = [],
+        drugs: List[str] = [],
+        labs: List[str] = [],
+        physicalExams: List[str] = [],
+        admission_time: float = 0.0,
     ):
         self.visit_id = visit_id
         self.patient_id = patient_id
@@ -36,6 +37,7 @@ class DrugRecVisit:
 
     def __str__(self):
         return f"Visit {self.visit_id} of patient {self.patient_id}"
+
 
 class DrugRecDataset(TaskDataset):
     """
@@ -69,11 +71,12 @@ class DrugRecDataset(TaskDataset):
         return list_of_code
 
     def preprocess(self):
-        """ clean the data for drug recommendation task """
+        """clean the data for drug recommendation task"""
 
         # ---------- for drug coding ------
         from MedCode import CodeMapping
-        tool = CodeMapping('RxNorm', 'ATC4')
+
+        tool = CodeMapping("RxNorm", "ATC4")
         tool.load()
 
         def get_atc3(x):
@@ -84,17 +87,19 @@ class DrugRecDataset(TaskDataset):
                     result += tool.RxNorm_to_ATC4[rxnorm]
             result = np.unique([item[:-1] for item in result]).tolist()
             return result
+
         # ---------------------
 
         processed_patients = {}
-        for patient_id, patient_obj in self.base_dataset.patients.items():
+        for patient_id, patient_obj in tqdm(self.base_dataset.patients.items()):
             processed_visits = {}
             for visit_id, visit_obj in patient_obj.visits.items():
                 conditions = self.get_code_from_list_of_Event(visit_obj.conditions)
                 procedures = self.get_code_from_list_of_Event(visit_obj.procedures)
                 drugs = self.get_code_from_list_of_Event(visit_obj.drugs)
-                drugs = get_atc3(["{:011}".format(int(med)) for med in drugs]) # drug coding
-
+                drugs = get_atc3(
+                    ["{:011}".format(int(med)) for med in drugs]
+                )  # drug coding
                 # exclude: visits without condition, procedure, or drug code
                 if (len(conditions) + len(procedures)) * len(drugs) == 0:
                     continue
@@ -115,11 +120,17 @@ class DrugRecDataset(TaskDataset):
 
             cur_pat = Patient(
                 patient_id=patient_id,
-                visits=[v for _, v in sorted(processed_visits.items(), key=lambda item: item[1].admission_time)], # sort the visits and change into a list
+                visits=[
+                    v
+                    for _, v in sorted(
+                        processed_visits.items(),
+                        key=lambda item: item[1].admission_time,
+                    )
+                ],  # sort the visits and change into a list
             )
             processed_patients[patient_id] = cur_pat
 
-        print ("1. finish cleaning the dataset for drug recommendation task")
+        print("1. finish cleaning the dataset for drug recommendation task")
         self.patients = processed_patients
 
         # get (0, N-1) to (patients, visit_pos) map
@@ -129,13 +140,14 @@ class DrugRecDataset(TaskDataset):
         for patient_id, patient_obj in self.patients.items():
             group = []
             for pos in range(len(patient_obj.visits)):
-                self.index_map[t] = (patient_id, pos); 
-                group.append(t); t += 1
+                self.index_map[t] = (patient_id, pos)
+                group.append(t)
+                t += 1
             self.index_group.append(group)
         self.params = None
 
     def set_all_tokens(self):
-        """ tokenize by medical codes """
+        """tokenize by medical codes"""
         conditions = []
         procedures = []
         drugs = []
@@ -163,7 +175,7 @@ class DrugRecDataset(TaskDataset):
             drugs_tokenizer,
         )
         self.voc_size = [item.get_vocabulary_size() for item in self.tokenizers]
-        print ("2. tokenized the medical codes")
+        print("2. tokenized the medical codes")
 
     def __len__(self):
         return len(self.patients)
@@ -174,13 +186,11 @@ class DrugRecDataset(TaskDataset):
 
         conditions, procedures, drugs = [], [], []
         # locate all previous visits
-        for visit in patient.visits[:visit_pos+1]:
+        for visit in patient.visits[: visit_pos + 1]:
             conditions.append(visit.conditions)
             procedures.append(visit.procedures)
             drugs.append(visit.drugs)
-        return {"conditions": conditions,
-                "procedures": procedures,
-                "drugs": drugs}
+        return {"conditions": conditions, "procedures": procedures, "drugs": drugs}
 
     def info(self):
         info = """

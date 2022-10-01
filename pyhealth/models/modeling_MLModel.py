@@ -9,7 +9,6 @@ from sklearn.model_selection import KFold
 
 
 class MLModel:
-
     def __init__(self, dataset, model, feature_mode=0):
         super(MLModel, self).__init__()
 
@@ -28,21 +27,23 @@ class MLModel:
         self.class_num_constraint = 0
 
         # Import model
-        if model == 'XGB':
-            self.model = XGBClassifier(objective='binary:logistic', tree_method='gpu_hist')
-        elif model == 'SVM':
-            self.model = SVC(kernel='linear', probability=True)
+        if model == "XGB":
+            self.model = XGBClassifier(
+                objective="binary:logistic", tree_method="gpu_hist"
+            )
+        elif model == "SVM":
+            self.model = SVC(kernel="linear", probability=True)
             self.class_num_constraint = 1
-        elif model == 'LR':
+        elif model == "LR":
             self.model = LogisticRegression(max_iter=200)
             self.class_num_constraint = 1
-        elif model == 'DT':
+        elif model == "DT":
             self.model = DecisionTreeClassifier()
 
         # TODO: Add more models
 
         # For different tasks, we use different loss and output format
-        if dataset.task() == 'DrugRec':
+        if dataset.task() == "DrugRec":
             self.predictor = MultiOutputClassifier(self.model)
 
         # TODO: Add more tasks
@@ -54,7 +55,7 @@ class MLModel:
         y = None
 
         # Do different preprocesses to different tasks
-        if self.dataset.task() == 'DrugRec':
+        if self.dataset.task() == "DrugRec":
             if self.feature_mode == 0:
                 X, y = self.data_normalized_codes_count(dataset=self.dataset)
             elif self.feature_mode == 1:
@@ -72,9 +73,9 @@ class MLModel:
         drgs = []
 
         for i in range(len(dataset)):
-            conditions_ = dataset[i]['conditions']
-            procedures_ = dataset[i]['procedures']
-            drugs_ = dataset[i]['drugs']
+            conditions_ = dataset[i]["conditions"]
+            procedures_ = dataset[i]["procedures"]
+            drugs_ = dataset[i]["drugs"]
 
             for j in range(len(conditions_)):
                 condition = conditions_[j]
@@ -123,9 +124,9 @@ class MLModel:
         drgs = []
 
         for i in range(len(dataset)):
-            conditions_ = dataset[i]['conditions']
-            procedures_ = dataset[i]['procedures']
-            drugs_ = dataset[i]['drugs']
+            conditions_ = dataset[i]["conditions"]
+            procedures_ = dataset[i]["procedures"]
+            drugs_ = dataset[i]["drugs"]
 
             tmp_cons = np.zeros(dataset.voc_size[0])
             tmp_pros = np.zeros(dataset.voc_size[1])
@@ -182,7 +183,7 @@ class MLModel:
         kf = KFold(n_splits=k)
 
         for fn, (trn_idx, val_idx) in enumerate(kf.split(self.X_train, self.y_train)):
-            print('Starting fold: ', fn)
+            print("Starting fold: ", fn)
             X_train_, X_val = self.X_train[trn_idx], self.X_train[val_idx]
             y_train_, y_val = self.y_train[trn_idx], self.y_train[val_idx]
 
@@ -207,13 +208,13 @@ class MLModel:
             #             preds = np.array(preds)[:, :, 1].T  # take the positive class
             #             test_preds += preds / 5
 
-            print('Mean loss across folds: ', np.mean(val_losses))
-            print('STD  loss across folds: ', np.std(val_losses))
+            print("Mean loss across folds: ", np.mean(val_losses))
+            print("STD  loss across folds: ", np.std(val_losses))
 
     def predict(self, X_test=None):
         if X_test is None:
             res = self.predictor.predict(self.X_test)
-            print('BCE loss: ', log_loss(res, self.y_test))
+            print("BCE loss: ", log_loss(res, self.y_test))
             return res
         else:
             return self.predictor.predict(X_test)

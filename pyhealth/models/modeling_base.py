@@ -4,11 +4,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
-VALID_MODE = [
-    "binary",
-    "multiclass",
-    "multilabel"
-]
+VALID_MODE = ["binary", "multiclass", "multilabel"]
+
 
 class base(pl.LightningModule):
     def __init__(self, voc_size, params, model, emb_dim=64, mode: str = "binary"):
@@ -21,17 +18,15 @@ class base(pl.LightningModule):
         self.output_len = voc_size[2]
 
         self.condition_embedding = nn.Sequential(
-            nn.Embedding(voc_size[0], self.emb_dim, padding_idx=0),
-            nn.Dropout(0.5)
+            nn.Embedding(voc_size[0], self.emb_dim, padding_idx=0), nn.Dropout(0.5)
         )
         self.procedure_embedding = nn.Sequential(
-            nn.Embedding(voc_size[1], self.emb_dim, padding_idx=0),
-            nn.Dropout(0.5)
+            nn.Embedding(voc_size[1], self.emb_dim, padding_idx=0), nn.Dropout(0.5)
         )
 
         self.output = nn.Linear(emb_dim, self.output_len)
 
-        if (model == "LR"):         # Logistic Regression
+        if model == "LR":  # Logistic Regression
             self.output = nn.Linear(emb_dim, self.output_len)
 
         if mode not in VALID_MODE:
@@ -51,7 +46,7 @@ class base(pl.LightningModule):
         procedures_emb = self.procedure_embedding(procedures).sum(dim=1)
         visit_emb = conditions_emb + procedures_emb
         out = self.output(visit_emb)
-        if self.model == 'LR':
+        if self.model == "LR":
             out = torch.sigmoid(self.output(visit_emb))
 
         return out
@@ -64,8 +59,8 @@ class base(pl.LightningModule):
         loss = 0
         conditions, procedures, drugs = train_batch.values()
         for i in range(len(conditions)):
-            output_logits = self.forward(conditions[:i + 1], procedures[:i + 1])
-            drugs_index = drugs[i: i + 1].cuda()
+            output_logits = self.forward(conditions[: i + 1], procedures[: i + 1])
+            drugs_index = drugs[i : i + 1].cuda()
             drugs_multihot = torch.zeros(1, self.output_len).cuda()
             drugs_multihot[0][drugs_index[0]] = 1
             loss += self.loss_fn(output_logits, drugs_multihot)
@@ -76,8 +71,8 @@ class base(pl.LightningModule):
         loss = 0
         conditions, procedures, drugs = val_batch.values()
         for i in range(len(conditions)):
-            output_logits = self.forward(conditions[:i + 1], procedures[:i + 1])
-            drugs_index = drugs[i: i + 1].cuda()
+            output_logits = self.forward(conditions[: i + 1], procedures[: i + 1])
+            drugs_index = drugs[i : i + 1].cuda()
             drugs_multihot = torch.zeros(1, self.output_len).cuda()
             drugs_multihot[0][drugs_index[0]] = 1
             loss += self.loss_fn(output_logits, drugs_multihot)
@@ -97,7 +92,7 @@ class base(pl.LightningModule):
                 y_gt, y_pred, y_pred_prob, y_pred_label = [], [], [], []
 
                 for i in range(len(X)):
-                    target_output, _ = self.forward(X[:i + 1])
+                    target_output, _ = self.forward(X[: i + 1])
                     y_gt.append(y[i].cpu().numpy())
 
                     # prediction prob
@@ -118,8 +113,15 @@ class base(pl.LightningModule):
                     visit_cnt += 1
 
                 smm_record.append(y_pred_label)
-                adm_ja, adm_prauc, adm_avg_p, adm_avg_r, adm_avg_f1 = \
-                    multi_label_metric(np.array(y_gt), np.array(y_pred), np.array(y_pred_prob))
+                (
+                    adm_ja,
+                    adm_prauc,
+                    adm_avg_p,
+                    adm_avg_r,
+                    adm_avg_f1,
+                ) = multi_label_metric(
+                    np.array(y_gt), np.array(y_pred), np.array(y_pred_prob)
+                )
 
                 ja.append(adm_ja)
                 prauc.append(adm_prauc)
@@ -128,12 +130,18 @@ class base(pl.LightningModule):
                 avg_f1.append(adm_avg_f1)
 
         ddi_rate = ddi_rate_score(smm_record, self.ddi_adj)
-        print('--- Test Summary ---')
+        print("--- Test Summary ---")
         print(
-            'DDI rate: {:.4}\nJaccard: {:.4}\nPRAUC: {:.4}\nAVG_PRC: {:.4}\nAVG_RECALL: {:.4}\nAVG_F1: {:.4}\nAVG_MED: {:.4}\n'.format(
-                ddi_rate, np.mean(ja), np.mean(prauc), np.mean(avg_p), np.mean(avg_r), np.mean(avg_f1),
-                med_cnt / visit_cnt
-            ))
+            "DDI rate: {:.4}\nJaccard: {:.4}\nPRAUC: {:.4}\nAVG_PRC: {:.4}\nAVG_RECALL: {:.4}\nAVG_F1: {:.4}\nAVG_MED: {:.4}\n".format(
+                ddi_rate,
+                np.mean(ja),
+                np.mean(prauc),
+                np.mean(avg_p),
+                np.mean(avg_r),
+                np.mean(avg_f1),
+                med_cnt / visit_cnt,
+            )
+        )
 
         # self.prepare_output(output_path)
 
@@ -170,12 +178,15 @@ class base(pl.LightningModule):
             for cur_visit in cur_pat:
                 pat_id = cur_visit[3]
                 visit_id = cur_visit[4]
-                diag = self.maps['diag'].decodes(cur_visit[0])
-                if -1 in diag: diag.remove(-1)
-                prod = self.maps['prod'].decodes(cur_visit[1])
-                if -1 in prod: prod.remove(-1)
-                gt_med = self.maps['med'].decodes(cur_visit[2])
-                if -1 in gt_med: gt_med.remove(-1)
+                diag = self.maps["diag"].decodes(cur_visit[0])
+                if -1 in diag:
+                    diag.remove(-1)
+                prod = self.maps["prod"].decodes(cur_visit[1])
+                if -1 in prod:
+                    prod.remove(-1)
+                gt_med = self.maps["med"].decodes(cur_visit[2])
+                if -1 in gt_med:
+                    gt_med.remove(-1)
                 pre_logits = cur_visit[5]
                 pre_med = np.where(pre_logits >= 0.5)[0]
                 if pat_id not in nested_dict:
@@ -184,22 +195,27 @@ class base(pl.LightningModule):
                     "diagnoses": diag,
                     "procedures": prod,
                     "real_prescription": gt_med,
-                    "predicted_prescription": self.maps['med'].decodes(pre_med),
+                    "predicted_prescription": self.maps["med"].decodes(pre_med),
                     "prediction_logits": {
-                        atc3: str(np.round(logit, 4)) for atc3, logit in
-                        zip(self.maps['med'].code_to_idx.keys(), pre_logits)
-                    }
+                        atc3: str(np.round(logit, 4))
+                        for atc3, logit in zip(
+                            self.maps["med"].code_to_idx.keys(), pre_logits
+                        )
+                    },
                 }
 
         with open(output_path, "w") as outfile:
             json.dump(nested_dict, outfile)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     from pyhealth.datasets.mimic3 import MIMIC3BaseDataset
     from pyhealth.data.dataset import DrugRecommendationDataset
     from torch.utils.data import DataLoader
 
-    base_dataset = MIMIC3BaseDataset(root="/srv/local/data/physionet.org/files/mimiciii/1.4")
+    base_dataset = MIMIC3BaseDataset(
+        root="/srv/local/data/physionet.org/files/mimiciii/1.4"
+    )
     task_taskset = DrugRecommendationDataset(base_dataset)
     data_loader = DataLoader(task_taskset, batch_size=1, collate_fn=lambda x: x[0])
     data_loader_iter = iter(data_loader)

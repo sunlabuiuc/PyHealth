@@ -13,13 +13,13 @@ def evaluate_multiclass(model, dataloader, device):
     loss_all = []
     y_true_all = []
     y_prob_all = []
-    for data in tqdm(dataloader, desc='Evaluation'):
+    for data in tqdm(dataloader, desc="Evaluation"):
         model.eval()
         with torch.no_grad():
             output = model(**data, device=device, training=False)
-            loss = output['loss'].cpu()
-            y_true = output['y_true'].cpu()
-            y_prob = output['y_prob'].cpu()
+            loss = output["loss"].cpu()
+            y_true = output["y_true"].cpu()
+            y_prob = output["y_prob"].cpu()
             loss_all.append(loss)
             y_true_all.append(y_true)
             y_prob_all.append(y_prob)

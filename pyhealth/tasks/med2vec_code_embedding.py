@@ -6,7 +6,6 @@ import torch
 
 
 class Med2VecDataset(TaskDataset):
-
     def __init__(self, base_dataset):
         super().__init__(base_dataset)
         self.base_dataset = base_dataset
@@ -22,15 +21,17 @@ class Med2VecDataset(TaskDataset):
     def preprocess_init(self):
         df_diagnosis = self.base_dataset.raw_diagnosis()
         df_admission = self.base_dataset.raw_admissions()
-        REMOVE_DIAGNOSIS = ~((df_admission['DIAGNOSIS'] == 'ORGAN DONOR ACCOUNT') | (
-                df_admission['DIAGNOSIS'] == 'ORGAN DONOR') | \
-                             (df_admission['DIAGNOSIS'] == 'DONOR ACCOUNT'))
+        REMOVE_DIAGNOSIS = ~(
+            (df_admission["DIAGNOSIS"] == "ORGAN DONOR ACCOUNT")
+            | (df_admission["DIAGNOSIS"] == "ORGAN DONOR")
+            | (df_admission["DIAGNOSIS"] == "DONOR ACCOUNT")
+        )
         df = df_admission[REMOVE_DIAGNOSIS]
 
         patient_data = {}
-        patient_id = set(df['SUBJECT_ID'])
+        patient_id = set(df["SUBJECT_ID"])
 
-        data = df_diagnosis['ICD9_CODE'].values
+        data = df_diagnosis["ICD9_CODE"].values
 
         def code2idx(data):
             data_set = set()
@@ -60,19 +61,21 @@ class Med2VecDataset(TaskDataset):
         self.num_codes, datamap = code2idx(data)
 
         for pid in tqdm(patient_id):
-            pid_df = df[df['SUBJECT_ID'] == pid]
-            if (len(pid_df) < 2):
+            pid_df = df[df["SUBJECT_ID"] == pid]
+            if len(pid_df) < 2:
                 continue
-            adm_list = pid_df[['HADM_ID', 'ADMITTIME', 'DEATHTIME']]  # add DISCHATIME ?
+            adm_list = pid_df[["HADM_ID", "ADMITTIME", "DEATHTIME"]]  # add DISCHATIME ?
             patient_data[pid] = []
             for i, r in adm_list.iterrows():
-                admid = r['HADM_ID']
-                admitime = r['ADMITTIME']
-                icd9_raw = df_diagnosis[df_diagnosis['HADM_ID'] == admid]['ICD9_CODE'].values
+                admid = r["HADM_ID"]
+                admitime = r["ADMITTIME"]
+                icd9_raw = df_diagnosis[df_diagnosis["HADM_ID"] == admid][
+                    "ICD9_CODE"
+                ].values
                 icd9_raw = list(set(icd9_raw))
                 icd9 = get_idx(icd9_raw, datamap)
-                mortality = r['DEATHTIME'] == r['DEATHTIME']  # check not nan
-                admtime = datetime.strptime(r['ADMITTIME'], '%Y-%m-%d %H:%M:%S')
+                mortality = r["DEATHTIME"] == r["DEATHTIME"]  # check not nan
+                admtime = datetime.strptime(r["ADMITTIME"], "%Y-%m-%d %H:%M:%S")
                 tup = (icd9, admtime, mortality)
                 patient_data[pid].append(tup)
 
@@ -97,12 +100,12 @@ class Med2VecDataset(TaskDataset):
                 ivec.append(i)
                 jvec.append(j)  # code to code coordination, code pairs in one visit
         return x, torch.LongTensor(ivec), torch.LongTensor(jvec), d
-    
+
     def set_all_tokens(self):
-        return ''
-    
+        return ""
+
     def preprocess(self):
-        return ''
+        return ""
 
     def __len__(self):
         return len(self.processed_data)
@@ -113,5 +116,3 @@ class Med2VecDataset(TaskDataset):
 
         x, ivec, jvec, d = self.preprocess_(self.processed_data[index])
         return x, ivec, jvec, d
-
-
