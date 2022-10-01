@@ -49,6 +49,28 @@ class Tokenizer:
     def get_vocabulary_size(self):
         return len(self.vocabulary)
 
+    def batch_tokenize(self, batch):
+        """ tokenize a batch of data
+        INPUT
+            batch: [up_to_visit1, up_to_visit2, ...]
+                - visit1: [[code list of visit0], [code list of visit1]]
+                - visit2: [[code list of visit0], [code list of visit1], [code list of visit2]]
+                - ...
+        OUTPUT
+            tensor: (#batch, #max_visit, #max_code)
+        """
+        N_pat, N_visit, N_code = len(batch), 0, 0
+        for sample in batch:
+            N_visit = max(N_visit, len(sample))
+            for visit in sample:
+                N_code = max(N_code, len(visit))
+
+        tensor = torch.zeros(N_pat, N_visit, N_code, dtype=torch.long)
+        for i, sample in enumerate(batch):
+            sample = self(sample)
+            tensor[i, :sample.shape[0], :sample.shape[1]] = sample
+        return tensor
+
     def __call__(self, text: List[List[str]], padding=True, prefix='', suffix=''):
         text_tokenized = []
         for sent in text:

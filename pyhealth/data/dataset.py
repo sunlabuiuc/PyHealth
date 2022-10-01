@@ -56,7 +56,6 @@ class BaseDataset(ABC):
         """
         print (info)
 
-
 class TaskDataset(ABC, Dataset):
     """ Abstract task dataset class which 
         will be inherited by specific tasks 
@@ -64,6 +63,12 @@ class TaskDataset(ABC, Dataset):
 
     def __init__(self, base_dataset):
         self.base_dataset = base_dataset
+        # a list of patients
+        self.patients = None
+        # from (0, N-1) to (patient_id, visit_id)
+        self.index_map = None
+        # [[index of patient 1], [index of patient 2], ...]
+        self.index_group = None
         self.preprocess()
         self.set_all_tokens()
 

@@ -210,7 +210,7 @@ class OMOPBaseDataset(BaseDataset):
 
 
 if __name__ == "__main__":
-    dataset = OMOPBaseDataset(root="/srv/local/data/zw12/pyhealth/raw_data/synpuf1k_omop_cdm_5.2.2", files=['drugs'])
+    dataset = OMOPBaseDataset(root="/srv/local/data/zw12/pyhealth/raw_data/synpuf1k_omop_cdm_5.2.2", files=['conditions', 'procedures', 'drugs'])
     print(dataset)
     print(type(dataset))
     print(len(dataset))

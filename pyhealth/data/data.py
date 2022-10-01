@@ -50,7 +50,7 @@ class Patient:
     def __init__(
             self,
             patient_id: str,
-            visits: dict = {},
+            visits = None, 
     ):
         self.patient_id = patient_id
         self.visits = visits

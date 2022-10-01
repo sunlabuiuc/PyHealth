@@ -3,8 +3,8 @@ import sys
 from pathlib import Path
 
 import pandas as pd
-
-sys.path.append('/home/chaoqiy2/github/PyHealth-OMOP')
+import sys
+sys.path.append("/home/chaoqiy2/github/PyHealth-OMOP")
 
 from pyhealth.data import Event, Visit, Patient, BaseDataset
 from pyhealth.utils import create_directory, dump_pickle, load_pickle
@@ -12,12 +12,12 @@ from tqdm import tqdm
 
 
 class eICUBaseDataset(BaseDataset):
-    """ Base dataset for eICU 
-        1. it contains a superset of information used for all relevant tasks
-        2. it will be inputted into a task module for further data cleaning
+    """Base dataset for eICU
+    1. it contains a superset of information used for all relevant tasks
+    2. it will be inputted into a task module for further data cleaning
     """
 
-    def __init__(self, root, files=['conditions', 'procedures', 'drugs']):
+    def __init__(self, root, files=["conditions", "procedures", "drugs"]):
         """
         INPUT
             - root: root directory of the dataset
@@ -27,28 +27,37 @@ class eICUBaseDataset(BaseDataset):
         """
         self.root = root
         self.files = files
-        self.all_support_files = ['conditions', 'procedures', 'drugs', 'labs', 'physicalExams']
+        self.all_support_files = [
+            "conditions",
+            "procedures",
+            "drugs",
+            "labs",
+            "physicalExams",
+        ]
 
-        if not os.path.exists(os.path.join(str(Path.home()), ".cache/pyhealth/eicu.data")):
+        if not os.path.exists(
+            os.path.join(str(Path.home()), ".cache/pyhealth/eicu.data")
+        ):
             # get visit-level static features
             visits = self.parse_patients()
             patients = {}
 
             print("structured all patients and visits")
             # process based on self.files
-            if 'conditions' in self.files:
+            if "conditions" in self.files:
                 self.parse_diagnosis(visits, patients)
                 print("processed conditions")
-            if 'procedures' in self.files:
+
+            if "procedures" in self.files:
                 self.parse_treatment(visits, patients)
                 print("processed procedures")
-            if 'drugs' in self.files:
+            if "drugs" in self.files:
                 self.parse_medication(visits, patients)
                 print("processed drugs")
-            if 'labs' in self.files:
+            if "labs" in self.files:
                 self.parse_lab(visits, patients)
                 print("processed labs")
-            if 'physicalExams' in self.files:
+            if "physicalExams" in self.files:
                 self.parse_physicalExam(visits, patients)
                 print("processed physicalExams")
 
@@ -60,7 +69,7 @@ class eICUBaseDataset(BaseDataset):
         super(eICUBaseDataset, self).__init__(dataset_name="eICU", patients=patients)
 
     def parse_patients(self):
-        """ func to parse patient table """
+        """func to parse patient table"""
         patients_df = pd.read_csv(os.path.join(self.root, "patient.csv"))
         visits = {}
         for patient_id, patient_info in tqdm(patients_df.groupby("uniquepid")):
@@ -80,10 +89,11 @@ class eICUBaseDataset(BaseDataset):
         return visits
 
     def parse_diagnosis(self, visits, patients):
-        """ func to parse diagnosis table """
+        """func to parse diagnosis table"""
         diagnosis_df = pd.read_csv(os.path.join(self.root, "diagnosis.csv"))
         for visit_id, visit_info in tqdm(diagnosis_df.groupby("patientunitstayid")):
-            if visit_id not in visits: continue
+            if visit_id not in visits:
+                continue
 
             # load diagnosis with time info
             cur_diagnosis = []
@@ -102,10 +112,11 @@ class eICUBaseDataset(BaseDataset):
                 patients[patient_id].visits[visit_id].conditions = cur_diagnosis
 
     def parse_lab(self, visits, patients):
-        """ func to parse lab table """
+        """func to parse lab table"""
         lab_df = pd.read_csv(os.path.join(self.root, "lab.csv")).iloc[:5000]
         for visit_id, visit_info in tqdm(lab_df.groupby("patientunitstayid")):
-            if visit_id not in visits: continue
+            if visit_id not in visits:
+                continue
 
             # load lab with time info
             cur_lab = []
@@ -124,8 +135,10 @@ class eICUBaseDataset(BaseDataset):
                 patients[patient_id].visits[visit_id].labs = cur_lab
 
     def parse_medication(self, visits, patients):
-        """ func to parse medication table """
-        medication_df = pd.read_csv(os.path.join(self.root, "medication.csv"), low_memory=False)
+        """func to parse medication table"""
+        medication_df = pd.read_csv(
+            os.path.join(self.root, "medication.csv"), low_memory=False
+        )
         for visit_id, visit_info in tqdm(medication_df.groupby("patientunitstayid")):
             if visit_id not in visits: continue
 
@@ -146,7 +159,7 @@ class eICUBaseDataset(BaseDataset):
                 patients[patient_id].visits[visit_id].drugs = cur_medication
 
     def parse_treatment(self, visits, patients):
-        """ func to parse treatment table """
+        """func to parse treatment table"""
         treatment_df = pd.read_csv(os.path.join(self.root, "treatment.csv"))
         for visit_id, visit_info in tqdm(treatment_df.groupby("patientunitstayid")):
             if visit_id not in visits: continue
@@ -168,14 +181,16 @@ class eICUBaseDataset(BaseDataset):
                 patients[patient_id].visits[visit_id].procedures = cur_treatment
 
     def parse_physicalExam(self, visits, patients):
-        """ func to parse physicalExam table """
+        """func to parse physicalExam table"""
         physicalExam_df = pd.read_csv(os.path.join(self.root, "physicalExam.csv"))
         for visit_id, visit_info in tqdm(physicalExam_df.groupby("patientunitstayid")):
             if visit_id not in visits: continue
 
             # load physicalExam with time info
             cur_physicalExam = []
-            for code, time in visit_info[["physicalexampath", "physicalexamoffset"]].values:
+            for code, time in visit_info[
+                ["physicalexampath", "physicalexamoffset"]
+            ].values:
                 cur_physicalExam += self.process_nested_code(code, time)
 
             if len(cur_physicalExam) == 0: continue
