@@ -10,11 +10,11 @@ def metrics_multiclass(y_gt, y_prob):
 
 
 def evaluate_multiclass(model, dataloader, device):
-    model.eval()
     loss_all = []
     y_true_all = []
     y_prob_all = []
     for data in tqdm(dataloader, desc='Evaluation'):
+        model.eval()
         with torch.no_grad():
             output = model(**data, device=device, training=False)
             loss = output['loss'].cpu()

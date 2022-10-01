@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import datasets, transforms
 
-from pyhealth.evaluator.multiclass_evaluator import evaluate_multiclass
+from pyhealth.evaluator.evaluating_multiclass import evaluate_multiclass
 from pyhealth.trainer import Trainer
 
 
