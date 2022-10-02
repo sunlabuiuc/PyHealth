@@ -1,20 +1,20 @@
 import torch
 from sklearn.metrics import roc_auc_score, f1_score, average_precision_score
 import numpy as np
-from tqdm import tqdm
 
 # for drug recommendation
 def multi_label_metric(pre, gt, threshold=0.4):
-    """
-    pre is a float matrix in [0, 1]
-    gt is a binary matrix
+    """calculate the metrics for multi-label classification
+    INPUT
+        - pre: a float matrix in [0, 1]
+        - gt: a binary matrix
     """
 
     def jaccard(pre, gt):
         score = []
-        for b in range(gt.shape[0]):
-            target = np.where(gt[b] == 1)[0]
-            predicted = np.where(pre[b] >= threshold)[0]
+        for i in range(gt.shape[0]):
+            target = np.where(gt[i] == 1)[0]
+            predicted = np.where(pre[i] >= threshold)[0]
             inter = set(predicted) & set(target)
             union = set(predicted) | set(target)
             jaccard_score = 0 if union == 0 else len(inter) / len(union)
@@ -23,16 +23,17 @@ def multi_label_metric(pre, gt, threshold=0.4):
 
     def precision_auc(pre, gt):
         all_micro = []
-        for b in range(gt.shape[0]):
-            all_micro.append(average_precision_score(gt[b], pre[b], average="macro"))
+        for i in range(gt.shape[0]):
+            # Calculate metrics for each label, and find their unweighted mean
+            all_micro.append(average_precision_score(gt[i], pre[i], average="macro"))
         return np.mean(all_micro)
 
     def prc_recall(pre, gt):
         score_prc = []
         score_recall = []
-        for b in range(gt.shape[0]):
-            target = np.where(gt[b] == 1)[0]
-            predicted = np.where(pre[b] >= threshold)[0]
+        for i in range(gt.shape[0]):
+            target = np.where(gt[i] == 1)[0]
+            predicted = np.where(pre[i] >= threshold)[0]
             inter = set(predicted) & set(target)
             prc_score = 0 if len(predicted) == 0 else len(inter) / len(predicted)
             recall_score = 0 if len(target) == 0 else len(inter) / len(target)
@@ -57,19 +58,30 @@ def multi_label_metric(pre, gt, threshold=0.4):
     return {"jaccard": ja, "prauc": prauc, "f1": f1}
 
 
-def evaluate_multilabel(model, dataloader, device):
+def evaluate_multilabel(model, dataloader, device="cpu"):
     predicted = []
     gt = []
     loss_all = []
-    for data in tqdm(dataloader, desc="Evaluation"):
-        model.eval()
+
+    if str(model.__class__) != "<class 'pyhealth.models.modeling_MLModel.MLModel'>":
+        model.to(device)
+    for data in dataloader:
+        if str(model.__class__) != "<class 'pyhealth.models.modeling_MLModel.MLModel'>":
+            model.eval()
         with torch.no_grad():
             output = model(**data, device=device)
-            loss = output["loss"].cpu()
-            y_true = output["y_true"].cpu()
-            y_prob = output["y_prob"].cpu()
-            predicted.append(torch.sigmoid(y_prob).cpu().numpy())
-            gt.append(y_true.numpy())
+            try:
+                loss = output["loss"].cpu()
+                y_true = output["y_true"].cpu()
+                y_prob = output["y_prob"].cpu()
+                predicted.append(y_prob.cpu().numpy())
+                gt.append(y_true.numpy())
+            except:
+                loss = output["loss"]
+                y_true = output["y_true"]
+                y_prob = output["y_prob"]
+                predicted.append(y_prob)
+                gt.append(y_true)
             loss_all.append(loss)
 
     loss_avg = torch.tensor(loss_all).numpy().mean()

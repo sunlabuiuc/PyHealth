@@ -86,3 +86,13 @@ You can also set the storage path as the root to preprocess datasets:
 from pyhealth.datasets import MIMIC3BaseDataset
 base_dataset = MIMIC3BaseDataset(root="https://storage.googleapis.com/pyhealth/mimiciii-demo/1.4/")
 ```
+
+### 4. Leaderboard
+
+#### Current results on drug recommendation
+- 80% : 10% : 10% split on MIMIC-III, five-fold cross validation
+
+|  Model | Jaccard |  PRAUC | macro-F1 |
+|:------:|:-------:|:------:|:--------:|
+|   LR   |  0.5155 | 0.7827 |  0.6709  |
+| RETAIN |  0.5001 | 0.7655 |  0.6563  |
