@@ -92,7 +92,11 @@ base_dataset = MIMIC3BaseDataset(root="https://storage.googleapis.com/pyhealth/m
 #### Current results on drug recommendation
 - 80% : 10% : 10% split on MIMIC-III, five-fold cross validation
 
-|  Model | Jaccard |  PRAUC | macro-F1 |
-|:------:|:-------:|:------:|:--------:|
-|   LR   |  0.5155 | 0.7827 |  0.6709  |
-| RETAIN |  0.5001 | 0.7655 |  0.6563  |
+|  Model | DDI | Jaccard |  PRAUC | macro-F1 |
+|:------:|:----:|:-------:|:------:|:--------:|
+|   LR   | 0.0739 | 0.5137 | 0.7762 |  0.6695  |
+| RandomForest | 0.7863 | 0.4312 | 0.7198 | 0.5958 | 
+| RETAIN | 0.0745 | 0.4931 | 0.7585 |  0.6505  |
+
+- LR best model path : ```../output/221002-155029/best.ckpt```
+- RETAIN best model path: ```../output/221002-153146/best.ckpt```

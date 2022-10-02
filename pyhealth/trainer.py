@@ -131,13 +131,15 @@ class Trainer:
                             self._save_ckpt(
                                 model, os.path.join(self.exp_path, "best.ckpt")
                             )
+        print("best_model_path:", os.path.join(self.exp_path, "best.ckpt"))
 
     def _save_ckpt(self, model, save_path):
         state_dict = model.state_dict()
         torch.save(state_dict, save_path)
 
-    def load_best(self, model):
-        best_path = os.path.join(self.exp_path, "best.ckpt")
-        state_dict = torch.load(best_path, map_location="cpu")
+    def load(self, model, path=None):
+        if path is None:
+            path = os.path.join(self.exp_path, "best.ckpt")
+        state_dict = torch.load(path)
         model.load_state_dict(state_dict)
         return model

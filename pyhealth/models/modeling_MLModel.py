@@ -1,16 +1,23 @@
 from logging.config import valid_ident
+from typing import Optional
+import pickle
+import os
 import numpy as np
-from xgboost import XGBClassifier
-from sklearn.svm import SVC
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.linear_model import LogisticRegression
 from sklearn.multioutput import MultiOutputClassifier
-from sklearn.metrics import log_loss
-from sklearn.model_selection import KFold
+from sklearn.decomposition import PCA
+from pyhealth.utils import get_device, create_directory, set_logger
 
 
 class MLDrugRecommendation:
-    def __init__(self, classifier, voc_size, tokenizers):
+    def __init__(
+        self,
+        classifier,
+        voc_size,
+        tokenizers,
+        enable_logging: bool = True,
+        output_path: Optional[str] = None,
+        exp_name: Optional[str] = None,
+    ):
         super(MLDrugRecommendation, self).__init__()
 
         self.condition_tokenizer = tokenizers[0]
@@ -22,6 +29,11 @@ class MLDrugRecommendation:
 
         # valid y index (store the pos that has both 0 and 1)
         self.valid_label = np.zeros(self.drug_tokenizer.get_vocabulary_size())
+
+        if enable_logging:
+            self.exp_path = set_logger(output_path, None)
+        else:
+            self.exp_path = None
 
     def _code2vec(self, conditions, procedures, drugs):
         cur_diag = np.zeros(
@@ -42,7 +54,13 @@ class MLDrugRecommendation:
 
         return np.concatenate([cur_diag, cur_prod], axis=1), cur_drug
 
-    def fit(self, train_loader, evaluate_fn=None, eval_loader=None, monitor=None):
+    def fit(
+        self,
+        train_loader,
+        evaluate_fn=None,
+        eval_loader=None,
+        monitor=None,
+    ):
         # X (diagnosis and procedure), y (drugs)
         X, y = [], []
 
@@ -62,12 +80,29 @@ class MLDrugRecommendation:
 
         # obtain the valid pos of y that has both 0 and 1
         self.valid_label = np.where(y.sum(0) > 0)[0]
+
+        # PCA to 100-dim
+        self.pca = PCA(n_components=100)
+        X = self.pca.fit_transform(X)
+
+        # fit
         self.predictor.fit(X, y[:, self.valid_label])
+
+        # save the model
+        if self.exp_path is not None:
+            with open(os.path.join(self.exp_path, "best.ckpt"), "wb") as f:
+                pickle.dump([self.predictor, self.pca], f)
+            print("best_model_path:", os.path.join(self.exp_path, "best.ckpt"))
+
+    def load(self, path):
+        with open(path, "rb") as f:
+            self.predictor, self.pca = pickle.load(f)
 
     def __call__(
         self, conditions, procedures, drugs, padding_mask=None, device=None, **kwargs
     ):
         X, y = self._code2vec(conditions, procedures, drugs)
+        X = self.pca.transform(X)
         cur_prob = self.predictor.predict_proba(X)
         cur_prob = np.array(cur_prob)[:, :, -1].T
         y_prob = np.zeros((X.shape[0], self.drug_tokenizer.get_vocabulary_size()))
@@ -75,6 +110,7 @@ class MLDrugRecommendation:
         y_prob[:, self.valid_label] = cur_prob
 
         return {"loss": 1.0, "y_prob": y_prob, "y_true": y}
+
 
 class MLModel:
     """MLModel Class, use "task" as key to identify specific MLModel model and route there"""
@@ -93,3 +129,6 @@ class MLModel:
 
     def __call__(self, *args, **kwargs):
         return self.model(*args, **kwargs)
+
+    def load(self, *args, **kwargs):
+        return self.model.load(*args, **kwargs)

@@ -58,6 +58,24 @@ def multi_label_metric(pre, gt, threshold=0.4):
     return {"jaccard": ja, "prauc": prauc, "f1": f1}
 
 
+def ddi_rate_score(predicted, ddi_matrix, threshold=0.4):
+    # ddi rate
+    all_cnt = 0
+    dd_cnt = 0
+    for visit in predicted:
+        cur_med = np.where(visit >= threshold)[0]
+        for i, med_i in enumerate(cur_med):
+            for j, med_j in enumerate(cur_med):
+                if j <= i:
+                    continue
+                all_cnt += 1
+                if ddi_matrix[med_i, med_j] == 1 or ddi_matrix[med_j, med_i] == 1:
+                    dd_cnt += 1
+    if all_cnt == 0:
+        return 0
+    return dd_cnt / all_cnt
+
+
 def evaluate_multilabel(model, dataloader, device="cpu"):
     predicted = []
     gt = []
@@ -88,4 +106,7 @@ def evaluate_multilabel(model, dataloader, device="cpu"):
     predicted = np.concatenate(predicted, axis=0)
     gt = np.concatenate(gt, axis=0)
     all_metric = multi_label_metric(predicted, gt)
-    return {"loss": loss_avg, **all_metric}
+    if not hasattr(dataloader.dataset.dataset, "ddi_adj"):
+        dataloader.dataset.dataset.get_ddi_matrix()
+    ddi_rate = ddi_rate_score(predicted, dataloader.dataset.dataset.ddi_adj)
+    return {"loss": loss_avg, "ddi": ddi_rate, **all_metric}

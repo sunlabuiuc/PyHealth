@@ -43,6 +43,7 @@ class Vocabulary(object):
 
 class Tokenizer:
     def __init__(self, tokens):
+        tokens = sorted(tokens)
         self.vocabulary = Vocabulary.build_vocabulary(tokens)
 
     def get_vocabulary_size(self):
