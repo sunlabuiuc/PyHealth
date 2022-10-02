@@ -45,7 +45,7 @@ class Trainer:
         monitor: Optional[str] = None,
         mode: str = "max",
         epochs: int = 1,
-        weight_decay: float = 0,
+        weight_decay: float = 0.0,
         max_grad_norm: Optional[float] = None,
         show_progress_bar: bool = True,
     ):

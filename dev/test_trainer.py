@@ -68,8 +68,8 @@ model = Model()
 
 trainer = Trainer(enable_logging=True, output_path="../output")
 trainer.fit(model,
-            train_dataloader=train_dataloader,
+            train_loader=train_dataloader,
             epochs=5,
             evaluate_fn=evaluate_multiclass,
-            eval_dataloader=eval_dataloader,
+            eval_loader=eval_dataloader,
             monitor="acc")
