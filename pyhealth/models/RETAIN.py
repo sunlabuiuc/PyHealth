@@ -70,7 +70,7 @@ class RetainDrugRec(nn.Module):
         self.condition_tokenizer = tokenizers[0]
         self.procedure_tokenizer = tokenizers[1]
         self.drug_tokenizer = tokenizers[2]
-        self.drug_fc = nn.Linear(emb_dim, self.drug_tokenizer.get_vocabulary_size())
+        self.drug_fc = nn.Linear(emb_dim, self.drug_tokenizer.get_vocabulary_size() - 2)
 
     def forward(
         self, conditions, procedures, drugs, padding_mask=None, device=None, **kwargs
@@ -93,6 +93,8 @@ class RetainDrugRec(nn.Module):
         y = torch.zeros(diagT.shape[0], self.drug_tokenizer.get_vocabulary_size())
         for idx, sample in enumerate(drugs):
             y[idx, self.drug_tokenizer(sample[-1:])[0]] = 1
+        # remove 0 and 1 index (invalid drugs)
+        y = y[:, 2:]
 
         # loss
         loss = F.binary_cross_entropy_with_logits(logits, y.to(device))

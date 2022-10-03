@@ -78,16 +78,18 @@ class MLDrugRecommendation:
 
         # train the model
         X = np.concatenate(X, axis=0)
-        y = np.concatenate(y, axis=0)
+        # index 0 and 1 are invalid drugs
+        y = np.concatenate(y, axis=0)[:, 2:]
 
         # obtain the valid pos of y that has both 0 and 1
         self.valid_label = np.where(y.sum(0) > 0)[0]
 
+        print(X.shape, y.shape)
         # PCA to 100-dim
         if reduce_dim is not None:
             self.pca = PCA(n_components=reduce_dim)
         X = self.pca.fit_transform(X)
-        print(X.shape, y.shape)
+
         # fit
         self.predictor.fit(X, y[:, self.valid_label])
 
@@ -108,11 +110,11 @@ class MLDrugRecommendation:
         X = self.pca.transform(X)
         cur_prob = self.predictor.predict_proba(X)
         cur_prob = np.array(cur_prob)[:, :, -1].T
-        y_prob = np.zeros((X.shape[0], self.drug_tokenizer.get_vocabulary_size()))
+        y_prob = np.zeros((X.shape[0], self.drug_tokenizer.get_vocabulary_size() - 2))
 
         y_prob[:, self.valid_label] = cur_prob
 
-        return {"loss": 1.0, "y_prob": y_prob, "y_true": y}
+        return {"loss": 1.0, "y_prob": y_prob, "y_true": y[:, 2:]}
 
 
 class MLModel:

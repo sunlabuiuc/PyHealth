@@ -59,13 +59,12 @@ class TransformerLayer(nn.Module):
         visit_emb = torch.stack(visit_emb_ls, dim=2).mean(2)  # (batch, visit, dim)
         visit_emb = self.dropout(visit_emb)
 
+        mask = masks[0][:, :, 0]
         # since the transformer encoder cannot use "batch_first"
         visit_emb = self.encoder(
-            visit_emb.permute(1, 0, 2), src_key_padding_mask=~mask[:, :, 0]
+            visit_emb.permute(1, 0, 2), src_key_padding_mask=~mask
         )  # (batch, visit, dim)
-        visit_emb = (
-            visit_emb.permute(1, 0, 2) * mask[:, :, 0].unsqueeze(-1).float()
-        ).sum(
+        visit_emb = (visit_emb.permute(1, 0, 2) * mask.unsqueeze(-1).float()).sum(
             1
         )  # (batch, dim)
         return visit_emb
@@ -82,7 +81,7 @@ class TransformerDrugRec(nn.Module):
         self.condition_tokenizer = tokenizers[0]
         self.procedure_tokenizer = tokenizers[1]
         self.drug_tokenizer = tokenizers[2]
-        self.drug_fc = nn.Linear(emb_dim, voc_size[2])
+        self.drug_fc = nn.Linear(emb_dim, voc_size[2] - 2)
 
     def forward(self, conditions, procedures, drugs, device=None, **kwargs):
         diagT, diagMask = [
@@ -103,6 +102,8 @@ class TransformerDrugRec(nn.Module):
         y = torch.zeros(diagT.shape[0], self.drug_tokenizer.get_vocabulary_size())
         for idx, sample in enumerate(drugs):
             y[idx, self.drug_tokenizer(sample[-1:])[0]] = 1
+        # remove 0 and 1 index (invalid drugs)
+        y = y[:, 2:]
 
         # loss
         loss = F.binary_cross_entropy_with_logits(logits, y.to(device))

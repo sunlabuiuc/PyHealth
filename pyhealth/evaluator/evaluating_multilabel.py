@@ -81,10 +81,10 @@ def evaluate_multilabel(model, dataloader, device="cpu"):
     gt = []
     loss_all = []
 
-    if str(model.__class__) != "<class 'pyhealth.models.modeling_MLModel.MLModel'>":
+    if str(model.__class__) != "<class 'pyhealth.models.MLModel.MLModel'>":
         model.to(device)
     for data in dataloader:
-        if str(model.__class__) != "<class 'pyhealth.models.modeling_MLModel.MLModel'>":
+        if str(model.__class__) != "<class 'pyhealth.models.MLModel.MLModel'>":
             model.eval()
         with torch.no_grad():
             output = model(**data, device=device)

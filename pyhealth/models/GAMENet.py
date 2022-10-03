@@ -119,6 +119,8 @@ class GAMENetLayer(nn.Module):
 
         self.output = nn.Sequential(nn.ReLU(), nn.Linear(emb_dim * 3, emb_dim))
 
+        self.init_weights()
+
     def forward(self, tensors, masks=None):
         """
         Args:
@@ -161,13 +163,16 @@ class GAMENetLayer(nn.Module):
 
         history_keys = queries  # (batch, visit, dim)
         # remove the current visit (with is the gt information)
+
+        # mask out the groud truth first
+        for i, cur_mask in enumerate(med_mask):
+            med_tensor[i, torch.sum(cur_mask[:, 0]) - 1, 0] = 0
+
         history_values = (
-            torch.nn.functional.one_hot(
-                med_tensor[:, :-1, :], num_classes=self.voc_size[2]
-            )
+            torch.nn.functional.one_hot(med_tensor, num_classes=self.voc_size[2])
             .sum(-2)
             .bool()
-        ) * 0  # (batch, visit-1, med_size)
+        )  # (batch, visit, med_size)
 
         """O:read from global memory bank and dynamic memory bank"""
         key_weights1 = torch.softmax(
@@ -181,7 +186,7 @@ class GAMENetLayer(nn.Module):
         )  # (batch, visit)
         # # visit_weight = torch.softmax(torch.einsum("bd,bvd->bv", query, history_keys) - (1-diag_mask[:, :, 0].float()) * 1e10, dim=1) # (batch, visit)
         weighted_values = torch.einsum(
-            "bv,bvz->bz", visit_weight[:, :-1], history_values.float()
+            "bv,bvz->bz", visit_weight, history_values.float()
         )  # (batch, med_size)
         fact2 = torch.mm(weighted_values, drug_memory)  # (batch, dim)
 
@@ -189,6 +194,14 @@ class GAMENetLayer(nn.Module):
         output = self.output(torch.cat([query, fact1, fact2], dim=-1))  # (batch, dim)
 
         return output
+
+    def init_weights(self):
+        """Initialize weights."""
+        initrange = 0.1
+        for item in self.embeddings:
+            item.weight.data.uniform_(-initrange, initrange)
+
+        self.inter.data.uniform_(-initrange, initrange)
 
 
 class GAMENet(nn.Module):
@@ -211,7 +224,7 @@ class GAMENet(nn.Module):
         self.gamenet_layer = GAMENetLayer(
             voc_size, ehr_adj, ddi_adj, emb_dim, ddi_in_memory, **kwargs
         )
-        self.drug_fc = nn.Linear(emb_dim, voc_size[2])
+        self.drug_fc = nn.Linear(emb_dim, voc_size[2] - 2)
 
     def forward(self, conditions, procedures, drugs, device=None, **kwargs):
         diag_tensor, diag_mask = [
@@ -236,6 +249,8 @@ class GAMENet(nn.Module):
         y = torch.zeros(diag_tensor.shape[0], self.drug_tokenizer.get_vocabulary_size())
         for idx, sample in enumerate(drugs):
             y[idx, self.drug_tokenizer(sample[-1:])[0]] = 1
+        # remove 0 and 1 index (invalid drugs)
+        y = y[:, 2:]
 
         # loss
         loss = F.binary_cross_entropy_with_logits(logits, y.to(device))

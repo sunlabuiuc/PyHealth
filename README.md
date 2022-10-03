@@ -92,24 +92,23 @@ base_dataset = MIMIC3BaseDataset(root="https://storage.googleapis.com/pyhealth/m
 #### Current results on drug recommendation
 - 2/3 : 1/6 : 1/6 split on MIMIC-III, five-fold cross validation
 
-
 |  Model | DDI | Jaccard |  PRAUC | macro-F1 |
 |:------:|:----:|:-------:|:------:|:--------:|
-|   Logistic Regression (LR)   | 0.0736 | 0.4982 | 0.7672 |  0.6553  |
-| Random Forest (RF) | 0.0783 | 0.4488 | 0.7298 | 0.6126 | 
-| Neural Network (NN) | 0.0714 | 0.4909 | 0.7489 | 0.6494 | 
-|Recurrent Neural Network (RNN) | 0.0704 | 0.4539 | 0.7204 | 0.6151 |
-| Transformer | 0.0783 | 0.4642 | 0.7401 | 0.6236 |
-| RETAIN | 0.0745 | 0.4931 | 0.7585 |  0.6505 |
-| GAMENet | 0.0777 | 0.4545 | 0.7235 | 0.6130 |
+|   Logistic Regression (LR)   | 0.0246 | 0.4979 | 0.7673 | 0.6550  |
+| Random Forest (RF) | 0.0165 | 0.4482 | 0.7298 | 0.6120 | 
+| Neural Network (NN) | 0.0277 | 0.4774 | 0.7397 | 0.6370 | 
+|Recurrent Neural Network (RNN) | 0.0268 | 0.4732 | 0.7446 | 0.6326 |
+| Transformer | 0.0277 | 0.4974 | 0.7685 | 0.6531 |
+| RETAIN | 0.0254 | 0.5056 | 0.7722 | 0.6617 |
+| GAMENet | 0.0284 | 0.5117 | 0.7492 | 0.6651 |
 | MICRON | | | | |
 | SafeDrug | | | | 
 
 
-- LR best model path: ```../output/221002-170548/best.ckpt```
-- RF best model path: ```../output/221002-170055/best.ckpt```
-- NN best model path: ```../output/221002-164933/best.ckpt```
-- RNN best model path: ```../output/221002-181937/best.ckpt```
-- Transformer best model path: ```best_model_path: ../output/221002-183316/best.ckpt```
-- RETAIN best model path: ```../output/221002-153146/best.ckpt```
-- GAMENet best model pathL: ``````
+- LR best model path: ```../output/221003-002013/best.ckpt```
+- RF best model path: ```../output/221003-002349/best.ckpt```
+- NN best model path: ```../output/221003-002759/best.ckpt```
+- RNN best model path: ```../output/221003-014338/best.ckpt```
+- Transformer best model path: ```../output/221003-014920/best.ckpt```
+- RETAIN best model path: ```../output/221003-015604/best.ckpt```
+- GAMENet best model pathL: ```../output/221003-021713/best.ckpt```
