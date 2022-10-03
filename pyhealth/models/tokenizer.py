@@ -58,6 +58,7 @@ class Tokenizer:
                 - ...
         OUTPUT
             tensor: (#batch, #max_visit, #max_code)
+            mask: (#batch, #max_visit)
         """
         N_pat, N_visit, N_code = len(batch), 0, 0
         for sample in batch:
@@ -66,10 +67,18 @@ class Tokenizer:
                 N_code = max(N_code, len(visit))
 
         tensor = torch.zeros(N_pat, N_visit, N_code, dtype=torch.long)
+        mask = torch.zeros(N_pat, N_visit, N_code, dtype=torch.bool)
         for i, sample in enumerate(batch):
-            sample = self(sample)
-            tensor[i, : sample.shape[0], : sample.shape[1]] = sample
-        return tensor
+            for j, visit in enumerate(sample):
+                tensor[i, j, : len(visit)] = torch.tensor(
+                    to_index(visit, self.vocabulary)
+                )
+                mask[i, j, : len(visit)] = True
+        return tensor, mask
+        # for i, sample in enumerate(batch):
+        #     sample = self(sample)
+        #     tensor[i, : sample.shape[0], : sample.shape[1]] = sample
+        # return tensor
 
     def __call__(self, text: List[List[str]], padding=True, prefix="", suffix=""):
         text_tokenized = []

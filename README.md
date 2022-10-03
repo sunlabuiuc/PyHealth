@@ -90,13 +90,26 @@ base_dataset = MIMIC3BaseDataset(root="https://storage.googleapis.com/pyhealth/m
 ### 4. Leaderboard
 
 #### Current results on drug recommendation
-- 80% : 10% : 10% split on MIMIC-III, five-fold cross validation
+- 2/3 : 1/6 : 1/6 split on MIMIC-III, five-fold cross validation
+
 
 |  Model | DDI | Jaccard |  PRAUC | macro-F1 |
 |:------:|:----:|:-------:|:------:|:--------:|
-|   LR   | 0.0739 | 0.5137 | 0.7762 |  0.6695  |
-| RandomForest | 0.7863 | 0.4312 | 0.7198 | 0.5958 | 
-| RETAIN | 0.0745 | 0.4931 | 0.7585 |  0.6505  |
+|   Logistic Regression (LR)   | 0.0736 | 0.4982 | 0.7672 |  0.6553  |
+| Random Forest (RF) | 0.0783 | 0.4488 | 0.7298 | 0.6126 | 
+| Neural Network (NN) | 0.0714 | 0.4909 | 0.7489 | 0.6494 | 
+|Recurrent Neural Network (RNN) | 0.0704 | 0.4539 | 0.7204 | 0.6151 |
+| Transformer | 0.0783 | 0.4642 | 0.7401 | 0.6236 |
+| RETAIN | 0.0745 | 0.4931 | 0.7585 |  0.6505 |
+| GAMENet | 0.0777 | 0.4545 | 0.7235 | 0.6130 |
+| MICRON | | | | |
+| SafeDrug | | | | 
 
-- LR best model path : ```../output/221002-155029/best.ckpt```
+
+- LR best model path: ```../output/221002-170548/best.ckpt```
+- RF best model path: ```../output/221002-170055/best.ckpt```
+- NN best model path: ```../output/221002-164933/best.ckpt```
+- RNN best model path: ```../output/221002-181937/best.ckpt```
+- Transformer best model path: ```best_model_path: ../output/221002-183316/best.ckpt```
 - RETAIN best model path: ```../output/221002-153146/best.ckpt```
+- GAMENet best model pathL: ``````

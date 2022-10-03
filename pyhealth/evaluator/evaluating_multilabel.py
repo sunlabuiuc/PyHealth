@@ -107,6 +107,8 @@ def evaluate_multilabel(model, dataloader, device="cpu"):
     gt = np.concatenate(gt, axis=0)
     all_metric = multi_label_metric(predicted, gt)
     if not hasattr(dataloader.dataset.dataset, "ddi_adj"):
-        dataloader.dataset.dataset.get_ddi_matrix()
-    ddi_rate = ddi_rate_score(predicted, dataloader.dataset.dataset.ddi_adj)
+        ddi_adj = dataloader.dataset.dataset.get_ddi_matrix()
+    else:
+        ddi_adj = dataloader.dataset.dataset.ddi_adj
+    ddi_rate = ddi_rate_score(predicted, ddi_adj)
     return {"loss": loss_avg, "ddi": ddi_rate, **all_metric}

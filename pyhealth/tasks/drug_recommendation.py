@@ -246,6 +246,26 @@ class DrugRecDataset(TaskDataset):
                     ] = 1
 
         self.ddi_adj = ddi_adj
+        return ddi_adj
+
+    def generate_ehr_adj_for_GAMENet(self, visit_ls):
+        """
+        generate the ehr graph adj for GAMENet model input
+        - loop over the training data to check whether any med pair appear
+        """
+        ehr_adj = np.zeros((self.voc_size[2], self.voc_size[2]))
+        for visit_index in visit_ls:
+            patient_id, visit_pos = self.index_map[visit_index]
+            patient = self.patients[patient_id]
+            visit = patient.visits[visit_pos]
+            encoded_drugs = self.tokenizers[2]([visit.drugs])[0]
+            for idx1, med1 in enumerate(encoded_drugs):
+                for idx2, med2 in enumerate(encoded_drugs):
+                    if idx1 >= idx2:
+                        continue
+                    ehr_adj[med1, med2] = 1
+                    ehr_adj[med2, med1] = 1
+        return ehr_adj
 
     def __len__(self):
         return len(self.patients)

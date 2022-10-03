@@ -1,3 +1,4 @@
+from functools import reduce
 from logging.config import valid_ident
 from typing import Optional
 import pickle
@@ -57,6 +58,7 @@ class MLDrugRecommendation:
     def fit(
         self,
         train_loader,
+        reduce_dim=100,
         evaluate_fn=None,
         eval_loader=None,
         monitor=None,
@@ -82,9 +84,10 @@ class MLDrugRecommendation:
         self.valid_label = np.where(y.sum(0) > 0)[0]
 
         # PCA to 100-dim
-        self.pca = PCA(n_components=100)
+        if reduce_dim is not None:
+            self.pca = PCA(n_components=reduce_dim)
         X = self.pca.fit_transform(X)
-
+        print(X.shape, y.shape)
         # fit
         self.predictor.fit(X, y[:, self.valid_label])
 
