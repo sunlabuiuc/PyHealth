@@ -8,13 +8,17 @@ from pyhealth.models import RNN
 from pyhealth.tasks import DrugRecommendationDataset
 
 # read raw dataset
-base_dataset = MIMIC3BaseDataset(root="/srv/local/data/physionet.org/files/mimiciii/1.4")
+base_dataset = MIMIC3BaseDataset(
+    root="/srv/local/data/physionet.org/files/mimiciii/1.4"
+)
 
 # convert dataset for drug recommendation task
 task_dataset = DrugRecommendationDataset(base_dataset)
 
 # split dataset into train, val, and test
-train_dataset, val_dataset, test_dataset = random_split(task_dataset, ratios=[0.7, 0.1, 0.2])
+train_dataset, val_dataset, test_dataset = random_split(
+    task_dataset, ratios=[0.7, 0.1, 0.2]
+)
 
 # create dataloader
 train_data_loader = DataLoader(train_dataset, batch_size=1, collate_fn=lambda x: x[0])

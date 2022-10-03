@@ -20,10 +20,13 @@ def data_loader(dataset, batch_size, shuffle=True):
 
 
 # split by patient
-def split_by_pat(dataset, ratios, batch_size=64):
+def split_by_pat(dataset, ratios, batch_size=64, seed=1234):
     """
     ratio for train / val / test
     """
+
+    np.random.seed(seed)
+
     index_group = dataset.index_group
     N_pat = len(index_group)
 

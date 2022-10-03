@@ -177,6 +177,96 @@ class DrugRecDataset(TaskDataset):
         self.voc_size = [item.get_vocabulary_size() for item in self.tokenizers]
         print("2. tokenized the medical codes")
 
+    def get_ddi_matrix(self):
+        """get drug-drug interaction (DDI)"""
+        cid2atc_dic = defaultdict(set)
+        med_voc_size = self.voc_size[2]
+
+        vocab_to_index = self.tokenizers[2].vocabulary.word2idx
+
+        # load cid2atc
+        if not os.path.exists(
+            os.path.join(str(Path.home()), ".cache/pyhealth/cid_to_ATC6.csv")
+        ):
+            cid_to_ATC6 = request.urlopen(
+                "https://drive.google.com/uc?id=1CVfa91nDu3S_NTxnn5GT93o-UfZGyewI"
+            ).readlines()
+            with open(
+                os.path.join(str(Path.home()), ".cache/pyhealth/cid_to_ATC6.csv"), "w"
+            ) as outfile:
+                for line in cid_to_ATC6:
+                    print(str(line[:-1]), file=outfile)
+        else:
+            cid_to_ATC6 = open(
+                os.path.join(str(Path.home()), ".cache/pyhealth/cid_to_ATC6.csv"), "r"
+            ).readlines()
+
+        # map cid to atc
+        for line in cid_to_ATC6:
+            line_ls = str(line[:-1]).split(",")
+            cid = line_ls[0]
+            atcs = line_ls[1:]
+            for atc in atcs:
+                if atc[:4] in vocab_to_index:
+                    cid2atc_dic[cid[2:]].add(atc[:4])
+
+        # ddi on (cid, cid)
+        if not os.path.exists(
+            os.path.join(str(Path.home()), ".cache/pyhealth/drug-DDI-TOP40.csv")
+        ):
+            ddi_df = pd.read_csv(
+                request.urlopen(
+                    "https://drive.google.com/uc?id=1R88OIhn-DbOYmtmVYICmjBSOIsEljJMh"
+                )
+            )
+            ddi_df.to_csv(
+                os.path.join(str(Path.home()), ".cache/pyhealth/drug-DDI-TOP40.csv"),
+                index=False,
+            )
+        else:
+            ddi_df = pd.read_csv(
+                os.path.join(str(Path.home()), ".cache/pyhealth/drug-DDI-TOP40.csv")
+            )
+
+        # map to ddi on (atc, atc)
+        ddi_adj = np.zeros((med_voc_size, med_voc_size))
+        for index, row in ddi_df.iterrows():
+            # ddi
+            cid1 = row["STITCH 1"]
+            cid2 = row["STITCH 2"]
+
+            # cid -> atc_level3
+            for atc_i in cid2atc_dic[cid1]:
+                for atc_j in cid2atc_dic[cid2]:
+                    ddi_adj[
+                        vocab_to_index.get(atc_i, 0), vocab_to_index.get(atc_j, 0)
+                    ] = 1
+                    ddi_adj[
+                        vocab_to_index.get(atc_j, 0), vocab_to_index.get(atc_i, 0)
+                    ] = 1
+
+        self.ddi_adj = ddi_adj
+        return ddi_adj
+
+    def generate_ehr_adj_for_GAMENet(self, visit_ls):
+        """
+        generate the ehr graph adj for GAMENet model input
+        - loop over the training data to check whether any med pair appear
+        """
+        ehr_adj = np.zeros((self.voc_size[2], self.voc_size[2]))
+        for visit_index in visit_ls:
+            patient_id, visit_pos = self.index_map[visit_index]
+            patient = self.patients[patient_id]
+            visit = patient.visits[visit_pos]
+            encoded_drugs = self.tokenizers[2]([visit.drugs])[0]
+            for idx1, med1 in enumerate(encoded_drugs):
+                for idx2, med2 in enumerate(encoded_drugs):
+                    if idx1 >= idx2:
+                        continue
+                    ehr_adj[med1, med2] = 1
+                    ehr_adj[med2, med1] = 1
+        return ehr_adj
+
     def __len__(self):
         return len(self.patients)
 

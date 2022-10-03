@@ -40,3 +40,8 @@ For example, if you use NVIDIA RTX A6000 as your GPU for training, you should in
     conda install pytorch torchvision torchaudio cudatoolkit=11.3 -c pytorch.
 
 ----
+
+.. toctree::
+   :maxdepth: 4
+
+   pyhealth.data

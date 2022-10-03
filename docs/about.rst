@@ -15,7 +15,7 @@ Chaoqi Yang (Ph.D. Student @ University of Illinois Urbana-Champaign): `Linkedin
 Patrick Jiang (M.S. Student @ University of Illinois Urbana-Champaign)
 
 
-Prof. Jimeng Sun (Professor @ University of Illinois Urbana-Champaign; initialized the project in Jun 2020): `SUNLAB <<http://sunlab.org/>`_
+Prof. Jimeng Sun (Professor @ University of Illinois Urbana-Champaign; initialized the project in Jun 2020): `SUNLAB <http://sunlab.org/>`_
 
 
 Former Team
@@ -32,3 +32,7 @@ Dr. Lucas Glass (Global Head, Analytics Center of Excellence @ IQVIA; initialize
 Xiyang Hu (Ph.D. Student @ Carnegie Mellon University; initialized the project in Jun 2020): `Homepage <https://www.andrew.cmu.edu/user/xiyanghu/>`_
 
 
+.. toctree::
+   :maxdepth: 4
+
+   pyhealth.data

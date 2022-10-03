@@ -7,7 +7,9 @@ from pyhealth.models import RETAIN
 from pyhealth.evaluator import DrugRecommendationEvaluator
 
 # dataset
-base_dataset = MIMIC3BaseDataset(root="/srv/local/data/physionet.org/files/mimiciii/1.4")
+base_dataset = MIMIC3BaseDataset(
+    root="/srv/local/data/physionet.org/files/mimiciii/1.4"
+)
 # task
 task_taskset = DrugRecDataLoader(base_dataset)
 # model

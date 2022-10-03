@@ -53,11 +53,6 @@ Welcome to PyHealth's documentation!
    :alt: Build Status
 
 
-.. image:: https://circleci.com/gh/yzhao062/PyHealth.svg?style=svg
-   :target: https://circleci.com/gh/yzhao062/PyHealth
-   :alt: Circle CI
-
-
 .. image:: https://ci.appveyor.com/api/projects/status/1kupdy87etks5n3r/branch/master?svg=true
    :target: https://ci.appveyor.com/project/yzhao062/pyhealth/branch/master
    :alt: Build status
@@ -165,22 +160,15 @@ PyHealth is featured for:
 If you use PyHealth in a scientific publication, we would appreciate
 citations to the following paper::
 
-    @article{zhao2021pyhealth,
-      title={PyHealth: A Python Library for Health Predictive Models},
-      author={Zhao, Yue and Qiao, Zhi and Xiao, Cao and Glass, Lucas and Sun, Jimeng},
-      journal={arXiv preprint arXiv:2101.04209},
-      year={2021}
+    @article{
     }
 
-or::
-
-    Zhao, Y., Qiao, Z., Xiao, C., Glass, L. and Sun, J., 2021. PyHealth: A Python Library for Health Predictive Models. arXiv preprint arXiv:2101.04209.
 
 
 **Key Links and Resources**\ :
 
 
-* `View the latest codes on Github <https://github.com/yzhao062/pyhealth>`_
+* `View the latest codes on Github <https://github.com/ycq091044/PyHealth-OMOP>`_
 * `Execute Interactive Jupyter Notebooks <https://mybinder.org/v2/gh/yzhao062/pyhealth/master>`_
 * `Check out the PyHealth paper <https://github.com/yzhao062/pyhealth>`_
 
@@ -304,21 +292,22 @@ with a benchmark paper. TBA soon :)
 
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 4
    :hidden:
    :caption: Getting Started
 
    install
-   example
+   examples
 
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 3
    :hidden:
    :caption: Documentation
 
-   api_cc
-   api
+   api/api
+   models
+   tasks
 
 
 .. toctree::
@@ -328,6 +317,7 @@ with a benchmark paper. TBA soon :)
 
    about
    faq
+   contribution
    whats_new
 
 
