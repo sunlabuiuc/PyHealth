@@ -5,6 +5,7 @@ import random
 import sys
 from datetime import datetime
 from typing import Optional
+from dataclasses import dataclass
 
 import numpy as np
 import torch
@@ -28,7 +29,8 @@ def set_logger(output_path: Optional[str] = None, exp_name: Optional[str] = None
     if output_path is None:
         output_path = "./"
     if exp_name is None:
-        exp_name = datetime.now().strftime("%y%m%d-%H%M%S")
+        # exp_name = datetime.now().strftime("%y%m%d-%H%M%S")
+        exp_name = str(datetime.now().timestamp())
     exp_path = os.path.join(output_path, exp_name)
     create_directory(exp_path)
     log_filename = os.path.join(exp_path, "log.txt")

@@ -4,12 +4,14 @@ import numpy as np
 from collections import defaultdict
 from urllib import request
 import os
-import pandas as pd
 from pathlib import Path
+import pandas as pd
+from pyhealth import CACHE_PATH
 from pyhealth.data import Patient, TaskDataset
 from pyhealth.models.tokenizer import Tokenizer
-
+import torch
 from tqdm import tqdm
+import pickle
 
 
 class DrugRecVisit:
@@ -229,7 +231,8 @@ class DrugRecDataset(TaskDataset):
             )
 
         # map to ddi on (atc, atc)
-        ddi_adj = np.zeros((med_voc_size, med_voc_size))
+        # remove the padding and invalid drugs
+        ddi_adj = np.zeros((med_voc_size - 2, med_voc_size - 2))
         for index, row in ddi_df.iterrows():
             # ddi
             cid1 = row["STITCH 1"]
@@ -238,13 +241,11 @@ class DrugRecDataset(TaskDataset):
             # cid -> atc_level3
             for atc_i in cid2atc_dic[cid1]:
                 for atc_j in cid2atc_dic[cid2]:
-                    ddi_adj[
-                        vocab_to_index.get(atc_i, 0), vocab_to_index.get(atc_j, 0)
-                    ] = 1
-                    ddi_adj[
-                        vocab_to_index.get(atc_j, 0), vocab_to_index.get(atc_i, 0)
-                    ] = 1
-
+                    i = vocab_to_index.get(atc_i, 0)
+                    j = vocab_to_index.get(atc_j, 0)
+                    if (i > 1) and (j > 1):
+                        ddi_adj[i - 2, j - 2] = 1
+                        ddi_adj[j - 2, i - 2] = 1
         self.ddi_adj = ddi_adj
         return ddi_adj
 
@@ -266,6 +267,165 @@ class DrugRecDataset(TaskDataset):
                     ehr_adj[med1, med2] = 1
                     ehr_adj[med2, med1] = 1
         return ehr_adj
+
+    def generate_ddi_mask_H_for_SafeDrug(self):
+        # TODO: update on this based on rdkit version
+        from rdkit import Chem
+        import rdkit.Chem.BRICS as BRICS
+
+        # idx_to_SMILES
+        SMILES = [[] for _ in range(self.voc_size[2])]
+        # each idx contains what segments
+        fraction = [[] for _ in range(self.voc_size[2])]
+
+        ATC4_to_SMILES = pickle.load(
+            open(os.path.join(CACHE_PATH, "atc4toSMILES.pkl"), "rb")
+        )
+        vocab_to_index = self.tokenizers[2].vocabulary.word2idx
+
+        for atc4, smiles_ls in ATC4_to_SMILES.items():
+            if atc4 in vocab_to_index:
+                pos = vocab_to_index[atc4]
+                SMILES[pos] += smiles_ls
+                for smiles in smiles_ls:
+                    try:
+                        m = BRICS.BRICSDecompose(Chem.MolFromSmiles(smiles))
+                        for frac in m:
+                            fraction[pos].append(frac)
+                    except:
+                        pass
+        # all segment set
+        fraction_set = []
+        for i in fraction:
+            fraction_set += i
+        fraction_set = list(set(fraction_set))  # set of all segments
+
+        # ddi_mask
+        ddi_mask_H = np.zeros((self.voc_size[2], len(fraction_set)))
+        for idx, cur_fraction in enumerate(fraction):
+            for frac in cur_fraction:
+                ddi_mask_H[idx, fraction_set.index(frac)] = 1
+        self.SMILES = SMILES
+
+        return ddi_mask_H
+
+    def generate_med_molecule_info_for_SafeDrug(self, radius=1):
+        from rdkit import Chem
+
+        atom_dict = defaultdict(lambda: len(atom_dict))
+        bond_dict = defaultdict(lambda: len(bond_dict))
+        fingerprint_dict = defaultdict(lambda: len(fingerprint_dict))
+        edge_dict = defaultdict(lambda: len(edge_dict))
+        MPNNSet, average_index = [], []
+
+        def create_atoms(mol, atom_dict):
+            """Transform the atom types in a molecule (e.g., H, C, and O)
+            into the indices (e.g., H=0, C=1, and O=2).
+            Note that each atom index considers the aromaticity.
+            """
+            atoms = [a.GetSymbol() for a in mol.GetAtoms()]
+            for a in mol.GetAromaticAtoms():
+                i = a.GetIdx()
+                atoms[i] = (atoms[i], "aromatic")
+            atoms = [atom_dict[a] for a in atoms]
+            return np.array(atoms)
+
+        def create_ijbonddict(mol, bond_dict):
+            """Create a dictionary, in which each key is a node ID
+            and each value is the tuples of its neighboring node
+            and chemical bond (e.g., single and double) IDs.
+            """
+            i_jbond_dict = defaultdict(lambda: [])
+            for b in mol.GetBonds():
+                i, j = b.GetBeginAtomIdx(), b.GetEndAtomIdx()
+                bond = bond_dict[str(b.GetBondType())]
+                i_jbond_dict[i].append((j, bond))
+                i_jbond_dict[j].append((i, bond))
+            return i_jbond_dict
+
+        def extract_fingerprints(
+            radius, atoms, i_jbond_dict, fingerprint_dict, edge_dict
+        ):
+            """Extract the fingerprints from a molecular graph
+            based on Weisfeiler-Lehman algorithm.
+            """
+
+            if (len(atoms) == 1) or (radius == 0):
+                nodes = [fingerprint_dict[a] for a in atoms]
+
+            else:
+                nodes = atoms
+                i_jedge_dict = i_jbond_dict
+
+                for _ in range(radius):
+
+                    """Update each node ID considering its neighboring nodes and edges.
+                    The updated node IDs are the fingerprint IDs.
+                    """
+                    nodes_ = []
+                    for i, j_edge in i_jedge_dict.items():
+                        neighbors = [(nodes[j], edge) for j, edge in j_edge]
+                        fingerprint = (nodes[i], tuple(sorted(neighbors)))
+                        nodes_.append(fingerprint_dict[fingerprint])
+
+                    """Also update each edge ID considering
+                    its two nodes on both sides.
+                    """
+                    i_jedge_dict_ = defaultdict(lambda: [])
+                    for i, j_edge in i_jedge_dict.items():
+                        for j, edge in j_edge:
+                            both_side = tuple(sorted((nodes[i], nodes[j])))
+                            edge = edge_dict[(both_side, edge)]
+                            i_jedge_dict_[i].append((j, edge))
+
+                    nodes = nodes_
+                    i_jedge_dict = i_jedge_dict_
+
+            return np.array(nodes)
+
+        for smilesList in self.SMILES:
+            """Create each data with the above defined functions."""
+            counter = 0  # counter how many drugs are under that ATC-3
+            for smiles in smilesList:
+                try:
+                    mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+                    atoms = create_atoms(mol, atom_dict)
+                    molecular_size = len(atoms)
+                    i_jbond_dict = create_ijbonddict(mol, bond_dict)
+                    fingerprints = extract_fingerprints(
+                        radius, atoms, i_jbond_dict, fingerprint_dict, edge_dict
+                    )
+                    adjacency = Chem.GetAdjacencyMatrix(mol)
+                    # if fingerprints.shape[0] == adjacency.shape[0]:
+                    for _ in range(adjacency.shape[0] - fingerprints.shape[0]):
+                        fingerprints = np.append(fingerprints, 1)
+
+                    fingerprints = torch.LongTensor(fingerprints)
+                    adjacency = torch.FloatTensor(adjacency)
+                    MPNNSet.append((fingerprints, adjacency, molecular_size))
+                    counter += 1
+                except:
+                    continue
+
+            average_index.append(counter)
+
+            """Transform the above each data of numpy
+            to pytorch tensor on a device (i.e., CPU or GPU).
+            """
+
+        N_fingerprint = len(fingerprint_dict)
+        # transform into projection matrix
+        n_col = sum(average_index)
+        n_row = len(average_index)
+
+        average_projection = np.zeros((n_row, n_col))
+        col_counter = 0
+        for i, item in enumerate(average_index):
+            if item > 0:
+                average_projection[i, col_counter : col_counter + item] = 1 / item
+            col_counter += item
+
+        return [MPNNSet, N_fingerprint, torch.FloatTensor(average_projection)]
 
     def __len__(self):
         return len(self.patients)

@@ -94,21 +94,29 @@ base_dataset = MIMIC3BaseDataset(root="https://storage.googleapis.com/pyhealth/m
 
 |  Model | DDI | Jaccard |  PRAUC | macro-F1 |
 |:------:|:----:|:-------:|:------:|:--------:|
-|   Logistic Regression (LR)   | 0.0246 | 0.4979 | 0.7673 | 0.6550  |
-| Random Forest (RF) | 0.0165 | 0.4482 | 0.7298 | 0.6120 | 
-| Neural Network (NN) | 0.0277 | 0.4774 | 0.7397 | 0.6370 | 
-|Recurrent Neural Network (RNN) | 0.0268 | 0.4732 | 0.7446 | 0.6326 |
-| Transformer | 0.0277 | 0.4974 | 0.7685 | 0.6531 |
-| RETAIN | 0.0254 | 0.5056 | 0.7722 | 0.6617 |
-| GAMENet | 0.0284 | 0.5117 | 0.7492 | 0.6651 |
-| MICRON | | | | |
-| SafeDrug | | | | 
+|  Logistic Regression (LR) | 0.0734 | 0.4979 | 0.7673 | 0.6550 |
+| Random Forest (RF) | 0.0783 | 0.4482 | 0.7295 | 0.6119 | 
+| Neural Network (NN) | 0.0732 | 0.4756 | 0.7394 | 0.6355 | 
+| Recurrent Neural Network (RNN) | 0.0785 | 0.4721 | 0.7445 | 0.6313 |
+| Transformer | 0.0791 | 0.4991 | 0.7692 | 0.6552 |
+| RETAIN | 0.0770 | 0.5068 | 0.7727 | 0.6627 |
+| GAMENet | 0.0760 | 0.4620 | 0.7378 | 0.6221 |
+| MICRON | 0.0733 | 0.5042 | 0.7693 | 0.6599 |
+| SafeDrug (0.08) | 0.0792 | 0.4709 | 0.7413 | 0.6299 |
+| SafeDrug (0.06) | 0.0614 | 0.4682 | 0.7420 | 0.6276 |
+| SafeDrug (0.04) | 0.0513 | 0.4594 | 0.7390 | 0.6189 |
+| SafeDrug (0.02) | 0.0376 | 0.4448 | 0.7290 | 0.6051 |
 
 
 - LR best model path: ```../output/221003-002013/best.ckpt```
 - RF best model path: ```../output/221003-002349/best.ckpt```
-- NN best model path: ```../output/221003-002759/best.ckpt```
-- RNN best model path: ```../output/221003-014338/best.ckpt```
-- Transformer best model path: ```../output/221003-014920/best.ckpt```
-- RETAIN best model path: ```../output/221003-015604/best.ckpt```
-- GAMENet best model pathL: ```../output/221003-021713/best.ckpt```
+- NN best model path: ```../output/221003-235538/best.ckpt``
+- RNN best model path: ```../output/221004-000740/best.ckpt```
+- Transformer best model path: ```../output/221004-001053/best.ckpt```
+- RETAIN best model path: ```../output/221004-001505/best.ckpt```
+- GAMENet best model path: ```../output/221004-012231/best.ckpt```
+- MICRON best model path: ```../output/221004-020027/best.ckpt```
+- SafeDrug (DDI-controllable 0.08) best model path: ```../output/221004-012739/best.ckpt```
+- SafeDrug (DDI-controllable 0.06) best model path: ```../output/221004-013652/best.ckpt```
+- SafeDrug (DDI-controllable 0.04) best model path: ```../output/221004-014537/best.ckpt```
+- SafeDrug (DDI-controllable 0.02) best model path: ```../output/221004-015401/best.ckpt```
