@@ -17,6 +17,11 @@ except:
     HAS_NVML = False
 
 
+def collate_fn_dict(batch):
+    """collate function for dict data"""
+    return {key: [d[key] for d in batch] for key in batch[0]}
+
+
 def set_logger(output_path: Optional[str] = None, exp_name: Optional[str] = None):
     logging.basicConfig()
     logger = logging.getLogger()
@@ -59,7 +64,7 @@ def load_pickle(filename):
         return pickle.load(f)
 
 
-def dump_pickle(data, filename):
+def save_pickle(data, filename):
     with open(filename, "wb") as f:
         pickle.dump(data, f)
 
