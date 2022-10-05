@@ -6,7 +6,7 @@ from abc import ABCMeta
 
 
 class Standard_Template(metaclass=ABCMeta):
-    """Abstract Class which can be inherited by various datasets,
+    """Abstract class which can be inherited by various datasets,
     Key information and memory friendly information will be saved in the
     data dictionary. Otherwise, save the event and sequence location instead.
     """
