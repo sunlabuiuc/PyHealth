@@ -1,11 +1,8 @@
-from gettext import npgettext
-import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
-from pyhealth.models.tokenizer import Tokenizer
 
 
 def get_last_visit(hidden_states, mask):

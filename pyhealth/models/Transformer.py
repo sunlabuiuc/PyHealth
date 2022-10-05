@@ -1,8 +1,6 @@
-from turtle import ScrolledCanvas
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from .GAMENet import get_last_visit
 
 
 class TransformerLayer(nn.Module):

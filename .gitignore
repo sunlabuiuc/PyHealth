@@ -111,3 +111,8 @@ venv.bak/
 
 # Sphinx documentation
 docs/build/
+/docs/api/data/
+/docs/api/datasets/
+/docs/api/evaluator/
+/docs/api/models/
+/docs/api/tasks/

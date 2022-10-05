@@ -14,6 +14,13 @@
 # import sys
 # sys.path.insert(0, os.path.abspath('.'))
 
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).parent
+sys.path[:0] = [str(HERE.parent), str(HERE / "extensions"), str(HERE.parent / "pyhealth")]
+
+print(sys.path)
 
 # -- Project information -----------------------------------------------------
 needs_sphinx = "4.3"  # Nicer param docs
@@ -132,7 +139,7 @@ html_logo = "_static/pyhealth_logos/pyhealth-logo.png"
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ["_static"]
 
-html_title = "pyhealth"
+html_title = "Pyhealth"
 # Custom sidebar templates, must be a dictionary that maps document names
 # to template names.
 #

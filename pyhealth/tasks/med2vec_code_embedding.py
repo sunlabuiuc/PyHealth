@@ -1,5 +1,4 @@
-import pandas as pd
-from pyhealth.data import Visit, Patient, TaskDataset
+from pyhealth.data import TaskDataset
 from datetime import datetime
 from tqdm import tqdm
 import torch

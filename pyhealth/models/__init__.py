@@ -1,5 +1,5 @@
 from .base import BaseModel
-# from .RNN import RNN
+# from .rnn import RNNLayer, RNNModel
 # from .RETAIN import RETAIN
 # from .MICRON import MICRON
 # from .Transformer import Transformer
