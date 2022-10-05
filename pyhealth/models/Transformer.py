@@ -1,4 +1,3 @@
-from turtle import ScrolledCanvas
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -59,7 +58,6 @@ class TransformerLayer(nn.Module):
             1
         )  # (batch, dim)
         return visit_emb
-
 
 class TransformerDrugRec(nn.Module):
     """Transformer model for drug recommendation task"""
