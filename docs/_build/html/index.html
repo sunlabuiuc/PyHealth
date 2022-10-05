@@ -1,0 +1,625 @@
+<!doctype html>
+<html class="no-js" lang="en">
+  <head><meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <meta name="color-scheme" content="light dark"><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
+
+<meta property="og:title" content="Welcome to PyHealth!" />
+  
+<meta property="og:type" content="website" />
+  
+<meta property="og:url" content="https://pyhealth-v2.readthedocs.io/en/latest/index.html" />
+  
+<meta property="og:description" content="PyPI version Documentation status MyBinder GitHub stars GitHub forks Downloads Downloads PyHealth is designed for both ML researchers and medical practitioners. We can make your healthcare AI appli..." />
+  
+<meta property="og:image" content="https://pyhealth-v2.readthedocs.io/en/latest//_static/logo.png" />
+  
+<meta property="og:image:alt" content="Welcome to PyHealth!" />
+  <link rel="author" title="About these documents" href="about.html" /><link rel="index" title="Index" href="genindex.html" /><link rel="search" title="Search" href="search.html" /><link rel="next" title="Installation" href="install.html" />
+
+    <meta name="generator" content="sphinx-5.2.3, furo 2022.09.29"/>
+        <title>Pyhealth</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css" />
+    <link rel="stylesheet" type="text/css" href="_static/styles/furo.css?digest=d81277517bee4d6b0349d71bb2661d4890b5617c" />
+    <link rel="stylesheet" type="text/css" href="_static/copybutton.css" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery.css" />
+    <link rel="stylesheet" type="text/css" href="_static/design-style.4045f2051d55cab465a707391d5b2007.min.css" />
+    <link rel="stylesheet" type="text/css" href="_static/styles/furo-extensions.css?digest=30d1aed668e5c3a91c3e3bf6a60b675221979f0e" />
+    <link rel="stylesheet" type="text/css" href="_static/css/override.css" />
+    <link rel="stylesheet" type="text/css" href="_static/css/sphinx_gallery.css" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f8f8f8;
+  --color-code-foreground: black;
+  --color-brand-primary: #003262;
+  --color-brand-content: #003262;
+  --admonition-font-size: var(--font-size-normal);
+  --admonition-title-font-size: var(--font-size-normal);
+  --code-font-size: var(--font-size--small);
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-half" viewBox="0 0 24 24">
+    <title>Auto light/dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-shadow">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M13 12h5" />
+      <path d="M13 15h4" />
+      <path d="M13 18h1" />
+      <path d="M13 9h4" />
+      <path d="M13 6h1" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc">
+<label class="overlay sidebar-overlay" for="__navigation">
+  <div class="visually-hidden">Hide navigation sidebar</div>
+</label>
+<label class="overlay toc-overlay" for="__toc">
+  <div class="visually-hidden">Hide table of contents sidebar</div>
+</label>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <div class="visually-hidden">Toggle site navigation sidebar</div>
+        <i class="icon"><svg><use href="#svg-menu"></use></svg></i>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="#"><div class="brand">Pyhealth</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle">
+          <div class="visually-hidden">Toggle Light / Dark / Auto color theme</div>
+          <svg class="theme-icon-when-auto"><use href="#svg-sun-half"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
+        <div class="visually-hidden">Toggle table of contents sidebar</div>
+        <i class="icon"><svg><use href="#svg-toc"></use></svg></i>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand centered" href="#">
+  
+  <div class="sidebar-logo-container">
+    <img class="sidebar-logo" src="_static/pyhealth-logo.png" alt="Logo"/>
+  </div>
+  
+  
+</a><form class="sidebar-search-container" method="get" action="search.html" role="search">
+  <input class="sidebar-search" placeholder=Search name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <p class="caption" role="heading"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="install.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples.html">Examples</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Documentation</span></p>
+<ul>
+<li class="toctree-l1 has-children"><a class="reference internal" href="api/api.html">APIs</a><input class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><div class="visually-hidden">Toggle child pages in navigation</div><i class="icon"><svg><use href="#svg-arrow-right"></use></svg></i></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/data/pyhealth.data.Event.html">pyhealth.data.Event</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/data/pyhealth.data.Visit.html">pyhealth.data.Visit</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/data/pyhealth.data.Patient.html">pyhealth.data.Patient</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/data/pyhealth.data.BaseDataset.html">pyhealth.data.BaseDataset</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/data/pyhealth.data.TaskDataset.html">pyhealth.data.TaskDataset</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datasets/pyhealth.datasets.MIMIC3BaseDataset.html">pyhealth.datasets.MIMIC3BaseDataset</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datasets/pyhealth.datasets.MIMIC4BaseDataset.html">pyhealth.datasets.MIMIC4BaseDataset</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datasets/pyhealth.datasets.eICUBaseDataset.html">pyhealth.datasets.eICUBaseDataset</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/datasets/pyhealth.datasets.OMOPBaseDataset.html">pyhealth.datasets.OMOPBaseDataset</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/evaluator/pyhealth.evaluator.DrugRecEvaluator.html">pyhealth.evaluator.DrugRecEvaluator</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/evaluator/pyhealth.evaluator.metrics_multiclass.html">pyhealth.evaluator.metrics_multiclass</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/evaluator/pyhealth.evaluator.evaluate_multiclass.html">pyhealth.evaluator.evaluate_multiclass</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/evaluator/pyhealth.evaluator.multi_label_metric.html">pyhealth.evaluator.multi_label_metric</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/evaluator/pyhealth.evaluator.ddi_rate_score.html">pyhealth.evaluator.ddi_rate_score</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/evaluator/pyhealth.evaluator.evaluate_multilabel.html">pyhealth.evaluator.evaluate_multilabel</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="models.html">Models</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tasks.html">Tasks</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Additional Information</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="about.html">About us</a></li>
+<li class="toctree-l1"><a class="reference internal" href="faq.html">Frequently Asked Questions</a></li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          
+<div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle">
+              <div class="visually-hidden">Toggle Light / Dark / Auto color theme</div>
+              <svg class="theme-icon-when-auto"><use href="#svg-sun-half"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
+            <div class="visually-hidden">Toggle table of contents sidebar</div>
+            <i class="icon"><svg><use href="#svg-toc"></use></svg></i>
+          </label>
+        </div>
+        <article role="main">
+          <section id="welcome-to-pyhealth">
+<h1>Welcome to PyHealth!<a class="headerlink" href="#welcome-to-pyhealth" title="Permalink to this heading">#</a></h1>
+<a class="reference external image-reference" href="https://pypi.org/project/pyhealth/"><img alt="PyPI version" src="https://img.shields.io/pypi/v/pyhealth.svg?color=brightgreen" /></a>
+<a class="reference external image-reference" href="https://pyhealth.readthedocs.io/en/latest/?badge=latest"><img alt="Documentation status" src="https://readthedocs.org/projects/pyhealth/badge/?version=latest" /></a>
+<a class="reference external image-reference" href="https://mybinder.org/v2/gh/yzhao062/pyhealth/master"><img alt="MyBinder" src="https://mybinder.org/badge_logo.svg" /></a>
+<a class="reference external image-reference" href="https://github.com/yzhao062/pyhealth/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/yzhao062/pyhealth.svg" /></a>
+<a class="reference external image-reference" href="https://github.com/yzhao062/pyhealth/network"><img alt="GitHub forks" src="https://img.shields.io/github/forks/yzhao062/pyhealth.svg?color=blue" /></a>
+<a class="reference external image-reference" href="https://pepy.tech/project/pyhealth"><img alt="Downloads" src="https://pepy.tech/badge/pyhealth" /></a>
+<a class="reference external image-reference" href="https://pepy.tech/project/pyhealth"><img alt="Downloads" src="https://pepy.tech/badge/pyhealth/month" /></a>
+<p>PyHealth is designed for both <strong>ML researchers and medical practitioners</strong>. We can make your <strong>healthcare AI applications</strong> easier to deploy and more flexible and customizable.</p>
+<hr class="docutils" />
+<section id="introduction">
+<h2>Introduction<a class="headerlink" href="#introduction" title="Permalink to this heading">#</a></h2>
+<p>PyHealth can support <strong>diverse electronic health records (EHRs)</strong> such as MIMIC and eICU and all OMOP-CDM based databases and provide <strong>various advanced deep learning algorithms</strong> for handling <strong>important healthcare tasks</strong> such as diagnosis-based drug recommendation, patient hospitalization and mortality prediction, and ICU length stay forecasting, etc.</p>
+<p><em>Build a healthcare AI pipeline can be as short as 10 lines of code in PyHealth</em>.</p>
+</section>
+<section id="modules">
+<h2>Modules<a class="headerlink" href="#modules" title="Permalink to this heading">#</a></h2>
+<p>All healthcare tasks in our package follow a <strong>five-stage pipeline</strong>:</p>
+<blockquote>
+<div><p>dataset process -&gt; task-specific process -&gt; build ML/DL model -&gt; model training -&gt; inference</p>
+</div></blockquote>
+<p>We try hard to make sure each stage is as separate as possibe, so that people can customize their own pipeline by only using our data processing steps or the ML models.</p>
+<p>We have implements one module for each of the steps (we build a pipeline training RETAIN on MIMIC-III for drug recommendation task):</p>
+<ul class="simple">
+<li><p><strong>pyhealth.datasets</strong> provides a clean structure for the dataset. Any instance from this module is independent from downstream tasks. We support the processing scripts for three open datasets, MIMIC-III, MIMIC-IV and eICU, as well as the standard OMOP-formatted data. The output instance contains a unified <code class="docutils literal notranslate"><span class="pre">dictionary-based</span> <span class="pre">structure</span></code>.</p></li>
+</ul>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">pyhealth.datasets</span> <span class="kn">import</span> <span class="n">MIMIC3BaseDataset</span>
+<span class="n">base_ds</span> <span class="o">=</span> <span class="n">MIMIC3BaseDataset</span><span class="p">(</span><span class="n">root</span><span class="o">=</span><span class="s1">&#39;./mimiciii/1.4&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p><strong>pyhealth.tasks</strong> inputs the <code class="docutils literal notranslate"><span class="pre">&lt;pyhealth.datasets&gt;</span></code> object and further processes it (clean up irrelevant info.) and finally provides another structure for the specific task. This module bridges the dataset instance and the downstream models.</p></li>
+</ul>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">pyhealth.tasks</span> <span class="kn">import</span> <span class="n">DrugRecDataset</span>
+<span class="n">drugrec_ds</span> <span class="o">=</span> <span class="n">DrugRecDataset</span><span class="p">(</span><span class="n">base_ds</span><span class="p">)</span>
+
+<span class="kn">from</span> <span class="nn">pyhealth.data.split</span> <span class="kn">import</span> <span class="n">split_by_pat</span>
+<span class="n">train_loader</span><span class="p">,</span> <span class="n">val_loader</span><span class="p">,</span> <span class="n">test_loader</span> <span class="o">=</span> <span class="n">split_by_pat</span><span class="p">(</span><span class="n">drugrec_ds</span><span class="p">,</span> <span class="p">[</span><span class="mf">0.8</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">])</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p><strong>pyhealth.models</strong> provides the state-of-the-art healthcare ML models.</p></li>
+</ul>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">pyhealth.models</span> <span class="kn">import</span> <span class="n">RETAIN</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">RETAIN</span><span class="p">(</span><span class="s2">&quot;drug_recommendation&quot;</span><span class="p">,</span> <span class="n">voc_size</span><span class="p">,</span> <span class="n">tokenizers</span><span class="p">,</span> <span class="n">emb_dim</span><span class="o">=</span><span class="mi">64</span><span class="p">)</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p><strong>trainer.py</strong> is the training manager for deep learning models.</p></li>
+</ul>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">pyhealth.trainer</span> <span class="kn">import</span> <span class="n">Trainer</span>
+<span class="kn">from</span> <span class="nn">pyhealth.evaluator.evaluating_multilabel</span> <span class="kn">import</span> <span class="n">evaluate_multilabel</span>
+
+<span class="n">trainer</span> <span class="o">=</span> <span class="n">Trainer</span><span class="p">(</span><span class="n">enable_logging</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">trainer</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">train_loader</span><span class="p">,</span> <span class="n">val_loader</span><span class="p">,</span> <span class="n">epochs</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span> \
+    <span class="n">evaluate_fn</span><span class="o">=</span><span class="n">evaluate_multilabel</span><span class="p">,</span> <span class="n">monitor</span><span class="o">=</span><span class="s2">&quot;jaccard&quot;</span><span class="p">)</span>
+<span class="c1"># Best model saved to: ../output/221004-015401/best.ckpt</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p><strong>pyhealth.evaluator</strong> lists the evaluator for each healthcare tasks with detailed metrics specification.</p></li>
+</ul>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">model</span> <span class="o">=</span> <span class="n">trainer</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="s2">&quot;../output/221004-015401/best.ckpt&quot;</span><span class="p">)</span>
+<span class="n">evaluate_multilabel</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">val_loader</span><span class="p">)</span>
+<span class="c1"># {&#39;loss&#39;: 1.0, &#39;ddi&#39;: 0.07266, &#39;jaccard&#39;: 0.4767, &#39;prauc&#39;: 0.7385, &#39;f1&#39;: 0.6366}</span>
+</pre></div>
+</div>
+<ul class="simple">
+<li><p>We also provide medical code mapping functionality via <strong>pyhealth.codemap</strong>.</p></li>
+</ul>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">pyhealth.codemap</span> <span class="kn">import</span> <span class="n">InnerMap</span> <span class="c1"># map within one code system</span>
+<span class="n">ICD</span> <span class="o">=</span> <span class="n">InnerMap</span><span class="p">(</span><span class="s1">&#39;icd-10&#39;</span><span class="p">)</span>
+<span class="n">ICD</span><span class="p">[</span><span class="s1">&#39;I50. 9&#39;</span><span class="p">]</span> <span class="c1"># heart failure</span>
+<span class="n">ICD</span><span class="o">.</span><span class="n">children</span><span class="p">(</span><span class="s1">&#39;I50. 9&#39;</span><span class="p">)</span>
+
+<span class="kn">from</span> <span class="nn">pyhealth.codemap</span> <span class="kn">import</span> <span class="n">CrossMap</span> <span class="c1"># map between two code systems</span>
+<span class="n">NDC10_to_RxNorm</span> <span class="o">=</span> <span class="n">CrossMap</span><span class="p">(</span><span class="s1">&#39;NDC10&#39;</span><span class="p">,</span> <span class="s1">&#39;RXCUI&#39;</span><span class="p">)</span>
+<span class="n">NDC10_to_RXCUI</span><span class="p">[</span><span class="s1">&#39;7641315306&#39;</span><span class="p">]</span> <span class="c1"># AZITHROMYCIN tablet</span>
+</pre></div>
+</div>
+<p>Users can <strong>customize their healthcare AI pipeline</strong> as simply as calling one module</p>
+<ul class="simple">
+<li><p>process your OMOP data via <code class="docutils literal notranslate"><span class="pre">pyhealth.datasets.omop</span></code></p></li>
+<li><p>process the open eICU (e.g., MIMIC) data via <code class="docutils literal notranslate"><span class="pre">pyhealth.datasets.eICU</span></code></p></li>
+<li><p>process the dataset for drug recommendation task via <code class="docutils literal notranslate"><span class="pre">pyhealth.tasks.DrugRecommendation</span></code></p></li>
+<li><p>use the healthcare ML models (e.g., RETAIN) via <code class="docutils literal notranslate"><span class="pre">pyhealth.models.RETAIN</span></code>.</p></li>
+<li><p>code map between for conditions and medicaitons via <code class="docutils literal notranslate"><span class="pre">pyhealth.codemap</span></code>.</p></li>
+</ul>
+</section>
+<hr class="docutils" />
+<section id="datasets">
+<h2>Datasets<a class="headerlink" href="#datasets" title="Permalink to this heading">#</a></h2>
+<p>We provide the following datasets for general purpose healthcare AI research:</p>
+<div class="table-wrapper docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Dataset</p></th>
+<th class="head"><p>Module</p></th>
+<th class="head"><p>Year</p></th>
+<th class="head"><p>Information</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>MIMIC-III</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">pyhealth.datasets.MIMIC3BaseDataset</span></code></p></td>
+<td><p>2016</p></td>
+<td><p><a class="reference external" href="https://physionet.org/content/mimiciii/1.4//">MIMIC-III Clinical Database</a></p></td>
+</tr>
+<tr class="row-odd"><td><p>MIMIC-IV</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">pyhealth.datasets.MIMIC4BaseDataset</span></code></p></td>
+<td><p>2020</p></td>
+<td><p><a class="reference external" href="https://physionet.org/content/mimiciv/0.4/">MIMIC-IV Clinical Database</a></p></td>
+</tr>
+<tr class="row-even"><td><p>eICU</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">pyhealth.datasets.eICUBaseDataset</span></code></p></td>
+<td><p>2018</p></td>
+<td><p><a class="reference external" href="https://eicu-crd.mit.edu//">eICU Collaborative Research Database</a></p></td>
+</tr>
+<tr class="row-odd"><td><p>OMOP</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">pyhealth.datasets.OMOPBaseDataset</span></code></p></td>
+<td></td>
+<td><p><a class="reference external" href="https://www.ohdsi.org/data-standardization/the-common-data-model/">OMOP-CDM schema based dataset</a></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="machine-deep-learning-models">
+<h2>Machine/Deep Learning Models<a class="headerlink" href="#machine-deep-learning-models" title="Permalink to this heading">#</a></h2>
+<div class="table-wrapper docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Model Name</p></th>
+<th class="head"><p>Type</p></th>
+<th class="head"><p>Module</p></th>
+<th class="head"><p>Year</p></th>
+<th class="head"><p>Reference</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Logistic Regression (LR)</p></td>
+<td><p>classifical ML</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">pyhealth.models.MLModel</span></code></p></td>
+<td></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">sklearn.linear_model.LogisticRegression</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Random Forest (RF)</p></td>
+<td><p>classifical ML</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">pyhealth.models.MLModel</span></code></p></td>
+<td></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">sklearn.ensemble.RandomForestClassifier</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Neural Networks (NN)</p></td>
+<td><p>classifical ML</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">pyhealth.models.MLModel</span></code></p></td>
+<td></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">sklearn.neural_network.MLPClassifier</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Recurrent Neural Nets (RNN)</p></td>
+<td><p>deep Learning</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">pyhealth.models.RNN</span></code></p></td>
+<td><p>2011</p></td>
+<td><p><a class="reference external" href="http://www.fit.vutbr.cz/research/groups/speech/servite/2010/rnnlm_mikolov.pdf">Recurrent neural network based language model</a></p></td>
+</tr>
+<tr class="row-even"><td><p>Transformer</p></td>
+<td><p>deep Learning</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">pyhealth.models.Transformer</span></code></p></td>
+<td><p>2017</p></td>
+<td><p><a class="reference external" href="https://arxiv.org/abs/1706.03762">Atention is All you Need</a></p></td>
+</tr>
+<tr class="row-odd"><td><p>RETAIN</p></td>
+<td><p>deep Learning</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">pyhealth.models.RETAIN</span></code></p></td>
+<td><p>2016</p></td>
+<td><p><a class="reference external" href="https://arxiv.org/abs/1608.05745">RETAIN: An Interpretable Predictive Model for Healthcare using Reverse Time Attention Mechanism</a></p></td>
+</tr>
+<tr class="row-even"><td><p>GAMENet</p></td>
+<td><p>deep Learning</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">pyhealth.models.GAMENet</span></code></p></td>
+<td><p>2019</p></td>
+<td><p><a class="reference external" href="https://arxiv.org/abs/1809.01852">GAMENet: Graph Attention Mechanism for Explainable Electronic Health Record Prediction</a></p></td>
+</tr>
+<tr class="row-odd"><td><p>MICRON</p></td>
+<td><p>deep Learning</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">pyhealth.models.MICRON</span></code></p></td>
+<td><p>2021</p></td>
+<td><p><a class="reference external" href="https://www.ijcai.org/proceedings/2021/0513">Change Matters: Medication Change Prediction with Recurrent Residual Networks</a></p></td>
+</tr>
+<tr class="row-even"><td><p>SafeDrug</p></td>
+<td><p>deep Learning</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">pyhealth.models.SafeDrug</span></code></p></td>
+<td><p>2021</p></td>
+<td><p><a class="reference external" href="https://arxiv.org/abs/2105.02711">SafeDrug: Dual Molecular Graph Encoders for Recommending Effective and Safe Drug Combinations</a></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="benchmark-on-healthcare-tasks">
+<h2>Benchmark on Healthcare Tasks<a class="headerlink" href="#benchmark-on-healthcare-tasks" title="Permalink to this heading">#</a></h2>
+<ul class="simple">
+<li><p><strong>Current results on drug recommendation</strong>. We conduct 2/3 : 1/6 : 1/6 split on MIMIC-III using five-fold cross validation, following <a class="reference external" href="https://arxiv.org/abs/1809.01852">GAMENet</a>, <a class="reference external" href="https://www.ijcai.org/proceedings/2021/0513">MICRON</a>, and <a class="reference external" href="https://arxiv.org/abs/2105.02711">SafeDrug</a>.</p></li>
+</ul>
+<div class="table-wrapper docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Model Name</p></th>
+<th class="head"><p>DDI</p></th>
+<th class="head"><p>Jaccard</p></th>
+<th class="head"><p>PRAUC</p></th>
+<th class="head"><p>macro-F1</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>LR</p></td>
+<td><p>0.0734</p></td>
+<td><p>0.4979</p></td>
+<td><p>0.7673</p></td>
+<td><p>0.6550</p></td>
+</tr>
+<tr class="row-odd"><td><p>RF</p></td>
+<td><p>0.0783</p></td>
+<td><p>0.4482</p></td>
+<td><p>0.7295</p></td>
+<td><p>0.6119</p></td>
+</tr>
+<tr class="row-even"><td><p>NN</p></td>
+<td><p>0.0732</p></td>
+<td><p>0.4756</p></td>
+<td><p>0.7394</p></td>
+<td><p>0.6355</p></td>
+</tr>
+<tr class="row-odd"><td><p>RNN</p></td>
+<td><p>0.0785</p></td>
+<td><p>0.4721</p></td>
+<td><p>0.7445</p></td>
+<td><p>0.6313</p></td>
+</tr>
+<tr class="row-even"><td><p>Transformer</p></td>
+<td><p>0.0791</p></td>
+<td><p>0.4991</p></td>
+<td><p>0.7692</p></td>
+<td><p>0.6552</p></td>
+</tr>
+<tr class="row-odd"><td><p>RETAIN</p></td>
+<td><p>0.0770</p></td>
+<td><p>0.5068</p></td>
+<td><p>0.7727</p></td>
+<td><p>0.6627</p></td>
+</tr>
+<tr class="row-even"><td><p>GAMENet</p></td>
+<td><p>0.0760</p></td>
+<td><p>0.4620</p></td>
+<td><p>0.7378</p></td>
+<td><p>0.6221</p></td>
+</tr>
+<tr class="row-odd"><td><p>MICRON</p></td>
+<td><p>0.0733</p></td>
+<td><p>0.5042</p></td>
+<td><p>0.7693</p></td>
+<td><p>0.6599</p></td>
+</tr>
+<tr class="row-even"><td><p>SafeDrug (DDI hyperparameter: 0.08)</p></td>
+<td><p>0.0792</p></td>
+<td><p>0.4709</p></td>
+<td><p>0.7413</p></td>
+<td><p>0.6299</p></td>
+</tr>
+<tr class="row-odd"><td><p>SafeDrug (DDI hyperparameter: 0.06)</p></td>
+<td><p>0.0614</p></td>
+<td><p>0.4682</p></td>
+<td><p>0.7420</p></td>
+<td><p>0.6276</p></td>
+</tr>
+<tr class="row-even"><td><p>SafeDrug (DDI hyperparameter: 0.04)</p></td>
+<td><p>0.0513</p></td>
+<td><p>0.4594</p></td>
+<td><p>0.7390</p></td>
+<td><p>0.6189</p></td>
+</tr>
+<tr class="row-odd"><td><p>SafeDrug (DDI hyperparameter: 0.02)</p></td>
+<td><p>0.0376</p></td>
+<td><p>0.4448</p></td>
+<td><p>0.7290</p></td>
+<td><p>0.6051</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>(contribute your model by <strong>sending a commit</strong> to <code class="docutils literal notranslate"><span class="pre">pyhealth.models</span></code>)</p>
+<hr class="docutils" />
+<div class="toctree-wrapper compound">
+</div>
+<div class="toctree-wrapper compound">
+</div>
+<div class="toctree-wrapper compound">
+</div>
+</section>
+</section>
+
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          <a class="next-page" href="install.html">
+              <div class="page-info">
+                <div class="context">
+                  <span>Next</span>
+                </div>
+                <div class="title">Installation</div>
+              </div>
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+            </a>
+          
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; 2022, Patrick Jiang, Zhenbang Wu, Chaoqi Yang
+            </div>
+            Made with 
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            <div class="icons">
+              
+            </div>
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer">
+      
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">Welcome to PyHealth!</a><ul>
+<li><a class="reference internal" href="#introduction">Introduction</a></li>
+<li><a class="reference internal" href="#modules">Modules</a></li>
+<li><a class="reference internal" href="#datasets">Datasets</a></li>
+<li><a class="reference internal" href="#machine-deep-learning-models">Machine/Deep Learning Models</a></li>
+<li><a class="reference internal" href="#benchmark-on-healthcare-tasks">Benchmark on Healthcare Tasks</a><ul>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      </div>
+      
+      
+    </aside>
+  </div>
+</div><script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+    <script src="_static/jquery.js"></script>
+    <script src="_static/underscore.js"></script>
+    <script src="_static/_sphinx_javascript_frameworks_compat.js"></script>
+    <script src="_static/doctools.js"></script>
+    <script src="_static/sphinx_highlight.js"></script>
+    <script src="_static/scripts/furo.js"></script>
+    <script src="_static/clipboard.min.js"></script>
+    <script src="_static/copybutton.js"></script>
+    <script src="_static/design-tabs.js"></script>
+    <script crossorigin="anonymous" integrity="sha256-Ae2Vz/4ePdIu6ZyI/5ZGsYnb+m0JlOmKPjt6XZ9JJkA=" src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
+    </body>
+</html>
