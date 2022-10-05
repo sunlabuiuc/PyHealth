@@ -6,6 +6,10 @@
 Welcome to PyHealth's documentation!
 ====================================
 
+**[Oct 2022] We will release a brand-new version of PyHealth in the next few weeks. It will include more EHR datasets, health-related tasks, and state-of-the-art models. Please stay tuned!**
+
+-----
+
 
 **Deployment & Documentation & Stats**
 
