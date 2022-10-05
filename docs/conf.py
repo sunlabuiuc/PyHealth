@@ -132,7 +132,7 @@ html_logo = "_static/pyhealth_logos/pyhealth-logo.png"
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ["_static"]
 
-html_title = "pyhealth"
+html_title = "Pyhealth"
 # Custom sidebar templates, must be a dictionary that maps document names
 # to template names.
 #
