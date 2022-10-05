@@ -1,7 +1,14 @@
 Installation
 ============
 
-You could install our package by:
+You could install from PyPi:
+
+.. code-block:: bash
+
+    pip install pyhealth
+
+
+or from github source:
 
 .. code-block:: bash
 
@@ -19,14 +26,15 @@ You could install our package by:
 * pandas>=0.25
 * scikit_learn>=0.20
 * torch==1.12
-* pytorch-lightning==1.6
+* MedCode==1.3.0
 
 **Warning 1**\ :
+
 PyHealth has multiple neural network based models, e.g., LSTM, which are
 implemented in PyTorch. However, PyHealth does **NOT** install these DL libraries for you.
 This reduces the risk of interfering with your local copies.
 If you want to use neural-net based models, please make sure PyTorch is installed.
-Similarly, models depending on **xgboost**, would **NOT** enforce xgboost installation by default.
+Similarly, models depending on **xgboost** would **NOT** enforce xgboost installation by default.
 
 
 **CUDA Setting**\ :

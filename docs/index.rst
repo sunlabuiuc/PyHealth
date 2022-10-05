@@ -132,7 +132,7 @@ We have implements one module for each of the steps (we build a pipeline trainin
     
     model = trainer.load(model, path="../output/221004-015401/best.ckpt") 
     evaluate_multilabel(model, val_loader)
-    # {'loss': 1.0, 'ddi': 0.07266, 'jaccard': 0.4767, 'prauc': 0.7385, 'f1': 0.6366}
+    # {'ddi': 0.07266, 'jaccard': 0.4767, 'prauc': 0.7385, 'f1': 0.6366}
 
 
 .. Demo - drug recommendation
@@ -311,7 +311,7 @@ Benchmark on Healthcare Tasks
 * **Current results on drug recommendation**. We conduct 2/3 : 1/6 : 1/6 split on MIMIC-III using five-fold cross validation, following `GAMENet <https://arxiv.org/abs/1809.01852>`_, `MICRON <https://www.ijcai.org/proceedings/2021/0513>`_, and `SafeDrug <https://arxiv.org/abs/2105.02711>`_.
 
 ===================================     ========    =========      ==========      ==========
-Model Name                              DDI         Jaccard         PRAUC           macro-F1
+Model Name                              DDI         Jaccard         PRAUC           Macro-F1
 ===================================     ========    =========      ==========      ==========
 LR                                      0.0734      0.4979          0.7673          0.6550
 RF                                      0.0783      0.4482          0.7295          0.6119
