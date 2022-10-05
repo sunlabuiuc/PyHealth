@@ -4,7 +4,7 @@ from torch.utils.data import DataLoader
 from pyhealth.data.split import random_split
 from pyhealth.datasets import MIMIC3BaseDataset
 from pyhealth.evaluator import DrugRecommendationEvaluator
-from pyhealth.models import RNN
+from pyhealth.models import rnn
 from pyhealth.tasks import DrugRecommendationDataset
 
 # read raw dataset

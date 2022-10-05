@@ -87,7 +87,7 @@ def evaluate_multilabel(model, dataloader, device="cpu"):
         if str(model.__class__) != "<class 'pyhealth.models.MLModel.MLModel'>":
             model.eval()
         with torch.no_grad():
-            output = model(**data, device=device)
+            output = model(**data, training=False, device=device)
             try:
                 loss = output["loss"].cpu()
                 y_true = output["y_true"].cpu()
@@ -106,9 +106,11 @@ def evaluate_multilabel(model, dataloader, device="cpu"):
     predicted = np.concatenate(predicted, axis=0)
     gt = np.concatenate(gt, axis=0)
     all_metric = multi_label_metric(predicted, gt)
-    if not hasattr(dataloader.dataset.dataset, "ddi_adj"):
-        ddi_adj = dataloader.dataset.dataset.get_ddi_matrix()
-    else:
-        ddi_adj = dataloader.dataset.dataset.ddi_adj
-    ddi_rate = ddi_rate_score(predicted, ddi_adj)
-    return {"loss": loss_avg, "ddi": ddi_rate, **all_metric}
+    # ignore ddi rate for now
+    # if not hasattr(dataloader.dataset.dataset, "ddi_adj"):
+    #     ddi_adj = dataloader.dataset.dataset.get_ddi_matrix()
+    # else:
+    #     ddi_adj = dataloader.dataset.dataset.ddi_adj
+    # ddi_rate = ddi_rate_score(predicted, ddi_adj)
+    # return {"loss": loss_avg, "ddi": ddi_rate, **all_metric}
+    return {"loss": loss_avg, **all_metric}
