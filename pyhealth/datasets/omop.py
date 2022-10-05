@@ -10,6 +10,8 @@ from pyhealth.utils import create_directory, dump_pickle, load_pickle
 from tqdm import tqdm
 
 
+# TODO: will update this later
+
 class OMOPBaseDataset(BaseDataset):
     """Base dataset for OMOP based database
     1. it contains a superset of information used for all relevant tasks
@@ -17,7 +19,7 @@ class OMOPBaseDataset(BaseDataset):
     """
 
     def __init__(
-        self, root, files=["conditions", "procedures", "prescriptions", "labs"]
+            self, root, files=["conditions", "procedures", "prescriptions", "labs"]
     ):
         """
         INPUT
@@ -31,7 +33,7 @@ class OMOPBaseDataset(BaseDataset):
         self.all_support_files = ["conditions", "procedures", "drugs", "labs"]
 
         if not os.path.exists(
-            os.path.join(str(Path.home()), ".cache/pyhealth/omop.data")
+                os.path.join(str(Path.home()), ".cache/pyhealth/omop.data")
         ):
             # get visit-level static features
             visits = self.parse_visit_occurrence()
@@ -89,9 +91,9 @@ class OMOPBaseDataset(BaseDataset):
             )
             if visit_info["death_date"].values[0] == visit_info["death_date"].values[0]:
                 mortality = (
-                    visit_info["visit_start_date"].values[0]
-                    <= visit_info["death_date"].values[0]
-                    <= visit_info["visit_end_date"].values[0]
+                        visit_info["visit_start_date"].values[0]
+                        <= visit_info["death_date"].values[0]
+                        <= visit_info["visit_end_date"].values[0]
                 )
             else:
                 mortality = False
@@ -142,7 +144,7 @@ class OMOPBaseDataset(BaseDataset):
             if patient_id not in patients:  # register patient if not exist
                 patients[patient_id] = Patient(patient_id)
             if (
-                visit_id not in patients[patient_id].visits
+                    visit_id not in patients[patient_id].visits
             ):  # register visit if not exist
                 visits[visit_id].conditions = cur_condition
                 patients[patient_id].visits[visit_id] = visits[visit_id]
@@ -185,7 +187,7 @@ class OMOPBaseDataset(BaseDataset):
             if patient_id not in patients:  # register patient if not exist
                 patients[patient_id] = Patient(patient_id)
             if (
-                visit_id not in patients[patient_id].visits
+                    visit_id not in patients[patient_id].visits
             ):  # register visit if not exist
                 visits[visit_id].procedures = cur_procedure
                 patients[patient_id].visits[visit_id] = visits[visit_id]
@@ -228,7 +230,7 @@ class OMOPBaseDataset(BaseDataset):
             if patient_id not in patients:  # register patient if not exist
                 patients[patient_id] = Patient(patient_id)
             if (
-                visit_id not in patients[patient_id].visits
+                    visit_id not in patients[patient_id].visits
             ):  # register visit if not exist
                 visits[visit_id].drugs = cur_drugs
                 patients[patient_id].visits[visit_id] = visits[visit_id]
@@ -267,7 +269,7 @@ class OMOPBaseDataset(BaseDataset):
             if patient_id not in patients:  # register patient if not exist
                 patients[patient_id] = Patient(patient_id)
             if (
-                visit_id not in patients[patient_id].visits
+                    visit_id not in patients[patient_id].visits
             ):  # register visit if not exist
                 visits[visit_id].labs = cur_labs
                 patients[patient_id].visits[visit_id] = visits[visit_id]
