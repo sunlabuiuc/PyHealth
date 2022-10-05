@@ -97,10 +97,10 @@ class GAMENetLayer(nn.Module):
         super(GAMENetLayer, self).__init__()
 
         ddi_adj = torch.FloatTensor(ddi_adj)
-        ehr_adj = torch.FloatTensor(ehr_adj)
+        ehr_adj = torch.FloatTensor(ehr_adj[2:, 2:])
         self.ddi_in_memory = ddi_in_memory
         self.dropout = nn.Dropout(p=0.5)
-        self.voc_size = voc_size
+        self.out_dim = voc_size[2] - 2
 
         # parameters
         self.embedding = nn.ModuleList([nn.Embedding(s + 1, emb_dim) for s in voc_size])
@@ -113,13 +113,11 @@ class GAMENetLayer(nn.Module):
             nn.ReLU(),
             nn.Linear(emb_dim * 2, emb_dim),
         )
-        self.ehr_gcn = GCN(voc_size=voc_size[2], emb_dim=emb_dim, adj=ehr_adj)
-        self.ddi_gcn = GCN(voc_size=voc_size[2], emb_dim=emb_dim, adj=ddi_adj)
+        self.ehr_gcn = GCN(voc_size=self.out_dim, emb_dim=emb_dim, adj=ehr_adj)
+        self.ddi_gcn = GCN(voc_size=self.out_dim, emb_dim=emb_dim, adj=ddi_adj)
         self.inter = nn.Parameter(torch.FloatTensor(1))
 
         self.output = nn.Sequential(nn.ReLU(), nn.Linear(emb_dim * 3, emb_dim))
-
-        self.init_weights()
 
     def forward(self, tensors, masks=None):
         """
@@ -166,13 +164,15 @@ class GAMENetLayer(nn.Module):
 
         # mask out the groud truth first
         for i, cur_mask in enumerate(med_mask):
-            med_tensor[i, torch.sum(cur_mask[:, 0]) - 1, 0] = 0
+            med_tensor[i, torch.sum(cur_mask[:, 0]) - 1, :] = 0
 
         history_values = (
-            torch.nn.functional.one_hot(med_tensor, num_classes=self.voc_size[2])
+            torch.nn.functional.one_hot(med_tensor, num_classes=self.out_dim + 2)
             .sum(-2)
             .bool()
-        )  # (batch, visit, med_size)
+        )[
+            :, :, 2:
+        ]  # (batch, visit, med_size)
 
         """O:read from global memory bank and dynamic memory bank"""
         key_weights1 = torch.softmax(
@@ -195,14 +195,6 @@ class GAMENetLayer(nn.Module):
 
         return output
 
-    def init_weights(self):
-        """Initialize weights."""
-        initrange = 0.1
-        for item in self.embeddings:
-            item.weight.data.uniform_(-initrange, initrange)
-
-        self.inter.data.uniform_(-initrange, initrange)
-
 
 class GAMENet(nn.Module):
     def __init__(
@@ -224,7 +216,9 @@ class GAMENet(nn.Module):
         self.gamenet_layer = GAMENetLayer(
             voc_size, ehr_adj, ddi_adj, emb_dim, ddi_in_memory, **kwargs
         )
-        self.drug_fc = nn.Linear(emb_dim, voc_size[2] - 2)
+
+        self.out_dim = voc_size[2] - 2
+        self.drug_fc = nn.Linear(emb_dim, self.out_dim)
 
     def forward(self, conditions, procedures, drugs, device=None, **kwargs):
         diag_tensor, diag_mask = [
@@ -238,6 +232,7 @@ class GAMENet(nn.Module):
         drugs_tensor, drugs_mask = [
             item.to(device) for item in self.drug_tokenizer.batch_tokenize(drugs)
         ]
+
         tensors = [diag_tensor, proc_tensor, drugs_tensor]
         masks = [diag_mask, proc_mask, drugs_mask]
 

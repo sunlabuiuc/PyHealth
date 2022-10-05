@@ -96,12 +96,12 @@ class MLDrugRecommendation:
         # save the model
         if self.exp_path is not None:
             with open(os.path.join(self.exp_path, "best.ckpt"), "wb") as f:
-                pickle.dump([self.predictor, self.pca], f)
+                pickle.dump([self.predictor, self.pca, self.valid_label], f)
             print("best_model_path:", os.path.join(self.exp_path, "best.ckpt"))
 
     def load(self, path):
         with open(path, "rb") as f:
-            self.predictor, self.pca = pickle.load(f)
+            self.predictor, self.pca, self.valid_label = pickle.load(f)
 
     def __call__(
         self, conditions, procedures, drugs, padding_mask=None, device=None, **kwargs

@@ -2,16 +2,7 @@ from turtle import ScrolledCanvas
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-
-def get_last_visit(hidden_states, mask):
-    last_visit = torch.sum(mask, 1) - 1
-    last_visit = last_visit.unsqueeze(-1)
-    last_visit = last_visit.expand(-1, hidden_states.shape[1] * hidden_states.shape[2])
-    last_visit = torch.reshape(last_visit, hidden_states.shape)
-    last_hidden_states = torch.gather(hidden_states, 1, last_visit)
-    last_hidden_state = last_hidden_states[:, 0, :]
-    return last_hidden_state
+from .GAMENet import get_last_visit
 
 
 class TransformerLayer(nn.Module):

@@ -27,7 +27,6 @@ version = "v2.0"
 release = "v2.0"
 
 
-
 # -- General configuration ---------------------------------------------------
 
 # Add any Sphinx extension module names here, as strings. They can be
@@ -49,7 +48,7 @@ extensions = [
     "sphinx_remove_toctrees",
     "sphinx_design",
     "sphinxext.opengraph",
-    "sphinxcontrib.httpdomain"
+    "sphinxcontrib.httpdomain",
 ]
 
 ogp_site_url = "https://pyhealth-v2.readthedocs.io/en/latest/"
