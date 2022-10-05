@@ -2,11 +2,10 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to PyHealth's documentation!
+Welcome to PyHealth!
 ====================================
 
-
-**Deployment & Documentation & Stats**
+.. **Deployment & Documentation & Stats**
 
 .. image:: https://img.shields.io/pypi/v/pyhealth.svg?color=brightgreen
    :target: https://pypi.org/project/pyhealth/
@@ -43,248 +42,292 @@ Welcome to PyHealth's documentation!
    :alt: Downloads
 
 
------
+.. -----
 
 
-**Build Status & Coverage & Maintainability & License**
+.. **Build Status & Coverage & Maintainability & License**
 
-.. image:: https://travis-ci.org/yzhao062/pyhealth.svg?branch=master
-   :target: https://travis-ci.org/yzhao062/pyhealth
-   :alt: Build Status
-
-
-.. image:: https://ci.appveyor.com/api/projects/status/1kupdy87etks5n3r/branch/master?svg=true
-   :target: https://ci.appveyor.com/project/yzhao062/pyhealth/branch/master
-   :alt: Build status
+.. .. image:: https://travis-ci.org/yzhao062/pyhealth.svg?branch=master
+..    :target: https://travis-ci.org/yzhao062/pyhealth
+..    :alt: Build Status
 
 
-.. image:: https://api.codeclimate.com/v1/badges/bdc3d8d0454274c753c4/maintainability
-   :target: https://codeclimate.com/github/yzhao062/pyhealth/maintainability
-   :alt: Maintainability
+.. .. image:: https://ci.appveyor.com/api/projects/status/1kupdy87etks5n3r/branch/master?svg=true
+..    :target: https://ci.appveyor.com/project/yzhao062/pyhealth/branch/master
+..    :alt: Build status
 
 
-.. image:: https://img.shields.io/github/license/yzhao062/pyhealth
-   :target: https://github.com/yzhao062/pyhealth/blob/master/LICENSE
-   :alt: License
+.. .. image:: https://api.codeclimate.com/v1/badges/bdc3d8d0454274c753c4/maintainability
+..    :target: https://codeclimate.com/github/yzhao062/pyhealth/maintainability
+..    :alt: Maintainability
 
 
------
+.. .. image:: https://img.shields.io/github/license/yzhao062/pyhealth
+..    :target: https://github.com/yzhao062/pyhealth/blob/master/LICENSE
+..    :alt: License
+
+PyHealth is designed for both **ML researchers and medical practitioners**. We can make your **healthcare AI applications** easier to deploy and more flexible and customizable.
+ 
+----------
 
 
-.. image:: https://raw.githubusercontent.com/yzhao062/PyHealth/master/docs/images/logo.png
-   :target: https://raw.githubusercontent.com/yzhao062/PyHealth/master/docs/images/logo.png
-   :alt: PyHealth Logo
-   :align: center
+Introduction
+--------------------------
+
+.. .. image:: https://raw.githubusercontent.com/yzhao062/PyHealth/master/docs/images/logo.png
+..    :target: https://raw.githubusercontent.com/yzhao062/PyHealth/master/docs/images/logo.png
+..    :alt: PyHealth Logo
+..    :align: center
+
+PyHealth can support **diverse electronic health records (EHRs)** such as MIMIC and eICU and all OMOP-CDM based databases and provide **various advanced deep learning algorithms** for handling **important healthcare tasks** such as diagnosis-based drug recommendation, patient hospitalization and mortality prediction, and ICU length stay forecasting, etc.  
+
+*Build a healthcare AI pipeline can be as short as 10 lines of code in PyHealth*.
 
 
-**PyHealth** is a comprehensive **Python package** for **healthcare AI**, designed for both **ML researchers** and **healthcare and medical practitioners**.
-**PyHealth** accepts diverse healthcare data such as longitudinal electronic health records (EHRs), continuous signials (ECG, EEG), and clinical notes (to be added), and supports various predictive modeling methods using deep learning and other advanced machine learning algorithms published in the literature.
+Modules
+--------------------------
 
-The library is proudly developed and maintained by researchers from `University of Illinois at Urbana-Champaign <https://illinois.edu/>`_ (current), `Carnegie Mellon University <https://www.cmu.edu/>`_ and `IQVIA <https://www.iqvia.com/>`_ (previously).
-PyHealth makes many important healthcare tasks become accessible, such as **phenotyping prediction**, **mortality prediction**,
-and **ICU length stay forecasting**, etc. Running these prediction tasks with deep learning models can be as short as 10 lines of code in PyHealth.
+All healthcare tasks in our package follow a **five-stage pipeline**: 
+
+ dataset process -> task-specific process -> build ML/DL model -> model training -> inference
+
+We try hard to make sure each stage is as separate as possibe, so that people can customize their own pipeline by only using our data processing steps or the ML models. 
+
+We have implements one module for each of the steps (we build a pipeline training RETAIN on MIMIC-III for drug recommendation task):
+
+* **pyhealth.datasets** provides a clean structure for the dataset. Any instance from this module is independent from downstream tasks. We support the processing scripts for three open datasets, MIMIC-III, MIMIC-IV and eICU, as well as the standard OMOP-formatted data. The output instance contains a unified ``dictionary-based structure``.
+.. code-block:: python
+
+    from pyhealth.datasets import MIMIC3BaseDataset
+    base_ds = MIMIC3BaseDataset(root='./mimiciii/1.4')
+
+* **pyhealth.tasks** inputs the ``<pyhealth.datasets>`` object and further processes it (clean up irrelevant info.) and finally provides another structure for the specific task. This module bridges the dataset instance and the downstream models.
+.. code-block:: python
+
+    from pyhealth.tasks import DrugRecDataset
+    drugrec_ds = DrugRecDataset(base_ds)
+
+    from pyhealth.data.split import split_by_pat
+    train_loader, val_loader, test_loader = split_by_pat(drugrec_ds, [0.8, 0.1, 0.1])
+
+* **pyhealth.models** provides the state-of-the-art healthcare ML models.
+.. code-block:: python
+    
+    from pyhealth.models import RETAIN
+    model = RETAIN("drug_recommendation", voc_size, tokenizers, emb_dim=64)
+
+* **trainer.py** is the training manager for deep learning models.
+.. code-block:: python
+    
+    from pyhealth.trainer import Trainer
+    from pyhealth.evaluator.evaluating_multilabel import evaluate_multilabel
+
+    trainer = Trainer(enable_logging=True)
+    trainer.fit(model, train_loader, val_loader, epochs=50, \
+        evaluate_fn=evaluate_multilabel, monitor="jaccard")
+    # Best model saved to: ../output/221004-015401/best.ckpt
+
+* **pyhealth.evaluator** lists the evaluator for each healthcare tasks with detailed metrics specification.
+.. code-block:: python
+    
+    model = trainer.load(model, path="../output/221004-015401/best.ckpt") 
+    evaluate_multilabel(model, val_loader)
+    # {'loss': 1.0, 'ddi': 0.07266, 'jaccard': 0.4767, 'prauc': 0.7385, 'f1': 0.6366}
 
 
-**PyHealth comes with three major modules**: (i) *data preprocessing module*; (ii) *learning module*
-and (iii) *evaluation module*. Typically, one can run the data prep module to prepare the data, then feed to the learning module for prediction, and finally assess
-the result with the evaluation module.
-Users can use the full system as mentioned or just selected modules based on the own need:
+.. Demo - drug recommendation
+.. --------------------------
+.. * Step 1: dataset process
 
-* **Deep learning researchers** may directly use the processed data along with the proposed new models.
-* **Medical personnel**, may leverage our data preprocessing module to convert the medical data to the format that learning models could digest, and then perform the inference tasks to get insights from the data.
+.. .. code-block:: python
 
-
-PyHealth is featured for:
-
-* **Unified APIs, detailed documentation, and interactive examples** across various types of datasets and algorithms.
-* **Advanced models**\ , including **latest deep learning models** and **classical machine learning models**.
-* **Wide coverage**, supporting **sequence data**, **image data**, **series data** and **text data** like clinical notes.
-* **Optimized performance with JIT and parallelization** when possible, using `numba <https://github.com/numba/numba>`_ and `joblib <https://github.com/joblib/joblib>`_.
-* **Customizable modules and flexible design**: each module may be turned on/off or totally replaced by custom functions. The trained models can be easily exported and reloaded for fast execution and deployment.
+..     from pyhealth.datasets import MIMIC3BaseDataset
+..     base_ds = MIMIC3BaseDataset(root='./mimiciii/1.4')
 
 
-**Demo for RETAIN on Drug Recommendation with GPU**\ :
+.. * Step 2: task-specific process
+
+.. .. code-block:: python
+
+..     from pyhealth.tasks import DrugRecDataset
+..     drugrec_ds = DrugRecDataset(base_ds)
+
+..     # dataset split
+..     from pyhealth.data.split import split_by_pat
+..     train_loader, val_loader, test_loader = split_by_pat(
+..                                                 drugrec_ds,
+..                                                 ratios = [2/3, 1/6, 1/6], 
+..                                                 batch_size = 64, 
+..                                                 seed = 12345,
+..                                             )
+
+.. * Step 3: build ML/DL model
+
+.. .. code-block:: python
+    
+..     # DL model
+..     from pyhealth.models import RETAIN
+..     model = RETAIN(
+..         task = "drug_recommendation",
+..         voc_size = drugrec_ds.voc_size,
+..         tokenizers = drugrec_ds.tokenizers,
+..         emb_dim = 64,
+..     )
+
+..     # or ML model
+..     from sklearn.linear_model import LogisticRegression
+..     model = MLModel(
+..         task = "drug_recommendation",
+..         classifier = LogisticRegression(random_state=0, max_iter=10, verbose=1),
+..         voc_size = drugrec_ds.voc_size,
+..         tokenizers = drugrec_ds.tokenizers
+..     )
+
+.. * Step 4: model training
+
+.. .. code-block:: python
+    
+..     from pyhealth.trainer import Trainer
+..     from pyhealth.evaluator.evaluating_multilabel import evaluate_multilabel
+
+..     # for DL model
+..     trainer = Trainer(enable_logging=True)
+..     trainer.fit(
+..         model,
+..         train_loader=train_loader,
+..         epochs=50,
+..         evaluate_fn=evaluate_multilabel,
+..         eval_loader=val_loader,
+..         monitor="jaccard",
+..     )
+
+..     # for ML model
+..     model.fit(
+..         train_loader=train_loader,
+..         evaluate_fn=evaluate_multilabel,
+..         eval_loader=val_loader,
+..         monitor="jaccard",
+..     )
+
+.. * Step 5: inference
+
+.. .. code-block:: python
+    
+..     # for DL model, load the best model
+..     model = trainer.load(model, path="../output/221004-015401/best.ckpt") 
+    
+..     # for ML model, load the best model
+..     model.load(path="../output/221002-170055/best.ckpt")
+
+..     evaluate_multilabel(model, val_loader)
+..     """
+..     {'loss': 1.0,
+..     'ddi': 0.07266116297106122,
+..     'jaccard': 0.47675539329773964,
+..     'prauc': 0.738596427730712,
+..     'f1': 0.6366047688629042}
+..     """
+
+* We also provide medical code mapping functionality via **pyhealth.codemap**.
 
 .. code-block:: python
 
-    # load Dataset and transform it to OMOP form
-    from pyhealth.datasets import MIMIC3BaseDataset
+    from pyhealth.codemap import InnerMap # map within one code system
+    ICD = InnerMap('icd-10')
+    ICD['I50. 9'] # heart failure
+    ICD.children('I50. 9')
 
-    base_dataset = MIMIC3BaseDataset(root="/srv/local/data/physionet.org/files/mimiciii/1.4")
+    from pyhealth.codemap import CrossMap # map between two code systems
+    NDC10_to_RxNorm = CrossMap('NDC10', 'RXCUI')
+    NDC10_to_RXCUI['7641315306'] # AZITHROMYCIN tablet
 
-    # create task-specific dataset
-    from pyhealth.tasks import DrugRecDataset
-    drug_rec_dataset = DrugRecDataset(base_dataset)
+Users can **customize their healthcare AI pipeline** as simply as calling one module
 
-    voc_size = drug_rec_dataset.voc_size
-    params = drug_rec_dataset.params
+* process your OMOP data via ``pyhealth.datasets.omop``
+* process the open eICU (e.g., MIMIC) data via ``pyhealth.datasets.eICU``
+* process the dataset for drug recommendation task via ``pyhealth.tasks.DrugRecommendation``
+* use the healthcare ML models (e.g., RETAIN) via ``pyhealth.models.RETAIN``.
+* code map between for conditions and medicaitons via ``pyhealth.codemap``.
 
-    # select model
-    from pyhealth.models import RETAIN
-    model = RETAIN(voc_size, params)
+.. **Citing PyHealth**\ :
 
-    # create dataloader
-    from pyhealth.data import split
-    from torch.utils.data import DataLoader
+.. `PyHealth paper <https://arxiv.org/abs/2101.04209>`_ is under review at
+.. `JMLR <http://www.jmlr.org/>`_ (machine learning open-source software track).
+.. If you use PyHealth in a scientific publication, we would appreciate
+.. citations to the following paper::
 
-    drug_rec_trainset, drug_rec_valset, drug_rec_testset = split.random_split(drug_rec_dataset, [0.8, 0.1, 0.1])
-    drug_rec_train_loader = DataLoader(drug_rec_trainset, batch_size=1, collate_fn=lambda x: x[0])
-    drug_rec_val_loader = DataLoader(drug_rec_valset, batch_size=1, collate_fn=lambda x: x[0])
-    drug_rec_test_loader = DataLoader(drug_rec_testset, batch_size=1, collate_fn=lambda x: x[0])
-
-    # train
-    from pytorch_lightning import Trainer
-
-    trainer = Trainer(
-        gpus=1,
-        max_epochs=3,
-        progress_bar_refresh_rate=5,
-    )
-
-    trainer.fit(
-        model=model,
-        train_dataloaders=drug_rec_train_loader,
-        val_dataloaders=drug_rec_val_loader,
-    )
-
-    # evaluation
-    from pyhealth.evaluator import DrugRecEvaluator
-    evaluator = DrugRecEvaluator(model)
-    evaluator.evaluate(drug_rec_test_loader)
-
-
-**Citing PyHealth**\ :
-
-`PyHealth paper <https://arxiv.org/abs/2101.04209>`_ is under review at
-`JMLR <http://www.jmlr.org/>`_ (machine learning open-source software track).
-If you use PyHealth in a scientific publication, we would appreciate
-citations to the following paper::
-
-    @article{
-    }
+..     @article{
+..     }
 
 
 
-**Key Links and Resources**\ :
+.. **Key Links and Resources**\ :
 
 
-* `View the latest codes on Github <https://github.com/ycq091044/PyHealth-OMOP>`_
-* `Execute Interactive Jupyter Notebooks <https://mybinder.org/v2/gh/yzhao062/pyhealth/master>`_
-* `Check out the PyHealth paper <https://github.com/yzhao062/pyhealth>`_
+.. * `View the latest codes on Github <https://github.com/ycq091044/PyHealth-OMOP>`_
+.. * `Execute Interactive Jupyter Notebooks <https://mybinder.org/v2/gh/yzhao062/pyhealth/master>`_
+.. * `Check out the PyHealth paper <https://github.com/yzhao062/pyhealth>`_
 
 
 
 ----
 
 
-Preprocessed Datasets & Implemented Algorithms
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Datasets
+--------------------------
+We provide the following datasets for general purpose healthcare AI research:
 
-**(i) Preprocessed Datasets** (customized data preprocessing function is provided in the example folders):
-
-====================  ================  ======================================================================================================    ======================================================    ===============================================================================================================
-Type                  Abbr              Description                                                                                               Processed Function                                        Link
-====================  ================  ======================================================================================================    ======================================================    ===============================================================================================================
-Sequence: EHR-ICU     MIMIC III         A relational database containing tables of data relating to patients who stayed within ICU.               \\examples\\data_generation\\dataloader_mimic             https://mimic.physionet.org/gettingstarted/overview/
-Sequence: EHR-ICU     MIMIC_demo        The MIMIC-III demo database is limited to 100 patients and excludes the noteevents table.                 \\examples\\data_generation\\dataloader_mimic_demo        https://mimic.physionet.org/gettingstarted/demo/
-Sequence: EHU-Claim   CMS               DE-SynPUF: CMS 2008-2010 Data Entrepreneurs Synthetic Public Use File                                     \\examples\\data_generation\\dataloader_cms               https://www.cms.gov/Research-Statistics-Data-and-Systems/Downloadable-Public-Use-Files/SynPUFs
-Image: Chest X-ray    Pediatric         Pediatric Chest X-ray Pneumonia (Bacterial vs Viral vs Normal) Dataset                                    N/A                                                       https://academictorrents.com/details/951f829a8eeb4d2839c4a535db95078a9175010b
-Series: ECG           PhysioNet         AF Classification from a short single lead ECG recording Dataset.                                         N/A                                                       https://archive.physionet.org/challenge/2017/#challenge-data
-====================  ================  ======================================================================================================    ======================================================    ===============================================================================================================
-
-You may download the above datasets at the links. The structure of the generated datasets can be found in datasets folder:
-
-* \\datasets\\cms\\x_data\\...csv
-* \\datasets\\cms\\y_data\\phenotyping.csv
-* \\datasets\\cms\\y_data\\mortality.csv
+===================  =======================================  ========================================  ======================================================================================================== 
+Dataset              Module                                   Year                                      Information                                                             
+===================  =======================================  ========================================  ========================================================================================================
+MIMIC-III            ``pyhealth.datasets.MIMIC3BaseDataset``  2016                                      `MIMIC-III Clinical Database <https://physionet.org/content/mimiciii/1.4//>`_    
+MIMIC-IV             ``pyhealth.datasets.MIMIC4BaseDataset``  2020                                      `MIMIC-IV Clinical Database <https://physionet.org/content/mimiciv/0.4/>`_  
+eICU                 ``pyhealth.datasets.eICUBaseDataset``    2018                                      `eICU Collaborative Research Database <https://eicu-crd.mit.edu//>`_                 
+OMOP                 ``pyhealth.datasets.OMOPBaseDataset``                                              `OMOP-CDM schema based dataset <https://www.ohdsi.org/data-standardization/the-common-data-model/>`_                                    
+===================  =======================================  ========================================  ========================================================================================================
 
 
-The processed datasets (X,y) should be put in x_data, y_data correspondingly, to be appropriately digested by deep learning models. We include some sample datasets under \\datasets folder.
+Machine/Deep Learning Models
+--------------------------
+
+============================    ================  =================================  ======  ===========================================================================================================================================
+Model Name                      Type              Module                             Year    Reference                                                                                    
+============================    ================  =================================  ======  ===========================================================================================================================================
+Logistic Regression (LR)        classifical ML    ``pyhealth.models.MLModel``                ``sklearn.linear_model.LogisticRegression``                                                                    
+Random Forest (RF)              classifical ML    ``pyhealth.models.MLModel``                ``sklearn.ensemble.RandomForestClassifier``                                                                
+Neural Networks (NN)            classifical ML    ``pyhealth.models.MLModel``                ``sklearn.neural_network.MLPClassifier``                                                  
+Recurrent Neural Nets (RNN)     deep Learning     ``pyhealth.models.RNN``            2011    `Recurrent neural network based language model <http://www.fit.vutbr.cz/research/groups/speech/servite/2010/rnnlm_mikolov.pdf>`_
+Transformer                     deep Learning     ``pyhealth.models.Transformer``    2017    `Atention is All you Need <https://arxiv.org/abs/1706.03762>`_        
+RETAIN                          deep Learning     ``pyhealth.models.RETAIN``         2016    `RETAIN: An Interpretable Predictive Model for Healthcare using Reverse Time Attention Mechanism <https://arxiv.org/abs/1608.05745>`_
+GAMENet                         deep Learning     ``pyhealth.models.GAMENet``        2019    `GAMENet: Graph Attention Mechanism for Explainable Electronic Health Record Prediction <https://arxiv.org/abs/1809.01852>`_
+MICRON                          deep Learning     ``pyhealth.models.MICRON``         2021    `Change Matters: Medication Change Prediction with Recurrent Residual Networks <https://www.ijcai.org/proceedings/2021/0513>`_
+SafeDrug                        deep Learning     ``pyhealth.models.SafeDrug``       2021    `SafeDrug: Dual Molecular Graph Encoders for Recommending Effective and Safe Drug Combinations <https://arxiv.org/abs/2105.02711>`_
+============================    ================  =================================  ======  ===========================================================================================================================================
 
 
-**(ii) Machine Learning and Deep Learning Models** :
+Benchmark on Healthcare Tasks
+-------------------
 
+* **Current results on drug recommendation**. We conduct 2/3 : 1/6 : 1/6 split on MIMIC-III using five-fold cross validation, following `GAMENet <https://arxiv.org/abs/1809.01852>`_, `MICRON <https://www.ijcai.org/proceedings/2021/0513>`_, and `SafeDrug <https://arxiv.org/abs/2105.02711>`_.
 
-**For sequence data**:
+===================================     ========    =========      ==========      ==========
+Model Name                              DDI         Jaccard         PRAUC           macro-F1
+===================================     ========    =========      ==========      ==========
+LR                                      0.0734      0.4979          0.7673          0.6550
+RF                                      0.0783      0.4482          0.7295          0.6119
+NN                                      0.0732      0.4756          0.7394          0.6355
+RNN                                     0.0785      0.4721          0.7445          0.6313
+Transformer                             0.0791      0.4991          0.7692          0.6552
+RETAIN                                  0.0770      0.5068          0.7727          0.6627
+GAMENet                                 0.0760      0.4620          0.7378          0.6221
+MICRON                                  0.0733      0.5042          0.7693          0.6599
+SafeDrug (DDI hyperparameter: 0.08)     0.0792      0.4709          0.7413          0.6299
+SafeDrug (DDI hyperparameter: 0.06)     0.0614      0.4682          0.7420          0.6276
+SafeDrug (DDI hyperparameter: 0.04)     0.0513      0.4594          0.7390          0.6189
+SafeDrug (DDI hyperparameter: 0.02)     0.0376      0.4448          0.7290          0.6051
+===================================     ========    =========      ==========      ==========
+(contribute your model by **sending a commit** to ``pyhealth.models``)
 
-===================  ================  ============================================================  ======================================================================================================  =====  ========================================
-Type                 Abbr              Class                                                         Algorithm                                                                                               Year   Ref
-===================  ================  ============================================================  ======================================================================================================  =====  ========================================
-Classical Models     RandomForest      :class:`pyhealth.models.sequence.rf.RandomForest`             Random forests                                                                                          2000   :cite:`a-breiman2001random`
-Classical Models     XGBoost           :class:`pyhealth.models.sequence.xgboost.XGBoost`             XGBoost: A scalable tree boosting system                                                                2016   [#Chen2016Xgboost]_
-Neural Networks      LSTM              :class:`pyhealth.models.sequence.lstm.LSTM`                   Long short-term memory                                                                                  1997   [#Hochreiter1997Long]_
-Neural Networks      GRU               :class:`pyhealth.models.sequence.gru.GRU`                     Gated recurrent unit                                                                                    2014   [#Cho2014Learning]_
-Neural Networks      RETAIN            :class:`pyhealth.models.sequence.retain.RetainAttention`      RETAIN: An Interpretable Predictive Model for Healthcare using Reverse Time Attention Mechanism         2016   [#Choi2016RETAIN]_
-Neural Networks      Dipole            :class:`pyhealth.models.sequence.dipole.Dipole`               Dipole: Diagnosis Prediction in Healthcare via Attention-based Bidirectional Recurrent Neural Networks  2017   [#Ma2017Dipole]_
-Neural Networks      tLSTM             :class:`pyhealth.models.sequence.tlstm.tLSTM`                 Patient Subtyping via Time-Aware LSTM Networks                                                          2017   [#Baytas2017tLSTM]_
-Neural Networks      RAIM              :class:`pyhealth.models.sequence.raim.RAIM`                   RAIM: Recurrent Attentive and Intensive Model of Multimodal Patient Monitoring Data                     2018   [#Xu2018RAIM]_
-Neural Networks      StageNet          :class:`pyhealth.models.sequence.stagenet.StageNet`           StageNet: Stage-Aware Neural Networks for Health Risk Prediction                                        2020   [#Gao2020StageNet]_
-===================  ================  ============================================================  ======================================================================================================  =====  ========================================
-
-
-**For image data**:
-
-===================  ================  =================================================================================  ======================================================================================================  =====  ========================================
-Type                 Abbr              Class                                                                              Algorithm                                                                                               Year   Ref
-===================  ================  =================================================================================  ======================================================================================================  =====  ========================================
-Neural Networks      CNN               :class:`pyhealth.models.sequence.basiccnn.BasicCNN`                                Face recognition: A convolutional neural-network approach                                               1997   :cite:`a-lawrence1997face`
-Neural Networks      Vggnet            :class:`pyhealth.models.sequence.typicalcnn.TypicalCNN`                            Very deep convolutional networks for large-scale image recognition                                      2014Neural Networks      Inception         pyhealth.models.sequence.typicalcnn       Rethinking the Inception Architecture for Computer Vision
-Neural Networks      Resnet            pyhealth.models.sequence.typicalcnn                                                Deep Residual Learning for Image Recognition
-Neural Networks      Resnext           pyhealth.models.sequence.typicalcnn                                                Aggregated Residual Transformations for Deep Neural Networks
-Neural Networks      Densenet          pyhealth.models.sequence.typicalcnn                                                Densely Connected Convolutional Networks
-Neural Networks      Mobilenet         pyhealth.models.sequence.typicalcnn                                                MobileNets: Efficient Convolutional Neural Networks for Mobile Vision Applications
-===================  ================  =================================================================================  ======================================================================================================  =====  ========================================
-
-
-**For ecg/egg data**:
-
-===================  ================  ========================================  ========================================================================================================  =====  ========================================
-Type                 Abbr              Class                                     Algorithm                                                                                                 Year   Ref
-===================  ================  ========================================  ========================================================================================================  =====  ========================================
-Classical Models     RandomForest      pyhealth.models.ecg.rf                    Random Forests                                                                                            2000   [#Breiman2001Random]_
-Classical Models     XGBoost           pyhealth.models.ecg.xgboost               XGBoost: A scalable tree boosting system                                                                  2016   [#Chen2016Xgboost]_
-Neural Networks      BasicCNN1D        pyhealth.models.ecg.conv1d                Face recognition: A convolutional neural-network approach                                                 1997   [#Lawrence1997Face]_
-Neural Networks      DBLSTM-WS         pyhealth.models.ecg.dblstm_ws             A novel wavelet sequence based on deep bidirectional LSTM network model for ECG signal classification     2018
-Neural Networks      DeepRes1D         pyhealth.models.ecg.deepres1d             Heartbeat classification using deep residual convolutional neural network from 2-lead electrocardiogram   2019
-Neural Networks      AE+BiLSTM         pyhealth.models.ecg.sdaelstm              Automatic Classification of CAD ECG Signals With SDAE and Bidirectional Long Short-Term Network           2019
-Neural Networks      KRCRnet           pyhealth.models.ecg.rcrnet                K-margin-based Residual-Convolution-Recurrent Neural Network for Atrial Fibrillation Detection            2019
-Neural Networks      MINA              pyhealth.models.ecg.mina                  MINA: Multilevel Knowledge-Guided Attention for Modeling Electrocardiography Signals                      2019
-===================  ================  ========================================  ========================================================================================================  =====  ========================================
-
-
-Examples of running ML and DL models can be found below, or directly at \\examples\\learning_examples\\
-
-
-**(iii) Evaluation Metrics** :
-
-=======================  =======================  ======================================================================================================  ===============================================
-Type                     Abbr                     Metric                                                                                                  Method
-=======================  =======================  ======================================================================================================  ===============================================
-Binary Classification    average_precision_score  Compute micro/macro average precision (AP) from prediction scores                                       pyhealth.evaluation.xxx.get_avg_results
-Binary Classification    roc_auc_score            Compute micro/macro ROC AUC score from prediction scores                                                pyhealth.evaluation.xxx.get_avg_results
-Binary Classification    recall, precision, f1    Get recall, precision, and f1 values                                                                    pyhealth.evaluation.xxx.get_predict_results
-Multi Classification     To be done here
-=======================  =======================  ======================================================================================================  ===============================================
-
-
-**(iv) Supported Tasks**:
-
-=======================  =======================  ======================================================================================================  =========================================================
-Type                     Abbr                     Description                                                                                             Method
-=======================  =======================  ======================================================================================================  =========================================================
-Multi-classification     phenotyping              Predict the diagnosis code of a patient based on other information, e.g., procedures                    \\examples\\data_generation\\generate_phenotyping_xxx.py
-Binary Classification    mortality prediction     Predict whether a patient may pass away during the hospital                                             \\examples\\data_generation\\generate_mortality_xxx.py
-Regression               ICU stay length pred     Forecast the length of an ICU stay                                                                      \\examples\\data_generation\\generate_icu_length_xxx.py
-=======================  =======================  ======================================================================================================  =========================================================
-
-
-
-
-Algorithm Benchmark
-^^^^^^^^^^^^^^^^^^^
-
-**The comparison among of implemented models** will be made available later
-with a benchmark paper. TBA soon :)
 
 
 
@@ -317,25 +360,21 @@ with a benchmark paper. TBA soon :)
 
    about
    faq
-   contribution
+..    contribution
    whats_new
 
 
-----
+.. .. bibliography:: references.bib
+..    :cited:
+..    :labelprefix: A
+..    :keyprefix: a-
 
 
-.. rubric:: References
+.. .. rubric:: References
 
-.. bibliography:: references.bib
-   :cited:
-   :labelprefix: A
-   :keyprefix: a-
+.. Indices and tables
+.. ==================
 
-
-
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
+.. * :ref:`genindex`
+.. * :ref:`modindex`
+.. * :ref:`search`
