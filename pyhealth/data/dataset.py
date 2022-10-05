@@ -180,6 +180,8 @@ class TaskDataset(ABC, Dataset):
         self.task_name = task_name
         self.base_dataset = base_dataset
         self.samples = self.process()
+        self.patient_to_index = self.index_patient()
+        self.visit_to_index = self.index_visit()
 
     def process(self) -> List[Dict[str, Any]]:
         """Process the base dataset to generate the task-specific samples.
@@ -217,6 +219,26 @@ class TaskDataset(ABC, Dataset):
                 attributes as key
         """
         raise NotImplementedError
+
+    def index_patient(self):
+        """Index the samples by patient_id.
+
+        This function will create a dict of samples with patient_id as key and a list of sample indices as value.
+        """
+        patient_to_index = {}
+        for idx, sample in enumerate(self.samples):
+            patient_to_index.setdefault(sample["patient_id"], []).append(idx)
+        return patient_to_index
+
+    def index_visit(self):
+        """Index the samples by visit_id.
+
+        This function will create a dict of samples with visit_id as key and a list of sample indices as value.
+        """
+        visit_to_index = {}
+        for idx, sample in enumerate(self.samples):
+            visit_to_index.setdefault(sample["visit_id"], []).append(idx)
+        return visit_to_index
 
     def get_all_tokens(self, domain: str, sort: bool = True) -> List[str]:
         """Get all tokens of a specific domain (e.g., conditions, procedures, drugs, labs) in the dataset.
