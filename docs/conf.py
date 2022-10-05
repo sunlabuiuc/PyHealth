@@ -14,6 +14,13 @@
 # import sys
 # sys.path.insert(0, os.path.abspath('.'))
 
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).parent
+sys.path[:0] = [str(HERE.parent), str(HERE / "extensions"), str(HERE.parent / "pyhealth")]
+
+print(sys.path)
 
 # -- Project information -----------------------------------------------------
 needs_sphinx = "4.3"  # Nicer param docs
