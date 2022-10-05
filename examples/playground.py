@@ -1,31 +1,33 @@
-from pytorch_lightning import Trainer
+import torch
 from torch.utils.data import DataLoader
 
-from pyhealth.data.dataset import DrugRecDataLoader
+from pyhealth.split import split_by_patient
 from pyhealth.datasets import MIMIC3BaseDataset
-from pyhealth.models import RETAIN
-from pyhealth.evaluator import DrugRecommendationEvaluator
+from pyhealth.evaluator.evaluating_multilabel import evaluate_multilabel
+from pyhealth.models.rnn import RNNModel
+from pyhealth.tasks import DrugRecommendationDataset
+from pyhealth.trainer import Trainer
+from pyhealth.utils import collate_fn_dict
 
-# dataset
-base_dataset = MIMIC3BaseDataset(
-    root="/srv/local/data/physionet.org/files/mimiciii/1.4"
-)
-# task
-task_taskset = DrugRecDataLoader(base_dataset)
-# model
-model = RETAIN(task_taskset)
-# trainer
-trainer = Trainer(
-    gpus=1,
-    max_epochs=3,
-    progress_bar_refresh_rate=5,
-)
-# evaluator
-evaluator = DrugRecommendationEvaluator(model)
-# training
-trainer.fit(
-    model=model,
-    train_dataloaders=DataLoader(task_taskset, batch_size=1, collate_fn=lambda x: x[0]),
-)
-# evaluating
-# evaluator.evaluate()
+base_dataset = MIMIC3BaseDataset(root="/srv/local/data/physionet.org/files/mimiciii/1.4", dev=True)
+task_dataset = DrugRecommendationDataset(base_dataset)
+
+train_dataset, val_dataset, test_dataset = split_by_patient(task_dataset, [0.8, 0.1, 0.1])
+train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict)
+val_loader = DataLoader(val_dataset, batch_size=64, shuffle=False, collate_fn=collate_fn_dict)
+test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False, collate_fn=collate_fn_dict)
+
+model = RNNModel(dataset=task_dataset,
+                 input_domains=["conditions", "procedures"],
+                 output_domain="drugs",
+                 mode="multilabel")
+
+trainer = Trainer(enable_logging=True, output_path="../output")
+trainer.fit(model,
+            train_loader=train_loader,
+            epochs=50,
+            evaluate_fn=evaluate_multilabel,
+            eval_loader=val_loader,
+            monitor="jaccard")
+
+print("Evaluate on test set")

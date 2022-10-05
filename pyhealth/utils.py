@@ -5,7 +5,6 @@ import random
 import sys
 from datetime import datetime
 from typing import Optional
-from dataclasses import dataclass
 
 import numpy as np
 import torch
@@ -17,6 +16,8 @@ try:
 except:
     HAS_NVML = False
 
+
+# TODO: add comments for this file
 
 def collate_fn_dict(batch):
     """collate function for dict data"""

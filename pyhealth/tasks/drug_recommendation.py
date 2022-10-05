@@ -104,30 +104,22 @@ class DrugRecommendationDataset(TaskDataset):
             samples[i]["drugs"] = samples[i - 1]["drugs"] + [samples[i]["drugs"]]
         return samples
 
-    # TODO: examine this function
+    # TODO: move this function to codemap (as external resource)
     def get_ddi_matrix(self):
         """get drug-drug interaction (DDI)"""
         cid2atc_dic = defaultdict(set)
-        med_voc_size = self.voc_size[2]
+        med_voc_size = len(self.get_all_tokens("drugs"))
 
         vocab_to_index = self.tokenizers[2].vocabulary.word2idx
 
         # load cid2atc
-        if not os.path.exists(
-                os.path.join(str(Path.home()), ".cache/pyhealth/cid_to_ATC6.csv")
-        ):
-            cid_to_ATC6 = request.urlopen(
-                "https://drive.google.com/uc?id=1CVfa91nDu3S_NTxnn5GT93o-UfZGyewI"
-            ).readlines()
-            with open(
-                    os.path.join(str(Path.home()), ".cache/pyhealth/cid_to_ATC6.csv"), "w"
-            ) as outfile:
+        if not os.path.exists(os.path.join(str(Path.home()), ".cache/pyhealth/cid_to_ATC6.csv")):
+            cid_to_ATC6 = request.urlopen("https://drive.google.com/uc?id=1CVfa91nDu3S_NTxnn5GT93o-UfZGyewI").readlines()
+            with open(os.path.join(str(Path.home()), ".cache/pyhealth/cid_to_ATC6.csv"), "w") as outfile:
                 for line in cid_to_ATC6:
                     print(str(line[:-1]), file=outfile)
         else:
-            cid_to_ATC6 = open(
-                os.path.join(str(Path.home()), ".cache/pyhealth/cid_to_ATC6.csv"), "r"
-            ).readlines()
+            cid_to_ATC6 = open(os.path.join(str(Path.home()), ".cache/pyhealth/cid_to_ATC6.csv"), "r").readlines()
 
         # map cid to atc
         for line in cid_to_ATC6:
@@ -185,3 +177,4 @@ if __name__ == "__main__":
     print(task_dataset[1])
     task_dataset.info()
     task_dataset.stat()
+    task_dataset.get_ddi_matrix()

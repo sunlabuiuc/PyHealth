@@ -1,5 +1,5 @@
 from itertools import chain
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union, List
 
 import numpy as np
 import torch
@@ -7,12 +7,16 @@ import torch
 from pyhealth.data import TaskDataset
 
 
-def split_by_visit(dataset: TaskDataset, ratios: Tuple[float, float, float], seed: Optional[int] = None):
+def split_by_visit(
+        dataset: TaskDataset,
+        ratios: Union[Tuple[float, float, float], List[float]],
+        seed: Optional[int] = None
+):
     """Split the dataset by visit (i.e., samples).
 
     Args:
         dataset: a TaskDataset object
-        ratios: a tuple of ratios for train / val / test
+        ratios: a list/tuple of ratios for train / val / test
         seed: random seed for shuffling the dataset
 
     Returns:
@@ -34,12 +38,16 @@ def split_by_visit(dataset: TaskDataset, ratios: Tuple[float, float, float], see
     return train_dataset, val_dataset, test_dataset
 
 
-def split_by_patient(dataset: TaskDataset, ratios: Tuple[float, float, float], seed: Optional[int] = None):
+def split_by_patient(
+        dataset: TaskDataset,
+        ratios: Union[Tuple[float, float, float], List[float]],
+        seed: Optional[int] = None
+):
     """Split the dataset by patient.
 
     Args:
         dataset: a TaskDataset object
-        ratios: a tuple of ratios for train / val / test
+        ratios: a list/tuple of ratios for train / val / test
         seed: random seed for shuffling the dataset
 
     Returns:
@@ -50,7 +58,7 @@ def split_by_patient(dataset: TaskDataset, ratios: Tuple[float, float, float], s
     if seed is not None:
         np.random.seed(seed)
     assert sum(ratios) == 1.0, "ratios must sum to 1.0"
-    patient_indx = np.arange(dataset.patient_to_index.keys())
+    patient_indx = list(dataset.patient_to_index.keys())
     num_patients = len(patient_indx)
     np.random.shuffle(patient_indx)
     train_patient_indx = patient_indx[: int(num_patients * ratios[0])]
