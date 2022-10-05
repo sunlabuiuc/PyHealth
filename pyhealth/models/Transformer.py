@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from .GAMENet import get_last_visit
 
 
 class TransformerLayer(nn.Module):
@@ -58,6 +57,7 @@ class TransformerLayer(nn.Module):
             1
         )  # (batch, dim)
         return visit_emb
+
 
 class TransformerDrugRec(nn.Module):
     """Transformer model for drug recommendation task"""

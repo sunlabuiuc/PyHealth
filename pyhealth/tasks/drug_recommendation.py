@@ -1,5 +1,4 @@
-from typing import List, Optional
-from tokenize import Token
+from typing import List
 import numpy as np
 from collections import defaultdict
 from urllib import request

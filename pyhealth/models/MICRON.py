@@ -1,9 +1,7 @@
-import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from pyhealth.models.tokenizer import Tokenizer
 from .GAMENet import get_last_visit
 
 
