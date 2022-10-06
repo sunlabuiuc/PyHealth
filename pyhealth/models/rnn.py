@@ -68,7 +68,7 @@ class RNNLayer(nn.Module):
         return last_outputs, outputs
 
 
-class RNNModel(BaseModel):
+class RNN(BaseModel):
     """RNN Class, use "task" as key to identify specific RNN model and route there"""
 
     def __init__(self,
@@ -79,7 +79,7 @@ class RNNModel(BaseModel):
                  embedding_dim: int = 128,
                  hidden_dim: int = 128,
                  **kwargs):
-        super(RNNModel, self).__init__(dataset=dataset,
+        super(RNN, self).__init__(dataset=dataset,
                                        input_domains=input_domains,
                                        output_domain=output_domain,
                                        mode=mode)

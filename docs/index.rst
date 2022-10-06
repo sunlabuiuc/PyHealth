@@ -348,9 +348,11 @@ SafeDrug (DDI hyperparameter: 0.02)     0.0376      0.4448          0.7290      
    :hidden:
    :caption: Documentation
 
-   api/api
-   models
-   tasks
+   api/data
+   api/datasets
+   api/models
+   api/tasks
+   api/evaluator
 
 
 .. toctree::

@@ -4,7 +4,6 @@ import torch.nn.functional as F
 import numpy as np
 
 
-
 def get_last_visit(hidden_states, mask):
     last_visit = torch.sum(mask, 1) - 1
     last_visit = last_visit.unsqueeze(-1)

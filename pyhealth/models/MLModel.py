@@ -1,12 +1,10 @@
-from functools import reduce
-from logging.config import valid_ident
 from typing import Optional
 import pickle
 import os
 import numpy as np
 from sklearn.multioutput import MultiOutputClassifier
 from sklearn.decomposition import PCA
-from pyhealth.utils import get_device, create_directory, set_logger
+from pyhealth.utils import set_logger
 
 
 class MLDrugRecommendation:

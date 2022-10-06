@@ -8,7 +8,7 @@ import sys
 sys.path.append("/home/chaoqiy2/github/PyHealth-OMOP")
 
 from pyhealth.data import Event, Visit, Patient, BaseDataset
-from pyhealth.utils import create_directory, dump_pickle, load_pickle
+from pyhealth.utils import create_directory, save_pickle, load_pickle
 from tqdm import tqdm
 
 

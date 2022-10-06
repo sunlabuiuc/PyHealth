@@ -11,8 +11,6 @@ from torch.utils.data.dataloader import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 import warnings
 
-from pyhealth.evaluator.evaluating_drug_recommendation import multi_label_metric
-
 
 class CNN:
     def __init__(self, dataset, model="resnet"):
