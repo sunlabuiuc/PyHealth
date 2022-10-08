@@ -1,4 +1,4 @@
-def normalize_icd9(code):
+def normalize_icd9(code: str):
     """Normalize ICD9 code"""
     if code.startswith('E'):
         assert len(code) >= 4
