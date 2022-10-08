@@ -3,7 +3,7 @@ from typing import List, Tuple, Union
 
 import torch.nn as nn
 
-from pyhealth.data import TaskDataset
+from pyhealth.data import BaseDataset
 
 VALID_MODE = ["binary", "multiclass", "multilabel"]
 
@@ -12,7 +12,7 @@ class BaseModel(ABC, nn.Module):
     """Abstract base model for all tasks.
 
     Args:
-        dataset: TaskDataset object
+        dataset: BaseDataset object
         input_domains: list of input domains (e.g., ["conditions", "procedures"])
         output_domain: output domain (e.g., "drugs")
         mode: "binary", "multiclass", or "multilabel"
@@ -20,7 +20,7 @@ class BaseModel(ABC, nn.Module):
 
     def __init__(
             self,
-            dataset: TaskDataset,
+            dataset: BaseDataset,
             input_domains: Union[List[str], Tuple[str]],
             output_domain: str,
             mode: str,
