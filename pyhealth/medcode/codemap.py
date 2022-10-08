@@ -3,13 +3,11 @@ import importlib
 
 class CodeMap:
     def __init__(self, source, target):
-        source = source.upper()
-        target = target.upper()
         self.source = source
         self.target = target
 
         source_module = importlib.import_module(f"medcode.{source.lower()}")
-        source_class = getattr(source_module, source.upper())
+        source_class = getattr(source_module, source)
         self.source_class = source_class()
         if not target in self.source_class.valid_mappings:
             raise ValueError(f"{target} is not a valid mapping for {source}")
@@ -22,5 +20,5 @@ class CodeMap:
 
 
 if __name__ == "__main__":
-    codemap = CodeMap("ndc", "atc3")
+    codemap = CodeMap("NDC", "ATC3")
     print(codemap.map("00597005801"))
