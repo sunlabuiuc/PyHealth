@@ -17,6 +17,7 @@ from tqdm import tqdm
 # TODO: add microbiologyevents
 # TODO: add procedureevents_mv
 
+
 class MIMIC3Dataset(BaseDataset):
     """Base dataset for MIMIC-III dataset.
 
@@ -25,7 +26,7 @@ class MIMIC3Dataset(BaseDataset):
 
     We support the following tables:
         - PATIENTS.csv: defines each SUBJECT_ID in the database, i.e. defines a single patient.
-        - ADMISSIONS.csv: define a patient’s hospital admission, HADM_ID.
+        - ADMISSIONS.csv: define a patient's hospital admission, HADM_ID.
         - DIAGNOSES_ICD.csv: contains ICD diagnoses for patients, most notably ICD-9 diagnoses.
         - PROCEDURES_ICD.csv: contains ICD procedures for patients, most notably ICD-9 procedures.
         - PRESCRIPTIONS.csv: contains medication related order entries, i.e. prescriptions.
@@ -53,19 +54,21 @@ class MIMIC3Dataset(BaseDataset):
     """
 
     def __init__(
-            self,
-            root: str,
-            tables: List[str],
-            code_mapping: Optional[Dict[str, str]] = None,
-            dev=False,
-            refresh_cache=False,
+        self,
+        root: str,
+        tables: List[str],
+        code_mapping: Optional[Dict[str, str]] = {},
+        dev=False,
+        refresh_cache=False,
     ):
-        super(MIMIC3Dataset, self).__init__(dataset_name="MIMIC-III",
-                                            root=root,
-                                            tables=tables,
-                                            code_mapping=code_mapping,
-                                            dev=dev,
-                                            refresh_cache=refresh_cache)
+        super(MIMIC3Dataset, self).__init__(
+            dataset_name="MIMIC-III",
+            root=root,
+            tables=tables,
+            code_mapping=code_mapping,
+            dev=dev,
+            refresh_cache=refresh_cache,
+        )
 
     def parse_tables(self) -> Dict[str, Patient]:
         """This function overrides the parse_tables function in BaseDataset.
@@ -85,7 +88,9 @@ class MIMIC3Dataset(BaseDataset):
                 # use lower case for function name
                 patients = getattr(self, f"parse_{table.lower()}")(patients)
             except AttributeError:
-                raise NotImplementedError(f"Parser for table {table} is not implemented yet.")
+                raise NotImplementedError(
+                    f"Parser for table {table} is not implemented yet."
+                )
         return patients
 
     def parse_patients_and_admissions(self, patients) -> Dict[str, Patient]:
@@ -99,31 +104,37 @@ class MIMIC3Dataset(BaseDataset):
         # read admission table
         admission_df = pd.read_csv(
             os.path.join(self.root, "ADMISSIONS.csv"),
-            dtype={"SUBJECT_ID": str, "HADM_ID": str}
+            dtype={"SUBJECT_ID": str, "HADM_ID": str},
         )
         # merge patient and admission tables
         df = pd.merge(patients_df, admission_df, on="SUBJECT_ID", how="inner")
         # sort by admission and discharge time
         df = df.sort_values(["SUBJECT_ID", "ADMITTIME", "DISCHTIME"], ascending=True)
         # load patients
-        for p_id, p_info in tqdm(df.groupby("SUBJECT_ID"), desc="Parsing PATIENTS and ADMISSIONS"):
-            patient = Patient(patient_id=p_id,
-                              # TODO: convert to datetime object
-                              birth_datetime=p_info["DOB"].values[0],
-                              death_datetime=p_info["DOD_HOSP"].values[0],
-                              # TODO: should categorize the gender
-                              gender=p_info["GENDER"].values[0],
-                              # TODO: should categorize the ethnicity
-                              ethnicity=p_info["ETHNICITY"].values[0])
+        for p_id, p_info in tqdm(
+            df.groupby("SUBJECT_ID"), desc="Parsing PATIENTS and ADMISSIONS"
+        ):
+            patient = Patient(
+                patient_id=p_id,
+                # TODO: convert to datetime object
+                birth_datetime=p_info["DOB"].values[0],
+                death_datetime=p_info["DOD_HOSP"].values[0],
+                # TODO: should categorize the gender
+                gender=p_info["GENDER"].values[0],
+                # TODO: should categorize the ethnicity
+                ethnicity=p_info["ETHNICITY"].values[0],
+            )
             # load visits
             for v_id, v_info in p_info.groupby("HADM_ID"):
-                visit = Visit(visit_id=v_id,
-                              patient_id=p_id,
-                              # TODO: convert to datetime object
-                              encounter_time=v_info["ADMITTIME"].values[0],
-                              discharge_time=v_info["DISCHTIME"].values[0],
-                              # TODO: should categorize the discharge_status
-                              discharge_status=v_info["HOSPITAL_EXPIRE_FLAG"].values[0])
+                visit = Visit(
+                    visit_id=v_id,
+                    patient_id=p_id,
+                    # TODO: convert to datetime object
+                    encounter_time=v_info["ADMITTIME"].values[0],
+                    discharge_time=v_info["DISCHTIME"].values[0],
+                    # TODO: should categorize the discharge_status
+                    discharge_status=v_info["HOSPITAL_EXPIRE_FLAG"].values[0],
+                )
                 # add visit
                 patient.add_visit(visit)
             # add patient
@@ -145,11 +156,13 @@ class MIMIC3Dataset(BaseDataset):
         )
         # code mapping
         if table in self.code_mapping:
-            df = self.map_code_in_table(df,
-                                        source_vocabulary=vocabulary,
-                                        target_vocabulary=self.code_mapping[table],
-                                        source_col=col,
-                                        target_col=self.code_mapping[table])
+            df = self.map_code_in_table(
+                df,
+                source_vocabulary=vocabulary,
+                target_vocabulary=self.code_mapping[table],
+                source_col=col,
+                target_col=self.code_mapping[table],
+            )
             vocabulary = self.code_mapping[table]
             col = self.code_mapping[table]
         # drop rows with missing values
@@ -157,9 +170,17 @@ class MIMIC3Dataset(BaseDataset):
         # sort by sequence number (i.e., disease priority)
         df = df.sort_values(["SUBJECT_ID", "HADM_ID", "SEQ_NUM"], ascending=True)
         # update patients
-        for (p_id, v_id), v_info in tqdm(df.groupby(["SUBJECT_ID", "HADM_ID"]), desc=f"Parsing {table}"):
+        for (p_id, v_id), v_info in tqdm(
+            df.groupby(["SUBJECT_ID", "HADM_ID"]), desc=f"Parsing {table}"
+        ):
             for code in v_info[col]:
-                event = Event(code=code, event_type=table, vocabulary=vocabulary, visit_id=v_id, patient_id=p_id)
+                event = Event(
+                    code=code,
+                    event_type=table,
+                    vocabulary=vocabulary,
+                    visit_id=v_id,
+                    patient_id=p_id,
+                )
                 try:
                     patients[p_id].add_event(event)
                 except KeyError:
@@ -181,11 +202,13 @@ class MIMIC3Dataset(BaseDataset):
         )
         # code mapping
         if table in self.code_mapping:
-            df = self.map_code_in_table(df,
-                                        source_vocabulary=vocabulary,
-                                        target_vocabulary=self.code_mapping[table],
-                                        source_col=col,
-                                        target_col=self.code_mapping[table])
+            df = self.map_code_in_table(
+                df,
+                source_vocabulary=vocabulary,
+                target_vocabulary=self.code_mapping[table],
+                source_col=col,
+                target_col=self.code_mapping[table],
+            )
             vocabulary = self.code_mapping[table]
             col = self.code_mapping[table]
         # drop rows with missing values
@@ -193,9 +216,17 @@ class MIMIC3Dataset(BaseDataset):
         # sort by sequence number (i.e., procedure priority)
         df = df.sort_values(["SUBJECT_ID", "HADM_ID", "SEQ_NUM"], ascending=True)
         # update patients and visits
-        for (p_id, v_id), v_info in tqdm(df.groupby(["SUBJECT_ID", "HADM_ID"]), desc=f"Parsing {table}"):
+        for (p_id, v_id), v_info in tqdm(
+            df.groupby(["SUBJECT_ID", "HADM_ID"]), desc=f"Parsing {table}"
+        ):
             for code in v_info[col]:
-                event = Event(code=code, event_type=table, vocabulary=vocabulary, visit_id=v_id, patient_id=p_id)
+                event = Event(
+                    code=code,
+                    event_type=table,
+                    vocabulary=vocabulary,
+                    visit_id=v_id,
+                    patient_id=p_id,
+                )
                 try:
                     patients[p_id].add_event(event)
                 except KeyError:
@@ -215,29 +246,41 @@ class MIMIC3Dataset(BaseDataset):
         )
         # code mapping
         if table in self.code_mapping:
-            df = self.map_code_in_table(df,
-                                        source_vocabulary=vocabulary,
-                                        target_vocabulary=self.code_mapping[table],
-                                        source_col=col,
-                                        target_col=self.code_mapping[table])
+            df = self.map_code_in_table(
+                df,
+                source_vocabulary=vocabulary,
+                target_vocabulary=self.code_mapping[table],
+                source_col=col,
+                target_col=self.code_mapping[table],
+            )
             vocabulary = self.code_mapping[table]
             col = self.code_mapping[table]
         # drop rows with missing values
         df = df.dropna(subset=["SUBJECT_ID", "HADM_ID", col])
         # sort by start date and end date
-        df = df.sort_values(["SUBJECT_ID", "HADM_ID", "STARTDATE", "ENDDATE"], ascending=True)
+        df = df.sort_values(
+            ["SUBJECT_ID", "HADM_ID", "STARTDATE", "ENDDATE"], ascending=True
+        )
         # update patients and visits
-        for (p_id, v_id), v_info in tqdm(df.groupby(["SUBJECT_ID", "HADM_ID"]), desc=f"Parsing {table}"):
+        for (p_id, v_id), v_info in tqdm(
+            df.groupby(["SUBJECT_ID", "HADM_ID"]), desc=f"Parsing {table}"
+        ):
             for timestamp, code in zip(v_info["STARTDATE"], v_info[col]):
                 # TODO: convert to datetime object
-                event = Event(code=code, event_type=table, vocabulary=vocabulary, visit_id=v_id, patient_id=p_id)
+                event = Event(
+                    code=code,
+                    event_type=table,
+                    vocabulary=vocabulary,
+                    visit_id=v_id,
+                    patient_id=p_id,
+                )
                 try:
                     patients[p_id].add_event(event)
                 except KeyError:
                     continue
         return patients
 
-    def parse_labevents(self, patients):
+    def parse_labevents(self, patients) -> Dict[str, Patient]:
         """function to parse LABEVENTS table."""
         table = "LABEVENTS"
         col = "ITEMID"
@@ -249,11 +292,13 @@ class MIMIC3Dataset(BaseDataset):
         )
         # code mapping
         if table in self.code_mapping:
-            df = self.map_code_in_table(df,
-                                        source_vocabulary=vocabulary,
-                                        target_vocabulary=self.code_mapping[table],
-                                        source_col=col,
-                                        target_col=self.code_mapping[table])
+            df = self.map_code_in_table(
+                df,
+                source_vocabulary=vocabulary,
+                target_vocabulary=self.code_mapping[table],
+                source_col=col,
+                target_col=self.code_mapping[table],
+            )
             vocabulary = self.code_mapping[table]
             col = self.code_mapping[table]
         # drop rows with missing values
@@ -261,10 +306,18 @@ class MIMIC3Dataset(BaseDataset):
         # sort by charttime
         df = df.sort_values(["SUBJECT_ID", "HADM_ID", "CHARTTIME"], ascending=True)
         # update patients and visits
-        for (p_id, v_id), v_info in tqdm(df.groupby(["SUBJECT_ID", "HADM_ID"]), desc=f"Parsing {table}"):
+        for (p_id, v_id), v_info in tqdm(
+            df.groupby(["SUBJECT_ID", "HADM_ID"]), desc=f"Parsing {table}"
+        ):
             for timestamp, code in zip(v_info["CHARTTIME"], v_info[col]):
                 # TODO: convert to datetime object
-                event = Event(code=code, event_type=table, vocabulary=vocabulary, visit_id=v_id, patient_id=p_id)
+                event = Event(
+                    code=code,
+                    event_type=table,
+                    vocabulary=vocabulary,
+                    visit_id=v_id,
+                    patient_id=p_id,
+                )
                 try:
                     patients[p_id].add_event(event)
                 except KeyError:
@@ -273,10 +326,12 @@ class MIMIC3Dataset(BaseDataset):
 
 
 if __name__ == "__main__":
-    dataset = MIMIC3Dataset(root="/srv/local/data/physionet.org/files/mimiciii/1.4",
-                            tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS", "LABEVENTS"],
-                            dev=True,
-                            code_mapping={"PRESCRIPTIONS": "ATC3"},
-                            refresh_cache=True)
+    dataset = MIMIC3Dataset(
+        root="/srv/local/data/physionet.org/files/mimiciii/1.4",
+        tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
+        dev=True,
+        code_mapping={"PRESCRIPTIONS": "ATC3"},
+        refresh_cache=False,
+    )
     dataset.stat()
     dataset.info()

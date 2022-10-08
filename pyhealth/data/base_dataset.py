@@ -6,7 +6,7 @@ import pandas as pd
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
-from medcode import CodeMap
+from pyhealth.medcode import CodeMap
 from pyhealth import CACHE_PATH
 from pyhealth.data import Patient
 from pyhealth.utils import load_pickle, save_pickle, hash_str
@@ -27,7 +27,7 @@ class BaseDataset(ABC, Dataset):
         tables: List[str], list of tables to be loaded (e.g., ["DIAGNOSES_ICD", "PROCEDURES_ICD"]).
         code_mapping: Optional[Dict[str, str]], key is the table name, value is the code vocabulary to map to
             (e.g., {"DIAGNOSES_ICD": "CCS"}). Note that the source vocabulary will be automatically
-            inferred from the table. Default is None, which means the original code will be used.
+            inferred from the table. Default is {}, which means the original code will be used.
         dev: bool, whether to enable dev mode (only use a small subset of the data). Default is False.
         refresh_cache: whether to refresh the cache; if true, the dataset will be processed from scratch
             and the cache will be updated. Default is False.
@@ -43,17 +43,18 @@ class BaseDataset(ABC, Dataset):
     """
 
     def __init__(
-            self,
-            dataset_name: str,
-            root: str,
-            tables: List[str],
-            code_mapping: Optional[Dict[str, str]] = None,
-            dev: bool = False,
-            refresh_cache: bool = False
+        self,
+        dataset_name: str,
+        root: str,
+        tables: List[str],
+        code_mapping: Optional[Dict[str, str]] = None,
+        dev: bool = False,
+        refresh_cache: bool = False,
     ):
         """Loads tables into a dict of patients and saves it to cache."""
+
         if code_mapping is None:
-            code_mapping = {}
+            self.code_mapping = {}
 
         # base attributes
         self.dataset_name = dataset_name
@@ -69,7 +70,9 @@ class BaseDataset(ABC, Dataset):
         self.visit_to_index: Optional[Dict[str, int]] = None
 
         # cache
-        args_to_hash = [dataset_name, root] + sorted(tables) + sorted(code_mapping.items()) + [dev]
+        args_to_hash = (
+            [dataset_name, root] + sorted(tables) + sorted(code_mapping.items()) + [dev]
+        )
         filename = hash_str("+".join([str(arg) for arg in args_to_hash])) + ".pkl"
         self.filepath = os.path.join(CACHE_PATH, filename)
 
@@ -97,12 +100,12 @@ class BaseDataset(ABC, Dataset):
         raise NotImplementedError
 
     def map_code_in_table(
-            self,
-            df: pd.DataFrame,
-            source_vocabulary: str,
-            target_vocabulary: str,
-            source_col: str,
-            target_col: str,
+        self,
+        df: pd.DataFrame,
+        source_vocabulary: str,
+        target_vocabulary: str,
+        source_col: str,
+        target_col: str,
     ) -> pd.DataFrame:
         """Maps the codes in a table to a target vocabulary.
 
@@ -146,7 +149,9 @@ class BaseDataset(ABC, Dataset):
         self.task = task
         self.task_fn = task_fn
         samples = []
-        for patient_id, patient in tqdm(self.patients.items(), desc=f"Generating samples for {task}"):
+        for patient_id, patient in tqdm(
+            self.patients.items(), desc=f"Generating samples for {task}"
+        ):
             samples.extend(self.task_fn(patient))
         self.samples = samples
         self.patient_to_index = self.index_patient()
@@ -233,10 +238,19 @@ class BaseDataset(ABC, Dataset):
         print(f"\t- Number of patients: {len(self.patients)}")
         num_visits = [len(p) for p in self.patients.values()]
         print(f"\t- Number of visits: {sum(num_visits)}")
-        print(f"\t- Number of visits per patient: {sum(num_visits) / len(num_visits):.4f}")
+        print(
+            f"\t- Number of visits per patient: {sum(num_visits) / len(num_visits):.4f}"
+        )
+
         for event_type in self.tables:
-            num_events = [len(v.get_event_list(event_type)) for p in self.patients.values() for v in p]
-            print(f"\t- Number of {event_type} per visit: {sum(num_events) / len(num_events):.4f}")
+            num_events = [
+                len(p[i].get_event_list(event_type))
+                for p in self.patients.values()
+                for i in range(len(p))
+            ]
+            print(
+                f"\t- Number of {event_type} per visit: {sum(num_events) / len(num_events):.4f}"
+            )
         print()
 
     def task_stat(self):
@@ -253,7 +267,9 @@ class BaseDataset(ABC, Dataset):
         # TODO: add more types once we support selecting domains with args
         for key in self.samples[0]:
             num_events = [len(sample[key][-1]) for sample in self.samples]
-            print(f"\t- Number of {key} per visit: {sum(num_events) / len(num_events):.4f}")
+            print(
+                f"\t- Number of {key} per visit: {sum(num_events) / len(num_events):.4f}"
+            )
             print(f"\t- Number of unique {key}: {len(self.get_all_tokens(key))}")
         print()
 

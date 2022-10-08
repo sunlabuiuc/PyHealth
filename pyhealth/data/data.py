@@ -23,14 +23,14 @@ class Event:
     """
 
     def __init__(
-            self,
-            code: str,
-            event_type: str,
-            vocabulary: str,
-            visit_id: str,
-            patient_id: str,
-            timestamp: Optional[datetime] = None,
-            **attr,
+        self,
+        code: str,
+        event_type: str,
+        vocabulary: str,
+        visit_id: str,
+        patient_id: str,
+        timestamp: Optional[datetime] = None,
+        **attr,
     ):
         self.code = code
         self.event_type = event_type
@@ -42,7 +42,9 @@ class Event:
         self.attr_dict.update(attr)
 
     def __str__(self):
-        return f"Event of type {self.event_type} with {self.vocabulary} code {self.code}"
+        return (
+            f"Event of type {self.event_type} with {self.vocabulary} code {self.code}"
+        )
 
 
 class Visit:
@@ -67,13 +69,13 @@ class Visit:
     """
 
     def __init__(
-            self,
-            visit_id: str,
-            patient_id: str,
-            encounter_time: Optional[datetime] = None,
-            discharge_time: Optional[datetime] = None,
-            discharge_status: Optional[str] = None,
-            **attr,
+        self,
+        visit_id: str,
+        patient_id: str,
+        encounter_time: Optional[datetime] = None,
+        discharge_time: Optional[datetime] = None,
+        discharge_status: Optional[str] = None,
+        **attr,
     ):
         self.visit_id = visit_id
         self.patient_id = patient_id
@@ -146,17 +148,17 @@ class Patient:
             the attribute's value.
         visits: OrderedDict[str, Visit], an ordered dictionary of visits. Each key is a visit id and each value is
             a visit.
-        index_to_visit_id: dict, dictionary that maps the index of a visit in the visits list to the visit id.
+        index_to_visit: dict, dictionary that maps the index of a visit in the visits list to the visit id.
     """
 
     def __init__(
-            self,
-            patient_id: str,
-            birth_datetime: Optional[datetime] = None,
-            death_datetime: Optional[datetime] = None,
-            gender: Optional[str] = None,
-            ethnicity: Optional[str] = None,
-            **attr,
+        self,
+        patient_id: str,
+        birth_datetime: Optional[datetime] = None,
+        death_datetime: Optional[datetime] = None,
+        gender: Optional[str] = None,
+        ethnicity: Optional[str] = None,
+        **attr,
     ):
         self.patient_id = patient_id
         self.birth_datetime = birth_datetime
@@ -166,7 +168,7 @@ class Patient:
         self.attr_dict = dict()
         self.attr_dict.update(attr)
         self.visits = OrderedDict()
-        self.index_to_visit_id = dict()
+        self.index_to_visit = dict()
 
     def add_visit(self, visit: Visit):
         """Adds a visit to the patient.
@@ -175,7 +177,7 @@ class Patient:
             visit: Visit, visit to add.
         """
         self.visits[visit.visit_id] = visit
-        self.index_to_visit_id[len(self.visits) - 1] = visit.visit_id # incremeting index
+        self.index_to_visit[len(self.visits) - 1] = visit.visit_id  # incremeting index
 
     def add_event(self, event: Event):
         """Adds an event to the patient.
@@ -185,7 +187,7 @@ class Patient:
         """
         visit_id = event.visit_id
         if visit_id not in self.visits:
-            raise ValueError(f"Visit {visit_id} not found in patient {self.patient_id}")
+            raise KeyError(f"Visit {visit_id} not found in patient {self.patient_id}")
         self.get_visit_by_id(visit_id).add_event(event)
 
     def get_visit_by_id(self, visit_id: str):
@@ -208,7 +210,7 @@ class Patient:
         Returns:
             Visit, visit with the given index.
         """
-        visit_id = self.index_to_visit_id[index]
+        visit_id = self.index_to_visit[index]
         return self.get_visit_by_id(visit_id)
 
     def __str__(self):
@@ -228,6 +230,13 @@ if __name__ == "__main__":
     visit = Visit(visit_id="1", patient_id="1", attr="attr")
     print(visit)
     print(visit.attr_dict)
-    event = Event(code="428.0", visit_id="1", patient_id="1", event_type="condition", vocabulary="ICD9CM", attr="attr")
+    event = Event(
+        code="428.0",
+        visit_id="1",
+        patient_id="1",
+        event_type="condition",
+        vocabulary="ICD9CM",
+        attr="attr",
+    )
     print(event)
     print(event.attr_dict)
