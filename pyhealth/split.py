@@ -4,18 +4,18 @@ from typing import Optional, Tuple, Union, List
 import numpy as np
 import torch
 
-from pyhealth.data import TaskDataset
+from pyhealth.data import BaseDataset
 
 
 def split_by_visit(
-        dataset: TaskDataset,
+        dataset: BaseDataset,
         ratios: Union[Tuple[float, float, float], List[float]],
         seed: Optional[int] = None
 ):
     """Split the dataset by visit (i.e., samples).
 
     Args:
-        dataset: a TaskDataset object
+        dataset: a BaseDataset object
         ratios: a list/tuple of ratios for train / val / test
         seed: random seed for shuffling the dataset
 
@@ -39,14 +39,14 @@ def split_by_visit(
 
 
 def split_by_patient(
-        dataset: TaskDataset,
+        dataset: BaseDataset,
         ratios: Union[Tuple[float, float, float], List[float]],
         seed: Optional[int] = None
 ):
     """Split the dataset by patient.
 
     Args:
-        dataset: a TaskDataset object
+        dataset: a BaseDataset object
         ratios: a list/tuple of ratios for train / val / test
         seed: random seed for shuffling the dataset
 

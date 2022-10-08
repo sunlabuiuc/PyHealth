@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import os
 import pickle
@@ -18,6 +19,11 @@ except:
 
 
 # TODO: add comments for this file
+
+
+def hash_str(s):
+    return hashlib.md5(s.encode()).hexdigest()
+
 
 def collate_fn_dict(batch):
     """collate function for dict data"""

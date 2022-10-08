@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.utils.rnn as rnn_utils
 
-from pyhealth.data import TaskDataset
+from pyhealth.data import BaseDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.utils import get_default_loss_module
 from pyhealth.tokenizer import Tokenizer
@@ -72,7 +72,7 @@ class RNN(BaseModel):
     """RNN Class, use "task" as key to identify specific RNN model and route there"""
 
     def __init__(self,
-                 dataset: TaskDataset,
+                 dataset: BaseDataset,
                  input_domains: Union[List[str], Tuple[str]],
                  output_domain: str,
                  mode: str,
@@ -88,10 +88,10 @@ class RNN(BaseModel):
 
         self.tokenizers = {}
         for domain in input_domains:
-            self.tokenizers[domain] = Tokenizer(dataset.get_all_tokens(domain=domain),
+            self.tokenizers[domain] = Tokenizer(dataset.get_all_tokens(key=domain),
                                                 special_tokens=["<pad>", "<unk>"])
         # TODO: some task like mortality prediction do not need tokenizer for output domain
-        self.label_tokenizer = Tokenizer(dataset.get_all_tokens(domain=output_domain),
+        self.label_tokenizer = Tokenizer(dataset.get_all_tokens(key=output_domain),
                                          special_tokens=["<pad>", "<unk>"])
 
         self.embeddings = nn.ModuleDict()
