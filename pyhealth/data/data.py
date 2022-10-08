@@ -146,6 +146,7 @@ class Patient:
             the attribute's value.
         visits: OrderedDict[str, Visit], an ordered dictionary of visits. Each key is a visit id and each value is
             a visit.
+        index_to_visit_id: dict, dictionary that maps the index of a visit in the visits list to the visit id.
     """
 
     def __init__(
@@ -165,6 +166,7 @@ class Patient:
         self.attr_dict = dict()
         self.attr_dict.update(attr)
         self.visits = OrderedDict()
+        self.index_to_visit_id = dict()
 
     def add_visit(self, visit: Visit):
         """Adds a visit to the patient.
@@ -173,6 +175,7 @@ class Patient:
             visit: Visit, visit to add.
         """
         self.visits[visit.visit_id] = visit
+        self.index_to_visit_id[len(self.visits) - 1] = visit.visit_id # incremeting index
 
     def add_event(self, event: Event):
         """Adds an event to the patient.
@@ -181,6 +184,8 @@ class Patient:
             event: Event, event to add.
         """
         visit_id = event.visit_id
+        if visit_id not in self.visits:
+            raise ValueError(f"Visit {visit_id} not found in patient {self.patient_id}")
         self.get_visit_by_id(visit_id).add_event(event)
 
     def get_visit_by_id(self, visit_id: str):
@@ -203,7 +208,8 @@ class Patient:
         Returns:
             Visit, visit with the given index.
         """
-        return list(self.visits.values())[index]
+        visit_id = self.index_to_visit_id[index]
+        return self.get_visit_by_id(visit_id)
 
     def __str__(self):
         return f"Patient {self.patient_id} with {len(self)} visits"
