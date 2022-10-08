@@ -6,7 +6,7 @@ class CodeMap:
         self.source = source
         self.target = target
 
-        source_module = importlib.import_module(f"medcode.{source.lower()}")
+        source_module = importlib.import_module(f"pyhealth.medcode.{source.lower()}")
         source_class = getattr(source_module, source)
         self.source_class = source_class()
         if not target in self.source_class.valid_mappings:

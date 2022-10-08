@@ -306,7 +306,7 @@ SafeDrug                        deep Learning     ``pyhealth.models.SafeDrug``  
 
 
 Benchmark on Healthcare Tasks
--------------------
+-------------------------------
 
 * **Current results on drug recommendation**. We conduct 2/3 : 1/6 : 1/6 split on MIMIC-III using five-fold cross validation, following `GAMENet <https://arxiv.org/abs/1809.01852>`_, `MICRON <https://www.ijcai.org/proceedings/2021/0513>`_, and `SafeDrug <https://arxiv.org/abs/2105.02711>`_.
 
