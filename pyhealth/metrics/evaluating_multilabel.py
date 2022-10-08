@@ -1,5 +1,5 @@
 import torch
-from sklearn.metrics import roc_auc_score, f1_score, average_precision_score
+from sklearn.metrics import average_precision_score
 import numpy as np
 
 # for drug recommendation
