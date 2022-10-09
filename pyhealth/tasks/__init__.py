@@ -1,1 +1,3 @@
-from .drug_recommendation import drug_recommendation_mimic3_fn
+from .drug_recommendation import drug_recommendation
+from .mortality_prediction import mortality_prediction
+from .readmission_prediction import readmission_prediction

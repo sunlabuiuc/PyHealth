@@ -126,7 +126,7 @@ class BaseDataset(ABC, Dataset):
         df = df.explode(target_col)
         return df
 
-    def set_task(self, task, task_fn):
+    def set_task(self, task_fn):
         """Processes the base dataset to generate the task-specific samples.
 
         This function will iterate through all patients in the base dataset and call task_fn which should be
@@ -146,13 +146,13 @@ class BaseDataset(ABC, Dataset):
         may be converted to three samples ([visit 1], [visit 1, visit 2], [visit 1, visit 2, visit 3]).
         Patients can also be excluded from the task dataset by returning an empty list.
         """
-        self.task = task
+        self.task = task_fn.__name__
         self.task_fn = task_fn
         samples = []
         for patient_id, patient in tqdm(
-            self.patients.items(), desc=f"Generating samples for {task}"
+            self.patients.items(), desc=f"Generating samples for {self.task}"
         ):
-            samples.extend(self.task_fn(patient))
+            samples.extend(self.task_fn(self.dataset_name, patient))
         self.samples = samples
         self.patient_to_index = self.index_patient()
         self.visit_to_index = self.index_visit()
@@ -200,6 +200,20 @@ class BaseDataset(ABC, Dataset):
         if sort:
             tokens.sort()
         return tokens
+
+    def get_label_distribution(self) -> Dict[str, int]:
+        """Gets the label distribution of the samples.
+
+        Returns:
+            label_distribution: a dict mapping label to count.
+        """
+        if self.task is None:
+            raise ValueError("Please set task first.")
+        label_distribution = {}
+        for sample in self.samples:
+            label_distribution.setdefault(sample["label"], 0)
+            label_distribution[sample["label"]] += 1
+        return label_distribution
 
     def __getitem__(self, index):
         """Returns a sample by index.
@@ -266,11 +280,14 @@ class BaseDataset(ABC, Dataset):
         print(f"\t- Number of visits per patient: {len(self) / num_patients:.4f}")
         # TODO: add more types once we support selecting domains with args
         for key in self.samples[0]:
-            num_events = [len(sample[key][-1]) for sample in self.samples]
-            print(
-                f"\t- Number of {key} per visit: {sum(num_events) / len(num_events):.4f}"
-            )
-            print(f"\t- Number of unique {key}: {len(self.get_all_tokens(key))}")
+            if key == "label":
+                print(f"\t- Label distribution: {self.get_label_distribution()}")
+            else:
+                num_events = [len(sample[key][-1]) for sample in self.samples]
+                print(
+                    f"\t- Number of {key} per visit: {sum(num_events) / len(num_events):.4f}"
+                )
+                print(f"\t- Number of unique {key}: {len(self.get_all_tokens(key))}")
         print()
 
     def info(self):

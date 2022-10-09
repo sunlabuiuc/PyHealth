@@ -136,14 +136,23 @@ class OMOPDataset(BaseDataset):
             )
             # load visits
             for v_id, v_info in p_info.groupby("visit_occurrence_id"):
+
+                discharge_status = 0
+                if (
+                    v_info["death_date"].values[0] == v_info["death_date"].values[0]
+                ) and (
+                    v_info["death_date"].values[0] <= v_info["visit_end_date"].values[0]
+                ):
+                    discharge_status = 1
+
                 visit = Visit(
                     visit_id=v_id,
                     patient_id=p_id,
                     # TODO: convert to datetime object
-                    encounter_time=v_info["visit_start_datetime"].values[0],
-                    discharge_time=v_info["visit_end_datetime"].values[0],
+                    encounter_time=v_info["visit_start_date"].values[0],
+                    discharge_time=v_info["visit_end_date"].values[0],
                     # TODO: should categorize the discharge_status
-                    discharge_status=v_info["discharge_to_concept_id"].values[0],
+                    discharge_status=discharge_status,
                 )
                 # add visit
                 patient.add_visit(visit)
