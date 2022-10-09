@@ -4,9 +4,7 @@ Tasks
 .. toctree::
     :maxdepth: 3
     
-    tasks/pyhealth.tasks.LengthOfStayDataset
-    tasks/pyhealth.tasks.Med2VecDataset
-    tasks/pyhealth.tasks.MortalityDataset
-    tasks/pyhealth.tasks.ReadmissionDataset
-    tasks/pyhealth.tasks.DrugRecommendationDataset
+    tasks/pyhealth.tasks.drug_recommendation
+    tasks/pyhealth.tasks.readmission_prediction
+    tasks/pyhealth.tasks.mortality_prediction
 
