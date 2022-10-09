@@ -41,13 +41,13 @@ def to_multihot(label: List[int], num_classes: int) -> torch.tensor:
 def batch_to_multihot(label: List[List[int]], num_classes: int) -> torch.tensor:
     """Convert label to multihot format.
 
-        Args:
-            label: [batch size, *]
-            num_classes: number of classes
+    Args:
+        label: [batch size, *]
+        num_classes: number of classes
 
-        Returns:
-            multihot: [batch size, num_classes]
-        """
+    Returns:
+        multihot: [batch size, num_classes]
+    """
     multihot = torch.zeros((len(label), num_classes))
     for i, l in enumerate(label):
         multihot[i, l] = 1

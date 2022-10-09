@@ -152,7 +152,7 @@ class BaseDataset(ABC, Dataset):
         for patient_id, patient in tqdm(
             self.patients.items(), desc=f"Generating samples for {self.task}"
         ):
-            samples.extend(self.task_fn(self.dataset_name, patient))
+            samples.extend(self.task_fn(patient))
         self.samples = samples
         self.patient_to_index = self.index_patient()
         self.visit_to_index = self.index_visit()
@@ -195,7 +195,16 @@ class BaseDataset(ABC, Dataset):
             raise ValueError("Please set task first.")
         tokens = []
         for sample in self.samples:
-            tokens.extend(sample[key][-1])
+            # for multi-class classification
+            if type(sample[key]) in [bool, int, str]:
+                tokens.append(sample[key])
+            # for multi-label classification
+            elif type(sample[key][0]) in [bool, int, str]:
+                tokens.extend(sample[key])
+            elif type(sample[key][0]) == list:
+                tokens.extend(sample[key][-1])
+            else:
+                raise ValueError(f"Unknown type of {key}: {type(sample[key])}")
         tokens = list(set(tokens))
         if sort:
             tokens.sort()
@@ -211,8 +220,13 @@ class BaseDataset(ABC, Dataset):
             raise ValueError("Please set task first.")
         label_distribution = {}
         for sample in self.samples:
-            label_distribution.setdefault(sample["label"], 0)
-            label_distribution[sample["label"]] += 1
+            if type(sample["label"]) == list:
+                for label in sample["label"]:
+                    label_distribution.setdefault(label, 0)
+                    label_distribution[label] += 1
+            else:
+                label_distribution.setdefault(sample["label"], 0)
+                label_distribution[sample["label"]] += 1
         return label_distribution
 
     def __getitem__(self, index):

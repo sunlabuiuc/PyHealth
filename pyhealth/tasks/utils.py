@@ -1,11 +1,12 @@
 from typing import List
 
 from pyhealth.data import Event
+from datetime import datetime
 
 
 def get_code_from_list_of_event(
-        list_of_event: List[Event],
-        remove_duplicate: bool = True,
+    list_of_event: List[Event],
+    remove_duplicate: bool = True,
 ) -> List[str]:
     """
     Args:
@@ -19,3 +20,19 @@ def get_code_from_list_of_event(
         # remove duplicate codes but keep the order
         list_of_code = list(dict.fromkeys(list_of_code))
     return list_of_code
+
+
+def datetime_string_to_datetime(datetime_string: str) -> datetime:
+    """Converts a datetime string to a datetime object.
+
+    Args:
+        datetime_string: str, datetime string.
+
+    Returns:
+        datetime, datetime object.
+    """
+
+    if ":" in datetime_string:
+        return datetime.strptime(datetime_string, "%Y-%m-%d %H:%M:%S")
+    else:
+        return datetime.strptime(datetime_string, "%Y-%m-%d")

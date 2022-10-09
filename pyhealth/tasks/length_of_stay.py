@@ -1,3 +1,5 @@
-from pyhealth.data import TaskDataset
-class LengthOfStayDataset(TaskDataset):
+from pyhealth.data import BaseDataset
+
+
+class LengthOfStayDataset(BaseDataset):
     pass

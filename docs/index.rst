@@ -340,7 +340,8 @@ SafeDrug (DDI hyperparameter: 0.02)     0.0376      0.4448          0.7290      
    :caption: Getting Started
 
    install
-   examples
+   tutorials
+   usecase
 
 
 .. toctree::

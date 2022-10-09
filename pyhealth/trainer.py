@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader
 from tqdm.autonotebook import trange
 
 from pyhealth.utils import get_device, create_directory, set_logger
+from pyhealth.evaluator import evaluate
 
 
 def is_best(best_score: float, score: float, mode: str) -> bool:
@@ -23,12 +24,14 @@ def is_best(best_score: float, score: float, mode: str) -> bool:
 class Trainer:
     def __init__(
         self,
+        device: Optional[str] = None,
         enable_cuda: bool = True,
         enable_logging: bool = True,
         output_path: Optional[str] = None,
         exp_name: Optional[str] = None,
     ):
-        self.device = get_device(enable_cuda=enable_cuda)
+        # self.device = get_device(enable_cuda=enable_cuda)
+        self.device = device
         if enable_logging:
             self.exp_path = set_logger(output_path, exp_name)
         else:
@@ -40,9 +43,8 @@ class Trainer:
         train_loader: DataLoader,
         optimizer_class: Type[Optimizer] = torch.optim.Adam,
         optimizer_params: Dict[str, object] = {"lr": 1e-3},
-        evaluate_fn=None,
-        eval_loader: DataLoader = None,
-        monitor: Optional[str] = None,
+        val_loader: DataLoader = None,
+        val_metric=None,
         mode: str = "max",
         epochs: int = 1,
         weight_decay: float = 0.0,
@@ -51,8 +53,6 @@ class Trainer:
     ):
         if self.exp_path is not None:
             create_directory(os.path.join(self.exp_path))
-
-        model.to(self.device)
 
         steps_per_epoch = len(train_loader)
 
@@ -115,31 +115,25 @@ class Trainer:
             if self.exp_path is not None:
                 self._save_ckpt(model, os.path.join(self.exp_path, "last.ckpt"))
 
-            if evaluate_fn is not None:
-                scores = evaluate_fn(model, eval_loader, self.device)
-                # logging.info(f'--- Eval epoch-{epoch}, step-{global_step} ---')
-                print(scores)
-                for key in scores.keys():
-                    # logging.info('{}: {:.4f}'.format(key, scores[key]))
-                    pass
-                if monitor is not None:
-                    score = scores[monitor]
-                    if is_best(best_score, score, mode):
-                        # logging.info(f"New best {monitor} score ({score:.4f}) at epoch-{epoch}, step-{global_step}!")
-                        best_score = score
-                        if self.exp_path is not None:
-                            self._save_ckpt(
-                                model, os.path.join(self.exp_path, "best.ckpt")
-                            )
+            if val_metric is not None:
+                y_gt, y_prod, y_pred = evaluate(model, val_loader, self.device)
+                try:  # not sure the metric work for probability or predicted label
+                    score = val_metric(y_gt, y_prod)
+                except ValueError:
+                    score = val_metric(y_gt, y_pred)
+                print(f"{val_metric.__name__}: {score:.4f}")
+                if is_best(best_score, score, mode):
+                    best_score = score
+                    if self.exp_path is not None:
+                        self._save_ckpt(model, os.path.join(self.exp_path, "best.ckpt"))
         print("best_model_path:", os.path.join(self.exp_path, "best.ckpt"))
 
     def _save_ckpt(self, model, save_path):
         state_dict = model.state_dict()
         torch.save(state_dict, save_path)
 
-    def load(self, model, path=None):
-        if path is None:
-            path = os.path.join(self.exp_path, "best.ckpt")
+    def load_best_model(self, model):
+        path = os.path.join(self.exp_path, "best.ckpt")
         state_dict = torch.load(path)
         model.load_state_dict(state_dict)
         return model

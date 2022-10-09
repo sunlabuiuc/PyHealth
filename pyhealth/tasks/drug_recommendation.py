@@ -48,6 +48,7 @@ def drug_recommendation_mimic3_fn(patient: Patient):
                 "conditions": conditions,
                 "procedures": procedures,
                 "drugs": drugs,
+                "label": drugs,
             }
         )
     # exclude: patients with less than 2 visit
@@ -57,6 +58,7 @@ def drug_recommendation_mimic3_fn(patient: Patient):
     samples[0]["conditions"] = [samples[0]["conditions"]]
     samples[0]["procedures"] = [samples[0]["procedures"]]
     samples[0]["drugs"] = [samples[0]["drugs"]]
+
     for i in range(1, len(samples)):
         samples[i]["conditions"] = samples[i - 1]["conditions"] + [
             samples[i]["conditions"]
@@ -65,6 +67,9 @@ def drug_recommendation_mimic3_fn(patient: Patient):
             samples[i]["procedures"]
         ]
         samples[i]["drugs"] = samples[i - 1]["drugs"] + [samples[i]["drugs"]]
+    for i in range(len(samples)):
+        samples[i]["drugs"] = samples[i]["drugs"][:-1] if i > 0 else [[]]
+
     return samples
 
 
@@ -110,6 +115,7 @@ def drug_recommendation_mimic4_fn(patient: Patient):
                 "conditions": conditions,
                 "procedures": procedures,
                 "drugs": drugs,
+                "label": drugs,
             }
         )
     # exclude: patients with less than 2 visit
@@ -119,6 +125,7 @@ def drug_recommendation_mimic4_fn(patient: Patient):
     samples[0]["conditions"] = [samples[0]["conditions"]]
     samples[0]["procedures"] = [samples[0]["procedures"]]
     samples[0]["drugs"] = [samples[0]["drugs"]]
+
     for i in range(1, len(samples)):
         samples[i]["conditions"] = samples[i - 1]["conditions"] + [
             samples[i]["conditions"]
@@ -127,6 +134,9 @@ def drug_recommendation_mimic4_fn(patient: Patient):
             samples[i]["procedures"]
         ]
         samples[i]["drugs"] = samples[i - 1]["drugs"] + [samples[i]["drugs"]]
+    for i in range(len(samples)):
+        samples[i]["drugs"] = samples[i]["drugs"][:-1] if i > 0 else [[]]
+
     return samples
 
 
@@ -171,6 +181,7 @@ def drug_recommendation_eicu_fn(patient: Patient):
                 "conditions": conditions,
                 "procedures": procedures,
                 "drugs": drugs,
+                "label": drugs,
             }
         )
     # exclude: patients with less than 2 visit
@@ -180,6 +191,7 @@ def drug_recommendation_eicu_fn(patient: Patient):
     samples[0]["conditions"] = [samples[0]["conditions"]]
     samples[0]["procedures"] = [samples[0]["procedures"]]
     samples[0]["drugs"] = [samples[0]["drugs"]]
+
     for i in range(1, len(samples)):
         samples[i]["conditions"] = samples[i - 1]["conditions"] + [
             samples[i]["conditions"]
@@ -188,6 +200,9 @@ def drug_recommendation_eicu_fn(patient: Patient):
             samples[i]["procedures"]
         ]
         samples[i]["drugs"] = samples[i - 1]["drugs"] + [samples[i]["drugs"]]
+    for i in range(len(samples)):
+        samples[i]["drugs"] = samples[i]["drugs"][:-1] if i > 0 else [[]]
+
     return samples
 
 
@@ -233,6 +248,7 @@ def drug_recommendation_omop_fn(patient: Patient):
                 "conditions": conditions,
                 "procedures": procedures,
                 "drugs": drugs,
+                "label": drugs,
             }
         )
     # exclude: patients with less than 2 visit
@@ -242,6 +258,7 @@ def drug_recommendation_omop_fn(patient: Patient):
     samples[0]["conditions"] = [samples[0]["conditions"]]
     samples[0]["procedures"] = [samples[0]["procedures"]]
     samples[0]["drugs"] = [samples[0]["drugs"]]
+
     for i in range(1, len(samples)):
         samples[i]["conditions"] = samples[i - 1]["conditions"] + [
             samples[i]["conditions"]
@@ -250,35 +267,14 @@ def drug_recommendation_omop_fn(patient: Patient):
             samples[i]["procedures"]
         ]
         samples[i]["drugs"] = samples[i - 1]["drugs"] + [samples[i]["drugs"]]
+    for i in range(len(samples)):
+        samples[i]["drugs"] = samples[i]["drugs"][:-1] if i > 0 else [[]]
+
     return samples
-
-
-def drug_recommendation(dataset_name: str, patient: Patient):
-    if dataset_name == "MIMIC-III":
-        return drug_recommendation_mimic3_fn(patient)
-    elif dataset_name == "MIMIC-IV":
-        return drug_recommendation_mimic4_fn(patient)
-    elif dataset_name == "eICU":
-        return drug_recommendation_eicu_fn(patient)
-    elif dataset_name == "OMOP":
-        return drug_recommendation_omop_fn(patient)
-    else:
-        raise ValueError(f"Unknown dataset name: {dataset_name}")
 
 
 if __name__ == "__main__":
     from pyhealth.datasets import MIMIC4Dataset, eICUDataset, OMOPDataset
-
-    # mimic4dataset = MIMIC4Dataset(
-    #     root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
-    #     tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
-    #     dev=True,
-    #     code_mapping={"prescriptions": "ATC3"},
-    #     refresh_cache=False,
-    # )
-    # mimic4dataset.stat()
-    # mimic4dataset.set_task(task_fn=drug_recommendation)
-    # mimic4dataset.stat()
 
     eicudataset = eICUDataset(
         root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
@@ -287,20 +283,5 @@ if __name__ == "__main__":
         refresh_cache=False,
     )
     eicudataset.stat()
-    eicudataset.set_task(task_fn=drug_recommendation)
+    eicudataset.set_task(task_fn=drug_recommendation_eicu_fn)
     eicudataset.stat()
-
-    # omopdataset = OMOPDataset(
-    #     root="/srv/local/data/zw12/pyhealth/raw_data/synpuf1k_omop_cdm_5.2.2",
-    #     tables=[
-    #         "condition_occurrence",
-    #         "procedure_occurrence",
-    #         "drug_exposure",
-    #         "measurement",
-    #     ],
-    #     dev=False,
-    #     refresh_cache=False,
-    # )
-    # omopdataset.stat()
-    # omopdataset.set_task(task_fn=drug_recommendation)
-    # omopdataset.stat()

@@ -4,11 +4,7 @@ from typing import List, Optional, Tuple
 class Vocabulary:
     """Vocabulary class for mapping between tokens and indices."""
 
-    def __init__(
-            self,
-            tokens: List[str],
-            special_tokens: Optional[List[str]] = None
-    ):
+    def __init__(self, tokens: List[str], special_tokens: Optional[List[str]] = None):
         """Initialize the vocabulary.
 
         This function will initialize the vocabulary by adding the special tokens first and then the tokens.
@@ -68,11 +64,7 @@ class Tokenizer:
     indices and vice versa. This class also provides the functionality to tokenize a batch of data.
     """
 
-    def __init__(
-            self,
-            tokens: List[str],
-            special_tokens: Optional[List[str]] = None
-    ):
+    def __init__(self, tokens: List[str], special_tokens: Optional[List[str]] = None):
         """Initialize the tokenizer.
 
         Args:
@@ -95,11 +87,11 @@ class Tokenizer:
         return [self.vocabulary.idx2token[idx] for idx in indices]
 
     def batch_encode_2d(
-            self,
-            batch: List[List[str]],
-            padding: bool = True,
-            truncation: bool = True,
-            max_length: int = 512,
+        self,
+        batch: List[List[str]],
+        padding: bool = True,
+        truncation: bool = True,
+        max_length: int = 512,
     ):
         """Convert a list of lists of tokens (2D) to indices.
 
@@ -114,13 +106,16 @@ class Tokenizer:
             batch = [tokens[:max_length] for tokens in batch]
         if padding:
             batch_max_length = max([len(tokens) for tokens in batch])
-            batch = [tokens + ["<pad>"] * (batch_max_length - len(tokens)) for tokens in batch]
+            batch = [
+                tokens + ["<pad>"] * (batch_max_length - len(tokens))
+                for tokens in batch
+            ]
         return [[self.vocabulary(token) for token in tokens] for tokens in batch]
 
     def batch_decode_2d(
-            self,
-            batch: List[List[int]],
-            padding: bool = False,
+        self,
+        batch: List[List[int]],
+        padding: bool = False,
     ):
         """Convert a list of lists of indices (2D) to tokens.
 
@@ -134,11 +129,11 @@ class Tokenizer:
         return batch
 
     def batch_encode_3d(
-            self,
-            batch: List[List[List[str]]],
-            padding: Tuple[bool, bool] = (True, True),
-            truncation: Tuple[bool, bool] = (True, True),
-            max_length: Tuple[int, int] = (10, 512),
+        self,
+        batch: List[List[List[str]]],
+        padding: Tuple[bool, bool] = (True, True),
+        truncation: Tuple[bool, bool] = (True, True),
+        max_length: Tuple[int, int] = (10, 512),
     ):
         """Convert a list of lists of lists of tokens (3D) to indices.
 
@@ -152,21 +147,35 @@ class Tokenizer:
                 second dimension. This argument is ignored if truncation is False.
         """
         if truncation[0]:
-            batch = [tokens[:max_length[0]] for tokens in batch]
+            batch = [tokens[: max_length[0]] for tokens in batch]
         if truncation[1]:
-            batch = [[tokens[:max_length[1]] for tokens in visits] for visits in batch]
+            batch = [[tokens[: max_length[1]] for tokens in visits] for visits in batch]
         if padding[0]:
             batch_max_length = max([len(tokens) for tokens in batch])
-            batch = [tokens + [["<pad>"]] * (batch_max_length - len(tokens)) for tokens in batch]
+            batch = [
+                tokens + [["<pad>"]] * (batch_max_length - len(tokens))
+                for tokens in batch
+            ]
         if padding[1]:
-            batch_max_length = max([max([len(tokens) for tokens in visits]) for visits in batch])
-            batch = [[tokens + ["<pad>"] * (batch_max_length - len(tokens)) for tokens in visits] for visits in batch]
-        return [[[self.vocabulary(token) for token in tokens] for tokens in visits] for visits in batch]
+            batch_max_length = max(
+                [max([len(tokens) for tokens in visits]) for visits in batch]
+            )
+            batch = [
+                [
+                    tokens + ["<pad>"] * (batch_max_length - len(tokens))
+                    for tokens in visits
+                ]
+                for visits in batch
+            ]
+        return [
+            [[self.vocabulary(token) for token in tokens] for tokens in visits]
+            for visits in batch
+        ]
 
     def batch_decode_3d(
-            self,
-            batch: List[List[List[int]]],
-            padding: bool = False,
+        self,
+        batch: List[List[List[int]]],
+        padding: bool = False,
     ):
         """Convert a list of lists of lists of indices (3D) to tokens.
 
@@ -174,7 +183,9 @@ class Tokenizer:
             batch: List of lists of lists of indices to convert to tokens.
             padding: whether to keep the padding tokens from the tokens.
         """
-        batch = [self.batch_decode_2d(batch=visits, padding=padding) for visits in batch]
+        batch = [
+            self.batch_decode_2d(batch=visits, padding=padding) for visits in batch
+        ]
         if not padding:
             batch = [[visit for visit in visits if visit != []] for visits in batch]
         return batch
@@ -189,17 +200,23 @@ if __name__ == "__main__":
     print(out)
     print(tokenizer.convert_indices_to_tokens(out))
 
-    out = tokenizer.batch_encode_2d([["a", "b", "c", "e", "z"], ["a", "b", "c", "d", "e", "z"]],
-                                    padding=True,
-                                    truncation=True,
-                                    max_length=10)
+    out = tokenizer.batch_encode_2d(
+        [["a", "b", "c", "e", "z"], ["a", "b", "c", "d", "e", "z"]],
+        padding=True,
+        truncation=True,
+        max_length=10,
+    )
     print(out)
     print(tokenizer.batch_decode_2d(out, padding=False))
 
-    out = tokenizer.batch_encode_3d([[["a", "b", "c", "e", "z"], ["a", "b", "c", "d", "e", "z"]],
-                                     [["a", "b", "c", "e", "z"], ["a", "b", "c", "d", "e", "z"], ["c", "f"]]],
-                                    padding=(True, True),
-                                    truncation=(True, True),
-                                    max_length=(10, 10))
+    out = tokenizer.batch_encode_3d(
+        [
+            [["a", "b", "c", "e", "z"], ["a", "b", "c", "d", "e", "z"]],
+            [["a", "b", "c", "e", "z"], ["a", "b", "c", "d", "e", "z"], ["c", "f"]],
+        ],
+        padding=(True, True),
+        truncation=(True, True),
+        max_length=(10, 10),
+    )
     print(out)
     print(tokenizer.batch_decode_3d(out, padding=False))

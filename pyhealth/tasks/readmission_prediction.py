@@ -212,16 +212,22 @@ def readmission_prediction_omop_fn(patient: Patient, time_window=15):
     for i in range(len(patient) - 1):
         visit: Visit = patient[i]
         next_visit: Visit = patient[i + 1]
-        # get time difference between current visit and next visit
-        time_diff = (
-            (
-                datetime_string_to_datetime(next_visit.encounter_time).timestamp()
-                - datetime_string_to_datetime(visit.encounter_time).timestamp()
+        if (
+            next_visit.encounter_time != next_visit.encounter_time
+            or visit.encounter_time != visit.encounter_time
+        ):
+            readmission_label = 0
+        else:
+            # get time difference between current visit and next visit
+            time_diff = (
+                (
+                    datetime_string_to_datetime(next_visit.encounter_time).timestamp()
+                    - datetime_string_to_datetime(visit.encounter_time).timestamp()
+                )
+                / 3600
+                / 24
             )
-            / 3600
-            / 24
-        )
-        readmission_label = 1 if time_diff < time_window else 0
+            readmission_label = 1 if time_diff < time_window else 0
 
         conditions = get_code_from_list_of_event(
             visit.get_event_list(event_type="condition_occurrence")
@@ -254,52 +260,8 @@ def readmission_prediction_omop_fn(patient: Patient, time_window=15):
     return samples
 
 
-def readmission_prediction(dataset_name: str, patient: Patient):
-    if dataset_name == "MIMIC-III":
-        return readmission_prediction_mimic3_fn(patient)
-    elif dataset_name == "MIMIC-IV":
-        return readmission_prediction_mimic4_fn(patient)
-    elif dataset_name == "eICU":
-        return readmission_prediction_eicu_fn(patient)
-    elif dataset_name == "OMOP":
-        return readmission_prediction_omop_fn(patient)
-    else:
-        raise ValueError(f"Unknown dataset name: {dataset_name}")
-
-
 if __name__ == "__main__":
     from pyhealth.datasets import MIMIC3Dataset, MIMIC4Dataset, eICUDataset, OMOPDataset
-
-    # mimic3dataset = MIMIC3Dataset(
-    #     root="/srv/local/data/physionet.org/files/mimiciii/1.4",
-    #     tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
-    #     dev=True,
-    #     refresh_cache=False,
-    # )
-    # mimic3dataset.stat()
-    # mimic3dataset.set_task(readmission_prediction)
-    # mimic3dataset.stat()
-
-    # mimic4dataset = MIMIC4Dataset(
-    #     root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
-    #     tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
-    #     dev=True,
-    #     code_mapping={"prescriptions": "ATC3"},
-    #     refresh_cache=False,
-    # )
-    # mimic4dataset.stat()
-    # mimic4dataset.set_task(task_fn=readmission_prediction)
-    # mimic4dataset.stat()
-
-    # eicudataset = eICUDataset(
-    #     root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
-    #     tables=["diagnosis", "medication", "physicalExam"],
-    #     dev=True,
-    #     refresh_cache=False,
-    # )
-    # eicudataset.stat()
-    # eicudataset.set_task(task_fn=readmission_prediction)
-    # eicudataset.stat()
 
     omopdataset = OMOPDataset(
         root="/srv/local/data/zw12/pyhealth/raw_data/synpuf1k_omop_cdm_5.2.2",
@@ -313,5 +275,5 @@ if __name__ == "__main__":
         refresh_cache=False,
     )
     omopdataset.stat()
-    omopdataset.set_task(task_fn=readmission_prediction)
+    omopdataset.set_task(task_fn=readmission_prediction_omop_fn)
     omopdataset.stat()

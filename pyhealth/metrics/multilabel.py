@@ -12,7 +12,7 @@ from .multiclass import (
 )
 
 
-def accuracy_multilabel(y_true, y_pred, label_weight, **kwargs):
+def accuracy_multilabel(y_true, y_pred, **kwargs):
     """Accuracy classification score.
     INPUTS:
         - y_true: array-like of shape (n_samples, n_classes)
@@ -21,13 +21,13 @@ def accuracy_multilabel(y_true, y_pred, label_weight, **kwargs):
     OUTPUTS:
         - result: weighted accuracy score over labels
     """
-    result = 0
-    for w in label_weight:
-        result += w * accuracy_score(y_true, y_pred, **kwargs)
-    return result / sum(label_weight)
+    result = []
+    for i in range(y_true.shape[0]):
+        result.append(accuracy_score(y_true[i], y_pred[i], **kwargs))
+    return np.mean(result)
 
 
-def precision_multilabel(y_true, y_pred, label_weight, **kwargs):
+def precision_multilabel(y_true, y_pred, **kwargs):
     """Precision classification score.
     INPUTS:
         - y_true: array-like of shape (n_samples, n_classes)
@@ -36,13 +36,13 @@ def precision_multilabel(y_true, y_pred, label_weight, **kwargs):
     OUTPUTS:
         - result: weighted precision score over labels
     """
-    result = 0
-    for w in label_weight:
-        result += w * precision_score(y_true, y_pred, **kwargs)
-    return result / sum(label_weight)
+    result = []
+    for i in range(y_true.shape[0]):
+        result.append(precision_score(y_true[i], y_pred[i], **kwargs))
+    return np.mean(result)
 
 
-def recall_multilabel(y_true, y_pred, label_weight, **kwargs):
+def recall_multilabel(y_true, y_pred, **kwargs):
     """Recall classification score.
     INPUTS:
         - y_true: array-like of shape (n_samples, n_classes)
@@ -51,100 +51,100 @@ def recall_multilabel(y_true, y_pred, label_weight, **kwargs):
     OUTPUTS:
         - result: weighted recall score over labels
     """
-    result = 0
-    for w in label_weight:
-        result += w * recall_score(y_true, y_pred, **kwargs)
-    return result / sum(label_weight)
+    result = []
+    for i in range(y_true.shape[0]):
+        result.append(recall_score(y_true[i], y_pred[i], **kwargs))
+    return np.mean(result)
 
 
-def f1_multilabel(y_true, y_pred, label_weight, **kwargs):
+def f1_multilabel(y_true, y_pred, **kwargs):
     """F1 classification score.
     INPUTS:
         - y_true: array-like of shape (n_samples, n_classes)
         - y_pred: array-like of shape (n_samples, n_classes)
         - label_weight: list of weights for each label (n_classes,)
     OUTPUTS:
-        - result: weighted F1 score over labels
+        - result: weighted f1 score over labels
     """
-    result = 0
-    for w in label_weight:
-        result += w * f1_score(y_true, y_pred, **kwargs)
-    return result / sum(label_weight)
+    result = []
+    for i in range(y_true.shape[0]):
+        result.append(f1_score(y_true[i], y_pred[i], **kwargs))
+    return np.mean(result)
 
 
-def roc_auc_multilabel(y_true, y_pred, label_weight, **kwargs):
+def roc_auc_multilabel(y_true, y_pred, **kwargs):
     """ROC AUC classification score.
     INPUTS:
         - y_true: array-like of shape (n_samples, n_classes)
         - y_pred: array-like of shape (n_samples, n_classes)
         - label_weight: list of weights for each label (n_classes,)
     OUTPUTS:
-        - result: weighted ROC AUC score over labels
+        - result: weighted roc auc score over labels
     """
-    result = 0
-    for w in label_weight:
-        result += w * roc_auc_score(y_true, y_pred, **kwargs)
-    return result / sum(label_weight)
+    result = []
+    for i in range(y_true.shape[0]):
+        result.append(roc_auc_score(y_true[i], y_pred[i], **kwargs))
+    return np.mean(result)
 
 
-def pr_auc_multilabel(y_true, y_pred, label_weight, **kwargs):
+def pr_auc_multilabel(y_true, y_pred, **kwargs):
     """PR AUC classification score.
     INPUTS:
         - y_true: array-like of shape (n_samples, n_classes)
         - y_pred: array-like of shape (n_samples, n_classes)
         - label_weight: list of weights for each label (n_classes,)
     OUTPUTS:
-        - result: weighted PR AUC score over labels
+        - result: weighted pr auc score over labels
     """
-    result = 0
-    for w in label_weight:
-        result += w * average_precision_score(y_true, y_pred, **kwargs)
-    return result / sum(label_weight)
+    result = []
+    for i in range(y_true.shape[0]):
+        result.append(average_precision_score(y_true[i], y_pred[i], **kwargs))
+    return np.mean(result)
 
 
-def jaccard_multilabel(y_true, y_pred, label_weight, **kwargs):
+def jaccard_multilabel(y_true, y_pred, **kwargs):
     """Jaccard classification score.
     INPUTS:
         - y_true: array-like of shape (n_samples, n_classes)
         - y_pred: array-like of shape (n_samples, n_classes)
         - label_weight: list of weights for each label (n_classes,)
     OUTPUTS:
-        - result: weighted Jaccard score over labels
+        - result: weighted jaccard score over labels
     """
-    result = 0
-    for w in label_weight:
-        result += w * jaccard_score(y_true, y_pred, **kwargs)
-    return result / sum(label_weight)
+    result = []
+    for i in range(y_true.shape[0]):
+        result.append(jaccard_score(y_true[i], y_pred[i], **kwargs))
+    return np.mean(result)
 
 
-def cohen_kappa_multilabel(y_true, y_pred, label_weight, **kwargs):
-    """Cohen Kappa classification score.
+def r2_score_multilabel(y_true, y_pred, **kwargs):
+    """R2 regression score.
     INPUTS:
         - y_true: array-like of shape (n_samples, n_classes)
         - y_pred: array-like of shape (n_samples, n_classes)
         - label_weight: list of weights for each label (n_classes,)
     OUTPUTS:
-        - result: weighted Cohen Kappa score over labels
+        - result: weighted r2 score over labels
     """
-    result = 0
-    for w in label_weight:
-        result += w * cohen_kappa_score(y_true, y_pred, **kwargs)
-    return result / sum(label_weight)
+    result = []
+    for i in range(y_true.shape[0]):
+        result.append(r2_score(y_true[i], y_pred[i], **kwargs))
+    return np.mean(result)
 
 
-def r2_score_multilabel(y_true, y_pred, label_weight, **kwargs):
-    """R2 score.
+def cohen_kappa_multilabel(y_true, y_pred, **kwargs):
+    """Cohen Kappa regression score.
     INPUTS:
         - y_true: array-like of shape (n_samples, n_classes)
         - y_pred: array-like of shape (n_samples, n_classes)
         - label_weight: list of weights for each label (n_classes,)
     OUTPUTS:
-        - result: weighted R2 score over labels
+        - result: weighted cohen kappa score over labels
     """
-    result = 0
-    for w in label_weight:
-        result += w * r2_score(y_true, y_pred, **kwargs)
-    return result / sum(label_weight)
+    result = []
+    for i in range(y_true.shape[0]):
+        result.append(cohen_kappa_score(y_true[i], y_pred[i], **kwargs))
+    return np.mean(result)
 
 
 def ddi_rate_score(predicted, ddi_matrix, threshold=0.4):
