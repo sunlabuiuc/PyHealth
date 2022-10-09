@@ -18,7 +18,11 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).parent
-sys.path[:0] = [str(HERE.parent), str(HERE / "extensions"), str(HERE.parent / "pyhealth")]
+sys.path[:0] = [
+    str(HERE.parent),
+    str(HERE / "extensions"),
+    str(HERE.parent / "pyhealth"),
+]
 
 print(sys.path)
 

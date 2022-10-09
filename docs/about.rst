@@ -13,9 +13,3 @@ Patrick Jiang (M.S. Student @ University of Illinois Urbana-Champaign)
 
 
 `Jimeng Sun <http://sunlab.org/>`_ (Professor @ University of Illinois Urbana-Champaign)
-
-
-.. toctree::
-   :maxdepth: 4
-
-   pyhealth.data

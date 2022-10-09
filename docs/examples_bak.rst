@@ -48,7 +48,7 @@ status and multiple event sequences under one visit. It is a general purpose obj
 - [!!!] Researchers can use this data processing module alone for supporting their own tasks. 
 
 Step 2: Task-specific Process
---------------------------------
+-------------------------------
 
 Cast the general-purpose dataset by cleaning the structure for the specific task
 
@@ -89,7 +89,7 @@ Create data loaders:
 ..
 
 Step 3: Build Deep Learning Models
---------------------------------------
+-----------------------------------
 
 We choose `RETAIN <https://arxiv.org/abs/1608.05745/>`_ as the healthcare predictive model.
 
@@ -144,7 +144,7 @@ The evaluation is as simple as calling ``sklearn.metrics``. Load the best model 
 ---------
 
 Using Classical ML Models 
--------------------------------
+----------------------------
 
 Starting from **Step 2**, we wrap the classical ML models from ``sklearn`` into the ``MLModel`` function and provide a unified interface for training and evaluation.
 
