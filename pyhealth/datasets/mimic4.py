@@ -331,7 +331,7 @@ if __name__ == "__main__":
         root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
         tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
         dev=True,
-        code_mapping={"prescriptions": "ATC3"},
+        code_mapping={"prescriptions": "ATC"},
         refresh_cache=True,
     )
     dataset.stat()

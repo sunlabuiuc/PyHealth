@@ -37,6 +37,8 @@ def drug_recommendation_mimic3_fn(patient: Patient):
         drugs = get_code_from_list_of_event(
             visit.get_event_list(event_type="PRESCRIPTIONS")
         )
+        # ATC 3 level
+        drugs = [drug[:4] for drug in drugs]
         # exclude: visits without (condition and procedure) or drug code
         if (len(conditions) + len(procedures)) * len(drugs) == 0:
             continue
@@ -104,6 +106,8 @@ def drug_recommendation_mimic4_fn(patient: Patient):
         drugs = get_code_from_list_of_event(
             visit.get_event_list(event_type="prescriptions")
         )
+        # ATC 3 level
+        drugs = [drug[:4] for drug in drugs]
         # exclude: visits without (condition and procedure) or drug code
         if (len(conditions) + len(procedures)) * len(drugs) == 0:
             continue

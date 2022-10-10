@@ -305,7 +305,7 @@ class MIMIC3Dataset(BaseDataset):
         df = df.dropna(subset=["SUBJECT_ID", "HADM_ID", col])
         # sort by charttime
         df = df.sort_values(["SUBJECT_ID", "HADM_ID", "CHARTTIME"], ascending=True)
-        # update patients and visits
+        # update patients and visits-
         for (p_id, v_id), v_info in tqdm(
             df.groupby(["SUBJECT_ID", "HADM_ID"]), desc=f"Parsing {table}"
         ):
@@ -330,7 +330,7 @@ if __name__ == "__main__":
         root="/srv/local/data/physionet.org/files/mimiciii/1.4",
         tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
         dev=True,
-        code_mapping={"PRESCRIPTIONS": "ATC3"},
+        code_mapping={"PRESCRIPTIONS": "ATC"},
         refresh_cache=False,
     )
     dataset.stat()
