@@ -1,47 +1,38 @@
+from turtle import hideturtle
 from typing import List, Tuple, Union
 
 import torch
 import torch.nn as nn
-import torch.nn.utils.rnn as rnn_utils
 
 from pyhealth.data import BaseDataset
 from pyhealth.models import BaseModel
 from pyhealth.tokenizer import Tokenizer
+from .rnn import RNNLayer
 
 
-class RNNLayer(nn.Module):
+class RETAINLayer(nn.Module):
     def __init__(
         self,
         input_size: int,
         hidden_size: int,
-        rnn_type: str = "GRU",
-        num_layers: int = 1,
+        num_layers: int = 2,
         dropout: float = 0.5,
-        bidirectional: bool = True,
     ):
-        super(RNNLayer, self).__init__()
+        super(RETAINLayer, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
-        self.rnn_type = rnn_type
         self.num_layers = num_layers
         self.dropout = dropout
-        self.bidirectional = bidirectional
-        self.dropout_layer = nn.Dropout(dropout)
-        self.num_directions = 2 if bidirectional else 1
-        rnn_module = getattr(nn, rnn_type)
-        self.rnn = rnn_module(
-            input_size,
-            hidden_size,
-            num_layers=num_layers,
-            dropout=dropout,
-            bidirectional=bidirectional,
-            batch_first=True,
-        )
-        if bidirectional:
-            self.down_projection = nn.Linear(hidden_size * 2, hidden_size)
+        self.dropout_layer = nn.Dropout(p=self.dropout)
+
+        self.alpha_gru = nn.GRU(input_size, hidden_size, batch_first=True)
+        self.beta_gru = nn.GRU(input_size, hidden_size, batch_first=True)
+
+        self.alpha_li = nn.Linear(input_size, 1)
+        self.beta_li = nn.Linear(input_size, hidden_size)
 
     def forward(self, x: torch.tensor, mask: torch.tensor):
-        """
+        """Using the sum of the embedding as the output of the transformer
         Args:
             x: [batch size, seq len, input_size]
             mask: [batch size, seq len]
@@ -50,31 +41,23 @@ class RNNLayer(nn.Module):
         """
         # rnn will only apply dropout between layers
         x = self.dropout_layer(x)
-        batch_size = x.size(0)
-        length = torch.sum(mask.int(), dim=-1).cpu()
-        x = rnn_utils.pack_padded_sequence(
-            x, length, batch_first=True, enforce_sorted=False
-        )
-        outputs, _ = self.rnn(x)
-        outputs, _ = rnn_utils.pad_packed_sequence(outputs, batch_first=True)
-        if self.bidirectional:
-            outputs = outputs.view(batch_size, outputs.shape[1], 2, -1)
-            forward_last_outputs = outputs[torch.arange(batch_size), (length - 1), 0, :]
-            backward_last_outputs = outputs[:, 0, 1, :]
-            last_outputs = torch.cat(
-                [forward_last_outputs, backward_last_outputs], dim=-1
-            )
-            outputs = outputs.view(batch_size, outputs.shape[1], -1)
-            last_outputs = self.down_projection(last_outputs)
-            outputs = self.down_projection(outputs)
-            return last_outputs, outputs
-        outputs = self.down_projection(outputs)
-        last_outputs = outputs[torch.arange(batch_size), (length - 1), :]
-        return last_outputs, outputs
+
+        g, _ = self.alpha_gru(x)  # (patient, seq_len, hidden_size)
+        h, _ = self.beta_gru(x)  # (patient, seq_len, hidden_size)
+
+        # TODO: mask out the visit (by adding a large negative number 1e10)
+        # however, it does not work better than not mask out
+        attn_g = torch.softmax(self.alpha_li(g), dim=1)  # (patient, seq_len, 1)
+        # attn_g = torch.softmax((self.alpha_li(g) - mask[:, :, 0].unsqueeze(-1) * 1e10), dim=1)  # (patient, seq len, 1)
+        attn_h = torch.tanh(self.beta_li(h))  # (patient, seq_len, hidden_size)
+
+        c = attn_g * attn_h * x  # (patient, seq_len, hidden_size)
+        c = torch.sum(c, dim=1)  # (patient, hidden_size)
+        return c
 
 
-class RNN(BaseModel):
-    """RNN Class, use "task" as key to identify specific RNN model and route there"""
+class RETAIN(BaseModel):
+    """RETAIN Class, use "task" as key to identify specific RETAIN model and route there"""
 
     def __init__(
         self,
@@ -86,7 +69,7 @@ class RNN(BaseModel):
         hidden_dim: int = 128,
         **kwargs
     ):
-        super(RNN, self).__init__(
+        super(RETAIN, self).__init__(
             dataset=dataset,
             tables=tables,
             target=target,
@@ -111,9 +94,9 @@ class RNN(BaseModel):
                 padding_idx=0,
             )
 
-        self.rnn = nn.ModuleDict()
+        self.transformer = nn.ModuleDict()
         for domain in tables:
-            self.rnn[domain] = RNNLayer(
+            self.transformer[domain] = RETAINLayer(
                 input_size=embedding_dim, hidden_size=hidden_dim, **kwargs
             )
         self.fc = nn.Linear(
@@ -150,7 +133,7 @@ class RNN(BaseModel):
             mask = torch.sum(kwargs[domain], dim=2) != 0
             mask[:, 0] = 1
             # (patient, hidden_dim)
-            domain_emb, _ = self.rnn[domain](kwargs[domain], mask)
+            domain_emb = self.transformer[domain](kwargs[domain], mask)
             patient_emb.append(domain_emb)
 
         # (patient, hidden_dim * N_tables)

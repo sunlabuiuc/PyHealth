@@ -4,7 +4,6 @@ Models
 .. toctree::
     :maxdepth: 3
     
-    models/pyhealth.models.Med2Vec
     models/pyhealth.models.MLModel
     models/pyhealth.models.CNN
     models/pyhealth.models.RNN

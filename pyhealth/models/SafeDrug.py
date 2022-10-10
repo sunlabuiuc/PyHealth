@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
-from pyhealth.evaluator.evaluating_multilabel import ddi_rate_score
+from pyhealth.metrics import ddi_rate_score
 from .GAMENet import get_last_visit
 
 
