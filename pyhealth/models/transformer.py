@@ -2,46 +2,42 @@ from typing import List, Tuple, Union
 
 import torch
 import torch.nn as nn
-import torch.nn.utils.rnn as rnn_utils
 
 from pyhealth.data import BaseDataset
 from pyhealth.models import BaseModel
 from pyhealth.tokenizer import Tokenizer
 
 
-class RNNLayer(nn.Module):
+class TransformerLayer(nn.Module):
     def __init__(
         self,
         input_size: int,
         hidden_size: int,
-        rnn_type: str = "GRU",
-        num_layers: int = 1,
+        num_layers: int = 2,
+        nhead: int = 8,
         dropout: float = 0.5,
-        bidirectional: bool = True,
     ):
-        super(RNNLayer, self).__init__()
+        super(TransformerLayer, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
-        self.rnn_type = rnn_type
         self.num_layers = num_layers
         self.dropout = dropout
-        self.bidirectional = bidirectional
-        self.dropout_layer = nn.Dropout(dropout)
-        self.num_directions = 2 if bidirectional else 1
-        rnn_module = getattr(nn, rnn_type)
-        self.rnn = rnn_module(
-            input_size,
-            hidden_size,
-            num_layers=num_layers,
+        self.dropout_layer = nn.Dropout(p=self.dropout)
+
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=input_size,
+            dim_feedforward=hidden_size,
+            nhead=nhead,
             dropout=dropout,
-            bidirectional=bidirectional,
-            batch_first=True,
+            activation="relu",
         )
-        if bidirectional:
-            self.down_projection = nn.Linear(hidden_size * 2, hidden_size)
+        encoder_norm = nn.LayerNorm(hidden_size)
+        self.transformer = nn.TransformerEncoder(
+            encoder_layer, num_layers, encoder_norm
+        )
 
     def forward(self, x: torch.tensor, mask: torch.tensor):
-        """
+        """Using the sum of the embedding as the output of the transformer
         Args:
             x: [batch size, seq len, input_size]
             mask: [batch size, seq len]
@@ -50,31 +46,19 @@ class RNNLayer(nn.Module):
         """
         # rnn will only apply dropout between layers
         x = self.dropout_layer(x)
-        batch_size = x.size(0)
-        length = torch.sum(mask.int(), dim=-1).cpu()
-        x = rnn_utils.pack_padded_sequence(
-            x, length, batch_first=True, enforce_sorted=False
-        )
-        outputs, _ = self.rnn(x)
-        outputs, _ = rnn_utils.pad_packed_sequence(outputs, batch_first=True)
-        if self.bidirectional:
-            outputs = outputs.view(batch_size, outputs.shape[1], 2, -1)
-            forward_last_outputs = outputs[torch.arange(batch_size), (length - 1), 0, :]
-            backward_last_outputs = outputs[:, 0, 1, :]
-            last_outputs = torch.cat(
-                [forward_last_outputs, backward_last_outputs], dim=-1
-            )
-            outputs = outputs.view(batch_size, outputs.shape[1], -1)
-            last_outputs = self.down_projection(last_outputs)
-            outputs = self.down_projection(outputs)
-            return last_outputs, outputs
-        outputs = self.down_projection(outputs)
-        last_outputs = outputs[torch.arange(batch_size), (length - 1), :]
-        return last_outputs, outputs
+        # since the transformer encoder cannot use "batch_first"
+        x = self.transformer(
+            x.permute(1, 0, 2), src_key_padding_mask=~mask
+        )  # (patient, seq len, hidden_size)
+        x = (x.permute(1, 0, 2) * mask.unsqueeze(-1).float()).sum(
+            1
+        )  # (patient, hidden_size)
+
+        return x
 
 
-class RNN(BaseModel):
-    """RNN Class, use "task" as key to identify specific RNN model and route there"""
+class Transformer(BaseModel):
+    """Transformer Class, use "task" as key to identify specific Transformer model and route there"""
 
     def __init__(
         self,
@@ -86,7 +70,7 @@ class RNN(BaseModel):
         hidden_dim: int = 128,
         **kwargs
     ):
-        super(RNN, self).__init__(
+        super(Transformer, self).__init__(
             dataset=dataset,
             tables=tables,
             target=target,
@@ -111,9 +95,9 @@ class RNN(BaseModel):
                 padding_idx=0,
             )
 
-        self.rnn = nn.ModuleDict()
+        self.transformer = nn.ModuleDict()
         for domain in tables:
-            self.rnn[domain] = RNNLayer(
+            self.transformer[domain] = TransformerLayer(
                 input_size=embedding_dim, hidden_size=hidden_dim, **kwargs
             )
         self.fc = nn.Linear(
@@ -150,7 +134,7 @@ class RNN(BaseModel):
             mask = torch.sum(kwargs[domain], dim=2) != 0
             mask[:, 0] = 1
             # (patient, hidden_dim)
-            domain_emb, _ = self.rnn[domain](kwargs[domain], mask)
+            domain_emb = self.transformer[domain](kwargs[domain], mask)
             patient_emb.append(domain_emb)
 
         # (patient, hidden_dim * N_tables)
