@@ -24,13 +24,7 @@ class MLTask:
             exp_name: Optional[str] = None,
             **kwargs
     ):
-        super(MLTask, self).__init__(
-            dataset=dataset,
-            tables=tables,
-            target=target,
-            classifier=classifier,
-            mode=mode
-        )
+        super(MLTask, self).__init__()
 
         self.tables = tables
         self.target = target
@@ -94,9 +88,9 @@ class MLTask:
             print("best_model_path:", os.path.join(self.exp_path, "best.ckpt"))
 
     def __call__(
-        self, tables, target, tokenizers, label_tokenizer, batch, padding_mask=None, device=None, **kwargs
+        self, tables, target, batch, padding_mask=None, device=None, **kwargs
     ):
-        X, y = code2vec(tables, target, tokenizers, label_tokenizer, batch)
+        X, y = code2vec(tables, target, self.tokenizers, self.label_tokenizer, batch)
         X = self.pca.transform(X)
         cur_prob = self.predictor.predict_proba(X)
         cur_prob = np.array(cur_prob)[:, :, -1].T
@@ -110,6 +104,23 @@ class MLTask:
         with open(path, "rb") as f:
             self.predictor, self.pca, self.valid_label = pickle.load(f)
 
+    def eval(self, test_loader):
+        X, y_true = [], []
+        for batch in test_loader:
+            cur_X, cur_y = code2vec(self.tables, self.target, self.tokenizers, self.label_tokenizer, batch)
+            X.append(cur_X)
+            y_true.append(cur_y)
+
+        X = np.concatenate(X, axis=0)
+        y_true = np.concatenate(y_true, axis=0)[:, 2:]
+        cur_prob = self.predictor.predict_proba(X)
+        cur_prob = np.array(cur_prob)[:, :, -1].T
+        y_prob = np.zeros((X.shape[0], self.label_tokenizer.get_vocabulary_size() - 2))
+        y_prob[:, self.valid_label] = cur_prob
+        y_pred = (y_prob > 0.5).int()
+
+        return y_true, y_prob, y_pred
+
 
 class MLModel:
     """MLModel Class, use "task" as key to identify specific MLModel model and route there"""
@@ -119,6 +130,9 @@ class MLModel:
 
     def fit(self, *args, **kwargs):
         return self.model.fit(*args, **kwargs)
+
+    def eval(self, *args, **kwargs):
+        return self.model.eval(*args, **kwargs)
 
     def __call__(self, *args, **kwargs):
         return self.model(*args, **kwargs)
