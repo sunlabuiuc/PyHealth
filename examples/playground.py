@@ -12,7 +12,7 @@ mimic3dataset = MIMIC3Dataset(
     root="/srv/local/data/physionet.org/files/mimiciii/1.4",
     tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS", "LABEVENTS"],
     dev=True,
-    code_mapping={"PRESCRIPTIONS": "ATC3"},
+    code_mapping={"PRESCRIPTIONS": "ATC"},
     refresh_cache=False,
 )
 mimic3dataset.stat()

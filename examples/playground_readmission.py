@@ -28,7 +28,7 @@ if data == "mimic3":
         root="/srv/local/data/physionet.org/files/mimiciii/1.4",
         tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS", "LABEVENTS"],
         dev=True,
-        code_mapping={"PRESCRIPTIONS": "ATC3"},
+        code_mapping={"PRESCRIPTIONS": "ATC"},
         refresh_cache=False,
     )
     mimic3dataset.stat()
@@ -53,7 +53,7 @@ elif data == "mimic4":
         root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
         tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
         dev=True,
-        code_mapping={"prescriptions": "ATC3"},
+        code_mapping={"prescriptions": "ATC"},
         refresh_cache=False,
     )
     mimic4dataset.stat()
