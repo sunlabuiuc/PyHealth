@@ -6,10 +6,13 @@ import pandas as pd
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
-from pyhealth import CACHE_PATH
+from pyhealth import BASE_CACHE_PATH
 from pyhealth.data import Patient
 from pyhealth.medcode import CodeMap
-from pyhealth.utils import load_pickle, save_pickle, hash_str
+from pyhealth.utils import load_pickle, save_pickle, hash_str, create_directory
+
+MODULE_CACHE_PATH = os.path.join(BASE_CACHE_PATH, "datasets")
+create_directory(MODULE_CACHE_PATH)
 
 
 class BaseDataset(ABC, Dataset):
@@ -74,7 +77,7 @@ class BaseDataset(ABC, Dataset):
                 [dataset_name, root] + sorted(tables) + sorted(code_mapping.items()) + [dev]
         )
         filename = hash_str("+".join([str(arg) for arg in args_to_hash])) + ".pkl"
-        self.filepath = os.path.join(CACHE_PATH, filename)
+        self.filepath = os.path.join(MODULE_CACHE_PATH, filename)
 
         # check if cache exists or refresh_cache is True
         if os.path.exists(self.filepath) and not refresh_cache:
