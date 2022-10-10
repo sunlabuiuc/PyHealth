@@ -4,7 +4,7 @@ import sys
 sys.path.append("/home/chaoqiy2/github/PyHealth-OMOP")
 
 from pyhealth.datasets import MIMIC3Dataset, eICUDataset, MIMIC4Dataset, OMOPDataset
-from pyhealth.models.rnn import RNN
+from pyhealth.models import RNN, Transformer, RETAIN
 from pyhealth.split import split_by_patient
 from pyhealth.tasks import (
     readmission_prediction_mimic3_fn,
@@ -18,7 +18,7 @@ from pyhealth.evaluator import evaluate
 from pyhealth.metrics import *
 
 ###############
-data = "omop"
+data = "mimic3"
 ################
 
 # STEP 1 & 2: load data and set task
@@ -93,7 +93,7 @@ test_loader = DataLoader(
 # STEP 3: define model
 device = "cuda:0"
 
-model = RNN(
+model = RETAIN(
     dataset=dataset,
     tables=["conditions", "procedures", "drugs"],
     target="label",

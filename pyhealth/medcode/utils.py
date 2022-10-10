@@ -1,6 +1,4 @@
 
-
-
 def normalize_icd9cm(code: str):
     """Normalize ICD9CM code"""
     if code.startswith("E"):

@@ -351,8 +351,10 @@ SafeDrug (DDI hyperparameter: 0.02)     0.0376      0.4448          0.7290      
 
    api/data
    api/datasets
-   api/models
    api/tasks
+   api/models
+   api/trainer
+   api/evaluator
    api/metrics
 
 

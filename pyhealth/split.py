@@ -8,9 +8,9 @@ from pyhealth.data import BaseDataset
 
 
 def split_by_visit(
-        dataset: BaseDataset,
-        ratios: Union[Tuple[float, float, float], List[float]],
-        seed: Optional[int] = None
+    dataset: BaseDataset,
+    ratios: Union[Tuple[float, float, float], List[float]],
+    seed: Optional[int] = None,
 ):
     """Split the dataset by visit (i.e., samples).
 
@@ -30,8 +30,10 @@ def split_by_visit(
     index = np.arange(len(dataset))
     np.random.shuffle(index)
     train_index = index[: int(len(dataset) * ratios[0])]
-    val_index = index[int(len(dataset) * ratios[0]): int(len(dataset) * (ratios[0] + ratios[1]))]
-    test_index = index[int(len(dataset) * (ratios[0] + ratios[1])):]
+    val_index = index[
+        int(len(dataset) * ratios[0]) : int(len(dataset) * (ratios[0] + ratios[1]))
+    ]
+    test_index = index[int(len(dataset) * (ratios[0] + ratios[1])) :]
     train_dataset = torch.utils.data.Subset(dataset, train_index)
     val_dataset = torch.utils.data.Subset(dataset, val_index)
     test_dataset = torch.utils.data.Subset(dataset, test_index)
@@ -39,9 +41,9 @@ def split_by_visit(
 
 
 def split_by_patient(
-        dataset: BaseDataset,
-        ratios: Union[Tuple[float, float, float], List[float]],
-        seed: Optional[int] = None
+    dataset: BaseDataset,
+    ratios: Union[Tuple[float, float, float], List[float]],
+    seed: Optional[int] = None,
 ):
     """Split the dataset by patient.
 
@@ -62,9 +64,13 @@ def split_by_patient(
     num_patients = len(patient_indx)
     np.random.shuffle(patient_indx)
     train_patient_indx = patient_indx[: int(num_patients * ratios[0])]
-    val_patient_indx = patient_indx[int(num_patients * ratios[0]): int(num_patients * (ratios[0] + ratios[1]))]
-    test_patient_indx = patient_indx[int(num_patients * (ratios[0] + ratios[1])):]
-    train_index = list(chain(*[dataset.patient_to_index[i] for i in train_patient_indx]))
+    val_patient_indx = patient_indx[
+        int(num_patients * ratios[0]) : int(num_patients * (ratios[0] + ratios[1]))
+    ]
+    test_patient_indx = patient_indx[int(num_patients * (ratios[0] + ratios[1])) :]
+    train_index = list(
+        chain(*[dataset.patient_to_index[i] for i in train_patient_indx])
+    )
     val_index = list(chain(*[dataset.patient_to_index[i] for i in val_patient_indx]))
     test_index = list(chain(*[dataset.patient_to_index[i] for i in test_patient_indx]))
     train_dataset = torch.utils.data.Subset(dataset, train_index)
@@ -77,7 +83,9 @@ if __name__ == "__main__":
     from pyhealth.datasets import MIMIC3BaseDataset
     from pyhealth.tasks.drug_recommendation import DrugRecommendationDataset
 
-    base_dataset = MIMIC3BaseDataset(root="/srv/local/data/physionet.org/files/mimiciii/1.4")
+    base_dataset = MIMIC3BaseDataset(
+        root="/srv/local/data/physionet.org/files/mimiciii/1.4"
+    )
     drug_recommendation_dataset = DrugRecommendationDataset(base_dataset)
     subsets = split_by_visit(drug_recommendation_dataset, [0.8, 0.1, 0.1])
     print(len(subsets[0]))

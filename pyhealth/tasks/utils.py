@@ -15,7 +15,14 @@ def get_code_from_list_of_event(
     Returns
         list_of_code: List[str], a list of codes (e.g., ICD9, ICD10, etc.)
     """
-    list_of_code = [event.code for event in list_of_event]
+    list_of_code = [
+        event.code
+        for event in sorted(
+            list_of_event,
+            key=lambda event: event.timestamp if event.timestamp else 0,
+            reverse=False,
+        )
+    ]
     if remove_duplicate is True:
         # remove duplicate codes but keep the order
         list_of_code = list(dict.fromkeys(list_of_code))

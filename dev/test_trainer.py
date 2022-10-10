@@ -11,8 +11,12 @@ from pyhealth.trainer import Trainer
 
 class MNISTDataset:
     def __init__(self, train=True):
-        transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
-        self.dataset = datasets.MNIST("../data", train=train, download=True, transform=transform)
+        transform = transforms.Compose(
+            [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
+        )
+        self.dataset = datasets.MNIST(
+            "../data", train=train, download=True, transform=transform
+        )
 
     def __getitem__(self, index):
         x, y = self.dataset[index]
@@ -55,21 +59,27 @@ class Model(nn.Module):
 train_dataset = MNISTDataset(train=True)
 eval_dataset = MNISTDataset(train=False)
 
-train_dataloader = torch.utils.data.DataLoader(train_dataset,
-                                               collate_fn=lambda x: {k: [d[k] for d in x] for k in x[0]},
-                                               batch_size=64,
-                                               shuffle=True)
-eval_dataloader = torch.utils.data.DataLoader(eval_dataset,
-                                              collate_fn=lambda x: {k: [d[k] for d in x] for k in x[0]},
-                                              batch_size=64,
-                                              shuffle=False)
+train_dataloader = torch.utils.data.DataLoader(
+    train_dataset,
+    collate_fn=lambda x: {k: [d[k] for d in x] for k in x[0]},
+    batch_size=64,
+    shuffle=True,
+)
+eval_dataloader = torch.utils.data.DataLoader(
+    eval_dataset,
+    collate_fn=lambda x: {k: [d[k] for d in x] for k in x[0]},
+    batch_size=64,
+    shuffle=False,
+)
 
 model = Model()
 
 trainer = Trainer(enable_logging=True, output_path="../output")
-trainer.fit(model,
-            train_loader=train_dataloader,
-            epochs=5,
-            evaluate_fn=evaluate_multiclass,
-            eval_loader=eval_dataloader,
-            monitor="acc")
+trainer.fit(
+    model,
+    train_loader=train_dataloader,
+    epochs=5,
+    evaluate_fn=evaluate_multiclass,
+    eval_loader=eval_dataloader,
+    monitor="acc",
+)
