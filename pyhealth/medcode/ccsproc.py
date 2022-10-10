@@ -1,4 +1,4 @@
-from pyhealth.medcode import BaseCode
+from pyhealth.medcode.base_code import BaseCode
 
 
 class CCSPROC(BaseCode):
@@ -12,6 +12,6 @@ if __name__ == "__main__":
     code_sys = CCSPROC()
     print(len(code_sys.graph.nodes))
     print(len(code_sys.graph.edges))
-    print(code_sys.graph.nodes['20'])
+    print(code_sys.graph.nodes["20"])
     print(code_sys.get_ancestors("20"))
     print(code_sys.map_to("20", "ICD9PROC"))

@@ -1,4 +1,4 @@
-from pyhealth.medcode import BaseCode
+from pyhealth.medcode.base_code import BaseCode
 
 
 class RxNorm(BaseCode):

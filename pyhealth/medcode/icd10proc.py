@@ -1,4 +1,4 @@
-from pyhealth.medcode import BaseCode
+from pyhealth.medcode.base_code import BaseCode
 
 
 class ICD10PROC(BaseCode):
@@ -12,6 +12,6 @@ if __name__ == "__main__":
     code_sys = ICD10PROC()
     print(len(code_sys.graph.nodes))
     print(len(code_sys.graph.edges))
-    print(code_sys.graph.nodes['0LBG0ZZ'])
-    print(code_sys.get_ancestors('0LBG0ZZ'))
+    print(code_sys.graph.nodes["0LBG0ZZ"])
+    print(code_sys.get_ancestors("0LBG0ZZ"))
     print(code_sys.map_to("0LBG0ZZ", "CCSPROC"))

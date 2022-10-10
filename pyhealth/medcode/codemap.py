@@ -1,5 +1,7 @@
 import importlib
 
+from pyhealth.medcode.base_code import BaseCode
+
 
 class CodeMap:
     def __init__(self, source, target):
@@ -8,17 +10,15 @@ class CodeMap:
 
         source_module = importlib.import_module(f"pyhealth.medcode.{source.lower()}")
         source_class = getattr(source_module, source)
-        self.source_class = source_class()
-        if not target in self.source_class.valid_mappings:
-            raise ValueError(f"{target} is not a valid mapping for {source}")
-        load_map = getattr(self.source_class, f"load_map_to_{target.lower()}")
-        load_map()
+        self.source_class: BaseCode = source_class()
+        if target not in self.source_class.valid_mappings:
+            raise ValueError(f"Invalid mapping: {source} -> {target}")
         return
 
     def map(self, source_code):
-        return getattr(self.source_class, f"map_to_{self.target.lower()}")(source_code)
+        return self.source_class.map_to(source_code, self.target)
 
 
 if __name__ == "__main__":
-    codemap = CodeMap("NDC", "ATC3")
+    codemap = CodeMap("NDC", "ATC")
     print(codemap.map("00597005801"))

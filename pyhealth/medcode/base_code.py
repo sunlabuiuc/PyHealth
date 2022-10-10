@@ -32,8 +32,8 @@ class BaseCode(ABC):
         self.refresh_cache = refresh_cache
         self.cached_mappings = {}
 
-        pickle_filepath = os.path.join(MODULE_CACHE_PATH, self.vocabulary + '.pkl')
-        csv_filename = self.vocabulary + '.csv'
+        pickle_filepath = os.path.join(MODULE_CACHE_PATH, self.vocabulary + ".pkl")
+        csv_filename = self.vocabulary + ".csv"
         if os.path.exists(pickle_filepath) and not refresh_cache:
             print(f"Loaded {vocabulary} code from {pickle_filepath}")
             self.graph = load_pickle(pickle_filepath)
@@ -57,9 +57,9 @@ class BaseCode(ABC):
         for code, row in df.iterrows():
             graph.add_node(code, **row)
         for code, row in df.iterrows():
-            if 'parent_code' in row:
-                if not pd.isna(row['parent_code']):
-                    graph.add_edge(row['parent_code'], code)
+            if "parent_code" in row:
+                if not pd.isna(row["parent_code"]):
+                    graph.add_edge(row["parent_code"], code)
         return graph
 
     def get_ancestors(self, code):
@@ -73,17 +73,17 @@ class BaseCode(ABC):
         if target_vocabulary not in self.valid_mappings:
             raise ValueError(f"Cannot map from {self.vocabulary} to {target_vocabulary}")
 
-        pickle_filepath = os.path.join(MODULE_CACHE_PATH, self.vocabulary + '_to_' + target_vocabulary + '.pkl')
+        pickle_filepath = os.path.join(MODULE_CACHE_PATH, self.vocabulary + "_to_" + target_vocabulary + ".pkl")
         if os.path.exists(pickle_filepath) and not self.refresh_cache:
             print(f"Loaded {self.vocabulary}->{target_vocabulary} mapping from {pickle_filepath}")
             mapping = load_pickle(pickle_filepath)
         else:
             print(f"Processing {self.vocabulary}->{target_vocabulary} mapping...")
             try:
-                csv_filename = self.vocabulary + '_to_' + target_vocabulary + '.csv'
+                csv_filename = self.vocabulary + "_to_" + target_vocabulary + ".csv"
                 df = self.download_and_read_csv(csv_filename, refresh_cache=self.refresh_cache)
             except HTTPError:
-                csv_filename = target_vocabulary + '_to_' + self.vocabulary + '.csv'
+                csv_filename = target_vocabulary + "_to_" + self.vocabulary + ".csv"
                 df = self.download_and_read_csv(csv_filename, refresh_cache=self.refresh_cache)
             mapping = defaultdict(list)
             for _, row in df.iterrows():
