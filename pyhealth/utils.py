@@ -9,6 +9,7 @@ from typing import Optional
 
 import numpy as np
 import torch
+from six.moves.urllib.request import urlretrieve
 
 try:
     import pynvml  # provides utility for NVIDIA management
@@ -19,6 +20,17 @@ except:
 
 
 # TODO: add comments for this file
+
+def download(url, filepath):
+    """
+    Download a file from the specified url.
+
+    Args:
+        url: str, URL to download
+        filepath: str, path and filename to store the downloaded file
+    """
+    urlretrieve(url, filepath)
+    return filepath
 
 
 def hash_str(s):
