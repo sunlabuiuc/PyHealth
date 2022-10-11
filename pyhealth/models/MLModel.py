@@ -113,11 +113,12 @@ class MLTask:
 
         X = np.concatenate(X, axis=0)
         y_true = np.concatenate(y_true, axis=0)[:, 2:]
+        X = self.pca.transform(X)
         cur_prob = self.predictor.predict_proba(X)
         cur_prob = np.array(cur_prob)[:, :, -1].T
         y_prob = np.zeros((X.shape[0], self.label_tokenizer.get_vocabulary_size() - 2))
         y_prob[:, self.valid_label] = cur_prob
-        y_pred = (y_prob > 0.5).int()
+        y_pred = (y_prob > 0.5).astype(int)
 
         return y_true, y_prob, y_pred
 
