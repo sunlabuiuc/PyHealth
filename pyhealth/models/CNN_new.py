@@ -2,17 +2,19 @@ from typing import List, Tuple, Union, Dict
 
 import torch
 import torch.nn as nn
-import torchvision
+from torch.utils.data.dataloader import DataLoader
+from torch.utils.data import Dataset
+from torchvision.models import resnext50_32x4d
 import torchvision.transforms as transforms
 
 from pyhealth.data import BaseDataset
 from pyhealth.models import BaseModel
 from pyhealth.tokenizer import Tokenizer
+from pyhealth.models.utils import get_default_loss_module
 
 import numpy as np
 
 from MLModel import code2vec
-
 
 
 class CNN(BaseModel):
@@ -24,8 +26,7 @@ class CNN(BaseModel):
         tables: Union[List[str], Tuple[str]],
         target: str,
         mode: str,
-        image_size: Tuple = (512, 512),
-        model: str = "resnet",
+        model: nn.Module = None,
         **kwargs
     ):
         super(CNN, self).__init__(
@@ -35,6 +36,8 @@ class CNN(BaseModel):
             mode=mode,
         )
 
+        self.tables = tables
+        self.target = target
         self.tokenizers = {}
         for domain in tables:
             self.tokenizers[domain] = Tokenizer(
@@ -51,20 +54,58 @@ class CNN(BaseModel):
             if visit_times > self.max_visits:
                 self.max_visits = visit_times
 
+        # Default CNN model
+        if model is None:
+            model = resnext50_32x4d(pretrained=False)
 
-        if model == "resnet":
-            resnet = torchvision.models.resnext50_32x4d(pretrained=False)
-            resnet.fc = nn.Sequential(
-                nn.Dropout(p=0.2),
-                nn.Linear(
-                    in_features=resnet.fc.in_features, out_features=n_classes
-                ),
-            )
-            self.model = resnet
-            self.sigmoid = nn.Sigmoid()
+        model.fc = nn.Sequential(
+            nn.Dropout(p=0.2),
+            nn.Linear(
+                in_features=model.fc.in_features,
+                out_features=self.label_tokenizer.get_vocabulary_size()
+            ),
+        )
+        self.model = model
+        self.sigmoid = nn.Sigmoid()
 
     def forward(self, device, **kwargs):
-            return self.sigmoid(self.model(**kwargs))
+        # After transfer code to image, the real batch size for each batch would be different
+        # So, we re-define the input batch as the input to the CNN model
+        X, y = code2image(
+            tables=self.tables,
+            target=self.target,
+            domain_tokenizers=self.tokenizers,
+            label_tokenizer=self.label_tokenizer,
+            batch=kwargs,
+            max_visits=self.max_visits
+        )
+        data = CNNTaskData(X, y)
+        dataloader = DataLoader(data, batch_size=8, shuffle=False)
+
+        logit = None
+        y_true = None
+
+        for inputs, targets in dataloader:
+            outputs = self.model(inputs)
+            if logit is None:
+                logit = outputs
+            else:
+                logit = torch.cat([logit, outputs], dim=0)
+            if y_true is None:
+                y_true = targets
+            else:
+                y_true = torch.cat([y_true, targets], dim=0)
+
+        loss = get_default_loss_module(self.mode)(logit, y_true.float())
+        y_prob = torch.sigmoid(logit)
+        y_pred = (y_prob > 0.5).int()
+
+        return {
+            "loss": loss,
+            "y_prob": y_prob,
+            "y_pred": y_pred,
+            "y_true": y_true,
+        }
 
 
 def code2image(
@@ -78,6 +119,12 @@ def code2image(
         resize: bool = False,
         width: int = 512
 ):
+    """
+    Transfer codes in a batch to entity-wise images (an entity is a patient in usual)
+    max_visits: maximum visits of an entity in the whole dataset, is used as the height of the image
+    resize: a boolean value to show whether to resize the image
+    width: a parameter to specify the width of the image if resize=True
+    """
     X = []
     y = []
 
@@ -124,5 +171,14 @@ def code2image(
     return X, y
 
 
+class CNNTaskData(Dataset):
+    def __init__(self, X, y):
+        self.X = X
+        self.y = y
 
+    def __getitem__(self, index):
+        return self.X[index], self.y[index]
+
+    def __len__(self):
+        return len(self.X)
 
