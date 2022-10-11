@@ -4,14 +4,13 @@ import sys
 sys.path.append("/home/chaoqiy2/github/PyHealth-OMOP")
 
 from pyhealth.datasets import MIMIC3Dataset, eICUDataset, MIMIC4Dataset, OMOPDataset
-from pyhealth.models import Transformer, RNN, RETAIN
+from pyhealth.models import Transformer, RNN, RETAIN, MICRON, GAMENet
 from pyhealth.split import split_by_patient
 from pyhealth.tasks import (
     drug_recommendation_mimic3_fn,
     drug_recommendation_eicu_fn,
     drug_recommendation_mimic4_fn,
     drug_recommendation_omop_fn,
-    readmission_prediction_mimic3_fn,
 )
 from pyhealth.utils import collate_fn_dict
 from pyhealth.trainer import Trainer
@@ -27,7 +26,7 @@ data = "mimic3"
 if data == "mimic3":
     mimic3dataset = MIMIC3Dataset(
         root="/srv/local/data/physionet.org/files/mimiciii/1.4",
-        tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS", "LABEVENTS"],
+        tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
         dev=True,
         code_mapping={"PRESCRIPTIONS": "ATC"},
         refresh_cache=False,
@@ -94,7 +93,7 @@ test_loader = DataLoader(
 # STEP 3: define model
 device = "cuda:0"
 
-model = RETAIN(
+model = GAMENet(
     dataset=dataset,
     tables=["conditions", "procedures"],
     target="label",
