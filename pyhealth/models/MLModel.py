@@ -29,7 +29,10 @@ class MLTask:
         self.tables = tables
         self.target = target
         self.classifier = classifier
-        self.predictor = MultiOutputClassifier(self.classifier)
+        self.mode = mode
+        self.label_tokenizer = None
+        self.valid_label = None
+        self.predictor = None
         self.pca = None
 
         self.tokenizers = {}
@@ -38,9 +41,13 @@ class MLTask:
                 dataset.get_all_tokens(key=domain), special_tokens=["<pad>", "<unk>"]
             )
 
-        self.label_tokenizer = Tokenizer(dataset.get_all_tokens(key=target))
+        if self.mode == "multilabel":
+            self.label_tokenizer = Tokenizer(dataset.get_all_tokens(key=target))
+            self.valid_label = np.zeros(self.label_tokenizer.get_vocabulary_size())
+            self.predictor = MultiOutputClassifier(self.classifier)
 
-        self.valid_label = np.zeros(self.label_tokenizer.get_vocabulary_size())
+        elif self.mode == "binary":
+            self.predictor = self.classifier
 
         if enable_logging:
             self.exp_path = set_logger(output_path, None)
@@ -59,27 +66,32 @@ class MLTask:
 
         # load the X and y batch by batch
         for batch in train_loader:
-            cur_X, cur_y = code2vec(self.tables, self.target, self.tokenizers, self.label_tokenizer, batch)
+            cur_X, cur_y = code2vec(self.tables, self.target, self.mode, batch, self.tokenizers, self.label_tokenizer)
             X.append(cur_X)
             y.append(cur_y)
 
         # train the model
         X = np.concatenate(X, axis=0)
-        # index 0 and 1 are invalid drugs
-        y = np.concatenate(y, axis=0)[:, 2:]
-
-        # obtain the valid pos of y that has both 0 and 1
-        self.valid_label = np.where(y.sum(0) > 0)[0]
-
-        print(X.shape, y.shape)
 
         # PCA to 100-dim
         if reduce_dim is not None:
             self.pca = PCA(n_components=reduce_dim)
         X = self.pca.fit_transform(X)
 
-        # fit
-        self.predictor.fit(X, y[:, self.valid_label])
+        if self.mode == "multilabel":
+            # index 0 and 1 are invalid targets
+            y = np.concatenate(y, axis=0)[:, 2:]
+            # obtain the valid pos of y that has both 0 and 1
+            self.valid_label = np.where(y.sum(0) > 0)[0]
+            print(np.shape(X), np.shape(y))
+            # fit
+            self.predictor.fit(X, y[:, self.valid_label])
+
+        elif self.mode == "binary":
+            y = np.concatenate(y, axis=0)
+            print(np.shape(X), np.shape(y))
+            # fit
+            self.predictor.fit(X, y)
 
         # save the model
         if self.exp_path is not None:
@@ -90,7 +102,7 @@ class MLTask:
     def __call__(
         self, tables, target, batch, padding_mask=None, device=None, **kwargs
     ):
-        X, y = code2vec(tables, target, self.tokenizers, self.label_tokenizer, batch)
+        X, y = code2vec(tables, target, self.mode, batch, self.tokenizers, self.label_tokenizer)
         X = self.pca.transform(X)
         cur_prob = self.predictor.predict_proba(X)
         cur_prob = np.array(cur_prob)[:, :, -1].T
@@ -105,20 +117,32 @@ class MLTask:
             self.predictor, self.pca, self.valid_label = pickle.load(f)
 
     def eval(self, test_loader):
-        X, y_true = [], []
+        X, y_true, y_prob, y_pred = [], [], [], []
         for batch in test_loader:
-            cur_X, cur_y = code2vec(self.tables, self.target, self.tokenizers, self.label_tokenizer, batch)
+            cur_X, cur_y = code2vec(self.tables, self.target, self.mode, batch, self.tokenizers, self.label_tokenizer)
             X.append(cur_X)
             y_true.append(cur_y)
 
         X = np.concatenate(X, axis=0)
-        y_true = np.concatenate(y_true, axis=0)[:, 2:]
         X = self.pca.transform(X)
         cur_prob = self.predictor.predict_proba(X)
-        cur_prob = np.array(cur_prob)[:, :, -1].T
-        y_prob = np.zeros((X.shape[0], self.label_tokenizer.get_vocabulary_size() - 2))
-        y_prob[:, self.valid_label] = cur_prob
-        y_pred = (y_prob > 0.5).astype(int)
+        print(cur_prob, type(cur_prob))
+
+        if self.mode == "multilabel":
+            cur_prob = np.array(cur_prob)[:, :, -1].T
+            y_true = np.concatenate(y_true, axis=0)[:, 2:]
+            y_prob = np.zeros((X.shape[0], self.label_tokenizer.get_vocabulary_size() - 2))
+            y_prob[:, self.valid_label] = cur_prob
+            y_pred = (y_prob > 0.5).astype(int)
+
+        elif self.mode == "binary":
+            y_true = np.concatenate(y_true, axis=0)
+            y_gt = np.zeros([len(y_true), 2])
+            for i in range(len(y_gt)):
+                y_gt[y_true[i]] = 1
+            y_true = y_gt
+            y_prob = cur_prob
+            y_pred = (y_prob > 0.5).astype(int)
 
         return y_true, y_prob, y_pred
 
@@ -145,9 +169,10 @@ class MLModel:
 def code2vec(
         tables: Union[List[str], Tuple[str]],
         target: str,
-        domain_tokenizers: Dict[str, Tokenizer],
-        label_tokenizer: Tokenizer,
+        mode: str,
         batch: dict,
+        domain_tokenizers: Dict[str, Tokenizer],
+        label_tokenizer: Tokenizer = None,
 ):
     cur_domain = []
     for domain in tables:
@@ -159,22 +184,17 @@ def code2vec(
 
         cur_domain.append(cur_tmp)
 
-    cur_label = np.zeros(
-        (len(batch[target]), label_tokenizer.get_vocabulary_size())
-    )
-    for idx, sample in enumerate(batch[target]):
-        cur_label[idx, label_tokenizer.convert_tokens_to_indices(sample[-1:][0])] = 1
+    cur_label = None
+    if mode == "multilabel":
+        cur_label = np.zeros(
+            (len(batch[target]), label_tokenizer.get_vocabulary_size())
+        )
+        for idx, sample in enumerate(batch[target]):
+            cur_label[idx, label_tokenizer.convert_tokens_to_indices(sample[-1:][0])] = 1
+    elif mode == "binary":
+        cur_label = batch[target]
 
-    cur_X = None
-    if len(cur_domain) == 2:
-        cur_X = np.concatenate([cur_domain[0], cur_domain[1]], axis=1)
-    else:
-        for i in range(len(cur_domain)):
-            if cur_X is None:
-                cur_X = np.concatenate([cur_domain[i], cur_domain[i + 1]], axis=1)
-            else:
-                cur_X = np.concatenate([cur_X, cur_domain[i + 1]], axis=1)
-
+    cur_X = np.concatenate(cur_domain, axis=1)
     cur_y = cur_label
 
     return cur_X, cur_y
