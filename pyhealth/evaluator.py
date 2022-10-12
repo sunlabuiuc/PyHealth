@@ -4,7 +4,7 @@ from tqdm import tqdm
 from pyhealth.metrics import *
 
 
-def evaluate(model, dataloader, device="cpu", isMLModel=False):
+def evaluate(model, dataloader, device="cpu"):
     """Evaluate model on dataloader.
     INPUT:
         - model: model to evaluate
@@ -18,21 +18,26 @@ def evaluate(model, dataloader, device="cpu", isMLModel=False):
     y_true_all = []
     y_prob_all = []
     y_pred_all = []
-    if not isMLModel:
-        for data in tqdm(dataloader, desc="Evaluation"):
+    for data in tqdm(dataloader, desc="Evaluation"):
+        if model.__class__.__name__ != "ClassicML":
             model.eval()
             with torch.no_grad():
-                output = model(**data, device=device, training=False)
-                y_true = output["y_true"].cpu()
-                y_prob = output["y_prob"].cpu()
-                y_pred = output["y_pred"].cpu()
+                output = model(**data, device=device)
+                y_true = output["y_true"].cpu().numpy()
+                y_prob = output["y_prob"].cpu().numpy()
+                y_pred = output["y_pred"].cpu().numpy()
                 y_true_all.append(y_true)
                 y_prob_all.append(y_prob)
                 y_pred_all.append(y_pred)
-        y_gt_all = torch.cat(y_true_all).numpy()
-        y_prob_all = torch.cat(y_prob_all).numpy()
-        y_pred_all = torch.cat(y_pred_all).numpy()
-        return y_gt_all, y_prob_all, y_pred_all
-
-    else:
-        return model.eval(dataloader)
+        else:
+            output = model(**data)
+            y_true = output["y_true"]
+            y_prob = output["y_prob"]
+            y_pred = output["y_pred"]
+            y_true_all.append(y_true)
+            y_prob_all.append(y_prob)
+            y_pred_all.append(y_pred)
+    y_gt_all = np.concatenate(y_true_all, axis=0)
+    y_prob_all = np.concatenate(y_prob_all, axis=0)
+    y_pred_all = np.concatenate(y_pred_all, axis=0)
+    return y_gt_all, y_prob_all, y_pred_all

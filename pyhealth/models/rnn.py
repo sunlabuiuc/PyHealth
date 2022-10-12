@@ -19,6 +19,15 @@ class RNNLayer(nn.Module):
         dropout: float = 0.5,
         bidirectional: bool = True,
     ):
+        """separate callable RNN layer
+        Args:
+            input_size: input size of rnn
+            hidden_size: hidden size of rnn
+            rnn_type: type of rnn, e.g. GRU, LSTM
+            num_layers: number of rnn layers
+            dropout: dropout rate
+            bidirectional: whether to use bidirectional rnn
+        """
         super(RNNLayer, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -87,7 +96,7 @@ class RNN(BaseModel):
     def __init__(
         self,
         dataset: BaseDataset,
-        tables: Union[List[str], Tuple[str]],
+        tables: List[str],
         target: str,
         mode: str,
         embedding_dim: int = 128,
