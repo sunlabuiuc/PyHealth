@@ -14,7 +14,7 @@ from pyhealth.models.utils import get_default_loss_module
 
 import numpy as np
 
-from pyhealth.models.classicml import code2vec
+from pyhealth.models import ClassicML
 
 
 class CNN(BaseModel):
@@ -72,15 +72,13 @@ class CNN(BaseModel):
     def forward(self, device, **kwargs):
         # After transfer code to image, the real batch size for each batch would be different
         # So, we re-define the input batch as the input to the CNN model
-        X, y = code2image(
-            tables=self.tables,
-            target=self.target,
-            domain_tokenizers=self.tokenizers,
-            label_tokenizer=self.label_tokenizer,
-            batch=kwargs,
-            max_visits=self.max_visits,
-            mode=self.mode
-        )
+        cur_X, cur_y = ClassicML.code2vec(self, **kwargs)
+        X, y = code2image(cur_X=cur_X,
+                          cur_y=cur_y,
+                          batch=kwargs,
+                          label_tokenizer=self.label_tokenizer,
+                          max_visits=self.max_visits,
+                          )
         data = CNNTaskData(X, y)
         dataloader = DataLoader(data, batch_size=8, shuffle=False)
 
@@ -112,11 +110,9 @@ class CNN(BaseModel):
 
 
 def code2image(
-        tables: Union[List[str], Tuple[str]],
-        target: str,
-        mode: str,
+        cur_X: np.array,
+        cur_y: np.array,
         batch: dict,
-        domain_tokenizers: Dict[str, Tokenizer],
         label_tokenizer: Tokenizer,
         max_visits: int,
         entity: str = "patient_id",
@@ -131,8 +127,6 @@ def code2image(
     """
     X = []
     y = []
-
-    cur_X, cur_y = code2vec(tables, target, mode, batch, domain_tokenizers, label_tokenizer)
 
     X_dict_by_entity = {}
     y_dict_by_entity = {}

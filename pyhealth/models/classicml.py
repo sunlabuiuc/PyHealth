@@ -1,10 +1,8 @@
 from typing import List, Tuple, Union, Dict, Optional
 import pickle
-import os
 import numpy as np
 from sklearn.multioutput import MultiOutputClassifier
 from sklearn.decomposition import PCA
-from pyhealth.utils import set_logger
 from pyhealth.datasets import BaseDataset
 from pyhealth.tokenizer import Tokenizer
 from sklearn.base import ClassifierMixin
@@ -55,10 +53,15 @@ class ClassicML:
             self.label_tokenizer = Tokenizer(dataset.get_all_tokens(key=target))
             self.predictor = self.classifier
 
+    @staticmethod
     def code2vec(self, **kwargs):
         """convert the batch medical codes to vectors
         Args:
             **kwargs: the key-value pair of batch data
+
+        Parameters
+        ----------
+        self
         """
         batch_X = []
         for domain in self.tables:
@@ -111,7 +114,7 @@ class ClassicML:
 
         # load the X and y batch by batch
         for batch in train_loader:
-            cur_X, cur_y = self.code2vec(**batch)
+            cur_X, cur_y = self.code2vec(self, **batch)
             X.append(cur_X)
             y.append(cur_y)
 
@@ -140,7 +143,7 @@ class ClassicML:
     def __call__(self, **kwargs):
         """predict the batch data"""
 
-        X, y = self.code2vec(**kwargs)
+        X, y = self.code2vec(self, **kwargs)
         X = self.pca.transform(X)
         cur_prob = self.predictor.predict_proba(X)
         cur_prob = np.array(cur_prob)[:, :, -1].T
