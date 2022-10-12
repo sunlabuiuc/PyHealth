@@ -1,5 +1,6 @@
 import logging
 import os
+from turtle import window_height
 from typing import Dict, Type, Optional
 
 import torch
@@ -77,6 +78,10 @@ class Trainer:
             epochs: number of epochs
             show_progress_bar: show progress bar
         """
+        lr = optimizer_params["lr"]
+        weight_decay = optimizer_params["weight_decay"]
+        max_grad_norm = optimizer_params["max_grad_norm"]
+
         if self.exp_path is not None:
             create_directory(os.path.join(self.exp_path))
 

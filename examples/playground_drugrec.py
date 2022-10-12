@@ -5,7 +5,7 @@ sys.path.append("/home/chaoqiy2/github/PyHealth-OMOP")
 
 from pyhealth.datasets import MIMIC3Dataset, eICUDataset, MIMIC4Dataset, OMOPDataset
 from pyhealth.models import Transformer, RNN, RETAIN, MICRON, GAMENet
-from pyhealth.split import split_by_patient
+from pyhealth.datasets.splitter import split_by_patient
 from pyhealth.tasks import (
     drug_recommendation_mimic3_fn,
     drug_recommendation_eicu_fn,
