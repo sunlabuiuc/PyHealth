@@ -12,8 +12,3 @@ Use Cases
 `Case 4: Tired of dealing with different coding systems? <https://colab.research.google.com/drive/10CSb4F4llYJvv42yTUiRmvSZdoEsbmFF>`_ 
 
 ----------
-
-.. toctree::
-   :maxdepth: 4
-
-   pyhealth.data

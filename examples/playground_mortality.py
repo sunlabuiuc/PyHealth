@@ -5,7 +5,7 @@ sys.path.append("/home/chaoqiy2/github/PyHealth-OMOP")
 
 from pyhealth.datasets import MIMIC3Dataset, eICUDataset, MIMIC4Dataset, OMOPDataset
 from pyhealth.models.rnn import RNN
-from pyhealth.split import split_by_patient
+from pyhealth.datasets.splitter import split_by_patient
 from pyhealth.tasks import (
     mortality_prediction_mimic3_fn,
     mortality_prediction_eicu_fn,

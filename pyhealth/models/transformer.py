@@ -3,12 +3,21 @@ from typing import List, Tuple, Union
 import torch
 import torch.nn as nn
 
-from pyhealth.data import BaseDataset
+from pyhealth.datasets import BaseDataset
 from pyhealth.models import BaseModel
 from pyhealth.tokenizer import Tokenizer
 
 
 class TransformerLayer(nn.Module):
+    """The separate callable Transformer layer
+    Args:
+        input_size: the embedding size of the input
+        hidden_size: the embedding size of the output
+        num_layers: the number of layers in the transformer
+        nhead: the number of heads in the multiheadattention models
+        dropout: dropout rate
+    """
+
     def __init__(
         self,
         input_size: int,
@@ -58,7 +67,15 @@ class TransformerLayer(nn.Module):
 
 
 class Transformer(BaseModel):
-    """Transformer Class, use "task" as key to identify specific Transformer model and route there"""
+    """Transformer Class, use "task" as key to identify specific Transformer model and route there
+    Args:
+        dataset: the dataset object
+        tables: the list of table names to use
+        target: the target table name
+        mode: the mode of the model, "multilabel", "multiclass" or "binary"
+        embedding_dim: the embedding dimension
+        hidden_dim: the hidden dimension
+    """
 
     def __init__(
         self,

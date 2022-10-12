@@ -3,7 +3,7 @@ from typing import List, Tuple, Union
 import torch
 import torch.nn as nn
 from pyhealth.models.utils import get_default_loss_module
-from pyhealth.data import BaseDataset
+from pyhealth.datasets import BaseDataset
 
 VALID_MODE = ["binary", "multiclass", "multilabel"]
 
@@ -38,6 +38,17 @@ class BaseModel(ABC, nn.Module):
         raise NotImplementedError
 
     def cal_loss_and_output(self, logits, device, **kwargs):
+        """calculate the loss and output. We support binary, multiclass, and multilabel classification.
+        Args:
+            logits: the output of the model. shape: (batch_size, num_classes)
+            device: torch.device
+            **kwargs: other arguments
+        Returns:
+            loss: the loss of the model
+            y: ground truth
+            y_pred: the output of the model
+            y_prob: the probability of the output of the model
+        """
         if self.mode in ["multilabel"]:
             kwargs[self.target] = self.label_tokenizer.batch_encode_2d(
                 kwargs[self.target], padding=False, truncation=False

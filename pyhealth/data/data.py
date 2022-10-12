@@ -15,7 +15,7 @@ class Event:
         visit_id: str, unique identifier of the visit.
         patient_id: str, unique identifier of the patient.
         timestamp: Optional[datetime], timestamp of the event. Defaults to None.
-        **attr, optional attributes of the event. Attributes to add to visit as key=value pairs.
+        **attr: optional attributes of the event. Attributes to add to visit as key=value pairs.
 
     Attributes:
         attr_dict: dict, dictionary of event attributes. Each key is an attribute name and each value is
@@ -23,14 +23,14 @@ class Event:
     """
 
     def __init__(
-            self,
-            code: str,
-            event_type: str,
-            vocabulary: str,
-            visit_id: str,
-            patient_id: str,
-            timestamp: Optional[datetime] = None,
-            **attr,
+        self,
+        code: str,
+        event_type: str,
+        vocabulary: str,
+        visit_id: str,
+        patient_id: str,
+        timestamp: Optional[datetime] = None,
+        **attr,
     ):
         self.code = code
         self.event_type = event_type
@@ -42,7 +42,9 @@ class Event:
         self.attr_dict.update(attr)
 
     def __str__(self):
-        return f"Event of type {self.event_type} with {self.vocabulary} code {self.code}"
+        return (
+            f"Event of type {self.event_type} with {self.vocabulary} code {self.code}"
+        )
 
 
 class Visit:
@@ -67,13 +69,13 @@ class Visit:
     """
 
     def __init__(
-            self,
-            visit_id: str,
-            patient_id: str,
-            encounter_time: Optional[datetime] = None,
-            discharge_time: Optional[datetime] = None,
-            discharge_status: Optional[str] = None,
-            **attr,
+        self,
+        visit_id: str,
+        patient_id: str,
+        encounter_time: Optional[datetime] = None,
+        discharge_time: Optional[datetime] = None,
+        discharge_status: Optional[str] = None,
+        **attr,
     ):
         self.visit_id = visit_id
         self.patient_id = patient_id
@@ -150,13 +152,13 @@ class Patient:
     """
 
     def __init__(
-            self,
-            patient_id: str,
-            birth_datetime: Optional[datetime] = None,
-            death_datetime: Optional[datetime] = None,
-            gender: Optional[str] = None,
-            ethnicity: Optional[str] = None,
-            **attr,
+        self,
+        patient_id: str,
+        birth_datetime: Optional[datetime] = None,
+        death_datetime: Optional[datetime] = None,
+        gender: Optional[str] = None,
+        ethnicity: Optional[str] = None,
+        **attr,
     ):
         self.patient_id = patient_id
         self.birth_datetime = birth_datetime
@@ -209,7 +211,9 @@ class Patient:
             Visit, visit with the given index.
         """
         if index not in self.index_to_visit:
-            raise IndexError(f"Visit index {index} not found in patient {self.patient_id}")
+            raise IndexError(
+                f"Visit index {index} not found in patient {self.patient_id}"
+            )
         visit_id = self.index_to_visit[index]
         return self.get_visit_by_id(visit_id)
 

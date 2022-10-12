@@ -1,16 +1,23 @@
-from turtle import hideturtle
 from typing import List, Tuple, Union
 
 import torch
 import torch.nn as nn
 
-from pyhealth.data import BaseDataset
+from pyhealth.datasets import BaseDataset
 from pyhealth.models import BaseModel
 from pyhealth.tokenizer import Tokenizer
-from .rnn import RNNLayer
+from pyhealth.models.rnn import RNNLayer
 
 
 class RETAINLayer(nn.Module):
+    """The separate callable RETAIN layer.
+    Args:
+        input_size: the embedding size of the input
+        output_size: the embedding size of the output
+        num_layers: the number of layers in the RNN
+        dropout: dropout rate
+    """
+
     def __init__(
         self,
         input_size: int,
@@ -45,7 +52,7 @@ class RETAINLayer(nn.Module):
         g, _ = self.alpha_gru(x)  # (patient, seq_len, hidden_size)
         h, _ = self.beta_gru(x)  # (patient, seq_len, hidden_size)
 
-        # TODO: mask out the visit (by adding a large negative number 1e10)
+        # TOFIX: mask out the visit (by adding a large negative number 1e10)
         # however, it does not work better than not mask out
         attn_g = torch.softmax(self.alpha_li(g), dim=1)  # (patient, seq_len, 1)
         # attn_g = torch.softmax((self.alpha_li(g) - mask[:, :, 0].unsqueeze(-1) * 1e10), dim=1)  # (patient, seq len, 1)
@@ -57,7 +64,15 @@ class RETAINLayer(nn.Module):
 
 
 class RETAIN(BaseModel):
-    """RETAIN Class, use "task" as key to identify specific RETAIN model and route there"""
+    """RETAIN Class, use "task" as key to identify specific RETAIN model and route there
+    Args:
+        dataset: the dataset object
+        tables: the list of table names to use
+        target: the target table name
+        mode: the mode of the model, "multilabel", "multiclass" or "binary"
+        embedding_dim: the embedding dimension
+        hidden_dim: the hidden dimension
+    """
 
     def __init__(
         self,

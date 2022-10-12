@@ -1,5 +1,6 @@
 import logging
 import os
+from turtle import window_height
 from typing import Dict, Type, Optional
 
 import torch
@@ -22,6 +23,15 @@ def is_best(best_score: float, score: float, mode: str) -> bool:
 
 
 class Trainer:
+    """Training Handler
+    Args:
+        device: device to use
+        enable_cuda: enable cuda
+        enable_logging: enable logging
+        output_path: output path
+        exp_name: experiment name
+    """
+
     def __init__(
         self,
         device: Optional[str] = None,
@@ -42,15 +52,36 @@ class Trainer:
         model: nn.Module,
         train_loader: DataLoader,
         optimizer_class: Type[Optimizer] = torch.optim.Adam,
-        optimizer_params: Dict[str, object] = {"lr": 1e-3},
+        optimizer_params: Dict[str, object] = {
+            "lr": 1e-3,
+            "weight_decay": 1e-5,
+            "max_grad_norm": None,
+        },
         val_loader: DataLoader = None,
         val_metric=None,
         mode: str = "max",
         epochs: int = 1,
-        weight_decay: float = 0.0,
-        max_grad_norm: Optional[float] = None,
         show_progress_bar: bool = True,
     ):
+        """Arguments for fitting to train the ML model
+        Args:
+            model: model to train
+            train_loader: train data loader
+            optimizer_class: optimizer class, such as torch.optim.Adam
+            optimizer_params: optimizer parameters, including
+                - lr: learning rate
+                - weight_decay: weight decay
+                - max_grad_norm: max gradient norm
+            val_loader: validation data loader
+            val_metric: validation metric
+            mode: "binary" or "multiclass" or "multilabel"
+            epochs: number of epochs
+            show_progress_bar: show progress bar
+        """
+        lr = optimizer_params["lr"]
+        weight_decay = optimizer_params["weight_decay"]
+        max_grad_norm = optimizer_params["max_grad_norm"]
+
         if self.exp_path is not None:
             create_directory(os.path.join(self.exp_path))
 

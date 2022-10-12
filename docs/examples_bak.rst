@@ -180,8 +180,3 @@ Starting from **Step 2**, we wrap the classical ML models from ``sklearn`` into 
 ..
 
 ----------
-
-.. toctree::
-   :maxdepth: 4
-
-   pyhealth.data
