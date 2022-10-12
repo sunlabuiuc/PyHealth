@@ -6,31 +6,34 @@ from typing import Optional
 class Event:
     """Contains information about a single event.
 
-    An event can be a diagnosis, a procedure, a drug, a lab that happened to a patient in a visit at a specific time.
+    An event can be a diagnosis, a procedure, a drug, a lab that happened to a patient
+    in a visit at a specific time.
 
     Args:
         code: str, code of the event (e.g., "428.0" for heart failure).
-        event_type: str, type of the event. This corresponds to the table name in the raw data (e.g., "DIAGNOSES_ICD").
+        event_type: str, type of the event. This corresponds to the table name in the
+            raw data (e.g., "DIAGNOSES_ICD").
         vocabulary: str, vocabulary of the code (e.g., 'ICD9CM', 'ICD10CM', 'NDC').
         visit_id: str, unique identifier of the visit.
         patient_id: str, unique identifier of the patient.
         timestamp: Optional[datetime], timestamp of the event. Defaults to None.
-        **attr: optional attributes of the event. Attributes to add to visit as key=value pairs.
+        **attr: optional attributes of the event. Attributes to add to visit as
+            key=value pairs.
 
     Attributes:
-        attr_dict: dict, dictionary of event attributes. Each key is an attribute name and each value is
-            the attribute's value.
+        attr_dict: dict, dictionary of event attributes. Each key is an attribute name
+            and each value is the attribute's value.
     """
 
     def __init__(
-        self,
-        code: str,
-        event_type: str,
-        vocabulary: str,
-        visit_id: str,
-        patient_id: str,
-        timestamp: Optional[datetime] = None,
-        **attr,
+            self,
+            code: str,
+            event_type: str,
+            vocabulary: str,
+            visit_id: str,
+            patient_id: str,
+            timestamp: Optional[datetime] = None,
+            **attr,
     ):
         self.code = code
         self.event_type = event_type
@@ -56,26 +59,30 @@ class Visit:
     Args:
         visit_id: str, unique identifier of the visit.
         patient_id: str, unique identifier of the patient.
-        encounter_time: Optional[datetime], timestamp of visit's encounter. Defaults to None.
-        discharge_time: Optional[datetime], timestamp of visit's discharge. Defaults to None.
-        discharge_status: Optional[str], patient's status upon discharge. E.g., "Alive", "Dead". Defaults to None.
-        **attr, optional attributes of the visit. Attributes to add to visit as key=value pairs.
+        encounter_time: Optional[datetime], timestamp of visit's encounter.
+            Defaults to None.
+        discharge_time: Optional[datetime], timestamp of visit's discharge.
+            Defaults to None.
+        discharge_status: Optional[str], patient's status upon discharge.
+            E.g., "Alive", "Dead". Defaults to None.
+        **attr, optional attributes of the visit. Attributes to add to visit as
+            key=value pairs.
 
     Attributes:
-        attr_dict: dict, dictionary of visit attributes. Each key is an attribute name and each value is
-            the attribute's value.
-        event_list_dict: dict, dictionary of event lists. Each key is an event type and each value is a list of
-            events of that type ordered by timestamp.
+        attr_dict: dict, dictionary of visit attributes. Each key is an attribute name
+            and each value is the attribute's value.
+        event_list_dict: dict, dictionary of event lists. Each key is an event type and
+            each value is a list of events of that type ordered by timestamp.
     """
 
     def __init__(
-        self,
-        visit_id: str,
-        patient_id: str,
-        encounter_time: Optional[datetime] = None,
-        discharge_time: Optional[datetime] = None,
-        discharge_status: Optional[str] = None,
-        **attr,
+            self,
+            visit_id: str,
+            patient_id: str,
+            encounter_time: Optional[datetime] = None,
+            discharge_time: Optional[datetime] = None,
+            discharge_status: Optional[str] = None,
+            **attr,
     ):
         self.visit_id = visit_id
         self.patient_id = patient_id
@@ -135,30 +142,35 @@ class Patient:
 
     Args:
         patient_id: str, unique identifier of the patient.
-        birth_datetime: Optional[datetime], timestamp of patient's birth. Defaults to None.
-        death_datetime: Optional[datetime], timestamp of patient's death. Defaults to None.
-        gender: Optional[str], gender of the patient. E.g., "M", "F", "Unknown". Defaults to None.
-        ethnicity: Optional[str], ethnicity of the patient. E.g., "White", "Black or African American",
-            "American Indian or Alaska Native", "Asian", "Native Hawaiian or Other Pacific Islander".
+        birth_datetime: Optional[datetime], timestamp of patient's birth.
             Defaults to None.
-        attr: optional attributes of the patient. Attributes to add to patient as key=value pairs.
+        death_datetime: Optional[datetime], timestamp of patient's death.
+            Defaults to None.
+        gender: Optional[str], gender of the patient. E.g., "M", "F".
+            Defaults to None.
+        ethnicity: Optional[str], ethnicity of the patient. E.g., "White",
+            "Black or African American", "American Indian or Alaska Native",
+            "Asian", "Native Hawaiian or Other Pacific Islander". Defaults to None.
+        attr: optional attributes of the patient. Attributes to add to patient as
+            key=value pairs.
 
     Attributes:
-        attr_dict: dict, dictionary of patient attributes. Each key is an attribute name and each value is
-            the attribute's value.
-        visits: OrderedDict[str, Visit], an ordered dictionary of visits. Each key is a visit id and each value is
-            a visit.
-        index_to_visit: dict, dictionary that maps the index of a visit in the visits list to the visit id.
+        attr_dict: dict, dictionary of patient attributes. Each key is an attribute
+            name and each value is the attribute's value.
+        visits: OrderedDict[str, Visit], an ordered dictionary of visits. Each key is
+            a visit id and each value is a visit.
+        index_to_visit: dict, dictionary that maps the index of a visit in the visits
+            list to the visit id.
     """
 
     def __init__(
-        self,
-        patient_id: str,
-        birth_datetime: Optional[datetime] = None,
-        death_datetime: Optional[datetime] = None,
-        gender: Optional[str] = None,
-        ethnicity: Optional[str] = None,
-        **attr,
+            self,
+            patient_id: str,
+            birth_datetime: Optional[datetime] = None,
+            death_datetime: Optional[datetime] = None,
+            gender: Optional[str] = None,
+            ethnicity: Optional[str] = None,
+            **attr,
     ):
         self.patient_id = patient_id
         self.birth_datetime = birth_datetime
@@ -177,7 +189,8 @@ class Patient:
             visit: Visit, visit to add.
         """
         self.visits[visit.visit_id] = visit
-        self.index_to_visit[len(self.visits) - 1] = visit.visit_id  # incrementing index
+        # incrementing index
+        self.index_to_visit[len(self.visits) - 1] = visit.visit_id
 
     def add_event(self, event: Event):
         """Adds an event to the patient.
