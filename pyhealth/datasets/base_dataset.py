@@ -18,46 +18,51 @@ create_directory(MODULE_CACHE_PATH)
 class BaseDataset(ABC, Dataset):
     """Abstract base dataset class.
 
-    This abstract class defines a uniform interface for all datasets (e.g., MIMIC-III, MIMIC-IV, eICU, OMOP)
-    and all tasks (e.g., mortality prediction, length of stay prediction, etc.).
+    This abstract class defines a uniform interface for all datasets
+    (e.g., MIMIC-III, MIMIC-IV, eICU, OMOP) and all tasks (e.g., mortality prediction,
+    length of stay prediction, etc.).
 
-    Each specific dataset will be a subclass of this abstract class, which can adapt to different tasks by
-    calling self.set_task().
+    Each specific dataset will be a subclass of this abstract class, which can adapt
+    to different tasks by calling self.set_task().
 
     Args:
         dataset_name: str, name of the dataset.
         root: str, root directory of the raw data (should contain many csv files).
-        tables: List[str], list of tables to be loaded (e.g., ["DIAGNOSES_ICD", "PROCEDURES_ICD"]).
-        code_mapping: Optional[Dict[str, str]], key is the table name, value is the code vocabulary to map to
-            (e.g., {"DIAGNOSES_ICD": "CCS"}). Note that the source vocabulary will be automatically
-            inferred from the table. Default is empty dict, which means the original code will be used.
-        dev: bool, whether to enable dev mode (only use a small subset of the data). Default is False.
-        refresh_cache: whether to refresh the cache; if true, the dataset will be processed from scratch
-            and the cache will be updated. Default is False.
+        tables: List[str], list of tables to be loaded (e.g., ["DIAGNOSES_ICD",
+            "PROCEDURES_ICD"]).
+        code_mapping: Optional[Dict[str, str]], key is the table name, value is the
+            code vocabulary to map to (e.g., {"DIAGNOSES_ICD": "CCS"}).
+            Note that the source vocabulary will be automatically inferred from the
+            table. Default is empty dict, which means the original code will be used.
+        dev: bool, whether to enable dev mode (only use a small subset of the data).
+            Default is False.
+        refresh_cache: whether to refresh the cache; if true, the dataset will be
+            processed from scratch and the cache will be updated. Default is False.
 
     Attributes:
-        task: Optional[str], name of the task (e.g., "mortality prediction"). Default is None.
-        samples: Optional[List[Dict]], a list of samples, each sample is a dict with patient_id, visit_id, and
-            other task-specific attributes as key. Default is None.
-        patient_to_index: Optional[Dict[str, int]], a dict mapping patient_id to the index of the patient in
-            self.samples. Default is None.
-        visit_to_index: Optional[Dict[str, int]], a dict mapping visit_id to the index of the visit in
-            self.samples. Default is None.
+        task: Optional[str], name of the task (e.g., "mortality prediction").
+            Default is None.
+        samples: Optional[List[Dict]], a list of samples, each sample is a dict with
+            patient_id, visit_id, and other task-specific attributes as key.
+            Default is None.
+        patient_to_index: Optional[Dict[str, int]], a dict mapping patient_id to the
+            index of the patient in self.samples. Default is None.
+        visit_to_index: Optional[Dict[str, int]], a dict mapping visit_id to the index
+            of the visit in self.samples. Default is None.
     """
 
     def __init__(
-        self,
-        dataset_name: str,
-        root: str,
-        tables: List[str],
-        code_mapping: Optional[Dict[str, str]] = None,
-        dev: bool = False,
-        refresh_cache: bool = False,
+            self,
+            dataset_name: str,
+            root: str,
+            tables: List[str],
+            code_mapping: Optional[Dict[str, str]] = None,
+            dev: bool = False,
+            refresh_cache: bool = False,
     ):
         """Loads tables into a dict of patients and saves it to cache."""
-
         if code_mapping is None:
-            self.code_mapping = {}
+            code_mapping = {}
 
         # base attributes
         self.dataset_name = dataset_name
@@ -74,7 +79,10 @@ class BaseDataset(ABC, Dataset):
 
         # cache
         args_to_hash = (
-            [dataset_name, root] + sorted(tables) + sorted(code_mapping.items()) + [dev]
+                [dataset_name, root]
+                + sorted(tables)
+                + sorted(code_mapping.items())
+                + ["dev" if dev else "prod"]
         )
         filename = hash_str("+".join([str(arg) for arg in args_to_hash])) + ".pkl"
         self.filepath = os.path.join(MODULE_CACHE_PATH, filename)
@@ -93,7 +101,8 @@ class BaseDataset(ABC, Dataset):
     def parse_tables(self) -> Dict[str, Patient]:
         """Parses the tables in self.tables and return a dict of patients.
 
-        Will be called in __init__ if cache file does not exist or refresh_cache is True.
+        Will be called in __init__ if cache file does not exist or
+        refresh_cache is True.
 
         Should be implemented by the specific dataset.
 
@@ -103,12 +112,12 @@ class BaseDataset(ABC, Dataset):
         raise NotImplementedError
 
     def map_code_in_table(
-        self,
-        df: pd.DataFrame,
-        source_vocabulary: str,
-        target_vocabulary: str,
-        source_col: str,
-        target_col: str,
+            self,
+            df: pd.DataFrame,
+            source_vocabulary: str,
+            target_vocabulary: str,
+            source_col: str,
+            target_col: str,
     ) -> pd.DataFrame:
         """Maps the codes in a table to a target vocabulary.
 
@@ -132,28 +141,29 @@ class BaseDataset(ABC, Dataset):
     def set_task(self, task_fn):
         """Processes the base dataset to generate the task-specific samples.
 
-        This function will iterate through all patients in the base dataset and call task_fn which should be
-        implemented by the specific task.
+        This function will iterate through all patients in the base dataset and call
+        task_fn which should be implemented by the specific task.
 
         Args:
-            task: str, name of the task (e.g., "mortality prediction").
-            task_fn: function, a function that takes a single patient and returns a list of
-                samples (each sample is a dict with patient_id, visit_id, and other task-specific attributes
-                as key). The samples will be concatenated to form the final samples of the task dataset.
+            task_fn: function, a function that takes a single patient and returns
+                a list of samples (each sample is a dict with patient_id, visit_id,
+                and other task-specific attributes as key). The samples will be
+                concatenated to form the final samples of the task dataset.
 
         Returns:
-            samples: a list of samples, each sample is a dict with patient_id, visit_id, and other task-specific
-                attributes as key.
+            samples: a list of samples, each sample is a dict with patient_id,
+                visit_id, and other task-specific attributes as key.
 
-        Note that in task_fn, a patient may be converted to multiple samples, e.g., a patient with three visits
-        may be converted to three samples ([visit 1], [visit 1, visit 2], [visit 1, visit 2, visit 3]).
-        Patients can also be excluded from the task dataset by returning an empty list.
+        Note that in task_fn, a patient may be converted to multiple samples, e.g.,
+        a patient with three visits may be converted to three samples ([visit 1],
+        [visit 1, visit 2], [visit 1, visit 2, visit 3]). Patients can also be
+        excluded from the task dataset by returning an empty list.
         """
         self.task = task_fn.__name__
         self.task_fn = task_fn
         samples = []
         for patient_id, patient in tqdm(
-            self.patients.items(), desc=f"Generating samples for {self.task}"
+                self.patients.items(), desc=f"Generating samples for {self.task}"
         ):
             samples.extend(self.task_fn(patient))
         self.samples = samples
@@ -163,7 +173,8 @@ class BaseDataset(ABC, Dataset):
     def index_patient(self) -> Dict[str, int]:
         """Index the samples by patient_id.
 
-        This function will create a dict with patient_id as key and a list of sample indices as value.
+        This function will create a dict with patient_id as key and a list of sample
+        indices as value.
         """
         if self.task is None:
             raise ValueError("Please set task first.")
@@ -173,9 +184,10 @@ class BaseDataset(ABC, Dataset):
         return patient_to_index
 
     def index_visit(self) -> Dict[str, int]:
-        """Index the samples by visit_id.
+        """Indexes the samples by visit_id.
 
-        This function will create a dict with visit_id as key and a list of sample indices as value.
+        This function will create a dict with visit_id as key and a list of sample
+        indices as value.
         """
         if self.task is None:
             raise ValueError("Please set task first.")
@@ -235,8 +247,9 @@ class BaseDataset(ABC, Dataset):
     def __getitem__(self, index):
         """Returns a sample by index.
 
-        Note that the returned sample is a dict with patient_id, visit_id, and other task-specific
-        attributes as key. Conversion to index/tensor will be done in the model.
+        Note that the returned sample is a dict with patient_id, visit_id, and other
+        task-specific attributes as key. Conversion to index/tensor will be done
+        in the model.
         """
         if self.task is None:
             raise ValueError("Please set task first.")
@@ -245,9 +258,9 @@ class BaseDataset(ABC, Dataset):
     def __str__(self):
         """Prints some information of the dataset."""
         if self.task is None:
-            return f"Base {self.dataset_name} dataset"
+            return f"{self.dataset_name} base dataset"
         else:
-            return f"{self.task} {self.dataset_name} dataset"
+            return f"{self.dataset_name} {self.task} dataset"
 
     def __len__(self):
         """Returns the number of samples in the dataset."""
@@ -279,7 +292,7 @@ class BaseDataset(ABC, Dataset):
                 for v in p
             ]
             print(
-                f"\t- Number of {event_type} per visit: {sum(num_events) / len(num_events):.4f}"
+                f"\t- #{event_type}/visit: {sum(num_events) / len(num_events):.4f}"
             )
         print()
 
@@ -301,7 +314,7 @@ class BaseDataset(ABC, Dataset):
             else:
                 num_events = [len(sample[key][-1]) for sample in self.samples]
                 print(
-                    f"\t- Number of {key} per visit: {sum(num_events) / len(num_events):.4f}"
+                    f"\t- #{key}/visit: {sum(num_events) / len(num_events):.4f}"
                 )
                 print(f"\t- Number of unique {key}: {len(self.get_all_tokens(key))}")
         print()

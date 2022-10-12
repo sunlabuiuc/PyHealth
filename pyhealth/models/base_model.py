@@ -77,7 +77,7 @@ class BaseModel(ABC, nn.Module):
             y = torch.LongTensor(y)
             loss = get_default_loss_module(self.mode)(logits, y.to(device))
             y_prod = torch.softmax(logits, dim=-1)
-            y_pred = torch.argmax(y_prod, dim=-1)[0]
+            y_pred = torch.argmax(y_prod, dim=-1)
         else:
             raise ValueError("Invalid mode: {}".format(self.mode))
 
