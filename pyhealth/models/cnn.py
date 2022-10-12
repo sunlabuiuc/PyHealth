@@ -14,7 +14,7 @@ from pyhealth.models.utils import get_default_loss_module
 
 import numpy as np
 
-from pyhealth.models.mlmodel import code2vec
+from pyhealth.models.classicml import code2vec
 
 
 class CNN(BaseModel):

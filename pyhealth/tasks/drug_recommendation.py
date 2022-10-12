@@ -41,7 +41,7 @@ def drug_recommendation_mimic3_fn(patient: Patient):
         # ATC 3 level
         drugs = [drug[:4] for drug in drugs]
         # exclude: visits without (condition and procedure) or drug code
-        if (len(conditions) + len(procedures)) * len(drugs) == 0:
+        if len(conditions) * len(procedures) * len(drugs) == 0:
             continue
         # TODO: should also exclude visit with age < 18
         samples.append(

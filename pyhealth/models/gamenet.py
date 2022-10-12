@@ -230,7 +230,7 @@ class GAMENet(BaseModel):
     def __init__(
         self,
         dataset: BaseDataset,
-        tables: Union[List[str], Tuple[str]],
+        tables: List[str],
         target: str,
         mode: str,
         embedding_dim: int = 128,
