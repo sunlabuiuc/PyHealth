@@ -320,7 +320,29 @@ class BaseDataset(ABC, Dataset):
         print()
 
     def info(self):
-        """Prints the doc of the class."""
-        print()
-        print(self.__doc__)
-        print()
+        """Prints the output format."""
+
+        print(
+            """
+        Format of `dataset.patients`:
+        
+        dict[str, Patient]
+            - key: patient_id
+            - value: <Patient> object
+        
+            class <Patient>
+                - visits: dict[str, Visit]
+                    - key: visit_id
+                    - value: <Visit> object
+                - other patient-level info.
+            
+                class <Visit>
+                    - conditions: List[Event]
+                    - drugs: List[Event]
+                    - other visit-level info.
+
+                    class <Event>
+                        - code: str
+                        - other event-level info.    
+        """
+        )
