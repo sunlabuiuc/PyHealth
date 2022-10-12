@@ -176,9 +176,8 @@ def length_of_stay_prediction_eicu_fn(patient: Patient):
         if len(conditions) + len(procedures) + len(drugs) == 0:
             continue
 
-        encounter_time = datetime.strptime(visit.encounter_time, "%Y-%m-%d %H:%M:%S")
-        discharge_time = datetime.strptime(visit.discharge_time, "%Y-%m-%d %H:%M:%S")
-        los_days = (discharge_time - encounter_time).days
+        los_mins = visit.discharge_time - visit.encounter_time
+        los_days = int(los_mins / 60 / 24)
         los_category = categorize_los(los_days)
 
         # TODO: should also exclude visit with age < 18
@@ -230,8 +229,8 @@ def length_of_stay_prediction_omop_fn(patient: Patient):
         if len(conditions) + len(procedures) + len(drugs) == 0:
             continue
 
-        encounter_time = datetime.strptime(visit.encounter_time, "%Y-%m-%d %H:%M:%S")
-        discharge_time = datetime.strptime(visit.discharge_time, "%Y-%m-%d %H:%M:%S")
+        encounter_time = datetime.strptime(visit.encounter_time, "%Y-%m-%d")
+        discharge_time = datetime.strptime(visit.discharge_time, "%Y-%m-%d")
         los_days = (discharge_time - encounter_time).days
         los_category = categorize_los(los_days)
 

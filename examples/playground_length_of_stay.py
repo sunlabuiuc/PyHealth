@@ -19,7 +19,7 @@ from pyhealth.evaluator import evaluate
 from pyhealth.metrics import *
 
 ###############
-data = "mimic4"
+data = "omop"
 ################
 
 # STEP 1 & 2: load data and set task
