@@ -62,7 +62,7 @@ class BaseDataset(ABC, Dataset):
     ):
         """Loads tables into a dict of patients and saves it to cache."""
         if code_mapping is None:
-            self.code_mapping = {}
+            code_mapping = {}
 
         # base attributes
         self.dataset_name = dataset_name
