@@ -14,7 +14,7 @@ from pyhealth.models.utils import get_default_loss_module
 
 import numpy as np
 
-from MLModel import code2vec
+from pyhealth.models.mlmodel import code2vec
 
 
 class CNN(BaseModel):
@@ -38,6 +38,7 @@ class CNN(BaseModel):
 
         self.tables = tables
         self.target = target
+        self.mode = mode
         self.tokenizers = {}
         for domain in tables:
             self.tokenizers[domain] = Tokenizer(
@@ -62,7 +63,7 @@ class CNN(BaseModel):
             nn.Dropout(p=0.2),
             nn.Linear(
                 in_features=model.fc.in_features,
-                out_features=self.label_tokenizer.get_vocabulary_size(),
+                out_features=self.label_tokenizer.get_vocabulary_size()
             ),
         )
         self.model = model
@@ -78,6 +79,7 @@ class CNN(BaseModel):
             label_tokenizer=self.label_tokenizer,
             batch=kwargs,
             max_visits=self.max_visits,
+            mode=self.mode
         )
         data = CNNTaskData(X, y)
         dataloader = DataLoader(data, batch_size=8, shuffle=False)
@@ -86,6 +88,7 @@ class CNN(BaseModel):
         y_true = None
 
         for inputs, targets in dataloader:
+            inputs, targets = inputs.to(device), targets.to(device)
             outputs = self.model(inputs)
             if logit is None:
                 logit = outputs
@@ -109,15 +112,16 @@ class CNN(BaseModel):
 
 
 def code2image(
-    tables: Union[List[str], Tuple[str]],
-    target: str,
-    domain_tokenizers: Dict[str, Tokenizer],
-    label_tokenizer: Tokenizer,
-    batch: dict,
-    max_visits: int,
-    entity: str = "patient_id",
-    resize: bool = False,
-    width: int = 512,
+        tables: Union[List[str], Tuple[str]],
+        target: str,
+        mode: str,
+        batch: dict,
+        domain_tokenizers: Dict[str, Tokenizer],
+        label_tokenizer: Tokenizer,
+        max_visits: int,
+        entity: str = "patient_id",
+        resize: bool = False,
+        width: int = 512
 ):
     """
     Transfer codes in a batch to entity-wise images (an entity is a patient in usual)
@@ -128,7 +132,7 @@ def code2image(
     X = []
     y = []
 
-    cur_X, cur_y = code2vec(tables, target, domain_tokenizers, label_tokenizer, batch)
+    cur_X, cur_y = code2vec(tables, target, mode, batch, domain_tokenizers, label_tokenizer)
 
     X_dict_by_entity = {}
     y_dict_by_entity = {}
@@ -144,14 +148,14 @@ def code2image(
         transform = transforms.Compose(
             [
                 transforms.Resize((max_visits, width)),
-                transforms.Normalize(cur_X.mean(), cur_X.std()),
+                transforms.Normalize(cur_X.mean(), cur_X.std())
             ]
         )
     else:
         transform = transforms.Compose(
             [
                 transforms.Resize((max_visits, len(cur_X[0]))),
-                transforms.Normalize(cur_X.mean(), cur_X.std()),
+                transforms.Normalize(cur_X.mean(), cur_X.std())
             ]
         )
 
@@ -181,3 +185,4 @@ class CNNTaskData(Dataset):
 
     def __len__(self):
         return len(self.X)
+
