@@ -11,18 +11,17 @@ from sklearn.base import ClassifierMixin
 
 
 class MLTask:
-
     def __init__(
-            self,
-            dataset: BaseDataset,
-            tables: Union[List[str], Tuple[str]],
-            target: str,
-            classifier: ClassifierMixin,
-            mode: str,
-            enable_logging: bool = True,
-            output_path: Optional[str] = None,
-            exp_name: Optional[str] = None,
-            **kwargs
+        self,
+        dataset: BaseDataset,
+        tables: Union[List[str], Tuple[str]],
+        target: str,
+        classifier: ClassifierMixin,
+        mode: str,
+        enable_logging: bool = True,
+        output_path: Optional[str] = None,
+        exp_name: Optional[str] = None,
+        **kwargs
     ):
         super(MLTask, self).__init__()
 
@@ -55,18 +54,25 @@ class MLTask:
             self.exp_path = None
 
     def fit(
-            self,
-            train_loader,
-            reduce_dim=100,
-            val_loader=None,
-            val_metric=None,
+        self,
+        train_loader,
+        reduce_dim=100,
+        val_loader=None,
+        val_metric=None,
     ):
         # X (diagnosis and procedure), y (drugs)
         X, y = [], []
 
         # load the X and y batch by batch
         for batch in train_loader:
-            cur_X, cur_y = code2vec(self.tables, self.target, self.mode, batch, self.tokenizers, self.label_tokenizer)
+            cur_X, cur_y = code2vec(
+                self.tables,
+                self.target,
+                self.mode,
+                batch,
+                self.tokenizers,
+                self.label_tokenizer,
+            )
             X.append(cur_X)
             y.append(cur_y)
 
@@ -99,10 +105,10 @@ class MLTask:
                 pickle.dump([self.predictor, self.pca, self.valid_label], f)
             print("best_model_path:", os.path.join(self.exp_path, "best.ckpt"))
 
-    def __call__(
-        self, tables, target, batch, padding_mask=None, device=None, **kwargs
-    ):
-        X, y = code2vec(tables, target, self.mode, batch, self.tokenizers, self.label_tokenizer)
+    def __call__(self, tables, target, batch, padding_mask=None, device=None, **kwargs):
+        X, y = code2vec(
+            tables, target, self.mode, batch, self.tokenizers, self.label_tokenizer
+        )
         X = self.pca.transform(X)
         cur_prob = self.predictor.predict_proba(X)
         cur_prob = np.array(cur_prob)[:, :, -1].T
@@ -119,7 +125,14 @@ class MLTask:
     def eval(self, test_loader):
         X, y_true, y_prob, y_pred = [], [], [], []
         for batch in test_loader:
-            cur_X, cur_y = code2vec(self.tables, self.target, self.mode, batch, self.tokenizers, self.label_tokenizer)
+            cur_X, cur_y = code2vec(
+                self.tables,
+                self.target,
+                self.mode,
+                batch,
+                self.tokenizers,
+                self.label_tokenizer,
+            )
             X.append(cur_X)
             y_true.append(cur_y)
 
@@ -131,7 +144,9 @@ class MLTask:
         if self.mode == "multilabel":
             cur_prob = np.array(cur_prob)[:, :, -1].T
             y_true = np.concatenate(y_true, axis=0)[:, 2:]
-            y_prob = np.zeros((X.shape[0], self.label_tokenizer.get_vocabulary_size() - 2))
+            y_prob = np.zeros(
+                (X.shape[0], self.label_tokenizer.get_vocabulary_size() - 2)
+            )
             y_prob[:, self.valid_label] = cur_prob
             y_pred = (y_prob > 0.5).astype(int)
 
@@ -149,6 +164,7 @@ class MLTask:
 
 class MLModel:
     """MLModel Class, use "task" as key to identify specific MLModel model and route there"""
+
     def __init__(self, **kwargs):
         super(MLModel, self).__init__()
         self.model = MLTask(**kwargs)
@@ -167,12 +183,12 @@ class MLModel:
 
 
 def code2vec(
-        tables: Union[List[str], Tuple[str]],
-        target: str,
-        mode: str,
-        batch: dict,
-        domain_tokenizers: Dict[str, Tokenizer],
-        label_tokenizer: Tokenizer = None,
+    tables: Union[List[str], Tuple[str]],
+    target: str,
+    mode: str,
+    batch: dict,
+    domain_tokenizers: Dict[str, Tokenizer],
+    label_tokenizer: Tokenizer = None,
 ):
     cur_domain = []
     for domain in tables:
@@ -180,7 +196,9 @@ def code2vec(
             (len(batch[domain]), domain_tokenizers[domain].get_vocabulary_size())
         )
         for idx, sample in enumerate(batch[domain]):
-            cur_tmp[idx, domain_tokenizers[domain].convert_tokens_to_indices(sample[-1:][0])] = 1
+            cur_tmp[
+                idx, domain_tokenizers[domain].convert_tokens_to_indices(sample[-1:][0])
+            ] = 1
 
         cur_domain.append(cur_tmp)
 
@@ -190,7 +208,9 @@ def code2vec(
             (len(batch[target]), label_tokenizer.get_vocabulary_size())
         )
         for idx, sample in enumerate(batch[target]):
-            cur_label[idx, label_tokenizer.convert_tokens_to_indices(sample[-1:][0])] = 1
+            cur_label[
+                idx, label_tokenizer.convert_tokens_to_indices(sample[-1:][0])
+            ] = 1
     elif mode == "binary":
         cur_label = batch[target]
 

@@ -11,6 +11,13 @@ from .utils import get_last_visit
 
 
 class MICRONLayer(nn.Module):
+    """This MICRON layer.
+    Args:
+        input_size: the embedding size of the input
+        output_size: the embedding size of the output
+        dropout: dropout rate
+    """
+
     def __init__(
         self,
         input_size: int,
@@ -54,7 +61,15 @@ class MICRONLayer(nn.Module):
 
 
 class MICRON(BaseModel):
-    """MICRON Class, use "task" as key to identify specific MICRON model and route there"""
+    """MICRON Class, use "task" as key to identify specific MICRON model and route there
+    Args:
+        dataset: the dataset object
+        tables: the list of table names to use
+        target: the target table name
+        mode: the mode of the model, "multilabel", "multiclass" or "binary"
+        embedding_dim: the embedding dimension
+        hidden_dim: the hidden dimension
+    """
 
     def __init__(
         self,
@@ -75,6 +90,7 @@ class MICRON(BaseModel):
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
 
+        # define the tokenizers
         self.tokenizers = {}
         for domain in tables:
             self.tokenizers[domain] = Tokenizer(
@@ -82,6 +98,7 @@ class MICRON(BaseModel):
             )
         self.label_tokenizer = Tokenizer(dataset.get_all_tokens(key=target))
 
+        # define the embedding layers for each domain
         self.embeddings = nn.ModuleDict()
         for domain in tables:
             # TODO: use get_pad_token_id() instead of hard code
@@ -126,6 +143,7 @@ class MICRON(BaseModel):
         patient_emb = torch.cat(patient_emb, dim=2)
 
         if self.training:
+            # the reconstruction loss
             drug_rep, drug_residual_rep = self.micron(patient_emb, mask)
             logits = self.fc(drug_rep)
             drug_residual_rep = self.fc(drug_residual_rep)

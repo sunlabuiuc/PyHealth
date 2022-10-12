@@ -1,17 +1,19 @@
+from curses import A_ALTCHARSET
+from typing import List, Tuple, Union
+from urllib import request
+
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import numpy as np
-
-
-def get_last_visit(hidden_states, mask):
-    last_visit = torch.sum(mask, 1) - 1
-    last_visit = last_visit.unsqueeze(-1)
-    last_visit = last_visit.expand(-1, hidden_states.shape[1] * hidden_states.shape[2])
-    last_visit = torch.reshape(last_visit, hidden_states.shape)
-    last_hidden_states = torch.gather(hidden_states, 1, last_visit)
-    last_hidden_state = last_hidden_states[:, 0, :]
-    return last_hidden_state
+from collections import defaultdict
+from pyhealth.data import BaseDataset
+from pyhealth.models import BaseModel
+from pyhealth.tokenizer import Tokenizer
+import os
+from pathlib import Path
+from urllib import request
+import pandas as pd
+from .utils import get_last_visit
 
 
 class GraphConvolution(nn.Module):
@@ -56,6 +58,13 @@ class GraphConvolution(nn.Module):
 
 
 class GCN(nn.Module):
+    """The GCN model as in https://arxiv.org/abs/1609.02907
+    Args:
+        voc_size (int): the size of the (med) vocabulary
+        emb_dim (int): the dimension of the embedding
+        adj (np.array): the adjacency matrix
+    """
+
     def __init__(self, voc_size, emb_dim, adj):
         super(GCN, self).__init__()
         self.voc_size = voc_size
@@ -71,7 +80,7 @@ class GCN(nn.Module):
 
     def forward(self):
         node_embedding = self.gcn1(self.x, self.adj)
-        node_embedding = F.relu(node_embedding)
+        node_embedding = nn.functional.relu(node_embedding)
         node_embedding = self.dropout(node_embedding)
         node_embedding = self.gcn2(node_embedding, self.adj)
         return node_embedding
@@ -87,65 +96,81 @@ class GCN(nn.Module):
 
 
 class GAMENetLayer(nn.Module):
+    """We separate the GAMENet layer from the model for flexible usage.
+    Args:
+        input (int): the input embedding size
+        hidden (int): the hidden embedding size
+        tables  (list): the list of table names
+        ehr_adj (np.array): the adjacency matrix of EHR
+        ddi_adj (np.array): the adjacency matrix of DDI
+        num_layers (int): the number of layers used in RNN
+        dropout (float): the dropout rate
+        ddi_in_memory (bool): whether to use DDI GCN in forward function
+    """
+
     def __init__(
-        self, voc_size, ehr_adj, ddi_adj, emb_dim=64, ddi_in_memory=True, **kwargs
+        self,
+        input_size: int,
+        hidden_size: int,
+        tables: List[str],
+        ehr_adj: np.ndarray,
+        ddi_adj: np.ndarray,
+        num_layers: int = 1,
+        dropout: float = 0.5,
+        ddi_in_memory: bool = True,
     ):
         super(GAMENetLayer, self).__init__()
-
-        ddi_adj = torch.FloatTensor(ddi_adj)
-        ehr_adj = torch.FloatTensor(ehr_adj[2:, 2:])
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.tables = tables
+        self.dropout = dropout
+        self.dropout_layer = nn.Dropout(dropout)
         self.ddi_in_memory = ddi_in_memory
-        self.dropout = nn.Dropout(p=0.5)
-        self.out_dim = voc_size[2] - 2
 
-        # parameters
-        self.embedding = nn.ModuleList([nn.Embedding(s + 1, emb_dim) for s in voc_size])
-        # GRU encoder for conditions and procedures
-        self.encoder = nn.ModuleList(
-            [nn.GRU(emb_dim, emb_dim, batch_first=True) for _ in range(2)]
-        )
+        # med space size
+        self.label_size = ehr_adj.shape[0]
+
+        # define the rnn layers
+        self.rnn = nn.ModuleDict()
+        for domain in tables:
+            self.rnn[domain] = nn.GRU(
+                input_size,
+                hidden_size,
+                num_layers=num_layers,
+                dropout=dropout,
+                batch_first=True,
+            )
 
         self.query = nn.Sequential(
             nn.ReLU(),
-            nn.Linear(emb_dim * 2, emb_dim),
+            nn.Linear(hidden_size * len(tables), hidden_size),
         )
-        self.ehr_gcn = GCN(voc_size=self.out_dim, emb_dim=emb_dim, adj=ehr_adj)
-        self.ddi_gcn = GCN(voc_size=self.out_dim, emb_dim=emb_dim, adj=ddi_adj)
+        self.ehr_gcn = GCN(voc_size=self.label_size, emb_dim=hidden_size, adj=ehr_adj)
+        self.ddi_gcn = GCN(voc_size=self.label_size, emb_dim=hidden_size, adj=ddi_adj)
         self.inter = nn.Parameter(torch.FloatTensor(1))
 
-        self.output = nn.Sequential(nn.ReLU(), nn.Linear(emb_dim * 3, emb_dim))
-
-    def forward(self, tensors, masks=None):
+    def forward(self, X: dict, mask: torch.tensor):
         """
         Args:
-            tensors: list of input tensors, each tensor is of shape (batch, visit, code_len)
-            masks: list of input masks, each mask is of shape (batch, visit)
+            X: a dict with <str, [batch size, seq len, input_size]>
+            mask: [batch size, seq len]
+        Returns:
+            outputs [batch size, seq len, hidden_size]
         """
-        diag_tensor, proc_tensor, med_tensor = tensors
-        diag_mask, proc_mask, med_mask = masks
-        diag_emb = self.embedding[0](diag_tensor)  # (batch, visit, code_len, dim)
-        proc_emb = self.embedding[1](proc_tensor)  # (batch, visit, code_len, dim)
-
-        # sum over code_len
-        diag_emb = (diag_emb * diag_mask.unsqueeze(-1).float()).sum(
-            dim=2
-        )  # (batch, visit, dim)
-        proc_emb = (proc_emb * proc_mask.unsqueeze(-1).float()).sum(
-            dim=2
-        )  # (batch, visit, dim)
-
-        # use RNN encoder
-        diag_emb, _ = self.encoder[0](diag_emb)  # (batch, visit, dim)
-        proc_emb, _ = self.encoder[1](proc_emb)  # (batch, visit, dim)
+        patient_emb = []
+        for domain in self.tables:
+            domain_emb, _ = self.rnn[domain](X[domain])
+            patient_emb.append(domain_emb)
 
         patient_representations = torch.cat(
-            [diag_emb, proc_emb], dim=-1
-        )  # (batch, visit, dim * 2)
-        queries = self.query(patient_representations)  # (batch, visit, dim)
+            patient_emb, dim=-1
+        )  # (batch, visit, dim * len(tables))
+        queries = self.query(patient_representations)  # (batch, visit, hidden_size)
 
         # graph memory module
         """I:generate current input"""
-        query = get_last_visit(queries, diag_mask[:, :, 0])  # (batch, dim)
+        query = get_last_visit(queries, mask)  # (batch, hidden_size)
 
         """G:generate graph memory bank and insert history information"""
         if self.ddi_in_memory:
@@ -158,17 +183,12 @@ class GAMENetLayer(nn.Module):
         history_keys = queries  # (batch, visit, dim)
         # remove the current visit (with is the gt information)
 
-        # mask out the groud truth first
-        for i, cur_mask in enumerate(med_mask):
-            med_tensor[i, torch.sum(cur_mask[:, 0]) - 1, :] = 0
-
+        med_tensor = X["drugs"]
         history_values = (
-            torch.nn.functional.one_hot(med_tensor, num_classes=self.out_dim + 2)
+            torch.nn.functional.one_hot(med_tensor, num_classes=self.label_size)
             .sum(-2)
             .bool()
-        )[
-            :, :, 2:
-        ]  # (batch, visit, med_size)
+        )  # (batch, visit, med_size)
 
         """O:read from global memory bank and dynamic memory bank"""
         key_weights1 = torch.softmax(
@@ -176,73 +196,211 @@ class GAMENetLayer(nn.Module):
         )  # (batch, med_size)
         fact1 = torch.mm(key_weights1, drug_memory)  # (batch, dim)
 
-        # # remove the last visit from mask
+        # remove the last visit from mask
         visit_weight = torch.softmax(
             torch.einsum("bd,bvd->bv", query, history_keys), dim=1
         )  # (batch, visit)
-        # # visit_weight = torch.softmax(torch.einsum("bd,bvd->bv", query, history_keys) - (1-diag_mask[:, :, 0].float()) * 1e10, dim=1) # (batch, visit)
+
+        # use masked attention (empirically it is better to not use mask)
+        # visit_weight = torch.softmax(
+        #     torch.einsum("bd,bvd->bv", query, history_keys)
+        #     - (1 - diag_mask[:, :, 0].float()) * 1e10,
+        #     dim=1,
+        # )  # (batch, visit)
+
         weighted_values = torch.einsum(
             "bv,bvz->bz", visit_weight, history_values.float()
         )  # (batch, med_size)
         fact2 = torch.mm(weighted_values, drug_memory)  # (batch, dim)
 
         """R:convert O and predict"""
-        output = self.output(torch.cat([query, fact1, fact2], dim=-1))  # (batch, dim)
-
-        return output
+        return torch.cat([query, fact1, fact2], dim=-1)
 
 
-class GAMENet(nn.Module):
+class GAMENet(BaseModel):
+    """GAMENet Class, use "task" as key to identify specific GAMENet model and route there
+    Args:
+        dataset: the dataset object
+        tables: the list of table names to use
+        target: the target table name
+        mode: the mode of the model, "multilabel", "multiclass" or "binary"
+        embedding_dim: the embedding dimension
+        hidden_dim: the hidden dimension
+    """
+
     def __init__(
         self,
-        voc_size,
-        ehr_adj,
-        ddi_adj,
-        tokenizers,
-        emb_dim=64,
-        ddi_in_memory=True,
+        dataset: BaseDataset,
+        tables: Union[List[str], Tuple[str]],
+        target: str,
+        mode: str,
+        embedding_dim: int = 128,
+        hidden_dim: int = 128,
         **kwargs
     ):
-        super(GAMENet, self).__init__()
+        super(GAMENet, self).__init__(
+            dataset=dataset,
+            tables=tables,
+            target=target,
+            mode=mode,
+        )
+        self.embedding_dim = embedding_dim
+        self.hidden_dim = hidden_dim
 
-        self.condition_tokenizer = tokenizers[0]
-        self.procedure_tokenizer = tokenizers[1]
-        self.drug_tokenizer = tokenizers[2]
+        # define tokenizers
+        self.tokenizers = {}
+        for domain in tables:
+            self.tokenizers[domain] = Tokenizer(
+                dataset.get_all_tokens(key=domain),
+                special_tokens=["<pad>", "<unk>"],
+            )
+        self.drug_tokenizer = Tokenizer(
+            dataset.get_all_tokens(key="drugs"),
+            special_tokens=["<pad>", "<unk>"],
+        )
+        self.label_tokenizer = Tokenizer(dataset.get_all_tokens(key=target))
 
-        self.gamenet_layer = GAMENetLayer(
-            voc_size, ehr_adj, ddi_adj, emb_dim, ddi_in_memory, **kwargs
+        # embedding tables for each domain
+        self.embeddings = nn.ModuleDict()
+        for domain in tables:
+            # TODO: use get_pad_token_id() instead of hard code
+            self.embeddings[domain] = nn.Embedding(
+                self.tokenizers[domain].get_vocabulary_size(),
+                embedding_dim,
+                padding_idx=0,
+            )
+
+        ehr_adj = self.generate_ehr_adj()
+        ddi_adj = self.generate_ddi_adj()
+
+        self.gamenet = GAMENetLayer(
+            input_size=embedding_dim,
+            hidden_size=hidden_dim,
+            tables=tables,
+            ehr_adj=ehr_adj,
+            ddi_adj=ddi_adj,
+        )
+        self.fc = nn.Linear(3 * hidden_dim, self.label_tokenizer.get_vocabulary_size())
+
+    def generate_ehr_adj(self):
+        """
+        generate the ehr graph adj for GAMENet model input
+        - loop over the training data to check whether any med pair appear
+        """
+        label_size = self.label_tokenizer.get_vocabulary_size()
+        ehr_adj = np.zeros((label_size, label_size))
+        for sample in self.dataset.samples:
+            encoded_drugs = self.label_tokenizer.convert_tokens_to_indices(
+                sample["label"]
+            )
+            for idx1, med1 in enumerate(encoded_drugs):
+                for idx2, med2 in enumerate(encoded_drugs):
+                    if idx1 >= idx2:
+                        continue
+                    ehr_adj[med1, med2] = 1
+                    ehr_adj[med2, med1] = 1
+        return ehr_adj
+
+    def generate_ddi_adj(self):
+        """get drug-drug interaction (DDI)"""
+        cid2atc_dic = defaultdict(set)
+        label_size = self.label_tokenizer.get_vocabulary_size()
+        vocab_to_index = self.label_tokenizer.vocabulary
+
+        # load cid2atc
+        if not os.path.exists(
+            os.path.join(str(Path.home()), ".cache/pyhealth/cid_to_ATC6.csv")
+        ):
+            cid_to_ATC6 = request.urlopen(
+                "https://drive.google.com/uc?id=1CVfa91nDu3S_NTxnn5GT93o-UfZGyewI"
+            ).readlines()
+            with open(
+                os.path.join(str(Path.home()), ".cache/pyhealth/cid_to_ATC6.csv"),
+                "w",
+            ) as outfile:
+                for line in cid_to_ATC6:
+                    print(str(line[:-1]), file=outfile)
+        else:
+            cid_to_ATC6 = open(
+                os.path.join(str(Path.home()), ".cache/pyhealth/cid_to_ATC6.csv"),
+                "r",
+            ).readlines()
+        # map cid to atc
+        for line in cid_to_ATC6:
+            line_ls = str(line[:-1]).split(",")
+            cid = line_ls[0]
+            atcs = line_ls[1:]
+            for atc in atcs:
+                if atc[:4] in vocab_to_index.token2idx:
+                    cid2atc_dic[cid[2:]].add(atc[:4])
+
+        # ddi on (cid, cid)
+        if not os.path.exists(
+            os.path.join(str(Path.home()), ".cache/pyhealth/drug-DDI-TOP40.csv")
+        ):
+            ddi_df = pd.read_csv(
+                request.urlopen(
+                    "https://drive.google.com/uc?id=1R88OIhn-DbOYmtmVYICmjBSOIsEljJMh"
+                )
+            )
+            ddi_df.to_csv(
+                os.path.join(str(Path.home()), ".cache/pyhealth/drug-DDI-TOP40.csv"),
+                index=False,
+            )
+        else:
+            ddi_df = pd.read_csv(
+                os.path.join(str(Path.home()), ".cache/pyhealth/drug-DDI-TOP40.csv")
+            )
+        # map to ddi on (atc, atc)
+        ddi_adj = np.zeros((label_size, label_size))
+        for index, row in ddi_df.iterrows():
+            # ddi
+            cid1 = row["STITCH 1"]
+            cid2 = row["STITCH 2"]
+            # cid -> atc_level3
+            for atc_i in cid2atc_dic[cid1]:
+                for atc_j in cid2atc_dic[cid2]:
+                    ddi_adj[vocab_to_index(atc_i), vocab_to_index(atc_j)] = 1
+                    ddi_adj[vocab_to_index(atc_j), vocab_to_index(atc_i)] = 1
+        self.ddi_adj = ddi_adj
+        return ddi_adj
+
+    def forward(self, device, **kwargs):
+        """
+        if "kwargs[domain][0][0] is list" means "use history", then run visit level RNN
+        elif "kwargs[domain][0][0] is not list" means not "use history", then run code level RNN
+        """
+        for domain in self.tables:
+            if type(kwargs[domain][0][0]) == list:
+                kwargs[domain] = self.tokenizers[domain].batch_encode_3d(kwargs[domain])
+                kwargs[domain] = torch.tensor(
+                    kwargs[domain], dtype=torch.long, device=device
+                )
+                # (patient, visit, code, embedding_dim)
+                kwargs[domain] = self.embeddings[domain](kwargs[domain])
+                # (patient, visit, embedding_dim)
+                kwargs[domain] = torch.sum(kwargs[domain], dim=2)
+            else:
+                raise ValueError("Sample data format is not correct")
+
+        # get mask
+        mask = torch.sum(kwargs[domain], dim=2) != 0
+        mask[:, 0] = 1
+
+        # process drugs
+        kwargs["drugs"] = self.drug_tokenizer.batch_encode_3d(kwargs["drugs"])
+        kwargs["drugs"] = torch.tensor(kwargs["drugs"], dtype=torch.long, device=device)
+        patient_emb = self.gamenet(kwargs, mask)
+        logits = self.fc(patient_emb)
+
+        # obtain target, loss, prob, pred
+        loss, y_true, y_prod, y_pred = self.cal_loss_and_output(
+            logits, device, **kwargs
         )
 
-        self.out_dim = voc_size[2] - 2
-        self.drug_fc = nn.Linear(emb_dim, self.out_dim)
-
-    def forward(self, conditions, procedures, drugs, device=None, **kwargs):
-        diag_tensor, diag_mask = [
-            item.to(device)
-            for item in self.condition_tokenizer.batch_tokenize(conditions)
-        ]
-        proc_tensor, proc_mask = [
-            item.to(device)
-            for item in self.procedure_tokenizer.batch_tokenize(procedures)
-        ]
-        drugs_tensor, drugs_mask = [
-            item.to(device) for item in self.drug_tokenizer.batch_tokenize(drugs)
-        ]
-
-        tensors = [diag_tensor, proc_tensor, drugs_tensor]
-        masks = [diag_mask, proc_mask, drugs_mask]
-
-        embedding = self.gamenet_layer(tensors, masks)
-        logits = self.drug_fc(embedding)
-        y_prob = torch.sigmoid(logits)
-
-        # target
-        y = torch.zeros(diag_tensor.shape[0], self.drug_tokenizer.get_vocabulary_size())
-        for idx, sample in enumerate(drugs):
-            y[idx, self.drug_tokenizer(sample[-1:])[0]] = 1
-        # remove 0 and 1 index (invalid drugs)
-        y = y[:, 2:]
-
-        # loss
-        loss = F.binary_cross_entropy_with_logits(logits, y.to(device))
-        return {"loss": loss, "y_prob": y_prob, "y_true": y}
+        return {
+            "loss": loss,
+            "y_prob": y_prod,
+            "y_pred": y_pred,
+            "y_true": y_true,
+        }

@@ -8,7 +8,6 @@ import torch
 from tqdm import tqdm
 from sklearn.metrics import precision_score, recall_score, f1_score
 from torch.utils.data.dataloader import DataLoader
-from torch.utils.tensorboard import SummaryWriter
 import warnings
 
 
@@ -49,7 +48,8 @@ class CNN:
                 resnet.fc = nn.Sequential(
                     nn.Dropout(p=0.2),
                     nn.Linear(
-                        in_features=resnet.fc.in_features, out_features=n_classes
+                        in_features=resnet.fc.in_features,
+                        out_features=n_classes,
                     ),
                 )
                 self.model = resnet
@@ -151,7 +151,10 @@ class CNN:
             )
             self.test_visit_cnt = cnn_test.test_visit_cnt
         self.train_dataloader = DataLoader(
-            self.cnn_train, batch_size=batch_size, shuffle=False, drop_last=True
+            self.cnn_train,
+            batch_size=batch_size,
+            shuffle=False,
+            drop_last=True,
         )
         self.test_dataloader = DataLoader(
             self.cnn_test, batch_size=batch_size, drop_last=True

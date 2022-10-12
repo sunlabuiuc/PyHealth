@@ -74,7 +74,15 @@ class RNNLayer(nn.Module):
 
 
 class RNN(BaseModel):
-    """RNN Class, use "task" as key to identify specific RNN model and route there"""
+    """RNN Class, use "task" as key to identify specific RNN model and route there
+    Args:
+        dataset: the dataset object
+        tables: the list of table names to use
+        target: the target table name
+        mode: the mode of the model, "multilabel", "multiclass" or "binary"
+        embedding_dim: the embedding dimension
+        hidden_dim: the hidden dimension
+    """
 
     def __init__(
         self,
