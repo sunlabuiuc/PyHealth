@@ -5,7 +5,7 @@ import numpy as np
 from sklearn.multioutput import MultiOutputClassifier
 from sklearn.decomposition import PCA
 from pyhealth.utils import set_logger
-from pyhealth.data import BaseDataset
+from pyhealth.datasets import BaseDataset
 from pyhealth.tokenizer import Tokenizer
 from sklearn.base import ClassifierMixin
 

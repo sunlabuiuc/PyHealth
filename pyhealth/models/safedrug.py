@@ -1,12 +1,11 @@
 from typing import List, Tuple, Union
-
 import torch
 import torch.nn as nn
-from pyhealth.data import BaseDataset
+from pyhealth.datasets import BaseDataset
 from pyhealth.models import BaseModel
 from pyhealth.tokenizer import Tokenizer
 import numpy as np
-from .utils import get_last_visit
+from pyhealth.models.utils import get_last_visit
 from pyhealth.metrics import ddi_rate_score
 from collections import defaultdict
 from pathlib import Path

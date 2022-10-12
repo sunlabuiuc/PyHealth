@@ -3,4 +3,3 @@ from .data import (
     Visit,
     Patient,
 )
-from .base_dataset import BaseDataset

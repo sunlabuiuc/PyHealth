@@ -25,8 +25,3 @@ Tutorials
 `Pipeline 4: Mortality Prediction <https://colab.research.google.com/drive/10CSb4F4llYJvv42yTUiRmvSZdoEsbmFF>`_ 
 
 ----------
-
-.. toctree::
-   :maxdepth: 4
-
-   pyhealth.data

@@ -36,4 +36,3 @@ def evaluate(model, dataloader, device="cpu", isMLModel=False):
 
     else:
         return model.eval(dataloader)
-

@@ -3,7 +3,7 @@ from typing import List, Tuple, Union
 import torch
 import torch.nn as nn
 from pyhealth.models.utils import get_default_loss_module
-from pyhealth.data import BaseDataset
+from pyhealth.datasets import BaseDataset
 
 VALID_MODE = ["binary", "multiclass", "multilabel"]
 

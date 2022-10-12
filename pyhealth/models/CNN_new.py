@@ -7,7 +7,7 @@ from torch.utils.data import Dataset
 from torchvision.models import resnext50_32x4d
 import torchvision.transforms as transforms
 
-from pyhealth.data import BaseDataset
+from pyhealth.datasets import BaseDataset
 from pyhealth.models import BaseModel
 from pyhealth.tokenizer import Tokenizer
 from pyhealth.models.utils import get_default_loss_module
@@ -62,7 +62,7 @@ class CNN(BaseModel):
             nn.Dropout(p=0.2),
             nn.Linear(
                 in_features=model.fc.in_features,
-                out_features=self.label_tokenizer.get_vocabulary_size()
+                out_features=self.label_tokenizer.get_vocabulary_size(),
             ),
         )
         self.model = model
@@ -77,7 +77,7 @@ class CNN(BaseModel):
             domain_tokenizers=self.tokenizers,
             label_tokenizer=self.label_tokenizer,
             batch=kwargs,
-            max_visits=self.max_visits
+            max_visits=self.max_visits,
         )
         data = CNNTaskData(X, y)
         dataloader = DataLoader(data, batch_size=8, shuffle=False)
@@ -109,15 +109,15 @@ class CNN(BaseModel):
 
 
 def code2image(
-        tables: Union[List[str], Tuple[str]],
-        target: str,
-        domain_tokenizers: Dict[str, Tokenizer],
-        label_tokenizer: Tokenizer,
-        batch: dict,
-        max_visits: int,
-        entity: str = "patient_id",
-        resize: bool = False,
-        width: int = 512
+    tables: Union[List[str], Tuple[str]],
+    target: str,
+    domain_tokenizers: Dict[str, Tokenizer],
+    label_tokenizer: Tokenizer,
+    batch: dict,
+    max_visits: int,
+    entity: str = "patient_id",
+    resize: bool = False,
+    width: int = 512,
 ):
     """
     Transfer codes in a batch to entity-wise images (an entity is a patient in usual)
@@ -144,14 +144,14 @@ def code2image(
         transform = transforms.Compose(
             [
                 transforms.Resize((max_visits, width)),
-                transforms.Normalize(cur_X.mean(), cur_X.std())
+                transforms.Normalize(cur_X.mean(), cur_X.std()),
             ]
         )
     else:
         transform = transforms.Compose(
             [
                 transforms.Resize((max_visits, len(cur_X[0]))),
-                transforms.Normalize(cur_X.mean(), cur_X.std())
+                transforms.Normalize(cur_X.mean(), cur_X.std()),
             ]
         )
 
@@ -181,4 +181,3 @@ class CNNTaskData(Dataset):
 
     def __len__(self):
         return len(self.X)
-

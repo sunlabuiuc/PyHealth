@@ -33,8 +33,3 @@ However, we encourage the author(s) of newly proposed models to share and add yo
 for boosting ML accessibility and reproducibility.
 This exception only applies if you could commit to the maintenance of your model for at least two year period.
 
-
-.. toctree::
-   :maxdepth: 4
-
-   pyhealth.data

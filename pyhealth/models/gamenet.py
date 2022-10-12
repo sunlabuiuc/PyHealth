@@ -1,4 +1,3 @@
-from curses import A_ALTCHARSET
 from typing import List, Tuple, Union
 from urllib import request
 
@@ -6,14 +5,14 @@ import torch
 import torch.nn as nn
 import numpy as np
 from collections import defaultdict
-from pyhealth.data import BaseDataset
+from pyhealth.datasets import BaseDataset
 from pyhealth.models import BaseModel
 from pyhealth.tokenizer import Tokenizer
 import os
 from pathlib import Path
 from urllib import request
 import pandas as pd
-from .utils import get_last_visit
+from pyhealth.models.utils import get_last_visit
 
 
 class GraphConvolution(nn.Module):

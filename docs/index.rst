@@ -96,12 +96,14 @@ We try hard to make sure each stage is as separate as possibe, so that people ca
 We have implements one module for each of the steps (we build a pipeline training RETAIN on MIMIC-III for drug recommendation task):
 
 * **pyhealth.datasets** provides a clean structure for the dataset. Any instance from this module is independent from downstream tasks. We support the processing scripts for three open datasets, MIMIC-III, MIMIC-IV and eICU, as well as the standard OMOP-formatted data. The output instance contains a unified ``dictionary-based structure``.
+
 .. code-block:: python
 
     from pyhealth.datasets import MIMIC3BaseDataset
     base_ds = MIMIC3BaseDataset(root='./mimiciii/1.4')
 
 * **pyhealth.tasks** inputs the ``<pyhealth.datasets>`` object and further processes it (clean up irrelevant info.) and finally provides another structure for the specific task. This module bridges the dataset instance and the downstream models.
+
 .. code-block:: python
 
     from pyhealth.tasks import DrugRecDataset
@@ -111,12 +113,14 @@ We have implements one module for each of the steps (we build a pipeline trainin
     train_loader, val_loader, test_loader = split_by_pat(drugrec_ds, [0.8, 0.1, 0.1])
 
 * **pyhealth.models** provides the state-of-the-art healthcare ML models.
+
 .. code-block:: python
     
     from pyhealth.models import RETAIN
     model = RETAIN("drug_recommendation", voc_size, tokenizers, emb_dim=64)
 
 * **trainer.py** is the training manager for deep learning models.
+
 .. code-block:: python
     
     from pyhealth.trainer import Trainer
@@ -128,6 +132,7 @@ We have implements one module for each of the steps (we build a pipeline trainin
     # Best model saved to: ../output/221004-015401/best.ckpt
 
 * **pyhealth.evaluator** lists the evaluator for each healthcare tasks with detailed metrics specification.
+
 .. code-block:: python
     
     model = trainer.load(model, path="../output/221004-015401/best.ckpt") 
@@ -288,7 +293,7 @@ OMOP                 ``pyhealth.datasets.OMOPBaseDataset``                      
 
 
 Machine/Deep Learning Models
---------------------------
+--------------------------------
 
 ============================    ================  =================================  ======  ===========================================================================================================================================
 Model Name                      Type              Module                             Year    Reference                                                                                    
@@ -326,7 +331,7 @@ SafeDrug (DDI hyperparameter: 0.06)     0.0614      0.4682          0.7420      
 SafeDrug (DDI hyperparameter: 0.04)     0.0513      0.4594          0.7390          0.6189
 SafeDrug (DDI hyperparameter: 0.02)     0.0376      0.4448          0.7290          0.6051
 ===================================     ========    =========      ==========      ==========
-(contribute your model by **sending a commit** to ``pyhealth.models``)
+ (contribute your model by **sending a commit** to ``pyhealth.models``)
 
 
 
@@ -352,6 +357,7 @@ SafeDrug (DDI hyperparameter: 0.02)     0.0376      0.4448          0.7290      
    api/data
    api/datasets
    api/tasks
+   api/tokenizer
    api/models
    api/trainer
    api/evaluator
@@ -365,8 +371,6 @@ SafeDrug (DDI hyperparameter: 0.02)     0.0376      0.4448          0.7290      
 
    about
    faq
-..    contribution
-   whats_new
 
 
 .. .. bibliography:: references.bib

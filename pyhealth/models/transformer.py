@@ -3,7 +3,7 @@ from typing import List, Tuple, Union
 import torch
 import torch.nn as nn
 
-from pyhealth.data import BaseDataset
+from pyhealth.datasets import BaseDataset
 from pyhealth.models import BaseModel
 from pyhealth.tokenizer import Tokenizer
 

@@ -1,9 +1,10 @@
+from pyhealth.data import Patient, Visit
+from pyhealth.tasks.utils import get_code_from_list_of_event
+
 import sys
 
 # TODO: remove this hack later
 sys.path.append("/home/chaoqiy2/github/PyHealth-OMOP")
-from pyhealth.data import Patient, Visit
-from pyhealth.tasks.utils import get_code_from_list_of_event
 
 
 def drug_recommendation_mimic3_fn(patient: Patient):
@@ -70,7 +71,7 @@ def drug_recommendation_mimic3_fn(patient: Patient):
         ]
         samples[i]["drugs"] = samples[i - 1]["drugs"] + [samples[i]["drugs"]]
     for i in range(len(samples)):
-        samples[i]["drugs"] = samples[i]["drugs"][:-1] if i > 0 else [[]]
+        samples[i]["drugs"][i] = []
 
     return samples
 
@@ -139,7 +140,7 @@ def drug_recommendation_mimic4_fn(patient: Patient):
         ]
         samples[i]["drugs"] = samples[i - 1]["drugs"] + [samples[i]["drugs"]]
     for i in range(len(samples)):
-        samples[i]["drugs"] = samples[i]["drugs"][:-1] if i > 0 else [[]]
+        samples[i]["drugs"][i] = []
 
     return samples
 
@@ -205,7 +206,7 @@ def drug_recommendation_eicu_fn(patient: Patient):
         ]
         samples[i]["drugs"] = samples[i - 1]["drugs"] + [samples[i]["drugs"]]
     for i in range(len(samples)):
-        samples[i]["drugs"] = samples[i]["drugs"][:-1] if i > 0 else [[]]
+        samples[i]["drugs"][i] = []
 
     return samples
 
@@ -272,7 +273,7 @@ def drug_recommendation_omop_fn(patient: Patient):
         ]
         samples[i]["drugs"] = samples[i - 1]["drugs"] + [samples[i]["drugs"]]
     for i in range(len(samples)):
-        samples[i]["drugs"] = samples[i]["drugs"][:-1] if i > 0 else [[]]
+        samples[i]["drugs"][i] = []
 
     return samples
 

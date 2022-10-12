@@ -1,13 +1,8 @@
 import os
-import sys
 from typing import Optional, List, Dict
-
 import pandas as pd
-
-# TODO: remove this hack later
-sys.path.append("/home/chaoqiy2/github/PyHealth-OMOP")
-
-from pyhealth.data import Event, Visit, Patient, BaseDataset
+from pyhealth.data import Event, Visit, Patient
+from pyhealth.datasets import BaseDataset
 from tqdm import tqdm
 
 

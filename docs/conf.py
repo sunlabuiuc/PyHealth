@@ -30,7 +30,7 @@ print(sys.path)
 needs_sphinx = "4.3"  # Nicer param docs
 
 project = "PyHealth"
-copyright = "2022, Patrick Jiang, Zhenbang Wu, Chaoqi Yang"
+copyright = "2022, PyHealth Team"
 author = "Patrick"
 
 # The full version, including alpha/beta/rc tags
