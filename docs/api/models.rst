@@ -7,6 +7,7 @@ We implement the following models for supporting multiple healthcare predictive 
     :maxdepth: 3
     
     models/pyhealth.models.MLModel
+    models/pyhealth.models.CNN
     models/pyhealth.models.RNN
     models/pyhealth.models.Transformer
     models/pyhealth.models.RETAIN

@@ -59,7 +59,7 @@ class Visit:
         encounter_time: Optional[datetime], timestamp of visit's encounter. Defaults to None.
         discharge_time: Optional[datetime], timestamp of visit's discharge. Defaults to None.
         discharge_status: Optional[str], patient's status upon discharge. E.g., "Alive", "Dead". Defaults to None.
-        **attr, optional attributes of the visit. Attributes to add to visit as key=value pairs.
+        **attr: optional attributes of the visit. Attributes to add to visit as key=value pairs.
 
     Attributes:
         attr_dict: dict, dictionary of visit attributes. Each key is an attribute name and each value is

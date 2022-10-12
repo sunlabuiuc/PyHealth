@@ -13,6 +13,7 @@ Tutorials
 
 `Tutorial 5: Introduction to pyhealth.metrics <https://colab.research.google.com/drive/18kbzEQAj1FMs_J9rTGX8eCoxnWdx4Ltn?usp=sharing>`_ 
 
+`Tutorial 6: Introduction to pyhealth.medcode <https://colab.research.google.com/drive/18kbzEQAj1FMs_J9rTGX8eCoxnWdx4Ltn?usp=sharing>`_
 
  The following tutorials will help users build their own task pipelines.
 
@@ -23,5 +24,7 @@ Tutorials
 `Pipeline 3: Readmission Prediction <https://colab.research.google.com/drive/10CSb4F4llYJvv42yTUiRmvSZdoEsbmFF>`_ 
 
 `Pipeline 4: Mortality Prediction <https://colab.research.google.com/drive/10CSb4F4llYJvv42yTUiRmvSZdoEsbmFF>`_ 
+
+`Pipeline 5: Phenotype Prediction <https://colab.research.google.com/drive/10CSb4F4llYJvv42yTUiRmvSZdoEsbmFF>`_ 
 
 ----------
