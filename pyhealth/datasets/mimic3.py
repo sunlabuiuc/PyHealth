@@ -1,9 +1,12 @@
+import os
+from datetime import datetime
+from typing import Optional, List, Dict
+
+import pandas as pd
 from tqdm import tqdm
+
 from pyhealth.data import Event, Visit, Patient
 from pyhealth.datasets import BaseDataset
-import os
-from typing import Optional, List, Dict
-import pandas as pd
 
 
 # TODO: add cptevents
@@ -16,45 +19,55 @@ import pandas as pd
 class MIMIC3Dataset(BaseDataset):
     """Base dataset for MIMIC-III dataset.
 
-    The MIMIC-III dataset is a large dataset of de-identified health records of ICU patients.
-    The dataset is available at https://mimic.physionet.org/.
+    The MIMIC-III dataset is a large dataset of de-identified health records of ICU
+    patients. The dataset is available at https://mimic.physionet.org/.
 
     We support the following tables:
-        - PATIENTS.csv: defines each SUBJECT_ID in the database, i.e. defines a single patient.
-        - ADMISSIONS.csv: define a patient's hospital admission, HADM_ID.
-        - DIAGNOSES_ICD.csv: contains ICD diagnoses for patients, most notably ICD-9 diagnoses.
-        - PROCEDURES_ICD.csv: contains ICD procedures for patients, most notably ICD-9 procedures.
-        - PRESCRIPTIONS.csv: contains medication related order entries, i.e. prescriptions.
-        - LABEVENTS.csv: contains all laboratory measurements for a given patient, including out patient data.
+        - PATIENTS.csv: defines each SUBJECT_ID in the database,
+            i.e. defines a single patient.
+        - ADMISSIONS.csv: defines a patient's hospital admission, HADM_ID.
+        - DIAGNOSES_ICD.csv: contains ICD diagnoses for patients, most notably
+            ICD-9 diagnoses.
+        - PROCEDURES_ICD.csv: contains ICD procedures for patients, most notably
+            ICD-9 procedures.
+        - PRESCRIPTIONS.csv: contains medication related order entries,
+            i.e. prescriptions.
+        - LABEVENTS.csv: contains all laboratory measurements for a given patient,
+            including out patient data.
 
     Args:
         dataset_name: str, name of the dataset.
         root: str, root directory of the raw data (should contain many csv files).
-        tables: List[str], list of tables to be loaded (e.g., ["DIAGNOSES_ICD", "PROCEDURES_ICD"]).
-        code_mapping: Optional[Dict[str, str]], key is the table name, value is the code vocabulary to map to
-            (e.g., {"DIAGNOSES_ICD": "CCS"}). Note that the source vocabulary will be automatically
-            inferred from the table. Default is None, which means the original code will be used.
-        dev: bool, whether to enable dev mode (only use a small subset of the data). Default is False.
-        refresh_cache: whether to refresh the cache; if true, the dataset will be processed from scratch
-            and the cache will be updated. Default is False.
+        tables: List[str], list of tables to be loaded (e.g., ["DIAGNOSES_ICD",
+            "PROCEDURES_ICD"]).
+        code_mapping: Optional[Dict[str, str]], key is the table name, value is the
+            code vocabulary to map to (e.g., {"DIAGNOSES_ICD": "CCS"}). Note that
+            the source vocabulary will be automatically inferred from the table.
+            Default is empty dict, which means the original code will be used.
+        dev: bool, whether to enable dev mode (only use a small subset of the data).
+            Default is False.
+        refresh_cache: whether to refresh the cache; if true, the dataset will be
+            processed from scratch and the cache will be updated. Default is False.
 
     Attributes:
-        task: Optional[str], name of the task (e.g., "mortality prediction"). Default is None.
-        samples: Optional[List[Dict]], a list of samples, each sample is a dict with patient_id, visit_id, and
-            other task-specific attributes as key. Default is None.
-        patient_to_index: Optional[Dict[str, int]], a dict mapping patient_id to the index of the patient in
-            self.samples. Default is None.
-        visit_to_index: Optional[Dict[str, int]], a dict mapping visit_id to the index of the visit in
-            self.samples. Default is None.
+        task: Optional[str], name of the task (e.g., "mortality prediction").
+            Default is None.
+        samples: Optional[List[Dict]], a list of samples, each sample is a dict with
+            patient_id, visit_id, and other task-specific attributes as key.
+            Default is None.
+        patient_to_index: Optional[Dict[str, int]], a dict mapping patient_id to the
+            index of the patient in self.samples. Default is None.
+        visit_to_index: Optional[Dict[str, int]], a dict mapping visit_id to the index
+            of the visit in self.samples. Default is None.
     """
 
     def __init__(
-        self,
-        root: str,
-        tables: List[str],
-        code_mapping: Optional[Dict[str, str]] = {},
-        dev=False,
-        refresh_cache=False,
+            self,
+            root: str,
+            tables: List[str],
+            code_mapping: Optional[Dict[str, str]] = None,
+            dev=False,
+            refresh_cache=False,
     ):
         super(MIMIC3Dataset, self).__init__(
             dataset_name="MIMIC-III",
@@ -68,10 +81,11 @@ class MIMIC3Dataset(BaseDataset):
     def parse_tables(self) -> Dict[str, Patient]:
         """This function overrides the parse_tables function in BaseDataset.
 
-        It parses the corresponding tables and creates a dict of patients which will be cached later.
+        It parses the corresponding tables and creates a dict of patients which will
+        be cached later.
 
         Returns:
-            patients: a dictionary of Patient objects indexed by patient_id
+            patients: a dictionary of Patient objects indexed by patient_id.
         """
         # patients is a dict of Patient objects indexed by patient_id
         patients: Dict[str, Patient] = dict()
@@ -87,6 +101,13 @@ class MIMIC3Dataset(BaseDataset):
                     f"Parser for table {table} is not implemented yet."
                 )
         return patients
+
+    @staticmethod
+    def strptime(s: str) -> Optional[datetime]:
+        """Parses a string to datetime object."""
+        if pd.isna(s):
+            return None
+        return datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
 
     def parse_patients_and_admissions(self, patients) -> Dict[str, Patient]:
         """function to parse PATIENTS and ADMISSIONS tables"""
@@ -107,7 +128,7 @@ class MIMIC3Dataset(BaseDataset):
         df = df.sort_values(["SUBJECT_ID", "ADMITTIME", "DISCHTIME"], ascending=True)
         # load patients
         for p_id, p_info in tqdm(
-            df.groupby("SUBJECT_ID"), desc="Parsing PATIENTS and ADMISSIONS"
+                df.groupby("SUBJECT_ID"), desc="Parsing PATIENTS and ADMISSIONS"
         ):
             patient = Patient(
                 patient_id=p_id,
@@ -139,7 +160,8 @@ class MIMIC3Dataset(BaseDataset):
     def parse_diagnoses_icd(self, patients) -> Dict[str, Patient]:
         """function to parse DIAGNOSES_ICD table.
 
-        Note that MIMIC-III does not provide specific timestamps in DIAGNOSES_ICD table, so we set it to None.
+        Note that MIMIC-III does not provide specific timestamps in DIAGNOSES_ICD
+        table, so we set it to None.
         """
         table = "DIAGNOSES_ICD"
         col = "ICD9_CODE"
@@ -166,7 +188,7 @@ class MIMIC3Dataset(BaseDataset):
         df = df.sort_values(["SUBJECT_ID", "HADM_ID", "SEQ_NUM"], ascending=True)
         # update patients
         for (p_id, v_id), v_info in tqdm(
-            df.groupby(["SUBJECT_ID", "HADM_ID"]), desc=f"Parsing {table}"
+                df.groupby(["SUBJECT_ID", "HADM_ID"]), desc=f"Parsing {table}"
         ):
             for code in v_info[col]:
                 event = Event(
@@ -212,7 +234,7 @@ class MIMIC3Dataset(BaseDataset):
         df = df.sort_values(["SUBJECT_ID", "HADM_ID", "SEQ_NUM"], ascending=True)
         # update patients and visits
         for (p_id, v_id), v_info in tqdm(
-            df.groupby(["SUBJECT_ID", "HADM_ID"]), desc=f"Parsing {table}"
+                df.groupby(["SUBJECT_ID", "HADM_ID"]), desc=f"Parsing {table}"
         ):
             for code in v_info[col]:
                 event = Event(
@@ -258,7 +280,7 @@ class MIMIC3Dataset(BaseDataset):
         )
         # update patients and visits
         for (p_id, v_id), v_info in tqdm(
-            df.groupby(["SUBJECT_ID", "HADM_ID"]), desc=f"Parsing {table}"
+                df.groupby(["SUBJECT_ID", "HADM_ID"]), desc=f"Parsing {table}"
         ):
             for timestamp, code in zip(v_info["STARTDATE"], v_info[col]):
                 # TODO: convert to datetime object
@@ -302,7 +324,7 @@ class MIMIC3Dataset(BaseDataset):
         df = df.sort_values(["SUBJECT_ID", "HADM_ID", "CHARTTIME"], ascending=True)
         # update patients and visits-
         for (p_id, v_id), v_info in tqdm(
-            df.groupby(["SUBJECT_ID", "HADM_ID"]), desc=f"Parsing {table}"
+                df.groupby(["SUBJECT_ID", "HADM_ID"]), desc=f"Parsing {table}"
         ):
             for timestamp, code in zip(v_info["CHARTTIME"], v_info[col]):
                 # TODO: convert to datetime object
