@@ -52,13 +52,13 @@ class BaseDataset(ABC, Dataset):
     """
 
     def __init__(
-            self,
-            dataset_name: str,
-            root: str,
-            tables: List[str],
-            code_mapping: Optional[Dict[str, str]] = None,
-            dev: bool = False,
-            refresh_cache: bool = False,
+        self,
+        dataset_name: str,
+        root: str,
+        tables: List[str],
+        code_mapping: Optional[Dict[str, str]] = None,
+        dev: bool = False,
+        refresh_cache: bool = False,
     ):
         """Loads tables into a dict of patients and saves it to cache."""
         if code_mapping is None:
@@ -79,10 +79,10 @@ class BaseDataset(ABC, Dataset):
 
         # cache
         args_to_hash = (
-                [dataset_name, root]
-                + sorted(tables)
-                + sorted(code_mapping.items())
-                + ["dev" if dev else "prod"]
+            [dataset_name, root]
+            + sorted(tables)
+            + sorted(code_mapping.items())
+            + ["dev" if dev else "prod"]
         )
         filename = hash_str("+".join([str(arg) for arg in args_to_hash])) + ".pkl"
         self.filepath = os.path.join(MODULE_CACHE_PATH, filename)
@@ -112,12 +112,12 @@ class BaseDataset(ABC, Dataset):
         raise NotImplementedError
 
     def map_code_in_table(
-            self,
-            df: pd.DataFrame,
-            source_vocabulary: str,
-            target_vocabulary: str,
-            source_col: str,
-            target_col: str,
+        self,
+        df: pd.DataFrame,
+        source_vocabulary: str,
+        target_vocabulary: str,
+        source_col: str,
+        target_col: str,
     ) -> pd.DataFrame:
         """Maps the codes in a table to a target vocabulary.
 
@@ -163,7 +163,7 @@ class BaseDataset(ABC, Dataset):
         self.task_fn = task_fn
         samples = []
         for patient_id, patient in tqdm(
-                self.patients.items(), desc=f"Generating samples for {self.task}"
+            self.patients.items(), desc=f"Generating samples for {self.task}"
         ):
             samples.extend(self.task_fn(patient))
         self.samples = samples
@@ -291,9 +291,7 @@ class BaseDataset(ABC, Dataset):
                 for p in self.patients.values()
                 for v in p
             ]
-            print(
-                f"\t- #{event_type}/visit: {sum(num_events) / len(num_events):.4f}"
-            )
+            print(f"\t- #{event_type}/visit: {sum(num_events) / len(num_events):.4f}")
         print()
 
     def task_stat(self):
@@ -313,9 +311,7 @@ class BaseDataset(ABC, Dataset):
                 print(f"\t- Label distribution: {self.get_label_distribution()}")
             else:
                 num_events = [len(sample[key][-1]) for sample in self.samples]
-                print(
-                    f"\t- #{key}/visit: {sum(num_events) / len(num_events):.4f}"
-                )
+                print(f"\t- #{key}/visit: {sum(num_events) / len(num_events):.4f}")
                 print(f"\t- Number of unique {key}: {len(self.get_all_tokens(key))}")
         print()
 
