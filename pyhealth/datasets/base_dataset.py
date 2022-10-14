@@ -323,6 +323,18 @@ class BaseDataset(ABC, Dataset):
             visit_to_index.setdefault(sample["visit_id"], []).append(idx)
         return visit_to_index
 
+    @property
+    def available_tables(self) -> List[str]:
+        """Returns a list of available tables for the dataset.
+
+        Returns:
+            List[str], list of available tables.
+        """
+        tables = []
+        for patient in self.patients.values():
+            tables.extend(patient.available_tables)
+        return list(set(tables))
+
     # TODO: check this
     def get_all_tokens(self, key: str, sort: bool = True) -> List[str]:
         """Gets all tokens with a specific key in the samples.
@@ -422,7 +434,7 @@ class BaseDataset(ABC, Dataset):
                 for v in p
             ]
             print(
-                f"\t- # codes in {table}/visit: {sum(num_events) / len(num_events):.4f}"
+                f"\t- codes/visit in {table}: {sum(num_events) / len(num_events):.4f}"
             )
         print()
 
