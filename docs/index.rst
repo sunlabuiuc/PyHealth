@@ -306,27 +306,31 @@ SafeDrug                        deep Learning     ``pyhealth.models.SafeDrug``  
 
 
 Benchmark on Healthcare Tasks
--------------------------------
+----------------------------------
 
-* **Current results on drug recommendation**. We conduct 2/3 : 1/6 : 1/6 split on MIMIC-III using five-fold cross validation, following `GAMENet <https://arxiv.org/abs/1809.01852>`_, `MICRON <https://www.ijcai.org/proceedings/2021/0513>`_, and `SafeDrug <https://arxiv.org/abs/2105.02711>`_.
+* Here is a temporary `benchmark doc <https://docs.google.com/spreadsheets/d/1c4OwCSDaEt7vGmocidq1hK2HCTeB6ZHDzAZvlubpi08/edit?usp=sharing>`_ on healthcare tasks. We will put the results in this section below.
 
-===================================     ========    =========      ==========      ==========
-Model Name                              DDI         Jaccard         PRAUC           Macro-F1
-===================================     ========    =========      ==========      ==========
-LR                                      0.0734      0.4979          0.7673          0.6550
-RF                                      0.0783      0.4482          0.7295          0.6119
-NN                                      0.0732      0.4756          0.7394          0.6355
-RNN                                     0.0785      0.4721          0.7445          0.6313
-Transformer                             0.0791      0.4991          0.7692          0.6552
-RETAIN                                  0.0770      0.5068          0.7727          0.6627
-GAMENet                                 0.0760      0.4620          0.7378          0.6221
-MICRON                                  0.0733      0.5042          0.7693          0.6599
-SafeDrug (DDI hyperparameter: 0.08)     0.0792      0.4709          0.7413          0.6299
-SafeDrug (DDI hyperparameter: 0.06)     0.0614      0.4682          0.7420          0.6276
-SafeDrug (DDI hyperparameter: 0.04)     0.0513      0.4594          0.7390          0.6189
-SafeDrug (DDI hyperparameter: 0.02)     0.0376      0.4448          0.7290          0.6051
-===================================     ========    =========      ==========      ==========
-(contribute your model by **sending a commit** to ``pyhealth.models``)
+.. -------------------------------
+
+.. * **Current results on drug recommendation**. We conduct 2/3 : 1/6 : 1/6 split on MIMIC-III using five-fold cross validation, following `GAMENet <https://arxiv.org/abs/1809.01852>`_, `MICRON <https://www.ijcai.org/proceedings/2021/0513>`_, and `SafeDrug <https://arxiv.org/abs/2105.02711>`_.
+
+.. ===================================     ========    =========      ==========      ==========
+.. Model Name                              DDI         Jaccard         PRAUC           Macro-F1
+.. ===================================     ========    =========      ==========      ==========
+.. LR                                      0.0734      0.4979          0.7673          0.6550
+.. RF                                      0.0783      0.4482          0.7295          0.6119
+.. NN                                      0.0732      0.4756          0.7394          0.6355
+.. RNN                                     0.0785      0.4721          0.7445          0.6313
+.. Transformer                             0.0791      0.4991          0.7692          0.6552
+.. RETAIN                                  0.0770      0.5068          0.7727          0.6627
+.. GAMENet                                 0.0760      0.4620          0.7378          0.6221
+.. MICRON                                  0.0733      0.5042          0.7693          0.6599
+.. SafeDrug (DDI hyperparameter: 0.08)     0.0792      0.4709          0.7413          0.6299
+.. SafeDrug (DDI hyperparameter: 0.06)     0.0614      0.4682          0.7420          0.6276
+.. SafeDrug (DDI hyperparameter: 0.04)     0.0513      0.4594          0.7390          0.6189
+.. SafeDrug (DDI hyperparameter: 0.02)     0.0376      0.4448          0.7290          0.6051
+.. ===================================     ========    =========      ==========      ==========
+.. (contribute your model by **sending a commit** to ``pyhealth.models``)
 
 
 
