@@ -290,19 +290,20 @@ OMOP                 ``pyhealth.datasets.OMOPBaseDataset``                      
 Machine/Deep Learning Models
 -----------------------------
 
-============================    ================  =================================  ======  ===========================================================================================================================================
-Model Name                      Type              Module                             Year    Reference                                                                                    
-============================    ================  =================================  ======  ===========================================================================================================================================
-Logistic Regression (LR)        classifical ML    ``pyhealth.models.MLModel``                ``sklearn.linear_model.LogisticRegression``                                                                    
-Random Forest (RF)              classifical ML    ``pyhealth.models.MLModel``                ``sklearn.ensemble.RandomForestClassifier``                                                                
-Neural Networks (NN)            classifical ML    ``pyhealth.models.MLModel``                ``sklearn.neural_network.MLPClassifier``                                                  
-Recurrent Neural Nets (RNN)     deep Learning     ``pyhealth.models.RNN``            2011    `Recurrent neural network based language model <http://www.fit.vutbr.cz/research/groups/speech/servite/2010/rnnlm_mikolov.pdf>`_
-Transformer                     deep Learning     ``pyhealth.models.Transformer``    2017    `Atention is All you Need <https://arxiv.org/abs/1706.03762>`_        
-RETAIN                          deep Learning     ``pyhealth.models.RETAIN``         2016    `RETAIN: An Interpretable Predictive Model for Healthcare using Reverse Time Attention Mechanism <https://arxiv.org/abs/1608.05745>`_
-GAMENet                         deep Learning     ``pyhealth.models.GAMENet``        2019    `GAMENet: Graph Attention Mechanism for Explainable Electronic Health Record Prediction <https://arxiv.org/abs/1809.01852>`_
-MICRON                          deep Learning     ``pyhealth.models.MICRON``         2021    `Change Matters: Medication Change Prediction with Recurrent Residual Networks <https://www.ijcai.org/proceedings/2021/0513>`_
-SafeDrug                        deep Learning     ``pyhealth.models.SafeDrug``       2021    `SafeDrug: Dual Molecular Graph Encoders for Recommending Effective and Safe Drug Combinations <https://arxiv.org/abs/2105.02711>`_
-============================    ================  =================================  ======  ===========================================================================================================================================
+==================================    ================  =================================  ======  ===========================================================================================================================================
+Model Name                            Type              Module                             Year    Reference
+==================================    ================  =================================  ======  ===========================================================================================================================================
+Logistic Regression (LR)              classifical ML    ``pyhealth.models.MLModel``                ``sklearn.linear_model.LogisticRegression``
+Random Forest (RF)                    classifical ML    ``pyhealth.models.MLModel``                ``sklearn.ensemble.RandomForestClassifier``
+Neural Networks (NN)                  classifical ML    ``pyhealth.models.MLModel``                ``sklearn.neural_network.MLPClassifier``
+Convolutional Neural Network (CNN)    deep learning     ``pyhealth.models.CNN``            1989    `Handwritten Digit Recognition with a Back-Propagation Network <https://proceedings.neurips.cc/paper/1989/file/53c3bce66e43be4f209556518c2fcb54-Paper.pdf>`_
+Recurrent Neural Nets (RNN)           deep Learning     ``pyhealth.models.RNN``            2011    `Recurrent neural network based language model <http://www.fit.vutbr.cz/research/groups/speech/servite/2010/rnnlm_mikolov.pdf>`_
+Transformer                           deep Learning     ``pyhealth.models.Transformer``    2017    `Atention is All you Need <https://arxiv.org/abs/1706.03762>`_
+RETAIN                                deep Learning     ``pyhealth.models.RETAIN``         2016    `RETAIN: An Interpretable Predictive Model for Healthcare using Reverse Time Attention Mechanism <https://arxiv.org/abs/1608.05745>`_
+GAMENet                               deep Learning     ``pyhealth.models.GAMENet``        2019    `GAMENet: Graph Attention Mechanism for Explainable Electronic Health Record Prediction <https://arxiv.org/abs/1809.01852>`_
+MICRON                                deep Learning     ``pyhealth.models.MICRON``         2021    `Change Matters: Medication Change Prediction with Recurrent Residual Networks <https://www.ijcai.org/proceedings/2021/0513>`_
+SafeDrug                              deep Learning     ``pyhealth.models.SafeDrug``       2021    `SafeDrug: Dual Molecular Graph Encoders for Recommending Effective and Safe Drug Combinations <https://arxiv.org/abs/2105.02711>`_
+==================================    ================  =================================  ======  ===========================================================================================================================================
 
 
 Benchmark on Healthcare Tasks
@@ -321,6 +322,7 @@ Benchmark on Healthcare Tasks
 .. RF                                      0.0783      0.4482          0.7295          0.6119
 .. NN                                      0.0732      0.4756          0.7394          0.6355
 .. RNN                                     0.0785      0.4721          0.7445          0.6313
+.. CNN                                     0.0785      0.4394          0.7364          0.6313
 .. Transformer                             0.0791      0.4991          0.7692          0.6552
 .. RETAIN                                  0.0770      0.5068          0.7727          0.6627
 .. GAMENet                                 0.0760      0.4620          0.7378          0.6221
