@@ -51,6 +51,12 @@ class Event:
             f"Event with {self.vocabulary} code {self.code} from table {self.table}"
         )
 
+    def __str__(self):
+        line = f"Event with {self.vocabulary} code {self.code} " \
+               f"from table {self.table} " \
+               f"at time {self.timestamp}"
+        return line
+
 
 class Visit:
     """Contains information about a single visit.
@@ -172,8 +178,25 @@ class Visit:
 
     def __repr__(self):
         return f"Visit {self.visit_id} " \
+               f"from patient {self.patient_id} " \
                f"with {self.num_events} events " \
                f"from tables {self.available_tables}"
+
+    def __str__(self):
+        lines = list()
+        lines.append(f"Visit {self.visit_id} from patient {self.patient_id} "
+                     f"with {self.num_events} events:")
+        lines.append(f"Encounter time: {self.encounter_time}")
+        lines.append(f"Discharge time: {self.discharge_time}")
+        lines.append(f"Discharge status: {self.discharge_status}")
+        lines.append(f"Available tables: {self.available_tables}")
+        for k, v in self.attr_dict.items():
+            lines.append(f"{k}: {v}")
+        lines.append("Events:")
+        for table, event_list in self.event_list_dict.items():
+            for event in event_list:
+                lines.append(f"\t {event}")
+        return "\n".join(lines)
 
 
 class Patient:
@@ -287,8 +310,37 @@ class Patient:
         visit_id = self.index_to_visit_id[index]
         return self.get_visit_by_id(visit_id)
 
+    @property
+    def available_tables(self) -> List[str]:
+        """Returns a list of available tables for the patient.
+
+        Returns:
+            List[str], list of available tables.
+        """
+        tables = []
+        for visit in self:
+            tables.extend(visit.available_tables)
+        return list(set(tables))
+
     def __repr__(self):
         return f"Patient {self.patient_id} with {len(self)} visits"
+
+    def __str__(self):
+        lines = list()
+        # patient info
+        lines.append(f"Patient {self.patient_id} with {len(self)} visits:")
+        lines.append(f"\t Birth datetime: {self.birth_datetime}")
+        lines.append(f"\t Death datetime: {self.death_datetime}")
+        lines.append(f"\t Gender: {self.gender}")
+        lines.append(f"\t Ethnicity: {self.ethnicity}")
+        for k, v in self.attr_dict.items():
+            lines.append(f"\t {k}: {v}")
+        lines.append("")
+        # visit info
+        for visit in self:
+            lines.append(f"{visit}")
+            lines.append("")
+        return "\n".join(lines)
 
     def __len__(self):
         return len(self.visits)
