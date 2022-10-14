@@ -15,4 +15,5 @@ We support various real-world healthcare predictive tasks defined by **function 
     tasks/pyhealth.tasks.drug_recommendation
     tasks/pyhealth.tasks.readmission_prediction
     tasks/pyhealth.tasks.mortality_prediction
+    tasks/pyhealth.tasks.length_of_stay_prediction
 
