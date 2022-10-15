@@ -478,8 +478,7 @@ class BaseDataset(ABC, Dataset):
     def info(self):
         """Prints the output format."""
 
-        print(
-            """
+        print("""
         dataset.patients: patient_id -> <Patient>
             
             <Patient>
@@ -487,12 +486,10 @@ class BaseDataset(ABC, Dataset):
                 - other patient-level info.
         
                     <Visit>
-                        - conditions: List[Event]
-                        - drugs: List[Event]
+                        - event_list_dict: table_name -> List[Event]
                         - other visit-level info.
 
                                 <Event>
                                     - code: str
                                     - other event-level info.    
-        """
-        )
+        """)
