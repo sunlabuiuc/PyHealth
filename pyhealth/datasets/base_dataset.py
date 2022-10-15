@@ -52,13 +52,13 @@ class BaseDataset(ABC, Dataset):
     """
 
     def __init__(
-            self,
-            dataset_name: str,
-            root: str,
-            tables: List[str],
-            code_mapping: Optional[Dict[str, str]] = None,
-            dev: bool = False,
-            refresh_cache: bool = False,
+        self,
+        dataset_name: str,
+        root: str,
+        tables: List[str],
+        code_mapping: Optional[Dict[str, str]] = None,
+        dev: bool = False,
+        refresh_cache: bool = False,
     ):
         """Loads tables into a dict of patients and saves it to cache."""
 
@@ -83,10 +83,10 @@ class BaseDataset(ABC, Dataset):
 
         # hash filename for cache
         args_to_hash = (
-                [dataset_name, root]
-                + sorted(tables)
-                + sorted(code_mapping.items())
-                + ["dev" if dev else "prod"]
+            [dataset_name, root]
+            + sorted(tables)
+            + sorted(code_mapping.items())
+            + ["dev" if dev else "prod"]
         )
         filename = hash_str("+".join([str(arg) for arg in args_to_hash])) + ".pkl"
         self.filepath = os.path.join(MODULE_CACHE_PATH, filename)
@@ -284,7 +284,7 @@ class BaseDataset(ABC, Dataset):
         self.task_fn = task_fn
         samples = []
         for patient_id, patient in tqdm(
-                self.patients.items(), desc=f"Generating samples for {self.task}"
+            self.patients.items(), desc=f"Generating samples for {self.task}"
         ):
             samples.extend(self.task_fn(patient))
         self.samples = samples
@@ -471,14 +471,28 @@ class BaseDataset(ABC, Dataset):
             else:
                 # TODO: drugs[-1] is empty list
                 num_events = [len(sample[key][-1]) for sample in self.samples]
-                print(
-                    f"\t- #{key}/visit: {sum(num_events) / len(num_events):.4f}"
-                )
+                print(f"\t- #{key}/visit: {sum(num_events) / len(num_events):.4f}")
                 print(f"\t- Number of unique {key}: {len(self.get_all_tokens(key))}")
         print()
 
-    def info(self) -> None:
-        """Prints the doc of the class."""
-        print()
-        print(self.__doc__)
-        print()
+    def info(self):
+        """Prints the output format."""
+
+        print(
+            """
+        dataset.patients: patient_id -> <Patient>
+            
+            <Patient>
+                - visits: visit_id -> <Visit> 
+                - other patient-level info.
+        
+                    <Visit>
+                        - conditions: List[Event]
+                        - drugs: List[Event]
+                        - other visit-level info.
+
+                                <Event>
+                                    - code: str
+                                    - other event-level info.    
+        """
+        )

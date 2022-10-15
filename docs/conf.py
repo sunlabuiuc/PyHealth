@@ -16,6 +16,7 @@
 
 import sys
 from pathlib import Path
+import os
 
 HERE = Path(__file__).parent
 sys.path[:0] = [
@@ -23,6 +24,8 @@ sys.path[:0] = [
     str(HERE / "extensions"),
     str(HERE.parent / "pyhealth"),
 ]
+
+os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
 print(sys.path)
 

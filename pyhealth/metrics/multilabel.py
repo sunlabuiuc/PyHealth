@@ -147,21 +147,22 @@ def cohen_kappa_multilabel(y_true, y_pred, **kwargs):
     return np.mean(result)
 
 
-def ddi_rate_score(predicted, ddi_matrix, threshold=0.4):
+def ddi_rate_score(medications, ddi_matrix):
     """DDI rate score.
     INPUTS:
-        - predicted: float based array-like of shape (n_samples, n_classes)
+        - medications: array-like of shape (n_samples, n_classes)
         - ddi_matrix: array-like of shape (n_classes, n_classes)
-        - threshold: float
     OUTPUTS:
         - result: DDI rate score
     """
+    medications = np.array(medications)
+    ddi_matrix = np.array(ddi_matrix)
+
     all_cnt = 0
     dd_cnt = 0
-    for visit in predicted:
-        cur_med = np.where(visit >= threshold)[0]
-        for i, med_i in enumerate(cur_med):
-            for j, med_j in enumerate(cur_med):
+    for sample in medications:
+        for i, med_i in enumerate(sample):
+            for j, med_j in enumerate(sample):
                 if j <= i:
                     continue
                 all_cnt += 1
