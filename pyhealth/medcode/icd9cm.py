@@ -9,6 +9,10 @@ class ICD9CM(BaseCode):
         super(ICD9CM, self).__init__(vocabulary="ICD9CM",
                                      valid_mappings=self.VALID_MAPPINGS, **kwargs)
 
+    def lookup(self, code):
+        code = normalize_icd9cm(code)
+        return super(ICD9CM, self).lookup(code)
+
     def map_to(self, code, target):
         code = normalize_icd9cm(code)
         return super(ICD9CM, self).map_to(code, target)
