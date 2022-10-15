@@ -5,7 +5,9 @@ class RxNorm(BaseCode):
     VALID_MAPPINGS = ["NDC", "ATC"]
 
     def __init__(self, **kwargs):
-        super(RxNorm, self).__init__(vocabulary="RxNorm", valid_mappings=self.VALID_MAPPINGS, **kwargs)
+        super(RxNorm, self).__init__(
+            vocabulary="RxNorm", valid_mappings=self.VALID_MAPPINGS, **kwargs
+        )
 
 
 if __name__ == "__main__":

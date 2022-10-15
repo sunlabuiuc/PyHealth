@@ -8,3 +8,4 @@ from .icd9cm import ICD9CM
 from .icd9proc import ICD9PROC
 from .ndc import NDC
 from .rxnorm import RxNorm
+from .base_code import BaseCode

@@ -1,19 +1,19 @@
 from collections import OrderedDict
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 
 class Event:
     """Contains information about a single event.
 
-    An event can be a diagnosis, a procedure, a drug, a lab that happened to a patient
-    in a visit at a specific time.
+    An event can be a diagnosis, a procedure, a drug or a lab that happened
+        in a visit of a patient at a specific time.
 
     Args:
-        code: str, code of the event (e.g., "428.0" for heart failure).
-        event_type: str, type of the event. This corresponds to the table name in the
-            raw data (e.g., "DIAGNOSES_ICD").
-        vocabulary: str, vocabulary of the code (e.g., 'ICD9CM', 'ICD10CM', 'NDC').
+        code: str, code of the event. E.g., "428.0" for heart failure.
+        table: str, name of the table where the event is recorded.
+            E.g., "DIAGNOSES_ICD"
+        vocabulary: str, vocabulary of the code. E.g., "ICD9CM", "ICD10CM", "NDC".
         visit_id: str, unique identifier of the visit.
         patient_id: str, unique identifier of the patient.
         timestamp: Optional[datetime], timestamp of the event. Defaults to None.
@@ -21,22 +21,24 @@ class Event:
             key=value pairs.
 
     Attributes:
-        attr_dict: dict, dictionary of event attributes. Each key is an attribute name
-            and each value is the attribute's value.
+        attr_dict: Dict, dictionary of event attributes. Each key is an attribute
+            name and each value is the attribute's value.
     """
 
     def __init__(
             self,
             code: str,
-            event_type: str,
+            table: str,
             vocabulary: str,
             visit_id: str,
             patient_id: str,
             timestamp: Optional[datetime] = None,
             **attr,
     ):
+        assert timestamp is None or isinstance(timestamp, datetime), \
+            "timestamp must be a datetime object"
         self.code = code
-        self.event_type = event_type
+        self.table = table
         self.vocabulary = vocabulary
         self.visit_id = visit_id
         self.patient_id = patient_id
@@ -44,17 +46,23 @@ class Event:
         self.attr_dict = dict()
         self.attr_dict.update(attr)
 
-    def __str__(self):
+    def __repr__(self):
         return (
-            f"Event of type {self.event_type} with {self.vocabulary} code {self.code}"
+            f"Event with {self.vocabulary} code {self.code} from table {self.table}"
         )
+
+    def __str__(self):
+        line = f"Event with {self.vocabulary} code {self.code} " \
+               f"from table {self.table} " \
+               f"at time {self.timestamp}"
+        return line
 
 
 class Visit:
     """Contains information about a single visit.
 
-    A visit is a period of time in which a patient is admitted to a hospital.
-    Each visit is associated with a patient and contains a list of different events.
+    A visit is a period of time in which a patient is admitted to a hospital. Each
+        visit is associated with a patient and contains a list of different events.
 
     Args:
         visit_id: str, unique identifier of the visit.
@@ -63,16 +71,17 @@ class Visit:
             Defaults to None.
         discharge_time: Optional[datetime], timestamp of visit's discharge.
             Defaults to None.
-        discharge_status: Optional[str], patient's status upon discharge.
+        discharge_status: Optional, patient's status upon discharge.
             E.g., "Alive", "Dead". Defaults to None.
-        **attr, optional attributes of the visit. Attributes to add to visit as
+        **attr: optional attributes of the visit. Attributes to add to visit as
             key=value pairs.
 
     Attributes:
-        attr_dict: dict, dictionary of visit attributes. Each key is an attribute name
-            and each value is the attribute's value.
-        event_list_dict: dict, dictionary of event lists. Each key is an event type and
-            each value is a list of events of that type ordered by timestamp.
+        attr_dict: Dict, dictionary of visit attributes. Each key is an attribute
+            name and each value is the attribute's value.
+        event_list_dict: Dict[str, List[Event]], dictionary of event lists.
+            Each key is a table name and each value is a list of events from that
+            table ordered by timestamp.
     """
 
     def __init__(
@@ -81,7 +90,7 @@ class Visit:
             patient_id: str,
             encounter_time: Optional[datetime] = None,
             discharge_time: Optional[datetime] = None,
-            discharge_status: Optional[str] = None,
+            discharge_status=None,
             **attr,
     ):
         self.visit_id = visit_id
@@ -93,52 +102,137 @@ class Visit:
         self.attr_dict.update(attr)
         self.event_list_dict = dict()
 
-    def add_event(self, event: Event):
+    def add_event(self, event: Event) -> None:
         """Adds an event to the visit.
+
+        If the event's table is not in the visit's event list dictionary, it is
+            added as a new key. The event is then added to the list of events of
+            that table.
+
+        As for now, there is no check on the order of the events. The new event
+            is simply appended to the list of events.
 
         Args:
             event: Event, event to add.
         """
-        event_type = event.event_type
-        if event_type not in self.event_list_dict:
-            self.event_list_dict[event_type] = list()
-        self.event_list_dict[event_type].append(event)
+        # TODO: ensure that events are sorted by timestamp
+        table = event.table
+        if table not in self.event_list_dict:
+            self.event_list_dict[table] = list()
+        self.event_list_dict[table].append(event)
 
-    def get_event_list(self, event_type: str) -> list:
-        """Returns a list of events of a specific type.
+    def get_event_list(self, table: str) -> List[Event]:
+        """Returns a list of events from a specific table.
 
-        If no events of that type are found, returns an empty list.
+        If the table is not in the visit's event list dictionary, an empty list
+            is returned.
+
+        As for now, there is no check on the order of the events. The list of
+            events is simply returned as is.
 
         Args:
-            event_type: str, type of events to return.
+            table: str, name of the table.
 
         Returns:
-            list, list of events of the specified type.
+            List[Event], list of events from the specified table.
         """
         # TODO: ensure that events are sorted by timestamp
-        if event_type in self.event_list_dict:
-            return self.event_list_dict[event_type]
+        if table in self.event_list_dict:
+            return self.event_list_dict[table]
         else:
             return list()
 
-    @property
-    def event_types(self) -> list:
-        """Returns a list of event types in the visit.
+    def get_code_list(
+            self,
+            table: str,
+            remove_duplicate: Optional[bool] = True
+    ) -> List[str]:
+        """Returns a list of codes from a specific table.
+
+        If the table is not in the visit's event list dictionary, an empty list
+            is returned.
+
+        As for now, there is no check on the order of the codes. The list of
+            codes is simply returned as is.
+
+        Args:
+            table: str, name of the table.
+            remove_duplicate: Optional[bool], whether to remove duplicate codes
+                (but keep the order). Default is True.
 
         Returns:
-            list, list of event types in the visit.
+            List[str], list of codes from the specified table.
+        """
+        # TODO: ensure that codes are sorted by timestamp
+        event_list = self.get_event_list(table)
+        code_list = [event.code for event in event_list]
+        if remove_duplicate:
+            # remove duplicate codes but keep the order
+            code_list = list(dict.fromkeys(code_list))
+        return code_list
+
+    def set_event_list(self, table: str, event_list: List[Event]) -> None:
+        """Sets the list of events from a specific table.
+
+        Note that this function will overwrite any existing list of events from
+            the specified table.
+
+        As for now, there is no check on the order of the events. The list of
+            events is simply set as is.
+
+        Args:
+            table: str, name of the table.
+            event_list: List[Event], list of events to set.
+        """
+        # TODO: ensure that events are sorted by timestamp
+        self.event_list_dict[table] = event_list
+
+    @property
+    def available_tables(self) -> List[str]:
+        """Returns a list of available tables for the visit.
+
+        Returns:
+            List[str], list of available tables.
         """
         return list(self.event_list_dict.keys())
 
+    @property
+    def num_events(self) -> int:
+        """Returns the total number of events in the visit.
+
+        Returns:
+            int, total number of events.
+        """
+        return sum([len(event_list) for event_list in self.event_list_dict.values()])
+
+    def __repr__(self):
+        return f"Visit {self.visit_id} " \
+               f"from patient {self.patient_id} " \
+               f"with {self.num_events} events " \
+               f"from tables {self.available_tables}"
+
     def __str__(self):
-        return f"Visit {self.visit_id} with {len(self.event_types)} types of events"
+        lines = list()
+        lines.append(f"Visit {self.visit_id} from patient {self.patient_id} "
+                     f"with {self.num_events} events:")
+        lines.append(f"Encounter time: {self.encounter_time}")
+        lines.append(f"Discharge time: {self.discharge_time}")
+        lines.append(f"Discharge status: {self.discharge_status}")
+        lines.append(f"Available tables: {self.available_tables}")
+        for k, v in self.attr_dict.items():
+            lines.append(f"{k}: {v}")
+        lines.append("Events:")
+        for table, event_list in self.event_list_dict.items():
+            for event in event_list:
+                lines.append(f"\t {event}")
+        return "\n".join(lines)
 
 
 class Patient:
     """Contains information about a single patient.
 
-    A patient is a person who is admitted at least once to a hospital.
-    Each patient is associated with a list of visits.
+    A patient is a person who is admitted at least once to a hospital. Each patient
+        is associated with a list of visits.
 
     Args:
         patient_id: str, unique identifier of the patient.
@@ -146,21 +240,22 @@ class Patient:
             Defaults to None.
         death_datetime: Optional[datetime], timestamp of patient's death.
             Defaults to None.
-        gender: Optional[str], gender of the patient. E.g., "M", "F".
+        gender: Optional, gender of the patient. E.g., "M", "F".
             Defaults to None.
-        ethnicity: Optional[str], ethnicity of the patient. E.g., "White",
+        ethnicity: Optional, ethnicity of the patient. E.g., "White",
             "Black or African American", "American Indian or Alaska Native",
-            "Asian", "Native Hawaiian or Other Pacific Islander". Defaults to None.
+            "Asian", "Native Hawaiian or Other Pacific Islander".
+            Defaults to None.
         attr: optional attributes of the patient. Attributes to add to patient as
             key=value pairs.
 
     Attributes:
-        attr_dict: dict, dictionary of patient attributes. Each key is an attribute
+        attr_dict: Dict, dictionary of patient attributes. Each key is an attribute
             name and each value is the attribute's value.
-        visits: OrderedDict[str, Visit], an ordered dictionary of visits. Each key is
-            a visit id and each value is a visit.
-        index_to_visit: dict, dictionary that maps the index of a visit in the visits
-            list to the visit id.
+        visits: OrderedDict[str, Visit], an ordered dictionary of visits. Each key
+            is a visit id and each value is a visit.
+        index_to_visit_id: Dict[int, str], dictionary that maps the index of a visit in the
+            visits list to the corresponding visit id.
     """
 
     def __init__(
@@ -168,8 +263,8 @@ class Patient:
             patient_id: str,
             birth_datetime: Optional[datetime] = None,
             death_datetime: Optional[datetime] = None,
-            gender: Optional[str] = None,
-            ethnicity: Optional[str] = None,
+            gender=None,
+            ethnicity=None,
             **attr,
     ):
         self.patient_id = patient_id
@@ -180,30 +275,44 @@ class Patient:
         self.attr_dict = dict()
         self.attr_dict.update(attr)
         self.visits = OrderedDict()
-        self.index_to_visit = dict()
+        self.index_to_visit_id = dict()
 
-    def add_visit(self, visit: Visit):
+    def add_visit(self, visit: Visit) -> None:
         """Adds a visit to the patient.
+
+        Note that if the visit's id is already in the patient's visits dictionary,
+            it will be overwritten by the new visit.
+
+        As for now, there is no check on the order of the visits. The new visit
+            is simply added to the end of the ordered dictionary of visits.
 
         Args:
             visit: Visit, visit to add.
         """
         self.visits[visit.visit_id] = visit
         # incrementing index
-        self.index_to_visit[len(self.visits) - 1] = visit.visit_id
+        self.index_to_visit_id[len(self.visits) - 1] = visit.visit_id
 
-    def add_event(self, event: Event):
+    def add_event(self, event: Event) -> None:
         """Adds an event to the patient.
+
+        If the event's visit id is not in the patient's visits dictionary, this
+            function will raise KeyError.
+
+        As for now, there is no check on the order of the events. The new event
+            is simply appended to the list of events of the corresponding visit.
 
         Args:
             event: Event, event to add.
         """
         visit_id = event.visit_id
         if visit_id not in self.visits:
-            raise KeyError(f"Visit {visit_id} not found in patient {self.patient_id}")
+            raise KeyError(
+                f"Visit with id {visit_id} not found in patient {self.patient_id}"
+            )
         self.get_visit_by_id(visit_id).add_event(event)
 
-    def get_visit_by_id(self, visit_id: str):
+    def get_visit_by_id(self, visit_id: str) -> Visit:
         """Returns a visit by visit id.
 
         Args:
@@ -214,7 +323,7 @@ class Patient:
         """
         return self.visits[visit_id]
 
-    def get_visit_by_index(self, index: int):
+    def get_visit_by_index(self, index: int) -> Visit:
         """Returns a visit by its index.
 
         Args:
@@ -223,20 +332,50 @@ class Patient:
         Returns:
             Visit, visit with the given index.
         """
-        if index not in self.index_to_visit:
+        if index not in self.index_to_visit_id:
             raise IndexError(
-                f"Visit index {index} not found in patient {self.patient_id}"
+                f"Visit with  index {index} not found in patient {self.patient_id}"
             )
-        visit_id = self.index_to_visit[index]
+        visit_id = self.index_to_visit_id[index]
         return self.get_visit_by_id(visit_id)
 
-    def __str__(self):
+    @property
+    def available_tables(self) -> List[str]:
+        """Returns a list of available tables for the patient.
+
+        Returns:
+            List[str], list of available tables.
+        """
+        tables = []
+        for visit in self:
+            tables.extend(visit.available_tables)
+        return list(set(tables))
+
+    def __repr__(self):
         return f"Patient {self.patient_id} with {len(self)} visits"
+
+    def __str__(self):
+        lines = list()
+        # patient info
+        lines.append(f"Patient {self.patient_id} with {len(self)} visits:")
+        lines.append(f"\t Birth datetime: {self.birth_datetime}")
+        lines.append(f"\t Death datetime: {self.death_datetime}")
+        lines.append(f"\t Gender: {self.gender}")
+        lines.append(f"\t Ethnicity: {self.ethnicity}")
+        for k, v in self.attr_dict.items():
+            lines.append(f"\t {k}: {v}")
+        lines.append("")
+        # visit info
+        for visit in self:
+            lines.append(f"{visit}")
+            lines.append("")
+        return "\n".join(lines)
 
     def __len__(self):
         return len(self.visits)
 
-    def __getitem__(self, index):
+    def __getitem__(self, index) -> Visit:
+        """Returns a visit by its index."""
         return self.get_visit_by_index(index)
 
 
@@ -255,7 +394,7 @@ if __name__ == "__main__":
         code="428.0",
         visit_id="1",
         patient_id="1",
-        event_type="condition",
+        table="condition",
         vocabulary="ICD9CM",
         attr="attr",
     )

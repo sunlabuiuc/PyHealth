@@ -1,62 +1,85 @@
-from tqdm import tqdm
-from pyhealth.data import Event, Visit, Patient
-from pyhealth.datasets import BaseDataset
 import os
-import pandas as pd
 from typing import Optional, List, Dict
 
-# TODO: add cptevents
-# TODO: add drgcodes
-# TODO: add noteevents
-# TODO: add microbiologyevents
-# TODO: add procedureevents_mv
+import pandas as pd
+from tqdm import tqdm
+
+from pyhealth.data import Event, Visit, Patient
+from pyhealth.datasets import BaseDataset
+
+
+# TODO: add other tables
 
 
 class eICUDataset(BaseDataset):
     """Base dataset for eICU dataset.
 
-    The eICU dataset is a large dataset of de-identified health records of ICU patients.
-    The dataset is available at https://eicu-crd.mit.edu/.
+    The eICU dataset is a large dataset of de-identified health records of ICU
+        patients. The dataset is available at https://eicu-crd.mit.edu/.
 
-    We support the following tables:
-        - patient.csv: defines each uniquepid in the database, i.e. defines a single patient.
-        - diagnosis.csv: contains ICD diagnoses for patients, most notably ICD-9 diagnoses.
-        - treatment.csv: contains treatment code information for patients, via treatmentstring.
-        - medication.csv: contains medication related order entries, i.e. prescriptions.
-        - lab.csv: contains all laboratory measurements for a given patient, including out patient data.
-        - physicalExam.csv: contains all physical exam types for a given patient.
+    The basic information is stored in the following tables:
+        - patient: defines a patient (uniquepid), a hospital admission
+            (patienthealthsystemstayid), and a ICU stay (patientunitstayid)
+            in the database.
+        - hospital: contains information about a hospital (e.g., region).
+
+    Note that in eICU, a patient can have multiple hospital admissions and each
+        hospital admission can have multiple ICU stays. The data in eICU is centered
+        around the ICU stay and all timestamps are relative to the ICU admission time.
+        Thus, we only know the order of ICU stays within a hospital admission, but not
+        the order of hospital admissions within a patient. As a result, we use Patient
+        object to represent a hospital admission of a patient, and use Visit object to
+        store the ICU stays within that hospital admission.
+
+    We further support the following tables:
+        - diagnosis: contains ICD diagnoses (ICD9CM and ICD10CM code)
+            for patients
+        - treatment: contains treatment information (eICU_TREATMENTSTRING code)
+            for patients.
+        - medication: contains medication related order entries (eICU_DRUGNAME
+            code) for patients.
+        - lab: contains laboratory measurements (eICU_LABNAME code)
+            for patients
+        - physicalExam: contains all physical exam (eICU_PHYSICALEXAMPATH)
+            conducted for patients.
 
     Args:
         dataset_name: str, name of the dataset.
         root: str, root directory of the raw data (should contain many csv files).
-        tables: List[str], list of tables to be loaded (e.g., ["DIAGNOSES_ICD", "PROCEDURES_ICD"]).
-        code_mapping: Optional[Dict[str, str]], key is the table name, value is the code vocabulary to map to
-            (e.g., {"DIAGNOSES_ICD": "CCS"}). Note that the source vocabulary will be automatically
-            inferred from the table. Default is None, which means the original code will be used.
-        dev: bool, whether to enable dev mode (only use a small subset of the data). Default is False.
-        refresh_cache: whether to refresh the cache; if true, the dataset will be processed from scratch
-            and the cache will be updated. Default is False.
+        tables: List[str], list of tables to be loaded. Must be a subset of the
+            following tables: diagnosis, medication, lab, treatment, physicalExam.
+        code_mapping: Optional[Dict[str, str]], key is the source code vocabulary and
+            value is the target code vocabulary (e.g., {"ICD9CM": "CCSCM"}).
+            Default is empty dict, which means the original code will be used.
+        dev: bool, whether to enable dev mode (only use a small subset of the data).
+            Default is False.
+        refresh_cache: bool, whether to refresh the cache; if true, the dataset will
+            be processed from scratch and the cache will be updated. Default is False.
 
     Attributes:
-        task: Optional[str], name of the task (e.g., "mortality prediction"). Default is None.
-        samples: Optional[List[Dict]], a list of samples, each sample is a dict with patient_id, visit_id, and
-            other task-specific attributes as key. Default is None.
-        patient_to_index: Optional[Dict[str, int]], a dict mapping patient_id to the index of the patient in
-            self.samples. Default is None.
-        visit_to_index: Optional[Dict[str, int]], a dict mapping visit_id to the index of the visit in
-            self.samples. Default is None.
+        visit_id_to_patient_id: Dict[str, str], a mapping from visit_id to patient_id.
+        task: Optional[str], name of the task (e.g., "mortality prediction").
+            Default is None.
+        samples: Optional[List[Dict]], a list of samples, each sample is a dict with
+            patient_id, visit_id, and other task-specific attributes as key.
+            Default is None.
+        patient_to_index: Optional[Dict[str, List[int]]], a dict mapping patient_id to
+            a list of sample indices. Default is None.
+        visit_to_index: Optional[Dict[str, List[int]]], a dict mapping visit_id to a
+            list of sample indices. Default is None.
     """
 
     def __init__(
-        self,
-        root: str,
-        tables: List[str],
-        code_mapping: Optional[Dict[str, str]] = {},
-        dev=False,
-        refresh_cache=False,
+            self,
+            root: str,
+            tables: List[str],
+            code_mapping: Optional[Dict[str, str]] = None,
+            dev=False,
+            refresh_cache=False,
     ):
         # store a mapping from visit_id to patient_id
-        self.visit_to_patient = {}
+        # will be used to parse clinical tables as they only contain visit_id
+        self.visit_id_to_patient_id: Dict[str, str] = {}
 
         super(eICUDataset, self).__init__(
             dataset_name="eICU",
@@ -67,315 +90,357 @@ class eICUDataset(BaseDataset):
             refresh_cache=refresh_cache,
         )
 
-    def parse_tables(self) -> Dict[str, Patient]:
-        """This function overrides the parse_tables function in BaseDataset.
+    def _parse_tables(self) -> Dict[str, Patient]:
+        """This function overrides the _parse_tables() function in BaseDataset.
 
-        It parses the corresponding tables and creates a dict of patients which will be cached later.
+        It parses the corresponding tables and creates a dict of patients which
+            will be cached later.
 
         Returns:
-            patients: a dictionary of Patient objects indexed by patient_id
+            patients: a dictionary of Patient objects indexed by patient_id.
         """
         # patients is a dict of Patient objects indexed by patient_id
         patients: Dict[str, Patient] = dict()
         # process patients and admissions tables
-        patients = self.parse_patients(patients)
+        patients = self._parse_basic_info(patients)
         # process clinical tables
         for table in self.tables:
             try:
                 # use lower case for function name
-                patients = getattr(self, f"parse_{table.lower()}")(patients)
+                patients = getattr(self, f"_parse_{table.lower()}")(patients)
             except AttributeError:
                 raise NotImplementedError(
                     f"Parser for table {table} is not implemented yet."
                 )
         return patients
 
-    def parse_patients(self, patients) -> Dict[str, Patient]:
-        """function to parse patients tables"""
+    def _parse_basic_info(self, patients) -> Dict[str, Patient]:
+        """Helper functions which parses patient and hospital tables.
+
+        Will be called in _parse_tables().
+
+        Docs:
+            - patient: https://eicu-crd.mit.edu/eicutables/patient/
+            - hospital: https://eicu-crd.mit.edu/eicutables/hospital/
+
+        Note that we use Patient object to represent a hospital admission of a
+            patient, and use Visit object to store the ICU stays within that hospital
+            admission.
+        """
         # read patient table
-        df = pd.read_csv(
+        patient_df = pd.read_csv(
             os.path.join(self.root, "patient.csv"),
-            dtype={"uniquepid": str, "patientunitstayid": str},
+            dtype={"uniquepid": str,
+                   "patienthealthsystemstayid": str,
+                   "patientunitstayid": str},
             nrows=5000 if self.dev else None,
         )
-        # sort by admission and discharge time
+        # read hospital table
+        hospital_df = pd.read_csv(os.path.join(self.root, "hospital.csv"))
+        hospital_df.region = hospital_df.region.fillna("Unknown").astype(str)
+        # merge patient and hospital tables
+        df = pd.merge(patient_df, hospital_df, on="hospitalid", how="left")
+        # sort by ICU admission and discharge time
+        df["neg_hospitaladmitoffset"] = -df["hospitaladmitoffset"]
         df = df.sort_values(
             [
                 "uniquepid",
-                "patientunitstayid",
-                "hospitaladmitoffset",
+                "patienthealthsystemstayid",
+                "neg_hospitaladmitoffset",
                 "unitdischargeoffset",
             ],
             ascending=True,
         )
+        # group by patient and hospital admission
+        df_group = df.groupby(["uniquepid", "patienthealthsystemstayid"])
         # load patients
-        for p_id, p_info in tqdm(df.groupby("uniquepid"), desc="Parsing patients"):
-            patient = Patient(
-                patient_id=p_id,
-                # no dob, let us use age
-                birth_datetime=p_info["age"].values[0],
-                # no death time, let us use "unknown"
-                death_datetime="unknown",
-                # TODO: should categorize the gender
-                gender=p_info["gender"].values[0],
-                # TODO: should categorize the ethnicity
-                ethnicity=p_info["ethnicity"].values[0],
+        for (p_id, ha_id), p_info in tqdm(df_group, desc="Parsing patients"):
+            # each Patient object is a single hospital admission of a patient
+            patient_id = f"{p_id}+{ha_id}"
+
+            # hospital admission time (Jan 1 of hospitaldischargeyear, 00:00:00)
+            ha_datetime = self._strptime(
+                str(p_info["hospitaldischargeyear"].values[0]),
+                "%Y"
             )
+
+            # no exact birth datetime in eICU
+            # use hospital admission time and age to approximate birth datetime
+            age = p_info["age"].values[0]
+            if pd.isna(age):
+                birth_datetime = None
+            elif age == "> 89":
+                birth_datetime = ha_datetime - pd.DateOffset(years=89)
+            else:
+                birth_datetime = ha_datetime - pd.DateOffset(years=int(age))
+
+            # no exact death datetime in eICU
+            # use hospital discharge time to approximate death datetime
+            death_datetime = None
+            if p_info["hospitaldischargestatus"].values[0] == "Expired":
+                ha_los_min = p_info["hospitaldischargeoffset"].values[0] \
+                             - p_info["hospitaladmitoffset"].values[0]
+                death_datetime = ha_datetime + pd.Timedelta(minutes=ha_los_min)
+
+            patient = Patient(
+                patient_id=patient_id,
+                birth_datetime=birth_datetime,
+                death_datetime=death_datetime,
+                gender=p_info["gender"].values[0],
+                ethnicity=p_info["ethnicity"].values[0]
+            )
+
             # load visits
             for v_id, v_info in p_info.groupby("patientunitstayid"):
+                # each Visit object is a single ICU stay within a hospital admission
+
+                # base time is the hospital admission time
+                unit_admit = v_info["neg_hospitaladmitoffset"].values[0]
+                unit_discharge = unit_admit + v_info["unitdischargeoffset"].values[0]
+                encounter_time = ha_datetime + pd.Timedelta(minutes=unit_admit)
+                discharge_time = ha_datetime + pd.Timedelta(minutes=unit_discharge)
+
                 visit = Visit(
                     visit_id=v_id,
-                    patient_id=p_id,
-                    # TODO: convert to datetime object
-                    encounter_time=v_info["hospitaladmitoffset"].values[0],
-                    discharge_time=v_info["unitdischargeoffset"].values[0],
-                    # TODO: should categorize the discharge_status
+                    patient_id=patient_id,
+                    encounter_time=encounter_time,
+                    discharge_time=discharge_time,
                     discharge_status=v_info["unitdischargestatus"].values[0],
+                    hospital_id=v_info["hospitalid"].values[0],
+                    region=v_info["region"].values[0],
                 )
+
                 # add visit
                 patient.add_visit(visit)
-
-                # add visit to patient mapping
-                self.visit_to_patient[v_id] = p_id
-
+                # add visit id to patient id mapping
+                self.visit_id_to_patient_id[v_id] = patient_id
             # add patient
-            patients[p_id] = patient
+            patients[patient_id] = patient
         return patients
 
-    def parse_diagnosis(self, patients) -> Dict[str, Patient]:
-        """function to parse diagnosis table."""
+    def _parse_diagnosis(self, patients) -> Dict[str, Patient]:
+        """Helper functions which parses diagnosis table.
+
+        Will be called in _parse_tables().
+
+        Docs:
+            - diagnosis: https://eicu-crd.mit.edu/eicutables/diagnosis/
+
+        Note that this table contains both ICD9CM and ICD10CM codes in one single
+            cell. We need to use medcode to distinguish them.
+        """
+
+        # load ICD9CM and ICD10CM coding systems
+        from pyhealth.medcode import ICD9CM, ICD10CM
+
+        icd9cm = ICD9CM()
+        icd10cm = ICD10CM()
+
+        def icd9cm_or_icd10cm(code):
+            if icd9cm.contains(code):
+                return "ICD9CM"
+            elif icd10cm.contains(code):
+                return "ICD10CM"
+            else:
+                return "Unknown"
 
         table = "diagnosis"
-        col = "icd9code"
-        vocabulary = "ICD9CM"
-        # read diagnoses table
+        # read table
         df = pd.read_csv(
             os.path.join(self.root, f"{table}.csv"),
             dtype={"patientunitstayid": str, "icd9code": str},
         )
-        # code mapping
-        if table in self.code_mapping:
-            df = self.map_code_in_table(
-                df,
-                source_vocabulary=vocabulary,
-                target_vocabulary=self.code_mapping[table],
-                source_col=col,
-                target_col=self.code_mapping[table],
-            )
-            vocabulary = self.code_mapping[table]
-            col = self.code_mapping[table]
         # drop rows with missing values
-        df = df.dropna(subset=["patientunitstayid", col])
-        df = df.sort_values(["patientunitstayid"], ascending=True)
-        # update patients
-        for v_id, v_info in tqdm(
-            df.groupby("patientunitstayid"), desc=f"Parsing {table}"
-        ):
-            if v_id not in self.visit_to_patient:
+        df = df.dropna(subset=["patientunitstayid", "icd9code"])
+        # sort by diagnosisoffset
+        df = df.sort_values(["patientunitstayid", "diagnosisoffset"], ascending=True)
+        # group by visit
+        df_group = df.groupby("patientunitstayid")
+        # iterate over each visit
+        for v_id, v_info in tqdm(df_group, desc=f"Parsing {table}"):
+            if v_id not in self.visit_id_to_patient_id:
                 continue
-            for code in v_info[col]:
-                event = Event(
-                    code=code,
-                    event_type=table,
-                    vocabulary=vocabulary,
-                    visit_id=v_id,
-                    patient_id=self.visit_to_patient[v_id],
-                )
-                try:
-                    patients[self.visit_to_patient[v_id]].add_event(event)
-                except KeyError:
-                    continue
+            patient_id = self.visit_id_to_patient_id[v_id]
+            for offset, codes in zip(v_info["diagnosisoffset"], v_info["icd9code"]):
+                timestamp = patients[patient_id].get_visit_by_id(v_id).encounter_time \
+                            + pd.Timedelta(minutes=offset)
+                codes = [c.strip() for c in codes.split(",")]
+                # for each code in a single cell (mixed ICD9CM and ICD10CM)
+                for code in codes:
+                    vocab = icd9cm_or_icd10cm(code)
+                    event = Event(
+                        code=code,
+                        table=table,
+                        vocabulary=vocab,
+                        visit_id=v_id,
+                        patient_id=patient_id,
+                        timestamp=timestamp,
+                    )
+                    # update patients
+                    patients = self._add_event_to_patient_dict(patients, event)
         return patients
 
-    def parse_medication(self, patients) -> Dict[str, Patient]:
-        """function to parse medication table."""
+    def _parse_treatment(self, patients) -> Dict[str, Patient]:
+        """Helper functions which parses treatment table.
+
+        Will be called in _parse_tables().
+
+        Docs:
+            - treatment: https://eicu-crd.mit.edu/eicutables/treatment/
+        """
+        table = "treatment"
+        # read table
+        df = pd.read_csv(
+            os.path.join(self.root, f"{table}.csv"),
+            dtype={"patientunitstayid": str, "treatmentstring": str},
+        )
+        # drop rows with missing values
+        df = df.dropna(subset=["patientunitstayid", "treatmentstring"])
+        # sort by treatmentoffset
+        df = df.sort_values(["patientunitstayid", "treatmentoffset"], ascending=True)
+        # group by visit
+        df_group = df.groupby("patientunitstayid")
+        # iterate over each visit
+        for v_id, v_info in tqdm(df_group, desc=f"Parsing {table}"):
+            if v_id not in self.visit_id_to_patient_id:
+                continue
+            patient_id = self.visit_id_to_patient_id[v_id]
+            for offset, code in zip(v_info["treatmentoffset"],
+                                    v_info["treatmentstring"]):
+                timestamp = patients[patient_id].get_visit_by_id(v_id).encounter_time \
+                            + pd.Timedelta(minutes=offset)
+                event = Event(
+                    code=code,
+                    table=table,
+                    vocabulary="eICU_TREATMENTSTRING",
+                    visit_id=v_id,
+                    patient_id=patient_id,
+                    timestamp=timestamp,
+                )
+                # update patients
+                patients = self._add_event_to_patient_dict(patients, event)
+        return patients
+
+    def _parse_medication(self, patients) -> Dict[str, Patient]:
+        """Helper functions which parses medication table.
+
+        Will be called in _parse_tables().
+
+        Docs:
+            - medication: https://eicu-crd.mit.edu/eicutables/medication/
+        """
         table = "medication"
-        col = "drugname"
-        vocabulary = "EICU_DRUGNAME"
-        # read prescriptions table
+        # read table
         df = pd.read_csv(
             os.path.join(self.root, f"{table}.csv"),
             low_memory=False,
             dtype={"patientunitstayid": str, "drugname": str},
         )
-        # code mapping
-        if table in self.code_mapping:
-            df = self.map_code_in_table(
-                df,
-                source_vocabulary=vocabulary,
-                target_vocabulary=self.code_mapping[table],
-                source_col=col,
-                target_col=self.code_mapping[table],
-            )
-            vocabulary = self.code_mapping[table]
-            col = self.code_mapping[table]
         # drop rows with missing values
-        df = df.dropna(subset=["patientunitstayid", col])
+        df = df.dropna(subset=["patientunitstayid", "drugname"])
         # sort by drugstartoffset
         df = df.sort_values(["patientunitstayid", "drugstartoffset"], ascending=True)
-        # update patients and visits
-        for v_id, v_info in tqdm(
-            df.groupby(["patientunitstayid"]), desc=f"Parsing {table}"
-        ):
-            if v_id not in self.visit_to_patient:
+        # group by visit
+        df_group = df.groupby("patientunitstayid")
+        # iterate over each visit
+        for v_id, v_info in tqdm(df_group, desc=f"Parsing {table}"):
+            if v_id not in self.visit_id_to_patient_id:
                 continue
-            for timestamp, code in zip(v_info["drugstartoffset"], v_info[col]):
-                # TODO: convert to datetime object
+            patient_id = self.visit_id_to_patient_id[v_id]
+            for offset, code in zip(v_info["drugstartoffset"], v_info["drugname"]):
+                timestamp = patients[patient_id].get_visit_by_id(v_id).encounter_time \
+                            + pd.Timedelta(minutes=offset)
                 event = Event(
                     code=code,
-                    event_type=table,
-                    vocabulary=vocabulary,
+                    table=table,
+                    vocabulary="eICU_DRUGNAME",
                     visit_id=v_id,
-                    patient_id=self.visit_to_patient[v_id],
+                    patient_id=patient_id,
                     timestamp=timestamp,
                 )
-                try:
-                    patients[self.visit_to_patient[v_id]].add_event(event)
-                except KeyError:
-                    continue
+                # update patients
+                patients = self._add_event_to_patient_dict(patients, event)
         return patients
 
-    def parse_lab(self, patients) -> Dict[str, Patient]:
-        """function to parse lab table."""
+    def _parse_lab(self, patients) -> Dict[str, Patient]:
+        """Helper functions which parses lab table.
+
+        Will be called in _parse_tables().
+
+        Docs:
+            - lab: https://eicu-crd.mit.edu/eicutables/lab/
+        """
         table = "lab"
-        col = "labname"
-        vocabulary = "EICU_LABNAME"
-        # read labevents table
+        # read table
         df = pd.read_csv(
             os.path.join(self.root, f"{table}.csv"),
             dtype={"patientunitstayid": str, "labname": str},
         )
-        # code mapping
-        if table in self.code_mapping:
-            df = self.map_code_in_table(
-                df,
-                source_vocabulary=vocabulary,
-                target_vocabulary=self.code_mapping[table],
-                source_col=col,
-                target_col=self.code_mapping[table],
-            )
-            vocabulary = self.code_mapping[table]
-            col = self.code_mapping[table]
         # drop rows with missing values
-        df = df.dropna(subset=["patientunitstayid", col])
+        df = df.dropna(subset=["patientunitstayid", "labname"])
         # sort by labresultoffset
         df = df.sort_values(["patientunitstayid", "labresultoffset"], ascending=True)
-        # update patients and visits
-        for v_id, v_info in tqdm(
-            df.groupby("patientunitstayid"), desc=f"Parsing {table}"
-        ):
-            if v_id not in self.visit_to_patient:
+        # group by visit
+        df_group = df.groupby("patientunitstayid")
+        # iterate over each visit
+        for v_id, v_info in tqdm(df_group, desc=f"Parsing {table}"):
+            if v_id not in self.visit_id_to_patient_id:
                 continue
-            for timestamp, code in zip(v_info["labresultoffset"], v_info[col]):
-                # TODO: convert to datetime object
+            patient_id = self.visit_id_to_patient_id[v_id]
+            for offset, code in zip(v_info["labresultoffset"], v_info["labname"]):
+                timestamp = patients[patient_id].get_visit_by_id(v_id).encounter_time \
+                            + pd.Timedelta(minutes=offset)
                 event = Event(
                     code=code,
-                    event_type=table,
-                    vocabulary=vocabulary,
+                    table=table,
+                    vocabulary="eICU_LABNAME",
                     visit_id=v_id,
-                    patient_id=self.visit_to_patient[v_id],
+                    patient_id=patient_id,
                     timestamp=timestamp,
                 )
-                try:
-                    patients[self.visit_to_patient[v_id]].add_event(event)
-                except KeyError:
-                    continue
+                # update patients
+                patients = self._add_event_to_patient_dict(patients, event)
         return patients
 
-    def parse_treatment(self, patients) -> Dict[str, Patient]:
-        """function to parse treatment table.
-        Note: treatment value is not available for the first fewer patients (e.g., ~20,000).
+    def _parse_physicalexam(self, patients) -> Dict[str, Patient]:
+        """Helper functions which parses physicalExam table.
+
+        Will be called in _parse_tables().
+
+        Docs:
+            - physicalExam: https://eicu-crd.mit.edu/eicutables/physicalexam/
         """
-        table = "treatment"
-        col = "treatmentstring"
-        vocabulary = "EICU_TREATMENTSTRING"
-        # read labevents table
-        df = pd.read_csv(
-            os.path.join(self.root, f"{table}.csv"),
-            dtype={"patientunitstayid": str, "treatmentstring": str},
-        )
-        # code mapping
-        if table in self.code_mapping:
-            df = self.map_code_in_table(
-                df,
-                source_vocabulary=vocabulary,
-                target_vocabulary=self.code_mapping[table],
-                source_col=col,
-                target_col=self.code_mapping[table],
-            )
-            vocabulary = self.code_mapping[table]
-            col = self.code_mapping[table]
-        # drop rows with missing values
-        df = df.dropna(subset=["patientunitstayid", col])
-        # sort by treatmentoffset
-        df = df.sort_values(["patientunitstayid", "treatmentoffset"], ascending=True)
-        # update visits
-        for v_id, v_info in tqdm(
-            df.groupby("patientunitstayid"), desc=f"Parsing {table}"
-        ):
-            if v_id not in self.visit_to_patient:
-                continue
-            for timestamp, code in zip(v_info["treatmentoffset"], v_info[col]):
-                # TODO: convert to datetime object
-                event = Event(
-                    code=code,
-                    event_type=table,
-                    vocabulary=vocabulary,
-                    visit_id=v_id,
-                    patient_id=self.visit_to_patient[v_id],
-                    timestamp=timestamp,
-                )
-                try:
-                    patients[self.visit_to_patient[v_id]].add_event(event)
-                except KeyError:
-                    continue
-        return patients
-
-    def parse_physicalexam(self, patients) -> Dict[str, Patient]:
-        """function to parse physicalExam table."""
         table = "physicalExam"
-        col = "physicalexampath"
-        vocabulary = "EICU_PHYSICALEXAMPATH"
-        # read labevents table
+        # read table
         df = pd.read_csv(
             os.path.join(self.root, f"{table}.csv"),
             dtype={"patientunitstayid": str, "physicalexampath": str},
         )
-        # code mapping
-        if table in self.code_mapping:
-            df = self.map_code_in_table(
-                df,
-                source_vocabulary=vocabulary,
-                target_vocabulary=self.code_mapping[table],
-                source_col=col,
-                target_col=self.code_mapping[table],
-            )
-            vocabulary = self.code_mapping[table]
-            col = self.code_mapping[table]
         # drop rows with missing values
-        df = df.dropna(subset=["patientunitstayid", col])
+        df = df.dropna(subset=["patientunitstayid", "physicalexampath"])
         # sort by treatmentoffset
         df = df.sort_values(["patientunitstayid", "physicalexamoffset"], ascending=True)
-        # update visits
-        for v_id, v_info in tqdm(
-            df.groupby("patientunitstayid"), desc=f"Parsing {table}"
-        ):
-            if v_id not in self.visit_to_patient:
+        # group by visit
+        df_group = df.groupby("patientunitstayid")
+        # iterate over each visit
+        for v_id, v_info in tqdm(df_group, desc=f"Parsing {table}"):
+            if v_id not in self.visit_id_to_patient_id:
                 continue
-            for timestamp, code in zip(v_info["physicalexamoffset"], v_info[col]):
-                # TODO: convert to datetime object
+            patient_id = self.visit_id_to_patient_id[v_id]
+            for offset, code in zip(v_info["physicalexamoffset"],
+                                    v_info["physicalexampath"]):
+                timestamp = patients[patient_id].get_visit_by_id(v_id).encounter_time \
+                            + pd.Timedelta(minutes=offset)
                 event = Event(
                     code=code,
-                    event_type=table,
-                    vocabulary=vocabulary,
+                    table=table,
+                    vocabulary="eICU_PHYSICALEXAMPATH",
                     visit_id=v_id,
-                    patient_id=self.visit_to_patient[v_id],
+                    patient_id=patient_id,
                     timestamp=timestamp,
                 )
-                try:
-                    patients[self.visit_to_patient[v_id]].add_event(event)
-                except KeyError:
-                    continue
+                # update patients
+                patients = self._add_event_to_patient_dict(patients, event)
         return patients
 
 
@@ -383,7 +448,7 @@ if __name__ == "__main__":
     dataset = eICUDataset(
         root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
         tables=["diagnosis", "medication", "lab", "treatment", "physicalExam"],
-        dev=True,
+        dev=False,
         refresh_cache=True,
     )
     dataset.stat()

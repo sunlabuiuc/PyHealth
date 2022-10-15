@@ -22,6 +22,9 @@ def accuracy_avg_patient(y_true, y_pred, pat_id, pat_weight, **kwargs):
     Returns
         - result: weighted averaged accuracy over patients
     """
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+
     result = 0
     for pat in pat_weight:
         idx = np.where(np.array(pat_id) == pat)[0]
@@ -56,6 +59,10 @@ def recall_avg_patient(y_true, y_pred, pat_id, pat_weight, **kwargs):
     Returns
         - result: weighted averaged recall over patients
     """
+
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+
     result = 0
     for pat in pat_weight:
         idx = np.where(np.array(pat_id) == pat)[0]
@@ -73,6 +80,10 @@ def f1_avg_patient(y_true, y_pred, pat_id, pat_weight, **kwargs):
     Returns
         - result: weighted averaged F1 over patients
     """
+
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+
     result = 0
     for pat in pat_weight:
         idx = np.where(np.array(pat_id) == pat)[0]
@@ -90,6 +101,9 @@ def roc_auc_avg_patient(y_true, y_pred, pat_id, pat_weight, **kwargs):
     Returns
         - result: weighted averaged ROC AUC over patients
     """
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+
     result = 0
     for pat in pat_weight:
         idx = np.where(np.array(pat_id) == pat)[0]
@@ -107,6 +121,9 @@ def pr_auc_avg_patient(y_true, y_pred, pat_id, pat_weight, **kwargs):
     Returns
         - result: weighted averaged PR AUC over patients
     """
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+
     result = 0
     for pat in pat_weight:
         idx = np.where(np.array(pat_id) == pat)[0]
@@ -126,6 +143,9 @@ def jaccard_avg_patient(y_true, y_pred, pat_id, pat_weight, **kwargs):
     Returns
         - result: weighted averaged Jaccard over patients
     """
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+
     result = 0
     for pat in pat_weight:
         idx = np.where(np.array(pat_id) == pat)[0]
@@ -143,6 +163,9 @@ def cohen_kappa_avg_patient(y_true, y_pred, pat_id, pat_weight, **kwargs):
     Returns
         - result: weighted averaged Cohen Kappa over patients
     """
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+
     result = 0
     for pat in pat_weight:
         idx = np.where(np.array(pat_id) == pat)[0]
@@ -162,6 +185,9 @@ def r2_score_avg_patient(y_true, y_pred, pat_id, pat_weight, **kwargs):
     Returns
         - result: weighted averaged R2 over patients
     """
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+
     result = 0
     for pat in pat_weight:
         idx = np.where(np.array(pat_id) == pat)[0]

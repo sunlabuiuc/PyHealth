@@ -23,6 +23,7 @@ def is_best(best_score: float, score: float, mode: str) -> bool:
 
 class Trainer:
     """Training Handler
+
     Args:
         device: device to use
         enable_cuda: enable cuda

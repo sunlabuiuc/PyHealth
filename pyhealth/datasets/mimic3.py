@@ -1,5 +1,4 @@
 import os
-from datetime import datetime
 from typing import Optional, List, Dict
 
 import pandas as pd
@@ -9,45 +8,39 @@ from pyhealth.data import Event, Visit, Patient
 from pyhealth.datasets import BaseDataset
 
 
-# TODO: add cptevents
-# TODO: add drgcodes
-# TODO: add noteevents
-# TODO: add microbiologyevents
-# TODO: add procedureevents_mv
+# TODO: add other tables
 
 
 class MIMIC3Dataset(BaseDataset):
     """Base dataset for MIMIC-III dataset.
 
     The MIMIC-III dataset is a large dataset of de-identified health records of ICU
-    patients. The dataset is available at https://mimic.physionet.org/.
+        patients. The dataset is available at https://mimic.physionet.org/.
 
-    We support the following tables:
-        - PATIENTS.csv: defines each SUBJECT_ID in the database,
-            i.e. defines a single patient.
-        - ADMISSIONS.csv: defines a patient's hospital admission, HADM_ID.
-        - DIAGNOSES_ICD.csv: contains ICD diagnoses for patients, most notably
-            ICD-9 diagnoses.
-        - PROCEDURES_ICD.csv: contains ICD procedures for patients, most notably
-            ICD-9 procedures.
-        - PRESCRIPTIONS.csv: contains medication related order entries,
-            i.e. prescriptions.
-        - LABEVENTS.csv: contains all laboratory measurements for a given patient,
-            including out patient data.
+    The basic information is stored in the following tables:
+        - PATIENTS: defines a patient in the database, SUBJECT_ID.
+        - ADMISSIONS: defines a patient's hospital admission, HADM_ID.
+
+    We further support the following tables:
+        - DIAGNOSES_ICD: contains ICD-9 diagnoses (ICD9CM code) for patients.
+        - PROCEDURES_ICD: contains ICD-9 procedures (ICD9PROC code) for patients.
+        - PRESCRIPTIONS: contains medication related order entries (NDC code)
+            for patients.
+        - LABEVENTS: contains laboratory measurements (MIMIC3_ITEMID code)
+            for patients
 
     Args:
         dataset_name: str, name of the dataset.
         root: str, root directory of the raw data (should contain many csv files).
-        tables: List[str], list of tables to be loaded (e.g., ["DIAGNOSES_ICD",
-            "PROCEDURES_ICD"]).
-        code_mapping: Optional[Dict[str, str]], key is the table name, value is the
-            code vocabulary to map to (e.g., {"DIAGNOSES_ICD": "CCS"}). Note that
-            the source vocabulary will be automatically inferred from the table.
+        tables: List[str], list of tables to be loaded. Must be a subset of the
+            following tables: DIAGNOSES_ICD, PROCEDURES_ICD, PRESCRIPTIONS, LABEVENTS.
+        code_mapping: Optional[Dict[str, str]], key is the source code vocabulary and
+            value is the target code vocabulary (e.g., {"ICD9CM": "CCSCM"}).
             Default is empty dict, which means the original code will be used.
         dev: bool, whether to enable dev mode (only use a small subset of the data).
             Default is False.
-        refresh_cache: whether to refresh the cache; if true, the dataset will be
-            processed from scratch and the cache will be updated. Default is False.
+        refresh_cache: bool, whether to refresh the cache; if true, the dataset will
+            be processed from scratch and the cache will be updated. Default is False.
 
     Attributes:
         task: Optional[str], name of the task (e.g., "mortality prediction").
@@ -55,10 +48,10 @@ class MIMIC3Dataset(BaseDataset):
         samples: Optional[List[Dict]], a list of samples, each sample is a dict with
             patient_id, visit_id, and other task-specific attributes as key.
             Default is None.
-        patient_to_index: Optional[Dict[str, int]], a dict mapping patient_id to the
-            index of the patient in self.samples. Default is None.
-        visit_to_index: Optional[Dict[str, int]], a dict mapping visit_id to the index
-            of the visit in self.samples. Default is None.
+        patient_to_index: Optional[Dict[str, List[int]]], a dict mapping patient_id to
+            a list of sample indices. Default is None.
+        visit_to_index: Optional[Dict[str, List[int]]], a dict mapping visit_id to a
+            list of sample indices. Default is None.
     """
 
     def __init__(
@@ -78,11 +71,11 @@ class MIMIC3Dataset(BaseDataset):
             refresh_cache=refresh_cache,
         )
 
-    def parse_tables(self) -> Dict[str, Patient]:
-        """This function overrides the parse_tables function in BaseDataset.
+    def _parse_tables(self) -> Dict[str, Patient]:
+        """This function overrides the _parse_tables() function in BaseDataset.
 
-        It parses the corresponding tables and creates a dict of patients which will
-        be cached later.
+        It parses the corresponding tables and creates a dict of patients which
+            will be cached later.
 
         Returns:
             patients: a dictionary of Patient objects indexed by patient_id.
@@ -90,54 +83,51 @@ class MIMIC3Dataset(BaseDataset):
         # patients is a dict of Patient objects indexed by patient_id
         patients: Dict[str, Patient] = dict()
         # process patients and admissions tables
-        patients = self.parse_patients_and_admissions(patients)
+        patients = self._parse_basic_info(patients)
         # process clinical tables
         for table in self.tables:
             try:
                 # use lower case for function name
-                patients = getattr(self, f"parse_{table.lower()}")(patients)
+                patients = getattr(self, f"_parse_{table.lower()}")(patients)
             except AttributeError:
                 raise NotImplementedError(
                     f"Parser for table {table} is not implemented yet."
                 )
         return patients
 
-    @staticmethod
-    def strptime(s: str) -> Optional[datetime]:
-        """Parses a string to datetime object."""
-        if pd.isna(s):
-            return None
-        return datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
+    def _parse_basic_info(self, patients) -> Dict[str, Patient]:
+        """Helper functions which parses PATIENTS and ADMISSIONS tables.
 
-    def parse_patients_and_admissions(self, patients) -> Dict[str, Patient]:
-        """function to parse PATIENTS and ADMISSIONS tables"""
-        # read patient table
+        Will be called in _parse_tables().
+
+        Docs:
+            - PATIENTS: https://mimic.mit.edu/docs/iii/tables/patients/
+            - ADMISSIONS: https://mimic.mit.edu/docs/iii/tables/admissions/
+        """
+        # read patients table
         patients_df = pd.read_csv(
             os.path.join(self.root, "PATIENTS.csv"),
             dtype={"SUBJECT_ID": str},
             nrows=1000 if self.dev else None,
         )
-        # read admission table
-        admission_df = pd.read_csv(
+        # read admissions table
+        admissions_df = pd.read_csv(
             os.path.join(self.root, "ADMISSIONS.csv"),
             dtype={"SUBJECT_ID": str, "HADM_ID": str},
         )
         # merge patient and admission tables
-        df = pd.merge(patients_df, admission_df, on="SUBJECT_ID", how="inner")
+        df = pd.merge(patients_df, admissions_df, on="SUBJECT_ID", how="inner")
         # sort by admission and discharge time
         df = df.sort_values(["SUBJECT_ID", "ADMITTIME", "DISCHTIME"], ascending=True)
+        # group by patient
+        df_group = df.groupby("SUBJECT_ID")
         # load patients
-        for p_id, p_info in tqdm(
-                df.groupby("SUBJECT_ID"), desc="Parsing PATIENTS and ADMISSIONS"
-        ):
+        for p_id, p_info in tqdm(df_group, desc="Parsing PATIENTS and ADMISSIONS"):
             patient = Patient(
                 patient_id=p_id,
-                # TODO: convert to datetime object
-                birth_datetime=p_info["DOB"].values[0],
-                death_datetime=p_info["DOD_HOSP"].values[0],
-                # TODO: should categorize the gender
+                birth_datetime=self._strptime(p_info["DOB"].values[0]),
+                death_datetime=self._strptime(p_info["DOD_HOSP"].values[0]),
                 gender=p_info["GENDER"].values[0],
-                # TODO: should categorize the ethnicity
                 ethnicity=p_info["ETHNICITY"].values[0],
             )
             # load visits
@@ -145,10 +135,8 @@ class MIMIC3Dataset(BaseDataset):
                 visit = Visit(
                     visit_id=v_id,
                     patient_id=p_id,
-                    # TODO: convert to datetime object
-                    encounter_time=v_info["ADMITTIME"].values[0],
-                    discharge_time=v_info["DISCHTIME"].values[0],
-                    # TODO: should categorize the discharge_status
+                    encounter_time=self._strptime(v_info["ADMITTIME"].values[0]),
+                    discharge_time=self._strptime(v_info["DISCHTIME"].values[0]),
                     discharge_status=v_info["HOSPITAL_EXPIRE_FLAG"].values[0],
                 )
                 # add visit
@@ -157,198 +145,172 @@ class MIMIC3Dataset(BaseDataset):
             patients[p_id] = patient
         return patients
 
-    def parse_diagnoses_icd(self, patients) -> Dict[str, Patient]:
-        """function to parse DIAGNOSES_ICD table.
+    def _parse_diagnoses_icd(self, patients) -> Dict[str, Patient]:
+        """Helper functions which parses DIAGNOSES_ICD table.
+
+        Will be called in _parse_tables().
+
+        Docs:
+            - DIAGNOSES_ICD: https://mimic.mit.edu/docs/iii/tables/diagnoses_icd/
 
         Note that MIMIC-III does not provide specific timestamps in DIAGNOSES_ICD
-        table, so we set it to None.
+            table, so we set it to None.
         """
         table = "DIAGNOSES_ICD"
-        col = "ICD9_CODE"
-        vocabulary = "ICD9CM"
-        # read diagnoses table
+        # read table
         df = pd.read_csv(
             os.path.join(self.root, f"{table}.csv"),
             dtype={"SUBJECT_ID": str, "HADM_ID": str, "ICD9_CODE": str},
         )
-        # code mapping
-        if table in self.code_mapping:
-            df = self.map_code_in_table(
-                df,
-                source_vocabulary=vocabulary,
-                target_vocabulary=self.code_mapping[table],
-                source_col=col,
-                target_col=self.code_mapping[table],
-            )
-            vocabulary = self.code_mapping[table]
-            col = self.code_mapping[table]
         # drop rows with missing values
-        df = df.dropna(subset=["SUBJECT_ID", "HADM_ID", col])
-        # sort by sequence number (i.e., disease priority)
+        df = df.dropna(subset=["SUBJECT_ID", "HADM_ID", "ICD9_CODE"])
+        # sort by sequence number (i.e., priority)
         df = df.sort_values(["SUBJECT_ID", "HADM_ID", "SEQ_NUM"], ascending=True)
-        # update patients
-        for (p_id, v_id), v_info in tqdm(
-                df.groupby(["SUBJECT_ID", "HADM_ID"]), desc=f"Parsing {table}"
-        ):
-            for code in v_info[col]:
+        # group by patient and visit
+        group_df = df.groupby(["SUBJECT_ID", "HADM_ID"])
+        # iterate over each patient and visit
+        for (p_id, v_id), v_info in tqdm(group_df, desc=f"Parsing {table}"):
+            for code in v_info["ICD9_CODE"]:
                 event = Event(
                     code=code,
-                    event_type=table,
-                    vocabulary=vocabulary,
+                    table=table,
+                    vocabulary="ICD9CM",
                     visit_id=v_id,
                     patient_id=p_id,
                 )
-                try:
-                    patients[p_id].add_event(event)
-                except KeyError:
-                    continue
+                # update patients
+                patients = self._add_event_to_patient_dict(patients, event)
         return patients
 
-    def parse_procedures_icd(self, patients) -> Dict[str, Patient]:
-        """function to parse PROCEDURES_ICD table.
+    def _parse_procedures_icd(self, patients) -> Dict[str, Patient]:
+        """Helper functions which parses PROCEDURES_ICD table.
 
-        Note that MIMIC-III does not provide specific timestamps in PROCEDURES_ICD table, so we set it to None.
+        Will be called in _parse_tables().
+
+        Docs:
+            - PROCEDURES_ICD: https://mimic.mit.edu/docs/iii/tables/procedures_icd/
+
+        Note that MIMIC-III does not provide specific timestamps in PROCEDURES_ICD
+            table, so we set it to None.
         """
         table = "PROCEDURES_ICD"
-        col = "ICD9_CODE"
-        vocabulary = "ICD9PROC"
-        # read procedures table
+        # read table
         df = pd.read_csv(
             os.path.join(self.root, f"{table}.csv"),
             dtype={"SUBJECT_ID": str, "HADM_ID": str, "ICD9_CODE": str},
         )
-        # code mapping
-        if table in self.code_mapping:
-            df = self.map_code_in_table(
-                df,
-                source_vocabulary=vocabulary,
-                target_vocabulary=self.code_mapping[table],
-                source_col=col,
-                target_col=self.code_mapping[table],
-            )
-            vocabulary = self.code_mapping[table]
-            col = self.code_mapping[table]
         # drop rows with missing values
-        df = df.dropna(subset=["SUBJECT_ID", "HADM_ID", "SEQ_NUM", col])
-        # sort by sequence number (i.e., procedure priority)
+        df = df.dropna(subset=["SUBJECT_ID", "HADM_ID", "SEQ_NUM", "ICD9_CODE"])
+        # sort by sequence number (i.e., priority)
         df = df.sort_values(["SUBJECT_ID", "HADM_ID", "SEQ_NUM"], ascending=True)
-        # update patients and visits
-        for (p_id, v_id), v_info in tqdm(
-                df.groupby(["SUBJECT_ID", "HADM_ID"]), desc=f"Parsing {table}"
-        ):
-            for code in v_info[col]:
+        # group by patient and visit
+        group_df = df.groupby(["SUBJECT_ID", "HADM_ID"])
+        # iterate over each patient and visit
+        for (p_id, v_id), v_info in tqdm(group_df, desc=f"Parsing {table}"):
+            for code in v_info["ICD9_CODE"]:
                 event = Event(
                     code=code,
-                    event_type=table,
-                    vocabulary=vocabulary,
+                    table=table,
+                    vocabulary="ICD9PROC",
                     visit_id=v_id,
                     patient_id=p_id,
                 )
-                try:
-                    patients[p_id].add_event(event)
-                except KeyError:
-                    continue
+                # update patients
+                patients = self._add_event_to_patient_dict(patients, event)
         return patients
 
-    def parse_prescriptions(self, patients) -> Dict[str, Patient]:
-        """function to parse PRESCRIPTIONS table."""
+    def _parse_prescriptions(self, patients) -> Dict[str, Patient]:
+        """Helper functions which parses PRESCRIPTIONS table.
+
+        Will be called in _parse_tables().
+
+        Docs:
+            - PRESCRIPTIONS: https://mimic.mit.edu/docs/iii/tables/prescriptions/
+        """
         table = "PRESCRIPTIONS"
-        col = "NDC"
-        vocabulary = "NDC"
-        # read prescriptions table
+        # read table
         df = pd.read_csv(
             os.path.join(self.root, f"{table}.csv"),
             low_memory=False,
             dtype={"SUBJECT_ID": str, "HADM_ID": str, "NDC": str},
         )
-        # code mapping
-        if table in self.code_mapping:
-            df = self.map_code_in_table(
-                df,
-                source_vocabulary=vocabulary,
-                target_vocabulary=self.code_mapping[table],
-                source_col=col,
-                target_col=self.code_mapping[table],
-            )
-            vocabulary = self.code_mapping[table]
-            col = self.code_mapping[table]
         # drop rows with missing values
-        df = df.dropna(subset=["SUBJECT_ID", "HADM_ID", col])
+        df = df.dropna(subset=["SUBJECT_ID", "HADM_ID", "NDC"])
         # sort by start date and end date
         df = df.sort_values(
             ["SUBJECT_ID", "HADM_ID", "STARTDATE", "ENDDATE"], ascending=True
         )
-        # update patients and visits
-        for (p_id, v_id), v_info in tqdm(
-                df.groupby(["SUBJECT_ID", "HADM_ID"]), desc=f"Parsing {table}"
-        ):
-            for timestamp, code in zip(v_info["STARTDATE"], v_info[col]):
-                # TODO: convert to datetime object
+        # group by patient and visit
+        group_df = df.groupby(["SUBJECT_ID", "HADM_ID"])
+        # iterate over each patient and visit
+        for (p_id, v_id), v_info in tqdm(group_df, desc=f"Parsing {table}"):
+            for timestamp, code in zip(v_info["STARTDATE"], v_info["NDC"]):
                 event = Event(
                     code=code,
-                    event_type=table,
-                    vocabulary=vocabulary,
+                    table=table,
+                    vocabulary="NDC",
                     visit_id=v_id,
                     patient_id=p_id,
+                    timestamp=self._strptime(timestamp),
                 )
-                try:
-                    patients[p_id].add_event(event)
-                except KeyError:
-                    continue
+                # update patients
+                patients = self._add_event_to_patient_dict(patients, event)
         return patients
 
-    def parse_labevents(self, patients) -> Dict[str, Patient]:
-        """function to parse LABEVENTS table."""
+    def _parse_labevents(self, patients) -> Dict[str, Patient]:
+        """Helper functions which parses LABEVENTS table.
+
+        Will be called in _parse_tables().
+
+        Docs:
+            - LABEVENTS: https://mimic.mit.edu/docs/iii/tables/labevents/
+        """
         table = "LABEVENTS"
-        col = "ITEMID"
-        vocabulary = "MIMIC3_ITEMID"
-        # read labevents table
+        # read table
         df = pd.read_csv(
             os.path.join(self.root, f"{table}.csv"),
             dtype={"SUBJECT_ID": str, "HADM_ID": str, "ITEMID": str},
         )
-        # code mapping
-        if table in self.code_mapping:
-            df = self.map_code_in_table(
-                df,
-                source_vocabulary=vocabulary,
-                target_vocabulary=self.code_mapping[table],
-                source_col=col,
-                target_col=self.code_mapping[table],
-            )
-            vocabulary = self.code_mapping[table]
-            col = self.code_mapping[table]
         # drop rows with missing values
-        df = df.dropna(subset=["SUBJECT_ID", "HADM_ID", col])
+        df = df.dropna(subset=["SUBJECT_ID", "HADM_ID", "ITEMID"])
         # sort by charttime
         df = df.sort_values(["SUBJECT_ID", "HADM_ID", "CHARTTIME"], ascending=True)
-        # update patients and visits-
-        for (p_id, v_id), v_info in tqdm(
-                df.groupby(["SUBJECT_ID", "HADM_ID"]), desc=f"Parsing {table}"
-        ):
-            for timestamp, code in zip(v_info["CHARTTIME"], v_info[col]):
-                # TODO: convert to datetime object
+        # group by patient and visit
+        group_df = df.groupby(["SUBJECT_ID", "HADM_ID"])
+        # iterate over each patient and visit
+        for (p_id, v_id), v_info in tqdm(group_df, desc=f"Parsing {table}"):
+            for timestamp, code in zip(v_info["CHARTTIME"], v_info["ITEMID"]):
                 event = Event(
                     code=code,
-                    event_type=table,
-                    vocabulary=vocabulary,
+                    table=table,
+                    vocabulary="MIMIC3_ITEMID",
                     visit_id=v_id,
                     patient_id=p_id,
+                    timestamp=self._strptime(timestamp),
                 )
-                try:
-                    patients[p_id].add_event(event)
-                except KeyError:
-                    continue
+                # update patients
+                patients = self._add_event_to_patient_dict(patients, event)
         return patients
 
 
 if __name__ == "__main__":
+    # dataset = MIMIC3Dataset(
+    #     root="/srv/local/data/physionet.org/files/mimiciii/1.4",
+    #     tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS", "LABEVENTS"],
+    #     dev=False,
+    #     code_mapping={"NDC": "ATC"},
+    #     refresh_cache=True,
+    # )
+    # dataset.stat()
+    # dataset.info()
+
     dataset = MIMIC3Dataset(
         root="/srv/local/data/physionet.org/files/mimiciii/1.4",
-        tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
+        tables=["DIAGNOSES_ICD", "PRESCRIPTIONS"],
         dev=True,
-        code_mapping={"PRESCRIPTIONS": "ATC"},
+        code_mapping={"ICD9CM": "CCSCM"},
         refresh_cache=False,
     )
     dataset.stat()
-    dataset.info()
+    print(dataset.available_tables)
+    print(list(dataset.patients.values())[4])
