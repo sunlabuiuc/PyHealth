@@ -363,6 +363,7 @@ Benchmark on Healthcare Tasks
    api/evaluator
    api/tokenizer
    api/metrics
+   api/medcode
 
 
 .. toctree::

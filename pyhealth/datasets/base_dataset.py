@@ -157,8 +157,8 @@ class BaseDataset(ABC, Dataset):
 
     @staticmethod
     def _add_event_to_patient_dict(
-            patient_dict: Dict[str, Patient],
-            event: Event,
+        patient_dict: Dict[str, Patient],
+        event: Event,
     ) -> Dict[str, Patient]:
         """Helper function which adds an event to the patient dict.
 
@@ -183,8 +183,8 @@ class BaseDataset(ABC, Dataset):
         return patient_dict
 
     def _convert_code_in_patient_dict(
-            self,
-            patients: Dict[str, Patient],
+        self,
+        patients: Dict[str, Patient],
     ) -> Dict[str, Patient]:
         """Converts the codes for all patients in the patient dict.
 
@@ -251,9 +251,9 @@ class BaseDataset(ABC, Dataset):
         return [event]
 
     def set_task(
-            self,
-            task_fn: Callable[[Patient], List[Dict]],
-            task_name: Optional[str] = None,
+        self,
+        task_fn: Callable[[Patient], List[Dict]],
+        task_name: Optional[str] = None,
     ) -> None:
         """Processes the base dataset to generate the task-specific samples.
 
@@ -441,9 +441,7 @@ class BaseDataset(ABC, Dataset):
         )
         for table in self.tables:
             num_events = [
-                len(v.get_event_list(table))
-                for p in self.patients.values()
-                for v in p
+                len(v.get_event_list(table)) for p in self.patients.values() for v in p
             ]
             print(
                 f"\t- codes/visit in {table}: {sum(num_events) / len(num_events):.4f}"
@@ -478,7 +476,8 @@ class BaseDataset(ABC, Dataset):
     def info(self):
         """Prints the output format."""
 
-        print("""
+        print(
+            """
         dataset.patients: patient_id -> <Patient>
             
             <Patient>
@@ -492,4 +491,5 @@ class BaseDataset(ABC, Dataset):
                                 <Event>
                                     - code: str
                                     - other event-level info.    
-        """)
+        """
+        )

@@ -20,10 +20,10 @@ class BaseCode(ABC):
     """Abstract base coding system."""
 
     def __init__(
-            self,
-            vocabulary: str,
-            valid_mappings: Optional[List[str]] = None,
-            refresh_cache: bool = False
+        self,
+        vocabulary: str,
+        valid_mappings: Optional[List[str]] = None,
+        refresh_cache: bool = False,
     ):
         if valid_mappings is None:
             valid_mappings = []
@@ -47,9 +47,11 @@ class BaseCode(ABC):
     @staticmethod
     def download_and_read_csv(filename: str, refresh_cache: bool = False):
         if (
-        not os.path.exists(os.path.join(MODULE_CACHE_PATH, filename))) or refresh_cache:
-            download(urljoin(BASE_URL, filename),
-                     os.path.join(MODULE_CACHE_PATH, filename))
+            not os.path.exists(os.path.join(MODULE_CACHE_PATH, filename))
+        ) or refresh_cache:
+            download(
+                urljoin(BASE_URL, filename), os.path.join(MODULE_CACHE_PATH, filename)
+            )
         return pd.read_csv(os.path.join(MODULE_CACHE_PATH, filename), dtype=str)
 
     @staticmethod
@@ -74,35 +76,43 @@ class BaseCode(ABC):
         # ordered ancestors
         ancestors = nx.ancestors(self.graph, code)
         ancestors = list(ancestors)
-        ancestors = sorted(ancestors,
-                           key=lambda x: nx.shortest_path_length(self.graph, x, code))
+        ancestors = sorted(
+            ancestors, key=lambda x: nx.shortest_path_length(self.graph, x, code)
+        )
         return ancestors
 
     def load_mapping(self, target_vocabulary):
         if target_vocabulary not in self.valid_mappings:
             raise ValueError(
-                f"Cannot map from {self.vocabulary} to {target_vocabulary}")
+                f"Cannot map from {self.vocabulary} to {target_vocabulary}"
+            )
 
-        pickle_filepath = os.path.join(MODULE_CACHE_PATH,
-                                       self.vocabulary + "_to_" + target_vocabulary + ".pkl")
+        pickle_filepath = os.path.join(
+            MODULE_CACHE_PATH, self.vocabulary + "_to_" + target_vocabulary + ".pkl"
+        )
         if os.path.exists(pickle_filepath) and not self.refresh_cache:
-            print(f"Loaded {self.vocabulary}->{target_vocabulary} mapping from {pickle_filepath}")
+            print(
+                f"Loaded {self.vocabulary}->{target_vocabulary} mapping from {pickle_filepath}"
+            )
             mapping = load_pickle(pickle_filepath)
         else:
             print(f"Processing {self.vocabulary}->{target_vocabulary} mapping...")
             try:
                 csv_filename = self.vocabulary + "_to_" + target_vocabulary + ".csv"
-                df = self.download_and_read_csv(csv_filename,
-                                                refresh_cache=self.refresh_cache)
+                df = self.download_and_read_csv(
+                    csv_filename, refresh_cache=self.refresh_cache
+                )
             except HTTPError:
                 csv_filename = target_vocabulary + "_to_" + self.vocabulary + ".csv"
-                df = self.download_and_read_csv(csv_filename,
-                                                refresh_cache=self.refresh_cache)
+                df = self.download_and_read_csv(
+                    csv_filename, refresh_cache=self.refresh_cache
+                )
             mapping = defaultdict(list)
             for _, row in df.iterrows():
                 mapping[row[self.vocabulary]].append(row[target_vocabulary])
             print(
-                f"Saved {self.vocabulary}->{target_vocabulary} mapping to {pickle_filepath}")
+                f"Saved {self.vocabulary}->{target_vocabulary} mapping to {pickle_filepath}"
+            )
             save_pickle(mapping, pickle_filepath)
 
         return mapping
@@ -110,8 +120,10 @@ class BaseCode(ABC):
     def map_to(self, code, target_vocabulary):
         if target_vocabulary not in self.valid_mappings:
             raise ValueError(
-                f"Cannot map from {self.vocabulary} to {target_vocabulary}")
+                f"Cannot map from {self.vocabulary} to {target_vocabulary}"
+            )
         if target_vocabulary not in self.cached_mappings:
             self.cached_mappings[target_vocabulary] = self.load_mapping(
-                target_vocabulary)
+                target_vocabulary
+            )
         return self.cached_mappings[target_vocabulary][code]
