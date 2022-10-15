@@ -109,9 +109,9 @@ class RETAIN(BaseModel):
                 padding_idx=0,
             )
 
-        self.transformer = nn.ModuleDict()
+        self.retain = nn.ModuleDict()
         for domain in tables:
-            self.transformer[domain] = RETAINLayer(
+            self.retain[domain] = RETAINLayer(
                 input_size=embedding_dim, hidden_size=hidden_dim, **kwargs
             )
         self.fc = nn.Linear(
@@ -148,7 +148,7 @@ class RETAIN(BaseModel):
             mask = torch.sum(kwargs[domain], dim=2) != 0
             mask[:, 0] = 1
             # (patient, hidden_dim)
-            domain_emb = self.transformer[domain](kwargs[domain], mask)
+            domain_emb = self.retain[domain](kwargs[domain], mask)
             patient_emb.append(domain_emb)
 
         # (patient, hidden_dim * N_tables)
