@@ -18,7 +18,7 @@ def readmission_prediction_mimic3_fn(patient: Patient, time_window=15):
         patient: a Patient object
         time_window: the time window threshold (gap < time_window means label=1 for
             the task)
-        
+
     Returns:
         samples: a list of samples, each sample is a dict with patient_id, visit_id,
             and other task-specific attributes as key
@@ -259,4 +259,3 @@ if __name__ == "__main__":
     dataset.set_task(task_fn=readmission_prediction_omop_fn)
     dataset.stat()
     print(dataset.available_keys)
-
