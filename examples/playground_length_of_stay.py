@@ -27,9 +27,9 @@ data = "omop"
 if data == "mimic3":
     mimic3dataset = MIMIC3Dataset(
         root="/srv/local/data/physionet.org/files/mimiciii/1.4",
-        tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS", "LABEVENTS"],
+        tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
         dev=True,
-        code_mapping={"PRESCRIPTIONS": "ATC"},
+        code_mapping={"NDC": "ATC"},
         refresh_cache=False,
     )
     mimic3dataset.stat()
@@ -54,7 +54,7 @@ elif data == "mimic4":
         root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
         tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
         dev=True,
-        code_mapping={"prescriptions": "ATC"},
+        code_mapping={"NDC": "ATC"},
         refresh_cache=False,
     )
     mimic4dataset.stat()
@@ -65,12 +65,7 @@ elif data == "mimic4":
 elif data == "omop":
     omopdataset = OMOPDataset(
         root="/srv/local/data/zw12/pyhealth/raw_data/synpuf1k_omop_cdm_5.2.2",
-        tables=[
-            "condition_occurrence",
-            "procedure_occurrence",
-            "drug_exposure",
-            "measurement",
-        ],
+        tables=["condition_occurrence", "procedure_occurrence", "drug_exposure"],
         dev=True,
         refresh_cache=False,
     )

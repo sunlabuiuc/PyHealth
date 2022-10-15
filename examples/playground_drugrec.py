@@ -4,7 +4,7 @@ import sys
 sys.path.append("/home/chaoqiy2/github/PyHealth-OMOP")
 
 from pyhealth.datasets import MIMIC3Dataset, eICUDataset, MIMIC4Dataset, OMOPDataset
-from pyhealth.models import Transformer, RNN, RETAIN, MICRON, GAMENet
+from pyhealth.models import Transformer, RNN, RETAIN, MICRON, GAMENet, SafeDrug
 from pyhealth.datasets.splitter import split_by_patient
 from pyhealth.tasks import (
     drug_recommendation_mimic3_fn,
@@ -28,7 +28,7 @@ if data == "mimic3":
         root="/srv/local/data/physionet.org/files/mimiciii/1.4",
         tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
         dev=True,
-        code_mapping={"PRESCRIPTIONS": "ATC"},
+        code_mapping={"NDC": "ATC"},
         refresh_cache=False,
     )
     mimic3dataset.stat()
@@ -53,7 +53,7 @@ elif data == "mimic4":
         root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
         tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
         dev=True,
-        code_mapping={"prescriptions": "ATC"},
+        code_mapping={"NDC": "ATC"},
         refresh_cache=False,
     )
     mimic4dataset.stat()
@@ -64,12 +64,7 @@ elif data == "mimic4":
 elif data == "omop":
     omopdataset = OMOPDataset(
         root="/srv/local/data/zw12/pyhealth/raw_data/synpuf1k_omop_cdm_5.2.2",
-        tables=[
-            "condition_occurrence",
-            "procedure_occurrence",
-            "drug_exposure",
-            "measurement",
-        ],
+        tables=["condition_occurrence", "procedure_occurrence", "drug_exposure"],
         dev=True,
         refresh_cache=False,
     )
@@ -93,12 +88,13 @@ test_loader = DataLoader(
 # STEP 3: define model
 device = "cuda:0"
 
-model = GAMENet(
+model = SafeDrug(
     dataset=dataset,
     tables=["conditions", "procedures"],
     target="label",
     mode="multilabel",
 )
+
 model.to(device)
 
 # STEP 4: define trainer

@@ -1,9 +1,4 @@
-from datetime import datetime
-
 from pyhealth.data import Patient
-from pyhealth.tasks.utils import (
-    get_code_from_list_of_event,
-)
 
 
 def categorize_los(days: int):
@@ -54,22 +49,14 @@ def length_of_stay_prediction_mimic3_fn(patient: Patient):
 
     for visit in patient:
 
-        conditions = get_code_from_list_of_event(
-            visit.get_event_list(event_type="DIAGNOSES_ICD")
-        )
-        procedures = get_code_from_list_of_event(
-            visit.get_event_list(event_type="PROCEDURES_ICD")
-        )
-        drugs = get_code_from_list_of_event(
-            visit.get_event_list(event_type="PRESCRIPTIONS")
-        )
-        # exclude: visits without (condition and procedure) or drug code
+        conditions = visit.get_code_list(table="DIAGNOSES_ICD")
+        procedures = visit.get_code_list(table="PROCEDURES_ICD")
+        drugs = visit.get_code_list(table="PRESCRIPTIONS")
+        # exclude: visits without condition, procedure, and drug code
         if len(conditions) + len(procedures) + len(drugs) == 0:
             continue
 
-        encounter_time = datetime.strptime(visit.encounter_time, "%Y-%m-%d %H:%M:%S")
-        discharge_time = datetime.strptime(visit.discharge_time, "%Y-%m-%d %H:%M:%S")
-        los_days = (discharge_time - encounter_time).days
+        los_days = (visit.discharge_time - visit.encounter_time).days
         los_category = categorize_los(los_days)
 
         # TODO: should also exclude visit with age < 18
@@ -108,22 +95,14 @@ def length_of_stay_prediction_mimic4_fn(patient: Patient):
 
     for visit in patient:
 
-        conditions = get_code_from_list_of_event(
-            visit.get_event_list(event_type="diagnoses_icd")
-        )
-        procedures = get_code_from_list_of_event(
-            visit.get_event_list(event_type="procedures_icd")
-        )
-        drugs = get_code_from_list_of_event(
-            visit.get_event_list(event_type="prescriptions")
-        )
-        # exclude: visits without (condition and procedure) or drug code
+        conditions = visit.get_code_list(table="diagnoses_icd")
+        procedures = visit.get_code_list(table="procedures_icd")
+        drugs = visit.get_code_list(table="prescriptions")
+        # exclude: visits without condition, procedure, and drug code
         if len(conditions) + len(procedures) + len(drugs) == 0:
             continue
 
-        encounter_time = datetime.strptime(visit.encounter_time, "%Y-%m-%d %H:%M:%S")
-        discharge_time = datetime.strptime(visit.discharge_time, "%Y-%m-%d %H:%M:%S")
-        los_days = (discharge_time - encounter_time).days
+        los_days = (visit.discharge_time - visit.encounter_time).days
         los_category = categorize_los(los_days)
 
         # TODO: should also exclude visit with age < 18
@@ -158,26 +137,18 @@ def length_of_stay_prediction_eicu_fn(patient: Patient):
 
     Note that we define the task as a multi-class classification task.
     """
-
     samples = []
-    # we will drop the last visit
+
     for visit in patient:
 
-        conditions = get_code_from_list_of_event(
-            visit.get_event_list(event_type="diagnosis")
-        )
-        procedures = get_code_from_list_of_event(
-            visit.get_event_list(event_type="physicalExam")
-        )
-        drugs = get_code_from_list_of_event(
-            visit.get_event_list(event_type="medication")
-        )
-        # exclude: visits without (condition and procedure) or drug code
+        conditions = visit.get_code_list(table="diagnosis")
+        procedures = visit.get_code_list(table="physicalExam")
+        drugs = visit.get_code_list(table="medication")
+        # exclude: visits without condition, procedure, and drug code
         if len(conditions) + len(procedures) + len(drugs) == 0:
             continue
 
-        los_mins = visit.discharge_time - visit.encounter_time
-        los_days = int(los_mins / 60 / 24)
+        los_days = (visit.discharge_time - visit.encounter_time).days
         los_category = categorize_los(los_days)
 
         # TODO: should also exclude visit with age < 18
@@ -216,22 +187,14 @@ def length_of_stay_prediction_omop_fn(patient: Patient):
 
     for visit in patient:
 
-        conditions = get_code_from_list_of_event(
-            visit.get_event_list(event_type="condition_occurrence")
-        )
-        procedures = get_code_from_list_of_event(
-            visit.get_event_list(event_type="procedure_occurrence")
-        )
-        drugs = get_code_from_list_of_event(
-            visit.get_event_list(event_type="drug_exposure")
-        )
-        # exclude: visits without (condition and procedure and drug code)
+        conditions = visit.get_code_list(table="condition_occurrence")
+        procedures = visit.get_code_list(table="procedure_occurrence")
+        drugs = visit.get_code_list(table="drug_exposure")
+        # exclude: visits without condition, procedure, and drug code
         if len(conditions) + len(procedures) + len(drugs) == 0:
             continue
 
-        encounter_time = datetime.strptime(visit.encounter_time, "%Y-%m-%d")
-        discharge_time = datetime.strptime(visit.discharge_time, "%Y-%m-%d")
-        los_days = (discharge_time - encounter_time).days
+        los_days = (visit.discharge_time - visit.encounter_time).days
         los_category = categorize_los(los_days)
 
         # TODO: should also exclude visit with age < 18
@@ -250,15 +213,52 @@ def length_of_stay_prediction_omop_fn(patient: Patient):
 
 
 if __name__ == "__main__":
-    from pyhealth.datasets import MIMIC3Dataset
+    # from pyhealth.datasets import MIMIC3Dataset
+    #
+    # dataset = MIMIC3Dataset(
+    #     root="/srv/local/data/physionet.org/files/mimiciii/1.4",
+    #     tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
+    #     dev=True,
+    #     code_mapping={"ICD9CM": "CCSCM", "NDC": "ATC"},
+    #     refresh_cache=False,
+    # )
+    # dataset.set_task(task_fn=length_of_stay_prediction_mimic3_fn)
+    # dataset.stat()
+    # print(dataset.available_keys)
 
-    dataset = MIMIC3Dataset(
-        root="/srv/local/data/physionet.org/files/mimiciii/1.4",
-        tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
+    # from pyhealth.datasets import MIMIC4Dataset
+    #
+    # dataset = MIMIC4Dataset(
+    #     root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
+    #     tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
+    #     dev=True,
+    #     code_mapping={"NDC": "ATC"},
+    #     refresh_cache=False,
+    # )
+    # dataset.set_task(task_fn=length_of_stay_prediction_mimic4_fn)
+    # dataset.stat()
+    # print(dataset.available_keys)
+
+    # from pyhealth.datasets import eICUDataset
+    #
+    # dataset = eICUDataset(
+    #     root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
+    #     tables=["diagnosis", "medication", "physicalExam"],
+    #     dev=True,
+    #     refresh_cache=False,
+    # )
+    # dataset.set_task(task_fn=length_of_stay_prediction_eicu_fn)
+    # dataset.stat()
+    # print(dataset.available_keys)
+
+    from pyhealth.datasets import OMOPDataset
+
+    dataset = OMOPDataset(
+        root="/srv/local/data/zw12/pyhealth/raw_data/synpuf1k_omop_cdm_5.2.2",
+        tables=["condition_occurrence", "procedure_occurrence", "drug_exposure"],
         dev=True,
-        code_mapping={"prescriptions": "ATC"},
         refresh_cache=False,
     )
+    dataset.set_task(task_fn=length_of_stay_prediction_omop_fn)
     dataset.stat()
-    dataset.set_task(task_fn=length_of_stay_prediction_mimic3_fn)
-    dataset.stat()
+    print(dataset.available_keys)
