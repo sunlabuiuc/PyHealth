@@ -14,6 +14,10 @@ from urllib import request
 import pandas as pd
 import pickle
 
+# import model specific modules here
+from rdkit import Chem
+import rdkit.Chem.BRICS as BRICS
+
 
 class MaskLinear(nn.Module):
     """The MaskLinear layer.
@@ -24,11 +28,6 @@ class MaskLinear(nn.Module):
     """
 
     def __init__(self, in_features, out_features, bias=True):
-
-        # import model specific modules here
-        from rdkit import Chem
-        import rdkit.Chem.BRICS as BRICS
-
         super(MaskLinear, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
@@ -404,20 +403,30 @@ class SafeDrug(BaseModel):
         # each idx contains what segments
         fraction = [[] for _ in range(self.label_size)]
 
-        if self.dataset.dataset_name not in ["mimic3", "mimic4"]:
+        if self.dataset.dataset_name not in ["MIMIC-III", "MIMIC-IV"]:
             raise ValueError(
                 "SafeDrug currently only supports mimic3 and mimic4 dataset, not {}.\nUser need to implement their own drug -> SMILES string mapping for other datasets.".format(
                     self.dataset.dataset_name
                 )
             )
-        ATC4_to_SMILES = pickle.load(
-            open(
-                os.path.join(str(Path.home()), ".cache/pyhealth/atc4toSMILES.pkl"), "rb"
-            )
-        )
+
+        atc3toSMILES = {}
+        from pyhealth.medcode import ATC
+        atc = ATC()
+        for code in atc.graph.nodes:
+            if len(code) != 7:
+                continue
+            code_atc3 = code[:4]
+            smiles = atc.graph.nodes[code]["smiles"]
+            if smiles != smiles:
+                continue
+            atc3toSMILES[code_atc3] = atc3toSMILES.get(code_atc3, []) + [smiles]
+        # take first three
+        atc3toSMILES = {k: v[:1] for k, v in atc3toSMILES.items()}
+
         vocab_to_index = self.label_tokenizer.vocabulary.token2idx
 
-        for atc4, smiles_ls in ATC4_to_SMILES.items():
+        for atc4, smiles_ls in atc3toSMILES.items():
             if atc4 in vocab_to_index:
                 pos = vocab_to_index[atc4]
                 SMILES[pos] += smiles_ls
