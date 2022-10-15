@@ -73,7 +73,7 @@ class Visit:
             Defaults to None.
         discharge_status: Optional, patient's status upon discharge.
             E.g., "Alive", "Dead". Defaults to None.
-        **attr, optional attributes of the visit. Attributes to add to visit as
+        **attr: optional attributes of the visit. Attributes to add to visit as
             key=value pairs.
 
     Attributes:
@@ -141,6 +141,35 @@ class Visit:
             return self.event_list_dict[table]
         else:
             return list()
+
+    def get_code_list(
+            self,
+            table: str,
+            remove_duplicate: Optional[bool] = True
+    ) -> List[str]:
+        """Returns a list of codes from a specific table.
+
+        If the table is not in the visit's event list dictionary, an empty list
+            is returned.
+
+        As for now, there is no check on the order of the codes. The list of
+            codes is simply returned as is.
+
+        Args:
+            table: str, name of the table.
+            remove_duplicate: Optional[bool], whether to remove duplicate codes
+                (but keep the order). Default is True.
+
+        Returns:
+            List[str], list of codes from the specified table.
+        """
+        # TODO: ensure that codes are sorted by timestamp
+        event_list = self.get_event_list(table)
+        code_list = [event.code for event in event_list]
+        if remove_duplicate:
+            # remove duplicate codes but keep the order
+            code_list = list(dict.fromkeys(code_list))
+        return code_list
 
     def set_event_list(self, table: str, event_list: List[Event]) -> None:
         """Sets the list of events from a specific table.
