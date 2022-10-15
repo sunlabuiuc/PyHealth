@@ -335,6 +335,18 @@ class BaseDataset(ABC, Dataset):
             tables.extend(patient.available_tables)
         return list(set(tables))
 
+    @property
+    def available_keys(self) -> List[str]:
+        """Returns a list of available keys for the dataset.
+
+        Returns:
+            List[str], list of available keys.
+        """
+        if self.task is None:
+            raise ValueError("Please set task first.")
+        keys = self.samples[0].keys()
+        return list(keys)
+
     # TODO: check this
     def get_all_tokens(self, key: str, sort: bool = True) -> List[str]:
         """Gets all tokens with a specific key in the samples.
@@ -438,6 +450,7 @@ class BaseDataset(ABC, Dataset):
             )
         print()
 
+    # TODO: check this
     def task_stat(self) -> None:
         """Prints some statistics of the task-specific dataset."""
         if self.task is None:
@@ -451,9 +464,12 @@ class BaseDataset(ABC, Dataset):
         print(f"\t- Number of visits per patient: {len(self) / num_patients:.4f}")
         # TODO: add more types once we support selecting domains with args
         for key in self.samples[0]:
-            if key == "label":
+            if key in ["patient_id", "visit_id"]:
+                continue
+            elif key == "label":
                 print(f"\t- Label distribution: {self.get_label_distribution()}")
             else:
+                # TODO: drugs[-1] is empty list
                 num_events = [len(sample[key][-1]) for sample in self.samples]
                 print(
                     f"\t- #{key}/visit: {sum(num_events) / len(num_events):.4f}"
