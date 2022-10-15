@@ -320,25 +320,19 @@ class BaseDataset(ABC, Dataset):
 
         print(
             """
-        Format of `dataset.patients`:
-        
-        dict[str, Patient]
-            - key: patient_id
-            - value: <Patient> object
-        
-            class <Patient>
-                - visits: dict[str, Visit]
-                    - key: visit_id
-                    - value: <Visit> object
-                - other patient-level info.
+        dataset.patients: patient_id -> <Patient>
             
-                class <Visit>
-                    - conditions: List[Event]
-                    - drugs: List[Event]
-                    - other visit-level info.
+            <Patient>
+                - visits: visit_id -> <Visit> 
+                - other patient-level info.
+        
+                    <Visit>
+                        - conditions: List[Event]
+                        - drugs: List[Event]
+                        - other visit-level info.
 
-                    class <Event>
-                        - code: str
-                        - other event-level info.    
+                                <Event>
+                                    - code: str
+                                    - other event-level info.    
         """
         )
