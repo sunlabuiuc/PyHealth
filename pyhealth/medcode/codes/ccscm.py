@@ -1,6 +1,8 @@
 from pyhealth.medcode.inner_map import InnerMap
 
 
+# TODO: code names are abbreviated
+
 class CCSCM(InnerMap):
 
     def __init__(self, **kwargs):

@@ -13,6 +13,8 @@ MODULE_CACHE_PATH = os.path.join(BASE_CACHE_PATH, "medcode")
 create_directory(MODULE_CACHE_PATH)
 
 
+# TODO: add comments
+
 class InnerMap(ABC):
     """Abstract class for inner mapping within a coding system."""
 
