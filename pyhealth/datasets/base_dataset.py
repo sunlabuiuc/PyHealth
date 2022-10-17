@@ -92,7 +92,7 @@ class BaseDataset(ABC, Dataset):
         self.filepath = os.path.join(MODULE_CACHE_PATH, filename)
 
         # check if cache exists or refresh_cache is True
-        if os.path.exists(self.filepath) and not refresh_cache:
+        if os.path.exists(self.filepath) and (not refresh_cache):
             # load from cache
             print(f"Loaded {dataset_name} base dataset from {self.filepath}")
             self.patients = load_pickle(self.filepath)
