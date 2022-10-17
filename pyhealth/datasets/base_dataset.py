@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 from pyhealth import BASE_CACHE_PATH
 from pyhealth.data import Patient, Event
-from pyhealth.medcode import CodeMap
+from pyhealth.medcode import CrossMap
 from pyhealth.utils import load_pickle, save_pickle, hash_str, create_directory
 
 MODULE_CACHE_PATH = os.path.join(BASE_CACHE_PATH, "datasets")
@@ -108,19 +108,19 @@ class BaseDataset(ABC, Dataset):
             print(f"Saved {dataset_name} base dataset to {self.filepath}")
             save_pickle(self.patients, self.filepath)
 
-    def _load_code_mapping_tools(self) -> Dict[str, CodeMap]:
-        """Loads code mapping tools CodeMap for code mapping.
+    def _load_code_mapping_tools(self) -> Dict[str, CrossMap]:
+        """Loads code mapping tools CrossMap for code mapping.
 
         Will be called in __init__().
 
         Returns:
-            Dict[str, CodeMap], a dict whose key is the source and target code
-                vocabulary and value is the CodeMap object.
+            Dict[str, CrossMap], a dict whose key is the source and target code
+                vocabulary and value is the CrossMap object.
         """
         code_mapping_tools = {}
         for source, target in self.code_mapping.items():
             # load code mapping from source to target
-            code_mapping_tools[f"{source}_{target}"] = CodeMap(source, target)
+            code_mapping_tools[f"{source}_{target}"] = CrossMap(source, target)
         return code_mapping_tools
 
     @abstractmethod
