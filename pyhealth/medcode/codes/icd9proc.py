@@ -6,8 +6,8 @@ class ICD9PROC(InnerMap):
     def __init__(self, **kwargs):
         super(ICD9PROC, self).__init__(vocabulary="ICD9PROC", **kwargs)
 
-    def preprocess(self, code):
-        """Normalizes ICD9PROC code."""
+    def standardize(self, code: str):
+        """Standardizes ICD9PROC code."""
         if "." in code:
             return code
         assert len(code) >= 2

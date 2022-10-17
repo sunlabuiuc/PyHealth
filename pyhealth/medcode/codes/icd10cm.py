@@ -6,8 +6,8 @@ class ICD10CM(InnerMap):
     def __init__(self, **kwargs):
         super(ICD10CM, self).__init__(vocabulary="ICD10CM", **kwargs)
 
-    def preprocess(self, code: str):
-        """Normalizes ICD10CM code."""
+    def standardize(self, code: str):
+        """Standardizes ICD10CM code."""
         if "." in code:
             return code
         assert len(code) >= 3

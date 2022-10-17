@@ -64,19 +64,22 @@ class InnerMap(ABC):
         print(f"\t- Available attributes: {self.available_attributes}")
         print()
 
-    def preprocess(self, code):
+    def standardize(self, code: str):
+        return code
+
+    def postprocess(self, code: str, **kwargs):
         return code
 
     def lookup(self, code, attribute: str = "name"):
-        code = self.preprocess(code)
+        code = self.standardize(code)
         return self.graph.nodes[code][attribute]
 
     def __contains__(self, code):
-        code = self.preprocess(code)
+        code = self.standardize(code)
         return code in self.graph.nodes
 
     def get_ancestors(self, code):
-        code = self.preprocess(code)
+        code = self.standardize(code)
         # ordered ancestors
         ancestors = nx.ancestors(self.graph, code)
         ancestors = list(ancestors)
@@ -87,7 +90,7 @@ class InnerMap(ABC):
         return ancestors
 
     def get_descendants(self, code):
-        code = self.preprocess(code)
+        code = self.standardize(code)
         # ordered descendants
         descendants = nx.descendants(self.graph, code)
         descendants = list(descendants)

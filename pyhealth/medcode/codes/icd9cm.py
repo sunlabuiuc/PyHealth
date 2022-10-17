@@ -6,8 +6,8 @@ class ICD9CM(InnerMap):
     def __init__(self, **kwargs):
         super(ICD9CM, self).__init__(vocabulary="ICD9CM", **kwargs)
 
-    def preprocess(self, code: str):
-        """Normalizes ICD9CM code."""
+    def standardize(self, code: str):
+        """Standardizes ICD9CM code."""
         if "." in code:
             return code
         if code.startswith("E"):
