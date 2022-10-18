@@ -1,34 +1,18 @@
-def normalize_icd9cm(code: str):
-    """Normalize ICD9CM code."""
-    if "." in code:
-        return code
-    if code.startswith("E"):
-        assert len(code) >= 4
-        if len(code) == 4:
-            return code
-        return code[:4] + "." + code[4:]
-    else:
-        assert len(code) >= 3
-        if len(code) == 3:
-            return code
-        return code[:3] + "." + code[3:]
+import os
+from urllib.parse import urljoin
+
+import pandas as pd
+
+from pyhealth import BASE_CACHE_PATH
+from pyhealth.utils import download
+
+BASE_URL = "https://storage.googleapis.com/pyhealth/resource/"
+MODULE_CACHE_PATH = os.path.join(BASE_CACHE_PATH, "medcode")
 
 
-def normalize_icd9proc(code: str):
-    """Normalize ICD9PROC code."""
-    if "." in code:
-        return code
-    assert len(code) >= 2
-    if len(code) == 2:
-        return code
-    return code[:2] + "." + code[2:]
-
-
-def normalize_icd10cm(code: str):
-    """Normalize ICD10CM code."""
-    if "." in code:
-        return code
-    assert len(code) >= 3
-    if len(code) == 3:
-        return code
-    return code[:3] + "." + code[3:]
+def download_and_read_csv(filename: str, refresh_cache: bool = False):
+    local_filepath = os.path.join(MODULE_CACHE_PATH, filename)
+    online_filepath = urljoin(BASE_URL, filename)
+    if (not os.path.exists(local_filepath)) or refresh_cache:
+        download(online_filepath, local_filepath)
+    return pd.read_csv(local_filepath, dtype=str)
