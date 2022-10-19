@@ -294,23 +294,23 @@ class MIMIC3Dataset(BaseDataset):
 
 
 if __name__ == "__main__":
-    # dataset = MIMIC3Dataset(
-    #     root="/srv/local/data/physionet.org/files/mimiciii/1.4",
-    #     tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS", "LABEVENTS"],
-    #     dev=False,
-    #     code_mapping={"NDC": "ATC"},
-    #     refresh_cache=True,
-    # )
-    # dataset.stat()
-    # dataset.info()
-
     dataset = MIMIC3Dataset(
         root="/srv/local/data/physionet.org/files/mimiciii/1.4",
-        tables=["DIAGNOSES_ICD", "PRESCRIPTIONS"],
-        dev=True,
-        code_mapping={"ICD9CM": "CCSCM"},
-        refresh_cache=False,
+        tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS", "LABEVENTS"],
+        dev=False,
+        code_mapping={"NDC": "ATC"},
+        refresh_cache=True,
     )
     dataset.stat()
-    print(dataset.available_tables)
-    print(list(dataset.patients.values())[4])
+    dataset.info()
+
+    # dataset = MIMIC3Dataset(
+    #     root="/srv/local/data/physionet.org/files/mimiciii/1.4",
+    #     tables=["DIAGNOSES_ICD", "PRESCRIPTIONS"],
+    #     dev=True,
+    #     code_mapping={"ICD9CM": "CCSCM"},
+    #     refresh_cache=False,
+    # )
+    # dataset.stat()
+    # print(dataset.available_tables)
+    # print(list(dataset.patients.values())[4])
