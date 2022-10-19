@@ -178,7 +178,7 @@ for dataset_name in datasets:
                 RETAIN,
                 GAMENet,
                 MICRON,
-                #     SafeDrug
+                SafeDrug
             ]
             # Safedrug can only be used in mimic3 and mimic4
             if (dataset_name != "mimic3") and (dataset_name != "mimic4") and (SafeDrug in models):
