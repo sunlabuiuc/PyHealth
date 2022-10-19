@@ -316,7 +316,10 @@ class SafeDrug(BaseModel):
         self.label_size = self.label_tokenizer.get_vocabulary_size()
 
         ddi_adj = self.generate_ddi_adj()
-        self.ddi_adj = nn.Parameter(torch.Tensor(ddi_adj), requires_grad=False)
+        self.cal_ddi_adj = ddi_adj.copy()  # this one is for calculating the ddi_rate
+        self.ddi_adj = nn.Parameter(
+            torch.Tensor(ddi_adj), requires_grad=False
+        )  # this one join the gradient descent
         ddi_mask_H = self.generate_ddi_mask_H()
         (
             molecule_set,
@@ -412,6 +415,7 @@ class SafeDrug(BaseModel):
 
         atc3toSMILES = {}
         from pyhealth.medcode import ATC
+
         atc = ATC()
         for code in atc.graph.nodes:
             if len(code) != 7:
@@ -601,8 +605,9 @@ class SafeDrug(BaseModel):
         pred_prob = pred_prob.detach().cpu().numpy()
         pred_prob[pred_prob >= 0.5] = 1
         pred_prob[pred_prob < 0.5] = 0
+        pred_prob = [np.where(sample == 1)[0] for sample in pred_prob]
 
-        cur_ddi_rate = ddi_rate_score(pred_prob, self.ddi_adj)
+        cur_ddi_rate = ddi_rate_score(pred_prob, self.cal_ddi_adj)
         if cur_ddi_rate > self.target_ddi:
             beta = max(0, 1 + (self.target_ddi - cur_ddi_rate) / self.kp)
             add_loss, beta = batch_ddi_loss, beta
