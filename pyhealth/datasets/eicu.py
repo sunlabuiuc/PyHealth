@@ -237,9 +237,9 @@ class eICUDataset(BaseDataset):
         icd10cm = ICD10CM()
 
         def icd9cm_or_icd10cm(code):
-            if icd9cm.contains(code):
+            if code in icd9cm:
                 return "ICD9CM"
-            elif icd10cm.contains(code):
+            elif code in icd10cm:
                 return "ICD10CM"
             else:
                 return "Unknown"
