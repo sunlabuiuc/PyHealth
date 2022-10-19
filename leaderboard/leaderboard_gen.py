@@ -1,6 +1,6 @@
 import sys
 
-sys.path.append('../pyhealth')
+sys.path.append('..')
 
 from pyhealth.datasets import MIMIC3Dataset, eICUDataset, MIMIC4Dataset, OMOPDataset
 from pyhealth.models import *
@@ -45,10 +45,10 @@ def get_leaderboard_sheet():
 
 leaderboard_sheet = get_leaderboard_sheet()
 leaderboard_location = {
-    'mimic3-drugrec': 'C2:F10',
-    'mimic4-drugrec': 'C16:F24',
-    'eicu-drugrec': 'I2:L10',
-    'omop-drugrec': 'I16,L24',
+    'mimic3-drugrec': 'C2:F11',
+    'mimic4-drugrec': 'C16:F25',
+    'eicu-drugrec': 'I2:L11',
+    'omop-drugrec': 'I16,L25',
 
     'mimic3-mortality': 'C32:F38',
     'mimic4-mortality': 'C46:F52',
@@ -113,7 +113,7 @@ def get_dataset(dataset_name):
     return dataset
 
 
-datasets = ["mimic3", "mimic4", "eicu", "omop"]
+datasets = ["mimic3", "eicu", "omop", "mimic4"]
 
 classic_ml_models = [LR(), RF, NN]
 tasks_mimic3 = [
