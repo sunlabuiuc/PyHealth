@@ -12,8 +12,7 @@ class ICD10CM(InnerMap):
         """Standardizes ICD10CM code."""
         if "." in code:
             return code
-        assert len(code) >= 3
-        if len(code) == 3:
+        if len(code) <= 3:
             return code
         return code[:3] + "." + code[3:]
 

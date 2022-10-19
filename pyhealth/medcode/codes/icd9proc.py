@@ -12,8 +12,7 @@ class ICD9PROC(InnerMap):
         """Standardizes ICD9PROC code."""
         if "." in code:
             return code
-        assert len(code) >= 2
-        if len(code) == 2:
+        if len(code) <= 2:
             return code
         return code[:2] + "." + code[2:]
 
