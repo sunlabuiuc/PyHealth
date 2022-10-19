@@ -48,17 +48,17 @@ leaderboard_location = {
     'mimic3-drugrec': 'C2:F11',
     'mimic4-drugrec': 'C16:F25',
     'eicu-drugrec': 'I2:L11',
-    'omop-drugrec': 'I16,L25',
+    'omop-drugrec': 'I16:L25',
 
     'mimic3-mortality': 'C32:F38',
     'mimic4-mortality': 'C46:F52',
     'eicu-mortality': 'I32:L38',
-    'omop-mortality': 'I46,L52',
+    'omop-mortality': 'I46:L52',
 
     'mimic3-readmission': 'C61:F67',
     'mimic4-readmission': 'C75:F81',
     'eicu-readmission': 'I61:L67',
-    'omop-readmission': 'I75,L81',
+    'omop-readmission': 'I75:L81',
 
 }
 
@@ -113,7 +113,11 @@ def get_dataset(dataset_name):
     return dataset
 
 
-datasets = ["mimic3", "eicu", "omop", "mimic4"]
+datasets = [
+    "mimic3",
+    "eicu",
+    "omop",
+    "mimic4"]
 
 classic_ml_models = [LR(), RF, NN]
 tasks_mimic3 = [
