@@ -4,7 +4,7 @@ from tqdm import tqdm
 from pyhealth.metrics import *
 
 
-def evaluate(model, dataloader, device="cpu"):
+def evaluate(model, dataloader, device="cpu", disable_bar=False):
     """Evaluate model on dataloader.
     INPUT:
         - model: model to evaluate
@@ -18,7 +18,7 @@ def evaluate(model, dataloader, device="cpu"):
     y_true_all = []
     y_prob_all = []
     y_pred_all = []
-    for data in tqdm(dataloader, desc="Evaluation"):
+    for data in tqdm(dataloader, desc="Evaluation", disable=disable_bar):
         if model.__class__.__name__ != "ClassicML":
             model.eval()
             with torch.no_grad():
