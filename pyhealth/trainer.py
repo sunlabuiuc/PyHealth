@@ -166,12 +166,13 @@ class Trainer:
                     self._save_ckpt(model, os.path.join(self.exp_path, "last.ckpt"))
 
                 if val_metric is not None:
-                    y_gt, y_prod, y_pred = evaluate(model, val_loader, self.device)
+                    y_gt, y_prod, y_pred = evaluate(model, val_loader, self.device, disable_bar=not show_progress_bar)
                     try:  # not sure the metric work for probability or predicted label
                         score = val_metric(y_gt, y_prod)
                     except ValueError:
                         score = val_metric(y_gt, y_pred)
-                    print(f"{val_metric.__name__}: {score:.4f}")
+                    if show_progress_bar:
+                        print(f"{val_metric.__name__}: {score:.4f}")
                     if is_best(best_score, score, mode):
                         best_score = score
                         if self.exp_path is not None:

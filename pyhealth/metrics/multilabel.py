@@ -155,7 +155,6 @@ def ddi_rate_score(medications, ddi_matrix):
     OUTPUTS:
         - result: DDI rate score
     """
-    medications = np.array(medications)
     ddi_matrix = np.array(ddi_matrix)
 
     all_cnt = 0

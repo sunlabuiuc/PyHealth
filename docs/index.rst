@@ -337,8 +337,6 @@ Benchmark on Healthcare Tasks
 
 
 
-----
-
 
 .. toctree::
    :maxdepth: 4
