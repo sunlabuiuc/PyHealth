@@ -23,7 +23,7 @@ command line in your terminal:
     python3 leaderboard_gen.py \
     --credentials [YOUR CREDENTIAL FILE] \
     --doc_name [YOUR GOOGLE DOC FILE NAME] \
-    --sheet_id [THE ID OF THE SHEET YOU WANT TO PUT DATA]
+    --sheet_id [THE ID OF THE SHEET YOU WANT TO PUT DATA] \
     --out_path [LOCAL LOG PATH]
 
 For more details regarding the connection to a remote Google Spreadsheet, you may refer to an online tutorial
