@@ -1,7 +1,5 @@
 import sys
 
-sys.path.append('..')
-
 from pyhealth.datasets import MIMIC3Dataset, eICUDataset, MIMIC4Dataset, OMOPDataset
 from pyhealth.models import *
 from pyhealth.datasets.splitter import split_by_patient
@@ -17,33 +15,41 @@ from torch.utils.data import DataLoader
 
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-import json
 
 import time
+import datetime
+import logging
 import warnings
 
+sys.path.append('..')
 warnings.filterwarnings('ignore')
 
 RF = RF(max_depth=6, max_features="sqrt", n_jobs=-1, n_estimators=20)
 NN = NN(alpha=1e-04, hidden_layer_sizes=(10, 1), early_stopping=True, max_iter=50, solver='lbfgs', max_fun=1500)
 
 
-def get_leaderboard_sheet():
+# connect to the Google Spreadsheet
+def get_leaderboard_sheet(credential_file, doc_name, worksheet_id):
     scopes = [
         'https://www.googleapis.com/auth/spreadsheets',
         'https://www.googleapis.com/auth/drive'
     ]
 
-    credentials = ServiceAccountCredentials.from_json_keyfile_name("credentials.json",
+    credentials = ServiceAccountCredentials.from_json_keyfile_name(credential_file,
                                                                    scopes)  # access the json key you downloaded earlier
     file = gspread.authorize(credentials)  # authenticate the JSON key with gspread
-    sheet = file.open("Pyhealth tracker")  # open sheet
-    sheet = sheet.get_worksheet_by_id(
-        1602645797)  # replace sheet_name with the name that corresponds to yours, e.g, it can be sheet1
+    sheet = file.open(doc_name)  # open sheet
+    sheet = sheet.get_worksheet_by_id(worksheet_id)  # replace sheet_name with the name that corresponds to yours
     return sheet
 
 
-leaderboard_sheet = get_leaderboard_sheet()
+# get our leaderboard sheet on:
+# https://docs.google.com/spreadsheets/d/1c4OwCSDaEt7vGmocidq1hK2HCTeB6ZHDzAZvlubpi08/edit#gid=1602645797
+leaderboard_sheet = get_leaderboard_sheet(credential_file="credentials.json",
+                                          doc_name="Pyhealth tracker",
+                                          worksheet_id=1602645797)
+
+# specify the areas to input result data
 leaderboard_location = {
     'mimic3-drugrec': 'C2:F11',
     'mimic4-drugrec': 'C16:F25',
@@ -63,7 +69,15 @@ leaderboard_location = {
 }
 
 
-# STEP 1 & 2: load data and set task
+# function to save the leaderboard data locally
+def save_leaderboard_log(out_path, dataset_task_name, data, models):
+    filename = out_path + '/' + str(datetime.date.today()) + '-' + dataset_task_name + '.log'
+    logging.basicConfig(filename=filename, level=logging.INFO)
+    logging.info(models)
+    logging.info(data)
+    return
+
+
 def get_dataset(dataset_name):
     dataset = None
 
@@ -117,7 +131,8 @@ datasets = [
     "mimic3",
     "eicu",
     "omop",
-    "mimic4"]
+    "mimic4"
+]
 
 classic_ml_models = [LR(), RF, NN]
 tasks_mimic3 = [
@@ -125,18 +140,27 @@ tasks_mimic3 = [
     # length_of_stay_prediction_mimic3_fn,
     mortality_prediction_mimic3_fn,
     readmission_prediction_mimic3_fn]
-tasks_mimic4 = [drug_recommendation_mimic4_fn,
-                # length_of_stay_prediction_mimic4_fn,
-                mortality_prediction_mimic4_fn,
-                readmission_prediction_mimic4_fn]
-tasks_eicu = [drug_recommendation_eicu_fn,
-              # length_of_stay_prediction_eicu_fn,
-              mortality_prediction_eicu_fn,
-              readmission_prediction_eicu_fn]
-tasks_omop = [drug_recommendation_omop_fn,
-              # length_of_stay_prediction_omop_fn,
-              mortality_prediction_omop_fn,
-              readmission_prediction_omop_fn]
+
+tasks_mimic4 = [
+    drug_recommendation_mimic4_fn,
+    # length_of_stay_prediction_mimic4_fn,
+    mortality_prediction_mimic4_fn,
+    readmission_prediction_mimic4_fn
+]
+
+tasks_eicu = [
+    drug_recommendation_eicu_fn,
+    # length_of_stay_prediction_eicu_fn,
+    mortality_prediction_eicu_fn,
+    readmission_prediction_eicu_fn
+]
+
+tasks_omop = [
+    drug_recommendation_omop_fn,
+    # length_of_stay_prediction_omop_fn,
+    mortality_prediction_omop_fn,
+    readmission_prediction_omop_fn
+]
 
 # ==============================
 # traverse through all datasets
@@ -194,15 +218,26 @@ for dataset_name in datasets:
             dataset_task = dataset_name + "-drugrec"
 
         elif "mortality_prediction" in task_name:
-            models = [ClassicML, RNN, CNN, Transformer, RETAIN]
+            models = [
+                ClassicML,
+                RNN,
+                CNN,
+                Transformer,
+                RETAIN
+            ]
             tables_ = ["conditions", "procedures", "drugs"]
             mode_ = "binary"
             val_metric = average_precision_score
             dataset_task = dataset_name + "-mortality"
 
-
         elif "readmission_prediction" in task_name:
-            models = [ClassicML, RNN, CNN, Transformer, RETAIN]
+            models = [
+                ClassicML,
+                RNN,
+                CNN,
+                Transformer,
+                RETAIN
+            ]
             tables_ = ["conditions", "procedures", "drugs"]
             mode_ = "binary"
             val_metric = average_precision_score
@@ -264,7 +299,6 @@ for dataset_name in datasets:
                     print("prauc: ", prauc)
                     print('\n\n')
 
-
             else:
                 device = "cuda:0"
                 print("current model: " + str(current_model))
@@ -320,4 +354,5 @@ for dataset_name in datasets:
         leaderboard_sheet.update(location, eval_data_task)
 
         print(eval_data_task)
+        save_leaderboard_log(out_path="./log", dataset_task_name=dataset_task, data=eval_data_task, models=models)
         print('Leaderboard updated for ' + dataset_task + '!')
