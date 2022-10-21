@@ -1,3 +1,4 @@
+import argparse
 import sys
 
 from pyhealth.datasets import MIMIC3Dataset, eICUDataset, MIMIC4Dataset, OMOPDataset
@@ -41,32 +42,6 @@ def get_leaderboard_sheet(credential_file, doc_name, worksheet_id):
     sheet = file.open(doc_name)  # open sheet
     sheet = sheet.get_worksheet_by_id(worksheet_id)  # replace sheet_name with the name that corresponds to yours
     return sheet
-
-
-# get our leaderboard sheet on:
-# https://docs.google.com/spreadsheets/d/1c4OwCSDaEt7vGmocidq1hK2HCTeB6ZHDzAZvlubpi08/edit#gid=1602645797
-leaderboard_sheet = get_leaderboard_sheet(credential_file="credentials.json",
-                                          doc_name="Pyhealth tracker",
-                                          worksheet_id=1602645797)
-
-# specify the areas to input result data
-leaderboard_location = {
-    'mimic3-drugrec': 'C2:F11',
-    'mimic4-drugrec': 'C16:F25',
-    'eicu-drugrec': 'I2:L11',
-    'omop-drugrec': 'I16:L25',
-
-    'mimic3-mortality': 'C32:F38',
-    'mimic4-mortality': 'C46:F52',
-    'eicu-mortality': 'I32:L38',
-    'omop-mortality': 'I46:L52',
-
-    'mimic3-readmission': 'C61:F67',
-    'mimic4-readmission': 'C75:F81',
-    'eicu-readmission': 'I61:L67',
-    'omop-readmission': 'I75:L81',
-
-}
 
 
 # function to save the leaderboard data locally
@@ -127,142 +102,221 @@ def get_dataset(dataset_name):
     return dataset
 
 
-datasets = [
-    "mimic3",
-    "eicu",
-    "omop",
-    "mimic4"
-]
+def leaderboard_generation(args):
 
-classic_ml_models = [LR(), RF, NN]
-tasks_mimic3 = [
-    drug_recommendation_mimic3_fn,
-    # length_of_stay_prediction_mimic3_fn,
-    mortality_prediction_mimic3_fn,
-    readmission_prediction_mimic3_fn]
+    if args.remote:
+        # get our leaderboard sheet on:
+        # https://docs.google.com/spreadsheets/d/1c4OwCSDaEt7vGmocidq1hK2HCTeB6ZHDzAZvlubpi08/edit#gid=1602645797
+        leaderboard_sheet = get_leaderboard_sheet(credential_file=args.credentials,
+                                                  doc_name=args.doc_name,
+                                                  worksheet_id=args.sheet_id)
 
-tasks_mimic4 = [
-    drug_recommendation_mimic4_fn,
-    # length_of_stay_prediction_mimic4_fn,
-    mortality_prediction_mimic4_fn,
-    readmission_prediction_mimic4_fn
-]
+        # specify the areas to input result data
+        leaderboard_location = {
+            'mimic3-drugrec': 'C2:F11',
+            'mimic4-drugrec': 'C16:F25',
+            'eicu-drugrec': 'I2:L11',
+            'omop-drugrec': 'I16:L25',
 
-tasks_eicu = [
-    drug_recommendation_eicu_fn,
-    # length_of_stay_prediction_eicu_fn,
-    mortality_prediction_eicu_fn,
-    readmission_prediction_eicu_fn
-]
+            'mimic3-mortality': 'C32:F38',
+            'mimic4-mortality': 'C46:F52',
+            'eicu-mortality': 'I32:L38',
+            'omop-mortality': 'I46:L52',
 
-tasks_omop = [
-    drug_recommendation_omop_fn,
-    # length_of_stay_prediction_omop_fn,
-    mortality_prediction_omop_fn,
-    readmission_prediction_omop_fn
-]
+            'mimic3-readmission': 'C61:F67',
+            'mimic4-readmission': 'C75:F81',
+            'eicu-readmission': 'I61:L67',
+            'omop-readmission': 'I75:L81',
 
-# ==============================
-# traverse through all datasets
-for dataset_name in datasets:
-    if dataset_name == "mimic3":
-        task_list = tasks_mimic3
-    elif dataset_name == "mimic4":
-        task_list = tasks_mimic4
-    elif dataset_name == "eicu":
-        task_list = tasks_eicu
-    elif dataset_name == "omop":
-        task_list = tasks_omop
-    else:
-        print("Current leaderboard generation only supports mimic3, mimic4, eicu, omop datasets")
-        raise ValueError
+        }
 
-    dataset = get_dataset(dataset_name)
+    datasets = [
+        "mimic3",
+        "eicu",
+        "omop",
+        "mimic4"
+    ]
 
-    for task in task_list:
-        # set task to the dataset
-        dataset.set_task(task)
+    classic_ml_models = [LR(), RF, NN]
+    tasks_mimic3 = [
+        drug_recommendation_mimic3_fn,
+        # length_of_stay_prediction_mimic3_fn,
+        mortality_prediction_mimic3_fn,
+        readmission_prediction_mimic3_fn]
 
-        # split the dataset and create dataloaders
-        train_dataset, val_dataset, test_dataset = split_by_patient(dataset, [0.8, 0.1, 0.1])
-        train_loader = DataLoader(
-            train_dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
-        )
-        val_loader = DataLoader(
-            val_dataset, batch_size=64, shuffle=False, collate_fn=collate_fn_dict
-        )
-        test_loader = DataLoader(
-            test_dataset, batch_size=64, shuffle=False, collate_fn=collate_fn_dict
-        )
+    tasks_mimic4 = [
+        drug_recommendation_mimic4_fn,
+        # length_of_stay_prediction_mimic4_fn,
+        mortality_prediction_mimic4_fn,
+        readmission_prediction_mimic4_fn
+    ]
 
-        # specify tables and modes to use for different tasks
-        task_name = task.__name__
-        if "drug_recommendation" in task_name:
-            models = [
-                ClassicML,
-                RNN,
-                CNN,
-                Transformer,
-                RETAIN,
-                GAMENet,
-                MICRON,
-                SafeDrug
-            ]
-            # Safedrug can only be used in mimic3 and mimic4
-            if (dataset_name != "mimic3") and (dataset_name != "mimic4") and (SafeDrug in models):
-                models.remove(SafeDrug)
+    tasks_eicu = [
+        drug_recommendation_eicu_fn,
+        # length_of_stay_prediction_eicu_fn,
+        mortality_prediction_eicu_fn,
+        readmission_prediction_eicu_fn
+    ]
 
-            tables_ = ["conditions", "procedures"]
-            mode_ = "multilabel"
-            val_metric = pr_auc_multilabel
-            dataset_task = dataset_name + "-drugrec"
+    tasks_omop = [
+        drug_recommendation_omop_fn,
+        # length_of_stay_prediction_omop_fn,
+        mortality_prediction_omop_fn,
+        readmission_prediction_omop_fn
+    ]
 
-        elif "mortality_prediction" in task_name:
-            models = [
-                ClassicML,
-                RNN,
-                CNN,
-                Transformer,
-                RETAIN
-            ]
-            tables_ = ["conditions", "procedures", "drugs"]
-            mode_ = "binary"
-            val_metric = average_precision_score
-            dataset_task = dataset_name + "-mortality"
+    # ==============================
+    # traverse through all datasets
+    for dataset_name in datasets:
+        if dataset_name == "mimic3":
+            task_list = tasks_mimic3
+        elif dataset_name == "mimic4":
+            task_list = tasks_mimic4
+        elif dataset_name == "eicu":
+            task_list = tasks_eicu
+        elif dataset_name == "omop":
+            task_list = tasks_omop
+        else:
+            print("Current leaderboard generation only supports mimic3, mimic4, eicu, omop datasets")
+            raise ValueError
 
-        elif "readmission_prediction" in task_name:
-            models = [
-                ClassicML,
-                RNN,
-                CNN,
-                Transformer,
-                RETAIN
-            ]
-            tables_ = ["conditions", "procedures", "drugs"]
-            mode_ = "binary"
-            val_metric = average_precision_score
-            dataset_task = dataset_name + "-readmission"
+        dataset = get_dataset(dataset_name)
 
-        print("current task: " + task_name)
+        for task in task_list:
+            # set task to the dataset
+            dataset.set_task(task)
 
-        # input leaderboard for each dataset-task
-        eval_data_task = []
+            # split the dataset and create dataloaders
+            train_dataset, val_dataset, test_dataset = split_by_patient(dataset, [0.8, 0.1, 0.1])
+            train_loader = DataLoader(
+                train_dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
+            )
+            val_loader = DataLoader(
+                val_dataset, batch_size=64, shuffle=False, collate_fn=collate_fn_dict
+            )
+            test_loader = DataLoader(
+                test_dataset, batch_size=64, shuffle=False, collate_fn=collate_fn_dict
+            )
 
-        # traverse all the models
-        for current_model in models:
-            if current_model.__name__ == "ClassicML":
-                for mlmodel in classic_ml_models:
-                    print("current model: " + str(mlmodel))
+            # specify tables and modes to use for different tasks
+            task_name = task.__name__
+            if "drug_recommendation" in task_name:
+                models = [
+                    ClassicML,
+                    RNN,
+                    CNN,
+                    Transformer,
+                    RETAIN,
+                    GAMENet,
+                    MICRON,
+                    SafeDrug
+                ]
+                # Safedrug can only be used in mimic3 and mimic4
+                if (dataset_name != "mimic3") and (dataset_name != "mimic4") and (SafeDrug in models):
+                    models.remove(SafeDrug)
+
+                tables_ = ["conditions", "procedures"]
+                mode_ = "multilabel"
+                val_metric = pr_auc_multilabel
+                dataset_task = dataset_name + "-drugrec"
+
+            elif "mortality_prediction" in task_name:
+                models = [
+                    ClassicML,
+                    RNN,
+                    CNN,
+                    Transformer,
+                    RETAIN
+                ]
+                tables_ = ["conditions", "procedures", "drugs"]
+                mode_ = "binary"
+                val_metric = average_precision_score
+                dataset_task = dataset_name + "-mortality"
+
+            elif "readmission_prediction" in task_name:
+                models = [
+                    ClassicML,
+                    RNN,
+                    CNN,
+                    Transformer,
+                    RETAIN
+                ]
+                tables_ = ["conditions", "procedures", "drugs"]
+                mode_ = "binary"
+                val_metric = average_precision_score
+                dataset_task = dataset_name + "-readmission"
+
+            print("current task: " + task_name)
+
+            # input leaderboard for each dataset-task
+            eval_data_task = []
+
+            # traverse all the models
+            for current_model in models:
+                if current_model.__name__ == "ClassicML":
+                    for mlmodel in classic_ml_models:
+                        print("current model: " + str(mlmodel))
+                        model = current_model(
+                            dataset=dataset,
+                            tables=tables_,
+                            target="label",
+                            classifier=mlmodel,
+                            mode=mode_,
+                            output_path="./ckpt/" + str(mlmodel)[:-2]
+                        )
+
+                        trainer = Trainer(enable_logging=True, output_path="./output")
+                        start = time.time()
+                        trainer.fit(model,
+                                    train_loader=train_loader,
+                                    epochs=50,
+                                    val_loader=val_loader,
+                                    val_metric=val_metric,
+                                    show_progress_bar=False)
+                        end = time.time()
+                        print('training time: ', end - start)
+
+                        y_gt, y_prob, y_pred = evaluate(model, test_loader)
+
+                        if mode_ == "multilabel":
+
+                            jaccard = jaccard_multilabel(y_gt, y_pred)
+                            accuracy = accuracy_multilabel(y_gt, y_pred)
+                            f1 = f1_multilabel(y_gt, y_pred, average='macro')
+                            prauc = pr_auc_multilabel(y_gt, y_prob)
+
+                        elif mode_ == "binary":
+                            jaccard = jaccard_score(y_gt, y_pred, average='macro')
+                            accuracy = accuracy_score(y_gt, y_pred)
+                            f1 = f1_score(y_gt, y_pred, average='macro')
+                            prauc = average_precision_score(y_gt, y_prob)
+
+                        # input leaderboard for each dataset-task-model
+                        eval_data_model = [jaccard, accuracy, f1, prauc]
+                        eval_data_task.append(eval_data_model)
+
+                        # print metric name and score
+                        print("jaccard: ", jaccard)
+                        print("accuracy: ", accuracy)
+                        print("f1: ", f1)
+                        print("prauc: ", prauc)
+                        print('\n\n')
+
+                else:
+                    device = "cuda:0"
+                    print("current model: " + str(current_model))
+
                     model = current_model(
                         dataset=dataset,
                         tables=tables_,
                         target="label",
-                        classifier=mlmodel,
                         mode=mode_,
-                        output_path="./ckpt/" + str(mlmodel)[:-2]
                     )
 
-                    trainer = Trainer(enable_logging=True, output_path="./output")
+                    model.to(device)
+
+                    trainer = Trainer(enable_logging=True, output_path="./output", device=device)
+
                     start = time.time()
                     trainer.fit(model,
                                 train_loader=train_loader,
@@ -273,7 +327,7 @@ for dataset_name in datasets:
                     end = time.time()
                     print('training time: ', end - start)
 
-                    y_gt, y_prob, y_pred = evaluate(model, test_loader)
+                    y_gt, y_prob, y_pred = evaluate(model, test_loader, device)
 
                     if mode_ == "multilabel":
 
@@ -299,60 +353,32 @@ for dataset_name in datasets:
                     print("prauc: ", prauc)
                     print('\n\n')
 
-            else:
-                device = "cuda:0"
-                print("current model: " + str(current_model))
+            if args.remote:
+                location = leaderboard_location[dataset_task]
+                leaderboard_sheet.update(location, eval_data_task)
 
-                model = current_model(
-                    dataset=dataset,
-                    tables=tables_,
-                    target="label",
-                    mode=mode_,
-                )
+            print(eval_data_task)
+            save_leaderboard_log(out_path=args.log_path, dataset_task_name=dataset_task, data=eval_data_task, models=models)
+            print('Leaderboard updated for ' + dataset_task + '!')
 
-                model.to(device)
 
-                trainer = Trainer(enable_logging=True, output_path="./output", device=device)
+def construct_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--credentials", type=str, default='credentials.json')
+    parser.add_argument("--doc_name", type=str, default='Pyhealth tracker')
+    parser.add_argument("--sheet_id", type=int, default=1602645797)
+    parser.add_argument("--log_path", type=str, default="./log")
+    parser.add_argument("--remote", type=bool, default=True)
 
-                start = time.time()
-                trainer.fit(model,
-                            train_loader=train_loader,
-                            epochs=50,
-                            val_loader=val_loader,
-                            val_metric=val_metric,
-                            show_progress_bar=False)
-                end = time.time()
-                print('training time: ', end - start)
+    args = parser.parse_args()
 
-                y_gt, y_prob, y_pred = evaluate(model, test_loader, device)
+    return args
 
-                if mode_ == "multilabel":
 
-                    jaccard = jaccard_multilabel(y_gt, y_pred)
-                    accuracy = accuracy_multilabel(y_gt, y_pred)
-                    f1 = f1_multilabel(y_gt, y_pred, average='macro')
-                    prauc = pr_auc_multilabel(y_gt, y_prob)
+def main():
+    args = construct_args()
+    leaderboard_generation(args)
 
-                elif mode_ == "binary":
-                    jaccard = jaccard_score(y_gt, y_pred, average='macro')
-                    accuracy = accuracy_score(y_gt, y_pred)
-                    f1 = f1_score(y_gt, y_pred, average='macro')
-                    prauc = average_precision_score(y_gt, y_prob)
 
-                # input leaderboard for each dataset-task-model
-                eval_data_model = [jaccard, accuracy, f1, prauc]
-                eval_data_task.append(eval_data_model)
-
-                # print metric name and score
-                print("jaccard: ", jaccard)
-                print("accuracy: ", accuracy)
-                print("f1: ", f1)
-                print("prauc: ", prauc)
-                print('\n\n')
-
-        location = leaderboard_location[dataset_task]
-        leaderboard_sheet.update(location, eval_data_task)
-
-        print(eval_data_task)
-        save_leaderboard_log(out_path="./log", dataset_task_name=dataset_task, data=eval_data_task, models=models)
-        print('Leaderboard updated for ' + dataset_task + '!')
+if __name__ == '__main__':
+    main()
