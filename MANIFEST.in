@@ -1,6 +1,0 @@
-prune datasets
-prune docs
-prune examples
-prune pyhealth/test
-include README.rst
-include requirements.txt
