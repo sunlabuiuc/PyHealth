@@ -1,3 +1,8 @@
+.idea
+*DS_Store*
+*output*
+*resource*
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -103,3 +108,14 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+# Sphinx documentation
+docs/build/
+# /docs/api/data/
+# /docs/api/datasets/
+# /docs/api/evaluator/
+# /docs/api/models/
+# /docs/api/tasks/
+
+# data file
+data/
