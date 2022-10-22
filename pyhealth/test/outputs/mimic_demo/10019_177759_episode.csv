@@ -1,6 +1,0 @@
-secs_since_entry,capillary refill rate,diastolic blood pressure,fraction inspired oxygen,glascow coma scale eye opening,glascow coma scale motor response,glascow coma scale total,glascow coma scale verbal response,glucose,heart rate,height,mean blood pressure,oxygen saturation,respiratory rate,systolic blood pressure,temperature,weight,ph
-21600,,75.0,,1 No Response,1 No Response,3,1.0 ET/Trach,159,86,,87,85.0,28,102.0,36.11111,105.3,7.3
-43200,,72.0,,1 No Response,1 No Response,3,1.0 ET/Trach,86,84,,79,60.0,28,87.0,36.11111,105.3,7.3
-64800,,68.0,,1 No Response,1 No Response,3,1.0 ET/Trach,222,84,,74,98.0,36,81.0,34.0,105.3,7.38
-86400,,59.0,,1 No Response,1 No Response,3,1.0 ET/Trach,287,66,,62,,0,65.0,35.0,105.3,7.26
-108000,,0.0,,1 No Response,1 No Response,3,1.0 ET/Trach,,89,,53,,5,0.0,35.555557,105.3,
