@@ -1,5 +1,6 @@
 import os
 from abc import ABC, abstractmethod
+from collections import Counter
 from copy import deepcopy
 from datetime import datetime
 from typing import Optional, List, Dict, Callable
@@ -52,13 +53,13 @@ class BaseDataset(ABC, Dataset):
     """
 
     def __init__(
-        self,
-        dataset_name: str,
-        root: str,
-        tables: List[str],
-        code_mapping: Optional[Dict[str, str]] = None,
-        dev: bool = False,
-        refresh_cache: bool = False,
+            self,
+            dataset_name: str,
+            root: str,
+            tables: List[str],
+            code_mapping: Optional[Dict[str, str]] = None,
+            dev: bool = False,
+            refresh_cache: bool = False,
     ):
         """Loads tables into a dict of patients and saves it to cache."""
 
@@ -83,10 +84,10 @@ class BaseDataset(ABC, Dataset):
 
         # hash filename for cache
         args_to_hash = (
-            [dataset_name, root]
-            + sorted(tables)
-            + sorted(code_mapping.items())
-            + ["dev" if dev else "prod"]
+                [dataset_name, root]
+                + sorted(tables)
+                + sorted(code_mapping.items())
+                + ["dev" if dev else "prod"]
         )
         filename = hash_str("+".join([str(arg) for arg in args_to_hash])) + ".pkl"
         self.filepath = os.path.join(MODULE_CACHE_PATH, filename)
@@ -157,8 +158,8 @@ class BaseDataset(ABC, Dataset):
 
     @staticmethod
     def _add_event_to_patient_dict(
-        patient_dict: Dict[str, Patient],
-        event: Event,
+            patient_dict: Dict[str, Patient],
+            event: Event,
     ) -> Dict[str, Patient]:
         """Helper function which adds an event to the patient dict.
 
@@ -183,8 +184,8 @@ class BaseDataset(ABC, Dataset):
         return patient_dict
 
     def _convert_code_in_patient_dict(
-        self,
-        patients: Dict[str, Patient],
+            self,
+            patients: Dict[str, Patient],
     ) -> Dict[str, Patient]:
         """Converts the codes for all patients in the patient dict.
 
@@ -251,9 +252,9 @@ class BaseDataset(ABC, Dataset):
         return [event]
 
     def set_task(
-        self,
-        task_fn: Callable,
-        task_name: Optional[str] = None,
+            self,
+            task_fn: Callable,
+            task_name: Optional[str] = None,
     ) -> None:
         """Processes the base dataset to generate the task-specific samples.
 
@@ -284,7 +285,7 @@ class BaseDataset(ABC, Dataset):
         self.task_fn = task_fn
         samples = []
         for patient_id, patient in tqdm(
-            self.patients.items(), desc=f"Generating samples for {self.task}"
+                self.patients.items(), desc=f"Generating samples for {self.task}"
         ):
             samples.extend(self.task_fn(patient))
         self.samples = samples
@@ -347,12 +348,16 @@ class BaseDataset(ABC, Dataset):
         keys = self.samples[0].keys()
         return list(keys)
 
-    # TODO: check this
-    def get_all_tokens(self, key: str, sort: bool = True) -> List[str]:
+    def get_all_tokens(
+            self, key: str,
+            remove_duplicates: bool = True,
+            sort: bool = True
+    ) -> List[str]:
         """Gets all tokens with a specific key in the samples.
 
         Args:
             key: str, the key of the tokens in the samples.
+            remove_duplicates: bool, whether to remove duplicates.
             sort: whether to sort the tokens by alphabet order.
 
         Returns:
@@ -362,40 +367,37 @@ class BaseDataset(ABC, Dataset):
             raise ValueError("Please set task first.")
         tokens = []
         for sample in self.samples:
-            # for multi-class classification
+            # single value
             if type(sample[key]) in [bool, int, str]:
                 tokens.append(sample[key])
-            # for multi-label classification
+            # a list of values
             elif type(sample[key][0]) in [bool, int, str]:
                 tokens.extend(sample[key])
+            # a list of lists of values
             elif type(sample[key][0]) == list:
-                tokens.extend(sample[key][-1])
+                tokens.extend(sum(sample[key], []))
             else:
                 raise ValueError(f"Unknown type of {key}: {type(sample[key])}")
-        tokens = list(set(tokens))
+        if remove_duplicates:
+            tokens = list(set(tokens))
         if sort:
             tokens.sort()
         return tokens
 
-    # TODO: check this
-    def get_label_distribution(self) -> Dict[str, int]:
-        """Gets the label distribution of the samples.
+    def get_distribution_tokens(self, key: str) -> Dict[str, int]:
+        """Gets the distribution of tokens with a specific key in the samples.
+
+        Args:
+            key: str, the key of the tokens in the samples.
 
         Returns:
-            label_distribution: a dict mapping label to count.
+            distribution: a dict mapping token to count.
         """
         if self.task is None:
             raise ValueError("Please set task first.")
-        label_distribution = {}
-        for sample in self.samples:
-            if type(sample["label"]) == list:
-                for label in sample["label"]:
-                    label_distribution.setdefault(label, 0)
-                    label_distribution[label] += 1
-            else:
-                label_distribution.setdefault(sample["label"], 0)
-                label_distribution[sample["label"]] += 1
-        return label_distribution
+        tokens = self.get_all_tokens(key, remove_duplicates=False, sort=False)
+        counter = Counter(tokens)
+        return counter
 
     def __getitem__(self, index) -> Dict:
         """Returns a sample by index.
@@ -444,11 +446,11 @@ class BaseDataset(ABC, Dataset):
                 len(v.get_event_list(table)) for p in self.patients.values() for v in p
             ]
             print(
-                f"\t- codes/visit in {table}: {sum(num_events) / len(num_events):.4f}"
+                f"\t- Number of events per visit in {table}: "
+                f"{sum(num_events) / len(num_events):.4f}"
             )
         print()
 
-    # TODO: check this
     def task_stat(self) -> None:
         """Prints some statistics of the task-specific dataset."""
         if self.task is None:
@@ -456,21 +458,30 @@ class BaseDataset(ABC, Dataset):
         print()
         print(f"Statistics of {self.task} task:")
         print(f"\t- Dataset: {self.dataset_name} (dev={self.dev})")
+        print(f"\t- Number of samples: {len(self)}")
         num_patients = len(set([sample["patient_id"] for sample in self.samples]))
         print(f"\t- Number of patients: {num_patients}")
-        print(f"\t- Number of visits: {len(self)}")
+        num_visits = len(set([sample["visit_id"] for sample in self.samples]))
+        print(f"\t- Number of visits: {num_visits}")
         print(f"\t- Number of visits per patient: {len(self) / num_patients:.4f}")
-        # TODO: add more types once we support selecting domains with args
         for key in self.samples[0]:
             if key in ["patient_id", "visit_id"]:
                 continue
-            elif key == "label":
-                print(f"\t- Label distribution: {self.get_label_distribution()}")
+            if type(self.samples[0][key]) in [bool, int, str]:
+                num_events = [1 for sample in self.samples]
+            # a list of values
+            elif type(self.samples[0][key][0]) in [bool, int, str]:
+                num_events = [len(sample[key]) for sample in self.samples]
+            # a list of lists of values
+            elif type(self.samples[0][key][0]) == list:
+                num_events = [len(sum(sample[key], [])) for sample in self.samples]
             else:
-                # TODO: drugs[-1] is empty list
-                num_events = [len(sample[key][-1]) for sample in self.samples]
-                print(f"\t- #{key}/visit: {sum(num_events) / len(num_events):.4f}")
-                print(f"\t- Number of unique {key}: {len(self.get_all_tokens(key))}")
+                raise ValueError(f"Unknown type of {key}: {type(self.samples[0][key])}")
+            print(f"\t- {key}:")
+            print(f"\t\t- Number of {key} per sample: "
+                  f"{sum(num_events) / len(num_events):.4f}")
+            print(f"\t\t- Number of unique {key}: {len(self.get_all_tokens(key))}")
+            print(f"\t\t- Distribution of {key}: {self.get_distribution_tokens(key)}")
         print()
 
     def info(self):
