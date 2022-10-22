@@ -252,7 +252,7 @@ class BaseDataset(ABC, Dataset):
 
     def set_task(
         self,
-        task_fn: Callable[[Patient], List[Dict]],
+        task_fn: Callable,
         task_name: Optional[str] = None,
     ) -> None:
         """Processes the base dataset to generate the task-specific samples.
