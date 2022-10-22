@@ -11,13 +11,13 @@ from pyhealth.tokenizer import Tokenizer
 
 class RNNLayer(nn.Module):
     def __init__(
-        self,
-        input_size: int,
-        hidden_size: int,
-        rnn_type: str = "GRU",
-        num_layers: int = 1,
-        dropout: float = 0.5,
-        bidirectional: bool = True,
+            self,
+            input_size: int,
+            hidden_size: int,
+            rnn_type: str = "GRU",
+            num_layers: int = 1,
+            dropout: float = 0.5,
+            bidirectional: bool = True,
     ):
         """separate callable RNN layer
         Args:
@@ -94,14 +94,14 @@ class RNN(BaseModel):
     """
 
     def __init__(
-        self,
-        dataset: BaseDataset,
-        tables: List[str],
-        target: str,
-        mode: str,
-        embedding_dim: int = 128,
-        hidden_dim: int = 128,
-        **kwargs
+            self,
+            dataset: BaseDataset,
+            tables: List[str],
+            target: str,
+            mode: str,
+            embedding_dim: int = 128,
+            hidden_dim: int = 128,
+            **kwargs
     ):
         super(RNN, self).__init__(
             dataset=dataset,
@@ -185,3 +185,47 @@ class RNN(BaseModel):
             "y_pred": y_pred,
             "y_true": y_true,
         }
+
+
+if __name__ == '__main__':
+    from pyhealth.datasets import MIMIC3Dataset
+    from torch.utils.data import DataLoader
+    from pyhealth.utils import collate_fn_dict
+
+
+    def task_fn(patient):
+        samples = []
+        for visit in patient:
+            mortality_label = int(visit.discharge_status)
+            conditions = visit.get_code_list(table="DIAGNOSES_ICD")
+            procedures = visit.get_code_list(table="PROCEDURES_ICD")
+            drugs = visit.get_code_list(table="PRESCRIPTIONS")
+            if len(conditions) + len(procedures) + len(drugs) == 0:
+                continue
+            samples.append(
+                {
+                    "visit_id": visit.visit_id,
+                    "patient_id": patient.patient_id,
+                    "conditions": [conditions],
+                    "procedures": [procedures],
+                    "drugs": [drugs],
+                    "label": mortality_label,
+                }
+            )
+        return samples
+
+
+    dataset = MIMIC3Dataset(
+        root="/srv/local/data/physionet.org/files/mimiciii/1.4",
+        tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
+        dev=True,
+        code_mapping={"NDC": "ATC"},
+        refresh_cache=False,
+    )
+    dataset.set_task(task_fn)
+
+    dataloader = DataLoader(
+        dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
+    )
+
+    model = RNN(dataset=dataset, tables=["conditions", "procedures", "drugs"], target="label", mode="binary", embedding_dim=128, hidden_dim=128, rnn_type="GRU", num_layers=1, bidirectional=True, dropout=0.5)
