@@ -12,7 +12,7 @@ or from github source:
 
 .. code-block:: bash
 
-   git clone https://github.com/ycq091044/PyHealth-OMOP.git
+   git clone -b v1.0a2 https://github.com/sunlabuiuc/PyHealth.git
    cd pyhealth
    pip install .
 
@@ -21,10 +21,12 @@ or from github source:
 
 .. code-block:: bash
 
-    python>=3.7
-    torch==1.11.0
-    rdkit==2022.03.4
-    scikit-learn==0.24.2
+    python>=3.8
+    torch>=1.8.0
+    rdkit>=2022.03.4
+    scikit-learn>=0.24.2
+    networkx>=2.6.3
+    pandas>=1.3.2
     tqdm
 
 **Warning 1**\ :
