@@ -1,5 +1,5 @@
 ﻿pyhealth.tasks.mortality_prediction
-===================================
+=======================================
 
 
 .. automodule:: pyhealth.tasks.mortality_prediction

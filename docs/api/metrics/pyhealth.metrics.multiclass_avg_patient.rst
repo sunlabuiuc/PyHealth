@@ -1,5 +1,5 @@
 ﻿pyhealth.metrics.multiclass_avg_patient
-===================================
+==========================================
 
 .. currentmodule:: pyhealth.metrics.multiclass_avg_patient
 
