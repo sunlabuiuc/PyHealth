@@ -19,14 +19,13 @@ or from github source:
 
 **Required Dependencies**\ :
 
+.. code-block:: bash
 
-* Python 3.5, 3.6, 3.7 or 3.8
-* numpy>=1.13
-* numba>=0.35
-* pandas>=0.25
-* scikit_learn>=0.20
-* torch==1.12
-* MedCode==1.3.0
+    python>=3.7
+    torch==1.11.0
+    rdkit==2022.03.4
+    scikit-learn==0.24.2
+    tqdm
 
 **Warning 1**\ :
 
