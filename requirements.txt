@@ -1,3 +1,5 @@
 MedCode==1.2
 torch==1.11.0
 rdkit==2022.03.4
+scikit-learn==0.24.2
+tqdm
