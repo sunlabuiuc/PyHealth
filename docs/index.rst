@@ -15,12 +15,7 @@ Welcome to PyHealth!
 .. image:: https://readthedocs.org/projects/pyhealth/badge/?version=latest
    :target: https://pyhealth.readthedocs.io/en/latest/?badge=latest
    :alt: Documentation status
-
-
-.. image:: https://mybinder.org/badge_logo.svg
-   :target: https://mybinder.org/v2/gh/yzhao062/pyhealth/master
-   :alt: MyBinder
-
+   
 
 .. image:: https://img.shields.io/github/stars/yzhao062/pyhealth.svg
    :target: https://github.com/yzhao062/pyhealth/stargazers
