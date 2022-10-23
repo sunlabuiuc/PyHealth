@@ -5,7 +5,7 @@ You could install from PyPi:
 
 .. code-block:: bash
 
-    pip install pyhealth
+    pip install pyhealth==1.0a2
 
 
 or from github source:
