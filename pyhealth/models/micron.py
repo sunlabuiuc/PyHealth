@@ -1,12 +1,10 @@
-from typing import List, Tuple, Union
+from typing import List
 
 import torch
 import torch.nn as nn
-import torch.nn.utils.rnn as rnn_utils
 
 from pyhealth.datasets import BaseDataset
 from pyhealth.models import BaseModel
-from pyhealth.tokenizer import Tokenizer
 from pyhealth.models.utils import get_last_visit
 
 
@@ -44,21 +42,35 @@ class MICRONLayer(nn.Module):
     """
 
     def __init__(
-        self,
-        input_size: int,
-        hidden_size: int,
-        dropout: float = 0.5,
+            self,
+            input_size: int,
+            hidden_size: int,
+            num_labels: int,
+            dropout: float = 0.5,
     ):
         super(MICRONLayer, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
+        self.num_labels = num_labels
         self.dropout = dropout
         self.dropout_layer = nn.Dropout(dropout)
 
         self.health_net = nn.Linear(input_size, hidden_size)
         self.prescription_net = nn.Linear(hidden_size, hidden_size)
+        self.fc = nn.Linear(hidden_size, num_labels)
 
-    def forward(self, x: torch.tensor, mask: torch.tensor):
+    @staticmethod
+    def compute_reconstruction_loss(logits, residual_logits, mask):
+        rec_loss = torch.mean(
+            torch.square(
+                torch.sigmoid(logits[:, 1:, :])
+                - torch.sigmoid(logits[:, :-1, :] + residual_logits)
+            )
+            * mask[:, 1:].unsqueeze(2)
+        )
+        return rec_loss
+
+    def forward(self, x: torch.tensor):
         """
         Args:
             x: [batch size, seq len, input_size]
@@ -66,23 +78,31 @@ class MICRONLayer(nn.Module):
         Returns:
             outputs [batch size, seq len, hidden_size]
         """
+        mask = (torch.sum(x, dim=2) != 0)
         health_rep = self.health_net(x)  # (batch, visit, input_size)
 
         if self.training:
-            health_rep_cur = health_rep[:, :-1, :]  # (batch, visit-1, input_size)
-            health_rep_last = health_rep[:, 1:, :]  # (batch, visit-1, input_size)
-            health_residual_rep = (
-                health_rep_cur - health_rep_last
-            )  # (batch, visit-1, input_size)
-
+            # (batch, visit-1, input_size)
+            health_rep_cur = health_rep[:, :-1, :]
+            # (batch, visit-1, input_size)
+            health_rep_last = health_rep[:, 1:, :]
+            # (batch, visit-1, input_size)
+            health_residual_rep = (health_rep_cur - health_rep_last)
             # drug representation
             drug_rep = self.prescription_net(health_rep)
             drug_residual_rep = self.prescription_net(health_residual_rep)
-            return drug_rep, drug_residual_rep
+            #  logits
+            logits = self.fc(drug_rep)
+            residual_logits = self.fc(drug_residual_rep)
+            rec_loss = self.compute_reconstruction_loss(logits, residual_logits, mask)
+            logits = get_last_visit(logits, mask)
+            return logits, rec_loss
 
         else:
             drug_rep = self.prescription_net(health_rep)
-            return drug_rep
+            logits = self.fc(drug_rep)
+            logits = get_last_visit(logits, mask)
+            return logits
 
 
 class MICRON(BaseModel):
@@ -90,8 +110,8 @@ class MICRON(BaseModel):
     
     Args:
         dataset: the dataset object
-        tables: the list of table names to use
-        target: the target table name
+        feature_keys: the list of table names to use
+        label_key: the target table name
         mode: the mode of the model, "multilabel", "multiclass" or "binary"
         embedding_dim: the embedding dimension
         hidden_dim: the hidden dimension
@@ -116,116 +136,99 @@ class MICRON(BaseModel):
     """
 
     def __init__(
-        self,
-        dataset: BaseDataset,
-        tables: List[str],
-        target: str,
-        mode: str,
-        embedding_dim: int = 128,
-        hidden_dim: int = 128,
-        **kwargs
+            self,
+            dataset: BaseDataset,
+            feature_keys: List[str],
+            label_key: str,
+            embedding_dim: int = 128,
+            hidden_dim: int = 128,
+            **kwargs
     ):
         super(MICRON, self).__init__(
             dataset=dataset,
-            tables=tables,
-            target=target,
-            mode=mode,
+            feature_keys=feature_keys,
+            label_key=label_key,
+            mode="multilabel",
         )
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
 
-        # define the tokenizers
-        self.tokenizers = {}
-        for domain in tables:
-            self.tokenizers[domain] = Tokenizer(
-                dataset.get_all_tokens(key=domain), special_tokens=["<pad>", "<unk>"]
-            )
-        self.label_tokenizer = Tokenizer(dataset.get_all_tokens(key=target))
-
-        # define the embedding layers for each domain
-        self.embeddings = nn.ModuleDict()
-        for domain in tables:
-            # TODO: use get_pad_token_id() instead of hard code
-            self.embeddings[domain] = nn.Embedding(
-                self.tokenizers[domain].get_vocabulary_size(),
-                embedding_dim,
-                padding_idx=0,
-            )
+        self.feat_tokenizers = self._get_feature_tokenizers()
+        self.label_tokenizer = self._get_label_tokenizer()
+        self.embeddings = self._get_embeddings(self.feat_tokenizers, embedding_dim)
 
         self.micron = MICRONLayer(
-            input_size=len(tables) * embedding_dim, hidden_size=hidden_dim, **kwargs
+            input_size=len(feature_keys) * embedding_dim,
+            hidden_size=hidden_dim,
+            num_labels=self.label_tokenizer.get_vocabulary_size(),
+            **kwargs
         )
-        self.fc = nn.Linear(hidden_dim, self.label_tokenizer.get_vocabulary_size())
 
     def forward(self, device, **kwargs):
-        """
-        if "kwargs[domain][0][0] is list" means "use history", then run visit level RNN
-        elif "kwargs[domain][0][0] is not list" means not "use history", then run code level RNN
-        """
         patient_emb = []
-        for domain in self.tables:
-            if type(kwargs[domain][0][0]) == list:
-                kwargs[domain] = self.tokenizers[domain].batch_encode_3d(kwargs[domain])
-                kwargs[domain] = torch.tensor(
-                    kwargs[domain], dtype=torch.long, device=device
-                )
-                # (patient, visit, code, embedding_dim)
-                kwargs[domain] = self.embeddings[domain](kwargs[domain])
-                # (patient, visit, embedding_dim)
-                kwargs[domain] = torch.sum(kwargs[domain], dim=2)
-            else:
-                raise ValueError("Sample data format is not correct")
-
-            # get mask and run RNN
-            mask = torch.sum(kwargs[domain], dim=2) != 0
-            mask[:, 0] = 1
+        for feature_key in self.feature_keys:
+            assert type(kwargs[feature_key][0][0]) == list
+            x = self.feat_tokenizers[feature_key].batch_encode_3d(kwargs[feature_key])
+            x = torch.tensor(x, dtype=torch.long, device=device)
+            # (patient, visit, code, embedding_dim)
+            x = self.embeddings[feature_key](x)
+            # (patient, visit, embedding_dim)
+            x = torch.sum(x, dim=2)
             # (patient, hidden_dim)
-
-            patient_emb.append(kwargs[domain])
+            patient_emb.append(x)
 
         # (patient, visit, embedding_dim)
         patient_emb = torch.cat(patient_emb, dim=2)
 
         if self.training:
             # the reconstruction loss
-            drug_rep, drug_residual_rep = self.micron(patient_emb, mask)
-            logits = self.fc(drug_rep)
-            drug_residual_rep = self.fc(drug_residual_rep)
+            logits, rec_loss = self.micron(patient_emb)
 
-            rec_loss = (
-                1
-                / self.label_tokenizer.get_vocabulary_size()
-                * torch.sum(
-                    (
-                        torch.sigmoid(logits[:, 1:, :])
-                        - torch.sigmoid(logits[:, :-1, :] + drug_residual_rep)
-                    )
-                    ** 2
-                    * mask[:, 1:].unsqueeze(2)
-                )
-            )
         else:
-            drug_rep = self.micron(patient_emb, mask)
-            logits = self.fc(drug_rep)
-
-        logits = get_last_visit(logits, mask)
+            logits = self.micron(patient_emb)
 
         # obtain target, loss, prob, pred
-        loss, y_true, y_prod, y_pred = self.cal_loss_and_output(
-            logits, device, **kwargs
-        )
+        loss, y_true, y_prob = self._calculate_output(logits, kwargs[self.label_key])
 
         if self.training:
             return {
                 "loss": loss + 1e-1 * rec_loss,
-                "y_prob": y_prod,
-                "y_pred": y_pred,
+                "y_prob": y_prob,
                 "y_true": y_true,
             }
         else:
             return {
                 "loss": loss,
-                "y_prob": y_prod,
-                "y_pred": y_pred,
+                "y_prob": y_prob,
                 "y_true": y_true,
             }
+
+
+if __name__ == '__main__':
+    from pyhealth.datasets import MIMIC3Dataset
+    from torch.utils.data import DataLoader
+    from pyhealth.utils import collate_fn_dict
+    from pyhealth.tasks import drug_recommendation_mimic3_fn
+
+    dataset = MIMIC3Dataset(
+        root="/srv/local/data/physionet.org/files/mimiciii/1.4",
+        tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
+        dev=True,
+        code_mapping={"NDC": "ATC"},
+        refresh_cache=False,
+    )
+
+    # visit level + multilabel
+    dataset.set_task(drug_recommendation_mimic3_fn)
+    dataloader = DataLoader(
+        dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
+    )
+    model = MICRON(
+        dataset=dataset,
+        feature_keys=["conditions", "procedures"],
+        label_key="label",
+    )
+    model.to("cuda")
+    batch = iter(dataloader).next()
+    output = model(**batch, device="cuda")
+    print(output["loss"])
