@@ -34,11 +34,11 @@ needs_sphinx = "4.3"  # Nicer param docs
 
 project = "PyHealth"
 copyright = "2022, PyHealth Team"
-author = "Patrick"
+author = "Chaoqi Yang, Zhenbang Wu, Patrick Jiang"
 
 # The full version, including alpha/beta/rc tags
-version = "v2.0"
-release = "v2.0"
+version = "alpha-0.2"
+release = "alpha-0.2"
 
 
 # -- General configuration ---------------------------------------------------
@@ -65,8 +65,8 @@ extensions = [
     "sphinxcontrib.httpdomain",
 ]
 
-ogp_site_url = "https://pyhealth-v2.readthedocs.io/en/latest/"
-ogp_image = "https://pyhealth-v2.readthedocs.io/en/latest//_static/logo.png"
+ogp_site_url = "https://pyhealth.readthedocs.io/en/latest/"
+ogp_image = "https://pyhealth.readthedocs.io/en/latest/pyhealth_logos/_static/pyhealth-logo.png"
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]
@@ -146,7 +146,7 @@ html_logo = "_static/pyhealth_logos/pyhealth-logo.png"
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ["_static"]
 
-html_title = "Pyhealth"
+html_title = "PyHealth"
 # Custom sidebar templates, must be a dictionary that maps document names
 # to template names.
 #
