@@ -10,21 +10,12 @@ from pyhealth.tokenizer import Tokenizer
 
 class TransformerLayer(nn.Module):
     """The separate callable Transformer layer
-    
     Args:
         input_size: the embedding size of the input
         hidden_size: the embedding size of the output
         num_layers: the number of layers in the transformer
         nhead: the number of heads in the multiheadattention models
         dropout: dropout rate
-        
-    **Examples:**
-        >>> from pyhealth.models import TransformerLayer
-        >>> input = torch.randn(3, 128, 5) # [batch size, seq len, input_size]
-        >>> model = TransformerLayer(5, 64, 2, 8, 0.5)
-        >>> mask = torch.ones(3, 128)==1
-        >>> model(input, mask).shape
-        torch.Size([3, 64])] # [batch size, hidden_size]
     """
 
     def __init__(
@@ -39,16 +30,16 @@ class TransformerLayer(nn.Module):
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.num_layers = num_layers
+        self.nhead = nhead
         self.dropout = dropout
-        self.dropout_layer = nn.Dropout(p=self.dropout)
 
-        self.feature_map = nn.Linear(input_size, hidden_size)
         encoder_layer = nn.TransformerEncoderLayer(
-            d_model=hidden_size,
+            d_model=input_size,
             dim_feedforward=hidden_size,
             nhead=nhead,
             dropout=dropout,
             activation="relu",
+            batch_first=True,
         )
         encoder_norm = nn.LayerNorm(hidden_size)
         self.transformer = nn.TransformerEncoder(
@@ -63,138 +54,280 @@ class TransformerLayer(nn.Module):
         Returns:
             outputs [batch size, seq len, hidden_size]
         """
-        # rnn will only apply dropout between layers
-        x = self.dropout_layer(x)
-        x = self.feature_map(x)
-        # since the transformer encoder cannot use "batch_first"
-        x = self.transformer(
-            x.permute(1, 0, 2), src_key_padding_mask=~mask
-        )  # (patient, seq len, hidden_size)
-        x = (x.permute(1, 0, 2) * mask.unsqueeze(-1).float()).sum(
-            1
-        )  # (patient, hidden_size)
-
+        src_key_padding_mask = (mask == 0)
+        x = self.transformer(x, src_key_padding_mask=src_key_padding_mask)
+        x = x * mask.unsqueeze(-1).float()
+        x = x.sum(dim=1)
         return x
 
 
 class Transformer(BaseModel):
     """Transformer Class, use "task" as key to identify specific Transformer model and route there
-    
     Args:
         dataset: the dataset object
-        tables: the list of table names to use
-        target: the target table name
+        feature_keys: the list of table names to use
+        label_key: the target table name
         mode: the mode of the model, "multilabel", "multiclass" or "binary"
         embedding_dim: the embedding dimension
         hidden_dim: the hidden dimension
-        
-    **Examples:**
-        >>> from pyhealth.datasets import OMOPDataset
-        >>> dataset = OMOPDataset(
-        ...     root="https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2",
-        ...     tables=["condition_occurrence", "procedure_occurrence"],
-        ... ) # load dataset
-        >>> from pyhealth.tasks import mortality_prediction_omop_fn
-        >>> dataset.set_task(mortality_prediction_omop_fn) # set task
-        
-        >>> from pyhealth.models import Transformer
-        >>> model = Transformer(
-        ...     dataset=dataset,
-        ...     tables=["conditions", "procedures"],
-        ...     target="label",
-        ...     mode="binary",
-        ... )
     """
 
     def __init__(
         self,
         dataset: BaseDataset,
-        tables: List[str],
-        target: str,
+        feature_keys: List[str],
+        label_key: str,
         mode: str,
+        operation_level: str,
         embedding_dim: int = 128,
         hidden_dim: int = 128,
         **kwargs
     ):
         super(Transformer, self).__init__(
             dataset=dataset,
-            tables=tables,
-            target=target,
+            feature_keys=feature_keys,
+            label_key=label_key,
             mode=mode,
         )
+        assert operation_level in ["visit", "event"]
+        self.operation_level = operation_level
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
 
-        self.tokenizers = {}
-        for domain in tables:
-            self.tokenizers[domain] = Tokenizer(
-                dataset.get_all_tokens(key=domain), special_tokens=["<pad>", "<unk>"]
-            )
-        self.label_tokenizer = Tokenizer(dataset.get_all_tokens(key=target))
-
-        self.embeddings = nn.ModuleDict()
-        for domain in tables:
-            # TODO: use get_pad_token_id() instead of hard code
-            self.embeddings[domain] = nn.Embedding(
-                self.tokenizers[domain].get_vocabulary_size(),
-                embedding_dim,
-                padding_idx=0,
-            )
+        self.feat_tokenizers = self._get_feature_tokenizers()
+        self.label_tokenizer = self._get_label_tokenizer()
+        self.embeddings = self._get_embeddings(self.feat_tokenizers, embedding_dim)
 
         self.transformer = nn.ModuleDict()
-        for domain in tables:
-            self.transformer[domain] = TransformerLayer(
-                input_size=embedding_dim, hidden_size=hidden_dim, **kwargs
+        for feature_key in feature_keys:
+            self.transformer[feature_key] = TransformerLayer(
+                input_size=embedding_dim,
+                hidden_size=hidden_dim,
+                **kwargs
             )
-        self.fc = nn.Linear(
-            len(tables) * hidden_dim, self.label_tokenizer.get_vocabulary_size()
-        )
+        output_size = self._get_output_size(self.label_tokenizer)
+        self.fc = nn.Linear(len(self.feature_keys) * self.hidden_dim, output_size)
 
-    def forward(self, device, **kwargs):
-        """
-        if "kwargs[domain][0][0] is list" means "use history", then run visit level RNN
-        elif "kwargs[domain][0][0] is not list" means not "use history", then run code level RNN
-        """
+    def _visit_level_forward(self, device, **kwargs):
+        """Visit level Transformer forward."""
         patient_emb = []
-        for domain in self.tables:
-            if type(kwargs[domain][0][0]) == list:
-                kwargs[domain] = self.tokenizers[domain].batch_encode_3d(kwargs[domain])
-                kwargs[domain] = torch.tensor(
-                    kwargs[domain], dtype=torch.long, device=device
-                )
-                # (patient, visit, code, embedding_dim)
-                kwargs[domain] = self.embeddings[domain](kwargs[domain])
-                # (patient, visit, embedding_dim)
-                kwargs[domain] = torch.sum(kwargs[domain], dim=2)
-            elif type(kwargs[domain][0][0]) in [int, str]:
-                kwargs[domain] = self.tokenizers[domain].batch_encode_2d(kwargs[domain])
-                kwargs[domain] = torch.tensor(
-                    kwargs[domain], dtype=torch.long, device=device
-                )
-                # (patient, code, embedding_dim)
-                kwargs[domain] = self.embeddings[domain](kwargs[domain])
-            else:
-                raise ValueError("Sample data format is not correct")
-
-            # get mask and run RNN
-            mask = torch.sum(kwargs[domain], dim=2) != 0
-            mask[:, 0] = 1
+        for feature_key in self.feature_keys:
+            assert type(kwargs[feature_key][0][0]) == list
+            x = self.feat_tokenizers[feature_key].batch_encode_3d(kwargs[feature_key])
+            # (patient, visit, code)
+            x = torch.tensor(x, dtype=torch.long, device=device)
+            # (patient, visit, code, embedding_dim)
+            x = self.embeddings[feature_key](x)
+            # (patient, visit, embedding_dim)
+            x = torch.sum(x, dim=2)
+            # (patient, visit)
+            mask = torch.sum(x, dim=2) != 0
             # (patient, hidden_dim)
-            domain_emb = self.transformer[domain](kwargs[domain], mask)
-            patient_emb.append(domain_emb)
-
-        # (patient, hidden_dim * N_tables)
+            x = self.transformer[feature_key](x, mask)
+            patient_emb.append(x)
+        # (patient, features * hidden_dim)
         patient_emb = torch.cat(patient_emb, dim=1)
+        # (patient, label_size)
         logits = self.fc(patient_emb)
-
-        # obtain target, loss, prob, pred
-        loss, y_true, y_prod, y_pred = self.cal_loss_and_output(
-            logits, device, **kwargs
-        )
-
+        # obtain loss, y_true, t_prob
+        loss, y_true, y_prob = self._calculate_output(logits, kwargs[self.label_key])
         return {
             "loss": loss,
-            "y_prob": y_prod,
-            "y_pred": y_pred,
+            "y_prob": y_prob,
             "y_true": y_true,
         }
+
+    def _event_level_forward(self, device, **kwargs):
+        """Event level Transformer forward."""
+        patient_emb = []
+        for feature_key in self.feature_keys:
+            x = self.feat_tokenizers[feature_key].batch_encode_2d(kwargs[feature_key])
+            x = torch.tensor(x, dtype=torch.long, device=device)
+            # (patient, code, embedding_dim)
+            x = self.embeddings[feature_key](x)
+            # (patient, code)
+            mask = torch.sum(x, dim=2) != 0
+            # (patient, hidden_dim)
+            x = self.transformer[feature_key](x, mask)
+            patient_emb.append(x)
+        # (patient, features * hidden_dim)
+        patient_emb = torch.cat(patient_emb, dim=1)
+        # (patient, label_size)
+        logits = self.fc(patient_emb)
+        # obtain loss, y_true, t_prob
+        loss, y_true, y_prob = self._calculate_output(logits, kwargs[self.label_key])
+        return {
+            "loss": loss,
+            "y_prob": y_prob,
+            "y_true": y_true,
+        }
+
+    def forward(self, device, **kwargs):
+        if self.operation_level == "visit":
+            return self._visit_level_forward(device, **kwargs)
+        elif self.operation_level == "event":
+            return self._event_level_forward(device, **kwargs)
+        else:
+            raise NotImplementedError
+
+
+if __name__ == '__main__':
+    from pyhealth.datasets import MIMIC3Dataset
+    from torch.utils.data import DataLoader
+    from pyhealth.utils import collate_fn_dict
+
+
+    def task_event(patient):
+        samples = []
+        for visit in patient:
+            conditions = visit.get_code_list(table="DIAGNOSES_ICD")
+            procedures = visit.get_code_list(table="PROCEDURES_ICD")
+            drugs = visit.get_code_list(table="PRESCRIPTIONS")
+            mortality_label = int(visit.discharge_status)
+            if len(conditions) * len(procedures) * len(drugs) == 0:
+                continue
+            samples.append(
+                {
+                    "visit_id": visit.visit_id,
+                    "patient_id": patient.patient_id,
+                    "conditions": conditions,
+                    "procedures": procedures,
+                    "list_label": drugs,
+                    "value_label": mortality_label,
+                }
+            )
+        return samples
+
+
+    def task_visit(patient):
+        samples = []
+        for visit in patient:
+            conditions = visit.get_code_list(table="DIAGNOSES_ICD")
+            procedures = visit.get_code_list(table="PROCEDURES_ICD")
+            drugs = visit.get_code_list(table="PRESCRIPTIONS")
+            mortality_label = int(visit.discharge_status)
+            if len(conditions) * len(procedures) * len(drugs) == 0:
+                continue
+            samples.append(
+                {
+                    "visit_id": visit.visit_id,
+                    "patient_id": patient.patient_id,
+                    "conditions": [conditions],
+                    "procedures": [procedures],
+                    "list_label": drugs,
+                    "value_label": mortality_label,
+                }
+            )
+        return samples
+
+
+    dataset = MIMIC3Dataset(
+        root="/srv/local/data/physionet.org/files/mimiciii/1.4",
+        tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
+        dev=True,
+        code_mapping={"NDC": "ATC"},
+        refresh_cache=False,
+    )
+
+    # event level + binary
+    dataset.set_task(task_event)
+    dataloader = DataLoader(
+        dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
+    )
+    model = Transformer(
+        dataset=dataset,
+        feature_keys=["conditions", "procedures"],
+        label_key="value_label",
+        mode="binary",
+        operation_level="event",
+    )
+    model.to("cuda")
+    batch = iter(dataloader).next()
+    output = model(**batch, device="cuda")
+    print(output["loss"])
+
+    # visit level + binary
+    dataset.set_task(task_visit)
+    dataloader = DataLoader(
+        dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
+    )
+    model = Transformer(
+        dataset=dataset,
+        feature_keys=["conditions", "procedures"],
+        label_key="value_label",
+        mode="binary",
+        operation_level="visit",
+    )
+    model.to("cuda")
+    batch = iter(dataloader).next()
+    output = model(**batch, device="cuda")
+    print(output["loss"])
+
+    # event level + multiclass
+    dataset.set_task(task_event)
+    dataloader = DataLoader(
+        dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
+    )
+    model = Transformer(
+        dataset=dataset,
+        feature_keys=["conditions", "procedures"],
+        label_key="value_label",
+        mode="multiclass",
+        operation_level="event",
+    )
+    model.to("cuda")
+    batch = iter(dataloader).next()
+    output = model(**batch, device="cuda")
+    print(output["loss"])
+
+    # visit level + multiclass
+    dataset.set_task(task_visit)
+    dataloader = DataLoader(
+        dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
+    )
+    model = Transformer(
+        dataset=dataset,
+        feature_keys=["conditions", "procedures"],
+        label_key="value_label",
+        mode="multiclass",
+        operation_level="visit",
+    )
+    model.to("cuda")
+    batch = iter(dataloader).next()
+    output = model(**batch, device="cuda")
+    print(output["loss"])
+
+    # event level + multilabel
+    dataset.set_task(task_event)
+    dataloader = DataLoader(
+        dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
+    )
+    model = Transformer(
+        dataset=dataset,
+        feature_keys=["conditions", "procedures"],
+        label_key="list_label",
+        mode="multilabel",
+        operation_level="event",
+    )
+    model.to("cuda")
+    batch = iter(dataloader).next()
+    output = model(**batch, device="cuda")
+    print(output["loss"])
+
+    # visit level + multilabel
+    dataset.set_task(task_visit)
+    dataloader = DataLoader(
+        dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
+    )
+    model = Transformer(
+        dataset=dataset,
+        feature_keys=["conditions", "procedures"],
+        label_key="list_label",
+        mode="multilabel",
+        operation_level="visit",
+    )
+    model.to("cuda")
+    batch = iter(dataloader).next()
+    output = model(**batch, device="cuda")
+    print(output["loss"])
+
