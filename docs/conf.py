@@ -37,8 +37,8 @@ copyright = "2022, PyHealth Team"
 author = "Chaoqi Yang, Zhenbang Wu, Patrick Jiang"
 
 # The full version, including alpha/beta/rc tags
-version = "alpha-0.2"
-release = "alpha-0.2"
+version = "0.2"
+release = "0.2"
 
 
 # -- General configuration ---------------------------------------------------
@@ -176,18 +176,27 @@ html_show_sphinx = False
 # Output file base name for HTML help builder.
 htmlhelp_basename = "PyHealth"
 
+# -- Options for manual page output ------------------------------------------
+
+# One entry per manual page. List of tuples
+# (source start file, name, description, authors, manual section).
+man_pages = [("PyHealth", "PyHealth Documentation", [author], 1)]
+
 # -- Options for LaTeX output ------------------------------------------------
 
 latex_elements = {
     # The paper size ('letterpaper' or 'a4paper').
     #
     # 'papersize': 'letterpaper',
+
     # The font size ('10pt', '11pt' or '12pt').
     #
     # 'pointsize': '10pt',
+
     # Additional stuff for the LaTeX preamble.
     #
     # 'preamble': '',
+
     # Latex figure (float) alignment
     #
     # 'figure_align': 'htbp',
@@ -196,13 +205,19 @@ latex_elements = {
 # Grouping the document tree_ into LaTeX files. List of tuples
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
-latex_documents = []
+latex_documents = [
+    (master_doc, 'PyHealth.tex', 'PyHealth Documentation',
+     'Chaoqi Yang, Zhenbang Wu, Patrick Jiang', 'manual'),
+]
 
 # -- Options for manual page output ------------------------------------------
 
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
-man_pages = [("PyHealth", "PyHealth Documentation", [author], 1)]
+man_pages = [
+    (master_doc, 'PyHealth', 'PyHealth Documentation',
+     [author], 1)
+]
 
 # -- Options for Texinfo output ----------------------------------------------
 
@@ -210,14 +225,9 @@ man_pages = [("PyHealth", "PyHealth Documentation", [author], 1)]
 # (source start file, target name, title, author,
 #  dir menu entry, description, category)
 texinfo_documents = [
-    (
-        "PyHealth",
-        "PyHealth Documentation",
-        author,
-        "PyHealth",
-        "One line description of project.",
-        "Miscellaneous",
-    ),
+    (master_doc, 'PyHealth', 'PyHealth Documentation',
+     author, 'PyHealth', 'One line description of project.',
+     'Miscellaneous'),
 ]
 
 # -- Extension configuration -------------------------------------------------
@@ -225,47 +235,4 @@ texinfo_documents = [
 # -- Options for intersphinx extension ---------------------------------------
 
 # Example configuration for intersphinx: refer to the Python standard library.
-intersphinx_mapping = {"https://docs.python.org/": None}
-
-nbsphinx_prolog = r"""
-.. raw:: html
-
-{{% set docname = env.doc2path(env.docname, base=None).split("/")[-1] %}}
-
-.. raw:: html
-
-    <style>
-        p {{
-            margin-bottom: 0.5rem;
-        }}
-        /* Main index page overview cards */
-        /* https://github.com/spatialaudio/nbsphinx/pull/635/files */
-        .jp-RenderedHTMLCommon table,
-        div.rendered_html table {{
-        border: none;
-        border-collapse: collapse;
-        border-spacing: 0;
-        font-size: 12px;
-        table-layout: fixed;
-        color: inherit;
-        }}
-
-        body:not([data-theme=light]) .jp-RenderedHTMLCommon tbody tr:nth-child(odd),
-        body:not([data-theme=light]) div.rendered_html tbody tr:nth-child(odd) {{
-        background: rgba(255, 255, 255, .1);
-        }}
-    </style>
-
-.. raw:: html
-
-    <div class="admonition note">
-        <p class="admonition-title">Note</p>
-        <p>
-        This page was generated from
-        <a class="reference external" href="https://github.com/theislab/ehrapy/tree/{version}/">{docname}</a>.
-        Some tutorial content may look better in light mode.
-        </p>
-    </div>
-""".format(
-    version=version, docname="{{ docname|e }}"
-)
+intersphinx_mapping = {'https://docs.python.org/': None}

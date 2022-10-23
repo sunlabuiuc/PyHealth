@@ -1,0 +1,17 @@
+Sphinx==4.3
+sphinx-automodapi>
+sphinx-autodoc-annotation
+sphinx_last_updated_by_git
+sphinxcontrib-spelling
+sphinx-autodoc-typehints
+sphinx_gallery
+sphinxcontrib-bibtex
+nbsphinx
+nbsphinx-link
+sphinx-copybutton
+furo
+myst-parser
+sphinx-remove-toctrees
+sphinx-design
+sphinxext-opengraph
+sphinxcontrib-httpdomain

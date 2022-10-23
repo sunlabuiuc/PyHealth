@@ -1,0 +1,16 @@
+version: 2
+
+sphinx:
+    configuration: docs/conf.py
+
+formats: all
+
+python:
+    version: "3.8"
+    install:
+        - method: pip
+          path: .
+        - requirements: docs/requirements.txt
+
+submodules:
+    include: all
