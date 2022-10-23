@@ -23,6 +23,7 @@ class Event:
     Attributes:
         attr_dict: Dict, dictionary of event attributes. Each key is an attribute
             name and each value is the attribute's value.
+            
     """
 
     def __init__(

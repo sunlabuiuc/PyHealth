@@ -23,7 +23,7 @@ with open(path.join(this_directory, 'requirements.txt'),
           encoding='utf-8') as f:
     requirements = f.read().splitlines()
 
-VERSION = "1.0a1"
+VERSION = "1.0a2"
 
 setup(
     name='pyhealth',
