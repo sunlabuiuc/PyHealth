@@ -7,22 +7,17 @@ Welcome to PyHealth!
 
 
 .. image:: https://readthedocs.org/projects/pyhealth/badge/?version=latest
-   :target: https://pyhealth.readthedocs.io/en/latest/?badge=latest
+   :target: https://pyhealth.readthedocs.io/en/latest/
    :alt: Documentation status
-
-
-.. image:: https://mybinder.org/badge_logo.svg
-   :target: https://mybinder.org/v2/gh/yzhao062/pyhealth/master
-   :alt: MyBinder
-
+   
 
 .. image:: https://img.shields.io/github/stars/yzhao062/pyhealth.svg
-   :target: https://github.com/yzhao062/pyhealth/stargazers
+   :target: https://github.com/sunlabuiuc/pyhealth/stargazers
    :alt: GitHub stars
 
 
 .. image:: https://img.shields.io/github/forks/yzhao062/pyhealth.svg?color=blue
-   :target: https://github.com/yzhao062/pyhealth/network
+   :target: https://github.com/sunlabuiuc/pyhealth/network
    :alt: GitHub forks
 
 
@@ -34,6 +29,7 @@ Welcome to PyHealth!
 .. image:: https://pepy.tech/badge/pyhealth/month
    :target: https://pepy.tech/project/pyhealth
    :alt: Downloads
+
 
 
 .. -----
@@ -196,7 +192,7 @@ Medical Code Map
     from pyhealth.medcode import InnerMap
     ICD9CM = InnerMap("ICD9CM")
     ICD9CM.lookup("428.0") # get detailed info
-    ICD9CM.get_ancesteros("428.0") # get parents
+    ICD9CM.get_ancestors("428.0") # get parents
 
 Medical Code Tokenizer
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -293,4 +289,4 @@ SafeDrug                              deep Learning     ``pyhealth.models.SafeDr
 Benchmark on Healthcare Tasks
 ----------------------------------
 
-* Here is a temporary `benchmark doc <https://docs.google.com/spreadsheets/d/1c4OwCSDaEt7vGmocidq1hK2HCTeB6ZHDzAZvlubpi08/edit?usp=sharing>`_ on healthcare tasks. We will put the results in this section below.
+* Here is a temporary `benchmark doc <https://docs.google.com/spreadsheets/d/1c4OwCSDaEt7vGmocidq1hK2HCTeB6ZHDzAZvlubpi08/edit#gid=1602645797>`_ on healthcare tasks. We will put the results in this section below.

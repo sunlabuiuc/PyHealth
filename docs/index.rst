@@ -13,17 +13,17 @@ Welcome to PyHealth!
 
 
 .. image:: https://readthedocs.org/projects/pyhealth/badge/?version=latest
-   :target: https://pyhealth.readthedocs.io/en/latest/?badge=latest
+   :target: https://pyhealth.readthedocs.io/en/latest/
    :alt: Documentation status
    
 
 .. image:: https://img.shields.io/github/stars/yzhao062/pyhealth.svg
-   :target: https://github.com/yzhao062/pyhealth/stargazers
+   :target: https://github.com/sunlabuiuc/pyhealth/stargazers
    :alt: GitHub stars
 
 
 .. image:: https://img.shields.io/github/forks/yzhao062/pyhealth.svg?color=blue
-   :target: https://github.com/yzhao062/pyhealth/network
+   :target: https://github.com/sunlabuiuc/pyhealth/network
    :alt: GitHub forks
 
 
