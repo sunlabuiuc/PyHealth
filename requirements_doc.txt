@@ -1,0 +1,3 @@
+-r requirements.txt
+sphinx
+sphinxcontrib-httpdomain
