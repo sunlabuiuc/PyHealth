@@ -41,7 +41,7 @@ setup(
     install_requires=requirements,
     setup_requires=['setuptools>=38.6.0'],
     classifiers=[
-        'Development Status :: Alpha 0.2',
+        'Development Status :: Alpha-0.2',
         'Intended Audience :: Education',
         'Intended Audience :: Financial and Insurance Industry',
         'Intended Audience :: Science/Research',

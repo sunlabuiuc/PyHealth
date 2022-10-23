@@ -37,8 +37,8 @@ copyright = "2022, PyHealth Team"
 author = "Chaoqi Yang, Zhenbang Wu, Patrick Jiang"
 
 # The full version, including alpha/beta/rc tags
-version = "0.2"
-release = "0.2"
+version = "alpha-0.2"
+release = "alpha-0.2"
 
 
 # -- General configuration ---------------------------------------------------
