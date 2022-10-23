@@ -1,4 +1,4 @@
-from setuptools import find_packages, setup
+from setuptools import find_packages, setup, Extension
 
 # read the contents of README file
 from os import path
@@ -23,7 +23,7 @@ with open(path.join(this_directory, 'requirements.txt'),
           encoding='utf-8') as f:
     requirements = f.read().splitlines()
 
-VERSION = "alpha-0.2"
+VERSION = "1.0a1"
 
 setup(
     name='pyhealth',
@@ -41,7 +41,7 @@ setup(
     install_requires=requirements,
     setup_requires=['setuptools>=38.6.0'],
     classifiers=[
-        'Development Status :: Alpha-0.2',
+        'Development Status :: 3 - Alpha',
         'Intended Audience :: Education',
         'Intended Audience :: Financial and Insurance Industry',
         'Intended Audience :: Science/Research',

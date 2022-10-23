@@ -70,6 +70,8 @@ PyHealth is designed for both **ML researchers and medical practitioners**. We c
  
 ----------
 
+ **[News!]** Current PyHealth is a brand-new version with more flexible and independent function calls (such as users may only use the data preprocessing parts or only the ML model layers as convenient as torch.nn.Linear). The `old documents <https://pyhealth.readthedocs.io/en/archived/>`_ are no longer maintained.
+
 
 Introduction
 --------------------------
@@ -196,7 +198,7 @@ Medical Code Map
     from pyhealth.medcode import InnerMap
     ICD9CM = InnerMap("ICD9CM")
     ICD9CM.lookup("428.0") # get detailed info
-    ICD9CM.get_ancesteros("428.0") # get parents
+    ICD9CM.get_ancestors("428.0") # get parents
 
 Medical Code Tokenizer
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -293,7 +295,7 @@ SafeDrug                              deep Learning     ``pyhealth.models.SafeDr
 Benchmark on Healthcare Tasks
 ----------------------------------
 
-* Here is a temporary `benchmark doc <https://docs.google.com/spreadsheets/d/1c4OwCSDaEt7vGmocidq1hK2HCTeB6ZHDzAZvlubpi08/edit?usp=sharing>`_ on healthcare tasks. We will put the results in this section below.
+* Here is a temporary `benchmark doc <https://docs.google.com/spreadsheets/d/1c4OwCSDaEt7vGmocidq1hK2HCTeB6ZHDzAZvlubpi08/edit#gid=1602645797>`_ on healthcare tasks. We will put the results in this section below.
 
 .. -------------------------------
 
@@ -329,7 +331,7 @@ Benchmark on Healthcare Tasks
 
    install
    tutorials
-   usecase
+..    usecase
 
 
 .. toctree::
@@ -354,7 +356,7 @@ Benchmark on Healthcare Tasks
    :caption: Additional Information
 
    about
-   faq
+..    faq
 ..    contribution
    whats_new
 

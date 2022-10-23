@@ -91,6 +91,7 @@ An ML Pipeline Example
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 * **STEP 1: <pyhealth.datasets>** provides a clean structure for the dataset, independent from the tasks. We support ``MIMIC-III``, ``MIMIC-IV`` and ``eICU``, as well as the standard ``OMOP-formatted data``. The dataset is stored in a unified ``Patient-Visit-Event`` structure.
+
 .. code-block:: python
 
     from pyhealth.datasets import MIMIC3Dataset
@@ -101,6 +102,7 @@ An ML Pipeline Example
     )
 
 * **STEP 2: <pyhealth.tasks>** inputs the ``<pyhealth.datasets>`` object and defines how to process each pateint's data into a set of samples for the tasks. In the package, we provide several task examples, such as ``drug recommendation`` and ``length of stay prediction``.
+
 .. code-block:: python
 
     from pyhealth.tasks import drug_recommendation_mimic3_fn
@@ -117,6 +119,7 @@ An ML Pipeline Example
     test_loader = DataLoader(test_ds, batch_size=64, shuffle=False, collate_fn=collate_fn_dict)
 
 * **STEP 3: <pyhealth.models>** provides the healthcare ML models using ``<pyhealth.datasets>``. This module also provides model layers, such as ``pyhealth.models.RETAINLayer`` for building customized ML architectures. Our model layers can used as easily as ``torch.nn.Linear``.
+
 .. code-block:: python
     
     from pyhealth.models import Transformer
@@ -130,6 +133,7 @@ An ML Pipeline Example
     model.to(device)
 
 * **STEP 4: <pyhealth.trainer>** is the training manager with ``train_loader``, the ``val_loader``, ``val_metric``, and specify other arguemnts, such as epochs, optimizer, learning rate, etc. The trainer will automatically save the best model and output the path in the end.
+
 .. code-block:: python
     
     from pyhealth.trainer import Trainer
@@ -175,6 +179,7 @@ Medical Code Map
 * **<pyhealth.codemap>** provides two core functionalities: (i) looking up information for a given medical code (e.g., name, category, sub-concept); (ii) mapping codes across coding systems (e.g., ICD9CM to CCSCM). **This module can be easily applied to your research.**
 
 * For code mapping between two coding systems
+
 .. code-block:: python
 
     from pyhealth.medcode import CrossMap
@@ -185,6 +190,7 @@ Medical Code Map
     codemap.map("00527051210")
 
 * For code ontology lookup within one system
+
 .. code-block:: python
 
     from pyhealth.medcode import InnerMap
