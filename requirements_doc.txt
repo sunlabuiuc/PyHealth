@@ -1,3 +1,0 @@
--r requirements.txt
-sphinx==4.3
-sphinxcontrib-httpdomain

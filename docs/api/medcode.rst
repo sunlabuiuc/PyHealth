@@ -5,12 +5,12 @@ We provide medical code mapping tools for (i) ontology mapping within one coding
 (ii) mapping the same concept cross different coding systems. 
 
 
-.. autoclass:: pyhealth.medcode.BaseCode
+.. autoclass:: pyhealth.medcode.InnerMap
     :members:
     :undoc-members:
     :show-inheritance:
 
-.. autoclass:: pyhealth.medcode.CodeMap
+.. autoclass:: pyhealth.medcode.CrossMap
     :members:
     :undoc-members:
     :show-inheritance:
