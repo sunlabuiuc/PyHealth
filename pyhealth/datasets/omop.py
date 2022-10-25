@@ -62,6 +62,40 @@ class OMOPDataset(BaseDataset):
             a list of sample indices. Default is None.
         visit_to_index: Optional[Dict[str, List[int]]], a dict mapping visit_id to a
             list of sample indices. Default is None.
+            
+    **Examples:**
+        >>> from pyhealth.datasets import OMOPDataset
+        >>> omop_ds = OMOPDataset(
+        ...     root="https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2",
+        ...     tables=["condition_occurrence", "procedure_occurrence"],
+        ...     code_mapping={},
+        ... )
+        Processing OMOP base dataset...
+        Parsing person, visit_occurrence and death: 100%|████████████████████████████████| 1000/1000 [00:04<00:00, 212.22it/s]
+        Parsing condition_occurrence: 100%|███████████████████████████████████████████| 49005/49005 [00:06<00:00, 8033.07it/s]
+        Parsing procedure_occurrence: 100%|███████████████████████████████████████████| 51576/51576 [00:05<00:00, 8725.00it/s]
+        Mapping codes: 100%|████████████████████████████████████████████████████████████| 1000/1000 [00:00<00:00, 4455.22it/s]
+        Saved OMOP base dataset to /home/chaoqiy2/.cache/pyhealth/datasets/a6532f16ff0c8860f0ffd2f1d53d7047.pkl
+        >>> omop_ds.stat()
+        Statistics of OMOP dataset (dev=False):
+            - Number of patients: 1000
+            - Number of visits: 55261
+            - Number of visits per patient: 55.2610
+            - codes/visit in condition_occurrence: 2.6635
+            - codes/visit in procedure_occurrence: 2.4886
+        >>> omop_ds.info()
+                dataset.patients: patient_id -> <Patient>
+                    <Patient>
+                        - visits: visit_id -> <Visit>
+                        - other patient-level info.
+                        <Visit>
+                            - event_list_dict: table_name -> List[Event]
+                            - other visit-level info.
+                            <Event>
+                                - code: str
+                                - other event-level info.
+        >>> omop_ds.available_tables
+        ['condition_occurrence', 'procedure_occurrence']
     """
 
     def __init__(

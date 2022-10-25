@@ -52,6 +52,44 @@ class MIMIC3Dataset(BaseDataset):
             a list of sample indices. Default is None.
         visit_to_index: Optional[Dict[str, List[int]]], a dict mapping visit_id to a
             list of sample indices. Default is None.
+            
+    **Examples:**
+        >>> from pyhealth.datasets import MIMIC3Dataset
+        >>> mimic3_ds = MIMIC3Dataset(
+        ...     root="/srv/local/data/physionet.org/files/mimiciii/1.4",
+        ...     tables=["DIAGNOSES_ICD", "PROCEDURES_ICD"],
+        ...     code_mapping={"ICD9CM": "CCSCM"},
+        ... )
+        Loaded ICD9CM->CCSCM mapping from /home/chaoqiy2/.cache/pyhealth/medcode/ICD9CM_to_CCSCM.pkl
+        Loaded ICD9CM code from /home/chaoqiy2/.cache/pyhealth/medcode/ICD9CM.pkl
+        Loaded CCSCM code from /home/chaoqiy2/.cache/pyhealth/medcode/CCSCM.pkl
+        Processing MIMIC-III base dataset...
+        Parsing PATIENTS and ADMISSIONS: 100%|████████████████████████████████████████| 46520/46520 [00:23<00:00, 2013.76it/s]
+        Parsing DIAGNOSES_ICD: 100%|█████████████████████████████████████████████████| 58929/58929 [00:04<00:00, 12321.63it/s]
+        Parsing PROCEDURES_ICD: 100%|████████████████████████████████████████████████| 52243/52243 [00:02<00:00, 19613.40it/s]
+        Mapping codes: 100%|██████████████████████████████████████████████████████████| 46520/46520 [00:07<00:00, 6350.14it/s]
+        Saved MIMIC-III base dataset to /home/chaoqiy2/.cache/pyhealth/datasets/2b0484b5b9322f8f067437d1abcb8581.pkl
+        >>> mimic3_ds.stat()
+        Statistics of MIMIC-III dataset (dev=False):
+            - Number of patients: 46520
+            - Number of visits: 58976
+            - Number of visits per patient: 1.2678
+            - codes/visit in DIAGNOSES_ICD: 11.0384
+            - codes/visit in PROCEDURES_ICD: 4.0711
+        >>> mimic3_ds.info()
+                dataset.patients: patient_id -> <Patient>
+                    <Patient>
+                        - visits: visit_id -> <Visit>
+                        - other patient-level info.
+                        <Visit>
+                            - event_list_dict: table_name -> List[Event]
+                            - other visit-level info.
+                            <Event>
+                                - code: str
+                                - other event-level info.
+        >>> mimic3_ds.available_tables
+        ['DIAGNOSES_ICD', 'PROCEDURES_ICD']
+        
     """
 
     def __init__(

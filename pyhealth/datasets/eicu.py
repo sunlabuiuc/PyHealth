@@ -67,6 +67,42 @@ class eICUDataset(BaseDataset):
             a list of sample indices. Default is None.
         visit_to_index: Optional[Dict[str, List[int]]], a dict mapping visit_id to a
             list of sample indices. Default is None.
+
+    **Example:**
+        >>> from pyhealth.datasets import eICUDataset
+        >>> eicu_ds = eICUDataset(
+        ...     root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
+        ...     tables=["diagnosis"],
+        ...     code_mapping={},
+        ...     dev=True
+        ... )
+        Processing eICU base dataset...
+        Parsing patients: 100%|█████████████████████████████████████████████████████████| 3671/3671 [00:02<00:00, 1288.53it/s]
+        Loaded ICD9CM code from /home/chaoqiy2/.cache/pyhealth/medcode/ICD9CM.pkl
+        Processing ICD10CM code...
+        Saved ICD10CM code to /home/chaoqiy2/.cache/pyhealth/medcode/ICD10CM.pkl
+        Parsing diagnosis: 100%|███████████████████████████████████████████████████| 155494/155494 [00:01<00:00, 98801.77it/s]
+        Mapping codes: 100%|██████████████████████████████████████████████████████████| 3671/3671 [00:00<00:00, 165507.09it/s]
+        Saved eICU base dataset to /home/chaoqiy2/.cache/pyhealth/datasets/c062bad7a90ed57e0f7f59ac0e022a86.pkl
+        >>> eicu_ds.stat()
+        Statistics of eICU dataset (dev=True):
+            - Number of patients: 3671
+            - Number of visits: 5000
+            - Number of visits per patient: 1.3620
+            - codes/visit in diagnosis: 7.3732
+        >>> eicu_ds.info()
+                dataset.patients: patient_id -> <Patient>
+                    <Patient>
+                        - visits: visit_id -> <Visit>
+                        - other patient-level info.
+                        <Visit>
+                            - event_list_dict: table_name -> List[Event]
+                            - other visit-level info.
+                            <Event>
+                                - code: str
+                                - other event-level info.
+        >>> eicu_ds.available_tables
+        ['diagnosis']
     """
 
     def __init__(
