@@ -54,6 +54,44 @@ class MIMIC4Dataset(BaseDataset):
             a list of sample indices. Default is None.
         visit_to_index: Optional[Dict[str, List[int]]], a dict mapping visit_id to a
             list of sample indices. Default is None.
+            
+    **Examples:**
+        >>> from pyhealth.datasets import MIMIC4Dataset
+        >>> mimic4_ds = MIMIC4Dataset(
+        ...     root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
+        ...     tables=["diagnoses_icd", "procedures_icd"],
+        ...     code_mapping={"ICD10PROC": "CCSPROC"},
+        ... )
+        Processing ICD10PROC code...
+        Saved ICD10PROC code to /root/.cache/pyhealth/medcode/ICD10PROC.pkl
+        Processing MIMIC-IV base dataset...
+        Parsing patients and admissions: 100%|██████████| 615/615 [00:01<00:00, 604.94it/s]
+        Parsing diagnoses_icd: 100%|██████████| 453925/453925 [01:23<00:00, 5435.98it/s]
+        Parsing procedures_icd: 100%|██████████| 241358/241358 [00:38<00:00, 6323.69it/s]
+        Mapping codes:   0%|          | 0/615 [00:00<?, ?it/s]Processing ICD10PROC->CCSPROC mapping...
+        Mapping codes: 100%|██████████| 615/615 [00:04<00:00, 129.75it/s]Saved ICD10PROC->CCSPROC mapping to /root/.cache/pyhealth/medcode/ICD10PROC_to_CCSPROC.pkl
+        Saved MIMIC-IV base dataset to /root/.cache/pyhealth/datasets/bb5c7f8622762cd520736b59a13d7f78.pkl
+        >>> mimic4_ds.stat()
+        Statistics of MIMIC-IV dataset (dev=True):
+            - Number of patients: 615
+            - Number of visits: 1456
+            - Number of visits per patient: 2.3675
+            - codes/visit in diagnoses_icd: 11.6058
+            - codes/visit in procedures_icd: 1.5055
+        >>> mimic4_ds.info()
+                dataset.patients: patient_id -> <Patient>
+                    <Patient>
+                        - visits: visit_id -> <Visit>
+                        - other patient-level info.
+                        <Visit>
+                            - event_list_dict: table_name -> List[Event]
+                            - other visit-level info.
+                            <Event>
+                                - code: str
+                                - other event-level info.
+        >>> mimic4_ds.available_tables
+        ["diagnoses_icd", "procedures_icd"]
+        
     """
 
     def __init__(
