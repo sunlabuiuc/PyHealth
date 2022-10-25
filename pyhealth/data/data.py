@@ -9,7 +9,7 @@ class Event:
     An event can be a diagnosis, a procedure, a drug or a lab that happened
         in a visit of a patient at a specific time.
 
-    Args:
+    Parameters:
         code: str, code of the event. E.g., "428.0" for heart failure.
         table: str, name of the table where the event is recorded.
             E.g., "DIAGNOSES_ICD"
@@ -24,7 +24,26 @@ class Event:
         attr_dict: Dict, dictionary of event attributes. Each key is an attribute
             name and each value is the attribute's value.
             
-    """
+    **Examples:**
+        >>> from pyhealth.data import Event
+        >>> from datetime import datetime
+        >>> event = Event(
+        ...     code="00069153041",
+        ...     table="PRESCRIPTIONS",
+        ...     vocabulary="NDC",
+        ...     visit_id="130744",
+        ...     patient_id="103",
+        ...     timestamp=datetime.fromisoformat('2022-10-10'),
+        ...     dosage = 250,
+        ... )
+        >>>
+        >>> event
+        Event with NDC code 00069153041 from table PRESCRIPTIONS
+        >>> event.attr_dict
+        {'dosage': 250}
+        >>> event.vocabulary
+        'NDC'
+        """
 
     def __init__(
             self,
@@ -83,6 +102,26 @@ class Visit:
         event_list_dict: Dict[str, List[Event]], dictionary of event lists.
             Each key is a table name and each value is a list of events from that
             table ordered by timestamp.
+            
+    **Examples:**
+        >>> from pyhealth.data import Visit
+        >>> visit = Visit(
+        ...     visit_id="v001",
+        ...     patient_id="p001",
+        ...     encounter_time=datetime.fromisoformat('2022-10-04T00:05:23+04:00'),
+        ...     discharge_time=datetime.fromisoformat('2022-10-06T00:05:23+04:00'),
+        ...     discharge_status='Alive',
+        ... )
+        >>> visit.add_event(event)
+        >>>
+        >>> visit
+        Visit v001 from patient p001 with 1 events from tables ['PRESCRIPTIONS']
+        >>> visit.available_tables
+        ['PRESCRIPTIONS']
+        >>> visit.num_events
+        1
+        >>> visit.get_code_list('PRESCRIPTIONS')
+        ['00069153041']
     """
 
     def __init__(
@@ -257,6 +296,37 @@ class Patient:
             is a visit id and each value is a visit.
         index_to_visit_id: Dict[int, str], dictionary that maps the index of a visit in the
             visits list to the corresponding visit id.
+            
+    **Examples:**
+        >>> from pyhealth.data import Patient
+        >>> patient = Patient(
+        ...     patient_id="p001",
+        ...     birth_datetime=datetime(2012, 9, 16, 0, 0),
+        ...     death_datetime=None,
+        ...     gender="F",
+        ...     ethnicity="White",
+        ... )
+        >>> patient.add_visit(visit)
+        >>> patient
+        Patient p001 with 1 visits
+        >>> print (patient)
+        Patient p001 with 1 visits:
+                Birth datetime: 2012-09-16 00:00:00
+                Death datetime: None
+                Gender: F
+                Ethnicity: White
+        Visit v001 from patient p001 with 1 events:
+        Encounter time: 2022-10-04 00:05:23+04:00
+        Discharge time: 2022-10-06 00:05:23+04:00
+        Discharge status: Alive
+        Available tables: ['PRESCRIPTIONS']
+        Events:
+                Event with NDC code 00069153041 from table PRESCRIPTIONS at time 2022-10-10 00:00:00
+        >>> patient.available_tables
+        ['PRESCRIPTIONS']
+        >>> patient.get_visit_by_index(0)
+        Visit v001 from patient p001 with 1 events from tables ['PRESCRIPTIONS']
+        
     """
 
     def __init__(

@@ -1,6 +1,7 @@
 Data
 ===============
 
+**pyhealth.data** defines the atomic data structures of this package.
 
 .. toctree::
     :maxdepth: 3
