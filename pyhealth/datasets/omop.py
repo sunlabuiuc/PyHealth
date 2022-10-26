@@ -76,6 +76,7 @@ class OMOPDataset(BaseDataset):
         Parsing procedure_occurrence: 100%|███████████████████████████████████████████| 51576/51576 [00:05<00:00, 8725.00it/s]
         Mapping codes: 100%|████████████████████████████████████████████████████████████| 1000/1000 [00:00<00:00, 4455.22it/s]
         Saved OMOP base dataset to /home/chaoqiy2/.cache/pyhealth/datasets/a6532f16ff0c8860f0ffd2f1d53d7047.pkl
+
         >>> omop_ds.stat()
         Statistics of OMOP dataset (dev=False):
             - Number of patients: 1000
@@ -83,6 +84,7 @@ class OMOPDataset(BaseDataset):
             - Number of visits per patient: 55.2610
             - codes/visit in condition_occurrence: 2.6635
             - codes/visit in procedure_occurrence: 2.4886
+
         >>> omop_ds.info()
                 dataset.patients: patient_id -> <Patient>
                     <Patient>

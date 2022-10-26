@@ -63,7 +63,11 @@ extensions = [
     "sphinx_design",
     "sphinxext.opengraph",
     "sphinxcontrib.httpdomain",
+    "sphinx_copybutton",
+    "sphinx_toggleprompt",
 ]
+
+toggleprompt_offset_right = 35
 
 ogp_site_url = "https://pyhealth.readthedocs.io/en/latest/"
 ogp_image = "https://pyhealth.readthedocs.io/en/latest/pyhealth_logos/_static/pyhealth-logo.png"
