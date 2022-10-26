@@ -290,12 +290,13 @@ SafeDrug                              deep Learning     ``pyhealth.models.SafeDr
 Benchmark on Healthcare Tasks
 ----------------------------------
 
-* Here is a temporary `benchmark doc <https://docs.google.com/spreadsheets/d/1c4OwCSDaEt7vGmocidq1hK2HCTeB6ZHDzAZvlubpi08/edit#gid=1602645797>`_ on healthcare tasks. We will put the results in this section below.
+* Here is our `benchmark doc <https://docs.google.com/spreadsheets/d/1c4OwCSDaEt7vGmocidq1hK2HCTeB6ZHDzAZvlubpi08/edit#gid=1602645797>`_ on healthcare tasks. You can also check this below.
 
 
 .. raw:: html
 
-   <iframe width='700' height='700' src="https://docs.google.com/spreadsheets/d/e/2PACX-1vSndhECH_KZmWbivw0ewl8qhgukMwuZ2sdf0wPF4cvf1l4ZnEEIrkGkqLed8z82xICvSxUcW3-X0K2b/pubhtml?gid=1602645797&amp;single=true&amp;widget=true&amp;headers=false"></iframe>
+   <iframe allowtransparency="true" style="background: ##FFFFFF;" allowfullscreen=true
+   width=100% height='700' src="https://docs.google.com/spreadsheets/d/e/2PACX-1vSndhECH_KZmWbivw0ewl8qhgukMwuZ2sdf0wPF4cvf1l4ZnEEIrkGkqLed8z82xICvSxUcW3-X0K2b/pubhtml?gid=1602645797&amp;single=true&amp;widget=true&amp;headers=false"></iframe>
 ..
 .. -------------------------------
 
