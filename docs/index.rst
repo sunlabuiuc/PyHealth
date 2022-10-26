@@ -292,6 +292,11 @@ Benchmark on Healthcare Tasks
 
 * Here is a temporary `benchmark doc <https://docs.google.com/spreadsheets/d/1c4OwCSDaEt7vGmocidq1hK2HCTeB6ZHDzAZvlubpi08/edit#gid=1602645797>`_ on healthcare tasks. We will put the results in this section below.
 
+
+.. raw:: html
+
+   <iframe width='700' height='700' src="https://docs.google.com/spreadsheets/d/e/2PACX-1vSndhECH_KZmWbivw0ewl8qhgukMwuZ2sdf0wPF4cvf1l4ZnEEIrkGkqLed8z82xICvSxUcW3-X0K2b/pubhtml?gid=1602645797&amp;single=true&amp;widget=true&amp;headers=false"></iframe>
+..
 .. -------------------------------
 
 .. * **Current results on drug recommendation**. We conduct 2/3 : 1/6 : 1/6 split on MIMIC-III using five-fold cross validation, following `GAMENet <https://arxiv.org/abs/1809.01852>`_, `MICRON <https://www.ijcai.org/proceedings/2021/0513>`_, and `SafeDrug <https://arxiv.org/abs/2105.02711>`_.
