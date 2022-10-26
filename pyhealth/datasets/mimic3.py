@@ -69,6 +69,7 @@ class MIMIC3Dataset(BaseDataset):
         Parsing PROCEDURES_ICD: 100%|████████████████████████████████████████████████| 52243/52243 [00:02<00:00, 19613.40it/s]
         Mapping codes: 100%|██████████████████████████████████████████████████████████| 46520/46520 [00:07<00:00, 6350.14it/s]
         Saved MIMIC-III base dataset to /home/chaoqiy2/.cache/pyhealth/datasets/2b0484b5b9322f8f067437d1abcb8581.pkl
+
         >>> mimic3_ds.stat()
         Statistics of MIMIC-III dataset (dev=False):
             - Number of patients: 46520
@@ -76,6 +77,7 @@ class MIMIC3Dataset(BaseDataset):
             - Number of visits per patient: 1.2678
             - codes/visit in DIAGNOSES_ICD: 11.0384
             - codes/visit in PROCEDURES_ICD: 4.0711
+
         >>> mimic3_ds.info()
                 dataset.patients: patient_id -> <Patient>
                     <Patient>

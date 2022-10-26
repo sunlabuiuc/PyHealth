@@ -84,12 +84,14 @@ class eICUDataset(BaseDataset):
         Parsing diagnosis: 100%|███████████████████████████████████████████████████| 155494/155494 [00:01<00:00, 98801.77it/s]
         Mapping codes: 100%|██████████████████████████████████████████████████████████| 3671/3671 [00:00<00:00, 165507.09it/s]
         Saved eICU base dataset to /home/chaoqiy2/.cache/pyhealth/datasets/c062bad7a90ed57e0f7f59ac0e022a86.pkl
+
         >>> eicu_ds.stat()
         Statistics of eICU dataset (dev=True):
             - Number of patients: 3671
             - Number of visits: 5000
             - Number of visits per patient: 1.3620
             - codes/visit in diagnosis: 7.3732
+
         >>> eicu_ds.info()
                 dataset.patients: patient_id -> <Patient>
                     <Patient>

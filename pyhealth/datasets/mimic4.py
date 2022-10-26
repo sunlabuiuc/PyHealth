@@ -71,6 +71,7 @@ class MIMIC4Dataset(BaseDataset):
         Mapping codes:   0%|          | 0/615 [00:00<?, ?it/s]Processing ICD10PROC->CCSPROC mapping...
         Mapping codes: 100%|██████████| 615/615 [00:04<00:00, 129.75it/s]Saved ICD10PROC->CCSPROC mapping to /root/.cache/pyhealth/medcode/ICD10PROC_to_CCSPROC.pkl
         Saved MIMIC-IV base dataset to /root/.cache/pyhealth/datasets/bb5c7f8622762cd520736b59a13d7f78.pkl
+
         >>> mimic4_ds.stat()
         Statistics of MIMIC-IV dataset (dev=True):
             - Number of patients: 615
@@ -78,6 +79,7 @@ class MIMIC4Dataset(BaseDataset):
             - Number of visits per patient: 2.3675
             - codes/visit in diagnoses_icd: 11.6058
             - codes/visit in procedures_icd: 1.5055
+
         >>> mimic4_ds.info()
                 dataset.patients: patient_id -> <Patient>
                     <Patient>
