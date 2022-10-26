@@ -62,6 +62,76 @@ class Tokenizer:
 
     This class will build a vocabulary from the provided tokens and provide the functionality to convert tokens to
     indices and vice versa. This class also provides the functionality to tokenize a batch of data.
+    
+    **Example:**
+        >>> from pyhealth.tokenizer import Tokenizer
+        >>> token_space = ['A01A', 'A02A', 'A02B', 'A02X', 'A03A', 'A03B', 'A03C', 'A03D', 'A03E', \
+        ...           'A03F', 'A04A', 'A05A', 'A05B', 'A05C', 'A06A', 'A07A', 'A07B', 'A07C', \
+        ...           'A07D', 'A07E', 'A07F', 'A07X', 'A08A', 'A09A', 'A10A', 'A10B', 'A10X', \
+        ...           'A11A', 'A11B', 'A11C', 'A11D', 'A11E', 'A11G', 'A11H', 'A11J', 'A12A', \
+        ...           'A12B', 'A12C', 'A13A', 'A14A', 'A14B', 'A16A']
+        >>> tokenizer = Tokenizer(tokens=token_space, special_tokens=["<pad>", "<unk>"])
+        >>> tokenizer.get_vocabulary_size()
+        44
+        
+        >>> # 1-d tokenization
+        >>> tokens = ['A03C', 'A03D', 'A03E', 'A03F', 'A04A', 'A05A', 'A05B', 'B035', 'C129']
+        >>> tokenizer.convert_tokens_to_indices(tokens)
+        [8, 9, 10, 11, 12, 13, 14, 1, 1]
+        
+        >>> # 1-d detokenization
+        >>> indices = [0, 1, 2, 3, 4, 5]
+        >>> tokenizer.convert_indices_to_tokens(indices)
+        ['<pad>', '<unk>', 'A01A', 'A02A', 'A02B', 'A02X']
+        
+        >>> # 2-d tokenization
+        >>> tokens = [['A03C', 'A03D', 'A03E', 'A03F'], ['A04A', 'B035', 'C129']]
+        >>> # case 1: default using padding, truncation and max_length is 512
+        >>> tokenizer.batch_encode_2d(tokens)
+        [[8, 9, 10, 11], [12, 1, 1, 0]]
+        >>> # case 2: no padding
+        >>> tokenizer.batch_encode_2d(tokens, padding=False)
+        [[8, 9, 10, 11], [12, 1, 1]]
+        >>> # case 3: truncation with max_length is 3
+        >>> tokenizer.batch_encode_2d(tokens, max_length=3)
+        [[8, 9, 10], [12, 1, 1]]
+        
+        >>> # 2-d detokenization
+        >>> indices = [[8, 9, 10, 11], [12, 1, 1, 0]]
+        >>> # case 1: default no padding
+        >>> tokenizer.batch_decode_2d(indices)
+        [['A03C', 'A03D', 'A03E', 'A03F'], ['A04A', '<unk>', '<unk>']]
+        >>> # case 2: use padding
+        >>> tokenizer.batch_decode_2d(indices, padding=True)
+        [['A03C', 'A03D', 'A03E', 'A03F'], ['A04A', '<unk>', '<unk>', '<pad>']]
+        
+        >>> # 3-d tokenization
+        >>> tokens = [[['A03C', 'A03D', 'A03E', 'A03F'], ['A08A', 'A09A']], [['A04A', 'B035', 'C129']]]
+        >>> # case 1: default using padding, truncation and max_length is 512
+        >>> tokenizer.batch_encode_3d(tokens)
+        [[[8, 9, 10, 11], [24, 25, 0, 0]], [[12, 1, 1, 0], [0, 0, 0, 0]]]
+        >>> # case 2: no padding on the first dimension
+        >>> tokenizer.batch_encode_3d(tokens, padding=(False, True))
+        [[[8, 9, 10, 11], [24, 25, 0, 0]], [[12, 1, 1, 0]]]
+        >>> # case 3: no padding on the second dimension
+        >>> tokenizer.batch_encode_3d(tokens, padding=(True, False))
+        [[[8, 9, 10, 11], [24, 25]], [[12, 1, 1], [0]]]
+        >>> # case 4: no padding on both dimensions
+        >>> tokenizer.batch_encode_3d(tokens, padding=(False, False))
+        [[[8, 9, 10, 11], [24, 25]], [[12, 1, 1]]]
+        >>> # case 5: truncation with max_length is (2,2) on both dimension
+        >>> tokenizer.batch_encode_3d(tokens, max_length=(2,2))
+        [[[8, 9], [24, 25]], [[12, 1], [0, 0]]]
+        
+        >>> # 3-d detokenization
+        >>> indices = [[[8, 9, 10, 11], [24, 25, 0, 0]], [[12, 1, 1, 0], [0, 0, 0, 0]]]
+        >>> # case 1: default no padding
+        >>> tokenizer.batch_decode_3d(indices)
+        [[['A03C', 'A03D', 'A03E', 'A03F'], ['A08A', 'A09A']], [['A04A', '<unk>', '<unk>']]]
+        >>> # case 2: use padding
+        >>> tokenizer.batch_decode_3d(indices, padding=True)
+        [[['A03C', 'A03D', 'A03E', 'A03F'], ['A08A', 'A09A', '<pad>', '<pad>']], [['A04A', '<unk>', '<unk>', '<pad>'], ['<pad>', '<pad>', '<pad>', '<pad>']]]
+
     """
 
     def __init__(self, tokens: List[str], special_tokens: Optional[List[str]] = None):

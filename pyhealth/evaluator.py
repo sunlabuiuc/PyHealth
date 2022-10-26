@@ -5,7 +5,8 @@ from pyhealth.metrics import *
 
 
 def evaluate(model, dataloader, device="cpu", disable_bar=False):
-    """Evaluate model on dataloader.
+    """Evaluate model on dataloader. The evaluator can only be used in our package.
+    
     INPUT:
         - model: model to evaluate
         - dataloader: dataloader to evaluate on
@@ -14,6 +15,14 @@ def evaluate(model, dataloader, device="cpu", disable_bar=False):
     OUTPUT:
         - y_gt_all: ground truth labels
         - y_prob_all: predicted probabilities
+        
+    **Example:**
+        >>> model # pyhealth.models object
+        >>> device # "cpu" or "cuda"
+        >>> test_loader # torch.data.DataLoader object
+        >>> y_gt, y_prob, y_pred = evaluate(model, test_loader, device)
+        y_gt is the ground truth labels, y_prob is the predicted probabilities, and y_pred is the predicted labels. All np.arrays.
+        
     """
     y_true_all = []
     y_prob_all = []

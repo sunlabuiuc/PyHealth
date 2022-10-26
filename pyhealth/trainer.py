@@ -30,6 +30,29 @@ class Trainer:
         enable_logging: enable logging
         output_path: output path
         exp_name: experiment name
+        
+    **Example:**
+        >>> from pyhealth.trainer import Trainer
+        >>> from pyhealth.metrics import average_precision_score
+        >>> device = 'cpu'
+        >>> trainer = Trainer(
+        ...     enable_logging=True, 
+        ...     output_path="../output", 
+        ...     device=device,
+        ... )
+        >>> model.to(device) # pyhealth.models object
+        >>> val_loader # torch.data.DataLoader object
+        >>> average_precision_score # pyhealth.metrics object
+        >>> trainer.fit(
+        ...     model,
+        ...     train_loader=train_loader,
+        ...     epochs=5,
+        ...     val_loader=val_loader,
+        ...     val_metric=average_precision_score,
+        ... )
+        >>> # training...
+        >>> best_model = trainer.load_best_model(model)
+        
     """
 
     def __init__(
