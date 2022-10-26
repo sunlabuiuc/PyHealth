@@ -21,6 +21,10 @@ def accuracy_multilabel(y_true, y_pred, **kwargs):
     OUTPUTS:
         - result: weighted accuracy score over labels
     """
+    
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+    
     result = []
     for i in range(y_true.shape[0]):
         result.append(accuracy_score(y_true[i], y_pred[i], **kwargs))
@@ -36,6 +40,10 @@ def precision_multilabel(y_true, y_pred, **kwargs):
     OUTPUTS:
         - result: weighted precision score over labels
     """
+    
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+    
     result = []
     for i in range(y_true.shape[0]):
         result.append(precision_score(y_true[i], y_pred[i], **kwargs))
@@ -51,6 +59,10 @@ def recall_multilabel(y_true, y_pred, **kwargs):
     OUTPUTS:
         - result: weighted recall score over labels
     """
+    
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+    
     result = []
     for i in range(y_true.shape[0]):
         result.append(recall_score(y_true[i], y_pred[i], **kwargs))
@@ -66,6 +78,10 @@ def f1_multilabel(y_true, y_pred, **kwargs):
     OUTPUTS:
         - result: weighted f1 score over labels
     """
+    
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+    
     result = []
     for i in range(y_true.shape[0]):
         result.append(f1_score(y_true[i], y_pred[i], **kwargs))
@@ -81,6 +97,9 @@ def roc_auc_multilabel(y_true, y_pred, **kwargs):
     OUTPUTS:
         - result: weighted roc auc score over labels
     """
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+    
     result = []
     for i in range(y_true.shape[0]):
         result.append(roc_auc_score(y_true[i], y_pred[i], **kwargs))
@@ -96,6 +115,9 @@ def pr_auc_multilabel(y_true, y_pred, **kwargs):
     OUTPUTS:
         - result: weighted pr auc score over labels
     """
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+    
     result = []
     for i in range(y_true.shape[0]):
         result.append(average_precision_score(y_true[i], y_pred[i], **kwargs))
@@ -111,6 +133,9 @@ def jaccard_multilabel(y_true, y_pred, **kwargs):
     OUTPUTS:
         - result: weighted jaccard score over labels
     """
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+    
     result = []
     for i in range(y_true.shape[0]):
         result.append(jaccard_score(y_true[i], y_pred[i], **kwargs))
@@ -126,6 +151,9 @@ def r2_score_multilabel(y_true, y_pred, **kwargs):
     OUTPUTS:
         - result: weighted r2 score over labels
     """
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+    
     result = []
     for i in range(y_true.shape[0]):
         result.append(r2_score(y_true[i], y_pred[i], **kwargs))
@@ -141,6 +169,9 @@ def cohen_kappa_multilabel(y_true, y_pred, **kwargs):
     OUTPUTS:
         - result: weighted cohen kappa score over labels
     """
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+    
     result = []
     for i in range(y_true.shape[0]):
         result.append(cohen_kappa_score(y_true[i], y_pred[i], **kwargs))
