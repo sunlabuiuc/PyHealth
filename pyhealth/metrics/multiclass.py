@@ -5,6 +5,9 @@ import sklearn.metrics as metrics
 def accuracy_score(y_true, y_pred, **kwargs):
     """Accuracy classification score.
     Wrapper for sklearn.metrics.accuracy_score
+    
+    **Example:**
+        
     """
     return metrics.accuracy_score(y_true, y_pred, **kwargs)
 
