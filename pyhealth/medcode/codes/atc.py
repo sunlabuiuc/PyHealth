@@ -28,11 +28,11 @@ class ATC(InnerMap):
         df = download_and_read_csv(filename, refresh_cache)
         ddi = []
         for idx, row in df.iterrows():
-            ddi.append([row["ATC 1"], row["ATC 2"]])
+            ddi.append([row["ATC i"], row["ATC j"]])
         return ddi
 
-    def get_ddi(self, top_40: bool = True, refresh_cache: bool = False):
-        filename = "DDI_TOP40.csv" if top_40 else "DDI_ALL.csv"
+    def get_ddi(self, gamenet_ddi: bool = False, refresh_cache: bool = False):
+        filename = "DDI_GAMENet.csv" if gamenet_ddi else "DDI.csv"
         if filename not in self.ddi or refresh_cache:
             self.ddi[filename] = self.load_ddi(filename, refresh_cache=refresh_cache)
         return self.ddi[filename]
@@ -49,5 +49,5 @@ if __name__ == "__main__":
     print(code_sys.lookup("N01AB07", attribute="drugbank_id"))
     print(code_sys.get_ancestors("N01AB07"))
     print(code_sys.get_descendants("N01AB"))
-    print(len(code_sys.get_ddi(top_40=True)))
-    print(len(code_sys.get_ddi(top_40=False)))
+    print(len(code_sys.get_ddi(gamenet_ddi=True)))
+    print(len(code_sys.get_ddi(gamenet_ddi=False)))
