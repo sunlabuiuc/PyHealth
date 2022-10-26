@@ -11,11 +11,20 @@ from pyhealth.models.rnn import RNNLayer
 
 class RETAINLayer(nn.Module):
     """The separate callable RETAIN layer.
+    
     Args:
         input_size: the embedding size of the input
         output_size: the embedding size of the output
         num_layers: the number of layers in the RNN
         dropout: dropout rate
+        
+    **Examples:**
+        >>> from pyhealth.models import RETAINLayer
+        >>> input = torch.randn(3, 128, 5) # [batch size, seq len, input_size]
+        >>> model = RETAINLayer(5, 64, 2, 0.5)
+        >>> model(input, mask=None).shape
+        torch.Size([3, 64]) # [batch size, hidden_size]
+        
     """
 
     def __init__(
@@ -35,8 +44,9 @@ class RETAINLayer(nn.Module):
         self.alpha_gru = nn.GRU(input_size, hidden_size, batch_first=True)
         self.beta_gru = nn.GRU(input_size, hidden_size, batch_first=True)
 
-        self.alpha_li = nn.Linear(input_size, 1)
-        self.beta_li = nn.Linear(input_size, hidden_size)
+        self.feature_map = nn.Linear(input_size, hidden_size)
+        self.alpha_li = nn.Linear(hidden_size, 1)
+        self.beta_li = nn.Linear(hidden_size, hidden_size)
 
     def forward(self, x: torch.tensor, mask: torch.tensor):
         """Using the sum of the embedding as the output of the transformer
@@ -58,13 +68,14 @@ class RETAINLayer(nn.Module):
         # attn_g = torch.softmax((self.alpha_li(g) - mask[:, :, 0].unsqueeze(-1) * 1e10), dim=1)  # (patient, seq len, 1)
         attn_h = torch.tanh(self.beta_li(h))  # (patient, seq_len, hidden_size)
 
-        c = attn_g * attn_h * x  # (patient, seq_len, hidden_size)
+        c = attn_g * attn_h * self.feature_map(x)  # (patient, seq_len, hidden_size)
         c = torch.sum(c, dim=1)  # (patient, hidden_size)
         return c
 
 
 class RETAIN(BaseModel):
     """RETAIN Class, use "task" as key to identify specific RETAIN model and route there
+    
     Args:
         dataset: the dataset object
         tables: the list of table names to use
@@ -72,6 +83,24 @@ class RETAIN(BaseModel):
         mode: the mode of the model, "multilabel", "multiclass" or "binary"
         embedding_dim: the embedding dimension
         hidden_dim: the hidden dimension
+    
+    **Examples:**
+        >>> from pyhealth.datasets import OMOPDataset
+        >>> dataset = OMOPDataset(
+        ...     root="https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2",
+        ...     tables=["condition_occurrence", "procedure_occurrence"],
+        ... ) # load dataset
+        >>> from pyhealth.tasks import mortality_prediction_omop_fn
+        >>> dataset.set_task(mortality_prediction_omop_fn) # set task
+        
+        >>> from pyhealth.models import RETAIN
+        >>> model = RETAIN(
+        ...     dataset=dataset,
+        ...     tables=["conditions", "procedures"],
+        ...     target="label",
+        ...     mode="binary",
+        ... )
+        
     """
 
     def __init__(
@@ -166,3 +195,8 @@ class RETAIN(BaseModel):
             "y_pred": y_pred,
             "y_true": y_true,
         }
+
+if __name__ == "__main__":
+    model = RETAINLayer(5, 64, 2, 0.5)
+    input = torch.randn(3, 128, 5)
+    print (model(input, mask=None).shape)

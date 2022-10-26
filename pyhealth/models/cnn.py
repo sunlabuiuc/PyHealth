@@ -9,6 +9,22 @@ from pyhealth.tokenizer import Tokenizer
 
 
 class CNNLayer(nn.Module):
+    """separate callable CNN layer
+    
+    Args:
+        input_size: input size of rnn
+        hidden_size: hidden size of rnn
+        num_layers: number of rnn layers
+        dropout: dropout rate
+    
+    **Examples:**
+        >>> from pyhealth.models import CNNLayer 
+        >>> input = torch.randn(3, 128, 5) # [batch size, seq len, input_size]
+        >>> model = CNNLayer(5, 64, 2, 0.5)
+        >>> model(input, mask=None).shape
+        torch.Size([3, 64]) # [batch size, hidden_size]
+            
+    """
     def __init__(
         self,
         input_size: int,
@@ -16,13 +32,6 @@ class CNNLayer(nn.Module):
         num_layers: int = 1,
         dropout: float = 0.5,
     ):
-        """separate callable CNN layer
-        Args:
-            input_size: input size of rnn
-            hidden_size: hidden size of rnn
-            num_layers: number of rnn layers
-            dropout: dropout rate
-        """
         super(CNNLayer, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -53,7 +62,7 @@ class CNNLayer(nn.Module):
             x: [batch size, seq len, input_size]
             mask: [batch size, seq len]
         Returns:
-            outputs [batch size, seq len, hidden_size]
+            outputs [batch size, hidden_size]
         """
         # rnn will only apply dropout between layers
         x = self.dropout_layer(x)
@@ -70,6 +79,7 @@ class CNNLayer(nn.Module):
 
 class CNN(BaseModel):
     """CNN Class, use "task" as key to identify specific CNN model and route there
+    
     Args:
         dataset: the dataset object
         tables: the list of table names to use
@@ -77,6 +87,23 @@ class CNN(BaseModel):
         mode: the mode of the model, "multilabel", "multiclass" or "binary"
         embedding_dim: the embedding dimension
         hidden_dim: the hidden dimension
+        
+    **Examples:**
+        >>> from pyhealth.datasets import OMOPDataset
+        >>> dataset = OMOPDataset(
+        ...     root="https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2",
+        ...     tables=["condition_occurrence", "procedure_occurrence"],
+        ... ) # load dataset
+        >>> from pyhealth.tasks import mortality_prediction_omop_fn
+        >>> dataset.set_task(mortality_prediction_omop_fn) # set task
+        
+        >>> from pyhealth.models import CNN
+        >>> model = CNN(
+        ...     dataset=dataset,
+        ...     tables=["conditions", "procedures"],
+        ...     target="label",
+        ...     mode="binary",
+        ... )
     """
 
     def __init__(

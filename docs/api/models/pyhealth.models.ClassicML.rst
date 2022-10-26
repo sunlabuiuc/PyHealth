@@ -1,4 +1,4 @@
-﻿pyhealth.models.MLModel
+﻿pyhealth.models.ClassicML
 ===================================
 
 

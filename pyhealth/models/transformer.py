@@ -10,12 +10,21 @@ from pyhealth.tokenizer import Tokenizer
 
 class TransformerLayer(nn.Module):
     """The separate callable Transformer layer
+    
     Args:
         input_size: the embedding size of the input
         hidden_size: the embedding size of the output
         num_layers: the number of layers in the transformer
         nhead: the number of heads in the multiheadattention models
         dropout: dropout rate
+        
+    **Examples:**
+        >>> from pyhealth.models import TransformerLayer
+        >>> input = torch.randn(3, 128, 5) # [batch size, seq len, input_size]
+        >>> model = TransformerLayer(5, 64, 2, 8, 0.5)
+        >>> mask = torch.ones(3, 128)==1
+        >>> model(input, mask).shape
+        torch.Size([3, 64])] # [batch size, hidden_size]
     """
 
     def __init__(
@@ -33,8 +42,9 @@ class TransformerLayer(nn.Module):
         self.dropout = dropout
         self.dropout_layer = nn.Dropout(p=self.dropout)
 
+        self.feature_map = nn.Linear(input_size, hidden_size)
         encoder_layer = nn.TransformerEncoderLayer(
-            d_model=input_size,
+            d_model=hidden_size,
             dim_feedforward=hidden_size,
             nhead=nhead,
             dropout=dropout,
@@ -55,6 +65,7 @@ class TransformerLayer(nn.Module):
         """
         # rnn will only apply dropout between layers
         x = self.dropout_layer(x)
+        x = self.feature_map(x)
         # since the transformer encoder cannot use "batch_first"
         x = self.transformer(
             x.permute(1, 0, 2), src_key_padding_mask=~mask
@@ -68,6 +79,7 @@ class TransformerLayer(nn.Module):
 
 class Transformer(BaseModel):
     """Transformer Class, use "task" as key to identify specific Transformer model and route there
+    
     Args:
         dataset: the dataset object
         tables: the list of table names to use
@@ -75,6 +87,23 @@ class Transformer(BaseModel):
         mode: the mode of the model, "multilabel", "multiclass" or "binary"
         embedding_dim: the embedding dimension
         hidden_dim: the hidden dimension
+        
+    **Examples:**
+        >>> from pyhealth.datasets import OMOPDataset
+        >>> dataset = OMOPDataset(
+        ...     root="https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2",
+        ...     tables=["condition_occurrence", "procedure_occurrence"],
+        ... ) # load dataset
+        >>> from pyhealth.tasks import mortality_prediction_omop_fn
+        >>> dataset.set_task(mortality_prediction_omop_fn) # set task
+        
+        >>> from pyhealth.models import Transformer
+        >>> model = Transformer(
+        ...     dataset=dataset,
+        ...     tables=["conditions", "procedures"],
+        ...     target="label",
+        ...     mode="binary",
+        ... )
     """
 
     def __init__(

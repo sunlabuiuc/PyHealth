@@ -96,6 +96,7 @@ class GCN(nn.Module):
 
 class GAMENetLayer(nn.Module):
     """We separate the GAMENet layer from the model for flexible usage.
+    
     Args:
         input (int): the input embedding size
         hidden (int): the hidden embedding size
@@ -105,6 +106,23 @@ class GAMENetLayer(nn.Module):
         num_layers (int): the number of layers used in RNN
         dropout (float): the dropout rate
         ddi_in_memory (bool): whether to use DDI GCN in forward function
+        
+    **Examples:**
+        >>> from pyhealth.models import GAMENetLayer
+        >>> drugs = [
+        ...         [[0, 1, 2], [3, 4, 5], [0, 0, 0]],
+        ...         [[0, 2, 3], [4, 5, 6], [0, 0, 0]],
+        ...         [[0, 1, 2], [3, 4, 5], [0, 0, 0]],
+        ...     ] # historical drugs
+        >>> # input feature tables as well as history drugs
+        >>> input = {"table1": torch.randn(3, 3, 5), "table2": torch.randn(3, 3, 5), "drugs": torch.tensor(drugs)}
+        >>> ehr_adj = torch.randn(8, 8) # the ehr adjacency matrix
+        >>> ddi_adj = torch.randn(8, 8) # the ddi adjacency matrix
+        >>> model = GAMENetLayer(5, 64, ["table1", "table2"], ehr_adj, ddi_adj, 2, 0.5, True)
+        >>> mask = torch.tensor([[1, 1, 1], [1, 1, 0], [1, 1, 0]])
+        >>> model(input, mask).shape
+        torch.Size([3, 192])
+        
     """
 
     def __init__(
@@ -155,7 +173,7 @@ class GAMENetLayer(nn.Module):
             X: a dict with <str, [batch size, seq len, input_size]>
             mask: [batch size, seq len]
         Returns:
-            outputs [batch size, seq len, hidden_size]
+            outputs [batch size, hidden_size]
         """
         patient_emb = []
         for domain in self.tables:
@@ -169,7 +187,10 @@ class GAMENetLayer(nn.Module):
 
         # graph memory module
         """I:generate current input"""
-        query = get_last_visit(queries, mask)  # (batch, hidden_size)
+        if mask is None:
+            query = queries[:, -1, :]  # (batch, hidden_size)
+        else:
+            query = get_last_visit(queries, mask)  # (batch, hidden_size)
 
         """G:generate graph memory bank and insert history information"""
         if self.ddi_in_memory:
@@ -189,6 +210,8 @@ class GAMENetLayer(nn.Module):
             .bool()
         )  # (batch, visit, med_size)
 
+        print (history_keys.shape)
+        
         """O:read from global memory bank and dynamic memory bank"""
         key_weights1 = torch.softmax(
             torch.mm(query, drug_memory.t()), dim=-1
@@ -206,7 +229,9 @@ class GAMENetLayer(nn.Module):
         #     - (1 - diag_mask[:, :, 0].float()) * 1e10,
         #     dim=1,
         # )  # (batch, visit)
-
+        
+        print (visit_weight.shape)
+        print (history_values.shape)
         weighted_values = torch.einsum(
             "bv,bvz->bz", visit_weight, history_values.float()
         )  # (batch, med_size)
@@ -218,13 +243,31 @@ class GAMENetLayer(nn.Module):
 
 class GAMENet(BaseModel):
     """GAMENet Class, use "task" as key to identify specific GAMENet model and route there
+    
     Args:
         dataset: the dataset object
         tables: the list of table names to use
         target: the target table name
-        mode: the mode of the model, "multilabel", "multiclass" or "binary"
+        mode: the mode of the model, "multilabel"
         embedding_dim: the embedding dimension
         hidden_dim: the hidden dimension
+    
+    **Examples:**
+        >>> from pyhealth.datasets import OMOPDataset
+        >>> dataset = OMOPDataset(
+        ...     root="https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2",
+        ...     tables=["condition_occurrence", "procedure_occurrence", "drug_exposure"],
+        ... ) # load dataset
+        >>> from pyhealth.tasks import drug_recommendation_omop_fn
+        >>> dataset.set_task(drug_recommendation_omop_fn) # set task
+        
+        >>> from pyhealth.models import GAMENet
+        >>> model = GAMENet(
+        ...     dataset=dataset,
+        ...     tables=["conditions", "procedures", "drugs"],
+        ...     target="label",
+        ...     mode="multilabel",
+        ... )
     """
 
     def __init__(
@@ -403,3 +446,16 @@ class GAMENet(BaseModel):
             "y_pred": y_pred,
             "y_true": y_true,
         }
+
+if __name__ == "__main__":
+    drugs = [
+        [[0, 1, 2], [3, 4, 5], [0, 0, 0]],
+        [[0, 2, 3], [4, 5, 6], [0, 0, 0]],
+        [[0, 1, 2], [3, 4, 5], [0, 0, 0]],
+    ]
+    input = {"table1": torch.randn(3, 3, 5), "table2": torch.randn(3, 3, 5), "drugs": torch.tensor(drugs)}
+    ehr_adj = torch.randn(8, 8)
+    ddi_adj = torch.randn(8, 8)
+    model = GAMENetLayer(5, 64, ["table1", "table2"], ehr_adj, ddi_adj, 2, 0.5, True)
+    mask = torch.tensor([[1, 1, 1], [1, 1, 0], [1, 1, 0]])
+    model(input, mask)
