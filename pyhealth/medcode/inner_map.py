@@ -15,8 +15,55 @@ create_directory(MODULE_CACHE_PATH)
 
 # TODO: add comments
 
-class InnerMap(ABC):
-    """Abstract class for inner mapping within a coding system."""
+class InnerMap:
+    """lookup function within one coding system
+
+    Parameters:
+        vocabulary: str, vocabulary name. For example, "ICD9CM", "ICD10CM", "ICD9PROC", "ICD10PROC", "CCSCM", "CCSPROC", "ATC", "NDC", "RxNorm"
+        regresh_cache: bool, whether to refresh the cache
+            
+    **Examples:**
+        >>> from pyhealth.medcode import InnerMap
+        >>> rxnorm = InnerMap(vocabulary="RxNorm")
+        Loaded RxNorm code from /root/.cache/pyhealth/medcode/RxNorm.pkl
+        >>> rxnorm.lookup("209387")
+        acetaminophen 325 MG Oral Tablet [Tylenol]
+        
+        >>> ccscm = InnerMap("CCSCM")
+        Loaded CCSCM code from /root/.cache/pyhealth/medcode/CCSCM.pkl
+        >>> ccscm.lookup("108")
+        'chf;nonhp: Congestive heart failure, nonhypertensive'
+        
+        >>> icd9cm = InnerMap("ICD9CM")
+        Processing ICD9CM code...
+        Saved ICD9CM code to /root/.cache/pyhealth/medcode/ICD9CM.pkl
+        >>> "428.0" in icd9cm # let's first check if the code is in ICD9CM
+        True
+        >>> icd9cm.get_ancestors("428.0")
+        ['428', '420-429.99', '390-459.99', '001-999.99']
+        >>> icd9cm.lookup("4280") # non-standard format
+        'Congestive heart failure, unspecified'
+        
+        >>> atc = InnerMap("ATC")
+        Processing ATC code...
+        Saved ATC code to /root/.cache/pyhealth/medcode/ATC.pkl
+        >>> atc.lookup("M01AE51")
+        'ibuprofen, combinations'
+        >>> atc.lookup("M01AE51", "drugbank_id")
+        DB01050
+        >>> atc.lookup("M01AE51", "description")
+        Ibuprofen is a non-steroidal anti-inflammatory drug (NSAID) derived from propionic acid and it is considered the first ...
+        On the available products, ibuprofen is administered as a racemic mixture. Once administered, the R-enantiomer ...
+        >>> atc.lookup("M01AE51", "indication")
+        Ibuprofen is the most commonly used and prescribed NSAID. It is very common ...[A39097]
+        Due to its activity against prostaglandin and thromboxane synthesis, ibuprofen ...:
+        * Patent Ductus Arteriosus - it is a neonatal condition wherein the ductus arteriosus ...
+        * Rheumatoid- and osteo-arthritis - ibuprofen is very commonly used in the symptomatic ...
+        * Investigational uses - efforts have been put into developing ibuprofen for the prophy ...
+        >>> atc.lookup("M01AE51", "smiles")
+        CC(C)CC1=CC=C(C=C1)C(C)C(O)=O
+        
+    """
 
     def __init__(
             self,

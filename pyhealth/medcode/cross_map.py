@@ -12,9 +12,41 @@ MODULE_CACHE_PATH = os.path.join(BASE_CACHE_PATH, "medcode")
 create_directory(MODULE_CACHE_PATH)
 
 
-# TODO: add comments
-
 class CrossMap:
+    """mapping function cross two coding systems
+
+    Parameters:
+        src_vocab: str, source coding system
+        tgt_vocab: str, target coding system
+        refresh_cache: bool, whether to refresh the cache
+        **kwargs: dict, additional arguments for postprocessing
+
+    Attributes:
+        mapping: dict, mapping from source code to target codes. To make the format consistent, the key 
+            is a string-based source code and the value is a list of string-based target codes.
+        src_class: object, source coding system class
+        tgt_class: object, target coding system class
+            
+    **Examples:**
+        >>> from pyhealth.medcode import CrossMap
+        >>> mapping = CrossMap("ICD9CM", "CCSCM")
+        Loaded ICD9CM->CCSCM mapping from /home/chaoqiy2/.cache/pyhealth/medcode/ICD9CM_to_CCSCM.pkl
+        Loaded ICD9CM code from /home/chaoqiy2/.cache/pyhealth/medcode/ICD9CM.pkl
+        Loaded CCSCM code from /home/chaoqiy2/.cache/pyhealth/medcode/CCSCM.pkl
+        <pyhealth.medcode.cross_map.CrossMap object at 0x7f7f968a7ca0>
+        >>> mapping.map("82101")
+        ['230']
+        
+        >>> mapping = CrossMap(src_vocab="RxNorm", tgt_vocab="NDC")
+        Processing RxNorm->NDC mapping...
+        Saved RxNorm->NDC mapping to /root/.cache/pyhealth/medcode/RxNorm_to_NDC.pkl
+        Loaded RxNorm code from /root/.cache/pyhealth/medcode/RxNorm.pkl
+        Loaded NDC code from /root/.cache/pyhealth/medcode/NDC.pkl
+        >>> mapping.map("209387")
+        ['00045045270', '00045049642', '00045049650', .., '705182798', '70518279800']
+    
+    """
+    
     def __init__(
             self,
             src_vocab,

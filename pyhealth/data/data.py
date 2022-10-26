@@ -43,7 +43,8 @@ class Event:
         {'dosage': 250}
         >>> event.vocabulary
         'NDC'
-        """
+    
+    """
 
     def __init__(
             self,
