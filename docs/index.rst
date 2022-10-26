@@ -292,6 +292,8 @@ Benchmark on Healthcare Tasks
 
 * Here is our `benchmark doc <https://docs.google.com/spreadsheets/d/1c4OwCSDaEt7vGmocidq1hK2HCTeB6ZHDzAZvlubpi08/edit#gid=1602645797>`_ on healthcare tasks. You can also check this below.
 
+We also provide function for leaderboard generation, check it out in our `github repo <https://github.com/sunlabuiuc/PyHealth/tree/master/leaderboard>`_.
+
 
 .. raw:: html
 
