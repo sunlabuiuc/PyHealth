@@ -12,10 +12,35 @@ from pyhealth.models.utils import get_last_visit
 
 class MICRONLayer(nn.Module):
     """This MICRON layer.
+    
     Args:
         input_size: the embedding size of the input
         output_size: the embedding size of the output
         dropout: dropout rate
+    
+    **Examples:**
+        >>> from pyhealth.models import MICRONLayer
+        >>> input = torch.randn(3, 128, 5) # [batch size, seq len, input_size]
+        >>> model = MICRONLayer(5, 64, 0.5)
+        
+        >>> model.train()
+        MICRONLayer(
+        (dropout_layer): Dropout(p=0.5, inplace=False)
+        (health_net): Linear(in_features=5, out_features=64, bias=True)
+        (prescription_net): Linear(in_features=64, out_features=64, bias=True)
+        )
+        >>> [item.shape for item in model(input, mask=None)]
+        [torch.Size([3, 128, 64]), torch.Size([3, 127, 64])]
+        
+        >>> model.eval()
+        MICRONLayer(
+        (dropout_layer): Dropout(p=0.5, inplace=False)
+        (health_net): Linear(in_features=5, out_features=64, bias=True)
+        (prescription_net): Linear(in_features=64, out_features=64, bias=True)
+        )
+        >>> model(input, mask=None).shape
+        torch.Size([3, 128, 64]) # [batch size, hidden_size]
+        
     """
 
     def __init__(
@@ -62,6 +87,7 @@ class MICRONLayer(nn.Module):
 
 class MICRON(BaseModel):
     """MICRON Class, use "task" as key to identify specific MICRON model and route there
+    
     Args:
         dataset: the dataset object
         tables: the list of table names to use
@@ -69,6 +95,24 @@ class MICRON(BaseModel):
         mode: the mode of the model, "multilabel", "multiclass" or "binary"
         embedding_dim: the embedding dimension
         hidden_dim: the hidden dimension
+    
+    **Examples:**
+        >>> from pyhealth.datasets import OMOPDataset
+        >>> dataset = OMOPDataset(
+        ...     root="https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2",
+        ...     tables=["condition_occurrence", "procedure_occurrence"],
+        ... ) # load dataset
+        >>> from pyhealth.tasks import drug_recommendation_omop_fn
+        >>> dataset.set_task(drug_recommendation_omop_fn) # set task
+        
+        >>> from pyhealth.models import MICRON
+        >>> model = MICRON(
+        ...     dataset=dataset,
+        ...     tables=["conditions", "procedures"],
+        ...     target="label",
+        ...     mode="multilabel",
+        ... )
+        
     """
 
     def __init__(

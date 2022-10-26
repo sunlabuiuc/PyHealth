@@ -10,6 +10,25 @@ from pyhealth.tokenizer import Tokenizer
 
 
 class RNNLayer(nn.Module):
+    """separate callable RNN layer
+    
+    Args:
+        input_size: input size of rnn
+        hidden_size: hidden size of rnn
+        rnn_type: type of rnn, e.g. GRU, LSTM
+        num_layers: number of rnn layers
+        dropout: dropout rate
+        bidirectional: whether to use bidirectional rnn
+        
+    **Examples:**
+        >>> from pyhealth.models import RNNLayer 
+        >>> input = torch.randn(3, 128, 5) # [batch size, seq len, input_size]
+        >>> model = RNNLayer(5, 64, "GRU", 2, 0.5, True)
+        >>> mask = torch.ones(3, 128) == 1
+        >>> [item.shape for item in model(input, mask)]
+        [torch.Size([3, 64]), torch.Size([3, 128, 64])] # [batch size, hidden_size], [batch size, seq len, hidden_size]
+        
+    """
     def __init__(
             self,
             input_size: int,
@@ -19,15 +38,6 @@ class RNNLayer(nn.Module):
             dropout: float = 0.5,
             bidirectional: bool = True,
     ):
-        """separate callable RNN layer
-        Args:
-            input_size: input size of rnn
-            hidden_size: hidden size of rnn
-            rnn_type: type of rnn, e.g. GRU, LSTM
-            num_layers: number of rnn layers
-            dropout: dropout rate
-            bidirectional: whether to use bidirectional rnn
-        """
         super(RNNLayer, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -84,6 +94,7 @@ class RNNLayer(nn.Module):
 
 class RNN(BaseModel):
     """RNN Class, use "task" as key to identify specific RNN model and route there
+    
     Args:
         dataset: the dataset object
         tables: the list of table names to use
@@ -91,6 +102,24 @@ class RNN(BaseModel):
         mode: the mode of the model, "multilabel", "multiclass" or "binary"
         embedding_dim: the embedding dimension
         hidden_dim: the hidden dimension
+        
+    **Examples:**
+        >>> from pyhealth.datasets import OMOPDataset
+        >>> dataset = OMOPDataset(
+        ...     root="https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2",
+        ...     tables=["condition_occurrence", "procedure_occurrence"],
+        ... ) # load dataset
+        >>> from pyhealth.tasks import mortality_prediction_omop_fn
+        >>> dataset.set_task(mortality_prediction_omop_fn) # set task
+        
+        >>> from pyhealth.models import RNN
+        >>> model = RNN(
+        ...     dataset=dataset,
+        ...     tables=["conditions", "procedures"],
+        ...     target="label",
+        ...     mode="binary",
+        ... )
+        
     """
 
     def __init__(

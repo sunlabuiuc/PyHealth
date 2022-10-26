@@ -10,6 +10,36 @@ from itertools import chain
 
 
 class ClassicML:
+    """Call classical ML models
+        
+        Args:
+            dataset: the dataset object
+            tables: a list of table names to be used
+            target: the target table name
+            classifier: the classifier object from sklearn
+            mode: the mode of the model, can be "multilabel", "binary", "multiclass"
+        
+        **Examples:**
+            >>> from pyhealth.datasets import OMOPDataset
+            >>> dataset = OMOPDataset(
+            ...     root="https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2",
+            ...     tables=["condition_occurrence", "procedure_occurrence"],
+            ... ) # load dataset
+            >>> from pyhealth.tasks import mortality_prediction_omop_fn
+            >>> dataset.set_task(mortality_prediction_omop_fn) # set task
+            
+            >>> from pyhealth.models import ClassicML
+            >>> from sklearn.ensemble import RandomForestClassifier as RF
+            >>> model = ClassicML(
+            ...     dataset=dataset,
+            ...     tables=["conditions", "procedures", "drugs"],
+            ...     target="label",
+            ...     mode="binary",
+            ...     classifier=RF(max_depth=6, max_features="sqrt", n_jobs=-1, n_estimators=50),
+            ... )
+            
+        """
+        
     def __init__(
         self,
         dataset: BaseDataset,
@@ -19,14 +49,6 @@ class ClassicML:
         mode: str,
         **kwargs
     ):
-        """Call classical ML models
-        Args:
-            dataset: the dataset object
-            tables: a list of table names to be used
-            target: the target table name
-            classifier: the classifier object from sklearn
-            mode: the mode of the model, can be "multilabel", "binary", "multiclass"
-        """
         super(ClassicML, self).__init__()
 
         self.tables = tables
@@ -58,10 +80,6 @@ class ClassicML:
         """convert the batch medical codes to vectors
         Args:
             **kwargs: the key-value pair of batch data
-
-        Parameters
-        ----------
-        self
         """
         batch_X = []
         for domain in self.tables:

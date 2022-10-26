@@ -126,6 +126,7 @@ class MolecularGraphNeuralNetwork(nn.Module):
 
 class SafeDrugLayer(nn.Module):
     """The SafeDrug layer.
+    
     Args:
         input_size: the size of the input vector
         hidden_size: the size of the hidden vector
@@ -139,6 +140,7 @@ class SafeDrugLayer(nn.Module):
         average: the average projection for aggregating multiple molecules of the same drug into one vector
         dropout: the dropout rate
         num_layers: the number of layers
+        
     """
 
     def __init__(
@@ -202,6 +204,7 @@ class SafeDrugLayer(nn.Module):
 
     def pad(self, matrices, pad_value):
         """Pad the list of matrices
+        
         with a pad_value (e.g., 0) for batch proc essing.
         For example, given a list of matrices [A, B, C],
         we obtain a new matrix [A00, 0B0, 00C],
@@ -262,6 +265,7 @@ class SafeDrugLayer(nn.Module):
 
 class SafeDrug(BaseModel):
     """SafeDrug Class, use "task" as key to identify specific SafeDrug model and route there
+    
     Args:
         dataset: the dataset object
         tables: the list of table names to use
@@ -271,6 +275,23 @@ class SafeDrug(BaseModel):
         hidden_dim: the hidden dimension
         kp: the keep probability in PID strategy
         target_ddi: the target ddi value
+    
+    **Examples:**
+        >>> from pyhealth.datasets import OMOPDataset
+        >>> dataset = OMOPDataset(
+        ...     root="https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2",
+        ...     tables=["condition_occurrence", "procedure_occurrence", "drug_exposure"],
+        ... ) # load dataset
+        >>> from pyhealth.tasks import drug_recommendation_omop_fn
+        >>> dataset.set_task(drug_recommendation_omop_fn) # set task
+        
+        >>> from pyhealth.models import SafeDrug
+        >>> model = SafeDrug(
+        ...     dataset=dataset,
+        ...     tables=["conditions", "procedures", "drugs"],
+        ...     target="label",
+        ...     mode="multilabel",
+        ... )
     """
 
     def __init__(
