@@ -24,6 +24,19 @@ def drug_recommendation_mimic3_fn(patient: Patient):
         three visits may be converted to three samples ([visit 1], [visit 1, visit 2],
         [visit 1, visit 2, visit 3]). Patients can also be excluded from the task
         dataset by returning an empty list.
+        
+    **Example:**
+        >>> from pyhealth.datasets import MIMIC3Dataset
+        >>> mimic3_ds = MIMIC3Dataset(
+        ...    root="/srv/local/data/physionet.org/files/mimiciii/1.4",
+        ...    tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
+        ...    code_mapping={"ICD9CM": "CCSCM"},
+        ... )
+        >>> from pyhealth.tasks import drug_recommendation_mimic3_fn
+        >>> dataset.set_task(drug_recommendation_mimic3_fn) # set task
+        >>> dataset.samples[0] # exampe of an training sample
+        [{'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '19', '122', '98', '663', '58', '51']], 'procedures': [['1']], 'label': [['2', '3', '4']]}]
+        
     """
     samples = []
     for i in range(len(patient)):
@@ -85,6 +98,19 @@ def drug_recommendation_mimic4_fn(patient: Patient):
         three visits may be converted to three samples ([visit 1], [visit 1, visit 2],
         [visit 1, visit 2, visit 3]). Patients can also be excluded from the task
         dataset by returning an empty list.
+        
+    **Example:**
+        >>> from pyhealth.datasets import MIMIC4Dataset
+        >>> mimic4_ds = MIMIC4Dataset(
+        ...     root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
+        ...     tables=["diagnoses_icd", "procedures_icd"],
+        ...     code_mapping={"ICD10PROC": "CCSPROC"},
+        ... )
+        >>> from pyhealth.tasks import drug_recommendation_mimic4_fn
+        >>> dataset.set_task(drug_recommendation_mimic4_fn) # set task
+        >>> dataset.samples[0] # exampe of an training sample
+        [{'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '19', '122', '98', '663', '58', '51']], 'procedures': [['1']], 'label': [['2', '3', '4']]}]
+        
     """
     samples = []
     for i in range(len(patient)):
@@ -146,6 +172,20 @@ def drug_recommendation_eicu_fn(patient: Patient):
         three visits may be converted to three samples ([visit 1], [visit 1, visit 2],
         [visit 1, visit 2, visit 3]). Patients can also be excluded from the task
         dataset by returning an empty list.
+        
+    **Example:**
+        >>> from pyhealth.datasets import eICUDataset
+        >>> eicu_ds = eICUDataset(
+        ...     root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
+        ...     tables=["diagnosis", "medication"],
+        ...     code_mapping={},
+        ...     dev=True
+        ... )
+        >>> from pyhealth.tasks import drug_recommendation_eicu_fn
+        >>> dataset.set_task(drug_recommendation_eicu_fn) # set task
+        >>> dataset.samples[0] # exampe of an training sample
+        [{'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '98', '663', '58', '51']], 'procedures': [['1']], 'label': [['2', '3', '4']]}]
+        
     """
     samples = []
     for i in range(len(patient)):
@@ -205,7 +245,21 @@ def drug_recommendation_omop_fn(patient: Patient):
         three visits may be converted to three samples ([visit 1], [visit 1, visit 2],
         [visit 1, visit 2, visit 3]). Patients can also be excluded from the task
         dataset by returning an empty list.
+        
+    **Examples:**
+        >>> from pyhealth.datasets import OMOPDataset
+        >>> omop_ds = OMOPDataset(
+        ...     root="https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2",
+        ...     tables=["condition_occurrence", "procedure_occurrence"],
+        ...     code_mapping={},
+        ... )
+        >>> from pyhealth.tasks import drug_recommendation_omop_fn
+        >>> dataset.set_task(drug_recommendation_eicu_fn) # set task
+        >>> dataset.samples[0] # exampe of an training sample
+        [{'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '98', '663', '58', '51'], ['98', '663', '58', '51']], 'procedures': [['1'], ['2', '3']], 'label': [['2', '3', '4'], ['0', '1', '4', '5']]}]
+        
     """
+    
     samples = []
     for i in range(len(patient)):
         visit: Visit = patient[i]

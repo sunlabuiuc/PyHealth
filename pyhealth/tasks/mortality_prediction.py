@@ -21,6 +21,19 @@ def mortality_prediction_mimic3_fn(patient: Patient):
             visit_id, and other task-specific attributes as key
 
     Note that we define the task as a binary classification task.
+    
+    **Example:**
+        >>> from pyhealth.datasets import MIMIC3Dataset
+        >>> mimic3_ds = MIMIC3Dataset(
+        ...    root="/srv/local/data/physionet.org/files/mimiciii/1.4",
+        ...    tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
+        ...    code_mapping={"ICD9CM": "CCSCM"},
+        ... )
+        >>> from pyhealth.tasks import mortality_prediction_mimic3_fn
+        >>> dataset.set_task(mortality_prediction_mimic3_fn) # set task
+        >>> dataset.samples[0] # exampe of an training sample
+        [{'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '19', '122', '98', '663', '58', '51']], 'procedures': [['1']], 'label': 0}]
+        
     """
     samples = []
 
@@ -71,6 +84,19 @@ def mortality_prediction_mimic4_fn(patient: Patient):
             visit_id, and other task-specific attributes as key
 
     Note that we define the task as a binary classification task.
+    
+    **Example:**
+        >>> from pyhealth.datasets import MIMIC4Dataset
+        >>> mimic4_ds = MIMIC4Dataset(
+        ...     root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
+        ...     tables=["diagnoses_icd", "procedures_icd"],
+        ...     code_mapping={"ICD10PROC": "CCSPROC"},
+        ... )
+        >>> from pyhealth.tasks import mortality_prediction_mimic4_fn
+        >>> dataset.set_task(mortality_prediction_mimic4_fn) # set task
+        >>> dataset.samples[0] # exampe of an training sample
+        [{'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '19', '122', '98', '663', '58', '51']], 'procedures': [['1']], 'label': 1}]
+        
     """
     samples = []
 
@@ -121,6 +147,20 @@ def mortality_prediction_eicu_fn(patient: Patient):
             visit_id, and other task-specific attributes as key
 
     Note that we define the task as a binary classification task.
+    
+    **Example:**
+        >>> from pyhealth.datasets import eICUDataset
+        >>> eicu_ds = eICUDataset(
+        ...     root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
+        ...     tables=["diagnosis", "medication"],
+        ...     code_mapping={},
+        ...     dev=True
+        ... )
+        >>> from pyhealth.tasks import mortality_prediction_eicu_fn
+        >>> dataset.set_task(mortality_prediction_eicu_fn) # set task
+        >>> dataset.samples[0] # exampe of an training sample
+        [{'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '98', '663', '58', '51']], 'procedures': [['1']], 'label': 0}]
+        
     """
     samples = []
     # we will drop the last visit
@@ -170,6 +210,19 @@ def mortality_prediction_omop_fn(patient: Patient):
             visit_id, and other task-specific attributes as key
 
     Note that we define the task as a binary classification task.
+    
+    **Examples:**
+        >>> from pyhealth.datasets import OMOPDataset
+        >>> omop_ds = OMOPDataset(
+        ...     root="https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2",
+        ...     tables=["condition_occurrence", "procedure_occurrence"],
+        ...     code_mapping={},
+        ... )
+        >>> from pyhealth.tasks import mortality_prediction_omop_fn
+        >>> dataset.set_task(mortality_prediction_eicu_fn) # set task
+        >>> dataset.samples[0] # exampe of an training sample
+        [{'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '98', '663', '58', '51']], 'procedures': [['1']], 'label': 1}]
+        
     """
     samples = []
     # we will drop the last visit
