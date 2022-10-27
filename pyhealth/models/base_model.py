@@ -37,10 +37,6 @@ class BaseModel(ABC, nn.Module):
         self.mode = mode
         return
 
-    @abstractmethod
-    def forward(self, device, **kwargs):
-        raise NotImplementedError
-
     def _get_feature_tokenizers(self):
         feature_tokenizers = {}
         for feature_key in self.feature_keys:
