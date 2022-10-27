@@ -74,8 +74,6 @@ def drug_recommendation_mimic3_fn(patient: Patient):
         samples[i]["procedures"] = \
             samples[i - 1]["procedures"] + [samples[i]["procedures"]]
         samples[i]["drugs"] = samples[i - 1]["drugs"] + [samples[i]["drugs"]]
-    for i in range(len(samples)):
-        samples[i]["drugs"][i] = []
 
     return samples
 
@@ -148,8 +146,6 @@ def drug_recommendation_mimic4_fn(patient: Patient):
         samples[i]["procedures"] = \
             samples[i - 1]["procedures"] + [samples[i]["procedures"]]
         samples[i]["drugs"] = samples[i - 1]["drugs"] + [samples[i]["drugs"]]
-    for i in range(len(samples)):
-        samples[i]["drugs"][i] = []
 
     return samples
 
@@ -221,8 +217,6 @@ def drug_recommendation_eicu_fn(patient: Patient):
         samples[i]["procedures"] = \
             samples[i - 1]["procedures"] + [samples[i]["procedures"]]
         samples[i]["drugs"] = samples[i - 1]["drugs"] + [samples[i]["drugs"]]
-    for i in range(len(samples)):
-        samples[i]["drugs"][i] = []
 
     return samples
 
@@ -294,8 +288,6 @@ def drug_recommendation_omop_fn(patient: Patient):
         samples[i]["procedures"] = \
             samples[i - 1]["procedures"] + [samples[i]["procedures"]]
         samples[i]["drugs"] = samples[i - 1]["drugs"] + [samples[i]["drugs"]]
-    for i in range(len(samples)):
-        samples[i]["drugs"][i] = []
 
     return samples
 
