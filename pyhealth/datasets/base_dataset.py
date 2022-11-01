@@ -153,7 +153,7 @@ class BaseDataset(ABC, Dataset):
         # return None if s is nan
         if s != s:
             return None
-        return datetime.strptime(s, format)
+        return datetime.fromisoformat(s)
 
     @staticmethod
     def _add_event_to_patient_dict(
