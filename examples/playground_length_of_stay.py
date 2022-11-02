@@ -91,8 +91,8 @@ device = "cuda:0"
 
 model = RNN(
     dataset=dataset,
-    tables=["conditions", "procedures", "drugs"],
-    target="label",
+    feature_keys=["conditions", "procedures", "drugs"],
+    label_key="label",
     mode="multiclass",
 )
 model.to(device)
