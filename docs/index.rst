@@ -274,9 +274,9 @@ Machine/Deep Learning Models
 ==================================    ================  =================================  ======  ===========================================================================================================================================
 Model Name                            Type              Module                             Year    Reference
 ==================================    ================  =================================  ======  ===========================================================================================================================================
-Logistic Regression (LR)              classifical ML    ``pyhealth.models.MLModel``                ``sklearn.linear_model.LogisticRegression``
-Random Forest (RF)                    classifical ML    ``pyhealth.models.MLModel``                ``sklearn.ensemble.RandomForestClassifier``
-Neural Networks (NN)                  classifical ML    ``pyhealth.models.MLModel``                ``sklearn.neural_network.MLPClassifier``
+Logistic Regression (LR)              classic ML        ``pyhealth.models.MLModel``                ``sklearn.linear_model.LogisticRegression``
+Random Forest (RF)                    classic ML        ``pyhealth.models.MLModel``                ``sklearn.ensemble.RandomForestClassifier``
+Neural Networks (NN)                  classic ML        ``pyhealth.models.MLModel``                ``sklearn.neural_network.MLPClassifier``
 Convolutional Neural Network (CNN)    deep learning     ``pyhealth.models.CNN``            1989    `Handwritten Digit Recognition with a Back-Propagation Network <https://proceedings.neurips.cc/paper/1989/file/53c3bce66e43be4f209556518c2fcb54-Paper.pdf>`_
 Recurrent Neural Nets (RNN)           deep Learning     ``pyhealth.models.RNN``            2011    `Recurrent neural network based language model <http://www.fit.vutbr.cz/research/groups/speech/servite/2010/rnnlm_mikolov.pdf>`_
 Transformer                           deep Learning     ``pyhealth.models.Transformer``    2017    `Atention is All you Need <https://arxiv.org/abs/1706.03762>`_
