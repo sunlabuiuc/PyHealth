@@ -90,8 +90,8 @@ device = "cuda:0"
 
 model = SafeDrug(
     dataset=dataset,
-    tables=["conditions", "procedures"],
-    target="label",
+    feature_keys=["conditions", "procedures"],
+    label_key="label",
     mode="multilabel",
 )
 
