@@ -68,7 +68,7 @@ PyHealth is designed for both **ML researchers and medical practitioners**. We c
  **[News!]** Current PyHealth is a brand-new version with more flexible and independent function calls (such as users may only use the data preprocessing parts or only the ML model layers as convenient as torch.nn.Linear). The `old documents <https://pyhealth.readthedocs.io/en/archived/>`_ are no longer maintained.
 
 
-Introduction
+Introduction `[Video] <https://drive.google.com/file/d/1g8wt8jBhZpmlUDG9l05RtfPWGOlOJK94/view?usp=share_link>`_
 --------------------------
 
 .. .. image:: https://raw.githubusercontent.com/yzhao062/PyHealth/master/docs/images/logo.png
