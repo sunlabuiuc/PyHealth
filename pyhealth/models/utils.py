@@ -2,6 +2,7 @@ from typing import List
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 def get_default_loss_module(mode: str):
@@ -23,32 +24,28 @@ def get_default_loss_module(mode: str):
         raise NotImplementedError
 
 
-def to_multihot(label: List[int], num_classes: int) -> torch.tensor:
-    """Convert label to multihot format.
+def get_default_loss_function(mode: str):
+    if mode == "binary":
+        return F.binary_cross_entropy_with_logits
+    elif mode == "multiclass":
+        return F.cross_entropy
+    elif mode == "multilabel":
+        return F.binary_cross_entropy_with_logits
+    else:
+        raise NotImplementedError
+
+
+def batch_to_multihot(label: List[List[int]], num_labels: int) -> torch.tensor:
+    """Converts label to multihot format.
 
     Args:
         label: [batch size, *]
-        num_classes: number of classes
+        num_labels: total number of labels
 
     Returns:
-        multihot: [batch size, num_classes]
+        multihot: [batch size, num_labels]
     """
-    multihot = torch.zeros(num_classes)
-    multihot[label] = 1
-    return multihot
-
-
-def batch_to_multihot(label: List[List[int]], num_classes: int) -> torch.tensor:
-    """Convert label to multihot format.
-
-    Args:
-        label: [batch size, *]
-        num_classes: number of classes
-
-    Returns:
-        multihot: [batch size, num_classes]
-    """
-    multihot = torch.zeros((len(label), num_classes))
+    multihot = torch.zeros((len(label), num_labels))
     for i, l in enumerate(label):
         multihot[i, l] = 1
     return multihot

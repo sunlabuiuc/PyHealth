@@ -82,7 +82,7 @@ class ClassicML:
             **kwargs: the key-value pair of batch data
         """
         batch_X = []
-        for domain in self.tables:
+        for domain in self.feature_keys:
             cur_X = np.zeros(
                 (len(kwargs[domain]), self.tokenizers[domain].get_vocabulary_size())
             )
@@ -96,18 +96,18 @@ class ClassicML:
             batch_X.append(cur_X)
 
         if self.mode in ["multilabel"]:
-            kwargs[self.target] = self.label_tokenizer.batch_encode_2d(
-                kwargs[self.target], padding=False, truncation=False
+            kwargs[self.label_key] = self.label_tokenizer.batch_encode_2d(
+                kwargs[self.label_key], padding=False, truncation=False
             )
             batch_y = np.zeros(
-                (len(kwargs[self.target]), self.label_tokenizer.get_vocabulary_size())
+                (len(kwargs[self.label_key]), self.label_tokenizer.get_vocabulary_size())
             )
-            for idx, sample in enumerate(kwargs[self.target]):
+            for idx, sample in enumerate(kwargs[self.label_key]):
                 batch_y[idx, sample] = 1
 
         elif self.mode in ["binary", "multiclass"]:
             batch_y = self.label_tokenizer.convert_tokens_to_indices(
-                kwargs[self.target]
+                kwargs[self.label_key]
             )
         else:
             raise ValueError("Invalid mode: {}".format(self.mode))
