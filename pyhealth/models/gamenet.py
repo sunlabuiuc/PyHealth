@@ -126,26 +126,6 @@ class GAMENetLayer(nn.Module):
         # med space size
         self.label_size = ehr_adj.shape[0]
 
-        # define the rnn layers
-        self.cond_rnn = nn.GRU(
-            input_size,
-            hidden_size,
-            num_layers=num_layers,
-            dropout=dropout,
-            batch_first=True,
-        )
-        self.proc_rnn = nn.GRU(
-            input_size,
-            hidden_size,
-            num_layers=num_layers,
-            dropout=dropout,
-            batch_first=True,
-        )
-
-        self.query = nn.Sequential(
-            nn.ReLU(),
-            nn.Linear(hidden_size * 2, hidden_size),
-        )
         self.ehr_gcn = GCN(voc_size=self.label_size, emb_dim=hidden_size, adj=ehr_adj)
         self.ddi_gcn = GCN(voc_size=self.label_size, emb_dim=hidden_size, adj=ddi_adj)
         self.inter = nn.Parameter(torch.FloatTensor(1))
@@ -154,14 +134,7 @@ class GAMENetLayer(nn.Module):
 
         self.loss_fn = nn.BCEWithLogitsLoss()
 
-    def forward(self, conditions, procedures, masks, prev_drugs, curr_drugs):
-        conditions, _ = self.cond_rnn(conditions)
-        procedures, _ = self.proc_rnn(procedures)
-        # (batch, visit, 2 * hidden_size)
-        patient_representations = torch.cat([conditions, procedures], dim=-1)
-        # (batch, visit, hidden_size)
-        queries = self.query(patient_representations)
-
+    def forward(self, queries, masks, prev_drugs, curr_drugs):
         """I:generate current input"""
         query = get_last_visit(queries, masks)
 
@@ -215,6 +188,8 @@ class GAMENet(BaseModel):
             dataset: BaseDataset,
             embedding_dim: int = 128,
             hidden_dim: int = 128,
+            num_layers: int = 1,
+            dropout: float = 0.5,
             **kwargs
     ):
         super(GAMENet, self).__init__(
@@ -232,6 +207,27 @@ class GAMENet(BaseModel):
 
         ehr_adj = self.generate_ehr_adj()
         ddi_adj = self.generate_ddi_adj()
+
+        # define the rnn layers
+        self.cond_rnn = nn.GRU(
+            embedding_dim,
+            hidden_dim,
+            num_layers=num_layers,
+            dropout=dropout,
+            batch_first=True,
+        )
+        self.proc_rnn = nn.GRU(
+            embedding_dim,
+            hidden_dim,
+            num_layers=num_layers,
+            dropout=dropout,
+            batch_first=True,
+        )
+
+        self.query = nn.Sequential(
+            nn.ReLU(),
+            nn.Linear(hidden_dim * 2, hidden_dim),
+        )
 
         self.gamenet = GAMENetLayer(
             input_size=embedding_dim,
@@ -279,6 +275,8 @@ class GAMENet(BaseModel):
         conditions = self.embeddings["conditions"](conditions)
         # (patient, visit, embedding_dim)
         conditions = torch.sum(conditions, dim=2)
+        # (batch, visit, hidden_size)
+        conditions, _ = self.cond_rnn(conditions)
 
         procedures = self.feat_tokenizers["procedures"].batch_encode_3d(procedures)
         procedures = torch.tensor(procedures, dtype=torch.long, device=device)
@@ -286,6 +284,13 @@ class GAMENet(BaseModel):
         procedures = self.embeddings["procedures"](procedures)
         # (patient, visit, embedding_dim)
         procedures = torch.sum(procedures, dim=2)
+        # (batch, visit, hidden_size)
+        procedures, _ = self.proc_rnn(procedures)
+
+        # (batch, visit, 2 * hidden_size)
+        patient_representations = torch.cat([conditions, procedures], dim=-1)
+        # (batch, visit, hidden_size)
+        queries = self.query(patient_representations)
 
         label_size = self.label_tokenizer.get_vocabulary_size()
         drugs = self.label_tokenizer.batch_encode_3d(
@@ -307,8 +312,7 @@ class GAMENet(BaseModel):
         mask = torch.sum(conditions, dim=2) != 0
 
         # process drugs
-        loss, y_prob = self.gamenet(conditions, procedures, mask, prev_drugs,
-                                    curr_drugs)
+        loss, y_prob = self.gamenet(queries, mask, prev_drugs, curr_drugs)
 
         return {
             "loss": loss,
