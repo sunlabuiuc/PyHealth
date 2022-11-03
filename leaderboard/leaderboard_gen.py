@@ -1,5 +1,6 @@
-import argparse
 import sys
+
+sys.path.append('..')
 
 from pyhealth.models import *
 from pyhealth.datasets.splitter import split_by_patient
@@ -14,9 +15,9 @@ from torch.utils.data import DataLoader
 from leaderboard.utils import *
 
 import time
+import argparse
 import warnings
 
-sys.path.append('..')
 warnings.filterwarnings('ignore')
 
 RF = RF(max_depth=6, max_features="sqrt", n_jobs=-1, n_estimators=20)
@@ -26,7 +27,6 @@ leaderboard_sheet = None
 
 
 def leaderboard_generation(args):
-
     global leaderboard_sheet
 
     if args.remote:
@@ -39,6 +39,8 @@ def leaderboard_generation(args):
     datasets = args.datasets
 
     tasks_mimic3, tasks_mimic4, tasks_eicu, tasks_omop = get_tasks_fn_for_datasets()
+
+    eval_data_task = []
 
     # ==============================
     # traverse through all datasets
@@ -56,8 +58,6 @@ def leaderboard_generation(args):
             raise ValueError
 
         dataset = get_dataset(dataset_name)
-
-        eval_data_task = []
 
         for task in task_list:
             # set task to the dataset
@@ -114,6 +114,10 @@ def leaderboard_generation(args):
             elif "length_of_stay_prediction" in task_name:
 
                 models = get_filtered_models(models, [GAMENet, MICRON, SafeDrug])
+                tables_ = ["conditions", "procedures"]
+                mode_ = "multiclass"
+                val_metric = accuracy_score
+                dataset_task = dataset_name + "-lenOfStay"
 
             print("current task: " + task_name)
 
@@ -125,7 +129,7 @@ def leaderboard_generation(args):
                 if current_model.__name__ == "ClassicML":
                     for ml_model in classic_ml_models:
                         print("current model: " + str(ml_model))
-                        model_name = only_upper(ml_model)
+                        model_name = only_upper(str(ml_model))
                         model = current_model(
                             dataset=dataset,
                             tables=tables_,
