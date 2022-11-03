@@ -181,7 +181,7 @@ class ClassicML:
 
         elif self.mode == "multiclass":
             y_prob = cur_prob
-            y_pred = np.argmax(y_prob, axis=1)[0]
+            y_pred = np.argmax(y_prob, axis=-1)
 
         else:
             raise ValueError("Invalid mode: {}".format(self.mode))
