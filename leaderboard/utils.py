@@ -84,8 +84,8 @@ def get_dataset(dataset_name):
 
 
 def get_data_location_on_sheet(eval_data_task):
-    end_line = 12 + len(eval_data_task) - 1
-    location = f'A12:E{end_line}'
+    end_line = 2 + len(eval_data_task) - 1
+    location = f'A2:E{end_line}'
 
     return location
 
@@ -100,7 +100,7 @@ def get_filtered_models(all_models, remove_models):
 
 def get_tasks_fn_for_datasets():
     tasks_mimic3 = [
-        # drug_recommendation_mimic3_fn,
+        drug_recommendation_mimic3_fn,
         length_of_stay_prediction_mimic3_fn,
         mortality_prediction_mimic3_fn,
         readmission_prediction_mimic3_fn
