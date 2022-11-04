@@ -10,11 +10,11 @@ from pyhealth.evaluator import evaluate
 from sklearn.linear_model import LogisticRegression as LR
 from sklearn.ensemble import RandomForestClassifier as RF
 from sklearn.neural_network import MLPClassifier as NN
-from torch.utils.data import DataLoader
 
 from leaderboard.utils import *
 
 import time
+import copy
 import argparse
 import warnings
 
@@ -64,20 +64,15 @@ def leaderboard_generation(args):
             dataset.set_task(task)
 
             # split the dataset and create dataloaders
-            train_dataset, val_dataset, test_dataset = split_by_patient(dataset, [0.8, 0.1, 0.1])
-            train_loader = DataLoader(
-                train_dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
-            )
-            val_loader = DataLoader(
-                val_dataset, batch_size=64, shuffle=False, collate_fn=collate_fn_dict
-            )
-            test_loader = DataLoader(
-                test_dataset, batch_size=64, shuffle=False, collate_fn=collate_fn_dict
-            )
+            train_loader, val_loader, test_loader = \
+                split_dataset_and_get_dataloaders(dataset,
+                                                  split_fn=split_by_patient,
+                                                  ratio=[0.8, 0.1, 0.1],
+                                                  collate_fn_dict=collate_fn_dict)
 
             # specify tables and modes to use for different tasks
             task_name = task.__name__
-            models = args.models
+            models = copy.deepcopy(args.model_list)
             tables_ = []
             mode_ = ""
             dataset_task = ""
@@ -140,14 +135,24 @@ def leaderboard_generation(args):
                         )
 
                         trainer = Trainer(enable_logging=True, output_path="./output")
+
                         start = time.time()
-                        trainer.fit(model,
-                                    train_loader=train_loader,
-                                    epochs=50,
-                                    val_loader=val_loader,
-                                    val_metric=val_metric,
-                                    show_progress_bar=False)
+
+                        # in case there is only one class in the samples, the dataloader should be re-created
+                        while True:
+                            if train_process(trainer, model, train_loader, val_loader, val_metric):
+                                break
+                            else:
+                                # split the dataset and create dataloaders
+                                train_loader, val_loader, test_loader = \
+                                    split_dataset_and_get_dataloaders(dataset,
+                                                                      split_fn=split_by_patient,
+                                                                      ratio=[0.8, 0.1, 0.1],
+                                                                      collate_fn_dict=collate_fn_dict)
+                                continue
+
                         end = time.time()
+
                         print('training time: ', end - start)
 
                         y_gt, y_prob, y_pred = evaluate(model, test_loader)
@@ -175,12 +180,20 @@ def leaderboard_generation(args):
                     trainer = Trainer(enable_logging=True, output_path="./output", device=device)
 
                     start = time.time()
-                    trainer.fit(model,
-                                train_loader=train_loader,
-                                epochs=50,
-                                val_loader=val_loader,
-                                val_metric=val_metric,
-                                show_progress_bar=False)
+
+                    # in case there is only one class in the samples, the dataloader should be re-created
+                    while True:
+                        if train_process(trainer, model, train_loader, val_loader, val_metric):
+                            break
+                        else:
+                            # split the dataset and create dataloaders
+                            train_loader, val_loader, test_loader = \
+                                split_dataset_and_get_dataloaders(dataset,
+                                                                  split_fn=split_by_patient,
+                                                                  ratio=[0.8, 0.1, 0.1],
+                                                                  collate_fn_dict=collate_fn_dict)
+                            continue
+
                     end = time.time()
                     print('training time: ', end - start)
 
@@ -207,11 +220,26 @@ def construct_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--credentials", type=str, default='credentials.json')
     parser.add_argument("--doc_name", type=str, default='Pyhealth tracker')
-    parser.add_argument("--sheet_id", type=int, default=1274686104)
+    parser.add_argument("--sheet_id", type=int, default=2062485923)
     parser.add_argument("--log_path", type=str, default="./log")
-    parser.add_argument("--datasets", type=list, default=["mimic3", "eicu", "omop", "mimic4"])
-    parser.add_argument("--models", type=list, default=[ClassicML, RNN, CNN, Transformer,
-                                                        RETAIN, GAMENet, MICRON, SafeDrug])
+    parser.add_argument("--datasets", type=list,
+                        default=[
+                            "mimic3",
+                            "eicu",
+                            "omop",
+                            "mimic4"
+                        ])
+    parser.add_argument("--model_list", type=list,
+                        default=[
+                            ClassicML,
+                            RNN,
+                            CNN,
+                            Transformer,
+                            RETAIN,
+                            GAMENet,
+                            MICRON,
+                            SafeDrug
+                        ])
     parser.add_argument("--remote", type=bool, default=True)
 
     args = parser.parse_args()

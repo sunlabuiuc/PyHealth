@@ -8,7 +8,7 @@ from pyhealth.datasets import MIMIC3Dataset, eICUDataset, MIMIC4Dataset, OMOPDat
 from pyhealth.tasks import *
 from pyhealth.metrics import *
 
-import pandas as pd
+from torch.utils.data import DataLoader
 
 
 # connect to the Google Spreadsheet
@@ -130,7 +130,6 @@ def get_tasks_fn_for_datasets():
 
 
 def get_metrics_result(mode, y_gt, y_pred, y_prob):
-
     jaccard, accuracy, f1, prauc = 0, 0, 0, 0
 
     if mode == "multilabel":
@@ -163,3 +162,35 @@ def get_metrics_result(mode, y_gt, y_pred, y_prob):
 
 def only_upper(s):
     return "".join(c for c in s if c.isupper())
+
+
+def split_dataset_and_get_dataloaders(dataset, split_fn, ratio, collate_fn_dict):
+    train_dataset, val_dataset, test_dataset = split_fn(dataset, ratio)
+
+    train_loader = DataLoader(
+        train_dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
+    )
+    val_loader = DataLoader(
+        val_dataset, batch_size=64, shuffle=False, collate_fn=collate_fn_dict
+    )
+    test_loader = DataLoader(
+        test_dataset, batch_size=64, shuffle=False, collate_fn=collate_fn_dict
+    )
+
+    return train_loader, val_loader, test_loader
+
+
+def train_process(trainer, model, train_loader, val_loader, val_metric):
+    try:
+
+        trainer.fit(model,
+                    train_loader=train_loader,
+                    epochs=50,
+                    val_loader=val_loader,
+                    val_metric=val_metric,
+                    show_progress_bar=False)
+
+        return True
+
+    except:
+        return False
