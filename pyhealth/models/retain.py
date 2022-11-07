@@ -7,14 +7,22 @@ import torch.nn.utils.rnn as rnn_utils
 from pyhealth.datasets import BaseDataset
 from pyhealth.models import BaseModel
 
+VALID_OPERATION_LEVEL = ["visit", "event"]
+
 
 class RETAINLayer(nn.Module):
-    """The separate callable RETAIN layer.
+    """RETAIN layer.
+
+    Paper: Edward Choi et al. RETAIN: An Interpretable Predictive Model for
+    Healthcare using Reverse Time Attention Mechanism. NIPS 2016.
+
+    This layer is used in the RETAIN model. But it can also be used as a
+    standalone layer.
+
     Args:
-        input_size: the embedding size of the input
-        output_size: the embedding size of the output
-        num_layers: the number of layers in the RNN
-        dropout: dropout rate
+        input_size: input feature size.
+        hidden_size: hidden feature size.
+        dropout: dropout rate. Default is 0.5.
     """
 
     def __init__(
@@ -63,11 +71,17 @@ class RETAINLayer(nn.Module):
         return attn_beta
 
     def forward(self, x: torch.tensor, mask: torch.tensor):
-        """Using the sum of the embedding as the output of the transformer
+        """
         Args:
-            x: [batch size, seq len, input_size]
+            x: a tensor of shape [batch size, sequence len, input size].
+            mask: a tensor of shape [batch size, sequence len] where 1 indicates
+                valid and 0 indicates invalid.
+
         Returns:
-            outputs [batch size, seq len, hidden_size]
+            outputs: a tensor of shape [batch size, sequence len, hidden size],
+                containing the output features for each time step.
+            last_outputs: a tensor of shape [batch size, hidden size], containing
+                the output features for the last time step.
         """
         # rnn will only apply dropout between layers
         x = self.dropout_layer(x)
@@ -81,14 +95,26 @@ class RETAINLayer(nn.Module):
 
 
 class RETAIN(BaseModel):
-    """RETAIN Class, use "task" as key to identify specific RETAIN model and route there
+    """RETAIN model.
+
+    Paper: Edward Choi et al. RETAIN: An Interpretable Predictive Model for
+    Healthcare using Reverse Time Attention Mechanism. NIPS 2016.
+
+    Note:
+        This model can operate on both visit and event level, as designated by
+            the operation_level parameter.
+
     Args:
-        dataset: the dataset object
-        feature_keys: the list of table names to use
-        label_key: the target table name
-        mode: the mode of the model, "multilabel", "multiclass" or "binary"
-        embedding_dim: the embedding dimension
-        hidden_dim: the hidden dimension
+        dataset: the dataset to train the model. It is used to query certain
+            information such as the set of all tokens.
+        feature_keys:  list of keys in samples to use as features,
+            e.g. ["conditions", "procedures"].
+        label_key: key in samples to use as label (e.g., "drugs").
+        mode: one of "binary", "multiclass", or "multilabel".
+        operation_level: one of "visit", "event".
+        embedding_dim: the embedding dimension. Default is 128.
+        hidden_dim: the hidden dimension. Default is 128.
+        **kwargs: other parameters for the RETAIN layer.
     """
 
     def __init__(
@@ -108,35 +134,32 @@ class RETAIN(BaseModel):
             label_key=label_key,
             mode=mode,
         )
-        assert operation_level in ["visit", "event"]
+        assert operation_level in VALID_OPERATION_LEVEL, \
+            f"operation_level must be one of {VALID_OPERATION_LEVEL}"
         self.operation_level = operation_level
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
 
-        self.feat_tokenizers = self._get_feature_tokenizers()
-        self.label_tokenizer = self._get_label_tokenizer()
-        self.embeddings = self._get_embeddings(self.feat_tokenizers, embedding_dim)
-
+        self.feat_tokenizers = self.get_feature_tokenizers()
+        self.label_tokenizer = self.get_label_tokenizer()
+        self.embeddings = self.get_embedding_layers(self.feat_tokenizers, embedding_dim)
         self.retain = nn.ModuleDict()
         for feature_key in feature_keys:
             self.retain[feature_key] = RETAINLayer(
-                input_size=embedding_dim,
-                hidden_size=hidden_dim,
-                **kwargs
+                input_size=embedding_dim, hidden_size=hidden_dim, **kwargs
             )
 
-        output_size = self._get_output_size(self.label_tokenizer)
+        output_size = self.get_output_size(self.label_tokenizer)
         self.fc = nn.Linear(len(self.feature_keys) * self.hidden_dim, output_size)
 
-    def _visit_level_forward(self, device, **kwargs):
-        """Visit level RETAIN forward."""
+    def _visit_level_forward(self, **kwargs):
+        """Visit-level RETAIN forward."""
         patient_emb = []
         for feature_key in self.feature_keys:
             assert type(kwargs[feature_key][0][0]) == list
-            x = self.feat_tokenizers[feature_key].batch_encode_3d(
-                kwargs[feature_key])
+            x = self.feat_tokenizers[feature_key].batch_encode_3d(kwargs[feature_key])
             # (patient, visit, code)
-            x = torch.tensor(x, dtype=torch.long, device=device)
+            x = torch.tensor(x, dtype=torch.long, device=self.device)
             # (patient, visit, code, embedding_dim)
             x = self.embeddings[feature_key](x)
             # (patient, visit, embedding_dim)
@@ -150,21 +173,22 @@ class RETAIN(BaseModel):
         patient_emb = torch.cat(patient_emb, dim=1)
         # (patient, label_size)
         logits = self.fc(patient_emb)
-        # obtain loss, y_true, t_prob
-        loss, y_true, y_prob = self._calculate_output(logits, kwargs[self.label_key])
+        # obtain y_true, loss, y_prob
+        y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
+        loss = self.get_loss_function()(logits, y_true)
+        y_prob = self.prepare_y_prob(logits)
         return {
             "loss": loss,
             "y_prob": y_prob,
             "y_true": y_true,
         }
 
-    def _event_level_forward(self, device, **kwargs):
-        """Event level RETAIN forward."""
+    def _event_level_forward(self, **kwargs):
+        """Event-level RETAIN forward."""
         patient_emb = []
         for feature_key in self.feature_keys:
-            x = self.feat_tokenizers[feature_key].batch_encode_2d(
-                kwargs[feature_key])
-            x = torch.tensor(x, dtype=torch.long, device=device)
+            x = self.feat_tokenizers[feature_key].batch_encode_2d(kwargs[feature_key])
+            x = torch.tensor(x, dtype=torch.long, device=self.device)
             # (patient, code, embedding_dim)
             x = self.embeddings[feature_key](x)
             # (patient, code)
@@ -176,19 +200,21 @@ class RETAIN(BaseModel):
         patient_emb = torch.cat(patient_emb, dim=1)
         # (patient, label_size)
         logits = self.fc(patient_emb)
-        # obtain loss, y_true, t_prob
-        loss, y_true, y_prob = self._calculate_output(logits, kwargs[self.label_key])
+        # obtain y_true, loss, y_prob
+        y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
+        loss = self.get_loss_function()(logits, y_true)
+        y_prob = self.prepare_y_prob(logits)
         return {
             "loss": loss,
             "y_prob": y_prob,
             "y_true": y_true,
         }
 
-    def forward(self, device, **kwargs):
+    def forward(self, **kwargs):
         if self.operation_level == "visit":
-            return self._visit_level_forward(device, **kwargs)
+            return self._visit_level_forward(**kwargs)
         elif self.operation_level == "event":
-            return self._event_level_forward(device, **kwargs)
+            return self._event_level_forward(**kwargs)
         else:
             raise NotImplementedError
 

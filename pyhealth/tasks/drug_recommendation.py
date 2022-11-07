@@ -57,7 +57,7 @@ def drug_recommendation_mimic3_fn(patient: Patient):
                 "conditions": conditions,
                 "procedures": procedures,
                 "drugs": drugs,
-                "label": drugs,
+                "drugs_all": drugs,
             }
         )
     # exclude: patients with less than 2 visit
@@ -66,14 +66,15 @@ def drug_recommendation_mimic3_fn(patient: Patient):
     # add history
     samples[0]["conditions"] = [samples[0]["conditions"]]
     samples[0]["procedures"] = [samples[0]["procedures"]]
-    samples[0]["drugs"] = [samples[0]["drugs"]]
+    samples[0]["drugs_all"] = [samples[0]["drugs_all"]]
 
     for i in range(1, len(samples)):
         samples[i]["conditions"] = \
             samples[i - 1]["conditions"] + [samples[i]["conditions"]]
         samples[i]["procedures"] = \
             samples[i - 1]["procedures"] + [samples[i]["procedures"]]
-        samples[i]["drugs"] = samples[i - 1]["drugs"] + [samples[i]["drugs"]]
+        samples[i]["drugs_all"] = \
+            samples[i - 1]["drugs_all"] + [samples[i]["drugs_all"]]
 
     return samples
 
@@ -129,7 +130,7 @@ def drug_recommendation_mimic4_fn(patient: Patient):
                 "conditions": conditions,
                 "procedures": procedures,
                 "drugs": drugs,
-                "label": drugs,
+                "drugs_all": drugs,
             }
         )
     # exclude: patients with less than 2 visit
@@ -138,14 +139,15 @@ def drug_recommendation_mimic4_fn(patient: Patient):
     # add history
     samples[0]["conditions"] = [samples[0]["conditions"]]
     samples[0]["procedures"] = [samples[0]["procedures"]]
-    samples[0]["drugs"] = [samples[0]["drugs"]]
+    samples[0]["drugs_all"] = [samples[0]["drugs_all"]]
 
     for i in range(1, len(samples)):
         samples[i]["conditions"] = \
             samples[i - 1]["conditions"] + [samples[i]["conditions"]]
         samples[i]["procedures"] = \
             samples[i - 1]["procedures"] + [samples[i]["procedures"]]
-        samples[i]["drugs"] = samples[i - 1]["drugs"] + [samples[i]["drugs"]]
+        samples[i]["drugs_all"] = \
+            samples[i - 1]["drugs_all"] + [samples[i]["drugs_all"]]
 
     return samples
 
@@ -200,7 +202,7 @@ def drug_recommendation_eicu_fn(patient: Patient):
                 "conditions": conditions,
                 "procedures": procedures,
                 "drugs": drugs,
-                "label": drugs,
+                "drugs_all": drugs,
             }
         )
     # exclude: patients with less than 2 visit
@@ -209,14 +211,15 @@ def drug_recommendation_eicu_fn(patient: Patient):
     # add history
     samples[0]["conditions"] = [samples[0]["conditions"]]
     samples[0]["procedures"] = [samples[0]["procedures"]]
-    samples[0]["drugs"] = [samples[0]["drugs"]]
+    samples[0]["drugs_all"] = [samples[0]["drugs_all"]]
 
     for i in range(1, len(samples)):
         samples[i]["conditions"] = \
             samples[i - 1]["conditions"] + [samples[i]["conditions"]]
         samples[i]["procedures"] = \
             samples[i - 1]["procedures"] + [samples[i]["procedures"]]
-        samples[i]["drugs"] = samples[i - 1]["drugs"] + [samples[i]["drugs"]]
+        samples[i]["drugs"] = \
+            samples[i - 1]["drugs_all"] + [samples[i]["drugs_all"]]
 
     return samples
 
@@ -271,7 +274,7 @@ def drug_recommendation_omop_fn(patient: Patient):
                 "conditions": conditions,
                 "procedures": procedures,
                 "drugs": drugs,
-                "label": drugs,
+                "drugs_all": drugs,
             }
         )
     # exclude: patients with less than 2 visit
@@ -280,14 +283,15 @@ def drug_recommendation_omop_fn(patient: Patient):
     # add history
     samples[0]["conditions"] = [samples[0]["conditions"]]
     samples[0]["procedures"] = [samples[0]["procedures"]]
-    samples[0]["drugs"] = [samples[0]["drugs"]]
+    samples[0]["drugs_all"] = [samples[0]["drugs_all"]]
 
     for i in range(1, len(samples)):
         samples[i]["conditions"] = \
             samples[i - 1]["conditions"] + [samples[i]["conditions"]]
         samples[i]["procedures"] = \
             samples[i - 1]["procedures"] + [samples[i]["procedures"]]
-        samples[i]["drugs"] = samples[i - 1]["drugs"] + [samples[i]["drugs"]]
+        samples[i]["drugs"] = \
+            samples[i - 1]["drugs_all"] + [samples[i]["drugs_all"]]
 
     return samples
 

@@ -1,38 +1,6 @@
 from typing import List
 
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-
-
-def get_default_loss_module(mode: str):
-    """Get the default loss module for the given mode.
-
-    Args:
-        mode: "binary", "multiclass", or "multilabel"
-
-    Returns:
-        loss module
-    """
-    if mode == "binary":
-        return nn.BCEWithLogitsLoss()
-    elif mode == "multiclass":
-        return nn.CrossEntropyLoss()
-    elif mode == "multilabel":
-        return nn.BCEWithLogitsLoss()
-    else:
-        raise NotImplementedError
-
-
-def get_default_loss_function(mode: str):
-    if mode == "binary":
-        return F.binary_cross_entropy_with_logits
-    elif mode == "multiclass":
-        return F.cross_entropy
-    elif mode == "multilabel":
-        return F.binary_cross_entropy_with_logits
-    else:
-        raise NotImplementedError
 
 
 def batch_to_multihot(label: List[List[int]], num_labels: int) -> torch.tensor:
