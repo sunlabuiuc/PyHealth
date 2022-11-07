@@ -42,6 +42,7 @@ def readmission_prediction_mimic3_fn(patient: Patient, time_window=15):
 
     # we will drop the last visit
     for i in range(len(patient) - 1):
+        # TODO: bug!!!
         visit: Visit = patient[i]
         next_visit: Visit = patient[i + 1]
 

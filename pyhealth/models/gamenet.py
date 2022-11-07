@@ -1,21 +1,30 @@
-import numpy as np
+import math
+from typing import Tuple, List, Dict
+
 import torch
 import torch.nn as nn
 
 from pyhealth.datasets import BaseDataset
 from pyhealth.medcode import ATC
 from pyhealth.models import BaseModel
-from pyhealth.models.utils import batch_to_multihot
-from pyhealth.models.utils import get_last_visit
+from pyhealth.models.utils import get_last_visit, batch_to_multihot
 
 
 class GCNLayer(nn.Module):
-    """Simple GCN layer.
+    """GCN layer.
 
-    Reference: https://arxiv.org/abs/1609.02907.
+    Paper: Thomas N. Kipf et al. Semi-Supervised Classification with Graph
+    Convolutional Networks. ICLR 2017.
+
+    This layer is used in the GCN model.
+
+    Args:
+        in_features: input feature size.
+        out_features: output feature size.
+        bias: whether to use bias. Default is True.
     """
 
-    def __init__(self, in_features, out_features, bias=True):
+    def __init__(self, in_features: int, out_features: int, bias=True):
         super(GCNLayer, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
@@ -27,12 +36,20 @@ class GCNLayer(nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self):
-        stdv = 1.0 / np.sqrt(self.weight.size(1))
+        stdv = 1.0 / math.sqrt(self.weight.size(1))
         self.weight.data.uniform_(-stdv, stdv)
         if self.bias is not None:
             self.bias.data.uniform_(-stdv, stdv)
 
-    def forward(self, input, adj):
+    def forward(self, input: torch.tensor, adj: torch.tensor) -> torch.tensor:
+        """
+        Args:
+            input: input feature tensor of shape [num_nodes, in_features].
+            adj: adjacency tensor of shape [num_nodes, num_nodes].
+
+        Returns:
+            Output tensor of shape [num_nodes, out_features].
+        """
         support = torch.mm(input, self.weight)
         output = torch.mm(adj, support)
         if self.bias is not None:
@@ -40,147 +57,186 @@ class GCNLayer(nn.Module):
         else:
             return output
 
-    def __repr__(self):
-        return (
-                self.__class__.__name__
-                + " ("
-                + str(self.in_features)
-                + " -> "
-                + str(self.out_features)
-                + ")"
-        )
-
 
 class GCN(nn.Module):
-    """Simple GCN model.
+    """GCN model.
 
-    Reference: https://arxiv.org/abs/1609.02907.
+    Paper: Thomas N. Kipf et al. Semi-Supervised Classification with Graph
+    Convolutional Networks. ICLR 2017.
+
+    This model is used in the GAMENet layer.
 
     Args:
-        voc_size (int): the size of the (med) vocabulary
-        emb_dim (int): the dimension of the embedding
-        adj (np.array): the adjacency matrix
-    """
-
-    def __init__(self, voc_size, emb_dim, adj):
-        super(GCN, self).__init__()
-        self.voc_size = voc_size
-        self.emb_dim = emb_dim
-
-        adj = self.normalize(adj + np.eye(adj.shape[0]))
-        self.adj = torch.nn.Parameter(torch.FloatTensor(adj), requires_grad=False)
-        self.x = torch.nn.Parameter(torch.eye(voc_size), requires_grad=False)
-
-        self.gcn1 = GCNLayer(voc_size, emb_dim)
-        self.dropout = nn.Dropout(p=0.3)
-        self.gcn2 = GCNLayer(emb_dim, emb_dim)
-
-    def forward(self):
-        node_embedding = self.gcn1(self.x, self.adj)
-        node_embedding = torch.relu(node_embedding)
-        node_embedding = self.dropout(node_embedding)
-        node_embedding = self.gcn2(node_embedding, self.adj)
-        return node_embedding
-
-    def normalize(self, mx):
-        """Row-normalize sparse matrix"""
-        rowsum = np.array(mx.sum(1))
-        r_inv = np.power(rowsum, -1).flatten()
-        r_inv[np.isinf(r_inv)] = 0.0
-        r_mat_inv = np.diagflat(r_inv)
-        mx = r_mat_inv.dot(mx)
-        return mx
-
-
-class GAMENetLayer(nn.Module):
-    """We separate the GAMENet layer from the model for flexible usage.
-    Args:
-        input (int): the input embedding size
-        hidden (int): the hidden embedding size
-        tables  (list): the list of table names
-        ehr_adj (np.array): the adjacency matrix of EHR
-        ddi_adj (np.array): the adjacency matrix of DDI
-        num_layers (int): the number of layers used in RNN
-        dropout (float): the dropout rate
-        ddi_in_memory (bool): whether to use DDI GCN in forward function
+        hidden_size: hidden feature size.
+        adj: adjacency tensor of shape [num_nodes, num_nodes].
+        dropout: dropout rate. Default is 0.5.
     """
 
     def __init__(
             self,
-            input_size: int,
+            adj: torch.tensor,
             hidden_size: int,
-            ehr_adj: np.ndarray,
-            ddi_adj: np.ndarray,
-            num_layers: int = 1,
-            dropout: float = 0.5,
-            ddi_in_memory: bool = True,
+            dropout: float = 0.5
+    ):
+        super(GCN, self).__init__()
+        self.emb_dim = hidden_size
+        self.dropout = dropout
+
+        voc_size = adj.shape[0]
+        adj = adj + torch.eye(adj.shape[0])
+        adj = self.normalize(adj)
+        self.adj = torch.nn.Parameter(adj, requires_grad=False)
+        self.x = torch.nn.Parameter(torch.eye(voc_size), requires_grad=False)
+
+        self.gcn1 = GCNLayer(voc_size, hidden_size)
+        self.dropout_layer = nn.Dropout(p=dropout)
+        self.gcn2 = GCNLayer(hidden_size, hidden_size)
+
+    def normalize(self, mx: torch.tensor) -> torch.tensor:
+        """Normalizes the matrix row-wise."""
+        rowsum = mx.sum(1)
+        r_inv = torch.pow(rowsum, -1).flatten()
+        r_inv[torch.isinf(r_inv)] = 0.0
+        r_mat_inv = torch.diagflat(r_inv)
+        mx = torch.mm(r_mat_inv, mx)
+        return mx
+
+    def forward(self) -> torch.tensor:
+        """Forward propagation.
+
+        Returns:
+            Output tensor of shape [num_nodes, hidden_size].
+        """
+        node_embedding = self.gcn1(self.x, self.adj)
+        node_embedding = torch.relu(node_embedding)
+        node_embedding = self.dropout_layer(node_embedding)
+        node_embedding = self.gcn2(node_embedding, self.adj)
+        return node_embedding
+
+
+class GAMENetLayer(nn.Module):
+    """GAMENet layer.
+
+    Paper: Junyuan Shang et al. GAMENet: Graph Augmented MEmory Networks for
+    Recommending Medication Combination AAAI 2019.
+
+    This layer is used in the GAMENet model. But it can also be used as a
+    standalone layer.
+
+    Args:
+        hidden_size: hidden feature size.
+        ehr_adj: an adjacency tensor of shape [num_drugs, num_drugs].
+        ddi_adj: an adjacency tensor of shape [num_drugs, num_drugs].
+        dropout : the dropout rate. Default is 0.5.
+
+    Examples:
+        >>> from pyhealth.models import GAMENetLayer
+        >>> queries = torch.randn(3, 5, 32) # [patient, visit, input_size]
+        >>> mask = torch.ones(3, 5).bool()  # [patient, visit]
+        >>> prev_drugs = torch.randint(0, 2, (3, 4, 50)).float()
+        >>> curr_drugs = torch.randint(0, 2, (3, 50)).float()
+        >>> ehr_adj = torch.randint(0, 2, (50, 50)).float()
+        >>> ddi_adj = torch.randint(0, 2, (50, 50)).float()
+        >>> layer = GAMENetLayer(32, ehr_adj, ddi_adj)
+        >>> loss, y_prob = layer(queries, mask, prev_drugs, curr_drugs)
+        >>> loss.shape
+        torch.Size([])
+        >>> y_prob.shape
+        torch.Size([3, 50])
+    """
+
+    def __init__(
+            self,
+            hidden_size: int,
+            ehr_adj: torch.tensor,
+            ddi_adj: torch.tensor,
+            dropout: float = 0.5
     ):
         super(GAMENetLayer, self).__init__()
-        self.input_size = input_size
         self.hidden_size = hidden_size
-        self.num_layers = num_layers
-        self.dropout = dropout
-        self.dropout_layer = nn.Dropout(dropout)
-        self.ddi_in_memory = ddi_in_memory
+        self.ehr_adj = ehr_adj
+        self.ddi_adj = ddi_adj
 
-        # med space size
-        self.label_size = ehr_adj.shape[0]
+        num_labels = ehr_adj.shape[0]
+        self.ehr_gcn = GCN(adj=ehr_adj, hidden_size=hidden_size, dropout=dropout)
+        self.ddi_gcn = GCN(adj=ddi_adj, hidden_size=hidden_size, dropout=dropout)
+        self.beta = nn.Parameter(torch.FloatTensor(1))
+        self.fc = nn.Linear(3 * hidden_size, num_labels)
 
-        self.ehr_gcn = GCN(voc_size=self.label_size, emb_dim=hidden_size, adj=ehr_adj)
-        self.ddi_gcn = GCN(voc_size=self.label_size, emb_dim=hidden_size, adj=ddi_adj)
-        self.inter = nn.Parameter(torch.FloatTensor(1))
+        self.bce_loss_fn = nn.BCEWithLogitsLoss()
 
-        self.fc = nn.Linear(3 * hidden_size, self.label_size)
+    def forward(
+            self,
+            queries: torch.tensor,
+            mask: torch.tensor,
+            prev_drugs: torch.tensor,
+            curr_drugs: torch.tensor
+    ) -> Tuple[torch.tensor, torch.tensor]:
+        """Forward propagation.
 
-        self.loss_fn = nn.BCEWithLogitsLoss()
+        Args:
+            queries: query tensor of shape [patient, visit, hidden_size].
+            mask: mask tensor of shape [patient, visit] where 1 indicates
+                valid visits and 0 indicates invalid visits.
+            prev_drugs: multihot tensor indicating drug usage in all previous
+                visits of shape [patient, visit - 1, num_drugs].
+            curr_drugs: multihot tensor indicating drug usage in the current
+                visit of shape [patient, num_drugs].
 
-    def forward(self, queries, masks, prev_drugs, curr_drugs):
-        """I:generate current input"""
-        query = get_last_visit(queries, masks)
+        Returns:
+            loss: a scalar tensor representing the loss.
+            y_pred:a tensor of shape [patient, num_labels] representing
+                the probability of each drug.
+        """
 
-        """G:generate graph memory bank and insert history information"""
-        drug_memory = self.ehr_gcn() - self.ddi_gcn() * torch.sigmoid(self.inter)
+        """I: Input memory representation"""
+        query = get_last_visit(queries, mask)
 
-        # (batch, visit-1, )
-        history_keys = queries[:, :-1, :]
-        history_values = prev_drugs
+        """G: Generalization"""
+        # memory bank
+        MB = self.ehr_gcn() - self.ddi_gcn() * torch.sigmoid(self.beta)
 
-        """O:read from global memory bank and dynamic memory bank"""
-        key_weights1 = torch.softmax(
-            torch.mm(query, drug_memory.t()), dim=-1
-        )
-        fact1 = torch.mm(key_weights1, drug_memory)  # (batch, dim)
+        # dynamic memory
+        DM_keys = queries[:, :-1, :]
+        DM_values = prev_drugs
 
-        # remove the last visit from mask
-        visit_weight = torch.softmax(
-            torch.einsum("bd,bvd->bv", query, history_keys), dim=1
-        )
+        """O: Output memory representation"""
+        a_c = torch.softmax(torch.mm(query, MB.t()), dim=-1)
+        o_b = torch.mm(a_c, MB)
 
-        weighted_values = torch.einsum(
-            "bv,bvz->bz", visit_weight, history_values.float()
-        )
-        fact2 = torch.mm(weighted_values, drug_memory)  # (batch, dim)
+        a_s = torch.softmax(torch.einsum("bd,bvd->bv", query, DM_keys), dim=1)
+        a_m = torch.einsum("bv,bvz->bz", a_s, DM_values.float())
+        o_d = torch.mm(a_m, MB)
 
-        """R:convert O and predict"""
-        memory_output = torch.cat([query, fact1, fact2], dim=-1)
-
+        """R: Response"""
+        memory_output = torch.cat([query, o_b, o_d], dim=-1)
         logits = self.fc(memory_output)
 
-        loss = self.loss_fn(logits, curr_drugs)
+        loss = self.bce_loss_fn(logits, curr_drugs)
         y_prob = torch.sigmoid(logits)
 
         return loss, y_prob
 
 
 class GAMENet(BaseModel):
-    """GAMENet Class, use "task" as key to identify specific GAMENet model and route there
+    """GAMENet model.
+
+    Paper: Junyuan Shang et al. GAMENet: Graph Augmented MEmory Networks for
+    Recommending Medication Combination AAAI 2019.
+
+    Note:
+        This model is only for medication prediction which takes conditions
+        and procedures as feature_keys, and drugs_all as label_key (i.e., both
+        current and previous drugs). It only operates on the visit level.
+
     Args:
-        dataset: the dataset object
-        feature_keys: the list of table names to use
-        label_key: the target table name
-        mode: the mode of the model, "multilabel", "multiclass" or "binary"
-        embedding_dim: the embedding dimension
-        hidden_dim: the hidden dimension
+        dataset: the dataset to train the model. It is used to query certain
+            information such as the set of all tokens.
+        embedding_dim: the embedding dimension. Default is 128.
+        hidden_dim: the hidden dimension. Default is 128.
+        num_layers: the number of layers used in RNN. Default is 1.
+        dropout: the dropout rate. Default is 0.5.
+        **kwargs: other parameters for the GAMENet layer.
     """
 
     def __init__(
@@ -195,20 +251,21 @@ class GAMENet(BaseModel):
         super(GAMENet, self).__init__(
             dataset=dataset,
             feature_keys=["conditions", "procedures"],
-            label_key="drugs",
+            label_key="drugs_all",
             mode="multilabel",
         )
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
+        self.num_layers = num_layers
+        self.dropout = dropout
 
-        self.feat_tokenizers = self._get_feature_tokenizers()
-        self.label_tokenizer = self._get_label_tokenizer()
-        self.embeddings = self._get_embeddings(self.feat_tokenizers, embedding_dim)
+        self.feat_tokenizers = self.get_feature_tokenizers()
+        self.label_tokenizer = self.get_label_tokenizer()
+        self.embeddings = self.get_embedding_layers(self.feat_tokenizers, embedding_dim)
 
         ehr_adj = self.generate_ehr_adj()
         ddi_adj = self.generate_ddi_adj()
 
-        # define the rnn layers
         self.cond_rnn = nn.GRU(
             embedding_dim,
             hidden_dim,
@@ -223,29 +280,24 @@ class GAMENet(BaseModel):
             dropout=dropout,
             batch_first=True,
         )
-
         self.query = nn.Sequential(
             nn.ReLU(),
             nn.Linear(hidden_dim * 2, hidden_dim),
         )
-
         self.gamenet = GAMENetLayer(
-            input_size=embedding_dim,
             hidden_size=hidden_dim,
             ehr_adj=ehr_adj,
             ddi_adj=ddi_adj,
+            dropout=dropout,
             **kwargs,
         )
 
-    def generate_ehr_adj(self):
-        """
-        generate the ehr graph adj for GAMENet model input
-        - loop over the training data to check whether any med pair appear
-        """
+    def generate_ehr_adj(self) -> torch.tensor:
+        """Generates the EHR graph adjacency matrix."""
         label_size = self.label_tokenizer.get_vocabulary_size()
-        ehr_adj = np.zeros((label_size, label_size))
+        ehr_adj = torch.zeros((label_size, label_size))
         for sample in self.dataset:
-            curr_drugs = sample["drugs"][-1]
+            curr_drugs = sample["drugs_all"][-1]
             encoded_drugs = self.label_tokenizer.convert_tokens_to_indices(curr_drugs)
             for idx1, med1 in enumerate(encoded_drugs):
                 for idx2, med2 in enumerate(encoded_drugs):
@@ -255,12 +307,13 @@ class GAMENet(BaseModel):
                     ehr_adj[med2, med1] = 1
         return ehr_adj
 
-    def generate_ddi_adj(self):
+    def generate_ddi_adj(self) -> torch.tensor:
+        """Generates the DDI graph adjacency matrix."""
         atc = ATC()
         ddi = atc.get_ddi(gamenet_ddi=True)
         label_size = self.label_tokenizer.get_vocabulary_size()
         vocab_to_index = self.label_tokenizer.vocabulary
-        ddi_adj = np.zeros((label_size, label_size))
+        ddi_adj = torch.zeros((label_size, label_size))
         ddi_atc3 = [[l[0][:4], l[1][:4]] for l in ddi]
         for atc_i, atc_j in ddi_atc3:
             if atc_i in vocab_to_index and atc_j in vocab_to_index:
@@ -268,9 +321,32 @@ class GAMENet(BaseModel):
                 ddi_adj[vocab_to_index(atc_j), vocab_to_index(atc_i)] = 1
         return ddi_adj
 
-    def forward(self, device, conditions, procedures, drugs, **kwargs):
+    def forward(
+            self,
+            conditions: List[List[List[str]]],
+            procedures: List[List[List[str]]],
+            drugs_all: List[List[List[str]]],
+            **kwargs
+    ) -> Dict[str, torch.Tensor]:
+        """Forward computation.
+
+        Args:
+            conditions: a nested list in three levels [patient, visit, condition].
+            procedures: a nested list in three levels [patient, visit, procedure].
+            drugs_all: a nested list in three levels [patient, visit, drug].
+
+        Returns:
+            A dictionary with the following keys:
+                loss: a scalar tensor representing the loss.
+                y_prob: a tensor of shape [patient, visit, num_labels] representing
+                    the probability of each drug.
+                y_true: a tensor of shape [patient, visit, num_labels] representing
+                    the ground truth of each drug.
+
+        """
         conditions = self.feat_tokenizers["conditions"].batch_encode_3d(conditions)
-        conditions = torch.tensor(conditions, dtype=torch.long, device=device)
+        # (patient, visit, code)
+        conditions = torch.tensor(conditions, dtype=torch.long, device=self.device)
         # (patient, visit, code, embedding_dim)
         conditions = self.embeddings["conditions"](conditions)
         # (patient, visit, embedding_dim)
@@ -279,7 +355,8 @@ class GAMENet(BaseModel):
         conditions, _ = self.cond_rnn(conditions)
 
         procedures = self.feat_tokenizers["procedures"].batch_encode_3d(procedures)
-        procedures = torch.tensor(procedures, dtype=torch.long, device=device)
+        # (patient, visit, code)
+        procedures = torch.tensor(procedures, dtype=torch.long, device=self.device)
         # (patient, visit, code, embedding_dim)
         procedures = self.embeddings["procedures"](procedures)
         # (patient, visit, embedding_dim)
@@ -293,20 +370,20 @@ class GAMENet(BaseModel):
         queries = self.query(patient_representations)
 
         label_size = self.label_tokenizer.get_vocabulary_size()
-        drugs = self.label_tokenizer.batch_encode_3d(
-            drugs, padding=(False, False), truncation=(True, False)
+        drugs_all = self.label_tokenizer.batch_encode_3d(
+            drugs_all, padding=(False, False), truncation=(True, False)
         )
 
-        curr_drugs = [p[-1] for p in drugs]
+        curr_drugs = [p[-1] for p in drugs_all]
         curr_drugs = batch_to_multihot(curr_drugs, label_size)
-        curr_drugs = curr_drugs.to(device)
+        curr_drugs = curr_drugs.to(self.device)
 
-        prev_drugs = [p[:-1] for p in drugs]
+        prev_drugs = [p[:-1] for p in drugs_all]
         max_num_visit = max([len(p) for p in prev_drugs])
         prev_drugs = [p + [[]] * (max_num_visit - len(p)) for p in prev_drugs]
         prev_drugs = [batch_to_multihot(p, label_size) for p in prev_drugs]
         prev_drugs = torch.stack(prev_drugs, dim=0)
-        prev_drugs = prev_drugs.to(device)
+        prev_drugs = prev_drugs.to(self.device)
 
         # get mask
         mask = torch.sum(conditions, dim=2) != 0
@@ -319,31 +396,3 @@ class GAMENet(BaseModel):
             "y_prob": y_prob,
             "y_true": curr_drugs,
         }
-
-
-if __name__ == '__main__':
-    from pyhealth.datasets import MIMIC3Dataset
-    from torch.utils.data import DataLoader
-    from pyhealth.utils import collate_fn_dict
-    from pyhealth.tasks import drug_recommendation_mimic3_fn
-
-    dataset = MIMIC3Dataset(
-        root="/srv/local/data/physionet.org/files/mimiciii/1.4",
-        tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
-        dev=True,
-        code_mapping={"NDC": "ATC"},
-        refresh_cache=False,
-    )
-
-    # visit level + multilabel
-    dataset.set_task(drug_recommendation_mimic3_fn)
-    dataloader = DataLoader(
-        dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
-    )
-    model = GAMENet(
-        dataset=dataset,
-    )
-    model.to("cuda")
-    batch = iter(dataloader).next()
-    output = model(**batch, device="cuda")
-    print(output["loss"])

@@ -25,8 +25,9 @@ class Vocabulary:
             special_tokens: Optional[List[str]], list of special tokens to add to
                 the vocabulary. (e.g., <pad>, <unk>). Default is empty list.
 
-        Note that if vocabulary is used to convert output labels to indices, one
-        should be very careful about the special tokens.
+        Note:
+            If vocabulary is used to convert output labels to indices, one should
+                be very careful about the special tokens.
         """
         if special_tokens is None:
             special_tokens = []

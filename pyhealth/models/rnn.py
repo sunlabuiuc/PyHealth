@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Tuple
 
 import torch
 import torch.nn as nn
@@ -7,27 +7,39 @@ import torch.nn.utils.rnn as rnn_utils
 from pyhealth.datasets import BaseDataset
 from pyhealth.models import BaseModel
 
+VALID_OPERATION_LEVEL = ["visit", "event"]
+
 
 class RNNLayer(nn.Module):
-    """separate callable RNN layer
-    
+    """Recurrent neural network layer.
+
+    This layer wraps the PyTorch RNN layer with masking and dropout support. It is
+    used in the RNN model. But it can also be used as a standalone layer.
+
     Args:
-        input_size: input size of rnn
-        hidden_size: hidden size of rnn
-        rnn_type: type of rnn, e.g. GRU, LSTM
-        num_layers: number of rnn layers
-        dropout: dropout rate
-        bidirectional: whether to use bidirectional rnn
-        
-    **Examples:**
-        >>> from pyhealth.models import RNNLayer 
-        >>> input = torch.randn(3, 128, 5) # [batch size, seq len, input_size]
-        >>> model = RNNLayer(5, 64, "GRU", 2, 0.5, True)
-        >>> mask = torch.ones(3, 128) == 1
-        >>> [item.shape for item in model(input, mask)]
-        [torch.Size([3, 64]), torch.Size([3, 128, 64])] # [batch size, hidden_size], [batch size, seq len, hidden_size]
-        
+        input_size: input feature size.
+        hidden_size: hidden feature size.
+        rnn_type: type of rnn, one of "RNN", "LSTM", "GRU".
+        num_layers: number of recurrent layers. Default is 1.
+        dropout: dropout rate. If non-zero, introduces a Dropout layer before each
+            RNN layer. Default is 0.5.
+        bidirectional: whether to use bidirectional recurrent layers. If True,
+            a fully-connected layer is applied to the concatenation of the forward
+            and backward hidden states to reduce the dimension to hidden_size.
+            Default is False.
+
+    Examples:
+        >>> from pyhealth.models import RNNLayer
+        >>> input = torch.randn(3, 128, 5)  # [batch size, sequence len, input_size]
+        >>> mask = torch.ones(3, 128).bool()
+        >>> layer = RNNLayer(5, 64)
+        >>> outputs, last_outputs = layer(input, mask)
+        >>> outputs.shape
+        torch.Size([3, 128, 64])
+        >>> last_outputs.shape
+        torch.Size([3, 64])
     """
+
     def __init__(
             self,
             input_size: int,
@@ -35,7 +47,7 @@ class RNNLayer(nn.Module):
             rnn_type: str = "GRU",
             num_layers: int = 1,
             dropout: float = 0.5,
-            bidirectional: bool = True,
+            bidirectional: bool = False,
     ):
         super(RNNLayer, self).__init__()
         self.input_size = input_size
@@ -44,6 +56,7 @@ class RNNLayer(nn.Module):
         self.num_layers = num_layers
         self.dropout = dropout
         self.bidirectional = bidirectional
+
         self.dropout_layer = nn.Dropout(dropout)
         self.num_directions = 2 if bidirectional else 1
         rnn_module = getattr(nn, rnn_type)
@@ -58,15 +71,24 @@ class RNNLayer(nn.Module):
         if bidirectional:
             self.down_projection = nn.Linear(hidden_size * 2, hidden_size)
 
-    def forward(self, x: torch.tensor, mask: torch.tensor):
+    def forward(
+            self,
+            x: torch.tensor,
+            mask: torch.tensor
+    ) -> Tuple[torch.tensor, torch.tensor]:
         """
         Args:
-            x: [batch size, seq len, input_size]
-            mask: [batch size, seq len]
+            x: a tensor of shape [batch size, sequence len, input size].
+            mask: a tensor of shape [batch size, sequence len] where 1 indicates
+                valid and 0 indicates invalid.
+
         Returns:
-            outputs [batch size, seq len, hidden_size]
+            outputs: a tensor of shape [batch size, sequence len, hidden size],
+                containing the output features for each time step.
+            last_outputs: a tensor of shape [batch size, hidden size], containing
+                the output features for the last time step.
         """
-        # rnn will only apply dropout between layers
+        # pytorch's rnn will only apply dropout between layers
         x = self.dropout_layer(x)
         batch_size = x.size(0)
         lengths = torch.sum(mask.int(), dim=-1).cpu()
@@ -75,51 +97,42 @@ class RNNLayer(nn.Module):
         )
         outputs, _ = self.rnn(x)
         outputs, _ = rnn_utils.pad_packed_sequence(outputs, batch_first=True)
-        if self.bidirectional:
+        if not self.bidirectional:
+            last_outputs = outputs[torch.arange(batch_size), (lengths - 1), :]
+            return outputs, last_outputs
+        else:
             outputs = outputs.view(batch_size, outputs.shape[1], 2, -1)
-            forward_last_outputs = outputs[torch.arange(batch_size), (lengths - 1), 0,
-                                   :]
-            backward_last_outputs = outputs[:, 0, 1, :]
-            last_outputs = torch.cat(
-                [forward_last_outputs, backward_last_outputs], dim=-1
-            )
+            f_last_outputs = outputs[torch.arange(batch_size), (lengths - 1), 0, :]
+            b_last_outputs = outputs[:, 0, 1, :]
+            last_outputs = torch.cat([f_last_outputs, b_last_outputs], dim=-1)
             outputs = outputs.view(batch_size, outputs.shape[1], -1)
             last_outputs = self.down_projection(last_outputs)
             outputs = self.down_projection(outputs)
-            return last_outputs, outputs
-        outputs = self.down_projection(outputs)
-        last_outputs = outputs[torch.arange(batch_size), (lengths - 1), :]
-        return last_outputs, outputs
+            return outputs, last_outputs
 
 
 class RNN(BaseModel):
-    """RNN Class, use "task" as key to identify specific RNN model and route there
-    
+    """Recurrent neural network model.
+
+    This model applies a separate RNN layer for each feature, and then concatenates
+    the final hidden states of each RNN layer. The concatenated hidden states are
+    then fed into a fully connected layer to make predictions.
+
+    Note:
+        This model can operate on both visit and event level, as designated by
+            the operation_level parameter.
+
     Args:
-        dataset: the dataset object
-        feature_keys: the list of table names to use
-        label_key: the target table name
-        mode: the mode of the model, "multilabel", "multiclass" or "binary"
-        embedding_dim: the embedding dimension
-        hidden_dim: the hidden dimension
-        
-    **Examples:**
-        >>> from pyhealth.datasets import OMOPDataset
-        >>> dataset = OMOPDataset(
-        ...     root="https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2",
-        ...     tables=["condition_occurrence", "procedure_occurrence"],
-        ... ) # load dataset
-        >>> from pyhealth.tasks import mortality_prediction_omop_fn
-        >>> dataset.set_task(mortality_prediction_omop_fn) # set task
-        
-        >>> from pyhealth.models import RNN
-        >>> model = RNN(
-        ...     dataset=dataset,
-        ...     tables=["conditions", "procedures"],
-        ...     target="label",
-        ...     mode="binary",
-        ... )
-        
+        dataset: the dataset to train the model. It is used to query certain
+            information such as the set of all tokens.
+        feature_keys:  list of keys in samples to use as features,
+            e.g. ["conditions", "procedures"].
+        label_key: key in samples to use as label (e.g., "drugs").
+        mode: one of "binary", "multiclass", or "multilabel".
+        operation_level: one of "visit", "event".
+        embedding_dim: the embedding dimension. Default is 128.
+        hidden_dim: the hidden dimension. Default is 128.
+        **kwargs: other parameters for the RNN layer.
     """
 
     def __init__(
@@ -139,34 +152,31 @@ class RNN(BaseModel):
             label_key=label_key,
             mode=mode,
         )
-        assert operation_level in ["visit", "event"]
+        assert operation_level in VALID_OPERATION_LEVEL, \
+            f"operation_level must be one of {VALID_OPERATION_LEVEL}"
         self.operation_level = operation_level
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
 
-        self.feat_tokenizers = self._get_feature_tokenizers()
-        self.label_tokenizer = self._get_label_tokenizer()
-        self.embeddings = self._get_embeddings(self.feat_tokenizers, embedding_dim)
-
+        self.feat_tokenizers = self.get_feature_tokenizers()
+        self.label_tokenizer = self.get_label_tokenizer()
+        self.embeddings = self.get_embedding_layers(self.feat_tokenizers, embedding_dim)
         self.rnn = nn.ModuleDict()
         for feature_key in feature_keys:
             self.rnn[feature_key] = RNNLayer(
-                input_size=embedding_dim,
-                hidden_size=hidden_dim,
-                **kwargs
+                input_size=embedding_dim, hidden_size=hidden_dim, **kwargs
             )
-
-        output_size = self._get_output_size(self.label_tokenizer)
+        output_size = self.get_output_size(self.label_tokenizer)
         self.fc = nn.Linear(len(self.feature_keys) * self.hidden_dim, output_size)
 
-    def _visit_level_forward(self, device, **kwargs):
-        """Visit level RNN forward."""
+    def visit_level_forward(self, **kwargs):
+        """Visit-level RNN forward."""
         patient_emb = []
         for feature_key in self.feature_keys:
             assert type(kwargs[feature_key][0][0]) == list
             x = self.feat_tokenizers[feature_key].batch_encode_3d(kwargs[feature_key])
             # (patient, visit, code)
-            x = torch.tensor(x, dtype=torch.long, device=device)
+            x = torch.tensor(x, dtype=torch.long, device=self.device)
             # (patient, visit, code, embedding_dim)
             x = self.embeddings[feature_key](x)
             # (patient, visit, embedding_dim)
@@ -174,210 +184,55 @@ class RNN(BaseModel):
             # (patient, visit)
             mask = torch.sum(x, dim=2) != 0
             # (patient, hidden_dim)
-            x, _ = self.rnn[feature_key](x, mask)
+            _, x = self.rnn[feature_key](x, mask)
             patient_emb.append(x)
         # (patient, features * hidden_dim)
         patient_emb = torch.cat(patient_emb, dim=1)
         # (patient, label_size)
         logits = self.fc(patient_emb)
-        # obtain loss, y_true, t_prob
-        loss, y_true, y_prob = self._calculate_output(logits, kwargs[self.label_key])
+        # obtain y_true, loss, y_prob
+        y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
+        loss = self.get_loss_function()(logits, y_true)
+        y_prob = self.prepare_y_prob(logits)
         return {
             "loss": loss,
             "y_prob": y_prob,
             "y_true": y_true,
         }
 
-    def _event_level_forward(self, device, **kwargs):
-        """Event level RNN forward."""
+    def event_level_forward(self, **kwargs):
+        """Event-level RNN forward."""
         patient_emb = []
         for feature_key in self.feature_keys:
+            assert type(kwargs[feature_key][0][0]) == str
             x = self.feat_tokenizers[feature_key].batch_encode_2d(kwargs[feature_key])
-            x = torch.tensor(x, dtype=torch.long, device=device)
+            # (patient, code)
+            x = torch.tensor(x, dtype=torch.long, device=self.device)
             # (patient, code, embedding_dim)
             x = self.embeddings[feature_key](x)
             # (patient, code)
             mask = torch.sum(x, dim=2) != 0
             # (patient, hidden_dim)
-            x, _ = self.rnn[feature_key](x, mask)
+            _, x = self.rnn[feature_key](x, mask)
             patient_emb.append(x)
         # (patient, features * hidden_dim)
         patient_emb = torch.cat(patient_emb, dim=1)
         # (patient, label_size)
         logits = self.fc(patient_emb)
-        # obtain loss, y_true, t_prob
-        loss, y_true, y_prob = self._calculate_output(logits, kwargs[self.label_key])
+        # obtain y_true, loss, y_prob
+        y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
+        loss = self.get_loss_function()(logits, y_true)
+        y_prob = self.prepare_y_prob(logits)
         return {
             "loss": loss,
             "y_prob": y_prob,
             "y_true": y_true,
         }
 
-    def forward(self, device, **kwargs):
+    def forward(self, **kwargs):
         if self.operation_level == "visit":
-            return self._visit_level_forward(device, **kwargs)
+            return self.visit_level_forward(**kwargs)
         elif self.operation_level == "event":
-            return self._event_level_forward(device, **kwargs)
+            return self.event_level_forward(**kwargs)
         else:
             raise NotImplementedError
-
-
-if __name__ == '__main__':
-    from pyhealth.datasets import MIMIC3Dataset
-    from torch.utils.data import DataLoader
-    from pyhealth.utils import collate_fn_dict
-
-
-    def task_event(patient):
-        samples = []
-        for visit in patient:
-            conditions = visit.get_code_list(table="DIAGNOSES_ICD")
-            procedures = visit.get_code_list(table="PROCEDURES_ICD")
-            drugs = visit.get_code_list(table="PRESCRIPTIONS")
-            mortality_label = int(visit.discharge_status)
-            if len(conditions) * len(procedures) * len(drugs) == 0:
-                continue
-            samples.append(
-                {
-                    "visit_id": visit.visit_id,
-                    "patient_id": patient.patient_id,
-                    "conditions": conditions,
-                    "procedures": procedures,
-                    "list_label": drugs,
-                    "value_label": mortality_label,
-                }
-            )
-        return samples
-
-
-    def task_visit(patient):
-        samples = []
-        for visit in patient:
-            conditions = visit.get_code_list(table="DIAGNOSES_ICD")
-            procedures = visit.get_code_list(table="PROCEDURES_ICD")
-            drugs = visit.get_code_list(table="PRESCRIPTIONS")
-            mortality_label = int(visit.discharge_status)
-            if len(conditions) * len(procedures) * len(drugs) == 0:
-                continue
-            samples.append(
-                {
-                    "visit_id": visit.visit_id,
-                    "patient_id": patient.patient_id,
-                    "conditions": [conditions],
-                    "procedures": [procedures],
-                    "list_label": drugs,
-                    "value_label": mortality_label,
-                }
-            )
-        return samples
-
-
-    dataset = MIMIC3Dataset(
-        root="/srv/local/data/physionet.org/files/mimiciii/1.4",
-        tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
-        dev=True,
-        code_mapping={"NDC": "ATC"},
-        refresh_cache=False,
-    )
-
-    # event level + binary
-    dataset.set_task(task_event)
-    dataloader = DataLoader(
-        dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
-    )
-    model = RNN(
-        dataset=dataset,
-        feature_keys=["conditions", "procedures"],
-        label_key="value_label",
-        mode="binary",
-        operation_level="event",
-    )
-    model.to("cuda")
-    batch = iter(dataloader).next()
-    output = model(**batch, device="cuda")
-    print(output["loss"])
-
-    # visit level + binary
-    dataset.set_task(task_visit)
-    dataloader = DataLoader(
-        dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
-    )
-    model = RNN(
-        dataset=dataset,
-        feature_keys=["conditions", "procedures"],
-        label_key="value_label",
-        mode="binary",
-        operation_level="visit",
-    )
-    model.to("cuda")
-    batch = iter(dataloader).next()
-    output = model(**batch, device="cuda")
-    print(output["loss"])
-
-    # event level + multiclass
-    dataset.set_task(task_event)
-    dataloader = DataLoader(
-        dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
-    )
-    model = RNN(
-        dataset=dataset,
-        feature_keys=["conditions", "procedures"],
-        label_key="value_label",
-        mode="multiclass",
-        operation_level="event",
-    )
-    model.to("cuda")
-    batch = iter(dataloader).next()
-    output = model(**batch, device="cuda")
-    print(output["loss"])
-
-    # visit level + multiclass
-    dataset.set_task(task_visit)
-    dataloader = DataLoader(
-        dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
-    )
-    model = RNN(
-        dataset=dataset,
-        feature_keys=["conditions", "procedures"],
-        label_key="value_label",
-        mode="multiclass",
-        operation_level="visit",
-    )
-    model.to("cuda")
-    batch = iter(dataloader).next()
-    output = model(**batch, device="cuda")
-    print(output["loss"])
-
-    # event level + multilabel
-    dataset.set_task(task_event)
-    dataloader = DataLoader(
-        dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
-    )
-    model = RNN(
-        dataset=dataset,
-        feature_keys=["conditions", "procedures"],
-        label_key="list_label",
-        mode="multilabel",
-        operation_level="event",
-    )
-    model.to("cuda")
-    batch = iter(dataloader).next()
-    output = model(**batch, device="cuda")
-    print(output["loss"])
-
-    # visit level + multilabel
-    dataset.set_task(task_visit)
-    dataloader = DataLoader(
-        dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
-    )
-    model = RNN(
-        dataset=dataset,
-        feature_keys=["conditions", "procedures"],
-        label_key="list_label",
-        mode="multilabel",
-        operation_level="visit",
-    )
-    model.to("cuda")
-    batch = iter(dataloader).next()
-    output = model(**batch, device="cuda")
-    print(output["loss"])
