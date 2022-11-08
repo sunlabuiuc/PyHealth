@@ -149,27 +149,6 @@ class Visit:
         Note:
             As for now, there is no check on the order of the events. The new event
                 is simply appended to end of the list.
-        Example:
-            >>> from pyhealth.data import Event, Visit, Patient
-            >>> event = Event(
-            ...     code="00069153041",
-            ...     table="PRESCRIPTIONS",
-            ...     vocabulary="NDC",
-            ...     visit_id="v001",
-            ...     patient_id="p001",
-            ...     dosage="250mg",
-            ... )
-            >>> visit = Visit(
-            ...     visit_id="v001",
-            ...     patient_id="p001",
-            ... )
-            >>> visit.add_event(event)
-            >>> patient = Patient(
-            ...     patient_id="p001",
-            ... )
-            >>> patient.add_visit(visit)
-            >>> patient
-            Patient p001 with 1 visits
         """
         assert event.visit_id == self.visit_id, "visit_id unmatched"
         assert event.patient_id == self.patient_id, "patient_id unmatched"
@@ -306,6 +285,28 @@ class Patient:
             is a visit_id and each value is a visit.
         index_to_visit_id: Dict[int, str], dictionary that maps the index of a visit
             in the visits list to the corresponding visit_id.
+
+    Example:
+            >>> from pyhealth.data import Event, Visit, Patient
+            >>> event = Event(
+            ...     code="00069153041",
+            ...     table="PRESCRIPTIONS",
+            ...     vocabulary="NDC",
+            ...     visit_id="v001",
+            ...     patient_id="p001",
+            ...     dosage="250mg",
+            ... )
+            >>> visit = Visit(
+            ...     visit_id="v001",
+            ...     patient_id="p001",
+            ... )
+            >>> visit.add_event(event)
+            >>> patient = Patient(
+            ...     patient_id="p001",
+            ... )
+            >>> patient.add_visit(visit)
+            >>> patient
+            Patient p001 with 1 visits
     """
 
     def __init__(
