@@ -9,9 +9,9 @@ from torch.utils.data import Dataset
 from tqdm import tqdm
 
 from pyhealth.data import Patient, Event
-from pyhealth.datasets.utils import MODULE_CACHE_PATH
+from pyhealth.datasets.utils import MODULE_CACHE_PATH, hash_str
 from pyhealth.medcode import CrossMap
-from pyhealth.utils import load_pickle, save_pickle, hash_str
+from pyhealth.utils import load_pickle, save_pickle
 
 INFO_MSG = """
 dataset.patients: patient_id -> <Patient>
