@@ -216,9 +216,14 @@ def leaderboard_generation(args):
             print('Leaderboard updated for ' + dataset_task + '!')
 
 
+def plots_generation(args):
+    if args.plot is False:
+        return
+
+
 def construct_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--credentials", type=str, default='credentials.json')
+    parser.add_argument("--credentials", type=str, default='./credentials.json')
     parser.add_argument("--doc_name", type=str, default='Pyhealth tracker')
     parser.add_argument("--sheet_id", type=int, default=2062485923)
     parser.add_argument("--log_path", type=str, default="./log")
@@ -228,6 +233,13 @@ def construct_args():
                             "eicu",
                             "omop",
                             "mimic4"
+                        ])
+    parser.add_argument("--tasks", type=list,
+                        default=[
+                            "drugrec",
+                            "lenOfStay",
+                            "mortality",
+                            "readmission"
                         ])
     parser.add_argument("--model_list", type=list,
                         default=[
@@ -241,6 +253,7 @@ def construct_args():
                             SafeDrug
                         ])
     parser.add_argument("--remote", type=bool, default=True)
+    parser.add_argument("--plot", type=bool, default=True)
 
     args = parser.parse_args()
 

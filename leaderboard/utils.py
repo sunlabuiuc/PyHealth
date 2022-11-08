@@ -3,6 +3,9 @@ import logging
 
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+from google.cloud import storage
+import io
+import pandas as pd
 
 from pyhealth.datasets import MIMIC3Dataset, eICUDataset, MIMIC4Dataset, OMOPDataset
 from pyhealth.tasks import *
@@ -194,3 +197,38 @@ def train_process(trainer, model, train_loader, val_loader, val_metric):
 
     except:
         return False
+
+
+def read_dataframes_by_time_from_gcp():
+    import os
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "./credentials.json"
+
+    dfs = {}
+
+    storage_client = storage.Client()
+
+    bucket_name = 'pyhealth'
+    prefix = 'leaderboard_data/data/'
+    blobs = storage_client.list_blobs(bucket_name, prefix=prefix)
+
+    cnt = 0
+    for blob in blobs:
+        if cnt > 0:
+            data = blob.download_as_bytes()
+            df = pd.read_csv(io.BytesIO(data))
+            name_ = blob.name.split('-')
+            time = name_[1] + name_[2] + name_[3][:-4]
+            dfs[time] = df
+        cnt += 1
+
+    return dfs
+
+
+def get_concat_df_with_time(dfs):
+    for key in dfs.keys():
+        dfs[key]['date'] = key
+
+    df = pd.concat(dfs.values())
+
+    return df
+
