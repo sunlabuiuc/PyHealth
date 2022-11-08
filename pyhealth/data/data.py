@@ -1,36 +1,3 @@
-"""This module defines the atomic data structures of this package.
-
-Example:
-    >>> from pyhealth.data import Event
-    >>> event = Event(
-    ...     code="00069153041",
-    ...     table="PRESCRIPTIONS",
-    ...     vocabulary="NDC",
-    ...     visit_id="v001",
-    ...     patient_id="p001",
-    ...     dosage="250mg",
-    ... )
-    >>> event
-    Event with NDC code 00069153041 from table PRESCRIPTIONS
-
-    >>> from pyhealth.data import Visit
-    >>> visit = Visit(
-    ...     visit_id="v001",
-    ...     patient_id="p001",
-    ... )
-    >>> visit.add_event(event)
-    >>> visit
-    Visit v001 from patient p001 with 1 events from tables ['PRESCRIPTIONS']
-
-    >>> from pyhealth.data import Patient
-    >>> patient = Patient(
-    ...     patient_id="p001",
-    ... )
-    >>> patient.add_visit(visit)
-    >>> patient
-    Patient p001 with 1 visits
-"""
-
 from collections import OrderedDict
 from datetime import datetime
 from typing import Optional, List
@@ -55,6 +22,19 @@ class Event:
     Attributes:
         attr_dict: Dict, dictionary of visit attributes. Each key is an attribute
             name and each value is the attribute's value.
+
+    Example:
+        >>> from pyhealth.data import Event
+        >>> event = Event(
+        ...     code="00069153041",
+        ...     table="PRESCRIPTIONS",
+        ...     vocabulary="NDC",
+        ...     visit_id="v001",
+        ...     patient_id="p001",
+        ...     dosage="250mg",
+        ... )
+        >>> event
+        Event with NDC code 00069153041 from table PRESCRIPTIONS
     """
 
     def __init__(
@@ -114,6 +94,24 @@ class Visit:
         event_list_dict: Dict[str, List[Event]], dictionary of event lists.
             Each key is a table name and each value is a list of events from that
             table ordered by timestamp.
+
+    Example:
+        >>> from pyhealth.data import Event, Visit
+        >>> event = Event(
+        ...     code="00069153041",
+        ...     table="PRESCRIPTIONS",
+        ...     vocabulary="NDC",
+        ...     visit_id="v001",
+        ...     patient_id="p001",
+        ...     dosage="250mg",
+        ... )
+        >>> visit = Visit(
+        ...     visit_id="v001",
+        ...     patient_id="p001",
+        ... )
+        >>> visit.add_event(event)
+        >>> visit
+        Visit v001 from patient p001 with 1 events from tables ['PRESCRIPTIONS']
     """
 
     def __init__(
@@ -151,6 +149,27 @@ class Visit:
         Note:
             As for now, there is no check on the order of the events. The new event
                 is simply appended to end of the list.
+        Example:
+            >>> from pyhealth.data import Event, Visit, Patient
+            >>> event = Event(
+            ...     code="00069153041",
+            ...     table="PRESCRIPTIONS",
+            ...     vocabulary="NDC",
+            ...     visit_id="v001",
+            ...     patient_id="p001",
+            ...     dosage="250mg",
+            ... )
+            >>> visit = Visit(
+            ...     visit_id="v001",
+            ...     patient_id="p001",
+            ... )
+            >>> visit.add_event(event)
+            >>> patient = Patient(
+            ...     patient_id="p001",
+            ... )
+            >>> patient.add_visit(visit)
+            >>> patient
+            Patient p001 with 1 visits
         """
         assert event.visit_id == self.visit_id, "visit_id unmatched"
         assert event.patient_id == self.patient_id, "patient_id unmatched"
