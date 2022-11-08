@@ -4,6 +4,7 @@ from pyhealth.medcode.inner_map import InnerMap
 # TODO: add standardize for different formats of NDC codes
 
 class NDC(InnerMap):
+    """National Drug Code."""
 
     def __init__(self, **kwargs):
         super(NDC, self).__init__(vocabulary="NDC", **kwargs)
