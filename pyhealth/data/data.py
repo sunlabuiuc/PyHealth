@@ -77,7 +77,7 @@ class Visit:
     """Contains information about a single visit.
 
     A visit is a period of time in which a patient is admitted to a hospital or
-    a specific department.  Each visit is associated with a patient and contains
+    a specific department. Each visit is associated with a patient and contains
     a list of different events.
 
     Args:
