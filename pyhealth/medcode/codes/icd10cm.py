@@ -1,14 +1,16 @@
 from pyhealth.medcode.inner_map import InnerMap
 
 
-# TODO: add postprocess
+# TODO: add convert
 
 class ICD10CM(InnerMap):
+    """10-th International Classification of Diseases, Clinical Modification."""
 
     def __init__(self, **kwargs):
         super(ICD10CM, self).__init__(vocabulary="ICD10CM", **kwargs)
 
-    def standardize(self, code: str):
+    @staticmethod
+    def standardize(code: str):
         """Standardizes ICD10CM code."""
         if "." in code:
             return code

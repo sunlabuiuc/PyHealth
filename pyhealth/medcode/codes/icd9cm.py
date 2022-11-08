@@ -1,14 +1,16 @@
 from pyhealth.medcode.inner_map import InnerMap
 
 
-# TODO: add postprocess
+# TODO: add convert
 
 class ICD9CM(InnerMap):
+    """9-th International Classification of Diseases, Clinical Modification."""
 
     def __init__(self, **kwargs):
         super(ICD9CM, self).__init__(vocabulary="ICD9CM", **kwargs)
 
-    def standardize(self, code: str):
+    @staticmethod
+    def standardize(code: str):
         """Standardizes ICD9CM code."""
         if "." in code:
             return code
