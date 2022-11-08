@@ -1,43 +1,63 @@
+import logging
 import os
 from abc import ABC, abstractmethod
 from collections import Counter
 from copy import deepcopy
-from datetime import datetime
-from typing import Optional, List, Dict, Callable
+from typing import Optional, List, Dict, Callable, Tuple, Union
 
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
-from pyhealth import BASE_CACHE_PATH
 from pyhealth.data import Patient, Event
+from pyhealth.datasets.utils import MODULE_CACHE_PATH
 from pyhealth.medcode import CrossMap
-from pyhealth.utils import load_pickle, save_pickle, hash_str, create_directory
+from pyhealth.utils import load_pickle, save_pickle, hash_str
 
-MODULE_CACHE_PATH = os.path.join(BASE_CACHE_PATH, "datasets")
-create_directory(MODULE_CACHE_PATH)
+INFO_MSG = """
+dataset.patients: patient_id -> <Patient>
 
+<Patient>
+    - visits: visit_id -> <Visit> 
+    - other patient-level info
+    
+    <Visit>
+        - event_list_dict: table_name -> List[Event]
+        - other visit-level info
+    
+        <Event>
+            - code: str
+            - other event-level info
+"""
+
+
+# TODO: parse_tables is too slow
 
 class BaseDataset(ABC, Dataset):
     """Abstract base dataset class.
 
     This abstract class defines a uniform interface for all datasets
-        (e.g., MIMIC-III, MIMIC-IV, eICU, OMOP) and all tasks
-        (e.g., mortality prediction, length of stay prediction).
+    (e.g., MIMIC-III, MIMIC-IV, eICU, OMOP) and all tasks (e.g., mortality
+    prediction, length of stay prediction).
 
     Each specific dataset will be a subclass of this abstract class, which can adapt
-        to different tasks by calling set_task().
+    to different tasks by calling `self.set_task()`.
 
     Args:
-        dataset_name: str, name of the dataset.
-        root: str, root directory of the raw data (should contain many csv files).
-        tables: List[str], list of tables to be loaded (e.g., ["DIAGNOSES_ICD",
-            "PROCEDURES_ICD"]).
-        code_mapping: Optional[Dict[str, str]], key is the source code vocabulary and
-            value is the target code vocabulary (e.g., {"ICD9CM": "CCSCM"}).
+        dataset_name: name of the dataset.
+        root: root directory of the raw data (should contain many csv files).
+        tables: list of tables to be loaded (e.g., ["DIAGNOSES_ICD", "PROCEDURES_ICD"]).
+        code_mapping: a dictionary containing the code mapping information.
+            The key is a str of the source code vocabulary and the value is of
+            two formats:
+                (1) a str of the target code vocabulary;
+                (2) a tuple with two elements. The first element is a str of the
+                    target code vocabulary and the second element is a dict with
+                    keys "source_kwargs" or "target_kwargs" and values of the
+                    corresponding kwargs for the `CrossMap.map()` method.
             Default is empty dict, which means the original code will be used.
-        dev: bool, whether to enable dev mode (only use a small subset of the data).
+        dev: whether to enable dev mode (only use a small subset of the data).
             Default is False.
-        refresh_cache: bool, whether to refresh the cache; if true, the dataset will
+        refresh_cache: whether to refresh the cache; if true, the dataset will
             be processed from scratch and the cache will be updated. Default is False.
 
     Attributes:
@@ -57,7 +77,7 @@ class BaseDataset(ABC, Dataset):
             dataset_name: str,
             root: str,
             tables: List[str],
-            code_mapping: Optional[Dict[str, str]] = None,
+            code_mapping: Optional[Dict[str, Union[str, Tuple[str, Dict]]]] = None,
             dev: bool = False,
             refresh_cache: bool = False,
     ):
@@ -95,66 +115,56 @@ class BaseDataset(ABC, Dataset):
         # check if cache exists or refresh_cache is True
         if os.path.exists(self.filepath) and (not refresh_cache):
             # load from cache
-            print(f"Loaded {dataset_name} base dataset from {self.filepath}")
+            logging.info(f"Loaded {dataset_name} base dataset from {self.filepath}")
             self.patients = load_pickle(self.filepath)
         else:
             # load from raw data
-            print(f"Processing {dataset_name} base dataset...")
+            logging.info(f"Processing {dataset_name} base dataset...")
             # parse tables
-            patients = self._parse_tables()
+            patients = self.parse_tables()
             # convert codes
             patients = self._convert_code_in_patient_dict(patients)
             self.patients = patients
             # save to cache
-            print(f"Saved {dataset_name} base dataset to {self.filepath}")
+            logging.info(f"Saved {dataset_name} base dataset to {self.filepath}")
             save_pickle(self.patients, self.filepath)
 
     def _load_code_mapping_tools(self) -> Dict[str, CrossMap]:
         """Loads code mapping tools CrossMap for code mapping.
 
-        Will be called in __init__().
+        Will be called in `self.__init__()`.
 
         Returns:
-            Dict[str, CrossMap], a dict whose key is the source and target code
-                vocabulary and value is the CrossMap object.
+            A dict whose key is the source and target code vocabulary and
+                value is the `CrossMap` object.
         """
         code_mapping_tools = {}
-        for source, target in self.code_mapping.items():
+        for s_vocab, target in self.code_mapping.items():
+            if isinstance(target, tuple):
+                assert len(target) == 2
+                assert type(target[0]) == str
+                assert type(target[1]) == dict
+                assert target[1].keys() <= {"source_kwargs", "target_kwargs"}
+                t_vocab = target[0]
+            else:
+                t_vocab = target
             # load code mapping from source to target
-            code_mapping_tools[f"{source}_{target}"] = CrossMap(source, target)
+            code_mapping_tools[f"{s_vocab}_{t_vocab}"] = CrossMap(s_vocab, t_vocab)
         return code_mapping_tools
 
     @abstractmethod
-    def _parse_tables(self) -> Dict[str, Patient]:
-        """Parses the tables in self.tables and return a dict of patients.
+    def parse_tables(self) -> Dict[str, Patient]:
+        """Parses the tables in `self.tables` and return a dict of patients.
 
-        Will be called in __init__() if cache file does not exist or
+        Will be called in `self.__init__()` if cache file does not exist or
             refresh_cache is True.
 
         Should be implemented by the specific dataset.
 
         Returns:
-            Dict[str, Patient], a dict mapping patient_id to Patient object.
+           A dict mapping patient_id to `Patient` object.
         """
         raise NotImplementedError
-
-    @staticmethod
-    def _strptime(s: str, format: str = "%Y-%m-%d %H:%M:%S") -> Optional[datetime]:
-        """Helper function which parses a string to datetime object.
-
-        Will be called in _parse_tables().
-
-        Args:
-            s: str, string to be parsed.
-            format: str, format of the string. Default is "%Y-%m-%d %H:%M:%S".
-
-        Returns:
-            Optional[datetime], parsed datetime object. If s is nan, return None.
-        """
-        # return None if s is nan
-        if s != s:
-            return None
-        return datetime.fromisoformat(s)
 
     @staticmethod
     def _add_event_to_patient_dict(
@@ -163,18 +173,17 @@ class BaseDataset(ABC, Dataset):
     ) -> Dict[str, Patient]:
         """Helper function which adds an event to the patient dict.
 
-        Will be called in _parse_tables().
+        Will be called in `self.parse_tables()`.
 
         Note that if the patient of the event is not in the patient dict, or the
-            visit of the event is not in the patient, this function will do nothing.
+        visit of the event is not in the patient, this function will do nothing.
 
         Args:
-            patient_dict: Dict[str, Patient], a dict mapping patient_id to Patient
-                object.
-            event: Event, an event to be added to the patient dict.
+            patient_dict: a dict mapping patient_id to `Patient` object.
+            event: an event to be added to the patient dict.
 
         Returns:
-            Dict[str, Patient], the updated patient dict.
+            The updated patient dict.
         """
         patient_id = event.patient_id
         try:
@@ -189,15 +198,15 @@ class BaseDataset(ABC, Dataset):
     ) -> Dict[str, Patient]:
         """Converts the codes for all patients in the patient dict.
 
-        The codes to be converted are specified in self.code_mapping.
+        The codes to be converted are specified in `self.code_mapping`.
 
-        Will be called in __init__() after _parse_tables().
+        Will be called in `self.__init__()` after `self.parse_tables()`.
 
         Args:
-            patients: Dict[str, Patient], a dict mapping patient_id to Patient object.
+            patients: a dict mapping patient_id to `Patient` object.
 
         Returns:
-            Dict[str, Patient], the updated patient dict.
+            The updated patient dict.
         """
         for p_id, patient in tqdm(patients.items(), desc="Mapping codes"):
             patients[p_id] = self._convert_code_in_patient(patient)
@@ -206,13 +215,13 @@ class BaseDataset(ABC, Dataset):
     def _convert_code_in_patient(self, patient: Patient) -> Patient:
         """Helper function which converts the codes for a single patient.
 
-        Will be called in _convert_code_in_patient_dict().
+        Will be called in `self._convert_code_in_patient_dict()`.
 
         Args:
-            patient: Patient, a Patient object.
+            patient:a `Patient` object.
 
         Returns:
-            Patient, the updated patient object.
+            The updated `Patient` object.
         """
         for visit in patient:
             for table in visit.available_tables:
@@ -230,19 +239,29 @@ class BaseDataset(ABC, Dataset):
 
         Note that an event may be mapped to multiple events after code conversion.
 
-        Will be called in _convert_code_in_patient().
+        Will be called in `self._convert_code_in_patient()`.
 
         Args:
-            event: Event, an Event object.
+            event: an `Event` object.
 
         Returns:
-            List[Event], a list of Event objects after code conversion.
+            A list of `Event` objects after code conversion.
         """
         src_vocab = event.vocabulary
         if src_vocab in self.code_mapping:
-            tgt_vocab = self.code_mapping[src_vocab]
+            target = self.code_mapping[src_vocab]
+            if isinstance(target, tuple):
+                tgt_vocab, kwargs = target
+                src_kwargs = kwargs.get("source_kwargs", {})
+                tgt_kwargs = kwargs.get("target_kwargs", {})
+            else:
+                tgt_vocab = self.code_mapping[src_vocab]
+                src_kwargs = {}
+                tgt_kwargs = {}
             code_mapping_tool = self.code_mapping_tools[f"{src_vocab}_{tgt_vocab}"]
-            mapped_code_list = code_mapping_tool.map(event.code)
+            mapped_code_list = code_mapping_tool.map(
+                event.code, source_kwargs=src_kwargs, target_kwargs=tgt_kwargs
+            )
             mapped_event_list = [deepcopy(event) for _ in range(len(mapped_code_list))]
             for i, mapped_event in enumerate(mapped_event_list):
                 mapped_event.code = mapped_code_list[i]
@@ -259,8 +278,8 @@ class BaseDataset(ABC, Dataset):
         """Processes the base dataset to generate the task-specific samples.
 
         This function should be called by the user after the base dataset is
-            initialized. It will iterate through all patients in the base dataset
-            and call task_fn which should be implemented by the specific task.
+        initialized. It will iterate through all patients in the base dataset
+        and call `task_fn` which should be implemented by the specific task.
 
         Args:
             task_fn: function, a function that takes a single patient and returns
@@ -274,10 +293,12 @@ class BaseDataset(ABC, Dataset):
             samples: a list of samples, each sample is a dict with patient_id,
                 visit_id, and other task-specific attributes as key.
 
-        Note that in task_fn, a patient may be converted to multiple samples, e.g.,
-            a patient with three visits may be converted to three samples ([visit 1],
-            [visit 1, visit 2], [visit 1, visit 2, visit 3]). Patients can also be
-            excluded from the task dataset by returning an empty list.
+        Note:
+            In `task_fn`, a patient may be converted to multiple samples, e.g.,
+                a patient with three visits may be converted to three samples
+                ([visit 1], [visit 1, visit 2], [visit 1, visit 2, visit 3]).
+                Patients can also be excluded from the task dataset by returning
+                an empty list.
         """
         if task_name is None:
             task_name = task_fn.__name__
@@ -295,11 +316,10 @@ class BaseDataset(ABC, Dataset):
     def _index_patient(self) -> Dict[str, List[int]]:
         """Helper function which indexes the samples by patient_id.
 
-        Will be called in set_task().
+        Will be called in `self.set_task()`.
 
         Returns:
-            patient_to_index: Dict[str, int], a dict mapping patient_id to a list
-                of sample indices.
+            patient_to_index: a dict mapping patient_id to a list of sample indices.
         """
         if self.task is None:
             raise ValueError("Please set task first.")
@@ -314,8 +334,7 @@ class BaseDataset(ABC, Dataset):
         Will be called in set_task().
 
         Returns:
-            visit_to_index: Dict[str, int], a dict mapping visit_id to a list
-                of sample indices.
+            visit_to_index: a dict mapping visit_id to a list of sample indices.
         """
         if self.task is None:
             raise ValueError("Please set task first.")
@@ -329,7 +348,7 @@ class BaseDataset(ABC, Dataset):
         """Returns a list of available tables for the dataset.
 
         Returns:
-            List[str], list of available tables.
+            List of available tables.
         """
         tables = []
         for patient in self.patients.values():
@@ -341,7 +360,7 @@ class BaseDataset(ABC, Dataset):
         """Returns a list of available keys for the dataset.
 
         Returns:
-            List[str], list of available keys.
+            List of available keys.
         """
         if self.task is None:
             raise ValueError("Please set task first.")
@@ -356,9 +375,9 @@ class BaseDataset(ABC, Dataset):
         """Gets all tokens with a specific key in the samples.
 
         Args:
-            key: str, the key of the tokens in the samples.
-            remove_duplicates: bool, whether to remove duplicates.
-            sort: whether to sort the tokens by alphabet order.
+            key: the key of the tokens in the samples.
+            remove_duplicates: whether to remove duplicates. Default is True.
+            sort: whether to sort the tokens by alphabet order. Default is True.
 
         Returns:
             tokens: a list of tokens.
@@ -388,7 +407,7 @@ class BaseDataset(ABC, Dataset):
         """Gets the distribution of tokens with a specific key in the samples.
 
         Args:
-            key: str, the key of the tokens in the samples.
+            key: the key of the tokens in the samples.
 
         Returns:
             distribution: a dict mapping token to count.
@@ -403,7 +422,7 @@ class BaseDataset(ABC, Dataset):
         """Returns a sample by index.
 
         Returns:
-             Dict, a dict with patient_id, visit_id, and other task-specific
+             A dict with patient_id, visit_id, and other task-specific
                 attributes as key. Conversion to index/tensor will be done
                 in the model.
         """
@@ -412,7 +431,6 @@ class BaseDataset(ABC, Dataset):
         return self.samples[index]
 
     def __str__(self):
-        """Prints some information of the dataset."""
         if self.task is None:
             return f"{self.dataset_name} base dataset"
         else:
@@ -424,46 +442,47 @@ class BaseDataset(ABC, Dataset):
             raise ValueError("Please set task first.")
         return len(self.samples)
 
-    def stat(self) -> None:
-        """Prints some statistics of the dataset."""
+    def stat(self) -> str:
+        """Returns some statistics of the dataset."""
         if self.task is None:
-            self.base_stat()
+            return self.base_stat()
         else:
-            self.task_stat()
+            return self.task_stat()
 
-    def base_stat(self) -> None:
-        """Prints some statistics of the base dataset."""
-        print()
-        print(f"Statistics of {self.dataset_name} dataset (dev={self.dev}):")
-        print(f"\t- Number of patients: {len(self.patients)}")
+    def base_stat(self) -> str:
+        """Returns some statistics of the base dataset."""
+        lines = list()
+        lines.append(f"Statistics of {self.dataset_name} dataset (dev={self.dev}):")
+        lines.append(f"\t- Number of patients: {len(self.patients)}")
         num_visits = [len(p) for p in self.patients.values()]
-        print(f"\t- Number of visits: {sum(num_visits)}")
-        print(
+        lines.append(f"\t- Number of visits: {sum(num_visits)}")
+        lines.append(
             f"\t- Number of visits per patient: {sum(num_visits) / len(num_visits):.4f}"
         )
         for table in self.tables:
             num_events = [
                 len(v.get_event_list(table)) for p in self.patients.values() for v in p
             ]
-            print(
+            lines.append(
                 f"\t- Number of events per visit in {table}: "
                 f"{sum(num_events) / len(num_events):.4f}"
             )
-        print()
+        return "\n".join(lines)
 
-    def task_stat(self) -> None:
-        """Prints some statistics of the task-specific dataset."""
+    def task_stat(self) -> str:
+        """Returns some statistics of the task-specific dataset."""
         if self.task is None:
             raise ValueError("Please set task first.")
-        print()
-        print(f"Statistics of {self.task} task:")
-        print(f"\t- Dataset: {self.dataset_name} (dev={self.dev})")
-        print(f"\t- Number of samples: {len(self)}")
+        lines = list()
+        lines.append(f"Statistics of {self.task} task:")
+        lines.append(f"\t- Dataset: {self.dataset_name} (dev={self.dev})")
+        lines.append(f"\t- Number of samples: {len(self)}")
         num_patients = len(set([sample["patient_id"] for sample in self.samples]))
-        print(f"\t- Number of patients: {num_patients}")
+        lines.append(f"\t- Number of patients: {num_patients}")
         num_visits = len(set([sample["visit_id"] for sample in self.samples]))
-        print(f"\t- Number of visits: {num_visits}")
-        print(f"\t- Number of visits per patient: {len(self) / num_patients:.4f}")
+        lines.append(f"\t- Number of visits: {num_visits}")
+        lines.append(
+            f"\t- Number of visits per patient: {len(self) / num_patients:.4f}")
         for key in self.samples[0]:
             if key in ["patient_id", "visit_id"]:
                 continue
@@ -477,30 +496,16 @@ class BaseDataset(ABC, Dataset):
                 num_events = [len(sum(sample[key], [])) for sample in self.samples]
             else:
                 raise ValueError(f"Unknown type of {key}: {type(self.samples[0][key])}")
-            print(f"\t- {key}:")
-            print(f"\t\t- Number of {key} per sample: "
-                  f"{sum(num_events) / len(num_events):.4f}")
-            print(f"\t\t- Number of unique {key}: {len(self.get_all_tokens(key))}")
-            print(f"\t\t- Distribution of {key}: {self.get_distribution_tokens(key)}")
-        print()
+            lines.append(f"\t- {key}:")
+            lines.append(f"\t\t- Number of {key} per sample: "
+                         f"{sum(num_events) / len(num_events):.4f}")
+            lines.append(
+                f"\t\t- Number of unique {key}: {len(self.get_all_tokens(key))}")
+            lines.append(
+                f"\t\t- Distribution of {key}: {self.get_distribution_tokens(key)}")
+        return "\n".join(lines)
 
-    def info(self):
+    @staticmethod
+    def info():
         """Prints the output format."""
-
-        print(
-            """
-        dataset.patients: patient_id -> <Patient>
-            
-            <Patient>
-                - visits: visit_id -> <Visit> 
-                - other patient-level info.
-        
-                    <Visit>
-                        - event_list_dict: table_name -> List[Event]
-                        - other visit-level info.
-
-                                <Event>
-                                    - code: str
-                                    - other event-level info.    
-        """
-        )
+        print(INFO_MSG)
