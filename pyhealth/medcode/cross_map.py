@@ -1,6 +1,7 @@
 import logging
 import os
 from collections import defaultdict
+from typing import List, Optional, Dict
 from urllib.error import HTTPError
 
 import pyhealth.medcode as medcode
@@ -21,11 +22,9 @@ class CrossMap:
             source_vocabulary: str,
             target_vocabulary: str,
             refresh_cache: bool = False,
-            **kwargs,
     ):
         self.s_vocab = source_vocabulary
         self.t_vocab = target_vocabulary
-        self.kwargs = kwargs
 
         # load mapping
         pickle_filename = f"{self.s_vocab}_to_{self.t_vocab}.pkl"
@@ -60,7 +59,6 @@ class CrossMap:
             source_vocabulary: str,
             target_vocabulary: str,
             refresh_cache: bool = False,
-            **kwargs
     ):
         """Initializes the mapping between two medical code systems.
 
@@ -68,8 +66,6 @@ class CrossMap:
             source_vocabulary: source medical code system.
             target_vocabulary: target medical code system.
             refresh_cache: whether to refresh the cache. Default is False.
-            **kwargs: additional arguments for the target medical code system.
-                Will be passed to `self.tgt_class.convert()`.
 
         Examples:
             >>> from pyhealth.medcode import CrossMap
@@ -77,14 +73,36 @@ class CrossMap:
             >>> mapping.map("428.0")
             ['108']
 
-            >>> mapping = CrossMap.load("NDC", "ATC", level=3)
-            >>> mapping.map("00527051210")
-            ['A11']
+            >>> mapping = CrossMap.load("NDC", "ATC")
+            >>> mapping.map("00527051210", target_kwargs={"level": 3})
+            ['A11C']
         """
-        return cls(source_vocabulary, target_vocabulary, refresh_cache, **kwargs)
+        return cls(source_vocabulary, target_vocabulary, refresh_cache)
 
-    def map(self, source_code):
+    def map(
+            self,
+            source_code: str,
+            source_kwargs: Optional[Dict] = None,
+            target_kwargs: Optional[Dict] = None
+    ) -> List[str]:
+        """Maps a source code to a list of target codes.
+
+        Args:
+            source_code: source code.
+            **source_kwargs: additional arguments for the source code. Will be
+                passed to `self.s_class.convert()`. Default is empty dict.
+            **target_kwargs: additional arguments for the target code. Will be
+                passed to `self.t_class.convert()`. Default is empty dict.
+
+        Returns:
+            A list of target codes.
+        """
+        if source_kwargs is None:
+            source_kwargs = {}
+        if target_kwargs is None:
+            target_kwargs = {}
         source_code = self.s_class.standardize(source_code)
-        tgt_codes = self.mapping[source_code]
-        tgt_codes = [self.t_class.convert(c, **self.kwargs) for c in tgt_codes]
-        return tgt_codes
+        source_code = self.s_class.convert(source_code, **source_kwargs)
+        target_codes = self.mapping[source_code]
+        target_codes = [self.t_class.convert(c, **target_kwargs) for c in target_codes]
+        return target_codes
