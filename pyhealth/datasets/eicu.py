@@ -1,12 +1,12 @@
 import os
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple, Union
 
 import pandas as pd
 from tqdm import tqdm
 
 from pyhealth.data import Event, Visit, Patient
 from pyhealth.datasets import BaseDataset
-
+from pyhealth.datasets.utils import strptime
 
 # TODO: add other tables
 
@@ -15,7 +15,7 @@ class eICUDataset(BaseDataset):
     """Base dataset for eICU dataset.
 
     The eICU dataset is a large dataset of de-identified health records of ICU
-        patients. The dataset is available at https://eicu-crd.mit.edu/.
+    patients. The dataset is available at https://eicu-crd.mit.edu/.
 
     The basic information is stored in the following tables:
         - patient: defines a patient (uniquepid), a hospital admission
@@ -24,12 +24,12 @@ class eICUDataset(BaseDataset):
         - hospital: contains information about a hospital (e.g., region).
 
     Note that in eICU, a patient can have multiple hospital admissions and each
-        hospital admission can have multiple ICU stays. The data in eICU is centered
-        around the ICU stay and all timestamps are relative to the ICU admission time.
-        Thus, we only know the order of ICU stays within a hospital admission, but not
-        the order of hospital admissions within a patient. As a result, we use Patient
-        object to represent a hospital admission of a patient, and use Visit object to
-        store the ICU stays within that hospital admission.
+    hospital admission can have multiple ICU stays. The data in eICU is centered
+    around the ICU stay and all timestamps are relative to the ICU admission time.
+    Thus, we only know the order of ICU stays within a hospital admission, but not
+    the order of hospital admissions within a patient. As a result, we use `Patient`
+    object to represent a hospital admission of a patient, and use `Visit` object to
+    store the ICU stays within that hospital admission.
 
     We further support the following tables:
         - diagnosis: contains ICD diagnoses (ICD9CM and ICD10CM code)
@@ -44,20 +44,24 @@ class eICUDataset(BaseDataset):
             conducted for patients.
 
     Args:
-        dataset_name: str, name of the dataset.
-        root: str, root directory of the raw data (should contain many csv files).
-        tables: List[str], list of tables to be loaded. Must be a subset of the
-            following tables: diagnosis, medication, lab, treatment, physicalExam.
-        code_mapping: Optional[Dict[str, str]], key is the source code vocabulary and
-            value is the target code vocabulary (e.g., {"ICD9CM": "CCSCM"}).
+        dataset_name: name of the dataset.
+        root: root directory of the raw data (should contain many csv files).
+        tables: list of tables to be loaded (e.g., ["DIAGNOSES_ICD", "PROCEDURES_ICD"]).
+        code_mapping: a dictionary containing the code mapping information.
+            The key is a str of the source code vocabulary and the value is of
+            two formats:
+                (1) a str of the target code vocabulary;
+                (2) a tuple with two elements. The first element is a str of the
+                    target code vocabulary and the second element is a dict with
+                    keys "source_kwargs" or "target_kwargs" and values of the
+                    corresponding kwargs for the `CrossMap.map()` method.
             Default is empty dict, which means the original code will be used.
-        dev: bool, whether to enable dev mode (only use a small subset of the data).
+        dev: whether to enable dev mode (only use a small subset of the data).
             Default is False.
-        refresh_cache: bool, whether to refresh the cache; if true, the dataset will
+        refresh_cache: whether to refresh the cache; if true, the dataset will
             be processed from scratch and the cache will be updated. Default is False.
 
     Attributes:
-        visit_id_to_patient_id: Dict[str, str], a mapping from visit_id to patient_id.
         task: Optional[str], name of the task (e.g., "mortality prediction").
             Default is None.
         samples: Optional[List[Dict]], a list of samples, each sample is a dict with
@@ -67,51 +71,13 @@ class eICUDataset(BaseDataset):
             a list of sample indices. Default is None.
         visit_to_index: Optional[Dict[str, List[int]]], a dict mapping visit_id to a
             list of sample indices. Default is None.
-
-    **Example:**
-        >>> from pyhealth.datasets import eICUDataset
-        >>> eicu_ds = eICUDataset(
-        ...     root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
-        ...     tables=["diagnosis"],
-        ...     code_mapping={},
-        ...     dev=True
-        ... )
-        Processing eICU base dataset...
-        Parsing patients: 100%|█████████████████████████████████████████████████████████| 3671/3671 [00:02<00:00, 1288.53it/s]
-        Loaded ICD9CM code from /home/chaoqiy2/.cache/pyhealth/medcode/ICD9CM.pkl
-        Processing ICD10CM code...
-        Saved ICD10CM code to /home/chaoqiy2/.cache/pyhealth/medcode/ICD10CM.pkl
-        Parsing diagnosis: 100%|███████████████████████████████████████████████████| 155494/155494 [00:01<00:00, 98801.77it/s]
-        Mapping codes: 100%|██████████████████████████████████████████████████████████| 3671/3671 [00:00<00:00, 165507.09it/s]
-        Saved eICU base dataset to /home/chaoqiy2/.cache/pyhealth/datasets/c062bad7a90ed57e0f7f59ac0e022a86.pkl
-
-        >>> eicu_ds.stat()
-        Statistics of eICU dataset (dev=True):
-            - Number of patients: 3671
-            - Number of visits: 5000
-            - Number of visits per patient: 1.3620
-            - codes/visit in diagnosis: 7.3732
-
-        >>> eicu_ds.info()
-                dataset.patients: patient_id -> <Patient>
-                    <Patient>
-                        - visits: visit_id -> <Visit>
-                        - other patient-level info.
-                        <Visit>
-                            - event_list_dict: table_name -> List[Event]
-                            - other visit-level info.
-                            <Event>
-                                - code: str
-                                - other event-level info.
-        >>> eicu_ds.available_tables
-        ['diagnosis']
     """
 
     def __init__(
             self,
             root: str,
             tables: List[str],
-            code_mapping: Optional[Dict[str, str]] = None,
+            code_mapping: Optional[Dict[str, Union[str, Tuple[str, Dict]]]] = None,
             dev=False,
             refresh_cache=False,
     ):
@@ -128,41 +94,48 @@ class eICUDataset(BaseDataset):
             refresh_cache=refresh_cache,
         )
 
-    def _parse_tables(self) -> Dict[str, Patient]:
-        """This function overrides the _parse_tables() function in BaseDataset.
+    def parse_tables(self) -> Dict[str, Patient]:
+        """This function overrides the `self.parse_tables()` function in `BaseDataset`.
 
         It parses the corresponding tables and creates a dict of patients which
-            will be cached later.
+        will be cached later.
 
         Returns:
-            patients: a dictionary of Patient objects indexed by patient_id.
+            patients: a dictionary of `Patient` objects indexed by patient_id.
         """
-        # patients is a dict of Patient objects indexed by patient_id
+        # patients is a dict of `Patient` objects indexed by patient_id
         patients: Dict[str, Patient] = dict()
         # process patients and admissions tables
-        patients = self._parse_basic_info(patients)
+        patients = self.parse_basic_info(patients)
         # process clinical tables
         for table in self.tables:
             try:
                 # use lower case for function name
-                patients = getattr(self, f"_parse_{table.lower()}")(patients)
+                patients = getattr(self, f"parse_{table.lower()}")(patients)
             except AttributeError:
                 raise NotImplementedError(
                     f"Parser for table {table} is not implemented yet."
                 )
         return patients
 
-    def _parse_basic_info(self, patients) -> Dict[str, Patient]:
-        """Helper functions which parses patient and hospital tables.
+    def parse_basic_info(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
+        """Helper function which parses patient and hospital tables.
 
-        Will be called in _parse_tables().
+        Will be called in `self.parse_tables()`.
 
         Docs:
             - patient: https://eicu-crd.mit.edu/eicutables/patient/
             - hospital: https://eicu-crd.mit.edu/eicutables/hospital/
 
-        Note that we use Patient object to represent a hospital admission of a
-            patient, and use Visit object to store the ICU stays within that hospital
+        Args:
+            patients: a dict of `Patient` objects indexed by patient_id.
+
+        Returns:
+            The updated patients dict.
+
+        Note:
+            We use `Patient` object to represent a hospital admission of a patient,
+            and use `Visit` object to store the ICU stays within that hospital
             admission.
         """
         # read patient table
@@ -197,10 +170,7 @@ class eICUDataset(BaseDataset):
             patient_id = f"{p_id}+{ha_id}"
 
             # hospital admission time (Jan 1 of hospitaldischargeyear, 00:00:00)
-            ha_datetime = self._strptime(
-                str(p_info["hospitaldischargeyear"].values[0]),
-                "%Y"
-            )
+            ha_datetime = strptime(str(p_info["hospitaldischargeyear"].values[0]))
 
             # no exact birth datetime in eICU
             # use hospital admission time and age to approximate birth datetime
@@ -256,16 +226,23 @@ class eICUDataset(BaseDataset):
             patients[patient_id] = patient
         return patients
 
-    def _parse_diagnosis(self, patients) -> Dict[str, Patient]:
-        """Helper functions which parses diagnosis table.
+    def parse_diagnosis(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
+        """Helper function which parses diagnosis table.
 
-        Will be called in _parse_tables().
+        Will be called in `self.parse_tables()`.
 
         Docs:
             - diagnosis: https://eicu-crd.mit.edu/eicutables/diagnosis/
 
-        Note that this table contains both ICD9CM and ICD10CM codes in one single
-            cell. We need to use medcode to distinguish them.
+        Args:
+            patients: a dict of Patient objects indexed by patient_id.
+
+        Returns:
+            The updated patients dict.
+
+        Note:
+            This table contains both ICD9CM and ICD10CM codes in one single
+                cell. We need to use medcode to distinguish them.
         """
 
         # load ICD9CM and ICD10CM coding systems
@@ -318,13 +295,19 @@ class eICUDataset(BaseDataset):
                     patients = self._add_event_to_patient_dict(patients, event)
         return patients
 
-    def _parse_treatment(self, patients) -> Dict[str, Patient]:
-        """Helper functions which parses treatment table.
+    def parse_treatment(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
+        """Helper function which parses treatment table.
 
-        Will be called in _parse_tables().
+        Will be called in `self.parse_tables()`.
 
         Docs:
             - treatment: https://eicu-crd.mit.edu/eicutables/treatment/
+
+        Args:
+            patients: a dict of `Patient` objects indexed by patient_id.
+
+        Returns:
+            The updated patients dict.
         """
         table = "treatment"
         # read table
@@ -359,13 +342,19 @@ class eICUDataset(BaseDataset):
                 patients = self._add_event_to_patient_dict(patients, event)
         return patients
 
-    def _parse_medication(self, patients) -> Dict[str, Patient]:
-        """Helper functions which parses medication table.
+    def parse_medication(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
+        """Helper function which parses medication table.
 
-        Will be called in _parse_tables().
+        Will be called in `self.parse_tables()`.
 
         Docs:
             - medication: https://eicu-crd.mit.edu/eicutables/medication/
+
+        Args:
+            patients: a dict of `Patient` objects indexed by patient_id.
+
+        Returns:
+            The updated patients dict.
         """
         table = "medication"
         # read table
@@ -400,13 +389,19 @@ class eICUDataset(BaseDataset):
                 patients = self._add_event_to_patient_dict(patients, event)
         return patients
 
-    def _parse_lab(self, patients) -> Dict[str, Patient]:
-        """Helper functions which parses lab table.
+    def parse_lab(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
+        """Helper function which parses lab table.
 
-        Will be called in _parse_tables().
+        Will be called in `self.parse_tables()`.
 
         Docs:
             - lab: https://eicu-crd.mit.edu/eicutables/lab/
+
+        Args:
+            patients: a dict of `Patient` objects indexed by patient_id.
+
+        Returns:
+            The updated patients dict.
         """
         table = "lab"
         # read table
@@ -440,13 +435,19 @@ class eICUDataset(BaseDataset):
                 patients = self._add_event_to_patient_dict(patients, event)
         return patients
 
-    def _parse_physicalexam(self, patients) -> Dict[str, Patient]:
-        """Helper functions which parses physicalExam table.
+    def parse_physicalexam(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
+        """Helper function which parses physicalExam table.
 
-        Will be called in _parse_tables().
+        Will be called in `self.parse_tables()`.
 
         Docs:
             - physicalExam: https://eicu-crd.mit.edu/eicutables/physicalexam/
+
+        Args:
+            patients: a dict of `Patient` objects indexed by patient_id.
+
+        Returns:
+            The updated patients dict.
         """
         table = "physicalExam"
         # read table
@@ -489,5 +490,5 @@ if __name__ == "__main__":
         dev=False,
         refresh_cache=True,
     )
-    dataset.stat()
+    print(dataset.stat())
     dataset.info()
