@@ -27,11 +27,13 @@ def is_best(best_score: float, score: float, monitor_criterion: str) -> bool:
 
 
 def set_logger(log_path: str) -> None:
-    logger = logging.getLogger()
     create_directory(log_path)
     log_filename = os.path.join(log_path, "log.txt")
-    file_handler = logging.FileHandler(log_filename)
-    logger.addHandler(file_handler)
+    logger = logging.getLogger()
+    handler = logging.FileHandler(log_filename)
+    formatter = logging.Formatter("%(asctime)s %(message)s", "%Y-%m-%d %H:%M:%S")
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
     return
 
 
@@ -60,6 +62,7 @@ class DLTrainer:
         output_path: Path to save the output. Default is "./output".
         exp_name: Name of the experiment. Default is current datetime.
     """
+
     def __init__(
             self,
             model: nn.Module,
@@ -98,6 +101,7 @@ class DLTrainer:
             logging.info(f"Loading checkpoint from {checkpoint_path}")
             self.load_ckpt(checkpoint_path)
 
+        logging.info("")
         return
 
     def train(
@@ -135,7 +139,7 @@ class DLTrainer:
 
         # logging
         logging.info("Training:")
-        logging.info(f"Train dataloader: {train_dataloader}")
+        logging.info(f"Batch size: {train_dataloader.batch_size}")
         logging.info(f"Optimizer: {optimizer_class}")
         logging.info(f"Optimizer params: {optimizer_params}")
         logging.info(f"Weight decay: {weight_decay}")
@@ -144,6 +148,7 @@ class DLTrainer:
         logging.info(f"Monitor: {monitor}")
         logging.info(f"Monitor criterion: {monitor_criterion}")
         logging.info(f"Epochs: {epochs}")
+        logging.info("")
 
         # set optimizer
         param = list(self.model.named_parameters())
