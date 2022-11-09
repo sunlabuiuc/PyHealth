@@ -17,3 +17,5 @@ sphinxext-opengraph
 sphinxcontrib-httpdomain
 sphinx_copybutton
 sphinx_toggleprompt
+pandas-bokeh
+gspread
