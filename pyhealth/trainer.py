@@ -1,223 +1,361 @@
 import logging
 import os
-from typing import Dict, Type, Optional
-import pickle
+from datetime import datetime
+from typing import Dict, List, Type, Callable
+from typing import Optional
+
+import numpy as np
 import torch
 from torch import nn
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 from tqdm.autonotebook import trange
 
-from pyhealth.utils import get_device, create_directory, set_logger
-from pyhealth.evaluator import evaluate
+from pyhealth.metrics import binary_metrics_fn, multiclass_metrics_fn, \
+    multilabel_metrics_fn
+from pyhealth.utils import create_directory
 
 
-def is_best(best_score: float, score: float, mode: str) -> bool:
-    if mode == "max":
+def is_best(best_score: float, score: float, monitor_criterion: str) -> bool:
+    if monitor_criterion == "max":
         return score > best_score
-    elif mode == "min":
+    elif monitor_criterion == "min":
         return score < best_score
     else:
-        raise ValueError(f"mode {mode} is not supported")
+        raise ValueError(f"Monitor criterion {monitor_criterion} is not supported")
 
 
-class Trainer:
-    """Training Handler
+def set_logger(log_path: str) -> None:
+    logger = logging.getLogger()
+    create_directory(log_path)
+    log_filename = os.path.join(log_path, "log.txt")
+    file_handler = logging.FileHandler(log_filename)
+    logger.addHandler(file_handler)
+    return
+
+
+def get_metrics_fn(mode: str) -> Callable:
+    if mode == "binary":
+        return binary_metrics_fn
+    elif mode == "multiclass":
+        return multiclass_metrics_fn
+    elif mode == "multilabel":
+        return multilabel_metrics_fn
+    else:
+        raise ValueError(f"Mode {mode} is not supported")
+
+
+class DLTrainer:
+    """Trainer for PyTorch models.
 
     Args:
-        device: device to use
-        enable_cuda: enable cuda
-        enable_logging: enable logging
-        output_path: output path
-        exp_name: experiment name
-        
-    **Example:**
-        >>> from pyhealth.trainer import Trainer
-        >>> from pyhealth.metrics import average_precision_score
-        >>> device = 'cpu'
-        >>> trainer = Trainer(
-        ...     enable_logging=True, 
-        ...     output_path="../output", 
-        ...     device=device,
-        ... )
-        >>> model.to(device) # pyhealth.models object
-        >>> val_loader # torch.data.DataLoader object
-        >>> average_precision_score # pyhealth.metrics object
-        >>> trainer.fit(
-        ...     model,
-        ...     train_loader=train_loader,
-        ...     epochs=5,
-        ...     val_loader=val_loader,
-        ...     val_metric=average_precision_score,
-        ... )
-        >>> # training...
-        >>> best_model = trainer.load_best_model(model)
-        
+        model: PyTorch model.
+        checkpoint_path: Path to the checkpoint. Default is None, which means
+            the model will be randomly initialized.
+        metrics: List of metric names to be calculated. Default is None, which
+            means the default metrics in each metrics_fn will be used.
+        device: Device to be used for training. Default is "cpu".
+        enable_logging: Whether to enable logging. Default is True.
+        output_path: Path to save the output. Default is "./output".
+        exp_name: Name of the experiment. Default is current datetime.
     """
-
     def __init__(
-        self,
-        device: Optional[str] = None,
-        enable_cuda: bool = True,
-        enable_logging: bool = True,
-        output_path: Optional[str] = None,
-        exp_name: Optional[str] = None,
+            self,
+            model: nn.Module,
+            checkpoint_path: Optional[str] = None,
+            metrics: Optional[List[str]] = None,
+            device: str = "cpu",
+            enable_logging: bool = True,
+            output_path: Optional[str] = None,
+            exp_name: Optional[str] = None,
     ):
-        # self.device = get_device(enable_cuda=enable_cuda)
+        self.model = model
+        self.metrics = metrics
         self.device = device
+
+        # set logger
         if enable_logging:
-            self.exp_path = set_logger(output_path, exp_name)
+            if output_path is None:
+                output_path = os.path.join(os.getcwd(), "output")
+            if exp_name is None:
+                exp_name = datetime.now().strftime("%Y%m%d-%H%M%S")
+            self.exp_path = os.path.join(output_path, exp_name)
+            set_logger(self.exp_path)
         else:
             self.exp_path = None
 
-    def fit(
-        self,
-        model: nn.Module,
-        train_loader: DataLoader,
-        optimizer_class: Type[Optimizer] = torch.optim.Adam,
-        optimizer_params: Dict[str, object] = {
-            "lr": 1e-3,
-            "weight_decay": 1e-5,
-        },
-        val_loader: DataLoader = None,
-        val_metric=None,
-        mode: str = "max",
-        epochs: int = 1,
-        max_grad_norm: float = None,
-        show_progress_bar: bool = True,
+        # set device
+        self.model.to(self.device)
+
+        # logging
+        logging.info(self.model)
+        logging.info(f"Metrics: {self.metrics}")
+        logging.info(f"Device: {self.device}")
+
+        # load checkpoint
+        if checkpoint_path is not None:
+            logging.info(f"Loading checkpoint from {checkpoint_path}")
+            self.load_ckpt(checkpoint_path)
+
+        return
+
+    def train(
+            self,
+            train_dataloader: DataLoader,
+            val_dataloader: Optional[DataLoader] = None,
+            test_dataloader: Optional[DataLoader] = None,
+            epochs: int = 5,
+            optimizer_class: Type[Optimizer] = torch.optim.Adam,
+            optimizer_params: Optional[Dict[str, object]] = None,
+            weight_decay: float = 0.0,
+            max_grad_norm: float = None,
+            monitor: Optional[str] = None,
+            monitor_criterion: str = "max",
+            load_best_model_at_last: bool = True,
     ):
-        """Arguments for fitting to train the ML model
+        """Trains the model.
+
         Args:
-            model: model to train
-            train_loader: train data loader
-            optimizer_class: optimizer class, such as torch.optim.Adam
-            optimizer_params: optimizer parameters, including
-                - lr: learning rate
-                - weight_decay: weight decay
-                - max_grad_norm: max gradient norm
-            val_loader: validation data loader
-            val_metric: validation metric
-            mode: "binary" or "multiclass" or "multilabel"
-            epochs: number of epochs
-            show_progress_bar: show progress bar
+            train_dataloader: Dataloader for training.
+            val_dataloader: Dataloader for validation. Default is None.
+            test_dataloader: Dataloader for testing. Default is None.
+            epochs: Number of epochs. Default is 5.
+            optimizer_class: Optimizer class. Default is torch.optim.Adam.
+            optimizer_params: Parameters for the optimizer. Default is {"lr": 1e-3}.
+            weight_decay: Weight decay. Default is 0.0.
+            max_grad_norm: Maximum gradient norm. Default is None.
+            monitor: Metric name to monitor. Default is None.
+            monitor_criterion: Criterion to monitor. Default is "max".
+            load_best_model_at_last: Whether to load the best model at the last.
+                Default is True.
         """
-        if model.__class__.__name__ == "ClassicML":
-            model.fit(
-                train_loader=train_loader,
-                reduce_dim=100,
-                val_loader=val_loader,
-                val_metric=val_metric,
-            )
+        if optimizer_params is None:
+            optimizer_params = {"lr": 1e-3}
 
+        # logging
+        logging.info("Training:")
+        logging.info(f"Train dataloader: {train_dataloader}")
+        logging.info(f"Optimizer: {optimizer_class}")
+        logging.info(f"Optimizer params: {optimizer_params}")
+        logging.info(f"Weight decay: {weight_decay}")
+        logging.info(f"Max grad norm: {max_grad_norm}")
+        logging.info(f"Val dataloader: {val_dataloader}")
+        logging.info(f"Monitor: {monitor}")
+        logging.info(f"Monitor criterion: {monitor_criterion}")
+        logging.info(f"Epochs: {epochs}")
+
+        # set optimizer
+        param = list(self.model.named_parameters())
+        no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
+        optimizer_grouped_parameters = [
+            {
+                "params": [
+                    p for n, p in param if not any(nd in n for nd in no_decay)
+                ],
+                "weight_decay": weight_decay,
+            },
+            {
+                "params": [
+                    p for n, p in param if any(nd in n for nd in no_decay)
+                ],
+                "weight_decay": 0.0,
+            },
+        ]
+        optimizer = optimizer_class(
+            optimizer_grouped_parameters, **optimizer_params
+        )
+
+        # initialize
+        data_iterator = iter(train_dataloader)
+        best_score = -1 * float("inf") if monitor_criterion == "max" else float("inf")
+        steps_per_epoch = len(train_dataloader)
+        global_step = 0
+
+        # epoch training loop
+        for epoch in range(epochs):
+            training_loss = []
+            self.model.zero_grad()
+            self.model.train()
+            # batch training loop
+            for _ in trange(
+                    steps_per_epoch, desc=f"Epoch {epoch} / {epochs}", smoothing=0.05,
+            ):
+                try:
+                    data = next(data_iterator)
+                except StopIteration:
+                    data_iterator = iter(train_dataloader)
+                    data = next(data_iterator)
+                # forward
+                output = self.model(**data)
+                loss = output["loss"]
+                # backward
+                loss.backward()
+                if max_grad_norm is not None:
+                    torch.nn.utils.clip_grad_norm_(
+                        self.model.parameters(), max_grad_norm
+                    )
+                # update
+                optimizer.step()
+                optimizer.zero_grad()
+                training_loss.append(loss.item())
+                global_step += 1
+            # log and save
+            logging.info(f'--- Train epoch-{epoch}, step-{global_step} ---')
+            logging.info(f'loss: {sum(training_loss) / len(training_loss):.4f}')
             if self.exp_path is not None:
-                self._save_ckpt(
-                    model,
-                    os.path.join(self.exp_path, "best.ckpt"),
-                )
+                self.save_ckpt(os.path.join(self.exp_path, "last.ckpt"))
 
-        else:
-            weight_decay = optimizer_params["weight_decay"]
-
-            if self.exp_path is not None:
-                create_directory(os.path.join(self.exp_path))
-
-            steps_per_epoch = len(train_loader)
-
-            param_optimizer = list(model.named_parameters())
-            no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
-            optimizer_grouped_parameters = [
-                {
-                    "params": [
-                        p
-                        for n, p in param_optimizer
-                        if not any(nd in n for nd in no_decay)
-                    ],
-                    "weight_decay": weight_decay,
-                },
-                {
-                    "params": [
-                        p for n, p in param_optimizer if any(nd in n for nd in no_decay)
-                    ],
-                    "weight_decay": 0.0,
-                },
-            ]
-            optimizer = optimizer_class(
-                optimizer_grouped_parameters, **optimizer_params
-            )
-
-            data_iterator = iter(train_loader)
-            best_score = -1 * float("inf") if mode == "max" else float("inf")
-            global_step = 0
-
-            # for epoch in trange(epochs, desc="Epoch", disable=not show_progress_bar):
-            for epoch in range(epochs):
-                training_loss = []
-
-                model.zero_grad()
-                model.train()
-
-                for _ in trange(
-                    steps_per_epoch,
-                    desc=f"Epoch {epoch} - Iteration",
-                    smoothing=0.05,
-                    disable=not show_progress_bar,
-                ):
-
-                    try:
-                        data = next(data_iterator)
-                    except StopIteration:
-                        data_iterator = iter(train_loader)
-                        data = next(data_iterator)
-
-                    output = model(**data, device=self.device, training=True)
-                    loss = output["loss"]
-                    loss.backward()
-                    if max_grad_norm is not None:
-                        torch.nn.utils.clip_grad_norm_(
-                            model.parameters(), max_grad_norm
-                        )
-                    optimizer.step()
-
-                    optimizer.zero_grad()
-
-                    training_loss.append(loss.item())
-                    global_step += 1
-
-                # logging.info(f'--- Train epoch-{epoch}, step-{global_step} ---')
-                # logging.info(f'loss: {sum(training_loss) / len(training_loss):.4f}')
-                if self.exp_path is not None:
-                    self._save_ckpt(model, os.path.join(self.exp_path, "last.ckpt"))
-
-                if val_metric is not None:
-                    y_gt, y_prod, y_pred = evaluate(model, val_loader, self.device, disable_bar=not show_progress_bar)
-                    try:  # not sure the metric work for probability or predicted label
-                        score = val_metric(y_gt, y_prod)
-                    except ValueError:
-                        score = val_metric(y_gt, y_pred)
-                    if show_progress_bar:
-                        print(f"{val_metric.__name__}: {score:.4f}")
-                    if is_best(best_score, score, mode):
+            # validation
+            if val_dataloader is not None:
+                scores = self.evaluate(val_dataloader)
+                logging.info(f'--- Eval epoch-{epoch}, step-{global_step} ---')
+                for key in scores.keys():
+                    logging.info('{}: {:.4f}'.format(key, scores[key]))
+                # save best model
+                if monitor is not None:
+                    score = scores[monitor]
+                    if is_best(best_score, score, monitor_criterion):
+                        logging.info(f"New best {monitor} score ({score:.4f}) "
+                                     f"at epoch-{epoch}, step-{global_step}")
                         best_score = score
                         if self.exp_path is not None:
-                            self._save_ckpt(
-                                model, os.path.join(self.exp_path, "best.ckpt")
-                            )
-        print("best_model_path:", os.path.join(self.exp_path, "best.ckpt"))
+                            self.save_ckpt(os.path.join(self.exp_path, "best.ckpt"))
 
-    def _save_ckpt(self, model, save_path):
-        if model.__class__.__name__ == "ClassicML":
-            with open(save_path, "wb") as f:
-                pickle.dump([model.predictor, model.pca, model.valid_label], f)
-        else:
-            state_dict = model.state_dict()
-            torch.save(state_dict, save_path)
+        # load best model
+        if load_best_model_at_last and self.exp_path is not None:
+            logging.info("Loaded best model")
+            self.load_ckpt(os.path.join(self.exp_path, "best.ckpt"))
 
-    def load_best_model(self, model):
-        path = os.path.join(self.exp_path, "best.ckpt")
-        if model.__class__.__name__ == "ClassicML":
-            with open(path, "rb") as f:
-                model.predictor, model.pca, model.valid_label = pickle.load(f)
-        else:
-            state_dict = torch.load(path)
-            model.load_state_dict(state_dict)
-        return model
+        # test
+        if test_dataloader is not None:
+            scores = self.evaluate(test_dataloader)
+            logging.info(f'--- Test ---')
+            for key in scores.keys():
+                logging.info('{}: {:.4f}'.format(key, scores[key]))
+
+        return
+
+    def evaluate(self, dataloader) -> Dict[str, float]:
+        """Evaluates the model.
+
+        Args:
+            dataloader: Dataloader for evaluation.
+
+        Returns:
+            scores: a dictionary of scores.
+        """
+        mode = self.model.mode
+        metrics_fn = get_metrics_fn(mode)
+        loss_all = []
+        y_true_all = []
+        y_prob_all = []
+        for data in tqdm(dataloader, desc="Evaluation"):
+            self.model.eval()
+            with torch.no_grad():
+                output = self.model(**data)
+                loss = output["loss"]
+                y_true = output["y_true"].cpu().numpy()
+                y_prob = output["y_prob"].cpu().numpy()
+                loss_all.append(loss.item())
+                y_true_all.append(y_true)
+                y_prob_all.append(y_prob)
+        loss_mean = sum(loss_all) / len(loss_all)
+        y_true_all = np.concatenate(y_true_all, axis=0)
+        y_prob_all = np.concatenate(y_prob_all, axis=0)
+        scores = metrics_fn(y_true_all, y_prob_all, metrics=self.metrics)
+        scores["loss"] = loss_mean
+        return scores
+
+    def save_ckpt(self, ckpt_path: str) -> None:
+        """Saves the model checkpoint."""
+        state_dict = self.model.state_dict()
+        torch.save(state_dict, ckpt_path)
+        return
+
+    def load_ckpt(self, ckpt_path: str) -> None:
+        """Saves the model checkpoint."""
+        state_dict = torch.load(ckpt_path, map_location=self.device)
+        self.model.load_state_dict(state_dict)
+        return
+
+
+if __name__ == "__main__":
+    import torch
+    import torch.nn as nn
+    from torch.utils.data import DataLoader, Dataset
+    from torchvision import datasets, transforms
+    from pyhealth.utils import collate_fn_dict
+
+
+    class MNISTDataset(Dataset):
+        def __init__(self, train=True):
+            transform = transforms.Compose(
+                [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
+            )
+            self.dataset = datasets.MNIST(
+                "../data", train=train, download=True, transform=transform
+            )
+
+        def __getitem__(self, index):
+            x, y = self.dataset[index]
+            return {"x": x, "y": y}
+
+        def __len__(self):
+            return len(self.dataset)
+
+
+    class Model(nn.Module):
+        def __init__(self):
+            super(Model, self).__init__()
+            self.mode = "multiclass"
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            self.conv1 = nn.Conv2d(1, 32, 3, 1)
+            self.conv2 = nn.Conv2d(32, 64, 3, 1)
+            self.dropout1 = nn.Dropout(0.25)
+            self.dropout2 = nn.Dropout(0.5)
+            self.fc1 = nn.Linear(9216, 128)
+            self.fc2 = nn.Linear(128, 10)
+            self.loss = nn.CrossEntropyLoss()
+
+        def forward(self, x, y, **kwargs):
+            x = torch.stack(x, dim=0).to(self.device)
+            y = torch.tensor(y).to(self.device)
+            x = self.conv1(x)
+            x = torch.relu(x)
+            x = self.conv2(x)
+            x = torch.relu(x)
+            x = torch.max_pool2d(x, 2)
+            x = self.dropout1(x)
+            x = torch.flatten(x, 1)
+            x = self.fc1(x)
+            x = torch.relu(x)
+            x = self.dropout2(x)
+            x = self.fc2(x)
+            loss = self.loss(x, y)
+            y_prob = torch.softmax(x, dim=1)
+            return {"loss": loss, "y_prob": y_prob, "y_true": y}
+
+
+    train_dataset = MNISTDataset(train=True)
+    val_dataset = MNISTDataset(train=False)
+
+    train_dataloader = DataLoader(train_dataset,
+                                  collate_fn=collate_fn_dict,
+                                  batch_size=64,
+                                  shuffle=True)
+    val_dataloader = DataLoader(val_dataset,
+                                collate_fn=collate_fn_dict,
+                                batch_size=64,
+                                shuffle=False)
+
+    model = Model()
+
+    trainer = DLTrainer(
+        model, device="cuda" if torch.cuda.is_available() else "cpu"
+    )
+    trainer.train(train_dataloader=train_dataloader,
+                  val_dataloader=val_dataloader,
+                  monitor="accuracy",
+                  epochs=5,
+                  test_dataloader=val_dataloader)
