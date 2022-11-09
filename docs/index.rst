@@ -298,7 +298,6 @@ Here are the dynamic visualizations of the leaderboard. You can click the checkb
 the performance for different models doing different tasks on different datasets!
 
 
-
 .. bokeh-plot::
 
    import sys
