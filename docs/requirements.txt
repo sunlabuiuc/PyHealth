@@ -22,3 +22,5 @@ bokeh
 gspread
 google-cloud-storage
 oauth2client
+Jinja2
+flask
