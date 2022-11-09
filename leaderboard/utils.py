@@ -299,17 +299,25 @@ def generate_bokeh_figure(df):
     curdoc().theme = 'caliber'
 
     df['letter'] = df['Dataset-Task-Model']
-    number_of_colors = 8
-    color = np.array(
+
+    number_of_colors = 256
+    colors = np.array(
         ["#" + ''.join([random.choice('0123456789ABCDEF') for j in range(6)]) for i in range(number_of_colors)])
-    df['color'] = np.random.choice(color, size=len(df))
+    df['color'] = np.zeros(len(df))
+
     df = df.rename(columns={"Macro-F1": "F1"})
+
+    models = sorted(set(df['Dataset-Task-Model']))
+
+    for model in models:
+        color = random.choice(colors)
+        df.loc[df['Dataset-Task-Model'].str.contains(model), 'color'] = color
 
     source = ColumnDataSource(df)
 
     active_letter = df['Dataset-Task-Model'].iloc()[0]
     f = BooleanFilter(booleans=[l == active_letter for l in df['Dataset-Task-Model']])
-    models = sorted(set(df['Dataset-Task-Model']))
+
     cg = CheckboxGroup(labels=models, active=[models.index(active_letter)])
     cg.js_on_change('active',
                     CustomJS(args=dict(source=source, f=f),
