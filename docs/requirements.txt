@@ -18,4 +18,7 @@ sphinxcontrib-httpdomain
 sphinx_copybutton
 sphinx_toggleprompt
 pandas-bokeh
+bokeh
 gspread
+google-cloud-storage
+oauth2client
