@@ -7,6 +7,13 @@ from google.cloud import storage
 import io
 import pandas as pd
 
+from bokeh.models import HoverTool, CDSView
+from bokeh.layouts import row, column, gridplot
+from bokeh.models import ColumnDataSource, CDSView, CheckboxGroup, CustomJS, BooleanFilter
+from bokeh.plotting import figure, show, curdoc
+import numpy as np
+import random
+
 from pyhealth.datasets import MIMIC3Dataset, eICUDataset, MIMIC4Dataset, OMOPDataset
 from pyhealth.tasks import *
 from pyhealth.metrics import *
@@ -199,9 +206,9 @@ def train_process(trainer, model, train_loader, val_loader, val_metric):
         return False
 
 
-def read_dataframes_by_time_from_gcp():
+def read_dataframes_by_time_from_gcp(credentials):
     import os
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "./credentials.json"
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials
 
     dfs = {}
 
@@ -224,11 +231,99 @@ def read_dataframes_by_time_from_gcp():
     return dfs
 
 
-def get_concat_df_with_time(dfs):
+def read_dataframes_by_time_from_gcp_with_no_credentials():
+    data = {
+        "https://storage.googleapis.com/pyhealth/leaderboard_data/data/leaderboard-2022-10-28.csv",
+        "https://storage.googleapis.com/pyhealth/leaderboard_data/data/leaderboard-2022-11-05.csv"
+    }
+
+    dfs = {}
+
+    for d in data:
+        df = pd.read_csv(d)
+        name_ = d.split('-')
+        time = name_[1] + name_[2] + name_[3][:-4]
+        dfs[time] = df
+
+    return dfs
+
+
+def get_typed_df_with_time(dfs, type):
+    from datetime import datetime
     for key in dfs.keys():
         dfs[key]['date'] = key
 
     df = pd.concat(dfs.values())
+    df['date'] = [datetime.strptime(date, '%Y%m%d') for date in df['date'].iloc()]
+
+    df = df[df['Dataset-Task-Model'].str.contains(type)]
 
     return df
 
+
+def make_bokeh_plot(source, metric, f):
+    p = figure(
+        height=335, width=335,
+        tools=["pan, box_zoom, reset, save, crosshair"],
+        toolbar_location='above',
+        y_range=[0, 1.0],
+        x_axis_label="date",
+        y_axis_label=metric,
+        x_axis_type="datetime"
+    )
+
+    if metric == 'Jaccard':
+        p.triangle(source=source, x='date', y='Jaccard', color='color', size=8, alpha=0.5,
+                   view=CDSView(source=source, filters=[f]))
+    if metric == 'Accuracy':
+        p.circle(source=source, x='date', y='Accuracy', color='color', size=8, alpha=0.5,
+                 view=CDSView(source=source, filters=[f]))
+    if metric == 'F1':
+        p.square(source=source, x='date', y='F1', color='color', size=8, alpha=0.5,
+                 view=CDSView(source=source, filters=[f]))
+    if metric == 'PRAUC':
+        p.circle(source=source, x='date', y='PRAUC', color='color', size=8, alpha=0.5,
+                 view=CDSView(source=source, filters=[f]))
+
+    hover = HoverTool(tooltips=[('model', '@{Dataset-Task-Model}'), ('date', '$x{%F}'), ('value', f'@{metric}')],
+                      formatters={'$x': 'datetime', 'Dataset-Task-Model': 'printf'})
+
+    p.add_tools(hover)
+
+    p.legend.location = 'bottom_right'
+
+    return p
+
+
+def generate_bokeh_figure(df):
+    curdoc().theme = 'caliber'
+
+    df['letter'] = df['Dataset-Task-Model']
+    number_of_colors = 8
+    color = np.array(
+        ["#" + ''.join([random.choice('0123456789ABCDEF') for j in range(6)]) for i in range(number_of_colors)])
+    df['color'] = np.random.choice(color, size=len(df))
+    df = df.rename(columns={"Macro-F1": "F1"})
+
+    source = ColumnDataSource(df)
+
+    active_letter = df['Dataset-Task-Model'].iloc()[0]
+    f = BooleanFilter(booleans=[l == active_letter for l in df['Dataset-Task-Model']])
+    models = sorted(set(df['Dataset-Task-Model']))
+    cg = CheckboxGroup(labels=models, active=[models.index(active_letter)])
+    cg.js_on_change('active',
+                    CustomJS(args=dict(source=source, f=f),
+                             code="""\
+                                 const letters = cb_obj.active.map(idx => cb_obj.labels[idx]);
+                                 f.booleans = source.data.letter.map(l => letters.includes(l));
+                                 source.change.emit();
+                             """))
+
+    cg.width = 170
+
+    p_jac = make_bokeh_plot(source, 'Jaccard', f)
+    p_acc = make_bokeh_plot(source, 'Accuracy', f)
+    p_f1 = make_bokeh_plot(source, 'F1', f)
+    p_prauc = make_bokeh_plot(source, 'PRAUC', f)
+
+    return row(cg, gridplot([[p_jac, p_acc], [p_f1, p_prauc]]))

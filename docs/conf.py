@@ -23,6 +23,7 @@ sys.path[:0] = [
     str(HERE.parent),
     str(HERE / "extensions"),
     str(HERE.parent / "pyhealth"),
+    str(HERE.parent / "leaderboard")
 ]
 
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
@@ -65,6 +66,7 @@ extensions = [
     "sphinxcontrib.httpdomain",
     "sphinx_copybutton",
     "sphinx_toggleprompt",
+    "bokeh.sphinxext.bokeh_plot"
 ]
 
 toggleprompt_offset_right = 35

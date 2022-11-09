@@ -220,10 +220,22 @@ def plots_generation(args):
     if args.plot is False:
         return
 
+    # dfs = read_dataframes_by_time_from_gcp(args.credentials)
+    dfs = read_dataframes_by_time_from_gcp_with_no_credentials()
+
+    bokeh_figures = []
+    for task in args.tasks:
+        df = get_typed_df_with_time(dfs, task)
+        bokeh_figure = generate_bokeh_figure(df)
+        bokeh_figures.append(bokeh_figure)
+
+    show(column(bokeh_figures))
+
 
 def construct_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--credentials", type=str, default='./credentials.json')
+    parser.add_argument("--credentials", type=str, default='/Users/patrickjiang/code/PyHealth'
+                                                           '/leaderboard/credentials.json')
     parser.add_argument("--doc_name", type=str, default='Pyhealth tracker')
     parser.add_argument("--sheet_id", type=int, default=2062485923)
     parser.add_argument("--log_path", type=str, default="./log")
@@ -262,7 +274,8 @@ def construct_args():
 
 def main():
     args = construct_args()
-    leaderboard_generation(args)
+    # leaderboard_generation(args)
+    plots_generation(args)
 
 
 if __name__ == '__main__':
