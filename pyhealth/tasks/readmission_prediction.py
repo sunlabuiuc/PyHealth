@@ -1,18 +1,13 @@
-import sys
-
-# TODO: remove this hack later
-sys.path.append("/home/chaoqiy2/github/PyHealth-OMOP")
 from pyhealth.data import Patient, Visit
 
 
 # TODO: time_window cannot be passed in to base_dataset
 def readmission_prediction_mimic3_fn(patient: Patient, time_window=15):
-    """
+    """Processes a single patient for the readmission prediction task.
+
     Readmission prediction aims at predicting whether the patient will be readmitted
         into hospital within time_window days based on the clinical information from
         current visit (e.g., conditions and procedures).
-
-    Process a single patient for the readmission prediction task.
 
     Args:
         patient: a Patient object
@@ -25,7 +20,7 @@ def readmission_prediction_mimic3_fn(patient: Patient, time_window=15):
 
     Note that we define the task as a binary classification task.
     
-    **Example:**
+   Examples:
         >>> from pyhealth.datasets import MIMIC3Dataset
         >>> mimic3_ds = MIMIC3Dataset(
         ...    root="/srv/local/data/physionet.org/files/mimiciii/1.4",
@@ -42,7 +37,6 @@ def readmission_prediction_mimic3_fn(patient: Patient, time_window=15):
 
     # we will drop the last visit
     for i in range(len(patient) - 1):
-        # TODO: bug!!!
         visit: Visit = patient[i]
         next_visit: Visit = patient[i + 1]
 
@@ -72,12 +66,11 @@ def readmission_prediction_mimic3_fn(patient: Patient, time_window=15):
 
 
 def readmission_prediction_mimic4_fn(patient: Patient, time_window=15):
-    """
+    """Processes a single patient for the readmission prediction task.
+
     Readmission prediction aims at predicting whether the patient will be readmitted
         into hospital within time_window days based on the clinical information from
         current visit (e.g., conditions and procedures).
-
-    Process a single patient for the readmission prediction task.
 
     Args:
         patient: a Patient object
@@ -90,7 +83,7 @@ def readmission_prediction_mimic4_fn(patient: Patient, time_window=15):
 
     Note that we define the task as a binary classification task.
     
-    **Example:**
+   Examples:
         >>> from pyhealth.datasets import MIMIC4Dataset
         >>> mimic4_ds = MIMIC4Dataset(
         ...     root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
@@ -136,12 +129,11 @@ def readmission_prediction_mimic4_fn(patient: Patient, time_window=15):
 
 
 def readmission_prediction_eicu_fn(patient: Patient, time_window=5):
-    """
+    """Processes a single patient for the readmission prediction task.
+
     Readmission prediction aims at predicting whether the patient will be readmitted
         into hospital within time_window days based on the clinical information from
         current visit (e.g., conditions and procedures).
-
-    Process a single patient for the readmission prediction task.
 
     Args:
         patient: a Patient object
@@ -154,7 +146,7 @@ def readmission_prediction_eicu_fn(patient: Patient, time_window=5):
 
     Note that we define the task as a binary classification task.
     
-    **Example:**
+   Examples:
         >>> from pyhealth.datasets import eICUDataset
         >>> eicu_ds = eICUDataset(
         ...     root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
@@ -199,12 +191,11 @@ def readmission_prediction_eicu_fn(patient: Patient, time_window=5):
 
 
 def readmission_prediction_omop_fn(patient: Patient, time_window=15):
-    """
+    """Processes a single patient for the readmission prediction task.
+
     Readmission prediction aims at predicting whether the patient will be readmitted
         into hospital within time_window days based on the clinical information from
         current visit (e.g., conditions and procedures).
-
-    Process a single patient for the readmission prediction task.
 
     Args:
         patient: a Patient object
@@ -217,7 +208,7 @@ def readmission_prediction_omop_fn(patient: Patient, time_window=15):
 
     Note that we define the task as a binary classification task.
     
-    **Examples:**
+    Examples:
         >>> from pyhealth.datasets import OMOPDataset
         >>> omop_ds = OMOPDataset(
         ...     root="https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2",

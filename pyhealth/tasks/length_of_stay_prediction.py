@@ -2,7 +2,7 @@ from pyhealth.data import Patient
 
 
 def categorize_los(days: int):
-    """Categorize length of stay into 10 categories.
+    """Categorizes length of stay into 10 categories.
 
     One for ICU stays shorter than a day, seven day-long categories for each day of
     the first week, one for stays of over one week but less than two,
@@ -29,12 +29,11 @@ def categorize_los(days: int):
 
 
 def length_of_stay_prediction_mimic3_fn(patient: Patient):
-    """
+    """Processes a single patient for the length-of-stay prediction task.
+
     Length of stay prediction aims at predicting the length of stay (in days) of the
     current hospital visit based on the clinical information from the visit
     (e.g., conditions and procedures).
-
-    Process a single patient for the length-of-stay prediction task.
 
     Args:
         patient: a Patient object.
@@ -45,7 +44,7 @@ def length_of_stay_prediction_mimic3_fn(patient: Patient):
 
     Note that we define the task as a multi-class classification task.
     
-    **Example:**
+   Examples:
         >>> from pyhealth.datasets import MIMIC3Dataset
         >>> mimic3_ds = MIMIC3Dataset(
         ...    root="/srv/local/data/physionet.org/files/mimiciii/1.4",
@@ -88,12 +87,11 @@ def length_of_stay_prediction_mimic3_fn(patient: Patient):
 
 
 def length_of_stay_prediction_mimic4_fn(patient: Patient):
-    """
+    """Processes a single patient for the length-of-stay prediction task.
+
     Length of stay prediction aims at predicting the length of stay (in days) of the
     current hospital visit based on the clinical information from the visit
     (e.g., conditions and procedures).
-
-    Process a single patient for the length-of-stay prediction task.
 
     Args:
         patient: a Patient object.
@@ -104,7 +102,7 @@ def length_of_stay_prediction_mimic4_fn(patient: Patient):
 
     Note that we define the task as a multi-class classification task.
     
-    **Example:**
+   Examples:
         >>> from pyhealth.datasets import MIMIC4Dataset
         >>> mimic4_ds = MIMIC4Dataset(
         ...     root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
@@ -148,12 +146,11 @@ def length_of_stay_prediction_mimic4_fn(patient: Patient):
 
 
 def length_of_stay_prediction_eicu_fn(patient: Patient):
-    """
+    """Processes a single patient for the length-of-stay prediction task.
+
     Length of stay prediction aims at predicting the length of stay (in days) of the
     current hospital visit based on the clinical information from the visit
     (e.g., conditions and procedures).
-
-    Process a single patient for the length-of-stay prediction task.
 
     Args:
         patient: a Patient object.
@@ -164,7 +161,7 @@ def length_of_stay_prediction_eicu_fn(patient: Patient):
 
     Note that we define the task as a multi-class classification task.
     
-    **Example:**
+   Examples:
         >>> from pyhealth.datasets import eICUDataset
         >>> eicu_ds = eICUDataset(
         ...     root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
@@ -209,12 +206,11 @@ def length_of_stay_prediction_eicu_fn(patient: Patient):
 
 
 def length_of_stay_prediction_omop_fn(patient: Patient):
-    """
+    """Processes a single patient for the length-of-stay prediction task.
+
     Length of stay prediction aims at predicting the length of stay (in days) of the
     current hospital visit based on the clinical information from the visit
     (e.g., conditions and procedures).
-
-    Process a single patient for the length-of-stay prediction task.
 
     Args:
         patient: a Patient object.
@@ -225,7 +221,7 @@ def length_of_stay_prediction_omop_fn(patient: Patient):
 
     Note that we define the task as a multi-class classification task.
     
-    **Examples:**
+    Examples:
         >>> from pyhealth.datasets import OMOPDataset
         >>> omop_ds = OMOPDataset(
         ...     root="https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2",
