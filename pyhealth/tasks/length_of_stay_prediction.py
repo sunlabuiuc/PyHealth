@@ -64,8 +64,8 @@ def length_of_stay_prediction_mimic3_fn(patient: Patient):
         conditions = visit.get_code_list(table="DIAGNOSES_ICD")
         procedures = visit.get_code_list(table="PROCEDURES_ICD")
         drugs = visit.get_code_list(table="PRESCRIPTIONS")
-        # exclude: visits without condition, procedure, and drug code
-        if len(conditions) + len(procedures) + len(drugs) == 0:
+        # exclude: visits without condition, procedure, or drug code
+        if len(conditions) * len(procedures) * len(drugs) == 0:
             continue
 
         los_days = (visit.discharge_time - visit.encounter_time).days
@@ -123,8 +123,8 @@ def length_of_stay_prediction_mimic4_fn(patient: Patient):
         conditions = visit.get_code_list(table="diagnoses_icd")
         procedures = visit.get_code_list(table="procedures_icd")
         drugs = visit.get_code_list(table="prescriptions")
-        # exclude: visits without condition, procedure, and drug code
-        if len(conditions) + len(procedures) + len(drugs) == 0:
+        # exclude: visits without condition, procedure, or drug code
+        if len(conditions) * len(procedures) * len(drugs) == 0:
             continue
 
         los_days = (visit.discharge_time - visit.encounter_time).days
@@ -183,8 +183,8 @@ def length_of_stay_prediction_eicu_fn(patient: Patient):
         conditions = visit.get_code_list(table="diagnosis")
         procedures = visit.get_code_list(table="physicalExam")
         drugs = visit.get_code_list(table="medication")
-        # exclude: visits without condition, procedure, and drug code
-        if len(conditions) + len(procedures) + len(drugs) == 0:
+        # exclude: visits without condition, procedure, or drug code
+        if len(conditions) * len(procedures) * len(drugs) == 0:
             continue
 
         los_days = (visit.discharge_time - visit.encounter_time).days
@@ -241,8 +241,8 @@ def length_of_stay_prediction_omop_fn(patient: Patient):
         conditions = visit.get_code_list(table="condition_occurrence")
         procedures = visit.get_code_list(table="procedure_occurrence")
         drugs = visit.get_code_list(table="drug_exposure")
-        # exclude: visits without condition, procedure, and drug code
-        if len(conditions) + len(procedures) + len(drugs) == 0:
+        # exclude: visits without condition, procedure, or drug code
+        if len(conditions) * len(procedures) * len(drugs) == 0:
             continue
 
         los_days = (visit.discharge_time - visit.encounter_time).days
