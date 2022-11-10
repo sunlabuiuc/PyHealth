@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Tuple, Dict, Optional
 
 import torch
 import torch.nn as nn
@@ -20,39 +20,44 @@ class RETAINLayer(nn.Module):
     standalone layer.
 
     Args:
-        input_size: input feature size.
-        hidden_size: hidden feature size.
+        feature_size: the hidden feature size.
         dropout: dropout rate. Default is 0.5.
+
+    Examples:
+        >>> from pyhealth.models import RETAINLayer
+        >>> input = torch.randn(3, 128, 64)  # [batch size, sequence len, feature_size]
+        >>> layer = RETAINLayer(64)
+        >>> c = layer(input)
+        >>> c.shape
+        torch.Size([3, 64])
     """
 
     def __init__(
             self,
-            input_size: int,
-            hidden_size: int,
+            feature_size: int,
             dropout: float = 0.5,
     ):
         super(RETAINLayer, self).__init__()
-        self.input_size = input_size
-        self.hidden_size = hidden_size
+        self.feature_size = feature_size
         self.dropout = dropout
         self.dropout_layer = nn.Dropout(p=self.dropout)
 
-        self.alpha_gru = nn.GRU(input_size, hidden_size, batch_first=True)
-        self.beta_gru = nn.GRU(input_size, hidden_size, batch_first=True)
+        self.alpha_gru = nn.GRU(feature_size, feature_size, batch_first=True)
+        self.beta_gru = nn.GRU(feature_size, feature_size, batch_first=True)
 
-        self.alpha_li = nn.Linear(input_size, 1)
-        self.beta_li = nn.Linear(input_size, hidden_size)
+        self.alpha_li = nn.Linear(feature_size, 1)
+        self.beta_li = nn.Linear(feature_size, feature_size)
 
     @staticmethod
     def reverse_x(input, lengths):
-        """Reverses the input.
-        """
+        """Reverses the input."""
         reversed_input = input.new(input.size())
         for i, length in enumerate(lengths):
             reversed_input[i, :length] = input[i, :length].flip(dims=[0])
         return reversed_input
 
     def compute_alpha(self, rx, lengths):
+        """Computes alpha attention."""
         rx = rnn_utils.pack_padded_sequence(
             rx, lengths, batch_first=True, enforce_sorted=False
         )
@@ -62,6 +67,7 @@ class RETAINLayer(nn.Module):
         return attn_alpha
 
     def compute_beta(self, rx, lengths):
+        """Computes beta attention."""
         rx = rnn_utils.pack_padded_sequence(
             rx, lengths, batch_first=True, enforce_sorted=False
         )
@@ -70,27 +76,36 @@ class RETAINLayer(nn.Module):
         attn_beta = torch.tanh(self.beta_li(h))
         return attn_beta
 
-    def forward(self, x: torch.tensor, mask: torch.tensor):
-        """
+    def forward(
+            self,
+            x: torch.tensor,
+            mask: Optional[torch.tensor] = None,
+    ) -> Tuple[torch.tensor, torch.tensor]:
+        """Forward propagation.
+
         Args:
-            x: a tensor of shape [batch size, sequence len, input size].
-            mask: a tensor of shape [batch size, sequence len] where 1 indicates
-                valid and 0 indicates invalid.
+            x: a tensor of shape [batch size, sequence len, feature_size].
+            mask: an optional tensor of shape [batch size, sequence len], where
+                1 indicates valid and 0 indicates invalid.
 
         Returns:
-            outputs: a tensor of shape [batch size, sequence len, hidden size],
-                containing the output features for each time step.
-            last_outputs: a tensor of shape [batch size, hidden size], containing
-                the output features for the last time step.
+            c: a tensor of shape [batch size, feature_size] representing the
+                context vector.
         """
         # rnn will only apply dropout between layers
         x = self.dropout_layer(x)
-        lengths = torch.sum(mask.int(), dim=-1).cpu()
+        batch_size = x.size(0)
+        if mask is None:
+            lengths = torch.full(
+                size=(batch_size,), fill_value=x.size(1), dtype=torch.int64
+            )
+        else:
+            lengths = torch.sum(mask.int(), dim=-1).cpu()
         rx = self.reverse_x(x, lengths)
         attn_alpha = self.compute_alpha(rx, lengths)
         attn_beta = self.compute_beta(rx, lengths)
-        c = attn_alpha * attn_beta * x  # (patient, seq_len, hidden_size)
-        c = torch.sum(c, dim=1)  # (patient, hidden_size)
+        c = attn_alpha * attn_beta * x  # (patient, sequence len, feature_size)
+        c = torch.sum(c, dim=1)  # (patient, feature_size)
         return c
 
 
@@ -113,7 +128,6 @@ class RETAIN(BaseModel):
         mode: one of "binary", "multiclass", or "multilabel".
         operation_level: one of "visit", "event".
         embedding_dim: the embedding dimension. Default is 128.
-        hidden_dim: the hidden dimension. Default is 128.
         **kwargs: other parameters for the RETAIN layer.
     """
 
@@ -125,7 +139,6 @@ class RETAIN(BaseModel):
             mode: str,
             operation_level: str,
             embedding_dim: int = 128,
-            hidden_dim: int = 128,
             **kwargs
     ):
         super(RETAIN, self).__init__(
@@ -138,19 +151,22 @@ class RETAIN(BaseModel):
             f"operation_level must be one of {VALID_OPERATION_LEVEL}"
         self.operation_level = operation_level
         self.embedding_dim = embedding_dim
-        self.hidden_dim = hidden_dim
 
         self.feat_tokenizers = self.get_feature_tokenizers()
         self.label_tokenizer = self.get_label_tokenizer()
         self.embeddings = self.get_embedding_layers(self.feat_tokenizers, embedding_dim)
+
+        # validate kwargs for RETAIN layer
+        if "feature_size" in kwargs:
+            raise ValueError("feature_size is determined by embedding_dim")
         self.retain = nn.ModuleDict()
         for feature_key in feature_keys:
             self.retain[feature_key] = RETAINLayer(
-                input_size=embedding_dim, hidden_size=hidden_dim, **kwargs
+                feature_size=embedding_dim, **kwargs
             )
 
         output_size = self.get_output_size(self.label_tokenizer)
-        self.fc = nn.Linear(len(self.feature_keys) * self.hidden_dim, output_size)
+        self.fc = nn.Linear(len(self.feature_keys) * self.embedding_dim, output_size)
 
     def _visit_level_forward(self, **kwargs):
         """Visit-level RETAIN forward."""
@@ -166,10 +182,10 @@ class RETAIN(BaseModel):
             x = torch.sum(x, dim=2)
             # (patient, visit)
             mask = torch.sum(x, dim=2) != 0
-            # (patient, hidden_dim)
+            # (patient, embedding_dim)
             x = self.retain[feature_key](x, mask)
             patient_emb.append(x)
-        # (patient, features * hidden_dim)
+        # (patient, features * embedding_dim)
         patient_emb = torch.cat(patient_emb, dim=1)
         # (patient, label_size)
         logits = self.fc(patient_emb)
@@ -193,10 +209,10 @@ class RETAIN(BaseModel):
             x = self.embeddings[feature_key](x)
             # (patient, code)
             mask = torch.sum(x, dim=2) != 0
-            # (patient, hidden_dim)
+            # (patient, embedding_dim)
             x = self.retain[feature_key](x, mask)
             patient_emb.append(x)
-        # (patient, features * hidden_dim)
+        # (patient, features * embedding_dim)
         patient_emb = torch.cat(patient_emb, dim=1)
         # (patient, label_size)
         logits = self.fc(patient_emb)
@@ -210,171 +226,33 @@ class RETAIN(BaseModel):
             "y_true": y_true,
         }
 
-    def forward(self, **kwargs):
+    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+        """Forward propagation.
+
+        If `operation_level` is "visit", then the input is a list of visits
+        for each patient. Each visit is a list of codes. For example,
+        `kwargs["conditions"]` is a list of visits for each patient. Each
+        visit is a list of condition codes.
+
+        If `operation_level` is "event", then the input is a list of events
+        for each patient. Each event is a code. For example, `kwargs["conditions"]`
+        is a list of condition codes for each patient.
+
+        The label `kwargs[self.label_key]` is a list of labels for each patient.
+
+        Args:
+            **kwargs: keyword arguments for the model. The keys must contain
+                all the feature keys and the label key.
+
+        Returns:
+            A dictionary with the following keys:
+                loss: a scalar tensor representing the loss.
+                y_prob: a tensor representing the predicted probabilities.
+                y_true: a tensor representing the true labels.
+        """
         if self.operation_level == "visit":
             return self._visit_level_forward(**kwargs)
         elif self.operation_level == "event":
             return self._event_level_forward(**kwargs)
         else:
             raise NotImplementedError
-
-
-if __name__ == '__main__':
-    from pyhealth.datasets import MIMIC3Dataset
-    from torch.utils.data import DataLoader
-    from pyhealth.utils import collate_fn_dict
-
-
-    def task_event(patient):
-        samples = []
-        for visit in patient:
-            conditions = visit.get_code_list(table="DIAGNOSES_ICD")
-            procedures = visit.get_code_list(table="PROCEDURES_ICD")
-            drugs = visit.get_code_list(table="PRESCRIPTIONS")
-            mortality_label = int(visit.discharge_status)
-            if len(conditions) * len(procedures) * len(drugs) == 0:
-                continue
-            samples.append(
-                {
-                    "visit_id": visit.visit_id,
-                    "patient_id": patient.patient_id,
-                    "conditions": conditions,
-                    "procedures": procedures,
-                    "list_label": drugs,
-                    "value_label": mortality_label,
-                }
-            )
-        return samples
-
-
-    def task_visit(patient):
-        samples = []
-        for visit in patient:
-            conditions = visit.get_code_list(table="DIAGNOSES_ICD")
-            procedures = visit.get_code_list(table="PROCEDURES_ICD")
-            drugs = visit.get_code_list(table="PRESCRIPTIONS")
-            mortality_label = int(visit.discharge_status)
-            if len(conditions) * len(procedures) * len(drugs) == 0:
-                continue
-            samples.append(
-                {
-                    "visit_id": visit.visit_id,
-                    "patient_id": patient.patient_id,
-                    "conditions": [conditions],
-                    "procedures": [procedures],
-                    "list_label": drugs,
-                    "value_label": mortality_label,
-                }
-            )
-        return samples
-
-
-    dataset = MIMIC3Dataset(
-        root="/srv/local/data/physionet.org/files/mimiciii/1.4",
-        tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
-        dev=True,
-        code_mapping={"NDC": "ATC"},
-        refresh_cache=False,
-    )
-
-    # event level + binary
-    dataset.set_task(task_event)
-    dataloader = DataLoader(
-        dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
-    )
-    model = RETAIN(
-        dataset=dataset,
-        feature_keys=["conditions", "procedures"],
-        label_key="value_label",
-        mode="binary",
-        operation_level="event",
-    )
-    model.to("cuda")
-    batch = iter(dataloader).next()
-    output = model(**batch, device="cuda")
-    print(output["loss"])
-
-    # visit level + binary
-    dataset.set_task(task_visit)
-    dataloader = DataLoader(
-        dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
-    )
-    model = RETAIN(
-        dataset=dataset,
-        feature_keys=["conditions", "procedures"],
-        label_key="value_label",
-        mode="binary",
-        operation_level="visit",
-    )
-    model.to("cuda")
-    batch = iter(dataloader).next()
-    output = model(**batch, device="cuda")
-    print(output["loss"])
-
-    # event level + multiclass
-    dataset.set_task(task_event)
-    dataloader = DataLoader(
-        dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
-    )
-    model = RETAIN(
-        dataset=dataset,
-        feature_keys=["conditions", "procedures"],
-        label_key="value_label",
-        mode="multiclass",
-        operation_level="event",
-    )
-    model.to("cuda")
-    batch = iter(dataloader).next()
-    output = model(**batch, device="cuda")
-    print(output["loss"])
-
-    # visit level + multiclass
-    dataset.set_task(task_visit)
-    dataloader = DataLoader(
-        dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
-    )
-    model = RETAIN(
-        dataset=dataset,
-        feature_keys=["conditions", "procedures"],
-        label_key="value_label",
-        mode="multiclass",
-        operation_level="visit",
-    )
-    model.to("cuda")
-    batch = iter(dataloader).next()
-    output = model(**batch, device="cuda")
-    print(output["loss"])
-
-    # event level + multilabel
-    dataset.set_task(task_event)
-    dataloader = DataLoader(
-        dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
-    )
-    model = RETAIN(
-        dataset=dataset,
-        feature_keys=["conditions", "procedures"],
-        label_key="list_label",
-        mode="multilabel",
-        operation_level="event",
-    )
-    model.to("cuda")
-    batch = iter(dataloader).next()
-    output = model(**batch, device="cuda")
-    print(output["loss"])
-
-    # visit level + multilabel
-    dataset.set_task(task_visit)
-    dataloader = DataLoader(
-        dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
-    )
-    model = RETAIN(
-        dataset=dataset,
-        feature_keys=["conditions", "procedures"],
-        label_key="list_label",
-        mode="multilabel",
-        operation_level="visit",
-    )
-    model.to("cuda")
-    batch = iter(dataloader).next()
-    output = model(**batch, device="cuda")
-    print(output["loss"])

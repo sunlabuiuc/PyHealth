@@ -48,7 +48,7 @@ class BaseModel(ABC, nn.Module):
         return self._dummy_param.device
 
     def get_feature_tokenizers(self, special_tokens=None) -> Dict[str, Tokenizer]:
-        """Gets the default feature tokenizers using self.feature_keys.
+        """Gets the default feature tokenizers using `self.feature_keys`.
 
         Args:
             special_tokens: a list of special tokens to add to the tokenizer.
@@ -69,7 +69,7 @@ class BaseModel(ABC, nn.Module):
         return feature_tokenizers
 
     def get_label_tokenizer(self, special_tokens=None) -> Tokenizer:
-        """Gets the default label tokenizers using self.label_key.
+        """Gets the default label tokenizers using `self.label_key`.
 
         Args:
             special_tokens: a list of special tokens to add to the tokenizer.
@@ -95,12 +95,12 @@ class BaseModel(ABC, nn.Module):
 
         Args:
             feature_tokenizers: a dictionary of feature tokenizers with keys
-                corresponding to self.feature_keys.
+                corresponding to `self.feature_keys`.
             embedding_dim: the dimension of the embedding.
 
         Returns:
             embedding_layers: a module dictionary of embedding layers with keys
-                corresponding to self.feature_keys.
+                corresponding to `self.feature_keys`.
         """
         embedding_layers = nn.ModuleDict()
         for key, tokenizer in feature_tokenizers.items():
@@ -112,7 +112,7 @@ class BaseModel(ABC, nn.Module):
         return embedding_layers
 
     def get_output_size(self, label_tokenizer: Tokenizer) -> int:
-        """Gets the default output size using the label tokenizer and self.mode.
+        """Gets the default output size using the label tokenizer and `self.mode`.
 
         If the mode is "binary", the output size is 1. If the mode is "multiclass"
         or "multilabel", the output size is the number of classes or labels.
@@ -130,12 +130,12 @@ class BaseModel(ABC, nn.Module):
         return output_size
 
     def get_loss_function(self) -> Callable:
-        """Gets the default loss function using self.mode.
+        """Gets the default loss function using `self.mode`.
 
         The default loss functions are:
-            - binary: F.binary_cross_entropy_with_logits
-            - multiclass: F.cross_entropy
-            - multilabel: F.binary_cross_entropy_with_logits
+            - binary: `F.binary_cross_entropy_with_logits`
+            - multiclass: `F.cross_entropy`
+            - multilabel: `F.binary_cross_entropy_with_logits`
 
         Returns:
             The default loss function.
@@ -195,11 +195,13 @@ class BaseModel(ABC, nn.Module):
 
         This function converts the predicted logits to predicted probabilities
         depending on the mode. The default formats are:
-            - binary: a tensor of shape (batch_size, 1) with values in [0, 1]
+            - binary: a tensor of shape (batch_size, 1) with values in [0, 1],
+                which is obtained with `torch.sigmoid()`
             - multiclass: a tensor of shape (batch_size, num_classes) with
-                values in [0, 1] and sum to 1
+                values in [0, 1] and sum to 1, which is obtained with
+                `torch.softmax()`
             - multilabel: a tensor of shape (batch_size, num_labels) with values
-                in [0, 1]
+                in [0, 1], which is obtained with `torch.sigmoid()`
 
         Args:
             logits: the predicted logit tensor.
