@@ -29,6 +29,7 @@ def get_last_visit(hidden_states, mask):
     Returns:
         last_visit: [batch size, hidden_size]
     """
+    mask = mask.long()
     last_visit = torch.sum(mask, 1) - 1
     last_visit = last_visit.unsqueeze(-1)
     last_visit = last_visit.expand(-1, hidden_states.shape[1] * hidden_states.shape[2])

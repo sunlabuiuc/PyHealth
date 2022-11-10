@@ -1,6 +1,6 @@
 from collections import defaultdict
 from copy import deepcopy
-from typing import List, Dict, Tuple
+from typing import List, Tuple, Dict, Optional
 
 import numpy as np
 import rdkit.Chem.BRICS as BRICS
@@ -129,14 +129,16 @@ class SafeDrugLayer(nn.Module):
         hidden_size: hidden feature size.
         mask_H: the mask matrix H of shape [num_drugs, num_substructures].
         ddi_adj: an adjacency tensor of shape [num_drugs, num_drugs].
-        num_fingerprints: total number of fingerprints.
-        molecular_set: a list of molecule tuples (A, B, C)
-            - A <matrix>: fingerprints of atoms in the molecule
-            - B <matrix>: adjacency matrix of the molecule
+        num_fingerprints: total number of different fingerprints.
+        molecule_set: a list of molecule tuples (A, B, C) of length num_molecules.
+            - A <torch.tensor>: fingerprints of atoms in the molecule
+            - B <torch.tensor>: adjacency matrix of the molecule
             - C <int>: molecular_size
-        average_projection: the average projection for aggregating multiple molecules of the same drug into one vector
-        kp: correcting factor for the proportional signal.
-        target_ddi: DDI acceptance rate.
+        average_projection: a tensor of shape [num_drugs, num_molecules] representing
+            the average projection for aggregating multiple molecules of the
+            same drug into one vector.
+        kp: correcting factor for the proportional signal. Default is 0.5.
+        target_ddi: DDI acceptance rate. Default is 0.08.
     """
 
     def __init__(
@@ -185,11 +187,11 @@ class SafeDrugLayer(nn.Module):
         self.loss_fn = nn.BCEWithLogitsLoss()
 
     def pad(self, matrices, pad_value):
-        """Pad the list of matrices
-        with a pad_value (e.g., 0) for batch processing.
-        For example, given a list of matrices [A, B, C],
-        we obtain a new matrix [A00, 0B0, 00C],
-        where 0 is the zero (i.e., pad value) matrix.
+        """Pads the list of matrices.
+
+        Padding with a pad_value (e.g., 0) for batch processing.
+        For example, given a list of matrices [A, B, C], we obtain a new
+        matrix [A00, 0B0, 00C], where 0 is the zero (i.e., pad value) matrix.
         """
         shapes = [m.shape for m in matrices]
         M, N = sum([s[0] for s in shapes]), sum([s[1] for s in shapes])
@@ -230,22 +232,25 @@ class SafeDrugLayer(nn.Module):
     def forward(
             self,
             patient_emb: torch.tensor,
-            mask: torch.tensor,
-            drugs: torch.tensor
+            drugs: torch.tensor,
+            mask: Optional[torch.tensor] = None,
     ) -> Tuple[torch.tensor, torch.tensor]:
-        """Forward computation.
+        """Forward propagation.
 
         Args:
             patient_emb: a tensor of shape [patient, visit, input_size].
-            mask: a tensor of shape [patient, visit] where 1 indicates
-                valid visits and 0 indicates invalid visits.
             drugs: a multihot tensor of shape [patient, num_labels].
+            mask: an optional tensor of shape [patient, visit] where 1
+                indicates valid visits and 0 indicates invalid visits.
 
         Returns:
             loss: a scalar tensor representing the loss.
             y_prob: a tensor of shape [patient, num_labels] representing
                 the probability of each drug.
         """
+        if mask is None:
+            mask = torch.ones_like(patient_emb[:, :, 0])
+
         query = get_last_visit(patient_emb, mask)  # (batch, dim)
 
         # MPNN Encoder
@@ -280,21 +285,22 @@ class SafeDrug(BaseModel):
     Paper: Chaoqi Yang et al. SafeDrug: Dual Molecular Graph Encoders for
     Recommending Effective and Safe Drug Combinations. IJCAI 2021.
 
-     Note:
+    Note:
         This model is only for medication prediction which takes conditions
         and procedures as feature_keys, and drugs as label_key. It only operates
         on the visit level.
 
+    Note:
+        This model only accepts ATC level 3 as medication codes.
 
     Args:
-        dataset: the dataset object
-        feature_keys: the list of table names to use
-        label_key: the target table name
-        mode: the mode of the model, "multilabel", "multiclass" or "binary"
-        embedding_dim: the embedding dimension
-        hidden_dim: the hidden dimension
-        kp: the keep probability in PID strategy
-        target_ddi: the target ddi value
+        dataset: the dataset to train the model. It is used to query certain
+            information such as the set of all tokens.
+        embedding_dim: the embedding dimension. Default is 128.
+        hidden_dim: the hidden dimension. Default is 128.
+        num_layers: the number of layers used in RNN. Default is 1.
+        dropout: the dropout rate. Default is 0.5.
+        **kwargs: other parameters for the SafeDrug layer.
     """
 
     def __init__(
@@ -324,10 +330,10 @@ class SafeDrug(BaseModel):
         # drug space size
         self.label_size = self.label_tokenizer.get_vocabulary_size()
 
-        self.ddi_adj = self.generate_ddi_adj()
         self.all_smiles_list = self.generate_smiles_list()
-        self.mask_H = self.generate_mask_H()
+        mask_H = self.generate_mask_H()
         molecule_set, num_fingerprints, average_projection = self.generate_molecule_info()
+        ddi_adj = self.generate_ddi_adj()
 
         self.cond_rnn = nn.GRU(
             embedding_dim,
@@ -347,13 +353,27 @@ class SafeDrug(BaseModel):
             nn.ReLU(),
             nn.Linear(hidden_dim * 2, hidden_dim),
         )
+
+        # validate kwargs for GAMENet layer
+        if "hidden_size" in kwargs:
+            raise ValueError("hidden_size is determined by hidden_dim")
+        if "mask_H" in kwargs:
+            raise ValueError("mask_H is determined by the dataset")
+        if "ddi_adj" in kwargs:
+            raise ValueError("ddi_adj is determined by the dataset")
+        if "num_fingerprints" in kwargs:
+            raise ValueError("num_fingerprints is determined by the dataset")
+        if "molecule_set" in kwargs:
+            raise ValueError("molecule_set is determined by the dataset")
+        if "average_projection" in kwargs:
+            raise ValueError("average_projection is determined by the dataset")
         self.safedrug = SafeDrugLayer(
             hidden_size=hidden_dim,
+            mask_H=mask_H,
+            ddi_adj=ddi_adj,
             num_fingerprints=num_fingerprints,
             molecule_set=molecule_set,
             average_projection=average_projection,
-            mask_H=self.mask_H,
-            ddi_adj=self.ddi_adj,
             **kwargs
         )
 
@@ -364,7 +384,9 @@ class SafeDrug(BaseModel):
         label_size = self.label_tokenizer.get_vocabulary_size()
         vocab_to_index = self.label_tokenizer.vocabulary
         ddi_adj = np.zeros((label_size, label_size))
-        ddi_atc3 = [[l[0][:4], l[1][:4]] for l in ddi]
+        ddi_atc3 = [
+            [ATC.convert(l[0], level=3), ATC.convert(l[1], level=3)] for l in ddi
+        ]
         for atc_i, atc_j in ddi_atc3:
             if atc_i in vocab_to_index and atc_j in vocab_to_index:
                 ddi_adj[vocab_to_index(atc_i), vocab_to_index(atc_j)] = 1
@@ -379,7 +401,7 @@ class SafeDrug(BaseModel):
         for code in atc.graph.nodes:
             if len(code) != 7:
                 continue
-            code_atc3 = code[:4]
+            code_atc3 = ATC.convert(code, level=3)
             smiles = atc.graph.nodes[code]["smiles"]
             if smiles != smiles:
                 continue
@@ -523,7 +545,8 @@ class SafeDrug(BaseModel):
             drugs: List[List[str]],
             **kwargs,
     ) -> Dict[str, torch.Tensor]:
-        """
+        """Forward propagation.
+
         Args:
             conditions: a nested list in three levels [patient, visit, condition].
             procedures: a nested list in three levels [patient, visit, procedure].
@@ -567,7 +590,7 @@ class SafeDrug(BaseModel):
 
         drugs = self.prepare_labels(drugs, self.label_tokenizer)
 
-        loss, y_prob = self.safedrug(patient_emb, mask, drugs)
+        loss, y_prob = self.safedrug(patient_emb, drugs, mask)
 
         return {
             "loss": loss,
