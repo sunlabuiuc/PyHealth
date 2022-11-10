@@ -501,8 +501,10 @@ class BaseDataset(ABC, Dataset):
                          f"{sum(num_events) / len(num_events):.4f}")
             lines.append(
                 f"\t\t- Number of unique {key}: {len(self.get_all_tokens(key))}")
+            distribution = self.get_distribution_tokens(key)
+            top10 = sorted(distribution.items(), key=lambda x: x[1], reverse=True)[:10]
             lines.append(
-                f"\t\t- Distribution of {key}: {self.get_distribution_tokens(key)}")
+                f"\t\t- Distribution of {key} (Top-10): {top10}")
         return "\n".join(lines)
 
     @staticmethod
