@@ -109,7 +109,7 @@ An ML Pipeline Example
     from pyhealth.tasks import drug_recommendation_mimic3_fn
     from pyhealth.datasets.splitter import split_by_patient
     from torch.utils.data import DataLoader
-    from pyhealth.utils import collate_fn_dict
+    from pyhealth.datasets.utils import collate_fn_dict
 
     mimic3dataset.set_task(task_fn=drug_recommendation_mimic3_fn) # use default drugrec task
     train_ds, val_ds, test_ds = split_by_patient(mimic3dataset, [0.8, 0.1, 0.1])

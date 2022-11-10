@@ -5,7 +5,7 @@ from pyhealth.datasets import MIMIC3Dataset, eICUDataset, MIMIC4Dataset, OMOPDat
 from pyhealth.models import *
 from pyhealth.datasets.splitter import split_by_patient
 from pyhealth.tasks import *
-from pyhealth.utils import collate_fn_dict
+from pyhealth.datasets.utils import collate_fn_dict
 from pyhealth.trainer import Trainer
 from pyhealth.evaluator import evaluate
 from pyhealth.metrics import *

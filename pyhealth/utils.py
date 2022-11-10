@@ -6,10 +6,6 @@ import numpy as np
 import torch
 
 
-def collate_fn_dict(batch):
-    return {key: [d[key] for d in batch] for key in batch[0]}
-
-
 def set_seed(seed):
     random.seed(seed)
     np.random.seed(seed)

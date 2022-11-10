@@ -1,7 +1,7 @@
 from torch.utils.data import DataLoader
 
 from pyhealth.datasets import MIMIC3Dataset
-from pyhealth.utils import collate_fn_dict
+from pyhealth.datasets.utils import collate_fn_dict
 
 # from pyhealth.models import CNN as Model
 # from pyhealth.models import RNN as Model
