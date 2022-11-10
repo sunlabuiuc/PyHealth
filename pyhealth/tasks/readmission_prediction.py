@@ -6,8 +6,8 @@ def readmission_prediction_mimic3_fn(patient: Patient, time_window=15):
     """Processes a single patient for the readmission prediction task.
 
     Readmission prediction aims at predicting whether the patient will be readmitted
-        into hospital within time_window days based on the clinical information from
-        current visit (e.g., conditions and procedures).
+    into hospital within time_window days based on the clinical information from
+    current visit (e.g., conditions and procedures).
 
     Args:
         patient: a Patient object
@@ -20,7 +20,7 @@ def readmission_prediction_mimic3_fn(patient: Patient, time_window=15):
 
     Note that we define the task as a binary classification task.
     
-   Examples:
+    Examples:
         >>> from pyhealth.datasets import MIMIC3Dataset
         >>> mimic3_ds = MIMIC3Dataset(
         ...    root="/srv/local/data/physionet.org/files/mimiciii/1.4",
@@ -31,7 +31,6 @@ def readmission_prediction_mimic3_fn(patient: Patient, time_window=15):
         >>> dataset.set_task(readmission_prediction_mimic3_fn) # set task
         >>> dataset.samples[0] # exampe of an training sample
         [{'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '19', '122', '98', '663', '58', '51']], 'procedures': [['1']], 'label': 1}]
-        
     """
     samples = []
 
@@ -69,8 +68,8 @@ def readmission_prediction_mimic4_fn(patient: Patient, time_window=15):
     """Processes a single patient for the readmission prediction task.
 
     Readmission prediction aims at predicting whether the patient will be readmitted
-        into hospital within time_window days based on the clinical information from
-        current visit (e.g., conditions and procedures).
+    into hospital within time_window days based on the clinical information from
+    current visit (e.g., conditions and procedures).
 
     Args:
         patient: a Patient object
@@ -83,7 +82,7 @@ def readmission_prediction_mimic4_fn(patient: Patient, time_window=15):
 
     Note that we define the task as a binary classification task.
     
-   Examples:
+    Examples:
         >>> from pyhealth.datasets import MIMIC4Dataset
         >>> mimic4_ds = MIMIC4Dataset(
         ...     root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
@@ -94,7 +93,6 @@ def readmission_prediction_mimic4_fn(patient: Patient, time_window=15):
         >>> dataset.set_task(readmission_prediction_mimic4_fn) # set task
         >>> dataset.samples[0] # exampe of an training sample
         [{'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '19', '122', '98', '663', '58', '51']], 'procedures': [['1']], 'label': 0}]
-        
     """
     samples = []
 
@@ -132,8 +130,8 @@ def readmission_prediction_eicu_fn(patient: Patient, time_window=5):
     """Processes a single patient for the readmission prediction task.
 
     Readmission prediction aims at predicting whether the patient will be readmitted
-        into hospital within time_window days based on the clinical information from
-        current visit (e.g., conditions and procedures).
+    into hospital within time_window days based on the clinical information from
+    current visit (e.g., conditions and procedures).
 
     Args:
         patient: a Patient object
@@ -146,7 +144,7 @@ def readmission_prediction_eicu_fn(patient: Patient, time_window=5):
 
     Note that we define the task as a binary classification task.
     
-   Examples:
+    Examples:
         >>> from pyhealth.datasets import eICUDataset
         >>> eicu_ds = eICUDataset(
         ...     root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
@@ -158,7 +156,6 @@ def readmission_prediction_eicu_fn(patient: Patient, time_window=5):
         >>> dataset.set_task(readmission_prediction_eicu_fn) # set task
         >>> dataset.samples[0] # exampe of an training sample
         [{'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '98', '663', '58', '51']], 'procedures': [['1']], 'label': 1}]
-        
     """
     samples = []
     # we will drop the last visit
@@ -194,8 +191,8 @@ def readmission_prediction_omop_fn(patient: Patient, time_window=15):
     """Processes a single patient for the readmission prediction task.
 
     Readmission prediction aims at predicting whether the patient will be readmitted
-        into hospital within time_window days based on the clinical information from
-        current visit (e.g., conditions and procedures).
+    into hospital within time_window days based on the clinical information from
+    current visit (e.g., conditions and procedures).
 
     Args:
         patient: a Patient object
@@ -219,7 +216,6 @@ def readmission_prediction_omop_fn(patient: Patient, time_window=15):
         >>> dataset.set_task(readmission_prediction_eicu_fn) # set task
         >>> dataset.samples[0] # exampe of an training sample
         [{'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '98', '663', '58', '51']], 'procedures': [['1']], 'label': 1}]
-        
     """
     samples = []
     # we will drop the last visit

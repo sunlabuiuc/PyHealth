@@ -5,7 +5,7 @@ def drug_recommendation_mimic3_fn(patient: Patient):
     """Processes a single patient for the drug recommendation task.
 
     Drug recommendation aims at recommending a set of drugs given the patient health
-        history  (e.g., conditions and procedures).
+    history  (e.g., conditions and procedures).
 
     Args:
         patient: a Patient object
@@ -25,7 +25,6 @@ def drug_recommendation_mimic3_fn(patient: Patient):
         >>> dataset.set_task(drug_recommendation_mimic3_fn) # set task
         >>> dataset.samples[0] # exampe of an training sample
         [{'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '19', '122', '98', '663', '58', '51']], 'procedures': [['1']], 'label': [['2', '3', '4']]}]
-        
     """
     samples = []
     for i in range(len(patient)):
@@ -72,7 +71,7 @@ def drug_recommendation_mimic4_fn(patient: Patient):
     """Processes a single patient for the drug recommendation task.
 
     Drug recommendation aims at recommending a set of drugs given the patient health
-        history  (e.g., conditions and procedures).
+    history  (e.g., conditions and procedures).
 
     Args:
         patient: a Patient object
@@ -81,7 +80,7 @@ def drug_recommendation_mimic4_fn(patient: Patient):
         samples: a list of samples, each sample is a dict with patient_id, visit_id,
             and other task-specific attributes as key
         
-   Examples:
+    Examples:
         >>> from pyhealth.datasets import MIMIC4Dataset
         >>> mimic4_ds = MIMIC4Dataset(
         ...     root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
@@ -92,7 +91,6 @@ def drug_recommendation_mimic4_fn(patient: Patient):
         >>> dataset.set_task(drug_recommendation_mimic4_fn) # set task
         >>> dataset.samples[0] # exampe of an training sample
         [{'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '19', '122', '98', '663', '58', '51']], 'procedures': [['1']], 'label': [['2', '3', '4']]}]
-        
     """
     samples = []
     for i in range(len(patient)):
@@ -139,7 +137,7 @@ def drug_recommendation_eicu_fn(patient: Patient):
     """Processes a single patient for the drug recommendation task.
 
     Drug recommendation aims at recommending a set of drugs given the patient health
-        history  (e.g., conditions and procedures).
+    history  (e.g., conditions and procedures).
 
     Args:
         patient: a Patient object
@@ -148,7 +146,7 @@ def drug_recommendation_eicu_fn(patient: Patient):
         samples: a list of samples, each sample is a dict with patient_id, visit_id,
             and other task-specific attributes as key
         
-   Examples:
+    Examples:
         >>> from pyhealth.datasets import eICUDataset
         >>> eicu_ds = eICUDataset(
         ...     root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
@@ -160,7 +158,6 @@ def drug_recommendation_eicu_fn(patient: Patient):
         >>> dataset.set_task(drug_recommendation_eicu_fn) # set task
         >>> dataset.samples[0] # exampe of an training sample
         [{'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '98', '663', '58', '51']], 'procedures': [['1']], 'label': [['2', '3', '4']]}]
-        
     """
     samples = []
     for i in range(len(patient)):
@@ -205,7 +202,7 @@ def drug_recommendation_omop_fn(patient: Patient):
     """Processes a single patient for the drug recommendation task.
 
     Drug recommendation aims at recommending a set of drugs given the patient health
-        history  (e.g., conditions and procedures).
+    history  (e.g., conditions and procedures).
 
     Args:
         patient: a Patient object
@@ -225,7 +222,6 @@ def drug_recommendation_omop_fn(patient: Patient):
         >>> dataset.set_task(drug_recommendation_eicu_fn) # set task
         >>> dataset.samples[0] # exampe of an training sample
         [{'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '98', '663', '58', '51'], ['98', '663', '58', '51']], 'procedures': [['1'], ['2', '3']], 'label': [['2', '3', '4'], ['0', '1', '4', '5']]}]
-        
     """
 
     samples = []

@@ -10,4 +10,4 @@ tasks, such as drug drug interaction (DDI) rate.
 
     metrics/pyhealth.metrics.multiclass
     metrics/pyhealth.metrics.multilabel
-    metrics/pyhealth.metrics.multiclass_avg_patient
+    metrics/pyhealth.metrics.binary

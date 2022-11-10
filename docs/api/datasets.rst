@@ -10,4 +10,5 @@ Datasets
     datasets/pyhealth.datasets.eICUDataset
     datasets/pyhealth.datasets.OMOPDataset
     datasets/pyhealth.datasets.splitter
+    datasets/pyhealth.datasets.utils
 
