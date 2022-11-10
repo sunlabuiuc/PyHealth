@@ -170,7 +170,7 @@ class TransformerLayer(nn.Module):
                 the output features for the first time step.
         """
         if mask is not None:
-            mask = torch.einsum('ab,ac->abc', mask, mask)
+            mask = torch.einsum("ab,ac->abc", mask, mask)
         for transformer in self.transformer:
             x = transformer(x, mask)
         emb = x

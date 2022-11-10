@@ -1,17 +1,20 @@
+from typing import List
+
 import numpy as np
 
 
 # TODO: this metric is very ad-hoc, need to be improved
 
-def ddi_rate_score(medications: np.ndarray, ddi_matrix: np.ndarray) -> float:
+def ddi_rate_score(medications: List[np.ndarray], ddi_matrix: np.ndarray) -> float:
     """DDI rate score.
 
     Args:
-        medications: array-like of shape (n_samples, n_classes)
-        ddi_matrix: array-like of shape (n_classes, n_classes)
+        medications: list of medications for each patient, where each medication
+            is represented by the corresponding index in the ddi matrix.
+        ddi_matrix: array-like of shape (n_classes, n_classes).
 
     Returns:
-        result: DDI rate score
+        result: DDI rate score.
     """
     all_cnt = 0
     ddi_cnt = 0
