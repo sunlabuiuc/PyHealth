@@ -50,7 +50,7 @@ def binary_metrics_fn(
     return output
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     all_metrics = [
         "pr_auc",
         "roc_auc",

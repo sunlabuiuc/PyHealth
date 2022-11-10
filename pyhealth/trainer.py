@@ -206,17 +206,17 @@ class DLTrainer:
                 training_loss.append(loss.item())
                 global_step += 1
             # log and save
-            logging.info(f'--- Train epoch-{epoch}, step-{global_step} ---')
-            logging.info(f'loss: {sum(training_loss) / len(training_loss):.4f}')
+            logging.info(f"--- Train epoch-{epoch}, step-{global_step} ---")
+            logging.info(f"loss: {sum(training_loss) / len(training_loss):.4f}")
             if self.exp_path is not None:
                 self.save_ckpt(os.path.join(self.exp_path, "last.ckpt"))
 
             # validation
             if val_dataloader is not None:
                 scores = self.evaluate(val_dataloader)
-                logging.info(f'--- Eval epoch-{epoch}, step-{global_step} ---')
+                logging.info(f"--- Eval epoch-{epoch}, step-{global_step} ---")
                 for key in scores.keys():
-                    logging.info('{}: {:.4f}'.format(key, scores[key]))
+                    logging.info("{}: {:.4f}".format(key, scores[key]))
                 # save best model
                 if monitor is not None:
                     score = scores[monitor]
@@ -235,9 +235,9 @@ class DLTrainer:
         # test
         if test_dataloader is not None:
             scores = self.evaluate(test_dataloader)
-            logging.info(f'--- Test ---')
+            logging.info(f"--- Test ---")
             for key in scores.keys():
-                logging.info('{}: {:.4f}'.format(key, scores[key]))
+                logging.info("{}: {:.4f}".format(key, scores[key]))
 
         return
 
