@@ -1,17 +1,11 @@
-import sys
-
 from pyhealth.data import Patient, Visit
-
-# TODO: remove this hack later
-sys.path.append("/home/chaoqiy2/github/PyHealth-OMOP")
 
 
 def drug_recommendation_mimic3_fn(patient: Patient):
-    """
+    """Processes a single patient for the drug recommendation task.
+
     Drug recommendation aims at recommending a set of drugs given the patient health
         history  (e.g., conditions and procedures).
-
-    Process a single patient for the drug recommendation task.
 
     Args:
         patient: a Patient object
@@ -20,12 +14,7 @@ def drug_recommendation_mimic3_fn(patient: Patient):
         samples: a list of samples, each sample is a dict with patient_id, visit_id,
             and other task-specific attributes as key
 
-    Note that a patient may be converted to multiple samples, e.g., a patient with
-        three visits may be converted to three samples ([visit 1], [visit 1, visit 2],
-        [visit 1, visit 2, visit 3]). Patients can also be excluded from the task
-        dataset by returning an empty list.
-        
-    **Example:**
+    Examples:
         >>> from pyhealth.datasets import MIMIC3Dataset
         >>> mimic3_ds = MIMIC3Dataset(
         ...    root="/srv/local/data/physionet.org/files/mimiciii/1.4",
@@ -80,11 +69,10 @@ def drug_recommendation_mimic3_fn(patient: Patient):
 
 
 def drug_recommendation_mimic4_fn(patient: Patient):
-    """
+    """Processes a single patient for the drug recommendation task.
+
     Drug recommendation aims at recommending a set of drugs given the patient health
         history  (e.g., conditions and procedures).
-
-    Process a single patient for the drug recommendation task.
 
     Args:
         patient: a Patient object
@@ -92,13 +80,8 @@ def drug_recommendation_mimic4_fn(patient: Patient):
     Returns:
         samples: a list of samples, each sample is a dict with patient_id, visit_id,
             and other task-specific attributes as key
-
-    Note that a patient may be converted to multiple samples, e.g., a patient with
-        three visits may be converted to three samples ([visit 1], [visit 1, visit 2],
-        [visit 1, visit 2, visit 3]). Patients can also be excluded from the task
-        dataset by returning an empty list.
         
-    **Example:**
+   Examples:
         >>> from pyhealth.datasets import MIMIC4Dataset
         >>> mimic4_ds = MIMIC4Dataset(
         ...     root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
@@ -153,11 +136,10 @@ def drug_recommendation_mimic4_fn(patient: Patient):
 
 
 def drug_recommendation_eicu_fn(patient: Patient):
-    """
+    """Processes a single patient for the drug recommendation task.
+
     Drug recommendation aims at recommending a set of drugs given the patient health
         history  (e.g., conditions and procedures).
-
-    Process a single patient for the drug recommendation task.
 
     Args:
         patient: a Patient object
@@ -165,13 +147,8 @@ def drug_recommendation_eicu_fn(patient: Patient):
     Returns:
         samples: a list of samples, each sample is a dict with patient_id, visit_id,
             and other task-specific attributes as key
-
-    Note that a patient may be converted to multiple samples, e.g., a patient with
-        three visits may be converted to three samples ([visit 1], [visit 1, visit 2],
-        [visit 1, visit 2, visit 3]). Patients can also be excluded from the task
-        dataset by returning an empty list.
         
-    **Example:**
+   Examples:
         >>> from pyhealth.datasets import eICUDataset
         >>> eicu_ds = eICUDataset(
         ...     root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
@@ -225,11 +202,10 @@ def drug_recommendation_eicu_fn(patient: Patient):
 
 
 def drug_recommendation_omop_fn(patient: Patient):
-    """
+    """Processes a single patient for the drug recommendation task.
+
     Drug recommendation aims at recommending a set of drugs given the patient health
         history  (e.g., conditions and procedures).
-
-    Process a single patient for the drug recommendation task.
 
     Args:
         patient: a Patient object
@@ -237,13 +213,8 @@ def drug_recommendation_omop_fn(patient: Patient):
     Returns:
         samples: a list of samples, each sample is a dict with patient_id, visit_id,
             and other task-specific attributes as key
-
-    Note that a patient may be converted to multiple samples, e.g., a patient with
-        three visits may be converted to three samples ([visit 1], [visit 1, visit 2],
-        [visit 1, visit 2, visit 3]). Patients can also be excluded from the task
-        dataset by returning an empty list.
         
-    **Examples:**
+    Examples:
         >>> from pyhealth.datasets import OMOPDataset
         >>> omop_ds = OMOPDataset(
         ...     root="https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2",
@@ -256,7 +227,7 @@ def drug_recommendation_omop_fn(patient: Patient):
         [{'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '98', '663', '58', '51'], ['98', '663', '58', '51']], 'procedures': [['1'], ['2', '3']], 'label': [['2', '3', '4'], ['0', '1', '4', '5']]}]
         
     """
-    
+
     samples = []
     for i in range(len(patient)):
         visit: Visit = patient[i]

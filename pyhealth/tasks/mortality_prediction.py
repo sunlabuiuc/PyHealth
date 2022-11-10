@@ -1,17 +1,12 @@
-import sys
-
-# TODO: remove this hack later
-sys.path.append("/home/chaoqiy2/github/PyHealth-OMOP")
 from pyhealth.data import Patient, Visit
 
 
 def mortality_prediction_mimic3_fn(patient: Patient):
-    """
+    """Processes a single patient for the mortality prediction task.
+
     Mortality prediction aims at predicting whether the patient will decease in the
         next hospital visit based on the clinical information from current visit
         (e.g., conditions and procedures).
-
-    Process a single patient for the mortality prediction task.
 
     Args:
         patient: a Patient object
@@ -22,7 +17,7 @@ def mortality_prediction_mimic3_fn(patient: Patient):
 
     Note that we define the task as a binary classification task.
     
-    **Example:**
+   Examples:
         >>> from pyhealth.datasets import MIMIC3Dataset
         >>> mimic3_ds = MIMIC3Dataset(
         ...    root="/srv/local/data/physionet.org/files/mimiciii/1.4",
@@ -69,12 +64,11 @@ def mortality_prediction_mimic3_fn(patient: Patient):
 
 
 def mortality_prediction_mimic4_fn(patient: Patient):
-    """
+    """Processes a single patient for the mortality prediction task.
+
     Mortality prediction aims at predicting whether the patient will decease in the
         next hospital visit based on the clinical information from current visit
         (e.g., conditions and procedures).
-
-    Process a single patient for the mortality prediction task.
 
     Args:
         patient: a Patient object
@@ -85,7 +79,7 @@ def mortality_prediction_mimic4_fn(patient: Patient):
 
     Note that we define the task as a binary classification task.
     
-    **Example:**
+   Examples:
         >>> from pyhealth.datasets import MIMIC4Dataset
         >>> mimic4_ds = MIMIC4Dataset(
         ...     root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
@@ -132,12 +126,11 @@ def mortality_prediction_mimic4_fn(patient: Patient):
 
 
 def mortality_prediction_eicu_fn(patient: Patient):
-    """
+    """Processes a single patient for the mortality prediction task.
+
     Mortality prediction aims at predicting whether the patient will decease in the
         next hospital visit based on the clinical information from current visit
         (e.g., conditions and procedures).
-
-    Process a single patient for the mortality prediction task.
 
     Args:
         patient: a Patient object
@@ -148,7 +141,7 @@ def mortality_prediction_eicu_fn(patient: Patient):
 
     Note that we define the task as a binary classification task.
     
-    **Example:**
+   Examples:
         >>> from pyhealth.datasets import eICUDataset
         >>> eicu_ds = eICUDataset(
         ...     root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
@@ -195,12 +188,11 @@ def mortality_prediction_eicu_fn(patient: Patient):
 
 
 def mortality_prediction_omop_fn(patient: Patient):
-    """
+    """Processes a single patient for the mortality prediction task.
+
     Mortality prediction aims at predicting whether the patient will decease in the
         next hospital visit based on the clinical information from current visit
         (e.g., conditions and procedures).
-
-    Process a single patient for the mortality prediction task.
 
     Args:
         patient: a Patient object
@@ -211,7 +203,7 @@ def mortality_prediction_omop_fn(patient: Patient):
 
     Note that we define the task as a binary classification task.
     
-    **Examples:**
+    Examples:
         >>> from pyhealth.datasets import OMOPDataset
         >>> omop_ds = OMOPDataset(
         ...     root="https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2",
@@ -304,4 +296,3 @@ if __name__ == "__main__":
     dataset.set_task(task_fn=mortality_prediction_omop_fn)
     dataset.stat()
     print(dataset.available_keys)
-
