@@ -23,7 +23,7 @@ class Event:
         attr_dict: Dict, dictionary of visit attributes. Each key is an attribute
             name and each value is the attribute's value.
 
-    Example:
+    Examples:
         >>> from pyhealth.data import Event
         >>> event = Event(
         ...     code="00069153041",
@@ -95,7 +95,7 @@ class Visit:
             Each key is a table name and each value is a list of events from that
             table ordered by timestamp.
 
-    Example:
+    Examples:
         >>> from pyhealth.data import Event, Visit
         >>> event = Event(
         ...     code="00069153041",
@@ -286,7 +286,7 @@ class Patient:
         index_to_visit_id: Dict[int, str], dictionary that maps the index of a visit
             in the visits list to the corresponding visit_id.
 
-    Example:
+    Examples:
             >>> from pyhealth.data import Event, Visit, Patient
             >>> event = Event(
             ...     code="00069153041",
