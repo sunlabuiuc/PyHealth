@@ -306,9 +306,7 @@ the performance for different models doing different tasks on different datasets
    from leaderboard import leaderboard_gen, utils
    args = leaderboard_gen.construct_args()
    leaderboard_gen.plots_generation(args)
-
-
-
+..
 
 .. toctree::
    :maxdepth: 4

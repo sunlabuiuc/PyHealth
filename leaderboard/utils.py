@@ -263,7 +263,7 @@ def get_typed_df_with_time(dfs, type):
 
 def make_bokeh_plot(source, metric, f):
     p = figure(
-        height=335, width=335,
+        height=305, width=305,
         tools=["pan, box_zoom, reset, save, crosshair"],
         toolbar_location='above',
         y_range=[0, 1.0],
@@ -291,6 +291,7 @@ def make_bokeh_plot(source, metric, f):
     p.add_tools(hover)
 
     p.legend.location = 'bottom_right'
+    p.xaxis.major_label_orientation = 3.14 / 3
 
     return p
 
@@ -327,7 +328,7 @@ def generate_bokeh_figure(df):
                                  source.change.emit();
                              """))
 
-    cg.width = 170
+    cg.width = 165
 
     p_jac = make_bokeh_plot(source, 'Jaccard', f)
     p_acc = make_bokeh_plot(source, 'Accuracy', f)
