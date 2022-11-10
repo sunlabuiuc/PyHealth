@@ -1,231 +1,221 @@
-from typing import List, Tuple, Union
+from typing import List, Tuple, Dict, Optional
 
 import torch
 import torch.nn as nn
-import torch.nn.utils.rnn as rnn_utils
 
 from pyhealth.datasets import BaseDataset
 from pyhealth.models import BaseModel
-from pyhealth.tokenizer import Tokenizer
 from pyhealth.models.utils import get_last_visit
 
 
 class MICRONLayer(nn.Module):
-    """This MICRON layer.
+    """MICRON layer.
+
+    Paper: Chaoqi Yang et al. Change Matters: Medication Change Prediction
+    with Recurrent Residual Networks. IJCAI 2021.
+
+    This layer is used in the MICRON model. But it can also be used as a
+    standalone layer.
     
     Args:
-        input_size: the embedding size of the input
-        output_size: the embedding size of the output
-        dropout: dropout rate
+        input_size: input feature size.
+        hidden_size: hidden feature size.
+        num_drugs: total number of drugs to recommend.
+        lam: regularization parameter for the reconstruction loss. Default is 0.1.
     
-    **Examples:**
+    Examples:
         >>> from pyhealth.models import MICRONLayer
-        >>> input = torch.randn(3, 128, 5) # [batch size, seq len, input_size]
-        >>> model = MICRONLayer(5, 64, 0.5)
-        
-        >>> model.train()
-        MICRONLayer(
-        (dropout_layer): Dropout(p=0.5, inplace=False)
-        (health_net): Linear(in_features=5, out_features=64, bias=True)
-        (prescription_net): Linear(in_features=64, out_features=64, bias=True)
-        )
-        >>> [item.shape for item in model(input, mask=None)]
-        [torch.Size([3, 128, 64]), torch.Size([3, 127, 64])]
-        
-        >>> model.eval()
-        MICRONLayer(
-        (dropout_layer): Dropout(p=0.5, inplace=False)
-        (health_net): Linear(in_features=5, out_features=64, bias=True)
-        (prescription_net): Linear(in_features=64, out_features=64, bias=True)
-        )
-        >>> model(input, mask=None).shape
-        torch.Size([3, 128, 64]) # [batch size, hidden_size]
-        
+        >>> patient_emb = torch.randn(3, 5, 32) # [patient, visit, input_size]
+        >>> drugs = torch.randint(0, 2, (3, 50)).float()
+        >>> layer = MICRONLayer(32, 64, 50)
+        >>> loss, y_prob = layer(patient_emb, drugs)
+        >>> loss.shape
+        torch.Size([])
+        >>> y_prob.shape
+        torch.Size([3, 50])
     """
 
     def __init__(
-        self,
-        input_size: int,
-        hidden_size: int,
-        dropout: float = 0.5,
+            self,
+            input_size: int,
+            hidden_size: int,
+            num_drugs: int,
+            lam: float = 0.1
     ):
         super(MICRONLayer, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
-        self.dropout = dropout
-        self.dropout_layer = nn.Dropout(dropout)
+        self.num_labels = num_drugs
+        self.lam = lam
 
         self.health_net = nn.Linear(input_size, hidden_size)
         self.prescription_net = nn.Linear(hidden_size, hidden_size)
+        self.fc = nn.Linear(hidden_size, num_drugs)
 
-    def forward(self, x: torch.tensor, mask: torch.tensor):
-        """
+        self.bce_loss_fn = nn.BCEWithLogitsLoss()
+
+    @staticmethod
+    def compute_reconstruction_loss(
+            logits: torch.tensor,
+            logits_residual: torch.tensor,
+            mask: torch.tensor
+    ) -> torch.tensor:
+        rec_loss = torch.mean(
+            torch.square(
+                torch.sigmoid(logits[:, 1:, :])
+                - torch.sigmoid(logits[:, :-1, :] + logits_residual)
+            )
+            * mask[:, 1:].unsqueeze(2)
+        )
+        return rec_loss
+
+    def forward(
+            self,
+            patient_emb: torch.tensor,
+            drugs: torch.tensor,
+            mask: Optional[torch.tensor] = None,
+    ) -> Tuple[torch.tensor, torch.tensor]:
+        """Forward propagation.
+
         Args:
-            x: [batch size, seq len, input_size]
-            mask: [batch size, seq len]
+            patient_emb: a tensor of shape [patient, visit, input_size].
+            drugs: a multihot tensor of shape [patient, num_labels].
+            mask: an optional tensor of shape [patient, visit] where
+                1 indicates valid visits and 0 indicates invalid visits.
+
         Returns:
-            outputs [batch size, seq len, hidden_size]
+            loss: a scalar tensor representing the loss.
+            y_prob: a tensor of shape [patient, num_labels] representing
+                the probability of each drug.
         """
-        health_rep = self.health_net(x)  # (batch, visit, input_size)
+        if mask is None:
+            mask = torch.ones_like(patient_emb[:, :, 0])
 
-        if self.training:
-            health_rep_cur = health_rep[:, :-1, :]  # (batch, visit-1, input_size)
-            health_rep_last = health_rep[:, 1:, :]  # (batch, visit-1, input_size)
-            health_residual_rep = (
-                health_rep_cur - health_rep_last
-            )  # (batch, visit-1, input_size)
+        # (patient, visit, hidden_size)
+        health_rep = self.health_net(patient_emb)
+        drug_rep = self.prescription_net(health_rep)
+        logits = self.fc(drug_rep)
+        logits_last_visit = get_last_visit(logits, mask)
+        bce_loss = self.bce_loss_fn(logits_last_visit, drugs)
 
-            # drug representation
-            drug_rep = self.prescription_net(health_rep)
-            drug_residual_rep = self.prescription_net(health_residual_rep)
-            return drug_rep, drug_residual_rep
+        # (batch, visit-1, input_size)
+        health_rep_last = health_rep[:, :-1, :]
+        # (batch, visit-1, input_size)
+        health_rep_cur = health_rep[:, 1:, :]
+        # (batch, visit-1, input_size)
+        health_rep_residual = (health_rep_cur - health_rep_last)
+        drug_rep_residual = self.prescription_net(health_rep_residual)
+        logits_residual = self.fc(drug_rep_residual)
+        rec_loss = self.compute_reconstruction_loss(logits, logits_residual, mask)
 
-        else:
-            drug_rep = self.prescription_net(health_rep)
-            return drug_rep
+        loss = bce_loss + self.lam * rec_loss
+        y_prob = torch.sigmoid(logits_last_visit)
+
+        return loss, y_prob
 
 
 class MICRON(BaseModel):
-    """MICRON Class, use "task" as key to identify specific MICRON model and route there
-    
+    """MICRON model.
+
+    Paper: Chaoqi Yang et al. Change Matters: Medication Change Prediction
+    with Recurrent Residual Networks. IJCAI 2021.
+
+    Note:
+        This model is only for medication prediction which takes conditions
+        and procedures as feature_keys, and drugs as label_key. It only operates
+        on the visit level.
+
     Args:
-        dataset: the dataset object
-        tables: the list of table names to use
-        target: the target table name
-        mode: the mode of the model, "multilabel", "multiclass" or "binary"
-        embedding_dim: the embedding dimension
-        hidden_dim: the hidden dimension
-    
-    **Examples:**
-        >>> from pyhealth.datasets import OMOPDataset
-        >>> dataset = OMOPDataset(
-        ...     root="https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2",
-        ...     tables=["condition_occurrence", "procedure_occurrence"],
-        ... ) # load dataset
-        >>> from pyhealth.tasks import drug_recommendation_omop_fn
-        >>> dataset.set_task(drug_recommendation_omop_fn) # set task
-        
-        >>> from pyhealth.models import MICRON
-        >>> model = MICRON(
-        ...     dataset=dataset,
-        ...     tables=["conditions", "procedures"],
-        ...     target="label",
-        ...     mode="multilabel",
-        ... )
-        
+        dataset: the dataset to train the model. It is used to query certain
+            information such as the set of all tokens.
+        embedding_dim: the embedding dimension. Default is 128.
+        hidden_dim: the hidden dimension. Default is 128.
+        **kwargs: other parameters for the MICRON layer.
     """
 
     def __init__(
-        self,
-        dataset: BaseDataset,
-        tables: List[str],
-        target: str,
-        mode: str,
-        embedding_dim: int = 128,
-        hidden_dim: int = 128,
-        **kwargs
+            self,
+            dataset: BaseDataset,
+            embedding_dim: int = 128,
+            hidden_dim: int = 128,
+            **kwargs
     ):
         super(MICRON, self).__init__(
             dataset=dataset,
-            tables=tables,
-            target=target,
-            mode=mode,
+            feature_keys=["conditions", "procedures"],
+            label_key="drugs",
+            mode="multilabel",
         )
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
 
-        # define the tokenizers
-        self.tokenizers = {}
-        for domain in tables:
-            self.tokenizers[domain] = Tokenizer(
-                dataset.get_all_tokens(key=domain), special_tokens=["<pad>", "<unk>"]
-            )
-        self.label_tokenizer = Tokenizer(dataset.get_all_tokens(key=target))
+        self.feat_tokenizers = self.get_feature_tokenizers()
+        self.label_tokenizer = self.get_label_tokenizer()
+        self.embeddings = self.get_embedding_layers(self.feat_tokenizers, embedding_dim)
 
-        # define the embedding layers for each domain
-        self.embeddings = nn.ModuleDict()
-        for domain in tables:
-            # TODO: use get_pad_token_id() instead of hard code
-            self.embeddings[domain] = nn.Embedding(
-                self.tokenizers[domain].get_vocabulary_size(),
-                embedding_dim,
-                padding_idx=0,
-            )
-
+        # validate kwargs for MICRON layer
+        if "input_size" in kwargs:
+            raise ValueError("input_size is determined by embedding_dim")
+        if "hidden_size" in kwargs:
+            raise ValueError("hidden_size is determined by hidden_dim")
+        if "num_drugs" in kwargs:
+            raise ValueError("num_drugs is determined by the dataset")
         self.micron = MICRONLayer(
-            input_size=len(tables) * embedding_dim, hidden_size=hidden_dim, **kwargs
+            input_size=embedding_dim * 2,
+            hidden_size=hidden_dim,
+            num_drugs=self.label_tokenizer.get_vocabulary_size(),
+            **kwargs
         )
-        self.fc = nn.Linear(hidden_dim, self.label_tokenizer.get_vocabulary_size())
 
-    def forward(self, device, **kwargs):
+    def forward(
+            self,
+            conditions: List[List[List[str]]],
+            procedures: List[List[List[str]]],
+            drugs: List[List[str]],
+            **kwargs
+    ) -> Dict[str, torch.Tensor]:
+        """Forward propagation.
+
+        Args:
+            conditions: a nested list in three levels [patient, visit, condition].
+            procedures: a nested list in three levels [patient, visit, procedure].
+            drugs: a nested list in two levels [patient, drug].
+
+        Returns:
+            A dictionary with the following keys:
+                loss: a scalar tensor representing the loss.
+                y_prob: a tensor of shape [patient, visit, num_labels] representing
+                    the probability of each drug.
+                y_true: a tensor of shape [patient, visit, num_labels] representing
+                    the ground truth of each drug.
         """
-        if "kwargs[domain][0][0] is list" means "use history", then run visit level RNN
-        elif "kwargs[domain][0][0] is not list" means not "use history", then run code level RNN
-        """
-        patient_emb = []
-        for domain in self.tables:
-            if type(kwargs[domain][0][0]) == list:
-                kwargs[domain] = self.tokenizers[domain].batch_encode_3d(kwargs[domain])
-                kwargs[domain] = torch.tensor(
-                    kwargs[domain], dtype=torch.long, device=device
-                )
-                # (patient, visit, code, embedding_dim)
-                kwargs[domain] = self.embeddings[domain](kwargs[domain])
-                # (patient, visit, embedding_dim)
-                kwargs[domain] = torch.sum(kwargs[domain], dim=2)
-            else:
-                raise ValueError("Sample data format is not correct")
-
-            # get mask and run RNN
-            mask = torch.sum(kwargs[domain], dim=2) != 0
-            mask[:, 0] = 1
-            # (patient, hidden_dim)
-
-            patient_emb.append(kwargs[domain])
-
+        conditions = self.feat_tokenizers["conditions"].batch_encode_3d(conditions)
+        # (patient, visit, code)
+        conditions = torch.tensor(conditions, dtype=torch.long, device=self.device)
+        # (patient, visit, code, embedding_dim)
+        conditions = self.embeddings["conditions"](conditions)
         # (patient, visit, embedding_dim)
-        patient_emb = torch.cat(patient_emb, dim=2)
+        conditions = torch.sum(conditions, dim=2)
 
-        if self.training:
-            # the reconstruction loss
-            drug_rep, drug_residual_rep = self.micron(patient_emb, mask)
-            logits = self.fc(drug_rep)
-            drug_residual_rep = self.fc(drug_residual_rep)
+        procedures = self.feat_tokenizers["procedures"].batch_encode_3d(procedures)
+        # (patient, visit, code)
+        procedures = torch.tensor(procedures, dtype=torch.long, device=self.device)
+        # (patient, visit, code, embedding_dim)
+        procedures = self.embeddings["procedures"](procedures)
+        # (patient, visit, embedding_dim)
+        procedures = torch.sum(procedures, dim=2)
 
-            rec_loss = (
-                1
-                / self.label_tokenizer.get_vocabulary_size()
-                * torch.sum(
-                    (
-                        torch.sigmoid(logits[:, 1:, :])
-                        - torch.sigmoid(logits[:, :-1, :] + drug_residual_rep)
-                    )
-                    ** 2
-                    * mask[:, 1:].unsqueeze(2)
-                )
-            )
-        else:
-            drug_rep = self.micron(patient_emb, mask)
-            logits = self.fc(drug_rep)
+        # (patient, visit, embedding_dim * 2)
+        patient_emb = torch.cat([conditions, procedures], dim=2)
+        # (patient, visit)
+        mask = (torch.sum(patient_emb, dim=2) != 0)
+        # (patient, num_labels)
+        drugs = self.prepare_labels(drugs, self.label_tokenizer)
 
-        logits = get_last_visit(logits, mask)
+        loss, y_prob = self.micron(patient_emb, drugs, mask)
 
-        # obtain target, loss, prob, pred
-        loss, y_true, y_prod, y_pred = self.cal_loss_and_output(
-            logits, device, **kwargs
-        )
-
-        if self.training:
-            return {
-                "loss": loss + 1e-1 * rec_loss,
-                "y_prob": y_prod,
-                "y_pred": y_pred,
-                "y_true": y_true,
-            }
-        else:
-            return {
-                "loss": loss,
-                "y_prob": y_prod,
-                "y_pred": y_pred,
-                "y_true": y_true,
-            }
+        return {
+            "loss": loss,
+            "y_prob": y_prob,
+            "y_true": drugs
+        }

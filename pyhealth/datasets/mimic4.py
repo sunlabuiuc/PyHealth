@@ -1,11 +1,12 @@
 import os
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Union, Tuple
 
 import pandas as pd
 from tqdm import tqdm
 
 from pyhealth.data import Event, Visit, Patient
 from pyhealth.datasets import BaseDataset
+from pyhealth.datasets.utils import strptime
 
 
 # TODO: add other tables
@@ -15,7 +16,7 @@ class MIMIC4Dataset(BaseDataset):
     """Base dataset for MIMIC-IV dataset.
 
     The MIMIC-IV dataset is a large dataset of de-identified health records of ICU
-        patients. The dataset is available at https://mimic.physionet.org/.
+    patients. The dataset is available at https://mimic.physionet.org/.
 
     The basic information is stored in the following tables:
         - patients: defines a patient in the database, subject_id.
@@ -32,16 +33,21 @@ class MIMIC4Dataset(BaseDataset):
             for patients
 
     Args:
-        dataset_name: str, name of the dataset.
-        root: str, root directory of the raw data (should contain many csv files).
-        tables: List[str], list of tables to be loaded. Must be a subset of the
-            following tables: diagnoses_icd, procedures_icd, prescriptions, labevents.
-        code_mapping: Optional[Dict[str, str]], key is the source code vocabulary and
-            value is the target code vocabulary (e.g., {"ICD9CM": "CCSCM"}).
+        dataset_name: name of the dataset.
+        root: root directory of the raw data (should contain many csv files).
+        tables: list of tables to be loaded (e.g., ["DIAGNOSES_ICD", "PROCEDURES_ICD"]).
+        code_mapping: a dictionary containing the code mapping information.
+            The key is a str of the source code vocabulary and the value is of
+            two formats:
+                (1) a str of the target code vocabulary;
+                (2) a tuple with two elements. The first element is a str of the
+                    target code vocabulary and the second element is a dict with
+                    keys "source_kwargs" or "target_kwargs" and values of the
+                    corresponding kwargs for the `CrossMap.map()` method.
             Default is empty dict, which means the original code will be used.
-        dev: bool, whether to enable dev mode (only use a small subset of the data).
+        dev: whether to enable dev mode (only use a small subset of the data).
             Default is False.
-        refresh_cache: bool, whether to refresh the cache; if true, the dataset will
+        refresh_cache: whether to refresh the cache; if true, the dataset will
             be processed from scratch and the cache will be updated. Default is False.
 
     Attributes:
@@ -54,53 +60,13 @@ class MIMIC4Dataset(BaseDataset):
             a list of sample indices. Default is None.
         visit_to_index: Optional[Dict[str, List[int]]], a dict mapping visit_id to a
             list of sample indices. Default is None.
-            
-    **Examples:**
-        >>> from pyhealth.datasets import MIMIC4Dataset
-        >>> mimic4_ds = MIMIC4Dataset(
-        ...     root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
-        ...     tables=["diagnoses_icd", "procedures_icd"],
-        ...     code_mapping={"ICD10PROC": "CCSPROC"},
-        ... )
-        Processing ICD10PROC code...
-        Saved ICD10PROC code to /root/.cache/pyhealth/medcode/ICD10PROC.pkl
-        Processing MIMIC-IV base dataset...
-        Parsing patients and admissions: 100%|██████████| 615/615 [00:01<00:00, 604.94it/s]
-        Parsing diagnoses_icd: 100%|██████████| 453925/453925 [01:23<00:00, 5435.98it/s]
-        Parsing procedures_icd: 100%|██████████| 241358/241358 [00:38<00:00, 6323.69it/s]
-        Mapping codes:   0%|          | 0/615 [00:00<?, ?it/s]Processing ICD10PROC->CCSPROC mapping...
-        Mapping codes: 100%|██████████| 615/615 [00:04<00:00, 129.75it/s]Saved ICD10PROC->CCSPROC mapping to /root/.cache/pyhealth/medcode/ICD10PROC_to_CCSPROC.pkl
-        Saved MIMIC-IV base dataset to /root/.cache/pyhealth/datasets/bb5c7f8622762cd520736b59a13d7f78.pkl
-
-        >>> mimic4_ds.stat()
-        Statistics of MIMIC-IV dataset (dev=True):
-            - Number of patients: 615
-            - Number of visits: 1456
-            - Number of visits per patient: 2.3675
-            - codes/visit in diagnoses_icd: 11.6058
-            - codes/visit in procedures_icd: 1.5055
-
-        >>> mimic4_ds.info()
-                dataset.patients: patient_id -> <Patient>
-                    <Patient>
-                        - visits: visit_id -> <Visit>
-                        - other patient-level info.
-                        <Visit>
-                            - event_list_dict: table_name -> List[Event]
-                            - other visit-level info.
-                            <Event>
-                                - code: str
-                                - other event-level info.
-        >>> mimic4_ds.available_tables
-        ["diagnoses_icd", "procedures_icd"]
-        
     """
 
     def __init__(
             self,
             root: str,
             tables: List[str],
-            code_mapping: Optional[Dict[str, str]] = None,
+            code_mapping: Optional[Dict[str, Union[str, Tuple[str, Dict]]]] = None,
             dev=False,
             refresh_cache=False,
     ):
@@ -113,38 +79,44 @@ class MIMIC4Dataset(BaseDataset):
             refresh_cache=refresh_cache,
         )
 
-    def _parse_tables(self) -> Dict[str, Patient]:
-        """This function overrides the _parse_tables() function in BaseDataset.
+    def parse_tables(self) -> Dict[str, Patient]:
+        """This function overrides the `self.parse_tables()` function in `BaseDataset`.
 
         It parses the corresponding tables and creates a dict of patients which
-            will be cached later.
+        will be cached later.
 
         Returns:
-            patients: a dictionary of Patient objects indexed by patient_id.
+            patients: a dictionary of `Patient` objects indexed by patient_id.
         """
-        # patients is a dict of Patient objects indexed by patient_id
+        # patients is a dict of `Patient` objects indexed by patient_id
         patients: Dict[str, Patient] = dict()
         # process patients and admissions tables
-        patients = self._parse_basic_info(patients)
+        patients = self.parse_basic_info(patients)
         # process clinical tables
         for table in self.tables:
             try:
                 # use lower case for function name
-                patients = getattr(self, f"_parse_{table.lower()}")(patients)
+                patients = getattr(self, f"parse_{table.lower()}")(patients)
             except AttributeError:
                 raise NotImplementedError(
                     f"Parser for table {table} is not implemented yet."
                 )
         return patients
 
-    def _parse_basic_info(self, patients) -> Dict[str, Patient]:
-        """Helper functions which parses patients and admissions tables.
+    def parse_basic_info(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
+        """Helper function which parses patients and admissions tables.
 
-        Will be called in _parse_tables().
+        Will be called in `self.parse_tables()`
 
         Docs:
             - patients:https://mimic.mit.edu/docs/iv/modules/hosp/patients/
             - admissions: https://mimic.mit.edu/docs/iv/modules/hosp/admissions/
+
+        Args:
+            patients: a dict of `Patient` objects indexed by patient_id.
+
+        Returns:
+            The updated patients dict.
         """
         # read patients table
         patients_df = pd.read_csv(
@@ -173,9 +145,9 @@ class MIMIC4Dataset(BaseDataset):
             patient = Patient(
                 patient_id=p_id,
                 # no exact month, day, and time, use Jan 1st, 00:00:00
-                birth_datetime=self._strptime(str(birth_year), "%Y"),
+                birth_datetime=strptime(str(birth_year)),
                 # no exact time, use 00:00:00
-                death_datetime=self._strptime(p_info["dod"].values[0], "%Y-%m-%d"),
+                death_datetime=strptime(p_info["dod"].values[0]),
                 gender=p_info["gender"].values[0],
                 ethnicity=p_info["race"].values[0],
                 anchor_year_group=p_info["anchor_year_group"].values[0],
@@ -185,8 +157,8 @@ class MIMIC4Dataset(BaseDataset):
                 visit = Visit(
                     visit_id=v_id,
                     patient_id=p_id,
-                    encounter_time=self._strptime(v_info["admittime"].values[0]),
-                    discharge_time=self._strptime(v_info["dischtime"].values[0]),
+                    encounter_time=strptime(v_info["admittime"].values[0]),
+                    discharge_time=strptime(v_info["dischtime"].values[0]),
                     discharge_status=v_info["hospital_expire_flag"].values[0],
                 )
                 # add visit
@@ -195,16 +167,23 @@ class MIMIC4Dataset(BaseDataset):
             patients[p_id] = patient
         return patients
 
-    def _parse_diagnoses_icd(self, patients) -> Dict[str, Patient]:
-        """Helper functions which parses diagnosis_icd table.
+    def parse_diagnoses_icd(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
+        """Helper function which parses diagnosis_icd table.
 
-        Will be called in _parse_tables().
+        Will be called in `self.parse_tables()`
 
         Docs:
             - diagnosis_icd: https://mimic.mit.edu/docs/iv/modules/hosp/diagnoses_icd/
 
-        Note that MIMIC-IV does not provide specific timestamps in diagnoses_icd
-            table, so we set it to None.
+        Args:
+            patients: a dict of `Patient` objects indexed by patient_id.
+
+        Returns:
+            The updated patients dict.
+
+        Note:
+            MIMIC-IV does not provide specific timestamps in diagnoses_icd
+                table, so we set it to None.
         """
         table = "diagnoses_icd"
         # read table
@@ -232,16 +211,23 @@ class MIMIC4Dataset(BaseDataset):
                 patients = self._add_event_to_patient_dict(patients, event)
         return patients
 
-    def _parse_procedures_icd(self, patients) -> Dict[str, Patient]:
-        """function to parse procedures_icd table.
+    def parse_procedures_icd(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
+        """Helper function which parses procedures_icd table.
 
-        Will be called in _parse_tables().
+        Will be called in `self.parse_tables()`
 
         Docs:
             - procedures_icd: https://mimic.mit.edu/docs/iv/modules/hosp/procedures_icd/
 
-        Note that MIMIC-IV does not provide specific timestamps in procedures_icd
-            table, so we set it to None.
+        Args:
+            patients: a dict of `Patient` objects indexed by patient_id.
+
+        Returns:
+            The updated patients dict.
+
+        Note:
+            MIMIC-IV does not provide specific timestamps in procedures_icd
+                table, so we set it to None.
         """
         table = "procedures_icd"
         # read table
@@ -269,13 +255,19 @@ class MIMIC4Dataset(BaseDataset):
                 patients = self._add_event_to_patient_dict(patients, event)
         return patients
 
-    def _parse_prescriptions(self, patients) -> Dict[str, Patient]:
-        """Helper functions which parses PRESCRIPTIONS table.
+    def parse_prescriptions(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
+        """Helper function which parses prescriptions table.
 
-        Will be called in _parse_tables().
+        Will be called in `self.parse_tables()`
 
         Docs:
             - prescriptions: https://mimic.mit.edu/docs/iv/modules/hosp/prescriptions/
+
+        Args:
+            patients: a dict of `Patient` objects indexed by patient_id.
+
+        Returns:
+            The updated patients dict.
         """
         table = "prescriptions"
         # read table
@@ -301,19 +293,25 @@ class MIMIC4Dataset(BaseDataset):
                     vocabulary="NDC",
                     visit_id=v_id,
                     patient_id=p_id,
-                    timestamp=self._strptime(timestamp),
+                    timestamp=strptime(timestamp),
                 )
                 # update patients
                 patients = self._add_event_to_patient_dict(patients, event)
         return patients
 
-    def _parse_labevents(self, patients) -> Dict[str, Patient]:
-        """Helper functions which parses labevents table.
+    def parse_labevents(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
+        """Helper function which parses labevents table.
 
-        Will be called in _parse_tables().
+        Will be called in `self.parse_tables()`
 
         Docs:
             - labevents: https://mimic.mit.edu/docs/iv/modules/hosp/labevents/
+
+        Args:
+            patients: a dict of `Patient` objects indexed by patient_id.
+
+        Returns:
+            The updated patients dict.
         """
         table = "labevents"
         # read table
@@ -336,7 +334,7 @@ class MIMIC4Dataset(BaseDataset):
                     vocabulary="MIMIC4_ITEMID",
                     visit_id=v_id,
                     patient_id=p_id,
-                    timestamp=self._strptime(timestamp),
+                    timestamp=strptime(timestamp),
                 )
                 # update patients
                 patients = self._add_event_to_patient_dict(patients, event)
@@ -351,5 +349,5 @@ if __name__ == "__main__":
         code_mapping={"NDC": "ATC"},
         refresh_cache=True,
     )
-    dataset.stat()
+    print(dataset.stat())
     dataset.info()

@@ -1,111 +1,92 @@
+import logging
 import os
-from abc import ABC
+from abc import ABC, abstractmethod
+from typing import List
 
 import networkx as nx
 import pandas as pd
 
-from pyhealth import BASE_CACHE_PATH
-from pyhealth.medcode.utils import download_and_read_csv
-from pyhealth.utils import create_directory, load_pickle, save_pickle
-
-BASE_URL = "https://storage.googleapis.com/pyhealth/resource/"
-MODULE_CACHE_PATH = os.path.join(BASE_CACHE_PATH, "medcode")
-create_directory(MODULE_CACHE_PATH)
+import pyhealth.medcode as medcode
+from pyhealth.medcode.utils import MODULE_CACHE_PATH, download_and_read_csv
+from pyhealth.utils import load_pickle, save_pickle
 
 
-# TODO: add comments
+class InnerMap(ABC):
+    """Contains information for a specific medical code system.
 
-class InnerMap:
-    """lookup function within one coding system
+    `InnerMap` is a base abstract class for all medical code systems.
+    It will be instantiated as a specific medical code system with
+    `InnerMap.load(vocabulary).`
 
-    Parameters:
-        vocabulary: str, vocabulary name. For example, "ICD9CM", "ICD10CM", "ICD9PROC", "ICD10PROC", "CCSCM", "CCSPROC", "ATC", "NDC", "RxNorm"
-        regresh_cache: bool, whether to refresh the cache
-            
-    **Examples:**
-        >>> from pyhealth.medcode import InnerMap
-        >>> rxnorm = InnerMap(vocabulary="RxNorm")
-        Loaded RxNorm code from /root/.cache/pyhealth/medcode/RxNorm.pkl
-        >>> rxnorm.lookup("209387")
-        acetaminophen 325 MG Oral Tablet [Tylenol]
-        
-        >>> ccscm = InnerMap("CCSCM")
-        Loaded CCSCM code from /root/.cache/pyhealth/medcode/CCSCM.pkl
-        >>> ccscm.lookup("108")
-        'chf;nonhp: Congestive heart failure, nonhypertensive'
-        
-        >>> icd9cm = InnerMap("ICD9CM")
-        Processing ICD9CM code...
-        Saved ICD9CM code to /root/.cache/pyhealth/medcode/ICD9CM.pkl
-        >>> "428.0" in icd9cm # let's first check if the code is in ICD9CM
-        True
-        >>> icd9cm.get_ancestors("428.0")
-        ['428', '420-429.99', '390-459.99', '001-999.99']
-        >>> icd9cm.lookup("4280") # non-standard format
-        'Congestive heart failure, unspecified'
-        
-        >>> atc = InnerMap("ATC")
-        Processing ATC code...
-        Saved ATC code to /root/.cache/pyhealth/medcode/ATC.pkl
-        >>> atc.lookup("M01AE51")
-        'ibuprofen, combinations'
-        >>> atc.lookup("M01AE51", "drugbank_id")
-        DB01050
-        >>> atc.lookup("M01AE51", "description")
-        Ibuprofen is a non-steroidal anti-inflammatory drug (NSAID) derived from propionic acid and it is considered the first ...
-        On the available products, ibuprofen is administered as a racemic mixture. Once administered, the R-enantiomer ...
-        >>> atc.lookup("M01AE51", "indication")
-        Ibuprofen is the most commonly used and prescribed NSAID. It is very common ...[A39097]
-        Due to its activity against prostaglandin and thromboxane synthesis, ibuprofen ...:
-        * Patent Ductus Arteriosus - it is a neonatal condition wherein the ductus arteriosus ...
-        * Rheumatoid- and osteo-arthritis - ibuprofen is very commonly used in the symptomatic ...
-        * Investigational uses - efforts have been put into developing ibuprofen for the prophy ...
-        >>> atc.lookup("M01AE51", "smiles")
-        CC(C)CC1=CC=C(C=C1)C(C)C(O)=O
-        
+    Note:
+        This class cannot be instantiated using `__init__()` (throws an error).
     """
 
+    @abstractmethod
     def __init__(
             self,
             vocabulary: str,
             refresh_cache: bool = False,
     ):
+        # abstractmethod prevents initialization of this class
         self.vocabulary = vocabulary
         self.refresh_cache = refresh_cache
 
         pickle_filepath = os.path.join(MODULE_CACHE_PATH, self.vocabulary + ".pkl")
         csv_filename = self.vocabulary + ".csv"
         if os.path.exists(pickle_filepath) and (not refresh_cache):
-            print(f"Loaded {vocabulary} code from {pickle_filepath}")
+            logging.debug(f"Loaded {vocabulary} code from {pickle_filepath}")
             self.graph = load_pickle(pickle_filepath)
         else:
-            print(f"Processing {vocabulary} code...")
+            logging.debug(f"Processing {vocabulary} code...")
             df = download_and_read_csv(csv_filename, refresh_cache)
-            self.graph = self.build_graph(df)
-            print(f"Saved {vocabulary} code to {pickle_filepath}")
+            # create graph
+            df = df.set_index("code")
+            self.graph = nx.DiGraph()
+            # add nodes
+            for code, row in df.iterrows():
+                row_dict = row.to_dict()
+                row_dict.pop("parent_code", None)
+                self.graph.add_node(code, **row_dict)
+            # add edges
+            for code, row in df.iterrows():
+                if "parent_code" in row:
+                    if not pd.isna(row["parent_code"]):
+                        self.graph.add_edge(row["parent_code"], code)
+            logging.debug(f"Saved {vocabulary} code to {pickle_filepath}")
             save_pickle(self.graph, pickle_filepath)
+        return
 
-    @staticmethod
-    def build_graph(df):
-        df = df.set_index("code")
-        graph = nx.DiGraph()
-        # add nodes
-        for code, row in df.iterrows():
-            row_dict = row.to_dict()
-            row_dict.pop("parent_code", None)
-            graph.add_node(code, **row_dict)
-        # add edges
-        for code, row in df.iterrows():
-            if "parent_code" in row:
-                if not pd.isna(row["parent_code"]):
-                    graph.add_edge(row["parent_code"], code)
-        return graph
+    @classmethod
+    def load(_, vocabulary: str, refresh_cache: bool = False):
+        """Initializes a specific medical code system inheriting from `InnerMap`.
+
+        Args:
+            vocabulary: vocabulary name. E.g., "ICD9CM", "ICD9PROC".
+            refresh_cache: whether to refresh the cache. Default is False.
+
+        Examples:
+            >>> from pyhealth.medcode import InnerMap
+            >>> icd9cm = InnerMap.load("ICD9CM")
+            >>> icd9cm.lookup("428.0")
+            'Congestive heart failure, unspecified'
+            >>> icd9cm.get_ancestors("428.0")
+            ['428', '420-429.99', '390-459.99', '001-999.99']
+        """
+        cls = getattr(medcode, vocabulary)
+        return cls(refresh_cache=refresh_cache)
 
     @property
-    def available_attributes(self):
+    def available_attributes(self) -> List[str]:
+        """Returns a list of available attributes.
+
+        Returns:
+            List of available attributes.
+        """
         return list(list(self.graph.nodes.values())[0].keys())
 
     def stat(self):
+        """Prints statistics of the code system."""
         print()
         print(f"Statistics for {self.vocabulary}:")
         print(f"\t- Number of nodes: {len(self.graph.nodes)}")
@@ -113,21 +94,52 @@ class InnerMap:
         print(f"\t- Available attributes: {self.available_attributes}")
         print()
 
-    def standardize(self, code: str):
+    @staticmethod
+    def standardize(code: str) -> str:
+        """Standardizes a given code.
+
+        Subclass will override this method based on different
+        medical code systems.
+        """
         return code
 
-    def postprocess(self, code: str, **kwargs):
+    @staticmethod
+    def convert(code: str, **kwargs) -> str:
+        """Converts a given code.
+
+        Subclass will override this method based on different
+        medical code systems.
+        """
         return code
 
-    def lookup(self, code, attribute: str = "name"):
+    def lookup(self, code: str, attribute: str = "name"):
+        """Looks up the code.
+
+        Args:
+            code: code to look up.
+            attribute: attribute to look up. One of `self.available_attributes`.
+                Default is "name".
+
+        Returns:
+            The attribute value of the code.
+        """
         code = self.standardize(code)
         return self.graph.nodes[code][attribute]
 
-    def __contains__(self, code):
+    def __contains__(self, code: str) -> bool:
+        """Checks if the code is in the code system."""
         code = self.standardize(code)
         return code in self.graph.nodes
 
-    def get_ancestors(self, code):
+    def get_ancestors(self, code: str) -> List[str]:
+        """Gets the ancestors of the code.
+
+        Args:
+            code: code to look up.
+
+        Returns:
+            List of ancestors ordered from the closest to the farthest.
+        """
         code = self.standardize(code)
         # ordered ancestors
         ancestors = nx.ancestors(self.graph, code)
@@ -138,7 +150,15 @@ class InnerMap:
         )
         return ancestors
 
-    def get_descendants(self, code):
+    def get_descendants(self, code: str) -> List[str]:
+        """Gets the descendants of the code.
+
+        Args:
+            code: code to look up.
+
+        Returns:
+            List of ancestors ordered from the closest to the farthest.
+        """
         code = self.standardize(code)
         # ordered descendants
         descendants = nx.descendants(self.graph, code)

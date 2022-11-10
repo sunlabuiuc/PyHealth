@@ -1,200 +1,330 @@
-from typing import List, Tuple, Union
+import math
+from typing import List, Optional, Tuple, Dict
 
 import torch
-import torch.nn as nn
+from torch import nn
 
 from pyhealth.datasets import BaseDataset
 from pyhealth.models import BaseModel
-from pyhealth.tokenizer import Tokenizer
+
+VALID_OPERATION_LEVEL = ["visit", "event"]
 
 
-class TransformerLayer(nn.Module):
-    """The separate callable Transformer layer
-    
-    Args:
-        input_size: the embedding size of the input
-        hidden_size: the embedding size of the output
-        num_layers: the number of layers in the transformer
-        nhead: the number of heads in the multiheadattention models
-        dropout: dropout rate
-        
-    **Examples:**
-        >>> from pyhealth.models import TransformerLayer
-        >>> input = torch.randn(3, 128, 5) # [batch size, seq len, input_size]
-        >>> model = TransformerLayer(5, 64, 2, 8, 0.5)
-        >>> mask = torch.ones(3, 128)==1
-        >>> model(input, mask).shape
-        torch.Size([3, 64])] # [batch size, hidden_size]
-    """
+class Attention(nn.Module):
+    def forward(self, query, key, value, mask=None, dropout=None):
+        scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(query.size(-1))
+        if mask is not None:
+            scores = scores.masked_fill(mask == 0, -1e9)
+        p_attn = torch.softmax(scores, dim=-1)
+        if mask is not None:
+            p_attn = p_attn.masked_fill(mask == 0, 0)
+        if dropout is not None:
+            p_attn = dropout(p_attn)
+        return torch.matmul(p_attn, value), p_attn
 
-    def __init__(
-        self,
-        input_size: int,
-        hidden_size: int,
-        num_layers: int = 2,
-        nhead: int = 8,
-        dropout: float = 0.5,
-    ):
-        super(TransformerLayer, self).__init__()
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.num_layers = num_layers
-        self.dropout = dropout
-        self.dropout_layer = nn.Dropout(p=self.dropout)
 
-        self.feature_map = nn.Linear(input_size, hidden_size)
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=hidden_size,
-            dim_feedforward=hidden_size,
-            nhead=nhead,
-            dropout=dropout,
-            activation="relu",
+class MultiHeadedAttention(nn.Module):
+    def __init__(self, h, d_model, dropout=0.1):
+        super(MultiHeadedAttention, self).__init__()
+        assert d_model % h == 0
+
+        # We assume d_v always equals d_k
+        self.d_k = d_model // h
+        self.h = h
+
+        self.linear_layers = nn.ModuleList(
+            [nn.Linear(d_model, d_model, bias=False) for _ in range(3)]
         )
-        encoder_norm = nn.LayerNorm(hidden_size)
-        self.transformer = nn.TransformerEncoder(
-            encoder_layer, num_layers, encoder_norm
-        )
+        self.output_linear = nn.Linear(d_model, d_model, bias=False)
+        self.attention = Attention()
 
-    def forward(self, x: torch.tensor, mask: torch.tensor):
-        """Using the sum of the embedding as the output of the transformer
-        Args:
-            x: [batch size, seq len, input_size]
-            mask: [batch size, seq len]
-        Returns:
-            outputs [batch size, seq len, hidden_size]
-        """
-        # rnn will only apply dropout between layers
-        x = self.dropout_layer(x)
-        x = self.feature_map(x)
-        # since the transformer encoder cannot use "batch_first"
-        x = self.transformer(
-            x.permute(1, 0, 2), src_key_padding_mask=~mask
-        )  # (patient, seq len, hidden_size)
-        x = (x.permute(1, 0, 2) * mask.unsqueeze(-1).float()).sum(
-            1
-        )  # (patient, hidden_size)
+        self.dropout = nn.Dropout(p=dropout)
 
+    def forward(self, query, key, value, mask=None):
+        batch_size = query.size(0)
+
+        # 1) Do all the linear projections in batch from d_model => h x d_k
+        query, key, value = [l(x).view(batch_size, -1, self.h, self.d_k).transpose(1, 2)
+                             for l, x in zip(self.linear_layers, (query, key, value))]
+
+        # 2) Apply attention on all the projected vectors in batch.
+        if mask is not None:
+            mask = mask.unsqueeze(1)
+        x, attn = self.attention(query, key, value, mask=mask, dropout=self.dropout)
+
+        # 3) "Concat" using a view and apply a final linear.
+        x = x.transpose(1, 2).contiguous().view(batch_size, -1, self.h * self.d_k)
+
+        return self.output_linear(x)
+
+
+class PositionwiseFeedForward(nn.Module):
+    def __init__(self, d_model, d_ff, dropout=0.1):
+        super(PositionwiseFeedForward, self).__init__()
+        self.w_1 = nn.Linear(d_model, d_ff)
+        self.w_2 = nn.Linear(d_ff, d_model)
+        self.dropout = nn.Dropout(dropout)
+        self.activation = nn.GELU()
+
+    def forward(self, x, mask=None):
+        x = self.w_2(self.dropout(self.activation(self.w_1(x))))
+        if mask is not None:
+            mask = mask.sum(dim=-1) > 0
+            x[~mask] = 0
         return x
 
 
-class Transformer(BaseModel):
-    """Transformer Class, use "task" as key to identify specific Transformer model and route there
-    
+class SublayerConnection(nn.Module):
+    def __init__(self, size, dropout):
+        super(SublayerConnection, self).__init__()
+        self.norm = nn.LayerNorm(size)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x, sublayer):
+        return x + self.dropout(sublayer(self.norm(x)))
+
+
+class TransformerBlock(nn.Module):
+    """Transformer block.
+
+    MultiHeadedAttention + PositionwiseFeedForward + SublayerConnection
+
     Args:
-        dataset: the dataset object
-        tables: the list of table names to use
-        target: the target table name
-        mode: the mode of the model, "multilabel", "multiclass" or "binary"
-        embedding_dim: the embedding dimension
-        hidden_dim: the hidden dimension
-        
-    **Examples:**
-        >>> from pyhealth.datasets import OMOPDataset
-        >>> dataset = OMOPDataset(
-        ...     root="https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2",
-        ...     tables=["condition_occurrence", "procedure_occurrence"],
-        ... ) # load dataset
-        >>> from pyhealth.tasks import mortality_prediction_omop_fn
-        >>> dataset.set_task(mortality_prediction_omop_fn) # set task
-        
-        >>> from pyhealth.models import Transformer
-        >>> model = Transformer(
-        ...     dataset=dataset,
-        ...     tables=["conditions", "procedures"],
-        ...     target="label",
-        ...     mode="binary",
-        ... )
+        hidden: hidden size of transformer.
+        attn_heads: head sizes of multi-head attention.
+        dropout: dropout rate.
+    """
+
+    def __init__(self, hidden, attn_heads, dropout):
+        super(TransformerBlock, self).__init__()
+        self.attention = MultiHeadedAttention(h=attn_heads, d_model=hidden)
+        self.feed_forward = PositionwiseFeedForward(
+            d_model=hidden, d_ff=4 * hidden, dropout=dropout
+        )
+        self.input_sublayer = SublayerConnection(size=hidden, dropout=dropout)
+        self.output_sublayer = SublayerConnection(size=hidden, dropout=dropout)
+        self.dropout = nn.Dropout(p=dropout)
+
+    def forward(self, x, mask=None):
+        """Forward propagation.
+
+        Args:
+            x: [batch_size, seq_len, hidden]
+            mask: [batch_size, seq_len, seq_len]
+
+        Returns:
+            A tensor of shape [batch_size, seq_len, hidden]
+        """
+        x = self.input_sublayer(x, lambda _x: self.attention(_x, _x, _x, mask=mask))
+        x = self.output_sublayer(x, lambda _x: self.feed_forward(_x, mask=mask))
+        return self.dropout(x)
+
+
+class TransformerLayer(nn.Module):
+    """Transformer layer.
+
+    Paper: Ashish Vaswani et al. Attention is all you need. NIPS 2017.
+
+    This layer is used in the Transformer model. But it can also be used
+    as a standalone layer.
+
+    Args:
+        feature_size: the hidden feature size.
+        heads: the number of attention heads. Default is 1.
+        dropout: dropout rate. Default is 0.5.
+        num_layers: number of transformer layers. Default is 1.
+
+    Examples:
+        >>> from pyhealth.models import TransformerLayer
+        >>> input = torch.randn(3, 128, 64)  # [batch size, sequence len, feature_size]
+        >>> layer = TransformerLayer(64)
+        >>> emb, cls_emb = layer(input)
+        >>> emb.shape
+        torch.Size([3, 128, 64])
+        >>> cls_emb.shape
+        torch.Size([3, 64])
+    """
+
+    def __init__(self, feature_size, heads=1, dropout=0.5, num_layers=1):
+        super(TransformerLayer, self).__init__()
+        self.transformer = nn.ModuleList(
+            [TransformerBlock(feature_size, heads, dropout) for _ in range(num_layers)]
+        )
+
+    def forward(
+            self,
+            x: torch.tensor,
+            mask: Optional[torch.tensor] = None
+    ) -> Tuple[torch.tensor, torch.tensor]:
+        """Forward propagation.
+
+        Args:
+            x: a tensor of shape [batch size, sequence len, feature_size].
+            mask: an optional tensor of shape [batch size, sequence len], where
+                1 indicates valid and 0 indicates invalid.
+
+        Returns:
+            emb: a tensor of shape [batch size, sequence len, feature_size],
+                containing the output features for each time step.
+            cls_emb: a tensor of shape [batch size, feature_size], containing
+                the output features for the first time step.
+        """
+        if mask is not None:
+            mask = torch.einsum("ab,ac->abc", mask, mask)
+        for transformer in self.transformer:
+            x = transformer(x, mask)
+        emb = x
+        cls_emb = x[:, 0, :]
+        return emb, cls_emb
+
+
+class Transformer(BaseModel):
+    """Transformer model.
+
+    This model applies a separate Transformer layer for each feature, and then
+    concatenates the final hidden states of each Transformer layer. The concatenated
+    hidden states are then fed into a fully connected layer to make predictions.
+
+    Note:
+        This model can operate on both visit and event level, as designated by
+            the operation_level parameter.
+
+    Args:
+        dataset: the dataset to train the model. It is used to query certain
+            information such as the set of all tokens.
+        feature_keys:  list of keys in samples to use as features,
+            e.g. ["conditions", "procedures"].
+        label_key: key in samples to use as label (e.g., "drugs").
+        mode: one of "binary", "multiclass", or "multilabel".
+        operation_level: one of "visit", "event".
+        embedding_dim: the embedding dimension. Default is 128.
+        **kwargs: other parameters for the Transformer layer.
     """
 
     def __init__(
-        self,
-        dataset: BaseDataset,
-        tables: List[str],
-        target: str,
-        mode: str,
-        embedding_dim: int = 128,
-        hidden_dim: int = 128,
-        **kwargs
+            self,
+            dataset: BaseDataset,
+            feature_keys: List[str],
+            label_key: str,
+            mode: str,
+            operation_level: str,
+            embedding_dim: int = 128,
+            **kwargs
     ):
         super(Transformer, self).__init__(
             dataset=dataset,
-            tables=tables,
-            target=target,
+            feature_keys=feature_keys,
+            label_key=label_key,
             mode=mode,
         )
+        assert operation_level in VALID_OPERATION_LEVEL, \
+            f"operation_level must be one of {VALID_OPERATION_LEVEL}"
+        self.operation_level = operation_level
         self.embedding_dim = embedding_dim
-        self.hidden_dim = hidden_dim
 
-        self.tokenizers = {}
-        for domain in tables:
-            self.tokenizers[domain] = Tokenizer(
-                dataset.get_all_tokens(key=domain), special_tokens=["<pad>", "<unk>"]
-            )
-        self.label_tokenizer = Tokenizer(dataset.get_all_tokens(key=target))
+        self.feat_tokenizers = self.get_feature_tokenizers()
+        self.label_tokenizer = self.get_label_tokenizer()
+        self.embeddings = self.get_embedding_layers(self.feat_tokenizers, embedding_dim)
 
-        self.embeddings = nn.ModuleDict()
-        for domain in tables:
-            # TODO: use get_pad_token_id() instead of hard code
-            self.embeddings[domain] = nn.Embedding(
-                self.tokenizers[domain].get_vocabulary_size(),
-                embedding_dim,
-                padding_idx=0,
-            )
-
+        # validate kwargs for Transformer layer
+        if "feature_size" in kwargs:
+            raise ValueError("feature_size is determined by embedding_dim")
         self.transformer = nn.ModuleDict()
-        for domain in tables:
-            self.transformer[domain] = TransformerLayer(
-                input_size=embedding_dim, hidden_size=hidden_dim, **kwargs
+        for feature_key in feature_keys:
+            self.transformer[feature_key] = TransformerLayer(
+                feature_size=embedding_dim, **kwargs
             )
-        self.fc = nn.Linear(
-            len(tables) * hidden_dim, self.label_tokenizer.get_vocabulary_size()
-        )
+        output_size = self.get_output_size(self.label_tokenizer)
+        # transformer's output feature size is still embedding_dim
+        self.fc = nn.Linear(len(self.feature_keys) * self.embedding_dim, output_size)
 
-    def forward(self, device, **kwargs):
-        """
-        if "kwargs[domain][0][0] is list" means "use history", then run visit level RNN
-        elif "kwargs[domain][0][0] is not list" means not "use history", then run code level RNN
-        """
+    def visit_level_forward(self, **kwargs):
+        """Visit-level Transformer forward."""
         patient_emb = []
-        for domain in self.tables:
-            if type(kwargs[domain][0][0]) == list:
-                kwargs[domain] = self.tokenizers[domain].batch_encode_3d(kwargs[domain])
-                kwargs[domain] = torch.tensor(
-                    kwargs[domain], dtype=torch.long, device=device
-                )
-                # (patient, visit, code, embedding_dim)
-                kwargs[domain] = self.embeddings[domain](kwargs[domain])
-                # (patient, visit, embedding_dim)
-                kwargs[domain] = torch.sum(kwargs[domain], dim=2)
-            elif type(kwargs[domain][0][0]) in [int, str]:
-                kwargs[domain] = self.tokenizers[domain].batch_encode_2d(kwargs[domain])
-                kwargs[domain] = torch.tensor(
-                    kwargs[domain], dtype=torch.long, device=device
-                )
-                # (patient, code, embedding_dim)
-                kwargs[domain] = self.embeddings[domain](kwargs[domain])
-            else:
-                raise ValueError("Sample data format is not correct")
-
-            # get mask and run RNN
-            mask = torch.sum(kwargs[domain], dim=2) != 0
-            mask[:, 0] = 1
-            # (patient, hidden_dim)
-            domain_emb = self.transformer[domain](kwargs[domain], mask)
-            patient_emb.append(domain_emb)
-
-        # (patient, hidden_dim * N_tables)
+        for feature_key in self.feature_keys:
+            assert type(kwargs[feature_key][0][0]) == list
+            x = self.feat_tokenizers[feature_key].batch_encode_3d(kwargs[feature_key])
+            # (patient, visit, code)
+            x = torch.tensor(x, dtype=torch.long, device=self.device)
+            # (patient, visit, code, embedding_dim)
+            x = self.embeddings[feature_key](x)
+            # (patient, visit, embedding_dim)
+            x = torch.sum(x, dim=2)
+            # (patient, visit)
+            mask = torch.sum(x, dim=2) != 0
+            # (patient, embedding_dim)
+            _, x = self.transformer[feature_key](x, mask)
+            patient_emb.append(x)
+        # (patient, features * embedding_dim)
         patient_emb = torch.cat(patient_emb, dim=1)
+        # (patient, label_size)
         logits = self.fc(patient_emb)
-
-        # obtain target, loss, prob, pred
-        loss, y_true, y_prod, y_pred = self.cal_loss_and_output(
-            logits, device, **kwargs
-        )
-
+        # obtain y_true, loss, y_prob
+        y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
+        loss = self.get_loss_function()(logits, y_true)
+        y_prob = self.prepare_y_prob(logits)
         return {
             "loss": loss,
-            "y_prob": y_prod,
-            "y_pred": y_pred,
+            "y_prob": y_prob,
             "y_true": y_true,
         }
+
+    def event_level_forward(self, **kwargs):
+        """Event-level Transformer forward."""
+        patient_emb = []
+        for feature_key in self.feature_keys:
+            assert type(kwargs[feature_key][0][0]) == str
+            x = self.feat_tokenizers[feature_key].batch_encode_2d(kwargs[feature_key])
+            # (patient, code)
+            x = torch.tensor(x, dtype=torch.long, device=self.device)
+            # (patient, code, embedding_dim)
+            x = self.embeddings[feature_key](x)
+            # (patient, code)
+            mask = torch.sum(x, dim=2) != 0
+            # (patient, embedding_dim)
+            _, x = self.transformer[feature_key](x, mask)
+            patient_emb.append(x)
+        # (patient, features * embedding_dim)
+        patient_emb = torch.cat(patient_emb, dim=1)
+        # (patient, label_size)
+        logits = self.fc(patient_emb)
+        # obtain y_true, loss, y_prob
+        y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
+        loss = self.get_loss_function()(logits, y_true)
+        y_prob = self.prepare_y_prob(logits)
+        return {
+            "loss": loss,
+            "y_prob": y_prob,
+            "y_true": y_true,
+        }
+
+    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+        """Forward propagation.
+
+        If `operation_level` is "visit", then the input is a list of visits
+        for each patient. Each visit is a list of codes. For example,
+        `kwargs["conditions"]` is a list of visits for each patient. Each
+        visit is a list of condition codes.
+
+        If `operation_level` is "event", then the input is a list of events
+        for each patient. Each event is a code. For example, `kwargs["conditions"]`
+        is a list of condition codes for each patient.
+
+        The label `kwargs[self.label_key]` is a list of labels for each patient.
+
+        Args:
+            **kwargs: keyword arguments for the model. The keys must contain
+                all the feature keys and the label key.
+
+        Returns:
+            A dictionary with the following keys:
+                loss: a scalar tensor representing the loss.
+                y_prob: a tensor representing the predicted probabilities.
+                y_true: a tensor representing the true labels.
+        """
+        if self.operation_level == "visit":
+            return self.visit_level_forward(**kwargs)
+        elif self.operation_level == "event":
+            return self.event_level_forward(**kwargs)
+        else:
+            raise NotImplementedError
