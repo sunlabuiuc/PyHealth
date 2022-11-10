@@ -1,4 +1,4 @@
-﻿pyhealth.metrics.multiclass
+﻿pyhealth.metrics.binary
 ===================================
 
 .. currentmodule:: pyhealth.metrics.binary

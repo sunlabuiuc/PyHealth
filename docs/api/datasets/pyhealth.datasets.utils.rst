@@ -1,4 +1,4 @@
-﻿pyhealth.datasets.splitter
+﻿pyhealth.datasets.utils
 ===================================
 
 Several utility functions.
