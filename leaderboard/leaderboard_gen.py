@@ -7,7 +7,6 @@ from pyhealth.datasets.splitter import split_by_patient
 from pyhealth.tasks import *
 from pyhealth.datasets.utils import collate_fn_dict
 from pyhealth.trainer import Trainer
-from pyhealth.evaluator import evaluate
 from pyhealth.metrics import *
 from sklearn.linear_model import LogisticRegression as LR
 from sklearn.ensemble import RandomForestClassifier as RF
@@ -217,7 +216,7 @@ def leaderboard_generation(args):
 
                 tables_ = ["conditions", "procedures"]
                 mode_ = "multilabel"
-                val_metric = pr_auc_multilabel
+                val_metric = 'pr_auc_multilabel'
                 dataset_task = dataset_name + "-drugrec"
 
             elif "mortality_prediction" in task_name:
@@ -230,7 +229,7 @@ def leaderboard_generation(args):
                 ]
                 tables_ = ["conditions", "procedures", "drugs"]
                 mode_ = "binary"
-                val_metric = average_precision_score
+                val_metric = 'average_precision_score'
                 dataset_task = dataset_name + "-mortality"
 
             elif "readmission_prediction" in task_name:
@@ -243,7 +242,7 @@ def leaderboard_generation(args):
                 ]
                 tables_ = ["conditions", "procedures", "drugs"]
                 mode_ = "binary"
-                val_metric = average_precision_score
+                val_metric = 'average_precision_score'
                 dataset_task = dataset_name + "-readmission"
 
             print("current task: " + task_name)
@@ -276,20 +275,10 @@ def leaderboard_generation(args):
                         end = time.time()
                         print('training time: ', end - start)
 
-                        y_gt, y_prob, y_pred = evaluate(model, test_loader)
-
-                        if mode_ == "multilabel":
-
-                            jaccard = jaccard_multilabel(y_gt, y_pred)
-                            accuracy = accuracy_multilabel(y_gt, y_pred)
-                            f1 = f1_multilabel(y_gt, y_pred, average='macro')
-                            prauc = pr_auc_multilabel(y_gt, y_prob)
-
-                        elif mode_ == "binary":
-                            jaccard = jaccard_score(y_gt, y_pred, average='macro')
-                            accuracy = accuracy_score(y_gt, y_pred)
-                            f1 = f1_score(y_gt, y_pred, average='macro')
-                            prauc = average_precision_score(y_gt, y_prob)
+                        y_gt, y_prob, avg_loss = trainer.inference(model, test_loader)
+                        y_pred = (y_prob > 0.5).astype(int)
+                        
+                        jaccard, accuracy, f1, prauc = get_metrics_result(mode_, y_gt, y_pred, y_prob)
 
                         # input leaderboard for each dataset-task-model
                         eval_data_model = [jaccard, accuracy, f1, prauc]
@@ -327,7 +316,8 @@ def leaderboard_generation(args):
                     end = time.time()
                     print('training time: ', end - start)
 
-                    y_gt, y_prob, y_pred = evaluate(model, test_loader, device)
+                    y_gt, y_prob, avg_loss = trainer.inference(model, test_loader)
+                    y_pred = (y_prob > 0.5).astype(int)
 
                     if mode_ == "multilabel":
 
