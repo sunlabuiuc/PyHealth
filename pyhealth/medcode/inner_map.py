@@ -35,10 +35,10 @@ class InnerMap(ABC):
         pickle_filepath = os.path.join(MODULE_CACHE_PATH, self.vocabulary + ".pkl")
         csv_filename = self.vocabulary + ".csv"
         if os.path.exists(pickle_filepath) and (not refresh_cache):
-            logging.info(f"Loaded {vocabulary} code from {pickle_filepath}")
+            logging.debug(f"Loaded {vocabulary} code from {pickle_filepath}")
             self.graph = load_pickle(pickle_filepath)
         else:
-            logging.info(f"Processing {vocabulary} code...")
+            logging.debug(f"Processing {vocabulary} code...")
             df = download_and_read_csv(csv_filename, refresh_cache)
             # create graph
             df = df.set_index("code")
@@ -53,7 +53,7 @@ class InnerMap(ABC):
                 if "parent_code" in row:
                     if not pd.isna(row["parent_code"]):
                         self.graph.add_edge(row["parent_code"], code)
-            logging.info(f"Saved {vocabulary} code to {pickle_filepath}")
+            logging.debug(f"Saved {vocabulary} code to {pickle_filepath}")
             save_pickle(self.graph, pickle_filepath)
         return
 

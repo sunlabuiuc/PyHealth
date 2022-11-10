@@ -115,18 +115,18 @@ class BaseDataset(ABC, Dataset):
         # check if cache exists or refresh_cache is True
         if os.path.exists(self.filepath) and (not refresh_cache):
             # load from cache
-            logging.info(f"Loaded {dataset_name} base dataset from {self.filepath}")
+            logging.debug(f"Loaded {dataset_name} base dataset from {self.filepath}")
             self.patients = load_pickle(self.filepath)
         else:
             # load from raw data
-            logging.info(f"Processing {dataset_name} base dataset...")
+            logging.debug(f"Processing {dataset_name} base dataset...")
             # parse tables
             patients = self.parse_tables()
             # convert codes
             patients = self._convert_code_in_patient_dict(patients)
             self.patients = patients
             # save to cache
-            logging.info(f"Saved {dataset_name} base dataset to {self.filepath}")
+            logging.debug(f"Saved {dataset_name} base dataset to {self.filepath}")
             save_pickle(self.patients, self.filepath)
 
     def _load_code_mapping_tools(self) -> Dict[str, CrossMap]:
