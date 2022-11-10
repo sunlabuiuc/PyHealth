@@ -1,9 +1,8 @@
 from pyhealth.medcode.inner_map import InnerMap
 
 
-# TODO: code names are abbreviated
-
 class CCSPROC(InnerMap):
+    """Classification of Diseases, Procedure."""
 
     def __init__(self, **kwargs):
         super(CCSPROC, self).__init__(vocabulary="CCSPROC", **kwargs)

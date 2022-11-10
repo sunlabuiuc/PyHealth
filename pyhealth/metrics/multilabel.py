@@ -1,203 +1,177 @@
+from typing import List, Optional, Dict
+
 import numpy as np
-from .multiclass import (
-    accuracy_score,
-    precision_score,
-    recall_score,
-    f1_score,
-    roc_auc_score,
-    average_precision_score,
-    jaccard_score,
-    cohen_kappa_score,
-    r2_score,
-)
+import sklearn.metrics as sklearn_metrics
 
 
-def accuracy_multilabel(y_true, y_pred, **kwargs):
-    """Accuracy classification score.
-    INPUTS:
-        - y_true: array-like of shape (n_samples, n_classes)
-        - y_pred: array-like of shape (n_samples, n_classes)
-        - label_weight: list of weights for each label (n_classes,)
-    OUTPUTS:
-        - result: weighted accuracy score over labels
-    """
-    
-    y_true = np.array(y_true)
-    y_pred = np.array(y_pred)
-    
-    result = []
-    for i in range(y_true.shape[0]):
-        result.append(accuracy_score(y_true[i], y_pred[i], **kwargs))
-    return np.mean(result)
+def multilabel_metrics_fn(
+        y_true: np.ndarray,
+        y_prob: np.ndarray,
+        metrics: Optional[List[str]] = None,
+        threshold: float = 0.5,
+) -> Dict[str, float]:
+    if metrics is None:
+        metrics = ["pr_auc_samples"]
+
+    y_pred = y_prob.copy()
+    y_pred[y_pred >= threshold] = 1
+    y_pred[y_pred < threshold] = 0
+
+    output = {}
+    for metric in metrics:
+        if metric == "roc_auc_micro":
+            roc_auc_micro = sklearn_metrics.roc_auc_score(
+                y_true, y_prob, average="micro"
+            )
+            output["roc_auc_micro"] = roc_auc_micro
+        elif metric == "roc_auc_macro":
+            roc_auc_macro = sklearn_metrics.roc_auc_score(
+                y_true, y_prob, average="macro"
+            )
+            output["roc_auc_macro"] = roc_auc_macro
+        elif metric == "roc_auc_weighted":
+            roc_auc_weighted = sklearn_metrics.roc_auc_score(
+                y_true, y_prob, average="weighted"
+            )
+            output["roc_auc_weighted"] = roc_auc_weighted
+        elif metric == "roc_auc_samples":
+            roc_auc_samples = sklearn_metrics.roc_auc_score(
+                y_true, y_prob, average="samples"
+            )
+            output["roc_auc_samples"] = roc_auc_samples
+        elif metric == "pr_auc_micro":
+            pr_auc_micro = sklearn_metrics.average_precision_score(
+                y_true, y_prob, average="micro"
+            )
+            output["pr_auc_micro"] = pr_auc_micro
+        elif metric == "pr_auc_macro":
+            pr_auc_macro = sklearn_metrics.average_precision_score(
+                y_true, y_prob, average="macro"
+            )
+            output["pr_auc_macro"] = pr_auc_macro
+        elif metric == "pr_auc_weighted":
+            pr_auc_weighted = sklearn_metrics.average_precision_score(
+                y_true, y_prob, average="weighted"
+            )
+            output["pr_auc_weighted"] = pr_auc_weighted
+        elif metric == "pr_auc_samples":
+            pr_auc_samples = sklearn_metrics.average_precision_score(
+                y_true, y_prob, average="samples"
+            )
+            output["pr_auc_samples"] = pr_auc_samples
+        elif metric == "accuracy":
+            accuracy = sklearn_metrics.accuracy_score(y_true, y_pred)
+            output["accuracy"] = accuracy
+        elif metric == "f1_micro":
+            f1_micro = sklearn_metrics.f1_score(y_true, y_pred, average="micro")
+            output["f1_micro"] = f1_micro
+        elif metric == "f1_macro":
+            f1_macro = sklearn_metrics.f1_score(y_true, y_pred, average="macro")
+            output["f1_macro"] = f1_macro
+        elif metric == "f1_weighted":
+            f1_weighted = sklearn_metrics.f1_score(y_true, y_pred, average="weighted")
+            output["f1_weighted"] = f1_weighted
+        elif metric == "f1_samples":
+            f1_samples = sklearn_metrics.f1_score(y_true, y_pred, average="samples")
+            output["f1_samples"] = f1_samples
+        elif metric == "precision_micro":
+            precision_micro = sklearn_metrics.precision_score(
+                y_true, y_pred, average="micro"
+            )
+            output["precision_micro"] = precision_micro
+        elif metric == "precision_macro":
+            precision_macro = sklearn_metrics.precision_score(
+                y_true, y_pred, average="macro"
+            )
+            output["precision_macro"] = precision_macro
+        elif metric == "precision_weighted":
+            precision_weighted = sklearn_metrics.precision_score(
+                y_true, y_pred, average="weighted"
+            )
+            output["precision_weighted"] = precision_weighted
+        elif metric == "precision_samples":
+            precision_samples = sklearn_metrics.precision_score(
+                y_true, y_pred, average="samples"
+            )
+            output["precision_samples"] = precision_samples
+        elif metric == "recall_micro":
+            recall_micro = sklearn_metrics.recall_score(
+                y_true, y_pred, average="micro"
+            )
+            output["recall_micro"] = recall_micro
+        elif metric == "recall_macro":
+            recall_macro = sklearn_metrics.recall_score(
+                y_true, y_pred, average="macro"
+            )
+            output["recall_macro"] = recall_macro
+        elif metric == "recall_weighted":
+            recall_weighted = sklearn_metrics.recall_score(
+                y_true, y_pred, average="weighted"
+            )
+            output["recall_weighted"] = recall_weighted
+        elif metric == "recall_samples":
+            recall_samples = sklearn_metrics.recall_score(
+                y_true, y_pred, average="samples"
+            )
+            output["recall_samples"] = recall_samples
+        elif metric == "jaccard_micro":
+            jaccard_micro = sklearn_metrics.jaccard_score(
+                y_true, y_pred, average="micro"
+            )
+            output["jaccard_micro"] = jaccard_micro
+        elif metric == "jaccard_macro":
+            jaccard_macro = sklearn_metrics.jaccard_score(
+                y_true, y_pred, average="macro"
+            )
+            output["jaccard_macro"] = jaccard_macro
+        elif metric == "jaccard_weighted":
+            jaccard_weighted = sklearn_metrics.jaccard_score(
+                y_true, y_pred, average="weighted"
+            )
+            output["jaccard_weighted"] = jaccard_weighted
+        elif metric == "jaccard_samples":
+            jaccard_samples = sklearn_metrics.jaccard_score(
+                y_true, y_pred, average="samples"
+            )
+            output["jaccard_samples"] = jaccard_samples
+        elif metric == "hamming_loss":
+            hamming_loss = sklearn_metrics.hamming_loss(y_true, y_pred)
+            output["hamming_loss"] = hamming_loss
+        else:
+            raise ValueError(f"Unknown metric for multilabel classification: {metric}")
+
+    return output
 
 
-def precision_multilabel(y_true, y_pred, **kwargs):
-    """Precision classification score.
-    INPUTS:
-        - y_true: array-like of shape (n_samples, n_classes)
-        - y_pred: array-like of shape (n_samples, n_classes)
-        - label_weight: list of weights for each label (n_classes,)
-    OUTPUTS:
-        - result: weighted precision score over labels
-    """
-    
-    y_true = np.array(y_true)
-    y_pred = np.array(y_pred)
-    
-    result = []
-    for i in range(y_true.shape[0]):
-        result.append(precision_score(y_true[i], y_pred[i], **kwargs))
-    return np.mean(result)
-
-
-def recall_multilabel(y_true, y_pred, **kwargs):
-    """Recall classification score.
-    INPUTS:
-        - y_true: array-like of shape (n_samples, n_classes)
-        - y_pred: array-like of shape (n_samples, n_classes)
-        - label_weight: list of weights for each label (n_classes,)
-    OUTPUTS:
-        - result: weighted recall score over labels
-    """
-    
-    y_true = np.array(y_true)
-    y_pred = np.array(y_pred)
-    
-    result = []
-    for i in range(y_true.shape[0]):
-        result.append(recall_score(y_true[i], y_pred[i], **kwargs))
-    return np.mean(result)
-
-
-def f1_multilabel(y_true, y_pred, **kwargs):
-    """F1 classification score.
-    INPUTS:
-        - y_true: array-like of shape (n_samples, n_classes)
-        - y_pred: array-like of shape (n_samples, n_classes)
-        - label_weight: list of weights for each label (n_classes,)
-    OUTPUTS:
-        - result: weighted f1 score over labels
-    """
-    
-    y_true = np.array(y_true)
-    y_pred = np.array(y_pred)
-    
-    result = []
-    for i in range(y_true.shape[0]):
-        result.append(f1_score(y_true[i], y_pred[i], **kwargs))
-    return np.mean(result)
-
-
-def roc_auc_multilabel(y_true, y_pred, **kwargs):
-    """ROC AUC classification score.
-    INPUTS:
-        - y_true: array-like of shape (n_samples, n_classes)
-        - y_pred: array-like of shape (n_samples, n_classes)
-        - label_weight: list of weights for each label (n_classes,)
-    OUTPUTS:
-        - result: weighted roc auc score over labels
-    """
-    y_true = np.array(y_true)
-    y_pred = np.array(y_pred)
-    
-    result = []
-    for i in range(y_true.shape[0]):
-        result.append(roc_auc_score(y_true[i], y_pred[i], **kwargs))
-    return np.mean(result)
-
-
-def pr_auc_multilabel(y_true, y_pred, **kwargs):
-    """PR AUC classification score.
-    INPUTS:
-        - y_true: array-like of shape (n_samples, n_classes)
-        - y_pred: array-like of shape (n_samples, n_classes)
-        - label_weight: list of weights for each label (n_classes,)
-    OUTPUTS:
-        - result: weighted pr auc score over labels
-    """
-    y_true = np.array(y_true)
-    y_pred = np.array(y_pred)
-    
-    result = []
-    for i in range(y_true.shape[0]):
-        result.append(average_precision_score(y_true[i], y_pred[i], **kwargs))
-    return np.mean(result)
-
-
-def jaccard_multilabel(y_true, y_pred, **kwargs):
-    """Jaccard classification score.
-    INPUTS:
-        - y_true: array-like of shape (n_samples, n_classes)
-        - y_pred: array-like of shape (n_samples, n_classes)
-        - label_weight: list of weights for each label (n_classes,)
-    OUTPUTS:
-        - result: weighted jaccard score over labels
-    """
-    y_true = np.array(y_true)
-    y_pred = np.array(y_pred)
-    
-    result = []
-    for i in range(y_true.shape[0]):
-        result.append(jaccard_score(y_true[i], y_pred[i], **kwargs))
-    return np.mean(result)
-
-
-def r2_score_multilabel(y_true, y_pred, **kwargs):
-    """R2 regression score.
-    INPUTS:
-        - y_true: array-like of shape (n_samples, n_classes)
-        - y_pred: array-like of shape (n_samples, n_classes)
-        - label_weight: list of weights for each label (n_classes,)
-    OUTPUTS:
-        - result: weighted r2 score over labels
-    """
-    y_true = np.array(y_true)
-    y_pred = np.array(y_pred)
-    
-    result = []
-    for i in range(y_true.shape[0]):
-        result.append(r2_score(y_true[i], y_pred[i], **kwargs))
-    return np.mean(result)
-
-
-def cohen_kappa_multilabel(y_true, y_pred, **kwargs):
-    """Cohen Kappa regression score.
-    INPUTS:
-        - y_true: array-like of shape (n_samples, n_classes)
-        - y_pred: array-like of shape (n_samples, n_classes)
-        - label_weight: list of weights for each label (n_classes,)
-    OUTPUTS:
-        - result: weighted cohen kappa score over labels
-    """
-    y_true = np.array(y_true)
-    y_pred = np.array(y_pred)
-    
-    result = []
-    for i in range(y_true.shape[0]):
-        result.append(cohen_kappa_score(y_true[i], y_pred[i], **kwargs))
-    return np.mean(result)
-
-
-def ddi_rate_score(medications, ddi_matrix):
-    """DDI rate score.
-    INPUTS:
-        - medications: array-like of shape (n_samples, n_classes)
-        - ddi_matrix: array-like of shape (n_classes, n_classes)
-    OUTPUTS:
-        - result: DDI rate score
-    """
-    ddi_matrix = np.array(ddi_matrix)
-
-    all_cnt = 0
-    dd_cnt = 0
-    for sample in medications:
-        for i, med_i in enumerate(sample):
-            for j, med_j in enumerate(sample):
-                if j <= i:
-                    continue
-                all_cnt += 1
-                if ddi_matrix[med_i, med_j] == 1 or ddi_matrix[med_j, med_i] == 1:
-                    dd_cnt += 1
-    if all_cnt == 0:
-        return 0
-    return dd_cnt / all_cnt
+if __name__ == "__main__":
+    all_metrics = [
+        "roc_auc_micro",
+        "roc_auc_macro",
+        "roc_auc_weighted",
+        "roc_auc_samples",
+        "pr_auc_micro",
+        "pr_auc_macro",
+        "pr_auc_weighted",
+        "pr_auc_samples",
+        "accuracy",
+        "f1_micro",
+        "f1_macro",
+        "f1_weighted",
+        "f1_samples",
+        "precision_micro",
+        "precision_macro",
+        "precision_weighted",
+        "precision_samples",
+        "recall_micro",
+        "recall_macro",
+        "recall_weighted",
+        "recall_samples",
+        "jaccard_micro",
+        "jaccard_macro",
+        "jaccard_weighted",
+        "jaccard_samples",
+        "hamming_loss",
+    ]
+    y_true = np.random.randint(2, size=(100000, 100))
+    y_prob = np.random.random(size=(100000, 100))
+    print(multilabel_metrics_fn(y_true, y_prob, metrics=all_metrics))

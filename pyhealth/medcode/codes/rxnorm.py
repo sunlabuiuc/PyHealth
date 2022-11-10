@@ -2,6 +2,7 @@ from pyhealth.medcode.inner_map import InnerMap
 
 
 class RxNorm(InnerMap):
+    """RxNorm."""
 
     def __init__(self, **kwargs):
         super(RxNorm, self).__init__(vocabulary="RxNorm", **kwargs)

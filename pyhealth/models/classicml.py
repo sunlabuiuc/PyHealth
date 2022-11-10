@@ -11,15 +11,18 @@ from itertools import chain
 
 class ClassicML:
     """Call classical ML models
-        
+
+        Note:
+            The classic ML models are under development. Please use with caution!
+
         Args:
             dataset: the dataset object
             tables: a list of table names to be used
             target: the target table name
             classifier: the classifier object from sklearn
             mode: the mode of the model, can be "multilabel", "binary", "multiclass"
-        
-        **Examples:**
+
+        Examples:
             >>> from pyhealth.datasets import OMOPDataset
             >>> dataset = OMOPDataset(
             ...     root="https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2",
@@ -27,7 +30,7 @@ class ClassicML:
             ... ) # load dataset
             >>> from pyhealth.tasks import mortality_prediction_omop_fn
             >>> dataset.set_task(mortality_prediction_omop_fn) # set task
-            
+
             >>> from pyhealth.models import ClassicML
             >>> from sklearn.ensemble import RandomForestClassifier as RF
             >>> model = ClassicML(
@@ -37,7 +40,6 @@ class ClassicML:
             ...     mode="binary",
             ...     classifier=RF(max_depth=6, max_features="sqrt", n_jobs=-1, n_estimators=50),
             ... )
-            
         """
         
     def __init__(
@@ -82,7 +84,7 @@ class ClassicML:
             **kwargs: the key-value pair of batch data
         """
         batch_X = []
-        for domain in self.tables:
+        for domain in self.feature_keys:
             cur_X = np.zeros(
                 (len(kwargs[domain]), self.tokenizers[domain].get_vocabulary_size())
             )
@@ -96,18 +98,18 @@ class ClassicML:
             batch_X.append(cur_X)
 
         if self.mode in ["multilabel"]:
-            kwargs[self.target] = self.label_tokenizer.batch_encode_2d(
-                kwargs[self.target], padding=False, truncation=False
+            kwargs[self.label_key] = self.label_tokenizer.batch_encode_2d(
+                kwargs[self.label_key], padding=False, truncation=False
             )
             batch_y = np.zeros(
-                (len(kwargs[self.target]), self.label_tokenizer.get_vocabulary_size())
+                (len(kwargs[self.label_key]), self.label_tokenizer.get_vocabulary_size())
             )
-            for idx, sample in enumerate(kwargs[self.target]):
+            for idx, sample in enumerate(kwargs[self.label_key]):
                 batch_y[idx, sample] = 1
 
         elif self.mode in ["binary", "multiclass"]:
             batch_y = self.label_tokenizer.convert_tokens_to_indices(
-                kwargs[self.target]
+                kwargs[self.label_key]
             )
         else:
             raise ValueError("Invalid mode: {}".format(self.mode))

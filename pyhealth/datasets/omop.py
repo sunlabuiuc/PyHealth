@@ -1,11 +1,12 @@
 import os
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple, Union
 
 import pandas as pd
 from tqdm import tqdm
 
 from pyhealth.data import Event, Visit, Patient
 from pyhealth.datasets import BaseDataset
+from pyhealth.datasets.utils import strptime
 
 
 # TODO: add other tables
@@ -15,9 +16,9 @@ class OMOPDataset(BaseDataset):
     """Base dataset for OMOP dataset.
 
     The Observational Medical Outcomes Partnership (OMOP) Common Data Model (CDM)
-        is an open community data standard, designed to standardize the structure
-        and content of observational data and to enable efficient analyses that
-        can produce reliable evidence.
+    is an open community data standard, designed to standardize the structure
+    and content of observational data and to enable efficient analyses that
+    can produce reliable evidence.
 
     See: https://www.ohdsi.org/data-standardization/the-common-data-model/.
 
@@ -39,17 +40,21 @@ class OMOPDataset(BaseDataset):
             (MEASUREMENT_CONCEPT_ID code) of patients' visits.
 
     Args:
-        dataset_name: str, name of the dataset.
-        root: str, root directory of the raw data (should contain many csv files).
-        tables: List[str], list of tables to be loaded. Must be a subset of the
-            following tables: condition_occurrence, procedure_occurrence,
-            drug_exposure, measurement.
-        code_mapping: Optional[Dict[str, str]], key is the source code vocabulary and
-            value is the target code vocabulary (e.g., {"ICD9CM": "CCSCM"}).
+        dataset_name: name of the dataset.
+        root: root directory of the raw data (should contain many csv files).
+        tables: list of tables to be loaded (e.g., ["DIAGNOSES_ICD", "PROCEDURES_ICD"]).
+        code_mapping: a dictionary containing the code mapping information.
+            The key is a str of the source code vocabulary and the value is of
+            two formats:
+                (1) a str of the target code vocabulary;
+                (2) a tuple with two elements. The first element is a str of the
+                    target code vocabulary and the second element is a dict with
+                    keys "source_kwargs" or "target_kwargs" and values of the
+                    corresponding kwargs for the `CrossMap.map()` method.
             Default is empty dict, which means the original code will be used.
-        dev: bool, whether to enable dev mode (only use a small subset of the data).
+        dev: whether to enable dev mode (only use a small subset of the data).
             Default is False.
-        refresh_cache: bool, whether to refresh the cache; if true, the dataset will
+        refresh_cache: whether to refresh the cache; if true, the dataset will
             be processed from scratch and the cache will be updated. Default is False.
 
     Attributes:
@@ -62,42 +67,6 @@ class OMOPDataset(BaseDataset):
             a list of sample indices. Default is None.
         visit_to_index: Optional[Dict[str, List[int]]], a dict mapping visit_id to a
             list of sample indices. Default is None.
-            
-    **Examples:**
-        >>> from pyhealth.datasets import OMOPDataset
-        >>> omop_ds = OMOPDataset(
-        ...     root="https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2",
-        ...     tables=["condition_occurrence", "procedure_occurrence"],
-        ...     code_mapping={},
-        ... )
-        Processing OMOP base dataset...
-        Parsing person, visit_occurrence and death: 100%|████████████████████████████████| 1000/1000 [00:04<00:00, 212.22it/s]
-        Parsing condition_occurrence: 100%|███████████████████████████████████████████| 49005/49005 [00:06<00:00, 8033.07it/s]
-        Parsing procedure_occurrence: 100%|███████████████████████████████████████████| 51576/51576 [00:05<00:00, 8725.00it/s]
-        Mapping codes: 100%|████████████████████████████████████████████████████████████| 1000/1000 [00:00<00:00, 4455.22it/s]
-        Saved OMOP base dataset to /home/chaoqiy2/.cache/pyhealth/datasets/a6532f16ff0c8860f0ffd2f1d53d7047.pkl
-
-        >>> omop_ds.stat()
-        Statistics of OMOP dataset (dev=False):
-            - Number of patients: 1000
-            - Number of visits: 55261
-            - Number of visits per patient: 55.2610
-            - codes/visit in condition_occurrence: 2.6635
-            - codes/visit in procedure_occurrence: 2.4886
-
-        >>> omop_ds.info()
-                dataset.patients: patient_id -> <Patient>
-                    <Patient>
-                        - visits: visit_id -> <Visit>
-                        - other patient-level info.
-                        <Visit>
-                            - event_list_dict: table_name -> List[Event]
-                            - other visit-level info.
-                            <Event>
-                                - code: str
-                                - other event-level info.
-        >>> omop_ds.available_tables
-        ['condition_occurrence', 'procedure_occurrence']
     """
 
     def __init__(
@@ -117,39 +86,45 @@ class OMOPDataset(BaseDataset):
             refresh_cache=refresh_cache,
         )
 
-    def _parse_tables(self) -> Dict[str, Patient]:
-        """This function overrides the _parse_tables() function in BaseDataset.
+    def parse_tables(self) -> Dict[str, Patient]:
+        """This function overrides the `self.parse_tables()` function in `BaseDataset`.
 
         It parses the corresponding tables and creates a dict of patients which
-            will be cached later.
+        will be cached later.
 
         Returns:
-            patients: a dictionary of Patient objects indexed by patient_id.
+            patients: a dictionary of `Patient` objects indexed by patient_id.
         """
-        # patients is a dict of Patient objects indexed by patient_id
+        # patients is a dict of `Patient` objects indexed by patient_id
         patients: Dict[str, Patient] = dict()
         # process person, visit_occurrence, and death tables
-        patients = self._parse_basic_info(patients)
+        patients = self.parse_basic_info(patients)
         # process clinical tables
         for table in self.tables:
             try:
                 # use lower case for function name
-                patients = getattr(self, f"_parse_{table.lower()}")(patients)
+                patients = getattr(self, f"parse_{table.lower()}")(patients)
             except AttributeError:
                 raise NotImplementedError(
                     f"Parser for table {table} is not implemented yet."
                 )
         return patients
 
-    def _parse_basic_info(self, patients) -> Dict[str, Patient]:
-        """Helper functions which parses person, visit_occurrence, and death tables.
+    def parse_basic_info(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
+        """Helper function which parses person, visit_occurrence, and death tables.
 
-        Will be called by _parse_tables().
+        Will be called in `self.parse_tables()`
 
         Docs:
             - person: http://ohdsi.github.io/CommonDataModel/cdm53.html#PERSON
             - visit_occurrence: http://ohdsi.github.io/CommonDataModel/cdm53.html#VISIT_OCCURRENCE
             - death: http://ohdsi.github.io/CommonDataModel/cdm53.html#DEATH
+
+        Args:
+            patients: a dict of `Patient` objects indexed by patient_id.
+
+        Returns:
+            The updated patients dict.
         """
         # read person table
         person_df = pd.read_csv(
@@ -191,9 +166,8 @@ class OMOPDataset(BaseDataset):
             patient = Patient(
                 patient_id=p_id,
                 # no exact time, use 00:00:00
-                birth_datetime=self._strptime(birth_date, "%Y-%m-%d"),
-                death_datetime=self._strptime(p_info["death_date"].values[0],
-                                              "%Y-%m-%d"),
+                birth_datetime=strptime(birth_date),
+                death_datetime=strptime(p_info["death_date"].values[0]),
                 gender=p_info["gender_concept_id"].values[0],
                 ethnicity=p_info["race_concept_id"].values[0],
             )
@@ -211,8 +185,8 @@ class OMOPDataset(BaseDataset):
                 visit = Visit(
                     visit_id=v_id,
                     patient_id=p_id,
-                    encounter_time=self._strptime(visit_start_date, "%Y-%m-%d"),
-                    discharge_time=self._strptime(visit_end_date, "%Y-%m-%d"),
+                    encounter_time=strptime(visit_start_date),
+                    discharge_time=strptime(visit_end_date),
                     discharge_status=discharge_status,
                 )
                 # add visit
@@ -221,13 +195,22 @@ class OMOPDataset(BaseDataset):
             patients[p_id] = patient
         return patients
 
-    def _parse_condition_occurrence(self, patients) -> Dict[str, Patient]:
-        """Helper functions which parses condition_occurrence table.
+    def parse_condition_occurrence(
+            self,
+            patients: Dict[str, Patient]
+    ) -> Dict[str, Patient]:
+        """Helper function which parses condition_occurrence table.
 
-        Will be called by _parse_tables().
+        Will be called in `self.parse_tables()`
 
         Docs:
             - condition_occurrence: http://ohdsi.github.io/CommonDataModel/cdm53.html#CONDITION_OCCURRENCE
+
+        Args:
+            patients: a dict of `Patient` objects indexed by patient_id.
+
+        Returns:
+            The updated patients dict.
         """
         table = "condition_occurrence"
         # read table
@@ -259,19 +242,28 @@ class OMOPDataset(BaseDataset):
                     vocabulary="CONDITION_CONCEPT_ID",
                     visit_id=v_id,
                     patient_id=p_id,
-                    timestamp=self._strptime(timestamp),
+                    timestamp=strptime(timestamp),
                 )
                 # update patients
                 patients = self._add_event_to_patient_dict(patients, event)
         return patients
 
-    def _parse_procedure_occurrence(self, patients) -> Dict[str, Patient]:
-        """Helper functions which parses procedure_occurrence table.
+    def parse_procedure_occurrence(
+            self,
+            patients: Dict[str, Patient]
+    ) -> Dict[str, Patient]:
+        """Helper function which parses procedure_occurrence table.
 
-        Will be called by _parse_tables().
+        Will be called in `self.parse_tables()`
 
         Docs:
             - procedure_occurrence: http://ohdsi.github.io/CommonDataModel/cdm53.html#PROCEDURE_OCCURRENCE
+
+        Args:
+            patients: a dict of `Patient` objects indexed by patient_id.
+
+        Returns:
+            The updated patients dict.
         """
         table = "procedure_occurrence"
         # read table
@@ -303,14 +295,26 @@ class OMOPDataset(BaseDataset):
                     vocabulary="PROCEDURE_CONCEPT_ID",
                     visit_id=v_id,
                     patient_id=p_id,
-                    timestamp=self._strptime(timestamp),
+                    timestamp=strptime(timestamp),
                 )
                 # update patients
                 patients = self._add_event_to_patient_dict(patients, event)
         return patients
 
-    def _parse_drug_exposure(self, patients) -> Dict[str, Patient]:
-        """Helper functions which parses drug_exposure table."""
+    def parse_drug_exposure(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
+        """Helper function which parses drug_exposure table.
+
+        Will be called in `self.parse_tables()`
+
+        Docs:
+            - procedure_occurrence: http://ohdsi.github.io/CommonDataModel/cdm53.html#DRUG_EXPOSURE
+
+        Args:
+            patients: a dict of `Patient` objects indexed by patient_id.
+
+        Returns:
+            The updated patients dict.
+        """
         table = "drug_exposure"
         # read table
         df = pd.read_csv(
@@ -339,19 +343,25 @@ class OMOPDataset(BaseDataset):
                     vocabulary="DRUG_CONCEPT_ID",
                     visit_id=v_id,
                     patient_id=p_id,
-                    timestamp=self._strptime(timestamp),
+                    timestamp=strptime(timestamp),
                 )
                 # update patients
                 patients = self._add_event_to_patient_dict(patients, event)
         return patients
 
-    def _parse_measurement(self, patients) -> Dict[str, Patient]:
-        """Helper functions which parses measurement table.
+    def parse_measurement(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
+        """Helper function which parses measurement table.
 
-        Will be called by _parse_tables().
+        Will be called in `self.parse_tables()`
 
         Docs:
             - measurement: http://ohdsi.github.io/CommonDataModel/cdm53.html#MEASUREMENT
+
+        Args:
+            patients: a dict of `Patient` objects indexed by patient_id.
+
+        Returns:
+            The updated patients dict.
         """
         table = "measurement"
         # read table
@@ -383,7 +393,7 @@ class OMOPDataset(BaseDataset):
                     vocabulary="MEASUREMENT_CONCEPT_ID",
                     visit_id=v_id,
                     patient_id=p_id,
-                    timestamp=self._strptime(timestamp),
+                    timestamp=strptime(timestamp),
                 )
                 # update patients
                 patients = self._add_event_to_patient_dict(patients, event)
@@ -402,5 +412,5 @@ if __name__ == "__main__":
         dev=False,
         refresh_cache=True,
     )
-    dataset.stat()
+    print(dataset.stat())
     dataset.info()

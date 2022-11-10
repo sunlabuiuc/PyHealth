@@ -1,105 +1,108 @@
+import logging
 import os
 from collections import defaultdict
+from typing import List, Optional, Dict
 from urllib.error import HTTPError
 
 import pyhealth.medcode as medcode
-from pyhealth import BASE_CACHE_PATH
-from pyhealth.medcode.utils import download_and_read_csv
-from pyhealth.utils import create_directory, load_pickle, save_pickle
-
-BASE_URL = "https://storage.googleapis.com/pyhealth/resource/"
-MODULE_CACHE_PATH = os.path.join(BASE_CACHE_PATH, "medcode")
-create_directory(MODULE_CACHE_PATH)
+from pyhealth.medcode.utils import MODULE_CACHE_PATH, download_and_read_csv
+from pyhealth.utils import load_pickle, save_pickle
 
 
 class CrossMap:
-    """mapping function cross two coding systems
+    """Contains mapping between two medical code systems.
 
-    Parameters:
-        src_vocab: str, source coding system
-        tgt_vocab: str, target coding system
-        refresh_cache: bool, whether to refresh the cache
-        **kwargs: dict, additional arguments for postprocessing
-
-    Attributes:
-        mapping: dict, mapping from source code to target codes. To make the format consistent, the key 
-            is a string-based source code and the value is a list of string-based target codes.
-        src_class: object, source coding system class
-        tgt_class: object, target coding system class
-            
-    **Examples:**
-        >>> from pyhealth.medcode import CrossMap
-        >>> mapping = CrossMap("ICD9CM", "CCSCM")
-        Loaded ICD9CM->CCSCM mapping from /home/chaoqiy2/.cache/pyhealth/medcode/ICD9CM_to_CCSCM.pkl
-        Loaded ICD9CM code from /home/chaoqiy2/.cache/pyhealth/medcode/ICD9CM.pkl
-        Loaded CCSCM code from /home/chaoqiy2/.cache/pyhealth/medcode/CCSCM.pkl
-        <pyhealth.medcode.cross_map.CrossMap object at 0x7f7f968a7ca0>
-        >>> mapping.map("82101")
-        ['230']
-        
-        >>> mapping = CrossMap(src_vocab="RxNorm", tgt_vocab="NDC")
-        Processing RxNorm->NDC mapping...
-        Saved RxNorm->NDC mapping to /root/.cache/pyhealth/medcode/RxNorm_to_NDC.pkl
-        Loaded RxNorm code from /root/.cache/pyhealth/medcode/RxNorm.pkl
-        Loaded NDC code from /root/.cache/pyhealth/medcode/NDC.pkl
-        >>> mapping.map("209387")
-        ['00045045270', '00045049642', '00045049650', .., '705182798', '70518279800']
-    
+    `CrossMap` is a base class for all possible mappings. It will be
+    initialized with two specific medical code systems with
+    `CrossMap.load(source_vocabulary, target_vocabulary)`.
     """
-    
+
     def __init__(
             self,
-            src_vocab,
-            tgt_vocab,
+            source_vocabulary: str,
+            target_vocabulary: str,
             refresh_cache: bool = False,
-            **kwargs,
     ):
-        self.src_vocab = src_vocab
-        self.tgt_vocab = tgt_vocab
-        self.kwargs = kwargs
+        self.s_vocab = source_vocabulary
+        self.t_vocab = target_vocabulary
 
-        self.mapping = self.load_mapping(refresh_cache)
-
-        self.src_class = getattr(medcode, src_vocab)()
-        self.tgt_class = getattr(medcode, tgt_vocab)()
-
-        return
-
-    def load_mapping(self, refresh_cache: bool = False):
-        pickle_filename = f"{self.src_vocab}_to_{self.tgt_vocab}.pkl"
+        # load mapping
+        pickle_filename = f"{self.s_vocab}_to_{self.t_vocab}.pkl"
         pickle_filepath = os.path.join(MODULE_CACHE_PATH, pickle_filename)
-
         if os.path.exists(pickle_filepath) and (not refresh_cache):
-            print(f"Loaded {self.src_vocab}->{self.tgt_vocab} mapping "
-                  f"from {pickle_filepath}")
-            mapping = load_pickle(pickle_filepath)
+            logging.debug(f"Loaded {self.s_vocab}->{self.t_vocab} mapping "
+                         f"from {pickle_filepath}")
+            self.mapping = load_pickle(pickle_filepath)
         else:
-            print(f"Processing {self.src_vocab}->{self.tgt_vocab} mapping...")
+            logging.debug(f"Processing {self.s_vocab}->{self.t_vocab} mapping...")
             try:
-                local_filename = f"{self.src_vocab}_to_{self.tgt_vocab}.csv"
+                local_filename = f"{self.s_vocab}_to_{self.t_vocab}.csv"
                 df = download_and_read_csv(local_filename, refresh_cache)
             except HTTPError:
-                local_filename = f"{self.tgt_vocab}_to_{self.src_vocab}.csv"
+                local_filename = f"{self.t_vocab}_to_{self.s_vocab}.csv"
                 df = download_and_read_csv(local_filename, refresh_cache)
-            mapping = defaultdict(list)
+            self.mapping = defaultdict(list)
             for _, row in df.iterrows():
-                mapping[row[self.src_vocab]].append(row[self.tgt_vocab])
-            print(f"Saved {self.src_vocab}->{self.tgt_vocab} mapping "
-                  f"to {pickle_filepath}")
-            save_pickle(mapping, pickle_filepath)
+                self.mapping[row[self.s_vocab]].append(row[self.t_vocab])
+            logging.debug(f"Saved {self.s_vocab}->{self.t_vocab} mapping "
+                         f"to {pickle_filepath}")
+            save_pickle(self.mapping, pickle_filepath)
 
-        return mapping
+        # load source and target vocabulary classes
+        self.s_class = getattr(medcode, source_vocabulary)()
+        self.t_class = getattr(medcode, target_vocabulary)()
+        return
 
-    def map(self, src_code):
-        src_code = self.src_class.standardize(src_code)
-        tgt_codes = self.mapping[src_code]
-        tgt_codes = [self.tgt_class.postprocess(c, **self.kwargs) for c in tgt_codes]
-        return tgt_codes
+    @classmethod
+    def load(
+            cls,
+            source_vocabulary: str,
+            target_vocabulary: str,
+            refresh_cache: bool = False,
+    ):
+        """Initializes the mapping between two medical code systems.
 
+        Args:
+            source_vocabulary: source medical code system.
+            target_vocabulary: target medical code system.
+            refresh_cache: whether to refresh the cache. Default is False.
 
-if __name__ == "__main__":
-    codemap = CrossMap("ICD9CM", "CCSCM")
-    print(codemap.map("82101"))
+        Examples:
+            >>> from pyhealth.medcode import CrossMap
+            >>> mapping = CrossMap("ICD9CM", "CCSCM")
+            >>> mapping.map("428.0")
+            ['108']
 
-    codemap = CrossMap("NDC", "ATC", level=3)
-    print(codemap.map("00527051210"))
+            >>> mapping = CrossMap.load("NDC", "ATC")
+            >>> mapping.map("00527051210", target_kwargs={"level": 3})
+            ['A11C']
+        """
+        return cls(source_vocabulary, target_vocabulary, refresh_cache)
+
+    def map(
+            self,
+            source_code: str,
+            source_kwargs: Optional[Dict] = None,
+            target_kwargs: Optional[Dict] = None
+    ) -> List[str]:
+        """Maps a source code to a list of target codes.
+
+        Args:
+            source_code: source code.
+            **source_kwargs: additional arguments for the source code. Will be
+                passed to `self.s_class.convert()`. Default is empty dict.
+            **target_kwargs: additional arguments for the target code. Will be
+                passed to `self.t_class.convert()`. Default is empty dict.
+
+        Returns:
+            A list of target codes.
+        """
+        if source_kwargs is None:
+            source_kwargs = {}
+        if target_kwargs is None:
+            target_kwargs = {}
+        source_code = self.s_class.standardize(source_code)
+        source_code = self.s_class.convert(source_code, **source_kwargs)
+        target_codes = self.mapping[source_code]
+        target_codes = [self.t_class.convert(c, **target_kwargs) for c in target_codes]
+        return target_codes

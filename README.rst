@@ -123,7 +123,8 @@ An ML Pipeline Example
     mimic3dataset = MIMIC3Dataset(
         root="https://storage.googleapis.com/pyhealth/mimiciii/1.4/", 
         tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
-        code_mapping={"NDC": "ATC"}, # map all NDC codes to ATC codes in these tables
+        # map all NDC codes to ATC 3-rd level codes in these tables
+        code_mapping={"NDC": ("ATC", {"target_kwargs": {"level": 3}})},
     )
 
 * **STEP 2: <pyhealth.tasks>** inputs the ``<pyhealth.datasets>`` object and defines how to process each pateint's data into a set of samples for the tasks. In the package, we provide several task examples, such as ``drug recommendation`` and ``length of stay prediction``.
@@ -131,72 +132,49 @@ An ML Pipeline Example
 .. code-block:: python
 
     from pyhealth.tasks import drug_recommendation_mimic3_fn
-    from pyhealth.datasets.splitter import split_by_patient
-    from torch.utils.data import DataLoader
-    from pyhealth.utils import collate_fn_dict
+    from pyhealth.datasets import split_by_patient, get_dataloader
 
-    mimic3dataset.set_task(task_fn=drug_recommendation_mimic3_fn) # use default drugrec task
+    mimic3dataset.set_task(task_fn=drug_recommendation_mimic3_fn) # use default task
     train_ds, val_ds, test_ds = split_by_patient(mimic3dataset, [0.8, 0.1, 0.1])
 
     # create dataloaders
-    train_loader = DataLoader(train_ds, batch_size=64, shuffle=True, collate_fn=collate_fn_dict)
-    val_loader = DataLoader(val_ds, batch_size=64, shuffle=False, collate_fn=collate_fn_dict)
-    test_loader = DataLoader(test_ds, batch_size=64, shuffle=False, collate_fn=collate_fn_dict)
+    train_loader = get_dataloader(train_dataset, batch_size=32, shuffle=True)
+    val_loader = get_dataloader(val_dataset, batch_size=32, shuffle=False)
+    test_loader = get_dataloader(test_dataset, batch_size=32, shuffle=False)
 
-* **STEP 3: <pyhealth.models>** provides the healthcare ML models using ``<pyhealth.datasets>``. This module also provides model layers, such as ``pyhealth.models.RETAINLayer`` for building customized ML architectures. Our model layers can used as easily as ``torch.nn.Linear``.
+* **STEP 3: <pyhealth.models>** provides the healthcare ML models using ``<pyhealth.models>``. This module also provides model layers, such as ``pyhealth.models.RETAINLayer`` for building customized ML architectures. Our model layers can used as easily as ``torch.nn.Linear``.
 
 .. code-block:: python
-    
+
     from pyhealth.models import Transformer
 
-    device = "cuda:0"
     model = Transformer(
-        dataset=mimic3dataset,
-        tables=["conditions", "procedures"],
+        dataset=dataset,
+        feature_keys=["conditions", "procedures"],
+        label_key="drugs",
         mode="multilabel",
+        operation_level="visit",
     )
-    model.to(device)
 
 * **STEP 4: <pyhealth.trainer>** is the training manager with ``train_loader``, the ``val_loader``, ``val_metric``, and specify other arguemnts, such as epochs, optimizer, learning rate, etc. The trainer will automatically save the best model and output the path in the end.
 
 .. code-block:: python
     
     from pyhealth.trainer import Trainer
-    from pyhealth.metrics import pr_auc_multilabel
-    import torch
 
-    trainer = Trainer(enable_logging=True, output_path="../output", device=device)
-    trainer.fit(model,
-        train_loader=train_loader,
-        epochs=10,
-        optimizer_class=torch.optim.Adam,
-        optimizer_params={"lr": 1e-3, "weight_decay": 1e-5},
-        val_loader=val_loader,
-        val_metric=pr_auc_multilabel,
+    trainer = Trainer(model=model)
+    trainer.train(
+        train_dataloader=train_dataloader,
+        val_dataloader=val_dataloader,
+        epochs=50,
+        monitor="pr_auc_samples",
     )
-    # Best model saved to: ../output/221004-015401/best.ckpt
 
 * **STEP 5: <pyhealth.metrics>** provides: (i) **common evaluation metrics** and the usage is the same as ``<pyhealth.metrics>``; (ii) **metrics (weighted by patients)** for patient-level tasks; (iii) **special metrics** in healthcare, such as drug-drug interaction (DDI) rate.
 
 .. code-block:: python
     
-    from pyhealth.evaluator import evaluate
-    from pyhealth.metrics import accuracy_multilabel, jaccard_multilabel, f1_multilabel
-
-    # load best model and do inference
-    model = trainer.load_best_model(model)
-    y_gt, y_prob, y_pred = evaluate(model, test_loader, device)
-
-    jaccard = jaccard_multilabel(y_gt, y_pred)
-    accuracy = accuracy_multilabel(y_gt, y_pred)
-    f1 = f1_multilabel(y_gt, y_pred)
-    prauc = pr_auc_multilabel(y_gt, y_prob)
-
-    print("jaccard: ", jaccard)
-    print("accuracy: ", accuracy)
-    print("f1: ", f1)
-    print("prauc: ", prauc)
-
+    trainer.evaluate(test_dataloader)
 
 Medical Code Map
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -208,10 +186,11 @@ Medical Code Map
 .. code-block:: python
 
     from pyhealth.medcode import CrossMap
-    codemap = CrossMap("ICD9CM", "CCSCM")
+
+    codemap = CrossMap.load("ICD9CM", "CCSCM")
     codemap.map("82101") # use it like a dict
 
-    codemap = CrossMap("NDC", "ATC", level=3)
+    codemap = CrossMap.load("NDC", "ATC")
     codemap.map("00527051210")
 
 * For code ontology lookup within one system
@@ -219,9 +198,10 @@ Medical Code Map
 .. code-block:: python
 
     from pyhealth.medcode import InnerMap
-    ICD9CM = InnerMap("ICD9CM")
-    ICD9CM.lookup("428.0") # get detailed info
-    ICD9CM.get_ancestors("428.0") # get parents
+
+    icd9cm = InnerMap.load("ICD9CM")
+    icd9cm.lookup("428.0") # get detailed info
+    icd9cm.get_ancestors("428.0") # get parents
 
 Medical Code Tokenizer
 ^^^^^^^^^^^^^^^^^^^^^^^^^^

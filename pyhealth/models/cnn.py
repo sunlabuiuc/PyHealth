@@ -1,201 +1,276 @@
-from typing import List, Tuple, Union
+from typing import List, Tuple, Dict
 
 import torch
 import torch.nn as nn
 
 from pyhealth.datasets import BaseDataset
 from pyhealth.models import BaseModel
-from pyhealth.tokenizer import Tokenizer
+
+VALID_OPERATION_LEVEL = ["visit", "event"]
+
+
+class CNNBlock(nn.Module):
+    """Convolutional neural network block.
+
+    This block wraps the PyTorch convolutional neural network layer with batch
+    normalization and residual connection. It is used in the CNN layer.
+
+    Args:
+        in_channels: number of input channels.
+        out_channels: number of output channels.
+    """
+
+    def __init__(self, in_channels: int, out_channels: int):
+        super(CNNBlock, self).__init__()
+        self.conv1 = nn.Sequential(
+            # stride=1 by default
+            nn.Conv1d(in_channels, out_channels, kernel_size=3, padding=1),
+            nn.BatchNorm1d(out_channels),
+            nn.ReLU()
+        )
+        self.conv2 = nn.Sequential(
+            # stride=1 by default
+            nn.Conv1d(out_channels, out_channels, kernel_size=3, padding=1),
+            nn.BatchNorm1d(out_channels)
+        )
+        self.downsample = None
+        if in_channels != out_channels:
+            self.downsample = nn.Sequential(
+                # stride=1, padding=0 by default
+                nn.Conv1d(in_channels, out_channels, kernel_size=1),
+                nn.BatchNorm1d(out_channels),
+            )
+        self.relu = nn.ReLU()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward propagation.
+
+        Args:
+            x: input tensor of shape [batch size, in_channels, *].
+
+        Returns:
+            output tensor of shape [batch size, out_channels, *].
+        """
+        residual = x
+        out = self.conv1(x)
+        out = self.conv2(out)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        out += residual
+        out = self.relu(out)
+        return out
 
 
 class CNNLayer(nn.Module):
-    """separate callable CNN layer
-    
+    """Convolutional neural network layer.
+
+    This layer stacks multiple CNN blocks and applies adaptive average pooling
+    at the end. It is used in the CNN model. But it can also be used as a
+    standalone layer.
+
     Args:
-        input_size: input size of rnn
-        hidden_size: hidden size of rnn
-        num_layers: number of rnn layers
-        dropout: dropout rate
-    
-    **Examples:**
-        >>> from pyhealth.models import CNNLayer 
-        >>> input = torch.randn(3, 128, 5) # [batch size, seq len, input_size]
-        >>> model = CNNLayer(5, 64, 2, 0.5)
-        >>> model(input, mask=None).shape
-        torch.Size([3, 64]) # [batch size, hidden_size]
-            
+        input_size: input feature size.
+        hidden_size: hidden feature size.
+        num_layers: number of convolutional layers. Default is 1.
+
+    Examples:
+        >>> from pyhealth.models import CNNLayer
+        >>> input = torch.randn(3, 128, 5)  # [batch size, sequence len, input_size]
+        >>> layer = CNNLayer(5, 64)
+        >>> outputs, last_outputs = layer(input)
+        >>> outputs.shape
+        torch.Size([3, 128, 64])
+        >>> last_outputs.shape
+        torch.Size([3, 64])
     """
+
     def __init__(
-        self,
-        input_size: int,
-        hidden_size: int,
-        num_layers: int = 1,
-        dropout: float = 0.5,
+            self,
+            input_size: int,
+            hidden_size: int,
+            num_layers: int = 1,
     ):
         super(CNNLayer, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
-        self.dropout = dropout
-        self.dropout_layer = nn.Dropout(dropout)
-
-        self.cnn1 = nn.Conv1d(
-            in_channels=self.input_size,
-            out_channels=self.hidden_size,
-            kernel_size=5,
-            stride=1,
-            padding=2,
-        )
+        self.num_layers = num_layers
 
         self.cnn = nn.ModuleDict()
-        for i in range(num_layers - 1):
-            self.cnn[f"CNN-{i}"] = nn.Conv1d(
-                in_channels=self.hidden_size,
-                out_channels=self.hidden_size,
-                kernel_size=5,
-                stride=1,
-                padding=2,
-            )
+        for i in range(num_layers):
+            in_channels = input_size if i == 0 else hidden_size
+            out_channels = hidden_size
+            self.cnn[f"CNN-{i}"] = CNNBlock(in_channels, out_channels)
+        self.pooling = nn.AdaptiveAvgPool1d(1)
 
-    def forward(self, x: torch.tensor, mask: torch.tensor):
-        """
+    def forward(self, x: torch.tensor) -> Tuple[torch.tensor, torch.tensor]:
+        """Forward propagation.
+
         Args:
-            x: [batch size, seq len, input_size]
-            mask: [batch size, seq len]
+            x: a tensor of shape [batch size, sequence len, input size].
+
         Returns:
-            outputs [batch size, hidden_size]
+            outputs: a tensor of shape [batch size, sequence len, hidden size],
+                containing the output features for each time step.
+            pooled_outputs: a tensor of shape [batch size, hidden size], containing
+                the pooled output features.
         """
-        # rnn will only apply dropout between layers
-        x = self.dropout_layer(x)
-        # [batch size, seq len, emb size] -> [batch size, emb size, seq len]
+        # [batch size, input size, sequence len]
         x = x.permute(0, 2, 1)
-        x = self.cnn1(x)
         for idx in range(len(self.cnn)):
             x = self.cnn[f"CNN-{idx}"](x)
-
-        # sum out the seq dimension
-        x = x.sum(2)
-        return x
+        outputs = x.permute(0, 2, 1)
+        # pooling
+        pooled_outputs = self.pooling(x).squeeze(-1)
+        return outputs, pooled_outputs
 
 
 class CNN(BaseModel):
-    """CNN Class, use "task" as key to identify specific CNN model and route there
-    
+    """Convolutional neural network model.
+
+    This model applies a separate CNN layer for each feature, and then concatenates
+    the final hidden states of each CNN layer. The concatenated hidden states are
+    then fed into a fully connected layer to make predictions.
+
+    Note:
+        This model can operate on both visit and event level, as designated by
+            the operation_level parameter.
+
     Args:
-        dataset: the dataset object
-        tables: the list of table names to use
-        target: the target table name
-        mode: the mode of the model, "multilabel", "multiclass" or "binary"
-        embedding_dim: the embedding dimension
-        hidden_dim: the hidden dimension
-        
-    **Examples:**
-        >>> from pyhealth.datasets import OMOPDataset
-        >>> dataset = OMOPDataset(
-        ...     root="https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2",
-        ...     tables=["condition_occurrence", "procedure_occurrence"],
-        ... ) # load dataset
-        >>> from pyhealth.tasks import mortality_prediction_omop_fn
-        >>> dataset.set_task(mortality_prediction_omop_fn) # set task
-        
-        >>> from pyhealth.models import CNN
-        >>> model = CNN(
-        ...     dataset=dataset,
-        ...     tables=["conditions", "procedures"],
-        ...     target="label",
-        ...     mode="binary",
-        ... )
+        dataset: the dataset to train the model. It is used to query certain
+            information such as the set of all tokens.
+        feature_keys:  list of keys in samples to use as features,
+            e.g. ["conditions", "procedures"].
+        label_key: key in samples to use as label (e.g., "drugs").
+        mode: one of "binary", "multiclass", or "multilabel".
+        operation_level: one of "visit", "event".
+        embedding_dim: the embedding dimension. Default is 128.
+        hidden_dim: the hidden dimension. Default is 128.
+        **kwargs: other parameters for the CNN layer.
     """
 
     def __init__(
-        self,
-        dataset: BaseDataset,
-        tables: List[str],
-        target: str,
-        mode: str,
-        embedding_dim: int = 128,
-        hidden_dim: int = 128,
-        **kwargs,
+            self,
+            dataset: BaseDataset,
+            feature_keys: List[str],
+            label_key: str,
+            mode: str,
+            operation_level: str,
+            embedding_dim: int = 128,
+            hidden_dim: int = 128,
+            **kwargs,
     ):
         super(CNN, self).__init__(
             dataset=dataset,
-            tables=tables,
-            target=target,
+            feature_keys=feature_keys,
+            label_key=label_key,
             mode=mode,
         )
+        assert operation_level in VALID_OPERATION_LEVEL, \
+            f"operation_level must be one of {VALID_OPERATION_LEVEL}"
+        self.operation_level = operation_level
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
 
-        self.tokenizers = {}
-        for domain in tables:
-            self.tokenizers[domain] = Tokenizer(
-                dataset.get_all_tokens(key=domain), special_tokens=["<pad>", "<unk>"]
-            )
-        self.label_tokenizer = Tokenizer(dataset.get_all_tokens(key=target))
+        self.feat_tokenizers = self.get_feature_tokenizers()
+        self.label_tokenizer = self.get_label_tokenizer()
+        self.embeddings = self.get_embedding_layers(self.feat_tokenizers, embedding_dim)
 
-        self.embeddings = nn.ModuleDict()
-        for domain in tables:
-            # TODO: use get_pad_token_id() instead of hard code
-            self.embeddings[domain] = nn.Embedding(
-                self.tokenizers[domain].get_vocabulary_size(),
-                embedding_dim,
-                padding_idx=0,
-            )
-
+        # validate kwargs for CNN layer
+        if "input_size" in kwargs:
+            raise ValueError("input_size is determined by embedding_dim")
+        if "hidden_size" in kwargs:
+            raise ValueError("hidden_size is determined by hidden_dim")
         self.cnn = nn.ModuleDict()
-        for domain in tables:
-            self.cnn[domain] = CNNLayer(
+        for feature_key in feature_keys:
+            self.cnn[feature_key] = CNNLayer(
                 input_size=embedding_dim, hidden_size=hidden_dim, **kwargs
             )
-        self.fc = nn.Linear(
-            len(tables) * hidden_dim, self.label_tokenizer.get_vocabulary_size()
-        )
+        output_size = self.get_output_size(self.label_tokenizer)
+        self.fc = nn.Linear(len(self.feature_keys) * self.hidden_dim, output_size)
 
-    def forward(self, device, **kwargs):
-        """
-        if "kwargs[domain][0][0] is list" means "use history", then run visit level RNN
-        elif "kwargs[domain][0][0] is not list" means not "use history", then run code level RNN
-        """
+    def visit_level_forward(self, **kwargs):
+        """Visit-level CNN forward."""
         patient_emb = []
-        for domain in self.tables:
-            if type(kwargs[domain][0][0]) == list:
-                kwargs[domain] = self.tokenizers[domain].batch_encode_3d(kwargs[domain])
-                kwargs[domain] = torch.tensor(
-                    kwargs[domain], dtype=torch.long, device=device
-                )
-                # (patient, visit, code, embedding_dim)
-                kwargs[domain] = self.embeddings[domain](kwargs[domain])
-                # (patient, visit, embedding_dim)
-                kwargs[domain] = torch.sum(kwargs[domain], dim=2)
-            elif type(kwargs[domain][0][0]) in [int, str]:
-                kwargs[domain] = self.tokenizers[domain].batch_encode_2d(kwargs[domain])
-                kwargs[domain] = torch.tensor(
-                    kwargs[domain], dtype=torch.long, device=device
-                )
-                # (patient, code, embedding_dim)
-                kwargs[domain] = self.embeddings[domain](kwargs[domain])
-            else:
-                raise ValueError("Sample data format is not correct")
-
-            # get mask and run RNN
-            mask = torch.sum(kwargs[domain], dim=2) != 0
-            mask[:, 0] = 1
-
+        for feature_key in self.feature_keys:
+            assert type(kwargs[feature_key][0][0]) == list
+            x = self.feat_tokenizers[feature_key].batch_encode_3d(kwargs[feature_key])
+            # (patient, visit, code)
+            x = torch.tensor(x, dtype=torch.long, device=self.device)
+            # (patient, visit, code, embedding_dim)
+            x = self.embeddings[feature_key](x)
+            # (patient, visit, embedding_dim)
+            x = torch.sum(x, dim=2)
             # (patient, hidden_dim)
-            domain_emb = self.cnn[domain](kwargs[domain], mask)
-            patient_emb.append(domain_emb)
-
-        # (patient, hidden_dim * N_tables)
+            _, x = self.cnn[feature_key](x)
+            patient_emb.append(x)
+        # (patient, features * hidden_dim)
         patient_emb = torch.cat(patient_emb, dim=1)
+        # (patient, label_size)
         logits = self.fc(patient_emb)
-
-        # obtain target, loss, prob, pred
-        loss, y_true, y_prod, y_pred = self.cal_loss_and_output(
-            logits, device, **kwargs
-        )
-
+        # obtain y_true, loss, y_prob
+        y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
+        loss = self.get_loss_function()(logits, y_true)
+        y_prob = self.prepare_y_prob(logits)
         return {
             "loss": loss,
-            "y_prob": y_prod,
-            "y_pred": y_pred,
+            "y_prob": y_prob,
             "y_true": y_true,
         }
+
+    def event_level_forward(self, **kwargs):
+        """Event-level CNN forward."""
+        patient_emb = []
+        for feature_key in self.feature_keys:
+            assert type(kwargs[feature_key][0][0]) == str
+            x = self.feat_tokenizers[feature_key].batch_encode_2d(kwargs[feature_key])
+            # (patient, code)
+            x = torch.tensor(x, dtype=torch.long, device=self.device)
+            # (patient, code, embedding_dim)
+            x = self.embeddings[feature_key](x)
+            # (patient, hidden_dim)
+            _, x = self.cnn[feature_key](x)
+            patient_emb.append(x)
+        # (patient, features * hidden_dim)
+        patient_emb = torch.cat(patient_emb, dim=1)
+        # (patient, label_size)
+        logits = self.fc(patient_emb)
+        # obtain y_true, loss, y_prob
+        y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
+        loss = self.get_loss_function()(logits, y_true)
+        y_prob = self.prepare_y_prob(logits)
+        return {
+            "loss": loss,
+            "y_prob": y_prob,
+            "y_true": y_true,
+        }
+
+    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+        """Forward propagation.
+
+        If `operation_level` is "visit", then the input is a list of visits
+        for each patient. Each visit is a list of codes. For example,
+        `kwargs["conditions"]` is a list of visits for each patient. Each
+        visit is a list of condition codes.
+
+        If `operation_level` is "event", then the input is a list of events
+        for each patient. Each event is a code. For example, `kwargs["conditions"]`
+        is a list of condition codes for each patient.
+
+        The label `kwargs[self.label_key]` is a list of labels for each patient.
+
+        Args:
+            **kwargs: keyword arguments for the model. The keys must contain
+                all the feature keys and the label key.
+
+        Returns:
+            A dictionary with the following keys:
+                loss: a scalar tensor representing the loss.
+                y_prob: a tensor representing the predicted probabilities.
+                y_true: a tensor representing the true labels.
+        """
+        if self.operation_level == "visit":
+            return self.visit_level_forward(**kwargs)
+        elif self.operation_level == "event":
+            return self.event_level_forward(**kwargs)
+        else:
+            raise NotImplementedError

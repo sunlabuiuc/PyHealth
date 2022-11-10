@@ -1,9 +1,10 @@
 from pyhealth.medcode.inner_map import InnerMap
 
 
-# TODO: add postprocess
+# TODO: add convert
 
 class ICD10PROC(InnerMap):
+    """10-th International Classification of Diseases, Procedure."""
 
     def __init__(self, **kwargs):
         super(ICD10PROC, self).__init__(vocabulary="ICD10PROC", **kwargs)
