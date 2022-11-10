@@ -166,7 +166,7 @@ class SafeDrugLayer(nn.Module):
         # local bipartite encoder
         self.bipartite_transform = nn.Linear(hidden_size, mask_H.shape[1])
         self.bipartite_output = MaskLinear(mask_H.shape[1], label_size, False)
-        # self.bipartite_output = nn.Linear(ddi_mask_H.shape[1], hidden_size)
+        # self.bipartite_output = nn.Linear(mask_H.shape[1], hidden_size)
 
         # global MPNN encoder (add fingerprints and adjacency matrix to parameter list)
         mpnn_molecule_set = list(zip(*molecule_set))
@@ -179,8 +179,9 @@ class SafeDrugLayer(nn.Module):
         self.molecule_sizes = mpnn_molecule_set[2]
         self.average_projection = nn.Parameter(average_projection, requires_grad=False)
 
-        self.mpnn = MolecularGraphNeuralNetwork(num_fingerprints, hidden_size,
-                                                layer_hidden=2)
+        self.mpnn = MolecularGraphNeuralNetwork(
+            num_fingerprints, hidden_size, layer_hidden=2
+        )
         self.mpnn_output = nn.Linear(label_size, label_size)
         self.mpnn_layernorm = nn.LayerNorm(label_size)
 
@@ -205,7 +206,12 @@ class SafeDrugLayer(nn.Module):
             j += n
         return pad_matrices
 
-    def calculate_loss(self, logits, y_prob, labels):
+    def calculate_loss(
+            self,
+            logits: torch.Tensor,
+            y_prob: torch.Tensor,
+            labels: torch.Tensor
+    ) -> torch.Tensor:
         mul_pred_prob = y_prob.T @ y_prob  # (voc_size, voc_size)
         batch_ddi_loss = (
                 torch.sum(mul_pred_prob.mul(self.ddi_adj)) / self.ddi_adj.shape[0] ** 2
@@ -218,7 +224,7 @@ class SafeDrugLayer(nn.Module):
 
         cur_ddi_rate = ddi_rate_score(y_pred, self.ddi_adj.cpu().numpy())
         if cur_ddi_rate > self.target_ddi:
-            beta = max(0, 1 + (self.target_ddi - cur_ddi_rate) / self.kp)
+            beta = max(0.0, 1 + (self.target_ddi - cur_ddi_rate) / self.kp)
             add_loss, beta = batch_ddi_loss, beta
         else:
             add_loss, beta = 0, 1
