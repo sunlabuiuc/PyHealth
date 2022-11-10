@@ -49,8 +49,8 @@ class BaseDataset(ABC, Dataset):
         code_mapping: a dictionary containing the code mapping information.
             The key is a str of the source code vocabulary and the value is of
             two formats:
-                (1) a str of the target code vocabulary;
-                (2) a tuple with two elements. The first element is a str of the
+                - a str of the target code vocabulary;
+                - a tuple with two elements. The first element is a str of the
                     target code vocabulary and the second element is a dict with
                     keys "source_kwargs" or "target_kwargs" and values of the
                     corresponding kwargs for the `CrossMap.map()` method.
