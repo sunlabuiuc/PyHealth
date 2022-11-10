@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Tuple, Dict
 
 import torch
 import torch.nn as nn
@@ -20,7 +20,7 @@ class CNNBlock(nn.Module):
         out_channels: number of output channels.
     """
 
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels: int, out_channels: int):
         super(CNNBlock, self).__init__()
         self.conv1 = nn.Sequential(
             # stride=1 by default
@@ -42,13 +42,14 @@ class CNNBlock(nn.Module):
             )
         self.relu = nn.ReLU()
 
-    def forward(self, x):
-        """
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward propagation.
+
         Args:
-            x: input tensor of shape [batch size, in_channels, sequence len].
+            x: input tensor of shape [batch size, in_channels, *].
 
         Returns:
-            output tensor of shape [batch size, out_channels, sequence len].
+            output tensor of shape [batch size, out_channels, *].
         """
         residual = x
         out = self.conv1(x)
@@ -70,7 +71,7 @@ class CNNLayer(nn.Module):
     Args:
         input_size: input feature size.
         hidden_size: hidden feature size.
-        num_layers: number of cnn blocks. Default is 1.
+        num_layers: number of convolutional layers. Default is 1.
 
     Examples:
         >>> from pyhealth.models import CNNLayer
@@ -101,8 +102,9 @@ class CNNLayer(nn.Module):
             self.cnn[f"CNN-{i}"] = CNNBlock(in_channels, out_channels)
         self.pooling = nn.AdaptiveAvgPool1d(1)
 
-    def forward(self, x: torch.tensor):
-        """
+    def forward(self, x: torch.tensor) -> Tuple[torch.tensor, torch.tensor]:
+        """Forward propagation.
+
         Args:
             x: a tensor of shape [batch size, sequence len, input size].
 
@@ -172,6 +174,12 @@ class CNN(BaseModel):
         self.feat_tokenizers = self.get_feature_tokenizers()
         self.label_tokenizer = self.get_label_tokenizer()
         self.embeddings = self.get_embedding_layers(self.feat_tokenizers, embedding_dim)
+
+        # validate kwargs for CNN layer
+        if "input_size" in kwargs:
+            raise ValueError("input_size is determined by embedding_dim")
+        if "hidden_size" in kwargs:
+            raise ValueError("hidden_size is determined by hidden_dim")
         self.cnn = nn.ModuleDict()
         for feature_key in feature_keys:
             self.cnn[feature_key] = CNNLayer(
@@ -236,7 +244,30 @@ class CNN(BaseModel):
             "y_true": y_true,
         }
 
-    def forward(self, **kwargs):
+    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+        """Forward propagation.
+
+        If `operation_level` is "visit", then the input is a list of visits
+        for each patient. Each visit is a list of codes. For example,
+        `kwargs["conditions"]` is a list of visits for each patient. Each
+        visit is a list of condition codes.
+
+        If `operation_level` is "event", then the input is a list of events
+        for each patient. Each event is a code. For example, `kwargs["conditions"]`
+        is a list of condition codes for each patient.
+
+        The label `kwargs[self.label_key]` is a list of labels for each patient.
+
+        Args:
+            **kwargs: keyword arguments for the model. The keys must contain
+                all the feature keys and the label key.
+
+        Returns:
+            A dictionary with the following keys:
+                loss: a scalar tensor representing the loss.
+                y_prob: a tensor representing the predicted probabilities.
+                y_true: a tensor representing the true labels.
+        """
         if self.operation_level == "visit":
             return self.visit_level_forward(**kwargs)
         elif self.operation_level == "event":

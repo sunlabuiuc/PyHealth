@@ -5,8 +5,8 @@ from pyhealth.utils import collate_fn_dict
 
 # from pyhealth.models import CNN as Model
 # from pyhealth.models import RNN as Model
-# from pyhealth.models import Transformer as Model
-from pyhealth.models import RETAIN as Model
+# from pyhealth.models import RETAIN as Model
+from pyhealth.models import Transformer as Model
 
 
 def task_event(patient):

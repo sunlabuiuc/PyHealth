@@ -20,16 +20,14 @@ def batch_to_multihot(label: List[List[int]], num_labels: int) -> torch.tensor:
 
 
 def get_last_visit(hidden_states, mask):
-    """get the last visit from the sequence model
-    INPUT:
-        - hidden_states: [batch size, seq len, hidden_size]
-        - mask: [batch size, seq len]
-    OUTPUT:
-        - last_visit: [batch size, hidden_size]
+    """Gets the last visit from the sequence model.
 
-    EXAMPLE:
-        - mask = [[1, 1, 1, 0, 0], [1, 1, 0, 0, 0]]
-        - then output = torch.Tensor([[hidden_states[0, 2, :], hidden_states[1, 1, :]]])
+    Args:
+        hidden_states: [batch size, seq len, hidden_size]
+        mask: [batch size, seq len]
+
+    Returns:
+        last_visit: [batch size, hidden_size]
     """
     last_visit = torch.sum(mask, 1) - 1
     last_visit = last_visit.unsqueeze(-1)

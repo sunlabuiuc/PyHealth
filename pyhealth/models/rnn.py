@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Optional
 
 import torch
 import torch.nn as nn
@@ -19,7 +19,7 @@ class RNNLayer(nn.Module):
     Args:
         input_size: input feature size.
         hidden_size: hidden feature size.
-        rnn_type: type of rnn, one of "RNN", "LSTM", "GRU".
+        rnn_type: type of rnn, one of "RNN", "LSTM", "GRU". Default is "GRU".
         num_layers: number of recurrent layers. Default is 1.
         dropout: dropout rate. If non-zero, introduces a Dropout layer before each
             RNN layer. Default is 0.5.
@@ -31,9 +31,8 @@ class RNNLayer(nn.Module):
     Examples:
         >>> from pyhealth.models import RNNLayer
         >>> input = torch.randn(3, 128, 5)  # [batch size, sequence len, input_size]
-        >>> mask = torch.ones(3, 128).bool()
         >>> layer = RNNLayer(5, 64)
-        >>> outputs, last_outputs = layer(input, mask)
+        >>> outputs, last_outputs = layer(input)
         >>> outputs.shape
         torch.Size([3, 128, 64])
         >>> last_outputs.shape
@@ -74,13 +73,14 @@ class RNNLayer(nn.Module):
     def forward(
             self,
             x: torch.tensor,
-            mask: torch.tensor
+            mask: Optional[torch.tensor] = None,
     ) -> Tuple[torch.tensor, torch.tensor]:
-        """
+        """Forward propagation.
+
         Args:
             x: a tensor of shape [batch size, sequence len, input size].
-            mask: a tensor of shape [batch size, sequence len] where 1 indicates
-                valid and 0 indicates invalid.
+            mask: an optional tensor of shape [batch size, sequence len], where
+                1 indicates valid and 0 indicates invalid.
 
         Returns:
             outputs: a tensor of shape [batch size, sequence len, hidden size],
@@ -91,7 +91,12 @@ class RNNLayer(nn.Module):
         # pytorch's rnn will only apply dropout between layers
         x = self.dropout_layer(x)
         batch_size = x.size(0)
-        lengths = torch.sum(mask.int(), dim=-1).cpu()
+        if mask is None:
+            lengths = torch.full(
+                size=(batch_size,), fill_value=x.size(1), dtype=torch.int64
+            )
+        else:
+            lengths = torch.sum(mask.int(), dim=-1).cpu()
         x = rnn_utils.pack_padded_sequence(
             x, lengths, batch_first=True, enforce_sorted=False
         )
@@ -120,7 +125,7 @@ class RNN(BaseModel):
 
     Note:
         This model can operate on both visit and event level, as designated by
-            the operation_level parameter.
+            the `operation_level` parameter.
 
     Args:
         dataset: the dataset to train the model. It is used to query certain
@@ -161,6 +166,12 @@ class RNN(BaseModel):
         self.feat_tokenizers = self.get_feature_tokenizers()
         self.label_tokenizer = self.get_label_tokenizer()
         self.embeddings = self.get_embedding_layers(self.feat_tokenizers, embedding_dim)
+
+        # validate kwargs for RNN layer
+        if "input_size" in kwargs:
+            raise ValueError("input_size is determined by embedding_dim")
+        if "hidden_size" in kwargs:
+            raise ValueError("hidden_size is determined by hidden_dim")
         self.rnn = nn.ModuleDict()
         for feature_key in feature_keys:
             self.rnn[feature_key] = RNNLayer(
@@ -173,6 +184,7 @@ class RNN(BaseModel):
         """Visit-level RNN forward."""
         patient_emb = []
         for feature_key in self.feature_keys:
+            # [patient, visit, code]
             assert type(kwargs[feature_key][0][0]) == list
             x = self.feat_tokenizers[feature_key].batch_encode_3d(kwargs[feature_key])
             # (patient, visit, code)
@@ -204,6 +216,7 @@ class RNN(BaseModel):
         """Event-level RNN forward."""
         patient_emb = []
         for feature_key in self.feature_keys:
+            # [patient, code]
             assert type(kwargs[feature_key][0][0]) == str
             x = self.feat_tokenizers[feature_key].batch_encode_2d(kwargs[feature_key])
             # (patient, code)
@@ -229,7 +242,30 @@ class RNN(BaseModel):
             "y_true": y_true,
         }
 
-    def forward(self, **kwargs):
+    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+        """Forward propagation.
+
+        If `operation_level` is "visit", then the input is a list of visits
+        for each patient. Each visit is a list of codes. For example,
+        `kwargs["conditions"]` is a list of visits for each patient. Each
+        visit is a list of condition codes.
+
+        If `operation_level` is "event", then the input is a list of events
+        for each patient. Each event is a code. For example, `kwargs["conditions"]`
+        is a list of condition codes for each patient.
+
+        The label `kwargs[self.label_key]` is a list of labels for each patient.
+
+        Args:
+            **kwargs: keyword arguments for the model. The keys must contain
+                all the feature keys and the label key.
+
+        Returns:
+            A dictionary with the following keys:
+                loss: a scalar tensor representing the loss.
+                y_prob: a tensor representing the predicted probabilities.
+                y_true: a tensor representing the true labels.
+        """
         if self.operation_level == "visit":
             return self.visit_level_forward(**kwargs)
         elif self.operation_level == "event":
