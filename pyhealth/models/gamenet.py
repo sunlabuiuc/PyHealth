@@ -1,5 +1,5 @@
 import math
-from typing import Tuple, List, Dict
+from typing import Tuple, List, Dict, Optional
 
 import torch
 import torch.nn as nn
@@ -131,14 +131,13 @@ class GAMENetLayer(nn.Module):
 
     Examples:
         >>> from pyhealth.models import GAMENetLayer
-        >>> queries = torch.randn(3, 5, 32) # [patient, visit, input_size]
-        >>> mask = torch.ones(3, 5).bool()  # [patient, visit]
+        >>> queries = torch.randn(3, 5, 32) # [patient, visit, hidden_size]
         >>> prev_drugs = torch.randint(0, 2, (3, 4, 50)).float()
         >>> curr_drugs = torch.randint(0, 2, (3, 50)).float()
         >>> ehr_adj = torch.randint(0, 2, (50, 50)).float()
         >>> ddi_adj = torch.randint(0, 2, (50, 50)).float()
         >>> layer = GAMENetLayer(32, ehr_adj, ddi_adj)
-        >>> loss, y_prob = layer(queries, mask, prev_drugs, curr_drugs)
+        >>> loss, y_prob = layer(queries, prev_drugs, curr_drugs)
         >>> loss.shape
         torch.Size([])
         >>> y_prob.shape
@@ -168,26 +167,28 @@ class GAMENetLayer(nn.Module):
     def forward(
             self,
             queries: torch.tensor,
-            mask: torch.tensor,
             prev_drugs: torch.tensor,
-            curr_drugs: torch.tensor
+            curr_drugs: torch.tensor,
+            mask: Optional[torch.tensor] = None,
     ) -> Tuple[torch.tensor, torch.tensor]:
         """Forward propagation.
 
         Args:
             queries: query tensor of shape [patient, visit, hidden_size].
-            mask: mask tensor of shape [patient, visit] where 1 indicates
-                valid visits and 0 indicates invalid visits.
             prev_drugs: multihot tensor indicating drug usage in all previous
                 visits of shape [patient, visit - 1, num_drugs].
             curr_drugs: multihot tensor indicating drug usage in the current
                 visit of shape [patient, num_drugs].
+            mask: an optional mask tensor of shape [patient, visit] where 1
+                indicates valid visits and 0 indicates invalid visits.
 
         Returns:
             loss: a scalar tensor representing the loss.
-            y_pred:a tensor of shape [patient, num_labels] representing
+            y_prob: a tensor of shape [patient, num_labels] representing
                 the probability of each drug.
         """
+        if mask is None:
+            mask = torch.ones_like(queries[:, :, 0])
 
         """I: Input memory representation"""
         query = get_last_visit(queries, mask)
@@ -228,6 +229,9 @@ class GAMENet(BaseModel):
         This model is only for medication prediction which takes conditions
         and procedures as feature_keys, and drugs_all as label_key (i.e., both
         current and previous drugs). It only operates on the visit level.
+
+    Note:
+        This model only accepts ATC level 3 as medication codes.
 
     Args:
         dataset: the dataset to train the model. It is used to query certain
@@ -284,6 +288,14 @@ class GAMENet(BaseModel):
             nn.ReLU(),
             nn.Linear(hidden_dim * 2, hidden_dim),
         )
+
+        # validate kwargs for GAMENet layer
+        if "hidden_size" in kwargs:
+            raise ValueError("hidden_size is determined by hidden_dim")
+        if "ehr_adj" in kwargs:
+            raise ValueError("ehr_adj is determined by the dataset")
+        if "ddi_adj" in kwargs:
+            raise ValueError("ddi_adj is determined by the dataset")
         self.gamenet = GAMENetLayer(
             hidden_size=hidden_dim,
             ehr_adj=ehr_adj,
@@ -314,7 +326,9 @@ class GAMENet(BaseModel):
         label_size = self.label_tokenizer.get_vocabulary_size()
         vocab_to_index = self.label_tokenizer.vocabulary
         ddi_adj = torch.zeros((label_size, label_size))
-        ddi_atc3 = [[l[0][:4], l[1][:4]] for l in ddi]
+        ddi_atc3 = [
+            [ATC.convert(l[0], level=3), ATC.convert(l[1], level=3)] for l in ddi
+        ]
         for atc_i, atc_j in ddi_atc3:
             if atc_i in vocab_to_index and atc_j in vocab_to_index:
                 ddi_adj[vocab_to_index(atc_i), vocab_to_index(atc_j)] = 1
@@ -328,7 +342,7 @@ class GAMENet(BaseModel):
             drugs_all: List[List[List[str]]],
             **kwargs
     ) -> Dict[str, torch.Tensor]:
-        """Forward computation.
+        """Forward propagation.
 
         Args:
             conditions: a nested list in three levels [patient, visit, condition].
@@ -389,7 +403,7 @@ class GAMENet(BaseModel):
         mask = torch.sum(conditions, dim=2) != 0
 
         # process drugs
-        loss, y_prob = self.gamenet(queries, mask, prev_drugs, curr_drugs)
+        loss, y_prob = self.gamenet(queries, prev_drugs, curr_drugs, mask)
 
         return {
             "loss": loss,

@@ -1,4 +1,4 @@
-from typing import Tuple, List, Dict
+from typing import List, Tuple, Dict, Optional
 
 import torch
 import torch.nn as nn
@@ -20,16 +20,15 @@ class MICRONLayer(nn.Module):
     Args:
         input_size: input feature size.
         hidden_size: hidden feature size.
-        num_labels: total number of drugs to recommend.
-        lam: regularization parameter for the reconstruction loss.
+        num_drugs: total number of drugs to recommend.
+        lam: regularization parameter for the reconstruction loss. Default is 0.1.
     
     Examples:
         >>> from pyhealth.models import MICRONLayer
         >>> patient_emb = torch.randn(3, 5, 32) # [patient, visit, input_size]
-        >>> mask = torch.ones(3, 5).bool()
         >>> drugs = torch.randint(0, 2, (3, 50)).float()
         >>> layer = MICRONLayer(32, 64, 50)
-        >>> loss, y_prob = layer(patient_emb, mask, drugs)
+        >>> loss, y_prob = layer(patient_emb, drugs)
         >>> loss.shape
         torch.Size([])
         >>> y_prob.shape
@@ -40,18 +39,18 @@ class MICRONLayer(nn.Module):
             self,
             input_size: int,
             hidden_size: int,
-            num_labels: int,
+            num_drugs: int,
             lam: float = 0.1
     ):
         super(MICRONLayer, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
-        self.num_labels = num_labels
+        self.num_labels = num_drugs
         self.lam = lam
 
         self.health_net = nn.Linear(input_size, hidden_size)
         self.prescription_net = nn.Linear(hidden_size, hidden_size)
-        self.fc = nn.Linear(hidden_size, num_labels)
+        self.fc = nn.Linear(hidden_size, num_drugs)
 
         self.bce_loss_fn = nn.BCEWithLogitsLoss()
 
@@ -73,22 +72,24 @@ class MICRONLayer(nn.Module):
     def forward(
             self,
             patient_emb: torch.tensor,
-            mask: torch.tensor,
-            drugs: torch.tensor
+            drugs: torch.tensor,
+            mask: Optional[torch.tensor] = None,
     ) -> Tuple[torch.tensor, torch.tensor]:
-        """Forward computation.
+        """Forward propagation.
 
         Args:
             patient_emb: a tensor of shape [patient, visit, input_size].
-            mask: a tensor of shape [patient, visit] where 1 indicates
-                valid visits and 0 indicates invalid visits.
             drugs: a multihot tensor of shape [patient, num_labels].
+            mask: an optional tensor of shape [patient, visit] where
+                1 indicates valid visits and 0 indicates invalid visits.
 
         Returns:
             loss: a scalar tensor representing the loss.
             y_prob: a tensor of shape [patient, num_labels] representing
                 the probability of each drug.
         """
+        if mask is None:
+            mask = torch.ones_like(patient_emb[:, :, 0])
 
         # (patient, visit, hidden_size)
         health_rep = self.health_net(patient_emb)
@@ -151,10 +152,18 @@ class MICRON(BaseModel):
         self.feat_tokenizers = self.get_feature_tokenizers()
         self.label_tokenizer = self.get_label_tokenizer()
         self.embeddings = self.get_embedding_layers(self.feat_tokenizers, embedding_dim)
+
+        # validate kwargs for MICRON layer
+        if "input_size" in kwargs:
+            raise ValueError("input_size is determined by embedding_dim")
+        if "hidden_size" in kwargs:
+            raise ValueError("hidden_size is determined by hidden_dim")
+        if "num_drugs" in kwargs:
+            raise ValueError("num_drugs is determined by the dataset")
         self.micron = MICRONLayer(
             input_size=embedding_dim * 2,
             hidden_size=hidden_dim,
-            num_labels=self.label_tokenizer.get_vocabulary_size(),
+            num_drugs=self.label_tokenizer.get_vocabulary_size(),
             **kwargs
         )
 
@@ -165,7 +174,8 @@ class MICRON(BaseModel):
             drugs: List[List[str]],
             **kwargs
     ) -> Dict[str, torch.Tensor]:
-        """
+        """Forward propagation.
+
         Args:
             conditions: a nested list in three levels [patient, visit, condition].
             procedures: a nested list in three levels [patient, visit, procedure].
@@ -202,7 +212,7 @@ class MICRON(BaseModel):
         # (patient, num_labels)
         drugs = self.prepare_labels(drugs, self.label_tokenizer)
 
-        loss, y_prob = self.micron(patient_emb, mask, drugs)
+        loss, y_prob = self.micron(patient_emb, drugs, mask)
 
         return {
             "loss": loss,
