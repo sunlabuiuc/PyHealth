@@ -19,7 +19,7 @@ class ClassicML:
             classifier: the classifier object from sklearn
             mode: the mode of the model, can be "multilabel", "binary", "multiclass"
         
-        **Examples:**
+        Examples:
             >>> from pyhealth.datasets import OMOPDataset
             >>> dataset = OMOPDataset(
             ...     root="https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2",
