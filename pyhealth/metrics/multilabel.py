@@ -11,7 +11,7 @@ def multilabel_metrics_fn(
         threshold: float = 0.5,
 ) -> Dict[str, float]:
     if metrics is None:
-        metrics = ["roc_auc_macro", "pr_auc_macro"]
+        metrics = ["pr_auc_samples"]
 
     y_pred = y_prob.copy()
     y_pred[y_pred >= threshold] = 1
