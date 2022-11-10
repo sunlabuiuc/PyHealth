@@ -46,7 +46,7 @@ def mortality_prediction_mimic3_fn(patient: Patient):
         procedures = visit.get_code_list(table="PROCEDURES_ICD")
         drugs = visit.get_code_list(table="PRESCRIPTIONS")
         # exclude: visits without condition, procedure, and drug code
-        if len(conditions) + len(procedures) + len(drugs) == 0:
+        if len(conditions) * len(procedures) * len(drugs) == 0:
             continue
         # TODO: should also exclude visit with age < 18
         samples.append(
@@ -107,8 +107,8 @@ def mortality_prediction_mimic4_fn(patient: Patient):
         conditions = visit.get_code_list(table="diagnoses_icd")
         procedures = visit.get_code_list(table="procedures_icd")
         drugs = visit.get_code_list(table="prescriptions")
-        # exclude: visits without condition, procedure, and drug code
-        if len(conditions) + len(procedures) + len(drugs) == 0:
+        # exclude: visits without condition, procedure, or drug code
+        if len(conditions) * len(procedures) * len(drugs) == 0:
             continue
         # TODO: should also exclude visit with age < 18
         samples.append(
@@ -169,8 +169,8 @@ def mortality_prediction_eicu_fn(patient: Patient):
         conditions = visit.get_code_list(table="diagnosis")
         procedures = visit.get_code_list(table="physicalExam")
         drugs = visit.get_code_list(table="medication")
-        # exclude: visits without condition, procedure, and drug code
-        if len(conditions) + len(procedures) + len(drugs) == 0:
+        # exclude: visits without condition, procedure, or drug code
+        if len(conditions) * len(procedures) * len(drugs) == 0:
             continue
         # TODO: should also exclude visit with age < 18
         samples.append(
@@ -228,8 +228,8 @@ def mortality_prediction_omop_fn(patient: Patient):
         drugs = visit.get_code_list(table="drug_exposure")
         # labs = visit.get_code_list(table="measurement")
 
-        # exclude: visits without condition, procedure, and drug code
-        if len(conditions) + len(procedures) + len(drugs) == 0:
+        # exclude: visits without condition, procedure, or drug code
+        if len(conditions) * len(procedures) * len(drugs) == 0:
             continue
         # TODO: should also exclude visit with age < 18
         samples.append(
