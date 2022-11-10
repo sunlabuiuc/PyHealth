@@ -7,6 +7,7 @@ import torch
 from pyhealth.datasets import BaseDataset
 
 
+# TODO: train_dataset.dataset still access the whole dataset which may leak information
 # TODO: add more splitting methods
 
 def split_by_visit(
