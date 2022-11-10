@@ -3,7 +3,7 @@ from torch.utils.data import DataLoader
 from pyhealth.datasets import MIMIC3Dataset
 from pyhealth.models import MICRON
 from pyhealth.tasks import drug_recommendation_mimic3_fn
-from pyhealth.utils import collate_fn_dict
+from pyhealth.datasets.utils import collate_fn_dict
 
 dataset = MIMIC3Dataset(
     root="/srv/local/data/physionet.org/files/mimiciii/1.4",

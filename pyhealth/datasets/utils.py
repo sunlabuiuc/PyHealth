@@ -1,8 +1,10 @@
+import hashlib
 import os
 from datetime import datetime
 from typing import Optional
-import hashlib
+
 from dateutil.parser import parse as dateutil_parse
+from torch.utils.data import DataLoader
 
 from pyhealth import BASE_CACHE_PATH
 from pyhealth.utils import create_directory
@@ -28,3 +30,14 @@ def strptime(s: str) -> Optional[datetime]:
     if s != s:
         return None
     return dateutil_parse(s)
+
+
+def collate_fn_dict(batch):
+    return {key: [d[key] for d in batch] for key in batch[0]}
+
+
+def get_dataloader(dataset, batch_size, shuffle=False):
+    dataloader = DataLoader(
+        dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn_dict
+    )
+    return dataloader
