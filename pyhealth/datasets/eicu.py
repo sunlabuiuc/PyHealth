@@ -490,5 +490,5 @@ if __name__ == "__main__":
         dev=False,
         refresh_cache=True,
     )
-    print(dataset.stat())
+    dataset.stat()
     dataset.info()
