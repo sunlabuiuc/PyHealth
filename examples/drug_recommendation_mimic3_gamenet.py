@@ -10,11 +10,11 @@ dataset = MIMIC3Dataset(
     tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
     code_mapping={"NDC": ("ATC", {"target_kwargs": {"level": 3}})},
 )
-print(dataset.stat())
+dataset.stat()
 
 # STEP 2: set task
 dataset.set_task(drug_recommendation_mimic3_fn)
-print(dataset.stat())
+dataset.stat()
 
 train_dataset, val_dataset, test_dataset = split_by_patient(dataset, [0.8, 0.1, 0.1])
 train_dataloader = get_dataloader(train_dataset, batch_size=32, shuffle=True)

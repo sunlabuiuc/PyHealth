@@ -10,11 +10,11 @@ dataset = MIMIC3Dataset(
     tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
     code_mapping={"ICD9CM": "CCSCM", "ICD9PROC": "CCSPROC", "NDC": "ATC"},
 )
-print(dataset.stat())
+dataset.stat()
 
 # STEP 2: set task
 dataset.set_task(mortality_prediction_mimic3_fn)
-print(dataset.stat())
+dataset.stat()
 
 train_dataset, val_dataset, test_dataset = split_by_patient(dataset, [0.8, 0.1, 0.1])
 train_dataloader = get_dataloader(train_dataset, batch_size=32, shuffle=True)

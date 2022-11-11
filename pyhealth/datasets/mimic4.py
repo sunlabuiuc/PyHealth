@@ -349,5 +349,5 @@ if __name__ == "__main__":
         code_mapping={"NDC": "ATC"},
         refresh_cache=True,
     )
-    print(dataset.stat())
+    dataset.stat()
     dataset.info()
