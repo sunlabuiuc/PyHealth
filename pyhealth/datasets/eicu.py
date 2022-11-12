@@ -94,32 +94,8 @@ class eICUDataset(BaseDataset):
             refresh_cache=refresh_cache,
         )
 
-    def parse_tables(self) -> Dict[str, Patient]:
-        """This function overrides the `self.parse_tables()` function in `BaseDataset`.
-
-        It parses the corresponding tables and creates a dict of patients which
-        will be cached later.
-
-        Returns:
-            patients: a dictionary of `Patient` objects indexed by patient_id.
-        """
-        # patients is a dict of `Patient` objects indexed by patient_id
-        patients: Dict[str, Patient] = dict()
-        # process patients and admissions tables
-        patients = self.parse_basic_info(patients)
-        # process clinical tables
-        for table in self.tables:
-            try:
-                # use lower case for function name
-                patients = getattr(self, f"parse_{table.lower()}")(patients)
-            except AttributeError:
-                raise NotImplementedError(
-                    f"Parser for table {table} is not implemented yet."
-                )
-        return patients
-
-    def parse_basic_info(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
-        """Helper function which parses patient and hospital tables.
+    def parse_basic_info(self, patients) -> Dict[str, Patient]:
+        """Helper functions which parses patient and hospital tables.
 
         Will be called in `self.parse_tables()`.
 

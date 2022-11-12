@@ -154,7 +154,6 @@ class BaseDataset(ABC, Dataset):
             code_mapping_tools[f"{s_vocab}_{t_vocab}"] = CrossMap(s_vocab, t_vocab)
         return code_mapping_tools
 
-    @abstractmethod
     def parse_tables(self) -> Dict[str, Patient]:
         """Parses the tables in `self.tables` and return a dict of patients.
 
@@ -166,7 +165,20 @@ class BaseDataset(ABC, Dataset):
         Returns:
            A dict mapping patient_id to `Patient` object.
         """
-        raise NotImplementedError
+        # patients is a dict of Patient objects indexed by patient_id
+        patients: Dict[str, Patient] = dict()
+        # process patients and admissions tables
+        patients = self.parse_basic_info(patients)
+        # process clinical tables
+        for table in self.tables:
+            try:
+                # use lower case for function name
+                patients = getattr(self, f"parse_{table.lower()}")(patients)
+            except AttributeError:
+                raise NotImplementedError(
+                    f"Parser for table {table} is not implemented yet."
+                )
+        return patients
 
     @staticmethod
     def _add_event_to_patient_dict(
