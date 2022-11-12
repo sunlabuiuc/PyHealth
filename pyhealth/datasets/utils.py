@@ -41,6 +41,14 @@ def list_nested_level(l: List) -> int:
 
     Returns:
         int, the nested level of the list.
+
+    Examples:
+        >>> list_nested_level([1, 2, 3])
+        1
+        >>> list_nested_level([[1, 2, 3], [4, 5, 6]])
+        2
+        >>> list_nested_level([1, [2, 3], 4])
+        2
     """
     if not isinstance(l, list):
         return 0
@@ -57,6 +65,16 @@ def is_homo_list(l: List) -> bool:
 
     Returns:
         bool, True if the list is homogeneous, False otherwise.
+
+    Examples:
+        >>> is_homo_list([1, 2, 3])
+        True
+        >>> is_homo_list([])
+        True
+        >>> is_homo_list([1, 2, "3"])
+        False
+        >>> is_homo_list([1, 2, 3, [4, 5, 6]])
+        False
     """
     if not l:
         return True
