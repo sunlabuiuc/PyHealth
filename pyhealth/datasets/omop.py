@@ -102,6 +102,9 @@ class OMOPDataset(BaseDataset):
         Returns:
             The updated patients dict.
         """
+        # patients is a dict of Patient objects indexed by patient_id
+        patients: Dict[str, Patient] = dict()
+        
         # read person table
         person_df = pd.read_csv(
             os.path.join(self.root, "person.csv"),

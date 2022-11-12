@@ -114,6 +114,9 @@ class eICUDataset(BaseDataset):
             and use `Visit` object to store the ICU stays within that hospital
             admission.
         """
+        # patients is a dict of Patient objects indexed by patient_id
+        patients: Dict[str, Patient] = dict()
+        
         # read patient table
         patient_df = pd.read_csv(
             os.path.join(self.root, "patient.csv"),

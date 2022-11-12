@@ -165,8 +165,6 @@ class BaseDataset(ABC, Dataset):
         Returns:
            A dict mapping patient_id to `Patient` object.
         """
-        # patients is a dict of Patient objects indexed by patient_id
-        patients: Dict[str, Patient] = dict()
         # process patients and admissions tables
         patients = self.parse_basic_info(patients)
         # process clinical tables
