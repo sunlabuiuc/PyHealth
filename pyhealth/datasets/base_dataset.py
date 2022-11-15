@@ -636,10 +636,10 @@ class SampleDataset(ABC, Dataset):
 
     def __init__(self, samples, dataset_name="dataset"):
         self.dataset_name: str = dataset_name
-        self.samples: Optional[List[Dict]] = samples
+        self.sanity_check(samples)
+        self.samples: List[Dict] = samples
         self.patient_to_index: Optional[Dict[str, List[int]]] = self._index_patient()
         self.visit_to_index: Optional[Dict[str, List[int]]] = self._index_visit()
-        self.sanity_check()
 
     def _index_patient(self) -> Dict[str, List[int]]:
         """Helper function which indexes the samples by patient_id.
@@ -709,7 +709,7 @@ class SampleDataset(ABC, Dataset):
             tokens.sort()
         return tokens
 
-    def sanity_check(self):
+    def sanity_check(self, samples):
         """
         Validate the samples.
         
