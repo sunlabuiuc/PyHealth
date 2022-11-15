@@ -69,7 +69,7 @@ PyHealth is designed for both **ML researchers and medical practitioners**. We c
 
 
 Introduction `[Video] <https://drive.google.com/file/d/1g8wt8jBhZpmlUDG9l05RtfPWGOlOJK94/view?usp=share_link>`_
---------------------------
+--------------------------------------------------------------------------------------------------------------------
 
 .. .. image:: https://raw.githubusercontent.com/yzhao062/PyHealth/master/docs/images/logo.png
 ..    :target: https://raw.githubusercontent.com/yzhao062/PyHealth/master/docs/images/logo.png
@@ -295,6 +295,7 @@ the performance for different models doing different tasks on different datasets
 
    install
    tutorials
+   advance_tutorials
 ..    usecase
 
 
