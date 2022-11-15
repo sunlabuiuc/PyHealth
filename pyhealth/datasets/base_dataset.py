@@ -166,7 +166,7 @@ class BaseDataset(ABC, Dataset):
            A dict mapping patient_id to `Patient` object.
         """
         # process patients and admissions tables
-        patients = self.parse_basic_info(patients)
+        patients = self.parse_basic_info()
         # process clinical tables
         for table in self.tables:
             try:

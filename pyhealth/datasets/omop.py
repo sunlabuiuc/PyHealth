@@ -86,7 +86,7 @@ class OMOPDataset(BaseDataset):
             refresh_cache=refresh_cache,
         )
 
-    def parse_basic_info(self, patients) -> Dict[str, Patient]:
+    def parse_basic_info(self) -> Dict[str, Patient]:
         """Helper functions which parses person, visit_occurrence, and death tables.
 
         Will be called in `self.parse_tables()`

@@ -94,7 +94,7 @@ class eICUDataset(BaseDataset):
             refresh_cache=refresh_cache,
         )
 
-    def parse_basic_info(self, patients) -> Dict[str, Patient]:
+    def parse_basic_info(self) -> Dict[str, Patient]:
         """Helper functions which parses patient and hospital tables.
 
         Will be called in `self.parse_tables()`.
@@ -466,7 +466,7 @@ if __name__ == "__main__":
     dataset = eICUDataset(
         root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
         tables=["diagnosis", "medication", "lab", "treatment", "physicalExam"],
-        dev=False,
+        dev=True,
         refresh_cache=True,
     )
     dataset.stat()

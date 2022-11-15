@@ -79,7 +79,7 @@ class MIMIC4Dataset(BaseDataset):
             refresh_cache=refresh_cache,
         )
 
-    def parse_basic_info(self, patients) -> Dict[str, Patient]:
+    def parse_basic_info(self) -> Dict[str, Patient]:
         """Helper functions which parses patients and admissions tables.
 
         Will be called in `self.parse_tables()`
@@ -324,7 +324,7 @@ if __name__ == "__main__":
     dataset = MIMIC4Dataset(
         root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
         tables=["diagnoses_icd", "procedures_icd", "prescriptions", "labevents"],
-        dev=False,
+        dev=True,
         code_mapping={"NDC": "ATC"},
         refresh_cache=True,
     )
