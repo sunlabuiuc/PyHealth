@@ -190,6 +190,7 @@ class Trainer:
             for _ in trange(
                     steps_per_epoch, desc=f"Epoch {epoch} / {epochs}", smoothing=0.05,
             ):
+                print () # clear printing
                 try:
                     data = next(data_iterator)
                 except StopIteration:
@@ -245,17 +246,17 @@ class Trainer:
 
         return
 
-    def evaluate(self, dataloader) -> Dict[str, float]:
-        """Evaluates the model.
+    def inference(self, dataloader) -> Dict[str, float]:
+        """ Model inference.
 
         Args:
             dataloader: Dataloader for evaluation.
 
         Returns:
-            scores: a dictionary of scores.
+            y_true_all: List of true labels.
+            y_prob_all: List of predicted probabilities.
+            loss_mean: Mean loss over batches.
         """
-        mode = self.model.mode
-        metrics_fn = get_metrics_fn(mode)
         loss_all = []
         y_true_all = []
         y_prob_all = []
@@ -272,6 +273,21 @@ class Trainer:
         loss_mean = sum(loss_all) / len(loss_all)
         y_true_all = np.concatenate(y_true_all, axis=0)
         y_prob_all = np.concatenate(y_prob_all, axis=0)
+        return y_true_all, y_prob_all, loss_mean
+    
+    def evaluate(self, dataloader) -> Dict[str, float]:
+        """Evaluates the model.
+
+        Args:
+            dataloader: Dataloader for evaluation.
+
+        Returns:
+            scores: a dictionary of scores.
+        """
+        y_true_all, y_prob_all, loss_mean = self.inference(dataloader)
+        
+        mode = self.model.mode
+        metrics_fn = get_metrics_fn(mode)
         scores = metrics_fn(y_true_all, y_prob_all, metrics=self.metrics)
         scores["loss"] = loss_mean
         return scores
