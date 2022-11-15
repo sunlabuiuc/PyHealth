@@ -1,54 +1,71 @@
-# Contributing to PyHealth
-We love your input! We want to make contributing to this project as easy and transparent as possible, whether it's:
+# Contribute
 
-- Reporting a bug
-- Discussing the current state of the code
-- Submitting a fix
-- Proposing new features
-- Becoming a maintainer
+We welcome all kinds of contributions to keep PyHealth growing and thriving.
 
-## We Develop with Github
-We use github to host code, to track issues and feature requests, as well as accept pull requests.
+Everyone can contribute, and we value every contribution, whether it is:
 
-## We Use [Github Flow](https://guides.github.com/introduction/flow/index.html), So All Code Changes Happen Through Pull Requests
-Pull requests are the best way to propose changes to the codebase (we use [Github Flow](https://guides.github.com/introduction/flow/index.html)). We actively welcome your pull requests:
+- Reporting a bug;
+- Proposing new features;
+- Discussing the current state of the code;
+- Submitting new code;
+- Becoming a maintainer.
 
-1. Fork the repo and create your branch from `master`.
-2. If you've added code that should be tested, add tests.
-3. If you've changed APIs, update the documentation.
-4. Ensure the test suite passes.
-5. Make sure your code lints.
-6. Issue that pull request!
+## We Use [GitHub Flow](https://docs.github.com/en/get-started/quickstart/github-flow)
 
-## Any contributions you make will be under the BSD 2-Clause "Simplified" License
-In short, when you submit code changes, your submissions are understood to be under the same [BSD 2-Clause "Simplified" License](https://github.com/yzhao062/PyHealth/blob/master/LICENSE) that covers the project. Feel free to contact the maintainers if that's a concern.
+### Branches
 
-## Report bugs using Github's [issues](https://github.com/briandk/transcriptase-atom/issues)
-We use GitHub issues to track public bugs. Report a bug by [opening a new issue](); it's that easy!
+We keep the following branches to allow for parallel development and release
+management.
 
-## Write bug reports with detail, background, and sample code
-[This is an example](http://stackoverflow.com/q/12488905/180626) of a bug report someone wrote, and I think it's not a bad model. Here's [another example from Craig Hockenberry](http://www.openradar.me/11905408), an app developer whom I greatly respect.
+- Main branches
+    - `master`: always reflects the production-ready state.
+    - `develop`: reflects the latest delivered development state. When the source code
+      in the `develop` branch reaches a stable point and is ready to be released, all
+      of the changes will be merged back into `master`.
+- Release branches
+    - `*-release`: holds the code for a specific release. These branches are
+      created from `develop`, and will be merged back into `master` and `develop`
+      when the release is deployed. Only minor bug fixes or preparing meta-data for
+      a release (version number, build dates, etc.) are allowed in this branch.
+    - `archived`: holds the original version of PyHealth developed
+      by [Yue Zhao](https://www.andrew.cmu.edu/user/yuezhao2/)
+      et al. This branch is not maintained anymore.
+- Feature branches:
+    - `[feature_name]`: feature branches are used to develop new features for the
+      upcoming release. These branches are created from `develop` and will be merged
+      back into `develop` once the feature is completed.
+- Hotfix branches:
+    - `[hotfix_name]`: hotfix branches are used to quickly patch small bugs in the
+      production version. These branches are created from `master` and will be merged
+      back into `master` and `develop`.
 
-**Great Bug Reports** tend to have:
+### Pull Requests
 
-- A quick summary and/or background
-- Steps to reproduce
-  - Be specific!
-  - Give sample code if you can. [My stackoverflow question](http://stackoverflow.com/q/12488905/180626) includes sample code that *anyone* with a base R setup can run to reproduce what I was seeing
-- What you expected would happen
-- What actually happens
-- Notes (possibly including why you think this might be happening, or stuff you tried that didn't work)
+All code changes happen through pull requests. We actively
+welcome your pull requests:
 
-People *love* thorough bug reports. I'm not even kidding.
+1. Create a new branch from `develop` (for feature) or `master` (for hotfix);
+2. Make the changes;
+3. Write documentation for the changes;
+4. Write unit tests for the changes;
+5. Create a pull request to `develop` (for feature) or `master` branch (for hotfix);
+6. Wait for the review and merge.
 
-## Use a Consistent Coding Style
-I'm again borrowing these from [Facebook's Guidelines](https://github.com/facebook/draft-js/blob/a9316a723f9e918afde44dea68b5f9f39b7d9b00/CONTRIBUTING.md)
+### Code Review
 
-* 2 spaces for indentation rather than tabs
-* You can try running `npm run lint` for style unification
+We enforce code reviews for the main branches.
 
-## License
-By contributing, you agree that your contributions will be licensed under its BSD 2-Clause "Simplified" License.
+- `master`: requires two approvals from the core developers
+- `develop`: requires one approval from the core developers
 
-## References
-This document was adapted from the open-source contribution guidelines for [Facebook's Draft](https://github.com/facebook/draft-js/blob/a9316a723f9e918afde44dea68b5f9f39b7d9b00/CONTRIBUTING.md)
+## Coding Style
+
+We follow the [PEP8](https://peps.python.org/pep-0008/) style guide. The line length
+is set to 88 characters. For docstrings, we follow
+the [Google style](https://google.github.io/styleguide/pyguide.html#38-comments-and-docstrings).
+
+## Community
+
+We welcome you to join our community
+via [Slack](https://join.slack.com/t/pyhealthworkspace/shared_invite/zt-1j8h4da47-ZZWENUYax7SlgCRHNyL2DQ),
+where you can ask questions, discuss ideas, and share your work.
