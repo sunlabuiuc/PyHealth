@@ -854,9 +854,35 @@ if __name__ == "__main__":
         {"patient_id": "1", "visit_id": "1", "conditions": ["A", "B", "C"], "label": 0},
         {"patient_id": "1", "visit_id": "2", "conditions": ["A", "C", "D"], "label": 1}
     ]
+    samples2 = [
+        {'patient_id': 'patient-0',
+            'visit_id': 'visit-0',
+            'conditions': ['cond-33',
+            'cond-86',
+            'cond-80'],
+            'procedures': ['prod-11',
+            'prod-8',
+            'prod-15',
+            'prod-66',
+            'prod-91',
+            'prod-94'],
+            'label': 1},
+        {'patient_id': 'patient-0',
+            'visit_id': 'visit-0',
+            'conditions': ['cond-33',
+            'cond-86',
+            'cond-80'],
+            'procedures': ['prod-11',
+            'prod-8',
+            'prod-15',
+            'prod-66',
+            'prod-91',
+            'prod-94'],
+            'label': 1}
+    ]
     
     dataset = SampleDataset(
-        samples=samples,
+        samples=samples2,
         dataset_name="test")
     
     print (dataset.stat())

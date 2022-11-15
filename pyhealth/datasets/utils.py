@@ -49,7 +49,7 @@ def flatten_list(l: List) -> List:
         [1, [2], 3, 4]
     """
     assert isinstance(l, list), "l must be a list."
-    return sum(l, start=[])
+    return sum(l, [])
 
 
 def list_nested_level(l: List) -> int:
