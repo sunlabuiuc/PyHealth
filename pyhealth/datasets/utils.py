@@ -33,6 +33,25 @@ def strptime(s: str) -> Optional[datetime]:
     return dateutil_parse(s)
 
 
+def flatten_list(l: List) -> List:
+    """Flattens a list of list.
+
+    Args:
+        l: List, the list of list to be flattened.
+
+    Returns:
+        List, the flattened list.
+
+    Examples:
+        >>> flatten_list([[1], [2, 3], [4]])
+        [1, 2, 3, 4]R
+        >>> flatten_list([[1], [[2], 3], [4]])
+        [1, [2], 3, 4]
+    """
+    assert isinstance(l, list), "l must be a list."
+    return sum(l, start=[])
+
+
 def list_nested_level(l: List) -> int:
     """Gets the nested level of a list.
 

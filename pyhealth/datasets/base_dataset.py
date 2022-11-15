@@ -10,7 +10,8 @@ from tqdm import tqdm
 
 from pyhealth.data import Patient, Event
 from pyhealth.datasets.utils import MODULE_CACHE_PATH
-from pyhealth.datasets.utils import hash_str, list_nested_level, is_homo_list
+from pyhealth.datasets.utils import hash_str
+from pyhealth.datasets.utils import list_nested_level, is_homo_list, flatten_list
 from pyhealth.medcode import CrossMap
 from pyhealth.utils import load_pickle, save_pickle
 
@@ -356,9 +357,7 @@ class BaseDataset(ABC, Dataset):
                 # 1 level nested list
                 if level == 1:
                     # a list of values of the same type
-                    # sum() flattens the nested list
-                    # e.g, [[1, 2], [3, 4]] -> [1, 2, 3, 4]
-                    check = is_homo_list(sum([s[key] for s in samples], []))
+                    check = is_homo_list(flatten_list([s[key] for s in samples]))
                     assert check, \
                         f"Key {key} has mixed types in the nested list within samples"
                 # 2 level nested list
@@ -370,8 +369,9 @@ class BaseDataset(ABC, Dataset):
                     assert all(check), \
                         f"Key {key} has mixed nested list levels within samples"
                     # a list of list of values of the same type
-                    # sum() flattens the nested list
-                    check = is_homo_list(sum([l for s in samples for l in s[key]], []))
+                    check = is_homo_list(
+                        flatten_list([l for s in samples for l in s[key]])
+                    )
                     assert check, \
                         f"Key {key} has mixed types in the nested list within samples"
 
@@ -459,8 +459,7 @@ class BaseDataset(ABC, Dataset):
                     continue
                 # a list of lists of values
                 elif type(sample[key][0]) == list:
-                    # sum() flattens the nested list
-                    tokens.extend(sum(sample[key], []))
+                    tokens.extend(flatten_list(sample[key]))
                 # a list of values
                 else:
                     tokens.extend(sample[key])
@@ -568,8 +567,9 @@ class BaseDataset(ABC, Dataset):
                 nested = [isinstance(e, list) for s in self.samples for e in s[key]]
                 # key's feature is a list of lists
                 if any(nested):
-                    # sum() flattens the nested list
-                    num_events = [len(sum(sample[key], [])) for sample in self.samples]
+                    num_events = [
+                        len(flatten_list(sample[key])) for sample in self.samples
+                    ]
                 # key's feature is a list of values
                 else:
                     num_events = [len(sample[key]) for sample in self.samples]
