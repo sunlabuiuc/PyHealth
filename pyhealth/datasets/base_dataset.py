@@ -786,23 +786,6 @@ class SampleDataset(ABC, Dataset):
         tokens = self.get_all_tokens(key, remove_duplicates=False, sort=False)
         counter = Counter(tokens)
         return counter
-    
-    def get_label_distribution(self) -> Dict[str, int]:
-        """Gets the label distribution of the samples.
-
-        Returns:
-            label_distribution: a dict mapping label to count.
-        """
-        label_distribution = {}
-        for sample in self.samples:
-            if type(sample["label"]) == list:
-                for label in sample["label"]:
-                    label_distribution.setdefault(label, 0)
-                    label_distribution[label] += 1
-            else:
-                label_distribution.setdefault(sample["label"], 0)
-                label_distribution[sample["label"]] += 1
-        return label_distribution
 
     def __getitem__(self, index) -> Dict:
         """Returns a sample by index.
