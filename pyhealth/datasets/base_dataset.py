@@ -603,3 +603,170 @@ class BaseDataset(ABC, Dataset):
     def info():
         """Prints the output format."""
         print(INFO_MSG)
+
+class SampleDataset(ABC, Dataset):
+    """Abstract sample dataset class.
+
+    This dataset takes the processed data samples as an input list
+    
+    Args:
+        samples: the processed data samples.
+            E.g., 
+                samples[0] = {
+                    visit_id: 1,
+                    patient_id: 1,
+                    "codnition": ["A", "B"],
+                    "procedure": ["C", "D"],
+                    "label": 1
+                }
+
+    Attributes:
+        samples: Optional[List[Dict]], a list of samples, each sample is a dict with
+            patient_id, visit_id, and other task-specific attributes as key.
+            Default is None.
+        patient_to_index: Optional[Dict[str, List[int]]], a dict mapping patient_id to
+            a list of sample indices. Default is None.
+        visit_to_index: Optional[Dict[str, List[int]]], a dict mapping visit_id to a
+            list of sample indices. Default is None.
+    """
+
+    def __init__(self, samples, dataset_name="dataset"):
+        self.dataset_name: str = dataset_name
+        self.samples: Optional[List[Dict]] = samples
+        self.patient_to_index: Optional[Dict[str, List[int]]] = None
+        self.visit_to_index: Optional[Dict[str, List[int]]] = None
+
+    def _index_patient(self) -> Dict[str, List[int]]:
+        """Helper function which indexes the samples by patient_id.
+
+        Will be called in set_task().
+
+        Returns:
+            patient_to_index: Dict[str, int], a dict mapping patient_id to a list
+                of sample indices.
+        """
+        patient_to_index = {}
+        for idx, sample in enumerate(self.samples):
+            patient_to_index.setdefault(sample["patient_id"], []).append(idx)
+        return patient_to_index
+
+    def _index_visit(self) -> Dict[str, List[int]]:
+        """Helper function which indexes the samples by visit_id.
+
+        Will be called in set_task().
+
+        Returns:
+            visit_to_index: Dict[str, int], a dict mapping visit_id to a list
+                of sample indices.
+        """
+        visit_to_index = {}
+        for idx, sample in enumerate(self.samples):
+            visit_to_index.setdefault(sample["visit_id"], []).append(idx)
+        return visit_to_index
+
+
+    # TODO: check this
+    def get_all_tokens(self, key: str, sort: bool = True) -> List[str]:
+        """Gets all tokens with a specific key in the samples.
+
+        Args:
+            key: str, the key of the tokens in the samples.
+            sort: whether to sort the tokens by alphabet order.
+
+        Returns:
+            tokens: a list of tokens.
+        """
+        tokens = []
+        for sample in self.samples:
+            # for multi-class classification
+            if type(sample[key]) in [bool, int, str]:
+                tokens.append(sample[key])
+            # for multi-label classification
+            elif type(sample[key][0]) in [bool, int, str]:
+                tokens.extend(sample[key])
+            elif type(sample[key][0]) == list:
+                tokens.extend(sample[key][-1])
+            else:
+                raise ValueError(f"Unknown type of {key}: {type(sample[key])}")
+        tokens = list(set(tokens))
+        if sort:
+            tokens.sort()
+        return tokens
+
+    # TODO: check this
+    def get_label_distribution(self) -> Dict[str, int]:
+        """Gets the label distribution of the samples.
+
+        Returns:
+            label_distribution: a dict mapping label to count.
+        """
+        label_distribution = {}
+        for sample in self.samples:
+            if type(sample["label"]) == list:
+                for label in sample["label"]:
+                    label_distribution.setdefault(label, 0)
+                    label_distribution[label] += 1
+            else:
+                label_distribution.setdefault(sample["label"], 0)
+                label_distribution[sample["label"]] += 1
+        return label_distribution
+
+    def __getitem__(self, index) -> Dict:
+        """Returns a sample by index.
+
+        Returns:
+             Dict, a dict with patient_id, visit_id, and other task-specific
+                attributes as key. Conversion to index/tensor will be done
+                in the model.
+        """
+        return self.samples[index]
+
+    def __str__(self):
+        """Prints some information of the dataset."""
+        return f"{self.dataset_name} base dataset"
+
+    def __len__(self):
+        """Returns the number of samples in the dataset."""
+        return len(self.samples)
+
+    def stat(self) -> None:
+        """Prints some statistics of the dataset."""
+        self.task_stat()
+
+    # TODO: check this
+    def task_stat(self) -> None:
+        """Prints some statistics of the task-specific dataset."""
+        print()
+        print(f"\t- Dataset: {self.dataset_name}")
+        num_patients = len(set([sample["patient_id"] for sample in self.samples]))
+        print(f"\t- Number of patients: {num_patients}")
+        print(f"\t- Number of visits: {len(self)}")
+        print(f"\t- Number of visits per patient: {len(self) / num_patients:.4f}")
+        # TODO: add more types once we support selecting domains with args
+        for key in self.samples[0]:
+            if key in ["patient_id", "visit_id"]:
+                continue
+            elif key == "label":
+                print(f"\t- Label distribution: {self.get_label_distribution()}")
+            else:
+                # TODO: drugs[-1] is empty list
+                num_events = [len(sample[key][-1]) for sample in self.samples]
+                print(f"\t- #{key}/visit: {sum(num_events) / len(num_events):.4f}")
+                print(f"\t- Number of unique {key}: {len(self.get_all_tokens(key))}")
+        print()
+
+
+if __name__ == "__main__":
+    samples = [
+        {"patient_id": "1", "visit_id": "1", "conditions": ["A", "B", "C"], "label": 0},
+        {"patient_id": "1", "visit_id": "2", "conditions": ["A", "C", "D"], "label": 1}
+    ]
+    
+    dataset = SampleDataset(
+        samples=samples,
+        dataset_name="test")
+    
+    print (dataset.stat())
+    data = iter(dataset)
+    print (next(data))
+    print (next(data))
