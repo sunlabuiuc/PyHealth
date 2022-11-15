@@ -611,6 +611,14 @@ class SampleDataset(ABC, Dataset):
     
     Args:
         samples: the processed data samples.
+
+    Attributes:
+        samples: Optional[List[Dict]], a list of samples, each sample is a dict with:
+            1. patient_id, 
+            2. visit_id,
+            3. other task-specific attributes as feature key,
+            4. one label key
+        
             E.g., 
                 samples[0] = {
                     visit_id: 1,
@@ -619,11 +627,7 @@ class SampleDataset(ABC, Dataset):
                     "procedure": ["C", "D"],
                     "label": 1
                 }
-
-    Attributes:
-        samples: Optional[List[Dict]], a list of samples, each sample is a dict with
-            patient_id, visit_id, and other task-specific attributes as key.
-            Default is None.
+                
         patient_to_index: Optional[Dict[str, List[int]]], a dict mapping patient_id to
             a list of sample indices. Default is None.
         visit_to_index: Optional[Dict[str, List[int]]], a dict mapping visit_id to a
@@ -633,8 +637,9 @@ class SampleDataset(ABC, Dataset):
     def __init__(self, samples, dataset_name="dataset"):
         self.dataset_name: str = dataset_name
         self.samples: Optional[List[Dict]] = samples
-        self.patient_to_index: Optional[Dict[str, List[int]]] = None
-        self.visit_to_index: Optional[Dict[str, List[int]]] = None
+        self.patient_to_index: Optional[Dict[str, List[int]]] = self._index_patient()
+        self.visit_to_index: Optional[Dict[str, List[int]]] = self._index_visit()
+        self.sanity_check()
 
     def _index_patient(self) -> Dict[str, List[int]]:
         """Helper function which indexes the samples by patient_id.
@@ -663,37 +668,125 @@ class SampleDataset(ABC, Dataset):
         for idx, sample in enumerate(self.samples):
             visit_to_index.setdefault(sample["visit_id"], []).append(idx)
         return visit_to_index
-
-
-    # TODO: check this
-    def get_all_tokens(self, key: str, sort: bool = True) -> List[str]:
+    
+    def get_all_tokens(
+            self,
+            key: str,
+            remove_duplicates: bool = True,
+            sort: bool = True
+    ) -> List[str]:
         """Gets all tokens with a specific key in the samples.
 
         Args:
-            key: str, the key of the tokens in the samples.
-            sort: whether to sort the tokens by alphabet order.
+            key: the key of the tokens in the samples.
+            remove_duplicates: whether to remove duplicates. Default is True.
+            sort: whether to sort the tokens by alphabet order. Default is True.
 
         Returns:
             tokens: a list of tokens.
         """
         tokens = []
         for sample in self.samples:
-            # for multi-class classification
-            if type(sample[key]) in [bool, int, str]:
-                tokens.append(sample[key])
-            # for multi-label classification
-            elif type(sample[key][0]) in [bool, int, str]:
-                tokens.extend(sample[key])
-            elif type(sample[key][0]) == list:
-                tokens.extend(sample[key][-1])
+            if type(sample[key]) == list:
+                if len(sample[key]) == 0:
+                    continue
+                # a list of lists of values
+                elif type(sample[key][0]) == list:
+                    tokens.extend(flatten_list(sample[key]))
+                # a list of values
+                else:
+                    tokens.extend(sample[key])
+            # single value
             else:
-                raise ValueError(f"Unknown type of {key}: {type(sample[key])}")
-        tokens = list(set(tokens))
+                tokens.append(sample[key])
+        types = set([type(t) for t in tokens])
+        assert len(types) == 1, f"{key} tokens have mixed types"
+        assert types.pop() in [int, float, str, bool], \
+            f"{key} tokens have unsupported types"
+        if remove_duplicates:
+            tokens = list(set(tokens))
         if sort:
             tokens.sort()
         return tokens
 
-    # TODO: check this
+    def sanity_check(self):
+        """
+        Validate the samples.
+        
+        1. Check if all samples are of type dict.
+        2. Check if all samples have the same keys.
+        3. Check if "patient_id" and "visit_id" are in the keys.
+        4. For each key, check if it is either:
+            - a single value
+            - a list of values of the sample type
+            - a list of list of values of the same type
+            
+        Note that in check 4, we do not restrict the type of the values 
+        to leave more flexibility for the user. But if the user wants to
+        use some helper functions (e.g., `self.get_all_tokens()` and 
+        `self.stat()`) in the dataset, we will further check the type of 
+        the values.
+        """
+        assert all(isinstance(s, dict) for s in samples), "Each sample should be a dict"
+        keys = samples[0].keys()
+        assert all(set(s.keys()) == set(keys) for s in samples), \
+            "All samples should have the same keys"
+        assert "patient_id" in keys, "patient_id should be in the keys"
+        assert "visit_id" in keys, "visit_id should be in the keys"
+        # each feature has to be either a single value,
+        # a list of values, or a list of list of values
+        for key in keys:
+            # check if all the samples have the same type of feature for the key
+            check = is_homo_list([s[key] for s in samples])
+            assert check, f"Key {key} has mixed types across samples"
+            type_ = type(samples[0][key])
+
+            # if key's feature is list
+            if type_ == list:
+                # All samples should either all be
+                # (1) a list of values, i.e, 1 level nested list
+                # (2) or a list of list of values, i.e., 2 level nested list
+                levels = set([list_nested_level(s[key]) for s in samples])
+                assert len(levels) == 1, \
+                    f"Key {key} has mixed nested list levels across samples"
+                level = levels.pop()
+                assert level in [1, 2], \
+                    f"Key {key} has unsupported nested list level across samples"
+                # 1 level nested list
+                if level == 1:
+                    # a list of values of the same type
+                    check = is_homo_list(flatten_list([s[key] for s in samples]))
+                    assert check, \
+                        f"Key {key} has mixed types in the nested list within samples"
+                # 2 level nested list
+                else:
+                    # eliminate the case list [[1, 2], 3] where the
+                    # nested level is 2 but some elements in the outer list
+                    # are not list
+                    check = [is_homo_list(s[key]) for s in samples]
+                    assert all(check), \
+                        f"Key {key} has mixed nested list levels within samples"
+                    # a list of list of values of the same type
+                    check = is_homo_list(
+                        flatten_list([l for s in samples for l in s[key]])
+                    )
+                    assert check, \
+                        f"Key {key} has mixed types in the nested list within samples"
+
+    def get_distribution_tokens(self, key: str) -> Dict[str, int]:
+        """Gets the distribution of tokens with a specific key in the samples.
+
+        Args:
+            key: the key of the tokens in the samples.
+
+        Returns:
+            distribution: a dict mapping token to count.
+        """
+        
+        tokens = self.get_all_tokens(key, remove_duplicates=False, sort=False)
+        counter = Counter(tokens)
+        return counter
+    
     def get_label_distribution(self) -> Dict[str, int]:
         """Gets the label distribution of the samples.
 
@@ -730,30 +823,47 @@ class SampleDataset(ABC, Dataset):
         return len(self.samples)
 
     def stat(self) -> None:
-        """Prints some statistics of the dataset."""
-        self.task_stat()
-
-    # TODO: check this
-    def task_stat(self) -> None:
-        """Prints some statistics of the task-specific dataset."""
-        print()
-        print(f"\t- Dataset: {self.dataset_name}")
+        """Returns some statistics of the task-specific dataset."""
+        lines = list()
+        lines.append(f"\t- Dataset: {self.dataset_name}")
+        lines.append(f"\t- Number of samples: {len(self)}")
         num_patients = len(set([sample["patient_id"] for sample in self.samples]))
-        print(f"\t- Number of patients: {num_patients}")
-        print(f"\t- Number of visits: {len(self)}")
-        print(f"\t- Number of visits per patient: {len(self) / num_patients:.4f}")
-        # TODO: add more types once we support selecting domains with args
+        lines.append(f"\t- Number of patients: {num_patients}")
+        num_visits = len(set([sample["visit_id"] for sample in self.samples]))
+        lines.append(f"\t- Number of visits: {num_visits}")
+        lines.append(
+            f"\t- Number of visits per patient: {len(self) / num_patients:.4f}"
+        )
         for key in self.samples[0]:
             if key in ["patient_id", "visit_id"]:
                 continue
-            elif key == "label":
-                print(f"\t- Label distribution: {self.get_label_distribution()}")
+            # key's feature is a list
+            if type(self.samples[0][key]) == list:
+                # check if the list also contains lists
+                nested = [isinstance(e, list) for s in self.samples for e in s[key]]
+                # key's feature is a list of lists
+                if any(nested):
+                    num_events = [
+                        len(flatten_list(sample[key])) for sample in self.samples
+                    ]
+                # key's feature is a list of values
+                else:
+                    num_events = [len(sample[key]) for sample in self.samples]
+            # key's feature is a single value
             else:
-                # TODO: drugs[-1] is empty list
-                num_events = [len(sample[key][-1]) for sample in self.samples]
-                print(f"\t- #{key}/visit: {sum(num_events) / len(num_events):.4f}")
-                print(f"\t- Number of unique {key}: {len(self.get_all_tokens(key))}")
-        print()
+                num_events = [1 for sample in self.samples]
+            lines.append(f"\t- {key}:")
+            lines.append(f"\t\t- Number of {key} per sample: "
+                         f"{sum(num_events) / len(num_events):.4f}")
+            lines.append(
+                f"\t\t- Number of unique {key}: {len(self.get_all_tokens(key))}"
+            )
+            distribution = self.get_distribution_tokens(key)
+            top10 = sorted(distribution.items(), key=lambda x: x[1], reverse=True)[:10]
+            lines.append(
+                f"\t\t- Distribution of {key} (Top-10): {top10}")
+        print("\n".join(lines))
+        return "\n".join(lines)
 
 
 if __name__ == "__main__":
