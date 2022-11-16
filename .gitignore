@@ -117,10 +117,10 @@ docs/build/
 # /docs/api/models/
 # /docs/api/tasks/
 
-docs/examples.rst
-docs/examples_bak.rst
-docs/faq.rst
-docs/usecase.rst
+#docs/examples.rst
+#docs/examples_bak.rst
+#docs/faq.rst
+#docs/usecase.rst
 
 # leaderboard credentials
 leaderboard/credentials.json
