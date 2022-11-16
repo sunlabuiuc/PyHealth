@@ -80,13 +80,13 @@ Installation
 
 .. code-block:: bash
 
-    pip install pyhealth==1.0a2
+    pip install pyhealth
 
 - or from github source:
 
 .. code-block:: bash
 
-   git clone -b v1.0a2 https://github.com/sunlabuiuc/PyHealth.git
+   git clone https://github.com/sunlabuiuc/PyHealth.git
    cd pyhealth
    pip install .
 
