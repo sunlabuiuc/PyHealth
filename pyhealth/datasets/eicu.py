@@ -73,27 +73,6 @@ class eICUDataset(BaseDataset):
             list of sample indices. Default is None.
     """
 
-    def __init__(
-            self,
-            root: str,
-            tables: List[str],
-            code_mapping: Optional[Dict[str, Union[str, Tuple[str, Dict]]]] = None,
-            dev=False,
-            refresh_cache=False,
-    ):
-        # store a mapping from visit_id to patient_id
-        # will be used to parse clinical tables as they only contain visit_id
-        self.visit_id_to_patient_id: Dict[str, str] = {}
-
-        super(eICUDataset, self).__init__(
-            dataset_name="eICU",
-            root=root,
-            tables=tables,
-            code_mapping=code_mapping,
-            dev=dev,
-            refresh_cache=refresh_cache,
-        )
-
     def parse_basic_info(self) -> Dict[str, Patient]:
         """Helper functions which parses patient and hospital tables.
 

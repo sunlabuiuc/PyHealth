@@ -76,7 +76,6 @@ class BaseDataset(ABC, Dataset):
 
     def __init__(
             self,
-            dataset_name: str,
             root: str,
             tables: List[str],
             code_mapping: Optional[Dict[str, Union[str, Tuple[str, Dict]]]] = None,
@@ -89,7 +88,7 @@ class BaseDataset(ABC, Dataset):
             code_mapping = {}
 
         # base attributes
-        self.dataset_name = dataset_name
+        self.dataset_name = self.__class__.__name__
         self.root = root
         self.tables = tables
         self.code_mapping = code_mapping
@@ -106,7 +105,7 @@ class BaseDataset(ABC, Dataset):
 
         # hash filename for cache
         args_to_hash = (
-                [dataset_name, root]
+                [self.dataset_name, root]
                 + sorted(tables)
                 + sorted(code_mapping.items())
                 + ["dev" if dev else "prod"]
@@ -117,18 +116,18 @@ class BaseDataset(ABC, Dataset):
         # check if cache exists or refresh_cache is True
         if os.path.exists(self.filepath) and (not refresh_cache):
             # load from cache
-            logging.debug(f"Loaded {dataset_name} base dataset from {self.filepath}")
+            logging.debug(f"Loaded {self.dataset_name} base dataset from {self.filepath}")
             self.patients = load_pickle(self.filepath)
         else:
             # load from raw data
-            logging.debug(f"Processing {dataset_name} base dataset...")
+            logging.debug(f"Processing {self.dataset_name} base dataset...")
             # parse tables
             patients = self.parse_tables()
             # convert codes
             patients = self._convert_code_in_patient_dict(patients)
             self.patients = patients
             # save to cache
-            logging.debug(f"Saved {dataset_name} base dataset to {self.filepath}")
+            logging.debug(f"Saved {self.dataset_name} base dataset to {self.filepath}")
             save_pickle(self.patients, self.filepath)
 
     def _load_code_mapping_tools(self) -> Dict[str, CrossMap]:

@@ -69,23 +69,6 @@ class OMOPDataset(BaseDataset):
             list of sample indices. Default is None.
     """
 
-    def __init__(
-            self,
-            root: str,
-            tables: List[str],
-            code_mapping: Optional[Dict[str, str]] = None,
-            dev=False,
-            refresh_cache=False,
-    ):
-        super(OMOPDataset, self).__init__(
-            dataset_name="OMOP",
-            root=root,
-            tables=tables,
-            code_mapping=code_mapping,
-            dev=dev,
-            refresh_cache=refresh_cache,
-        )
-
     def parse_basic_info(self) -> Dict[str, Patient]:
         """Helper functions which parses person, visit_occurrence, and death tables.
 
@@ -389,7 +372,7 @@ if __name__ == "__main__":
             "measurement",
         ],
         dev=False,
-        refresh_cache=True,
+        refresh_cache=False,
     )
     dataset.stat()
     dataset.info()
