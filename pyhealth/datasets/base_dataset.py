@@ -78,6 +78,7 @@ class BaseDataset(ABC, Dataset):
             self,
             root: str,
             tables: List[str],
+            dataset_name: Optional[str] = None,
             code_mapping: Optional[Dict[str, Union[str, Tuple[str, Dict]]]] = None,
             dev: bool = False,
             refresh_cache: bool = False,
@@ -88,7 +89,7 @@ class BaseDataset(ABC, Dataset):
             code_mapping = {}
 
         # base attributes
-        self.dataset_name = self.__class__.__name__
+        self.dataset_name = self.__class__.__name__ if dataset_name is None else dataset_name
         self.root = root
         self.tables = tables
         self.code_mapping = code_mapping
