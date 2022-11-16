@@ -234,7 +234,8 @@ def read_dataframes_by_time_from_gcp(credentials):
 def read_dataframes_by_time_from_gcp_with_no_credentials():
     data = {
         "https://storage.googleapis.com/pyhealth/leaderboard_data/data/leaderboard-2022-10-28.csv",
-        "https://storage.googleapis.com/pyhealth/leaderboard_data/data/leaderboard-2022-11-05.csv"
+        "https://storage.googleapis.com/pyhealth/leaderboard_data/data/leaderboard-2022-11-05.csv",
+        "https://storage.googleapis.com/pyhealth/leaderboard_data/data/leaderboard-2022-11-12.csv"
     }
 
     dfs = {}

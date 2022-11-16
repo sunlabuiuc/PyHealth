@@ -60,23 +60,6 @@ class MIMIC3Dataset(BaseDataset):
             list of sample indices. Default is None.
     """
 
-    def __init__(
-            self,
-            root: str,
-            tables: List[str],
-            code_mapping: Optional[Dict[str, Union[str, Tuple[str, Dict]]]] = None,
-            dev=False,
-            refresh_cache=False,
-    ):
-        super(MIMIC3Dataset, self).__init__(
-            dataset_name="MIMIC-III",
-            root=root,
-            tables=tables,
-            code_mapping=code_mapping,
-            dev=dev,
-            refresh_cache=refresh_cache,
-        )
-
     def parse_basic_info(self) -> Dict[str, Patient]:
         """Helper function which parses PATIENTS and ADMISSIONS tables.
 
