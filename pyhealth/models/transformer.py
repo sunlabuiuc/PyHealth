@@ -229,6 +229,13 @@ class Transformer(BaseModel):
         # validate kwargs for Transformer layer
         if "feature_size" in kwargs:
             raise ValueError("feature_size is determined by embedding_dim")
+        
+        # pick the first sample to initialize the linear transformation float/int features
+        sample = self.dataset.samples[0]
+        self.linear = nn.ModuleDict()
+        for feature_key in feature_keys:
+            if feature_key not in self.feat_tokenizers:
+                self.linear[feature_key] = nn.Linear(len(sample[feature_key][0]), embedding_dim)
         self.transformer = nn.ModuleDict()
         for feature_key in feature_keys:
             self.transformer[feature_key] = TransformerLayer(
@@ -243,7 +250,7 @@ class Transformer(BaseModel):
         patient_emb = []
         for feature_key in self.feature_keys:
             assert type(kwargs[feature_key][0][0]) == list
-            if len(kwargs[feature_key][0][0][0]) == str:
+            if type(kwargs[feature_key][0][0][0]) == str:
                 x = self.feat_tokenizers[feature_key].batch_encode_3d(kwargs[feature_key])
                 # (patient, visit, code)
                 x = torch.tensor(x, dtype=torch.long, device=self.device)
@@ -257,8 +264,10 @@ class Transformer(BaseModel):
                 x, mask = self.padding3d(kwargs[feature_key])
                 # (patient, visit, values)
                 x = torch.tensor(x, dtype=torch.float, device=self.device)
+                # (patient, visit, embedding_dim)
+                x = self.linear[feature_key](x)
                 # (patient, visit)
-                mask = torch.tensor(x, dtype=torch.bool, device=self.device)
+                mask = torch.tensor(mask, dtype=torch.bool, device=self.device)
                 
             # (patient, embedding_dim)
             _, x = self.transformer[feature_key](x, mask)
