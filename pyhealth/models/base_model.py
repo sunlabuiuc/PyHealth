@@ -62,6 +62,8 @@ class BaseModel(ABC, nn.Module):
         """ 
         if type(obj[0]) == list:
             obj = sum(obj, [])
+        if len(obj) == 0:
+            return str
         return type(obj[0])
 
     @staticmethod
