@@ -281,7 +281,7 @@ class Transformer(BaseModel):
         """Event-level Transformer forward."""
         patient_emb = []
         for feature_key in self.feature_keys:
-            assert type(kwargs[feature_key][0][0]) in [str, int, float]
+            assert type(kwargs[feature_key][0][0]) == str
             x = self.feat_tokenizers[feature_key].batch_encode_2d(kwargs[feature_key])
             # (patient, code)
             x = torch.tensor(x, dtype=torch.long, device=self.device)
