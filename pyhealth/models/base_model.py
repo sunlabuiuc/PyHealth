@@ -63,41 +63,29 @@ class BaseModel(ABC, nn.Module):
         if type(obj[0]) == list:
             obj = sum(obj, [])
         return type(obj[0])
-    
-    @staticmethod
-    def padding2d(batch):
-        """
-        Args:
-            batch: a list of list obj
-        Returns:
-            padded_batch: a padded list of list obj
-            e.g.,
-                batch = [[1, 2], [3, 4]] -> [[1, 2], [3, 4]]
-                batch = [[1, 2], [3, 4, 5]] -> [[1, 2, 'pad'], [3, 4, 5]]
-                batch = [[1.0, 2.2], [3.0, 4, 5], [6]] -> [[1, 2, 'pad'], [3, 4, 5], [6, 'pad', 'pad']]
-        """
-        batch_max_length  = max([len(x) for x in batch])
-        padded_batch = [x + ['pad'] * (batch_max_length - len(x)) for x in batch]
-        return padded_batch
 
     @staticmethod
     def padding3d(batch):
         """
         Args:
             batch: a list of list of list obj
+                - 1-level: number of samples/patients
+                - 2-level: number of visit, length maybe not equal
+                - 3-level: number of features per visit, length must be equal
         Returns:
             padded_batch: a padded list of list of list obj
             e.g., 
                 batch = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]] -> [[[1, 2], [3, 4]], [[5, 6], [7, 8]]]
-                batch = [[[1, 2], [3, 4]], [[5, 6], [7, 8, 9]]] -> [[[1, 2, 'pad'], [3, 4, 'pad']], [[5, 6, 'pad'], [7, 8, 9]]]
+                batch = [[[1, 2], [3, 4]], [[5, 6]]] -> [[[1, 2], [3, 4]], [[5, 6], [0, 0]]]
         """
         # level-2 padding
         batch_max_length = max([len(x) for x in batch])
-        padded_batch = [x + [['pad'] * len(x[0])] * (batch_max_length - len(x)) for x in batch]
-        # level-3 padding
-        batch_max_length = max([max([len(x) for x in visit]) for visit in padded_batch])
-        padded_batch = [[x + ['pad'] * (batch_max_length - len(x)) for x in visit] for visit in padded_batch]
-        return padded_batch
+        mask = torch.zeros(len(batch), batch_max_length, dtype=torch.bool)
+        for i, x in enumerate(batch):
+            mask[i, :len(x)] = 1
+        padded_batch = [x + [[0] * len(x[0])] * (batch_max_length - len(x)) for x in batch]
+        
+        return padded_batch, mask
         
     def get_feature_tokenizers(self, special_tokens=None) -> Dict[str, Tokenizer]:
         """Gets the default feature tokenizers using `self.feature_keys`.

@@ -243,15 +243,23 @@ class Transformer(BaseModel):
         patient_emb = []
         for feature_key in self.feature_keys:
             assert type(kwargs[feature_key][0][0]) == list
-            x = self.feat_tokenizers[feature_key].batch_encode_3d(kwargs[feature_key])
-            # (patient, visit, code)
-            x = torch.tensor(x, dtype=torch.long, device=self.device)
-            # (patient, visit, code, embedding_dim)
-            x = self.embeddings[feature_key](x)
-            # (patient, visit, embedding_dim)
-            x = torch.sum(x, dim=2)
-            # (patient, visit)
-            mask = torch.sum(x, dim=2) != 0
+            if len(kwargs[feature_key][0][0][0]) == str:
+                x = self.feat_tokenizers[feature_key].batch_encode_3d(kwargs[feature_key])
+                # (patient, visit, code)
+                x = torch.tensor(x, dtype=torch.long, device=self.device)
+                # (patient, visit, code, embedding_dim)
+                x = self.embeddings[feature_key](x)
+                # (patient, visit, embedding_dim)
+                x = torch.sum(x, dim=2)
+                # (patient, visit)
+                mask = torch.sum(x, dim=2) != 0
+            else: # float or int
+                x, mask = self.padding3d(kwargs[feature_key])
+                # (patient, visit, values)
+                x = torch.tensor(x, dtype=torch.float, device=self.device)
+                # (patient, visit)
+                mask = torch.tensor(x, dtype=torch.bool, device=self.device)
+                
             # (patient, embedding_dim)
             _, x = self.transformer[feature_key](x, mask)
             patient_emb.append(x)
@@ -273,7 +281,7 @@ class Transformer(BaseModel):
         """Event-level Transformer forward."""
         patient_emb = []
         for feature_key in self.feature_keys:
-            assert type(kwargs[feature_key][0][0]) == str
+            assert type(kwargs[feature_key][0][0]) in [str, int, float]
             x = self.feat_tokenizers[feature_key].batch_encode_2d(kwargs[feature_key])
             # (patient, code)
             x = torch.tensor(x, dtype=torch.long, device=self.device)
