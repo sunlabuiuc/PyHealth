@@ -145,7 +145,7 @@ def get_metrics_result(mode, y_gt, y_prob):
 
     if mode == "multilabel":
         metrics_fn = multilabel_metrics_fn
-        metrics = ["jaccard", "accuracy", "f1", "pr_auc"]
+        metrics = ["jaccard_macro", "accuracy", "f1_macro", "pr_auc_macro"]
 
     elif mode == "binary":
         metrics_fn = binary_metrics_fn
@@ -153,14 +153,14 @@ def get_metrics_result(mode, y_gt, y_prob):
 
     elif mode == "multiclass":
         metrics_fn = multiclass_metrics_fn
-        metrics = ["jaccard", "accuracy", "f1"]
+        metrics = ["jaccard_macro", "accuracy", "f1_macro"]
 
     results = metrics_fn(y_gt, y_prob, metrics=metrics, threshold=0.5)
 
-    jaccard = results["jaccard"]
+    jaccard = results["jaccard"] if ("jaccard" in metrics) else results["jaccard_macro"]
     accuracy = results["accuracy"]
-    f1 = results["f1"]
-    prauc = results["pr_auc"] if "pr_auc" in metrics else "-"
+    f1 = results["f1"] if ("f1" in metrics) else results["f1_macro"]
+    prauc = results["pr_auc"] if ("pr_auc" in metrics) else results["pr_auc_macro"] if ("pr_auc_macro" in metrics) else "-"
 
     # print metric name and score
     print("jaccard: ", jaccard)
@@ -195,12 +195,12 @@ def split_dataset_and_get_dataloaders(dataset, split_fn, ratio, collate_fn_dict)
 def train_process(trainer, model, train_loader, val_loader, val_metric):
     try:
 
-        trainer.fit(model,
-                    train_loader=train_loader,
-                    epochs=50,
-                    val_loader=val_loader,
-                    val_metric=val_metric,
-                    show_progress_bar=False)
+        trainer.train(
+            train_dataloader=train_loader,
+            epochs=50,
+            val_dataloader=val_loader,
+            monitor=val_metric,
+        )
 
         return True
 
