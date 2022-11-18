@@ -9,8 +9,8 @@ import pandas as pd
 
 from bokeh.models import HoverTool, CDSView
 from bokeh.layouts import row, column, gridplot
-from bokeh.models import ColumnDataSource, CDSView, CheckboxGroup, CustomJS, BooleanFilter
-from bokeh.plotting import figure, show, curdoc
+from bokeh.models import ColumnDataSource, CDSView, CheckboxGroup, CustomJS, BooleanFilter, Select, Div
+from bokeh.plotting import figure, show, curdoc, output_file
 import numpy as np
 import random
 
@@ -139,26 +139,28 @@ def get_tasks_fn_for_datasets():
     return tasks_mimic3, tasks_mimic4, tasks_eicu, tasks_omop
 
 
-def get_metrics_result(mode, y_gt, y_pred, y_prob):
-    jaccard, accuracy, f1, prauc = 0, 0, 0, 0
+def get_metrics_result(mode, y_gt, y_prob):
+    metrics = []
+    metrics_fn = None
 
     if mode == "multilabel":
-        jaccard = jaccard_multilabel(y_gt, y_pred)
-        accuracy = accuracy_multilabel(y_gt, y_pred)
-        f1 = f1_multilabel(y_gt, y_pred, average='macro')
-        prauc = pr_auc_multilabel(y_gt, y_prob)
+        metrics_fn = multilabel_metrics_fn
+        metrics = ["jaccard_macro", "accuracy", "f1_macro", "pr_auc_macro"]
 
     elif mode == "binary":
-        jaccard = jaccard_score(y_gt, y_pred, average='macro')
-        accuracy = accuracy_score(y_gt, y_pred)
-        f1 = f1_score(y_gt, y_pred, average='macro')
-        prauc = average_precision_score(y_gt, y_prob)
+        metrics_fn = binary_metrics_fn
+        metrics = ["jaccard", "accuracy", "f1", "pr_auc"]
 
     elif mode == "multiclass":
-        jaccard = jaccard_score(y_gt, y_pred, average='macro')
-        accuracy = accuracy_score(y_gt, y_pred)
-        f1 = f1_score(y_gt, y_pred, average='macro')
-        prauc = '-'
+        metrics_fn = multiclass_metrics_fn
+        metrics = ["jaccard_macro", "accuracy", "f1_macro"]
+
+    results = metrics_fn(y_gt, y_prob, metrics=metrics, threshold=0.5)
+
+    jaccard = results["jaccard"] if ("jaccard" in metrics) else results["jaccard_macro"]
+    accuracy = results["accuracy"]
+    f1 = results["f1"] if ("f1" in metrics) else results["f1_macro"]
+    prauc = results["pr_auc"] if ("pr_auc" in metrics) else results["pr_auc_macro"] if ("pr_auc_macro" in metrics) else "-"
 
     # print metric name and score
     print("jaccard: ", jaccard)
@@ -193,12 +195,12 @@ def split_dataset_and_get_dataloaders(dataset, split_fn, ratio, collate_fn_dict)
 def train_process(trainer, model, train_loader, val_loader, val_metric):
     try:
 
-        trainer.fit(model,
-                    train_loader=train_loader,
-                    epochs=50,
-                    val_loader=val_loader,
-                    val_metric=val_metric,
-                    show_progress_bar=False)
+        trainer.train(
+            train_dataloader=train_loader,
+            epochs=50,
+            val_dataloader=val_loader,
+            monitor=val_metric,
+        )
 
         return True
 
@@ -232,24 +234,32 @@ def read_dataframes_by_time_from_gcp(credentials):
 
 
 def read_dataframes_by_time_from_gcp_with_no_credentials():
-    data = {
-        "https://storage.googleapis.com/pyhealth/leaderboard_data/data/leaderboard-2022-10-28.csv",
-        "https://storage.googleapis.com/pyhealth/leaderboard_data/data/leaderboard-2022-11-05.csv",
-        "https://storage.googleapis.com/pyhealth/leaderboard_data/data/leaderboard-2022-11-12.csv"
-    }
+    from datetime import datetime, date, timedelta
+
+    first_data_time = datetime.strptime('2022-10-28', '%Y-%m-%d')
+    now = datetime.now()
+    weeks = int(abs(now - first_data_time).days / 7) + 1
+    data = []
+    for week in range(weeks):
+        data_time = (first_data_time + timedelta(weeks=week)).strftime('%Y-%m-%d')
+        file_name = f'https://storage.googleapis.com/pyhealth/leaderboard_data/data/DATA-{data_time}.csv'
+        data.append(file_name)
 
     dfs = {}
 
     for d in data:
-        df = pd.read_csv(d)
-        name_ = d.split('-')
-        time = name_[1] + name_[2] + name_[3][:-4]
-        dfs[time] = df
+        try:
+            df = pd.read_csv(d)
+            name_ = d.split('-')
+            time = name_[1] + name_[2] + name_[3][:-4]
+            dfs[time] = df
+        except:
+            break
 
     return dfs
 
 
-def get_typed_df_with_time(dfs, type):
+def get_spec_df_with_time(dfs, dataset, task):
     from datetime import datetime
     for key in dfs.keys():
         dfs[key]['date'] = key
@@ -257,34 +267,40 @@ def get_typed_df_with_time(dfs, type):
     df = pd.concat(dfs.values())
     df['date'] = [datetime.strptime(date, '%Y%m%d') for date in df['date'].iloc()]
 
-    df = df[df['Dataset-Task-Model'].str.contains(type)]
+    if dataset == "" and task == "":
+        return df
+
+    df = df[df['Dataset-Task-Model'].str.contains(dataset)]
+    df = df[df['Dataset-Task-Model'].str.contains(task)]
 
     return df
 
 
 def make_bokeh_plot(source, metric, f):
     p = figure(
-        height=305, width=305,
+        height=190, width=500,
         tools=["pan, box_zoom, reset, save, crosshair"],
         toolbar_location='above',
-        y_range=[0, 1.0],
-        x_axis_label="date",
+        y_range=[-0.19, 1.2],
+        # x_axis_label="date",
         y_axis_label=metric,
         x_axis_type="datetime"
     )
 
     if metric == 'Jaccard':
         p.triangle(source=source, x='date', y='Jaccard', color='color', size=8, alpha=0.5,
-                   view=CDSView(source=source, filters=[f]))
+                view=CDSView(source=source, filters=[f]))
     if metric == 'Accuracy':
         p.circle(source=source, x='date', y='Accuracy', color='color', size=8, alpha=0.5,
-                 view=CDSView(source=source, filters=[f]))
+                view=CDSView(source=source, filters=[f]))
     if metric == 'F1':
         p.square(source=source, x='date', y='F1', color='color', size=8, alpha=0.5,
-                 view=CDSView(source=source, filters=[f]))
+                view=CDSView(source=source, filters=[f]))
     if metric == 'PRAUC':
         p.circle(source=source, x='date', y='PRAUC', color='color', size=8, alpha=0.5,
-                 view=CDSView(source=source, filters=[f]))
+                view=CDSView(source=source, filters=[f]))
+        p.xaxis.axis_label = 'date'
+        p.height=220
 
     hover = HoverTool(tooltips=[('model', '@{Dataset-Task-Model}'), ('date', '$x{%F}'), ('value', f'@{metric}')],
                       formatters={'$x': 'datetime', 'Dataset-Task-Model': 'printf'})
@@ -292,9 +308,18 @@ def make_bokeh_plot(source, metric, f):
     p.add_tools(hover)
 
     p.legend.location = 'bottom_right'
-    p.xaxis.major_label_orientation = 3.14 / 3
+    # p.xaxis.major_label_orientation = 3.14 / 2
+    p.yaxis.axis_label_text_font_size = "11pt"
+    p.xaxis.axis_label_text_font_size = "11pt"
+    p.axis.axis_label_text_font_style = 'bold'
+    p.margin = (5, 5, 0, 10)
 
     return p
+
+
+def dropdown(items, init, label):
+    dp = Select(options=items, value=init, title=label)
+    return dp
 
 
 def generate_bokeh_figure(df):
@@ -315,25 +340,97 @@ def generate_bokeh_figure(df):
         color = random.choice(colors)
         df.loc[df['Dataset-Task-Model'].str.contains(model), 'color'] = color
 
-    source = ColumnDataSource(df)
+    dt = pd.DataFrame()
+    dt['model'] = models
+    for model in models:
+        dataset, task = model.split('-')[0], model.split('-')[1]
+        dt.loc[dt['model'].str.contains(model), 'dataset'] = dataset
+        dt.loc[dt['model'].str.contains(model), 'task'] = task
 
-    active_letter = df['Dataset-Task-Model'].iloc()[0]
-    f = BooleanFilter(booleans=[l == active_letter for l in df['Dataset-Task-Model']])
+    sc = ColumnDataSource(df)
+    sc_o = ColumnDataSource(dt)
+    dt_d = dt[dt['dataset'] == 'mimic3']
+    sc_d = ColumnDataSource(dt_d)
+    dt_t = dt[dt['task'] == 'DrugRec']
+    sc_t = ColumnDataSource(dt_t)
+    
+    
+    dp_dataset = dropdown(items=list(dt['dataset'].unique()), init='mimic3', label="Dataset")
+    dp_task = dropdown(items=list(dt['task'].unique()), init='DrugRec', label="Task")
+    # dp_models = dropdown(models, "Models")
 
-    cg = CheckboxGroup(labels=models, active=[models.index(active_letter)])
+    # prefix = dp_dataset.value + '-' + dp_task.value
+    # dp_models.options = [model for model in models if model.startswith(prefix)]
+
+    init_labels = [*set(list(sc_t.data['model'])).intersection(list(sc_d.data['model']))]
+    # active_letter = df['Dataset-Task-Model'].iloc()[0]
+    f = BooleanFilter(booleans=[l == init_labels[0] for l in df['Dataset-Task-Model']])
+    cg = CheckboxGroup(labels= init_labels, active=[models.index(init_labels[0])])
     cg.js_on_change('active',
-                    CustomJS(args=dict(source=source, f=f),
+                    CustomJS(args=dict(source=sc, f=f, sc_d=sc_d, sc_t=sc_t),
                              code="""\
-                                 const letters = cb_obj.active.map(idx => cb_obj.labels[idx]);
-                                 f.booleans = source.data.letter.map(l => letters.includes(l));
-                                 source.change.emit();
-                             """))
+                                const letters = cb_obj.active.map(idx => cb_obj.labels[idx]);
+                                f.booleans = source.data.letter.map(l => letters.includes(l));
+                                source.change.emit();
+                             """))    
 
-    cg.width = 165
+    callback_ds = CustomJS(args=dict(source=sc_o, sc_d=sc_d, sc_t=sc_t, other=cg),
+                        code="""\
+                            sc_d.data['task'] = [];
+                            sc_d.data['model'] = [];
+                            sc_d.data['dataset'] = [];
+                            for(var i = 0; i <= source.get_length(); i++){
+                                if(source.data['dataset'][i] == cb_obj.value){
+                                    sc_d.data['task'].push(source.data['task'][i]);
+                                    sc_d.data['model'].push(source.data['model'][i]);
+                                    sc_d.data['dataset'].push(source.data['dataset'][i]);
+                                }
+                            }
+                            const intersect = sc_d.data['model'].filter(x => sc_t.data['model'].indexOf(x) !== -1);
+                            other.labels = intersect;
+                            other.active = new Array()
+                            other.change.emit();
+                            sc_d.change.emit();
+                        """)
+    callback_tk = CustomJS(args=dict(source=sc_o, sc_t=sc_t, sc_d=sc_d, other=cg),
+                        code="""\
+                            sc_t.data['model'] = [];
+                            sc_t.data['task'] = [];
+                            sc_t.data['dataset'] = [];
+                            for(var i = 0; i <= source.get_length(); i++){
+                                if(source.data['task'][i] == cb_obj.value){
+                                    sc_t.data['task'].push(source.data['task'][i]);
+                                    sc_t.data['model'].push(source.data['model'][i]);
+                                    sc_t.data['dataset'].push(source.data['dataset'][i]);
+                                }
+                            }
+                            const intersect = sc_t.data['model'].filter(x => sc_d.data['model'].indexOf(x) !== -1);
+                            other.labels = intersect;
+                            other.active = new Array()
+                            other.change.emit();
+                            sc_t.change.emit();
+                        """)    
+    dp_dataset.js_on_change('value', callback_ds)
+    dp_task.js_on_change('value', callback_tk)
+    dp_dataset.js_link('value', cg, 'labels')
+    dp_dataset.js_link('value', cg, 'active')
+    dp_task.js_link('value', cg, 'labels')
+    dp_task.js_link('value', cg, 'active')
 
-    p_jac = make_bokeh_plot(source, 'Jaccard', f)
-    p_acc = make_bokeh_plot(source, 'Accuracy', f)
-    p_f1 = make_bokeh_plot(source, 'F1', f)
-    p_prauc = make_bokeh_plot(source, 'PRAUC', f)
+    div = Div(text="""Models (run by <a href="https://pyhealth.readthedocs.io/en/latest/api/models.html">pyhealth.models</a>)""",
+        width=200, height=20)
+    
+    cg.width = 220
+    cg.height = 700
+    div.margin = (20, 0, 0, 5)
+    cg.margin = (5, 0, 0, 5)
+    dp_task.width = 160
+    dp_dataset.width = 160
 
-    return row(cg, gridplot([[p_jac, p_acc], [p_f1, p_prauc]]))
+    p_jac = make_bokeh_plot(sc, 'Jaccard', f)
+    p_acc = make_bokeh_plot(sc, 'Accuracy', f)
+    p_f1 = make_bokeh_plot(sc, 'F1', f)
+    p_prauc = make_bokeh_plot(sc, 'PRAUC', f)
+
+    # return row(column(dp_dataset, dp_task, cg), gridplot([[p_jac, p_acc], [p_f1, p_prauc]]))
+    return row(column(dp_dataset, dp_task, div, cg), column(p_jac, p_acc, p_f1, p_prauc))
