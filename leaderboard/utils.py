@@ -139,26 +139,28 @@ def get_tasks_fn_for_datasets():
     return tasks_mimic3, tasks_mimic4, tasks_eicu, tasks_omop
 
 
-def get_metrics_result(mode, y_gt, y_pred, y_prob):
-    jaccard, accuracy, f1, prauc = 0, 0, 0, 0
+def get_metrics_result(mode, y_gt, y_prob):
+    metrics = []
+    metrics_fn = None
 
     if mode == "multilabel":
-        jaccard = jaccard_multilabel(y_gt, y_pred)
-        accuracy = accuracy_multilabel(y_gt, y_pred)
-        f1 = f1_multilabel(y_gt, y_pred, average='macro')
-        prauc = pr_auc_multilabel(y_gt, y_prob)
+        metrics_fn = multilabel_metrics_fn
+        metrics = ["jaccard", "accuracy", "f1", "pr_auc"]
 
     elif mode == "binary":
-        jaccard = jaccard_score(y_gt, y_pred, average='macro')
-        accuracy = accuracy_score(y_gt, y_pred)
-        f1 = f1_score(y_gt, y_pred, average='macro')
-        prauc = average_precision_score(y_gt, y_prob)
+        metrics_fn = binary_metrics_fn
+        metrics = ["jaccard", "accuracy", "f1", "pr_auc"]
 
     elif mode == "multiclass":
-        jaccard = jaccard_score(y_gt, y_pred, average='macro')
-        accuracy = accuracy_score(y_gt, y_pred)
-        f1 = f1_score(y_gt, y_pred, average='macro')
-        prauc = '-'
+        metrics_fn = multiclass_metrics_fn
+        metrics = ["jaccard", "accuracy", "f1"]
+
+    results = metrics_fn(y_gt, y_prob, metrics=metrics, threshold=0.5)
+
+    jaccard = results["jaccard"]
+    accuracy = results["accuracy"]
+    f1 = results["f1"]
+    prauc = results["pr_auc"] if "pr_auc" in metrics else "-"
 
     # print metric name and score
     print("jaccard: ", jaccard)
