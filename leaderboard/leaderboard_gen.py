@@ -84,7 +84,7 @@ def leaderboard_generation(args):
 
                 tables_ = ["conditions", "procedures"]
                 mode_ = "multilabel"
-                val_metric = 'pr_auc_multilabel'
+                val_metric = "pr_auc"
                 dataset_task = dataset_name + "-drugrec"
 
             elif "mortality_prediction" in task_name:
@@ -93,7 +93,7 @@ def leaderboard_generation(args):
 
                 tables_ = ["conditions", "procedures", "drugs"]
                 mode_ = "binary"
-                val_metric = 'average_precision_score'
+                val_metric = "pr_auc"
                 dataset_task = dataset_name + "-mortality"
 
             elif "readmission_prediction" in task_name:
@@ -102,7 +102,7 @@ def leaderboard_generation(args):
 
                 tables_ = ["conditions", "procedures", "drugs"]
                 mode_ = "binary"
-                val_metric = 'average_precision_score'
+                val_metric = "pr_auc"
                 dataset_task = dataset_name + "-readmission"
 
             elif "length_of_stay_prediction" in task_name:
@@ -110,7 +110,7 @@ def leaderboard_generation(args):
                 models = get_filtered_models(models, [GAMENet, MICRON, SafeDrug])
                 tables_ = ["conditions", "procedures"]
                 mode_ = "multiclass"
-                val_metric = 'accuracy_score'
+                val_metric = "accuracy"
                 dataset_task = dataset_name + "-lenOfStay"
 
             print("current task: " + task_name)
@@ -133,7 +133,7 @@ def leaderboard_generation(args):
                             output_path="./ckpt/" + str(ml_model)[:-2]
                         )
 
-                        trainer = Trainer(enable_logging=True, output_path="./output")
+                        trainer = Trainer(model=model, enable_logging=True, output_path="./output")
 
                         start = time.time()
 
@@ -154,9 +154,9 @@ def leaderboard_generation(args):
 
                         print('training time: ', end - start)
 
-                        y_gt, y_prob, avg_loss = trainer.inference(model, test_loader)
-                        y_pred = (y_prob > 0.5).astype(int)
-                        jaccard, accuracy, f1, prauc = get_metrics_result(mode_, y_gt, y_pred, y_prob)
+                        y_gt, y_prob, avg_loss = trainer.inference(test_loader)
+
+                        jaccard, accuracy, f1, prauc = get_metrics_result(mode_, y_gt, y_prob)
 
                         # input leaderboard for each dataset-task-model
                         dataset_task_model = dataset_task + '-' + model_name
@@ -176,7 +176,7 @@ def leaderboard_generation(args):
 
                     model.to(device)
 
-                    trainer = Trainer(enable_logging=True, output_path="./output", device=device)
+                    trainer = Trainer(model=model, enable_logging=True, output_path="./output", device=device)
 
                     start = time.time()
 
@@ -196,9 +196,10 @@ def leaderboard_generation(args):
                     end = time.time()
                     print('training time: ', end - start)
 
-                    y_gt, y_prob, avg_loss = trainer.inference(model, test_loader)
+                    y_gt, y_prob, avg_loss = trainer.inference(test_loader)
                     y_pred = (y_prob > 0.5).astype(int)
-                    jaccard, accuracy, f1, prauc = get_metrics_result(mode_, y_gt, y_pred, y_prob)
+
+                    jaccard, accuracy, f1, prauc = get_metrics_result(mode_, y_gt, y_prob)
 
                     # input leaderboard for each dataset-task-model
                     dataset_task_model = dataset_task + '-' + model_name
@@ -223,18 +224,18 @@ def plots_generation(args):
     dfs = read_dataframes_by_time_from_gcp_with_no_credentials()
 
     bokeh_figures = []
-    for task in args.tasks:
-        df = get_typed_df_with_time(dfs, task)
-        bokeh_figure = generate_bokeh_figure(df)
-        bokeh_figures.append(bokeh_figure)
+    # for task in args.tasks:
+    #     for dataset in args.datasets:
+    df = get_spec_df_with_time(dfs, "", "")
+    bokeh_figure = generate_bokeh_figure(df)
+    bokeh_figures.append(bokeh_figure)
 
     show(column(bokeh_figures))
 
 
 def construct_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--credentials", type=str, default='/Users/patrickjiang/code/PyHealth'
-                                                           '/leaderboard/credentials.json')
+    parser.add_argument("--credentials", type=str, default='./credentials.json')
     parser.add_argument("--doc_name", type=str, default='Pyhealth tracker')
     parser.add_argument("--sheet_id", type=int, default=2062485923)
     parser.add_argument("--log_path", type=str, default="./log")
@@ -273,7 +274,7 @@ def construct_args():
 
 def main():
     args = construct_args()
-    # leaderboard_generation(args)
+    leaderboard_generation(args)
     plots_generation(args)
 
 
