@@ -22,7 +22,7 @@ class InnerMap(ABC):
         This class cannot be instantiated using `__init__()` (throws an error).
     """
 
-    @abstractmethod
+    # @abstractmethod
     def __init__(
             self,
             vocabulary: str,
@@ -168,3 +168,8 @@ class InnerMap(ABC):
             key=lambda x: (nx.shortest_path_length(self.graph, code, x), x)
         )
         return descendants
+
+if __name__ == "__main__":
+    icd9cm = InnerMap("ICD9CM")
+    print (icd9cm.stat())
+    
