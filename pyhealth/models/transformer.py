@@ -245,7 +245,10 @@ class Transformer(BaseModel):
         self.linear = nn.ModuleDict()
         for feature_key in feature_keys:
             if feature_key not in self.feat_tokenizers:
-                input_dim = len(sample[feature_key]) if type(sample[feature_key][0]) != list else len(sample[feature_key][0])
+                input_dim = len(sample[feature_key]) \
+                    if type(sample[feature_key][0]) != list \
+                    else len(sample[feature_key][0])
+                    
                 self.linear[feature_key] = nn.Sequential(
                     nn.Linear(input_dim, embedding_dim),
                     nn.ReLU(),
