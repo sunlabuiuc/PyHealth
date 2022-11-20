@@ -235,6 +235,10 @@ class Transformer(BaseModel):
         )
         self.embedding_dim = embedding_dim
 
+        # validate kwargs for Transformer layer
+        if "feature_size" in kwargs:
+            raise ValueError("feature_size is determined by embedding_dim")
+        
         # the key of self.feat_tokenizers only contains the code based inputs 
         self.feat_tokenizers = self.get_feature_tokenizers()
         self.label_tokenizer = self.get_label_tokenizer()
