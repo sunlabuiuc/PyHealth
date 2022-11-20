@@ -97,8 +97,10 @@ def is_homo_list(l: List) -> bool:
     """
     if not l:
         return True
+    
+    # if the value vector is a mix of float and int, convert all to float
+    l = [float(i) if type(i) == int else i for i in l]
     return all(isinstance(i, type(l[0])) for i in l)
-
 
 def collate_fn_dict(batch):
     return {key: [d[key] for d in batch] for key in batch[0]}
