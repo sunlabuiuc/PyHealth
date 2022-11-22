@@ -23,10 +23,10 @@ sys.path[:0] = [
     str(HERE.parent),
     str(HERE / "extensions"),
     str(HERE.parent / "pyhealth"),
-    str(HERE.parent / "leaderboard")
+    str(HERE.parent / "leaderboard"),
 ]
 
-os.environ['KMP_DUPLICATE_LIB_OK']='True'
+os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
 
 print(sys.path)
 
@@ -66,13 +66,15 @@ extensions = [
     "sphinxcontrib.httpdomain",
     "sphinx_copybutton",
     "sphinx_toggleprompt",
-    "bokeh.sphinxext.bokeh_plot"
+    "bokeh.sphinxext.bokeh_plot",
 ]
 
 toggleprompt_offset_right = 35
 
 ogp_site_url = "https://pyhealth.readthedocs.io/en/latest/"
-ogp_image = "https://pyhealth.readthedocs.io/en/latest/pyhealth_logos/_static/pyhealth-logo.png"
+ogp_image = (
+    "https://pyhealth.readthedocs.io/en/latest/pyhealth_logos/_static/pyhealth-logo.png"
+)
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]
@@ -194,36 +196,35 @@ latex_elements = {
     # The paper size ('letterpaper' or 'a4paper').
     #
     # 'papersize': 'letterpaper',
-
     # The font size ('10pt', '11pt' or '12pt').
     #
     # 'pointsize': '10pt',
-
     # Additional stuff for the LaTeX preamble.
     #
     # 'preamble': '',
-
     # Latex figure (float) alignment
     #
-    'figure_align': 'htbp',
+    "figure_align": "htbp",
 }
 
 # Grouping the document tree_ into LaTeX files. List of tuples
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
-    (master_doc, 'PyHealth.tex', 'PyHealth Documentation',
-     'Chaoqi Yang, Zhenbang Wu, Patrick Jiang', 'manual'),
+    (
+        master_doc,
+        "PyHealth.tex",
+        "PyHealth Documentation",
+        "Chaoqi Yang, Zhenbang Wu, Patrick Jiang",
+        "manual",
+    ),
 ]
 
 # -- Options for manual page output ------------------------------------------
 
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
-man_pages = [
-    (master_doc, 'PyHealth', 'PyHealth Documentation',
-     [author], 1)
-]
+man_pages = [(master_doc, "PyHealth", "PyHealth Documentation", [author], 1)]
 
 # -- Options for Texinfo output ----------------------------------------------
 
@@ -231,9 +232,15 @@ man_pages = [
 # (source start file, target name, title, author,
 #  dir menu entry, description, category)
 texinfo_documents = [
-    (master_doc, 'PyHealth', 'PyHealth Documentation',
-     author, 'PyHealth', 'One line description of project.',
-     'Miscellaneous'),
+    (
+        master_doc,
+        "PyHealth",
+        "PyHealth Documentation",
+        author,
+        "PyHealth",
+        "One line description of project.",
+        "Miscellaneous",
+    ),
 ]
 
 # -- Extension configuration -------------------------------------------------
@@ -241,4 +248,4 @@ texinfo_documents = [
 # -- Options for intersphinx extension ---------------------------------------
 
 # Example configuration for intersphinx: refer to the Python standard library.
-intersphinx_mapping = {'https://docs.python.org/': None}
+intersphinx_mapping = {"https://docs.python.org/": None}

@@ -78,7 +78,7 @@ class eICUDataset(BaseDataset):
         # will be used to parse clinical tables as they only contain visit_id
         self.visit_id_to_patient_id: Dict[str, str] = {}
         super(eICUDataset, self).__init__(**kwargs)
-  
+
     def parse_basic_info(self) -> Dict[str, Patient]:
         """Helper functions which parses patient and hospital tables.
 
@@ -101,13 +101,15 @@ class eICUDataset(BaseDataset):
         """
         # patients is a dict of Patient objects indexed by patient_id
         patients: Dict[str, Patient] = dict()
-        
+
         # read patient table
         patient_df = pd.read_csv(
             os.path.join(self.root, "patient.csv"),
-            dtype={"uniquepid": str,
-                   "patienthealthsystemstayid": str,
-                   "patientunitstayid": str},
+            dtype={
+                "uniquepid": str,
+                "patienthealthsystemstayid": str,
+                "patientunitstayid": str,
+            },
             nrows=5000 if self.dev else None,
         )
         # read hospital table
@@ -150,8 +152,10 @@ class eICUDataset(BaseDataset):
             # use hospital discharge time to approximate death datetime
             death_datetime = None
             if p_info["hospitaldischargestatus"].values[0] == "Expired":
-                ha_los_min = p_info["hospitaldischargeoffset"].values[0] \
-                             - p_info["hospitaladmitoffset"].values[0]
+                ha_los_min = (
+                    p_info["hospitaldischargeoffset"].values[0]
+                    - p_info["hospitaladmitoffset"].values[0]
+                )
                 death_datetime = ha_datetime + pd.Timedelta(minutes=ha_los_min)
 
             patient = Patient(
@@ -159,7 +163,7 @@ class eICUDataset(BaseDataset):
                 birth_datetime=birth_datetime,
                 death_datetime=death_datetime,
                 gender=p_info["gender"].values[0],
-                ethnicity=p_info["ethnicity"].values[0]
+                ethnicity=p_info["ethnicity"].values[0],
             )
 
             # load visits
@@ -241,8 +245,9 @@ class eICUDataset(BaseDataset):
                 continue
             patient_id = self.visit_id_to_patient_id[v_id]
             for offset, codes in zip(v_info["diagnosisoffset"], v_info["icd9code"]):
-                timestamp = patients[patient_id].get_visit_by_id(v_id).encounter_time \
-                            + pd.Timedelta(minutes=offset)
+                timestamp = patients[patient_id].get_visit_by_id(
+                    v_id
+                ).encounter_time + pd.Timedelta(minutes=offset)
                 codes = [c.strip() for c in codes.split(",")]
                 # for each code in a single cell (mixed ICD9CM and ICD10CM)
                 for code in codes:
@@ -290,10 +295,12 @@ class eICUDataset(BaseDataset):
             if v_id not in self.visit_id_to_patient_id:
                 continue
             patient_id = self.visit_id_to_patient_id[v_id]
-            for offset, code in zip(v_info["treatmentoffset"],
-                                    v_info["treatmentstring"]):
-                timestamp = patients[patient_id].get_visit_by_id(v_id).encounter_time \
-                            + pd.Timedelta(minutes=offset)
+            for offset, code in zip(
+                v_info["treatmentoffset"], v_info["treatmentstring"]
+            ):
+                timestamp = patients[patient_id].get_visit_by_id(
+                    v_id
+                ).encounter_time + pd.Timedelta(minutes=offset)
                 event = Event(
                     code=code,
                     table=table,
@@ -339,8 +346,9 @@ class eICUDataset(BaseDataset):
                 continue
             patient_id = self.visit_id_to_patient_id[v_id]
             for offset, code in zip(v_info["drugstartoffset"], v_info["drugname"]):
-                timestamp = patients[patient_id].get_visit_by_id(v_id).encounter_time \
-                            + pd.Timedelta(minutes=offset)
+                timestamp = patients[patient_id].get_visit_by_id(
+                    v_id
+                ).encounter_time + pd.Timedelta(minutes=offset)
                 event = Event(
                     code=code,
                     table=table,
@@ -385,8 +393,9 @@ class eICUDataset(BaseDataset):
                 continue
             patient_id = self.visit_id_to_patient_id[v_id]
             for offset, code in zip(v_info["labresultoffset"], v_info["labname"]):
-                timestamp = patients[patient_id].get_visit_by_id(v_id).encounter_time \
-                            + pd.Timedelta(minutes=offset)
+                timestamp = patients[patient_id].get_visit_by_id(
+                    v_id
+                ).encounter_time + pd.Timedelta(minutes=offset)
                 event = Event(
                     code=code,
                     table=table,
@@ -430,10 +439,12 @@ class eICUDataset(BaseDataset):
             if v_id not in self.visit_id_to_patient_id:
                 continue
             patient_id = self.visit_id_to_patient_id[v_id]
-            for offset, code in zip(v_info["physicalexamoffset"],
-                                    v_info["physicalexampath"]):
-                timestamp = patients[patient_id].get_visit_by_id(v_id).encounter_time \
-                            + pd.Timedelta(minutes=offset)
+            for offset, code in zip(
+                v_info["physicalexamoffset"], v_info["physicalexampath"]
+            ):
+                timestamp = patients[patient_id].get_visit_by_id(
+                    v_id
+                ).encounter_time + pd.Timedelta(minutes=offset)
                 event = Event(
                     code=code,
                     table=table,

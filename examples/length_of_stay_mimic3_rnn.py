@@ -1,6 +1,6 @@
 from pyhealth.datasets import MIMIC3Dataset
 from pyhealth.datasets import split_by_patient, get_dataloader
-from pyhealth.models import RNN
+from pyhealth.models import RNN, Transformer
 from pyhealth.tasks import length_of_stay_prediction_mimic3_fn
 from pyhealth.trainer import Trainer
 
@@ -21,8 +21,8 @@ train_dataloader = get_dataloader(train_dataset, batch_size=32, shuffle=True)
 val_dataloader = get_dataloader(val_dataset, batch_size=32, shuffle=False)
 test_dataloader = get_dataloader(test_dataset, batch_size=32, shuffle=False)
 
-# STEP 3: define model
-model = RNN(
+# STEP 3: define modedl
+model = Transformer(
     dataset=dataset,
     feature_keys=["conditions", "procedures", "drugs"],
     label_key="label",

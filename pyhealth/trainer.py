@@ -12,8 +12,11 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from tqdm.autonotebook import trange
 
-from pyhealth.metrics import binary_metrics_fn, multiclass_metrics_fn, \
-    multilabel_metrics_fn
+from pyhealth.metrics import (
+    binary_metrics_fn,
+    multiclass_metrics_fn,
+    multilabel_metrics_fn,
+)
 from pyhealth.utils import create_directory
 
 
@@ -65,14 +68,14 @@ class Trainer:
     """
 
     def __init__(
-            self,
-            model: nn.Module,
-            checkpoint_path: Optional[str] = None,
-            metrics: Optional[List[str]] = None,
-            device: Optional[str] = None,
-            enable_logging: bool = True,
-            output_path: Optional[str] = None,
-            exp_name: Optional[str] = None,
+        self,
+        model: nn.Module,
+        checkpoint_path: Optional[str] = None,
+        metrics: Optional[List[str]] = None,
+        device: Optional[str] = None,
+        enable_logging: bool = True,
+        output_path: Optional[str] = None,
+        exp_name: Optional[str] = None,
     ):
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -109,18 +112,18 @@ class Trainer:
         return
 
     def train(
-            self,
-            train_dataloader: DataLoader,
-            val_dataloader: Optional[DataLoader] = None,
-            test_dataloader: Optional[DataLoader] = None,
-            epochs: int = 5,
-            optimizer_class: Type[Optimizer] = torch.optim.Adam,
-            optimizer_params: Optional[Dict[str, object]] = None,
-            weight_decay: float = 0.0,
-            max_grad_norm: float = None,
-            monitor: Optional[str] = None,
-            monitor_criterion: str = "max",
-            load_best_model_at_last: bool = True,
+        self,
+        train_dataloader: DataLoader,
+        val_dataloader: Optional[DataLoader] = None,
+        test_dataloader: Optional[DataLoader] = None,
+        epochs: int = 5,
+        optimizer_class: Type[Optimizer] = torch.optim.Adam,
+        optimizer_params: Optional[Dict[str, object]] = None,
+        weight_decay: float = 0.0,
+        max_grad_norm: float = None,
+        monitor: Optional[str] = None,
+        monitor_criterion: str = "max",
+        load_best_model_at_last: bool = True,
     ):
         """Trains the model.
 
@@ -159,21 +162,15 @@ class Trainer:
         no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
         optimizer_grouped_parameters = [
             {
-                "params": [
-                    p for n, p in param if not any(nd in n for nd in no_decay)
-                ],
+                "params": [p for n, p in param if not any(nd in n for nd in no_decay)],
                 "weight_decay": weight_decay,
             },
             {
-                "params": [
-                    p for n, p in param if any(nd in n for nd in no_decay)
-                ],
+                "params": [p for n, p in param if any(nd in n for nd in no_decay)],
                 "weight_decay": 0.0,
             },
         ]
-        optimizer = optimizer_class(
-            optimizer_grouped_parameters, **optimizer_params
-        )
+        optimizer = optimizer_class(optimizer_grouped_parameters, **optimizer_params)
 
         # initialize
         data_iterator = iter(train_dataloader)
@@ -187,10 +184,13 @@ class Trainer:
             self.model.zero_grad()
             self.model.train()
             # batch training loop
-            print () # clear printing
+            print()  # clear printing
             for _ in trange(
-                    steps_per_epoch, desc=f"Epoch {epoch} / {epochs}", smoothing=0.05,
+                steps_per_epoch,
+                desc=f"Epoch {epoch} / {epochs}",
+                smoothing=0.05,
             ):
+                print()  # clear printing
                 try:
                     data = next(data_iterator)
                 except StopIteration:
@@ -226,8 +226,10 @@ class Trainer:
                 if monitor is not None:
                     score = scores[monitor]
                     if is_best(best_score, score, monitor_criterion):
-                        logging.info(f"New best {monitor} score ({score:.4f}) "
-                                     f"at epoch-{epoch}, step-{global_step}")
+                        logging.info(
+                            f"New best {monitor} score ({score:.4f}) "
+                            f"at epoch-{epoch}, step-{global_step}"
+                        )
                         best_score = score
                         if self.exp_path is not None:
                             self.save_ckpt(os.path.join(self.exp_path, "best.ckpt"))
@@ -247,7 +249,7 @@ class Trainer:
         return
 
     def inference(self, dataloader) -> Dict[str, float]:
-        """ Model inference.
+        """Model inference.
 
         Args:
             dataloader: Dataloader for evaluation.
@@ -274,7 +276,7 @@ class Trainer:
         y_true_all = np.concatenate(y_true_all, axis=0)
         y_prob_all = np.concatenate(y_prob_all, axis=0)
         return y_true_all, y_prob_all, loss_mean
-    
+
     def evaluate(self, dataloader) -> Dict[str, float]:
         """Evaluates the model.
 
@@ -285,7 +287,7 @@ class Trainer:
             scores: a dictionary of scores.
         """
         y_true_all, y_prob_all, loss_mean = self.inference(dataloader)
-        
+
         mode = self.model.mode
         metrics_fn = get_metrics_fn(mode)
         scores = metrics_fn(y_true_all, y_prob_all, metrics=self.metrics)
@@ -312,7 +314,6 @@ if __name__ == "__main__":
     from torchvision import datasets, transforms
     from pyhealth.datasets.utils import collate_fn_dict
 
-
     class MNISTDataset(Dataset):
         def __init__(self, train=True):
             transform = transforms.Compose(
@@ -328,7 +329,6 @@ if __name__ == "__main__":
 
         def __len__(self):
             return len(self.dataset)
-
 
     class Model(nn.Module):
         def __init__(self):
@@ -361,26 +361,23 @@ if __name__ == "__main__":
             y_prob = torch.softmax(x, dim=1)
             return {"loss": loss, "y_prob": y_prob, "y_true": y}
 
-
     train_dataset = MNISTDataset(train=True)
     val_dataset = MNISTDataset(train=False)
 
-    train_dataloader = DataLoader(train_dataset,
-                                  collate_fn=collate_fn_dict,
-                                  batch_size=64,
-                                  shuffle=True)
-    val_dataloader = DataLoader(val_dataset,
-                                collate_fn=collate_fn_dict,
-                                batch_size=64,
-                                shuffle=False)
+    train_dataloader = DataLoader(
+        train_dataset, collate_fn=collate_fn_dict, batch_size=64, shuffle=True
+    )
+    val_dataloader = DataLoader(
+        val_dataset, collate_fn=collate_fn_dict, batch_size=64, shuffle=False
+    )
 
     model = Model()
 
-    trainer = Trainer(
-        model, device="cuda" if torch.cuda.is_available() else "cpu"
+    trainer = Trainer(model, device="cuda" if torch.cuda.is_available() else "cpu")
+    trainer.train(
+        train_dataloader=train_dataloader,
+        val_dataloader=val_dataloader,
+        monitor="accuracy",
+        epochs=5,
+        test_dataloader=val_dataloader,
     )
-    trainer.train(train_dataloader=train_dataloader,
-                  val_dataloader=val_dataloader,
-                  monitor="accuracy",
-                  epochs=5,
-                  test_dataloader=val_dataloader)

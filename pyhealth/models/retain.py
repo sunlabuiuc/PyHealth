@@ -33,9 +33,9 @@ class RETAINLayer(nn.Module):
     """
 
     def __init__(
-            self,
-            feature_size: int,
-            dropout: float = 0.5,
+        self,
+        feature_size: int,
+        dropout: float = 0.5,
     ):
         super(RETAINLayer, self).__init__()
         self.feature_size = feature_size
@@ -77,9 +77,9 @@ class RETAINLayer(nn.Module):
         return attn_beta
 
     def forward(
-            self,
-            x: torch.tensor,
-            mask: Optional[torch.tensor] = None,
+        self,
+        x: torch.tensor,
+        mask: Optional[torch.tensor] = None,
     ) -> Tuple[torch.tensor, torch.tensor]:
         """Forward propagation.
 
@@ -132,14 +132,14 @@ class RETAIN(BaseModel):
     """
 
     def __init__(
-            self,
-            dataset: BaseDataset,
-            feature_keys: List[str],
-            label_key: str,
-            mode: str,
-            operation_level: str,
-            embedding_dim: int = 128,
-            **kwargs
+        self,
+        dataset: BaseDataset,
+        feature_keys: List[str],
+        label_key: str,
+        mode: str,
+        operation_level: str,
+        embedding_dim: int = 128,
+        **kwargs,
     ):
         super(RETAIN, self).__init__(
             dataset=dataset,
@@ -147,8 +147,9 @@ class RETAIN(BaseModel):
             label_key=label_key,
             mode=mode,
         )
-        assert operation_level in VALID_OPERATION_LEVEL, \
-            f"operation_level must be one of {VALID_OPERATION_LEVEL}"
+        assert (
+            operation_level in VALID_OPERATION_LEVEL
+        ), f"operation_level must be one of {VALID_OPERATION_LEVEL}"
         self.operation_level = operation_level
         self.embedding_dim = embedding_dim
 
@@ -161,9 +162,7 @@ class RETAIN(BaseModel):
             raise ValueError("feature_size is determined by embedding_dim")
         self.retain = nn.ModuleDict()
         for feature_key in feature_keys:
-            self.retain[feature_key] = RETAINLayer(
-                feature_size=embedding_dim, **kwargs
-            )
+            self.retain[feature_key] = RETAINLayer(feature_size=embedding_dim, **kwargs)
 
         output_size = self.get_output_size(self.label_tokenizer)
         self.fc = nn.Linear(len(self.feature_keys) * self.embedding_dim, output_size)

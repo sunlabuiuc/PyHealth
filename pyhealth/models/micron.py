@@ -16,13 +16,13 @@ class MICRONLayer(nn.Module):
 
     This layer is used in the MICRON model. But it can also be used as a
     standalone layer.
-    
+
     Args:
         input_size: input feature size.
         hidden_size: hidden feature size.
         num_drugs: total number of drugs to recommend.
         lam: regularization parameter for the reconstruction loss. Default is 0.1.
-    
+
     Examples:
         >>> from pyhealth.models import MICRONLayer
         >>> patient_emb = torch.randn(3, 5, 32) # [patient, visit, input_size]
@@ -36,11 +36,7 @@ class MICRONLayer(nn.Module):
     """
 
     def __init__(
-            self,
-            input_size: int,
-            hidden_size: int,
-            num_drugs: int,
-            lam: float = 0.1
+        self, input_size: int, hidden_size: int, num_drugs: int, lam: float = 0.1
     ):
         super(MICRONLayer, self).__init__()
         self.input_size = input_size
@@ -56,9 +52,7 @@ class MICRONLayer(nn.Module):
 
     @staticmethod
     def compute_reconstruction_loss(
-            logits: torch.tensor,
-            logits_residual: torch.tensor,
-            mask: torch.tensor
+        logits: torch.tensor, logits_residual: torch.tensor, mask: torch.tensor
     ) -> torch.tensor:
         rec_loss = torch.mean(
             torch.square(
@@ -70,10 +64,10 @@ class MICRONLayer(nn.Module):
         return rec_loss
 
     def forward(
-            self,
-            patient_emb: torch.tensor,
-            drugs: torch.tensor,
-            mask: Optional[torch.tensor] = None,
+        self,
+        patient_emb: torch.tensor,
+        drugs: torch.tensor,
+        mask: Optional[torch.tensor] = None,
     ) -> Tuple[torch.tensor, torch.tensor]:
         """Forward propagation.
 
@@ -103,7 +97,7 @@ class MICRONLayer(nn.Module):
         # (batch, visit-1, input_size)
         health_rep_cur = health_rep[:, 1:, :]
         # (batch, visit-1, input_size)
-        health_rep_residual = (health_rep_cur - health_rep_last)
+        health_rep_residual = health_rep_cur - health_rep_last
         drug_rep_residual = self.prescription_net(health_rep_residual)
         logits_residual = self.fc(drug_rep_residual)
         rec_loss = self.compute_reconstruction_loss(logits, logits_residual, mask)
@@ -134,11 +128,11 @@ class MICRON(BaseModel):
     """
 
     def __init__(
-            self,
-            dataset: BaseDataset,
-            embedding_dim: int = 128,
-            hidden_dim: int = 128,
-            **kwargs
+        self,
+        dataset: BaseDataset,
+        embedding_dim: int = 128,
+        hidden_dim: int = 128,
+        **kwargs
     ):
         super(MICRON, self).__init__(
             dataset=dataset,
@@ -168,11 +162,11 @@ class MICRON(BaseModel):
         )
 
     def forward(
-            self,
-            conditions: List[List[List[str]]],
-            procedures: List[List[List[str]]],
-            drugs: List[List[str]],
-            **kwargs
+        self,
+        conditions: List[List[List[str]]],
+        procedures: List[List[List[str]]],
+        drugs: List[List[str]],
+        **kwargs
     ) -> Dict[str, torch.Tensor]:
         """Forward propagation.
 
@@ -208,14 +202,10 @@ class MICRON(BaseModel):
         # (patient, visit, embedding_dim * 2)
         patient_emb = torch.cat([conditions, procedures], dim=2)
         # (patient, visit)
-        mask = (torch.sum(patient_emb, dim=2) != 0)
+        mask = torch.sum(patient_emb, dim=2) != 0
         # (patient, num_labels)
         drugs = self.prepare_labels(drugs, self.label_tokenizer)
 
         loss, y_prob = self.micron(patient_emb, drugs, mask)
 
-        return {
-            "loss": loss,
-            "y_prob": y_prob,
-            "y_true": drugs
-        }
+        return {"loss": loss, "y_prob": y_prob, "y_true": drugs}

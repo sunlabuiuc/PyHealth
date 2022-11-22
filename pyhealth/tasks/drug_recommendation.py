@@ -57,12 +57,15 @@ def drug_recommendation_mimic3_fn(patient: Patient):
     samples[0]["drugs_all"] = [samples[0]["drugs_all"]]
 
     for i in range(1, len(samples)):
-        samples[i]["conditions"] = \
-            samples[i - 1]["conditions"] + [samples[i]["conditions"]]
-        samples[i]["procedures"] = \
-            samples[i - 1]["procedures"] + [samples[i]["procedures"]]
-        samples[i]["drugs_all"] = \
-            samples[i - 1]["drugs_all"] + [samples[i]["drugs_all"]]
+        samples[i]["conditions"] = samples[i - 1]["conditions"] + [
+            samples[i]["conditions"]
+        ]
+        samples[i]["procedures"] = samples[i - 1]["procedures"] + [
+            samples[i]["procedures"]
+        ]
+        samples[i]["drugs_all"] = samples[i - 1]["drugs_all"] + [
+            samples[i]["drugs_all"]
+        ]
 
     return samples
 
@@ -79,7 +82,7 @@ def drug_recommendation_mimic4_fn(patient: Patient):
     Returns:
         samples: a list of samples, each sample is a dict with patient_id, visit_id,
             and other task-specific attributes as key
-        
+
     Examples:
         >>> from pyhealth.datasets import MIMIC4Dataset
         >>> mimic4_ds = MIMIC4Dataset(
@@ -123,12 +126,15 @@ def drug_recommendation_mimic4_fn(patient: Patient):
     samples[0]["drugs_all"] = [samples[0]["drugs_all"]]
 
     for i in range(1, len(samples)):
-        samples[i]["conditions"] = \
-            samples[i - 1]["conditions"] + [samples[i]["conditions"]]
-        samples[i]["procedures"] = \
-            samples[i - 1]["procedures"] + [samples[i]["procedures"]]
-        samples[i]["drugs_all"] = \
-            samples[i - 1]["drugs_all"] + [samples[i]["drugs_all"]]
+        samples[i]["conditions"] = samples[i - 1]["conditions"] + [
+            samples[i]["conditions"]
+        ]
+        samples[i]["procedures"] = samples[i - 1]["procedures"] + [
+            samples[i]["procedures"]
+        ]
+        samples[i]["drugs_all"] = samples[i - 1]["drugs_all"] + [
+            samples[i]["drugs_all"]
+        ]
 
     return samples
 
@@ -145,7 +151,7 @@ def drug_recommendation_eicu_fn(patient: Patient):
     Returns:
         samples: a list of samples, each sample is a dict with patient_id, visit_id,
             and other task-specific attributes as key
-        
+
     Examples:
         >>> from pyhealth.datasets import eICUDataset
         >>> eicu_ds = eICUDataset(
@@ -188,12 +194,13 @@ def drug_recommendation_eicu_fn(patient: Patient):
     samples[0]["drugs_all"] = [samples[0]["drugs_all"]]
 
     for i in range(1, len(samples)):
-        samples[i]["conditions"] = \
-            samples[i - 1]["conditions"] + [samples[i]["conditions"]]
-        samples[i]["procedures"] = \
-            samples[i - 1]["procedures"] + [samples[i]["procedures"]]
-        samples[i]["drugs"] = \
-            samples[i - 1]["drugs_all"] + [samples[i]["drugs_all"]]
+        samples[i]["conditions"] = samples[i - 1]["conditions"] + [
+            samples[i]["conditions"]
+        ]
+        samples[i]["procedures"] = samples[i - 1]["procedures"] + [
+            samples[i]["procedures"]
+        ]
+        samples[i]["drugs"] = samples[i - 1]["drugs_all"] + [samples[i]["drugs_all"]]
 
     return samples
 
@@ -210,7 +217,7 @@ def drug_recommendation_omop_fn(patient: Patient):
     Returns:
         samples: a list of samples, each sample is a dict with patient_id, visit_id,
             and other task-specific attributes as key
-        
+
     Examples:
         >>> from pyhealth.datasets import OMOPDataset
         >>> omop_ds = OMOPDataset(
@@ -253,12 +260,13 @@ def drug_recommendation_omop_fn(patient: Patient):
     samples[0]["drugs_all"] = [samples[0]["drugs_all"]]
 
     for i in range(1, len(samples)):
-        samples[i]["conditions"] = \
-            samples[i - 1]["conditions"] + [samples[i]["conditions"]]
-        samples[i]["procedures"] = \
-            samples[i - 1]["procedures"] + [samples[i]["procedures"]]
-        samples[i]["drugs"] = \
-            samples[i - 1]["drugs_all"] + [samples[i]["drugs_all"]]
+        samples[i]["conditions"] = samples[i - 1]["conditions"] + [
+            samples[i]["conditions"]
+        ]
+        samples[i]["procedures"] = samples[i - 1]["procedures"] + [
+            samples[i]["procedures"]
+        ]
+        samples[i]["drugs"] = samples[i - 1]["drugs_all"] + [samples[i]["drugs_all"]]
 
     return samples
 

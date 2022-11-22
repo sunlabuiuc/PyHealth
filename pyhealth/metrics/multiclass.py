@@ -5,9 +5,9 @@ import sklearn.metrics as sklearn_metrics
 
 
 def multiclass_metrics_fn(
-        y_true: np.ndarray,
-        y_prob: np.ndarray,
-        metrics: Optional[List[str]] = None,
+    y_true: np.ndarray,
+    y_prob: np.ndarray,
+    metrics: Optional[List[str]] = None,
 ) -> Dict[str, float]:
     if metrics is None:
         metrics = ["accuracy", "f1_macro", "f1_micro"]

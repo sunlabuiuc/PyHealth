@@ -40,13 +40,13 @@ class RNNLayer(nn.Module):
     """
 
     def __init__(
-            self,
-            input_size: int,
-            hidden_size: int,
-            rnn_type: str = "GRU",
-            num_layers: int = 1,
-            dropout: float = 0.5,
-            bidirectional: bool = False,
+        self,
+        input_size: int,
+        hidden_size: int,
+        rnn_type: str = "GRU",
+        num_layers: int = 1,
+        dropout: float = 0.5,
+        bidirectional: bool = False,
     ):
         super(RNNLayer, self).__init__()
         self.input_size = input_size
@@ -71,9 +71,9 @@ class RNNLayer(nn.Module):
             self.down_projection = nn.Linear(hidden_size * 2, hidden_size)
 
     def forward(
-            self,
-            x: torch.tensor,
-            mask: Optional[torch.tensor] = None,
+        self,
+        x: torch.tensor,
+        mask: Optional[torch.tensor] = None,
     ) -> Tuple[torch.tensor, torch.tensor]:
         """Forward propagation.
 
@@ -160,14 +160,14 @@ class RNN(BaseModel):
     """
 
     def __init__(
-            self,
-            dataset: BaseDataset,
-            feature_keys: List[str],
-            label_key: str,
-            mode: str,
-            embedding_dim: int = 128,
-            hidden_dim: int = 128,
-            **kwargs
+        self,
+        dataset: BaseDataset,
+        feature_keys: List[str],
+        label_key: str,
+        mode: str,
+        embedding_dim: int = 128,
+        hidden_dim: int = 128,
+        **kwargs
     ):
         super(RNN, self).__init__(
             dataset=dataset,
@@ -178,7 +178,7 @@ class RNN(BaseModel):
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
 
-        # the key of self.feat_tokenizers only contains the code based inputs 
+        # the key of self.feat_tokenizers only contains the code based inputs
         self.feat_tokenizers = self.get_feature_tokenizers()
         self.label_tokenizer = self.get_label_tokenizer()
         self.embeddings = self.get_embedding_layers(self.feat_tokenizers, embedding_dim)
@@ -188,22 +188,24 @@ class RNN(BaseModel):
             raise ValueError("input_size is determined by embedding_dim")
         if "hidden_size" in kwargs:
             raise ValueError("hidden_size is determined by hidden_dim")
-        
+
         # pick the first sample to initialize the linear transformation float/int features
         sample = self.dataset.samples[0]
         self.linear = nn.ModuleDict()
         for feature_key in feature_keys:
             if feature_key not in self.feat_tokenizers:
-                input_dim = len(sample[feature_key]) \
-                    if type(sample[feature_key][0]) != list \
+                input_dim = (
+                    len(sample[feature_key])
+                    if type(sample[feature_key][0]) != list
                     else len(sample[feature_key][0])
-                    
+                )
+
                 self.linear[feature_key] = nn.Sequential(
                     nn.Linear(input_dim, embedding_dim),
                     nn.ReLU(),
                     nn.Linear(embedding_dim, embedding_dim),
                 )
-                
+
         self.rnn = nn.ModuleDict()
         for feature_key in feature_keys:
             self.rnn[feature_key] = RNNLayer(
@@ -229,12 +231,15 @@ class RNN(BaseModel):
         """
         patient_emb = []
         for feature_key in self.feature_keys:
-            if (type(kwargs[feature_key][0][0]) == list) and \
-                (type(kwargs[feature_key][0][0][0]) != list):
-                    
+            if (type(kwargs[feature_key][0][0]) == list) and (
+                type(kwargs[feature_key][0][0][0]) != list
+            ):
+
                 # for case 3: [[code1, code2], [code3, ...], ...]
-                if type(kwargs[feature_key][0][0][0]) == str: 
-                    x = self.feat_tokenizers[feature_key].batch_encode_3d(kwargs[feature_key])
+                if type(kwargs[feature_key][0][0][0]) == str:
+                    x = self.feat_tokenizers[feature_key].batch_encode_3d(
+                        kwargs[feature_key]
+                    )
                     # (patient, visit, code)
                     x = torch.tensor(x, dtype=torch.long, device=self.device)
                     # (patient, visit, code, embedding_dim)
@@ -243,7 +248,7 @@ class RNN(BaseModel):
                     x = torch.sum(x, dim=2)
                     # (patient, visit)
                     mask = torch.sum(x, dim=2) != 0
-                    
+
                 # for case 4: [[1.5, 2.0, 0.0], ...]
                 else:
                     x, mask = self.padding3d(kwargs[feature_key])
@@ -253,17 +258,20 @@ class RNN(BaseModel):
                     x = self.linear[feature_key](x)
                     # (patient, visit)
                     mask = torch.tensor(mask, dtype=torch.bool, device=self.device)
-                
+
                 # (patient, embedding_dim)
                 _, x = self.rnn[feature_key](x, mask)
                 patient_emb.append(x)
-                
-            elif (type(kwargs[feature_key][0]) == list) and \
-                (type(kwargs[feature_key][0][0]) != list):
-                    
+
+            elif (type(kwargs[feature_key][0]) == list) and (
+                type(kwargs[feature_key][0][0]) != list
+            ):
+
                 # for case 1: [code1, code2, code3, ...]
-                if type(kwargs[feature_key][0][0]) == str: 
-                    x = self.feat_tokenizers[feature_key].batch_encode_2d(kwargs[feature_key])
+                if type(kwargs[feature_key][0][0]) == str:
+                    x = self.feat_tokenizers[feature_key].batch_encode_2d(
+                        kwargs[feature_key]
+                    )
                     # (patient, code)
                     x = torch.tensor(x, dtype=torch.long, device=self.device)
                     # (patient, code, embedding_dim)
@@ -272,18 +280,20 @@ class RNN(BaseModel):
                     mask = torch.sum(x, dim=2) != 0
                     # (patient, embedding_dim)
                     _, x = self.rnn[feature_key](x, mask)
-                
+
                 # for case 2: [1.5, 2.0, 0.0, ...]
                 else:
                     # (patient, values)
-                    x = torch.tensor(kwargs[feature_key], dtype=torch.float, device=self.device)
+                    x = torch.tensor(
+                        kwargs[feature_key], dtype=torch.float, device=self.device
+                    )
                     # (patient, embedding_dim)
                     x = self.linear[feature_key](x)
                 patient_emb.append(x)
-                
+
             else:
                 raise NotImplementedError
-            
+
         patient_emb = torch.cat(patient_emb, dim=1)
         # (patient, label_size)
         logits = self.fc(patient_emb)
@@ -297,30 +307,35 @@ class RNN(BaseModel):
             "y_true": y_true,
         }
 
+
 if __name__ == "__main__":
     from pyhealth.datasets import SampleDataset
+
     samples = [
-        {'patient_id': 'patient-0',
-            'visit_id': 'visit-0',
-            'conditions': [['cond-33', 'cond-86', 'cond-80']],
-            'procedures': [1.0, 2.0, 3.5, 4],
-            'label': 0},
-        {'patient_id': 'patient-0',
-            'visit_id': 'visit-0',
-            'conditions': [['cond-33', 'cond-86', 'cond-80']],
-            'procedures': [5.0, 2.0, 3.5, 4],
-            'label': 1}
+        {
+            "patient_id": "patient-0",
+            "visit_id": "visit-0",
+            "conditions": [["cond-33", "cond-86", "cond-80"]],
+            "procedures": [1.0, 2.0, 3.5, 4],
+            "label": 0,
+        },
+        {
+            "patient_id": "patient-0",
+            "visit_id": "visit-0",
+            "conditions": [["cond-33", "cond-86", "cond-80"]],
+            "procedures": [5.0, 2.0, 3.5, 4],
+            "label": 1,
+        },
     ]
-    
+
     # dataset
-    dataset = SampleDataset(
-        samples=samples,
-        dataset_name="test")
-    
+    dataset = SampleDataset(samples=samples, dataset_name="test")
+
     # data loader
     from pyhealth.datasets import get_dataloader
+
     train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
-    
+
     # model
     model = RNN(
         dataset=dataset,
@@ -328,13 +343,13 @@ if __name__ == "__main__":
         label_key="label",
         mode="binary",
     )
-    
+
     # data batch
     data_batch = next(iter(train_loader))
-    
+
     # try the model
     ret = model(**data_batch)
-    print (ret)
-    
+    print(ret)
+
     # try loss backward
-    ret['loss'].backward()
+    ret["loss"].backward()

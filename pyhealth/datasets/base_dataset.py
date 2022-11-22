@@ -34,6 +34,7 @@ dataset.patients: patient_id -> <Patient>
 
 # TODO: parse_tables is too slow
 
+
 class BaseDataset(ABC, Dataset):
     """Abstract base dataset class.
 
@@ -75,13 +76,13 @@ class BaseDataset(ABC, Dataset):
     """
 
     def __init__(
-            self,
-            root: str,
-            tables: List[str],
-            dataset_name: Optional[str] = None,
-            code_mapping: Optional[Dict[str, Union[str, Tuple[str, Dict]]]] = None,
-            dev: bool = False,
-            refresh_cache: bool = False,
+        self,
+        root: str,
+        tables: List[str],
+        dataset_name: Optional[str] = None,
+        code_mapping: Optional[Dict[str, Union[str, Tuple[str, Dict]]]] = None,
+        dev: bool = False,
+        refresh_cache: bool = False,
     ):
         """Loads tables into a dict of patients and saves it to cache."""
 
@@ -89,7 +90,9 @@ class BaseDataset(ABC, Dataset):
             code_mapping = {}
 
         # base attributes
-        self.dataset_name = self.__class__.__name__ if dataset_name is None else dataset_name
+        self.dataset_name = (
+            self.__class__.__name__ if dataset_name is None else dataset_name
+        )
         self.root = root
         self.tables = tables
         self.code_mapping = code_mapping
@@ -106,10 +109,10 @@ class BaseDataset(ABC, Dataset):
 
         # hash filename for cache
         args_to_hash = (
-                [self.dataset_name, root]
-                + sorted(tables)
-                + sorted(code_mapping.items())
-                + ["dev" if dev else "prod"]
+            [self.dataset_name, root]
+            + sorted(tables)
+            + sorted(code_mapping.items())
+            + ["dev" if dev else "prod"]
         )
         filename = hash_str("+".join([str(arg) for arg in args_to_hash])) + ".pkl"
         self.filepath = os.path.join(MODULE_CACHE_PATH, filename)
@@ -117,7 +120,9 @@ class BaseDataset(ABC, Dataset):
         # check if cache exists or refresh_cache is True
         if os.path.exists(self.filepath) and (not refresh_cache):
             # load from cache
-            logging.debug(f"Loaded {self.dataset_name} base dataset from {self.filepath}")
+            logging.debug(
+                f"Loaded {self.dataset_name} base dataset from {self.filepath}"
+            )
             self.patients = load_pickle(self.filepath)
         else:
             # load from raw data
@@ -180,8 +185,8 @@ class BaseDataset(ABC, Dataset):
 
     @staticmethod
     def _add_event_to_patient_dict(
-            patient_dict: Dict[str, Patient],
-            event: Event,
+        patient_dict: Dict[str, Patient],
+        event: Event,
     ) -> Dict[str, Patient]:
         """Helper function which adds an event to the patient dict.
 
@@ -205,8 +210,8 @@ class BaseDataset(ABC, Dataset):
         return patient_dict
 
     def _convert_code_in_patient_dict(
-            self,
-            patients: Dict[str, Patient],
+        self,
+        patients: Dict[str, Patient],
     ) -> Dict[str, Patient]:
         """Converts the codes for all patients in the patient dict.
 
@@ -283,9 +288,9 @@ class BaseDataset(ABC, Dataset):
         return [event]
 
     def set_task(
-            self,
-            task_fn: Callable,
-            task_name: Optional[str] = None,
+        self,
+        task_fn: Callable,
+        task_name: Optional[str] = None,
     ) -> None:
         """Processes the base dataset to generate the task-specific samples.
 
@@ -318,7 +323,7 @@ class BaseDataset(ABC, Dataset):
         self.task_fn = task_fn
         samples = []
         for patient_id, patient in tqdm(
-                self.patients.items(), desc=f"Generating samples for {self.task}"
+            self.patients.items(), desc=f"Generating samples for {self.task}"
         ):
             samples.extend(self.task_fn(patient))
 
@@ -341,8 +346,9 @@ class BaseDataset(ABC, Dataset):
         """
         assert all(isinstance(s, dict) for s in samples), "Each sample should be a dict"
         keys = samples[0].keys()
-        assert all(set(s.keys()) == set(keys) for s in samples), \
-            "All samples should have the same keys"
+        assert all(
+            set(s.keys()) == set(keys) for s in samples
+        ), "All samples should have the same keys"
         assert "patient_id" in keys, "patient_id should be in the keys"
         assert "visit_id" in keys, "visit_id should be in the keys"
         # each feature has to be either a single value,
@@ -359,31 +365,37 @@ class BaseDataset(ABC, Dataset):
                 # (1) a list of values, i.e, 1 level nested list
                 # (2) or a list of list of values, i.e., 2 level nested list
                 levels = set([list_nested_level(s[key]) for s in samples])
-                assert len(levels) == 1, \
-                    f"Key {key} has mixed nested list levels across samples"
+                assert (
+                    len(levels) == 1
+                ), f"Key {key} has mixed nested list levels across samples"
                 level = levels.pop()
-                assert level in [1, 2], \
-                    f"Key {key} has unsupported nested list level across samples"
+                assert level in [
+                    1,
+                    2,
+                ], f"Key {key} has unsupported nested list level across samples"
                 # 1 level nested list
                 if level == 1:
                     # a list of values of the same type
                     check = is_homo_list(flatten_list([s[key] for s in samples]))
-                    assert check, \
-                        f"Key {key} has mixed types in the nested list within samples"
+                    assert (
+                        check
+                    ), f"Key {key} has mixed types in the nested list within samples"
                 # 2 level nested list
                 else:
                     # eliminate the case list [[1, 2], 3] where the
                     # nested level is 2 but some elements in the outer list
                     # are not list
                     check = [is_homo_list(s[key]) for s in samples]
-                    assert all(check), \
-                        f"Key {key} has mixed nested list levels within samples"
+                    assert all(
+                        check
+                    ), f"Key {key} has mixed nested list levels within samples"
                     # a list of list of values of the same type
                     check = is_homo_list(
                         flatten_list([l for s in samples for l in s[key]])
                     )
-                    assert check, \
-                        f"Key {key} has mixed types in the nested list within samples"
+                    assert (
+                        check
+                    ), f"Key {key} has mixed types in the nested list within samples"
 
         # set the samples
         self.samples = samples
@@ -445,10 +457,7 @@ class BaseDataset(ABC, Dataset):
         return list(keys)
 
     def get_all_tokens(
-            self,
-            key: str,
-            remove_duplicates: bool = True,
-            sort: bool = True
+        self, key: str, remove_duplicates: bool = True, sort: bool = True
     ) -> List[str]:
         """Gets all tokens with a specific key in the samples.
 
@@ -478,8 +487,12 @@ class BaseDataset(ABC, Dataset):
                 tokens.append(sample[key])
         types = set([type(t) for t in tokens])
         assert len(types) == 1, f"{key} tokens have mixed types"
-        assert types.pop() in [int, float, str, bool], \
-            f"{key} tokens have unsupported types"
+        assert types.pop() in [
+            int,
+            float,
+            str,
+            bool,
+        ], f"{key} tokens have unsupported types"
         if remove_duplicates:
             tokens = list(set(tokens))
         if sort:
@@ -587,15 +600,16 @@ class BaseDataset(ABC, Dataset):
             else:
                 num_events = [1 for sample in self.samples]
             lines.append(f"\t- {key}:")
-            lines.append(f"\t\t- Number of {key} per sample: "
-                         f"{sum(num_events) / len(num_events):.4f}")
+            lines.append(
+                f"\t\t- Number of {key} per sample: "
+                f"{sum(num_events) / len(num_events):.4f}"
+            )
             lines.append(
                 f"\t\t- Number of unique {key}: {len(self.get_all_tokens(key))}"
             )
             distribution = self.get_distribution_tokens(key)
             top10 = sorted(distribution.items(), key=lambda x: x[1], reverse=True)[:10]
-            lines.append(
-                f"\t\t- Distribution of {key} (Top-10): {top10}")
+            lines.append(f"\t\t- Distribution of {key} (Top-10): {top10}")
         print("\n".join(lines))
         return "\n".join(lines)
 
@@ -604,22 +618,23 @@ class BaseDataset(ABC, Dataset):
         """Prints the output format."""
         print(INFO_MSG)
 
+
 class SampleDataset(ABC, Dataset):
     """Abstract sample dataset class.
 
     This dataset takes the processed data samples as an input list
-    
+
     Args:
         samples: the processed data samples.
 
     Attributes:
         samples: Optional[List[Dict]], a list of samples, each sample is a dict with:
-            1. patient_id, 
+            1. patient_id,
             2. visit_id,
             3. other task-specific attributes as feature key,
             4. one label key
-        
-            E.g., 
+
+            E.g.,
                 samples[0] = {
                     visit_id: 1,
                     patient_id: 1,
@@ -627,7 +642,7 @@ class SampleDataset(ABC, Dataset):
                     "procedure": ["C", "D"],
                     "label": 1
                 }
-                
+
         patient_to_index: Optional[Dict[str, List[int]]], a dict mapping patient_id to
             a list of sample indices. Default is None.
         visit_to_index: Optional[Dict[str, List[int]]], a dict mapping visit_id to a
@@ -640,6 +655,7 @@ class SampleDataset(ABC, Dataset):
         self.samples: List[Dict] = samples
         self.patient_to_index: Optional[Dict[str, List[int]]] = self._index_patient()
         self.visit_to_index: Optional[Dict[str, List[int]]] = self._index_visit()
+        self.input_info: Optional[Dict] = None
 
     def _index_patient(self) -> Dict[str, List[int]]:
         """Helper function which indexes the samples by patient_id.
@@ -668,12 +684,9 @@ class SampleDataset(ABC, Dataset):
         for idx, sample in enumerate(self.samples):
             visit_to_index.setdefault(sample["visit_id"], []).append(idx)
         return visit_to_index
-    
+
     def get_all_tokens(
-            self,
-            key: str,
-            remove_duplicates: bool = True,
-            sort: bool = True
+        self, key: str, remove_duplicates: bool = True, sort: bool = True
     ) -> List[str]:
         """Gets all tokens with a specific key in the samples.
 
@@ -701,8 +714,12 @@ class SampleDataset(ABC, Dataset):
                 tokens.append(sample[key])
         types = set([type(t) for t in tokens])
         assert len(types) == 1, f"{key} tokens have mixed types"
-        assert types.pop() in [int, float, str, bool], \
-            f"{key} tokens have unsupported types"
+        assert types.pop() in [
+            int,
+            float,
+            str,
+            bool,
+        ], f"{key} tokens have unsupported types"
         if remove_duplicates:
             tokens = list(set(tokens))
         if sort:
@@ -712,7 +729,7 @@ class SampleDataset(ABC, Dataset):
     def sanity_check(self, samples):
         """
         Validate the samples.
-        
+
         1. Check if all samples are of type dict.
         2. Check if all samples have the same keys.
         3. Check if "patient_id" and "visit_id" are in the keys.
@@ -720,17 +737,18 @@ class SampleDataset(ABC, Dataset):
             - a single value
             - a list of values of the sample type
             - a list of list of values of the same type
-            
-        Note that in check 4, we do not restrict the type of the values 
+
+        Note that in check 4, we do not restrict the type of the values
         to leave more flexibility for the user. But if the user wants to
-        use some helper functions (e.g., `self.get_all_tokens()` and 
-        `self.stat()`) in the dataset, we will further check the type of 
+        use some helper functions (e.g., `self.get_all_tokens()` and
+        `self.stat()`) in the dataset, we will further check the type of
         the values.
         """
         assert all(isinstance(s, dict) for s in samples), "Each sample should be a dict"
         keys = samples[0].keys()
-        assert all(set(s.keys()) == set(keys) for s in samples), \
-            "All samples should have the same keys"
+        assert all(
+            set(s.keys()) == set(keys) for s in samples
+        ), "All samples should have the same keys"
         assert "patient_id" in keys, "patient_id should be in the keys"
         assert "visit_id" in keys, "visit_id should be in the keys"
         # each feature has to be either a single value,
@@ -747,31 +765,37 @@ class SampleDataset(ABC, Dataset):
                 # (1) a list of values, i.e, 1 level nested list
                 # (2) or a list of list of values, i.e., 2 level nested list
                 levels = set([list_nested_level(s[key]) for s in samples])
-                assert len(levels) == 1, \
-                    f"Key {key} has mixed nested list levels across samples"
+                assert (
+                    len(levels) == 1
+                ), f"Key {key} has mixed nested list levels across samples"
                 level = levels.pop()
-                assert level in [1, 2], \
-                    f"Key {key} has unsupported nested list level across samples"
+                assert level in [
+                    1,
+                    2,
+                ], f"Key {key} has unsupported nested list level across samples"
                 # 1 level nested list
                 if level == 1:
                     # a list of values of the same type
                     check = is_homo_list(flatten_list([s[key] for s in samples]))
-                    assert check, \
-                        f"Key {key} has mixed types in the nested list within samples"
+                    assert (
+                        check
+                    ), f"Key {key} has mixed types in the nested list within samples"
                 # 2 level nested list
                 else:
                     # eliminate the case list [[1, 2], 3] where the
                     # nested level is 2 but some elements in the outer list
                     # are not list
                     check = [is_homo_list(s[key]) for s in samples]
-                    assert all(check), \
-                        f"Key {key} has mixed nested list levels within samples"
+                    assert all(
+                        check
+                    ), f"Key {key} has mixed nested list levels within samples"
                     # a list of list of values of the same type
                     check = is_homo_list(
                         flatten_list([l for s in samples for l in s[key]])
                     )
-                    assert check, \
-                        f"Key {key} has mixed types in the nested list within samples"
+                    assert (
+                        check
+                    ), f"Key {key} has mixed types in the nested list within samples"
 
     def get_distribution_tokens(self, key: str) -> Dict[str, int]:
         """Gets the distribution of tokens with a specific key in the samples.
@@ -782,7 +806,7 @@ class SampleDataset(ABC, Dataset):
         Returns:
             distribution: a dict mapping token to count.
         """
-        
+
         tokens = self.get_all_tokens(key, remove_duplicates=False, sort=False)
         counter = Counter(tokens)
         return counter
@@ -836,15 +860,16 @@ class SampleDataset(ABC, Dataset):
             else:
                 num_events = [1 for sample in self.samples]
             lines.append(f"\t- {key}:")
-            lines.append(f"\t\t- Number of {key} per sample: "
-                         f"{sum(num_events) / len(num_events):.4f}")
+            lines.append(
+                f"\t\t- Number of {key} per sample: "
+                f"{sum(num_events) / len(num_events):.4f}"
+            )
             lines.append(
                 f"\t\t- Number of unique {key}: {len(self.get_all_tokens(key))}"
             )
             distribution = self.get_distribution_tokens(key)
             top10 = sorted(distribution.items(), key=lambda x: x[1], reverse=True)[:10]
-            lines.append(
-                f"\t\t- Distribution of {key} (Top-10): {top10}")
+            lines.append(f"\t\t- Distribution of {key} (Top-10): {top10}")
         print("\n".join(lines))
         return "\n".join(lines)
 
@@ -852,40 +877,42 @@ class SampleDataset(ABC, Dataset):
 if __name__ == "__main__":
     samples = [
         {"patient_id": "1", "visit_id": "1", "conditions": ["A", "B", "C"], "label": 0},
-        {"patient_id": "1", "visit_id": "2", "conditions": ["A", "C", "D"], "label": 1}
+        {"patient_id": "1", "visit_id": "2", "conditions": ["A", "C", "D"], "label": 1},
     ]
     samples2 = [
-        {'patient_id': 'patient-0',
-            'visit_id': 'visit-0',
-            'conditions': ['cond-33',
-            'cond-86',
-            'cond-80'],
-            'procedures': ['prod-11',
-            'prod-8',
-            'prod-15',
-            'prod-66',
-            'prod-91',
-            'prod-94'],
-            'label': 1},
-        {'patient_id': 'patient-0',
-            'visit_id': 'visit-0',
-            'conditions': ['cond-33',
-            'cond-86',
-            'cond-80'],
-            'procedures': ['prod-11',
-            'prod-8',
-            'prod-15',
-            'prod-66',
-            'prod-91',
-            'prod-94'],
-            'label': 1}
+        {
+            "patient_id": "patient-0",
+            "visit_id": "visit-0",
+            "conditions": ["cond-33", "cond-86", "cond-80"],
+            "procedures": [
+                "prod-11",
+                "prod-8",
+                "prod-15",
+                "prod-66",
+                "prod-91",
+                "prod-94",
+            ],
+            "label": 1,
+        },
+        {
+            "patient_id": "patient-0",
+            "visit_id": "visit-0",
+            "conditions": ["cond-33", "cond-86", "cond-80"],
+            "procedures": [
+                "prod-11",
+                "prod-8",
+                "prod-15",
+                "prod-66",
+                "prod-91",
+                "prod-94",
+            ],
+            "label": 1,
+        },
     ]
-    
-    dataset = SampleDataset(
-        samples=samples2,
-        dataset_name="test")
-    
-    print (dataset.stat())
+
+    dataset = SampleDataset(samples=samples2, dataset_name="test")
+
+    print(dataset.stat())
     data = iter(dataset)
-    print (next(data))
-    print (next(data))
+    print(next(data))
+    print(next(data))

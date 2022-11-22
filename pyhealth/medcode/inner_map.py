@@ -25,9 +25,9 @@ class InnerMap(ABC):
     
     @abstractmethod
     def __init__(
-            self,
-            vocabulary: str,
-            refresh_cache: bool = False,
+        self,
+        vocabulary: str,
+        refresh_cache: bool = False,
     ):
         # abstractmethod prevents initialization of this class
         self.vocabulary = vocabulary
@@ -146,8 +146,7 @@ class InnerMap(ABC):
         ancestors = nx.ancestors(self.graph, code)
         ancestors = list(ancestors)
         ancestors = sorted(
-            ancestors,
-            key=lambda x: (nx.shortest_path_length(self.graph, x, code), x)
+            ancestors, key=lambda x: (nx.shortest_path_length(self.graph, x, code), x)
         )
         return ancestors
 
@@ -165,8 +164,7 @@ class InnerMap(ABC):
         descendants = nx.descendants(self.graph, code)
         descendants = list(descendants)
         descendants = sorted(
-            descendants,
-            key=lambda x: (nx.shortest_path_length(self.graph, code, x), x)
+            descendants, key=lambda x: (nx.shortest_path_length(self.graph, code, x), x)
         )
         return descendants
 

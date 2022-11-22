@@ -19,7 +19,7 @@ def readmission_prediction_mimic3_fn(patient: Patient, time_window=15):
             and other task-specific attributes as key
 
     Note that we define the task as a binary classification task.
-    
+
     Examples:
         >>> from pyhealth.datasets import MIMIC3Dataset
         >>> mimic3_ds = MIMIC3Dataset(
@@ -81,7 +81,7 @@ def readmission_prediction_mimic4_fn(patient: Patient, time_window=15):
             and other task-specific attributes as key
 
     Note that we define the task as a binary classification task.
-    
+
     Examples:
         >>> from pyhealth.datasets import MIMIC4Dataset
         >>> mimic4_ds = MIMIC4Dataset(
@@ -143,7 +143,7 @@ def readmission_prediction_eicu_fn(patient: Patient, time_window=5):
             and other task-specific attributes as key
 
     Note that we define the task as a binary classification task.
-    
+
     Examples:
         >>> from pyhealth.datasets import eICUDataset
         >>> eicu_ds = eICUDataset(
@@ -204,7 +204,7 @@ def readmission_prediction_omop_fn(patient: Patient, time_window=15):
             and other task-specific attributes as key
 
     Note that we define the task as a binary classification task.
-    
+
     Examples:
         >>> from pyhealth.datasets import OMOPDataset
         >>> omop_ds = OMOPDataset(

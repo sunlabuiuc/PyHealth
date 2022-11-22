@@ -12,36 +12,36 @@ from itertools import chain
 class ClassicML:
     """Call classical ML models
 
-        Note:
-            The classic ML models are under development. Please use with caution!
+    Note:
+        The classic ML models are under development. Please use with caution!
 
-        Args:
-            dataset: the dataset object
-            tables: a list of table names to be used
-            target: the target table name
-            classifier: the classifier object from sklearn
-            mode: the mode of the model, can be "multilabel", "binary", "multiclass"
+    Args:
+        dataset: the dataset object
+        tables: a list of table names to be used
+        target: the target table name
+        classifier: the classifier object from sklearn
+        mode: the mode of the model, can be "multilabel", "binary", "multiclass"
 
-        Examples:
-            >>> from pyhealth.datasets import OMOPDataset
-            >>> dataset = OMOPDataset(
-            ...     root="https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2",
-            ...     tables=["condition_occurrence", "procedure_occurrence"],
-            ... ) # load dataset
-            >>> from pyhealth.tasks import mortality_prediction_omop_fn
-            >>> dataset.set_task(mortality_prediction_omop_fn) # set task
+    Examples:
+        >>> from pyhealth.datasets import OMOPDataset
+        >>> dataset = OMOPDataset(
+        ...     root="https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2",
+        ...     tables=["condition_occurrence", "procedure_occurrence"],
+        ... ) # load dataset
+        >>> from pyhealth.tasks import mortality_prediction_omop_fn
+        >>> dataset.set_task(mortality_prediction_omop_fn) # set task
 
-            >>> from pyhealth.models import ClassicML
-            >>> from sklearn.ensemble import RandomForestClassifier as RF
-            >>> model = ClassicML(
-            ...     dataset=dataset,
-            ...     tables=["conditions", "procedures", "drugs"],
-            ...     target="label",
-            ...     mode="binary",
-            ...     classifier=RF(max_depth=6, max_features="sqrt", n_jobs=-1, n_estimators=50),
-            ... )
-        """
-        
+        >>> from pyhealth.models import ClassicML
+        >>> from sklearn.ensemble import RandomForestClassifier as RF
+        >>> model = ClassicML(
+        ...     dataset=dataset,
+        ...     tables=["conditions", "procedures", "drugs"],
+        ...     target="label",
+        ...     mode="binary",
+        ...     classifier=RF(max_depth=6, max_features="sqrt", n_jobs=-1, n_estimators=50),
+        ... )
+    """
+
     def __init__(
         self,
         dataset: BaseDataset,
@@ -102,7 +102,10 @@ class ClassicML:
                 kwargs[self.label_key], padding=False, truncation=False
             )
             batch_y = np.zeros(
-                (len(kwargs[self.label_key]), self.label_tokenizer.get_vocabulary_size())
+                (
+                    len(kwargs[self.label_key]),
+                    self.label_tokenizer.get_vocabulary_size(),
+                )
             )
             for idx, sample in enumerate(kwargs[self.label_key]):
                 batch_y[idx, sample] = 1

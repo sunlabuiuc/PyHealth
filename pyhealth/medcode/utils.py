@@ -14,7 +14,7 @@ create_directory(MODULE_CACHE_PATH)
 
 def download_and_read_csv(filename: str, refresh_cache: bool = False) -> pd.DataFrame:
     """Reads a csv file from the pyhealth resource folder.
-    
+
     This function will read the csv file from `MODULE_CACHE_PATH` if it exists.
     Otherwise, it will download the csv file from `BASE_URL` and save it to
     `MODULE_CACHE_PATH`.

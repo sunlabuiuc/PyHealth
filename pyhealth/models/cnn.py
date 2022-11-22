@@ -26,12 +26,12 @@ class CNNBlock(nn.Module):
             # stride=1 by default
             nn.Conv1d(in_channels, out_channels, kernel_size=3, padding=1),
             nn.BatchNorm1d(out_channels),
-            nn.ReLU()
+            nn.ReLU(),
         )
         self.conv2 = nn.Sequential(
             # stride=1 by default
             nn.Conv1d(out_channels, out_channels, kernel_size=3, padding=1),
-            nn.BatchNorm1d(out_channels)
+            nn.BatchNorm1d(out_channels),
         )
         self.downsample = None
         if in_channels != out_channels:
@@ -85,10 +85,10 @@ class CNNLayer(nn.Module):
     """
 
     def __init__(
-            self,
-            input_size: int,
-            hidden_size: int,
-            num_layers: int = 1,
+        self,
+        input_size: int,
+        hidden_size: int,
+        num_layers: int = 1,
     ):
         super(CNNLayer, self).__init__()
         self.input_size = input_size
@@ -132,8 +132,27 @@ class CNN(BaseModel):
     then fed into a fully connected layer to make predictions.
 
     Note:
-        This model can operate on both visit and event level, as designated by
-            the operation_level parameter.
+        We use separate CNN layers for different feature_keys.
+        Currentluy, we automatically support different input formats:
+            - code based input (need to use the embedding table later)
+            - float/int based value input
+        We follow the current convention for the CNN model:
+            - case 1. [code1, code2, code3, ...]
+                - we will assume the code follows the order; our model will encode
+                each code into a vector and apply CNN on the code level
+            - case 2. [1.5, 2.0, 8, 1.2, 4.5, 2.1]
+                - we use a two-layer MLP
+            - case 3. [[code1, code2]] or [[code1, code2], [code3, code4, code5], ...]
+                - we will assume the inner bracket follows the order; our model first
+                use the embedding table to encode each code into a vector and then use
+                average/mean pooling to get one vector for one inner bracket; then use
+                CNN one the braket level
+            - case 4. [[1.5, 2.0, 0.0]] or [[1.5, 2.0, 0.0], [8, 1.2, 4.5], ...]
+                - this case only makes sense when each inner bracket has the same length;
+                we assume each dimension has the same meaning; we run CNN directly
+                on the inner bracket level
+            - case 5. (developing) high-dimensional tensor
+                - we will flatten the tensor into case 3 or case 4 and run CNN
 
     Args:
         dataset: the dataset to train the model. It is used to query certain
@@ -149,15 +168,15 @@ class CNN(BaseModel):
     """
 
     def __init__(
-            self,
-            dataset: BaseDataset,
-            feature_keys: List[str],
-            label_key: str,
-            mode: str,
-            operation_level: str,
-            embedding_dim: int = 128,
-            hidden_dim: int = 128,
-            **kwargs,
+        self,
+        dataset: BaseDataset,
+        feature_keys: List[str],
+        label_key: str,
+        mode: str,
+        operation_level: str,
+        embedding_dim: int = 128,
+        hidden_dim: int = 128,
+        **kwargs,
     ):
         super(CNN, self).__init__(
             dataset=dataset,
@@ -165,8 +184,9 @@ class CNN(BaseModel):
             label_key=label_key,
             mode=mode,
         )
-        assert operation_level in VALID_OPERATION_LEVEL, \
-            f"operation_level must be one of {VALID_OPERATION_LEVEL}"
+        assert (
+            operation_level in VALID_OPERATION_LEVEL
+        ), f"operation_level must be one of {VALID_OPERATION_LEVEL}"
         self.operation_level = operation_level
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim

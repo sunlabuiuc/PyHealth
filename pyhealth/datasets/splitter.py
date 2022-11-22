@@ -10,10 +10,11 @@ from pyhealth.datasets import BaseDataset
 # TODO: train_dataset.dataset still access the whole dataset which may leak information
 # TODO: add more splitting methods
 
+
 def split_by_visit(
-        dataset: BaseDataset,
-        ratios: Union[Tuple[float, float, float], List[float]],
-        seed: Optional[int] = None,
+    dataset: BaseDataset,
+    ratios: Union[Tuple[float, float, float], List[float]],
+    seed: Optional[int] = None,
 ):
     """Splits the dataset by visit (i.e., samples).
 
@@ -37,10 +38,9 @@ def split_by_visit(
     np.random.shuffle(index)
     train_index = index[: int(len(dataset) * ratios[0])]
     val_index = index[
-                int(len(dataset) * ratios[0]): int(
-                    len(dataset) * (ratios[0] + ratios[1]))
-                ]
-    test_index = index[int(len(dataset) * (ratios[0] + ratios[1])):]
+        int(len(dataset) * ratios[0]) : int(len(dataset) * (ratios[0] + ratios[1]))
+    ]
+    test_index = index[int(len(dataset) * (ratios[0] + ratios[1])) :]
     train_dataset = torch.utils.data.Subset(dataset, train_index)
     val_dataset = torch.utils.data.Subset(dataset, val_index)
     test_dataset = torch.utils.data.Subset(dataset, test_index)
@@ -48,9 +48,9 @@ def split_by_visit(
 
 
 def split_by_patient(
-        dataset: BaseDataset,
-        ratios: Union[Tuple[float, float, float], List[float]],
-        seed: Optional[int] = None,
+    dataset: BaseDataset,
+    ratios: Union[Tuple[float, float, float], List[float]],
+    seed: Optional[int] = None,
 ):
     """Splits the dataset by patient.
 
@@ -75,10 +75,9 @@ def split_by_patient(
     np.random.shuffle(patient_indx)
     train_patient_indx = patient_indx[: int(num_patients * ratios[0])]
     val_patient_indx = patient_indx[
-                       int(num_patients * ratios[0]): int(
-                           num_patients * (ratios[0] + ratios[1]))
-                       ]
-    test_patient_indx = patient_indx[int(num_patients * (ratios[0] + ratios[1])):]
+        int(num_patients * ratios[0]) : int(num_patients * (ratios[0] + ratios[1]))
+    ]
+    test_patient_indx = patient_indx[int(num_patients * (ratios[0] + ratios[1])) :]
     train_index = list(
         chain(*[dataset.patient_to_index[i] for i in train_patient_indx])
     )

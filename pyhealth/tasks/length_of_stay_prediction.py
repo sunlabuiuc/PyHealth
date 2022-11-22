@@ -43,7 +43,7 @@ def length_of_stay_prediction_mimic3_fn(patient: Patient):
             and other task-specific attributes as key.
 
     Note that we define the task as a multi-class classification task.
-    
+
     Examples:
         >>> from pyhealth.datasets import MIMIC3Dataset
         >>> mimic3_ds = MIMIC3Dataset(
@@ -100,7 +100,7 @@ def length_of_stay_prediction_mimic4_fn(patient: Patient):
             and other task-specific attributes as key.
 
     Note that we define the task as a multi-class classification task.
-    
+
     Examples:
         >>> from pyhealth.datasets import MIMIC4Dataset
         >>> mimic4_ds = MIMIC4Dataset(
@@ -157,7 +157,7 @@ def length_of_stay_prediction_eicu_fn(patient: Patient):
             and other task-specific attributes as key.
 
     Note that we define the task as a multi-class classification task.
-    
+
     Examples:
         >>> from pyhealth.datasets import eICUDataset
         >>> eicu_ds = eICUDataset(
@@ -215,7 +215,7 @@ def length_of_stay_prediction_omop_fn(patient: Patient):
             and other task-specific attributes as key.
 
     Note that we define the task as a multi-class classification task.
-    
+
     Examples:
         >>> from pyhealth.datasets import OMOPDataset
         >>> omop_ds = OMOPDataset(

@@ -77,7 +77,7 @@ class MIMIC3Dataset(BaseDataset):
         """
         # patients is a dict of Patient objects indexed by patient_id
         patients: Dict[str, Patient] = dict()
-        
+
         # read patients table
         patients_df = pd.read_csv(
             os.path.join(self.root, "PATIENTS.csv"),
