@@ -26,11 +26,11 @@ class BaseModel(ABC, nn.Module):
     """
 
     def __init__(
-            self,
-            dataset: BaseDataset,
-            feature_keys: List[str],
-            label_key: str,
-            mode: str,
+        self,
+        dataset: BaseDataset,
+        feature_keys: List[str],
+        label_key: str,
+        mode: str,
     ):
         super(BaseModel, self).__init__()
         assert mode in VALID_MODE, f"mode must be one of {VALID_MODE}"
@@ -54,12 +54,12 @@ class BaseModel(ABC, nn.Module):
             obj: a list or list of list obj (must be a homogeneous list)
         Returns:
             the type of the element in the list
-            e.g., 
+            e.g.,
                 obj = [1, 2, 3] -> int
                 obj = [[1, 2], [3, 4]] -> int
                 obj = [['a', 'b'], ['a', 'b']] -> str
                 obj = [[1.3. 2], [5.5]] -> float
-        """ 
+        """
         if type(obj[0]) == list:
             obj = sum(obj, [])
         if len(obj) == 0:
@@ -67,8 +67,9 @@ class BaseModel(ABC, nn.Module):
         return type(obj[0])
 
     @staticmethod
-    def padding3d(batch):
+    def padding2d(batch):
         """
+        Similar to pyhealth.tokenizer.Tokenizer.padding2d, but no mapping
         Args:
             batch: a list of list of list obj
                 - 1-level: number of samples/patients
@@ -76,43 +77,88 @@ class BaseModel(ABC, nn.Module):
                 - 3-level: number of features per visit, length must be equal
         Returns:
             padded_batch: a padded list of list of list obj
-            e.g., 
-                batch = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]] -> [[[1, 2], [3, 4]], [[5, 6], [7, 8]]]
-                batch = [[[1, 2], [3, 4]], [[5, 6]]] -> [[[1, 2], [3, 4]], [[5, 6], [0, 0]]]
+            e.g.,
+                batch = [[[1.3, 2.5], [3.2, 4.4]], [[5.1, 6.0], [7.7, 8.3]]] -> [[[1.3, 2.5], [3.2, 4.4]], [[5.1, 6.0], [7.7, 8.3]]]
+                batch = [[[1.3, 2.5], [3.2, 4.4]], [[5.1, 6.0]]] -> [[[1.3, 2.5], [3.2, 4.4]], [[5.1, 6.0], [0.0, 0.0]]]
         """
-        # level-2 padding
         batch_max_length = max([len(x) for x in batch])
+
+        # get mask
         mask = torch.zeros(len(batch), batch_max_length, dtype=torch.bool)
         for i, x in enumerate(batch):
-            mask[i, :len(x)] = 1
-        padded_batch = [x + [[0] * len(x[0])] * (batch_max_length - len(x)) for x in batch]
-        
-        return padded_batch, mask
-        
-    def get_feature_tokenizers(self, special_tokens=None) -> Dict[str, Tokenizer]:
-        """Gets the default feature tokenizers using `self.feature_keys`.
+            mask[i, : len(x)] = 1
 
-        Args:
-            special_tokens: a list of special tokens to add to the tokenizer.
-                Default is ["<pad>", "<unk>"].
+        # level-2 padding
+        batch = [x + [[0.0] * len(x[0])] * (batch_max_length - len(x)) for x in batch]
 
-        Returns:
-            feature_tokenizers: a dictionary of feature tokenizers with keys
-                corresponding to self.feature_keys.
+        return batch, mask
+
+    @staticmethod
+    def padding3d(batch):
         """
-        if special_tokens is None:
+        Similar to pyhealth.tokenizer.Tokenizer.padding2d, but no mapping
+        Args:
+            batch: a list of list of list obj
+                - 1-level: number of samples/patients
+                - 2-level: number of visit, length maybe not equal
+                - 3-level: number of features per visit, length must be equal
+        Returns:
+            padded_batch: a padded list of list of list obj. No examples, just one more dimension higher than self.padding2d
+        """
+        batch_max_length_level2 = max([len(x) for x in batch])
+        batch_max_length_level3 = max(
+            [max([len(x) for x in visits]) for visits in batch]
+        )
+
+        # get mask
+        mask = torch.zeros(
+            len(batch),
+            batch_max_length_level2,
+            batch_max_length_level3,
+            dtype=torch.bool,
+        )
+        for i, visits in enumerate(batch):
+            for j, x in enumerate(visits):
+                mask[i, j, : len(x)] = 1
+
+        # level-2 padding
+        batch = [
+            x + [[[0.0] * len(x[0])]] * (batch_max_length_level2 - len(x))
+            for x in batch
+        ]
+
+        # level-3 padding
+        batch = [
+            [
+                x + [[0.0] * len(x[0])] * (batch_max_length_level3 - len(x))
+                for x in visits
+            ]
+            for visits in batch
+        ]
+
+        return batch, mask
+
+    def add_feature_transform_layer(self, feature_key: str, Type: type, **kwargs):
+        if Type == str:
+            # feature tokenizer
             special_tokens = ["<pad>", "<unk>"]
-            
-        # obtain a sample and get the data type, only str needs tokenizer
-        sample = self.dataset.samples[0]
-        feature_tokenizers = {}
-        for feature_key in self.feature_keys:
-            if self.obtain_element_type(sample[feature_key]) == str:
-                feature_tokenizers[feature_key] = Tokenizer(
-                    tokens=self.dataset.get_all_tokens(key=feature_key),
-                    special_tokens=special_tokens
-                )
-        return feature_tokenizers
+            tokenizer = Tokenizer(
+                tokens=self.dataset.get_all_tokens(key=feature_key),
+                special_tokens=special_tokens,
+            )
+            self.feat_tokenizers[feature_key] = tokenizer
+            # feature embedding
+            self.embeddings[feature_key] = nn.Embedding(
+                tokenizer.get_vocabulary_size(),
+                self.embedding_dim,
+                padding_idx=tokenizer.get_padding_index(),
+            )
+        elif Type in [float, int]:
+            self.linear_layers[feature_key] = nn.Linear(
+                kwargs["input_dim"], self.embedding_dim
+            )
+        else:
+            raise ValueError("Unsupported feature type: {}".format(type))
 
     def get_label_tokenizer(self, special_tokens=None) -> Tokenizer:
         """Gets the default label tokenizers using `self.label_key`.
@@ -128,34 +174,9 @@ class BaseModel(ABC, nn.Module):
             special_tokens = []
         label_tokenizer = Tokenizer(
             self.dataset.get_all_tokens(key=self.label_key),
-            special_tokens=special_tokens
+            special_tokens=special_tokens,
         )
         return label_tokenizer
-
-    @staticmethod
-    def get_embedding_layers(
-            feature_tokenizers: Dict[str, Tokenizer],
-            embedding_dim: int,
-    ) -> nn.ModuleDict:
-        """Gets the default embedding layers using the feature tokenizers.
-
-        Args:
-            feature_tokenizers: a dictionary of feature tokenizers with keys
-                corresponding to `self.feature_keys`.
-            embedding_dim: the dimension of the embedding.
-
-        Returns:
-            embedding_layers: a module dictionary of embedding layers with keys
-                corresponding to `self.feature_keys`.
-        """
-        embedding_layers = nn.ModuleDict()
-        for key, tokenizer in feature_tokenizers.items():
-            embedding_layers[key] = nn.Embedding(
-                tokenizer.get_vocabulary_size(),
-                embedding_dim,
-                padding_idx=tokenizer.get_padding_index(),
-            )
-        return embedding_layers
 
     def get_output_size(self, label_tokenizer: Tokenizer) -> int:
         """Gets the default output size using the label tokenizer and `self.mode`.
@@ -196,9 +217,9 @@ class BaseModel(ABC, nn.Module):
             raise ValueError("Invalid mode: {}".format(self.mode))
 
     def prepare_labels(
-            self,
-            labels: Union[List[str], List[List[str]]],
-            label_tokenizer: Tokenizer,
+        self,
+        labels: Union[List[str], List[List[str]]],
+        label_tokenizer: Tokenizer,
     ) -> torch.Tensor:
         """Prepares the labels for model training and evaluation.
 

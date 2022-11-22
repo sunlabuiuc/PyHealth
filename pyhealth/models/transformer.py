@@ -6,6 +6,7 @@ from torch import nn
 
 from pyhealth.datasets import BaseDataset
 from pyhealth.models import BaseModel
+from pyhealth.tokenizer import Tokenizer
 
 # VALID_OPERATION_LEVEL = ["visit", "event"]
 
@@ -44,8 +45,10 @@ class MultiHeadedAttention(nn.Module):
         batch_size = query.size(0)
 
         # 1) Do all the linear projections in batch from d_model => h x d_k
-        query, key, value = [l(x).view(batch_size, -1, self.h, self.d_k).transpose(1, 2)
-                             for l, x in zip(self.linear_layers, (query, key, value))]
+        query, key, value = [
+            l(x).view(batch_size, -1, self.h, self.d_k).transpose(1, 2)
+            for l, x in zip(self.linear_layers, (query, key, value))
+        ]
 
         # 2) Apply attention on all the projected vectors in batch.
         if mask is not None:
@@ -152,9 +155,7 @@ class TransformerLayer(nn.Module):
         )
 
     def forward(
-            self,
-            x: torch.tensor,
-            mask: Optional[torch.tensor] = None
+        self, x: torch.tensor, mask: Optional[torch.tensor] = None
     ) -> Tuple[torch.tensor, torch.tensor]:
         """Forward propagation.
 
@@ -219,13 +220,13 @@ class Transformer(BaseModel):
     """
 
     def __init__(
-            self,
-            dataset: BaseDataset,
-            feature_keys: List[str],
-            label_key: str,
-            mode: str,
-            embedding_dim: int = 128,
-            **kwargs
+        self,
+        dataset: BaseDataset,
+        feature_keys: List[str],
+        label_key: str,
+        mode: str,
+        embedding_dim: int = 128,
+        **kwargs
     ):
         super(Transformer, self).__init__(
             dataset=dataset,
@@ -238,26 +239,37 @@ class Transformer(BaseModel):
         # validate kwargs for Transformer layer
         if "feature_size" in kwargs:
             raise ValueError("feature_size is determined by embedding_dim")
-        
-        # the key of self.feat_tokenizers only contains the code based inputs 
-        self.feat_tokenizers = self.get_feature_tokenizers()
-        self.label_tokenizer = self.get_label_tokenizer()
-        self.embeddings = self.get_embedding_layers(self.feat_tokenizers, embedding_dim)
 
-        # pick the first sample to initialize the linear transformation float/int features
-        sample = self.dataset.samples[0]
-        self.linear = nn.ModuleDict()
-        for feature_key in feature_keys:
-            if feature_key not in self.feat_tokenizers:
-                input_dim = len(sample[feature_key]) \
-                    if type(sample[feature_key][0]) != list \
-                    else len(sample[feature_key][0])
-                    
-                self.linear[feature_key] = nn.Sequential(
-                    nn.Linear(input_dim, embedding_dim),
-                    nn.ReLU(),
-                    nn.Linear(embedding_dim, embedding_dim),
+        # the key of self.feat_tokenizers only contains the code based inputs
+        self.feat_tokenizers = {}
+        self.label_tokenizer = self.get_label_tokenizer()
+        # the key of self.embeddings only contains the code based inputs
+        self.embeddings = nn.ModuleDict()
+        # the key of self.linear_layers only contains the float/int based inputs
+        self.linear_layers = nn.ModuleDict()
+
+        # add feature transformation layers
+        for feature_key in self.feature_keys:
+            input_info = self.dataset.input_info[feature_key]
+            # sanity check
+            if input_info["Type"] not in [str, float, int]:
+                raise ValueError(
+                    "Transformer only supports str code, float and int as input types"
                 )
+            elif (input_info["Type"] == str) and (input_info["level"] not in [1, 2]):
+                raise ValueError(
+                    "Transformer only supports 1-level or 2-level str code as input types"
+                )
+            elif (input_info["Type"] in [float, int]) and (
+                input_info["level"] not in [2, 3]
+            ):
+                raise ValueError(
+                    "Transformer only supports 2-level or 3-level float and int as input types"
+                )
+            # for code based input, we need Type
+            # for float/int based input, we need Type, input_dim
+            self.add_feature_transform_layer(feature_key=feature_key, **input_info)
+
         self.transformer = nn.ModuleDict()
         for feature_key in feature_keys:
             self.transformer[feature_key] = TransformerLayer(
@@ -284,61 +296,61 @@ class Transformer(BaseModel):
         """
         patient_emb = []
         for feature_key in self.feature_keys:
-            if (type(kwargs[feature_key][0][0]) == list) and \
-                (type(kwargs[feature_key][0][0][0]) != list):
-                    
-                # for case 3: [[code1, code2], [code3, ...], ...]
-                if type(kwargs[feature_key][0][0][0]) == str: 
-                    x = self.feat_tokenizers[feature_key].batch_encode_3d(kwargs[feature_key])
-                    # (patient, visit, code)
-                    x = torch.tensor(x, dtype=torch.long, device=self.device)
-                    # (patient, visit, code, embedding_dim)
-                    x = self.embeddings[feature_key](x)
-                    # (patient, visit, embedding_dim)
-                    x = torch.sum(x, dim=2)
-                    # (patient, visit)
-                    mask = torch.sum(x, dim=2) != 0
-                    
-                # for case 4: [[1.5, 2.0, 0.0], ...]
-                else:
-                    x, mask = self.padding3d(kwargs[feature_key])
-                    # (patient, visit, values)
-                    x = torch.tensor(x, dtype=torch.float, device=self.device)
-                    # (patient, visit, embedding_dim)
-                    x = self.linear[feature_key](x)
-                    # (patient, visit)
-                    mask = torch.tensor(mask, dtype=torch.bool, device=self.device)
-                
-                # (patient, embedding_dim)
-                _, x = self.transformer[feature_key](x, mask)
-                patient_emb.append(x)
-                
-            elif (type(kwargs[feature_key][0]) == list) and \
-                (type(kwargs[feature_key][0][0]) != list):
-                    
-                # for case 1: [code1, code2, code3, ...]
-                if type(kwargs[feature_key][0][0]) == str: 
-                    x = self.feat_tokenizers[feature_key].batch_encode_2d(kwargs[feature_key])
-                    # (patient, code)
-                    x = torch.tensor(x, dtype=torch.long, device=self.device)
-                    # (patient, code, embedding_dim)
-                    x = self.embeddings[feature_key](x)
-                    # (patient, code)
-                    mask = torch.sum(x, dim=2) != 0
-                    # (patient, embedding_dim)
-                    _, x = self.transformer[feature_key](x, mask)
-                
-                # for case 2: [1.5, 2.0, 0.0, ...]
-                else:
-                    # (patient, values)
-                    x = torch.tensor(kwargs[feature_key], dtype=torch.float, device=self.device)
-                    # (patient, embedding_dim)
-                    x = self.linear[feature_key](x)
-                patient_emb.append(x)
-                
+            input_info = self.dataset.input_info[feature_key]
+            level, Type = input_info["level"], input_info["Type"]
+
+            # for case 1: [code1, code2, code3, ...]
+            if (level == 1) and (Type == str):
+                x = self.feat_tokenizers[feature_key].batch_encode_2d(
+                    kwargs[feature_key]
+                )
+                # (patient, event)
+                x = torch.tensor(x, dtype=torch.long, device=self.device)
+                # (patient, event, embedding_dim)
+                x = self.embeddings[feature_key](x)
+                # (patient, event)
+                mask = torch.sum(x, dim=2) != 0
+
+            # for case 2: [[code1, code2], [code3, ...], ...]
+            elif (level == 2) and (Type == str):
+                x = self.feat_tokenizers[feature_key].batch_encode_3d(
+                    kwargs[feature_key]
+                )
+                # (patient, visit, event)
+                x = torch.tensor(x, dtype=torch.long, device=self.device)
+                # (patient, visit, event, embedding_dim)
+                x = self.embeddings[feature_key](x)
+                # (patient, visit, embedding_dim)
+                x = torch.sum(x, dim=2)
+                # (patient, visit)
+                mask = torch.sum(x, dim=2) != 0
+
+            # for case 3: [[1.5, 2.0, 0.0], ...]
+            elif (level == 2) and (Type in [float, int]):
+                x, mask = self.padding2d(kwargs[feature_key])
+                # (patient, event, values)
+                x = torch.tensor(x, dtype=torch.float, device=self.device)
+                # (patient, event, embedding_dim)
+                x = self.linear_layers[feature_key](x)
+                # (patient, event)
+                mask = torch.tensor(mask, dtype=torch.bool, device=self.device)
+
+            # for case 4: [[[1.5, 2.0, 0.0], [1.8, 2.4, 6.0]], ...]
+            elif (level == 3) and (Type in [float, int]):
+                x, mask = self.padding3d(kwargs[feature_key])
+                # (patient, visit, event, values)
+                x = torch.tensor(x, dtype=torch.float, device=self.device)
+                # (patient, visit, embedding_dim)
+                x = self.linear_layers[feature_key](x)
+                # (patient, event)
+                mask = torch.tensor(mask, dtype=torch.bool, device=self.device)
+
             else:
                 raise NotImplementedError
-            
+
+            _, x = self.transformer[feature_key](x, mask)
+            patient_emb.append(x)
+
         patient_emb = torch.cat(patient_emb, dim=1)
         # (patient, label_size)
         logits = self.fc(patient_emb)
@@ -351,31 +363,42 @@ class Transformer(BaseModel):
             "y_prob": y_prob,
             "y_true": y_true,
         }
-        
+
+
 if __name__ == "__main__":
     from pyhealth.datasets import SampleDataset
+
     samples = [
-        {'patient_id': 'patient-0',
-            'visit_id': 'visit-0',
-            'conditions': ['cond-33', 'cond-86', 'cond-80'],
-            'procedures': [[1.0, 2.0, 3.5, 4]],
-            'label': 0},
-        {'patient_id': 'patient-0',
-            'visit_id': 'visit-0',
-            'conditions': ['cond-33', 'cond-86', 'cond-80'],
-            'procedures': [[5.0, 2.0, 3.5, 4]],
-            'label': 1}
+        {
+            "patient_id": "patient-0",
+            "visit_id": "visit-0",
+            "conditions": [["cond-33", "cond-86", "cond-80"]],
+            "procedures": [[1.0, 2.0, 3.5, 4]],
+            "label": 0,
+        },
+        {
+            "patient_id": "patient-0",
+            "visit_id": "visit-0",
+            "conditions": [["cond-33", "cond-86", "cond-80"]],
+            "procedures": [[5.0, 2.0, 3.5, 4]],
+            "label": 1,
+        },
     ]
-    
+
+    input_info = {
+        "conditions": {"level": 2, "Type": str},
+        "procedures": {"level": 2, "Type": float, "input_dim": 4},
+    }
+
     # dataset
-    dataset = SampleDataset(
-        samples=samples,
-        dataset_name="test")
-    
+    dataset = SampleDataset(samples=samples, dataset_name="test")
+    dataset.input_info = input_info
+
     # data loader
     from pyhealth.datasets import get_dataloader
+
     train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
-    
+
     # model
     model = Transformer(
         dataset=dataset,
@@ -383,14 +406,13 @@ if __name__ == "__main__":
         label_key="label",
         mode="binary",
     )
-    
+
     # data batch
     data_batch = next(iter(train_loader))
-    
+
     # try the model
     ret = model(**data_batch)
-    print (ret)
-    
+    print(ret)
+
     # try loss backward
-    ret['loss'].backward()
-    
+    ret["loss"].backward()
