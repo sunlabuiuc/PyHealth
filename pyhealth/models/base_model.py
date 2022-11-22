@@ -48,25 +48,6 @@ class BaseModel(ABC, nn.Module):
         return self._dummy_param.device
 
     @staticmethod
-    def obtain_element_type(obj):
-        """
-        Args:
-            obj: a list or list of list obj (must be a homogeneous list)
-        Returns:
-            the type of the element in the list
-            e.g.,
-                obj = [1, 2, 3] -> int
-                obj = [[1, 2], [3, 4]] -> int
-                obj = [['a', 'b'], ['a', 'b']] -> str
-                obj = [[1.3. 2], [5.5]] -> float
-        """
-        if type(obj[0]) == list:
-            obj = sum(obj, [])
-        if len(obj) == 0:
-            return str
-        return type(obj[0])
-
-    @staticmethod
     def padding2d(batch):
         """
         Similar to pyhealth.tokenizer.Tokenizer.padding2d, but no mapping

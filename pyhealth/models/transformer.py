@@ -195,20 +195,20 @@ class Transformer(BaseModel):
             - case 1. [code1, code2, code3, ...]
                 - we will assume the code follows the order; our model will encode
                 each code into a vector and apply transformer on the code level
-            - case 2. [1.5, 2.0, 8, 1.2, 4.5, 2.1]
-                - we use a two-layer MLP
-            - case 3. [[code1, code2]] or [[code1, code2], [code3, code4, code5], ...]
+            - case 2. [[code1, code2]] or [[code1, code2], [code3, code4, code5], ...]
                 - we will assume the inner bracket follows the order; our model first
                 use the embedding table to encode each code into a vector and then use
                 average/mean pooling to get one vector for one inner bracket; then use
                 transformer one the braket level
-            - case 4. [[1.5, 2.0, 0.0]] or [[1.5, 2.0, 0.0], [8, 1.2, 4.5], ...]
+            - case 3. [[1.5, 2.0, 0.0]] or [[1.5, 2.0, 0.0], [8, 1.2, 4.5], ...]
                 - this case only makes sense when each inner bracket has the same length;
                 we assume each dimension has the same meaning; we run transformer directly
-                on the inner bracket level
-            - case 5. (developing) high-dimensional tensor
-                - we will flatten the tensor into case 3 or case 4 and run transformer
-    Args:
+                on the inner bracket level, similar to case 1 after embedding table
+            - case 4. [[[1.5, 2.0, 0.0]]] or [[[1.5, 2.0, 0.0], [8, 1.2, 4.5]], ...]
+                - this case only makes sense when each inner bracket has the same length;
+                we assume each dimension has the same meaning; we run transformer directly
+                on the inner bracket level, similar to case 2 after embedding table
+
         dataset: the dataset to train the model. It is used to query certain
             information such as the set of all tokens.
         feature_keys:  list of keys in samples to use as features,
