@@ -374,14 +374,14 @@ if __name__ == "__main__":
             "visit_id": "visit-0",
             "conditions": [["cond-33", "cond-86", "cond-80"]],
             "procedures": [[1.0, 2.0, 3.5, 4]],
-            "label": 0,
+            "label": 1e3,
         },
         {
             "patient_id": "patient-0",
             "visit_id": "visit-0",
             "conditions": [["cond-33", "cond-86", "cond-80"]],
             "procedures": [[5.0, 2.0, 3.5, 4]],
-            "label": 1,
+            "label": 0.9,
         },
     ]
 
@@ -404,7 +404,7 @@ if __name__ == "__main__":
         dataset=dataset,
         feature_keys=["conditions", "procedures"],
         label_key="label",
-        mode="binary",
+        mode="regression",
     )
 
     # data batch

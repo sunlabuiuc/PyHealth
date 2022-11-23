@@ -145,7 +145,6 @@ class RETAIN(BaseModel):
             e.g. ["conditions", "procedures"].
         label_key: key in samples to use as label (e.g., "drugs").
         mode: one of "binary", "multiclass", or "multilabel".
-        operation_level: one of "visit", "event".
         embedding_dim: the embedding dimension. Default is 128.
         **kwargs: other parameters for the RETAIN layer.
     """

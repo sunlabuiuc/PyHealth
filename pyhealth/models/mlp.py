@@ -2,149 +2,40 @@ from typing import List, Tuple, Dict, Optional
 
 import torch
 import torch.nn as nn
-import torch.nn.utils.rnn as rnn_utils
-
 from pyhealth.datasets import BaseDataset
 from pyhealth.models import BaseModel
 
-# VALID_OPERATION_LEVEL = ["visit", "event"]
 
+class MLP(BaseModel):
+    """Multi-layer perceptron model.
 
-class RNNLayer(nn.Module):
-    """Recurrent neural network layer.
-
-    This layer wraps the PyTorch RNN layer with masking and dropout support. It is
-    used in the RNN model. But it can also be used as a standalone layer.
-
-    Args:
-        input_size: input feature size.
-        hidden_size: hidden feature size.
-        rnn_type: type of rnn, one of "RNN", "LSTM", "GRU". Default is "GRU".
-        num_layers: number of recurrent layers. Default is 1.
-        dropout: dropout rate. If non-zero, introduces a Dropout layer before each
-            RNN layer. Default is 0.5.
-        bidirectional: whether to use bidirectional recurrent layers. If True,
-            a fully-connected layer is applied to the concatenation of the forward
-            and backward hidden states to reduce the dimension to hidden_size.
-            Default is False.
-
-    Examples:
-        >>> from pyhealth.models import RNNLayer
-        >>> input = torch.randn(3, 128, 5)  # [batch size, sequence len, input_size]
-        >>> layer = RNNLayer(5, 64)
-        >>> outputs, last_outputs = layer(input)
-        >>> outputs.shape
-        torch.Size([3, 128, 64])
-        >>> last_outputs.shape
-        torch.Size([3, 64])
-    """
-
-    def __init__(
-        self,
-        input_size: int,
-        hidden_size: int,
-        rnn_type: str = "GRU",
-        num_layers: int = 1,
-        dropout: float = 0.5,
-        bidirectional: bool = False,
-    ):
-        super(RNNLayer, self).__init__()
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.rnn_type = rnn_type
-        self.num_layers = num_layers
-        self.dropout = dropout
-        self.bidirectional = bidirectional
-
-        self.dropout_layer = nn.Dropout(dropout)
-        self.num_directions = 2 if bidirectional else 1
-        rnn_module = getattr(nn, rnn_type)
-        self.rnn = rnn_module(
-            input_size,
-            hidden_size,
-            num_layers=num_layers,
-            dropout=dropout,
-            bidirectional=bidirectional,
-            batch_first=True,
-        )
-        if bidirectional:
-            self.down_projection = nn.Linear(hidden_size * 2, hidden_size)
-
-    def forward(
-        self,
-        x: torch.tensor,
-        mask: Optional[torch.tensor] = None,
-    ) -> Tuple[torch.tensor, torch.tensor]:
-        """Forward propagation.
-
-        Args:
-            x: a tensor of shape [batch size, sequence len, input size].
-            mask: an optional tensor of shape [batch size, sequence len], where
-                1 indicates valid and 0 indicates invalid.
-
-        Returns:
-            outputs: a tensor of shape [batch size, sequence len, hidden size],
-                containing the output features for each time step.
-            last_outputs: a tensor of shape [batch size, hidden size], containing
-                the output features for the last time step.
-        """
-        # pytorch's rnn will only apply dropout between layers
-        x = self.dropout_layer(x)
-        batch_size = x.size(0)
-        if mask is None:
-            lengths = torch.full(
-                size=(batch_size,), fill_value=x.size(1), dtype=torch.int64
-            )
-        else:
-            lengths = torch.sum(mask.int(), dim=-1).cpu()
-        x = rnn_utils.pack_padded_sequence(
-            x, lengths, batch_first=True, enforce_sorted=False
-        )
-        outputs, _ = self.rnn(x)
-        outputs, _ = rnn_utils.pad_packed_sequence(outputs, batch_first=True)
-        if not self.bidirectional:
-            last_outputs = outputs[torch.arange(batch_size), (lengths - 1), :]
-            return outputs, last_outputs
-        else:
-            outputs = outputs.view(batch_size, outputs.shape[1], 2, -1)
-            f_last_outputs = outputs[torch.arange(batch_size), (lengths - 1), 0, :]
-            b_last_outputs = outputs[:, 0, 1, :]
-            last_outputs = torch.cat([f_last_outputs, b_last_outputs], dim=-1)
-            outputs = outputs.view(batch_size, outputs.shape[1], -1)
-            last_outputs = self.down_projection(last_outputs)
-            outputs = self.down_projection(outputs)
-            return outputs, last_outputs
-
-
-class RNN(BaseModel):
-    """Recurrent neural network model.
-
-    This model applies a separate RNN layer for each feature, and then concatenates
-    the final hidden states of each RNN layer. The concatenated hidden states are
+    This model applies a separate MLP layer for each feature, and then concatenates
+    the final hidden states of each MLP layer. The concatenated hidden states are
     then fed into a fully connected layer to make predictions.
 
     Note:
-        We use separate rnn layers for different feature_keys.
+        We use separate MLP layers for different feature_keys.
         Currentluy, we automatically support different input formats:
             - code based input (need to use the embedding table later)
             - float/int based value input
         We follow the current convention for the rnn model:
             - case 1. [code1, code2, code3, ...]
                 - we will assume the code follows the order; our model will encode
-                each code into a vector and apply rnn on the code level
+                each code into a vector; we use mean/sum pooling and then MLP
             - case 2. [[code1, code2]] or [[code1, code2], [code3, code4, code5], ...]
-                - we will assume the inner bracket follows the order; our model first
-                use the embedding table to encode each code into a vector and then use
-                average/mean pooling to get one vector for one inner bracket; then use
-                rnn one the braket level
-            - case 3. [[1.5, 2.0, 0.0]] or [[1.5, 2.0, 0.0], [8, 1.2, 4.5], ...]
-                - this case only makes sense when each inner bracket has the same length;
-                we assume each dimension has the same meaning; we run rnn directly
-                on the inner bracket level, similar to case 1 after embedding table
-            - case 4. [[[1.5, 2.0, 0.0]]] or [[[1.5, 2.0, 0.0], [8, 1.2, 4.5]], ...]
-                - this case only makes sense when each inner bracket has the same length;
-                we assume each dimension has the same meaning; we run rnn directly
-                on the inner bracket level, similar to case 2 after embedding table
+                - we first use the embedding table to encode each code into a vector
+                and then use mean/sum pooling to get one vector for each sample; we then
+                use MLP layers
+            - case 3. [1.5, 2.0, 0.0]
+                - we run MLP directly
+            - case 4. [[1.5, 2.0, 0.0]] or [[1.5, 2.0, 0.0], [8, 1.2, 4.5], ...]
+                - This case only makes sense when each inner bracket has the same length;
+                we assume each dimension has the same meaning; we use mean/sum pooling
+                within each outer bracket and use MLP, similar to case 1 after embedding table
+            - case 5. [[[1.5, 2.0, 0.0]]] or [[[1.5, 2.0, 0.0], [8, 1.2, 4.5]], ...]
+                - This case only makes sense when each inner bracket has the same length;
+                we assume each dimension has the same meaning; we use mean/sum pooling
+                within each outer bracket and use MLP, similar to case 2 after embedding table
 
     Args:
         dataset: the dataset to train the model. It is used to query certain
@@ -155,6 +46,8 @@ class RNN(BaseModel):
         mode: one of "binary", "multiclass", or "multilabel".
         embedding_dim: the embedding dimension. Default is 128.
         hidden_dim: the hidden dimension. Default is 128.
+        n_layers: the number of layers. Default is 2.
+        activation: the activation function. Default is "relu".
         **kwargs: other parameters for the RNN layer.
     """
 
@@ -166,9 +59,11 @@ class RNN(BaseModel):
         mode: str,
         embedding_dim: int = 128,
         hidden_dim: int = 128,
-        **kwargs
+        n_layers: int = 2,
+        activation: str = "relu",
+        **kwargs,
     ):
-        super(RNN, self).__init__(
+        super(MLP, self).__init__(
             dataset=dataset,
             feature_keys=feature_keys,
             label_key=label_key,
@@ -176,6 +71,7 @@ class RNN(BaseModel):
         )
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
+        self.n_layers = n_layers
 
         # validate kwargs for RNN layer
         if "input_size" in kwargs:
@@ -191,35 +87,84 @@ class RNN(BaseModel):
         # the key of self.linear_layers only contains the float/int based inputs
         self.linear_layers = nn.ModuleDict()
 
-        # add feature RNN layers
+        # add feature MLP layers
         for feature_key in self.feature_keys:
             input_info = self.dataset.input_info[feature_key]
             # sanity check
             if input_info["Type"] not in [str, float, int]:
                 raise ValueError(
-                    "RNN only supports str code, float and int as input types"
+                    "MLP only supports str code, float and int as input types"
                 )
             elif (input_info["Type"] == str) and (input_info["level"] not in [1, 2]):
                 raise ValueError(
-                    "RNN only supports 1-level or 2-level str code as input types"
+                    "MLP only supports 1-level or 2-level str code as input types"
                 )
             elif (input_info["Type"] in [float, int]) and (
-                input_info["level"] not in [2, 3]
+                input_info["level"] not in [1, 2, 3]
             ):
                 raise ValueError(
-                    "RNN only supports 2-level or 3-level float and int as input types"
+                    "MLP only supports 1-level, 2-level or 3-level float and int as input types"
                 )
             # for code based input, we need Type
             # for float/int based input, we need Type, input_dim
             self.add_feature_transform_layer(feature_key=feature_key, **input_info)
 
-        self.rnn = nn.ModuleDict()
+        if activation == "relu":
+            self.activation = nn.ReLU()
+        elif activation == "tanh":
+            self.activation = nn.Tanh()
+        elif activation == "sigmoid":
+            self.activation = nn.Sigmoid()
+        elif activation == "leaky_relu":
+            self.activation = nn.LeakyReLU()
+        elif activation == "elu":
+            self.activation = nn.ELU()
+        else:
+            raise ValueError(f"Unsupported activation function {activation}")
+
+        self.mlp = nn.ModuleDict()
         for feature_key in feature_keys:
-            self.rnn[feature_key] = RNNLayer(
-                input_size=embedding_dim, hidden_size=hidden_dim, **kwargs
-            )
+            Modules = []
+            Modules.append(nn.Linear(self.embedding_dim, self.hidden_dim))
+            for _ in range(self.n_layers - 1):
+                Modules.append(self.activation)
+                Modules.append(nn.Linear(self.hidden_dim, self.hidden_dim))
+            self.mlp[feature_key] = nn.Sequential(*Modules)
+
         output_size = self.get_output_size(self.label_tokenizer)
         self.fc = nn.Linear(len(self.feature_keys) * self.hidden_dim, output_size)
+
+    @staticmethod
+    def mean_pooling(x, mask):
+        """Mean pooling over the middle dimension of the tensor.
+        Args:
+            x: tensor of shape (batch_size, seq_len, embedding_dim)
+            mask: tensor of shape (batch_size, seq_len)
+        Returns:
+            x: tensor of shape (batch_size, embedding_dim)
+        Examples:
+            >>> x.shape
+            [128, 5, 32]
+            >>> mean_pooling(x).shape
+            [128, 32]
+        """
+        return x.sum(dim=1) / mask.sum(dim=1, keepdim=True)
+
+    @staticmethod
+    def sum_pooling(x):
+        """Mean pooling over the middle dimension of the tensor.
+        Args:
+            x: tensor of shape (batch_size, seq_len, embedding_dim)
+            mask: tensor of shape (batch_size, seq_len)
+        Returns:
+            x: tensor of shape (batch_size, embedding_dim)
+        Examples:
+            >>> x.shape
+            [128, 5, 32]
+            >>> sum_pooling(x).shape
+            [128, 32]
+        """
+        return x.sum(dim=1)
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation.
@@ -252,6 +197,8 @@ class RNN(BaseModel):
                 x = self.embeddings[feature_key](x)
                 # (patient, event)
                 mask = torch.sum(x, dim=2) != 0
+                # (patient, embedding_dim)
+                x = self.mean_pooling(x, mask)
 
             # for case 2: [[code1, code2], [code3, ...], ...]
             elif (level == 2) and (Type == str):
@@ -266,8 +213,19 @@ class RNN(BaseModel):
                 x = torch.sum(x, dim=2)
                 # (patient, visit)
                 mask = torch.sum(x, dim=2) != 0
+                # (patient, embedding_dim)
+                x = self.mean_pooling(x, mask)
 
-            # for case 3: [[1.5, 2.0, 0.0], ...]
+            # for case 3: [1.5, 2.0, 0.0]
+            elif (level == 1) and (Type in [float, int]):
+                # (patient, values)
+                x = torch.tensor(
+                    kwargs[feature_key], dtype=torch.float, device=self.device
+                )
+                # (patient, embedding_dim)
+                x = self.linear_layers[feature_key](x)
+
+            # for case 4: [[1.5, 2.0, 0.0], ...]
             elif (level == 2) and (Type in [float, int]):
                 x, mask = self.padding2d(kwargs[feature_key])
                 # (patient, event, values)
@@ -276,8 +234,10 @@ class RNN(BaseModel):
                 x = self.linear_layers[feature_key](x)
                 # (patient, event)
                 mask = torch.tensor(mask, dtype=torch.bool, device=self.device)
+                # (patient, embedding_dim)
+                x = self.mean_pooling(x, mask)
 
-            # for case 4: [[[1.5, 2.0, 0.0], [1.8, 2.4, 6.0]], ...]
+            # for case 5: [[[1.5, 2.0, 0.0], [1.8, 2.4, 6.0]], ...]
             elif (level == 3) and (Type in [float, int]):
                 x, mask = self.padding3d(kwargs[feature_key])
                 # (patient, visit, event, values)
@@ -286,11 +246,13 @@ class RNN(BaseModel):
                 x = self.linear_layers[feature_key](x)
                 # (patient, event)
                 mask = torch.tensor(mask, dtype=torch.bool, device=self.device)
+                # (patient, embedding_dim)
+                x = self.mean_pooling(x, mask)
 
             else:
                 raise NotImplementedError
 
-            _, x = self.rnn[feature_key](x, mask)
+            x = self.mlp[feature_key](x)
             patient_emb.append(x)
 
         patient_emb = torch.cat(patient_emb, dim=1)
@@ -314,22 +276,22 @@ if __name__ == "__main__":
         {
             "patient_id": "patient-0",
             "visit_id": "visit-0",
-            "conditions": [["cond-33", "cond-86", "cond-80"]],
-            "procedures": [[1.0, 2.0, 3.5, 4]],
+            "conditions": ["cond-33", "cond-86", "cond-80"],
+            "procedures": [1.0, 2.0, 3.5, 4],
             "label": 0,
         },
         {
             "patient_id": "patient-0",
             "visit_id": "visit-0",
-            "conditions": [["cond-33", "cond-86", "cond-80"]],
-            "procedures": [[5.0, 2.0, 3.5, 4]],
+            "conditions": ["cond-33", "cond-86", "cond-80"],
+            "procedures": [5.0, 2.0, 3.5, 4],
             "label": 1,
         },
     ]
 
     input_info = {
-        "conditions": {"level": 2, "Type": str},
-        "procedures": {"level": 2, "Type": float, "input_dim": 4},
+        "conditions": {"level": 1, "Type": str},
+        "procedures": {"level": 1, "Type": float, "input_dim": 4},
     }
 
     # dataset
@@ -342,7 +304,7 @@ if __name__ == "__main__":
     train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
 
     # model
-    model = RNN(
+    model = MLP(
         dataset=dataset,
         feature_keys=["conditions", "procedures"],
         label_key="label",
@@ -356,5 +318,6 @@ if __name__ == "__main__":
     ret = model(**data_batch)
     print(ret)
 
+    # TODO: the loss back propagation step seems slow.
     # try loss backward
     ret["loss"].backward()
