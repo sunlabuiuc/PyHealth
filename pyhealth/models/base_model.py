@@ -10,7 +10,7 @@ from pyhealth.models.utils import batch_to_multihot
 from pyhealth.tokenizer import Tokenizer
 
 # TODO: add support for regression
-VALID_MODE = ["binary", "multiclass", "multilabel"]
+VALID_MODE = ["binary", "multiclass", "multilabel", "regression"]
 
 
 class BaseModel(ABC, nn.Module):
@@ -175,6 +175,8 @@ class BaseModel(ABC, nn.Module):
         if self.mode == "binary":
             assert output_size == 2
             output_size = 1
+        elif self.mode == "regression":
+            output_size = 1
         return output_size
 
     def get_loss_function(self) -> Callable:
@@ -184,6 +186,7 @@ class BaseModel(ABC, nn.Module):
             - binary: `F.binary_cross_entropy_with_logits`
             - multiclass: `F.cross_entropy`
             - multilabel: `F.binary_cross_entropy_with_logits`
+            - regression: `F.mse_loss`
 
         Returns:
             The default loss function.
@@ -194,6 +197,8 @@ class BaseModel(ABC, nn.Module):
             return F.cross_entropy
         elif self.mode == "multilabel":
             return F.binary_cross_entropy_with_logits
+        elif self.mode == "regression":
+            return F.mse_loss
         else:
             raise ValueError("Invalid mode: {}".format(self.mode))
 
@@ -211,9 +216,10 @@ class BaseModel(ABC, nn.Module):
             - multilabel: a tensor of shape (batch_size, num_labels)
 
         Args:
-            labels: the raw labels from the samples. It should be a list of
-                str for binary and multiclass classification and a list of
-                list of str for multilabel classification.
+            labels: the raw labels from the samples. It should be
+                - a list of str for binary and multiclass classificationa
+                - a list of list of str for multilabel classification
+                - a list of float for regression
             label_tokenizer: the label tokenizer.
 
         Returns:
@@ -233,6 +239,8 @@ class BaseModel(ABC, nn.Module):
             # convert to multihot
             num_labels = label_tokenizer.get_vocabulary_size()
             labels = batch_to_multihot(labels_index, num_labels)
+        elif self.mode in ["regression"]:
+            labels = torch.FloatTensor(labels).unsqueeze(-1)
         else:
             raise NotImplementedError
         labels = labels.to(self.device)
@@ -263,6 +271,8 @@ class BaseModel(ABC, nn.Module):
             y_prob = F.softmax(logits, dim=-1)
         elif self.mode in ["multilabel"]:
             y_prob = torch.sigmoid(logits)
+        elif self.mode in ["regression"]:
+            y_prob = logits
         else:
             raise NotImplementedError
         return y_prob
