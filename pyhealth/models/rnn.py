@@ -192,23 +192,23 @@ class RNN(BaseModel):
         # the key of self.linear_layers only contains the float/int based inputs
         self.linear_layers = nn.ModuleDict()
 
-        # add feature transformation layers
+        # add feature RNN layers
         for feature_key in self.feature_keys:
             input_info = self.dataset.input_info[feature_key]
             # sanity check
             if input_info["Type"] not in [str, float, int]:
                 raise ValueError(
-                    "Transformer only supports str code, float and int as input types"
+                    "RNN only supports str code, float and int as input types"
                 )
             elif (input_info["Type"] == str) and (input_info["level"] not in [1, 2]):
                 raise ValueError(
-                    "Transformer only supports 1-level or 2-level str code as input types"
+                    "RNN only supports 1-level or 2-level str code as input types"
                 )
             elif (input_info["Type"] in [float, int]) and (
                 input_info["level"] not in [2, 3]
             ):
                 raise ValueError(
-                    "Transformer only supports 2-level or 3-level float and int as input types"
+                    "RNN only supports 2-level or 3-level float and int as input types"
                 )
             # for code based input, we need Type
             # for float/int based input, we need Type, input_dim
