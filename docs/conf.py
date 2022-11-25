@@ -163,7 +163,7 @@ html_title = "PyHealth"
 #
 # html_sidebars = {}
 html_theme_options = {
-    "sidebar_hide_name": False,
+    "sidebar_hide_name": True,
     "light_css_variables": {
         "color-brand-primary": "#003262",
         "color-brand-content": "#003262",
