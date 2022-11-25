@@ -334,11 +334,11 @@ the performance for different models doing different tasks on different datasets
 ..    :keyprefix: a-
 
 
-.. rubric:: References
+.. .. rubric:: References
 
-   Indices and tables
-   ==================
+..    Indices and tables
+..    ==================
 
-   * :ref:`genindex`
-   * :ref:`modindex`
-   * :ref:`search`
+..    * :ref:`genindex`
+..    * :ref:`modindex`
+..    * :ref:`search`

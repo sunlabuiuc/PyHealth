@@ -4,7 +4,6 @@ Models
 We implement the following models for supporting multiple healthcare predictive tasks. 
 
 .. toctree::
-    :maxdepth: 3
     
     models/pyhealth.models.ClassicML
     models/pyhealth.models.CNN
