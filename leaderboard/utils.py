@@ -10,7 +10,7 @@ import pandas as pd
 from bokeh.models import HoverTool, CDSView
 from bokeh.layouts import row, column, gridplot
 from bokeh.models import ColumnDataSource, CDSView, CheckboxGroup, CustomJS, BooleanFilter
-from bokeh.plotting import figure, show, curdoc
+from bokeh.plotting import figure, show, curdoc, output_file
 import numpy as np
 import random
 
@@ -234,19 +234,27 @@ def read_dataframes_by_time_from_gcp(credentials):
 
 
 def read_dataframes_by_time_from_gcp_with_no_credentials():
-    data = {
-        "https://storage.googleapis.com/pyhealth/leaderboard_data/data/leaderboard-2022-10-28.csv",
-        "https://storage.googleapis.com/pyhealth/leaderboard_data/data/leaderboard-2022-11-05.csv",
-        "https://storage.googleapis.com/pyhealth/leaderboard_data/data/leaderboard-2022-11-12.csv"
-    }
+    from datetime import datetime, date, timedelta
+
+    first_data_time = datetime.strptime('2022-10-28', '%Y-%m-%d')
+    now = datetime.now()
+    weeks = int(abs(now - first_data_time).days / 7)
+    data = []
+    for week in range(weeks):
+        data_time = (first_data_time + timedelta(weeks=week)).strftime('%Y-%m-%d')
+        file_name = f'https://storage.googleapis.com/pyhealth/leaderboard_data/data/leaderboard-{data_time}.csv'
+        data.append(file_name)
 
     dfs = {}
 
     for d in data:
-        df = pd.read_csv(d)
-        name_ = d.split('-')
-        time = name_[1] + name_[2] + name_[3][:-4]
-        dfs[time] = df
+        try:
+            df = pd.read_csv(d)
+            name_ = d.split('-')
+            time = name_[1] + name_[2] + name_[3][:-4]
+            dfs[time] = df
+        except:
+            break
 
     return dfs
 
