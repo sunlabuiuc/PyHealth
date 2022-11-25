@@ -163,7 +163,7 @@ html_title = "PyHealth"
 #
 # html_sidebars = {}
 html_theme_options = {
-    "sidebar_hide_name": True,
+    "sidebar_hide_name": False,
     "light_css_variables": {
         "color-brand-primary": "#003262",
         "color-brand-content": "#003262",
@@ -171,6 +171,7 @@ html_theme_options = {
         "admonition-title-font-size": "var(--font-size-normal)",
         "code-font-size": "var(--font-size--small)",
     },
+    'navigation_depth': 4,
 }
 
 html_css_files = ["css/override.css", "css/sphinx_gallery.css"]

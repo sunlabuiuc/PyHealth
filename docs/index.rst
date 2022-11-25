@@ -292,7 +292,7 @@ the performance for different models doing different tasks on different datasets
    from leaderboard import leaderboard_gen, utils
    args = leaderboard_gen.construct_args()
    leaderboard_gen.plots_generation(args)
-..
+
 
 .. toctree::
    :maxdepth: 4
@@ -302,11 +302,10 @@ the performance for different models doing different tasks on different datasets
    install
    tutorials
    advance_tutorials
-..    usecase
 
 
 .. toctree::
-   :maxdepth: 3
+   :maxdepth: 4
    :hidden:
    :caption: Documentation
 
@@ -326,9 +325,7 @@ the performance for different models doing different tasks on different datasets
    :caption: Additional Information
 
    about
-..    faq
-..    contribution
-   whats_new
+
 
 
 .. .. bibliography:: references.bib
