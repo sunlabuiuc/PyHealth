@@ -171,7 +171,6 @@ html_theme_options = {
         "admonition-title-font-size": "var(--font-size-normal)",
         "code-font-size": "var(--font-size--small)",
     },
-    'navigation_depth': 4,
 }
 
 html_css_files = ["css/override.css", "css/sphinx_gallery.css"]
