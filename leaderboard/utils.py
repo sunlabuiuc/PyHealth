@@ -9,7 +9,7 @@ import pandas as pd
 
 from bokeh.models import HoverTool, CDSView
 from bokeh.layouts import row, column, gridplot
-from bokeh.models import ColumnDataSource, CDSView, CheckboxGroup, CustomJS, BooleanFilter, Select
+from bokeh.models import ColumnDataSource, CDSView, CheckboxGroup, CustomJS, BooleanFilter, Select, Div
 from bokeh.plotting import figure, show, curdoc, output_file
 import numpy as np
 import random
@@ -242,7 +242,7 @@ def read_dataframes_by_time_from_gcp_with_no_credentials():
     data = []
     for week in range(weeks):
         data_time = (first_data_time + timedelta(weeks=week)).strftime('%Y-%m-%d')
-        file_name = f'https://storage.googleapis.com/pyhealth/leaderboard_data/data/leaderboard-{data_time}.csv'
+        file_name = f'https://storage.googleapis.com/pyhealth/leaderboard_data/data/DATA-{data_time}.csv'
         data.append(file_name)
 
     dfs = {}
@@ -278,11 +278,11 @@ def get_spec_df_with_time(dfs, dataset, task):
 
 def make_bokeh_plot(source, metric, f):
     p = figure(
-        height=305, width=305,
+        height=190, width=500,
         tools=["pan, box_zoom, reset, save, crosshair"],
         toolbar_location='above',
         y_range=[0, 1.0],
-        x_axis_label="date",
+        # x_axis_label="date",
         y_axis_label=metric,
         x_axis_type="datetime"
     )
@@ -306,10 +306,11 @@ def make_bokeh_plot(source, metric, f):
     p.add_tools(hover)
 
     p.legend.location = 'bottom_right'
-    p.xaxis.major_label_orientation = 3.14 / 3
-    p.yaxis.axis_label_text_font_size = "15pt"
-    p.xaxis.axis_label_text_font_size = "8pt"
+    # p.xaxis.major_label_orientation = 3.14 / 2
+    p.yaxis.axis_label_text_font_size = "11pt"
+    p.xaxis.axis_label_text_font_size = "11pt"
     p.axis.axis_label_text_font_style = 'bold'
+    p.margin = (0, 5, 0, 10)
 
     return p
 
@@ -348,21 +349,21 @@ def generate_bokeh_figure(df):
     sc_o = ColumnDataSource(dt)
     dt_d = dt[dt['dataset'] == 'mimic3']
     sc_d = ColumnDataSource(dt_d)
-    dt_t = dt[dt['task'] == 'drugrec']
+    dt_t = dt[dt['task'] == 'DrugRec']
     sc_t = ColumnDataSource(dt_t)
     
     
     dp_dataset = dropdown(items=list(dt['dataset'].unique()), init='mimic3', label="Dataset")
-    dp_task = dropdown(items=list(dt['task'].unique()), init='drugrec', label="Task")
+    dp_task = dropdown(items=list(dt['task'].unique()), init='DrugRec', label="Task")
     # dp_models = dropdown(models, "Models")
 
     # prefix = dp_dataset.value + '-' + dp_task.value
     # dp_models.options = [model for model in models if model.startswith(prefix)]
 
-
-    active_letter = df['Dataset-Task-Model'].iloc()[0]
-    f = BooleanFilter(booleans=[l == active_letter for l in df['Dataset-Task-Model']])
-    cg = CheckboxGroup(labels= [*set(list(sc_t.data['model'])).intersection(list(sc_d.data['model']))], active=[models.index(active_letter)])
+    init_labels = [*set(list(sc_t.data['model'])).intersection(list(sc_d.data['model']))]
+    # active_letter = df['Dataset-Task-Model'].iloc()[0]
+    f = BooleanFilter(booleans=[l == init_labels[0] for l in df['Dataset-Task-Model']])
+    cg = CheckboxGroup(labels= init_labels, active=[models.index(init_labels[0])])
     cg.js_on_change('active',
                     CustomJS(args=dict(source=sc, f=f, sc_d=sc_d, sc_t=sc_t),
                              code="""\
@@ -385,6 +386,7 @@ def generate_bokeh_figure(df):
                             }
                             const intersect = sc_d.data['model'].filter(x => sc_t.data['model'].indexOf(x) !== -1);
                             other.labels = intersect;
+                            other.active = new Array()
                             other.change.emit();
                             sc_d.change.emit();
                         """)
@@ -402,23 +404,31 @@ def generate_bokeh_figure(df):
                             }
                             const intersect = sc_t.data['model'].filter(x => sc_d.data['model'].indexOf(x) !== -1);
                             other.labels = intersect;
+                            other.active = new Array()
                             other.change.emit();
                             sc_t.change.emit();
                         """)    
     dp_dataset.js_on_change('value', callback_ds)
     dp_task.js_on_change('value', callback_tk)
     dp_dataset.js_link('value', cg, 'labels')
+    dp_dataset.js_link('value', cg, 'active')
     dp_task.js_link('value', cg, 'labels')
+    dp_task.js_link('value', cg, 'active')
 
-
-    cg.width = 150
-    cg.margin = (5, 0, 0, 0)
-    dp_task.width = 150
-    dp_dataset.width = 150
+    div = Div(text="""Models (run by <a href="https://pyhealth.readthedocs.io/en/latest/api/models.html">pyhealth.models</a>)""",
+        width=200, height=20)
+    
+    cg.width = 200
+    cg.height = 700
+    div.margin = (20, 0, 0, 5)
+    cg.margin = (5, 0, 0, 5)
+    dp_task.width = 160
+    dp_dataset.width = 160
 
     p_jac = make_bokeh_plot(sc, 'Jaccard', f)
     p_acc = make_bokeh_plot(sc, 'Accuracy', f)
     p_f1 = make_bokeh_plot(sc, 'F1', f)
     p_prauc = make_bokeh_plot(sc, 'PRAUC', f)
 
-    return column(row(column(dp_dataset, dp_task, cg), gridplot([[p_jac, p_acc], [p_f1, p_prauc]])))
+    # return row(column(dp_dataset, dp_task, cg), gridplot([[p_jac, p_acc], [p_f1, p_prauc]]))
+    return row(column(dp_dataset, dp_task, div, cg), column(p_jac, p_acc, p_f1, p_prauc))
