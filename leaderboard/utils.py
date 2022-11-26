@@ -238,7 +238,7 @@ def read_dataframes_by_time_from_gcp_with_no_credentials():
 
     first_data_time = datetime.strptime('2022-10-28', '%Y-%m-%d')
     now = datetime.now()
-    weeks = int(abs(now - first_data_time).days / 7)
+    weeks = int(abs(now - first_data_time).days / 7) + 1
     data = []
     for week in range(weeks):
         data_time = (first_data_time + timedelta(weeks=week)).strftime('%Y-%m-%d')
