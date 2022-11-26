@@ -224,10 +224,11 @@ def plots_generation(args):
     dfs = read_dataframes_by_time_from_gcp_with_no_credentials()
 
     bokeh_figures = []
-    for task in args.tasks:
-        df = get_typed_df_with_time(dfs, task)
-        bokeh_figure = generate_bokeh_figure(df)
-        bokeh_figures.append(bokeh_figure)
+    # for task in args.tasks:
+    #     for dataset in args.datasets:
+    df = get_spec_df_with_time(dfs, "", "")
+    bokeh_figure = generate_bokeh_figure(df)
+    bokeh_figures.append(bokeh_figure)
 
     show(column(bokeh_figures))
 

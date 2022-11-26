@@ -9,7 +9,7 @@ import pandas as pd
 
 from bokeh.models import HoverTool, CDSView
 from bokeh.layouts import row, column, gridplot
-from bokeh.models import ColumnDataSource, CDSView, CheckboxGroup, CustomJS, BooleanFilter
+from bokeh.models import ColumnDataSource, CDSView, CheckboxGroup, CustomJS, BooleanFilter, Select
 from bokeh.plotting import figure, show, curdoc, output_file
 import numpy as np
 import random
@@ -259,7 +259,7 @@ def read_dataframes_by_time_from_gcp_with_no_credentials():
     return dfs
 
 
-def get_typed_df_with_time(dfs, type):
+def get_spec_df_with_time(dfs, dataset, task):
     from datetime import datetime
     for key in dfs.keys():
         dfs[key]['date'] = key
@@ -267,7 +267,11 @@ def get_typed_df_with_time(dfs, type):
     df = pd.concat(dfs.values())
     df['date'] = [datetime.strptime(date, '%Y%m%d') for date in df['date'].iloc()]
 
-    df = df[df['Dataset-Task-Model'].str.contains(type)]
+    if dataset == "" and task == "":
+        return df
+
+    df = df[df['Dataset-Task-Model'].str.contains(dataset)]
+    df = df[df['Dataset-Task-Model'].str.contains(task)]
 
     return df
 
@@ -303,8 +307,16 @@ def make_bokeh_plot(source, metric, f):
 
     p.legend.location = 'bottom_right'
     p.xaxis.major_label_orientation = 3.14 / 3
+    p.yaxis.axis_label_text_font_size = "15pt"
+    p.xaxis.axis_label_text_font_size = "8pt"
+    p.axis.axis_label_text_font_style = 'bold'
 
     return p
+
+
+def dropdown(items, init, label):
+    dp = Select(options=items, value=init, title=label)
+    return dp
 
 
 def generate_bokeh_figure(df):
@@ -325,25 +337,88 @@ def generate_bokeh_figure(df):
         color = random.choice(colors)
         df.loc[df['Dataset-Task-Model'].str.contains(model), 'color'] = color
 
-    source = ColumnDataSource(df)
+    dt = pd.DataFrame()
+    dt['model'] = models
+    for model in models:
+        dataset, task = model.split('-')[0], model.split('-')[1]
+        dt.loc[dt['model'].str.contains(model), 'dataset'] = dataset
+        dt.loc[dt['model'].str.contains(model), 'task'] = task
+
+    sc = ColumnDataSource(df)
+    sc_o = ColumnDataSource(dt)
+    dt_d = dt[dt['dataset'] == 'mimic3']
+    sc_d = ColumnDataSource(dt_d)
+    dt_t = dt[dt['task'] == 'drugrec']
+    sc_t = ColumnDataSource(dt_t)
+    
+    
+    dp_dataset = dropdown(items=list(dt['dataset'].unique()), init='mimic3', label="Dataset")
+    dp_task = dropdown(items=list(dt['task'].unique()), init='drugrec', label="Task")
+    # dp_models = dropdown(models, "Models")
+
+    # prefix = dp_dataset.value + '-' + dp_task.value
+    # dp_models.options = [model for model in models if model.startswith(prefix)]
+
 
     active_letter = df['Dataset-Task-Model'].iloc()[0]
     f = BooleanFilter(booleans=[l == active_letter for l in df['Dataset-Task-Model']])
-
-    cg = CheckboxGroup(labels=models, active=[models.index(active_letter)])
+    cg = CheckboxGroup(labels= [*set(list(sc_t.data['model'])).intersection(list(sc_d.data['model']))], active=[models.index(active_letter)])
     cg.js_on_change('active',
-                    CustomJS(args=dict(source=source, f=f),
+                    CustomJS(args=dict(source=sc, f=f, sc_d=sc_d, sc_t=sc_t),
                              code="""\
-                                 const letters = cb_obj.active.map(idx => cb_obj.labels[idx]);
-                                 f.booleans = source.data.letter.map(l => letters.includes(l));
-                                 source.change.emit();
-                             """))
+                                const letters = cb_obj.active.map(idx => cb_obj.labels[idx]);
+                                f.booleans = source.data.letter.map(l => letters.includes(l));
+                                source.change.emit();
+                             """))    
 
-    cg.width = 165
+    callback_ds = CustomJS(args=dict(source=sc_o, sc_d=sc_d, sc_t=sc_t, other=cg),
+                        code="""\
+                            sc_d.data['task'] = [];
+                            sc_d.data['model'] = [];
+                            sc_d.data['dataset'] = [];
+                            for(var i = 0; i <= source.get_length(); i++){
+                                if(source.data['dataset'][i] == cb_obj.value){
+                                    sc_d.data['task'].push(source.data['task'][i]);
+                                    sc_d.data['model'].push(source.data['model'][i]);
+                                    sc_d.data['dataset'].push(source.data['dataset'][i]);
+                                }
+                            }
+                            const intersect = sc_d.data['model'].filter(x => sc_t.data['model'].indexOf(x) !== -1);
+                            other.labels = intersect;
+                            other.change.emit();
+                            sc_d.change.emit();
+                        """)
+    callback_tk = CustomJS(args=dict(source=sc_o, sc_t=sc_t, sc_d=sc_d, other=cg),
+                        code="""\
+                            sc_t.data['model'] = [];
+                            sc_t.data['task'] = [];
+                            sc_t.data['dataset'] = [];
+                            for(var i = 0; i <= source.get_length(); i++){
+                                if(source.data['task'][i] == cb_obj.value){
+                                    sc_t.data['task'].push(source.data['task'][i]);
+                                    sc_t.data['model'].push(source.data['model'][i]);
+                                    sc_t.data['dataset'].push(source.data['dataset'][i]);
+                                }
+                            }
+                            const intersect = sc_t.data['model'].filter(x => sc_d.data['model'].indexOf(x) !== -1);
+                            other.labels = intersect;
+                            other.change.emit();
+                            sc_t.change.emit();
+                        """)    
+    dp_dataset.js_on_change('value', callback_ds)
+    dp_task.js_on_change('value', callback_tk)
+    dp_dataset.js_link('value', cg, 'labels')
+    dp_task.js_link('value', cg, 'labels')
 
-    p_jac = make_bokeh_plot(source, 'Jaccard', f)
-    p_acc = make_bokeh_plot(source, 'Accuracy', f)
-    p_f1 = make_bokeh_plot(source, 'F1', f)
-    p_prauc = make_bokeh_plot(source, 'PRAUC', f)
 
-    return row(cg, gridplot([[p_jac, p_acc], [p_f1, p_prauc]]))
+    cg.width = 150
+    cg.margin = (5, 0, 0, 0)
+    dp_task.width = 150
+    dp_dataset.width = 150
+
+    p_jac = make_bokeh_plot(sc, 'Jaccard', f)
+    p_acc = make_bokeh_plot(sc, 'Accuracy', f)
+    p_f1 = make_bokeh_plot(sc, 'F1', f)
+    p_prauc = make_bokeh_plot(sc, 'PRAUC', f)
+
+    return column(row(column(dp_dataset, dp_task, cg), gridplot([[p_jac, p_acc], [p_f1, p_prauc]])))
