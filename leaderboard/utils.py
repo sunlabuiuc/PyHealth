@@ -281,7 +281,7 @@ def make_bokeh_plot(source, metric, f):
         height=190, width=500,
         tools=["pan, box_zoom, reset, save, crosshair"],
         toolbar_location='above',
-        y_range=[-0.3, 1.3],
+        y_range=[-0.19, 1.2],
         # x_axis_label="date",
         y_axis_label=metric,
         x_axis_type="datetime"
@@ -299,6 +299,8 @@ def make_bokeh_plot(source, metric, f):
     if metric == 'PRAUC':
         p.circle(source=source, x='date', y='PRAUC', color='color', size=8, alpha=0.5,
                 view=CDSView(source=source, filters=[f]))
+        p.xaxis.axis_label = 'date'
+        p.height=220
 
     hover = HoverTool(tooltips=[('model', '@{Dataset-Task-Model}'), ('date', '$x{%F}'), ('value', f'@{metric}')],
                       formatters={'$x': 'datetime', 'Dataset-Task-Model': 'printf'})
