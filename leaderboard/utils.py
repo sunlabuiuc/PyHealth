@@ -281,7 +281,7 @@ def make_bokeh_plot(source, metric, f):
         height=190, width=500,
         tools=["pan, box_zoom, reset, save, crosshair"],
         toolbar_location='above',
-        y_range=[0, 1.0],
+        y_range=[0.1, 1.3],
         # x_axis_label="date",
         y_axis_label=metric,
         x_axis_type="datetime"
@@ -289,16 +289,16 @@ def make_bokeh_plot(source, metric, f):
 
     if metric == 'Jaccard':
         p.triangle(source=source, x='date', y='Jaccard', color='color', size=8, alpha=0.5,
-                   view=CDSView(source=source, filters=[f]))
+                view=CDSView(source=source, filters=[f]))
     if metric == 'Accuracy':
         p.circle(source=source, x='date', y='Accuracy', color='color', size=8, alpha=0.5,
-                 view=CDSView(source=source, filters=[f]))
+                view=CDSView(source=source, filters=[f]))
     if metric == 'F1':
         p.square(source=source, x='date', y='F1', color='color', size=8, alpha=0.5,
-                 view=CDSView(source=source, filters=[f]))
+                view=CDSView(source=source, filters=[f]))
     if metric == 'PRAUC':
         p.circle(source=source, x='date', y='PRAUC', color='color', size=8, alpha=0.5,
-                 view=CDSView(source=source, filters=[f]))
+                view=CDSView(source=source, filters=[f]))
 
     hover = HoverTool(tooltips=[('model', '@{Dataset-Task-Model}'), ('date', '$x{%F}'), ('value', f'@{metric}')],
                       formatters={'$x': 'datetime', 'Dataset-Task-Model': 'printf'})
@@ -310,7 +310,7 @@ def make_bokeh_plot(source, metric, f):
     p.yaxis.axis_label_text_font_size = "11pt"
     p.xaxis.axis_label_text_font_size = "11pt"
     p.axis.axis_label_text_font_style = 'bold'
-    p.margin = (0, 5, 0, 10)
+    p.margin = (5, 5, 0, 10)
 
     return p
 
@@ -418,7 +418,7 @@ def generate_bokeh_figure(df):
     div = Div(text="""Models (run by <a href="https://pyhealth.readthedocs.io/en/latest/api/models.html">pyhealth.models</a>)""",
         width=200, height=20)
     
-    cg.width = 200
+    cg.width = 220
     cg.height = 700
     div.margin = (20, 0, 0, 5)
     cg.margin = (5, 0, 0, 5)
