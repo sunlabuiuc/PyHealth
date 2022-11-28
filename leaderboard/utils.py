@@ -281,7 +281,7 @@ def make_bokeh_plot(source, metric, f):
         height=190, width=500,
         tools=["pan, box_zoom, reset, save, crosshair"],
         toolbar_location='above',
-        y_range=[0.1, 1.3],
+        y_range=[-0.3, 1.3],
         # x_axis_label="date",
         y_axis_label=metric,
         x_axis_type="datetime"
