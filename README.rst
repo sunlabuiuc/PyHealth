@@ -138,9 +138,9 @@ An ML Pipeline Example
     train_ds, val_ds, test_ds = split_by_patient(mimic3dataset, [0.8, 0.1, 0.1])
 
     # create dataloaders
-    train_loader = get_dataloader(train_dataset, batch_size=32, shuffle=True)
-    val_loader = get_dataloader(val_dataset, batch_size=32, shuffle=False)
-    test_loader = get_dataloader(test_dataset, batch_size=32, shuffle=False)
+    train_loader = get_dataloader(train_ds, batch_size=32, shuffle=True)
+    val_loader = get_dataloader(val_ds, batch_size=32, shuffle=False)
+    test_loader = get_dataloader(test_ds, batch_size=32, shuffle=False)
 
 * **STEP 3: <pyhealth.models>** provides the healthcare ML models using ``<pyhealth.models>``. This module also provides model layers, such as ``pyhealth.models.RETAINLayer`` for building customized ML architectures. Our model layers can used as easily as ``torch.nn.Linear``.
 
