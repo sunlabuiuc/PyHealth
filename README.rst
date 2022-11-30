@@ -174,7 +174,7 @@ An ML Pipeline Example
 
 .. code-block:: python
     
-    trainer.evaluate(test_dataloader)
+    trainer.evaluate(test_loader)
 
 Medical Code Map
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
