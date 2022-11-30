@@ -149,7 +149,7 @@ An ML Pipeline Example
     from pyhealth.models import Transformer
 
     model = Transformer(
-        dataset=dataset,
+        dataset=mimic3dataset,
         feature_keys=["conditions", "procedures"],
         label_key="drugs",
         mode="multilabel",
@@ -164,8 +164,8 @@ An ML Pipeline Example
 
     trainer = Trainer(model=model)
     trainer.train(
-        train_dataloader=train_dataloader,
-        val_dataloader=val_dataloader,
+        train_dataloader=train_loader,
+        val_dataloader=val_loader,
         epochs=50,
         monitor="pr_auc_samples",
     )
