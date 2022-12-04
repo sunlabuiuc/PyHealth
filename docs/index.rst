@@ -116,9 +116,9 @@ An ML Pipeline Example
     train_ds, val_ds, test_ds = split_by_patient(mimic3dataset, [0.8, 0.1, 0.1])
 
     # create dataloaders
-    train_loader = get_dataloader(train_dataset, batch_size=32, shuffle=True)
-    val_loader = get_dataloader(val_dataset, batch_size=32, shuffle=False)
-    test_loader = get_dataloader(test_dataset, batch_size=32, shuffle=False)
+    train_loader = get_dataloader(train_ds, batch_size=32, shuffle=True)
+    val_loader = get_dataloader(val_ds, batch_size=32, shuffle=False)
+    test_loader = get_dataloader(test_ds, batch_size=32, shuffle=False)
 
 * **STEP 3: <pyhealth.models>** provides the healthcare ML models using ``<pyhealth.models>``. This module also provides model layers, such as ``pyhealth.models.RETAINLayer`` for building customized ML architectures. Our model layers can used as easily as ``torch.nn.Linear``.
 
@@ -127,7 +127,7 @@ An ML Pipeline Example
     from pyhealth.models import Transformer
 
     model = Transformer(
-        dataset=dataset,
+        dataset=mimic3dataset,
         feature_keys=["conditions", "procedures"],
         label_key="drugs",
         mode="multilabel",
@@ -142,8 +142,8 @@ An ML Pipeline Example
 
     trainer = Trainer(model=model)
     trainer.train(
-        train_dataloader=train_dataloader,
-        val_dataloader=val_dataloader,
+        train_dataloader=train_loader,
+        val_dataloader=val_loader,
         epochs=50,
         monitor="pr_auc_samples",
     )
@@ -152,7 +152,7 @@ An ML Pipeline Example
 
 .. code-block:: python
     
-   trainer.evaluate(test_dataloader)
+   trainer.evaluate(test_loader)
 
 Medical Code Map
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
