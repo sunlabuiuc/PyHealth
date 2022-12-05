@@ -47,6 +47,56 @@ class BaseModel(ABC, nn.Module):
         """Gets the device of the model."""
         return self._dummy_param.device
 
+    def get_feature_tokenizers(self, special_tokens=None) -> Dict[str, Tokenizer]:
+        """Gets the default feature tokenizers using `self.feature_keys`.
+
+        These function is used for specific healthcare models, such as gamenet, safedrug, etc.
+
+        Args:
+            special_tokens: a list of special tokens to add to the tokenizer.
+                Default is ["<pad>", "<unk>"].
+
+        Returns:
+            feature_tokenizers: a dictionary of feature tokenizers with keys
+                corresponding to self.feature_keys.
+        """
+        if special_tokens is None:
+            special_tokens = ["<pad>", "<unk>"]
+        feature_tokenizers = {}
+        for feature_key in self.feature_keys:
+            feature_tokenizers[feature_key] = Tokenizer(
+                tokens=self.dataset.get_all_tokens(key=feature_key),
+                special_tokens=special_tokens,
+            )
+        return feature_tokenizers
+
+    @staticmethod
+    def get_embedding_layers(
+        feature_tokenizers: Dict[str, Tokenizer],
+        embedding_dim: int,
+    ) -> nn.ModuleDict:
+        """Gets the default embedding layers using the feature tokenizers.
+
+        These function is used for specific healthcare models, such as gamenet, safedrug, etc.
+
+        Args:
+            feature_tokenizers: a dictionary of feature tokenizers with keys
+                corresponding to `self.feature_keys`.
+            embedding_dim: the dimension of the embedding.
+
+        Returns:
+            embedding_layers: a module dictionary of embedding layers with keys
+                corresponding to `self.feature_keys`.
+        """
+        embedding_layers = nn.ModuleDict()
+        for key, tokenizer in feature_tokenizers.items():
+            embedding_layers[key] = nn.Embedding(
+                tokenizer.get_vocabulary_size(),
+                embedding_dim,
+                padding_idx=tokenizer.get_padding_index(),
+            )
+        return embedding_layers
+
     @staticmethod
     def padding2d(batch):
         """
