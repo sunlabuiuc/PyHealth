@@ -538,6 +538,7 @@ class BaseDataset(ABC, Dataset):
     def base_stat(self) -> str:
         """Returns some statistics of the base dataset."""
         lines = list()
+        lines.append("")
         lines.append(f"Statistics of {self.dataset_name} dataset (dev={self.dev}):")
         lines.append(f"\t- Number of patients: {len(self.patients)}")
         num_visits = [len(p) for p in self.patients.values()]
@@ -553,6 +554,7 @@ class BaseDataset(ABC, Dataset):
                 f"\t- Number of events per visit in {table}: "
                 f"{sum(num_events) / len(num_events):.4f}"
             )
+        lines.append("")
         print("\n".join(lines))
         return "\n".join(lines)
 
@@ -561,6 +563,7 @@ class BaseDataset(ABC, Dataset):
         if self.task is None:
             raise ValueError("Please set task first.")
         lines = list()
+        lines.append("")
         lines.append(f"Statistics of {self.task} task:")
         lines.append(f"\t- Dataset: {self.dataset_name} (dev={self.dev})")
         lines.append(f"\t- Number of samples: {len(self)}")
@@ -599,6 +602,7 @@ class BaseDataset(ABC, Dataset):
             top10 = sorted(distribution.items(), key=lambda x: x[1], reverse=True)[:10]
             lines.append(
                 f"\t\t- Distribution of {key} (Top-10): {top10}")
+        lines.append("")
         print("\n".join(lines))
         return "\n".join(lines)
 
