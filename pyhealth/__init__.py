@@ -10,7 +10,10 @@ if not os.path.exists(BASE_CACHE_PATH):
     os.makedirs(BASE_CACHE_PATH)
 
 # logging
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
+logger.propagate = False
 logger.setLevel(logging.INFO)
 handler = logging.StreamHandler()
+formatter = logging.Formatter("%(message)s")
+handler.setFormatter(formatter)
 logger.addHandler(handler)
