@@ -1,4 +1,5 @@
 from typing import List, Optional, Dict
+
 import numpy as np
 import sklearn.metrics as sklearn_metrics
 
@@ -9,6 +10,43 @@ def binary_metrics_fn(
         metrics: Optional[List[str]] = None,
         threshold: float = 0.5,
 ) -> Dict[str, float]:
+    """Computes metrics for binary classification.
+
+    User can specify which metrics to compute by passing a list of metric names.
+    The accepted metric names are:
+        - pr_auc: area under the precision-recall curve
+        - roc_auc: area under the receiver operating characteristic curve
+        - accuracy: accuracy score
+        - balanced_accuracy: balanced accuracy score (usually used for imbalanced
+            datasets)
+        - f1: f1 score
+        - precision: precision score
+        - recall: recall score
+        - cohen_kappa: Cohen's kappa score
+        - jaccard: Jaccard similarity coefficient score
+    If no metrics are specified, pr_auc, roc_auc and f1 are computed by default.
+
+    This function calls sklearn.metrics functions to compute the metrics. For
+    more information on the metrics, please refer to the documentation of the
+    corresponding sklearn.metrics functions.
+
+    Args:
+        y_true: True target values of shape (n_samples,).
+        y_prob: Predicted probabilities of shape (n_samples,).
+        metrics: List of metrics to compute. Default is ["pr_auc", "roc_auc", "f1"].
+        threshold: Threshold for binary classification. Default is 0.5.
+
+    Returns:
+        Dictionary of metrics whose keys are the metric names and values are
+            the metric values.
+
+    Examples:
+        >>> from pyhealth.metrics import binary_metrics_fn
+        >>> y_true = np.array([0, 0, 1, 1])
+        >>> y_prob = np.array([0.1, 0.4, 0.35, 0.8])
+        >>> binary_metrics_fn(y_true, y_prob, metrics=["accuracy"])
+        {'accuracy': 0.75}
+    """
     if metrics is None:
         metrics = ["pr_auc", "roc_auc", "f1"]
 
