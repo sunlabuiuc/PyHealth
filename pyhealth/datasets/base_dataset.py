@@ -1,6 +1,6 @@
 import logging
 import os
-from abc import ABC, abstractmethod
+from abc import ABC
 from collections import Counter
 from copy import deepcopy
 from typing import Dict, Callable, Tuple, Union, List, Optional
@@ -14,6 +14,8 @@ from pyhealth.datasets.utils import hash_str
 from pyhealth.datasets.utils import list_nested_level, is_homo_list, flatten_list
 from pyhealth.medcode import CrossMap
 from pyhealth.utils import load_pickle, save_pickle
+
+logger = logging.getLogger(__name__)
 
 INFO_MSG = """
 dataset.patients: patient_id -> <Patient>
@@ -117,18 +119,19 @@ class BaseDataset(ABC, Dataset):
         # check if cache exists or refresh_cache is True
         if os.path.exists(self.filepath) and (not refresh_cache):
             # load from cache
-            logging.debug(f"Loaded {self.dataset_name} base dataset from {self.filepath}")
+            logger.debug(
+                f"Loaded {self.dataset_name} base dataset from {self.filepath}")
             self.patients = load_pickle(self.filepath)
         else:
             # load from raw data
-            logging.debug(f"Processing {self.dataset_name} base dataset...")
+            logger.debug(f"Processing {self.dataset_name} base dataset...")
             # parse tables
             patients = self.parse_tables()
             # convert codes
             patients = self._convert_code_in_patient_dict(patients)
             self.patients = patients
             # save to cache
-            logging.debug(f"Saved {self.dataset_name} base dataset to {self.filepath}")
+            logger.debug(f"Saved {self.dataset_name} base dataset to {self.filepath}")
             save_pickle(self.patients, self.filepath)
 
     def _load_code_mapping_tools(self) -> Dict[str, CrossMap]:
@@ -604,6 +607,7 @@ class BaseDataset(ABC, Dataset):
         """Prints the output format."""
         print(INFO_MSG)
 
+
 class SampleDataset(ABC, Dataset):
     """Abstract sample dataset class.
 
@@ -668,7 +672,7 @@ class SampleDataset(ABC, Dataset):
         for idx, sample in enumerate(self.samples):
             visit_to_index.setdefault(sample["visit_id"], []).append(idx)
         return visit_to_index
-    
+
     def get_all_tokens(
             self,
             key: str,
@@ -782,7 +786,7 @@ class SampleDataset(ABC, Dataset):
         Returns:
             distribution: a dict mapping token to count.
         """
-        
+
         tokens = self.get_all_tokens(key, remove_duplicates=False, sort=False)
         counter = Counter(tokens)
         return counter
@@ -856,36 +860,36 @@ if __name__ == "__main__":
     ]
     samples2 = [
         {'patient_id': 'patient-0',
-            'visit_id': 'visit-0',
-            'conditions': ['cond-33',
-            'cond-86',
-            'cond-80'],
-            'procedures': ['prod-11',
-            'prod-8',
-            'prod-15',
-            'prod-66',
-            'prod-91',
-            'prod-94'],
-            'label': 1},
+         'visit_id': 'visit-0',
+         'conditions': ['cond-33',
+                        'cond-86',
+                        'cond-80'],
+         'procedures': ['prod-11',
+                        'prod-8',
+                        'prod-15',
+                        'prod-66',
+                        'prod-91',
+                        'prod-94'],
+         'label': 1},
         {'patient_id': 'patient-0',
-            'visit_id': 'visit-0',
-            'conditions': ['cond-33',
-            'cond-86',
-            'cond-80'],
-            'procedures': ['prod-11',
-            'prod-8',
-            'prod-15',
-            'prod-66',
-            'prod-91',
-            'prod-94'],
-            'label': 1}
+         'visit_id': 'visit-0',
+         'conditions': ['cond-33',
+                        'cond-86',
+                        'cond-80'],
+         'procedures': ['prod-11',
+                        'prod-8',
+                        'prod-15',
+                        'prod-66',
+                        'prod-91',
+                        'prod-94'],
+         'label': 1}
     ]
-    
+
     dataset = SampleDataset(
         samples=samples2,
         dataset_name="test")
-    
-    print (dataset.stat())
+
+    print(dataset.stat())
     data = iter(dataset)
-    print (next(data))
-    print (next(data))
+    print(next(data))
+    print(next(data))
