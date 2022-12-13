@@ -79,7 +79,7 @@ class eICUDataset(BaseDataset):
         self.visit_id_to_patient_id: Dict[str, str] = {}
         super(eICUDataset, self).__init__(**kwargs)
 
-    def parse_basic_info(self) -> Dict[str, Patient]:
+    def parse_basic_info(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
         """Helper functions which parses patient and hospital tables.
 
         Will be called in `self.parse_tables()`.
@@ -99,9 +99,6 @@ class eICUDataset(BaseDataset):
             and use `Visit` object to store the ICU stays within that hospital
             admission.
         """
-        # patients is a dict of Patient objects indexed by patient_id
-        patients: Dict[str, Patient] = dict()
-
         # read patient table
         patient_df = pd.read_csv(
             os.path.join(self.root, "patient.csv"),

@@ -1,8 +1,7 @@
 import hashlib
 import os
 from datetime import datetime
-from typing import List
-from typing import Optional
+from typing import List, Tuple, Optional
 
 from dateutil.parser import parse as dateutil_parse
 from torch.utils.data import DataLoader
@@ -52,28 +51,38 @@ def flatten_list(l: List) -> List:
     return sum(l, [])
 
 
-def list_nested_level(l: List) -> int:
-    """Gets the nested level of a list.
+def list_nested_levels(l: List) -> Tuple[int]:
+    """Gets all the different nested levels of a list.
 
     Args:
-        l: List, the list to be checked.
+        l: the list to be checked.
 
     Returns:
-        int, the nested level of the list.
+        All the different nested levels of the list.
 
     Examples:
-        >>> list_nested_level([1, 2, 3])
-        1
-        >>> list_nested_level([[1, 2, 3], [4, 5, 6]])
-        2
-        >>> list_nested_level([1, [2, 3], 4])
-        2
+        >>> list_nested_levels([])
+        (1,)
+        >>> list_nested_levels([1, 2, 3])
+        (1,)
+        >>> list_nested_levels([[]])
+        (2,)
+        >>> list_nested_levels([[1, 2, 3], [4, 5, 6]])
+        (2,)
+        >>> list_nested_levels([1, [2, 3], 4])
+        (1, 2)
+        >>> list_nested_levels([[1, [2, 3], 4]])
+        (2, 3)
     """
     if not isinstance(l, list):
-        return 0
+        return tuple([0])
     if not l:
-        return 1
-    return 1 + max(list_nested_level(i) for i in l)
+        return tuple([1])
+    levels = []
+    for i in l:
+        levels.extend(list_nested_levels(i))
+    levels = [i + 1 for i in levels]
+    return tuple(set(levels))
 
 
 def is_homo_list(l: List) -> bool:
@@ -115,9 +124,9 @@ def get_dataloader(dataset, batch_size, shuffle=False):
 
 
 if __name__ == "__main__":
-    print(list_nested_level([1, 2, 3]))
-    print(list_nested_level([1, [2], 3]))
-    print(list_nested_level([1, [2], [[3]]]))
+    print(list_nested_levels([1, 2, 3]))
+    print(list_nested_levels([1, [2], 3]))
+    print(list_nested_levels([[1, [2], [[3]]]]))
     print(is_homo_list([1, 2, 3]))
     print(is_homo_list([1, 2, [3]]))
     print(is_homo_list([1, 2.0]))
