@@ -67,11 +67,11 @@ def leaderboard_generation(args):
             )
             raise ValueError
 
-        dataset = get_dataset(dataset_name)
+        base_dataset = get_dataset(dataset_name)
 
         for task in task_list:
             # set task to the dataset
-            dataset.set_task(task)
+            dataset = base_dataset.set_task(task)
 
             # split the dataset and create dataloaders
             train_loader, val_loader, test_loader = split_dataset_and_get_dataloaders(

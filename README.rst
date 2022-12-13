@@ -120,7 +120,7 @@ An ML Pipeline Example
 .. code-block:: python
 
     from pyhealth.datasets import MIMIC3Dataset
-    mimic3dataset = MIMIC3Dataset(
+    mimic3base = MIMIC3Dataset(
         root="https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III/", 
         tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
         # map all NDC codes to ATC 3-rd level codes in these tables
@@ -134,8 +134,8 @@ An ML Pipeline Example
     from pyhealth.tasks import drug_recommendation_mimic3_fn
     from pyhealth.datasets import split_by_patient, get_dataloader
 
-    mimic3dataset.set_task(task_fn=drug_recommendation_mimic3_fn) # use default task
-    train_ds, val_ds, test_ds = split_by_patient(mimic3dataset, [0.8, 0.1, 0.1])
+    mimic3sample = mimic3base.set_task(task_fn=drug_recommendation_mimic3_fn) # use default task
+    train_ds, val_ds, test_ds = split_by_patient(mimic3sample, [0.8, 0.1, 0.1])
 
     # create dataloaders
     train_loader = get_dataloader(train_ds, batch_size=32, shuffle=True)
@@ -149,7 +149,7 @@ An ML Pipeline Example
     from pyhealth.models import Transformer
 
     model = Transformer(
-        dataset=mimic3dataset,
+        dataset=mimic3sample,
         feature_keys=["conditions", "procedures"],
         label_key="drugs",
         mode="multilabel",
