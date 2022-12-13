@@ -3,7 +3,7 @@ from typing import List, Tuple, Dict
 import torch
 import torch.nn as nn
 
-from pyhealth.datasets import BaseDataset
+from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 
 VALID_OPERATION_LEVEL = ["visit", "event"]
@@ -168,7 +168,7 @@ class CNN(BaseModel):
 
     def __init__(
         self,
-        dataset: BaseDataset,
+        dataset: SampleDataset,
         feature_keys: List[str],
         label_key: str,
         mode: str,
@@ -203,23 +203,23 @@ class CNN(BaseModel):
         for feature_key in self.feature_keys:
             input_info = self.dataset.input_info[feature_key]
             # sanity check
-            if input_info["Type"] not in [str, float, int]:
+            if input_info["type"] not in [str, float, int]:
                 raise ValueError(
                     "CNN only supports str code, float and int as input types"
                 )
-            elif (input_info["Type"] == str) and (input_info["level"] not in [1, 2]):
+            elif (input_info["type"] == str) and (input_info["dim"] not in [2, 3]):
                 raise ValueError(
-                    "CNN only supports 1-level or 2-level str code as input types"
+                    "CNN only supports 2-dim or 3-dim str code as input types"
                 )
-            elif (input_info["Type"] in [float, int]) and (
-                input_info["level"] not in [2, 3]
+            elif (input_info["type"] in [float, int]) and (
+                input_info["dim"] not in [2, 3]
             ):
                 raise ValueError(
-                    "CNN only supports 2-level or 3-level float and int as input types"
+                    "CNN only supports 2-dim or 3-dim float and int as input types"
                 )
             # for code based input, we need Type
             # for float/int based input, we need Type, input_dim
-            self.add_feature_transform_layer(feature_key=feature_key, **input_info)
+            self.add_feature_transform_layer(feature_key, input_info)
 
         self.cnn = nn.ModuleDict()
         for feature_key in feature_keys:
@@ -247,10 +247,10 @@ class CNN(BaseModel):
         patient_emb = []
         for feature_key in self.feature_keys:
             input_info = self.dataset.input_info[feature_key]
-            level, Type = input_info["level"], input_info["Type"]
+            dim_, type_ = input_info["dim"], input_info["type"]
 
             # for case 1: [code1, code2, code3, ...]
-            if (level == 1) and (Type == str):
+            if (dim_ == 2) and (type_ == str):
                 x = self.feat_tokenizers[feature_key].batch_encode_2d(
                     kwargs[feature_key]
                 )
@@ -260,7 +260,7 @@ class CNN(BaseModel):
                 x = self.embeddings[feature_key](x)
 
             # for case 2: [[code1, code2], [code3, ...], ...]
-            elif (level == 2) and (Type == str):
+            elif (dim_ == 3) and (type_ == str):
                 x = self.feat_tokenizers[feature_key].batch_encode_3d(
                     kwargs[feature_key]
                 )
@@ -272,7 +272,7 @@ class CNN(BaseModel):
                 x = torch.sum(x, dim=2)
 
             # for case 3: [[1.5, 2.0, 0.0], ...]
-            elif (level == 2) and (Type in [float, int]):
+            elif (dim_ == 2) and (type_ in [float, int]):
                 x, _ = self.padding2d(kwargs[feature_key])
                 # (patient, event, values)
                 x = torch.tensor(x, dtype=torch.float, device=self.device)
@@ -280,7 +280,7 @@ class CNN(BaseModel):
                 x = self.linear_layers[feature_key](x)
 
             # for case 4: [[[1.5, 2.0, 0.0], [1.8, 2.4, 6.0]], ...]
-            elif (level == 3) and (Type in [float, int]):
+            elif (dim_ == 3) and (type_ in [float, int]):
                 x, _ = self.padding3d(kwargs[feature_key])
                 # (patient, visit, event, values)
                 x = torch.tensor(x, dtype=torch.float, device=self.device)

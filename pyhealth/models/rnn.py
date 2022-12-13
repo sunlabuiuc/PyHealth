@@ -4,8 +4,9 @@ import torch
 import torch.nn as nn
 import torch.nn.utils.rnn as rnn_utils
 
-from pyhealth.datasets import BaseDataset
+from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
+
 
 # VALID_OPERATION_LEVEL = ["visit", "event"]
 
@@ -125,7 +126,7 @@ class RNN(BaseModel):
 
     Note:
         We use separate rnn layers for different feature_keys.
-        Currentluy, we automatically support different input formats:
+        Currently, we automatically support different input formats:
             - code based input (need to use the embedding table later)
             - float/int based value input
         We follow the current convention for the rnn model:
@@ -160,7 +161,7 @@ class RNN(BaseModel):
 
     def __init__(
         self,
-        dataset: BaseDataset,
+        dataset: SampleDataset,
         feature_keys: List[str],
         label_key: str,
         mode: str,
@@ -195,23 +196,23 @@ class RNN(BaseModel):
         for feature_key in self.feature_keys:
             input_info = self.dataset.input_info[feature_key]
             # sanity check
-            if input_info["Type"] not in [str, float, int]:
+            if input_info["type"] not in [str, float, int]:
                 raise ValueError(
                     "RNN only supports str code, float and int as input types"
                 )
-            elif (input_info["Type"] == str) and (input_info["level"] not in [1, 2]):
+            elif (input_info["type"] == str) and (input_info["dim"] not in [2, 3]):
                 raise ValueError(
-                    "RNN only supports 1-level or 2-level str code as input types"
+                    "RNN only supports 2-dim or 3-dim str code as input types"
                 )
-            elif (input_info["Type"] in [float, int]) and (
-                input_info["level"] not in [2, 3]
+            elif (input_info["type"] in [float, int]) and (
+                input_info["dim"] not in [2, 3]
             ):
                 raise ValueError(
-                    "RNN only supports 2-level or 3-level float and int as input types"
+                    "RNN only supports 2-dim or 3-dim float and int as input types"
                 )
             # for code based input, we need Type
             # for float/int based input, we need Type, input_dim
-            self.add_feature_transform_layer(feature_key=feature_key, **input_info)
+            self.add_feature_transform_layer(feature_key, input_info)
 
         self.rnn = nn.ModuleDict()
         for feature_key in feature_keys:
@@ -239,10 +240,10 @@ class RNN(BaseModel):
         patient_emb = []
         for feature_key in self.feature_keys:
             input_info = self.dataset.input_info[feature_key]
-            level, Type = input_info["level"], input_info["Type"]
+            dim_, type_ = input_info["dim"], input_info["type"]
 
             # for case 1: [code1, code2, code3, ...]
-            if (level == 1) and (Type == str):
+            if (dim_ == 2) and (type_ == str):
                 x = self.feat_tokenizers[feature_key].batch_encode_2d(
                     kwargs[feature_key]
                 )
@@ -254,7 +255,7 @@ class RNN(BaseModel):
                 mask = torch.sum(x, dim=2) != 0
 
             # for case 2: [[code1, code2], [code3, ...], ...]
-            elif (level == 2) and (Type == str):
+            elif (dim_ == 3) and (type_ == str):
                 x = self.feat_tokenizers[feature_key].batch_encode_3d(
                     kwargs[feature_key]
                 )
@@ -268,7 +269,7 @@ class RNN(BaseModel):
                 mask = torch.sum(x, dim=2) != 0
 
             # for case 3: [[1.5, 2.0, 0.0], ...]
-            elif (level == 2) and (Type in [float, int]):
+            elif (dim_ == 2) and (type_ in [float, int]):
                 x, mask = self.padding2d(kwargs[feature_key])
                 # (patient, event, values)
                 x = torch.tensor(x, dtype=torch.float, device=self.device)
@@ -278,7 +279,7 @@ class RNN(BaseModel):
                 mask = torch.tensor(mask, dtype=torch.bool, device=self.device)
 
             # for case 4: [[[1.5, 2.0, 0.0], [1.8, 2.4, 6.0]], ...]
-            elif (level == 3) and (Type in [float, int]):
+            elif (dim_ == 3) and (type_ in [float, int]):
                 x, mask = self.padding3d(kwargs[feature_key])
                 # (patient, visit, event, values)
                 x = torch.tensor(x, dtype=torch.float, device=self.device)

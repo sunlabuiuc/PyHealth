@@ -27,7 +27,6 @@ model = RNN(
     feature_keys=["conditions", "procedures", "drugs"],
     label_key="label",
     mode="binary",
-    operation_level="visit",
 )
 
 # STEP 4: define trainer

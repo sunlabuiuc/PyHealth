@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from pyhealth.datasets import BaseDataset
+from pyhealth.datasets import SampleDataset
 from pyhealth.models.utils import batch_to_multihot
 from pyhealth.tokenizer import Tokenizer
 
@@ -27,7 +27,7 @@ class BaseModel(ABC, nn.Module):
 
     def __init__(
         self,
-        dataset: BaseDataset,
+        dataset: SampleDataset,
         feature_keys: List[str],
         label_key: str,
         mode: str,
@@ -169,8 +169,8 @@ class BaseModel(ABC, nn.Module):
 
         return batch, mask
 
-    def add_feature_transform_layer(self, feature_key: str, Type: type, **kwargs):
-        if Type == str:
+    def add_feature_transform_layer(self, feature_key: str, info):
+        if info["type"] == str:
             # feature tokenizer
             special_tokens = ["<pad>", "<unk>"]
             tokenizer = Tokenizer(
@@ -184,12 +184,12 @@ class BaseModel(ABC, nn.Module):
                 self.embedding_dim,
                 padding_idx=tokenizer.get_padding_index(),
             )
-        elif Type in [float, int]:
+        elif info["type"] in [float, int]:
             self.linear_layers[feature_key] = nn.Linear(
-                kwargs["input_dim"], self.embedding_dim
+                info["len"], self.embedding_dim
             )
         else:
-            raise ValueError("Unsupported feature type: {}".format(type))
+            raise ValueError("Unsupported feature type: {}".format(info["type"]))
 
     def get_label_tokenizer(self, special_tokens=None) -> Tokenizer:
         """Gets the default label tokenizers using `self.label_key`.

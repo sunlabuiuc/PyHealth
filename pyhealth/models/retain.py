@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.utils.rnn as rnn_utils
 
-from pyhealth.datasets import BaseDataset
+from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 
 # VALID_OPERATION_LEVEL = ["visit", "event"]
@@ -151,7 +151,7 @@ class RETAIN(BaseModel):
 
     def __init__(
         self,
-        dataset: BaseDataset,
+        dataset: SampleDataset,
         feature_keys: List[str],
         label_key: str,
         mode: str,
@@ -182,23 +182,23 @@ class RETAIN(BaseModel):
         for feature_key in self.feature_keys:
             input_info = self.dataset.input_info[feature_key]
             # sanity check
-            if input_info["Type"] not in [str, float, int]:
+            if input_info["type"] not in [str, float, int]:
                 raise ValueError(
                     "RETAIN only supports str code, float and int as input types"
                 )
-            elif (input_info["Type"] == str) and (input_info["level"] not in [1, 2]):
+            elif (input_info["type"] == str) and (input_info["dim"] not in [2, 3]):
                 raise ValueError(
                     "RETAIN only supports 1-level or 2-level str code as input types"
                 )
-            elif (input_info["Type"] in [float, int]) and (
-                input_info["level"] not in [2, 3]
+            elif (input_info["type"] in [float, int]) and (
+                input_info["dim"] not in [2, 3]
             ):
                 raise ValueError(
                     "RETAIN only supports 2-level or 3-level float and int as input types"
                 )
             # for code based input, we need Type
             # for float/int based input, we need Type, input_dim
-            self.add_feature_transform_layer(feature_key=feature_key, **input_info)
+            self.add_feature_transform_layer(feature_key, input_info)
 
         self.retain = nn.ModuleDict()
         for feature_key in feature_keys:
@@ -225,10 +225,10 @@ class RETAIN(BaseModel):
         patient_emb = []
         for feature_key in self.feature_keys:
             input_info = self.dataset.input_info[feature_key]
-            level, Type = input_info["level"], input_info["Type"]
+            level, Type = input_info["dim"], input_info["type"]
 
             # for case 1: [code1, code2, code3, ...]
-            if (level == 1) and (Type == str):
+            if (level == 2) and (Type == str):
                 x = self.feat_tokenizers[feature_key].batch_encode_2d(
                     kwargs[feature_key]
                 )
@@ -240,7 +240,7 @@ class RETAIN(BaseModel):
                 mask = torch.sum(x, dim=2) != 0
 
             # for case 2: [[code1, code2], [code3, ...], ...]
-            elif (level == 2) and (Type == str):
+            elif (level == 3) and (Type == str):
                 x = self.feat_tokenizers[feature_key].batch_encode_3d(
                     kwargs[feature_key]
                 )
@@ -314,8 +314,8 @@ if __name__ == "__main__":
     ]
 
     input_info = {
-        "conditions": {"level": 1, "Type": str},
-        "procedures": {"level": 2, "Type": float, "input_dim": 4},
+        "conditions": {"dim": 1, "type": str},
+        "procedures": {"dim": 2, "type": float, "input_dim": 4},
     }
 
     # dataset

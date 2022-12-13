@@ -5,8 +5,8 @@ from pyhealth.datasets.utils import collate_fn_dict
 
 # from pyhealth.models import CNN as Model
 # from pyhealth.models import RNN as Model
-# from pyhealth.models import RETAIN as Model
-from pyhealth.models import Transformer as Model
+from pyhealth.models import RETAIN as Model
+# from pyhealth.models import Transformer as Model
 
 
 def task_event(patient):
@@ -70,7 +70,6 @@ model = Model(
     feature_keys=["conditions", "procedures"],
     label_key="value_label",
     mode="binary",
-    operation_level="event",
 )
 model.to("cuda")
 batch = iter(dataloader).next()
@@ -87,7 +86,6 @@ model = Model(
     feature_keys=["conditions", "procedures"],
     label_key="value_label",
     mode="binary",
-    operation_level="visit",
 )
 model.to("cuda")
 batch = iter(dataloader).next()
@@ -104,7 +102,6 @@ model = Model(
     feature_keys=["conditions", "procedures"],
     label_key="value_label",
     mode="multiclass",
-    operation_level="event",
 )
 model.to("cuda")
 batch = iter(dataloader).next()
@@ -121,7 +118,6 @@ model = Model(
     feature_keys=["conditions", "procedures"],
     label_key="value_label",
     mode="multiclass",
-    operation_level="visit",
 )
 model.to("cuda")
 batch = iter(dataloader).next()
@@ -138,7 +134,6 @@ model = Model(
     feature_keys=["conditions", "procedures"],
     label_key="list_label",
     mode="multilabel",
-    operation_level="event",
 )
 model.to("cuda")
 batch = iter(dataloader).next()
@@ -155,7 +150,6 @@ model = Model(
     feature_keys=["conditions", "procedures"],
     label_key="list_label",
     mode="multilabel",
-    operation_level="visit",
 )
 model.to("cuda")
 batch = iter(dataloader).next()

@@ -2,7 +2,7 @@ from typing import List, Tuple, Dict, Optional
 
 import torch
 import torch.nn as nn
-from pyhealth.datasets import BaseDataset
+from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 
 
@@ -53,7 +53,7 @@ class MLP(BaseModel):
 
     def __init__(
         self,
-        dataset: BaseDataset,
+        dataset: SampleDataset,
         feature_keys: List[str],
         label_key: str,
         mode: str,

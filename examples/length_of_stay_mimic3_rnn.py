@@ -27,7 +27,6 @@ model = Transformer(
     feature_keys=["conditions", "procedures", "drugs"],
     label_key="label",
     mode="multiclass",
-    operation_level="visit",
 )
 
 # STEP 4: define trainer
