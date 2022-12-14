@@ -16,7 +16,7 @@ base_dataset.stat()
 sample_dataset = base_dataset.set_task(drug_recommendation_mimic3_fn)
 sample_dataset.stat()
 
-train_dataset, val_dataset, test_dataset = split_by_patient(dataset, [0.8, 0.1, 0.1])
+train_dataset, val_dataset, test_dataset = split_by_patient(sample_dataset, [0.8, 0.1, 0.1])
 train_dataloader = get_dataloader(train_dataset, batch_size=32, shuffle=True)
 val_dataloader = get_dataloader(val_dataset, batch_size=32, shuffle=False)
 test_dataloader = get_dataloader(test_dataset, batch_size=32, shuffle=False)
