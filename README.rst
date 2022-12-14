@@ -61,7 +61,7 @@ PyHealth is designed for both **ML researchers and medical practitioners**. We c
 ----------
 
 
-Introduction
+1. Introduction
 --------------------------
 
 .. .. image:: https://raw.githubusercontent.com/yzhao062/PyHealth/master/docs/images/logo.png
@@ -73,7 +73,7 @@ PyHealth can support **diverse electronic health records (EHRs)** such as MIMIC 
 
 *Build a healthcare AI pipeline can be as short as 10 lines of code in PyHealth*.
 
-Installation
+2. Installation
 -----------------
 
 - You could install from PyPi:
@@ -103,7 +103,7 @@ Installation
     tqdm
 
 
-Modules
+3. Modules
 --------------------------
 
 All healthcare tasks in our package follow a **five-stage pipeline**: 
@@ -112,7 +112,7 @@ All healthcare tasks in our package follow a **five-stage pipeline**:
 
 ! We try hard to make sure each stage is as separate as possibe, so that people can customize their own pipeline by only using our data processing steps or the ML models. Each step will call one module and we introduce them using an example.
 
-An ML Pipeline Example 
+3.1 An ML Pipeline Example 
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 * **STEP 1: <pyhealth.datasets>** provides a clean structure for the dataset, independent from the tasks. We support ``MIMIC-III``, ``MIMIC-IV`` and ``eICU``, as well as the standard ``OMOP-formatted data``. The dataset is stored in a unified ``Patient-Visit-Event`` structure.
@@ -177,7 +177,7 @@ User could also store their own dataset into our ``<pyhealth.datasets.SampleData
     
     trainer.evaluate(test_loader)
 
-Medical Code Map
+3.2 Medical Code Map
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 * **<pyhealth.codemap>** provides two core functionalities: (i) looking up information for a given medical code (e.g., name, category, sub-concept); (ii) mapping codes across coding systems (e.g., ICD9CM to CCSCM). **This module can be independently applied to your research.**
@@ -204,7 +204,7 @@ Medical Code Map
     icd9cm.lookup("428.0") # get detailed info
     icd9cm.get_ancestors("428.0") # get parents
 
-Medical Code Tokenizer
+3.3 Medical Code Tokenizer
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 * **<pyhealth.tokenizer>** is used for transformations between string-based tokens and integer-based indices, based on the overall token space. We provide flexible functions to tokenize 1D, 2D and 3D lists. **This module can be independently applied to your research.**
@@ -229,7 +229,7 @@ Medical Code Tokenizer
 
 ..
 
-Tutorials
+4. Tutorials
 ------------
 
  We provide the following tutorials to help users get started with our pyhealth.
@@ -276,7 +276,7 @@ Tutorials
 ----
 
 
-Datasets
+5. Datasets
 --------------------------
 We provide the processing files for the following open EHR datasets:
 
@@ -290,8 +290,8 @@ OMOP                 ``pyhealth.datasets.OMOPBaseDataset``                      
 ===================  =======================================  ========================================  ========================================================================================================
 
 
-Machine/Deep Learning Models
------------------------------
+6. Machine/Deep Learning Models and Benchmarks
+------------------------------------------------
 
 ==================================    ================  =================================  ======  ===========================================================================================================================================
 Model Name                            Type              Module                             Year    Reference
@@ -305,8 +305,4 @@ MICRON                                deep Learning     ``pyhealth.models.MICRON
 SafeDrug                              deep Learning     ``pyhealth.models.SafeDrug``       2021    `SafeDrug: Dual Molecular Graph Encoders for Recommending Effective and Safe Drug Combinations <https://arxiv.org/abs/2105.02711>`_
 ==================================    ================  =================================  ======  ===========================================================================================================================================
 
-
-Benchmarks on Healthcare Tasks
-----------------------------------
-
-* Check the `interactive map <https://pyhealth.readthedocs.io/en/latest/index.html#benchmark-on-healthcare-tasks>`_.
+* Check the `interactive map on benchmark EHR predictive tasks <https://pyhealth.readthedocs.io/en/latest/index.html#benchmark-on-healthcare-tasks>`_.
