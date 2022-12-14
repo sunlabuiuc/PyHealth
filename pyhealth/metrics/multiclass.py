@@ -9,6 +9,55 @@ def multiclass_metrics_fn(
     y_prob: np.ndarray,
     metrics: Optional[List[str]] = None,
 ) -> Dict[str, float]:
+    """Computes metrics for multiclass classification.
+
+    User can specify which metrics to compute by passing a list of metric names.
+    The accepted metric names are:
+        - roc_auc_macro_ovo: area under the receiver operating characteristic curve,
+            macro averaged over one-vs-one multiclass classification
+        - roc_auc_macro_ovr: area under the receiver operating characteristic curve,
+            macro averaged over one-vs-rest multiclass classification
+        - roc_auc_weighted_ovo: area under the receiver operating characteristic curve,
+            weighted averaged over one-vs-one multiclass classification
+        - roc_auc_weighted_ovr: area under the receiver operating characteristic curve,
+            weighted averaged over one-vs-rest multiclass classification
+        - accuracy: accuracy score
+        - balanced_accuracy: balanced accuracy score (usually used for imbalanced
+            datasets)
+        - f1_micro: f1 score, micro averaged
+        - f1_macro: f1 score, macro averaged
+        - f1_weighted: f1 score, weighted averaged
+        - jaccard_micro: Jaccard similarity coefficient score, micro averaged
+        - jaccard_macro: Jaccard similarity coefficient score, macro averaged
+        - jaccard_weighted: Jaccard similarity coefficient score, weighted averaged
+        - cohen_kappa: Cohen's kappa score
+    If no metrics are specified, accuracy, f1_macro, and f1_micro are computed
+    by default.
+
+    This function calls sklearn.metrics functions to compute the metrics. For
+    more information on the metrics, please refer to the documentation of the
+    corresponding sklearn.metrics functions.
+
+    Args:
+        y_true: True target values of shape (n_samples,).
+        y_prob: Predicted probabilities of shape (n_samples, n_classes).
+        metrics: List of metrics to compute. Default is ["accuracy", "f1_macro",
+            "f1_micro"].
+
+    Returns:
+        Dictionary of metrics whose keys are the metric names and values are
+            the metric values.
+
+    Examples:
+        >>> from pyhealth.metrics import multiclass_metrics_fn
+        >>> y_true = np.array([0, 1, 2, 2])
+        >>> y_prob = np.array([[0.9,  0.05, 0.05],
+        ...                    [0.05, 0.9,  0.05],
+        ...                    [0.05, 0.05, 0.9],
+        ...                    [0.6,  0.2,  0.2]])
+        >>> multiclass_metrics_fn(y_true, y_prob, metrics=["accuracy"])
+        {'accuracy': 0.75}
+    """
     if metrics is None:
         metrics = ["accuracy", "f1_macro", "f1_micro"]
 

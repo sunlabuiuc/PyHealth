@@ -1,6 +1,7 @@
 import logging
 import os
 from abc import ABC
+from collections import Counter
 from copy import deepcopy
 from typing import Dict, Callable, Tuple, Union, List, Optional
 
@@ -12,6 +13,8 @@ from pyhealth.datasets.utils import MODULE_CACHE_PATH
 from pyhealth.datasets.utils import hash_str
 from pyhealth.medcode import CrossMap
 from pyhealth.utils import load_pickle, save_pickle
+
+logger = logging.getLogger(__name__)
 
 INFO_MSG = """
 dataset.patients: patient_id -> <Patient>
@@ -101,20 +104,20 @@ class BaseDataset(ABC):
         # check if cache exists or refresh_cache is True
         if os.path.exists(self.filepath) and (not refresh_cache):
             # load from cache
-            logging.debug(
+            logger.debug(
                 f"Loaded {self.dataset_name} base dataset from {self.filepath}"
             )
             self.patients = load_pickle(self.filepath)
         else:
             # load from raw data
-            logging.debug(f"Processing {self.dataset_name} base dataset...")
+            logger.debug(f"Processing {self.dataset_name} base dataset...")
             # parse tables
             patients = self.parse_tables()
             # convert codes
             patients = self._convert_code_in_patient_dict(patients)
             self.patients = patients
             # save to cache
-            logging.debug(f"Saved {self.dataset_name} base dataset to {self.filepath}")
+            logger.debug(f"Saved {self.dataset_name} base dataset to {self.filepath}")
             save_pickle(self.patients, self.filepath)
 
     def _load_code_mapping_tools(self) -> Dict[str, CrossMap]:
@@ -292,6 +295,7 @@ class BaseDataset(ABC):
     def stat(self) -> str:
         """Returns some statistics of the base dataset."""
         lines = list()
+        lines.append("")
         lines.append(f"Statistics of base dataset (dev={self.dev}):")
         lines.append(f"\t- Dataset: {self.dataset_name}")
         lines.append(f"\t- Number of patients: {len(self.patients)}")
@@ -308,6 +312,7 @@ class BaseDataset(ABC):
                 f"\t- Number of events per visit in {table}: "
                 f"{sum(num_events) / len(num_events):.4f}"
             )
+        lines.append("")
         print("\n".join(lines))
         return "\n".join(lines)
 

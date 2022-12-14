@@ -10,6 +10,8 @@ import pyhealth.medcode as medcode
 from pyhealth.medcode.utils import MODULE_CACHE_PATH, download_and_read_csv
 from pyhealth.utils import load_pickle, save_pickle
 
+logger = logging.getLogger(__name__)
+
 
 # TODO: add this callable method: InnerMap(vocab)
 class InnerMap(ABC):
@@ -22,7 +24,7 @@ class InnerMap(ABC):
     Note:
         This class cannot be instantiated using `__init__()` (throws an error).
     """
-    
+
     @abstractmethod
     def __init__(
         self,
@@ -36,10 +38,10 @@ class InnerMap(ABC):
         pickle_filepath = os.path.join(MODULE_CACHE_PATH, self.vocabulary + ".pkl")
         csv_filename = self.vocabulary + ".csv"
         if os.path.exists(pickle_filepath) and (not refresh_cache):
-            logging.debug(f"Loaded {vocabulary} code from {pickle_filepath}")
+            logger.debug(f"Loaded {vocabulary} code from {pickle_filepath}")
             self.graph = load_pickle(pickle_filepath)
         else:
-            logging.debug(f"Processing {vocabulary} code...")
+            logger.debug(f"Processing {vocabulary} code...")
             df = download_and_read_csv(csv_filename, refresh_cache)
             # create graph
             df = df.set_index("code")
@@ -54,7 +56,7 @@ class InnerMap(ABC):
                 if "parent_code" in row:
                     if not pd.isna(row["parent_code"]):
                         self.graph.add_edge(row["parent_code"], code)
-            logging.debug(f"Saved {vocabulary} code to {pickle_filepath}")
+            logger.debug(f"Saved {vocabulary} code to {pickle_filepath}")
             save_pickle(self.graph, pickle_filepath)
         return
 
@@ -168,11 +170,11 @@ class InnerMap(ABC):
         )
         return descendants
 
+
 if __name__ == "__main__":
     icd9cm = InnerMap.load("ICD9CM")
-    print (icd9cm.stat())
-    print ("428.0" in icd9cm)
-    print (icd9cm.lookup("4280"))
-    print (icd9cm.get_ancestors("428.0"))
-    print (icd9cm.get_descendants("428.0"))
-    
+    print(icd9cm.stat())
+    print("428.0" in icd9cm)
+    print(icd9cm.lookup("4280"))
+    print(icd9cm.get_ancestors("428.0"))
+    print(icd9cm.get_descendants("428.0"))

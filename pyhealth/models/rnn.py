@@ -64,7 +64,7 @@ class RNNLayer(nn.Module):
             input_size,
             hidden_size,
             num_layers=num_layers,
-            dropout=dropout,
+            dropout=dropout if num_layers > 1 else 0,
             bidirectional=bidirectional,
             batch_first=True,
         )

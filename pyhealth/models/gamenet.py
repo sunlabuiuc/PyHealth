@@ -269,14 +269,14 @@ class GAMENet(BaseModel):
             embedding_dim,
             hidden_dim,
             num_layers=num_layers,
-            dropout=dropout,
+            dropout=dropout if num_layers > 1 else 0,
             batch_first=True,
         )
         self.proc_rnn = nn.GRU(
             embedding_dim,
             hidden_dim,
             num_layers=num_layers,
-            dropout=dropout,
+            dropout=dropout if num_layers > 1 else 0,
             batch_first=True,
         )
         self.query = nn.Sequential(

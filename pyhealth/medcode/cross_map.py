@@ -8,6 +8,8 @@ import pyhealth.medcode as medcode
 from pyhealth.medcode.utils import MODULE_CACHE_PATH, download_and_read_csv
 from pyhealth.utils import load_pickle, save_pickle
 
+logger = logging.getLogger(__name__)
+
 
 class CrossMap:
     """Contains mapping between two medical code systems.
@@ -30,13 +32,13 @@ class CrossMap:
         pickle_filename = f"{self.s_vocab}_to_{self.t_vocab}.pkl"
         pickle_filepath = os.path.join(MODULE_CACHE_PATH, pickle_filename)
         if os.path.exists(pickle_filepath) and (not refresh_cache):
-            logging.debug(
+            logger.debug(
                 f"Loaded {self.s_vocab}->{self.t_vocab} mapping "
                 f"from {pickle_filepath}"
             )
             self.mapping = load_pickle(pickle_filepath)
         else:
-            logging.debug(f"Processing {self.s_vocab}->{self.t_vocab} mapping...")
+            logger.debug(f"Processing {self.s_vocab}->{self.t_vocab} mapping...")
             try:
                 local_filename = f"{self.s_vocab}_to_{self.t_vocab}.csv"
                 df = download_and_read_csv(local_filename, refresh_cache)
@@ -46,7 +48,7 @@ class CrossMap:
             self.mapping = defaultdict(list)
             for _, row in df.iterrows():
                 self.mapping[row[self.s_vocab]].append(row[self.t_vocab])
-            logging.debug(
+            logger.debug(
                 f"Saved {self.s_vocab}->{self.t_vocab} mapping " f"to {pickle_filepath}"
             )
             save_pickle(self.mapping, pickle_filepath)

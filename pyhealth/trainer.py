@@ -19,6 +19,8 @@ from pyhealth.metrics import (
 )
 from pyhealth.utils import create_directory
 
+logger = logging.getLogger(__name__)
+
 
 def is_best(best_score: float, score: float, monitor_criterion: str) -> bool:
     if monitor_criterion == "max":
@@ -32,7 +34,6 @@ def is_best(best_score: float, score: float, monitor_criterion: str) -> bool:
 def set_logger(log_path: str) -> None:
     create_directory(log_path)
     log_filename = os.path.join(log_path, "log.txt")
-    logger = logging.getLogger()
     handler = logging.FileHandler(log_filename)
     formatter = logging.Formatter("%(asctime)s %(message)s", "%Y-%m-%d %H:%M:%S")
     handler.setFormatter(formatter)
@@ -99,16 +100,16 @@ class Trainer:
         self.model.to(self.device)
 
         # logging
-        logging.info(self.model)
-        logging.info(f"Metrics: {self.metrics}")
-        logging.info(f"Device: {self.device}")
+        logger.info(self.model)
+        logger.info(f"Metrics: {self.metrics}")
+        logger.info(f"Device: {self.device}")
 
         # load checkpoint
         if checkpoint_path is not None:
-            logging.info(f"Loading checkpoint from {checkpoint_path}")
+            logger.info(f"Loading checkpoint from {checkpoint_path}")
             self.load_ckpt(checkpoint_path)
 
-        logging.info("")
+        logger.info("")
         return
 
     def train(
@@ -145,17 +146,16 @@ class Trainer:
             optimizer_params = {"lr": 1e-3}
 
         # logging
-        logging.info("Training:")
-        logging.info(f"Batch size: {train_dataloader.batch_size}")
-        logging.info(f"Optimizer: {optimizer_class}")
-        logging.info(f"Optimizer params: {optimizer_params}")
-        logging.info(f"Weight decay: {weight_decay}")
-        logging.info(f"Max grad norm: {max_grad_norm}")
-        logging.info(f"Val dataloader: {val_dataloader}")
-        logging.info(f"Monitor: {monitor}")
-        logging.info(f"Monitor criterion: {monitor_criterion}")
-        logging.info(f"Epochs: {epochs}")
-        logging.info("")
+        logger.info("Training:")
+        logger.info(f"Batch size: {train_dataloader.batch_size}")
+        logger.info(f"Optimizer: {optimizer_class}")
+        logger.info(f"Optimizer params: {optimizer_params}")
+        logger.info(f"Weight decay: {weight_decay}")
+        logger.info(f"Max grad norm: {max_grad_norm}")
+        logger.info(f"Val dataloader: {val_dataloader}")
+        logger.info(f"Monitor: {monitor}")
+        logger.info(f"Monitor criterion: {monitor_criterion}")
+        logger.info(f"Epochs: {epochs}")
 
         # set optimizer
         param = list(self.model.named_parameters())
@@ -184,7 +184,7 @@ class Trainer:
             self.model.zero_grad()
             self.model.train()
             # batch training loop
-            print()  # clear printing
+            logger.info("")
             for _ in trange(
                 steps_per_epoch,
                 desc=f"Epoch {epoch} / {epochs}",
@@ -211,22 +211,22 @@ class Trainer:
                 training_loss.append(loss.item())
                 global_step += 1
             # log and save
-            logging.info(f"--- Train epoch-{epoch}, step-{global_step} ---")
-            logging.info(f"loss: {sum(training_loss) / len(training_loss):.4f}")
+            logger.info(f"--- Train epoch-{epoch}, step-{global_step} ---")
+            logger.info(f"loss: {sum(training_loss) / len(training_loss):.4f}")
             if self.exp_path is not None:
                 self.save_ckpt(os.path.join(self.exp_path, "last.ckpt"))
 
             # validation
             if val_dataloader is not None:
                 scores = self.evaluate(val_dataloader)
-                logging.info(f"--- Eval epoch-{epoch}, step-{global_step} ---")
+                logger.info(f"--- Eval epoch-{epoch}, step-{global_step} ---")
                 for key in scores.keys():
-                    logging.info("{}: {:.4f}".format(key, scores[key]))
+                    logger.info("{}: {:.4f}".format(key, scores[key]))
                 # save best model
                 if monitor is not None:
                     score = scores[monitor]
                     if is_best(best_score, score, monitor_criterion):
-                        logging.info(
+                        logger.info(
                             f"New best {monitor} score ({score:.4f}) "
                             f"at epoch-{epoch}, step-{global_step}"
                         )
@@ -236,15 +236,15 @@ class Trainer:
 
         # load best model
         if load_best_model_at_last and self.exp_path is not None:
-            logging.info("Loaded best model")
+            logger.info("Loaded best model")
             self.load_ckpt(os.path.join(self.exp_path, "best.ckpt"))
 
         # test
         if test_dataloader is not None:
             scores = self.evaluate(test_dataloader)
-            logging.info(f"--- Test ---")
+            logger.info(f"--- Test ---")
             for key in scores.keys():
-                logging.info("{}: {:.4f}".format(key, scores[key]))
+                logger.info("{}: {:.4f}".format(key, scores[key]))
 
         return
 
