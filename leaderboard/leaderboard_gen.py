@@ -84,7 +84,8 @@ def leaderboard_generation(args):
             # specify tables and modes to use for different tasks
             task_name = task.__name__
             models = copy.deepcopy(args.model_list)
-            tables_ = []
+            feature_keys_ = []
+            label_key = ""
             mode_ = ""
             dataset_task = ""
             val_metric = None
@@ -98,16 +99,17 @@ def leaderboard_generation(args):
                 ):
                     models.remove(SafeDrug)
 
-                tables_ = ["conditions", "procedures"]
+                feature_keys_ = ["conditions", "procedures"]
+                label_key_ = "drugs"
                 mode_ = "multilabel"
-                val_metric = "pr_auc"
+                val_metric = "pr_auc_samples"
                 dataset_task = dataset_name + "-drugrec"
 
             elif "mortality_prediction" in task_name:
 
                 models = get_filtered_models(models, [GAMENet, MICRON, SafeDrug])
-
-                tables_ = ["conditions", "procedures", "drugs"]
+                feature_keys_ = ["conditions", "procedures"]
+                label_key = "label"
                 mode_ = "binary"
                 val_metric = "pr_auc"
                 dataset_task = dataset_name + "-mortality"
@@ -116,7 +118,8 @@ def leaderboard_generation(args):
 
                 models = get_filtered_models(models, [GAMENet, MICRON, SafeDrug])
 
-                tables_ = ["conditions", "procedures", "drugs"]
+                feature_keys_ = ["conditions", "procedures", "drugs"]
+                label_key = "label"
                 mode_ = "binary"
                 val_metric = "pr_auc"
                 dataset_task = dataset_name + "-readmission"
@@ -124,7 +127,8 @@ def leaderboard_generation(args):
             elif "length_of_stay_prediction" in task_name:
 
                 models = get_filtered_models(models, [GAMENet, MICRON, SafeDrug])
-                tables_ = ["conditions", "procedures"]
+                feature_keys_ = ["conditions", "procedures"]
+                label_key_ = "label"
                 mode_ = "multiclass"
                 val_metric = "accuracy"
                 dataset_task = dataset_name + "-lenOfStay"
@@ -142,11 +146,9 @@ def leaderboard_generation(args):
                         model_name = only_upper(str(ml_model))
                         model = current_model(
                             dataset=dataset,
-                            tables=tables_,
-                            target="label",
-                            classifier=ml_model,
+                            feature_keys=feature_keys_,
+                            label_key=label_key_,
                             mode=mode_,
-                            output_path="./ckpt/" + str(ml_model)[:-2],
                         )
 
                         trainer = Trainer(
@@ -202,8 +204,8 @@ def leaderboard_generation(args):
                     model_name = current_model.__name__
                     model = current_model(
                         dataset=dataset,
-                        tables=tables_,
-                        target="label",
+                        feature_keys=feature_keys_,
+                        label_key=label_key_,
                         mode=mode_,
                     )
 
@@ -250,7 +252,13 @@ def leaderboard_generation(args):
 
                     # input leaderboard for each dataset-task-model
                     dataset_task_model = dataset_task + "-" + model_name
-                    eval_data_model = [dataset_task_model, jaccard, accuracy, f1, prauc]
+                    eval_data_model = [
+                            dataset_task_model,
+                            jaccard,
+                            accuracy,
+                            f1,
+                            prauc,
+                    ]
                     eval_data_task.append(eval_data_model)
 
             if args.remote:

@@ -158,7 +158,7 @@ def get_metrics_result(mode, y_gt, y_prob):
 
     if mode == "multilabel":
         metrics_fn = multilabel_metrics_fn
-        metrics = ["jaccard_macro", "accuracy", "f1_macro", "pr_auc_macro"]
+        metrics = ["jaccard_samples", "accuracy", "f1_samples", "pr_auc_samples"]
 
     elif mode == "binary":
         metrics_fn = binary_metrics_fn
@@ -170,14 +170,33 @@ def get_metrics_result(mode, y_gt, y_prob):
 
     results = metrics_fn(y_gt, y_prob, metrics=metrics, threshold=0.5)
 
-    jaccard = results["jaccard"] if ("jaccard" in metrics) else results["jaccard_macro"]
     accuracy = results["accuracy"]
-    f1 = results["f1"] if ("f1" in metrics) else results["f1_macro"]
+    
+    jaccard = (
+            results["jaccard"]
+            if ("jaccard" in metrics)
+            else results["jaccard_samples"]
+            if ("jaccard_samples" in metrics)
+            else results["jaccard_macro"]
+            if ("jaccard_macro" in metrics)
+            else "-"
+        )
+
+    f1 = (
+        results["f1"]
+        if ("f1" in metrics)
+        else results["f1_samples"]
+        if ("f1_samples" in metrics)
+        else results["f1_macro"]
+        if ("f1_macro" in metrics)
+        else "-"
+    )
+
     prauc = (
         results["pr_auc"]
         if ("pr_auc" in metrics)
-        else results["pr_auc_macro"]
-        if ("pr_auc_macro" in metrics)
+        else results["pr_auc_samples"]
+        if ("pr_auc_samples" in metrics)
         else "-"
     )
 
