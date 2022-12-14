@@ -38,17 +38,18 @@ class Event:
     """
 
     def __init__(
-            self,
-            code: str,
-            table: str,
-            vocabulary: str,
-            visit_id: str,
-            patient_id: str,
-            timestamp: Optional[datetime] = None,
-            **attr,
+        self,
+        code: str,
+        table: str,
+        vocabulary: str,
+        visit_id: str,
+        patient_id: str,
+        timestamp: Optional[datetime] = None,
+        **attr,
     ):
-        assert timestamp is None or isinstance(timestamp, datetime), \
-            "timestamp must be a datetime object"
+        assert timestamp is None or isinstance(
+            timestamp, datetime
+        ), "timestamp must be a datetime object"
         self.code = code
         self.table = table
         self.vocabulary = vocabulary
@@ -115,18 +116,20 @@ class Visit:
     """
 
     def __init__(
-            self,
-            visit_id: str,
-            patient_id: str,
-            encounter_time: Optional[datetime] = None,
-            discharge_time: Optional[datetime] = None,
-            discharge_status=None,
-            **attr,
+        self,
+        visit_id: str,
+        patient_id: str,
+        encounter_time: Optional[datetime] = None,
+        discharge_time: Optional[datetime] = None,
+        discharge_status=None,
+        **attr,
     ):
-        assert encounter_time is None or isinstance(encounter_time, datetime), \
-            "encounter_time must be a datetime object"
-        assert discharge_time is None or isinstance(discharge_time, datetime), \
-            "discharge_time must be a datetime object"
+        assert encounter_time is None or isinstance(
+            encounter_time, datetime
+        ), "encounter_time must be a datetime object"
+        assert discharge_time is None or isinstance(
+            discharge_time, datetime
+        ), "discharge_time must be a datetime object"
         self.visit_id = visit_id
         self.patient_id = patient_id
         self.encounter_time = encounter_time
@@ -179,9 +182,7 @@ class Visit:
             return list()
 
     def get_code_list(
-            self,
-            table: str,
-            remove_duplicate: Optional[bool] = True
+        self, table: str, remove_duplicate: Optional[bool] = True
     ) -> List[str]:
         """Returns a list of codes from a specific table.
 
@@ -242,15 +243,19 @@ class Visit:
         return sum([len(event_list) for event_list in self.event_list_dict.values()])
 
     def __repr__(self):
-        return f"Visit {self.visit_id} " \
-               f"from patient {self.patient_id} " \
-               f"with {self.num_events} events " \
-               f"from tables {self.available_tables}"
+        return (
+            f"Visit {self.visit_id} "
+            f"from patient {self.patient_id} "
+            f"with {self.num_events} events "
+            f"from tables {self.available_tables}"
+        )
 
     def __str__(self):
         lines = list()
-        lines.append(f"Visit {self.visit_id} from patient {self.patient_id} "
-                     f"with {self.num_events} events:")
+        lines.append(
+            f"Visit {self.visit_id} from patient {self.patient_id} "
+            f"with {self.num_events} events:"
+        )
         lines.append(f"\t- Encounter time: {self.encounter_time}")
         lines.append(f"\t- Discharge time: {self.discharge_time}")
         lines.append(f"\t- Discharge status: {self.discharge_status}")
@@ -310,13 +315,13 @@ class Patient:
     """
 
     def __init__(
-            self,
-            patient_id: str,
-            birth_datetime: Optional[datetime] = None,
-            death_datetime: Optional[datetime] = None,
-            gender=None,
-            ethnicity=None,
-            **attr,
+        self,
+        patient_id: str,
+        birth_datetime: Optional[datetime] = None,
+        death_datetime: Optional[datetime] = None,
+        gender=None,
+        ethnicity=None,
+        **attr,
     ):
         self.patient_id = patient_id
         self.birth_datetime = birth_datetime

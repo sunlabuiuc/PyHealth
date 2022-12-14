@@ -69,7 +69,7 @@ class OMOPDataset(BaseDataset):
             list of sample indices. Default is None.
     """
 
-    def parse_basic_info(self) -> Dict[str, Patient]:
+    def parse_basic_info(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
         """Helper functions which parses person, visit_occurrence, and death tables.
 
         Will be called in `self.parse_tables()`
@@ -85,9 +85,6 @@ class OMOPDataset(BaseDataset):
         Returns:
             The updated patients dict.
         """
-        # patients is a dict of Patient objects indexed by patient_id
-        patients: Dict[str, Patient] = dict()
-        
         # read person table
         person_df = pd.read_csv(
             os.path.join(self.root, "person.csv"),
@@ -112,14 +109,13 @@ class OMOPDataset(BaseDataset):
         df = pd.merge(df, death_df, on="person_id", how="left")
         # sort by admission time
         df = df.sort_values(
-            ["person_id", "visit_occurrence_id", "visit_start_datetime"],
-            ascending=True
+            ["person_id", "visit_occurrence_id", "visit_start_datetime"], ascending=True
         )
         # group by patient
         df_group = df.groupby("person_id")
         # load patients
         for p_id, p_info in tqdm(
-                df_group, desc="Parsing person, visit_occurrence and death"
+            df_group, desc="Parsing person, visit_occurrence and death"
         ):
             birth_y = p_info["year_of_birth"].values[0]
             birth_m = p_info["month_of_birth"].values[0]
@@ -158,8 +154,7 @@ class OMOPDataset(BaseDataset):
         return patients
 
     def parse_condition_occurrence(
-            self,
-            patients: Dict[str, Patient]
+        self, patients: Dict[str, Patient]
     ) -> Dict[str, Patient]:
         """Helper function which parses condition_occurrence table.
 
@@ -178,9 +173,11 @@ class OMOPDataset(BaseDataset):
         # read table
         df = pd.read_csv(
             os.path.join(self.root, f"{table}.csv"),
-            dtype={"person_id": str,
-                   "visit_occurrence_id": str,
-                   "condition_concept_id": str},
+            dtype={
+                "person_id": str,
+                "visit_occurrence_id": str,
+                "condition_concept_id": str,
+            },
             sep="\t",
         )
         # drop rows with missing values
@@ -190,14 +187,15 @@ class OMOPDataset(BaseDataset):
         # sort by condition_start_datetime
         df = df.sort_values(
             ["person_id", "visit_occurrence_id", "condition_start_datetime"],
-            ascending=True
+            ascending=True,
         )
         # group by patient and visit
         group_df = df.groupby(["person_id", "visit_occurrence_id"])
         # iterate over each patient and visit
         for (p_id, v_id), v_info in tqdm(group_df, desc=f"Parsing {table}"):
-            for timestamp, code in zip(v_info["condition_start_datetime"],
-                                       v_info["condition_concept_id"]):
+            for timestamp, code in zip(
+                v_info["condition_start_datetime"], v_info["condition_concept_id"]
+            ):
                 event = Event(
                     code=code,
                     table=table,
@@ -211,8 +209,7 @@ class OMOPDataset(BaseDataset):
         return patients
 
     def parse_procedure_occurrence(
-            self,
-            patients: Dict[str, Patient]
+        self, patients: Dict[str, Patient]
     ) -> Dict[str, Patient]:
         """Helper function which parses procedure_occurrence table.
 
@@ -231,9 +228,11 @@ class OMOPDataset(BaseDataset):
         # read table
         df = pd.read_csv(
             os.path.join(self.root, f"{table}.csv"),
-            dtype={"person_id": str,
-                   "visit_occurrence_id": str,
-                   "procedure_concept_id": str},
+            dtype={
+                "person_id": str,
+                "visit_occurrence_id": str,
+                "procedure_concept_id": str,
+            },
             sep="\t",
         )
         # drop rows with missing values
@@ -242,15 +241,15 @@ class OMOPDataset(BaseDataset):
         )
         # sort by procedure_datetime
         df = df.sort_values(
-            ["person_id", "visit_occurrence_id", "procedure_datetime"],
-            ascending=True
+            ["person_id", "visit_occurrence_id", "procedure_datetime"], ascending=True
         )
         # group by patient and visit
         group_df = df.groupby(["person_id", "visit_occurrence_id"])
         # iterate over each patient and visit
         for (p_id, v_id), v_info in tqdm(group_df, desc=f"Parsing {table}"):
-            for timestamp, code in zip(v_info["procedure_datetime"],
-                                       v_info["procedure_concept_id"]):
+            for timestamp, code in zip(
+                v_info["procedure_datetime"], v_info["procedure_concept_id"]
+            ):
                 event = Event(
                     code=code,
                     table=table,
@@ -281,9 +280,11 @@ class OMOPDataset(BaseDataset):
         # read table
         df = pd.read_csv(
             os.path.join(self.root, f"{table}.csv"),
-            dtype={"person_id": str,
-                   "visit_occurrence_id": str,
-                   "drug_concept_id": str},
+            dtype={
+                "person_id": str,
+                "visit_occurrence_id": str,
+                "drug_concept_id": str,
+            },
             sep="\t",
         )
         # drop rows with missing values
@@ -291,14 +292,15 @@ class OMOPDataset(BaseDataset):
         # sort by drug_exposure_start_datetime
         df = df.sort_values(
             ["person_id", "visit_occurrence_id", "drug_exposure_start_datetime"],
-            ascending=True
+            ascending=True,
         )
         # group by patient and visit
         group_df = df.groupby(["person_id", "visit_occurrence_id"])
         # iterate over each patient and visit
         for (p_id, v_id), v_info in tqdm(group_df, desc=f"Parsing {table}"):
-            for timestamp, code in zip(v_info["drug_exposure_start_datetime"],
-                                       v_info["drug_concept_id"]):
+            for timestamp, code in zip(
+                v_info["drug_exposure_start_datetime"], v_info["drug_concept_id"]
+            ):
                 event = Event(
                     code=code,
                     table=table,
@@ -329,9 +331,11 @@ class OMOPDataset(BaseDataset):
         # read table
         df = pd.read_csv(
             os.path.join(self.root, f"{table}.csv"),
-            dtype={"person_id": str,
-                   "visit_occurrence_id": str,
-                   "measurement_concept_id": str},
+            dtype={
+                "person_id": str,
+                "visit_occurrence_id": str,
+                "measurement_concept_id": str,
+            },
             sep="\t",
         )
         # drop rows with missing values
@@ -340,15 +344,15 @@ class OMOPDataset(BaseDataset):
         )
         # sort by measurement_datetime
         df = df.sort_values(
-            ["person_id", "visit_occurrence_id", "measurement_datetime"],
-            ascending=True
+            ["person_id", "visit_occurrence_id", "measurement_datetime"], ascending=True
         )
         # group by patient and visit
         group_df = df.groupby(["person_id", "visit_occurrence_id"])
         # iterate over each patient and visit
         for (p_id, v_id), v_info in tqdm(group_df, desc=f"Parsing {table}"):
-            for timestamp, code in zip(v_info["measurement_datetime"],
-                                       v_info["measurement_concept_id"]):
+            for timestamp, code in zip(
+                v_info["measurement_datetime"], v_info["measurement_concept_id"]
+            ):
                 event = Event(
                     code=code,
                     table=table,
