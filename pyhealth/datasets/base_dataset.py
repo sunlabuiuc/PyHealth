@@ -52,9 +52,9 @@ class BaseDataset(ABC):
                 - a str of the target code vocabulary. E.g., {"NDC", "ATC"}.
                 - a tuple with two elements. The first element is a str of the
                     target code vocabulary and the second element is a dict with
-                    keys "src_kwargs" or "tgt_kwargs" and values of the
+                    keys "source_kwargs" or "target_kwargs" and values of the
                     corresponding kwargs for the `CrossMap.map()` method. E.g.,
-                    {"NDC", ("ATC", {"tgt_kwargs": {"level": 3}})}.
+                    {"NDC", ("ATC", {"target_kwargs": {"level": 3}})}.
             Default is empty dict, which means the original code will be used.
         dev: whether to enable dev mode (only use a small subset of the data).
             Default is False.
@@ -132,7 +132,7 @@ class BaseDataset(ABC):
                 assert len(target) == 2
                 assert type(target[0]) == str
                 assert type(target[1]) == dict
-                assert target[1].keys() <= {"src_kwargs", "tgt_kwargs"}
+                assert target[1].keys() <= {"source_kwargs", "target_kwargs"}
                 t_vocab = target[0]
             else:
                 t_vocab = target
@@ -255,15 +255,15 @@ class BaseDataset(ABC):
             target = self.code_mapping[src_vocab]
             if isinstance(target, tuple):
                 tgt_vocab, kwargs = target
-                src_kwargs = kwargs.get("src_kwargs", {})
-                tgt_kwargs = kwargs.get("tgt_kwargs", {})
+                source_kwargs = kwargs.get("source_kwargs", {})
+                target_kwargs = kwargs.get("target_kwargs", {})
             else:
                 tgt_vocab = self.code_mapping[src_vocab]
-                src_kwargs = {}
-                tgt_kwargs = {}
+                source_kwargs = {}
+                target_kwargs = {}
             code_mapping_tool = self.code_mapping_tools[f"{src_vocab}_{tgt_vocab}"]
             mapped_code_list = code_mapping_tool.map(
-                event.code, source_kwargs=src_kwargs, target_kwargs=tgt_kwargs
+                event.code, source_kwargs=source_kwargs, target_kwargs=target_kwargs
             )
             mapped_event_list = [deepcopy(event) for _ in range(len(mapped_code_list))]
             for i, mapped_event in enumerate(mapped_event_list):
