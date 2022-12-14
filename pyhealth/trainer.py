@@ -190,7 +190,6 @@ class Trainer:
                 desc=f"Epoch {epoch} / {epochs}",
                 smoothing=0.05,
             ):
-                print()  # clear printing
                 try:
                     data = next(data_iterator)
                 except StopIteration:

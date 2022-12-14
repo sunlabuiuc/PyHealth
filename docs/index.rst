@@ -149,7 +149,7 @@ User could also store their own dataset into our ``<pyhealth.datasets.SampleData
         monitor="pr_auc_samples",
     )
 
-* **STEP 5: <pyhealth.metrics>** provides several **common evaluation metrics** (refer to `Doc <https://pyhealth.readthedocs.io/en/latest/api/metrics.html>_` and see what are available) and **special metrics** in healthcare, such as drug-drug interaction (DDI) rate.
+* **STEP 5: <pyhealth.metrics>** provides several **common evaluation metrics** (refer to `Doc <https://pyhealth.readthedocs.io/en/latest/api/metrics.html>`_ and see what are available) and **special metrics** in healthcare, such as drug-drug interaction (DDI) rate.
 
 .. code-block:: python
     
