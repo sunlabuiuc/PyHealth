@@ -14,9 +14,11 @@
 # import sys
 # sys.path.insert(0, os.path.abspath('.'))
 
+import os
 import sys
 from pathlib import Path
-import os
+
+import pyhealth
 
 HERE = Path(__file__).parent
 sys.path[:0] = [
@@ -38,9 +40,8 @@ copyright = "2022, PyHealth Team"
 author = "Chaoqi Yang, Zhenbang Wu, Patrick Jiang"
 
 # The full version, including alpha/beta/rc tags
-version = "alpha-0.2"
-release = "alpha-0.2"
-
+version = pyhealth.__version__
+release = pyhealth.__version__
 
 # -- General configuration ---------------------------------------------------
 
@@ -177,7 +178,6 @@ html_theme_options = {
 
 html_css_files = ["css/override.css", "css/sphinx_gallery.css"]
 html_show_sphinx = False
-
 
 # -- Options for HTMLHelp output ---------------------------------------------
 
