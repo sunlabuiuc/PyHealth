@@ -301,7 +301,7 @@ def construct_args():
     parser.add_argument(
         "--model_list",
         type=list,
-        default=[ClassicML, RNN, CNN, Transformer, RETAIN, GAMENet, MICRON, SafeDrug],
+        default=[RNN, CNN, Transformer, RETAIN, GAMENet, MICRON, SafeDrug],
     )
     parser.add_argument("--remote", type=bool, default=True)
     parser.add_argument("--plot", type=bool, default=True)
