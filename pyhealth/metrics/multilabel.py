@@ -5,10 +5,10 @@ import sklearn.metrics as sklearn_metrics
 
 
 def multilabel_metrics_fn(
-        y_true: np.ndarray,
-        y_prob: np.ndarray,
-        metrics: Optional[List[str]] = None,
-        threshold: float = 0.5,
+    y_true: np.ndarray,
+    y_prob: np.ndarray,
+    metrics: Optional[List[str]] = None,
+    threshold: float = 0.5,
 ) -> Dict[str, float]:
     """Computes metrics for multilabel classification.
 
@@ -152,14 +152,10 @@ def multilabel_metrics_fn(
             )
             output["precision_samples"] = precision_samples
         elif metric == "recall_micro":
-            recall_micro = sklearn_metrics.recall_score(
-                y_true, y_pred, average="micro"
-            )
+            recall_micro = sklearn_metrics.recall_score(y_true, y_pred, average="micro")
             output["recall_micro"] = recall_micro
         elif metric == "recall_macro":
-            recall_macro = sklearn_metrics.recall_score(
-                y_true, y_pred, average="macro"
-            )
+            recall_macro = sklearn_metrics.recall_score(y_true, y_pred, average="macro")
             output["recall_macro"] = recall_macro
         elif metric == "recall_weighted":
             recall_weighted = sklearn_metrics.recall_score(

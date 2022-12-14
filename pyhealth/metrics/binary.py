@@ -5,10 +5,10 @@ import sklearn.metrics as sklearn_metrics
 
 
 def binary_metrics_fn(
-        y_true: np.ndarray,
-        y_prob: np.ndarray,
-        metrics: Optional[List[str]] = None,
-        threshold: float = 0.5,
+    y_true: np.ndarray,
+    y_prob: np.ndarray,
+    metrics: Optional[List[str]] = None,
+    threshold: float = 0.5,
 ) -> Dict[str, float]:
     """Computes metrics for binary classification.
 

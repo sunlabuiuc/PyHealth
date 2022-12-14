@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 from rdkit import Chem
 
-from pyhealth.datasets import BaseDataset
+from pyhealth.datasets import SampleDataset
 from pyhealth.medcode import ATC
 from pyhealth.metrics import ddi_rate_score
 from pyhealth.models import BaseModel
@@ -142,15 +142,15 @@ class SafeDrugLayer(nn.Module):
     """
 
     def __init__(
-            self,
-            hidden_size: int,
-            mask_H: torch.Tensor,
-            ddi_adj: torch.Tensor,
-            num_fingerprints: int,
-            molecule_set: List[Tuple],
-            average_projection: torch.Tensor,
-            kp: float = 0.05,
-            target_ddi: float = 0.08,
+        self,
+        hidden_size: int,
+        mask_H: torch.Tensor,
+        ddi_adj: torch.Tensor,
+        num_fingerprints: int,
+        molecule_set: List[Tuple],
+        average_projection: torch.Tensor,
+        kp: float = 0.05,
+        target_ddi: float = 0.08,
     ):
         super(SafeDrugLayer, self).__init__()
         self.hidden_size = hidden_size
@@ -201,20 +201,17 @@ class SafeDrugLayer(nn.Module):
         i, j = 0, 0
         for k, matrix in enumerate(matrices):
             m, n = shapes[k]
-            pad_matrices[i: i + m, j: j + n] = matrix
+            pad_matrices[i : i + m, j : j + n] = matrix
             i += m
             j += n
         return pad_matrices
 
     def calculate_loss(
-            self,
-            logits: torch.Tensor,
-            y_prob: torch.Tensor,
-            labels: torch.Tensor
+        self, logits: torch.Tensor, y_prob: torch.Tensor, labels: torch.Tensor
     ) -> torch.Tensor:
         mul_pred_prob = y_prob.T @ y_prob  # (voc_size, voc_size)
         batch_ddi_loss = (
-                torch.sum(mul_pred_prob.mul(self.ddi_adj)) / self.ddi_adj.shape[0] ** 2
+            torch.sum(mul_pred_prob.mul(self.ddi_adj)) / self.ddi_adj.shape[0] ** 2
         )
 
         y_pred = y_prob.detach().cpu().numpy()
@@ -236,10 +233,10 @@ class SafeDrugLayer(nn.Module):
         return loss
 
     def forward(
-            self,
-            patient_emb: torch.tensor,
-            drugs: torch.tensor,
-            mask: Optional[torch.tensor] = None,
+        self,
+        patient_emb: torch.tensor,
+        drugs: torch.tensor,
+        mask: Optional[torch.tensor] = None,
     ) -> Tuple[torch.tensor, torch.tensor]:
         """Forward propagation.
 
@@ -260,8 +257,9 @@ class SafeDrugLayer(nn.Module):
         query = get_last_visit(patient_emb, mask)  # (batch, dim)
 
         # MPNN Encoder
-        MPNN_emb = self.mpnn(self.fingerprints, self.adjacencies,
-                             self.molecule_sizes)  # (#molecule, hidden_size)
+        MPNN_emb = self.mpnn(
+            self.fingerprints, self.adjacencies, self.molecule_sizes
+        )  # (#molecule, hidden_size)
         MPNN_emb = torch.mm(self.average_projection, MPNN_emb)  # (#med, hidden_size)
         MPNN_match = torch.sigmoid(torch.mm(query, MPNN_emb.T))  # (patient, #med)
         MPNN_att = self.mpnn_layernorm(
@@ -310,13 +308,13 @@ class SafeDrug(BaseModel):
     """
 
     def __init__(
-            self,
-            dataset: BaseDataset,
-            embedding_dim: int = 128,
-            hidden_dim: int = 128,
-            num_layers: int = 1,
-            dropout: float = 0.5,
-            **kwargs
+        self,
+        dataset: SampleDataset,
+        embedding_dim: int = 128,
+        hidden_dim: int = 128,
+        num_layers: int = 1,
+        dropout: float = 0.5,
+        **kwargs,
     ):
         super(SafeDrug, self).__init__(
             dataset=dataset,
@@ -338,7 +336,11 @@ class SafeDrug(BaseModel):
 
         self.all_smiles_list = self.generate_smiles_list()
         mask_H = self.generate_mask_H()
-        molecule_set, num_fingerprints, average_projection = self.generate_molecule_info()
+        (
+            molecule_set,
+            num_fingerprints,
+            average_projection,
+        ) = self.generate_molecule_info()
         ddi_adj = self.generate_ddi_adj()
 
         self.cond_rnn = nn.GRU(
@@ -380,7 +382,7 @@ class SafeDrug(BaseModel):
             num_fingerprints=num_fingerprints,
             molecule_set=molecule_set,
             average_projection=average_projection,
-            **kwargs
+            **kwargs,
         )
 
     def generate_ddi_adj(self) -> torch.tensor:
@@ -521,8 +523,9 @@ class SafeDrug(BaseModel):
                 atoms = create_atoms(mol, atom2idx)
                 molecular_size = len(atoms)
                 i_jbond_dict = create_ijbonddict(mol, bond2idx)
-                fingerprints = extract_fingerprints(radius, atoms, i_jbond_dict,
-                                                    fingerprint2idx, edge2idx)
+                fingerprints = extract_fingerprints(
+                    radius, atoms, i_jbond_dict, fingerprint2idx, edge2idx
+                )
                 adjacency = Chem.GetAdjacencyMatrix(mol)
                 """Transform the above each data of numpy to pytorch tensor."""
                 fingerprints = torch.LongTensor(fingerprints)
@@ -539,17 +542,17 @@ class SafeDrug(BaseModel):
         col_counter = 0
         for i, item in enumerate(average_index):
             if item > 0:
-                average_projection[i, col_counter: col_counter + item] = 1 / item
+                average_projection[i, col_counter : col_counter + item] = 1 / item
             col_counter += item
         average_projection = torch.FloatTensor(average_projection)
         return molecule_set, num_fingerprints, average_projection
 
     def forward(
-            self,
-            conditions: List[List[List[str]]],
-            procedures: List[List[List[str]]],
-            drugs: List[List[str]],
-            **kwargs,
+        self,
+        conditions: List[List[List[str]]],
+        procedures: List[List[List[str]]],
+        drugs: List[List[str]],
+        **kwargs,
     ) -> Dict[str, torch.Tensor]:
         """Forward propagation.
 
