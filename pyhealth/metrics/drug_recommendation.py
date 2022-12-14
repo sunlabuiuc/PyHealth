@@ -5,6 +5,7 @@ import numpy as np
 
 # TODO: this metric is very ad-hoc, need to be improved
 
+
 def ddi_rate_score(medications: List[np.ndarray], ddi_matrix: np.ndarray) -> float:
     """DDI rate score.
 

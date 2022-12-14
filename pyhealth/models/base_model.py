@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from pyhealth.datasets import BaseDataset
+from pyhealth.datasets import SampleDataset
 from pyhealth.models.utils import batch_to_multihot
 from pyhealth.tokenizer import Tokenizer
 
@@ -27,7 +27,7 @@ class BaseModel(ABC, nn.Module):
 
     def __init__(
             self,
-            dataset: BaseDataset,
+            dataset: SampleDataset,
             feature_keys: List[str],
             label_key: str,
             mode: str,
@@ -50,6 +50,8 @@ class BaseModel(ABC, nn.Module):
     def get_feature_tokenizers(self, special_tokens=None) -> Dict[str, Tokenizer]:
         """Gets the default feature tokenizers using `self.feature_keys`.
 
+        These function is used for specific healthcare models, such as gamenet, safedrug, etc.
+
         Args:
             special_tokens: a list of special tokens to add to the tokenizer.
                 Default is ["<pad>", "<unk>"].
@@ -64,27 +66,9 @@ class BaseModel(ABC, nn.Module):
         for feature_key in self.feature_keys:
             feature_tokenizers[feature_key] = Tokenizer(
                 tokens=self.dataset.get_all_tokens(key=feature_key),
-                special_tokens=special_tokens
+                special_tokens=special_tokens,
             )
         return feature_tokenizers
-
-    def get_label_tokenizer(self, special_tokens=None) -> Tokenizer:
-        """Gets the default label tokenizers using `self.label_key`.
-
-        Args:
-            special_tokens: a list of special tokens to add to the tokenizer.
-                Default is empty list.
-
-        Returns:
-            label_tokenizer: the label tokenizer.
-        """
-        if special_tokens is None:
-            special_tokens = []
-        label_tokenizer = Tokenizer(
-            self.dataset.get_all_tokens(key=self.label_key),
-            special_tokens=special_tokens
-        )
-        return label_tokenizer
 
     @staticmethod
     def get_embedding_layers(
@@ -92,6 +76,8 @@ class BaseModel(ABC, nn.Module):
             embedding_dim: int,
     ) -> nn.ModuleDict:
         """Gets the default embedding layers using the feature tokenizers.
+
+        These function is used for specific healthcare models, such as gamenet, safedrug, etc.
 
         Args:
             feature_tokenizers: a dictionary of feature tokenizers with keys
@@ -110,6 +96,118 @@ class BaseModel(ABC, nn.Module):
                 padding_idx=tokenizer.get_padding_index(),
             )
         return embedding_layers
+
+    @staticmethod
+    def padding2d(batch):
+        """
+        Similar to pyhealth.tokenizer.Tokenizer.padding2d, but no mapping
+        Args:
+            batch: a list of list of list obj
+                - 1-level: number of samples/patients
+                - 2-level: number of visit, length maybe not equal
+                - 3-level: number of features per visit, length must be equal
+        Returns:
+            padded_batch: a padded list of list of list obj
+            e.g.,
+                batch = [[[1.3, 2.5], [3.2, 4.4]], [[5.1, 6.0], [7.7, 8.3]]] -> [[[1.3, 2.5], [3.2, 4.4]], [[5.1, 6.0], [7.7, 8.3]]]
+                batch = [[[1.3, 2.5], [3.2, 4.4]], [[5.1, 6.0]]] -> [[[1.3, 2.5], [3.2, 4.4]], [[5.1, 6.0], [0.0, 0.0]]]
+        """
+        batch_max_length = max([len(x) for x in batch])
+
+        # get mask
+        mask = torch.zeros(len(batch), batch_max_length, dtype=torch.bool)
+        for i, x in enumerate(batch):
+            mask[i, : len(x)] = 1
+
+        # level-2 padding
+        batch = [x + [[0.0] * len(x[0])] * (batch_max_length - len(x)) for x in batch]
+
+        return batch, mask
+
+    @staticmethod
+    def padding3d(batch):
+        """
+        Similar to pyhealth.tokenizer.Tokenizer.padding2d, but no mapping
+        Args:
+            batch: a list of list of list obj
+                - 1-level: number of samples/patients
+                - 2-level: number of visit, length maybe not equal
+                - 3-level: number of features per visit, length must be equal
+        Returns:
+            padded_batch: a padded list of list of list obj. No examples, just one more dimension higher than self.padding2d
+        """
+        batch_max_length_level2 = max([len(x) for x in batch])
+        batch_max_length_level3 = max(
+            [max([len(x) for x in visits]) for visits in batch]
+        )
+
+        # get mask
+        mask = torch.zeros(
+            len(batch),
+            batch_max_length_level2,
+            batch_max_length_level3,
+            dtype=torch.bool,
+        )
+        for i, visits in enumerate(batch):
+            for j, x in enumerate(visits):
+                mask[i, j, : len(x)] = 1
+
+        # level-2 padding
+        batch = [
+            x + [[[0.0] * len(x[0])]] * (batch_max_length_level2 - len(x))
+            for x in batch
+        ]
+
+        # level-3 padding
+        batch = [
+            [
+                x + [[0.0] * len(x[0])] * (batch_max_length_level3 - len(x))
+                for x in visits
+            ]
+            for visits in batch
+        ]
+
+        return batch, mask
+
+    def add_feature_transform_layer(self, feature_key: str, info):
+        if info["type"] == str:
+            # feature tokenizer
+            special_tokens = ["<pad>", "<unk>"]
+            tokenizer = Tokenizer(
+                tokens=self.dataset.get_all_tokens(key=feature_key),
+                special_tokens=special_tokens,
+            )
+            self.feat_tokenizers[feature_key] = tokenizer
+            # feature embedding
+            self.embeddings[feature_key] = nn.Embedding(
+                tokenizer.get_vocabulary_size(),
+                self.embedding_dim,
+                padding_idx=tokenizer.get_padding_index(),
+            )
+        elif info["type"] in [float, int]:
+            self.linear_layers[feature_key] = nn.Linear(
+                info["len"], self.embedding_dim
+            )
+        else:
+            raise ValueError("Unsupported feature type: {}".format(info["type"]))
+
+    def get_label_tokenizer(self, special_tokens=None) -> Tokenizer:
+        """Gets the default label tokenizers using `self.label_key`.
+
+        Args:
+            special_tokens: a list of special tokens to add to the tokenizer.
+                Default is empty list.
+
+        Returns:
+            label_tokenizer: the label tokenizer.
+        """
+        if special_tokens is None:
+            special_tokens = []
+        label_tokenizer = Tokenizer(
+            self.dataset.get_all_tokens(key=self.label_key),
+            special_tokens=special_tokens,
+        )
+        return label_tokenizer
 
     def get_output_size(self, label_tokenizer: Tokenizer) -> int:
         """Gets the default output size using the label tokenizer and `self.mode`.
@@ -163,9 +261,9 @@ class BaseModel(ABC, nn.Module):
             - multilabel: a tensor of shape (batch_size, num_labels)
 
         Args:
-            labels: the raw labels from the samples. It should be a list of
-                str for binary and multiclass classification and a list of
-                list of str for multilabel classification.
+            labels: the raw labels from the samples. It should be
+                - a list of str for binary and multiclass classificationa
+                - a list of list of str for multilabel classification
             label_tokenizer: the label tokenizer.
 
         Returns:

@@ -4,10 +4,11 @@ from typing import List, Optional, Tuple, Dict
 import torch
 from torch import nn
 
-from pyhealth.datasets import BaseDataset
+from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
+from pyhealth.tokenizer import Tokenizer
 
-VALID_OPERATION_LEVEL = ["visit", "event"]
+# VALID_OPERATION_LEVEL = ["visit", "event"]
 
 
 class Attention(nn.Module):
@@ -44,8 +45,10 @@ class MultiHeadedAttention(nn.Module):
         batch_size = query.size(0)
 
         # 1) Do all the linear projections in batch from d_model => h x d_k
-        query, key, value = [l(x).view(batch_size, -1, self.h, self.d_k).transpose(1, 2)
-                             for l, x in zip(self.linear_layers, (query, key, value))]
+        query, key, value = [
+            l(x).view(batch_size, -1, self.h, self.d_k).transpose(1, 2)
+            for l, x in zip(self.linear_layers, (query, key, value))
+        ]
 
         # 2) Apply attention on all the projected vectors in batch.
         if mask is not None:
@@ -152,9 +155,7 @@ class TransformerLayer(nn.Module):
         )
 
     def forward(
-            self,
-            x: torch.tensor,
-            mask: Optional[torch.tensor] = None
+        self, x: torch.tensor, mask: Optional[torch.tensor] = None
     ) -> Tuple[torch.tensor, torch.tensor]:
         """Forward propagation.
 
@@ -186,30 +187,46 @@ class Transformer(BaseModel):
     hidden states are then fed into a fully connected layer to make predictions.
 
     Note:
-        This model can operate on both visit and event level, as designated by
-            the operation_level parameter.
+        We use separate Transformer layers for different feature_keys.
+        Currentluy, we automatically support different input formats:
+            - code based input (need to use the embedding table later)
+            - float/int based value input
+        We follow the current convention for the transformer model:
+            - case 1. [code1, code2, code3, ...]
+                - we will assume the code follows the order; our model will encode
+                each code into a vector and apply transformer on the code level
+            - case 2. [[code1, code2]] or [[code1, code2], [code3, code4, code5], ...]
+                - we will assume the inner bracket follows the order; our model first
+                use the embedding table to encode each code into a vector and then use
+                average/mean pooling to get one vector for one inner bracket; then use
+                transformer one the braket level
+            - case 3. [[1.5, 2.0, 0.0]] or [[1.5, 2.0, 0.0], [8, 1.2, 4.5], ...]
+                - this case only makes sense when each inner bracket has the same length;
+                we assume each dimension has the same meaning; we run transformer directly
+                on the inner bracket level, similar to case 1 after embedding table
+            - case 4. [[[1.5, 2.0, 0.0]]] or [[[1.5, 2.0, 0.0], [8, 1.2, 4.5]], ...]
+                - this case only makes sense when each inner bracket has the same length;
+                we assume each dimension has the same meaning; we run transformer directly
+                on the inner bracket level, similar to case 2 after embedding table
 
-    Args:
         dataset: the dataset to train the model. It is used to query certain
             information such as the set of all tokens.
         feature_keys:  list of keys in samples to use as features,
             e.g. ["conditions", "procedures"].
         label_key: key in samples to use as label (e.g., "drugs").
         mode: one of "binary", "multiclass", or "multilabel".
-        operation_level: one of "visit", "event".
         embedding_dim: the embedding dimension. Default is 128.
         **kwargs: other parameters for the Transformer layer.
     """
 
     def __init__(
-            self,
-            dataset: BaseDataset,
-            feature_keys: List[str],
-            label_key: str,
-            mode: str,
-            operation_level: str,
-            embedding_dim: int = 128,
-            **kwargs
+        self,
+        dataset: SampleDataset,
+        feature_keys: List[str],
+        label_key: str,
+        mode: str,
+        embedding_dim: int = 128,
+        **kwargs
     ):
         super(Transformer, self).__init__(
             dataset=dataset,
@@ -217,18 +234,42 @@ class Transformer(BaseModel):
             label_key=label_key,
             mode=mode,
         )
-        assert operation_level in VALID_OPERATION_LEVEL, \
-            f"operation_level must be one of {VALID_OPERATION_LEVEL}"
-        self.operation_level = operation_level
         self.embedding_dim = embedding_dim
-
-        self.feat_tokenizers = self.get_feature_tokenizers()
-        self.label_tokenizer = self.get_label_tokenizer()
-        self.embeddings = self.get_embedding_layers(self.feat_tokenizers, embedding_dim)
 
         # validate kwargs for Transformer layer
         if "feature_size" in kwargs:
             raise ValueError("feature_size is determined by embedding_dim")
+
+        # the key of self.feat_tokenizers only contains the code based inputs
+        self.feat_tokenizers = {}
+        self.label_tokenizer = self.get_label_tokenizer()
+        # the key of self.embeddings only contains the code based inputs
+        self.embeddings = nn.ModuleDict()
+        # the key of self.linear_layers only contains the float/int based inputs
+        self.linear_layers = nn.ModuleDict()
+
+        # add feature transformation layers
+        for feature_key in self.feature_keys:
+            input_info = self.dataset.input_info[feature_key]
+            # sanity check
+            if input_info["type"] not in [str, float, int]:
+                raise ValueError(
+                    "Transformer only supports str code, float and int as input types"
+                )
+            elif (input_info["type"] == str) and (input_info["dim"] not in [2, 3]):
+                raise ValueError(
+                    "Transformer only supports 1-level or 2-level str code as input types"
+                )
+            elif (input_info["type"] in [float, int]) and (
+                input_info["dim"] not in [2, 3]
+            ):
+                raise ValueError(
+                    "Transformer only supports 2-level or 3-level float and int as input types"
+                )
+            # for code based input, we need Type
+            # for float/int based input, we need Type, input_dim
+            self.add_feature_transform_layer(feature_key, input_info)
+
         self.transformer = nn.ModuleDict()
         for feature_key in feature_keys:
             self.transformer[feature_key] = TransformerLayer(
@@ -238,77 +279,8 @@ class Transformer(BaseModel):
         # transformer's output feature size is still embedding_dim
         self.fc = nn.Linear(len(self.feature_keys) * self.embedding_dim, output_size)
 
-    def visit_level_forward(self, **kwargs):
-        """Visit-level Transformer forward."""
-        patient_emb = []
-        for feature_key in self.feature_keys:
-            assert type(kwargs[feature_key][0][0]) == list
-            x = self.feat_tokenizers[feature_key].batch_encode_3d(kwargs[feature_key])
-            # (patient, visit, code)
-            x = torch.tensor(x, dtype=torch.long, device=self.device)
-            # (patient, visit, code, embedding_dim)
-            x = self.embeddings[feature_key](x)
-            # (patient, visit, embedding_dim)
-            x = torch.sum(x, dim=2)
-            # (patient, visit)
-            mask = torch.sum(x, dim=2) != 0
-            # (patient, embedding_dim)
-            _, x = self.transformer[feature_key](x, mask)
-            patient_emb.append(x)
-        # (patient, features * embedding_dim)
-        patient_emb = torch.cat(patient_emb, dim=1)
-        # (patient, label_size)
-        logits = self.fc(patient_emb)
-        # obtain y_true, loss, y_prob
-        y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
-        loss = self.get_loss_function()(logits, y_true)
-        y_prob = self.prepare_y_prob(logits)
-        return {
-            "loss": loss,
-            "y_prob": y_prob,
-            "y_true": y_true,
-        }
-
-    def event_level_forward(self, **kwargs):
-        """Event-level Transformer forward."""
-        patient_emb = []
-        for feature_key in self.feature_keys:
-            assert type(kwargs[feature_key][0][0]) == str
-            x = self.feat_tokenizers[feature_key].batch_encode_2d(kwargs[feature_key])
-            # (patient, code)
-            x = torch.tensor(x, dtype=torch.long, device=self.device)
-            # (patient, code, embedding_dim)
-            x = self.embeddings[feature_key](x)
-            # (patient, code)
-            mask = torch.sum(x, dim=2) != 0
-            # (patient, embedding_dim)
-            _, x = self.transformer[feature_key](x, mask)
-            patient_emb.append(x)
-        # (patient, features * embedding_dim)
-        patient_emb = torch.cat(patient_emb, dim=1)
-        # (patient, label_size)
-        logits = self.fc(patient_emb)
-        # obtain y_true, loss, y_prob
-        y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
-        loss = self.get_loss_function()(logits, y_true)
-        y_prob = self.prepare_y_prob(logits)
-        return {
-            "loss": loss,
-            "y_prob": y_prob,
-            "y_true": y_true,
-        }
-
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation.
-
-        If `operation_level` is "visit", then the input is a list of visits
-        for each patient. Each visit is a list of codes. For example,
-        `kwargs["conditions"]` is a list of visits for each patient. Each
-        visit is a list of condition codes.
-
-        If `operation_level` is "event", then the input is a list of events
-        for each patient. Each event is a code. For example, `kwargs["conditions"]`
-        is a list of condition codes for each patient.
 
         The label `kwargs[self.label_key]` is a list of labels for each patient.
 
@@ -322,9 +294,125 @@ class Transformer(BaseModel):
                 y_prob: a tensor representing the predicted probabilities.
                 y_true: a tensor representing the true labels.
         """
-        if self.operation_level == "visit":
-            return self.visit_level_forward(**kwargs)
-        elif self.operation_level == "event":
-            return self.event_level_forward(**kwargs)
-        else:
-            raise NotImplementedError
+        patient_emb = []
+        for feature_key in self.feature_keys:
+            input_info = self.dataset.input_info[feature_key]
+            level, Type = input_info["dim"], input_info["type"]
+
+            # for case 1: [code1, code2, code3, ...]
+            if (level == 2) and (Type == str):
+                x = self.feat_tokenizers[feature_key].batch_encode_2d(
+                    kwargs[feature_key]
+                )
+                # (patient, event)
+                x = torch.tensor(x, dtype=torch.long, device=self.device)
+                # (patient, event, embedding_dim)
+                x = self.embeddings[feature_key](x)
+                # (patient, event)
+                mask = torch.sum(x, dim=2) != 0
+
+            # for case 2: [[code1, code2], [code3, ...], ...]
+            elif (level == 3) and (Type == str):
+                x = self.feat_tokenizers[feature_key].batch_encode_3d(
+                    kwargs[feature_key]
+                )
+                # (patient, visit, event)
+                x = torch.tensor(x, dtype=torch.long, device=self.device)
+                # (patient, visit, event, embedding_dim)
+                x = self.embeddings[feature_key](x)
+                # (patient, visit, embedding_dim)
+                x = torch.sum(x, dim=2)
+                # (patient, visit)
+                mask = torch.sum(x, dim=2) != 0
+
+            # for case 3: [[1.5, 2.0, 0.0], ...]
+            elif (level == 2) and (Type in [float, int]):
+                x, mask = self.padding2d(kwargs[feature_key])
+                # (patient, event, values)
+                x = torch.tensor(x, dtype=torch.float, device=self.device)
+                # (patient, event, embedding_dim)
+                x = self.linear_layers[feature_key](x)
+                # (patient, event)
+                mask = torch.tensor(mask, dtype=torch.bool, device=self.device)
+
+            # for case 4: [[[1.5, 2.0, 0.0], [1.8, 2.4, 6.0]], ...]
+            elif (level == 3) and (Type in [float, int]):
+                x, mask = self.padding3d(kwargs[feature_key])
+                # (patient, visit, event, values)
+                x = torch.tensor(x, dtype=torch.float, device=self.device)
+                # (patient, visit, embedding_dim)
+                x = self.linear_layers[feature_key](x)
+                # (patient, event)
+                mask = torch.tensor(mask, dtype=torch.bool, device=self.device)
+
+            else:
+                raise NotImplementedError
+
+            _, x = self.transformer[feature_key](x, mask)
+            patient_emb.append(x)
+
+        patient_emb = torch.cat(patient_emb, dim=1)
+        # (patient, label_size)
+        logits = self.fc(patient_emb)
+        # obtain y_true, loss, y_prob
+        y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
+        loss = self.get_loss_function()(logits, y_true)
+        y_prob = self.prepare_y_prob(logits)
+        return {
+            "loss": loss,
+            "y_prob": y_prob,
+            "y_true": y_true,
+        }
+
+
+if __name__ == "__main__":
+    from pyhealth.datasets import SampleDataset
+
+    samples = [
+        {
+            "patient_id": "patient-0",
+            "visit_id": "visit-0",
+            "conditions": [["cond-33", "cond-86", "cond-80"]],
+            "procedures": [[1.0, 2.0, 3.5, 4]],
+            "label": 1e3,
+        },
+        {
+            "patient_id": "patient-0",
+            "visit_id": "visit-0",
+            "conditions": [["cond-33", "cond-86", "cond-80"]],
+            "procedures": [[5.0, 2.0, 3.5, 4]],
+            "label": 0.9,
+        },
+    ]
+
+    input_info = {
+        "conditions": {"level": 2, "Type": str},
+        "procedures": {"level": 2, "Type": float, "input_dim": 4},
+    }
+
+    # dataset
+    dataset = SampleDataset(samples=samples, dataset_name="test")
+    dataset.input_info = input_info
+
+    # data loader
+    from pyhealth.datasets import get_dataloader
+
+    train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
+
+    # model
+    model = Transformer(
+        dataset=dataset,
+        feature_keys=["conditions", "procedures"],
+        label_key="label",
+        mode="regression",
+    )
+
+    # data batch
+    data_batch = next(iter(train_loader))
+
+    # try the model
+    ret = model(**data_batch)
+    print(ret)
+
+    # try loss backward
+    ret["loss"].backward()

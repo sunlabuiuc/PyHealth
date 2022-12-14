@@ -60,7 +60,7 @@ class MIMIC3Dataset(BaseDataset):
             list of sample indices. Default is None.
     """
 
-    def parse_basic_info(self) -> Dict[str, Patient]:
+    def parse_basic_info(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
         """Helper function which parses PATIENTS and ADMISSIONS tables.
 
         Will be called in `self.parse_tables()`
@@ -75,9 +75,6 @@ class MIMIC3Dataset(BaseDataset):
         Returns:
             The updated patients dict.
         """
-        # patients is a dict of Patient objects indexed by patient_id
-        patients: Dict[str, Patient] = dict()
-        
         # read patients table
         patients_df = pd.read_csv(
             os.path.join(self.root, "PATIENTS.csv"),

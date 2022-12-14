@@ -4,7 +4,7 @@ from typing import Tuple, List, Dict, Optional
 import torch
 import torch.nn as nn
 
-from pyhealth.datasets import BaseDataset
+from pyhealth.datasets import SampleDataset
 from pyhealth.medcode import ATC
 from pyhealth.models import BaseModel
 from pyhealth.models.utils import get_last_visit, batch_to_multihot
@@ -72,12 +72,7 @@ class GCN(nn.Module):
         dropout: dropout rate. Default is 0.5.
     """
 
-    def __init__(
-            self,
-            adj: torch.tensor,
-            hidden_size: int,
-            dropout: float = 0.5
-    ):
+    def __init__(self, adj: torch.tensor, hidden_size: int, dropout: float = 0.5):
         super(GCN, self).__init__()
         self.emb_dim = hidden_size
         self.dropout = dropout
@@ -145,11 +140,11 @@ class GAMENetLayer(nn.Module):
     """
 
     def __init__(
-            self,
-            hidden_size: int,
-            ehr_adj: torch.tensor,
-            ddi_adj: torch.tensor,
-            dropout: float = 0.5
+        self,
+        hidden_size: int,
+        ehr_adj: torch.tensor,
+        ddi_adj: torch.tensor,
+        dropout: float = 0.5,
     ):
         super(GAMENetLayer, self).__init__()
         self.hidden_size = hidden_size
@@ -165,11 +160,11 @@ class GAMENetLayer(nn.Module):
         self.bce_loss_fn = nn.BCEWithLogitsLoss()
 
     def forward(
-            self,
-            queries: torch.tensor,
-            prev_drugs: torch.tensor,
-            curr_drugs: torch.tensor,
-            mask: Optional[torch.tensor] = None,
+        self,
+        queries: torch.tensor,
+        prev_drugs: torch.tensor,
+        curr_drugs: torch.tensor,
+        mask: Optional[torch.tensor] = None,
     ) -> Tuple[torch.tensor, torch.tensor]:
         """Forward propagation.
 
@@ -244,13 +239,13 @@ class GAMENet(BaseModel):
     """
 
     def __init__(
-            self,
-            dataset: BaseDataset,
-            embedding_dim: int = 128,
-            hidden_dim: int = 128,
-            num_layers: int = 1,
-            dropout: float = 0.5,
-            **kwargs
+        self,
+        dataset: SampleDataset,
+        embedding_dim: int = 128,
+        hidden_dim: int = 128,
+        num_layers: int = 1,
+        dropout: float = 0.5,
+        **kwargs
     ):
         super(GAMENet, self).__init__(
             dataset=dataset,
@@ -336,11 +331,11 @@ class GAMENet(BaseModel):
         return ddi_adj
 
     def forward(
-            self,
-            conditions: List[List[List[str]]],
-            procedures: List[List[List[str]]],
-            drugs_all: List[List[List[str]]],
-            **kwargs
+        self,
+        conditions: List[List[List[str]]],
+        procedures: List[List[List[str]]],
+        drugs_all: List[List[List[str]]],
+        **kwargs
     ) -> Dict[str, torch.Tensor]:
         """Forward propagation.
 

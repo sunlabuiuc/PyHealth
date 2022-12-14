@@ -3,6 +3,7 @@ from pyhealth.medcode.inner_map import InnerMap
 
 # TODO: add convert
 
+
 class ICD10CM(InnerMap):
     """10-th International Classification of Diseases, Clinical Modification."""
 
