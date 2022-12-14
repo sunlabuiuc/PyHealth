@@ -4,10 +4,11 @@ import torch
 import torch.nn as nn
 import torch.nn.utils.rnn as rnn_utils
 
-from pyhealth.datasets import BaseDataset
+from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 
-VALID_OPERATION_LEVEL = ["visit", "event"]
+
+# VALID_OPERATION_LEVEL = ["visit", "event"]
 
 
 class RNNLayer(nn.Module):
@@ -40,13 +41,13 @@ class RNNLayer(nn.Module):
     """
 
     def __init__(
-            self,
-            input_size: int,
-            hidden_size: int,
-            rnn_type: str = "GRU",
-            num_layers: int = 1,
-            dropout: float = 0.5,
-            bidirectional: bool = False,
+        self,
+        input_size: int,
+        hidden_size: int,
+        rnn_type: str = "GRU",
+        num_layers: int = 1,
+        dropout: float = 0.5,
+        bidirectional: bool = False,
     ):
         super(RNNLayer, self).__init__()
         self.input_size = input_size
@@ -71,9 +72,9 @@ class RNNLayer(nn.Module):
             self.down_projection = nn.Linear(hidden_size * 2, hidden_size)
 
     def forward(
-            self,
-            x: torch.tensor,
-            mask: Optional[torch.tensor] = None,
+        self,
+        x: torch.tensor,
+        mask: Optional[torch.tensor] = None,
     ) -> Tuple[torch.tensor, torch.tensor]:
         """Forward propagation.
 
@@ -124,8 +125,27 @@ class RNN(BaseModel):
     then fed into a fully connected layer to make predictions.
 
     Note:
-        This model can operate on both visit and event level, as designated by
-            the `operation_level` parameter.
+        We use separate rnn layers for different feature_keys.
+        Currently, we automatically support different input formats:
+            - code based input (need to use the embedding table later)
+            - float/int based value input
+        We follow the current convention for the rnn model:
+            - case 1. [code1, code2, code3, ...]
+                - we will assume the code follows the order; our model will encode
+                each code into a vector and apply rnn on the code level
+            - case 2. [[code1, code2]] or [[code1, code2], [code3, code4, code5], ...]
+                - we will assume the inner bracket follows the order; our model first
+                use the embedding table to encode each code into a vector and then use
+                average/mean pooling to get one vector for one inner bracket; then use
+                rnn one the braket level
+            - case 3. [[1.5, 2.0, 0.0]] or [[1.5, 2.0, 0.0], [8, 1.2, 4.5], ...]
+                - this case only makes sense when each inner bracket has the same length;
+                we assume each dimension has the same meaning; we run rnn directly
+                on the inner bracket level, similar to case 1 after embedding table
+            - case 4. [[[1.5, 2.0, 0.0]]] or [[[1.5, 2.0, 0.0], [8, 1.2, 4.5]], ...]
+                - this case only makes sense when each inner bracket has the same length;
+                we assume each dimension has the same meaning; we run rnn directly
+                on the inner bracket level, similar to case 2 after embedding table
 
     Args:
         dataset: the dataset to train the model. It is used to query certain
@@ -134,22 +154,20 @@ class RNN(BaseModel):
             e.g. ["conditions", "procedures"].
         label_key: key in samples to use as label (e.g., "drugs").
         mode: one of "binary", "multiclass", or "multilabel".
-        operation_level: one of "visit", "event".
         embedding_dim: the embedding dimension. Default is 128.
         hidden_dim: the hidden dimension. Default is 128.
         **kwargs: other parameters for the RNN layer.
     """
 
     def __init__(
-            self,
-            dataset: BaseDataset,
-            feature_keys: List[str],
-            label_key: str,
-            mode: str,
-            operation_level: str,
-            embedding_dim: int = 128,
-            hidden_dim: int = 128,
-            **kwargs
+        self,
+        dataset: SampleDataset,
+        feature_keys: List[str],
+        label_key: str,
+        mode: str,
+        embedding_dim: int = 128,
+        hidden_dim: int = 128,
+        **kwargs
     ):
         super(RNN, self).__init__(
             dataset=dataset,
@@ -157,21 +175,45 @@ class RNN(BaseModel):
             label_key=label_key,
             mode=mode,
         )
-        assert operation_level in VALID_OPERATION_LEVEL, \
-            f"operation_level must be one of {VALID_OPERATION_LEVEL}"
-        self.operation_level = operation_level
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
-
-        self.feat_tokenizers = self.get_feature_tokenizers()
-        self.label_tokenizer = self.get_label_tokenizer()
-        self.embeddings = self.get_embedding_layers(self.feat_tokenizers, embedding_dim)
 
         # validate kwargs for RNN layer
         if "input_size" in kwargs:
             raise ValueError("input_size is determined by embedding_dim")
         if "hidden_size" in kwargs:
             raise ValueError("hidden_size is determined by hidden_dim")
+
+        # the key of self.feat_tokenizers only contains the code based inputs
+        self.feat_tokenizers = {}
+        self.label_tokenizer = self.get_label_tokenizer()
+        # the key of self.embeddings only contains the code based inputs
+        self.embeddings = nn.ModuleDict()
+        # the key of self.linear_layers only contains the float/int based inputs
+        self.linear_layers = nn.ModuleDict()
+
+        # add feature RNN layers
+        for feature_key in self.feature_keys:
+            input_info = self.dataset.input_info[feature_key]
+            # sanity check
+            if input_info["type"] not in [str, float, int]:
+                raise ValueError(
+                    "RNN only supports str code, float and int as input types"
+                )
+            elif (input_info["type"] == str) and (input_info["dim"] not in [2, 3]):
+                raise ValueError(
+                    "RNN only supports 2-dim or 3-dim str code as input types"
+                )
+            elif (input_info["type"] in [float, int]) and (
+                input_info["dim"] not in [2, 3]
+            ):
+                raise ValueError(
+                    "RNN only supports 2-dim or 3-dim float and int as input types"
+                )
+            # for code based input, we need Type
+            # for float/int based input, we need Type, input_dim
+            self.add_feature_transform_layer(feature_key, input_info)
+
         self.rnn = nn.ModuleDict()
         for feature_key in feature_keys:
             self.rnn[feature_key] = RNNLayer(
@@ -180,79 +222,8 @@ class RNN(BaseModel):
         output_size = self.get_output_size(self.label_tokenizer)
         self.fc = nn.Linear(len(self.feature_keys) * self.hidden_dim, output_size)
 
-    def visit_level_forward(self, **kwargs):
-        """Visit-level RNN forward."""
-        patient_emb = []
-        for feature_key in self.feature_keys:
-            # [patient, visit, code]
-            assert type(kwargs[feature_key][0][0]) == list
-            x = self.feat_tokenizers[feature_key].batch_encode_3d(kwargs[feature_key])
-            # (patient, visit, code)
-            x = torch.tensor(x, dtype=torch.long, device=self.device)
-            # (patient, visit, code, embedding_dim)
-            x = self.embeddings[feature_key](x)
-            # (patient, visit, embedding_dim)
-            x = torch.sum(x, dim=2)
-            # (patient, visit)
-            mask = torch.sum(x, dim=2) != 0
-            # (patient, hidden_dim)
-            _, x = self.rnn[feature_key](x, mask)
-            patient_emb.append(x)
-        # (patient, features * hidden_dim)
-        patient_emb = torch.cat(patient_emb, dim=1)
-        # (patient, label_size)
-        logits = self.fc(patient_emb)
-        # obtain y_true, loss, y_prob
-        y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
-        loss = self.get_loss_function()(logits, y_true)
-        y_prob = self.prepare_y_prob(logits)
-        return {
-            "loss": loss,
-            "y_prob": y_prob,
-            "y_true": y_true,
-        }
-
-    def event_level_forward(self, **kwargs):
-        """Event-level RNN forward."""
-        patient_emb = []
-        for feature_key in self.feature_keys:
-            # [patient, code]
-            assert type(kwargs[feature_key][0][0]) == str
-            x = self.feat_tokenizers[feature_key].batch_encode_2d(kwargs[feature_key])
-            # (patient, code)
-            x = torch.tensor(x, dtype=torch.long, device=self.device)
-            # (patient, code, embedding_dim)
-            x = self.embeddings[feature_key](x)
-            # (patient, code)
-            mask = torch.sum(x, dim=2) != 0
-            # (patient, hidden_dim)
-            _, x = self.rnn[feature_key](x, mask)
-            patient_emb.append(x)
-        # (patient, features * hidden_dim)
-        patient_emb = torch.cat(patient_emb, dim=1)
-        # (patient, label_size)
-        logits = self.fc(patient_emb)
-        # obtain y_true, loss, y_prob
-        y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
-        loss = self.get_loss_function()(logits, y_true)
-        y_prob = self.prepare_y_prob(logits)
-        return {
-            "loss": loss,
-            "y_prob": y_prob,
-            "y_true": y_true,
-        }
-
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation.
-
-        If `operation_level` is "visit", then the input is a list of visits
-        for each patient. Each visit is a list of codes. For example,
-        `kwargs["conditions"]` is a list of visits for each patient. Each
-        visit is a list of condition codes.
-
-        If `operation_level` is "event", then the input is a list of events
-        for each patient. Each event is a code. For example, `kwargs["conditions"]`
-        is a list of condition codes for each patient.
 
         The label `kwargs[self.label_key]` is a list of labels for each patient.
 
@@ -266,9 +237,125 @@ class RNN(BaseModel):
                 y_prob: a tensor representing the predicted probabilities.
                 y_true: a tensor representing the true labels.
         """
-        if self.operation_level == "visit":
-            return self.visit_level_forward(**kwargs)
-        elif self.operation_level == "event":
-            return self.event_level_forward(**kwargs)
-        else:
-            raise NotImplementedError
+        patient_emb = []
+        for feature_key in self.feature_keys:
+            input_info = self.dataset.input_info[feature_key]
+            dim_, type_ = input_info["dim"], input_info["type"]
+
+            # for case 1: [code1, code2, code3, ...]
+            if (dim_ == 2) and (type_ == str):
+                x = self.feat_tokenizers[feature_key].batch_encode_2d(
+                    kwargs[feature_key]
+                )
+                # (patient, event)
+                x = torch.tensor(x, dtype=torch.long, device=self.device)
+                # (patient, event, embedding_dim)
+                x = self.embeddings[feature_key](x)
+                # (patient, event)
+                mask = torch.sum(x, dim=2) != 0
+
+            # for case 2: [[code1, code2], [code3, ...], ...]
+            elif (dim_ == 3) and (type_ == str):
+                x = self.feat_tokenizers[feature_key].batch_encode_3d(
+                    kwargs[feature_key]
+                )
+                # (patient, visit, event)
+                x = torch.tensor(x, dtype=torch.long, device=self.device)
+                # (patient, visit, event, embedding_dim)
+                x = self.embeddings[feature_key](x)
+                # (patient, visit, embedding_dim)
+                x = torch.sum(x, dim=2)
+                # (patient, visit)
+                mask = torch.sum(x, dim=2) != 0
+
+            # for case 3: [[1.5, 2.0, 0.0], ...]
+            elif (dim_ == 2) and (type_ in [float, int]):
+                x, mask = self.padding2d(kwargs[feature_key])
+                # (patient, event, values)
+                x = torch.tensor(x, dtype=torch.float, device=self.device)
+                # (patient, event, embedding_dim)
+                x = self.linear_layers[feature_key](x)
+                # (patient, event)
+                mask = torch.tensor(mask, dtype=torch.bool, device=self.device)
+
+            # for case 4: [[[1.5, 2.0, 0.0], [1.8, 2.4, 6.0]], ...]
+            elif (dim_ == 3) and (type_ in [float, int]):
+                x, mask = self.padding3d(kwargs[feature_key])
+                # (patient, visit, event, values)
+                x = torch.tensor(x, dtype=torch.float, device=self.device)
+                # (patient, visit, embedding_dim)
+                x = self.linear_layers[feature_key](x)
+                # (patient, event)
+                mask = torch.tensor(mask, dtype=torch.bool, device=self.device)
+
+            else:
+                raise NotImplementedError
+
+            _, x = self.rnn[feature_key](x, mask)
+            patient_emb.append(x)
+
+        patient_emb = torch.cat(patient_emb, dim=1)
+        # (patient, label_size)
+        logits = self.fc(patient_emb)
+        # obtain y_true, loss, y_prob
+        y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
+        loss = self.get_loss_function()(logits, y_true)
+        y_prob = self.prepare_y_prob(logits)
+        return {
+            "loss": loss,
+            "y_prob": y_prob,
+            "y_true": y_true,
+        }
+
+
+if __name__ == "__main__":
+    from pyhealth.datasets import SampleDataset
+
+    samples = [
+        {
+            "patient_id": "patient-0",
+            "visit_id": "visit-0",
+            "conditions": [["cond-33", "cond-86", "cond-80"]],
+            "procedures": [[1.0, 2.0, 3.5, 4]],
+            "label": 0,
+        },
+        {
+            "patient_id": "patient-0",
+            "visit_id": "visit-0",
+            "conditions": [["cond-33", "cond-86", "cond-80"]],
+            "procedures": [[5.0, 2.0, 3.5, 4]],
+            "label": 1,
+        },
+    ]
+
+    input_info = {
+        "conditions": {"level": 2, "Type": str},
+        "procedures": {"level": 2, "Type": float, "input_dim": 4},
+    }
+
+    # dataset
+    dataset = SampleDataset(samples=samples, dataset_name="test")
+    dataset.input_info = input_info
+
+    # data loader
+    from pyhealth.datasets import get_dataloader
+
+    train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
+
+    # model
+    model = RNN(
+        dataset=dataset,
+        feature_keys=["conditions", "procedures"],
+        label_key="label",
+        mode="binary",
+    )
+
+    # data batch
+    data_batch = next(iter(train_loader))
+
+    # try the model
+    ret = model(**data_batch)
+    print(ret)
+
+    # try loss backward
+    ret["loss"].backward()

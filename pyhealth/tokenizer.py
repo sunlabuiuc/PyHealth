@@ -4,11 +4,7 @@ from typing import List, Optional, Tuple
 class Vocabulary:
     """Vocabulary class for mapping between tokens and indices."""
 
-    def __init__(
-            self,
-            tokens: List[str],
-            special_tokens: Optional[List[str]] = None
-    ):
+    def __init__(self, tokens: List[str], special_tokens: Optional[List[str]] = None):
         """Initializes the vocabulary.
 
         This function initializes the vocabulary by adding the special tokens first
@@ -102,11 +98,11 @@ class Tokenizer:
         return [self.vocabulary.idx2token[idx] for idx in indices]
 
     def batch_encode_2d(
-            self,
-            batch: List[List[str]],
-            padding: bool = True,
-            truncation: bool = True,
-            max_length: int = 512,
+        self,
+        batch: List[List[str]],
+        padding: bool = True,
+        truncation: bool = True,
+        max_length: int = 512,
     ):
         """Converts a list of lists of tokens (2D) to indices.
 
@@ -130,9 +126,9 @@ class Tokenizer:
         return [[self.vocabulary(token) for token in tokens] for tokens in batch]
 
     def batch_decode_2d(
-            self,
-            batch: List[List[int]],
-            padding: bool = False,
+        self,
+        batch: List[List[int]],
+        padding: bool = False,
     ):
         """Converts a list of lists of indices (2D) to tokens.
 
@@ -146,11 +142,11 @@ class Tokenizer:
         return batch
 
     def batch_encode_3d(
-            self,
-            batch: List[List[List[str]]],
-            padding: Tuple[bool, bool] = (True, True),
-            truncation: Tuple[bool, bool] = (True, True),
-            max_length: Tuple[int, int] = (10, 512),
+        self,
+        batch: List[List[List[str]]],
+        padding: Tuple[bool, bool] = (True, True),
+        truncation: Tuple[bool, bool] = (True, True),
+        max_length: Tuple[int, int] = (10, 512),
     ):
         """Converts a list of lists of lists of tokens (3D) to indices.
 
@@ -165,9 +161,11 @@ class Tokenizer:
                 if truncation is False.
         """
         if truncation[0]:
-            batch = [tokens[-max_length[0]:] for tokens in batch]
+            batch = [tokens[-max_length[0] :] for tokens in batch]
         if truncation[1]:
-            batch = [[tokens[-max_length[1]:] for tokens in visits] for visits in batch]
+            batch = [
+                [tokens[-max_length[1] :] for tokens in visits] for visits in batch
+            ]
         if padding[0]:
             batch_max_length = max([len(tokens) for tokens in batch])
             batch = [
@@ -191,9 +189,9 @@ class Tokenizer:
         ]
 
     def batch_decode_3d(
-            self,
-            batch: List[List[List[int]]],
-            padding: bool = False,
+        self,
+        batch: List[List[List[int]]],
+        padding: bool = False,
     ):
         """Converts a list of lists of lists of indices (3D) to tokens.
 

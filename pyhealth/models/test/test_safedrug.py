@@ -5,7 +5,7 @@ from pyhealth.models import SafeDrug
 from pyhealth.tasks import drug_recommendation_mimic3_fn
 from pyhealth.datasets.utils import collate_fn_dict
 
-dataset = MIMIC3Dataset(
+base_dataset = MIMIC3Dataset(
     root="/srv/local/data/physionet.org/files/mimiciii/1.4",
     tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
     dev=True,
@@ -14,12 +14,12 @@ dataset = MIMIC3Dataset(
 )
 
 # visit level + multilabel
-dataset.set_task(drug_recommendation_mimic3_fn)
+sample_dataset = base_dataset.set_task(drug_recommendation_mimic3_fn)
 dataloader = DataLoader(
-    dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
+    sample_dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
 )
 model = SafeDrug(
-    dataset=dataset,
+    dataset=sample_dataset,
 )
 model.to("cuda")
 batch = iter(dataloader).next()

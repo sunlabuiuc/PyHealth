@@ -29,9 +29,7 @@ class ATC(InnerMap):
             return code
 
     def get_ddi(
-            self,
-            gamenet_ddi: bool = False,
-            refresh_cache: bool = False
+        self, gamenet_ddi: bool = False, refresh_cache: bool = False
     ) -> List[str]:
         """Gets the drug-drug interactions (DDI).
 

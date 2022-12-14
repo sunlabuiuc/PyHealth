@@ -5,8 +5,8 @@ from pyhealth.datasets.utils import collate_fn_dict
 
 # from pyhealth.models import CNN as Model
 # from pyhealth.models import RNN as Model
-# from pyhealth.models import RETAIN as Model
-from pyhealth.models import Transformer as Model
+from pyhealth.models import RETAIN as Model
+# from pyhealth.models import Transformer as Model
 
 
 def task_event(patient):
@@ -53,7 +53,7 @@ def task_visit(patient):
     return samples
 
 
-dataset = MIMIC3Dataset(
+base_dataset = MIMIC3Dataset(
     root="/srv/local/data/physionet.org/files/mimiciii/1.4",
     tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
     dev=True,
@@ -61,16 +61,15 @@ dataset = MIMIC3Dataset(
 )
 
 # event level + binary
-dataset.set_task(task_event)
+sample_dataset = base_dataset.set_task(task_event)
 dataloader = DataLoader(
-    dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
+    sample_dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
 )
 model = Model(
-    dataset=dataset,
+    dataset=sample_dataset,
     feature_keys=["conditions", "procedures"],
     label_key="value_label",
     mode="binary",
-    operation_level="event",
 )
 model.to("cuda")
 batch = iter(dataloader).next()
@@ -78,16 +77,15 @@ output = model(**batch)
 print(output["loss"])
 
 # visit level + binary
-dataset.set_task(task_visit)
+sample_dataset = base_dataset.set_task(task_visit)
 dataloader = DataLoader(
-    dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
+    sample_dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
 )
 model = Model(
-    dataset=dataset,
+    dataset=sample_dataset,
     feature_keys=["conditions", "procedures"],
     label_key="value_label",
     mode="binary",
-    operation_level="visit",
 )
 model.to("cuda")
 batch = iter(dataloader).next()
@@ -95,16 +93,15 @@ output = model(**batch)
 print(output["loss"])
 
 # event level + multiclass
-dataset.set_task(task_event)
+sample_dataset = base_dataset.set_task(task_event)
 dataloader = DataLoader(
-    dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
+    sample_dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
 )
 model = Model(
-    dataset=dataset,
+    dataset=sample_dataset,
     feature_keys=["conditions", "procedures"],
     label_key="value_label",
     mode="multiclass",
-    operation_level="event",
 )
 model.to("cuda")
 batch = iter(dataloader).next()
@@ -112,16 +109,15 @@ output = model(**batch)
 print(output["loss"])
 
 # visit level + multiclass
-dataset.set_task(task_visit)
+sample_dataset = base_dataset.set_task(task_visit)
 dataloader = DataLoader(
-    dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
+    sample_dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
 )
 model = Model(
-    dataset=dataset,
+    dataset=sample_dataset,
     feature_keys=["conditions", "procedures"],
     label_key="value_label",
     mode="multiclass",
-    operation_level="visit",
 )
 model.to("cuda")
 batch = iter(dataloader).next()
@@ -129,16 +125,15 @@ output = model(**batch)
 print(output["loss"])
 
 # event level + multilabel
-dataset.set_task(task_event)
+sample_dataset = base_dataset.set_task(task_event)
 dataloader = DataLoader(
-    dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
+    sample_dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
 )
 model = Model(
-    dataset=dataset,
+    dataset=sample_dataset,
     feature_keys=["conditions", "procedures"],
     label_key="list_label",
     mode="multilabel",
-    operation_level="event",
 )
 model.to("cuda")
 batch = iter(dataloader).next()
@@ -146,16 +141,15 @@ output = model(**batch)
 print(output["loss"])
 
 # visit level + multilabel
-dataset.set_task(task_visit)
+sample_dataset = base_dataset.set_task(task_visit)
 dataloader = DataLoader(
-    dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
+    sample_dataset, batch_size=64, shuffle=True, collate_fn=collate_fn_dict
 )
 model = Model(
-    dataset=dataset,
+    dataset=sample_dataset,
     feature_keys=["conditions", "procedures"],
     label_key="list_label",
     mode="multilabel",
-    operation_level="visit",
 )
 model.to("cuda")
 batch = iter(dataloader).next()

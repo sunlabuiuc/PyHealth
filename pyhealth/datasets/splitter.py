@@ -4,21 +4,22 @@ from typing import Optional, Tuple, Union, List
 import numpy as np
 import torch
 
-from pyhealth.datasets import BaseDataset
+from pyhealth.datasets import SampleDataset
 
 
 # TODO: train_dataset.dataset still access the whole dataset which may leak information
 # TODO: add more splitting methods
 
+
 def split_by_visit(
-        dataset: BaseDataset,
+        dataset: SampleDataset,
         ratios: Union[Tuple[float, float, float], List[float]],
         seed: Optional[int] = None,
 ):
     """Splits the dataset by visit (i.e., samples).
 
     Args:
-        dataset: a `BaseDataset` object
+        dataset: a `SampleDataset` object
         ratios: a list/tuple of ratios for train / val / test
         seed: random seed for shuffling the dataset
 
@@ -48,14 +49,14 @@ def split_by_visit(
 
 
 def split_by_patient(
-        dataset: BaseDataset,
+        dataset: SampleDataset,
         ratios: Union[Tuple[float, float, float], List[float]],
         seed: Optional[int] = None,
 ):
     """Splits the dataset by patient.
 
     Args:
-        dataset: a `BaseDataset` object
+        dataset: a `SampleDataset` object
         ratios: a list/tuple of ratios for train / val / test
         seed: random seed for shuffling the dataset
 

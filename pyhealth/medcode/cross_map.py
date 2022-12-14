@@ -20,10 +20,10 @@ class CrossMap:
     """
 
     def __init__(
-            self,
-            source_vocabulary: str,
-            target_vocabulary: str,
-            refresh_cache: bool = False,
+        self,
+        source_vocabulary: str,
+        target_vocabulary: str,
+        refresh_cache: bool = False,
     ):
         self.s_vocab = source_vocabulary
         self.t_vocab = target_vocabulary
@@ -32,8 +32,10 @@ class CrossMap:
         pickle_filename = f"{self.s_vocab}_to_{self.t_vocab}.pkl"
         pickle_filepath = os.path.join(MODULE_CACHE_PATH, pickle_filename)
         if os.path.exists(pickle_filepath) and (not refresh_cache):
-            logger.debug(f"Loaded {self.s_vocab}->{self.t_vocab} mapping "
-                         f"from {pickle_filepath}")
+            logger.debug(
+                f"Loaded {self.s_vocab}->{self.t_vocab} mapping "
+                f"from {pickle_filepath}"
+            )
             self.mapping = load_pickle(pickle_filepath)
         else:
             logger.debug(f"Processing {self.s_vocab}->{self.t_vocab} mapping...")
@@ -46,8 +48,9 @@ class CrossMap:
             self.mapping = defaultdict(list)
             for _, row in df.iterrows():
                 self.mapping[row[self.s_vocab]].append(row[self.t_vocab])
-            logger.debug(f"Saved {self.s_vocab}->{self.t_vocab} mapping "
-                         f"to {pickle_filepath}")
+            logger.debug(
+                f"Saved {self.s_vocab}->{self.t_vocab} mapping " f"to {pickle_filepath}"
+            )
             save_pickle(self.mapping, pickle_filepath)
 
         # load source and target vocabulary classes
@@ -57,10 +60,10 @@ class CrossMap:
 
     @classmethod
     def load(
-            cls,
-            source_vocabulary: str,
-            target_vocabulary: str,
-            refresh_cache: bool = False,
+        cls,
+        source_vocabulary: str,
+        target_vocabulary: str,
+        refresh_cache: bool = False,
     ):
         """Initializes the mapping between two medical code systems.
 
@@ -82,10 +85,10 @@ class CrossMap:
         return cls(source_vocabulary, target_vocabulary, refresh_cache)
 
     def map(
-            self,
-            source_code: str,
-            source_kwargs: Optional[Dict] = None,
-            target_kwargs: Optional[Dict] = None
+        self,
+        source_code: str,
+        source_kwargs: Optional[Dict] = None,
+        target_kwargs: Optional[Dict] = None,
     ) -> List[str]:
         """Maps a source code to a list of target codes.
 
