@@ -46,7 +46,7 @@ def leaderboard_generation(args):
 
     datasets = args.datasets
 
-    tasks_mimic3, tasks_mimic4, tasks_eicu, tasks_omop = get_tasks_fn_for_datasets()
+    tasks_mimic3, tasks_mimic4, tasks_eicu, tasks_omop = get_tasks_fn_for_datasets(args.tasks)
 
     eval_data_task = []
 
@@ -183,7 +183,7 @@ def leaderboard_generation(args):
 
                         y_gt, y_prob, avg_loss = trainer.inference(test_loader)
 
-                        jaccard, accuracy, f1, prauc = get_metrics_result(
+                        jaccard, acc_or_roc_auc, f1, prauc_or_cohen_kappa = get_metrics_result(
                             mode_, y_gt, y_prob
                         )
 
@@ -192,22 +192,27 @@ def leaderboard_generation(args):
                         eval_data_model = [
                             dataset_task_model,
                             jaccard,
-                            accuracy,
+                            acc_or_roc_auc,
                             f1,
-                            prauc,
+                            prauc_or_cohen_kappa,
                         ]
                         eval_data_task.append(eval_data_model)
 
                 else:
-                    device = "cuda:0"
+                    device = args.device
                     print("current model: " + str(current_model))
                     model_name = current_model.__name__
-                    model = current_model(
-                        dataset=dataset,
-                        feature_keys=feature_keys_,
-                        label_key=label_key_,
-                        mode=mode_,
-                    )
+                    if model_name in ["GAMENet", "MICRON", "SafeDrug"]:
+                        model = current_model(
+                            dataset=dataset,
+                        )
+                    else:
+                        model = current_model(
+                            dataset=dataset,
+                            feature_keys=feature_keys_,
+                            label_key=label_key_,
+                            mode=mode_,
+                        )
 
                     model.to(device)
 
@@ -246,7 +251,7 @@ def leaderboard_generation(args):
                     y_gt, y_prob, avg_loss = trainer.inference(test_loader)
                     y_pred = (y_prob > 0.5).astype(int)
 
-                    jaccard, accuracy, f1, prauc = get_metrics_result(
+                    jaccard, acc_or_roc_auc, f1, prauc_or_cohen_kappa = get_metrics_result(
                         mode_, y_gt, y_prob
                     )
 
@@ -255,9 +260,9 @@ def leaderboard_generation(args):
                     eval_data_model = [
                             dataset_task_model,
                             jaccard,
-                            accuracy,
+                            acc_or_roc_auc,
                             f1,
-                            prauc,
+                            prauc_or_cohen_kappa,
                     ]
                     eval_data_task.append(eval_data_model)
 
@@ -298,18 +303,32 @@ def construct_args():
     parser.add_argument("--doc_name", type=str, default="Pyhealth tracker")
     parser.add_argument("--sheet_id", type=int, default=2062485923)
     parser.add_argument("--log_path", type=str, default="./log")
+    parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument(
         "--datasets", type=list, default=["mimic3", "eicu", "omop", "mimic4"]
     )
     parser.add_argument(
         "--tasks",
         type=list,
-        default=["drugrec", "lenOfStay", "mortality", "readmission"],
+        default=[
+            "drugrec", 
+            "lenOfStay", 
+            "mortality", 
+            "readmission"
+            ],
     )
     parser.add_argument(
         "--model_list",
         type=list,
-        default=[RNN, CNN, Transformer, RETAIN, GAMENet, MICRON, SafeDrug],
+        default=[
+            RNN, 
+            CNN, 
+            Transformer, 
+            RETAIN, 
+            GAMENet, 
+            MICRON, 
+            SafeDrug
+            ],
     )
     parser.add_argument("--remote", type=bool, default=True)
     parser.add_argument("--plot", type=bool, default=True)

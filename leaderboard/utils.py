@@ -121,7 +121,7 @@ def get_filtered_models(all_models, remove_models):
     return all_models
 
 
-def get_tasks_fn_for_datasets():
+def get_tasks_fn_for_datasets(tasks):
     tasks_mimic3 = [
         drug_recommendation_mimic3_fn,
         length_of_stay_prediction_mimic3_fn,
@@ -158,7 +158,7 @@ def get_metrics_result(mode, y_gt, y_prob):
 
     if mode == "multilabel":
         metrics_fn = multilabel_metrics_fn
-        metrics = ["jaccard_samples", "accuracy", "f1_samples", "pr_auc_samples"]
+        metrics = ["jaccard_samples", "f1_samples", "pr_auc_samples", "roc_auc_samples"]
 
     elif mode == "binary":
         metrics_fn = binary_metrics_fn
@@ -166,12 +166,18 @@ def get_metrics_result(mode, y_gt, y_prob):
 
     elif mode == "multiclass":
         metrics_fn = multiclass_metrics_fn
-        metrics = ["jaccard_macro", "accuracy", "f1_macro"]
+        metrics = ["jaccard_macro", "accuracy", "f1_macro", "cohen_kappa"]
 
-    results = metrics_fn(y_gt, y_prob, metrics=metrics, threshold=0.5)
+    results = metrics_fn(y_gt, y_prob, metrics=metrics)
 
-    accuracy = results["accuracy"]
-    
+    acc_or_roc_auc = (
+        results["accuracy"]
+        if ("accuracy" in metrics)
+        else results["roc_auc_samples"]
+        if ("roc_auc_samples" in metrics)
+        else "-"
+    )
+
     jaccard = (
             results["jaccard"]
             if ("jaccard" in metrics)
@@ -180,7 +186,7 @@ def get_metrics_result(mode, y_gt, y_prob):
             else results["jaccard_macro"]
             if ("jaccard_macro" in metrics)
             else "-"
-        )
+    )
 
     f1 = (
         results["f1"]
@@ -192,22 +198,24 @@ def get_metrics_result(mode, y_gt, y_prob):
         else "-"
     )
 
-    prauc = (
+    prauc_or_cohen_kappa = (
         results["pr_auc"]
         if ("pr_auc" in metrics)
         else results["pr_auc_samples"]
         if ("pr_auc_samples" in metrics)
+        else results["cohen_kappa"]
+        if ("cohen_kappa" in metrics)
         else "-"
     )
 
     # print metric name and score
     print("jaccard: ", jaccard)
-    print("accuracy: ", accuracy)
+    print("acc_or_roc_auc: ", acc_or_roc_auc)
     print("f1: ", f1)
-    print("prauc: ", prauc)
+    print("prauc_or_cohen_kappa: ", prauc_or_cohen_kappa)
     print("\n\n")
 
-    return jaccard, accuracy, f1, prauc
+    return jaccard, acc_or_roc_auc, f1, prauc_or_cohen_kappa
 
 
 def only_upper(s):
@@ -242,7 +250,8 @@ def train_process(trainer, model, train_loader, val_loader, val_metric):
 
         return True
 
-    except:
+    except Exception as e:
+        print(e)
         return False
 
 
