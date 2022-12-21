@@ -65,7 +65,7 @@ PyHealth is designed for both **ML researchers and medical practitioners**. We c
  
 ----------
 
- **[News!]** Current PyHealth is a brand-new version with more flexible and independent function calls (such as users may only use the data preprocessing parts or only the ML model layers as convenient as torch.nn.Linear). The `old documents <https://pyhealth.readthedocs.io/en/archived/>`_ are no longer maintained.
+ **[News!]** We scheduled the first "PyHealth Live" meeting at 8 PM CST (Wednesday), Dec 21, 2022. In the live, we will briefly introduce the pyhealth package’s key components and features and present some intriguing examples over `zoom <https://illinois.zoom.us/j/87450975602?pwd=ckQyaHhkRitlUzlwYUY3NjdEQ0pFdz09>`_. The live lasts for around half an hour and welcome to join us! Add it to your `Google Calender <https://illinois.zoom.us/meeting/tZMpcumhqT4sGtYh_bBC37B9At6vTpwjDBW4/calendar/google/add>`_ or `Microsoft Outlook .ics <https://illinois.zoom.us/meeting/tZMpcumhqT4sGtYh_bBC37B9At6vTpwjDBW4/ics>`_.
 
 
 Introduction `[Video] <https://drive.google.com/file/d/1g8wt8jBhZpmlUDG9l05RtfPWGOlOJK94/view?usp=share_link>`_
