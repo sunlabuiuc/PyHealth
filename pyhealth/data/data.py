@@ -35,6 +35,8 @@ class Event:
         ... )
         >>> event
         Event with NDC code 00069153041 from table PRESCRIPTIONS
+        >>> event.attr_dict
+        {'dosage': '250mg'}
     """
 
     def __init__(
@@ -96,6 +98,10 @@ class Visit:
             Each key is a table name and each value is a list of events from that
             table ordered by timestamp.
 
+    Methods:
+        available_tables: Returns a list of tables that have events in the visit.
+        num_events: Returns the number of events in the visit.
+
     Examples:
         >>> from pyhealth.data import Event, Visit
         >>> event = Event(
@@ -113,6 +119,21 @@ class Visit:
         >>> visit.add_event(event)
         >>> visit
         Visit v001 from patient p001 with 1 events from tables ['PRESCRIPTIONS']
+        >>> vsit
+        >>> visit.available_tables
+        ['PRESCRIPTIONS']
+        >>> visit.num_events
+        1
+        >>> visit.get_event_list('PRESCRIPTIONS')
+        [Event with NDC code 00069153041 from table PRESCRIPTIONS]
+        >>> visit.get_code_list('PRESCRIPTIONS')
+        ['00069153041']
+        >>> patient.available_tables
+        ['PRESCRIPTIONS']
+        >>> patient.get_visit_by_index(0)
+        Visit v001 from patient p001 with 1 events from tables ['PRESCRIPTIONS']
+        >>> patient.get_visit_by_index(0).get_code_list(table="PRESCRIPTIONS")
+        ['00069153041']
     """
 
     def __init__(
