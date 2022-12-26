@@ -98,10 +98,6 @@ class Visit:
             Each key is a table name and each value is a list of events from that
             table ordered by timestamp.
 
-    Methods:
-        available_tables: Returns a list of tables that have events in the visit.
-        num_events: Returns the number of events in the visit.
-
     Examples:
         >>> from pyhealth.data import Event, Visit
         >>> event = Event(
