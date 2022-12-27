@@ -310,13 +310,14 @@ SafeDrug                              deep Learning     ``pyhealth.models.SafeDr
 * Check the `interactive map on benchmark EHR predictive tasks <https://pyhealth.readthedocs.io/en/latest/index.html#benchmark-on-healthcare-tasks>`_.
 
 7. Citing PyHealth
+----------------------------------
 
-.. code-block:: bash
+.. code-block:: bibtex
 
     @software{pyhealth2022github,
-    author = {Chaoqi Yang and Zhenbang Wu and Patrick Jiang and Jimeng Sun},
-    title = {{PyHealth}: A Deep Learning Toolkit for Healthcare Predictive Modeling},
-    url = {https://github.com/sunlabuiuc/PyHealth},
-    year = {2022},
+        author = {Chaoqi Yang and Zhenbang Wu and Patrick Jiang and Jimeng Sun},
+        title = {{PyHealth}: A Deep Learning Toolkit for Healthcare Predictive Modeling},
+        url = {https://github.com/sunlabuiuc/PyHealth},
+        year = {2022},
     }
 
