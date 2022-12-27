@@ -71,6 +71,15 @@ class eICUDataset(BaseDataset):
             a list of sample indices. Default is None.
         visit_to_index: Optional[Dict[str, List[int]]], a dict mapping visit_id to a
             list of sample indices. Default is None.
+
+    Examples:
+        >>> from pyhealth.datasets import eICUDataset
+        >>> dataset = eICUDataset(
+        ...         root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
+        ...         tables=["diagnosis", "medication", "lab", "treatment", "physicalExam"],
+        ...     )
+        >>> dataset.stat()
+        >>> dataset.info()
     """
 
     def __init__(self, **kwargs):
@@ -460,7 +469,7 @@ if __name__ == "__main__":
         root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
         tables=["diagnosis", "medication", "lab", "treatment", "physicalExam"],
         dev=True,
-        refresh_cache=True,
+        refresh_cache=False,
     )
     dataset.stat()
     dataset.info()
