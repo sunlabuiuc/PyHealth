@@ -58,6 +58,16 @@ class MIMIC3Dataset(BaseDataset):
             a list of sample indices. Default is None.
         visit_to_index: Optional[Dict[str, List[int]]], a dict mapping visit_id to a
             list of sample indices. Default is None.
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC3Dataset
+        >>> dataset = MIMIC3Dataset(
+        ...         root="/srv/local/data/physionet.org/files/mimiciii/1.4",
+        ...         tables=["DIAGNOSES_ICD", "PRESCRIPTIONS"],
+        ...         code_mapping={"NDC": ("ATC", {"target_kwargs": {"level": 3}})},
+        ...     )
+        >>> dataset.stat()
+        >>> dataset.info()
     """
 
     def parse_basic_info(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
@@ -294,7 +304,6 @@ if __name__ == "__main__":
     dataset = MIMIC3Dataset(
         root="/srv/local/data/physionet.org/files/mimiciii/1.4",
         tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS", "LABEVENTS"],
-        dev=True,
         code_mapping={"NDC": "ATC"},
         refresh_cache=True,
     )
