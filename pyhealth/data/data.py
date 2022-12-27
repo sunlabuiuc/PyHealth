@@ -115,7 +115,6 @@ class Visit:
         >>> visit.add_event(event)
         >>> visit
         Visit v001 from patient p001 with 1 events from tables ['PRESCRIPTIONS']
-        >>> vsit
         >>> visit.available_tables
         ['PRESCRIPTIONS']
         >>> visit.num_events
