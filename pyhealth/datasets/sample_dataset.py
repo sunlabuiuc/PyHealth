@@ -37,6 +37,50 @@ class SampleDataset(Dataset):
             a list of sample indices.
         visit_to_index: Dict[str, List[int]], a dict mapping visit_id to a list
             of sample indices.
+
+    Examples:
+        >>> from pyhealth.datasets import SampleDataset
+        >>> samples = [
+        ...         {
+        ...             "patient_id": "patient-0",
+        ...             "visit_id": "visit-0",
+        ...             "single_vector": [1, 2, 3],
+        ...             "list_codes": ["505800458", "50580045810", "50580045811"],  # NDC
+        ...             "list_vectors": [[1.0, 2.55, 3.4], [4.1, 5.5, 6.0]],
+        ...             "list_list_codes": [["A05B", "A05C", "A06A"], ["A11D", "A11E"]],  # ATC-4
+        ...             "list_list_vectors": [
+        ...                 [[1.8, 2.25, 3.41], [4.50, 5.9, 6.0]],
+        ...                 [[7.7, 8.5, 9.4]],
+        ...             ],
+        ...             "label": 1,
+        ...         },
+        ...         {
+        ...             "patient_id": "patient-0",
+        ...             "visit_id": "visit-1",
+        ...             "single_vector": [1, 5, 8],
+        ...             "list_codes": [
+        ...                 "55154191800",
+        ...                 "551541928",
+        ...                 "55154192800",
+        ...                 "705182798",
+        ...                 "70518279800",
+        ...             ],
+        ...             "list_vectors": [[1.4, 3.2, 3.5], [4.1, 5.9, 1.7]],
+        ...             "list_list_codes": [["A04A", "B035", "C129"], ["A07B", "A07C"]],
+        ...             "list_list_vectors": [
+        ...                 [[1.0, 2.8, 3.3], [4.9, 5.0, 6.6]],
+        ...                 [[7.7, 8.4, 1.3]],
+        ...             ],
+        ...             "label": 0,
+        ...         },
+        ...     ]
+        >>> dataset = SampleDataset(samples=samples)
+        >>> dataset.input_info
+        {'patient_id': {'type': <class 'str'>, 'dim': 0}, 'visit_id': {'type': <class 'str'>, 'dim': 0}, 'single_vector': {'type': <class 'int'>, 'dim': 1, 'len': 3}, 'list_codes': {'type': <class 'str'>, 'dim': 2}, 'list_vectors': {'type': <class 'float'>, 'dim': 2, 'len': 3}, 'list_list_codes': {'type': <class 'str'>, 'dim': 3}, 'list_list_vectors': {'type': <class 'float'>, 'dim': 3, 'len': 3}, 'label': {'type': <class 'int'>, 'dim': 0}}
+        >>> dataset.patient_to_index
+        {'patient-0': [0, 1]}
+        >>> dataset.visit_to_index
+        {'visit-0': [0], 'visit-1': [1]}
     """
 
     def __init__(self, samples: List[Dict], dataset_name="", task_name=""):
@@ -90,7 +134,7 @@ class SampleDataset(Dataset):
         # record input information for each key
         input_info = {}
         for key in keys:
-            """ 
+            """
             4.1. Check nested list level: all samples should either all be
             - a single value (level=0)
             - a single vector (level=1)
@@ -101,7 +145,7 @@ class SampleDataset(Dataset):
             """
             levels = set([list_nested_levels(s[key]) for s in self.samples])
             assert (
-                    len(levels) == 1 and len(list(levels)[0]) == 1
+                len(levels) == 1 and len(list(levels)[0]) == 1
             ), f"Key {key} has mixed nested list levels across samples"
             level = levels.pop()[0]
             assert level in [
@@ -115,13 +159,9 @@ class SampleDataset(Dataset):
             if level == 0:
                 flattened_values = [s[key] for s in self.samples]
             elif level == 1:
-                flattened_values = [
-                    i for s in self.samples for i in s[key]
-                ]
+                flattened_values = [i for s in self.samples for i in s[key]]
             elif level == 2:
-                flattened_values = [
-                    j for s in self.samples for i in s[key] for j in i
-                ]
+                flattened_values = [j for s in self.samples for i in s[key] for j in i]
             else:
                 flattened_values = [
                     k for s in self.samples for i in s[key] for j in i for k in j
@@ -222,7 +262,7 @@ class SampleDataset(Dataset):
         return list(keys)
 
     def get_all_tokens(
-            self, key: str, remove_duplicates: bool = True, sort: bool = True
+        self, key: str, remove_duplicates: bool = True, sort: bool = True
     ) -> List[str]:
         """Gets all tokens with a specific key in the samples.
 
@@ -318,9 +358,7 @@ class SampleDataset(Dataset):
                 num_events = [len(sample[key]) for sample in self.samples]
             elif input_dim == 3:
                 # a list of list
-                num_events = [
-                    len(flatten_list(sample[key])) for sample in self.samples
-                ]
+                num_events = [len(flatten_list(sample[key])) for sample in self.samples]
             else:
                 raise NotImplementedError
             lines.append(f"\t- {key}:")
@@ -334,9 +372,9 @@ class SampleDataset(Dataset):
                     f"\t\t- Number of unique {key}: {len(self.get_all_tokens(key))}"
                 )
                 distribution = self.get_distribution_tokens(key)
-                top10 = sorted(
-                    distribution.items(), key=lambda x: x[1], reverse=True
-                )[:10]
+                top10 = sorted(distribution.items(), key=lambda x: x[1], reverse=True)[
+                    :10
+                ]
                 lines.append(f"\t\t- Distribution of {key} (Top-10): {top10}")
             else:
                 # vector-based
@@ -350,22 +388,34 @@ if __name__ == "__main__":
     samples = [
         {
             "patient_id": "patient-0",
-            "visit_id": "visit-0-0",
+            "visit_id": "visit-0",
             "single_vector": [1, 2, 3],
-            "list_codes": ["cond-33", "cond-86", "cond-80"],
-            "list_vectors": [[1, 2, 3], [4, 5, 6]],
-            "list_list_codes": [["cond-33"], ["cond-86", "cond-80"]],
-            "list_list_vectors": [[[1, 2, 3], [4, 5, 6]], [[7, 8, 9]]],
+            "list_codes": ["505800458", "50580045810", "50580045811"],  # NDC
+            "list_vectors": [[1.0, 2.55, 3.4], [4.1, 5.5, 6.0]],
+            "list_list_codes": [["A05B", "A05C", "A06A"], ["A11D", "A11E"]],  # ATC-4
+            "list_list_vectors": [
+                [[1.8, 2.25, 3.41], [4.50, 5.9, 6.0]],
+                [[7.7, 8.5, 9.4]],
+            ],
             "label": 1,
         },
         {
-            "patient_id": "patient-1",
-            "visit_id": "visit-1-0",
-            "single_vector": [1, 2, 5],
-            "list_codes": ["cond-33", "cond-86", "cond-80"],
-            "list_vectors": [[1, 3, 3], [4, 5, 1]],
-            "list_list_codes": [["cond-33", "cond-86"], ["cond-80"]],
-            "list_list_vectors": [[[1, 2, 3], [4, 5, 6]], [[7, 8, 1]]],
+            "patient_id": "patient-0",
+            "visit_id": "visit-1",
+            "single_vector": [1, 5, 8],
+            "list_codes": [
+                "55154191800",
+                "551541928",
+                "55154192800",
+                "705182798",
+                "70518279800",
+            ],
+            "list_vectors": [[1.4, 3.2, 3.5], [4.1, 5.9, 1.7]],
+            "list_list_codes": [["A04A", "B035", "C129"], ["A07B", "A07C"]],
+            "list_list_vectors": [
+                [[1.0, 2.8, 3.3], [4.9, 5.0, 6.6]],
+                [[7.7, 8.4, 1.3]],
+            ],
             "label": 0,
         },
     ]

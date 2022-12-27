@@ -67,6 +67,16 @@ class OMOPDataset(BaseDataset):
             a list of sample indices. Default is None.
         visit_to_index: Optional[Dict[str, List[int]]], a dict mapping visit_id to a
             list of sample indices. Default is None.
+
+    Examples:
+        >>> from pyhealth.datasets import OMOPDataset
+        >>> dataset = OMOPDataset(
+        ...         root="/srv/local/data/zw12/pyhealth/raw_data/synpuf1k_omop_cdm_5.2.2",
+        ...         tables=["condition_occurrence", "procedure_occurrence", "drug_exposure", "measurement",],
+        ...     )
+        >>> dataset.stat()
+        >>> dataset.info()
+
     """
 
     def parse_basic_info(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
