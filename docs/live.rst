@@ -15,9 +15,9 @@ PyHealth live
 
 Schedules
 ^^^^^^^^^^^^^^
- **(Dec 21, Wed)** Live 01 - What is PyHealth and How to Get Started? `[Recap] <https://www.youtube.com/watch?v=1Ir6hzU4Nro>`_
+ **(Dec 21, Wed)** Live 01 - What is PyHealth and How to Get Started? `[Recap] <https://www.youtube.com/watch?v=1Ir6hzU4Nro&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=1>`_
 
- **(Dec 28, Wed)** Live 02 - Data & Datasets & Tasks: store unstructured data in an structured way
+ **(Dec 28, Wed)** Live 02 - Data & Datasets & Tasks: store unstructured data in an structured way. `[Recap I] <https://www.youtube.com/watch?v=Nk1itBoLOX8&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=2>`_ `[Recap I] <https://www.youtube.com/watch?v=Nk1itBoLOX8&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=2>`_ `[II] <https://www.youtube.com/watch?v=c1InKqFJbsI&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=3>`_ `[III] <https://www.youtube.com/watch?v=CxESe1gYWU4&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=4>`_ `[IV] <https://www.youtube.com/watch?v=Gdmj0P5Yk-w&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=5>`_
 
  **(Jan 4, Wed)** Live 03 - Models & Trainer & Metrics: initialize and train a deep learning model
 
