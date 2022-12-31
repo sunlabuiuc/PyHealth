@@ -172,24 +172,14 @@ class SampleDataset(Dataset):
             int, or str.
             """
             types = set([type(v) for v in flattened_values])
-            assert len(types) == 1, f"Key {key} has mixed types across samples"
+            assert types == set([str]) or len(types.difference(set([int, float]))) == 0, \
+                f"Key {key} has mixed or unsupported types ({types}) across samples"
             type_ = types.pop()
-            assert type_ in [
-                float,
-                int,
-                str,
-            ], f"Key {key} has unsupported type across samples"
-
             """
             4.3. Combined level and type check.
             """
             if level == 0:
                 # a single value
-                assert type_ in [
-                    float,
-                    int,
-                    str,
-                ], f"Key {key} has unsupported type across samples"
                 input_info[key] = {"type": type_, "dim": 0}
             elif level == 1:
                 # a single vector or a list of codes
