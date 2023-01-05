@@ -26,11 +26,11 @@ class BaseModel(ABC, nn.Module):
     """
 
     def __init__(
-            self,
-            dataset: SampleDataset,
-            feature_keys: List[str],
-            label_key: str,
-            mode: str,
+        self,
+        dataset: SampleDataset,
+        feature_keys: List[str],
+        label_key: str,
+        mode: str,
     ):
         super(BaseModel, self).__init__()
         assert mode in VALID_MODE, f"mode must be one of {VALID_MODE}"
@@ -72,8 +72,8 @@ class BaseModel(ABC, nn.Module):
 
     @staticmethod
     def get_embedding_layers(
-            feature_tokenizers: Dict[str, Tokenizer],
-            embedding_dim: int,
+        feature_tokenizers: Dict[str, Tokenizer],
+        embedding_dim: int,
     ) -> nn.ModuleDict:
         """Gets the default embedding layers using the feature tokenizers.
 
@@ -169,10 +169,11 @@ class BaseModel(ABC, nn.Module):
 
         return batch, mask
 
-    def add_feature_transform_layer(self, feature_key: str, info):
+    def add_feature_transform_layer(self, feature_key: str, info, special_tokens=None):
         if info["type"] == str:
             # feature tokenizer
-            special_tokens = ["<pad>", "<unk>"]
+            if special_tokens is None:
+                special_tokens = ["<pad>", "<unk>"]
             tokenizer = Tokenizer(
                 tokens=self.dataset.get_all_tokens(key=feature_key),
                 special_tokens=special_tokens,
@@ -185,9 +186,7 @@ class BaseModel(ABC, nn.Module):
                 padding_idx=tokenizer.get_padding_index(),
             )
         elif info["type"] in [float, int]:
-            self.linear_layers[feature_key] = nn.Linear(
-                info["len"], self.embedding_dim
-            )
+            self.linear_layers[feature_key] = nn.Linear(info["len"], self.embedding_dim)
         else:
             raise ValueError("Unsupported feature type: {}".format(info["type"]))
 
@@ -248,9 +247,9 @@ class BaseModel(ABC, nn.Module):
             raise ValueError("Invalid mode: {}".format(self.mode))
 
     def prepare_labels(
-            self,
-            labels: Union[List[str], List[List[str]]],
-            label_tokenizer: Tokenizer,
+        self,
+        labels: Union[List[str], List[List[str]]],
+        label_tokenizer: Tokenizer,
     ) -> torch.Tensor:
         """Prepares the labels for model training and evaluation.
 
