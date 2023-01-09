@@ -3,7 +3,6 @@ import functools
 
 import torch
 import torch.nn as nn
-import ipdb
 
 from pyhealth.datasets import BaseDataset
 from pyhealth.models import BaseModel
@@ -37,20 +36,51 @@ class DeeprLayer(nn.Module):
             feature_size, hidden_size, kernel_size=2 * window + 1
         )
 
-    def forward(self, x: torch.tensor) -> Tuple[torch.tensor, torch.tensor]:
+    def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor]) -> torch.Tensor:
         """Forward propagation.
 
         Args:
-            x: a tensor of shape [batch size, sequence len, input size].
-
+            x: a Tensor of shape [batch size, sequence len, input size].
+            mask: an optional tensor of shape [batch size, sequence len], where
+                            1 indicates valid and 0 indicates invalid.
         Returns:
-            c: a tensor of shape [batch size, hidden_size] representing the
+            c: a Tensor of shape [batch size, hidden_size] representing the
                 summarized vector.
         """
+        if mask is not None:
+            x = x * mask.unsqueeze(-1)
         x = x.permute(0, 2, 1)  # [batch size, input size, sequence len]
         x = torch.relu(self.conv(x))
         x = x.max(-1)[0]
         return x
+
+
+def _flatten_and_fill_gap(gap_embedding, batch, device):
+    """Helper function to fill <gap> embedding into a batch of data."""
+    embed_dim = gap_embedding.shape[-1]
+    batch = [
+        [
+            [torch.tensor(_, device=device, dtype=torch.float) for _ in _visit_x]
+            for _visit_x in _pat_x
+        ]
+        for _pat_x in batch
+    ]
+    batch = [
+        torch.stack(functools.reduce(lambda a, b: a + [gap_embedding] + b, _), 0)
+        for _ in batch
+    ]
+    batch_max_length = max(map(len, batch))
+    mask = torch.tensor(
+        [[1] * len(x) + [0] * (batch_max_length - len(x)) for x in batch],
+        dtype=torch.long,
+        device=device,
+    )
+    out = torch.zeros(
+        [len(batch), batch_max_length, embed_dim], device=device, dtype=torch.float
+    )
+    for i, x in enumerate(batch):
+        out[i, : len(x)] = x
+    return out, mask
 
 
 class Deepr(BaseModel):
@@ -96,20 +126,35 @@ class Deepr(BaseModel):
         self.hidden_dim = hidden_dim
 
         # TODO: Use more tokens for <gap> for different lengths once the input has such information
-        # TODO: find a way to add <gap> to self.add_feature_transform_layer
-        self.feat_tokenizers = self.get_feature_tokenizers(
-            special_tokens=["<pad>", "<unk>", "<gap>"]
-        )
+        self.feat_tokenizers = {}
         self.label_tokenizer = self.get_label_tokenizer()
-
         # TODO: Pretrain this embeddings with word2vec?
-        self.embeddings = self.get_embedding_layers(self.feat_tokenizers, embedding_dim)
+        self.embeddings = nn.ModuleDict()
+        # the key of self.linear_layers only contains the float/int based inputs
+        self.linear_layers = nn.ModuleDict()
 
-        # validate kwargs for CNN layer
-        if "input_size" in kwargs:
-            raise ValueError("input_size is determined by embedding_dim")
-        if "hidden_size" in kwargs:
-            raise ValueError("hidden_size is determined by hidden_dim")
+        # add feature Deepr layers
+        for feature_key in self.feature_keys:
+            input_info = self.dataset.input_info[feature_key]
+            # sanity check
+            if input_info["type"] not in [str, float, int]:
+                raise ValueError(
+                    "Deepr only supports str code, float and int as input types"
+                )
+            if (input_info["type"] == str) and (input_info["dim"] != 3):
+                raise ValueError("Deepr only supports 2-level str code as input types")
+            if (input_info["type"] in [float, int]) and (input_info["dim"] != 3):
+                raise ValueError(
+                    "Deepr only supports 3-level float and int as input types"
+                )
+            # for code based input, we need Type
+            # for float/int based input, we need Type, input_dim
+            self.add_feature_transform_layer(
+                feature_key, input_info, special_tokens=["<pad>", "<unk>", "<gap>"]
+            )
+            if input_info["type"] != str:
+                self.embeddings[feature_key] = torch.nn.Embedding(1, input_info["len"])
+
         self.cnn = nn.ModuleDict()
         for feature_key in feature_keys:
             self.cnn[feature_key] = DeeprLayer(
@@ -126,13 +171,8 @@ class Deepr(BaseModel):
             input_info = self.dataset.input_info[feature_key]
             dim_, type_ = input_info["dim"], input_info["type"]
 
-            # for case 1: [code1, code2, code3, ...]
-            if (dim_ == 2) and (type_ == str):
-                raise NotImplementedError(
-                    f"Deepr does not support this input format (dim={dim_}, type={type_})."
-                )
             # for case 2: [[code1, code2], [code3, ...], ...]
-            elif (dim_ == 3) and (type_ == str):
+            if (dim_ == 3) and (type_ == str):
                 feature_vals = [
                     functools.reduce(lambda a, b: a + ["<gap>"] + b, _)
                     for _ in kwargs[feature_key]
@@ -140,35 +180,32 @@ class Deepr(BaseModel):
                 x = self.feat_tokenizers[feature_key].batch_encode_2d(
                     feature_vals, padding=True, truncation=False
                 )
-
+                pad_idx = self.feat_tokenizers[feature_key].vocabulary("<pad>")
+                mask = torch.tensor(
+                    [[_code != pad_idx for _code in _pat] for _pat in x],
+                    dtype=torch.long,
+                    device=self.device,
+                )
                 # (patient, code)
                 x = torch.tensor(x, dtype=torch.long, device=self.device)
                 # (patient, event, embedding_dim)
                 x = self.embeddings[feature_key](x)
-
-            # for case 3: [[1.5, 2.0, 0.0], ...]
-            elif (dim_ == 2) and (type_ in [float, int]):
-                raise NotImplementedError(
-                    f"Deepr does not support this input format (dim={dim_}, type={type_})."
-                )
             # for case 4: [[[1.5, 2.0, 0.0], [1.8, 2.4, 6.0]], ...]
             elif (dim_ == 3) and (type_ in [float, int]):
+                gap_embedding = self.embeddings[feature_key](
+                    torch.zeros(1, dtype=torch.long, device=self.device)
+                )[0]
+                x, mask = _flatten_and_fill_gap(
+                    gap_embedding, kwargs[feature_key], self.device
+                )
+                # (patient, event, embedding_dim)
+                x = self.linear_layers[feature_key](x)
+            else:
                 raise NotImplementedError(
                     f"Deepr does not support this input format (dim={dim_}, type={type_})."
                 )
-                x, mask = self.padding3d(kwargs[feature_key])
-                ipdb.set_trace()
-                # (patient, visit, event, values)
-                x = torch.tensor(x, dtype=torch.float, device=self.device)
-                # (patient, visit, embedding_dim)
-                x = self.linear_layers[feature_key](x)
-                # (patient, event)
-                mask = torch.tensor(mask, dtype=torch.bool, device=self.device)
-
-            else:
-                raise NotImplementedError
             # (patient, hidden_dim)
-            x = self.cnn[feature_key](x)  # , mask)
+            x = self.cnn[feature_key](x, mask)
             patient_emb.append(x)
 
         # (patient, features * hidden_dim)
@@ -194,7 +231,10 @@ if __name__ == "__main__":
             "patient_id": "patient-0",
             "visit_id": "visit-0",
             "conditions": [["cond-33", "cond-86", "cond-80"]],
-            "procedures": [[[5.0, 2.0, 3.5, 4.0]], [[5.0, 2.0, 3.5, 4.0]]],
+            "procedures": [
+                [[5.0, 2.0, 3.5, 4.0], [1, 2, 3, 4], [0, 0, 0, 0]],
+                [[5.0, 2.0, 3.5, 4.0]],
+            ],
             "drugs": [["drug-1", "drug-2"], ["drug-3"]],
             "label": 0,
         },
@@ -203,14 +243,14 @@ if __name__ == "__main__":
             "visit_id": "visit-0",
             "conditions": [["cond-33", "cond-86", "cond-80"]],
             "procedures": [[[5.0, 2.0, 3.5, 4.0]], [[5.0, 2.0, 3.5, 4.0]]],
-            "drugs": [["drug-1", "drug-2"], ["drug-3"]],
+            "drugs": [["drug-1"], ["drug-3"]],
             "label": 1,
         },
     ]
 
     input_info = {
         "conditions": {"dim": 3, "type": str},
-        "procedures": {"dim": 2, "type": float, "len": 4},
+        "procedures": {"dim": 3, "type": float, "len": 4},
         "label": {"dim": 0, "type": int},
         "drugs": {"dim": 3, "type": str},
     }
@@ -228,10 +268,10 @@ if __name__ == "__main__":
     model = Deepr(
         dataset=dataset,
         # feature_keys=["procedures"],
-        feature_keys=["drugs"],
+        feature_keys=["drugs", "procedures"],
         label_key="label",
         mode="binary",
-    )
+    ).to("cuda:0")
 
     # data batch
     data_batch = next(iter(train_loader))
