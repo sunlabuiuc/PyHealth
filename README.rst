@@ -112,7 +112,7 @@ All healthcare tasks in our package follow a **five-stage pipeline**:
 
  load dataset -> define task function -> build ML/DL model -> model training -> inference
 
-! We try hard to make sure each stage is as separate as possibe, so that people can customize their own pipeline by only using our data processing steps or the ML models. Each step will call one module and we introduce them using an example.
+We try hard to make sure each stage is as separate as possibe, so that people can customize their own pipeline by only using our data processing steps or the ML models. Each step will call one module and we introduce them using an example.
 
 3.1 An ML Pipeline Example 
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
