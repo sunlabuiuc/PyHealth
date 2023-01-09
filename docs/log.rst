@@ -2,6 +2,13 @@ Development logs
 ======================
 We track the new development here:
 
+**Jan 8, 2023**
+
+.. code-block:: bash
+
+    1. Changed BaseModel.add_feature_transform_layer in models/base_model.py so that it accepts special_tokens if necessary
+
+
 **Dec 26, 2022**
 
 .. code-block:: bash
