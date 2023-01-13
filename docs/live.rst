@@ -29,4 +29,4 @@ Schedules
 
  **(Feb 1, Wed)** Live 07 - Fit your own dataset into pipeline and use our model
 
-**(Feb 8, Wed)** Live 08 - Define your own healthcare task on MIMIC data
+ **(Feb 8, Wed)** Live 08 - Define your own healthcare task on MIMIC data
