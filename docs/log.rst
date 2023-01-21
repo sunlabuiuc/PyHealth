@@ -2,6 +2,13 @@ Development logs
 ======================
 We track the new development here:
 
+**Jan 20, 2023**
+
+.. code-block:: bash
+
+    1. add the pyhealth live 05
+    2. add slack channel invitation in pyhealth live page
+
 **Jan 13, 2023**
 
 .. code-block:: bash
