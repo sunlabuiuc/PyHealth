@@ -22,6 +22,13 @@ class DeeprLayer(nn.Module):
         feature_size: embedding dim of codes (m in the original paper).
         window: sliding window (d in the original paper)
         hidden_size: number of conv filters (motif size, p, in the original paper)
+    Examples:
+        >>> from pyhealth.models import DeeprLayer
+        >>> input = torch.randn(3, 128, 5)  # [batch size, sequence len, input_size]
+        >>> layer = DeeprLayer(5, window=4, hidden_size=7) # window does not impact the output shape 
+        >>> outputs = layer(input)
+        >>> outputs.shape
+        torch.Size([3, 7]) 
     """
 
     def __init__(
@@ -36,7 +43,7 @@ class DeeprLayer(nn.Module):
             feature_size, hidden_size, kernel_size=2 * window + 1
         )
 
-    def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor]) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor]=None) -> torch.Tensor:
         """Forward propagation.
 
         Args:
