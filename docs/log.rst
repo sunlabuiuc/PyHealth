@@ -2,6 +2,14 @@ Development logs
 ======================
 We track the new development here:
 
+**Jan 22, 2023**
+
+.. code-block:: bash
+
+    1. Fix the list of list of vector problem in RNN, Transformer, RETAIN, and CNN
+    2. Add initialization examples for RNN, Transformer, RETAIN, CNN, and Deepr
+    3. (minor) change the parameters from `Type` and `level` to `type_` and `dim_`
+
 **Jan 21, 2023**
 
 .. code-block:: bash
