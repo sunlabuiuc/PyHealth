@@ -25,10 +25,10 @@ class DeeprLayer(nn.Module):
     Examples:
         >>> from pyhealth.models import DeeprLayer
         >>> input = torch.randn(3, 128, 5)  # [batch size, sequence len, input_size]
-        >>> layer = DeeprLayer(5, window=4, hidden_size=7) # window does not impact the output shape 
+        >>> layer = DeeprLayer(5, window=4, hidden_size=7) # window does not impact the output shape
         >>> outputs = layer(input)
         >>> outputs.shape
-        torch.Size([3, 7]) 
+        torch.Size([3, 7])
     """
 
     def __init__(
@@ -43,7 +43,9 @@ class DeeprLayer(nn.Module):
             feature_size, hidden_size, kernel_size=2 * window + 1
         )
 
-    def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor]=None) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, mask: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
         """Forward propagation.
 
         Args:
@@ -237,34 +239,38 @@ if __name__ == "__main__":
         {
             "patient_id": "patient-0",
             "visit_id": "visit-0",
-            "conditions": [["cond-33", "cond-86", "cond-80"]],
-            "procedures": [
-                [[5.0, 2.0, 3.5, 4.0], [1, 2, 3, 4], [0, 0, 0, 0]],
-                [[5.0, 2.0, 3.5, 4.0]],
+            # "single_vector": [1, 2, 3],
+            "list_codes": ["505800458", "50580045810", "50580045811"],  # NDC
+            "list_vectors": [[1.0, 2.55, 3.4], [4.1, 5.5, 6.0]],
+            "list_list_codes": [["A05B", "A05C", "A06A"], ["A11D", "A11E"]],  # ATC-4
+            "list_list_vectors": [
+                [[1.8, 2.25, 3.41], [4.50, 5.9, 6.0]],
+                [[7.7, 8.5, 9.4]],
             ],
-            "drugs": [["drug-1", "drug-2"], ["drug-3"]],
-            "label": 0,
+            "label": 1,
         },
         {
-            "patient_id": "patient-1",
-            "visit_id": "visit-0",
-            "conditions": [["cond-33", "cond-86", "cond-80"]],
-            "procedures": [[[5.0, 2.0, 3.5, 4.0]], [[5.0, 2.0, 3.5, 4.0]]],
-            "drugs": [["drug-1"], ["drug-3"]],
-            "label": 1,
+            "patient_id": "patient-0",
+            "visit_id": "visit-1",
+            # "single_vector": [1, 5, 8],
+            "list_codes": [
+                "55154191800",
+                "551541928",
+                "55154192800",
+                "705182798",
+                "70518279800",
+            ],
+            "list_vectors": [[1.4, 3.2, 3.5], [4.1, 5.9, 1.7], [4.5, 5.9, 1.7]],
+            "list_list_codes": [["A04A", "B035", "C129"]],
+            "list_list_vectors": [
+                [[1.0, 2.8, 3.3], [4.9, 5.0, 6.6], [7.7, 8.4, 1.3], [7.7, 8.4, 1.3]],
+            ],
+            "label": 0,
         },
     ]
 
-    input_info = {
-        "conditions": {"dim": 3, "type": str},
-        "procedures": {"dim": 3, "type": float, "len": 4},
-        "label": {"dim": 0, "type": int},
-        "drugs": {"dim": 3, "type": str},
-    }
-
     # dataset
     dataset = SampleDataset(samples=samples, dataset_name="test")
-    dataset.input_info = input_info
 
     # data loader
     from pyhealth.datasets import get_dataloader
@@ -275,7 +281,7 @@ if __name__ == "__main__":
     model = Deepr(
         dataset=dataset,
         # feature_keys=["procedures"],
-        feature_keys=["drugs", "procedures"],
+        feature_keys=["list_list_codes", "list_list_vectors"],
         label_key="label",
         mode="binary",
     ).to("cuda:0")

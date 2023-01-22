@@ -66,13 +66,13 @@ class BaseDataset(ABC):
     """
 
     def __init__(
-            self,
-            root: str,
-            tables: List[str],
-            dataset_name: Optional[str] = None,
-            code_mapping: Optional[Dict[str, Union[str, Tuple[str, Dict]]]] = None,
-            dev: bool = False,
-            refresh_cache: bool = False,
+        self,
+        root: str,
+        tables: List[str],
+        dataset_name: Optional[str] = None,
+        code_mapping: Optional[Dict[str, Union[str, Tuple[str, Dict]]]] = None,
+        dev: bool = False,
+        refresh_cache: bool = False,
     ):
         """Loads tables into a dict of patients and saves it to cache."""
 
@@ -93,10 +93,10 @@ class BaseDataset(ABC):
 
         # hash filename for cache
         args_to_hash = (
-                [self.dataset_name, root]
-                + sorted(tables)
-                + sorted(code_mapping.items())
-                + ["dev" if dev else "prod"]
+            [self.dataset_name, root]
+            + sorted(tables)
+            + sorted(code_mapping.items())
+            + ["dev" if dev else "prod"]
         )
         filename = hash_str("+".join([str(arg) for arg in args_to_hash])) + ".pkl"
         self.filepath = os.path.join(MODULE_CACHE_PATH, filename)
@@ -174,8 +174,8 @@ class BaseDataset(ABC):
 
     @staticmethod
     def _add_event_to_patient_dict(
-            patient_dict: Dict[str, Patient],
-            event: Event,
+        patient_dict: Dict[str, Patient],
+        event: Event,
     ) -> Dict[str, Patient]:
         """Helper function which adds an event to the patient dict.
 
@@ -199,8 +199,8 @@ class BaseDataset(ABC):
         return patient_dict
 
     def _convert_code_in_patient_dict(
-            self,
-            patients: Dict[str, Patient],
+        self,
+        patients: Dict[str, Patient],
     ) -> Dict[str, Patient]:
         """Helper function which converts the codes for all patients.
 
@@ -322,9 +322,9 @@ class BaseDataset(ABC):
         print(INFO_MSG)
 
     def set_task(
-            self,
-            task_fn: Callable,
-            task_name: Optional[str] = None,
+        self,
+        task_fn: Callable,
+        task_name: Optional[str] = None,
     ) -> SampleDataset:
         """Processes the base dataset to generate the task-specific sample dataset.
 
@@ -354,10 +354,12 @@ class BaseDataset(ABC):
             task_name = task_fn.__name__
         samples = []
         for patient_id, patient in tqdm(
-                self.patients.items(), desc=f"Generating samples for {task_name}"
+            self.patients.items(), desc=f"Generating samples for {task_name}"
         ):
             samples.extend(task_fn(patient))
-        sample_dataset = SampleDataset(samples,
-                                       dataset_name=self.dataset_name,
-                                       task_name=task_name, )
+        sample_dataset = SampleDataset(
+            samples,
+            dataset_name=self.dataset_name,
+            task_name=task_name,
+        )
         return sample_dataset

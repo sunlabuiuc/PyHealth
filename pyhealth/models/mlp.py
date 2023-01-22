@@ -49,6 +49,46 @@ class MLP(BaseModel):
         n_layers: the number of layers. Default is 2.
         activation: the activation function. Default is "relu".
         **kwargs: other parameters for the RNN layer.
+
+    Examples:
+        >>> from pyhealth.datasets import SampleDataset
+        >>> samples = [
+        ...         {
+        ...             "patient_id": "patient-0",
+        ...             "visit_id": "visit-0",
+        ...             "conditions": ["cond-33", "cond-86", "cond-80"],
+        ...             "procedures": [1.0, 2.0, 3.5, 4],
+        ...             "label": 0,
+        ...         },
+        ...         {
+        ...             "patient_id": "patient-0",
+        ...             "visit_id": "visit-0",
+        ...             "conditions": ["cond-33", "cond-86", "cond-80"],
+        ...             "procedures": [5.0, 2.0, 3.5, 4],
+        ...             "label": 1,
+        ...         },
+        ...     ]
+        >>> dataset = SampleDataset(samples=samples, dataset_name="test")
+        >>>
+        >>> from pyhealth.models import MLP
+        >>> model = MLP(
+        ...         dataset=dataset,
+        ...         feature_keys=["conditions", "procedures"],
+        ...         label_key="label",
+        ...         mode="binary",
+        ...     )
+        >>>
+        >>> from pyhealth.datasets import get_dataloader
+        >>> train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
+        >>> data_batch = next(iter(train_loader))
+        >>>
+        >>> ret = model(**data_batch)
+        >>> print(ret)
+        {'loss': tensor(0.6816, grad_fn=<BinaryCrossEntropyWithLogitsBackward0>), 'y_prob': tensor([[0.5418],
+                [0.5584]], grad_fn=<SigmoidBackward0>), 'y_true': tensor([[0.],
+                [1.]])}
+        >>>
+
     """
 
     def __init__(
@@ -91,23 +131,23 @@ class MLP(BaseModel):
         for feature_key in self.feature_keys:
             input_info = self.dataset.input_info[feature_key]
             # sanity check
-            if input_info["Type"] not in [str, float, int]:
+            if input_info["type"] not in [str, float, int]:
                 raise ValueError(
                     "MLP only supports str code, float and int as input types"
                 )
-            elif (input_info["Type"] == str) and (input_info["level"] not in [1, 2]):
+            elif (input_info["type"] == str) and (input_info["dim"] not in [1, 2]):
                 raise ValueError(
-                    "MLP only supports 1-level or 2-level str code as input types"
+                    "MLP only supports 1-dim or 2-dim str code as input types"
                 )
-            elif (input_info["Type"] in [float, int]) and (
-                input_info["level"] not in [1, 2, 3]
+            elif (input_info["type"] in [float, int]) and (
+                input_info["dim"] not in [1, 2, 3]
             ):
                 raise ValueError(
-                    "MLP only supports 1-level, 2-level or 3-level float and int as input types"
+                    "MLP only supports 1-dim, 2-dim or 3-dim float and int as input types"
                 )
             # for code based input, we need Type
             # for float/int based input, we need Type, input_dim
-            self.add_feature_transform_layer(feature_key=feature_key, **input_info)
+            self.add_feature_transform_layer(feature_key, input_info)
 
         if activation == "relu":
             self.activation = nn.ReLU()
@@ -184,10 +224,10 @@ class MLP(BaseModel):
         patient_emb = []
         for feature_key in self.feature_keys:
             input_info = self.dataset.input_info[feature_key]
-            level, Type = input_info["level"], input_info["Type"]
+            dim_, type_ = input_info["dim"], input_info["type"]
 
             # for case 1: [code1, code2, code3, ...]
-            if (level == 1) and (Type == str):
+            if (dim_ == 2) and (type_ == str):
                 x = self.feat_tokenizers[feature_key].batch_encode_2d(
                     kwargs[feature_key]
                 )
@@ -201,7 +241,7 @@ class MLP(BaseModel):
                 x = self.mean_pooling(x, mask)
 
             # for case 2: [[code1, code2], [code3, ...], ...]
-            elif (level == 2) and (Type == str):
+            elif (dim_ == 3) and (type_ == str):
                 x = self.feat_tokenizers[feature_key].batch_encode_3d(
                     kwargs[feature_key]
                 )
@@ -217,7 +257,7 @@ class MLP(BaseModel):
                 x = self.mean_pooling(x, mask)
 
             # for case 3: [1.5, 2.0, 0.0]
-            elif (level == 1) and (Type in [float, int]):
+            elif (dim_ == 1) and (type_ in [float, int]):
                 # (patient, values)
                 x = torch.tensor(
                     kwargs[feature_key], dtype=torch.float, device=self.device
@@ -226,7 +266,7 @@ class MLP(BaseModel):
                 x = self.linear_layers[feature_key](x)
 
             # for case 4: [[1.5, 2.0, 0.0], ...]
-            elif (level == 2) and (Type in [float, int]):
+            elif (dim_ == 2) and (type_ in [float, int]):
                 x, mask = self.padding2d(kwargs[feature_key])
                 # (patient, event, values)
                 x = torch.tensor(x, dtype=torch.float, device=self.device)
@@ -238,7 +278,7 @@ class MLP(BaseModel):
                 x = self.mean_pooling(x, mask)
 
             # for case 5: [[[1.5, 2.0, 0.0], [1.8, 2.4, 6.0]], ...]
-            elif (level == 3) and (Type in [float, int]):
+            elif (dim_ == 3) and (type_ in [float, int]):
                 x, mask = self.padding3d(kwargs[feature_key])
                 # (patient, visit, event, values)
                 x = torch.tensor(x, dtype=torch.float, device=self.device)
@@ -289,14 +329,8 @@ if __name__ == "__main__":
         },
     ]
 
-    input_info = {
-        "conditions": {"level": 1, "Type": str},
-        "procedures": {"level": 1, "Type": float, "input_dim": 4},
-    }
-
     # dataset
     dataset = SampleDataset(samples=samples, dataset_name="test")
-    dataset.input_info = input_info
 
     # data loader
     from pyhealth.datasets import get_dataloader

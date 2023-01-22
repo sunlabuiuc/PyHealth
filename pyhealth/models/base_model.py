@@ -141,6 +141,9 @@ class BaseModel(ABC, nn.Module):
             [max([len(x) for x in visits]) for visits in batch]
         )
 
+        # the most inner vector length
+        vec_len = len(batch[0][0][0])
+
         # get mask
         mask = torch.zeros(
             len(batch),
@@ -154,16 +157,12 @@ class BaseModel(ABC, nn.Module):
 
         # level-2 padding
         batch = [
-            x + [[[0.0] * len(x[0])]] * (batch_max_length_level2 - len(x))
-            for x in batch
+            x + [[[0.0] * vec_len]] * (batch_max_length_level2 - len(x)) for x in batch
         ]
 
         # level-3 padding
         batch = [
-            [
-                x + [[0.0] * len(x[0])] * (batch_max_length_level3 - len(x))
-                for x in visits
-            ]
+            [x + [[0.0] * vec_len] * (batch_max_length_level3 - len(x)) for x in visits]
             for visits in batch
         ]
 
