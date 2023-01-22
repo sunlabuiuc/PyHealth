@@ -59,7 +59,7 @@ class CrossMap:
         return
 
     def __repr__(self):
-        return f"CrossMap(source_vocabulary={self.s_vocab}, target_vocabulary={self.t_vocab})"
+        return f"CrossMap(source_vocabulary={self.s_vocab}, source_class={self.s_class} target_vocabulary={self.t_vocab}, target_class={self.t_class})"
 
     @classmethod
     def load(
@@ -114,36 +114,3 @@ class CrossMap:
         target_codes = self.mapping[source_code]
         target_codes = [self.t_class.convert(c, **target_kwargs) for c in target_codes]
         return target_codes
-
-    def get_source(self, refresh_cache: bool = False):
-        """Gets the source vocabulary as an `InnerMap` object
-
-        Args:
-            refresh_cache: whether to refresh the cache. Default is False.
-
-        Returns:
-            An `InnerMap` of the source vocabulary.
-
-        Examples:
-        >>> from pyhealth.medcode import CrossMap
-        >>> mapping = CrossMap("CCSCM", "ICD9CM")
-        >>> mapping
-        CrossMap(source_vocabulary=CCSCM, target_vocabulary=ICD9CM)
-        >>> ccscm_codes = mapping.get_source()
-        >>> ccscm_codes
-        InnerMap(vocabulary=CCSCM)
-        >>> ccscm_codes.lookup("108")
-        'Congestive heart failure; nonhypertensive'
-        """
-        return medcode.InnerMap.load(self.s_vocab, refresh_cache)
-
-    def get_target(self, refresh_cache: bool = False):
-        """Gets the target vocabulary as an `InnerMap` object
-
-        Args:
-            refresh_cache: whether to refresh the cache. Default is False.
-
-        Returns:
-            An `InnerMap` of the target vocabulary.
-        """
-        return medcode.InnerMap.load(self.t_vocab, refresh_cache)
