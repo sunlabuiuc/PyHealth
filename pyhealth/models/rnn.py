@@ -157,6 +157,67 @@ class RNN(BaseModel):
         embedding_dim: the embedding dimension. Default is 128.
         hidden_dim: the hidden dimension. Default is 128.
         **kwargs: other parameters for the RNN layer.
+
+    Examples:
+        >>> from pyhealth.datasets import SampleDataset
+        >>> samples = [
+        ...         {
+        ...             "patient_id": "patient-0",
+        ...             "visit_id": "visit-0",
+        ...             "list_codes": ["505800458", "50580045810", "50580045811"],  # NDC
+        ...             "list_vectors": [[1.0, 2.55, 3.4], [4.1, 5.5, 6.0]],
+        ...             "list_list_codes": [["A05B", "A05C", "A06A"], ["A11D", "A11E"]],  # ATC-4
+        ...             "list_list_vectors": [
+        ...                 [[1.8, 2.25, 3.41], [4.50, 5.9, 6.0]],
+        ...                 [[7.7, 8.5, 9.4]],
+        ...             ],
+        ...             "label": 1,
+        ...         },
+        ...         {
+        ...             "patient_id": "patient-0",
+        ...             "visit_id": "visit-1",
+        ...             "list_codes": [
+        ...                 "55154191800",
+        ...                 "551541928",
+        ...                 "55154192800",
+        ...                 "705182798",
+        ...                 "70518279800",
+        ...             ],
+        ...             "list_vectors": [[1.4, 3.2, 3.5], [4.1, 5.9, 1.7], [4.5, 5.9, 1.7]],
+        ...             "list_list_codes": [["A04A", "B035", "C129"]],
+        ...             "list_list_vectors": [
+        ...                 [[1.0, 2.8, 3.3], [4.9, 5.0, 6.6], [7.7, 8.4, 1.3], [7.7, 8.4, 1.3]],
+        ...             ],
+        ...             "label": 0,
+        ...         },
+        ...     ]
+        >>> dataset = SampleDataset(samples=samples, dataset_name="test")
+        >>>
+        >>> from pyhealth.models import RNN
+        >>> model = RNN(
+        ...         dataset=dataset,
+        ...         feature_keys=[
+        ...             "list_codes",
+        ...             "list_vectors",
+        ...             "list_list_codes",
+        ...             "list_list_vectors",
+        ...         ],
+        ...         label_key="label",
+        ...         mode="binary",
+        ...     )
+        >>>
+        >>> from pyhealth.datasets import get_dataloader
+        >>> train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
+        >>> data_batch = next(iter(train_loader))
+        >>>
+        >>> ret = model(**data_batch)
+        >>> print(ret)
+        {'loss': tensor(0.7664, grad_fn=<BinaryCrossEntropyWithLogitsBackward0>), 'y_prob': tensor([[0.4714],
+                [0.4085]], grad_fn=<SigmoidBackward0>), 'y_true': tensor([[0.],
+                [1.]])}
+        >>>
+
+
     """
 
     def __init__(
@@ -276,7 +337,7 @@ class RNN(BaseModel):
                 # (patient, event, embedding_dim)
                 x = self.linear_layers[feature_key](x)
                 # (patient, event)
-                mask = torch.tensor(mask, dtype=torch.bool, device=self.device)
+                mask = mask.bool().to(self.device)
 
             # for case 4: [[[1.5, 2.0, 0.0], [1.8, 2.4, 6.0]], ...]
             elif (dim_ == 3) and (type_ in [float, int]):
@@ -284,9 +345,11 @@ class RNN(BaseModel):
                 # (patient, visit, event, values)
                 x = torch.tensor(x, dtype=torch.float, device=self.device)
                 # (patient, visit, embedding_dim)
+                x = torch.sum(x, dim=2)
                 x = self.linear_layers[feature_key](x)
                 # (patient, event)
-                mask = torch.tensor(mask, dtype=torch.bool, device=self.device)
+                mask = mask[:, :, 0]
+                mask = mask.bool().to(self.device)
 
             else:
                 raise NotImplementedError
@@ -315,27 +378,38 @@ if __name__ == "__main__":
         {
             "patient_id": "patient-0",
             "visit_id": "visit-0",
-            "conditions": [["cond-33", "cond-86", "cond-80"]],
-            "procedures": [[1.0, 2.0, 3.5, 4]],
-            "label": 0,
+            # "single_vector": [1, 2, 3],
+            "list_codes": ["505800458", "50580045810", "50580045811"],  # NDC
+            "list_vectors": [[1.0, 2.55, 3.4], [4.1, 5.5, 6.0]],
+            "list_list_codes": [["A05B", "A05C", "A06A"], ["A11D", "A11E"]],  # ATC-4
+            "list_list_vectors": [
+                [[1.8, 2.25, 3.41], [4.50, 5.9, 6.0]],
+                [[7.7, 8.5, 9.4]],
+            ],
+            "label": 1,
         },
         {
             "patient_id": "patient-0",
-            "visit_id": "visit-0",
-            "conditions": [["cond-33", "cond-86", "cond-80"]],
-            "procedures": [[5.0, 2.0, 3.5, 4]],
-            "label": 1,
+            "visit_id": "visit-1",
+            # "single_vector": [1, 5, 8],
+            "list_codes": [
+                "55154191800",
+                "551541928",
+                "55154192800",
+                "705182798",
+                "70518279800",
+            ],
+            "list_vectors": [[1.4, 3.2, 3.5], [4.1, 5.9, 1.7], [4.5, 5.9, 1.7]],
+            "list_list_codes": [["A04A", "B035", "C129"]],
+            "list_list_vectors": [
+                [[1.0, 2.8, 3.3], [4.9, 5.0, 6.6], [7.7, 8.4, 1.3], [7.7, 8.4, 1.3]],
+            ],
+            "label": 0,
         },
     ]
 
-    input_info = {
-        "conditions": {"level": 2, "Type": str},
-        "procedures": {"level": 2, "Type": float, "input_dim": 4},
-    }
-
     # dataset
     dataset = SampleDataset(samples=samples, dataset_name="test")
-    dataset.input_info = input_info
 
     # data loader
     from pyhealth.datasets import get_dataloader
@@ -345,7 +419,12 @@ if __name__ == "__main__":
     # model
     model = RNN(
         dataset=dataset,
-        feature_keys=["conditions", "procedures"],
+        feature_keys=[
+            "list_codes",
+            "list_vectors",
+            "list_list_codes",
+            "list_list_vectors",
+        ],
         label_key="label",
         mode="binary",
     )
