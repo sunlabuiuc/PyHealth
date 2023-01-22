@@ -2,6 +2,12 @@ Development logs
 ======================
 We track the new development here:
 
+**Jan 21, 2023**
+
+.. code-block:: bash
+
+    1. Added a new model, Deepr (models.Deepr)
+
 **Jan 20, 2023**
 
 .. code-block:: bash
