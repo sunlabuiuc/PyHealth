@@ -172,3 +172,11 @@ class InnerMap(ABC):
         )
         return descendants
 
+
+if __name__ == "__main__":
+    icd9cm = InnerMap.load("ICD9CM")
+    print(icd9cm.stat())
+    print("428.0" in icd9cm)
+    print(icd9cm.lookup("4280"))
+    print(icd9cm.get_ancestors("428.0"))
+    print(icd9cm.get_descendants("428.0"))
