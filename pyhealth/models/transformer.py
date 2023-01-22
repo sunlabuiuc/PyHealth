@@ -432,7 +432,7 @@ if __name__ == "__main__":
         {
             "patient_id": "patient-0",
             "visit_id": "visit-0",
-            # "single_vector": [1, 2, 3],
+            "single_vector": [1, 2, 3],
             "list_codes": ["505800458", "50580045810", "50580045811"],  # NDC
             "list_vectors": [[1.0, 2.55, 3.4], [4.1, 5.5, 6.0]],
             "list_list_codes": [["A05B", "A05C", "A06A"], ["A11D", "A11E"]],  # ATC-4
@@ -445,7 +445,7 @@ if __name__ == "__main__":
         {
             "patient_id": "patient-0",
             "visit_id": "visit-1",
-            # "single_vector": [1, 5, 8],
+            "single_vector": [1, 5, 8],
             "list_codes": [
                 "55154191800",
                 "551541928",
