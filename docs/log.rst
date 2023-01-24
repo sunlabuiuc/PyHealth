@@ -2,13 +2,22 @@ Development logs
 ======================
 We track the new development here:
 
+**Jan 24, 2023**
+
+.. code-block:: bash
+
+    1. Fix the code typo in pyhealth/tasks/drug_recommendation.py for issue #71.
+    2. update the pyhealth live schedule 
+
 **Jan 22, 2023**
 
 .. code-block:: bash
 
     1. Fix the list of list of vector problem in RNN, Transformer, RETAIN, and CNN
     2. Add initialization examples for RNN, Transformer, RETAIN, CNN, and Deepr
-    3. (minor) change the parameters from `Type` and `level` to `type_` and `dim_`
+    3. (minor) change the parameters from "Type" and "level" to "type_" and "dim_"
+    4. BPDanek adds the __repr__ function to medcode for better print understanding
+    5. add unittest for pyhealth.data
 
 **Jan 21, 2023**
 
