@@ -27,8 +27,8 @@ Schedules
  
  **(Jan 18, Wed)** Live 05 - PyHealth can support a complete healthcare ML pipeline `[Recap I] <https://www.youtube.com/watch?v=GVLzc6E4og0&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=11>`_ `[II] <https://www.youtube.com/watch?v=GGP3Dhfyisc&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=12>`_
 
- **(Jan 25, Wed)** Live 06 - Adopt your customized model and quickly try it on our data
+ **(Jan 25, Wed)** Live 06 - Fit your own dataset into pipeline and use our model
 
- **(Feb 1, Wed)** Live 07 - Fit your own dataset into pipeline and use our model
+ **(Feb 1, Wed)** Live 07 - Adopt your customized model and quickly try it on our data
 
  **(Feb 8, Wed)** Live 08 - Define your own healthcare task on MIMIC data
