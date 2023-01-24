@@ -200,7 +200,9 @@ def drug_recommendation_eicu_fn(patient: Patient):
         samples[i]["procedures"] = samples[i - 1]["procedures"] + [
             samples[i]["procedures"]
         ]
-        samples[i]["drugs"] = samples[i - 1]["drugs_all"] + [samples[i]["drugs_all"]]
+        samples[i]["drugs_all"] = samples[i - 1]["drugs_all"] + [
+            samples[i]["drugs_all"]
+        ]
 
     return samples
 
@@ -266,7 +268,9 @@ def drug_recommendation_omop_fn(patient: Patient):
         samples[i]["procedures"] = samples[i - 1]["procedures"] + [
             samples[i]["procedures"]
         ]
-        samples[i]["drugs"] = samples[i - 1]["drugs_all"] + [samples[i]["drugs_all"]]
+        samples[i]["drugs_all"] = samples[i - 1]["drugs_all"] + [
+            samples[i]["drugs_all"]
+        ]
 
     return samples
 
