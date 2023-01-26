@@ -168,27 +168,26 @@ class MIMIC3Dataset(BaseDataset):
         # sort by sequence number (i.e., priority)
         df = df.sort_values(["SUBJECT_ID", "HADM_ID", "ICD9_CODE"], ascending=True)
         # group by patient and visit
-        group_df = df.groupby(
-            ["SUBJECT_ID", "HADM_ID"], group_keys=["SUBJECT_ID", "HADM_ID"]
-        )
+        group_df = df.groupby("SUBJECT_ID")
 
-        # parallel unit of diagnosis (per visit)
-        def diagnosis_unit(v_id, p_id, v_info):
+        # parallel unit of diagnosis (per patient)
+        def diagnosis_unit(p_id, p_info):
             events = []
-            for code in v_info["ICD9_CODE"]:
-                event = Event(
-                    code=code,
-                    table=table,
-                    vocabulary="ICD9CM",
-                    visit_id=v_id,
-                    patient_id=p_id,
-                )
-                events.append(event)
+            for v_id, v_info in p_info.groupby("HADM_ID"):
+                for code in v_info["ICD9_CODE"]:
+                    event = Event(
+                        code=code,
+                        table=table,
+                        vocabulary="ICD9CM",
+                        visit_id=v_id,
+                        patient_id=p_id,
+                    )
+                    events.append(event)
             return events
 
         # parallel apply
         group_df = group_df.parallel_apply(
-            lambda x: diagnosis_unit(x.HADM_ID.unique()[0], x.SUBJECT_ID.unique()[0], x)
+            lambda x: diagnosis_unit(x.SUBJECT_ID.unique()[0], x)
         )
 
         # summarize the results
@@ -226,27 +225,26 @@ class MIMIC3Dataset(BaseDataset):
         # sort by sequence number (i.e., priority)
         df = df.sort_values(["SUBJECT_ID", "HADM_ID", "SEQ_NUM"], ascending=True)
         # group by patient and visit
-        group_df = df.groupby(
-            ["SUBJECT_ID", "HADM_ID"], group_keys=["SUBJECT_ID", "HADM_ID"]
-        )
+        group_df = df.groupby("SUBJECT_ID")
 
-        # parallel unit of procedure (per visit per patient)
-        def procedure_unit(v_id, p_id, v_info):
+        # parallel unit of procedure (per patient)
+        def procedure_unit(p_id, p_info):
             events = []
-            for code in v_info["ICD9_CODE"]:
-                event = Event(
-                    code=code,
-                    table=table,
-                    vocabulary="ICD9PROC",
-                    visit_id=v_id,
-                    patient_id=p_id,
-                )
-                events.append(event)
+            for v_id, v_info in p_info.groupby("HADM_ID"):
+                for code in v_info["ICD9_CODE"]:
+                    event = Event(
+                        code=code,
+                        table=table,
+                        vocabulary="ICD9PROC",
+                        visit_id=v_id,
+                        patient_id=p_id,
+                    )
+                    events.append(event)
             return events
 
         # parallel apply
         group_df = group_df.parallel_apply(
-            lambda x: procedure_unit(x.HADM_ID.unique()[0], x.SUBJECT_ID.unique()[0], x)
+            lambda x: procedure_unit(x.SUBJECT_ID.unique()[0], x)
         )
 
         # summarize the results
@@ -283,30 +281,27 @@ class MIMIC3Dataset(BaseDataset):
             ["SUBJECT_ID", "HADM_ID", "STARTDATE", "ENDDATE"], ascending=True
         )
         # group by patient and visit
-        group_df = df.groupby(
-            ["SUBJECT_ID", "HADM_ID"], group_keys=["SUBJECT_ID", "HADM_ID"]
-        )
+        group_df = df.groupby("SUBJECT_ID")
 
-        # parallel unit for prescription (per visit per patient)
-        def prescription_unit(v_id, p_id, v_info):
+        # parallel unit for prescription (per patient)
+        def prescription_unit(p_id, p_info):
             events = []
-            for timestamp, code in zip(v_info["STARTDATE"], v_info["NDC"]):
-                event = Event(
-                    code=code,
-                    table=table,
-                    vocabulary="NDC",
-                    visit_id=v_id,
-                    patient_id=p_id,
-                    timestamp=strptime(timestamp),
-                )
-                events.append(event)
+            for v_id, v_info in p_info.groupby("HADM_ID"):
+                for timestamp, code in zip(v_info["STARTDATE"], v_info["NDC"]):
+                    event = Event(
+                        code=code,
+                        table=table,
+                        vocabulary="NDC",
+                        visit_id=v_id,
+                        patient_id=p_id,
+                        timestamp=strptime(timestamp),
+                    )
+                    events.append(event)
             return events
 
         # parallel apply
         group_df = group_df.parallel_apply(
-            lambda x: prescription_unit(
-                x.HADM_ID.unique()[0], x.SUBJECT_ID.unique()[0], x
-            )
+            lambda x: prescription_unit(x.SUBJECT_ID.unique()[0], x)
         )
 
         # summarize the results
@@ -340,28 +335,27 @@ class MIMIC3Dataset(BaseDataset):
         # sort by charttime
         df = df.sort_values(["SUBJECT_ID", "HADM_ID", "CHARTTIME"], ascending=True)
         # group by patient and visit
-        group_df = df.groupby(
-            ["SUBJECT_ID", "HADM_ID"], group_keys=["SUBJECT_ID", "HADM_ID"]
-        )
+        group_df = df.groupby("SUBJECT_ID")
 
-        # parallel unit for lab (per visit per patient)
-        def lab_unit(v_id, p_id, v_info):
+        # parallel unit for lab (per patient)
+        def lab_unit(p_id, p_info):
             events = []
-            for timestamp, code in zip(v_info["CHARTTIME"], v_info["ITEMID"]):
-                event = Event(
-                    code=code,
-                    table=table,
-                    vocabulary="MIMIC3_ITEMID",
-                    visit_id=v_id,
-                    patient_id=p_id,
-                    timestamp=strptime(timestamp),
-                )
-                events.append(event)
+            for v_id, v_info in p_info.groupby("HADM_ID"):
+                for timestamp, code in zip(v_info["CHARTTIME"], v_info["ITEMID"]):
+                    event = Event(
+                        code=code,
+                        table=table,
+                        vocabulary="MIMIC3_ITEMID",
+                        visit_id=v_id,
+                        patient_id=p_id,
+                        timestamp=strptime(timestamp),
+                    )
+                    events.append(event)
             return events
 
         # parallel apply
         group_df = group_df.parallel_apply(
-            lambda x: lab_unit(x.HADM_ID.unique()[0], x.SUBJECT_ID.unique()[0], x)
+            lambda x: lab_unit(x.SUBJECT_ID.unique()[0], x)
         )
 
         # summarize the results
@@ -373,10 +367,10 @@ if __name__ == "__main__":
     dataset = MIMIC3Dataset(
         root="/srv/local/data/physionet.org/files/mimiciii/1.4",
         tables=[
-            "LABEVENTS",
-            "PRESCRIPTIONS",
             "DIAGNOSES_ICD",
             "PROCEDURES_ICD",
+            "PRESCRIPTIONS",
+            "LABEVENTS",
         ],
         code_mapping={"NDC": "ATC"},
         refresh_cache=True,
