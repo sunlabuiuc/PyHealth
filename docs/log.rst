@@ -2,6 +2,12 @@ Development logs
 ======================
 We track the new development here:
 
+**Jan 26, 2023**
+
+.. code-block:: bash
+ 
+    1. accelerate MIMIC-IV, eICU and OMOP data loading by using multiprocessing (pandarallel)
+
 **Jan 25, 2023**
 
 .. code-block:: bash

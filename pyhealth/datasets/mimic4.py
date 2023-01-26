@@ -373,7 +373,6 @@ if __name__ == "__main__":
     dataset = MIMIC4Dataset(
         root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
         tables=["diagnoses_icd", "procedures_icd", "prescriptions", "labevents"],
-        dev=True,
         code_mapping={"NDC": "ATC"},
         refresh_cache=False,
     )
