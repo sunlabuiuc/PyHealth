@@ -165,7 +165,7 @@ class MIMIC3Dataset(BaseDataset):
         # drop rows with missing values
         df = df.dropna(subset=["SUBJECT_ID", "HADM_ID", "ICD9_CODE"])
         # sort by sequence number (i.e., priority)
-        df = df.sort_values(["SUBJECT_ID", "HADM_ID", "ICD9_CODE"], ascending=True)
+        df = df.sort_values(["SUBJECT_ID", "HADM_ID", "SEQ_NUM"], ascending=True)
         # group by patient and visit
         group_df = df.groupby("SUBJECT_ID")
 
