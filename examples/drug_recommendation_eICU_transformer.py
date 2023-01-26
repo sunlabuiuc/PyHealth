@@ -9,6 +9,7 @@ base_dataset = eICUDataset(
     root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
     tables=["diagnosis", "medication", "physicalExam"],
     dev=True,
+    refresh_cache=True,
 )
 base_dataset.stat()
 

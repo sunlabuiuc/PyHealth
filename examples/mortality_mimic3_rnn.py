@@ -9,6 +9,7 @@ base_dataset = MIMIC3Dataset(
     root="/srv/local/data/physionet.org/files/mimiciii/1.4",
     tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
     code_mapping={"ICD9CM": "CCSCM", "ICD9PROC": "CCSPROC", "NDC": "ATC"},
+    dev=True,
 )
 base_dataset.stat()
 

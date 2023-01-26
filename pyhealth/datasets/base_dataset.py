@@ -4,9 +4,9 @@ from abc import ABC
 from collections import Counter
 from copy import deepcopy
 from typing import Dict, Callable, Tuple, Union, List, Optional
-
+import pandas as pd
 from tqdm import tqdm
-
+import time
 from pyhealth.data import Patient, Event
 from pyhealth.datasets.sample_dataset import SampleDataset
 from pyhealth.datasets.utils import MODULE_CACHE_PATH
@@ -160,17 +160,46 @@ class BaseDataset(ABC):
         # patients is a dict of Patient objects indexed by patient_id
         patients: Dict[str, Patient] = dict()
         # process basic information (e.g., patients and visits)
+        tic = time.time()
         patients = self.parse_basic_info(patients)
+        print(
+            "finish basic patient information parsing : {}s".format(time.time() - tic)
+        )
         # process clinical tables
         for table in self.tables:
             try:
                 # use lower case for function name
+                tic = time.time()
                 patients = getattr(self, f"parse_{table.lower()}")(patients)
+                print(f"finish parsing {table} : {time.time() - tic}s")
             except AttributeError:
                 raise NotImplementedError(
                     f"Parser for table {table} is not implemented yet."
                 )
         return patients
+
+    def _add_events_to_patient_dict(
+        self,
+        patient_dict: Dict[str, Patient],
+        group_df: pd.DataFrame,
+    ) -> Dict[str, Patient]:
+        """Helper function which adds the events column of a df.groupby object to the patient dict.
+
+        Will be called at the end of each `self.parse_[table_name]()` function.
+
+        Args:
+            patient_dict: a dict mapping patient_id to `Patient` object.
+            group_df: a df.groupby object, having two columns: patient_id and events.
+                - the patient_id column is the index of the patient
+                - the events column is a list of <Event> objects
+
+        Returns:
+            The updated patient dict.
+        """
+        for _, events in group_df.items():
+            for event in events:
+                patient_dict = self._add_event_to_patient_dict(patient_dict, event)
+        return patient_dict
 
     @staticmethod
     def _add_event_to_patient_dict(
@@ -179,7 +208,7 @@ class BaseDataset(ABC):
     ) -> Dict[str, Patient]:
         """Helper function which adds an event to the patient dict.
 
-        Will be called in `self.parse_tables()`.
+        Will be called in `self._add_events_to_patient_dict`.
 
         Note that if the patient of the event is not in the patient dict, or the
         visit of the event is not in the patient, this function will do nothing.

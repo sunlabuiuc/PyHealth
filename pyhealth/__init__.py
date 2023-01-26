@@ -2,7 +2,7 @@ import logging
 import os
 from pathlib import Path
 
-__version__ = "1.1.2"
+__version__ = "1.1.3"
 
 # package-level cache path
 BASE_CACHE_PATH = os.path.join(str(Path.home()), ".cache/pyhealth/")
