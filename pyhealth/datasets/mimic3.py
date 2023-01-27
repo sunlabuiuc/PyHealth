@@ -102,7 +102,7 @@ class MIMIC3Dataset(BaseDataset):
         # sort by admission and discharge time
         df = df.sort_values(["SUBJECT_ID", "ADMITTIME", "DISCHTIME"], ascending=True)
         # group by patient
-        df_group = df.groupby("SUBJECT_ID", group_keys="SUBJECT_ID")
+        df_group = df.groupby("SUBJECT_ID")
 
         # parallel unit of basic information (per patient)
         def basic_unit(p_id, p_info):
