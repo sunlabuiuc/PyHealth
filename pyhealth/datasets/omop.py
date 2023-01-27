@@ -2,12 +2,13 @@ import os
 from typing import Optional, List, Dict, Tuple, Union
 
 import pandas as pd
-from tqdm import tqdm
+from pandarallel import pandarallel
 
 from pyhealth.data import Event, Visit, Patient
 from pyhealth.datasets import BaseDataset
 from pyhealth.datasets.utils import strptime
 
+pandarallel.initialize(progress_bar=False)
 
 # TODO: add other tables
 
@@ -123,10 +124,10 @@ class OMOPDataset(BaseDataset):
         )
         # group by patient
         df_group = df.groupby("person_id")
-        # load patients
-        for p_id, p_info in tqdm(
-            df_group, desc="Parsing person, visit_occurrence and death"
-        ):
+
+        # parallel unit of basic informatin (per patient)
+        def basic_unit(p_info):
+            p_id = p_info["person_id"].values[0]
             birth_y = p_info["year_of_birth"].values[0]
             birth_m = p_info["month_of_birth"].values[0]
             birth_d = p_info["day_of_birth"].values[0]
@@ -159,8 +160,14 @@ class OMOPDataset(BaseDataset):
                 )
                 # add visit
                 patient.add_visit(visit)
-            # add patient
-            patients[p_id] = patient
+            return patient
+
+        # parallel apply
+        df_group = df_group.parallel_apply(lambda x: basic_unit(x))
+        # summarize the results
+        for pat_id, pat in df_group.items():
+            patients[pat_id] = pat
+
         return patients
 
     def parse_condition_occurrence(
@@ -200,22 +207,34 @@ class OMOPDataset(BaseDataset):
             ascending=True,
         )
         # group by patient and visit
-        group_df = df.groupby(["person_id", "visit_occurrence_id"])
-        # iterate over each patient and visit
-        for (p_id, v_id), v_info in tqdm(group_df, desc=f"Parsing {table}"):
-            for timestamp, code in zip(
-                v_info["condition_start_datetime"], v_info["condition_concept_id"]
-            ):
-                event = Event(
-                    code=code,
-                    table=table,
-                    vocabulary="CONDITION_CONCEPT_ID",
-                    visit_id=v_id,
-                    patient_id=p_id,
-                    timestamp=strptime(timestamp),
-                )
-                # update patients
-                patients = self._add_event_to_patient_dict(patients, event)
+        group_df = df.groupby("person_id")
+
+        # parallel unit of condition occurrence (per patient)
+        def condition_unit(p_info):
+            p_id = p_info["person_id"].values[0]
+
+            events = []
+            for v_id, v_info in p_info.groupby("visit_occurrence_id"):
+                for timestamp, code in zip(
+                    v_info["condition_start_datetime"], v_info["condition_concept_id"]
+                ):
+                    event = Event(
+                        code=code,
+                        table=table,
+                        vocabulary="CONDITION_CONCEPT_ID",
+                        visit_id=v_id,
+                        patient_id=p_id,
+                        timestamp=strptime(timestamp),
+                    )
+                    # update patients
+                    events.append(event)
+
+        # parallel apply
+        group_df = group_df.parallel_apply(lambda x: condition_unit(x))
+
+        # summarize the results
+        patients = self._add_events_to_patient_dict(patients, group_df)
+
         return patients
 
     def parse_procedure_occurrence(
@@ -254,22 +273,33 @@ class OMOPDataset(BaseDataset):
             ["person_id", "visit_occurrence_id", "procedure_datetime"], ascending=True
         )
         # group by patient and visit
-        group_df = df.groupby(["person_id", "visit_occurrence_id"])
-        # iterate over each patient and visit
-        for (p_id, v_id), v_info in tqdm(group_df, desc=f"Parsing {table}"):
-            for timestamp, code in zip(
-                v_info["procedure_datetime"], v_info["procedure_concept_id"]
-            ):
-                event = Event(
-                    code=code,
-                    table=table,
-                    vocabulary="PROCEDURE_CONCEPT_ID",
-                    visit_id=v_id,
-                    patient_id=p_id,
-                    timestamp=strptime(timestamp),
-                )
-                # update patients
-                patients = self._add_event_to_patient_dict(patients, event)
+        group_df = df.groupby("person_id")
+
+        # parallel unit of procedure occurrence (per patient)
+        def procedure_unit(p_info):
+            p_id = p_info["person_id"].values[0]
+
+            events = []
+            for v_id, v_info in p_info.groupby("visit_occurrence_id"):
+                for timestamp, code in zip(
+                    v_info["procedure_datetime"], v_info["procedure_concept_id"]
+                ):
+                    event = Event(
+                        code=code,
+                        table=table,
+                        vocabulary="PROCEDURE_CONCEPT_ID",
+                        visit_id=v_id,
+                        patient_id=p_id,
+                        timestamp=strptime(timestamp),
+                    )
+                    events.append(event)
+            return events
+
+        # parallel apply
+        group_df = group_df.parallel_apply(lambda x: procedure_unit(x))
+
+        # summarize the results
+        patients = self._add_events_to_patient_dict(patients, group_df)
         return patients
 
     def parse_drug_exposure(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
@@ -305,22 +335,34 @@ class OMOPDataset(BaseDataset):
             ascending=True,
         )
         # group by patient and visit
-        group_df = df.groupby(["person_id", "visit_occurrence_id"])
-        # iterate over each patient and visit
-        for (p_id, v_id), v_info in tqdm(group_df, desc=f"Parsing {table}"):
-            for timestamp, code in zip(
-                v_info["drug_exposure_start_datetime"], v_info["drug_concept_id"]
-            ):
-                event = Event(
-                    code=code,
-                    table=table,
-                    vocabulary="DRUG_CONCEPT_ID",
-                    visit_id=v_id,
-                    patient_id=p_id,
-                    timestamp=strptime(timestamp),
-                )
-                # update patients
-                patients = self._add_event_to_patient_dict(patients, event)
+        group_df = df.groupby("person_id")
+
+        # parallel unit of drug exposure (per patient)
+        def drug_unit(p_info):
+            p_id = p_info["person_id"].values[0]
+
+            events = []
+            for v_id, v_info in p_info.groupby("visit_occurrence_id"):
+                for timestamp, code in zip(
+                    v_info["drug_exposure_start_datetime"], v_info["drug_concept_id"]
+                ):
+                    event = Event(
+                        code=code,
+                        table=table,
+                        vocabulary="DRUG_CONCEPT_ID",
+                        visit_id=v_id,
+                        patient_id=p_id,
+                        timestamp=strptime(timestamp),
+                    )
+                    events.append(event)
+            return events
+
+        # parallel apply
+        group_df = group_df.parallel_apply(lambda x: drug_unit(x))
+
+        # summarize the results
+        patients = self._add_events_to_patient_dict(patients, group_df)
+
         return patients
 
     def parse_measurement(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
@@ -357,22 +399,34 @@ class OMOPDataset(BaseDataset):
             ["person_id", "visit_occurrence_id", "measurement_datetime"], ascending=True
         )
         # group by patient and visit
-        group_df = df.groupby(["person_id", "visit_occurrence_id"])
-        # iterate over each patient and visit
-        for (p_id, v_id), v_info in tqdm(group_df, desc=f"Parsing {table}"):
-            for timestamp, code in zip(
-                v_info["measurement_datetime"], v_info["measurement_concept_id"]
-            ):
-                event = Event(
-                    code=code,
-                    table=table,
-                    vocabulary="MEASUREMENT_CONCEPT_ID",
-                    visit_id=v_id,
-                    patient_id=p_id,
-                    timestamp=strptime(timestamp),
-                )
-                # update patients
-                patients = self._add_event_to_patient_dict(patients, event)
+        group_df = df.groupby("person_id")
+
+        # parallel unit of measurement (per patient)
+        def measurement_unit(p_info):
+            p_id = p_info["person_id"].values[0]
+
+            events = []
+            for v_id, v_info in p_info.groupby("visit_occurrence_id"):
+                for timestamp, code in zip(
+                    v_info["measurement_datetime"], v_info["measurement_concept_id"]
+                ):
+                    event = Event(
+                        code=code,
+                        table=table,
+                        vocabulary="MEASUREMENT_CONCEPT_ID",
+                        visit_id=v_id,
+                        patient_id=p_id,
+                        timestamp=strptime(timestamp),
+                    )
+                    events.append(event)
+            return events
+
+        # parallel apply
+        group_df = group_df.parallel_apply(lambda x: measurement_unit(x))
+
+        # summarize the results
+        patients = self._add_events_to_patient_dict(patients, group_df)
+
         return patients
 
 
@@ -386,7 +440,7 @@ if __name__ == "__main__":
             "measurement",
         ],
         dev=False,
-        refresh_cache=False,
+        refresh_cache=True,
     )
     dataset.stat()
     dataset.info()

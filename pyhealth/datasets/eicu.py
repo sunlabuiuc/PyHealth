@@ -2,11 +2,15 @@ import os
 from typing import Optional, List, Dict, Tuple, Union
 
 import pandas as pd
+from pandarallel import pandarallel
 from tqdm import tqdm
+from datetime import datetime
 
 from pyhealth.data import Event, Visit, Patient
 from pyhealth.datasets import BaseDataset
 from pyhealth.datasets.utils import strptime
+
+pandarallel.initialize(progress_bar=False)
 
 # TODO: add other tables
 
@@ -86,6 +90,7 @@ class eICUDataset(BaseDataset):
         # store a mapping from visit_id to patient_id
         # will be used to parse clinical tables as they only contain visit_id
         self.visit_id_to_patient_id: Dict[str, str] = {}
+        self.visit_id_to_encounter_time: Dict[str, datetime] = {}
         super(eICUDataset, self).__init__(**kwargs)
 
     def parse_basic_info(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
@@ -196,6 +201,8 @@ class eICUDataset(BaseDataset):
                 patient.add_visit(visit)
                 # add visit id to patient id mapping
                 self.visit_id_to_patient_id[v_id] = patient_id
+                # add visit id to encounter time mapping
+                self.visit_id_to_encounter_time[v_id] = encounter_time
             # add patient
             patients[patient_id] = patient
         return patients
@@ -243,17 +250,29 @@ class eICUDataset(BaseDataset):
         df = df.dropna(subset=["patientunitstayid", "icd9code"])
         # sort by diagnosisoffset
         df = df.sort_values(["patientunitstayid", "diagnosisoffset"], ascending=True)
+        # add the patient id info
+        df["patient_id"] = df["patientunitstayid"].apply(
+            lambda x: self.visit_id_to_patient_id.get(x, None)
+        )
+        # add the visit encounter time info
+        df["v_encounter_time"] = df["patientunitstayid"].apply(
+            lambda x: self.visit_id_to_encounter_time.get(x, None)
+        )
         # group by visit
-        df_group = df.groupby("patientunitstayid")
-        # iterate over each visit
-        for v_id, v_info in tqdm(df_group, desc=f"Parsing {table}"):
-            if v_id not in self.visit_id_to_patient_id:
-                continue
-            patient_id = self.visit_id_to_patient_id[v_id]
+        group_df = df.groupby("patientunitstayid")
+
+        # parallel unit of diagnosis (per visit)
+        def diagnosis_unit(v_info):
+            v_id = v_info["patientunitstayid"].values[0]
+            patient_id = v_info["patient_id"].values[0]
+            v_encounter_time = v_info["v_encounter_time"].values[0]
+            if patient_id is None:
+                return []
+
+            events = []
             for offset, codes in zip(v_info["diagnosisoffset"], v_info["icd9code"]):
-                timestamp = patients[patient_id].get_visit_by_id(
-                    v_id
-                ).encounter_time + pd.Timedelta(minutes=offset)
+                # compute the absolute timestamp
+                timestamp = v_encounter_time + pd.Timedelta(minutes=offset)
                 codes = [c.strip() for c in codes.split(",")]
                 # for each code in a single cell (mixed ICD9CM and ICD10CM)
                 for code in codes:
@@ -267,7 +286,14 @@ class eICUDataset(BaseDataset):
                         timestamp=timestamp,
                     )
                     # update patients
-                    patients = self._add_event_to_patient_dict(patients, event)
+                    events.append(event)
+            return events
+
+        # parallel apply
+        group_df = group_df.parallel_apply(lambda x: diagnosis_unit(x))
+
+        # summarize the results
+        patients = self._add_events_to_patient_dict(patients, group_df)
         return patients
 
     def parse_treatment(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
@@ -294,19 +320,31 @@ class eICUDataset(BaseDataset):
         df = df.dropna(subset=["patientunitstayid", "treatmentstring"])
         # sort by treatmentoffset
         df = df.sort_values(["patientunitstayid", "treatmentoffset"], ascending=True)
+        # add the patient id info
+        df["patient_id"] = df["patientunitstayid"].apply(
+            lambda x: self.visit_id_to_patient_id.get(x, None)
+        )
+        # add the visit encounter time info
+        df["v_encounter_time"] = df["patientunitstayid"].apply(
+            lambda x: self.visit_id_to_encounter_time.get(x, None)
+        )
         # group by visit
-        df_group = df.groupby("patientunitstayid")
-        # iterate over each visit
-        for v_id, v_info in tqdm(df_group, desc=f"Parsing {table}"):
-            if v_id not in self.visit_id_to_patient_id:
-                continue
-            patient_id = self.visit_id_to_patient_id[v_id]
+        group_df = df.groupby("patientunitstayid")
+
+        # parallel unit of treatment (per visit)
+        def treatment_unit(v_info):
+            v_id = v_info["patientunitstayid"].values[0]
+            patient_id = v_info["patient_id"].values[0]
+            v_encounter_time = v_info["v_encounter_time"].values[0]
+            if patient_id is None:
+                return []
+
+            events = []
             for offset, code in zip(
                 v_info["treatmentoffset"], v_info["treatmentstring"]
             ):
-                timestamp = patients[patient_id].get_visit_by_id(
-                    v_id
-                ).encounter_time + pd.Timedelta(minutes=offset)
+                # compute the absolute timestamp
+                timestamp = v_encounter_time + pd.Timedelta(minutes=offset)
                 event = Event(
                     code=code,
                     table=table,
@@ -316,7 +354,15 @@ class eICUDataset(BaseDataset):
                     timestamp=timestamp,
                 )
                 # update patients
-                patients = self._add_event_to_patient_dict(patients, event)
+                events.append(event)
+
+            return events
+
+        # parallel apply
+        group_df = group_df.parallel_apply(lambda x: treatment_unit(x))
+
+        # summarize the results
+        patients = self._add_events_to_patient_dict(patients, group_df)
         return patients
 
     def parse_medication(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
@@ -344,17 +390,29 @@ class eICUDataset(BaseDataset):
         df = df.dropna(subset=["patientunitstayid", "drugname"])
         # sort by drugstartoffset
         df = df.sort_values(["patientunitstayid", "drugstartoffset"], ascending=True)
+        # add the patient id info
+        df["patient_id"] = df["patientunitstayid"].apply(
+            lambda x: self.visit_id_to_patient_id.get(x, None)
+        )
+        # add the visit encounter time info
+        df["v_encounter_time"] = df["patientunitstayid"].apply(
+            lambda x: self.visit_id_to_encounter_time.get(x, None)
+        )
         # group by visit
-        df_group = df.groupby("patientunitstayid")
-        # iterate over each visit
-        for v_id, v_info in tqdm(df_group, desc=f"Parsing {table}"):
-            if v_id not in self.visit_id_to_patient_id:
-                continue
-            patient_id = self.visit_id_to_patient_id[v_id]
+        group_df = df.groupby("patientunitstayid")
+
+        # parallel unit of medication (per visit)
+        def medication_unit(v_info):
+            v_id = v_info["patientunitstayid"].values[0]
+            patient_id = v_info["patient_id"].values[0]
+            v_encounter_time = v_info["v_encounter_time"].values[0]
+            if patient_id is None:
+                return []
+
+            events = []
             for offset, code in zip(v_info["drugstartoffset"], v_info["drugname"]):
-                timestamp = patients[patient_id].get_visit_by_id(
-                    v_id
-                ).encounter_time + pd.Timedelta(minutes=offset)
+                # compute the absolute timestamp
+                timestamp = v_encounter_time + pd.Timedelta(minutes=offset)
                 event = Event(
                     code=code,
                     table=table,
@@ -364,7 +422,14 @@ class eICUDataset(BaseDataset):
                     timestamp=timestamp,
                 )
                 # update patients
-                patients = self._add_event_to_patient_dict(patients, event)
+                events.append(event)
+            return events
+
+        # parallel apply
+        group_df = group_df.parallel_apply(lambda x: medication_unit(x))
+
+        # summarize the results
+        patients = self._add_events_to_patient_dict(patients, group_df)
         return patients
 
     def parse_lab(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
@@ -391,17 +456,29 @@ class eICUDataset(BaseDataset):
         df = df.dropna(subset=["patientunitstayid", "labname"])
         # sort by labresultoffset
         df = df.sort_values(["patientunitstayid", "labresultoffset"], ascending=True)
+        # add the patient id info
+        df["patient_id"] = df["patientunitstayid"].apply(
+            lambda x: self.visit_id_to_patient_id.get(x, None)
+        )
+        # add the visit encounter time info
+        df["v_encounter_time"] = df["patientunitstayid"].apply(
+            lambda x: self.visit_id_to_encounter_time.get(x, None)
+        )
         # group by visit
-        df_group = df.groupby("patientunitstayid")
-        # iterate over each visit
-        for v_id, v_info in tqdm(df_group, desc=f"Parsing {table}"):
-            if v_id not in self.visit_id_to_patient_id:
-                continue
-            patient_id = self.visit_id_to_patient_id[v_id]
+        group_df = df.groupby("patientunitstayid")
+
+        # parallel unit of lab (per visit)
+        def lab_unit(v_info):
+            v_id = v_info["patientunitstayid"].values[0]
+            patient_id = v_info["patient_id"].values[0]
+            v_encounter_time = v_info["v_encounter_time"].values[0]
+            if patient_id is None:
+                return []
+
+            events = []
             for offset, code in zip(v_info["labresultoffset"], v_info["labname"]):
-                timestamp = patients[patient_id].get_visit_by_id(
-                    v_id
-                ).encounter_time + pd.Timedelta(minutes=offset)
+                # compute the absolute timestamp
+                timestamp = v_encounter_time + pd.Timedelta(minutes=offset)
                 event = Event(
                     code=code,
                     table=table,
@@ -411,7 +488,14 @@ class eICUDataset(BaseDataset):
                     timestamp=timestamp,
                 )
                 # update patients
-                patients = self._add_event_to_patient_dict(patients, event)
+                events.append(event)
+            return events
+
+        # parallel apply
+        group_df = group_df.parallel_apply(lambda x: lab_unit(x))
+
+        # summarize the results
+        patients = self._add_events_to_patient_dict(patients, group_df)
         return patients
 
     def parse_physicalexam(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
@@ -438,19 +522,31 @@ class eICUDataset(BaseDataset):
         df = df.dropna(subset=["patientunitstayid", "physicalexampath"])
         # sort by treatmentoffset
         df = df.sort_values(["patientunitstayid", "physicalexamoffset"], ascending=True)
+        # add the patient id info
+        df["patient_id"] = df["patientunitstayid"].apply(
+            lambda x: self.visit_id_to_patient_id.get(x, None)
+        )
+        # add the visit encounter time info
+        df["v_encounter_time"] = df["patientunitstayid"].apply(
+            lambda x: self.visit_id_to_encounter_time.get(x, None)
+        )
         # group by visit
-        df_group = df.groupby("patientunitstayid")
-        # iterate over each visit
-        for v_id, v_info in tqdm(df_group, desc=f"Parsing {table}"):
-            if v_id not in self.visit_id_to_patient_id:
-                continue
-            patient_id = self.visit_id_to_patient_id[v_id]
+        group_df = df.groupby("patientunitstayid")
+
+        # parallel unit of physicalExam (per visit)
+        def physicalExam_unit(v_info):
+            v_id = v_info["patientunitstayid"].values[0]
+            patient_id = v_info["patient_id"].values[0]
+            v_encounter_time = v_info["v_encounter_time"].values[0]
+            if patient_id is None:
+                return []
+
+            events = []
             for offset, code in zip(
                 v_info["physicalexamoffset"], v_info["physicalexampath"]
             ):
-                timestamp = patients[patient_id].get_visit_by_id(
-                    v_id
-                ).encounter_time + pd.Timedelta(minutes=offset)
+                # compute the absolute timestamp
+                timestamp = v_encounter_time + pd.Timedelta(minutes=offset)
                 event = Event(
                     code=code,
                     table=table,
@@ -460,7 +556,14 @@ class eICUDataset(BaseDataset):
                     timestamp=timestamp,
                 )
                 # update patients
-                patients = self._add_event_to_patient_dict(patients, event)
+                events.append(event)
+            return events
+
+        # parallel apply
+        group_df = group_df.parallel_apply(lambda x: physicalExam_unit(x))
+
+        # summarize the results
+        patients = self._add_events_to_patient_dict(patients, group_df)
         return patients
 
 
@@ -468,8 +571,7 @@ if __name__ == "__main__":
     dataset = eICUDataset(
         root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
         tables=["diagnosis", "medication", "lab", "treatment", "physicalExam"],
-        dev=True,
-        refresh_cache=False,
+        refresh_cache=True,
     )
     dataset.stat()
     dataset.info()
