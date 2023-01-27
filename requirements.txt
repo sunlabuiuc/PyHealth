@@ -3,4 +3,5 @@ rdkit>=2022.03.4
 scikit-learn>=0.24.2
 networkx>=2.6.3
 pandas>=1.3.2
+pandarallel>=1.5.3
 tqdm

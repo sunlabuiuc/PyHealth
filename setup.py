@@ -22,7 +22,7 @@ def readme():
 with open(path.join(this_directory, "requirements.txt"), encoding="utf-8") as f:
     requirements = f.read().splitlines()
 
-VERSION = "1.1.2"
+VERSION = "1.1.3"
 
 setup(
     name="pyhealth",

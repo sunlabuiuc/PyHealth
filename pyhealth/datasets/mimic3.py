@@ -2,12 +2,13 @@ import os
 from typing import Optional, List, Dict, Tuple, Union
 
 import pandas as pd
-from tqdm import tqdm
+from pandarallel import pandarallel
 
 from pyhealth.data import Event, Visit, Patient
 from pyhealth.datasets import BaseDataset
 from pyhealth.datasets.utils import strptime
 
+pandarallel.initialize(progress_bar=False)
 
 # TODO: add other tables
 
@@ -102,8 +103,9 @@ class MIMIC3Dataset(BaseDataset):
         df = df.sort_values(["SUBJECT_ID", "ADMITTIME", "DISCHTIME"], ascending=True)
         # group by patient
         df_group = df.groupby("SUBJECT_ID")
-        # load patients
-        for p_id, p_info in tqdm(df_group, desc="Parsing PATIENTS and ADMISSIONS"):
+
+        # parallel unit of basic information (per patient)
+        def basic_unit(p_id, p_info):
             patient = Patient(
                 patient_id=p_id,
                 birth_datetime=strptime(p_info["DOB"].values[0]),
@@ -122,8 +124,16 @@ class MIMIC3Dataset(BaseDataset):
                 )
                 # add visit
                 patient.add_visit(visit)
-            # add patient
-            patients[p_id] = patient
+            return patient
+
+        # parallel apply
+        df_group = df_group.parallel_apply(
+            lambda x: basic_unit(x.SUBJECT_ID.unique()[0], x)
+        )
+        # summarize the results
+        for pat_id, pat in df_group.items():
+            patients[pat_id] = pat
+
         return patients
 
     def parse_diagnoses_icd(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
@@ -150,24 +160,37 @@ class MIMIC3Dataset(BaseDataset):
             os.path.join(self.root, f"{table}.csv"),
             dtype={"SUBJECT_ID": str, "HADM_ID": str, "ICD9_CODE": str},
         )
+        # drop records of the other patients
+        df = df[df["SUBJECT_ID"].isin(patients.keys())]
         # drop rows with missing values
         df = df.dropna(subset=["SUBJECT_ID", "HADM_ID", "ICD9_CODE"])
         # sort by sequence number (i.e., priority)
         df = df.sort_values(["SUBJECT_ID", "HADM_ID", "SEQ_NUM"], ascending=True)
         # group by patient and visit
-        group_df = df.groupby(["SUBJECT_ID", "HADM_ID"])
-        # iterate over each patient and visit
-        for (p_id, v_id), v_info in tqdm(group_df, desc=f"Parsing {table}"):
-            for code in v_info["ICD9_CODE"]:
-                event = Event(
-                    code=code,
-                    table=table,
-                    vocabulary="ICD9CM",
-                    visit_id=v_id,
-                    patient_id=p_id,
-                )
-                # update patients
-                patients = self._add_event_to_patient_dict(patients, event)
+        group_df = df.groupby("SUBJECT_ID")
+
+        # parallel unit of diagnosis (per patient)
+        def diagnosis_unit(p_id, p_info):
+            events = []
+            for v_id, v_info in p_info.groupby("HADM_ID"):
+                for code in v_info["ICD9_CODE"]:
+                    event = Event(
+                        code=code,
+                        table=table,
+                        vocabulary="ICD9CM",
+                        visit_id=v_id,
+                        patient_id=p_id,
+                    )
+                    events.append(event)
+            return events
+
+        # parallel apply
+        group_df = group_df.parallel_apply(
+            lambda x: diagnosis_unit(x.SUBJECT_ID.unique()[0], x)
+        )
+
+        # summarize the results
+        patients = self._add_events_to_patient_dict(patients, group_df)
         return patients
 
     def parse_procedures_icd(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
@@ -194,24 +217,37 @@ class MIMIC3Dataset(BaseDataset):
             os.path.join(self.root, f"{table}.csv"),
             dtype={"SUBJECT_ID": str, "HADM_ID": str, "ICD9_CODE": str},
         )
+        # drop records of the other patients
+        df = df[df["SUBJECT_ID"].isin(patients.keys())]
         # drop rows with missing values
         df = df.dropna(subset=["SUBJECT_ID", "HADM_ID", "SEQ_NUM", "ICD9_CODE"])
         # sort by sequence number (i.e., priority)
         df = df.sort_values(["SUBJECT_ID", "HADM_ID", "SEQ_NUM"], ascending=True)
         # group by patient and visit
-        group_df = df.groupby(["SUBJECT_ID", "HADM_ID"])
-        # iterate over each patient and visit
-        for (p_id, v_id), v_info in tqdm(group_df, desc=f"Parsing {table}"):
-            for code in v_info["ICD9_CODE"]:
-                event = Event(
-                    code=code,
-                    table=table,
-                    vocabulary="ICD9PROC",
-                    visit_id=v_id,
-                    patient_id=p_id,
-                )
-                # update patients
-                patients = self._add_event_to_patient_dict(patients, event)
+        group_df = df.groupby("SUBJECT_ID")
+
+        # parallel unit of procedure (per patient)
+        def procedure_unit(p_id, p_info):
+            events = []
+            for v_id, v_info in p_info.groupby("HADM_ID"):
+                for code in v_info["ICD9_CODE"]:
+                    event = Event(
+                        code=code,
+                        table=table,
+                        vocabulary="ICD9PROC",
+                        visit_id=v_id,
+                        patient_id=p_id,
+                    )
+                    events.append(event)
+            return events
+
+        # parallel apply
+        group_df = group_df.parallel_apply(
+            lambda x: procedure_unit(x.SUBJECT_ID.unique()[0], x)
+        )
+
+        # summarize the results
+        patients = self._add_events_to_patient_dict(patients, group_df)
         return patients
 
     def parse_prescriptions(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
@@ -235,6 +271,8 @@ class MIMIC3Dataset(BaseDataset):
             low_memory=False,
             dtype={"SUBJECT_ID": str, "HADM_ID": str, "NDC": str},
         )
+        # drop records of the other patients
+        df = df[df["SUBJECT_ID"].isin(patients.keys())]
         # drop rows with missing values
         df = df.dropna(subset=["SUBJECT_ID", "HADM_ID", "NDC"])
         # sort by start date and end date
@@ -242,20 +280,31 @@ class MIMIC3Dataset(BaseDataset):
             ["SUBJECT_ID", "HADM_ID", "STARTDATE", "ENDDATE"], ascending=True
         )
         # group by patient and visit
-        group_df = df.groupby(["SUBJECT_ID", "HADM_ID"])
-        # iterate over each patient and visit
-        for (p_id, v_id), v_info in tqdm(group_df, desc=f"Parsing {table}"):
-            for timestamp, code in zip(v_info["STARTDATE"], v_info["NDC"]):
-                event = Event(
-                    code=code,
-                    table=table,
-                    vocabulary="NDC",
-                    visit_id=v_id,
-                    patient_id=p_id,
-                    timestamp=strptime(timestamp),
-                )
-                # update patients
-                patients = self._add_event_to_patient_dict(patients, event)
+        group_df = df.groupby("SUBJECT_ID")
+
+        # parallel unit for prescription (per patient)
+        def prescription_unit(p_id, p_info):
+            events = []
+            for v_id, v_info in p_info.groupby("HADM_ID"):
+                for timestamp, code in zip(v_info["STARTDATE"], v_info["NDC"]):
+                    event = Event(
+                        code=code,
+                        table=table,
+                        vocabulary="NDC",
+                        visit_id=v_id,
+                        patient_id=p_id,
+                        timestamp=strptime(timestamp),
+                    )
+                    events.append(event)
+            return events
+
+        # parallel apply
+        group_df = group_df.parallel_apply(
+            lambda x: prescription_unit(x.SUBJECT_ID.unique()[0], x)
+        )
+
+        # summarize the results
+        patients = self._add_events_to_patient_dict(patients, group_df)
         return patients
 
     def parse_labevents(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
@@ -278,32 +327,50 @@ class MIMIC3Dataset(BaseDataset):
             os.path.join(self.root, f"{table}.csv"),
             dtype={"SUBJECT_ID": str, "HADM_ID": str, "ITEMID": str},
         )
+        # drop records of the other patients
+        df = df[df["SUBJECT_ID"].isin(patients.keys())]
         # drop rows with missing values
         df = df.dropna(subset=["SUBJECT_ID", "HADM_ID", "ITEMID"])
         # sort by charttime
         df = df.sort_values(["SUBJECT_ID", "HADM_ID", "CHARTTIME"], ascending=True)
         # group by patient and visit
-        group_df = df.groupby(["SUBJECT_ID", "HADM_ID"])
-        # iterate over each patient and visit
-        for (p_id, v_id), v_info in tqdm(group_df, desc=f"Parsing {table}"):
-            for timestamp, code in zip(v_info["CHARTTIME"], v_info["ITEMID"]):
-                event = Event(
-                    code=code,
-                    table=table,
-                    vocabulary="MIMIC3_ITEMID",
-                    visit_id=v_id,
-                    patient_id=p_id,
-                    timestamp=strptime(timestamp),
-                )
-                # update patients
-                patients = self._add_event_to_patient_dict(patients, event)
+        group_df = df.groupby("SUBJECT_ID")
+
+        # parallel unit for lab (per patient)
+        def lab_unit(p_id, p_info):
+            events = []
+            for v_id, v_info in p_info.groupby("HADM_ID"):
+                for timestamp, code in zip(v_info["CHARTTIME"], v_info["ITEMID"]):
+                    event = Event(
+                        code=code,
+                        table=table,
+                        vocabulary="MIMIC3_ITEMID",
+                        visit_id=v_id,
+                        patient_id=p_id,
+                        timestamp=strptime(timestamp),
+                    )
+                    events.append(event)
+            return events
+
+        # parallel apply
+        group_df = group_df.parallel_apply(
+            lambda x: lab_unit(x.SUBJECT_ID.unique()[0], x)
+        )
+
+        # summarize the results
+        patients = self._add_events_to_patient_dict(patients, group_df)
         return patients
 
 
 if __name__ == "__main__":
     dataset = MIMIC3Dataset(
         root="/srv/local/data/physionet.org/files/mimiciii/1.4",
-        tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS", "LABEVENTS"],
+        tables=[
+            "DIAGNOSES_ICD",
+            "PROCEDURES_ICD",
+            "PRESCRIPTIONS",
+            "LABEVENTS",
+        ],
         code_mapping={"NDC": "ATC"},
         refresh_cache=True,
     )
