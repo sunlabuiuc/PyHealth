@@ -1,8 +1,6 @@
 import unittest
 import sys 
 import os
-import logging
-
 current = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(os.path.dirname(os.path.dirname(current)))
 
@@ -12,7 +10,6 @@ class TestInnerMap(unittest.TestCase):
 
     def setUp(self):
         map_name = "ICD9CM"
-        logging.info(f"loading {map_name}")
         self.inner_map = InnerMap.load(map_name)
 
     def test_contain(self):
