@@ -1,4 +1,0 @@
-import unittest
-
-
-class TestInnerMap
