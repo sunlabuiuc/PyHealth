@@ -62,7 +62,7 @@ PyHealth is designed for both **ML researchers and medical practitioners**. We c
 
 
 .. image:: poster.png
-   :width: 200
+   :width: 650
 
 ----------
 
