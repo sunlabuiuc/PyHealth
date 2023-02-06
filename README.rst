@@ -298,7 +298,7 @@ Module 5: <pyhealth.metrics>
 .. image:: https://colab.research.google.com/assets/colab-badge.svg
     :target: https://pyhealth.readthedocs.io/en/latest/tutorials.html
 
-> We provide the following tutorials to help users get started with our pyhealth. 
+ We provide the following tutorials to help users get started with our pyhealth. 
 
 `Tutorial 0: Introduction to pyhealth.data <https://colab.research.google.com/drive/1y9PawgSbyMbSSMw1dpfwtooH7qzOEYdN?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=Nk1itBoLOX8&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=2>`_  
 
@@ -319,7 +319,7 @@ Module 5: <pyhealth.metrics>
 `Tutorial 7: Introduction to pyhealth.medcode <https://colab.research.google.com/drive/1xrp_ACM2_Hg5Wxzj0SKKKgZfMY0WwEj3?usp=sharing>`_ `[Video] <https://www.youtube.com/watch?v=MmmfU6_xkYg&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=9>`_ 
 
 
-> The following tutorials will help users build their own task pipelines. `[Video] <https://
+ The following tutorials will help users build their own task pipelines. `[Video] <https://
 www.youtube.com/watch?v=GGP3Dhfyisc&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=12>`_ 
 
 `Pipeline 1: Drug Recommendation <https://colab.research.google.com/drive/10CSb4F4llYJvv42yTUiRmvSZdoEsbmFF?usp=sharing>`_ 
@@ -330,7 +330,7 @@ www.youtube.com/watch?v=GGP3Dhfyisc&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&inde
 
 `Pipeline 4: Mortality Prediction <https://colab.research.google.com/drive/1Qblpcv4NWjrnADT66TjBcNwOe8x6wU4c?usp=sharing>`_ 
 
-> We provided the advanced tutorials for supporting various needs. 
+ We provided the advanced tutorials for supporting various needs. 
 
 `Advanced Tutorial 1: Fit your dataset into our pipeline <https://colab.research.google.com/drive/1UurxwAAov1bL_5OO3gQJ4gAa_paeJwJp?usp=sharing>`_
 
