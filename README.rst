@@ -110,7 +110,7 @@ All healthcare tasks in our package follow a **five-stage pipeline**:
  We try hard to make sure each stage is as separate as possibe, so that people can customize their own pipeline by only using our data processing steps or the ML models.
 
 Module 1: <pyhealth.datasets>
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+""""""""""""""""""""""""""""""""""""
 
 ``pyhealth.datasets`` provides a clean structure for the dataset, independent from the tasks. We support `MIMIC-III`, `MIMIC-IV` and `eICU`, etc. The output (mimic3base) is a multi-level dictionary structure (see illustration below).
 
@@ -133,7 +133,8 @@ Module 1: <pyhealth.datasets>
 ..
 
 Module 2: <pyhealth.tasks>
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+""""""""""""""""""""""""""""""""""""
+
 ``pyhealth.tasks`` defines how to process each patient's data into a set of samples for the tasks. In the package, we provide several task examples, such as ``drug recommendation`` and ``length of stay prediction``. **It is easy to customize your own tasks following our** `template <https://colab.research.google.com/drive/1r7MYQR_5yCJGpK_9I9-A10HmpupZuIN-?usp=sharing>`_.
 
 .. code-block:: python
@@ -152,7 +153,7 @@ Module 2: <pyhealth.tasks>
         'label': 0
     }
     """
-    
+
     from pyhealth.datasets import split_by_patient, get_dataloader
 
     train_ds, val_ds, test_ds = split_by_patient(mimic3sample, [0.8, 0.1, 0.1])
@@ -161,7 +162,7 @@ Module 2: <pyhealth.tasks>
     test_loader = get_dataloader(test_ds, batch_size=32, shuffle=False)
 
 Module 3: <pyhealth.models>
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+""""""""""""""""""""""""""""""""""""
 
 ``pyhealth.models`` provides different ML models with very similar argument configs.
 
@@ -177,7 +178,7 @@ Module 3: <pyhealth.models>
     )
 
 Module 4: <pyhealth.trainer>
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+""""""""""""""""""""""""""""""""""""
 
 ``pyhealth.trainer`` can specify training arguemnts, such as epochs, optimizer, learning rate, etc. The trainer will automatically save the best model and output the path in the end.
 
@@ -194,7 +195,7 @@ Module 4: <pyhealth.trainer>
     )
 
 Module 5: <pyhealth.metrics>
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+""""""""""""""""""""""""""""""""""""
 
 ``pyhealth.metrics`` provides several **common evaluation metrics** (refer to `Doc <https://pyhealth.readthedocs.io/en/latest/api/metrics.html>`_ and see what are available).
 
@@ -234,7 +235,7 @@ Module 5: <pyhealth.metrics>
     atc.lookup("M01AE51", "description")
     # Ibuprofen is a non-steroidal anti-inflammatory drug (NSAID) derived ...
     atc.lookup("M01AE51", "indication")
-    # Ibuprofen is the most commonly used and prescribed NSAID. It is very common over the counter ...
+    # Ibuprofen is the most commonly used and prescribed NSAID. It is very common over the ...
 
 * For code mapping between two coding systems (e.g., ICD9CM to CCSCM). 
 
@@ -243,15 +244,21 @@ Module 5: <pyhealth.metrics>
     from pyhealth.medcode import CrossMap
 
     codemap = CrossMap.load("ICD9CM", "CCSCM")
-    codemap.map("82101") # use it like a dict
+    codemap.map("428.0")
+    # ['108']
+
+    codemap = CrossMap.load("NDC", "RxNorm")
+    codemap.map("50580049698")
+    # ['209387']
 
     codemap = CrossMap.load("NDC", "ATC")
-    codemap.map("00527051210")
+    codemap.map("50090539100")
+    # ['A10AC04', 'A10AD04', 'A10AB04']
 
-3.3 Medical Code Tokenizer
-^^^^^^^^^^^^^^^^^^^^^^^^^^
+5. Medical Code Tokenizer
+-----------------------------
 
-* **<pyhealth.tokenizer>** is used for transformations between string-based tokens and integer-based indices, based on the overall token space. We provide flexible functions to tokenize 1D, 2D and 3D lists. **This module can be independently applied to your research.**
+``<pyhealth.tokenizer`` is used for transformations between string-based tokens and integer-based indices, based on the overall token space. We provide flexible functions to tokenize 1D, 2D and 3D lists. **This module can be independently applied to your research.**
 
 .. code-block:: python
 
@@ -265,12 +272,25 @@ Module 5: <pyhealth.metrics>
 
     # 2d encode 
     tokens = [['A03C', 'A03D', 'A03E', 'A03F'], ['A04A', 'B035', 'C129']]
-    indices = tokenizer.batch_encode_2d(tokens) # [[8, 9, 10, 11], [12, 1, 1, 0]]
+    indices = tokenizer.batch_encode_2d(tokens) 
+    # [[8, 9, 10, 11], [12, 1, 1, 0]]
 
     # 2d decode 
     indices = [[8, 9, 10, 11], [12, 1, 1, 0]]
-    tokens = tokenizer.batch_decode_2d(indices) # [['A03C', 'A03D', 'A03E', 'A03F'], ['A04A', '<unk>', '<unk>']]
+    tokens = tokenizer.batch_decode_2d(indices)
+    # [['A03C', 'A03D', 'A03E', 'A03F'], ['A04A', '<unk>', '<unk>']]
 
+    # 3d encode
+    tokens = [[['A03C', 'A03D', 'A03E', 'A03F'], ['A08A', 'A09A']], \
+        [['A04A', 'B035', 'C129']]]
+    indices = tokenizer.batch_encode_3d(tokens)
+    # [[[8, 9, 10, 11], [24, 25, 0, 0]], [[12, 1, 1, 0], [0, 0, 0, 0]]]
+
+    # 3d decode
+    indices = [[[8, 9, 10, 11], [24, 25, 0, 0]], \
+        [[12, 1, 1, 0], [0, 0, 0, 0]]]
+    tokens = tokenizer.batch_decode_3d(indices)
+    # [[['A03C', 'A03D', 'A03E', 'A03F'], ['A08A', 'A09A']], [['A04A', '<unk>', '<unk>']]]
 ..
 
 4. Tutorials
