@@ -58,15 +58,11 @@ Welcome to PyHealth!
 
 PyHealth is designed for both **ML researchers and medical practitioners**. We can make your **healthcare AI applications** easier to deploy and more flexible and customizable. `[Tutorials] <https://pyhealth.readthedocs.io/>`_
 
+ **[News!]** We are running the "PyHealth Live" gathering at 8 PM CST every Wednesday night! Welcome to join over `zoom <https://illinois.zoom.us/j/87450975602?pwd=ckQyaHhkRitlUzlwYUY3NjdEQ0pFdz09>`_. Check out `PyHealth Live <https://github.com/sunlabuiuc/PyHealth/blob/master/docs/live.rst>`_ for more information and watch the `Live Videos <https://www.youtube.com/playlist?list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV>`_.
+
 .. image:: figure/poster.png
    :width: 810
 
-..
-
-**[News!]** We are running the "PyHealth Live" gathering at 8 PM CST every Wednesday night! Welcome to join over `zoom <https://illinois.zoom.us/j/87450975602?pwd=ckQyaHhkRitlUzlwYUY3NjdEQ0pFdz09>`_. Check out `PyHealth Live <https://github.com/sunlabuiuc/PyHealth/blob/master/docs/live.rst>`_ for more information and watch the `Live Videos <https://www.youtube.com/playlist?list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV>`_.
-
-.. raw:: html
-    <iframe src="figure/intro.mp4" scrolling="no" border="0" frameborder="no" framespacing="0" allowfullscreen="true"> </iframe>
 ..
 
 1. Installation
@@ -209,15 +205,21 @@ Module 5: <pyhealth.metrics>
     binary_metrics_fn(y_true, y_prob, metrics=["pr_auc", "roc_auc"])
 
 4. Medical Code Map
----------------------
+------------------------
 
-``pyhealth.codemap`` provides two core functionalities: 
- - (i) looking up information for a given medical code (e.g., name, category, sub-concept); 
- - (ii) mapping codes across coding systems (e.g., ICD9CM to CCSCM). 
+``pyhealth.codemap`` provides two core functionalities. **This module can be independently applied to your research.**
 
-**This module can be independently applied to your research.**
+* For code ontology lookup within one system. Looking up information for a given medical code (e.g., name, category, sub-concept); 
 
-* For code mapping between two coding systems
+.. code-block:: python
+
+    from pyhealth.medcode import InnerMap
+
+    icd9cm = InnerMap.load("ICD9CM")
+    icd9cm.lookup("428.0") # get detailed info
+    icd9cm.get_ancestors("428.0") # get parents
+
+* For code mapping between two coding systems, mapping codes across coding systems (e.g., ICD9CM to CCSCM). 
 
 .. code-block:: python
 
@@ -228,16 +230,6 @@ Module 5: <pyhealth.metrics>
 
     codemap = CrossMap.load("NDC", "ATC")
     codemap.map("00527051210")
-
-* For code ontology lookup within one system
-
-.. code-block:: python
-
-    from pyhealth.medcode import InnerMap
-
-    icd9cm = InnerMap.load("ICD9CM")
-    icd9cm.lookup("428.0") # get detailed info
-    icd9cm.get_ancestors("428.0") # get parents
 
 3.3 Medical Code Tokenizer
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
