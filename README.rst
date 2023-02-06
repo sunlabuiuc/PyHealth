@@ -69,14 +69,15 @@ PyHealth is designed for both **ML researchers and medical practitioners**. We c
 
 - You could install from PyPi:
 
-.. code-block:: bash
-    :emphasize-lines: 1
-
+.. code-block:: sh
+    :linenos:
+    
     pip install pyhealth
 
 - or from github source:
 
-.. code-block:: bash
+.. code-block:: sh
+    :linenos:
 
     pip install .
 
