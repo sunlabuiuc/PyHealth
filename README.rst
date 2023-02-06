@@ -65,7 +65,7 @@ PyHealth is designed for both **ML researchers and medical practitioners**. We c
 
 ..
 
-1. :rocket: Installation
+1. Installation :rocket:
 -----------------
 
 - You could install from PyPi:
@@ -81,7 +81,7 @@ PyHealth is designed for both **ML researchers and medical practitioners**. We c
     pip install .
 
 
-2. :book: Introduction
+2. Introduction :book:
 --------------------------
 ``pyhealth`` provides these functionalities (we are still enriching some modules):
 
@@ -97,7 +97,7 @@ You can use the following functions independently:
 *Build a healthcare AI pipeline can be as short as 10 lines of code in PyHealth*.
 
 
-3. :trophy: Build ML Pipelines
+3. Build ML Pipelines :trophy:
 --------------------------
 
 All healthcare tasks in our package follow a **five-stage pipeline**: 
@@ -210,7 +210,7 @@ Module 5: <pyhealth.metrics>
     y_true, y_prob, loss = trainer.inference(test_loader)
     binary_metrics_fn(y_true, y_prob, metrics=["pr_auc", "roc_auc"])
 
-4. :hospital: Medical Code Map
+4. Medical Code Map :hospital: 
 ------------------------
 
 ``pyhealth.codemap`` provides two core functionalities. **This module can be used independently.**
@@ -255,8 +255,8 @@ Module 5: <pyhealth.metrics>
     codemap.map("50090539100")
     # ['A10AC04', 'A10AD04', 'A10AB04']
 
-5. :speech_balloon: Medical Code Tokenizer
------------------------------
+5. Medical Code Tokenizer :speech_balloon:
+---------------------------------------------
 
 ``pyhealth.tokenizer`` is used for transformations between string-based tokens and integer-based indices, based on the overall token space. We provide flexible functions to tokenize 1D, 2D and 3D lists. **This module can be used independently.**
 
@@ -293,10 +293,13 @@ Module 5: <pyhealth.metrics>
     # [[['A03C', 'A03D', 'A03E', 'A03F'], ['A08A', 'A09A']], [['A04A', '<unk>', '<unk>']]]
 ..
 
-6. :teacher: Tutorials
-------------
+6. Tutorials :teacher:
+----------------------------
 
 We provide the following tutorials to help users get started with our pyhealth. 
+
+.. image:: https://colab.research.google.com/assets/colab-badge.svg
+   :target: https://colab.research.google.com/drive/1y9PawgSbyMbSSMw1dpfwtooH7qzOEYdN?usp=sharing
 
 `Tutorial 0: Introduction to pyhealth.data <https://colab.research.google.com/drive/1y9PawgSbyMbSSMw1dpfwtooH7qzOEYdN?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=Nk1itBoLOX8&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=2>`_ 
 
@@ -334,10 +337,11 @@ We provided the advanced tutorials for supporting various needs.
 `Advanced Tutorial 3: Adopt customized model into pyhealth <https://colab.research.google.com/drive/1F_NJ90GC8_Eq-vKTf7Tyziew4gWjjKoH?usp=sharing>`_ 
 
 `Advanced Tutorial 4: Load your own processed data into pyhealth and try out our ML models <https://colab.research.google.com/drive/1ZRnKch2EyJLrI3G5AvDXVpeE2wwgBWfw?usp=sharing>`_
+
 ----
 
 
-5. Datasets
+7. Datasets
 --------------------------
 We provide the processing files for the following open EHR datasets:
 
