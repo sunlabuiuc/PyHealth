@@ -58,7 +58,7 @@ Welcome to PyHealth!
 
 PyHealth is designed for both **ML researchers and medical practitioners**. We can make your **healthcare AI applications** easier to deploy and more flexible and customizable. `[Tutorials] <https://pyhealth.readthedocs.io/>`_
 
-:fire: **[News!]** We are running the "PyHealth Live" gathering at 8 PM CST every Wednesday night! Welcome to join over `zoom <https://illinois.zoom.us/j/87450975602?pwd=ckQyaHhkRitlUzlwYUY3NjdEQ0pFdz09>`_. Check out `PyHealth Live <https://github.com/sunlabuiuc/PyHealth/blob/master/docs/live.rst>`_ for more information and watch the `Live Videos <https://www.youtube.com/playlist?list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV>`_.
+ **[News!]** We are running the "PyHealth Live" gathering at 8 PM CST every Wednesday night! Welcome to join over `zoom <https://illinois.zoom.us/j/87450975602?pwd=ckQyaHhkRitlUzlwYUY3NjdEQ0pFdz09>`_. Check out `PyHealth Live <https://github.com/sunlabuiuc/PyHealth/blob/master/docs/live.rst>`_ for more information and watch the `Live Videos <https://www.youtube.com/playlist?list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV>`_.
 
 .. image:: figure/poster.png
    :width: 810
@@ -210,7 +210,7 @@ Module 5: <pyhealth.metrics>
     y_true, y_prob, loss = trainer.inference(test_loader)
     binary_metrics_fn(y_true, y_prob, metrics=["pr_auc", "roc_auc"])
 
-4. Medical Code Map
+4. :hospital: Medical Code Map
 ------------------------
 
 ``pyhealth.codemap`` provides two core functionalities. **This module can be used independently.**
@@ -255,7 +255,7 @@ Module 5: <pyhealth.metrics>
     codemap.map("50090539100")
     # ['A10AC04', 'A10AD04', 'A10AB04']
 
-5. Medical Code Tokenizer
+5. :checkered_flag: Medical Code Tokenizer
 -----------------------------
 
 ``pyhealth.tokenizer`` is used for transformations between string-based tokens and integer-based indices, based on the overall token space. We provide flexible functions to tokenize 1D, 2D and 3D lists. **This module can be used independently.**
@@ -293,7 +293,7 @@ Module 5: <pyhealth.metrics>
     # [[['A03C', 'A03D', 'A03E', 'A03F'], ['A08A', 'A09A']], [['A04A', '<unk>', '<unk>']]]
 ..
 
-4. :boom: Tutorials
+4. :teacher: Tutorials
 ------------
 
  We provide the following tutorials to help users get started with our pyhealth.
