@@ -16,7 +16,7 @@ Welcome to PyHealth!
    :alt: GitHub stars
 
 
-.. image:: https://img.shields.io/github/stars/sunlabuiuc/pyhealth.svg?color=blue
+.. image:: https://img.shields.io/github/forks/sunlabuiuc/pyhealth.svg?color=blue
    :target: https://github.com/sunlabuiuc/pyhealth/network
    :alt: GitHub forks
 
@@ -67,7 +67,7 @@ PyHealth is designed for both **ML researchers and medical practitioners**. We c
 
 1. Introduction
 --------------------------
-PyHealth provides these functionalities (we are still enriching some modules):
+``pyhealth`` provides these functionalities (we are still enriching some modules):
 
 .. image:: figure/overview.png
    :width: 770
@@ -93,21 +93,7 @@ You can use the following functions independently:
 
 .. code-block:: bash
 
-   git clone https://github.com/sunlabuiuc/PyHealth.git
-   cd pyhealth
-   pip install .
-
-- Required Dependencies
-
-.. code-block:: bash
-
-    python>=3.8
-    torch>=1.8.0
-    rdkit>=2022.03.4
-    scikit-learn>=0.24.2
-    networkx>=2.6.3
-    pandas>=1.3.2
-    tqdm
+    pip install .
 
 
 3. Modules
