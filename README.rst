@@ -11,12 +11,12 @@ Welcome to PyHealth!
    :alt: Documentation status
    
 
-.. image:: https://img.shields.io/github/stars/yzhao062/pyhealth.svg
+.. image:: https://img.shields.io/github/stars/sunlabuiuc/pyhealth.svg
    :target: https://github.com/sunlabuiuc/pyhealth/stargazers
    :alt: GitHub stars
 
 
-.. image:: https://img.shields.io/github/forks/yzhao062/pyhealth.svg?color=blue
+.. image:: https://img.shields.io/github/stars/sunlabuiuc/pyhealth.svg?color=blue
    :target: https://github.com/sunlabuiuc/pyhealth/network
    :alt: GitHub forks
 
@@ -59,6 +59,10 @@ Welcome to PyHealth!
 PyHealth is designed for both **ML researchers and medical practitioners**. We can make your **healthcare AI applications** easier to deploy and more flexible and customizable. `[Tutorials] <https://pyhealth.readthedocs.io/>`_
  
 **[News!]** We are running the "PyHealth Live" gathering at 8 PM CST every Wednesday night! Welcome to join over `zoom <https://illinois.zoom.us/j/87450975602?pwd=ckQyaHhkRitlUzlwYUY3NjdEQ0pFdz09>`_. Check out `PyHealth Live <https://github.com/sunlabuiuc/PyHealth/blob/master/docs/live.rst>`_ for more information and watch the `Live Videos <https://www.youtube.com/playlist?list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV>`_.
+
+
+.. image:: poster.png
+   :width: 200
 
 ----------
 
