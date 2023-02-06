@@ -64,23 +64,7 @@ PyHealth is designed for both **ML researchers and medical practitioners**. We c
 .. image:: figure/poster.png
    :width: 810
 
-
-1. Introduction
---------------------------
-``pyhealth`` provides these functionalities (we are still enriching some modules):
-
-.. image:: figure/overview.png
-   :width: 770
-
-You can use the following functions independently:
-
-- **Dataset**: ``MIMIC-III``, ``MIMIC-IV``, ``eICU``, ``OMOP-CDM``, ``customized EHR datasets``, etc.
-- **Tasks**: ``diagnosis-based drug recommendation``, ``patient hospitalization and mortality prediction``, ``length stay forecasting``, etc. 
-- **ML models**: ``CNN``, ``LSTM``, ``GRU``, ``LSTM``, ``RETAIN``, ``SafeDrug``, ``Deepr``, etc.
-
-*Build a healthcare AI pipeline can be as short as 10 lines of code in PyHealth*.
-
-2. Installation
+1. Installation
 -----------------
 
 - You could install from PyPi:
@@ -94,6 +78,22 @@ You can use the following functions independently:
 .. code-block:: bash
 
     pip install .
+
+
+2. Introduction
+--------------------------
+``pyhealth`` provides these functionalities (we are still enriching some modules):
+
+.. image:: figure/overview.png
+   :width: 770
+
+You can use the following functions independently:
+
+- **Dataset**: ``MIMIC-III``, ``MIMIC-IV``, ``eICU``, ``OMOP-CDM``, ``customized EHR datasets``, etc.
+- **Tasks**: ``diagnosis-based drug recommendation``, ``patient hospitalization and mortality prediction``, ``length stay forecasting``, etc. 
+- **ML models**: ``CNN``, ``LSTM``, ``GRU``, ``LSTM``, ``RETAIN``, ``SafeDrug``, ``Deepr``, etc.
+
+*Build a healthcare AI pipeline can be as short as 10 lines of code in PyHealth*.
 
 
 3. Modules
