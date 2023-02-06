@@ -96,43 +96,44 @@ You can use the following functions independently:
 *Build a healthcare AI pipeline can be as short as 10 lines of code in PyHealth*.
 
 
-3. Modules
+3. Build ML Pipelines
 --------------------------
 
 All healthcare tasks in our package follow a **five-stage pipeline**: 
 
- load dataset -> define task function -> build ML/DL model -> model training -> inference
+.. image:: figure/five-stage-pipeline.png
+   :width: 810
 
-! We try hard to make sure each stage is as separate as possibe, so that people can customize their own pipeline by only using our data processing steps or the ML models. Each step will call one module and we introduce them using an example.
+We try hard to make sure each stage is as separate as possibe, so that people can customize their own pipeline by only using our data processing steps or the ML models.
 
-3.1 An ML Pipeline Example 
-^^^^^^^^^^^^^^^^^^^^^^^^^^
+Module 1: pyhealth.datasets process the datasets
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-* **STEP 1: <pyhealth.datasets>** provides a clean structure for the dataset, independent from the tasks. We support ``MIMIC-III``, ``MIMIC-IV`` and ``eICU``, as well as the standard ``OMOP-formatted data``. The dataset is stored in a unified ``Patient-Visit-Event`` structure.
+``pyhealth.datasets`` provides a clean structure for the dataset, independent from the tasks. We support ``MIMIC-III``, ``MIMIC-IV`` and ``eICU``, as well as the standard ``OMOP-formatted data``.
 
 .. code-block:: python
 
     from pyhealth.datasets import MIMIC3Dataset
     mimic3base = MIMIC3Dataset(
+        # root directory of the dataset
         root="https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III/", 
+        # raw CSV table name
         tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
-        # map all NDC codes to ATC 3-rd level codes in these tables
+        # map all NDC codes to ATC 3rd level codes in these tables
         code_mapping={"NDC": ("ATC", {"target_kwargs": {"level": 3}})},
     )
 
-User could also store their own dataset into our ``<pyhealth.datasets.SampleDataset>`` structure and then follow the same pipeline below, see `Tutorial <https://colab.research.google.com/drive/1UurxwAAov1bL_5OO3gQJ4gAa_paeJwJp?usp=sharing>`_
-
-* **STEP 2: <pyhealth.tasks>** inputs the ``<pyhealth.datasets>`` object and defines how to process each patient's data into a set of samples for the tasks. In the package, we provide several task examples, such as ``drug recommendation`` and ``length of stay prediction``.
+Module 2: pyhealth.tasks define a healthcare task
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+``pyhealth.tasks`` defines how to process each patient's data into a set of samples for the tasks. In the package, we provide several task examples, such as ``drug recommendation`` and ``length of stay prediction``.
 
 .. code-block:: python
 
     from pyhealth.tasks import drug_recommendation_mimic3_fn
-    from pyhealth.datasets import split_by_patient, get_dataloader
-
     mimic3sample = mimic3base.set_task(task_fn=drug_recommendation_mimic3_fn) # use default task
-    train_ds, val_ds, test_ds = split_by_patient(mimic3sample, [0.8, 0.1, 0.1])
 
-    # create dataloaders (torch.data.DataLoader)
+    from pyhealth.datasets import split_by_patient, get_dataloader
+    train_ds, val_ds, test_ds = split_by_patient(mimic3sample, [0.8, 0.1, 0.1])
     train_loader = get_dataloader(train_ds, batch_size=32, shuffle=True)
     val_loader = get_dataloader(val_ds, batch_size=32, shuffle=False)
     test_loader = get_dataloader(test_ds, batch_size=32, shuffle=False)
