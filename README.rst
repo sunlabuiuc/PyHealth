@@ -115,10 +115,9 @@ Module 1: <pyhealth.datasets>
 ``pyhealth.datasets`` provides a clean structure for the dataset, independent from the tasks. We support `MIMIC-III`, `MIMIC-IV` and `eICU`, etc. The output (mimic3base) is a multi-level dictionary structure (see illustration below).
 
 .. code-block:: python
-    :emphasize-lines: 1
-    :linenos:
 
     from pyhealth.datasets import MIMIC3Dataset
+
     mimic3base = MIMIC3Dataset(
         # root directory of the dataset
         root="https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III/", 
@@ -140,6 +139,7 @@ Module 2: <pyhealth.tasks>
 .. code-block:: python
 
     from pyhealth.tasks import readmission_prediction_mimic3_fn
+
     mimic3sample = mimic3base.set_task(task_fn=readmission_prediction_mimic3_fn) # use default task
     
     >>> mimic3sample.samples[0] # show the information of the first sample
@@ -153,6 +153,7 @@ Module 2: <pyhealth.tasks>
     }
 
     from pyhealth.datasets import split_by_patient, get_dataloader
+
     train_ds, val_ds, test_ds = split_by_patient(mimic3sample, [0.8, 0.1, 0.1])
     train_loader = get_dataloader(train_ds, batch_size=32, shuffle=True)
     val_loader = get_dataloader(val_ds, batch_size=32, shuffle=False)
@@ -166,6 +167,7 @@ Module 3: <pyhealth.models>
 .. code-block:: python
 
     from pyhealth.models import Transformer
+
     model = Transformer(
         dataset=mimic3sample,
         feature_keys=["conditions", "procedures", "drug"],
@@ -181,6 +183,7 @@ Module 4: <pyhealth.trainer>
 .. code-block:: python
     
     from pyhealth.trainer import Trainer
+
     trainer = Trainer(model=model)
     trainer.train(
         train_dataloader=train_loader,
@@ -201,6 +204,7 @@ Module 5: <pyhealth.metrics>
     
     # method 2
     from pyhealth.metrics.binary import binary_metrics_fn
+
     y_true, y_prob, loss = trainer.inference(test_loader)
     binary_metrics_fn(y_true, y_prob, metrics=["pr_auc", "roc_auc"])
 
@@ -209,17 +213,29 @@ Module 5: <pyhealth.metrics>
 
 ``pyhealth.codemap`` provides two core functionalities. **This module can be independently applied to your research.**
 
-* For code ontology lookup within one system. Looking up information for a given medical code (e.g., name, category, sub-concept); 
+* For code ontology lookup within one medical coding system (e.g., name, category, sub-concept); 
 
 .. code-block:: python
 
     from pyhealth.medcode import InnerMap
 
     icd9cm = InnerMap.load("ICD9CM")
-    icd9cm.lookup("428.0") # get detailed info
-    icd9cm.get_ancestors("428.0") # get parents
-
-* For code mapping between two coding systems, mapping codes across coding systems (e.g., ICD9CM to CCSCM). 
+    icd9cm.lookup("428.0")
+    # `Congestive heart failure, unspecified`
+    icd9cm.get_ancestors("428.0")
+    ['428', '420-429.99', '390-459.99', '001-999.99']
+    
+    atc = InnerMap.load("ATC")
+    atc.lookup("M01AE51")
+    # `ibuprofen, combinations`
+    atc.lookup("M01AE51", "drugbank_id")
+    # `DB01050`
+    atc.lookup("M01AE51", "description")
+    # Ibuprofen is a non-steroidal anti-inflammatory drug (NSAID) derived ...
+    atc.lookup("M01AE51", "indication")
+    # Ibuprofen is the most commonly used and prescribed NSAID. It is very common over the counter ...
+    
+* For code mapping between two coding systems (e.g., ICD9CM to CCSCM). 
 
 .. code-block:: python
 
