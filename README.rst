@@ -67,15 +67,16 @@ PyHealth is designed for both **ML researchers and medical practitioners**. We c
 
 1. Introduction
 --------------------------
+PyHealth provides these functionalities (we are still enriching some modules):
 
 .. image:: figure/overview.png
-   :width: 700
+   :width: 770
 
-Support:
+You can use the following functions independently:
 
-- **Dataset**: MIMIC-III, MIMIC-IV, eICU, OMOP-CDM, customized EHR datasets
-- **Tasks**: diagnosis-based drug recommendation, patient hospitalization and mortality prediction, length stay forecasting, etc. 
-- **ML models**: CNN, LSTM, GRU, LSTM, RETAIN, SafeDrug, Deepr, etc.
+- **Dataset**: ``MIMIC-III``, ``MIMIC-IV``, ``eICU``, ``OMOP-CDM``, ``customized EHR datasets``, etc.
+- **Tasks**: ``diagnosis-based drug recommendation``, ``patient hospitalization and mortality prediction``, ``length stay forecasting``, etc. 
+- **ML models**: ``CNN``, ``LSTM``, ``GRU``, ``LSTM``, ``RETAIN``, ``SafeDrug``, ``Deepr``, etc.
 
 *Build a healthcare AI pipeline can be as short as 10 lines of code in PyHealth*.
 
