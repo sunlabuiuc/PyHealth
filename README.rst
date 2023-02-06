@@ -213,7 +213,7 @@ Module 5: <pyhealth.metrics>
 4. Medical Code Map
 ------------------------
 
-``pyhealth.codemap`` provides two core functionalities. **This module can be independently applied to your research.**
+``pyhealth.codemap`` provides two core functionalities. **This module can be used independently.**
 
 * For code ontology lookup within one medical coding system (e.g., name, category, sub-concept); 
 
@@ -258,7 +258,7 @@ Module 5: <pyhealth.metrics>
 5. Medical Code Tokenizer
 -----------------------------
 
-``<pyhealth.tokenizer`` is used for transformations between string-based tokens and integer-based indices, based on the overall token space. We provide flexible functions to tokenize 1D, 2D and 3D lists. **This module can be independently applied to your research.**
+``pyhealth.tokenizer`` is used for transformations between string-based tokens and integer-based indices, based on the overall token space. We provide flexible functions to tokenize 1D, 2D and 3D lists. **This module can be used independently.**
 
 .. code-block:: python
 
@@ -293,7 +293,7 @@ Module 5: <pyhealth.metrics>
     # [[['A03C', 'A03D', 'A03E', 'A03F'], ['A08A', 'A09A']], [['A04A', '<unk>', '<unk>']]]
 ..
 
-4. Tutorials
+4. :boom: Tutorials
 ------------
 
  We provide the following tutorials to help users get started with our pyhealth.
