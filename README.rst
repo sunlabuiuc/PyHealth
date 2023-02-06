@@ -61,19 +61,15 @@ PyHealth is designed for both **ML researchers and medical practitioners**. We c
 **[News!]** We are running the "PyHealth Live" gathering at 8 PM CST every Wednesday night! Welcome to join over `zoom <https://illinois.zoom.us/j/87450975602?pwd=ckQyaHhkRitlUzlwYUY3NjdEQ0pFdz09>`_. Check out `PyHealth Live <https://github.com/sunlabuiuc/PyHealth/blob/master/docs/live.rst>`_ for more information and watch the `Live Videos <https://www.youtube.com/playlist?list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV>`_.
 
 
-.. image:: poster.png
-   :width: 720
-
-----------
+.. image:: figure/poster.png
+   :width: 750
 
 
 1. Introduction
 --------------------------
 
-.. .. image:: https://raw.githubusercontent.com/yzhao062/PyHealth/master/docs/images/logo.png
-..    :target: https://raw.githubusercontent.com/yzhao062/PyHealth/master/docs/images/logo.png
-..    :alt: PyHealth Logo
-..    :align: center
+.. image:: figure/poster.png
+   :width: 700
 
 PyHealth can support **diverse electronic health records (EHRs)** such as MIMIC and eICU and all OMOP-CDM based databases and provide **various advanced deep learning algorithms** for handling **important healthcare tasks** such as diagnosis-based drug recommendation, patient hospitalization and mortality prediction, and ICU length stay forecasting, etc.  
 
