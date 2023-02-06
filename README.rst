@@ -104,6 +104,8 @@ All healthcare tasks in our package follow a **five-stage pipeline**:
 .. image:: figure/five-stage-pipeline.png
    :width: 700
 
+..
+
  We try hard to make sure each stage is as separate as possibe, so that people can customize their own pipeline by only using our data processing steps or the ML models.
 
 Module 1: pyhealth.datasets process the datasets
