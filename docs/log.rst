@@ -2,6 +2,13 @@ Development logs
 ======================
 We track the new development here:
 
+**Feb 06, 2023**
+
+.. code-block:: bash
+ 
+    1. improve readme style
+    2. add the pyhealth live 06 and 07 link to pyhealth live
+
 **Feb 01, 2023**
 
 .. code-block:: bash
