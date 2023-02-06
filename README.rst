@@ -102,16 +102,16 @@ You can use the following functions independently:
 All healthcare tasks in our package follow a **five-stage pipeline**: 
 
 .. image:: figure/five-stage-pipeline.png
-   :width: 700
+   :width: 640
 
 ..
 
  We try hard to make sure each stage is as separate as possibe, so that people can customize their own pipeline by only using our data processing steps or the ML models.
 
-Module 1: pyhealth.datasets process the datasets
+Module 1: <pyhealth.datasets>
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-``pyhealth.datasets`` provides a clean structure for the dataset, independent from the tasks. We support ``MIMIC-III``, ``MIMIC-IV`` and ``eICU``, as well as the standard ``OMOP-formatted data``.
+``pyhealth.datasets`` provides a clean structure for the dataset, independent from the tasks. We support `MIMIC-III`, `MIMIC-IV` and `eICU`, etc.
 
 .. code-block:: python
 
@@ -121,18 +121,28 @@ Module 1: pyhealth.datasets process the datasets
         root="https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III/", 
         # raw CSV table name
         tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
-        # map all NDC codes to ATC 3rd level codes in these tables
-        code_mapping={"NDC": ("ATC", {"target_kwargs": {"level": 3}})},
+        # map all NDC codes to CCS codes in these tables
+        code_mapping={"NDC": "CCSCM"},
     )
 
-Module 2: pyhealth.tasks define a healthcare task
+Module 2: <pyhealth.tasks>
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-``pyhealth.tasks`` defines how to process each patient's data into a set of samples for the tasks. In the package, we provide several task examples, such as ``drug recommendation`` and ``length of stay prediction``.
+``pyhealth.tasks`` defines how to process each patient's data into a set of samples for the tasks. In the package, we provide several task examples, such as ``drug recommendation`` and ``length of stay prediction``. **It is easy to customize your own tasks following our** `template <https://colab.research.google.com/drive/1r7MYQR_5yCJGpK_9I9-A10HmpupZuIN-?usp=sharing>`_.
 
 .. code-block:: python
 
-    from pyhealth.tasks import drug_recommendation_mimic3_fn
-    mimic3sample = mimic3base.set_task(task_fn=drug_recommendation_mimic3_fn) # use default task
+    from pyhealth.tasks import readmission_prediction_mimic3_fn
+    mimic3sample = mimic3base.set_task(task_fn=readmission_prediction_mimic3_fn) # use default task
+    
+    >>> mimic3sample.samples[0] # show the information of the first sample
+    {
+        'visit_id': '100183',
+        'patient_id': '175',
+        'conditions': ['5990', '4280', '2851', '4240', '2749', '9982', 'E8499', '42831', '34600'],
+        'procedures': ['0040', '3931', '7769'],
+        'drugs': ['N06DA02', 'V06DC01', 'B01AB01', 'A06AA02', 'R03AC02', 'H03AA01', 'J01FA09'],
+        'label': 0
+    }
 
     from pyhealth.datasets import split_by_patient, get_dataloader
     train_ds, val_ds, test_ds = split_by_patient(mimic3sample, [0.8, 0.1, 0.1])
@@ -140,25 +150,29 @@ Module 2: pyhealth.tasks define a healthcare task
     val_loader = get_dataloader(val_ds, batch_size=32, shuffle=False)
     test_loader = get_dataloader(test_ds, batch_size=32, shuffle=False)
 
-* **STEP 3: <pyhealth.models>** provides the healthcare ML models using ``<pyhealth.models>``. This module also provides model layers, such as ``pyhealth.models.RETAINLayer`` for building customized ML architectures. Our model layers can used as easily as ``torch.nn.Linear``.
+Module 3: <pyhealth.models>
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``pyhealth.models`` provides different ML models with very similar argument configs.
 
 .. code-block:: python
 
     from pyhealth.models import Transformer
-
     model = Transformer(
         dataset=mimic3sample,
-        feature_keys=["conditions", "procedures"],
-        label_key="drugs",
-        mode="multilabel",
+        feature_keys=["conditions", "procedures", "drug"],
+        label_key="label",
+        mode="binary",
     )
 
-* **STEP 4: <pyhealth.trainer>** is the training manager with ``train_loader``, the ``val_loader``, ``val_metric``, and specify other arguemnts, such as epochs, optimizer, learning rate, etc. The trainer will automatically save the best model and output the path in the end.
+Module 4: <pyhealth.trainer>
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``pyhealth.trainer`` can specify training arguemnts, such as epochs, optimizer, learning rate, etc. The trainer will automatically save the best model and output the path in the end.
 
 .. code-block:: python
     
     from pyhealth.trainer import Trainer
-
     trainer = Trainer(model=model)
     trainer.train(
         train_dataloader=train_loader,
@@ -167,16 +181,28 @@ Module 2: pyhealth.tasks define a healthcare task
         monitor="pr_auc_samples",
     )
 
-* **STEP 5: <pyhealth.metrics>** provides several **common evaluation metrics** (refer to `Doc <https://pyhealth.readthedocs.io/en/latest/api/metrics.html>`_ and see what are available) and **special metrics** in healthcare, such as drug-drug interaction (DDI) rate.
+Module 5: <pyhealth.metrics>
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``pyhealth.metrics`` provides several **common evaluation metrics** (refer to `Doc <https://pyhealth.readthedocs.io/en/latest/api/metrics.html>`_ and see what are available).
 
 .. code-block:: python
-    
+    # method 1
     trainer.evaluate(test_loader)
+    
+    # method 2
+    from pyhealth.metrics.binary import binary_metrics_fn
+    y_true, y_prob, loss = trainer.inference(test_loader)
+    binary_metrics_fn(y_true, y_prob, metrics=["pr_auc", "roc_auc"])
 
-3.2 Medical Code Map
-^^^^^^^^^^^^^^^^^^^^^^^^^^
+4 Medical Code Map
+---------------------
 
-* **<pyhealth.codemap>** provides two core functionalities: (i) looking up information for a given medical code (e.g., name, category, sub-concept); (ii) mapping codes across coding systems (e.g., ICD9CM to CCSCM). **This module can be independently applied to your research.**
+``<pyhealth.codemap`` provides two core functionalities: 
+ - (i) looking up information for a given medical code (e.g., name, category, sub-concept); 
+ - (ii) mapping codes across coding systems (e.g., ICD9CM to CCSCM). 
+
+**This module can be independently applied to your research.**
 
 * For code mapping between two coding systems
 
