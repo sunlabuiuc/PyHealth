@@ -141,7 +141,8 @@ Module 2: <pyhealth.tasks>
     from pyhealth.tasks import readmission_prediction_mimic3_fn
 
     mimic3sample = mimic3base.set_task(task_fn=readmission_prediction_mimic3_fn) # use default task
-    >>> mimic3sample.samples[0] # show the information of the first sample
+    mimic3sample.samples[0] # show the information of the first sample
+    """
     {
         'visit_id': '100183',
         'patient_id': '175',
@@ -150,7 +151,8 @@ Module 2: <pyhealth.tasks>
         'drugs': ['N06DA02', 'V06DC01', 'B01AB01', 'A06AA02', 'R03AC02', 'H03AA01', 'J01FA09'],
         'label': 0
     }
-
+    """
+    
     from pyhealth.datasets import split_by_patient, get_dataloader
 
     train_ds, val_ds, test_ds = split_by_patient(mimic3sample, [0.8, 0.1, 0.1])
@@ -219,20 +221,20 @@ Module 5: <pyhealth.metrics>
     from pyhealth.medcode import InnerMap
 
     icd9cm = InnerMap.load("ICD9CM")
-    >>> icd9cm.lookup("428.0")
-    `Congestive heart failure, unspecified`
-    >>> icd9cm.get_ancestors("428.0")
-    ['428', '420-429.99', '390-459.99', '001-999.99']
+    icd9cm.lookup("428.0")
+    # `Congestive heart failure, unspecified`
+    icd9cm.get_ancestors("428.0")
+    # ['428', '420-429.99', '390-459.99', '001-999.99']
     
     atc = InnerMap.load("ATC")
-    >>> atc.lookup("M01AE51")
-    `ibuprofen, combinations`
-    >>> atc.lookup("M01AE51", "drugbank_id")
-    `DB01050`
-    >>> atc.lookup("M01AE51", "description")
-    Ibuprofen is a non-steroidal anti-inflammatory drug (NSAID) derived ...
-    >>> atc.lookup("M01AE51", "indication")
-    Ibuprofen is the most commonly used and prescribed NSAID. It is very common over the counter ...
+    atc.lookup("M01AE51")
+    # `ibuprofen, combinations`
+    atc.lookup("M01AE51", "drugbank_id")
+    # `DB01050`
+    atc.lookup("M01AE51", "description")
+    # Ibuprofen is a non-steroidal anti-inflammatory drug (NSAID) derived ...
+    atc.lookup("M01AE51", "indication")
+    # Ibuprofen is the most commonly used and prescribed NSAID. It is very common over the counter ...
 
 * For code mapping between two coding systems (e.g., ICD9CM to CCSCM). 
 
