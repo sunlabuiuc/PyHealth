@@ -69,6 +69,15 @@ class Tokenizer:
     This class will build a vocabulary from the provided tokens and provide the
     functionality to convert tokens to indices and vice versa. This class also
     provides the functionality to tokenize a batch of data.
+    
+    Examples:
+            >>> from pyhealth.tokenizer import Tokenizer
+            >>> token_space = ['A01A', 'A02A', 'A02B', 'A02X', 'A03A', 'A03B', 'A03C', 'A03D', 'A03E', \
+            ...                'A03F', 'A04A', 'A05A', 'A05B', 'A05C', 'A06A', 'A07A', 'A07B', 'A07C', \
+            ...                'A07D', 'A07E', 'A07F', 'A07X', 'A08A', 'A09A', 'A10A', 'A10B', 'A10X', \
+            ...                'A11A', 'A11B', 'A11C', 'A11D', 'A11E', 'A11G', 'A11H', 'A11J', 'A12A', \
+            ...                'A12B', 'A12C', 'A13A', 'A14A', 'A14B', 'A16A']
+            >>> tokenizer = Tokenizer(tokens=token_space, special_tokens=["<pad>", "<unk>"])
     """
 
     def __init__(self, tokens: List[str], special_tokens: Optional[List[str]] = None):
@@ -78,15 +87,6 @@ class Tokenizer:
             tokens: List[str], list of tokens in the vocabulary.
             special_tokens: Optional[List[str]], list of special tokens to add to
                 the vocabulary. (e.g., <pad>, <unk>). Default is empty list.
-
-        Examples:
-            >>> from pyhealth.tokenizer import Tokenizer
-            >>> token_space = ['A01A', 'A02A', 'A02B', 'A02X', 'A03A', 'A03B', 'A03C', 'A03D', 'A03E', \
-            ...                'A03F', 'A04A', 'A05A', 'A05B', 'A05C', 'A06A', 'A07A', 'A07B', 'A07C', \
-            ...                'A07D', 'A07E', 'A07F', 'A07X', 'A08A', 'A09A', 'A10A', 'A10B', 'A10X', \
-            ...                'A11A', 'A11B', 'A11C', 'A11D', 'A11E', 'A11G', 'A11H', 'A11J', 'A12A', \
-            ...                'A12B', 'A12C', 'A13A', 'A14A', 'A14B', 'A16A']
-            >>> tokenizer = Tokenizer(tokens=token_space, special_tokens=["<pad>", "<unk>"])
         """
         self.vocabulary = Vocabulary(tokens=tokens, special_tokens=special_tokens)
 
