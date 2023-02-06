@@ -70,6 +70,7 @@ PyHealth is designed for both **ML researchers and medical practitioners**. We c
 - You could install from PyPi:
 
 .. code-block:: bash
+    :emphasize-lines: 1
 
     pip install pyhealth
 
@@ -111,9 +112,11 @@ All healthcare tasks in our package follow a **five-stage pipeline**:
 Module 1: <pyhealth.datasets>
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-``pyhealth.datasets`` provides a clean structure for the dataset, independent from the tasks. We support `MIMIC-III`, `MIMIC-IV` and `eICU`, etc.
+``pyhealth.datasets`` provides a clean structure for the dataset, independent from the tasks. We support `MIMIC-III`, `MIMIC-IV` and `eICU`, etc. The output (mimic3base) is a multi-level dictionary structure (see illustration below).
 
 .. code-block:: python
+    :emphasize-lines: 1
+    :linenos:
 
     from pyhealth.datasets import MIMIC3Dataset
     mimic3base = MIMIC3Dataset(
@@ -126,7 +129,7 @@ Module 1: <pyhealth.datasets>
     )
 
 .. image:: figure/structured-dataset.png
-   :width: 350
+   :width: 400
 
 ..
 
@@ -201,10 +204,10 @@ Module 5: <pyhealth.metrics>
     y_true, y_prob, loss = trainer.inference(test_loader)
     binary_metrics_fn(y_true, y_prob, metrics=["pr_auc", "roc_auc"])
 
-4 Medical Code Map
+4. Medical Code Map
 ---------------------
 
-``<pyhealth.codemap`` provides two core functionalities: 
+``pyhealth.codemap`` provides two core functionalities: 
  - (i) looking up information for a given medical code (e.g., name, category, sub-concept); 
  - (ii) mapping codes across coding systems (e.g., ICD9CM to CCSCM). 
 
