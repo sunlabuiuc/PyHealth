@@ -58,14 +58,14 @@ Welcome to PyHealth!
 
 PyHealth is designed for both **ML researchers and medical practitioners**. We can make your **healthcare AI applications** easier to deploy and more flexible and customizable. `[Tutorials] <https://pyhealth.readthedocs.io/>`_
 
- **[News!]** We are running the "PyHealth Live" gathering at 8 PM CST every Wednesday night! Welcome to join over `zoom <https://illinois.zoom.us/j/87450975602?pwd=ckQyaHhkRitlUzlwYUY3NjdEQ0pFdz09>`_. Check out `PyHealth Live <https://github.com/sunlabuiuc/PyHealth/blob/master/docs/live.rst>`_ for more information and watch the `Live Videos <https://www.youtube.com/playlist?list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV>`_.
+:fire: **[News!]** We are running the "PyHealth Live" gathering at 8 PM CST every Wednesday night! Welcome to join over `zoom <https://illinois.zoom.us/j/87450975602?pwd=ckQyaHhkRitlUzlwYUY3NjdEQ0pFdz09>`_. Check out `PyHealth Live <https://github.com/sunlabuiuc/PyHealth/blob/master/docs/live.rst>`_ for more information and watch the `Live Videos <https://www.youtube.com/playlist?list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV>`_.
 
 .. image:: figure/poster.png
    :width: 810
 
 ..
 
-1. Installation
+1. :rocket: Installation
 -----------------
 
 - You could install from PyPi:
@@ -81,7 +81,7 @@ PyHealth is designed for both **ML researchers and medical practitioners**. We c
     pip install .
 
 
-2. Introduction
+2. :book: Introduction
 --------------------------
 ``pyhealth`` provides these functionalities (we are still enriching some modules):
 
@@ -97,7 +97,7 @@ You can use the following functions independently:
 *Build a healthcare AI pipeline can be as short as 10 lines of code in PyHealth*.
 
 
-3. Build ML Pipelines
+3. :trophy: Build ML Pipelines
 --------------------------
 
 All healthcare tasks in our package follow a **five-stage pipeline**: 
