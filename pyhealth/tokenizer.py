@@ -69,6 +69,15 @@ class Tokenizer:
     This class will build a vocabulary from the provided tokens and provide the
     functionality to convert tokens to indices and vice versa. This class also
     provides the functionality to tokenize a batch of data.
+    
+    Examples:
+            >>> from pyhealth.tokenizer import Tokenizer
+            >>> token_space = ['A01A', 'A02A', 'A02B', 'A02X', 'A03A', 'A03B', 'A03C', 'A03D', 'A03E', \
+            ...                'A03F', 'A04A', 'A05A', 'A05B', 'A05C', 'A06A', 'A07A', 'A07B', 'A07C', \
+            ...                'A07D', 'A07E', 'A07F', 'A07X', 'A08A', 'A09A', 'A10A', 'A10B', 'A10X', \
+            ...                'A11A', 'A11B', 'A11C', 'A11D', 'A11E', 'A11G', 'A11H', 'A11J', 'A12A', \
+            ...                'A12B', 'A12C', 'A13A', 'A14A', 'A14B', 'A16A']
+            >>> tokenizer = Tokenizer(tokens=token_space, special_tokens=["<pad>", "<unk>"])
     """
 
     def __init__(self, tokens: List[str], special_tokens: Optional[List[str]] = None):
@@ -86,15 +95,34 @@ class Tokenizer:
         return self.vocabulary("<pad>")
 
     def get_vocabulary_size(self):
-        """Returns the size of the vocabulary."""
+        """Returns the size of the vocabulary.
+
+        Examples:
+            >>> tokenizer.get_vocabulary_size()
+            44
+        """
         return len(self.vocabulary)
 
     def convert_tokens_to_indices(self, tokens: List[str]) -> List[int]:
-        """Converts a list of tokens to indices."""
+        """Converts a list of tokens to indices.
+        
+        Examples:
+            >>> tokens = ['A03C', 'A03D', 'A03E', 'A03F', 'A04A', 'A05A', 'A05B', 'B035', 'C129']
+            >>> indices = tokenizer.convert_tokens_to_indices(tokens)
+            >>> print(indices)
+            [8, 9, 10, 11, 12, 13, 14, 1, 1]
+        """
         return [self.vocabulary(token) for token in tokens]
 
     def convert_indices_to_tokens(self, indices: List[int]) -> List[str]:
-        """Converts a list of indices to tokens."""
+        """Converts a list of indices to tokens.
+        
+        Examples:
+            >>> indices = [0, 1, 2, 3, 4, 5]
+            >>> tokens = tokenizer.convert_indices_to_tokens(indices)
+            >>> print(tokens)
+            ['<pad>', '<unk>', 'A01A', 'A02A', 'A02B', 'A02X']
+        """
         return [self.vocabulary.idx2token[idx] for idx in indices]
 
     def batch_encode_2d(
@@ -113,6 +141,24 @@ class Tokenizer:
             truncation: whether to truncate the tokens to max_length.
             max_length: maximum length of the tokens. This argument is ignored
                 if truncation is False.
+        
+        Examples:
+            >>> tokens = [
+            ...     ['A03C', 'A03D', 'A03E', 'A03F'],
+            ...     ['A04A', 'B035', 'C129']
+            ... ]
+
+            >>> indices = tokenizer.batch_encode_2d(tokens)
+            >>> print ('case 1:', indices)
+            case 1: [[8, 9, 10, 11], [12, 1, 1, 0]]
+
+            >>> indices = tokenizer.batch_encode_2d(tokens, padding=False)
+            >>> print ('case 2:', indices)
+            case 2: [[8, 9, 10, 11], [12, 1, 1]]
+
+            >>> indices = tokenizer.batch_encode_2d(tokens, max_length=3)
+            >>> print ('case 3:', indices)
+            case 3: [[9, 10, 11], [12, 1, 1]]
         """
 
         if truncation:
@@ -135,7 +181,22 @@ class Tokenizer:
         Args:
             batch: List of lists of indices to convert to tokens.
             padding: whether to keep the padding tokens from the tokens.
+        
+        Examples:
+            >>> indices = [
+            ...     [8, 9, 10, 11],
+            ...     [12, 1, 1, 0]
+            ... ]
+
+            >>> tokens = tokenizer.batch_decode_2d(indices)
+            >>> print ('case 1:', tokens)
+            case 1: [['A03C', 'A03D', 'A03E', 'A03F'], ['A04A', '<unk>', '<unk>']]
+
+            >>> tokens = tokenizer.batch_decode_2d(indices, padding=True)
+            >>> print ('case 2:', tokens)
+            case 2: [['A03C', 'A03D', 'A03E', 'A03F'], ['A04A', '<unk>', '<unk>', '<pad>']]
         """
+
         batch = [[self.vocabulary.idx2token[idx] for idx in tokens] for tokens in batch]
         if not padding:
             return [[token for token in tokens if token != "<pad>"] for tokens in batch]
@@ -159,6 +220,37 @@ class Tokenizer:
             max_length: a tuple of two integers indicating the maximum length of the
                 tokens along the first and second dimension. This argument is ignored
                 if truncation is False.
+        
+        Examples:
+                >>> tokens = [
+                ...     [
+                ...         ['A03C', 'A03D', 'A03E', 'A03F'],
+                ...         ['A08A', 'A09A'],
+                ...     ],
+                ...     [
+                ...         ['A04A', 'B035', 'C129'],
+                ...     ]
+                ... ]
+
+                >>> indices = tokenizer.batch_encode_3d(tokens)
+                >>> print ('case 1:', indices)
+                case 1: [[[8, 9, 10, 11], [24, 25, 0, 0]], [[12, 1, 1, 0], [0, 0, 0, 0]]]
+
+                >>> indices = tokenizer.batch_encode_3d(tokens, padding=(False, True))
+                >>> print ('case 2:', indices)
+                case 2: [[[8, 9, 10, 11], [24, 25, 0, 0]], [[12, 1, 1, 0]]]
+
+                >>> indices = tokenizer.batch_encode_3d(tokens, padding=(True, False))
+                >>> print ('case 3:', indices)
+                case 3: [[[8, 9, 10, 11], [24, 25]], [[12, 1, 1], [0]]]
+
+                >>> indices = tokenizer.batch_encode_3d(tokens, padding=(False, False))
+                >>> print ('case 4:', indices)
+                case 4: [[[8, 9, 10, 11], [24, 25]], [[12, 1, 1]]]
+
+                >>> indices = tokenizer.batch_encode_3d(tokens, max_length=(2,2))
+                >>> print ('case 5:', indices)
+                case 5: [[[10, 11], [24, 25]], [[1, 1], [0, 0]]]
         """
         if truncation[0]:
             batch = [tokens[-max_length[0] :] for tokens in batch]
@@ -198,6 +290,26 @@ class Tokenizer:
         Args:
             batch: List of lists of lists of indices to convert to tokens.
             padding: whether to keep the padding tokens from the tokens.
+        
+        Examples:
+            >>> indices = [
+            ...     [
+            ...         [8, 9, 10, 11], 
+            ...         [24, 25, 0, 0]
+            ...     ], 
+            ...     [
+            ...         [12, 1, 1, 0], 
+            ...         [0, 0, 0, 0]
+            ...     ]
+            ... ]
+
+            >>> tokens = tokenizer.batch_decode_3d(indices)
+            >>> print ('case 1:', tokens)
+            case 1: [[['A03C', 'A03D', 'A03E', 'A03F'], ['A08A', 'A09A']], [['A04A', '<unk>', '<unk>']]]
+
+            >>> tokens = tokenizer.batch_decode_3d(indices, padding=True)
+            >>> print ('case 2:', tokens)
+            case 2: [[['A03C', 'A03D', 'A03E', 'A03F'], ['A08A', 'A09A', '<pad>', '<pad>']], [['A04A', '<unk>', '<unk>', '<pad>'], ['<pad>', '<pad>', '<pad>', '<pad>']]]
         """
         batch = [
             self.batch_decode_2d(batch=visits, padding=padding) for visits in batch

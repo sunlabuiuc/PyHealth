@@ -2,6 +2,12 @@ Development logs
 ======================
 We track the new development here:
 
+**Feb 01, 2023**
+
+.. code-block:: bash
+ 
+    1. add unittest of PyHealth MedCode and Tokenizer
+
 **Jan 26, 2023**
 
 .. code-block:: bash
