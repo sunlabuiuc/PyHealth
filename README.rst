@@ -125,6 +125,11 @@ Module 1: <pyhealth.datasets>
         code_mapping={"NDC": "CCSCM"},
     )
 
+.. image:: figure/structured-dataset.png
+   :width: 350
+
+..
+
 Module 2: <pyhealth.tasks>
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 ``pyhealth.tasks`` defines how to process each patient's data into a set of samples for the tasks. In the package, we provide several task examples, such as ``drug recommendation`` and ``length of stay prediction``. **It is easy to customize your own tasks following our** `template <https://colab.research.google.com/drive/1r7MYQR_5yCJGpK_9I9-A10HmpupZuIN-?usp=sharing>`_.
@@ -187,6 +192,7 @@ Module 5: <pyhealth.metrics>
 ``pyhealth.metrics`` provides several **common evaluation metrics** (refer to `Doc <https://pyhealth.readthedocs.io/en/latest/api/metrics.html>`_ and see what are available).
 
 .. code-block:: python
+
     # method 1
     trainer.evaluate(test_loader)
     
