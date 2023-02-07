@@ -8,10 +8,17 @@ from typing import Dict, Callable, Tuple, Union, List, Optional
 
 import pandas as pd
 from tqdm import tqdm
+from pandarallel import pandarallel
 
 from pyhealth.data import Patient, Event
+<<<<<<< HEAD
 from pyhealth.datasets.sample_dataset import SampleDataset
 from pyhealth.datasets.utils import MODULE_CACHE_PATH, hash_str, DATASET_BASIC_TABLES
+=======
+from pyhealth.datasets.sample_dataset import SampleEHRDataset
+from pyhealth.datasets.utils import MODULE_CACHE_PATH
+from pyhealth.datasets.utils import hash_str
+>>>>>>> 6f221ed (signal input support up to data split part)
 from pyhealth.medcode import CrossMap
 from pyhealth.utils import load_pickle, save_pickle
 
@@ -40,7 +47,7 @@ dataset.patients: patient_id -> <Patient>
 class BaseDataset(ABC):
     """Abstract base dataset class.
 
-    This abstract class defines a uniform interface for all datasets
+    This abstract class defines a uniform interface for all EHR datasets
     (e.g., MIMIC-III, MIMIC-IV, eICU, OMOP).
 
     Each specific dataset will be a subclass of this abstract class, which can then
@@ -165,6 +172,8 @@ class BaseDataset(ABC):
         Returns:
            A dict mapping patient_id to `Patient` object.
         """
+        pandarallel.initialize(progress_bar=False)
+
         # patients is a dict of Patient objects indexed by patient_id
         patients: Dict[str, Patient] = dict()
         # process basic information (e.g., patients and visits)
@@ -362,7 +371,7 @@ class BaseDataset(ABC):
         self,
         task_fn: Callable,
         task_name: Optional[str] = None,
-    ) -> SampleDataset:
+    ) -> SampleEHRDataset:
         """Processes the base dataset to generate the task-specific sample dataset.
 
         This function should be called by the user after the base dataset is
@@ -394,7 +403,7 @@ class BaseDataset(ABC):
             self.patients.items(), desc=f"Generating samples for {task_name}"
         ):
             samples.extend(task_fn(patient))
-        sample_dataset = SampleDataset(
+        sample_dataset = SampleEHRDataset(
             samples,
             dataset_name=self.dataset_name,
             task_name=task_name,
