@@ -4,7 +4,7 @@ from typing import Optional, Tuple, Union, List
 import numpy as np
 import torch
 
-from pyhealth.datasets import SampleDataset
+from pyhealth.datasets import SampleBaseDataset
 
 
 # TODO: train_dataset.dataset still access the whole dataset which may leak information
@@ -12,7 +12,7 @@ from pyhealth.datasets import SampleDataset
 
 
 def split_by_visit(
-    dataset: SampleDataset,
+    dataset: SampleBaseDataset,
     ratios: Union[Tuple[float, float, float], List[float]],
     seed: Optional[int] = None,
 ):
@@ -48,7 +48,7 @@ def split_by_visit(
 
 
 def split_by_patient(
-    dataset: SampleDataset,
+    dataset: SampleBaseDataset,
     ratios: Union[Tuple[float, float, float], List[float]],
     seed: Optional[int] = None,
 ):

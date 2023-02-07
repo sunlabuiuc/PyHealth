@@ -2,15 +2,12 @@ import os
 from typing import Optional, List, Dict, Tuple, Union
 
 import pandas as pd
-from pandarallel import pandarallel
 from tqdm import tqdm
 from datetime import datetime
 
 from pyhealth.data import Event, Visit, Patient
 from pyhealth.datasets import BaseDataset
 from pyhealth.datasets.utils import strptime
-
-pandarallel.initialize(progress_bar=False)
 
 # TODO: add other tables
 

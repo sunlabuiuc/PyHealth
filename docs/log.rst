@@ -2,6 +2,13 @@ Development logs
 ======================
 We track the new development here:
 
+**Feb 07, 2023**
+
+.. code-block:: bash
+ 
+    1. Support signal dataset processing and split: add SampleSignalDataset, BaseSignalDataset. Use SleepEDFcassette dataset as the first signal dataset. Use example/sleep_staging_sleepEDF_contrawr.py
+    2. rename the dataset/ parts: previous BaseDataset becomes BaseEHRDataset and SampleDatast becomes SampleEHRDataset. Right now, BaseDataset will be inherited by BaseEHRDataset and BaseSignalDataset. SampleBaseDataset will be inherited by SampleEHRDataset and SampleSignalDataset.
+
 **Feb 06, 2023**
 
 .. code-block:: bash
