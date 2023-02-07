@@ -2,6 +2,7 @@ import hashlib
 import os
 from datetime import datetime
 from typing import List, Tuple, Optional
+import pickle
 
 from dateutil.parser import parse as dateutil_parse
 from torch.utils.data import DataLoader
@@ -112,14 +113,35 @@ def is_homo_list(l: List) -> bool:
     return all(isinstance(i, type(l[0])) for i in l)
 
 
-def collate_fn_dict(batch):
+def collate_fn_ehr(batch):
+    return {key: [d[key] for d in batch] for key in batch[0]}
+
+
+def collate_fn_signal(batch):
+    for sample in batch:
+        loaded_sample = pickle.load(open(sample["epoch_path"], "rb"))
+        # add "signal" and "label" keys
+        sample.update(loaded_sample)
+        # pop "epoch_path" key
+        sample.pop("epoch_path", None)
     return {key: [d[key] for d in batch] for key in batch[0]}
 
 
 def get_dataloader(dataset, batch_size, shuffle=False):
-    dataloader = DataLoader(
-        dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn_dict
-    )
+    # dataset is a torch.utils.data.Subset object, call .dataset to get the original dataset
+    if dataset.dataset.type_ == "ehr":
+        dataloader = DataLoader(
+            dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn_ehr
+        )
+    elif dataset.dataset.type_ == "signal":
+        dataloader = DataLoader(
+            dataset,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            collate_fn=collate_fn_signal,
+        )
+    else:
+        raise ValueError("Unknown dataset type.")
     return dataloader
 
 

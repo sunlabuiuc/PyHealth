@@ -2,13 +2,10 @@ import os
 from typing import Optional, List, Dict, Union, Tuple
 
 import pandas as pd
-from pandarallel import pandarallel
 
 from pyhealth.data import Event, Visit, Patient
 from pyhealth.datasets import BaseDataset
 from pyhealth.datasets.utils import strptime
-
-pandarallel.initialize(progress_bar=False)
 
 # TODO: add other tables
 

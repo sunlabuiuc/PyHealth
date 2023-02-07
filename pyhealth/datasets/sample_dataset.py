@@ -1,17 +1,140 @@
 from collections import Counter
 from typing import Dict, List
+import pickle
 
 from torch.utils.data import Dataset
 
 from pyhealth.datasets.utils import list_nested_levels, flatten_list
 
 
-class SampleDataset(Dataset):
-    """Sample dataset class.
+class SampleBaseDataset(Dataset):
+    """Sample base dataset class.
 
     This class the takes a list of samples as input (either from
     `BaseDataset.set_task()` or user-provided input), and provides
     a uniform interface for accessing the samples.
+
+    Args:
+        samples: a list of samples, each sample is a dict with
+            patient_id, visit_id, and other task-specific attributes as key.
+        dataset_name: the name of the dataset. Default is None.
+        task_name: the name of the task. Default is None.
+    """
+
+    def __init__(self, samples: List[Dict], dataset_name="", task_name=""):
+        self.samples = samples
+        self.dataset_name: str = dataset_name
+        self.task_name: str = task_name
+        self.type_ = "base"
+
+    def __getitem__(self, index) -> Dict:
+        """Returns a sample by index.
+
+        Returns:
+             Dict, a dict with patient_id, visit_id/record_id, and other task-specific
+                attributes as key. Conversion to index/tensor will be done
+                in the model.
+        """
+        return self.samples[index]
+
+    def __str__(self):
+        """Prints some information of the dataset."""
+        return f"Sample dataset {self.dataset_name} {self.task_name}"
+
+    def __len__(self):
+        """Returns the number of samples in the dataset."""
+        return len(self.samples)
+
+
+class SampleSignalDataset(SampleBaseDataset):
+    """Sample signal dataset class.
+
+    This class the takes a list of samples as input (either from
+    `BaseDataset.set_task()` or user-provided input), and provides
+    a uniform interface for accessing the samples.
+
+    Args:
+        samples: a list of samples, each sample is a dict with
+            patient_id, record_id, and other task-specific attributes as key.
+        dataset_name: the name of the dataset. Default is None.
+        task_name: the name of the task. Default is None.
+    """
+
+    def __init__(self, samples: List[Dict], dataset_name="", task_name=""):
+        super().__init__(samples, dataset_name, task_name)
+        self.patient_to_index: Dict[str, List[int]] = self._index_patient()
+        self.record_to_index: Dict[str, List[int]] = self._index_record()
+        self.input_info: Dict = self._get_input_info()
+        self.type_ = "signal"
+
+    def _index_patient(self) -> Dict[str, List[int]]:
+        """Helper function which indexes the samples by patient_id.
+
+        Will be called in `self.__init__()`.
+        Returns:
+            patient_to_index: Dict[str, int], a dict mapping patient_id to a list
+                of sample indices.
+        """
+        patient_to_index = {}
+        for idx, sample in enumerate(self.samples):
+            patient_to_index.setdefault(sample["patient_id"], []).append(idx)
+        return patient_to_index
+
+    def _index_record(self) -> Dict[str, List[int]]:
+        """Helper function which indexes the samples by record_id.
+
+        Will be called in `self.__init__()`.
+
+        Returns:
+            visit_to_index: Dict[str, int], a dict mapping record_id to a list
+                of sample indices.
+        """
+        record_to_index = {}
+        for idx, sample in enumerate(self.samples):
+            record_to_index.setdefault(sample["record_id"], []).append(idx)
+        return record_to_index
+
+    def _get_input_info(self) -> Dict:
+        """Helper function which gets the input information of each attribute.
+
+        Will be called in `self.__init__()`.
+
+        Returns:
+            input_info: Dict, a dict whose keys are the same as the keys in the
+                samples, and values are the corresponding input information:
+                - "length": the length of the input.
+                - "n_channels": the number of channels of the input.
+
+        """
+        sample_path_0 = self.samples[0]["epoch_path"]
+        sample = pickle.load(open(sample_path_0, "rb"))
+        length, n_channels = sample["signal"].shape
+
+        return {"length": length, "n_channels": n_channels}
+
+    def stat(self) -> str:
+        """Returns some statistics of the task-specific dataset."""
+        lines = list()
+        lines.append(f"Statistics of sample dataset:")
+        lines.append(f"\t- Dataset: {self.dataset_name}")
+        lines.append(f"\t- Task: {self.task_name}")
+        lines.append(f"\t- Number of samples: {len(self)}")
+        num_patients = len(set([sample["patient_id"] for sample in self.samples]))
+        lines.append(f"\t- Number of patients: {num_patients}")
+        num_records = len(set([sample["record_id"] for sample in self.samples]))
+        lines.append(f"\t- Number of visits: {num_records}")
+        lines.append(
+            f"\t- Number of samples per patient: {len(self) / num_patients:.4f}"
+        )
+        print("\n".join(lines))
+        return "\n".join(lines)
+
+
+class SampleEHRDataset(SampleBaseDataset):
+    """Sample EHR dataset class.
+
+    This class inherits from `SampleDatasetBase` and is specifically designed
+        for EHR datasets.
 
     Args:
         samples: a list of samples, each sample is a dict with
@@ -39,7 +162,7 @@ class SampleDataset(Dataset):
             of sample indices.
 
     Examples:
-        >>> from pyhealth.datasets import SampleDataset
+        >>> from pyhealth.datasets import SampleEHRDataset
         >>> samples = [
         ...         {
         ...             "patient_id": "patient-0",
@@ -74,7 +197,7 @@ class SampleDataset(Dataset):
         ...             "label": 0,
         ...         },
         ...     ]
-        >>> dataset = SampleDataset(samples=samples)
+        >>> dataset = SampleEHRDataset(samples=samples)
         >>> dataset.input_info
         {'patient_id': {'type': <class 'str'>, 'dim': 0}, 'visit_id': {'type': <class 'str'>, 'dim': 0}, 'single_vector': {'type': <class 'int'>, 'dim': 1, 'len': 3}, 'list_codes': {'type': <class 'str'>, 'dim': 2}, 'list_vectors': {'type': <class 'float'>, 'dim': 2, 'len': 3}, 'list_list_codes': {'type': <class 'str'>, 'dim': 3}, 'list_list_vectors': {'type': <class 'float'>, 'dim': 3, 'len': 3}, 'label': {'type': <class 'int'>, 'dim': 0}}
         >>> dataset.patient_to_index
@@ -84,12 +207,11 @@ class SampleDataset(Dataset):
     """
 
     def __init__(self, samples: List[Dict], dataset_name="", task_name=""):
-        self.samples = samples
-        self.dataset_name: str = dataset_name
-        self.task_name: str = task_name
+        super().__init__(samples, dataset_name, task_name)
         self.input_info: Dict = self._validate()
         self.patient_to_index: Dict[str, List[int]] = self._index_patient()
         self.visit_to_index: Dict[str, List[int]] = self._index_visit()
+        self.type_ = "ehr"
 
     def _validate(self) -> Dict:
         """Helper function which validates the samples.
@@ -303,24 +425,6 @@ class SampleDataset(Dataset):
         counter = Counter(tokens)
         return counter
 
-    def __getitem__(self, index) -> Dict:
-        """Returns a sample by index.
-
-        Returns:
-             Dict, a dict with patient_id, visit_id, and other task-specific
-                attributes as key. Conversion to index/tensor will be done
-                in the model.
-        """
-        return self.samples[index]
-
-    def __str__(self):
-        """Prints some information of the dataset."""
-        return f"Sample dataset {self.dataset_name} {self.task_name}"
-
-    def __len__(self):
-        """Returns the number of samples in the dataset."""
-        return len(self.samples)
-
     def stat(self) -> str:
         """Returns some statistics of the task-specific dataset."""
         lines = list()
@@ -411,7 +515,7 @@ if __name__ == "__main__":
         },
     ]
 
-    dataset = SampleDataset(samples=samples)
+    dataset = SampleEHRDataset(samples=samples)
 
     dataset.stat()
     data = iter(dataset)
