@@ -175,7 +175,7 @@ class SampleSignalDataset(SampleBaseDataset):
 class SampleEHRDataset(SampleBaseDataset):
     """Sample EHR dataset class.
 
-    This class inherits from `SampleDatasetBase` and is specifically designed
+    This class inherits from `SampleBaseDataset` and is specifically designed
         for EHR datasets.
 
     Args:
