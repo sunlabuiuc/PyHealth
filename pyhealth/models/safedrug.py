@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 from rdkit import Chem
 
-from pyhealth.datasets import SampleDataset
+from pyhealth.datasets import SampleEHRDataset
 from pyhealth.medcode import ATC
 from pyhealth.metrics import ddi_rate_score
 from pyhealth.models import BaseModel
@@ -309,7 +309,7 @@ class SafeDrug(BaseModel):
 
     def __init__(
         self,
-        dataset: SampleDataset,
+        dataset: SampleEHRDataset,
         embedding_dim: int = 128,
         hidden_dim: int = 128,
         num_layers: int = 1,

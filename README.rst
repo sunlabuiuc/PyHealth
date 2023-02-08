@@ -26,9 +26,14 @@ Welcome to PyHealth!
    :alt: Downloads
 
 
-.. image:: https://pepy.tech/badge/pyhealth/month
-   :target: https://pepy.tech/project/pyhealth
-   :alt: Downloads
+.. image:: https://img.shields.io/badge/Tutorials-Google%20Colab-red
+   :target: https://pyhealth.readthedocs.io/en/latest/tutorials.html
+   :alt: Tutorials
+
+
+.. image:: https://img.shields.io/badge/YouTube-14%20Videos-red
+   :target: https://www.youtube.com/playlist?list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV
+   :alt: YouTube
 
 
 
