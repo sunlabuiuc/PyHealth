@@ -44,7 +44,7 @@ dataset.patients: patient_id -> <Patient>
 # TODO: parse_tables is too slow
 
 
-class BaseDataset(ABC):
+class BaseEHRDataset(ABC):
     """Abstract base dataset class.
 
     This abstract class defines a uniform interface for all EHR datasets

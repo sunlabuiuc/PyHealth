@@ -4,13 +4,13 @@ from typing import Optional, List, Dict, Tuple, Union
 import pandas as pd
 
 from pyhealth.data import Event, Visit, Patient
-from pyhealth.datasets import BaseDataset
+from pyhealth.datasets import BaseEHRDataset
 from pyhealth.datasets.utils import strptime
 
 # TODO: add other tables
 
 
-class MIMIC3Dataset(BaseDataset):
+class MIMIC3Dataset(BaseEHRDataset):
     """Base dataset for MIMIC-III dataset.
 
     The MIMIC-III dataset is a large dataset of de-identified health records of ICU

@@ -1,7 +1,7 @@
 ﻿pyhealth.datasets.SampleDataset
 ===================================
 
-This class the takes a list of samples as input (either from `BaseDataset.set_task()` or user-provided json input), and provides a uniform interface for accessing the samples.
+This class is the basic sample dataset. The basic signal sample dataset and the basic EHR sample dataset are inherited from this class.
 
 .. autoclass:: pyhealth.datasets.SampleDataset
     :members:

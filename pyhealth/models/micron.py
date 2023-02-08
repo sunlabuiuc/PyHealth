@@ -3,7 +3,7 @@ from typing import List, Tuple, Dict, Optional
 import torch
 import torch.nn as nn
 
-from pyhealth.datasets import SampleDataset
+from pyhealth.datasets import SampleEHRDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.utils import get_last_visit
 
@@ -129,7 +129,7 @@ class MICRON(BaseModel):
 
     def __init__(
         self,
-        dataset: SampleDataset,
+        dataset: SampleEHRDataset,
         embedding_dim: int = 128,
         hidden_dim: int = 128,
         **kwargs
