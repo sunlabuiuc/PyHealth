@@ -1,22 +1,24 @@
 import unittest
+from unittest.mock import Mock, patch
 
-from pyhealth.datasets import MIMIC3Dataset
+from pyhealth.datasets import MIMIC4Dataset, BaseDataset
 
 within_eps = lambda a, b, epsilon: abs(a - b) < epsilon
 
 # this test suite verifies the MIMIC3 dataset info and statistic calculations are consistent
 # Synthetic_MIMIC-III dataset provided in the root is a dependancy to the expected values 
 # used for testing correctness
-class Mimic3Tests(unittest.TestCase):
+class Mimic4Tests(unittest.TestCase):
     
     TEST_EPS = 0.25
     
-    ROOT = "https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III/"
-    TABLES = ["DIAGNOSES_ICD", "PRESCRIPTIONS"]
-    CODE_MAPPING = {"NDC": ("ATC", {"target_kwargs": {"level": 3}})}
-    DEV = True
+    # to test the file this path needs to be updated
+    ROOT = "~/Downloads/pyhealth_data/mimic-iv-clinical-database-demo-2.2/hosp"
+    TABLES = ["diagnoses_icd", "procedures_icd", "labevents"]
+    CODE_MAPPING = {}
+    DEV = True # not needed when using demo set since its 100 patients large
     
-    dataset = MIMIC3Dataset(
+    dataset = MIMIC4Dataset(
         root=ROOT,
         tables=TABLES,
         code_mapping=CODE_MAPPING,
@@ -28,20 +30,22 @@ class Mimic3Tests(unittest.TestCase):
         pass
     
     # checks that dataset is ingested properly.
+    # statistics run against demo dataset https://physionet.org/content/mimic-iv-demo/2.2/
     def test_initialization(self):
     
         if (self.DEV):
             expected_dev = True
-            expected_num_patients = 1000
-            expected_num_visits = 1054
-            expected_num_visits_per_patient = 1.0540
-            expected_num_events_per_table = [ 9.2068, 40.1869 ] # ["DIAGNOSES_ICD", "PRESCRIPTIONS"]
         else:
             expected_dev = False
-            expected_num_patients = 49993
-            expected_num_visits = 52769
-            expected_num_visits_per_patient = 1.0555
-            expected_num_events_per_table = [ 9.1038, 32.9969 ] # ["DIAGNOSES_ICD", "PRESCRIPTIONS"]
+        
+        print(self.dataset.info())
+        print(self.dataset.stat())
+        
+        expected_dev = True
+        expected_num_patients = 100 # for the reduced dataset at
+        expected_num_visits = 275
+        expected_num_visits_per_patient = 2.7500
+        expected_num_events_per_table = [16.3855, 2.6255, 288.3891]
         
         assert sorted(self.TABLES) == sorted(self.dataset.available_tables)
         
