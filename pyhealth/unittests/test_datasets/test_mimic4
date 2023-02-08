@@ -1,7 +1,6 @@
 import unittest
-from unittest.mock import Mock, patch
 
-from pyhealth.datasets import MIMIC4Dataset, BaseDataset
+from pyhealth.datasets import MIMIC4Dataset
 
 within_eps = lambda a, b, epsilon: abs(a - b) < epsilon
 
@@ -66,3 +65,4 @@ class Mimic4Tests(unittest.TestCase):
         
 if __name__ == '__main__':
     unittest.main(verbosity=2)
+    
