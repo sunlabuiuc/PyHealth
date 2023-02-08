@@ -13,6 +13,7 @@ from pyhealth.utils import create_directory
 MODULE_CACHE_PATH = os.path.join(BASE_CACHE_PATH, "datasets")
 create_directory(MODULE_CACHE_PATH)
 
+<<<<<<< HEAD
 # basic tables which are a part of the defined datasets
 DATASET_BASIC_TABLES = {
     "MIMIC3Dataset": {"PATIENTS", "ADMISSIONS"},
@@ -22,6 +23,8 @@ DATASET_BASIC_TABLES = {
     "MIMIC4Dataset" : {}
 >>>>>>> 37fa8f8 (add mimic3 test)
 }
+=======
+>>>>>>> 3b6ec70 (Revert "add mimic3 test")
 
 def hash_str(s):
     return hashlib.md5(s.encode()).hexdigest()
