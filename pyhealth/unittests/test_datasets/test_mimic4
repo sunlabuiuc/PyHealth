@@ -4,9 +4,8 @@ from pyhealth.datasets import MIMIC4Dataset
 
 within_eps = lambda a, b, epsilon: abs(a - b) < epsilon
 
-# this test suite verifies the MIMIC3 dataset info and statistic calculations are consistent
-# Synthetic_MIMIC-III dataset provided in the root is a dependancy to the expected values 
-# used for testing correctness
+# this test suite verifies the MIMIC4 demo dataset is parsed correctly and produces
+# the correct statistics. The MIMIC4 demo dataset needs to be pulled locally to test this.
 class Mimic4Tests(unittest.TestCase):
     
     TEST_EPS = 0.25
