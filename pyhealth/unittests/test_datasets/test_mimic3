@@ -44,7 +44,7 @@ class Mimic3Tests(unittest.TestCase):
             expected_num_visits_per_patient = 1.0555
             expected_num_events_per_table = [ 9.1038, 32.9969 ] # ["DIAGNOSES_ICD", "PRESCRIPTIONS"]
         
-        assert TABLES == self.dataset.available_tables
+        assert self.TABLES == self.dataset.available_tables
         
         assert expected_dev == self.dataset.dev
         assert expected_num_patients == len(self.dataset.patients)
