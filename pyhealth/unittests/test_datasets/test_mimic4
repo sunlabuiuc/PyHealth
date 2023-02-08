@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import datetime
 import unittest
 
@@ -18,6 +19,23 @@ class Mimic4Tests(unittest.TestCase):
     TABLES = ["diagnoses_icd", "procedures_icd", "labevents"]
     CODE_MAPPING = {}
     DEV = True # not needed when using demo set since its 100 patients large
+=======
+import unittest
+from unittest.mock import Mock, patch
+
+from pyhealth.datasets import MIMIC4Dataset, BaseDataset
+
+within_eps = lambda a, b, epsilon: abs(a - b) < epsilon
+
+class Mimic4Tests(unittest.TestCase):
+    
+    TEST_EPS = 0.25
+    
+    ROOT = "https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-4/"
+    TABLES = ["diagnoses_icd", "procedures_icd", "prescriptions", "labevents"]
+    CODE_MAPPING = {"NDC": "ATC"}
+    DEV = True
+>>>>>>> 37fa8f8 (add mimic3 test)
     
     dataset = MIMIC4Dataset(
         root=ROOT,
@@ -30,6 +48,7 @@ class Mimic4Tests(unittest.TestCase):
     def setUp(self):
         pass
     
+<<<<<<< HEAD
     # test the dataset integrity based on a single sample.
     def test_patient(self):
         expected_patient_id = '10000032'
@@ -94,3 +113,44 @@ class Mimic4Tests(unittest.TestCase):
 if __name__ == '__main__':
     unittest.main(verbosity=2)
     
+=======
+    # checks that dataset is ingested properly.
+    def test_initialization(self):
+    
+        self.dataset.stat()
+        self.dataset.info()
+    
+    
+        # if (self.DEV):
+        #     expected_dev = True
+        #     expected_num_patients = 1000
+        #     expected_num_visits = 1054
+        #     expected_num_visits_per_patient = 1.0540
+        #     expected_num_events_per_table = [ 9.2068, 40.1869 ] # ["DIAGNOSES_ICD", "PRESCRIPTIONS"]
+        # else:
+        #     expected_dev = False
+        #     expected_num_patients = 49993
+        #     expected_num_visits = 52769
+        #     expected_num_visits_per_patient = 1.0555
+        #     expected_num_events_per_table = [ 9.1038, 32.9969 ] # ["DIAGNOSES_ICD", "PRESCRIPTIONS"]
+        
+        # assert TABLES == self.dataset.available_tables
+        
+        # assert expected_dev == self.dataset.dev
+        # assert expected_num_patients == len(self.dataset.patients)
+        
+        # actual_visits = [len(patient) for patient in self.dataset.patients.values()]
+        # assert expected_num_visits == sum(actual_visits)
+        
+        # actual_visits_per_patient = sum(actual_visits) / len(actual_visits)
+        # assert within_eps(expected_num_visits_per_patient, actual_visits_per_patient, self.TEST_EPS)
+        
+        # for expected_value, table in zip(expected_num_events_per_table, self.dataset.tables):
+        #     actual_num_events = [ len(v.get_event_list(table)) for p in self.dataset.patients.values() for v in p ]
+            
+        #     actual_value_per_event_type = sum(actual_num_events) / len(actual_num_events)
+        #     assert within_eps(expected_value, actual_value_per_event_type, self.TEST_EPS)
+        
+if __name__ == '__main__':
+    unittest.main(verbosity=2)
+>>>>>>> 37fa8f8 (add mimic3 test)

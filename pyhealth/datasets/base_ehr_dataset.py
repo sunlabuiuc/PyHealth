@@ -12,6 +12,7 @@ from pandarallel import pandarallel
 
 from pyhealth.data import Patient, Event
 <<<<<<< HEAD
+<<<<<<< HEAD
 from pyhealth.datasets.sample_dataset import SampleDataset
 from pyhealth.datasets.utils import MODULE_CACHE_PATH, hash_str, DATASET_BASIC_TABLES
 =======
@@ -19,6 +20,16 @@ from pyhealth.datasets.sample_dataset import SampleEHRDataset
 from pyhealth.datasets.utils import MODULE_CACHE_PATH
 from pyhealth.datasets.utils import hash_str
 >>>>>>> 6f221ed (signal input support up to data split part)
+=======
+<<<<<<< HEAD:pyhealth/datasets/base_ehr_dataset.py
+from pyhealth.datasets.sample_dataset import SampleEHRDataset
+from pyhealth.datasets.utils import MODULE_CACHE_PATH
+from pyhealth.datasets.utils import hash_str
+=======
+from pyhealth.datasets.sample_dataset import SampleDataset
+from pyhealth.datasets.utils import MODULE_CACHE_PATH, hash_str, DATASET_BASIC_TABLES
+>>>>>>> 98d14b3 (add mimic3 test):pyhealth/datasets/base_dataset.py
+>>>>>>> 37fa8f8 (add mimic3 test)
 from pyhealth.medcode import CrossMap
 from pyhealth.utils import load_pickle, save_pickle
 
