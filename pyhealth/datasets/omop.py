@@ -4,14 +4,14 @@ from typing import Optional, List, Dict, Tuple, Union
 import pandas as pd
 
 from pyhealth.data import Event, Visit, Patient
-from pyhealth.datasets import BaseDataset
+from pyhealth.datasets import BaseEHRDataset
 from pyhealth.datasets.utils import strptime
 
 
 # TODO: add other tables
 
 
-class OMOPDataset(BaseDataset):
+class OMOPDataset(BaseEHRDataset):
     """Base dataset for OMOP dataset.
 
     The Observational Medical Outcomes Partnership (OMOP) Common Data Model (CDM)

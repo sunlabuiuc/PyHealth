@@ -45,6 +45,43 @@ class SampleBaseDataset(Dataset):
         """Returns the number of samples in the dataset."""
         return len(self.samples)
 
+    def get_all_tokens(
+        self, key: str, remove_duplicates: bool = True, sort: bool = True
+    ) -> List[str]:
+        """Gets all tokens with a specific key in the samples.
+
+        Args:
+            key: the key of the tokens in the samples.
+            remove_duplicates: whether to remove duplicates. Default is True.
+            sort: whether to sort the tokens by alphabet order. Default is True.
+
+        Returns:
+            tokens: a list of tokens.
+        """
+        input_type = self.input_info[key]["type"]
+        input_dim = self.input_info[key]["dim"]
+        if input_type in [float, int]:
+            assert input_dim == 0, f"Cannot get tokens for vector with key {key}"
+
+        tokens = []
+        for sample in self.samples:
+            if input_dim == 0:
+                # a single value
+                tokens.append(sample[key])
+            elif input_dim == 2:
+                # a list of codes
+                tokens.extend(sample[key])
+            elif input_dim == 3:
+                # a list of list of codes
+                tokens.extend(flatten_list(sample[key]))
+            else:
+                raise NotImplementedError
+        if remove_duplicates:
+            tokens = list(set(tokens))
+        if sort:
+            tokens.sort()
+        return tokens
+
 
 class SampleSignalDataset(SampleBaseDataset):
     """Sample signal dataset class.
@@ -56,6 +93,7 @@ class SampleSignalDataset(SampleBaseDataset):
     Args:
         samples: a list of samples, each sample is a dict with
             patient_id, record_id, and other task-specific attributes as key.
+        classes: a list of classes, e.g., ["W", "1", "2", "3", "R"].
         dataset_name: the name of the dataset. Default is None.
         task_name: the name of the task. Default is None.
     """
@@ -64,7 +102,7 @@ class SampleSignalDataset(SampleBaseDataset):
         super().__init__(samples, dataset_name, task_name)
         self.patient_to_index: Dict[str, List[int]] = self._index_patient()
         self.record_to_index: Dict[str, List[int]] = self._index_record()
-        self.input_info: Dict = self._get_input_info()
+        self.input_info: Dict = self._validate()
         self.type_ = "signal"
 
     def _index_patient(self) -> Dict[str, List[int]]:
@@ -94,7 +132,7 @@ class SampleSignalDataset(SampleBaseDataset):
             record_to_index.setdefault(sample["record_id"], []).append(idx)
         return record_to_index
 
-    def _get_input_info(self) -> Dict:
+    def _validate(self) -> Dict:
         """Helper function which gets the input information of each attribute.
 
         Will be called in `self.__init__()`.
@@ -106,11 +144,15 @@ class SampleSignalDataset(SampleBaseDataset):
                 - "n_channels": the number of channels of the input.
 
         """
+        input_info = {}
+        # get signal info
         sample_path_0 = self.samples[0]["epoch_path"]
         sample = pickle.load(open(sample_path_0, "rb"))
-        length, n_channels = sample["signal"].shape
-
-        return {"length": length, "n_channels": n_channels}
+        n_channels, length = sample["signal"].shape
+        input_info["signal"] = {"length": length, "n_channels": n_channels}
+        # get label signal info
+        input_info["label"] = {"type": str, "dim": 0}
+        return input_info
 
     def stat(self) -> str:
         """Returns some statistics of the task-specific dataset."""
@@ -373,43 +415,6 @@ class SampleEHRDataset(SampleBaseDataset):
         """
         keys = self.samples[0].keys()
         return list(keys)
-
-    def get_all_tokens(
-        self, key: str, remove_duplicates: bool = True, sort: bool = True
-    ) -> List[str]:
-        """Gets all tokens with a specific key in the samples.
-
-        Args:
-            key: the key of the tokens in the samples.
-            remove_duplicates: whether to remove duplicates. Default is True.
-            sort: whether to sort the tokens by alphabet order. Default is True.
-
-        Returns:
-            tokens: a list of tokens.
-        """
-        input_type = self.input_info[key]["type"]
-        input_dim = self.input_info[key]["dim"]
-        if input_type in [float, int]:
-            assert input_dim == 0, f"Cannot get tokens for vector with key {key}"
-
-        tokens = []
-        for sample in self.samples:
-            if input_dim == 0:
-                # a single value
-                tokens.append(sample[key])
-            elif input_dim == 2:
-                # a list of codes
-                tokens.extend(sample[key])
-            elif input_dim == 3:
-                # a list of list of codes
-                tokens.extend(flatten_list(sample[key]))
-            else:
-                raise NotImplementedError
-        if remove_duplicates:
-            tokens = list(set(tokens))
-        if sort:
-            tokens.sort()
-        return tokens
 
     def get_distribution_tokens(self, key: str) -> Dict[str, int]:
         """Gets the distribution of tokens with a specific key in the samples.

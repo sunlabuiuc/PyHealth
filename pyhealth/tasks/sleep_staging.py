@@ -92,6 +92,7 @@ def sleep_staging_sleepedf_cassette_fn(patient, epoch_seconds=30):
                 "record_id": f"{pid}-0",
                 "patient_id": pid,
                 "epoch_path": save_file_path,
+                "label": epoch_label,  # use for counting the label tokens
             }
         )
     return samples
@@ -107,7 +108,7 @@ if __name__ == "__main__":
     )
 
     sleep_staging_ds = dataset.set_task(sleep_staging_sleepedf_cassette_fn)
-    print(sleep_staging_ds.samples[0])
-    print(sleep_staging_ds.patient_to_index)
-    print(sleep_staging_ds.record_to_index)
+    print(sleep_staging_ds.samples[:5])
+    # print(sleep_staging_ds.patient_to_index)
+    # print(sleep_staging_ds.record_to_index)
     print(sleep_staging_ds.input_info)

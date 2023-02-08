@@ -1,4 +1,4 @@
-from .base_dataset import BaseDataset
+from .base_ehr_dataset import BaseEHRDataset
 from .base_signal_dataset import BaseSignalDataset
 from .eicu import eICUDataset
 from .mimic3 import MIMIC3Dataset

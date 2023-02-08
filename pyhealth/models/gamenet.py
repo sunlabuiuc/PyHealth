@@ -4,7 +4,7 @@ from typing import Tuple, List, Dict, Optional
 import torch
 import torch.nn as nn
 
-from pyhealth.datasets import SampleDataset
+from pyhealth.datasets import SampleEHRDataset
 from pyhealth.medcode import ATC
 from pyhealth.models import BaseModel
 from pyhealth.models.utils import get_last_visit, batch_to_multihot
@@ -240,7 +240,7 @@ class GAMENet(BaseModel):
 
     def __init__(
         self,
-        dataset: SampleDataset,
+        dataset: SampleEHRDataset,
         embedding_dim: int = 128,
         hidden_dim: int = 128,
         num_layers: int = 1,
