@@ -3,7 +3,7 @@ import pickle
 import mne
 
 
-def sleep_staging_sleepedf_cassette_fn(patient, epoch_seconds=30):
+def sleep_staging_sleepedf_cassette_fn(record, epoch_seconds=30):
     """Processes a single patient for the sleep staging task.
 
     Sleep staging aims at predicting the sleep stages (Awake, REM, N1, N2, N3) based on
@@ -28,11 +28,17 @@ def sleep_staging_sleepedf_cassette_fn(patient, epoch_seconds=30):
         >>> from pyhealth.tasks import sleep_staging_sleepedf_cassette_fn
         >>> sleepstage_ds = sleepedfcassette.set_task(sleep_staging_sleepedf_cassette_fn)
         >>> sleepstage_ds.samples[0]
+        {'record_id': 'SC4001-0', 'patient_id': 'SC4001', 'epoch_path': '/home/chaoqiy2/.cache/pyhealth/datasets/70d6dbb28bd81bab27ae2f271b2cbb0f/SC4001-0.pkl', 'label': 'W'}
     """
 
     SAMPLE_RATE = 100
 
-    root, psg_file, hypnogram_file, save_path = patient[0]
+    root, psg_file, hypnogram_file, save_path = (
+        record[0]["load_from_path"],
+        record[0]["signal_file"],
+        record[0]["label_file"],
+        record[0]["save_to_path"],
+    )
     # get patient id
     pid = psg_file[:6]
 
@@ -108,7 +114,7 @@ if __name__ == "__main__":
     )
 
     sleep_staging_ds = dataset.set_task(sleep_staging_sleepedf_cassette_fn)
-    print(sleep_staging_ds.samples[:5])
+    print(sleep_staging_ds.samples[0])
     # print(sleep_staging_ds.patient_to_index)
     # print(sleep_staging_ds.record_to_index)
     print(sleep_staging_ds.input_info)
