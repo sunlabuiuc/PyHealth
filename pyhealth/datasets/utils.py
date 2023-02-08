@@ -14,6 +14,7 @@ MODULE_CACHE_PATH = os.path.join(BASE_CACHE_PATH, "datasets")
 create_directory(MODULE_CACHE_PATH)
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 # basic tables which are a part of the defined datasets
 DATASET_BASIC_TABLES = {
     "MIMIC3Dataset": {"PATIENTS", "ADMISSIONS"},
@@ -25,6 +26,13 @@ DATASET_BASIC_TABLES = {
 }
 =======
 >>>>>>> 3b6ec70 (Revert "add mimic3 test")
+=======
+# basic tables which are a part of the defined datasets
+DATASET_BASIC_TABLES = {
+    "MIMIC3Dataset": {"PATIENTS", "ADMISSIONS"},
+    "MIMIC4Dataset" : {}
+}
+>>>>>>> f176fcf (Revert "Revert "add mimic3 test"")
 
 def hash_str(s):
     return hashlib.md5(s.encode()).hexdigest()

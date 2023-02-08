@@ -22,6 +22,7 @@ from pyhealth.datasets.utils import hash_str
 >>>>>>> 6f221ed (signal input support up to data split part)
 =======
 <<<<<<< HEAD:pyhealth/datasets/base_ehr_dataset.py
+<<<<<<< HEAD:pyhealth/datasets/base_ehr_dataset.py
 from pyhealth.datasets.sample_dataset import SampleEHRDataset
 from pyhealth.datasets.utils import MODULE_CACHE_PATH
 from pyhealth.datasets.utils import hash_str
@@ -37,7 +38,14 @@ from pyhealth.datasets.utils import MODULE_CACHE_PATH, hash_str, DATASET_BASIC_T
 from pyhealth.datasets.utils import MODULE_CACHE_PATH
 from pyhealth.datasets.utils import hash_str
 >>>>>>> c27500c (Revert "add mimic3 test"):pyhealth/datasets/base_dataset.py
+<<<<<<< HEAD
 >>>>>>> 3b6ec70 (Revert "add mimic3 test")
+=======
+=======
+from pyhealth.datasets.sample_dataset import SampleDataset
+from pyhealth.datasets.utils import MODULE_CACHE_PATH, hash_str, DATASET_BASIC_TABLES
+>>>>>>> a00dad8 (Revert "Revert "add mimic3 test""):pyhealth/datasets/base_dataset.py
+>>>>>>> f176fcf (Revert "Revert "add mimic3 test"")
 from pyhealth.medcode import CrossMap
 from pyhealth.utils import load_pickle, save_pickle
 
@@ -75,7 +83,7 @@ class BaseEHRDataset(ABC):
     Args:
         dataset_name: name of the dataset.
         root: root directory of the raw data (should contain many csv files).
-        tables: list of tables to be loaded (e.g., ["DIAGNOSES_ICD", "PROCEDURES_ICD"]).
+        tables: list of tables to be loaded (e.g., ["DIAGNOSES_ICD", "PROCEDURES_ICD"]). Basic tables will be loaded by default.
         code_mapping: a dictionary containing the code mapping information.
             The key is a str of the source code vocabulary and the value is of
             two formats:
@@ -111,9 +119,16 @@ class BaseEHRDataset(ABC):
             self.__class__.__name__ if dataset_name is None else dataset_name
         )
         self.root = root
-        self.tables = tables
         self.code_mapping = code_mapping
         self.dev = dev
+
+        # if we are using a premade dataset, no basic tables need to be provided. 
+        if self.dataset_name in DATASET_BASIC_TABLES and [ table for table in tables if table in DATASET_BASIC_TABLES[self.dataset_name]]:
+            raise AttributeError(
+                f"Basic tables are parsed by default and do not need to be explicitly selected. Basic tables for {self.dataset_name}: {DATASET_BASIC_TABLES[self.dataset_name]}"
+            )
+        
+        self.tables = tables
 
         # load medcode for code mapping
         self.code_mapping_tools = self._load_code_mapping_tools()

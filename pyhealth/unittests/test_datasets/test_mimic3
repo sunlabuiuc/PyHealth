@@ -1,4 +1,5 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 import datetime
 import unittest
 
@@ -14,6 +15,8 @@ from pyhealth.datasets import MIMIC3Dataset
 class Mimic3Tests(unittest.TestCase):
     
 =======
+=======
+>>>>>>> f176fcf (Revert "Revert "add mimic3 test"")
 import unittest
 from unittest.mock import Mock, patch
 
@@ -28,7 +31,10 @@ class Mimic3Tests(unittest.TestCase):
     
     TEST_EPS = 0.25
     
+<<<<<<< HEAD
 >>>>>>> 37fa8f8 (add mimic3 test)
+=======
+>>>>>>> f176fcf (Revert "Revert "add mimic3 test"")
     ROOT = "https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III/"
     TABLES = ["DIAGNOSES_ICD", "PRESCRIPTIONS"]
     CODE_MAPPING = {"NDC": ("ATC", {"target_kwargs": {"level": 3}})}
@@ -45,6 +51,7 @@ class Mimic3Tests(unittest.TestCase):
     def setUp(self):
         pass
     
+<<<<<<< HEAD
 <<<<<<< HEAD
     
     # tests that a single event is correctly parsed
@@ -127,6 +134,10 @@ class Mimic3Tests(unittest.TestCase):
     # checks that dataset is ingested properly.
     def test_initialization(self):
 >>>>>>> 37fa8f8 (add mimic3 test)
+=======
+    # checks that dataset is ingested properly.
+    def test_initialization(self):
+>>>>>>> f176fcf (Revert "Revert "add mimic3 test"")
     
         if (self.DEV):
             expected_dev = True
@@ -142,6 +153,7 @@ class Mimic3Tests(unittest.TestCase):
             expected_num_events_per_table = [ 9.1038, 32.9969 ] # ["DIAGNOSES_ICD", "PRESCRIPTIONS"]
         
 <<<<<<< HEAD
+<<<<<<< HEAD
         self.assertEqual(sorted(self.TABLES), sorted(self.dataset.available_tables))
         
         self.assertEqual(expected_dev, self.dataset.dev)
@@ -153,6 +165,8 @@ class Mimic3Tests(unittest.TestCase):
         actual_visits_per_patient = sum(actual_visits) / len(actual_visits)
         self.assertAlmostEqual(expected_num_visits_per_patient, actual_visits_per_patient, places=2)
 =======
+=======
+>>>>>>> f176fcf (Revert "Revert "add mimic3 test"")
         assert TABLES == self.dataset.available_tables
         
         assert expected_dev == self.dataset.dev
@@ -163,12 +177,16 @@ class Mimic3Tests(unittest.TestCase):
         
         actual_visits_per_patient = sum(actual_visits) / len(actual_visits)
         assert within_eps(expected_num_visits_per_patient, actual_visits_per_patient, self.TEST_EPS)
+<<<<<<< HEAD
 >>>>>>> 37fa8f8 (add mimic3 test)
+=======
+>>>>>>> f176fcf (Revert "Revert "add mimic3 test"")
         
         for expected_value, table in zip(expected_num_events_per_table, self.dataset.tables):
             actual_num_events = [ len(v.get_event_list(table)) for p in self.dataset.patients.values() for v in p ]
             
             actual_value_per_event_type = sum(actual_num_events) / len(actual_num_events)
+<<<<<<< HEAD
 <<<<<<< HEAD
             self.assertAlmostEqual(expected_value, actual_value_per_event_type, places=2)
         
@@ -181,3 +199,9 @@ if __name__ == '__main__':
 if __name__ == '__main__':
     unittest.main(verbosity=2)
 >>>>>>> 37fa8f8 (add mimic3 test)
+=======
+            assert within_eps(expected_value, actual_value_per_event_type, self.TEST_EPS)
+        
+if __name__ == '__main__':
+    unittest.main(verbosity=2)
+>>>>>>> f176fcf (Revert "Revert "add mimic3 test"")

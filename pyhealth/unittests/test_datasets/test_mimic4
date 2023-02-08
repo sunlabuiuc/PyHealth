@@ -1,4 +1,5 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 import datetime
 import unittest
 
@@ -20,6 +21,8 @@ class Mimic4Tests(unittest.TestCase):
     CODE_MAPPING = {}
     DEV = True # not needed when using demo set since its 100 patients large
 =======
+=======
+>>>>>>> f176fcf (Revert "Revert "add mimic3 test"")
 import unittest
 from unittest.mock import Mock, patch
 
@@ -35,7 +38,10 @@ class Mimic4Tests(unittest.TestCase):
     TABLES = ["diagnoses_icd", "procedures_icd", "prescriptions", "labevents"]
     CODE_MAPPING = {"NDC": "ATC"}
     DEV = True
+<<<<<<< HEAD
 >>>>>>> 37fa8f8 (add mimic3 test)
+=======
+>>>>>>> f176fcf (Revert "Revert "add mimic3 test"")
     
     dataset = MIMIC4Dataset(
         root=ROOT,
@@ -48,6 +54,7 @@ class Mimic4Tests(unittest.TestCase):
     def setUp(self):
         pass
     
+<<<<<<< HEAD
 <<<<<<< HEAD
     # test the dataset integrity based on a single sample.
     def test_patient(self):
@@ -114,6 +121,8 @@ if __name__ == '__main__':
     unittest.main(verbosity=2)
     
 =======
+=======
+>>>>>>> f176fcf (Revert "Revert "add mimic3 test"")
     # checks that dataset is ingested properly.
     def test_initialization(self):
     
@@ -152,5 +161,9 @@ if __name__ == '__main__':
         #     assert within_eps(expected_value, actual_value_per_event_type, self.TEST_EPS)
         
 if __name__ == '__main__':
+<<<<<<< HEAD
     unittest.main(verbosity=2)
 >>>>>>> 37fa8f8 (add mimic3 test)
+=======
+    unittest.main(verbosity=2)
+>>>>>>> f176fcf (Revert "Revert "add mimic3 test"")
