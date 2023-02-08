@@ -58,14 +58,24 @@ class SleepEDFCassetteDataset(BaseSignalDataset):
         # get patient to record maps
         #    - key: pid:
         #    - value: [(PSG.edf, Hypnogram.edf), ...]
-        patients = {pid: [[self.root, "", "", self.filepath]] for pid in patient_ids}
+        patients = {
+            pid: [
+                {
+                    "load_from_path": self.root,
+                    "signal_file": None,
+                    "label_file": None,
+                    "save_to_path": self.filepath,
+                }
+            ]
+            for pid in patient_ids
+        }
         for record in all_files:
             pid = record[:6]
             if pid in patient_ids:
                 if "PSG" in record:
-                    patients[pid][0][1] = record
+                    patients[pid][0]["signal_file"] = record
                 elif "Hypnogram" in record:
-                    patients[pid][0][2] = record
+                    patients[pid][0]["label_file"] = record
                 else:
                     raise ValueError(f"Unknown record: {record}")
         return patients
@@ -74,8 +84,9 @@ class SleepEDFCassetteDataset(BaseSignalDataset):
 if __name__ == "__main__":
     dataset = SleepEDFCassetteDataset(
         root="/srv/local/data/SLEEPEDF/sleep-edf-database-expanded-1.0.0/sleep-cassette",
-        dev=False,
+        dev=True,
         refresh_cache=True,
     )
     dataset.stat()
     dataset.info()
+    print(list(dataset.patients.items())[0])
