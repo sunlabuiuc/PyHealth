@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from pyhealth.datasets import SampleDataset
+from pyhealth.datasets import SampleBaseDataset
 from pyhealth.models.utils import batch_to_multihot
 from pyhealth.tokenizer import Tokenizer
 
@@ -27,7 +27,7 @@ class BaseModel(ABC, nn.Module):
 
     def __init__(
         self,
-        dataset: SampleDataset,
+        dataset: SampleBaseDataset,
         feature_keys: List[str],
         label_key: str,
         mode: str,

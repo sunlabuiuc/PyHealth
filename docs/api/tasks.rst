@@ -9,6 +9,10 @@ We support various real-world healthcare predictive tasks defined by **function 
 
 (iii) Mortality Prediction [Choi et al. AAAI 2021]
 
+(iv) Length of Stay Prediction
+
+(v) Sleep Staging [Yang et al. ArXiv 2021]
+
 .. toctree::
     :maxdepth: 3
     
@@ -16,4 +20,5 @@ We support various real-world healthcare predictive tasks defined by **function 
     tasks/pyhealth.tasks.readmission_prediction
     tasks/pyhealth.tasks.mortality_prediction
     tasks/pyhealth.tasks.length_of_stay_prediction
+    tasks/pyhealth.tasks.sleep_staging
 

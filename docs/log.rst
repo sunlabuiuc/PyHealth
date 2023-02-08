@@ -2,6 +2,14 @@ Development logs
 ======================
 We track the new development here:
 
+**Feb 08, 2023**
+
+.. code-block:: bash
+ 
+    1. complete the biosignal data support, add ContraWR [1] model for general purpose biosignal classification task ([1] Yang, Chaoqi, Danica Xiao, M. Brandon Westover, and Jimeng Sun. 
+        "Self-supervised eeg representation learning for automatic sleep staging."
+        arXiv preprint arXiv:2110.15278 (2021).)
+
 **Feb 07, 2023**
 
 .. code-block:: bash
