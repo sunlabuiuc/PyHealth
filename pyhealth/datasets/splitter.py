@@ -19,7 +19,7 @@ def split_by_visit(
     """Splits the dataset by visit (i.e., samples).
 
     Args:
-        dataset: a `SampleDataset` object
+        dataset: a `SampleBaseDataset` object
         ratios: a list/tuple of ratios for train / val / test
         seed: random seed for shuffling the dataset
 
@@ -55,7 +55,7 @@ def split_by_patient(
     """Splits the dataset by patient.
 
     Args:
-        dataset: a `SampleDataset` object
+        dataset: a `SampleBaseDataset` object
         ratios: a list/tuple of ratios for train / val / test
         seed: random seed for shuffling the dataset
 

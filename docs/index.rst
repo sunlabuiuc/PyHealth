@@ -112,7 +112,7 @@ An ML Pipeline Example
         code_mapping={"NDC": ("ATC", {"target_kwargs": {"level": 3}})},
     )
 
-User could also store their own dataset into our ``<pyhealth.datasets.SampleDataset>`` structure and then follow the same pipeline below, see `Tutorial <https://colab.research.google.com/drive/1UurxwAAov1bL_5OO3gQJ4gAa_paeJwJp?usp=sharing>`_
+User could also store their own dataset into our ``<pyhealth.datasets.SampleBaseDataset>`` structure and then follow the same pipeline below, see `Tutorial <https://colab.research.google.com/drive/1UurxwAAov1bL_5OO3gQJ4gAa_paeJwJp?usp=sharing>`_
 
 * **STEP 2: <pyhealth.tasks>** inputs the ``<pyhealth.datasets>`` object and defines how to process each patient's data into a set of samples for the tasks. In the package, we provide several task examples, such as ``drug recommendation`` and ``length of stay prediction``.
 
