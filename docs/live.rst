@@ -31,10 +31,8 @@ Schedules
 
  **(Feb 1, 2023)** Live 07 - Adopt your customized model and quickly try it on our data `[Recap] <https://www.youtube.com/watch?v=lADFlcmLtdE>`_
 
- **(Feb 8, 2023)** Live 08 - Define your own healthcare task on existing datasets
+ **(Feb 8, 2023)** Live 08 - New feature: support for biosignal data (EEG, ECG, etc.) classification `[Recap I] <https://www.youtube.com/watch?v=D1VbiJlDf98&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=15>`_ `[II] <https://www.youtube.com/watch?v=ySAIU-rO6so&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=16>`_
 
  **(Feb 15, 2023)** Live 09 - New feature: parallel and faster data loading architecture
 
- **(Feb 22, 2023)** Live 10 - New feature: support for biosignal data (EEG, ECG, etc.) classification
-
- **(Mar 1, 2023)** Live 11 - Add a covid prediction benchmark (new datasets, new models)
+ **(Feb 22, 2023)** Live 10 - Add a covid prediction benchmark (new datasets, new models)
