@@ -13,7 +13,7 @@ Datasets
     datasets/pyhealth.datasets.MIMIC4Dataset
     datasets/pyhealth.datasets.eICUDataset
     datasets/pyhealth.datasets.OMOPDataset
-    datasets/pyhealth.datasets.SleepEDFCassetteDataset
+    datasets/pyhealth.datasets.SleepEDFDataset
     datasets/pyhealth.datasets.splitter
     datasets/pyhealth.datasets.utils
 
