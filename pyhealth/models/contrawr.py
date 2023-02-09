@@ -85,7 +85,7 @@ class ResBlock2D(nn.Module):
 
 
 class ContraWR(BaseModel):
-    """The encoder model for ContraWR
+    """The encoder model of ContraWR (a supervised model, STFT + 2D CNN layers)
 
     Paper: Yang, Chaoqi, Danica Xiao, M. Brandon Westover, and Jimeng Sun.
     "Self-supervised eeg representation learning for automatic sleep staging."
