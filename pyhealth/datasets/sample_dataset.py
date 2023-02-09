@@ -154,6 +154,21 @@ class SampleSignalDataset(SampleBaseDataset):
         input_info["label"] = {"type": str, "dim": 0}
         return input_info
 
+    def __getitem__(self, index) -> Dict:
+        """Returns a sample by index.
+
+        Returns:
+             Dict, a dict with patient_id, visit_id/record_id, and other task-specific
+                attributes as key. Conversion to index/tensor will be done
+                in the model.
+        """
+        sample = self.samples[index]
+        loaded_sample = pickle.load(open(sample["epoch_path"], "rb"))
+        cur_sample = sample.copy()
+        cur_sample.update(loaded_sample)
+        cur_sample.pop("epoch_path", None)
+        return cur_sample
+
     def stat(self) -> str:
         """Returns some statistics of the task-specific dataset."""
         lines = list()
