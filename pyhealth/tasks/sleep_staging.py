@@ -3,7 +3,7 @@ import pickle
 import mne
 
 
-def sleep_staging_sleepedf_cassette_fn(record, epoch_seconds=30):
+def sleep_staging_sleepedf_fn(record, epoch_seconds=30):
     """Processes a single patient for the sleep staging task.
 
     Sleep staging aims at predicting the sleep stages (Awake, REM, N1, N2, N3) based on
@@ -21,12 +21,12 @@ def sleep_staging_sleepedf_cassette_fn(record, epoch_seconds=30):
     Note that we define the task as a multi-class classification task.
 
     Examples:
-        >>> from pyhealth.datasets import SleepEDFCassetteDataset
-        >>> sleepedfcassette = SleepEDFCassetteDataset(
+        >>> from pyhealth.datasets import SleepEDFDataset
+        >>> sleepedf = SleepEDFDataset(
         ...         root="/srv/local/data/SLEEPEDF/sleep-edf-database-expanded-1.0.0/sleep-cassette",
         ...     )
-        >>> from pyhealth.tasks import sleep_staging_sleepedf_cassette_fn
-        >>> sleepstage_ds = sleepedfcassette.set_task(sleep_staging_sleepedf_cassette_fn)
+        >>> from pyhealth.tasks import sleep_staging_sleepedf_fn
+        >>> sleepstage_ds = sleepedf.set_task(sleep_staging_sleepedf_fn)
         >>> sleepstage_ds.samples[0]
         {
             'record_id': 'SC4001-0',
@@ -73,7 +73,7 @@ def sleep_staging_sleepedf_cassette_fn(record, epoch_seconds=30):
     sample_length = SAMPLE_RATE * epoch_seconds
     # slice the EEG signals into non-overlapping windows
     # window size = sampling rate * second time = 100 * epoch_seconds
-    for slice_index in range(X.shape[1] // sample_length):
+    for slice_index in range(min(X.shape[1] // sample_length, len(labels))):
         # ingore the no label epoch
         if labels[slice_index] not in [
             "Sleep stage W",
@@ -110,15 +110,15 @@ def sleep_staging_sleepedf_cassette_fn(record, epoch_seconds=30):
 
 
 if __name__ == "__main__":
-    from pyhealth.datasets import SleepEDFCassetteDataset
+    from pyhealth.datasets import SleepEDFDataset
 
-    dataset = SleepEDFCassetteDataset(
-        root="/srv/local/data/SLEEPEDF/sleep-edf-database-expanded-1.0.0/sleep-cassette",
+    dataset = SleepEDFDataset(
+        root="/srv/local/data/SLEEPEDF/sleep-edf-database-expanded-1.0.0/sleep-telemetry",
         dev=True,
         refresh_cache=True,
     )
 
-    sleep_staging_ds = dataset.set_task(sleep_staging_sleepedf_cassette_fn)
+    sleep_staging_ds = dataset.set_task(sleep_staging_sleepedf_fn)
     print(sleep_staging_ds.samples[0])
     # print(sleep_staging_ds.patient_to_index)
     # print(sleep_staging_ds.record_to_index)
