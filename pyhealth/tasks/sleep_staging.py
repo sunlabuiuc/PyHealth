@@ -28,7 +28,12 @@ def sleep_staging_sleepedf_cassette_fn(record, epoch_seconds=30):
         >>> from pyhealth.tasks import sleep_staging_sleepedf_cassette_fn
         >>> sleepstage_ds = sleepedfcassette.set_task(sleep_staging_sleepedf_cassette_fn)
         >>> sleepstage_ds.samples[0]
-        {'record_id': 'SC4001-0', 'patient_id': 'SC4001', 'epoch_path': '/home/chaoqiy2/.cache/pyhealth/datasets/70d6dbb28bd81bab27ae2f271b2cbb0f/SC4001-0.pkl', 'label': 'W'}
+        {
+            'record_id': 'SC4001-0',
+            'patient_id': 'SC4001',
+            'epoch_path': '/home/chaoqiy2/.cache/pyhealth/datasets/70d6dbb28bd81bab27ae2f271b2cbb0f/SC4001-0.pkl',
+            'label': 'W'
+        }
     """
 
     SAMPLE_RATE = 100

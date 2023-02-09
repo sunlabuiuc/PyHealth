@@ -113,55 +113,19 @@ def is_homo_list(l: List) -> bool:
     return all(isinstance(i, type(l[0])) for i in l)
 
 
-def collate_fn_ehr(batch):
+def collate_fn_dict(batch):
     return {key: [d[key] for d in batch] for key in batch[0]}
 
 
-def collate_fn_signal(batch):
-    new_batch = []
-    for sample in batch:
-        loaded_sample = pickle.load(open(sample["epoch_path"], "rb"))
-        # does not change sample in place
-        cur_sample = sample.copy()
-        # add "signal" and "label" keys
-        cur_sample.update(loaded_sample)
-        # pop "epoch_path" key
-        cur_sample.pop("epoch_path", None)
-        new_batch.append(cur_sample)
-    return {key: [d[key] for d in new_batch] for key in new_batch[0]}
-
-
 def get_dataloader(dataset, batch_size, shuffle=False):
-    # dataset can be torch.utils.data.Subset object or torch.utils.data.Dataset object
 
-    if (
-        hasattr(dataset, "type_")
-        and (dataset.type_ == "ehr")
-        or hasattr(dataset, "dataset")
-        and hasattr(dataset.dataset, "type_")
-        and (dataset.dataset.type_ == "ehr")
-    ):
-        dataloader = DataLoader(
-            dataset,
-            batch_size=batch_size,
-            shuffle=shuffle,
-            collate_fn=collate_fn_ehr,
-        )
-    elif (
-        hasattr(dataset, "type_")
-        and (dataset.type_ == "signal")
-        or hasattr(dataset, "dataset")
-        and hasattr(dataset.dataset, "type_")
-        and (dataset.dataset.type_ == "signal")
-    ):
-        dataloader = DataLoader(
-            dataset,
-            batch_size=batch_size,
-            shuffle=shuffle,
-            collate_fn=collate_fn_signal,
-        )
-    else:
-        raise ValueError("Unknown dataset type.")
+    dataloader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        collate_fn=collate_fn_dict,
+    )
+
     return dataloader
 
 
