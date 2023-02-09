@@ -5,8 +5,8 @@ import numpy as np
 from pyhealth.datasets import BaseSignalDataset
 
 
-class SleepEDFCassetteDataset(BaseSignalDataset):
-    """Base EEG dataset for SleepEDF Cassette portion
+class SleepEDFDataset(BaseSignalDataset):
+    """Base EEG dataset for SleepEDF
 
     Dataset is available at https://www.physionet.org/content/sleep-edfx/1.0.0/
 
@@ -18,6 +18,13 @@ class SleepEDFCassetteDataset(BaseSignalDataset):
         - The EOG and EEG signals were each sampled at 100 Hz. The submental-EMG signal was electronically highpass filtered, rectified and low-pass filtered after which the resulting EMG envelope expressed in uV rms (root-mean-square) was sampled at 1Hz. Oro-nasal airflow, rectal body temperature and the event marker were also sampled at 1Hz.
 
         - Subjects and recordings are further described in the file headers, the descriptive spreadsheet SC-subjects.xls, and in [2].
+
+    For the Sleep Telemetry portoin:
+        - The 44 ST* files (ST = Sleep Telemetry) were obtained in a 1994 study of temazepam effects on sleep in 22 Caucasian males and females without other medication. Subjects had mild difficulty falling asleep but were otherwise healthy. The PSGs of about 9 hours were recorded in the hospital during two nights, one of which was after temazepam intake, and the other of which was after placebo intake. Subjects wore a miniature telemetry system with very good signal quality described in [8].
+
+        - Files are named in the form ST7ssNJ0-PSG.edf where ss is the subject number, and N is the night.
+
+        - EOG, EMG and EEG signals were sampled at 100 Hz, and the event marker at 1 Hz. The physical marker dimension ID+M-E relates to the fact that pressing the marker (M) button generated two-second deflections from a baseline value that either identifies the telemetry unit (ID = 1 or 2 if positive) or marks an error (E) in the telemetry link if negative. Subjects and recordings are further described in the file headers, the descriptive spreadsheet ST-subjects.xls, and in [1].
 
     Args:
         dataset_name: name of the dataset.
@@ -39,8 +46,8 @@ class SleepEDFCassetteDataset(BaseSignalDataset):
             list of sample indices. Default is None.
 
     Examples:
-        >>> from pyhealth.datasets import SleepEDFCassetteDataset
-        >>> dataset = SleepEDFCassetteDataset(
+        >>> from pyhealth.datasets import SleepEDFDataset
+        >>> dataset = SleepEDFDataset(
         ...         root="/srv/local/data/SLEEPEDF/sleep-edf-database-expanded-1.0.0/sleep-cassette",
         ...     )
         >>> dataset.stat()
@@ -82,8 +89,8 @@ class SleepEDFCassetteDataset(BaseSignalDataset):
 
 
 if __name__ == "__main__":
-    dataset = SleepEDFCassetteDataset(
-        root="/srv/local/data/SLEEPEDF/sleep-edf-database-expanded-1.0.0/sleep-cassette",
+    dataset = SleepEDFDataset(
+        root="/srv/local/data/SLEEPEDF/sleep-edf-database-expanded-1.0.0/sleep-telemetry",
         dev=True,
         refresh_cache=True,
     )

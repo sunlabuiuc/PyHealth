@@ -23,5 +23,5 @@ from .readmission_prediction import (
     readmission_prediction_omop_fn,
 )
 from .sleep_staging import (
-    sleep_staging_sleepedf_cassette_fn,
+    sleep_staging_sleepedf_fn,
 )
