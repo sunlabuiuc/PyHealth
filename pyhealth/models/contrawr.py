@@ -186,7 +186,9 @@ class ContraWR(BaseModel):
 
     def cal_encoder_stat(self):
         """obtain the convolution encoder initialization statistics
-        Example:
+
+        Note:
+            We show an example to illustrate the encoder statistics.
             input x:
                 - torch.Size([5, 7, 3000])
             after stft transform
@@ -246,6 +248,14 @@ class ContraWR(BaseModel):
         return channels, emb_size
 
     def torch_stft(self, X):
+        """torch short time fourier transform (STFT)
+
+        Args:
+            X: (batch, n_channels, length)
+
+        Returns:
+            signal: (batch, n_channels, freq, time_steps)
+        """
         signal = []
         for s in range(X.shape[1]):
             spectral = torch.stft(
@@ -305,18 +315,18 @@ if __name__ == "__main__":
     # """
     # from pyhealth.datasets import split_by_patient, get_dataloader
     # from pyhealth.trainer import Trainer
-    # from pyhealth.datasets import SleepEDFCassetteDataset
-    # from pyhealth.tasks import sleep_staging_sleepedf_cassette_fn
+    # from pyhealth.datasets import SleepEDFDataset
+    # from pyhealth.tasks import sleep_staging_sleepedf_fn
 
     # # step 1: load signal data
-    # dataset = SleepEDFCassetteDataset(
+    # dataset = SleepEDFDataset(
     #     root="/srv/local/data/SLEEPEDF/sleep-edf-database-expanded-1.0.0/sleep-cassette",
     #     dev=True,
     #     refresh_cache=False,
     # )
 
     # # step 2: set task
-    # sleep_staging_ds = dataset.set_task(sleep_staging_sleepedf_cassette_fn)
+    # sleep_staging_ds = dataset.set_task(sleep_staging_sleepedf_fn)
     # sleep_staging_ds.stat()
     # print(sleep_staging_ds.input_info)
 
