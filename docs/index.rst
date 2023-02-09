@@ -256,19 +256,21 @@ We provide the following datasets for general purpose healthcare AI research:
 ===================  =======================================  ========================================  ======================================================================================================== 
 Dataset              Module                                   Year                                      Information                                                             
 ===================  =======================================  ========================================  ========================================================================================================
-MIMIC-III            ``pyhealth.datasets.MIMIC3BaseDataset``  2016                                      `MIMIC-III Clinical Database <https://physionet.org/content/mimiciii/1.4//>`_    
-MIMIC-IV             ``pyhealth.datasets.MIMIC4BaseDataset``  2020                                      `MIMIC-IV Clinical Database <https://physionet.org/content/mimiciv/0.4/>`_  
-eICU                 ``pyhealth.datasets.eICUBaseDataset``    2018                                      `eICU Collaborative Research Database <https://eicu-crd.mit.edu//>`_                 
-OMOP                 ``pyhealth.datasets.OMOPBaseDataset``                                              `OMOP-CDM schema based dataset <https://www.ohdsi.org/data-standardization/the-common-data-model/>`_                                    
+MIMIC-III            ``pyhealth.datasets.MIMIC3Dataset``      2016                                      `MIMIC-III Clinical Database <https://physionet.org/content/mimiciii/1.4//>`_    
+MIMIC-IV             ``pyhealth.datasets.MIMIC4Dataset``      2020                                      `MIMIC-IV Clinical Database <https://physionet.org/content/mimiciv/0.4/>`_  
+eICU                 ``pyhealth.datasets.eICUDataset``        2018                                      `eICU Collaborative Research Database <https://eicu-crd.mit.edu//>`_                 
+OMOP                 ``pyhealth.datasets.OMOPDataset``                                                  `OMOP-CDM schema based dataset <https://www.ohdsi.org/data-standardization/the-common-data-model/>`_    
+SleepEDF             ``pyhealth.datasets.SleepEDFDataset``    2018                                      `Sleep-EDF dataset <https://physionet.org/content/sleep-edfx/1.0.0/>`_                                
 ===================  =======================================  ========================================  ========================================================================================================
 
 
 Machine/Deep Learning Models
 -----------------------------
 
-==================================    ================  =================================  ======  ===========================================================================================================================================
+==================================    ================  =================================  ======  ============================================================================================================================================================================
 Model Name                            Type              Module                             Year    Reference
-==================================    ================  =================================  ======  ===========================================================================================================================================
+==================================    ================  =================================  ======  ============================================================================================================================================================================
+Multi-layer Perceptron                deep learning     ``pyhealth.models.MLP``            1986    `Backpropagation: theory, architectures, and applications <https://www.taylorfrancis.com/books/mono/10.4324/9780203763247/backpropagation-yves-chauvin-david-rumelhart>`_
 Convolutional Neural Network (CNN)    deep learning     ``pyhealth.models.CNN``            1989    `Handwritten Digit Recognition with a Back-Propagation Network <https://proceedings.neurips.cc/paper/1989/file/53c3bce66e43be4f209556518c2fcb54-Paper.pdf>`_
 Recurrent Neural Nets (RNN)           deep Learning     ``pyhealth.models.RNN``            2011    `Recurrent neural network based language model <http://www.fit.vutbr.cz/research/groups/speech/servite/2010/rnnlm_mikolov.pdf>`_
 Transformer                           deep Learning     ``pyhealth.models.Transformer``    2017    `Atention is All you Need <https://arxiv.org/abs/1706.03762>`_
@@ -276,7 +278,9 @@ RETAIN                                deep Learning     ``pyhealth.models.RETAIN
 GAMENet                               deep Learning     ``pyhealth.models.GAMENet``        2019    `GAMENet: Graph Attention Mechanism for Explainable Electronic Health Record Prediction <https://arxiv.org/abs/1809.01852>`_
 MICRON                                deep Learning     ``pyhealth.models.MICRON``         2021    `Change Matters: Medication Change Prediction with Recurrent Residual Networks <https://www.ijcai.org/proceedings/2021/0513>`_
 SafeDrug                              deep Learning     ``pyhealth.models.SafeDrug``       2021    `SafeDrug: Dual Molecular Graph Encoders for Recommending Effective and Safe Drug Combinations <https://arxiv.org/abs/2105.02711>`_
-==================================    ================  =================================  ======  ===========================================================================================================================================
+Deepr                                 deep Learning     ``pyhealth.models.Deepr``          2017    `Deepr : A Convolutional Net for Medical Records <https://arxiv.org/abs/1607.07519>`_
+ContraWR Encoder (STFT+CNN)           deep Learning     ``pyhealth.models.ContraWR``       2021    `Self-supervised EEG Representation Learning for Automatic Sleep Staging <https://arxiv.org/abs/2110.15278>`_
+==================================    ================  =================================  ======  ============================================================================================================================================================================
 
 
 Benchmark on Healthcare Tasks
