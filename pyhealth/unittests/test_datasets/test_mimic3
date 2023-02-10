@@ -21,8 +21,8 @@ class Mimic3Tests(unittest.TestCase):
         root=ROOT,
         tables=TABLES,
         code_mapping=CODE_MAPPING,
-        dev=DEV,
-        refresh_cache=False,
+        dev=DEV, # since we are using the demo dataset it doesn't matter. 
+        refresh_cache=True,
     )
 
     def setUp(self):
@@ -30,55 +30,31 @@ class Mimic3Tests(unittest.TestCase):
 
     # tests that a single event is correctly parsed
     def test_patient(self):
-        if self.DEV:
-            expected_patient_id = "101"
-            selected_patient_index = 4
+        
+        selected_patient_id = "10035"
+        selected_visit_id = "110244"
+        
+        expected_geneder = "M"
+        expected_ethnicity = "WHITE"
+        expected_birth_datetime = datetime.datetime(2053, 4, 13, 0, 0)
+        expected_death_datetime = None
 
-            expected_geneder = "M"
-            expected_ethnicity = "UNABLE TO OBTAIN"
-            expected_birth_datetime = datetime.datetime(1839, 3, 19, 0, 0)
-            expected_death_datetime = None
+        expected_visit_to_id_keys = [0]
+        expected_visit_to_id_values = [selected_visit_id]
 
-            expected_visit_to_id_keys = [0]
-            expected_visit_to_id_values = ["100104"]
+        expected_visit_id = "110244"
+        expected_num_visits = 1
+        expected_encounter_time = datetime.datetime(2129, 3, 3, 16, 6)
+        expected_discharge_time = datetime.datetime(2129, 3, 7, 18, 19)
 
-            expected_visit_id = "100104"
-            expected_num_visits = 1
-            expected_encounter_time = datetime.datetime(1839, 7, 6, 0, 0)
-            expected_discharge_time = datetime.datetime(1839, 7, 8, 0, 0)
+        expected_num_events_in_visit = 17
+        expected_num_event_types = 2
+        expected_num_events_diagnoses_icd = 4
+        expected_num_events_prescriptions = 13
+            
+        self.assertTrue(selected_patient_id in self.dataset.patients)
 
-            expected_num_events_in_visit = 11
-            expected_num_event_types = 2
-            expected_num_events_diagnoses_icd = 4
-            expected_num_events_prescriptions = 7
-
-        else:
-            expected_patient_id = "10"
-            selected_patient_index = 1
-
-            expected_geneder = "F"
-            expected_ethnicity = "WHITE"
-            expected_birth_datetime = datetime.datetime(1959, 5, 16, 0, 0)
-            expected_death_datetime = None
-
-            # self.dataset.patients['10'].index_to_visit_id {0: '100009'}
-            expected_visit_to_id_keys = [0]
-            expected_visit_to_id_values = ["100009"]
-
-            expected_visit_id = "100009"
-            expected_num_visits = 1
-            expected_encounter_time = datetime.datetime(1959, 6, 17, 0, 0)
-            expected_discharge_time = datetime.datetime(1959, 6, 17, 0, 0)
-
-            expected_num_events_in_visit = 32
-            expected_num_event_types = 2
-            expected_num_events_diagnoses_icd = 4
-            expected_num_events_prescriptions = 28
-
-        actual_patient_id = list(self.dataset.patients.keys())[selected_patient_index]
-        self.assertEqual(expected_patient_id, actual_patient_id)
-
-        actual_patient = self.dataset.patients[actual_patient_id]
+        actual_patient = self.dataset.patients[selected_patient_id]
 
         self.assertEqual(expected_geneder, actual_patient.gender)
         self.assertEqual(expected_ethnicity, actual_patient.ethnicity)
@@ -116,28 +92,16 @@ class Mimic3Tests(unittest.TestCase):
     # checks that parsed dataset statistics are consistent with prior runs.
     def test_statistics(self):
 
-        if self.DEV:
-            expected_dev = True
-            expected_num_patients = 1000
-            expected_num_visits = 1054
-            expected_num_visits_per_patient = 1.0540
-            expected_num_events_per_table = [
-                9.2068,
-                40.1869,
-            ]  # ["DIAGNOSES_ICD", "PRESCRIPTIONS"]
-        else:
-            expected_dev = False
-            expected_num_patients = 49993
-            expected_num_visits = 52769
-            expected_num_visits_per_patient = 1.0555
-            expected_num_events_per_table = [
-                9.1038,
-                32.9969,
-            ]  # ["DIAGNOSES_ICD", "PRESCRIPTIONS"]
+        expected_num_patients = 100
+        expected_num_visits = 129
+        expected_num_visits_per_patient = 1.2900
+        expected_num_events_per_table = [
+            13.6512,
+            56.7597,
+        ]  # ["DIAGNOSES_ICD", "PRESCRIPTIONS"]
 
         self.assertEqual(sorted(self.TABLES), sorted(self.dataset.available_tables))
 
-        self.assertEqual(expected_dev, self.dataset.dev)
         self.assertEqual(expected_num_patients, len(self.dataset.patients))
 
         actual_visits = [len(patient) for patient in self.dataset.patients.values()]
