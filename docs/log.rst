@@ -2,6 +2,21 @@ Development logs
 ======================
 We track the new development here:
 
+**Feb 08, 2023**
+
+.. code-block:: bash
+ 
+    1. complete the biosignal data support, add ContraWR [1] model for general purpose biosignal classification task ([1] Yang, Chaoqi, Danica Xiao, M. Brandon Westover, and Jimeng Sun. 
+        "Self-supervised eeg representation learning for automatic sleep staging."
+        arXiv preprint arXiv:2110.15278 (2021).)
+
+**Feb 07, 2023**
+
+.. code-block:: bash
+ 
+    1. Support signal dataset processing and split: add SampleSignalDataset, BaseSignalDataset. Use SleepEDFcassette dataset as the first signal dataset. Use example/sleep_staging_sleepEDF_contrawr.py
+    2. rename the dataset/ parts: previous BaseDataset becomes BaseEHRDataset and SampleDatast becomes SampleEHRDataset. Right now, BaseDataset will be inherited by BaseEHRDataset and BaseSignalDataset. SampleBaseDataset will be inherited by SampleEHRDataset and SampleSignalDataset.
+
 **Feb 06, 2023**
 
 .. code-block:: bash

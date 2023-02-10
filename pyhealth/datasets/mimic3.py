@@ -2,18 +2,15 @@ import os
 from typing import Optional, List, Dict, Tuple, Union
 
 import pandas as pd
-from pandarallel import pandarallel
 
 from pyhealth.data import Event, Visit, Patient
-from pyhealth.datasets import BaseDataset
+from pyhealth.datasets import BaseEHRDataset
 from pyhealth.datasets.utils import strptime
-
-pandarallel.initialize(progress_bar=False)
 
 # TODO: add other tables
 
 
-class MIMIC3Dataset(BaseDataset):
+class MIMIC3Dataset(BaseEHRDataset):
     """Base dataset for MIMIC-III dataset.
 
     The MIMIC-III dataset is a large dataset of de-identified health records of ICU
@@ -372,6 +369,7 @@ if __name__ == "__main__":
             "LABEVENTS",
         ],
         code_mapping={"NDC": "ATC"},
+        dev=True,
         refresh_cache=True,
     )
     dataset.stat()

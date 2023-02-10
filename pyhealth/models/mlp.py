@@ -2,7 +2,7 @@ from typing import List, Tuple, Dict, Optional
 
 import torch
 import torch.nn as nn
-from pyhealth.datasets import SampleDataset
+from pyhealth.datasets import SampleEHRDataset
 from pyhealth.models import BaseModel
 
 
@@ -51,7 +51,7 @@ class MLP(BaseModel):
         **kwargs: other parameters for the RNN layer.
 
     Examples:
-        >>> from pyhealth.datasets import SampleDataset
+        >>> from pyhealth.datasets import SampleEHRDataset
         >>> samples = [
         ...         {
         ...             "patient_id": "patient-0",
@@ -68,7 +68,7 @@ class MLP(BaseModel):
         ...             "label": 1,
         ...         },
         ...     ]
-        >>> dataset = SampleDataset(samples=samples, dataset_name="test")
+        >>> dataset = SampleEHRDataset(samples=samples, dataset_name="test")
         >>>
         >>> from pyhealth.models import MLP
         >>> model = MLP(
@@ -93,7 +93,7 @@ class MLP(BaseModel):
 
     def __init__(
         self,
-        dataset: SampleDataset,
+        dataset: SampleEHRDataset,
         feature_keys: List[str],
         label_key: str,
         mode: str,
@@ -310,7 +310,7 @@ class MLP(BaseModel):
 
 
 if __name__ == "__main__":
-    from pyhealth.datasets import SampleDataset
+    from pyhealth.datasets import SampleEHRDataset
 
     samples = [
         {
@@ -330,7 +330,7 @@ if __name__ == "__main__":
     ]
 
     # dataset
-    dataset = SampleDataset(samples=samples, dataset_name="test")
+    dataset = SampleEHRDataset(samples=samples, dataset_name="test")
 
     # data loader
     from pyhealth.datasets import get_dataloader

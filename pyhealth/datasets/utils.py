@@ -2,6 +2,7 @@ import hashlib
 import os
 from datetime import datetime
 from typing import List, Tuple, Optional
+import pickle
 
 from dateutil.parser import parse as dateutil_parse
 from torch.utils.data import DataLoader
@@ -117,9 +118,14 @@ def collate_fn_dict(batch):
 
 
 def get_dataloader(dataset, batch_size, shuffle=False):
+
     dataloader = DataLoader(
-        dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn_dict
+        dataset,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        collate_fn=collate_fn_dict,
     )
+
     return dataloader
 
 
