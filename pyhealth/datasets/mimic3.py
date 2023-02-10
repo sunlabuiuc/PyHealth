@@ -81,7 +81,7 @@ class MIMIC3Dataset(BaseDataset):
             - ADMISSIONS: https://mimic.mit.edu/docs/iii/tables/admissions/
 
         Args:
-            patients: a dict of `Patient` objects indexed by patient_id.
+            patients: a dict of `Patient` objects indexed by patient_id which is updated with the mimic-3 table result.
 
         Returns:
             The updated patients dict.
