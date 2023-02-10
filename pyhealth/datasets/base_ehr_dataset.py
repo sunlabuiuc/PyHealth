@@ -11,41 +11,27 @@ from tqdm import tqdm
 from pandarallel import pandarallel
 
 from pyhealth.data import Patient, Event
-<<<<<<< HEAD
-<<<<<<< HEAD
 from pyhealth.datasets.sample_dataset import SampleDataset
 from pyhealth.datasets.utils import MODULE_CACHE_PATH, hash_str, DATASET_BASIC_TABLES
-=======
 from pyhealth.datasets.sample_dataset import SampleEHRDataset
 from pyhealth.datasets.utils import MODULE_CACHE_PATH
 from pyhealth.datasets.utils import hash_str
->>>>>>> 6f221ed (signal input support up to data split part)
-=======
-<<<<<<< HEAD:pyhealth/datasets/base_ehr_dataset.py
-<<<<<<< HEAD:pyhealth/datasets/base_ehr_dataset.py
+
 from pyhealth.datasets.sample_dataset import SampleEHRDataset
 from pyhealth.datasets.utils import MODULE_CACHE_PATH
 from pyhealth.datasets.utils import hash_str
-=======
-from pyhealth.datasets.sample_dataset import SampleDataset
-<<<<<<< HEAD:pyhealth/datasets/base_ehr_dataset.py
+
 from pyhealth.datasets.utils import MODULE_CACHE_PATH, hash_str, DATASET_BASIC_TABLES
->>>>>>> 98d14b3 (add mimic3 test):pyhealth/datasets/base_dataset.py
-<<<<<<< HEAD
->>>>>>> 37fa8f8 (add mimic3 test)
-=======
-=======
 from pyhealth.datasets.utils import MODULE_CACHE_PATH
 from pyhealth.datasets.utils import hash_str
->>>>>>> c27500c (Revert "add mimic3 test"):pyhealth/datasets/base_dataset.py
-<<<<<<< HEAD
->>>>>>> 3b6ec70 (Revert "add mimic3 test")
-=======
-=======
+
 from pyhealth.datasets.sample_dataset import SampleDataset
 from pyhealth.datasets.utils import MODULE_CACHE_PATH, hash_str, DATASET_BASIC_TABLES
->>>>>>> a00dad8 (Revert "Revert "add mimic3 test""):pyhealth/datasets/base_dataset.py
->>>>>>> f176fcf (Revert "Revert "add mimic3 test"")
+
+from pyhealth.datasets.sample_dataset import SampleEHRDataset
+from pyhealth.datasets.utils import MODULE_CACHE_PATH
+from pyhealth.datasets.utils import hash_str
+
 from pyhealth.medcode import CrossMap
 from pyhealth.utils import load_pickle, save_pickle
 
@@ -119,6 +105,7 @@ class BaseEHRDataset(ABC):
             self.__class__.__name__ if dataset_name is None else dataset_name
         )
         self.root = root
+        
         self.code_mapping = code_mapping
         self.dev = dev
 
