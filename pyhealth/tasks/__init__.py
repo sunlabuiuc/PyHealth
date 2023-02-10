@@ -22,3 +22,6 @@ from .readmission_prediction import (
     readmission_prediction_mimic4_fn,
     readmission_prediction_omop_fn,
 )
+from .sleep_staging import (
+    sleep_staging_sleepedf_fn,
+)
