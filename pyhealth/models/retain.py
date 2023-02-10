@@ -148,65 +148,6 @@ class RETAIN(BaseModel):
         embedding_dim: the embedding dimension. Default is 128.
         **kwargs: other parameters for the RETAIN layer.
 
-    Examples:
-        >>> from pyhealth.datasets import SampleDataset
-        >>> samples = [
-        ...         {
-        ...             "patient_id": "patient-0",
-        ...             "visit_id": "visit-0",
-        ...             "list_codes": ["505800458", "50580045810", "50580045811"],  # NDC
-        ...             "list_vectors": [[1.0, 2.55, 3.4], [4.1, 5.5, 6.0]],
-        ...             "list_list_codes": [["A05B", "A05C", "A06A"], ["A11D", "A11E"]],  # ATC-4
-        ...             "list_list_vectors": [
-        ...                 [[1.8, 2.25, 3.41], [4.50, 5.9, 6.0]],
-        ...                 [[7.7, 8.5, 9.4]],
-        ...             ],
-        ...             "label": 1,
-        ...         },
-        ...         {
-        ...             "patient_id": "patient-0",
-        ...             "visit_id": "visit-1",
-        ...             "list_codes": [
-        ...                 "55154191800",
-        ...                 "551541928",
-        ...                 "55154192800",
-        ...                 "705182798",
-        ...                 "70518279800",
-        ...             ],
-        ...             "list_vectors": [[1.4, 3.2, 3.5], [4.1, 5.9, 1.7]],
-        ...             "list_list_codes": [["A04A", "B035", "C129"], ["A07B", "A07C"]],
-        ...             "list_list_vectors": [
-        ...                 [[1.0, 2.8, 3.3], [4.9, 5.0, 6.6]],
-        ...                 [[7.7, 8.4, 1.3]],
-        ...             ],
-        ...             "label": 0,
-        ...         },
-        ...     ]
-        >>> dataset = SampleDataset(samples=samples, dataset_name="test")
-        >>>
-        >>> from pyhealth.models import CNN
-        >>> model = CNN(
-        ...         dataset=dataset,
-        ...         feature_keys=[
-        ...             "list_codes",
-        ...             "list_vectors",
-        ...             "list_list_codes",
-        ...             # "list_list_vectors",
-        ...         ],
-        ...         label_key="label",
-        ...         mode="binary",
-        ...     )
-        >>>
-        >>> from pyhealth.datasets import get_dataloader
-        >>> train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
-        >>> data_batch = next(iter(train_loader))
-        >>>
-        >>> ret = model(**data_batch)
-        >>> print(ret)
-        {'loss': tensor(0.8725, grad_fn=<BinaryCrossEntropyWithLogitsBackward0>), 'y_prob': tensor([[0.7620],
-                [0.7339]], grad_fn=<SigmoidBackward0>), 'y_true': tensor([[0.],
-                [1.]])}
-        >>>
 
     Examples:
         >>> from pyhealth.datasets import SampleDataset
