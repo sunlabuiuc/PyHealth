@@ -11,27 +11,9 @@ from tqdm import tqdm
 from pandarallel import pandarallel
 
 from pyhealth.data import Patient, Event
-from pyhealth.datasets.sample_dataset import SampleDataset
-from pyhealth.datasets.utils import MODULE_CACHE_PATH, hash_str, DATASET_BASIC_TABLES
 from pyhealth.datasets.sample_dataset import SampleEHRDataset
-from pyhealth.datasets.utils import MODULE_CACHE_PATH
+from pyhealth.datasets.utils import MODULE_CACHE_PATH, DATASET_BASIC_TABLES
 from pyhealth.datasets.utils import hash_str
-
-from pyhealth.datasets.sample_dataset import SampleEHRDataset
-from pyhealth.datasets.utils import MODULE_CACHE_PATH
-from pyhealth.datasets.utils import hash_str
-
-from pyhealth.datasets.utils import MODULE_CACHE_PATH, hash_str, DATASET_BASIC_TABLES
-from pyhealth.datasets.utils import MODULE_CACHE_PATH
-from pyhealth.datasets.utils import hash_str
-
-from pyhealth.datasets.sample_dataset import SampleDataset
-from pyhealth.datasets.utils import MODULE_CACHE_PATH, hash_str, DATASET_BASIC_TABLES
-
-from pyhealth.datasets.sample_dataset import SampleEHRDataset
-from pyhealth.datasets.utils import MODULE_CACHE_PATH
-from pyhealth.datasets.utils import hash_str
-
 from pyhealth.medcode import CrossMap
 from pyhealth.utils import load_pickle, save_pickle
 
@@ -105,16 +87,20 @@ class BaseEHRDataset(ABC):
             self.__class__.__name__ if dataset_name is None else dataset_name
         )
         self.root = root
-        
+
         self.code_mapping = code_mapping
         self.dev = dev
 
-        # if we are using a premade dataset, no basic tables need to be provided. 
-        if self.dataset_name in DATASET_BASIC_TABLES and [ table for table in tables if table in DATASET_BASIC_TABLES[self.dataset_name]]:
+        # if we are using a premade dataset, no basic tables need to be provided.
+        if self.dataset_name in DATASET_BASIC_TABLES and [
+            table
+            for table in tables
+            if table in DATASET_BASIC_TABLES[self.dataset_name]
+        ]:
             raise AttributeError(
                 f"Basic tables are parsed by default and do not need to be explicitly selected. Basic tables for {self.dataset_name}: {DATASET_BASIC_TABLES[self.dataset_name]}"
             )
-        
+
         self.tables = tables
 
         # load medcode for code mapping

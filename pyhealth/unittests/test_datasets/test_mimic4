@@ -1,169 +1,117 @@
-<<<<<<< HEAD
-<<<<<<< HEAD
 import datetime
 import unittest
 
 from pyhealth.datasets import MIMIC4Dataset
 
 # this test suite verifies the MIMIC4 demo dataset is parsed correctly and produces
-# the correct dataset for demoing. To qualify the units under test we check the dataset statistics, 
+# the correct dataset for demoing. To qualify the units under test we check the dataset statistics,
 # and a single sample from the dataset.
-# 
-# the dataset can be found at https://physionet.org/content/mimic-iv-demo/2.2/
-# this test may because
-# a. MIMIC4, or BaseDataset source code was modified, introducing a bug
-# b. the dataset available at the file root has been modified
+
+
 class Mimic4Tests(unittest.TestCase):
-    
+
     # to test the file this path needs to be updated
-    ROOT = "~/Downloads/pyhealth_data/mimic-iv-clinical-database-demo-2.2/hosp"
+    ROOT = "https://storage.googleapis.com/pyhealth/mimiciv-demo/hosp/"
     TABLES = ["diagnoses_icd", "procedures_icd", "labevents"]
     CODE_MAPPING = {}
-    DEV = True # not needed when using demo set since its 100 patients large
-=======
-=======
->>>>>>> f176fcf (Revert "Revert "add mimic3 test"")
-import unittest
-from unittest.mock import Mock, patch
+    DEV = True  # not needed when using demo set since its 100 patients large
 
-from pyhealth.datasets import MIMIC4Dataset, BaseDataset
-
-within_eps = lambda a, b, epsilon: abs(a - b) < epsilon
-
-class Mimic4Tests(unittest.TestCase):
-    
-    TEST_EPS = 0.25
-    
-    ROOT = "https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-4/"
-    TABLES = ["diagnoses_icd", "procedures_icd", "prescriptions", "labevents"]
-    CODE_MAPPING = {"NDC": "ATC"}
-    DEV = True
-<<<<<<< HEAD
->>>>>>> 37fa8f8 (add mimic3 test)
-=======
->>>>>>> f176fcf (Revert "Revert "add mimic3 test"")
-    
     dataset = MIMIC4Dataset(
         root=ROOT,
         tables=TABLES,
         code_mapping=CODE_MAPPING,
         dev=DEV,
-        refresh_cache=False
+        refresh_cache=False,
     )
-    
+
     def setUp(self):
         pass
-    
-<<<<<<< HEAD
-<<<<<<< HEAD
+
     # test the dataset integrity based on a single sample.
     def test_patient(self):
-        expected_patient_id = '10000032'
-        
+        expected_patient_id = "10000032"
+
         expected_visit_count = 4
         expected_visit_to_id_keys = 3
-        expected_visit_to_id_values = '29079034'
-        
+        expected_visit_to_id_values = "29079034"
+
         expected_diagnoses_icd_event_count = 8
         expected_procedures_icd_event_count = 1
         expected_labevent_event_count = 57
-        expected_event_length = 66       
+        expected_event_length = 66
         expected_encounter_time = datetime.datetime(2180, 5, 6, 22, 23)
-        expected_discharge_time =  datetime.datetime(2180, 5, 7, 17, 15)
-        
+        expected_discharge_time = datetime.datetime(2180, 5, 7, 17, 15)
+
         actual_patient_id = list(self.dataset.patients.keys())[0]
         self.assertEqual(expected_patient_id, actual_patient_id)
-        
+
         actual_visits = self.dataset.patients[actual_patient_id]
         self.assertEqual(expected_visit_count, len(actual_visits))
-        self.assertEqual(expected_visit_to_id_keys, list(actual_visits.index_to_visit_id.keys())[-1])
-        self.assertEqual(expected_visit_to_id_values, list(actual_visits.index_to_visit_id.values())[-1])
-        
+        self.assertEqual(
+            expected_visit_to_id_keys, list(actual_visits.index_to_visit_id.keys())[-1]
+        )
+        self.assertEqual(
+            expected_visit_to_id_values,
+            list(actual_visits.index_to_visit_id.values())[-1],
+        )
+
         visit = actual_visits[0]
-        self.assertEqual(expected_diagnoses_icd_event_count, len(visit.event_list_dict['diagnoses_icd']))
-        self.assertEqual(expected_procedures_icd_event_count, len(visit.event_list_dict['procedures_icd']))
-        self.assertEqual(expected_labevent_event_count, len(visit.event_list_dict['labevents']))
+        self.assertEqual(
+            expected_diagnoses_icd_event_count,
+            len(visit.event_list_dict["diagnoses_icd"]),
+        )
+        self.assertEqual(
+            expected_procedures_icd_event_count,
+            len(visit.event_list_dict["procedures_icd"]),
+        )
+        self.assertEqual(
+            expected_labevent_event_count, len(visit.event_list_dict["labevents"])
+        )
         self.assertEqual(expected_event_length, visit.num_events)
         self.assertEqual(expected_encounter_time, visit.encounter_time)
         self.assertEqual(expected_discharge_time, visit.discharge_time)
-            
-    
+
     # checks data integrity based on statistics.
     def test_statistics(self):
-        
+
         print(self.dataset.info())
         print(self.dataset.stat())
-        
+
         expected_dev = self.DEV
-        expected_num_patients = 100 # for the reduced dataset at
+        expected_num_patients = 100  # for the reduced dataset at
         expected_num_visits = 275
         expected_num_visits_per_patient = 2.7500
         expected_num_events_per_table = [16.3855, 2.6255, 288.3891]
-        
+
         self.assertEqual(sorted(self.TABLES), sorted(self.dataset.available_tables))
-        
+
         self.assertEqual(expected_dev, self.dataset.dev)
         self.assertEqual(expected_num_patients, len(self.dataset.patients))
-        
+
         actual_visits = [len(patient) for patient in self.dataset.patients.values()]
         self.assertEqual(expected_num_visits, sum(actual_visits))
-        
+
         actual_visits_per_patient = sum(actual_visits) / len(actual_visits)
-        self.assertAlmostEqual(expected_num_visits_per_patient, actual_visits_per_patient, places=2)
-        
-        for expected_value, table in zip(expected_num_events_per_table, self.dataset.tables):
-            actual_num_events = [ len(v.get_event_list(table)) for p in self.dataset.patients.values() for v in p ]
-            
-            actual_value_per_event_type = sum(actual_num_events) / len(actual_num_events)
-            self.assertAlmostEqual(expected_value, actual_value_per_event_type, places=2)
-        
-if __name__ == '__main__':
+        self.assertAlmostEqual(
+            expected_num_visits_per_patient, actual_visits_per_patient, places=2
+        )
+
+        for expected_value, table in zip(
+            expected_num_events_per_table, self.dataset.tables
+        ):
+            actual_num_events = [
+                len(v.get_event_list(table))
+                for p in self.dataset.patients.values()
+                for v in p
+            ]
+
+            actual_value_per_event_type = sum(actual_num_events) / len(
+                actual_num_events
+            )
+            self.assertAlmostEqual(
+                expected_value, actual_value_per_event_type, places=2
+            )
+
+
+if __name__ == "__main__":
     unittest.main(verbosity=2)
-    
-=======
-=======
->>>>>>> f176fcf (Revert "Revert "add mimic3 test"")
-    # checks that dataset is ingested properly.
-    def test_initialization(self):
-    
-        self.dataset.stat()
-        self.dataset.info()
-    
-    
-        # if (self.DEV):
-        #     expected_dev = True
-        #     expected_num_patients = 1000
-        #     expected_num_visits = 1054
-        #     expected_num_visits_per_patient = 1.0540
-        #     expected_num_events_per_table = [ 9.2068, 40.1869 ] # ["DIAGNOSES_ICD", "PRESCRIPTIONS"]
-        # else:
-        #     expected_dev = False
-        #     expected_num_patients = 49993
-        #     expected_num_visits = 52769
-        #     expected_num_visits_per_patient = 1.0555
-        #     expected_num_events_per_table = [ 9.1038, 32.9969 ] # ["DIAGNOSES_ICD", "PRESCRIPTIONS"]
-        
-        # assert TABLES == self.dataset.available_tables
-        
-        # assert expected_dev == self.dataset.dev
-        # assert expected_num_patients == len(self.dataset.patients)
-        
-        # actual_visits = [len(patient) for patient in self.dataset.patients.values()]
-        # assert expected_num_visits == sum(actual_visits)
-        
-        # actual_visits_per_patient = sum(actual_visits) / len(actual_visits)
-        # assert within_eps(expected_num_visits_per_patient, actual_visits_per_patient, self.TEST_EPS)
-        
-        # for expected_value, table in zip(expected_num_events_per_table, self.dataset.tables):
-        #     actual_num_events = [ len(v.get_event_list(table)) for p in self.dataset.patients.values() for v in p ]
-            
-        #     actual_value_per_event_type = sum(actual_num_events) / len(actual_num_events)
-        #     assert within_eps(expected_value, actual_value_per_event_type, self.TEST_EPS)
-        
-if __name__ == '__main__':
-<<<<<<< HEAD
-    unittest.main(verbosity=2)
->>>>>>> 37fa8f8 (add mimic3 test)
-=======
-    unittest.main(verbosity=2)
->>>>>>> f176fcf (Revert "Revert "add mimic3 test"")
