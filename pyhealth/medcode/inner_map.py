@@ -33,7 +33,6 @@ class InnerMap(ABC):
     ):
         # abstractmethod prevents initialization of this class
         self.vocabulary = vocabulary
-        self.refresh_cache = refresh_cache
 
         pickle_filepath = os.path.join(MODULE_CACHE_PATH, self.vocabulary + ".pkl")
         csv_filename = self.vocabulary + ".csv"
@@ -59,6 +58,9 @@ class InnerMap(ABC):
             logger.debug(f"Saved {vocabulary} code to {pickle_filepath}")
             save_pickle(self.graph, pickle_filepath)
         return
+
+    def __repr__(self):
+        return f"InnerMap(vocabulary={self.vocabulary}, graph={self.graph})"
 
     @classmethod
     def load(_, vocabulary: str, refresh_cache: bool = False):
