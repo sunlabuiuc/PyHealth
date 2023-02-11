@@ -58,6 +58,9 @@ class CrossMap:
         self.t_class = getattr(medcode, target_vocabulary)()
         return
 
+    def __repr__(self):
+        return f"CrossMap(source_vocabulary={self.s_vocab}, source_class={self.s_class} target_vocabulary={self.t_vocab}, target_class={self.t_class})"
+
     @classmethod
     def load(
         cls,
