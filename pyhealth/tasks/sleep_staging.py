@@ -4,13 +4,13 @@ import mne
 
 
 def sleep_staging_sleepedf_fn(record, epoch_seconds=30):
-    """Processes a single patient for the sleep staging task.
+    """Processes a single patient for the sleep staging task on Sleep EDF.
 
-    Sleep staging aims at predicting the sleep stages (Awake, REM, N1, N2, N3) based on
+    Sleep staging aims at predicting the sleep stages (Awake, REM, N1, N2, N3, N4) based on
     the multichannel EEG signals. The task is defined as a multi-class classification.
 
     Args:
-        patient: a list of (root, PSG, Hypnogram) tuples, where PSG is the signal files and Hypnogram
+        patient: a list of (root, PSG, Hypnogram, save_to_path) tuples, where PSG is the signal files and Hypnogram
         contains the labels
         epoch_seconds: how long will each epoch be (in seconds)
 
@@ -62,6 +62,7 @@ def sleep_staging_sleepedf_fn(record, epoch_seconds=30):
             - 'Sleep stage 1'
             - 'Sleep stage 2'
             - 'Sleep stage 3'
+            - 'Sleep stage 4'
             - 'Sleep stage R'
             - 'Sleep stage ?'
             - 'Movement time'
@@ -80,6 +81,7 @@ def sleep_staging_sleepedf_fn(record, epoch_seconds=30):
             "Sleep stage 1",
             "Sleep stage 2",
             "Sleep stage 3",
+            "Sleep stage 4",
             "Sleep stage R",
         ]:
             continue
@@ -110,7 +112,7 @@ def sleep_staging_sleepedf_fn(record, epoch_seconds=30):
 
 
 if __name__ == "__main__":
-    from pyhealth.datasets import SleepEDFDataset
+    from pyhealth.datasets import SleepEDFDataset, SHHSDataset
 
     dataset = SleepEDFDataset(
         root="/srv/local/data/SLEEPEDF/sleep-edf-database-expanded-1.0.0/sleep-telemetry",

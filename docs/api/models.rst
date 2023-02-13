@@ -17,4 +17,5 @@ We implement the following models for supporting multiple healthcare predictive 
     models/pyhealth.models.SafeDrug
     models/pyhealth.models.Deepr
     models/pyhealth.models.ContraWR
+    models/pyhealth.models.SparcNet
 
