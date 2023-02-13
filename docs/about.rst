@@ -9,6 +9,8 @@ We are the `SunLab <http://sunlab.org/>`_ healthcare research team at UIUC.
 
 `Patrick Jiang <https://www.linkedin.com/in/patrick-j-3492b4235/>`_ (M.S. Student @ University of Illinois Urbana-Champaign)
 
+`Zhen Lin <https://zlin7.github.io/>`_ (Ph.D. Student @ University of Illinois Urbana-Champaign)
+
 `Jimeng Sun <http://sunlab.org/>`_ (Professor @ University of Illinois Urbana-Champaign)
 
 (* indicates equal contribution)
