@@ -159,7 +159,7 @@ class TransitionLayer(nn.Sequential):
 class SparcNet(BaseModel):
     """The SparcNet model for sleep staging.
 
-    Paper: Jing Jin, etc al. Development of Expert-level Classification of Seizures and Rhythmic and
+    Paper: Jin Jing, et al. Development of Expert-level Classification of Seizures and Rhythmic and
     Periodic Patterns During EEG Interpretation. Neurology 2023.
 
     Note:

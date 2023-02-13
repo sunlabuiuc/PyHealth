@@ -37,7 +37,7 @@ Welcome to PyHealth!
    :alt: Tutorials
 
 
-.. image:: https://img.shields.io/badge/YouTube-14%20Videos-red
+.. image:: https://img.shields.io/badge/YouTube-16%20Videos-red
    :target: https://www.youtube.com/playlist?list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV
    :alt: YouTube
 
