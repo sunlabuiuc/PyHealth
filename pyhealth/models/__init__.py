@@ -9,3 +9,4 @@ from .safedrug import SafeDrug, SafeDrugLayer
 from .mlp import MLP
 from .deepr import Deepr, DeeprLayer
 from .contrawr import ResBlock2D, ContraWR
+from .sparcnet import SparcNet, DenseBlock, DenseLayer, TransitionLayer
