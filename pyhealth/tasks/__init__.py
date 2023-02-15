@@ -25,3 +25,5 @@ from .readmission_prediction import (
 from .sleep_staging import (
     sleep_staging_sleepedf_fn,
 )
+
+from .covid19_classification import covid19_classification_fn

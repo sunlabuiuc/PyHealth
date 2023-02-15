@@ -10,3 +10,4 @@ from .mlp import MLP
 from .deepr import Deepr, DeeprLayer
 from .contrawr import ResBlock2D, ContraWR
 from .sparcnet import SparcNet, DenseBlock, DenseLayer, TransitionLayer
+from .resnet import ResNet
