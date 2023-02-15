@@ -6,7 +6,12 @@ from .eicu import eICUDataset
 from .mimic3 import MIMIC3Dataset
 from .mimic4 import MIMIC4Dataset
 from .omop import OMOPDataset
-from .sample_dataset import SampleBaseDataset, SampleSignalDataset, SampleEHRDataset
+from .sample_dataset import (
+    SampleBaseDataset,
+    SampleSignalDataset,
+    SampleImageDataset,
+    SampleEHRDataset,
+)
 from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset
 from .splitter import split_by_patient, split_by_visit
