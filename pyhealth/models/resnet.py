@@ -21,11 +21,9 @@ class ResNet(BaseModel):
             e.g. ["conditions", "procedures"].
         label_key: key in samples to use as label (e.g., "drugs").
         mode: one of "binary", "multiclass", or "multilabel".
-        embedding_dim: the embedding dimension. Default is 128.
-        hidden_dim: the hidden dimension. Default is 128.
-        **kwargs: other parameters for the Deepr layer.
-
-    Examples:
+        pretrained: whether to use pretrained weights. Default is False.
+        num_layers: number of resnet layers. Supported values are 18, 34, 50, 101, 152.
+            Default is 18.
     """
 
     def __init__(
