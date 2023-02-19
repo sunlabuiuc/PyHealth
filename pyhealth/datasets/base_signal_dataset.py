@@ -43,6 +43,7 @@ class BaseSignalDataset(ABC):
         dataset_name: Optional[str] = None,
         dev: bool = False,
         refresh_cache: bool = False,
+        **kwargs: Optional[Dict],
     ):
 
         # base attributes
@@ -57,6 +58,9 @@ class BaseSignalDataset(ABC):
         args_to_hash = [self.dataset_name, root] + ["dev" if dev else "prod"]
         filename = hash_str("+".join([str(arg) for arg in args_to_hash]))
         self.filepath = os.path.join(MODULE_CACHE_PATH, filename)
+
+        # for task-specific attributes
+        self.kwargs = kwargs
 
         self.patients = self.process_EEG_data()
 
