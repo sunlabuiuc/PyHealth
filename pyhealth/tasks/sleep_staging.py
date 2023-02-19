@@ -3,9 +3,43 @@ import pickle
 import mne
 import pandas as pd
 import numpy as np
-import ipdb
     
 def sleep_staging_isruc_fn(record, epoch_seconds=10, label_id=1):
+    """Processes a single patient for the sleep staging task on ISRUC.
+
+    Sleep staging aims at predicting the sleep stages (Awake, N1, N2, N3, REM) based on
+    the multichannel EEG signals. The task is defined as a multi-class classification.
+
+    Args:
+        record: a singleton list of one subject from the ISRUCDataset.
+            The (single) record is a dictionary with the following keys: 
+                load_from_path, signal_file, label1_file, label2_file, save_to_path, subject_id
+        epoch_seconds: how long will each epoch be (in seconds). 
+            It has to be a factor of 30 because the original data was labeled every 30 seconds.
+        label_id: which set of labels to use. ISURC is labeled by *two* experts. 
+            By default we use the first set of labels (label_id=1).
+
+    Returns:
+        samples: a list of samples, each sample is a dict with patient_id, record_id,
+            and epoch_path (the path to the saved epoch {"X": signal, "Y": label} as key.
+
+    Note that we define the task as a multi-class classification task.
+
+    Examples:
+        >>> from pyhealth.datasets import ISRUCDataset
+        >>> isruc = ISRUCDataset(
+        ...         root="/srv/local/data/data/ISRUC-I", download=True,
+        ...     )
+        >>> from pyhealth.tasks import sleep_staging_isruc_fn
+        >>> sleepstage_ds = isruc.set_task(sleep_staging_isruc_fn)
+        >>> sleepstage_ds.samples[0]
+        {
+            'record_id': '1-0', 
+            'patient_id': '1', 
+            'epoch_path': '/home/zhenlin4/.cache/pyhealth/datasets/832afe6e6e8a5c9ea5505b47e7af8125/10-1/1/0.pkl', 
+            'label': 'W'
+        }
+    """
     SAMPLE_RATE = 200
     assert 30 % epoch_seconds == 0, "ISRUC is annotated every 30 seconds."
     _channels = ['F3', 'F4', 'C3', 'C4', 'O1', 'O2'] # https://arxiv.org/pdf/1910.06100.pdf
