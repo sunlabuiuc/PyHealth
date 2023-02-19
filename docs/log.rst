@@ -2,6 +2,14 @@ Development logs
 ======================
 We track the new development here:
 
+**Feb 12, 2023**
+
+.. code-block:: bash
+ 
+    1. add unittest for mimiciii, mimiciv
+    2. add SHHS datasets for sleep staging task
+    3. add SparcNet model for signal classification task
+
 **Feb 08, 2023**
 
 .. code-block:: bash
