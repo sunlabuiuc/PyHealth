@@ -126,6 +126,3 @@ if __name__ == '__main__':
     dataset.stat()
     dataset.info()
     print(list(dataset.patients.items())[0])
-    
-    from pyhealth.tasks import sleep_staging_isruc_fn
-    sleep_staging_ds = dataset.set_task(sleep_staging_isruc_fn)
