@@ -4,6 +4,7 @@ import unittest
 from pyhealth.data.data import Event
 
 from pyhealth.datasets import eICUDataset
+from pyhealth.unittests.test_datasets.utils import EHRDatasetStatAssertion
 
 
 class eICUDataset(unittest.TestCase):
@@ -128,55 +129,19 @@ class eICUDataset(unittest.TestCase):
                 self.assertEqual(expected_pyhealth_Event.code, actual_event.code, error_message)
                 self.assertEqual(expected_pyhealth_Event.timestamp, actual_event.timestamp, error_message)
                 self.assertEqual(expected_pyhealth_Event.vocabulary, actual_event.vocabulary, error_message)
-                        
-        self.dataset.info()
+                    
         
     def test_statistics(self):
-        self.dataset.stat()
-        """
-        - Dataset: eICUDataset
-        - Number of patients: 2174
-        - Number of visits: 2520
-        - Number of visits per patient: 1.1592
-        - Number of events per visit in diagnosis: 16.7202
-        - Number of events per visit in medication: 17.8345
-        - Number of events per visit in lab: 172.4841
-        - Number of events per visit in treatment: 15.1944
-        - Number of events per visit in physicalExam: 33.3563
-        """
-        
-        expected_num_patients = 2174
-        expected_num_visits = 2520
-        expected_num_visits_per_patient = 1.1592
-        expected_events_per_visit_per_table = [16.7202, 17.8345, 172.4841, 15.1944, 33.3563] # orderd wrt tables
+        # self.dataset.stat()
         
         self.assertEqual(sorted(self.TABLES), sorted(self.dataset.available_tables))
-        
-        self.assertEqual(expected_num_patients, len(self.dataset.patients))
-        
-        actual_visits = [len(patient) for patient in self.dataset.patients.values()]
-        self.assertEqual(expected_num_visits, sum(actual_visits))
-        
-        actual_visits_per_patient = sum(actual_visits) / len(actual_visits)
-        self.assertAlmostEqual(
-            expected_num_visits_per_patient, actual_visits_per_patient, places=2
+                
+        EHRDatasetStatAssertion(self.dataset, 0.01).assertEHRStats(
+            expected_num_patients=2174,
+            expected_num_visits=2520,
+            expected_num_visits_per_patient=1.1592,
+            expected_events_per_visit_per_table=[16.7202, 17.8345, 172.4841, 15.1944, 33.3563]    
         )
-
-        for expected_value, table in zip(
-            expected_events_per_visit_per_table, self.dataset.tables
-        ):
-            actual_num_events = [
-                len(v.get_event_list(table))
-                for p in self.dataset.patients.values()
-                for v in p
-            ]
-
-            actual_value_per_event_type = sum(actual_num_events) / len(
-                actual_num_events
-            )
-            self.assertAlmostEqual(
-                expected_value, actual_value_per_event_type, places=2
-            )
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
