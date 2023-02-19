@@ -366,7 +366,8 @@ MIMIC-III            ``pyhealth.datasets.MIMIC3Dataset``      2016              
 MIMIC-IV             ``pyhealth.datasets.MIMIC4Dataset``      2020                                      `MIMIC-IV Clinical Database <https://physionet.org/content/mimiciv/0.4/>`_  
 eICU                 ``pyhealth.datasets.eICUDataset``        2018                                      `eICU Collaborative Research Database <https://eicu-crd.mit.edu//>`_                 
 OMOP                 ``pyhealth.datasets.OMOPDataset``                                                  `OMOP-CDM schema based dataset <https://www.ohdsi.org/data-standardization/the-common-data-model/>`_    
-SleepEDF             ``pyhealth.datasets.SleepEDFDataset``    2018                                      `Sleep-EDF dataset <https://physionet.org/content/sleep-edfx/1.0.0/>`_                                
+SleepEDF             ``pyhealth.datasets.SleepEDFDataset``    2018                                      `Sleep-EDF dataset <https://physionet.org/content/sleep-edfx/1.0.0/>`_
+SHHS                 ``pyhealth.datasets.SHHSDataset``        2016                                      `Sleep Heart Health Study dataset <https://sleepdata.org/datasets/shhs>`_                                
 ===================  =======================================  ========================================  ========================================================================================================
 
 
@@ -386,6 +387,7 @@ MICRON                                deep Learning     ``pyhealth.models.MICRON
 SafeDrug                              deep Learning     ``pyhealth.models.SafeDrug``       2021    `SafeDrug: Dual Molecular Graph Encoders for Recommending Effective and Safe Drug Combinations <https://arxiv.org/abs/2105.02711>`_
 Deepr                                 deep Learning     ``pyhealth.models.Deepr``          2017    `Deepr : A Convolutional Net for Medical Records <https://arxiv.org/abs/1607.07519>`_
 ContraWR Encoder (STFT+CNN)           deep Learning     ``pyhealth.models.ContraWR``       2021    `Self-supervised EEG Representation Learning for Automatic Sleep Staging <https://arxiv.org/abs/2110.15278>`_
+SparcNet (1D CNN)                     deep Learning     ``pyhealth.models.SparcNet``       2023    `Development of Expert-level Classification of Seizures and Rhythmic and Periodic Patterns During EEG Interpretation <#>`_
 ==================================    ================  =================================  ======  ============================================================================================================================================================================
 
 * Check the `interactive map on benchmark EHR predictive tasks <https://pyhealth.readthedocs.io/en/latest/index.html#benchmark-on-healthcare-tasks>`_.
@@ -395,10 +397,12 @@ ContraWR Encoder (STFT+CNN)           deep Learning     ``pyhealth.models.Contra
 
 .. code-block:: bibtex
 
-    @software{pyhealth2022github,
+    @misc{pyhealth2022github,
         author = {Chaoqi Yang and Zhenbang Wu and Patrick Jiang and Jimeng Sun},
         title = {{PyHealth}: A Deep Learning Toolkit for Healthcare Predictive Modeling},
         url = {https://github.com/sunlabuiuc/PyHealth},
         year = {2022},
+        month = {09},
+        organization = {SunLab, UIUC},
     }
 
