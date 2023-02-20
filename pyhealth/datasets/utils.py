@@ -2,6 +2,7 @@ import hashlib
 import os
 from datetime import datetime
 from typing import List, Tuple, Optional
+import pickle
 
 from dateutil.parser import parse as dateutil_parse
 from torch.utils.data import DataLoader
@@ -11,6 +12,13 @@ from pyhealth.utils import create_directory
 
 MODULE_CACHE_PATH = os.path.join(BASE_CACHE_PATH, "datasets")
 create_directory(MODULE_CACHE_PATH)
+
+
+# basic tables which are a part of the defined datasets
+DATASET_BASIC_TABLES = {
+    "MIMIC3Dataset": {"PATIENTS", "ADMISSIONS"},
+    "MIMIC4Dataset": {"patients", "admission"},
+}
 
 
 def hash_str(s):
@@ -117,9 +125,14 @@ def collate_fn_dict(batch):
 
 
 def get_dataloader(dataset, batch_size, shuffle=False):
+
     dataloader = DataLoader(
-        dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn_dict
+        dataset,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        collate_fn=collate_fn_dict,
     )
+
     return dataloader
 
 

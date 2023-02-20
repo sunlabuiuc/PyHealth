@@ -2,6 +2,49 @@ Development logs
 ======================
 We track the new development here:
 
+**Feb 19, 2023**
+
+.. code-block:: bash
+ 
+    1. add unittest for eicu dataset
+    2. add ISRUC dataset (and task function) for signal learning
+
+**Feb 12, 2023**
+
+.. code-block:: bash
+ 
+    1. add unittest for mimiciii, mimiciv
+    2. add SHHS datasets for sleep staging task
+    3. add SparcNet model for signal classification task
+
+**Feb 08, 2023**
+
+.. code-block:: bash
+ 
+    1. complete the biosignal data support, add ContraWR [1] model for general purpose biosignal classification task ([1] Yang, Chaoqi, Danica Xiao, M. Brandon Westover, and Jimeng Sun. 
+        "Self-supervised eeg representation learning for automatic sleep staging."
+        arXiv preprint arXiv:2110.15278 (2021).)
+
+**Feb 07, 2023**
+
+.. code-block:: bash
+ 
+    1. Support signal dataset processing and split: add SampleSignalDataset, BaseSignalDataset. Use SleepEDFcassette dataset as the first signal dataset. Use example/sleep_staging_sleepEDF_contrawr.py
+    2. rename the dataset/ parts: previous BaseDataset becomes BaseEHRDataset and SampleDatast becomes SampleEHRDataset. Right now, BaseDataset will be inherited by BaseEHRDataset and BaseSignalDataset. SampleBaseDataset will be inherited by SampleEHRDataset and SampleSignalDataset.
+
+**Feb 06, 2023**
+
+.. code-block:: bash
+ 
+    1. improve readme style
+    2. add the pyhealth live 06 and 07 link to pyhealth live
+
+**Feb 01, 2023**
+
+.. code-block:: bash
+ 
+    1. add unittest of PyHealth MedCode and Tokenizer
+
 **Jan 26, 2023**
 
 .. code-block:: bash
@@ -28,7 +71,7 @@ We track the new development here:
     1. Fix the list of list of vector problem in RNN, Transformer, RETAIN, and CNN
     2. Add initialization examples for RNN, Transformer, RETAIN, CNN, and Deepr
     3. (minor) change the parameters from "Type" and "level" to "type_" and "dim_"
-    4. BPDanek adds the __repr__ function to medcode for better print understanding
+    4. BPDanek adds the "__repr__" function to medcode for better print understanding
     5. add unittest for pyhealth.data
 
 **Jan 21, 2023**

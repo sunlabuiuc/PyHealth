@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.utils.rnn as rnn_utils
 
-from pyhealth.datasets import SampleDataset
+from pyhealth.datasets import SampleEHRDataset
 from pyhealth.models import BaseModel
 
 
@@ -159,7 +159,7 @@ class RNN(BaseModel):
         **kwargs: other parameters for the RNN layer.
 
     Examples:
-        >>> from pyhealth.datasets import SampleDataset
+        >>> from pyhealth.datasets import SampleEHRDataset
         >>> samples = [
         ...         {
         ...             "patient_id": "patient-0",
@@ -191,7 +191,7 @@ class RNN(BaseModel):
         ...             "label": 0,
         ...         },
         ...     ]
-        >>> dataset = SampleDataset(samples=samples, dataset_name="test")
+        >>> dataset = SampleEHRDataset(samples=samples, dataset_name="test")
         >>>
         >>> from pyhealth.models import RNN
         >>> model = RNN(
@@ -222,7 +222,7 @@ class RNN(BaseModel):
 
     def __init__(
         self,
-        dataset: SampleDataset,
+        dataset: SampleEHRDataset,
         feature_keys: List[str],
         label_key: str,
         mode: str,
@@ -372,7 +372,7 @@ class RNN(BaseModel):
 
 
 if __name__ == "__main__":
-    from pyhealth.datasets import SampleDataset
+    from pyhealth.datasets import SampleEHRDataset
 
     samples = [
         {
@@ -409,7 +409,7 @@ if __name__ == "__main__":
     ]
 
     # dataset
-    dataset = SampleDataset(samples=samples, dataset_name="test")
+    dataset = SampleEHRDataset(samples=samples, dataset_name="test")
 
     # data loader
     from pyhealth.datasets import get_dataloader
