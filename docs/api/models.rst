@@ -17,5 +17,11 @@ We implement the following models for supporting multiple healthcare predictive 
     models/pyhealth.models.SafeDrug
     models/pyhealth.models.Deepr
     models/pyhealth.models.ContraWR
+    models/pyhealth.models.StageNet
+    models/pyhealth.models.AdaCare
+    models/pyhealth.models.ConCare
+    models/pyhealth.models.Agent
+    models/pyhealth.models.GRASP
+    models/pyhealth.models.TCN
     models/pyhealth.models.SparcNet
 

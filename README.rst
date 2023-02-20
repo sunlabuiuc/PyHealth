@@ -374,26 +374,47 @@ ISRUC                ``pyhealth.datasets.ISRUCDataset``       2016              
 
 8. Machine/Deep Learning Models and Benchmarks :airplane:
 ----------------------------------------------------------
+Basic deep learning models
+
 
 ==================================    ================  =================================  ======  ============================================================================================================================================================================
 Model Name                            Type              Module                             Year    Reference
 ==================================    ================  =================================  ======  ============================================================================================================================================================================
 Multi-layer Perceptron                deep learning     ``pyhealth.models.MLP``            1986    `Backpropagation: theory, architectures, and applications <https://www.taylorfrancis.com/books/mono/10.4324/9780203763247/backpropagation-yves-chauvin-david-rumelhart>`_
 Convolutional Neural Network (CNN)    deep learning     ``pyhealth.models.CNN``            1989    `Handwritten Digit Recognition with a Back-Propagation Network <https://proceedings.neurips.cc/paper/1989/file/53c3bce66e43be4f209556518c2fcb54-Paper.pdf>`_
-Recurrent Neural Nets (RNN)           deep Learning     ``pyhealth.models.RNN``            2011    `Recurrent neural network based language model <http://www.fit.vutbr.cz/research/groups/speech/servite/2010/rnnlm_mikolov.pdf>`_
-Transformer                           deep Learning     ``pyhealth.models.Transformer``    2017    `Atention is All you Need <https://arxiv.org/abs/1706.03762>`_
-RETAIN                                deep Learning     ``pyhealth.models.RETAIN``         2016    `RETAIN: An Interpretable Predictive Model for Healthcare using Reverse Time Attention Mechanism <https://arxiv.org/abs/1608.05745>`_
-GAMENet                               deep Learning     ``pyhealth.models.GAMENet``        2019    `GAMENet: Graph Attention Mechanism for Explainable Electronic Health Record Prediction <https://arxiv.org/abs/1809.01852>`_
-MICRON                                deep Learning     ``pyhealth.models.MICRON``         2021    `Change Matters: Medication Change Prediction with Recurrent Residual Networks <https://www.ijcai.org/proceedings/2021/0513>`_
-SafeDrug                              deep Learning     ``pyhealth.models.SafeDrug``       2021    `SafeDrug: Dual Molecular Graph Encoders for Recommending Effective and Safe Drug Combinations <https://arxiv.org/abs/2105.02711>`_
-Deepr                                 deep Learning     ``pyhealth.models.Deepr``          2017    `Deepr : A Convolutional Net for Medical Records <https://arxiv.org/abs/1607.07519>`_
-ContraWR Encoder (STFT+CNN)           deep Learning     ``pyhealth.models.ContraWR``       2021    `Self-supervised EEG Representation Learning for Automatic Sleep Staging <https://arxiv.org/abs/2110.15278>`_
-SparcNet (1D CNN)                     deep Learning     ``pyhealth.models.SparcNet``       2023    `Development of Expert-level Classification of Seizures and Rhythmic and Periodic Patterns During EEG Interpretation <#>`_
+Recurrent Neural Nets (RNN)           deep learning     ``pyhealth.models.RNN``            2011    `Recurrent neural network based language model <http://www.fit.vutbr.cz/research/groups/speech/servite/2010/rnnlm_mikolov.pdf>`_
+Transformer                           deep learning     ``pyhealth.models.Transformer``    2017    `Atention is All you Need <https://arxiv.org/abs/1706.03762>`_
+TCN                                   deep learning     ``pyhealth.models.TCN``            2018    `Temporal Convolutional Networks <https://arxiv.org/abs/1803.01271>`_
+==================================    ================  =================================  ======  ============================================================================================================================================================================
+
+EHR prediction models
+
+==================================    ================  =================================  ======  =============================================================================================================================================================================  =====================================================================================================================================================================================
+Model Name                            Type              Module                             Year    TL;DR                                                                                                                                                                          Reference
+==================================    ================  =================================  ======  =============================================================================================================================================================================  =====================================================================================================================================================================================
+RETAIN                                deep learning     ``pyhealth.models.RETAIN``         2016    RETAIN uses two RNN to learn patient embeddings while providing feature-level and visit-level importance.                                                                      `RETAIN: An Interpretable Predictive Model for Healthcare using Reverse Time Attention Mechanism <https://arxiv.org/abs/1608.05745>`_                                               
+AdaCare                               deep learning     ``pyhealth.models.AdaCare``        2020    AdaCare uses CNNs with dilated filters to learn enriched patient embedding. It uses feature calibration module to provide the feature-level and visit-level interpretability.  `AdaCare: Explainable Clinical Health Status Representation Learning via Scale-Adaptive Feature Extraction and Recalibration <https://arxiv.org/abs/1911.12205>`_
+ConCare                               deep learning     ``pyhealth.models.ConCare``        2020    ConCare uses transformers to learn patient embedding and calculate inter-feature correlations.                                                                                 `ConCare: Personalized Clinical Feature Embedding via Capturing the Healthcare Context <https://arxiv.org/abs/1911.12216>`_
+StageNet                              deep learning     ``pyhealth.models.StageNet``       2020    StageNet uses stage-aware LSTM to conduct clinical predictive tasks while learning patient disease progression stage change unsupervisedly.                                    `StageNet: Stage-Aware Neural Networks for Health Risk Prediction <https://arxiv.org/abs/2001.10054>`_
+Dr. Agent                             deep learning     ``pyhealth.models.Agent``          2020    Dr. Agent uses two reinforcement learning agents to learn patient embeddings by mimicking clinical second opinions.                                                            `Dr. Agent: Clinical predictive model via mimicked second opinions <https://academic.oup.com/jamia/article/27/7/1084/5858308>`_
+GRASP                                 deep learning     ``pyhealth.models.GRASP``          2021    GRASP uses graph neural network to identify latent patient clusters and uses the clustering information to learn patient.                                                      `GRASP: Generic Framework for Health Status Representation Learning Based on Incorporating Knowledge from Similar Patients <https://ojs.aaai.org/index.php/AAAI/article/view/16152>`_
+==================================    ================  =================================  ======  =============================================================================================================================================================================  =====================================================================================================================================================================================
+
+Other tasks
+
+==================================    ================  =================================  ======  ============================================================================================================================================================================
+Model Name                            Type              Module                             Year    Reference
+==================================    ================  =================================  ======  ============================================================================================================================================================================
+GAMENet                               deep learning     ``pyhealth.models.GAMENet``        2019    `GAMENet: Graph Attention Mechanism for Explainable Electronic Health Record Prediction <https://arxiv.org/abs/1809.01852>`_
+MICRON                                deep learning     ``pyhealth.models.MICRON``         2021    `Change Matters: Medication Change Prediction with Recurrent Residual Networks <https://www.ijcai.org/proceedings/2021/0513>`_
+SafeDrug                              deep learning     ``pyhealth.models.SafeDrug``       2021    `SafeDrug: Dual Molecular Graph Encoders for Recommending Effective and Safe Drug Combinations <https://arxiv.org/abs/2105.02711>`_
+Deepr                                 deep learning     ``pyhealth.models.Deepr``          2017    `Deepr : A Convolutional Net for Medical Records <https://arxiv.org/abs/1607.07519>`_
+ContraWR Encoder (STFT+CNN)           deep learning     ``pyhealth.models.ContraWR``       2021    `Self-supervised EEG Representation Learning for Automatic Sleep Staging <https://arxiv.org/abs/2110.15278>`_
 ==================================    ================  =================================  ======  ============================================================================================================================================================================
 
 * Check the `interactive map on benchmark EHR predictive tasks <https://pyhealth.readthedocs.io/en/latest/index.html#benchmark-on-healthcare-tasks>`_.
 
-9. Citing PyHealth :handshake:
+1. Citing PyHealth :handshake:
 ----------------------------------
 
 .. code-block:: bibtex
