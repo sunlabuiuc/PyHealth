@@ -15,3 +15,4 @@ from .agent import Agent, AgentLayer
 from .grasp import GRASP, GRASPLayer
 from .stagenet import StageNet, StageNetLayer
 from .tcn import TCN, TCNLayer
+from .sparcnet import SparcNet, DenseBlock, DenseLayer, TransitionLayer

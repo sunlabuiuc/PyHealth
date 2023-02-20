@@ -1,23 +1,27 @@
 from pyhealth.datasets import split_by_patient, get_dataloader
 from pyhealth.trainer import Trainer
-from pyhealth.datasets import SleepEDFDataset
-from pyhealth.tasks import sleep_staging_sleepedf_fn
+from pyhealth.datasets import ISRUCDataset
+from pyhealth.tasks import sleep_staging_isruc_fn
 from pyhealth.models import ContraWR, SparcNet
 
 # step 1: load signal data
-dataset = SleepEDFDataset(
-    root="/srv/local/data/SLEEPEDF/sleep-edf-database-expanded-1.0.0/sleep-cassette",
+dataset = ISRUCDataset(
+    root="/srv/local/data/trash/",
     dev=True,
     refresh_cache=False,
+    # download=True,
 )
 
+print(dataset.stat())
+
 # step 2: set task
-sleep_staging_ds = dataset.set_task(sleep_staging_sleepedf_fn)
+sleep_staging_ds = dataset.set_task(sleep_staging_isruc_fn)
 sleep_staging_ds.stat()
+print(sleep_staging_ds.samples[0])
 
 # split dataset
 train_dataset, val_dataset, test_dataset = split_by_patient(
-    sleep_staging_ds, [0.6, 0.2, 0.2]
+    sleep_staging_ds, [0.34, 0.33, 0.33]
 )
 train_dataloader = get_dataloader(train_dataset, batch_size=32, shuffle=True)
 val_dataloader = get_dataloader(val_dataset, batch_size=32, shuffle=False)

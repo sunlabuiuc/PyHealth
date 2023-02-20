@@ -28,7 +28,7 @@ class SleepEDFDataset(BaseSignalDataset):
 
     Args:
         dataset_name: name of the dataset.
-        root: root directory of the raw data (should contain many csv files).
+        root: root directory of the raw data. *You can choose to use the path to Cassette portion or the Telemetry portion.*
         dev: whether to enable dev mode (only use a small subset of the data).
             Default is False.
         refresh_cache: whether to refresh the cache; if true, the dataset will
@@ -64,7 +64,7 @@ class SleepEDFDataset(BaseSignalDataset):
             patient_ids = patient_ids[:5]
         # get patient to record maps
         #    - key: pid:
-        #    - value: [(PSG.edf, Hypnogram.edf), ...]
+        #    - value: [{"load_from_path": None, "signal_file": None, "label_file": None, "save_to_path": None}, ...]
         patients = {
             pid: [
                 {
