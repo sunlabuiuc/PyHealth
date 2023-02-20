@@ -10,3 +10,9 @@ from .mlp import MLP
 from .deepr import Deepr, DeeprLayer
 from .contrawr import ResBlock2D, ContraWR
 from .sparcnet import SparcNet, DenseBlock, DenseLayer, TransitionLayer
+from .adacare import AdaCare, AdaCareLayer
+from .concare import ConCare, ConCareLayer
+from .agent import Agent, AgentLayer
+from .grasp import GRASP, GRASPLayer
+from .stagenet import StageNet, StageNetLayer
+from .tcn import TCN, TCNLayer
