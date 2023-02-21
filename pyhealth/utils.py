@@ -5,6 +5,8 @@ import random
 import numpy as np
 import torch
 
+from pyhealth import BASE_CACHE_PATH
+
 
 def set_seed(seed):
     random.seed(seed)
@@ -31,3 +33,10 @@ def load_pickle(filename):
 def save_pickle(data, filename):
     with open(filename, "wb") as f:
         pickle.dump(data, f)
+
+# used for aggregating pickles created.
+def record_dataset_cache(repo_root, filepath_to_record):
+    f = open(os.path.join(repo_root, "pickled_datasets.txt"), "a")
+    f.write(filepath_to_record)
+    f.write("\n")
+    f.close()

@@ -1,10 +1,13 @@
 import datetime
 import unittest
 import os, sys
+
 current = os.path.dirname(os.path.realpath(__file__))
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(current))))
+repo_root = os.path.dirname(os.path.dirname(os.path.dirname(current)))
+sys.path.append(repo_root)
 
 from pyhealth.datasets import MIMIC3Dataset
+from pyhealth.utils import record_dataset_cache
 
 # this test suite verifies the MIMIC3 dataset is consistently parsing the dataset.
 # a dataset is qualified if it produces the correct statistics, and if a sample from the dataset
@@ -18,15 +21,15 @@ class TestsMimic3(unittest.TestCase):
     ROOT = "https://storage.googleapis.com/pyhealth/mimiciii-demo/1.4/"
     TABLES = ["DIAGNOSES_ICD", "PRESCRIPTIONS"]
     CODE_MAPPING = {"NDC": ("ATC", {"target_kwargs": {"level": 3}})}
-    DEV = True
 
     dataset = MIMIC3Dataset(
         root=ROOT,
         tables=TABLES,
         code_mapping=CODE_MAPPING,
-        dev=DEV, # since we are using the demo dataset it doesn't matter. 
-        refresh_cache=True,
     )
+    
+    # used for writing artifacts to speed up github action unit tests
+    record_dataset_cache(repo_root, dataset.filepath)
 
     def setUp(self):
         pass
