@@ -26,5 +26,7 @@ jobs:
       - name: Test with pytest
         run: |
           echo "cd pyhealth/unittest"
+          ls
           pytest -v
+          
 
