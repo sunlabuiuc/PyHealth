@@ -1,5 +1,8 @@
 import datetime
 import unittest
+import os, sys
+current = os.path.dirname(os.path.realpath(__file__))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(current))))
 
 from pyhealth.datasets import MIMIC3Dataset
 
@@ -10,7 +13,7 @@ from pyhealth.datasets import MIMIC3Dataset
 # used for testing correctness
 # like the MIMIC4 dataset, if this test suite fails, it may be due to a regression in the
 # code, or due to the dataset at the root chaning.
-class Mimic3Tests(unittest.TestCase):
+class TestsMimic3(unittest.TestCase):
 
     ROOT = "https://storage.googleapis.com/pyhealth/mimiciii-demo/1.4/"
     TABLES = ["DIAGNOSES_ICD", "PRESCRIPTIONS"]
