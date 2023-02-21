@@ -1,4 +1,4 @@
-name: Python package
+name: pytest unittest
 
 on:
   pull_request:
@@ -13,10 +13,17 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip' # caching pip dependencies
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
       - name: Test with pytest
         run: |
-          echo "cd pyhealth/unittest"
-          ls pyhealth
+          cd pyhealth/unittests
           pytest -v
-          
-
