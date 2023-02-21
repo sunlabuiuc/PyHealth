@@ -25,5 +25,6 @@ jobs:
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
       - name: Test with pytest
         run: |
-          pytest pyhealth/unittests
+          cd pyhealth/unittest 
+          pytest -v
 
