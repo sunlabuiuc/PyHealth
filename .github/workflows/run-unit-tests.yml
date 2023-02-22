@@ -52,10 +52,6 @@ jobs:
           #  "fail", "warn", "ignore"
           # default fail
           if_no_artifact_found: warn
-
-      - name: Display structure of downloaded files
-        run: ls -R
-        working-directory: /home  
         
       - name: Test with pytest
         run: |
