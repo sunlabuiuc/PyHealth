@@ -57,7 +57,7 @@ jobs:
         run: |
           cd pyhealth/unittests
           pytest -v
-      - name: ls datasets folder
+      - name: dataset pickles to upload
         run: |
           ls /home/runner/.cache/pyhealth/datasets/
       - name: upload datasets pickle
