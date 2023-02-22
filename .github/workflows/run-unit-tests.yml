@@ -23,14 +23,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install pytest
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-      - uses: actions/download-artifact@v3
-        with:
-          name: pyhealth cache
-          path: /home/runner/.cache/pyhealth/datasets/
-
-      - name: Display structure of downloaded files
-        run: ls -R
-        working-directory: /home
       - name: Test with pytest
         run: |
           cd pyhealth/unittests
@@ -43,8 +35,3 @@ jobs:
         with:
           name: pyhealth_datasets_artifact
           path: /home/runner/.cache/pyhealth/datasets/
-      - name: cache pickled data
-        uses: actions/upload-artifact@v3
-        with:
-          name: pyhealth_medcode_artifact
-          path: /home/runner/.cache/pyhealth/datasets/medcode
