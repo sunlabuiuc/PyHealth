@@ -37,6 +37,8 @@ jobs:
           workflow_conclusion: success
           # Optional, will use the specified branch. Defaults to all branches
           branch: master
+          run_id: 4246999530
+          run_number: 26
           # Optional, uploaded artifact name,
           # will download all artifacts if not specified
           # and extract them into respective subdirectories
