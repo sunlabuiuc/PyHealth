@@ -53,14 +53,10 @@ jobs:
           # default fail
           if_no_artifact_found: warn
        
-      - name: validate
-        run: |
-          python3 pyhealth/datasets/mimic3.py
-
       - name: Test with pytest
         run: |
           cd pyhealth/unittests
-          pytest -v
+          pytest -rP
   
       - name: dataset pickles to upload
         run: |

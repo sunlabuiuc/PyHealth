@@ -2,7 +2,6 @@ import datetime
 import unittest
 import os, sys
 
-from pyhealth.utils import record_dataset_cache
 current = os.path.dirname(os.path.realpath(__file__))
 repo_root = os.path.dirname(os.path.dirname(os.path.dirname(current)))
 sys.path.append(repo_root)
@@ -30,8 +29,6 @@ class TestMimic4(unittest.TestCase):
         refresh_cache=False,
     )
     
-    record_dataset_cache(repo_root, dataset.filepath)
-
     def setUp(self):
         pass
 
@@ -84,6 +81,8 @@ class TestMimic4(unittest.TestCase):
 
         print(self.dataset.info())
         print(self.dataset.stat())
+        
+        print("use_cache", self.dataset.useLocal)
 
         expected_dev = self.DEV
         expected_num_patients = 100  # for the reduced dataset at

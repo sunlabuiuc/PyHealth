@@ -18,8 +18,6 @@ from pyhealth.medcode import CrossMap
 from pyhealth.utils import load_pickle, save_pickle
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.CRITICAL)
-
 
 INFO_MSG = """
 dataset.patients: patient_id -> <Patient>
@@ -117,8 +115,7 @@ class BaseEHRDataset(ABC):
         )
         filename = hash_str("+".join([str(arg) for arg in args_to_hash])) + ".pkl"
         self.filepath = os.path.join(MODULE_CACHE_PATH, filename)
-        print("file path: ", self.filepath)
-
+        self.useLocal = os.path.exists(self.filepath)
         # check if cache exists or refresh_cache is True
         if os.path.exists(self.filepath) and (not refresh_cache):
             # load from cache
