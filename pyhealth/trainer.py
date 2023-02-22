@@ -234,7 +234,7 @@ class Trainer:
                             self.save_ckpt(os.path.join(self.exp_path, "best.ckpt"))
 
         # load best model
-        if load_best_model_at_last and self.exp_path is not None:
+        if load_best_model_at_last and self.exp_path is not None and os.path.isfile(os.path.join(self.exp_path, "best.ckpt")):
             logger.info("Loaded best model")
             self.load_ckpt(os.path.join(self.exp_path, "best.ckpt"))
 
