@@ -13,17 +13,27 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
-      - name: look
-        run: |
-          ls -al
-          ls -al ..
-          ls /
-          ls ~/
-      - name: cache datasets
-        uses: actions/cache@v3
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
         with:
-          path: /.cache/pyhealth/datasets
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip' # caching pip dependencies
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
       - name: Test with pytest
         run: |
           cd pyhealth/unittests
           pytest -v
+      - name: cache pickled data
+        uses: actions/upload-artifact@v3
+        with:
+          name: pyhealth cache
+          path: ~/.cache/datasets
+      - name: cache pickled data
+        uses: actions/upload-artifact@v3
+        with:
+          name: pyhealth cache
+          path: ~/.cache/medcode
