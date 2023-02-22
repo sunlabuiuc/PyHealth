@@ -27,6 +27,11 @@ jobs:
         run: |
           cd pyhealth/unittests
           pytest -v
+      - name: Test with pytest
+        run: |
+          ls ~
+          ls ~/.cache
+          ls ~/.cache/datasets
       - name: cache pickled data
         uses: actions/upload-artifact@v3
         with:
