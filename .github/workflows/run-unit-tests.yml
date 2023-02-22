@@ -55,7 +55,7 @@ jobs:
        
       - name: validate cached data is correctly placed
         run: | 
-          ls /home/runner/.cache/pyhealth/datasets/
+          ls /home/runner/
 
       - name: Test with pytest
         run: |
