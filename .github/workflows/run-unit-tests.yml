@@ -26,6 +26,7 @@ jobs:
       - name: Test with pytest
         run: |
           cd pyhealth/unittests
+          python pyhealth/unittests/test_datasets/test_mimic3.py 
           pytest -v
       - name: Test with pytest
         run: |
