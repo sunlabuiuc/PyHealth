@@ -18,6 +18,8 @@ from pyhealth.medcode import CrossMap
 from pyhealth.utils import load_pickle, save_pickle
 
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.CRITICAL)
+
 
 INFO_MSG = """
 dataset.patients: patient_id -> <Patient>
