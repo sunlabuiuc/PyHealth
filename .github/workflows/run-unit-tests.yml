@@ -53,6 +53,10 @@ jobs:
           # default fail
           if_no_artifact_found: warn
        
+      - name: validate cached data is correctly placed
+        run: | 
+          ls /home/runner/.cache/pyhealth/datasets/
+
       - name: Test with pytest
         run: |
           cd pyhealth/unittests
