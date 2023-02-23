@@ -1,5 +1,10 @@
 import datetime
 import unittest
+import os, sys
+
+current = os.path.dirname(os.path.realpath(__file__))
+repo_root = os.path.dirname(os.path.dirname(os.path.dirname(current)))
+sys.path.append(repo_root)
 
 from pyhealth.datasets import MIMIC4Dataset
 
@@ -8,7 +13,7 @@ from pyhealth.datasets import MIMIC4Dataset
 # and a single sample from the dataset.
 
 
-class Mimic4Tests(unittest.TestCase):
+class TestMimic4(unittest.TestCase):
 
     # to test the file this path needs to be updated
     ROOT = "https://storage.googleapis.com/pyhealth/mimiciv-demo/hosp/"
@@ -23,7 +28,7 @@ class Mimic4Tests(unittest.TestCase):
         dev=DEV,
         refresh_cache=False,
     )
-
+    
     def setUp(self):
         pass
 

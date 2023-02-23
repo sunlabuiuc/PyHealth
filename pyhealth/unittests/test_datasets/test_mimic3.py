@@ -1,5 +1,10 @@
 import datetime
 import unittest
+import os, sys
+
+current = os.path.dirname(os.path.realpath(__file__))
+repo_root = os.path.dirname(os.path.dirname(os.path.dirname(current)))
+sys.path.append(repo_root)
 
 from pyhealth.datasets import MIMIC3Dataset
 
@@ -10,19 +15,16 @@ from pyhealth.datasets import MIMIC3Dataset
 # used for testing correctness
 # like the MIMIC4 dataset, if this test suite fails, it may be due to a regression in the
 # code, or due to the dataset at the root chaning.
-class Mimic3Tests(unittest.TestCase):
+class TestsMimic3(unittest.TestCase):
 
     ROOT = "https://storage.googleapis.com/pyhealth/mimiciii-demo/1.4/"
     TABLES = ["DIAGNOSES_ICD", "PRESCRIPTIONS"]
     CODE_MAPPING = {"NDC": ("ATC", {"target_kwargs": {"level": 3}})}
-    DEV = True
 
     dataset = MIMIC3Dataset(
         root=ROOT,
         tables=TABLES,
         code_mapping=CODE_MAPPING,
-        dev=DEV, # since we are using the demo dataset it doesn't matter. 
-        refresh_cache=True,
     )
 
     def setUp(self):
