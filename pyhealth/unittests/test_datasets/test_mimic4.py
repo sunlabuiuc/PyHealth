@@ -84,6 +84,8 @@ class TestMimic4(unittest.TestCase):
         
         print("use_cache", self.dataset.useLocal)
 
+        print("fp:", self.dataset.filepath)
+
         expected_dev = self.DEV
         expected_num_patients = 100  # for the reduced dataset at
         expected_num_visits = 275
