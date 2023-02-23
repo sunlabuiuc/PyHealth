@@ -58,10 +58,10 @@ jobs:
           ls -al /home/runner/
       - name: validate cached data is correctly placed
         run: | 
-          ls -al /home/runner/.cache
+          ls -al /home/runner/.cache/
       - name: validate cached data is correctly placed
         run: | 
-          ls -al /home/runner/.cache
+          ls -al /home/runner/.cache/pyhealth/
 
       - name: Test with pytest
         run: |
