@@ -5,8 +5,6 @@ import random
 import numpy as np
 import torch
 
-from pyhealth import BASE_CACHE_PATH
-
 
 def set_seed(seed):
     random.seed(seed)
