@@ -43,7 +43,7 @@ jobs:
           # https://github.com/actions/download-artifact#download-all-artifacts
           name: datasets
           # Optional, a directory where to extract artifact(s), defaults to the current directory
-          path: /home/runner/.cache/pyhealth/
+          path: /home/runner/.cache/pyhealth/datasets/
           # Optional, search for the last workflow run whose stored an artifact named as in `name` input
           # default false
           search_artifacts: true
