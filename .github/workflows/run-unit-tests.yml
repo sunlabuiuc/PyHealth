@@ -55,7 +55,7 @@ jobs:
        
       - name: validate cached data is correctly placed
         run: | 
-          ls /home/runner/
+          ls -al /home/runner/
 
       - name: Test with pytest
         run: |
