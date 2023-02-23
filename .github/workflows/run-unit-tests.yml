@@ -35,8 +35,7 @@ jobs:
           #   "completed", "in_progress", "queued"
           # Use the empty string ("") to ignore status or conclusion in the search
           workflow_conclusion: success
-          run_id: 4246999530
-          run_number: 26
+          pr: ${{github.event.pull_request.number}} # so we have a new artifact for each unittest
           # Optional, uploaded artifact name,
           # will download all artifacts if not specified
           # and extract them into respective subdirectories
