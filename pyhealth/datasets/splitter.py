@@ -87,3 +87,43 @@ def split_by_patient(
     val_dataset = torch.utils.data.Subset(dataset, val_index)
     test_dataset = torch.utils.data.Subset(dataset, test_index)
     return train_dataset, val_dataset, test_dataset
+
+
+def split_by_keys(
+    dataset: SampleBaseDataset,
+    ratios: Union[Tuple[float, float, float], List[float]],
+    seed: Optional[int] = None,
+):
+    """Splits the dataset by its outermost indexed items
+
+    Args:
+        dataset: a `SampleBaseDataset` object
+        ratios: a list/tuple of ratios for train / val / test
+        seed: random seed for shuffling the dataset
+
+    Returns:
+        train_dataset, val_dataset, test_dataset: three subsets of the dataset of
+            type `torch.utils.data.Subset`.
+
+    Note:
+        The original dataset can be accessed by `train_dataset.dataset`,
+            `val_dataset.dataset`, and `test_dataset.dataset`.
+    """
+    train_dataset, val_dataset, test_dataset = {}, {}, {}
+    if seed is not None:
+        np.random.seed(seed)
+    assert sum(ratios) == 1.0, "ratios must sum to 1.0"
+    for key in dataset.samples.keys():
+        index = np.arange(len(dataset.samples[key]))
+        np.random.shuffle(index)
+        train_index = index[: int(len(dataset.samples[key]) * ratios[0])]
+        val_index = index[
+        int(len(dataset.samples[key]) * ratios[0]) : int(len(dataset.samples[key]) * (ratios[0] + ratios[1]))
+        ]
+        test_index = index[int(len(dataset.samples[key]) * (ratios[0] + ratios[1])) :]
+        train_dataset[key] = torch.utils.data.Subset(dataset.samples[key], train_index)
+        val_dataset[key] = torch.utils.data.Subset(dataset.samples[key], val_index)
+        test_dataset[key] = torch.utils.data.Subset(dataset.samples[key], test_index)
+
+    return train_dataset, val_dataset, test_dataset
+

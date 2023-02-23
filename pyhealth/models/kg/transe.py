@@ -1,4 +1,5 @@
 from.kg_base import KGEBaseModel
+from pyhealth.datasets import SampleBaseDataset
 import torch
 
 
@@ -10,8 +11,16 @@ class TransE(KGEBaseModel):
 
     """
 
-    def __init__(self, p_norm=1):
-        super(TransE, self).__init__()
+    def __init__(
+        self, 
+        dataset: SampleBaseDataset, 
+        e_dim: int = 500, 
+        r_dim: int = 500, 
+        ns: str = "uniform", 
+        gamma: float = None, 
+        p_norm=1
+        ):
+        super().__init__(dataset, e_dim, r_dim, ns, gamma)
         self.p_norm = p_norm
 
 

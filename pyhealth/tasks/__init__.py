@@ -26,3 +26,7 @@ from .sleep_staging import (
     sleep_staging_sleepedf_fn,
     sleep_staging_isruc_fn
 )
+
+from .link_prediction import (
+    link_prediction_fn
+)

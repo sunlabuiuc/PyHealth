@@ -1,4 +1,5 @@
 from abc import ABC
+from pyhealth.datasets import SampleBaseDataset
 
 import torch
 import torch.nn as nn
@@ -20,8 +21,7 @@ class KGEBaseModel(ABC, nn.Module):
 
     def __init__(
         self, 
-        e_num: int, 
-        r_num: int,
+        dataset: SampleBaseDataset,
         e_dim: int = 500,
         r_dim: int = 500,
         ns: str = "uniform",
@@ -29,13 +29,14 @@ class KGEBaseModel(ABC, nn.Module):
         
     ):
         super(KGEBaseModel, self).__init__()
-        self.e_num = e_num
-        self.r_num = r_num
+        self.e_num = dataset.entity_num
+        self.r_num = dataset.relation_num
         self.e_dim = e_dim
         self.r_dim = r_dim
         self.ns = ns
         self.eps = 2.0
-        self.margin = nn.Parameter(torch.Tensor([gamma]), requires_grad=False)
+        if gamma != None:
+            self.margin = nn.Parameter(torch.Tensor([gamma]), requires_grad=False)
 
 
         self.E_emb = nn.Parameter(torch.zeros(self.e_num, self.e_dim))

@@ -1,4 +1,6 @@
 from.kg_base import KGEBaseModel
+from pyhealth.datasets import SampleBaseDataset
+
 import torch
 
 
@@ -10,8 +12,15 @@ class RotatE(KGEBaseModel):
 
     """
 
-    def __init__(self):
-        super().__init__(ns='adv', gamma=6.0)
+    def __init__(
+        self, 
+        dataset: SampleBaseDataset, 
+        e_dim: int = 500, 
+        r_dim: int = 500, 
+        ns='adv', 
+        gamma=6.0     
+        ):
+        super().__init__(dataset, e_dim, r_dim, ns, gamma)
         self.pi = 3.14159265358979323846
     
     def regularization(self, sample_batch, mode='pos'):

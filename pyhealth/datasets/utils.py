@@ -2,7 +2,8 @@ import hashlib
 import os
 from datetime import datetime
 from typing import List, Tuple, Optional
-import pickle
+import torch
+from itertools import cycle
 
 from dateutil.parser import parse as dateutil_parse
 from torch.utils.data import DataLoader
@@ -134,6 +135,51 @@ def get_dataloader(dataset, batch_size, shuffle=False):
     )
 
     return dataloader
+
+
+def collate_fn_kg(batch):
+    positive_sample = torch.stack([d[0] for d in batch], dim=0)
+    negative_sample = torch.stack([d[1] for d in batch], dim=0)
+    subsample_weight = torch.cat([d[2] for d in batch], dim=0)
+    mode = batch[0][3]
+    return positive_sample, negative_sample, subsample_weight, mode
+
+
+def get_dataloader_kg(dataset, batch_size, shuffle=False):
+
+    dataloader_head = DataLoader(
+        dataset['head'],
+        batch_size=batch_size,
+        shuffle=shuffle,
+        collate_fn=collate_fn_kg,
+    )
+
+    dataloader_tail = DataLoader(
+        dataset['tail'],
+        batch_size=batch_size,
+        shuffle=shuffle,
+        collate_fn=collate_fn_kg,
+    )
+
+    return interleaved_dataloader(dataloader_head, dataloader_tail)
+
+
+def interleaved_dataloader(dataloader1, dataloader2):
+    dataloader1_iter = cycle(iter(dataloader1))
+    dataloader2_iter = cycle(iter(dataloader2))
+
+    while True:
+        try:
+            yield next(dataloader1_iter)
+        except StopIteration:
+            dataloader1_iter = cycle(iter(dataloader1))
+            yield next(dataloader1_iter)
+
+        try:
+            yield next(dataloader2_iter)
+        except StopIteration:
+            dataloader2_iter = cycle(iter(dataloader2))
+            yield next(dataloader2_iter)
 
 
 if __name__ == "__main__":

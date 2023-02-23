@@ -10,7 +10,7 @@ from pyhealth.datasets.utils import list_nested_levels, flatten_list
 class SampleBaseDataset(Dataset):
     """Sample base dataset class.
 
-    This class the takes a list of samples as input (either from
+    This class takes a list of samples as input (either from
     `BaseDataset.set_task()` or user-provided input), and provides
     a uniform interface for accessing the samples.
 
@@ -185,6 +185,57 @@ class SampleSignalDataset(SampleBaseDataset):
         )
         print("\n".join(lines))
         return "\n".join(lines)
+
+
+class SampleKGDataset(SampleBaseDataset):
+    """Sample KG dataset class.
+
+    This class inherits from `SampleBaseDataset` and is specifically designed
+        for KG datasets.
+
+    Args:
+        samples: two lists (head and tail) of samples, each sample is a positive sample, a list of
+            negative samples, a sub-sampling weight and a mode
+        dataset_name: the name of the dataset. Default is None.
+        task_name: the name of the task. Default is None.
+    """
+    def __init__(
+        self, 
+        samples, 
+        dataset_name="", 
+        task_name="", 
+        dev=False, 
+        triples=[], 
+        entity_num=0,
+        relation_num=0
+        ):
+
+        super().__init__(samples, dataset_name, task_name)
+        self.dev = dev
+        self.triples = triples
+        self.entity_num = entity_num
+        self.relation_num = relation_num
+
+    def __getitem__(self, index):
+        return (self.samples['head'][index], self.samples['tail'][index])
+
+    def get_samples(self):
+        return self.samples
+
+    def stat(self):
+        """Returns some statistics of the base dataset."""
+        lines = list()
+        lines.append("")
+        lines.append(f"Statistics of base dataset (dev={self.dev}):")
+        lines.append(f"\t- Dataset: {self.dataset_name}")
+        lines.append(f"\t- Number of triples: {len(self.triples)}")
+        lines.append(f"\t- Number of entities: {self.entity_num}")
+        lines.append(f"\t- Number of relations: {self.relation_num}")
+        lines.append(f"\t- Task name: {self.task_name}")
+        lines.append(f"\t- Number of samples: {len(self.samples['head']) + len(self.samples['tail']) }")
+        lines.append("")
+        print("\n".join(lines))
+        return 
 
 
 class SampleEHRDataset(SampleBaseDataset):
