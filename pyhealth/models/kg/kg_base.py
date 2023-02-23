@@ -16,7 +16,15 @@ class KGEBaseModel(ABC, nn.Module):
         r_dim: the hidden embedding size for relation, 500 by default.
         ns: negative sampling technique to use: can be "uniform", "normal" or "adv" (self-adversarial).
         gamma: fixed margin (only need when ns="adv").
+        use_subsampling_weight: whether to use subsampling weight (like in word2vec) or not, False by default.
+        use_regularization: whether to apply regularization or not, False by default.
+
     """
+
+    @property
+    def device(self):
+        """Gets the device of the model."""
+        return self._dummy_param.device
 
 
     def __init__(
@@ -25,8 +33,9 @@ class KGEBaseModel(ABC, nn.Module):
         e_dim: int = 500,
         r_dim: int = 500,
         ns: str = "uniform",
-        gamma: float = None
-        
+        gamma: float = None,
+        use_subsampling_weight: bool = False,
+        use_regularization: str = None
     ):
         super(KGEBaseModel, self).__init__()
         self.e_num = dataset.entity_num
@@ -35,8 +44,13 @@ class KGEBaseModel(ABC, nn.Module):
         self.r_dim = r_dim
         self.ns = ns
         self.eps = 2.0
+        self.use_subsampling_weight = use_subsampling_weight
+        self.use_regularization = use_regularization
         if gamma != None:
             self.margin = nn.Parameter(torch.Tensor([gamma]), requires_grad=False)
+
+        # used to query the device of the model
+        self._dummy_param = nn.Parameter(torch.empty(0))
 
 
         self.E_emb = nn.Parameter(torch.zeros(self.e_num, self.e_dim))
@@ -104,19 +118,19 @@ class KGEBaseModel(ABC, nn.Module):
         head_index = negative.view(-1) if mode == 'head' else positive[:, 0]
         tail_index = negative.view(-1) if mode == 'tail' else positive[:, 2]
 
-        head_ = torch.index_select(self.entity_embedding, dim=0, index=head_index)
+        head_ = torch.index_select(self.E_emb, dim=0, index=head_index)
         head = head_.view(batch_size, negative_sample_size, -1) if mode == 'head' else head_.unsqueeze(1)
 
-        relation = self.relation_embedding[positive[:, 1]].unsqueeze(1)
+        relation = self.R_emb[positive[:, 1]].unsqueeze(1)
 
-        tail_ = torch.index_select(self.entity_embedding, dim=0, index=tail_index)
+        tail_ = torch.index_select(self.E_emb, dim=0, index=tail_index)
         tail = tail_.view(batch_size, negative_sample_size, -1) if mode == 'tail' else tail_.unsqueeze(1)
 
         return head, relation, tail
 
 
-    def forward(self, sample_batch, mode='pos'):
-        """ Forward propagation 
+    def calc(self, sample_batch, mode='pos'):
+        """ score calculation
         Args:
             mode: 
                 (1) 'pos': for possitive samples  
@@ -148,7 +162,37 @@ class KGEBaseModel(ABC, nn.Module):
         raise NotImplementedError
 
 
+    def forward(self, **data):
+        inputs, mode = (data['positive_sample'], data['negative_sample'], data['subsample_weight']), data['mode']
+        inputs = [x.to(self.device) for x in inputs]
+        pos_sample, neg_sample, subsampling_weight = inputs
+        sample_batch = (pos_sample, neg_sample)
 
+        neg_score = self.calc(sample_batch=sample_batch, mode=mode)
+
+        if self.ns == 'adv':
+            neg_score = (F.softmax(neg_score * 1.0, dim=1).detach() * F.logsigmoid(-neg_score)).sum(dim=1)
+
+        else:
+            neg_score = F.logsigmoid(-neg_score).mean(dim=1)
+
+        pos_score = F.logsigmoid(self.calc(pos_sample)).squeeze(dim=1)
+
+        
+        pos_sample_loss = \
+            - (subsampling_weight * pos_score).sum()/subsampling_weight.sum() if self.use_subsampling_weight else (- pos_score.mean())
+        neg_sample_loss = \
+            - (subsampling_weight * neg_score).sum()/subsampling_weight.sum() if self.use_subsampling_weight else (- neg_score.mean())
+
+        loss = (pos_sample_loss + neg_sample_loss) / 2
+
+
+        if self.use_regularization == 'l3':
+            loss = loss + self.l3_regularization()
+        elif self.use_regularization != None:
+            loss = loss + self.regularization()
+
+        return {"loss": loss}
 
 
 

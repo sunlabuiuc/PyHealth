@@ -215,6 +215,7 @@ class SampleKGDataset(SampleBaseDataset):
         self.triples = triples
         self.entity_num = entity_num
         self.relation_num = relation_num
+        self.sample_size = len(self.samples['head']) + len(self.samples['tail'])
 
     def __getitem__(self, index):
         return (self.samples['head'][index], self.samples['tail'][index])
@@ -232,7 +233,7 @@ class SampleKGDataset(SampleBaseDataset):
         lines.append(f"\t- Number of entities: {self.entity_num}")
         lines.append(f"\t- Number of relations: {self.relation_num}")
         lines.append(f"\t- Task name: {self.task_name}")
-        lines.append(f"\t- Number of samples: {len(self.samples['head']) + len(self.samples['tail']) }")
+        lines.append(f"\t- Number of samples: {self.sample_size}")
         lines.append("")
         print("\n".join(lines))
         return 

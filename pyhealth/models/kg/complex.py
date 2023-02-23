@@ -14,15 +14,18 @@ class ComplEx(KGEBaseModel):
     def __init__(
         self, 
         dataset: SampleBaseDataset, 
-        e_dim: int = 500, 
-        r_dim: int = 500, 
+        e_dim: int = 600, 
+        r_dim: int = 600, 
         ns: str = "uniform", 
         gamma: float = None, 
+        use_subsampling_weight: bool = False, 
+        use_regularization: str = 'l3',
         ):
-        super().__init__(dataset, e_dim, r_dim, ns, gamma)
+        super().__init__(dataset, e_dim, r_dim, ns, gamma, use_subsampling_weight, use_regularization)
+
     
     def regularization(self, sample_batch, mode='pos'):
-        head, relation, tail = self.data_process(self, sample_batch, mode)
+        head, relation, tail = self.data_process(sample_batch, mode)
         head_re, head_im = torch.chunk(head, 2, dim=2)
         relation_re, relation_im = torch.chunk(relation, 2, dim=2)
         tail_re, tail_im = torch.chunk(tail, 2, dim=2)
@@ -42,8 +45,8 @@ class ComplEx(KGEBaseModel):
         return reg_l3
 
 
-    def forward(self, sample_batch, mode='pos'):
-        head, relation, tail = self.data_process(self, sample_batch, mode)
+    def calc(self, sample_batch, mode='pos'):
+        head, relation, tail = self.data_process(sample_batch, mode)
         head_re, head_im = torch.chunk(head, 2, dim=2)
         relation_re, relation_im = torch.chunk(relation, 2, dim=2)
         tail_re, tail_im = torch.chunk(tail, 2, dim=2)

@@ -120,6 +120,9 @@ class Trainer:
         epochs: int = 5,
         optimizer_class: Type[Optimizer] = torch.optim.Adam,
         optimizer_params: Optional[Dict[str, object]] = None,
+        optimizer_object: Optimizer = None,
+        num_batch: int = None,
+        batch_size: int = None,
         weight_decay: float = 0.0,
         max_grad_norm: float = None,
         monitor: Optional[str] = None,
@@ -147,7 +150,7 @@ class Trainer:
 
         # logging
         logger.info("Training:")
-        logger.info(f"Batch size: {train_dataloader.batch_size}")
+        logger.info(f"Batch size: {train_dataloader.batch_size if batch_size==None else batch_size}")
         logger.info(f"Optimizer: {optimizer_class}")
         logger.info(f"Optimizer params: {optimizer_params}")
         logger.info(f"Weight decay: {weight_decay}")
@@ -158,24 +161,32 @@ class Trainer:
         logger.info(f"Epochs: {epochs}")
 
         # set optimizer
-        param = list(self.model.named_parameters())
-        no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
-        optimizer_grouped_parameters = [
-            {
-                "params": [p for n, p in param if not any(nd in n for nd in no_decay)],
-                "weight_decay": weight_decay,
-            },
-            {
-                "params": [p for n, p in param if any(nd in n for nd in no_decay)],
-                "weight_decay": 0.0,
-            },
-        ]
-        optimizer = optimizer_class(optimizer_grouped_parameters, **optimizer_params)
+        if optimizer_object == None:
+            param = list(self.model.named_parameters())
+            no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
+            optimizer_grouped_parameters = [
+                {
+                    "params": [p for n, p in param if not any(nd in n for nd in no_decay)],
+                    "weight_decay": weight_decay,
+                },
+                {
+                    "params": [p for n, p in param if any(nd in n for nd in no_decay)],
+                    "weight_decay": 0.0,
+                },
+            ]
+            optimizer = optimizer_class(optimizer_grouped_parameters, **optimizer_params)
+
+        else:
+            optimizer = optimizer_object
 
         # initialize
         data_iterator = iter(train_dataloader)
         best_score = -1 * float("inf") if monitor_criterion == "max" else float("inf")
-        steps_per_epoch = len(train_dataloader)
+        if num_batch == None:
+            steps_per_epoch = len(train_dataloader)
+        else:
+            steps_per_epoch = num_batch
+
         global_step = 0
 
         # epoch training loop

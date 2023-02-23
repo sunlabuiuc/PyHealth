@@ -5,8 +5,8 @@ from abc import ABC
 from tqdm import tqdm
 import pandas as pd
 from pandarallel import pandarallel
-from typing import Dict, Callable, Tuple, Union, List, Optional
-from pyhealth.datasets.utils import hash_str, MODULE_CACHE_PATH
+from typing import Callable, Optional
+from pyhealth.datasets.utils import MODULE_CACHE_PATH, hash_str
 from pyhealth.datasets.sample_dataset import SampleKGDataset
 from pyhealth.utils import load_pickle, save_pickle
 
@@ -102,7 +102,8 @@ class BaseKGDataset(ABC):
         self,
         task_fn: Callable,
         task_name: Optional[str] = None,
-        save: bool = True
+        save: bool = True,
+        **kwargs
     ) -> SampleKGDataset:
         """Processes the base dataset to generate the task-specific sample dataset.
 
@@ -127,19 +128,19 @@ class BaseKGDataset(ABC):
             self.task_name = task_fn.__name__
 
         # check if cache exists or refresh_cache is True
-        if os.path.exists(self.filepath) and (not self.refresh_cache):
+        if os.path.exists(self.filepath + '.pkl') and (not self.refresh_cache):
             # load from cache
-            logger.debug(
-                f"Loaded {self.dataset_name} base dataset from {self.filepath}"
+            print(
+                f"Loading {self.dataset_name} base dataset from {self.filepath}.pkl"
             )
             self.samples = load_pickle(self.filepath + ".pkl")
         
         else:
-            logger.debug(f"Processing {self.dataset_name} base dataset...")
-            self.samples = task_fn(self.triples, self.entity_num)
+            print(f"Processing {self.dataset_name} base dataset...")
+            self.samples = task_fn(self.triples, self.entity_num, **kwargs)
 
             # save to cache
-            logger.debug(f"Saved {self.dataset_name} base dataset to {self.filepath}")
+            print(f"Saving {self.dataset_name} base dataset to {self.filepath}")
             if save == True:
                 save_pickle(self.samples, self.filepath + ".pkl")
 

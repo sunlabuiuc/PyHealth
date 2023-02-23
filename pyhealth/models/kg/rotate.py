@@ -15,29 +15,31 @@ class RotatE(KGEBaseModel):
     def __init__(
         self, 
         dataset: SampleBaseDataset, 
-        e_dim: int = 500, 
-        r_dim: int = 500, 
+        e_dim: int = 600, 
+        r_dim: int = 300, 
         ns='adv', 
-        gamma=6.0     
+        gamma=24.0,
+        use_subsampling_weight: bool = False,     
+        use_regularization: str = None
         ):
-        super().__init__(dataset, e_dim, r_dim, ns, gamma)
+        super().__init__(dataset, e_dim, r_dim, ns, gamma, use_subsampling_weight, use_regularization)
         self.pi = 3.14159265358979323846
     
     def regularization(self, sample_batch, mode='pos'):
-        head, relation, tail = self.data_process(self, sample_batch, mode)
+        head, relation, tail = self.data_process(sample_batch, mode)
         reg = (torch.mean(head ** 2) + torch.mean(tail ** 2) + torch.mean(relation ** 2)) / 3
         return reg
        
 
-    def forward(self, sample_batch, mode='pos'):
-        head, relation, tail = self.data_process(self, sample_batch, mode)
+    def calc(self, sample_batch, mode='pos'):
+        head, relation, tail = self.data_process(sample_batch, mode)
 
         head_re, head_im = torch.chunk(head, 2, dim=2)
         tail_re, tail_im = torch.chunk(tail, 2, dim=2)
 
         #Make phases of relations uniformly distributed in [-pi, pi]
 
-        phase_relation = relation/(self.embedding_range.item()/self.pi)
+        phase_relation = relation/(self.r_emb_range.item()/self.pi)
 
         relation_re = torch.cos(phase_relation)
         relation_im = torch.sin(phase_relation)

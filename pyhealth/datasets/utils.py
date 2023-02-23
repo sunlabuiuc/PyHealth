@@ -142,7 +142,13 @@ def collate_fn_kg(batch):
     negative_sample = torch.stack([d[1] for d in batch], dim=0)
     subsample_weight = torch.cat([d[2] for d in batch], dim=0)
     mode = batch[0][3]
-    return positive_sample, negative_sample, subsample_weight, mode
+    
+    return {
+        "positive_sample": positive_sample,
+        "negative_sample": negative_sample, 
+        "subsample_weight": subsample_weight, 
+        "mode": mode
+    }
 
 
 def get_dataloader_kg(dataset, batch_size, shuffle=False):
@@ -161,7 +167,9 @@ def get_dataloader_kg(dataset, batch_size, shuffle=False):
         collate_fn=collate_fn_kg,
     )
 
-    return interleaved_dataloader(dataloader_head, dataloader_tail)
+    num_batch = len(dataloader_head) + len(dataloader_tail)
+
+    return interleaved_dataloader(dataloader_head, dataloader_tail), num_batch
 
 
 def interleaved_dataloader(dataloader1, dataloader2):

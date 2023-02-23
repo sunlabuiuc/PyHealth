@@ -14,24 +14,27 @@ class TransE(KGEBaseModel):
     def __init__(
         self, 
         dataset: SampleBaseDataset, 
-        e_dim: int = 500, 
-        r_dim: int = 500, 
+        e_dim: int = 300, 
+        r_dim: int = 300, 
         ns: str = "uniform", 
         gamma: float = None, 
-        p_norm=1
+        use_subsampling_weight: bool = False, 
+        use_regularization: str = None,
+        p_norm: int = 1.0
         ):
-        super().__init__(dataset, e_dim, r_dim, ns, gamma)
+        super().__init__(dataset, e_dim, r_dim, ns, gamma, use_subsampling_weight, use_regularization)
+
         self.p_norm = p_norm
 
 
     def regularization(self, sample_batch, mode='pos'):
-        head, relation, tail = self.data_process(self, sample_batch, mode)
+        head, relation, tail = self.data_process(sample_batch=sample_batch, mode=mode)
         reg = (torch.mean(head ** 2) + torch.mean(tail ** 2) + torch.mean(relation ** 2)) / 3
         return reg
 
 
-    def forward(self, sample_batch, mode='pos'):
-        head, relation, tail = self.data_process(self, sample_batch, mode)
+    def calc(self, sample_batch, mode='pos'):
+        head, relation, tail = self.data_process(sample_batch=sample_batch, mode=mode)
 
         if mode == 'head':
             score = head + (relation - tail)
