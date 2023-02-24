@@ -120,7 +120,6 @@ class Trainer:
         epochs: int = 5,
         optimizer_class: Type[Optimizer] = torch.optim.Adam,
         optimizer_params: Optional[Dict[str, object]] = None,
-        optimizer_object: Optimizer = None,
         num_batch: int = None,
         batch_size: int = None,
         weight_decay: float = 0.0,
@@ -161,23 +160,19 @@ class Trainer:
         logger.info(f"Epochs: {epochs}")
 
         # set optimizer
-        if optimizer_object == None:
-            param = list(self.model.named_parameters())
-            no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
-            optimizer_grouped_parameters = [
-                {
-                    "params": [p for n, p in param if not any(nd in n for nd in no_decay)],
-                    "weight_decay": weight_decay,
-                },
-                {
-                    "params": [p for n, p in param if any(nd in n for nd in no_decay)],
-                    "weight_decay": 0.0,
-                },
-            ]
-            optimizer = optimizer_class(optimizer_grouped_parameters, **optimizer_params)
-
-        else:
-            optimizer = optimizer_object
+        param = list(self.model.named_parameters())
+        no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
+        optimizer_grouped_parameters = [
+            {
+                "params": [p for n, p in param if not any(nd in n for nd in no_decay)],
+                "weight_decay": weight_decay,
+            },
+            {
+                "params": [p for n, p in param if any(nd in n for nd in no_decay)],
+                "weight_decay": 0.0,
+            },
+        ]
+        optimizer = optimizer_class(optimizer_grouped_parameters, **optimizer_params)
 
         # initialize
         data_iterator = iter(train_dataloader)
