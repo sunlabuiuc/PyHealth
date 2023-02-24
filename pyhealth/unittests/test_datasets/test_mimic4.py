@@ -18,17 +18,20 @@ sys.path.append(repo_root)
 
 class TestMimic4Dataset(unittest.TestCase):
 
-    # to test the file this path needs to be updated
+    DATASET_NAME = "mimic4-demo"
     ROOT = "https://storage.googleapis.com/pyhealth/mimiciv-demo/hosp/"
     TABLES = ["diagnoses_icd", "procedures_icd", "labevents"]
     CODE_MAPPING = {}
     DEV = True  # not needed when using demo set since its 100 patients large
+    REFRESH_CACHE = True
 
     dataset = MIMIC4Dataset(
+        dataset_name=DATASET_NAME,
         root=ROOT,
         tables=TABLES,
         code_mapping=CODE_MAPPING,
         dev=DEV,
+        refresh_cache=REFRESH_CACHE,
     )
 
     def setUp(self):
@@ -82,15 +85,16 @@ class TestMimic4Dataset(unittest.TestCase):
     def test_statistics(self):
 
         # self.dataset.stat()
-        
+
         self.assertEqual(sorted(self.TABLES), sorted(self.dataset.available_tables))
-                
+
         EHRDatasetStatAssertion(self.dataset, 0.01).assertEHRStats(
             expected_num_patients=100,
             expected_num_visits=275,
             expected_num_visits_per_patient=2.7500,
-            expected_events_per_visit_per_table=[16.3855, 2.6255, 288.3891]
+            expected_events_per_visit_per_table=[16.3855, 2.6255, 288.3891],
         )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

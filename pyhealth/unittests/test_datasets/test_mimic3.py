@@ -18,16 +18,20 @@ sys.path.append(repo_root)
 # like the MIMIC4 dataset, if this test suite fails, it may be due to a regression in the
 # code, or due to the dataset at the root chaning.
 
-class TestsMimic3Dataset(unittest.TestCase):
 
+class TestsMimic3Dataset(unittest.TestCase):
+    DATASET_NAME = "mimic3-demo"
     ROOT = "https://storage.googleapis.com/pyhealth/mimiciii-demo/1.4/"
     TABLES = ["DIAGNOSES_ICD", "PRESCRIPTIONS"]
     CODE_MAPPING = {"NDC": ("ATC", {"target_kwargs": {"level": 3}})}
+    REFRESH_CACHE = True
 
     dataset = MIMIC3Dataset(
+        dataset_name=DATASET_NAME,
         root=ROOT,
         tables=TABLES,
         code_mapping=CODE_MAPPING,
+        refresh_cache=REFRESH_CACHE,
     )
 
     def setUp(self):
@@ -35,10 +39,10 @@ class TestsMimic3Dataset(unittest.TestCase):
 
     # tests that a single event is correctly parsed
     def test_patient(self):
-        
+
         selected_patient_id = "10035"
         selected_visit_id = "110244"
-        
+
         expected_geneder = "M"
         expected_ethnicity = "WHITE"
         expected_birth_datetime = datetime.datetime(2053, 4, 13, 0, 0)
@@ -56,7 +60,7 @@ class TestsMimic3Dataset(unittest.TestCase):
         expected_num_event_types = 2
         expected_num_events_diagnoses_icd = 4
         expected_num_events_prescriptions = 13
-            
+
         self.assertTrue(selected_patient_id in self.dataset.patients)
 
         actual_patient = self.dataset.patients[selected_patient_id]
@@ -96,15 +100,16 @@ class TestsMimic3Dataset(unittest.TestCase):
 
     def test_statistics(self):
         # self.dataset.stat()
-        
+
         self.assertEqual(sorted(self.TABLES), sorted(self.dataset.available_tables))
-                
+
         EHRDatasetStatAssertion(self.dataset, 0.01).assertEHRStats(
             expected_num_patients=100,
             expected_num_visits=129,
             expected_num_visits_per_patient=1.2900,
-            expected_events_per_visit_per_table=[13.6512, 56.7597]
+            expected_events_per_visit_per_table=[13.6512, 56.7597],
         )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
