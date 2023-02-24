@@ -8,7 +8,7 @@ from pyhealth.datasets import eICUDataset
 from pyhealth.unittests.test_datasets.utils import EHRDatasetStatAssertion
 
 
-class eICUDataset(unittest.TestCase):
+class TesteICUDataset(unittest.TestCase):
 
     # to test the file this path needs to be updated
     ROOT = "https://storage.googleapis.com/pyhealth/eicu-demo/"
@@ -21,7 +21,6 @@ class eICUDataset(unittest.TestCase):
         tables=TABLES,
         code_mapping=CODE_MAPPING,
         dev=DEV,
-        refresh_cache=False,
     )
 
     def setUp(self):
@@ -35,7 +34,7 @@ class eICUDataset(unittest.TestCase):
 
         # expect:
         # patient data
-        expected_birth_datetime = datetime.datetime(1938, 2, 19, 0, 0, 0)
+        expected_birth_datetime = pandas.Timestamp('1938-02-24 00:00:00')
         expected_death_datetime = None
         expected_ethnicity = "Caucasian"
         expected_gender = "Female"
@@ -44,8 +43,8 @@ class eICUDataset(unittest.TestCase):
         expected_visit_len = 1
         expected_visit_id = "224606"
         expected_visit_discharge_status = "Alive"
-        expected_discharge_time = datetime.datetime(2014, 2, 22, 0, 45)
-        expected_encounter_time = datetime.datetime(2014, 2, 19, 2, 59)
+        expected_discharge_time = datetime.datetime(2014, 2, 27, 0, 45)
+        expected_encounter_time = datetime.datetime(2014, 2, 24, 2, 59)
 
         # visit attribute dict data
         expected_visit_attr_dict_len = 2
@@ -69,7 +68,7 @@ class eICUDataset(unittest.TestCase):
                         0,
                         Event(
                             code="567.9",
-                            timestamp=pandas.Timestamp('2014-02-19 03:36:00'),
+                            timestamp=pandas.Timestamp('2014-02-24 03:36:00'),
                             vocabulary="ICD9CM",
                         ),
                     ),
@@ -77,7 +76,7 @@ class eICUDataset(unittest.TestCase):
                         1,
                         Event(
                             code="K65.0",
-                            timestamp=pandas.Timestamp('2014-02-19 03:36:00'),
+                            timestamp=pandas.Timestamp('2014-02-24 03:36:00'),
                             vocabulary="ICD10CM",
                         ),
                     ),
@@ -90,7 +89,7 @@ class eICUDataset(unittest.TestCase):
                         0,
                         Event(
                             code="MORPHINE INJ",
-                            timestamp=pandas.Timestamp('2014-02-18 21:09:00'),
+                            timestamp=pandas.Timestamp('2014-02-23 21:09:00'),
                             vocabulary="eICU_DRUGNAME",
                         ),
                     ),
@@ -98,7 +97,7 @@ class eICUDataset(unittest.TestCase):
                         5,
                         Event(
                             code="CIPROFLOXACIN IN D5W 400 MG/200ML IV SOLN",
-                            timestamp=pandas.Timestamp('2014-02-18 22:43:00'),
+                            timestamp=pandas.Timestamp('2014-02-23 22:43:00'),
                             vocabulary="eICU_DRUGNAME",
                         ),
                     ),
@@ -111,7 +110,7 @@ class eICUDataset(unittest.TestCase):
                         0,
                         Event(
                             code="sodium",
-                            timestamp=pandas.Timestamp('2014-02-18 21:04:00'),
+                            timestamp=pandas.Timestamp('2014-02-23 21:04:00'),
                             vocabulary="eICU_LABNAME",
                         ),
                     ),
@@ -119,7 +118,7 @@ class eICUDataset(unittest.TestCase):
                         2,
                         Event(
                             code="BUN",
-                            timestamp=pandas.Timestamp('2014-02-18 21:04:00'),
+                            timestamp=pandas.Timestamp('2014-02-23 21:04:00'),
                             vocabulary="eICU_LABNAME",
                         ),
                     ),
@@ -132,7 +131,7 @@ class eICUDataset(unittest.TestCase):
                         0,
                         Event(
                             code="notes/Progress Notes/Physical Exam/Physical Exam/Neurologic/GCS/Score/scored",
-                            timestamp=pandas.Timestamp('2014-02-19 03:05:00'),
+                            timestamp=pandas.Timestamp('2014-02-24 03:05:00'),
                             vocabulary="eICU_PHYSICALEXAMPATH",
                         ),
                     ),
@@ -140,7 +139,7 @@ class eICUDataset(unittest.TestCase):
                         1,
                         Event(
                             code="notes/Progress Notes/Physical Exam/Physical Exam Obtain Options/Performed - Structured",
-                            timestamp=pandas.Timestamp('2014-02-19 03:05:00'),
+                            timestamp=pandas.Timestamp('2014-02-24 03:05:00'),
                             vocabulary="eICU_PHYSICALEXAMPATH",
                         ),
                     ),
