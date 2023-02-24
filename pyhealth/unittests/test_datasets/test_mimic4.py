@@ -29,7 +29,6 @@ class TestMimic4Dataset(unittest.TestCase):
         tables=TABLES,
         code_mapping=CODE_MAPPING,
         dev=DEV,
-        refresh_cache=False,
     )
 
     def setUp(self):

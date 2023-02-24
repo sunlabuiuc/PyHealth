@@ -25,7 +25,6 @@ class TestOMOPDataset(unittest.TestCase):
         tables=TABLES,
         code_mapping=CODE_MAPPING,
         dev=DEV,
-        refresh_cache=False,
     )
 
     def setUp(self):
@@ -107,8 +106,6 @@ class TestOMOPDataset(unittest.TestCase):
         
 
     def test_statistics(self):
-
-        print(self.dataset.stat())
         
         EHRDatasetStatAssertion(self.dataset, 0.01).assertEHRStats(
             
