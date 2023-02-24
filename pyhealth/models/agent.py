@@ -104,7 +104,6 @@ class AgentLayer(nn.Module):
 
     def choose_action(self, observation, agent=1):
         observation = observation.detach()
-
         if agent == 1:
             result_fc1 = self.agent1_fc1(observation)
             result_fc1 = self.tanh(result_fc1)
@@ -119,7 +118,6 @@ class AgentLayer(nn.Module):
             if self.use_baseline == True:
                 result_value = self.agent2_value(result_fc1)
                 self.agent2_baseline.append(result_value)
-
         probs = self.softmax(result_fc2)
         m = torch.distributions.Categorical(probs)
         actions = m.sample()
@@ -189,7 +187,6 @@ class AgentLayer(nn.Module):
                 if self.static_dim > 0:
                     obs_1 = torch.cat((obs_1, static), dim=1)
                     obs_2 = torch.cat((obs_2, static), dim=1)
-                
                 self.choose_action(obs_1, 1).long()
                 self.choose_action(obs_2, 2).long()
 
@@ -242,8 +239,8 @@ class AgentLayer(nn.Module):
             h.append(cur_h)
         
         h = torch.stack(h, dim=1)
-        static = static.unsqueeze(1).repeat(1, time_step, 1)
         if self.static_dim > 0:
+            static = static.unsqueeze(1).repeat(1, time_step, 1)
             h = torch.cat((h, static), dim=2)
             h = self.fusion(h)
         
@@ -430,6 +427,7 @@ class Agent(BaseModel):
         if self.mode == "binary":
             pred = torch.sigmoid(pred)    
             rewards = ((pred - 0.5) * 2 * true).squeeze()
+            #rewards  = (pred * true + (1 - pred) * (1 - true)).squeeze()
         elif self.mode == "multiclass":
             pred = torch.softmax(pred, dim=-1)         
             y_onehot = torch.zeros_like(pred).scatter(1, true.unsqueeze(1), 1)
@@ -472,9 +470,10 @@ class Agent(BaseModel):
                 discounted_rewards = torch.zeros_like(rewards) + gamma * discounted_rewards
             running_rewards.insert(0, discounted_rewards)
         rewards = torch.stack(running_rewards).permute(1, 0)
-        rewards = (rewards - rewards.mean(dim=1).unsqueeze(-1)) / (rewards.std(dim=1) + 1e-7).unsqueeze(-1)
+        #print(rewards)        
+        #rewards = (rewards - rewards.mean(dim=1).unsqueeze(-1)) / (rewards.std(dim=1) + 1e-7).unsqueeze(-1)
         rewards = rewards.detach()
-        
+        #rint(rewards)
         if self.use_baseline == True:
             loss_value1 = torch.sum((rewards - act_baseline1) ** 2, dim=1) / torch.sum(mask, dim=1)
             loss_value1 = torch.mean(loss_value1)

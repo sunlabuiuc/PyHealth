@@ -403,10 +403,10 @@ class SingleAttention(nn.Module):
             q = torch.matmul(last_visit, self.Wt)  # b h
             q = torch.reshape(q, (batch_size, 1, self.attention_hidden_dim))  # B*1*H
             k = torch.matmul(input, self.Wx)  # b t h
-            dot_product = torch.matmul(q, k.transpose(1, 2)).squeeze()  # b t
+            dot_product = torch.matmul(q, k.transpose(1, 2)).reshape(batch_size, time_step)  # b t
             denominator = self.sigmoid(self.rate) * (
                 torch.log(2.72 + (1 - self.sigmoid(dot_product)))
-                * (b_time_decays.squeeze())
+                * (b_time_decays.reshape(batch_size, time_step))
             )
             e = self.relu(self.sigmoid(dot_product) / (denominator))  # b * t
         # s = torch.sum(e, dim=-1, keepdim=True)
@@ -527,6 +527,7 @@ class ConCareLayer(nn.Module):
         # forward
         GRU_embeded_input = self.GRUs[0](
             input[:, :, 0].unsqueeze(-1).to(device=input.device), torch.zeros(batch_size, self.hidden_dim).to(device=input.device).unsqueeze(0))[0]  # b t h
+        
         Attention_embeded_input = self.LastStepAttentions[0](GRU_embeded_input, mask, input.device)[0].unsqueeze(1)  # b 1 h
 
         for i in range(feature_dim - 1):

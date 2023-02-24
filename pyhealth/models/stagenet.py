@@ -476,7 +476,7 @@ class StageNet(BaseModel):
                 if (dim_ != 2) or (type_ not in [float, int]):
                     raise ValueError("Time interval must be 2-dim float or int.")
                 time, _ = self.padding2d(kwargs[self.time_keys[idx]])
-            time = torch.tensor(time, dtype=torch.float, device=self.device)
+                time = torch.tensor(time, dtype=torch.float, device=self.device)
             x, _, cur_dis = self.stagenet[feature_key](x, time=time, mask=mask)
             patient_emb.append(x)
             distance.append(cur_dis)
