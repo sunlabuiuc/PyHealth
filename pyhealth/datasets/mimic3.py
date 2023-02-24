@@ -361,7 +361,7 @@ class MIMIC3Dataset(BaseEHRDataset):
 
 if __name__ == "__main__":
     dataset = MIMIC3Dataset(
-        root="/srv/local/data/physionet.org/files/mimiciii/1.4",
+        root="https://storage.googleapis.com/pyhealth/mimiciii-demo/1.4/",
         tables=[
             "DIAGNOSES_ICD",
             "PROCEDURES_ICD",
