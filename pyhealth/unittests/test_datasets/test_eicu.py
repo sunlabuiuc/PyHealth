@@ -8,7 +8,7 @@ from pyhealth.datasets import eICUDataset
 from pyhealth.unittests.test_datasets.utils import EHRDatasetStatAssertion
 
 
-class eICUDataset(unittest.TestCase):
+class TesteICUDataset(unittest.TestCase):
 
     # to test the file this path needs to be updated
     ROOT = "https://storage.googleapis.com/pyhealth/eicu-demo/"

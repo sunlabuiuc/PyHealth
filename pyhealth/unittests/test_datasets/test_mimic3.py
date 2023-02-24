@@ -18,7 +18,7 @@ sys.path.append(repo_root)
 # like the MIMIC4 dataset, if this test suite fails, it may be due to a regression in the
 # code, or due to the dataset at the root chaning.
 
-class TestsMimic3(unittest.TestCase):
+class TestsMimic3Dataset(unittest.TestCase):
 
     ROOT = "https://storage.googleapis.com/pyhealth/mimiciii-demo/1.4/"
     TABLES = ["DIAGNOSES_ICD", "PRESCRIPTIONS"]
