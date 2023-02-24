@@ -137,7 +137,7 @@ def get_dataloader(dataset, batch_size, shuffle=False):
     return dataloader
 
 
-def collate_fn_kg(batch):
+def collate_fn_kg_train(batch):
     positive_sample = torch.stack([d[0] for d in batch], dim=0)
     negative_sample = torch.stack([d[1] for d in batch], dim=0)
     subsample_weight = torch.cat([d[2] for d in batch], dim=0)
@@ -147,25 +147,59 @@ def collate_fn_kg(batch):
         "positive_sample": positive_sample,
         "negative_sample": negative_sample, 
         "subsample_weight": subsample_weight, 
-        "mode": mode
+        "mode": mode,
+        "train": True
     }
 
 
-def get_dataloader_kg(dataset, batch_size, shuffle=False):
+def collate_fn_kg_test(batch):
+    positive_sample = torch.stack([d[0] for d in batch], dim=0)
+    negative_sample = torch.stack([d[1] for d in batch], dim=0)
+    filter_bias = torch.stack([d[2] for d in batch], dim=0)
+    mode = batch[0][3]
+    
+    return {
+        "positive_sample": positive_sample,
+        "negative_sample": negative_sample, 
+        "filter_bias": filter_bias, 
+        "mode": mode,
+        "train": False
+    }
 
-    dataloader_head = DataLoader(
-        dataset['head'],
-        batch_size=batch_size,
-        shuffle=shuffle,
-        collate_fn=collate_fn_kg,
-    )
 
-    dataloader_tail = DataLoader(
-        dataset['tail'],
-        batch_size=batch_size,
-        shuffle=shuffle,
-        collate_fn=collate_fn_kg,
-    )
+def get_dataloader_kg(dataset, batch_size, train, shuffle=False):
+
+    if train:
+
+        dataloader_head = DataLoader(
+            dataset['head_train'],
+            batch_size=batch_size,
+            shuffle=shuffle,
+            collate_fn=collate_fn_kg_train,
+        )
+
+        dataloader_tail = DataLoader(
+            dataset['tail_train'],
+            batch_size=batch_size,
+            shuffle=shuffle,
+            collate_fn=collate_fn_kg_train,
+        )
+    
+    # valid/test dataloader
+    else:
+        dataloader_head = DataLoader(
+            dataset['head_test'],
+            batch_size=batch_size,
+            shuffle=shuffle,
+            collate_fn=collate_fn_kg_test,
+        )
+
+        dataloader_tail = DataLoader(
+            dataset['tail_test'],
+            batch_size=batch_size,
+            shuffle=shuffle,
+            collate_fn=collate_fn_kg_test,
+        )
 
     num_batch = len(dataloader_head) + len(dataloader_tail)
 

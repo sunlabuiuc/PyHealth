@@ -18,6 +18,7 @@ class KGEBaseModel(ABC, nn.Module):
         gamma: fixed margin (only need when ns="adv").
         use_subsampling_weight: whether to use subsampling weight (like in word2vec) or not, False by default.
         use_regularization: whether to apply regularization or not, False by default.
+        mode: evaluation metric type, one of "binary", "multiclass", or "multilabel", "multiclass" by default
 
     """
 
@@ -35,7 +36,8 @@ class KGEBaseModel(ABC, nn.Module):
         ns: str = "uniform",
         gamma: float = None,
         use_subsampling_weight: bool = False,
-        use_regularization: str = None
+        use_regularization: str = None,
+        mode: str = "multiclass"
     ):
         super(KGEBaseModel, self).__init__()
         self.e_num = dataset.entity_num
@@ -163,36 +165,58 @@ class KGEBaseModel(ABC, nn.Module):
 
 
     def forward(self, **data):
-        inputs, mode = (data['positive_sample'], data['negative_sample'], data['subsample_weight']), data['mode']
-        inputs = [x.to(self.device) for x in inputs]
-        pos_sample, neg_sample, subsampling_weight = inputs
-        sample_batch = (pos_sample, neg_sample)
+        if data['train']:
+            inputs, mode = (data['positive_sample'], data['negative_sample'], data['subsample_weight']), data['mode']
+            inputs = [x.to(self.device) for x in inputs]
+            pos_sample, neg_sample, subsampling_weight = inputs
+            sample_batch = (pos_sample, neg_sample)
 
-        neg_score = self.calc(sample_batch=sample_batch, mode=mode)
+            neg_score = self.calc(sample_batch=sample_batch, mode=mode)
 
-        if self.ns == 'adv':
-            neg_score = (F.softmax(neg_score * 1.0, dim=1).detach() * F.logsigmoid(-neg_score)).sum(dim=1)
+            if self.ns == 'adv':
+                neg_score = (F.softmax(neg_score * 1.0, dim=1).detach() * F.logsigmoid(-neg_score)).sum(dim=1)
 
-        else:
-            neg_score = F.logsigmoid(-neg_score).mean(dim=1)
+            else:
+                neg_score = F.logsigmoid(-neg_score).mean(dim=1)
 
-        pos_score = F.logsigmoid(self.calc(pos_sample)).squeeze(dim=1)
+            pos_score = F.logsigmoid(self.calc(pos_sample)).squeeze(dim=1)
 
-        
-        pos_sample_loss = \
-            - (subsampling_weight * pos_score).sum()/subsampling_weight.sum() if self.use_subsampling_weight else (- pos_score.mean())
-        neg_sample_loss = \
-            - (subsampling_weight * neg_score).sum()/subsampling_weight.sum() if self.use_subsampling_weight else (- neg_score.mean())
+            
+            pos_sample_loss = \
+                - (subsampling_weight * pos_score).sum()/subsampling_weight.sum() if self.use_subsampling_weight else (- pos_score.mean())
+            neg_sample_loss = \
+                - (subsampling_weight * neg_score).sum()/subsampling_weight.sum() if self.use_subsampling_weight else (- neg_score.mean())
 
-        loss = (pos_sample_loss + neg_sample_loss) / 2
+            loss = (pos_sample_loss + neg_sample_loss) / 2
 
+            if self.use_regularization == 'l3':
+                loss = loss + self.l3_regularization()
+            elif self.use_regularization != None:
+                loss = loss + self.regularization()
 
-        if self.use_regularization == 'l3':
-            loss = loss + self.l3_regularization()
-        elif self.use_regularization != None:
-            loss = loss + self.regularization()
+            return {"loss": loss}
 
-        return {"loss": loss}
+        else: # valid/test
+            inputs, mode = (data['positive_sample'], data['negative_sample'], data['filter_bias']), data['mode']
+            inputs = [x.to(self.device) for x in inputs]
+            pos_sample, neg_sample, filter_bias = inputs
+            sample_batch = (pos_sample, neg_sample)
+
+            score = self.calc(sample_batch=sample_batch, mode=mode)
+            score += filter_bias
+            loss = (-F.logsigmoid(-score).mean(dim=1)).mean()
+            
+            if mode == "head":
+                y_true = pos_sample[:, 0]
+
+            elif mode == "tail":
+                y_true = pos_sample[:, 2]
+
+            return {
+                "loss": loss,
+                "y_true": y_true,
+                "y_prob": [score]
+                }
 
 
 

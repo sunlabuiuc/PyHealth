@@ -215,10 +215,11 @@ class SampleKGDataset(SampleBaseDataset):
         self.triples = triples
         self.entity_num = entity_num
         self.relation_num = relation_num
-        self.sample_size = len(self.samples['head']) + len(self.samples['tail'])
+        self.sample_size = len(triples) * 2
 
     def __getitem__(self, index):
-        return (self.samples['head'][index], self.samples['tail'][index])
+        return (self.samples['head_train'][index], self.samples['tail_train'][index],
+                self.samples['head_test'][index], self.samples['tail_test'][index])
 
     def get_samples(self):
         return self.samples

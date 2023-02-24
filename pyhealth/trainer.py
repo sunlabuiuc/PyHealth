@@ -120,7 +120,7 @@ class Trainer:
         epochs: int = 5,
         optimizer_class: Type[Optimizer] = torch.optim.Adam,
         optimizer_params: Optional[Dict[str, object]] = None,
-        num_batch: int = None,
+        steps_per_epoch: int = None,
         batch_size: int = None,
         weight_decay: float = 0.0,
         max_grad_norm: float = None,
@@ -177,10 +177,9 @@ class Trainer:
         # initialize
         data_iterator = iter(train_dataloader)
         best_score = -1 * float("inf") if monitor_criterion == "max" else float("inf")
-        if num_batch == None:
+
+        if steps_per_epoch == None:
             steps_per_epoch = len(train_dataloader)
-        else:
-            steps_per_epoch = num_batch
 
         global_step = 0
 
