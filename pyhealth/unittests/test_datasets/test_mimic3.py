@@ -2,6 +2,13 @@ import datetime
 import unittest
 
 from pyhealth.datasets import MIMIC3Dataset
+from pyhealth.unittests.test_datasets.utils import EHRDatasetStatAssertion
+import os, sys
+
+current = os.path.dirname(os.path.realpath(__file__))
+repo_root = os.path.dirname(os.path.dirname(os.path.dirname(current)))
+sys.path.append(repo_root)
+
 
 # this test suite verifies the MIMIC3 dataset is consistently parsing the dataset.
 # a dataset is qualified if it produces the correct statistics, and if a sample from the dataset
@@ -10,19 +17,21 @@ from pyhealth.datasets import MIMIC3Dataset
 # used for testing correctness
 # like the MIMIC4 dataset, if this test suite fails, it may be due to a regression in the
 # code, or due to the dataset at the root chaning.
-class Mimic3Tests(unittest.TestCase):
 
+
+class TestsMimic3Dataset(unittest.TestCase):
+    DATASET_NAME = "mimic3-demo"
     ROOT = "https://storage.googleapis.com/pyhealth/mimiciii-demo/1.4/"
     TABLES = ["DIAGNOSES_ICD", "PRESCRIPTIONS"]
     CODE_MAPPING = {"NDC": ("ATC", {"target_kwargs": {"level": 3}})}
-    DEV = True
+    REFRESH_CACHE = True
 
     dataset = MIMIC3Dataset(
+        dataset_name=DATASET_NAME,
         root=ROOT,
         tables=TABLES,
         code_mapping=CODE_MAPPING,
-        dev=DEV, # since we are using the demo dataset it doesn't matter. 
-        refresh_cache=True,
+        refresh_cache=REFRESH_CACHE,
     )
 
     def setUp(self):
@@ -30,10 +39,10 @@ class Mimic3Tests(unittest.TestCase):
 
     # tests that a single event is correctly parsed
     def test_patient(self):
-        
+
         selected_patient_id = "10035"
         selected_visit_id = "110244"
-        
+
         expected_geneder = "M"
         expected_ethnicity = "WHITE"
         expected_birth_datetime = datetime.datetime(2053, 4, 13, 0, 0)
@@ -51,7 +60,7 @@ class Mimic3Tests(unittest.TestCase):
         expected_num_event_types = 2
         expected_num_events_diagnoses_icd = 4
         expected_num_events_prescriptions = 13
-            
+
         self.assertTrue(selected_patient_id in self.dataset.patients)
 
         actual_patient = self.dataset.patients[selected_patient_id]
@@ -89,44 +98,17 @@ class Mimic3Tests(unittest.TestCase):
             len(actual_visit.event_list_dict["PRESCRIPTIONS"]),
         )
 
-    # checks that parsed dataset statistics are consistent with prior runs.
     def test_statistics(self):
-
-        expected_num_patients = 100
-        expected_num_visits = 129
-        expected_num_visits_per_patient = 1.2900
-        expected_num_events_per_table = [
-            13.6512,
-            56.7597,
-        ]  # ["DIAGNOSES_ICD", "PRESCRIPTIONS"]
+        # self.dataset.stat()
 
         self.assertEqual(sorted(self.TABLES), sorted(self.dataset.available_tables))
 
-        self.assertEqual(expected_num_patients, len(self.dataset.patients))
-
-        actual_visits = [len(patient) for patient in self.dataset.patients.values()]
-        self.assertEqual(expected_num_visits, sum(actual_visits))
-
-        actual_visits_per_patient = sum(actual_visits) / len(actual_visits)
-        self.assertAlmostEqual(
-            expected_num_visits_per_patient, actual_visits_per_patient, places=2
+        EHRDatasetStatAssertion(self.dataset, 0.01).assertEHRStats(
+            expected_num_patients=100,
+            expected_num_visits=129,
+            expected_num_visits_per_patient=1.2900,
+            expected_events_per_visit_per_table=[13.6512, 56.7597],
         )
-
-        for expected_value, table in zip(
-            expected_num_events_per_table, self.dataset.tables
-        ):
-            actual_num_events = [
-                len(v.get_event_list(table))
-                for p in self.dataset.patients.values()
-                for v in p
-            ]
-
-            actual_value_per_event_type = sum(actual_num_events) / len(
-                actual_num_events
-            )
-            self.assertAlmostEqual(
-                expected_value, actual_value_per_event_type, places=2
-            )
 
 
 if __name__ == "__main__":
