@@ -1,17 +1,19 @@
 import datetime
 import unittest
+
+from pyhealth.datasets import MIMIC4Dataset
+from pyhealth.unittests.test_datasets.utils import EHRDatasetStatAssertion
+
 import os, sys
 
 current = os.path.dirname(os.path.realpath(__file__))
 repo_root = os.path.dirname(os.path.dirname(os.path.dirname(current)))
 sys.path.append(repo_root)
 
-from pyhealth.datasets import MIMIC4Dataset
 
 # this test suite verifies the MIMIC4 demo dataset is parsed correctly and produces
 # the correct dataset for demoing. To qualify the units under test we check the dataset statistics,
 # and a single sample from the dataset.
-
 
 class TestMimic4(unittest.TestCase):
 
@@ -28,7 +30,7 @@ class TestMimic4(unittest.TestCase):
         dev=DEV,
         refresh_cache=False,
     )
-    
+
     def setUp(self):
         pass
 
@@ -79,44 +81,16 @@ class TestMimic4(unittest.TestCase):
     # checks data integrity based on statistics.
     def test_statistics(self):
 
-        print(self.dataset.info())
-        print(self.dataset.stat())
-
-        expected_dev = self.DEV
-        expected_num_patients = 100  # for the reduced dataset at
-        expected_num_visits = 275
-        expected_num_visits_per_patient = 2.7500
-        expected_num_events_per_table = [16.3855, 2.6255, 288.3891]
-
+        # self.dataset.stat()
+        
         self.assertEqual(sorted(self.TABLES), sorted(self.dataset.available_tables))
-
-        self.assertEqual(expected_dev, self.dataset.dev)
-        self.assertEqual(expected_num_patients, len(self.dataset.patients))
-
-        actual_visits = [len(patient) for patient in self.dataset.patients.values()]
-        self.assertEqual(expected_num_visits, sum(actual_visits))
-
-        actual_visits_per_patient = sum(actual_visits) / len(actual_visits)
-        self.assertAlmostEqual(
-            expected_num_visits_per_patient, actual_visits_per_patient, places=2
+                
+        EHRDatasetStatAssertion(self.dataset, 0.01).assertEHRStats(
+            expected_num_patients=100,
+            expected_num_visits=275,
+            expected_num_visits_per_patient=2.7500,
+            expected_events_per_visit_per_table=[16.3855, 2.6255, 288.3891]
         )
-
-        for expected_value, table in zip(
-            expected_num_events_per_table, self.dataset.tables
-        ):
-            actual_num_events = [
-                len(v.get_event_list(table))
-                for p in self.dataset.patients.values()
-                for v in p
-            ]
-
-            actual_value_per_event_type = sum(actual_num_events) / len(
-                actual_num_events
-            )
-            self.assertAlmostEqual(
-                expected_value, actual_value_per_event_type, places=2
-            )
-
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
