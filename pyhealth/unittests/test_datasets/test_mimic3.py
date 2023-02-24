@@ -3,6 +3,12 @@ import unittest
 
 from pyhealth.datasets import MIMIC3Dataset
 from pyhealth.unittests.test_datasets.utils import EHRDatasetStatAssertion
+import os, sys
+
+current = os.path.dirname(os.path.realpath(__file__))
+repo_root = os.path.dirname(os.path.dirname(os.path.dirname(current)))
+sys.path.append(repo_root)
+
 
 # this test suite verifies the MIMIC3 dataset is consistently parsing the dataset.
 # a dataset is qualified if it produces the correct statistics, and if a sample from the dataset
@@ -11,19 +17,17 @@ from pyhealth.unittests.test_datasets.utils import EHRDatasetStatAssertion
 # used for testing correctness
 # like the MIMIC4 dataset, if this test suite fails, it may be due to a regression in the
 # code, or due to the dataset at the root chaning.
-class Mimic3Tests(unittest.TestCase):
+
+class TestsMimic3(unittest.TestCase):
 
     ROOT = "https://storage.googleapis.com/pyhealth/mimiciii-demo/1.4/"
     TABLES = ["DIAGNOSES_ICD", "PRESCRIPTIONS"]
     CODE_MAPPING = {"NDC": ("ATC", {"target_kwargs": {"level": 3}})}
-    DEV = True
 
     dataset = MIMIC3Dataset(
         root=ROOT,
         tables=TABLES,
         code_mapping=CODE_MAPPING,
-        dev=DEV, # since we are using the demo dataset it doesn't matter. 
-        refresh_cache=True,
     )
 
     def setUp(self):
@@ -101,7 +105,6 @@ class Mimic3Tests(unittest.TestCase):
             expected_num_visits_per_patient=1.2900,
             expected_events_per_visit_per_table=[13.6512, 56.7597]
         )
-
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

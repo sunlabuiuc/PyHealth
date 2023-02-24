@@ -2,6 +2,13 @@ Development logs
 ======================
 We track the new development here:
 
+**Feb 19, 2023**
+
+.. code-block:: bash
+ 
+    1. add unittest for eicu dataset
+    2. add ISRUC dataset (and task function) for signal learning
+
 **Feb 12, 2023**
 
 .. code-block:: bash
@@ -64,7 +71,7 @@ We track the new development here:
     1. Fix the list of list of vector problem in RNN, Transformer, RETAIN, and CNN
     2. Add initialization examples for RNN, Transformer, RETAIN, CNN, and Deepr
     3. (minor) change the parameters from "Type" and "level" to "type_" and "dim_"
-    4. BPDanek adds the __repr__ function to medcode for better print understanding
+    4. BPDanek adds the "__repr__" function to medcode for better print understanding
     5. add unittest for pyhealth.data
 
 **Jan 21, 2023**

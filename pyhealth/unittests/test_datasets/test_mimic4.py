@@ -4,12 +4,18 @@ import unittest
 from pyhealth.datasets import MIMIC4Dataset
 from pyhealth.unittests.test_datasets.utils import EHRDatasetStatAssertion
 
+import os, sys
+
+current = os.path.dirname(os.path.realpath(__file__))
+repo_root = os.path.dirname(os.path.dirname(os.path.dirname(current)))
+sys.path.append(repo_root)
+
+
 # this test suite verifies the MIMIC4 demo dataset is parsed correctly and produces
 # the correct dataset for demoing. To qualify the units under test we check the dataset statistics,
 # and a single sample from the dataset.
 
-
-class Mimic4Tests(unittest.TestCase):
+class TestMimic4(unittest.TestCase):
 
     # to test the file this path needs to be updated
     ROOT = "https://storage.googleapis.com/pyhealth/mimiciv-demo/hosp/"
@@ -74,6 +80,7 @@ class Mimic4Tests(unittest.TestCase):
 
     # checks data integrity based on statistics.
     def test_statistics(self):
+
         # self.dataset.stat()
         
         self.assertEqual(sorted(self.TABLES), sorted(self.dataset.available_tables))
@@ -84,7 +91,6 @@ class Mimic4Tests(unittest.TestCase):
             expected_num_visits_per_patient=2.7500,
             expected_events_per_visit_per_table=[16.3855, 2.6255, 288.3891]
         )
-
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
