@@ -1,8 +1,7 @@
-name: pytest unittest
+name: pytest unittest action script
 
-on:
-  pull_request:
-      branches: [ "develop", "master" ]
+on: workflow_dispatch
+  
 jobs:
   build:
 
@@ -23,50 +22,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install pytest
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-      
-      - name: Download artifact
-        id: download-artifact
-        uses: dawidd6/action-download-artifact@v2
-        with:
-          # Optional, the status or conclusion of a completed workflow to search for
-          # Can be one of a workflow conclusion:
-          #   "failure", "success", "neutral", "cancelled", "skipped", "timed_out", "action_required"
-          # Or a workflow status:
-          #   "completed", "in_progress", "queued"
-          # Use the empty string ("") to ignore status or conclusion in the search
-          workflow_conclusion: success
-          run_id: 4246999530
-          run_number: 26
-          # Optional, uploaded artifact name,
-          # will download all artifacts if not specified
-          # and extract them into respective subdirectories
-          # https://github.com/actions/download-artifact#download-all-artifacts
-          name: datasets
-          # Optional, a directory where to extract artifact(s), defaults to the current directory
-          path: /home/runner/.cache/pyhealth/datasets/
-          # Optional, search for the last workflow run whose stored an artifact named as in `name` input
-          # default false
-          search_artifacts: true
-          # Optional, choose how to exit the action if no artifact is found
-          # can be one of:
-          #  "fail", "warn", "ignore"
-          # default fail
-          if_no_artifact_found: warn
-       
-      - name: validate cached data is correctly placed
-        run: | 
-          ls -al /home/runner/.cache/pyhealth/datasets/
 
       - name: Test with pytest
         run: |
           cd pyhealth/unittests
           pytest -rP
-  
-      - name: dataset pickles to upload
-        run: |
-          ls -al /home/runner/.cache/pyhealth/datasets/
-      - name: upload datasets pickle
-        uses: actions/upload-artifact@v3
-        with:
-          name: datasets
-          path: /home/runner/.cache/pyhealth/datasets/
