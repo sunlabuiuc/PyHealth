@@ -410,6 +410,7 @@ MICRON                                deep learning     ``pyhealth.models.MICRON
 SafeDrug                              deep learning     ``pyhealth.models.SafeDrug``       2021    `SafeDrug: Dual Molecular Graph Encoders for Recommending Effective and Safe Drug Combinations <https://arxiv.org/abs/2105.02711>`_
 Deepr                                 deep learning     ``pyhealth.models.Deepr``          2017    `Deepr : A Convolutional Net for Medical Records <https://arxiv.org/abs/1607.07519>`_
 ContraWR Encoder (STFT+CNN)           deep learning     ``pyhealth.models.ContraWR``       2021    `Self-supervised EEG Representation Learning for Automatic Sleep Staging <https://arxiv.org/abs/2110.15278>`_
+SparcNet (1D CNN)                     deep Learning     ``pyhealth.models.SparcNet``       2023    `Development of Expert-level Classification of Seizures and Rhythmic and Periodic Patterns During EEG Interpretation <#>`_
 ==================================    ================  =================================  ======  ============================================================================================================================================================================
 
 * Check the `interactive map on benchmark EHR predictive tasks <https://pyhealth.readthedocs.io/en/latest/index.html#benchmark-on-healthcare-tasks>`_.

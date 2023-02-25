@@ -39,22 +39,31 @@ class StageNetLayer(nn.Module):
     """
 
     def __init__(
-        self, input_dim, chunk_size=128, conv_size=10, levels=3, dropconnect=0.3, dropout=0.3, dropres=0.3
+        self,
+        input_dim,
+        chunk_size=128,
+        conv_size=10,
+        levels=3,
+        dropconnect=0.3,
+        dropout=0.3,
+        dropres=0.3,
     ):
         super(StageNetLayer, self).__init__()
-        
+
         self.dropout = dropout
         self.dropconnect = dropconnect
         self.dropres = dropres
         self.input_dim = input_dim
-        self.hidden_dim = chunk_size*levels
+        self.hidden_dim = chunk_size * levels
         self.conv_dim = self.hidden_dim
         self.conv_size = conv_size
         # self.output_dim = output_dim
         self.levels = levels
         self.chunk_size = chunk_size
 
-        self.kernel = nn.Linear(int(input_dim + 1), int(self.hidden_dim * 4 + levels * 2))
+        self.kernel = nn.Linear(
+            int(input_dim + 1), int(self.hidden_dim * 4 + levels * 2)
+        )
         nn.init.xavier_uniform_(self.kernel.weight)
         nn.init.zeros_(self.kernel.bias)
         self.recurrent_kernel = nn.Linear(
@@ -65,7 +74,9 @@ class StageNetLayer(nn.Module):
 
         self.nn_scale = nn.Linear(int(self.hidden_dim), int(self.hidden_dim // 6))
         self.nn_rescale = nn.Linear(int(self.hidden_dim // 6), int(self.hidden_dim))
-        self.nn_conv = nn.Conv1d(int(self.hidden_dim), int(self.conv_dim), int(conv_size), 1)
+        self.nn_conv = nn.Conv1d(
+            int(self.hidden_dim), int(self.conv_dim), int(conv_size), 1
+        )
         # self.nn_output = nn.Linear(int(self.conv_dim), int(output_dim))
 
         if self.dropconnect:
@@ -94,7 +105,9 @@ class StageNetLayer(nn.Module):
         # Integrate inter-visit time intervals
         interval = interval.unsqueeze(-1).to(device=device)
         x_out1 = self.kernel(torch.cat((x_in, interval), dim=-1)).to(device)
-        x_out2 = self.recurrent_kernel(torch.cat((h_last.to(device=device), interval), dim=-1))
+        x_out2 = self.recurrent_kernel(
+            torch.cat((h_last.to(device=device), interval), dim=-1)
+        )
 
         if self.dropconnect:
             x_out1 = self.nn_dropconnect(x_out1)
@@ -107,7 +120,9 @@ class StageNetLayer(nn.Module):
         x_out = x_out[:, self.levels * 2 :]
         x_out = x_out.reshape(-1, self.levels * 4, self.chunk_size)
         f_gate = torch.sigmoid(x_out[:, : self.levels]).to(device=device)
-        i_gate = torch.sigmoid(x_out[:, self.levels : self.levels * 2]).to(device=device)
+        i_gate = torch.sigmoid(x_out[:, self.levels : self.levels * 2]).to(
+            device=device
+        )
         o_gate = torch.sigmoid(x_out[:, self.levels * 2 : self.levels * 3])
         c_in = torch.tanh(x_out[:, self.levels * 3 :]).to(device=device)
         c_last = c_last.reshape(-1, self.levels, self.chunk_size).to(device=device)
@@ -167,8 +182,20 @@ class StageNetLayer(nn.Module):
                 out[..., self.hidden_dim : self.hidden_dim + self.levels], -1
             )
             origin_h.append(out[..., : self.hidden_dim])
-            tmp_h = torch.cat((tmp_h[1:].to(device=device), out[..., : self.hidden_dim].unsqueeze(0).to(device=device)), 0)
-            tmp_dis = torch.cat((tmp_dis[1:].to(device=device), cur_distance.unsqueeze(0).to(device=device)), 0)
+            tmp_h = torch.cat(
+                (
+                    tmp_h[1:].to(device=device),
+                    out[..., : self.hidden_dim].unsqueeze(0).to(device=device),
+                ),
+                0,
+            )
+            tmp_dis = torch.cat(
+                (
+                    tmp_dis[1:].to(device=device),
+                    cur_distance.unsqueeze(0).to(device=device),
+                ),
+                0,
+            )
             distance.append(cur_distance)
 
             # Re-weighted convolution operation
@@ -200,8 +227,7 @@ class StageNetLayer(nn.Module):
 
         output = rnn_outputs.contiguous().view(batch_size, time_step, self.hidden_dim)
         last_output = get_last_visit(output, mask)
-        
-        
+
         return last_output, output, torch.stack(distance)
 
 
@@ -232,7 +258,7 @@ class StageNet(BaseModel):
                 - this case only makes sense when each inner bracket has the same length;
                 we assume each dimension has the same meaning; we run StageNet directly
                 on the inner bracket level, similar to case 2 after embedding table
-        The time interval information specified by time_keys will be used to calculate the memory decay between each visit. If time_keys is None, all visits are treated as the same time interval. For each feature, the time interval should be a two-dimensional float array with shape (time_step, 1). 
+        The time interval information specified by time_keys will be used to calculate the memory decay between each visit. If time_keys is None, all visits are treated as the same time interval. For each feature, the time interval should be a two-dimensional float array with shape (time_step, 1).
 
     Args:
         dataset: the dataset to train the model. It is used to query certain
@@ -241,7 +267,7 @@ class StageNet(BaseModel):
             e.g. ["conditions", "procedures"].
         label_key: key in samples to use as label (e.g., "drugs").
         mode: one of "binary", "multiclass", or "multilabel".
-        time_keys: list of keys in samples to use as time interval information for each feature, Default is None. If none, all visits are treated as the same time interval. 
+        time_keys: list of keys in samples to use as time interval information for each feature, Default is None. If none, all visits are treated as the same time interval.
         embedding_dim: the embedding dimension. Default is 128.
         chunk_size: the chunk size for the StageNet layer. Default is 128.
         levels: the number of levels for the StageNet layer. levels * chunk_size = hidden_dim in the RNN. Smaller chunk size and more levels can capture more detailed patient status variations. Default is 3.
@@ -310,7 +336,7 @@ class StageNet(BaseModel):
         ...     time_keys=["list_codes_time", "list_vectors_time", "list_list_codes_time"],
         ...     label_key="label",
         ...     mode="binary",
-        ... )       
+        ... )
         >>>
         >>> from pyhealth.datasets import get_dataloader
         >>> train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
@@ -350,9 +376,11 @@ class StageNet(BaseModel):
         # validate kwargs for StageNet layer
         if "feature_size" in kwargs:
             raise ValueError("feature_size is determined by embedding_dim")
-        if time_keys is not None: 
+        if time_keys is not None:
             if len(time_keys) != len(feature_keys):
-                raise ValueError("time_keys should have the same length as feature_keys")
+                raise ValueError(
+                    "time_keys should have the same length as feature_keys"
+                )
 
         # the key of self.feat_tokenizers only contains the code based inputs
         self.feat_tokenizers = {}
@@ -362,7 +390,7 @@ class StageNet(BaseModel):
         self.embeddings = nn.ModuleDict()
         # the key of self.linear_layers only contains the float/int based inputs
         self.linear_layers = nn.ModuleDict()
-        
+
         self.stagenet = nn.ModuleDict()
         # add feature StageNet layers
         for feature_key in self.feature_keys:
@@ -385,12 +413,18 @@ class StageNet(BaseModel):
             # for code based input, we need Type
             # for float/int based input, we need Type, input_dim
             self.add_feature_transform_layer(feature_key, input_info)
-            self.stagenet[feature_key] = StageNetLayer(input_dim=embedding_dim, chunk_size=self.chunk_size, levels=self.levels, **kwargs)
+            self.stagenet[feature_key] = StageNetLayer(
+                input_dim=embedding_dim,
+                chunk_size=self.chunk_size,
+                levels=self.levels,
+                **kwargs,
+            )
 
         output_size = self.get_output_size(self.label_tokenizer)
-        self.fc = nn.Linear(len(self.feature_keys) * self.chunk_size * self.levels, output_size)
+        self.fc = nn.Linear(
+            len(self.feature_keys) * self.chunk_size * self.levels, output_size
+        )
 
-    
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation.
 
@@ -468,7 +502,7 @@ class StageNet(BaseModel):
 
             else:
                 raise NotImplementedError
-            
+
             time = None
             if self.time_keys is not None:
                 input_info = self.dataset.input_info[self.time_keys[idx]]
@@ -480,14 +514,14 @@ class StageNet(BaseModel):
             x, _, cur_dis = self.stagenet[feature_key](x, time=time, mask=mask)
             patient_emb.append(x)
             distance.append(cur_dis)
-        
+
         patient_emb = torch.cat(patient_emb, dim=1)
         # (patient, label_size)
         logits = self.fc(patient_emb)
         # obtain y_true, loss, y_prob
         y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
         loss = self.get_loss_function()(logits, y_true)
-        
+
         y_prob = self.prepare_y_prob(logits)
         return {
             "loss": loss,

@@ -42,13 +42,22 @@ class AgentLayer(nn.Module):
     """
 
     def __init__(
-        self, input_dim, static_dim=0, cell="gru", use_baseline=True, n_actions=10, n_units=64, n_hidden=128, dropout=0.5, lamda=0.5
+        self,
+        input_dim,
+        static_dim=0,
+        cell="gru",
+        use_baseline=True,
+        n_actions=10,
+        n_units=64,
+        n_hidden=128,
+        dropout=0.5,
+        lamda=0.5,
     ):
         super(AgentLayer, self).__init__()
-        
+
         if cell not in ["gru", "lstm"]:
             raise ValueError("Only gru and lstm are supported for cell.")
-        
+
         self.cell = cell
         self.use_baseline = use_baseline
         self.n_actions = n_actions
@@ -174,9 +183,13 @@ class AgentLayer(nn.Module):
             if self.cell == "lstm":
                 cur_c = self.init_c(static)
         else:
-            cur_h = torch.zeros(batch_size, self.n_hidden, dtype=torch.float32, device=x.device)
+            cur_h = torch.zeros(
+                batch_size, self.n_hidden, dtype=torch.float32, device=x.device
+            )
             if self.cell == "lstm":
-                cur_c = torch.zeros(batch_size, self.n_hidden, dtype=torch.float32, device=x.device)
+                cur_c = torch.zeros(
+                    batch_size, self.n_hidden, dtype=torch.float32, device=x.device
+                )
 
         h = []
         for cur_time in range(time_step):
@@ -185,11 +198,11 @@ class AgentLayer(nn.Module):
             if cur_time == 0:
                 obs_1 = cur_h
                 obs_2 = cur_input
-                
+
                 if self.static_dim > 0:
                     obs_1 = torch.cat((obs_1, static), dim=1)
                     obs_2 = torch.cat((obs_2, static), dim=1)
-                
+
                 self.choose_action(obs_1, 1).long()
                 self.choose_action(obs_2, 2).long()
 
@@ -214,11 +227,11 @@ class AgentLayer(nn.Module):
 
                 obs_1 = observed_h.mean(dim=0)
                 obs_2 = cur_input
-                
+
                 if self.static_dim > 0:
                     obs_1 = torch.cat((obs_1, static), dim=1)
                     obs_2 = torch.cat((obs_2, static), dim=1)
-                
+
                 act_idx1 = self.choose_action(obs_1, 1).long()
                 act_idx2 = self.choose_action(obs_2, 2).long()
                 batch_idx = torch.arange(batch_size, dtype=torch.long).unsqueeze(-1)
@@ -240,18 +253,19 @@ class AgentLayer(nn.Module):
                 weighted_h = self.lamda * action_h + (1 - self.lamda) * cur_h
                 cur_h = self.rnn(cur_input, weighted_h)
             h.append(cur_h)
-        
+
         h = torch.stack(h, dim=1)
         static = static.unsqueeze(1).repeat(1, time_step, 1)
         if self.static_dim > 0:
             h = torch.cat((h, static), dim=2)
             h = self.fusion(h)
-        
+
         last_out = get_last_visit(h, mask)
-        
+
         if self.dropout > 0.0:
             last_out = self.nn_dropout(last_out)
         return last_out, h
+
 
 class Agent(BaseModel):
     """Dr. Agent model.
@@ -392,11 +406,11 @@ class Agent(BaseModel):
         self.embeddings = nn.ModuleDict()
         # the key of self.linear_layers only contains the float/int based inputs
         self.linear_layers = nn.ModuleDict()
-        
+
         self.static_dim = 0
         if self.static_key is not None:
             self.static_dim = self.dataset.input_info[self.static_key]["len"]
-        
+
         self.agent = nn.ModuleDict()
         # add feature Dr. Agent layers
         for feature_key in self.feature_keys:
@@ -419,84 +433,119 @@ class Agent(BaseModel):
             # for code based input, we need Type
             # for float/int based input, we need Type, input_dim
             self.add_feature_transform_layer(feature_key, input_info)
-            self.agent[feature_key] = AgentLayer(input_dim=embedding_dim, static_dim=self.static_dim, n_hidden=hidden_dim, **kwargs)
+            self.agent[feature_key] = AgentLayer(
+                input_dim=embedding_dim,
+                static_dim=self.static_dim,
+                n_hidden=hidden_dim,
+                **kwargs,
+            )
 
         output_size = self.get_output_size(self.label_tokenizer)
         self.fc = nn.Linear(len(self.feature_keys) * self.hidden_dim, output_size)
 
-    
     def get_loss(self, model, pred, true, mask, gamma=0.9, entropy_term=0.01):
-        
+
         if self.mode == "binary":
-            pred = torch.sigmoid(pred)    
+            pred = torch.sigmoid(pred)
             rewards = ((pred - 0.5) * 2 * true).squeeze()
         elif self.mode == "multiclass":
-            pred = torch.softmax(pred, dim=-1)         
+            pred = torch.softmax(pred, dim=-1)
             y_onehot = torch.zeros_like(pred).scatter(1, true.unsqueeze(1), 1)
             rewards = (pred * y_onehot).sum(-1).squeeze()
         elif self.mode == "multilabel":
             pred = torch.sigmoid(pred)
-            rewards = (((pred-0.5) * 2 * true).sum(dim=-1) / (true.sum(dim=-1) + 1e-7)).squeeze()
+            rewards = (
+                ((pred - 0.5) * 2 * true).sum(dim=-1) / (true.sum(dim=-1) + 1e-7)
+            ).squeeze()
         elif self.mode == "regression":
-            rewards = (1/torch.abs(pred - true)).squeeze() #b*t
+            rewards = (1 / torch.abs(pred - true)).squeeze()  # b*t
             rewards = torch.clamp(rewards, min=0, max=5)
-            
+
         act_prob1 = model.agent1_prob
         act_prob1 = torch.stack(act_prob1).permute(1, 0).to(self.device)
-        act_prob1 = act_prob1 * mask.view(act_prob1.size(0), act_prob1.size(1)) 
+        act_prob1 = act_prob1 * mask.view(act_prob1.size(0), act_prob1.size(1))
         act_entropy1 = model.agent1_entropy
         act_entropy1 = torch.stack(act_entropy1).permute(1, 0).to(self.device)
-        act_entropy1 = act_entropy1 * mask.view(act_entropy1.size(0), act_entropy1.size(1)) 
+        act_entropy1 = act_entropy1 * mask.view(
+            act_entropy1.size(0), act_entropy1.size(1)
+        )
         if self.use_baseline == True:
             act_baseline1 = model.agent1_baseline
-            act_baseline1 = torch.stack(act_baseline1).squeeze(-1).permute(1, 0).to(self.device)
-            act_baseline1 = act_baseline1 * mask.view(act_baseline1.size(0), act_baseline1.size(1))
+            act_baseline1 = (
+                torch.stack(act_baseline1).squeeze(-1).permute(1, 0).to(self.device)
+            )
+            act_baseline1 = act_baseline1 * mask.view(
+                act_baseline1.size(0), act_baseline1.size(1)
+            )
 
         act_prob2 = model.agent2_prob
         act_prob2 = torch.stack(act_prob2).permute(1, 0).to(self.device)
-        act_prob2 = act_prob2 * mask.view(act_prob2.size(0), act_prob2.size(1)) 
+        act_prob2 = act_prob2 * mask.view(act_prob2.size(0), act_prob2.size(1))
         act_entropy2 = model.agent2_entropy
         act_entropy2 = torch.stack(act_entropy2).permute(1, 0).to(self.device)
-        act_entropy2 = act_entropy2 * mask.view(act_entropy2.size(0), act_entropy2.size(1)) 
+        act_entropy2 = act_entropy2 * mask.view(
+            act_entropy2.size(0), act_entropy2.size(1)
+        )
         if self.use_baseline == True:
             act_baseline2 = model.agent2_baseline
-            act_baseline2 = torch.stack(act_baseline2).squeeze(-1).permute(1, 0).to(self.device)
-            act_baseline2 = act_baseline2 * mask.view(act_baseline2.size(0), act_baseline2.size(1))
-        
+            act_baseline2 = (
+                torch.stack(act_baseline2).squeeze(-1).permute(1, 0).to(self.device)
+            )
+            act_baseline2 = act_baseline2 * mask.view(
+                act_baseline2.size(0), act_baseline2.size(1)
+            )
+
         running_rewards = []
         discounted_rewards = 0
         for i in reversed(range(act_prob1.size(1))):
-            if i == act_prob1.size(1)-1:
+            if i == act_prob1.size(1) - 1:
                 discounted_rewards = rewards + gamma * discounted_rewards
             else:
-                discounted_rewards = torch.zeros_like(rewards) + gamma * discounted_rewards
+                discounted_rewards = (
+                    torch.zeros_like(rewards) + gamma * discounted_rewards
+                )
             running_rewards.insert(0, discounted_rewards)
         rewards = torch.stack(running_rewards).permute(1, 0)
-        rewards = (rewards - rewards.mean(dim=1).unsqueeze(-1)) / (rewards.std(dim=1) + 1e-7).unsqueeze(-1)
+        rewards = (rewards - rewards.mean(dim=1).unsqueeze(-1)) / (
+            rewards.std(dim=1) + 1e-7
+        ).unsqueeze(-1)
         rewards = rewards.detach()
-        
+
         if self.use_baseline == True:
-            loss_value1 = torch.sum((rewards - act_baseline1) ** 2, dim=1) / torch.sum(mask, dim=1)
+            loss_value1 = torch.sum((rewards - act_baseline1) ** 2, dim=1) / torch.sum(
+                mask, dim=1
+            )
             loss_value1 = torch.mean(loss_value1)
-            loss_value2 = torch.sum((rewards - act_baseline2) ** 2, dim=1) / torch.sum(mask, dim=1)
+            loss_value2 = torch.sum((rewards - act_baseline2) ** 2, dim=1) / torch.sum(
+                mask, dim=1
+            )
             loss_value2 = torch.mean(loss_value2)
             loss_value = loss_value1 + loss_value2
-            loss_RL1 = -torch.sum(act_prob1 * (rewards - act_baseline1) + entropy_term * act_entropy1, dim=1) / torch.sum(mask, dim=1)
+            loss_RL1 = -torch.sum(
+                act_prob1 * (rewards - act_baseline1) + entropy_term * act_entropy1,
+                dim=1,
+            ) / torch.sum(mask, dim=1)
             loss_RL1 = torch.mean(loss_RL1)
-            loss_RL2 = -torch.sum(act_prob2 * (rewards - act_baseline2) + entropy_term * act_entropy2, dim=1) / torch.sum(mask, dim=1)
+            loss_RL2 = -torch.sum(
+                act_prob2 * (rewards - act_baseline2) + entropy_term * act_entropy2,
+                dim=1,
+            ) / torch.sum(mask, dim=1)
             loss_RL2 = torch.mean(loss_RL2)
             loss_RL = loss_RL1 + loss_RL2
             loss = loss_RL + loss_value
         else:
-            loss_RL1 = -torch.sum(act_prob1 * rewards + entropy_term * act_entropy1, dim=1) / torch.sum(mask, dim=1)
+            loss_RL1 = -torch.sum(
+                act_prob1 * rewards + entropy_term * act_entropy1, dim=1
+            ) / torch.sum(mask, dim=1)
             loss_RL1 = torch.mean(loss_RL1)
-            loss_RL2 = -torch.sum(act_prob2 * rewards + entropy_term * act_entropy2, dim=1) / torch.sum(mask, dim=1)
+            loss_RL2 = -torch.sum(
+                act_prob2 * rewards + entropy_term * act_entropy2, dim=1
+            ) / torch.sum(mask, dim=1)
             loss_RL2 = torch.mean(loss_RL2)
             loss_RL = loss_RL1 + loss_RL2
             loss = loss_RL
-        
-        return loss
 
+        return loss
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation.
@@ -577,22 +626,26 @@ class Agent(BaseModel):
                 raise NotImplementedError
 
             if self.static_dim > 0:
-                static = torch.tensor(kwargs[self.static_key], dtype=torch.float, device=self.device)
+                static = torch.tensor(
+                    kwargs[self.static_key], dtype=torch.float, device=self.device
+                )
                 x, _ = self.agent[feature_key](x, static=static, mask=mask)
             else:
                 x, _ = self.agent[feature_key](x, mask=mask)
             patient_emb.append(x)
-        
+
         patient_emb = torch.cat(patient_emb, dim=1)
         # (patient, label_size)
         logits = self.fc(patient_emb)
         # obtain y_true, loss, y_prob
         y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
         loss_task = self.get_loss_function()(logits, y_true)
-        
+
         loss_rl = 0
         for feature_key in self.feature_keys:
-            cur_loss = self.get_loss(self.agent[feature_key], logits, y_true, mask_dict[feature_key])
+            cur_loss = self.get_loss(
+                self.agent[feature_key], logits, y_true, mask_dict[feature_key]
+            )
             loss_rl += cur_loss
         loss = loss_task + loss_rl
         y_prob = self.prepare_y_prob(logits)
@@ -621,7 +674,7 @@ if __name__ == "__main__":
                 [[7.7, 8.5, 9.4]],
             ],
             "label": 1,
-            "demographic": [1.0, 2.0, 1.3]
+            "demographic": [1.0, 2.0, 1.3],
         },
         {
             "patient_id": "patient-0",
@@ -640,7 +693,7 @@ if __name__ == "__main__":
                 [[1.0, 2.8, 3.3], [4.9, 5.0, 6.6], [7.7, 8.4, 1.3], [7.7, 8.4, 1.3]],
             ],
             "label": 0,
-            "demographic": [1.0, 2.0, 1.3]
+            "demographic": [1.0, 2.0, 1.3],
         },
     ]
 
@@ -663,7 +716,7 @@ if __name__ == "__main__":
         ],
         static_key="demographic",
         label_key="label",
-        mode="binary"
+        mode="binary",
     )
 
     # data batch
