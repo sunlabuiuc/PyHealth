@@ -12,6 +12,7 @@ import math
 
 # VALID_OPERATION_LEVEL = ["visit", "event"]
 
+
 class FinalAttentionQKV(nn.Module):
     def __init__(
         self,
@@ -257,7 +258,7 @@ class SingleAttention(nn.Module):
         attention_input_dim,
         attention_hidden_dim,
         attention_type="add",
-        time_aware=False
+        time_aware=False,
     ):
         super(SingleAttention, self).__init__()
 
@@ -361,7 +362,9 @@ class SingleAttention(nn.Module):
 
         time_decays = (
             torch.tensor(range(time_step - 1, -1, -1), dtype=torch.float32)
-            .unsqueeze(-1).unsqueeze(0).to(device=device)
+            .unsqueeze(-1)
+            .unsqueeze(0)
+            .to(device=device)
         )  # 1*t*1
         b_time_decays = time_decays.repeat(batch_size, 1, 1) + 1  # b t 1
 
@@ -403,10 +406,10 @@ class SingleAttention(nn.Module):
             q = torch.matmul(last_visit, self.Wt)  # b h
             q = torch.reshape(q, (batch_size, 1, self.attention_hidden_dim))  # B*1*H
             k = torch.matmul(input, self.Wx)  # b t h
-            dot_product = torch.matmul(q, k.transpose(1, 2)).reshape(batch_size, time_step)  # b t
+            dot_product = torch.matmul(q, k.transpose(1, 2)).squeeze()  # b t
             denominator = self.sigmoid(self.rate) * (
                 torch.log(2.72 + (1 - self.sigmoid(dot_product)))
-                * (b_time_decays.reshape(batch_size, time_step))
+                * (b_time_decays.squeeze())
             )
             e = self.relu(self.sigmoid(dot_product) / (denominator))  # b * t
         # s = torch.sum(e, dim=-1, keepdim=True)
@@ -417,6 +420,7 @@ class SingleAttention(nn.Module):
         v = torch.matmul(a.unsqueeze(1), input).squeeze()  # B*I
 
         return v, a
+
 
 class ConCareLayer(nn.Module):
     """ConCare layer.
@@ -445,10 +449,16 @@ class ConCareLayer(nn.Module):
     """
 
     def __init__(
-        self, input_dim, static_dim=0, hidden_dim=128, num_head=4, pe_hidden=64, dropout=0.5
+        self,
+        input_dim,
+        static_dim=0,
+        hidden_dim=128,
+        num_head=4,
+        pe_hidden=64,
+        dropout=0.5,
     ):
         super(ConCareLayer, self).__init__()
-        
+
         # hyperparameters
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim  # d_model
@@ -492,7 +502,9 @@ class ConCareLayer(nn.Module):
         self.MultiHeadedAttention = MultiHeadedAttention(
             self.num_head, self.transformer_hidden, dropout=self.dropout
         )
-        self.SublayerConnection = SublayerConnection(self.transformer_hidden, dropout=self.dropout)
+        self.SublayerConnection = SublayerConnection(
+            self.transformer_hidden, dropout=self.dropout
+        )
 
         self.PositionwiseFeedForward = PositionwiseFeedForward(
             self.transformer_hidden, self.pe_hidden, dropout=0.1
@@ -509,7 +521,7 @@ class ConCareLayer(nn.Module):
 
     def concare_encoder(self, input, static=None, mask=None):
         # input shape [batch_size, timestep, feature_dim]
-        
+
         if self.static_dim > 0:
             demo_main = self.tanh(self.demo_proj_main(static)).unsqueeze(
                 1
@@ -518,34 +530,43 @@ class ConCareLayer(nn.Module):
         batch_size = input.size(0)
         time_step = input.size(1)
         feature_dim = input.size(2)
-        
+
         if self.transformer_hidden % self.num_head != 0:
-            raise ValueError(
-                "transformer_hidden must be divisible by num_head"
-            )
+            raise ValueError("transformer_hidden must be divisible by num_head")
 
         # forward
         GRU_embeded_input = self.GRUs[0](
-            input[:, :, 0].unsqueeze(-1).to(device=input.device), torch.zeros(batch_size, self.hidden_dim).to(device=input.device).unsqueeze(0))[0]  # b t h
-        
-        Attention_embeded_input = self.LastStepAttentions[0](GRU_embeded_input, mask, input.device)[0].unsqueeze(1)  # b 1 h
+            input[:, :, 0].unsqueeze(-1).to(device=input.device),
+            torch.zeros(batch_size, self.hidden_dim)
+            .to(device=input.device)
+            .unsqueeze(0),
+        )[
+            0
+        ]  # b t h
+        Attention_embeded_input = self.LastStepAttentions[0](
+            GRU_embeded_input, mask, input.device
+        )[0].unsqueeze(
+            1
+        )  # b 1 h
 
         for i in range(feature_dim - 1):
             embeded_input = self.GRUs[i + 1](
                 input[:, :, i + 1].unsqueeze(-1),
-                    torch.zeros(batch_size, self.hidden_dim)
-                    .to(device=input.device)
-                    .unsqueeze(0)
+                torch.zeros(batch_size, self.hidden_dim)
+                .to(device=input.device)
+                .unsqueeze(0),
             )[
                 0
             ]  # b 1 h
-            embeded_input = self.LastStepAttentions[i + 1](embeded_input, mask, input.device)[0].unsqueeze(
+            embeded_input = self.LastStepAttentions[i + 1](
+                embeded_input, mask, input.device
+            )[0].unsqueeze(
                 1
             )  # b 1 h
             Attention_embeded_input = torch.cat(
                 (Attention_embeded_input, embeded_input), 1
             )  # b i h
-            
+
         if self.static_dim > 0:
             Attention_embeded_input = torch.cat(
                 (Attention_embeded_input, demo_main), 1
@@ -596,6 +617,7 @@ class ConCareLayer(nn.Module):
         out, decov = self.concare_encoder(x, static, mask)
         out = self.dropout(out)
         return out, decov
+
 
 class ConCare(BaseModel):
     """ConCare model.
@@ -742,7 +764,7 @@ class ConCare(BaseModel):
         self.static_dim = 0
         if self.static_key is not None:
             self.static_dim = self.dataset.input_info[self.static_key]["len"]
-        
+
         self.concare = nn.ModuleDict()
         # add feature ConCare layers
         for idx, feature_key in enumerate(self.feature_keys):
@@ -770,9 +792,19 @@ class ConCare(BaseModel):
             # for float/int based input, we need Type, input_dim
             if use_embedding[idx]:
                 self.add_feature_transform_layer(feature_key, input_info)
-                self.concare[feature_key] = ConCareLayer(input_dim=embedding_dim, static_dim=self.static_dim, hidden_dim=self.hidden_dim, **kwargs)
+                self.concare[feature_key] = ConCareLayer(
+                    input_dim=embedding_dim,
+                    static_dim=self.static_dim,
+                    hidden_dim=self.hidden_dim,
+                    **kwargs,
+                )
             else:
-                self.concare[feature_key] = ConCareLayer(input_dim=input_info["len"], static_dim=self.static_dim, hidden_dim=self.hidden_dim, **kwargs)
+                self.concare[feature_key] = ConCareLayer(
+                    input_dim=input_info["len"],
+                    static_dim=self.static_dim,
+                    hidden_dim=self.hidden_dim,
+                    **kwargs,
+                )
 
         output_size = self.get_output_size(self.label_tokenizer)
         self.fc = nn.Linear(len(self.feature_keys) * self.hidden_dim, output_size)
@@ -844,7 +876,7 @@ class ConCare(BaseModel):
                 x = torch.tensor(x, dtype=torch.float, device=self.device)
                 # (patient, visit, embedding_dim)
                 x = torch.sum(x, dim=2)
-                
+
                 if self.use_embedding[idx]:
                     x = self.linear_layers[feature_key](x)
                 # (patient, event)
@@ -854,7 +886,9 @@ class ConCare(BaseModel):
                 raise NotImplementedError
 
             if self.static_dim > 0:
-                static = torch.tensor(kwargs[self.static_key], dtype=torch.float, device=self.device)
+                static = torch.tensor(
+                    kwargs[self.static_key], dtype=torch.float, device=self.device
+                )
                 x, decov = self.concare[feature_key](x, static=static, mask=mask)
             else:
                 x, decov = self.concare[feature_key](x, mask=mask)
@@ -894,7 +928,7 @@ if __name__ == "__main__":
                 [[7.7, 8.5, 9.4]],
             ],
             "label": 1,
-            "demographic": [1.0, 2.0, 1.3]
+            "demographic": [1.0, 2.0, 1.3],
         },
         {
             "patient_id": "patient-0",
@@ -913,7 +947,7 @@ if __name__ == "__main__":
                 [[1.0, 2.8, 3.3], [4.9, 5.0, 6.6], [7.7, 8.4, 1.3], [7.7, 8.4, 1.3]],
             ],
             "label": 0,
-            "demographic": [1.0, 2.0, 1.3]
+            "demographic": [1.0, 2.0, 1.3],
         },
     ]
 
@@ -938,7 +972,7 @@ if __name__ == "__main__":
         label_key="label",
         use_embedding=[True, False, True],
         mode="binary",
-        hidden_dim=64
+        hidden_dim=64,
     )
 
     # data batch
