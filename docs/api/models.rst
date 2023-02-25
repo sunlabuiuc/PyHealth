@@ -24,4 +24,10 @@ We implement the following models for supporting multiple healthcare predictive 
     models/pyhealth.models.GRASP
     models/pyhealth.models.TCN
     models/pyhealth.models.SparcNet
+    models/pyhealth.models.StageNet
+    models/pyhealth.models.AdaCare
+    models/pyhealth.models.ConCare
+    models/pyhealth.models.Agent
+    models/pyhealth.models.GRASP
+    models/pyhealth.models.TCN
 
