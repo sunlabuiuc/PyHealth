@@ -4,10 +4,10 @@ from pyhealth.models import Agent
 from pyhealth.tasks import mortality_prediction_mimic3_fn
 from pyhealth.trainer import Trainer
 
-if __name__ == '__main__': 
+if __name__ == "__main__":
     # STEP 1: load data
     base_dataset = MIMIC3Dataset(
-        root="D:/Data/MIMICIII/",
+        root="/srv/local/data/physionet.org/files/mimiciii/1.4",
         tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
         code_mapping={"ICD9CM": "CCSCM", "ICD9PROC": "CCSPROC", "NDC": "ATC"},
         dev=False,
@@ -28,11 +28,11 @@ if __name__ == '__main__':
 
     # STEP 3: define model
     model = Agent(
-            dataset=sample_dataset,
-            feature_keys=["conditions", "procedures"],
-            label_key="label",
-            mode="binary"
-        )
+        dataset=sample_dataset,
+        feature_keys=["conditions", "procedures"],
+        label_key="label",
+        mode="binary",
+    )
 
     # STEP 4: define trainer
     trainer = Trainer(model=model)
@@ -40,7 +40,7 @@ if __name__ == '__main__':
         train_dataloader=train_dataloader,
         val_dataloader=val_dataloader,
         epochs=50,
-        monitor="roc_auc"
+        monitor="roc_auc",
     )
 
     # STEP 5: evaluate

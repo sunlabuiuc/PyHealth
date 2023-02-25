@@ -4,10 +4,10 @@ from pyhealth.models import AdaCare
 from pyhealth.tasks import mortality_prediction_mimic3_fn
 from pyhealth.trainer import Trainer
 
-if __name__ == '__main__': 
+if __name__ == "__main__":
     # STEP 1: load data
     base_dataset = MIMIC3Dataset(
-        root="D:/Data/MIMICIII/",
+        root="/srv/local/data/physionet.org/files/mimiciii/1.4",
         tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
         code_mapping={"ICD9CM": "CCSCM", "ICD9PROC": "CCSPROC", "NDC": "ATC"},
         dev=False,
@@ -28,14 +28,14 @@ if __name__ == '__main__':
 
     # STEP 3: define model
     model = AdaCare(
-            dataset=sample_dataset,
-            feature_keys=["conditions", "procedures"],
-            label_key="label",
-            mode="binary",
-            use_embedding=[True, True, True],
-            hidden_dim=64,
-            dropout=0.0,
-        )
+        dataset=sample_dataset,
+        feature_keys=["conditions", "procedures"],
+        label_key="label",
+        mode="binary",
+        use_embedding=[True, True, True],
+        hidden_dim=64,
+        dropout=0.0,
+    )
 
     # STEP 4: define trainer
     trainer = Trainer(model=model)

@@ -16,10 +16,10 @@ import math
 class FinalAttentionQKV(nn.Module):
     def __init__(
         self,
-        attention_input_dim,
-        attention_hidden_dim,
-        attention_type="add",
-        dropout=None,
+        attention_input_dim: int,
+        attention_hidden_dim: int,
+        attention_type: str = "add",
+        dropout: float = 0.5,
     ):
         super(FinalAttentionQKV, self).__init__()
 
@@ -413,8 +413,8 @@ class SingleAttention(nn.Module):
             )
             e = self.relu(self.sigmoid(dot_product) / (denominator))  # b * t
         # s = torch.sum(e, dim=-1, keepdim=True)
-        # mask = subsequent_mask(time_step).to(device) # 1 t t 下三角
-        # scores = e.masked_fill(mask == 0, -1e9)# b t t 下三角
+        # mask = subsequent_mask(time_step).to(device) # 1 t t lower triangle
+        # scores = e.masked_fill(mask == 0, -1e9)# b t t upper triangle
         e = e.masked_fill(mask == 0, -1e9)
         a = self.softmax(e)  # B*T
         v = torch.matmul(a.unsqueeze(1), input).squeeze()  # B*I
@@ -968,7 +968,7 @@ if __name__ == "__main__":
             "list_list_codes",
             # "list_list_vectors",
         ],
-        static_key="demographic",
+        # static_key="demographic",
         label_key="label",
         use_embedding=[True, False, True],
         mode="binary",

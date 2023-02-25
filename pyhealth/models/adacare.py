@@ -10,6 +10,7 @@ from pyhealth.models.utils import get_last_visit
 
 # VALID_OPERATION_LEVEL = ["visit", "event"]
 
+
 class Sparsemax(nn.Module):
     """Sparsemax function."""
 
@@ -88,6 +89,7 @@ class CausalConv1d(torch.nn.Conv1d):
             return result[:, :, : -self.__padding]
         return result
 
+
 class Recalibration(nn.Module):
     def __init__(
         self, channel, reduction=9, use_h=True, use_c=True, activation="sigmoid"
@@ -108,8 +110,8 @@ class Recalibration(nn.Module):
 
     def forward(self, x):
         b, c, t = x.size()
-        
-        y_origin = x.permute(0,2,1).reshape(b*t, c).contiguous()
+
+        y_origin = x.permute(0, 2, 1).reshape(b * t, c).contiguous()
         se_c = self.nn_c(y_origin)
         se_c = torch.relu(se_c)
         y = se_c
@@ -127,7 +129,7 @@ class Recalibration(nn.Module):
 class AdaCareLayer(nn.Module):
     """AdaCare layer.
 
-    Paper: Liantao Ma et al. Adacare: Explainable clinical health status representation learning 
+    Paper: Liantao Ma et al. Adacare: Explainable clinical health status representation learning
     via scale-adaptive feature extraction and recalibration. AAAI 2020.
 
     This layer is used in the AdaCare model. But it can also be used as a
@@ -165,12 +167,14 @@ class AdaCareLayer(nn.Module):
         dropout: float = 0.5,
     ):
         super(AdaCareLayer, self).__init__()
-        
+
         if activation not in ["sigmoid", "softmax", "sparsemax"]:
-            raise ValueError("Only sigmoid, softmax and sparsemax are supported for activation.")
+            raise ValueError(
+                "Only sigmoid, softmax and sparsemax are supported for activation."
+            )
         if rnn_type not in ["gru", "lstm"]:
             raise ValueError("Only gru and lstm are supported for rnn_type.")
-        
+
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.kernel_size = kernel_size
@@ -185,14 +189,14 @@ class AdaCareLayer(nn.Module):
         torch.nn.init.xavier_uniform_(self.nn_conv1.weight)
         torch.nn.init.xavier_uniform_(self.nn_conv3.weight)
         torch.nn.init.xavier_uniform_(self.nn_conv5.weight)
-        
+
         self.nn_convse = Recalibration(
             3 * kernel_num, r_c, use_h=False, use_c=True, activation="sigmoid"
         )
         self.nn_inputse = Recalibration(
             input_dim, r_v, use_h=False, use_c=True, activation=activation
         )
-        
+
         if rnn_type == "gru":
             self.rnn = nn.GRU(input_dim + 3 * kernel_num, hidden_dim)
         else:
@@ -203,7 +207,7 @@ class AdaCareLayer(nn.Module):
         self.relu = nn.ReLU()
         self.sigmoid = nn.Sigmoid()
         self.tanh = nn.Tanh()
-     
+
     def forward(
         self,
         x: torch.tensor,
@@ -223,9 +227,9 @@ class AdaCareLayer(nn.Module):
             inputatt: a tensor of shape [batch size, sequence_len, input_dim] representing the feature importance of the input.
             convatt: a tensor of shape [batch size, sequence_len, 3 * kernel_num] representing the feature importance of the convolutional features.
         """
-        batch_size = x.size(0)
-        time_step = x.size(1)
-        feature_dim = x.size(2)
+        # batch_size = x.size(0)
+        # time_step = x.size(1)
+        # feature_dim = x.size(2)
 
         conv_input = x.permute(0, 2, 1)
         conv_res1 = self.nn_conv1(conv_input)
@@ -245,13 +249,12 @@ class AdaCareLayer(nn.Module):
         return last_output, output, inputatt, convatt
 
 
-
 class AdaCare(BaseModel):
     """AdaCare model.
 
-    Paper: Liantao Ma et al. Adacare: Explainable clinical health status representation learning 
+    Paper: Liantao Ma et al. Adacare: Explainable clinical health status representation learning
     via scale-adaptive feature extraction and recalibration. AAAI 2020.
-    
+
     Note:
         We use separate AdaCare layers for different feature_keys.
         Currently, we automatically support different input formats:
@@ -383,7 +386,7 @@ class AdaCare(BaseModel):
         # the key of self.linear_layers only contains the float/int based inputs
         self.linear_layers = nn.ModuleDict()
         self.adacare = nn.ModuleDict()
-    
+
         for idx, feature_key in enumerate(self.feature_keys):
             input_info = self.dataset.input_info[feature_key]
             # sanity check
@@ -409,9 +412,13 @@ class AdaCare(BaseModel):
             # for float/int based input, we need Type, input_dim
             if use_embedding[idx]:
                 self.add_feature_transform_layer(feature_key, input_info)
-                self.adacare[feature_key] = AdaCareLayer(input_dim=embedding_dim, hidden_dim=self.hidden_dim, **kwargs)
+                self.adacare[feature_key] = AdaCareLayer(
+                    input_dim=embedding_dim, hidden_dim=self.hidden_dim, **kwargs
+                )
             else:
-                self.adacare[feature_key] = AdaCareLayer(input_dim=input_info["len"], hidden_dim=self.hidden_dim, **kwargs)
+                self.adacare[feature_key] = AdaCareLayer(
+                    input_dim=input_info["len"], hidden_dim=self.hidden_dim, **kwargs
+                )
 
         output_size = self.get_output_size(self.label_tokenizer)
         self.fc = nn.Linear(len(self.feature_keys) * self.hidden_dim, output_size)
@@ -428,9 +435,9 @@ class AdaCare(BaseModel):
         Returns:
             A dictionary with the following keys:
                 loss: a scalar tensor representing the loss.
-                feature_importance: a list of tensors with shape (feature_type, batch_size, time_step, features) 
+                feature_importance: a list of tensors with shape (feature_type, batch_size, time_step, features)
                                     representing the feature importance.
-                conv_feature_importance: a list of tensors with shape (feature_type, batch_size, time_step, 3*kernal_size) 
+                conv_feature_importance: a list of tensors with shape (feature_type, batch_size, time_step, 3*kernal_size)
                                         representing the convolutional feature importance.
                 y_prob: a tensor representing the predicted probabilities.
                 y_true: a tensor representing the true labels.
@@ -486,7 +493,7 @@ class AdaCare(BaseModel):
                 x = torch.tensor(x, dtype=torch.float, device=self.device)
                 # (patient, visit, embedding_dim)
                 x = torch.sum(x, dim=2)
-                
+
                 if self.use_embedding[idx]:
                     x = self.linear_layers[feature_key](x)
                 # (patient, event)
@@ -574,7 +581,7 @@ if __name__ == "__main__":
         label_key="label",
         mode="binary",
         use_embedding=[True, False, True, False],
-        hidden_dim=64
+        hidden_dim=64,
     )
 
     # data batch
