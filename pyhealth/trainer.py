@@ -121,7 +121,7 @@ class Trainer:
         optimizer_class: Type[Optimizer] = torch.optim.Adam,
         optimizer_params: Optional[Dict[str, object]] = None,
         steps_per_epoch: int = None,
-        batch_size: int = None,
+        evaluation_steps: int = 1,
         weight_decay: float = 0.0,
         max_grad_norm: float = None,
         monitor: Optional[str] = None,
@@ -149,7 +149,7 @@ class Trainer:
 
         # logging
         logger.info("Training:")
-        logger.info(f"Batch size: {train_dataloader.batch_size if batch_size==None else batch_size}")
+        logger.info(f"Batch size: {train_dataloader.batch_size}")
         logger.info(f"Optimizer: {optimizer_class}")
         logger.info(f"Optimizer params: {optimizer_params}")
         logger.info(f"Weight decay: {weight_decay}")
@@ -221,7 +221,7 @@ class Trainer:
                 self.save_ckpt(os.path.join(self.exp_path, "last.ckpt"))
 
             # validation
-            if val_dataloader is not None:
+            if (val_dataloader is not None) and (epoch % evaluation_steps == 0):
                 scores = self.evaluate(val_dataloader)
                 logger.info(f"--- Eval epoch-{epoch}, step-{global_step} ---")
                 for key in scores.keys():
@@ -266,7 +266,10 @@ class Trainer:
         loss_all = []
         y_true_all = []
         y_prob_all = []
-        for data in tqdm(dataloader, desc="Evaluation"):
+        for i, data in enumerate(tqdm(dataloader, desc="Evaluation")):
+            if i >= len(dataloader):
+                i = 0
+                break
             self.model.eval()
             with torch.no_grad():
                 output = self.model(**data)

@@ -2,6 +2,8 @@ from abc import ABC
 from pyhealth.datasets import SampleBaseDataset
 
 import torch
+import time
+import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -48,6 +50,8 @@ class KGEBaseModel(ABC, nn.Module):
         self.eps = 2.0
         self.use_subsampling_weight = use_subsampling_weight
         self.use_regularization = use_regularization
+        self.mode = mode
+        
         if gamma != None:
             self.margin = nn.Parameter(torch.Tensor([gamma]), requires_grad=False)
 
@@ -201,7 +205,6 @@ class KGEBaseModel(ABC, nn.Module):
             inputs = [x.to(self.device) for x in inputs]
             pos_sample, neg_sample, filter_bias = inputs
             sample_batch = (pos_sample, neg_sample)
-
             score = self.calc(sample_batch=sample_batch, mode=mode)
             score += filter_bias
             loss = (-F.logsigmoid(-score).mean(dim=1)).mean()
@@ -215,7 +218,7 @@ class KGEBaseModel(ABC, nn.Module):
             return {
                 "loss": loss,
                 "y_true": y_true,
-                "y_prob": [score]
+                "y_prob": score
                 }
 
 

@@ -121,8 +121,8 @@ def multiclass_metrics_fn(
         elif metric == "hits@n":
             argsort = np.argsort(-y_prob, axis=1)
             ranking = np.array([np.where(argsort[i] == y_true[i])[0][0] for i in range(len(y_true))]) + 1
-            output["HITS@1"] = np.count_nonzero(ranking <= 1) / len(ranking),
-            output["HITS@5"] = np.count_nonzero(ranking <= 5) / len(ranking),
+            output["HITS@1"] = np.count_nonzero(ranking <= 1) / len(ranking)
+            output["HITS@5"] = np.count_nonzero(ranking <= 5) / len(ranking)
             output["HITS@10"] = np.count_nonzero(ranking <= 10) / len(ranking)
         elif metric == "mean_rank":
             argsort = np.argsort(-y_prob, axis=1)

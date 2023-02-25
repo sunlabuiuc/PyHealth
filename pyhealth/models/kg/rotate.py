@@ -1,6 +1,6 @@
 from.kg_base import KGEBaseModel
 from pyhealth.datasets import SampleBaseDataset
-
+import time
 import torch
 
 
@@ -20,9 +20,10 @@ class RotatE(KGEBaseModel):
         ns='adv', 
         gamma=24.0,
         use_subsampling_weight: bool = False,     
-        use_regularization: str = None
+        use_regularization: str = None,
+        mode: str = "multiclass"
         ):
-        super().__init__(dataset, e_dim, r_dim, ns, gamma, use_subsampling_weight, use_regularization)
+        super().__init__(dataset, e_dim, r_dim, ns, gamma, use_subsampling_weight, use_regularization, mode)
         self.pi = 3.14159265358979323846
     
     def regularization(self, sample_batch, mode='pos'):
@@ -54,9 +55,9 @@ class RotatE(KGEBaseModel):
             im_score = head_re * relation_im + head_im * relation_re
             re_score = re_score - tail_re
             im_score = im_score - tail_im
+        
+        score = torch.stack([re_score, im_score], dim=0)
+        score = score.norm(dim=0)
 
-        score = torch.stack([re_score, im_score], dim = 0)
-        score = score.norm(dim = 0)
-
-        score = self.margin.item() - score.sum(dim = 2)
+        score = self.margin.item() - score.sum(dim=2)
         return score

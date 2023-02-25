@@ -201,27 +201,38 @@ def get_dataloader_kg(dataset, batch_size, train, shuffle=False):
             collate_fn=collate_fn_kg_test,
         )
 
-    num_batch = len(dataloader_head) + len(dataloader_tail)
+    interleaved_dataloader = InterleavedDataLoader(dataloader_head, dataloader_tail)
 
-    return interleaved_dataloader(dataloader_head, dataloader_tail), num_batch
+    return interleaved_dataloader
 
 
-def interleaved_dataloader(dataloader1, dataloader2):
-    dataloader1_iter = cycle(iter(dataloader1))
-    dataloader2_iter = cycle(iter(dataloader2))
+class InterleavedDataLoader:
+    def __init__(self, dataloader1, dataloader2):
+        self.dataloader1 = dataloader1
+        self.dataloader2 = dataloader2
+        self.dataloader1_iter = cycle(iter(dataloader1))
+        self.dataloader2_iter = cycle(iter(dataloader2))
+        self.batch_size = dataloader1.batch_size
 
-    while True:
+    def __iter__(self):
+        return self
+
+    def __next__(self):
         try:
-            yield next(dataloader1_iter)
+            batch = next(self.dataloader1_iter)        
         except StopIteration:
-            dataloader1_iter = cycle(iter(dataloader1))
-            yield next(dataloader1_iter)
-
+            self.dataloader1_iter = cycle(iter(self.dataloader1))
+            batch = next(self.dataloader1_iter)
         try:
-            yield next(dataloader2_iter)
+            batch = next(self.dataloader2_iter)
         except StopIteration:
-            dataloader2_iter = cycle(iter(dataloader2))
-            yield next(dataloader2_iter)
+            self.dataloader2_iter = cycle(iter(self.dataloader2))
+            batch = next(self.dataloader2_iter)
+
+        return batch
+
+    def __len__(self):
+        return len(self.dataloader1) + len(self.dataloader2)
 
 
 if __name__ == "__main__":

@@ -20,9 +20,10 @@ class TransE(KGEBaseModel):
         gamma: float = None, 
         use_subsampling_weight: bool = False, 
         use_regularization: str = None,
+        mode: str = "multiclass",
         p_norm: int = 1.0
         ):
-        super().__init__(dataset, e_dim, r_dim, ns, gamma, use_subsampling_weight, use_regularization)
+        super().__init__(dataset, e_dim, r_dim, ns, gamma, use_subsampling_weight, use_regularization, mode)
 
         self.p_norm = p_norm
 

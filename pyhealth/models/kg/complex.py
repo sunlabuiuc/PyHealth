@@ -20,8 +20,9 @@ class ComplEx(KGEBaseModel):
         gamma: float = None, 
         use_subsampling_weight: bool = False, 
         use_regularization: str = 'l3',
+        mode: str = "multiclass"
         ):
-        super().__init__(dataset, e_dim, r_dim, ns, gamma, use_subsampling_weight, use_regularization)
+        super().__init__(dataset, e_dim, r_dim, ns, gamma, use_subsampling_weight, use_regularization, mode)
 
     
     def regularization(self, sample_batch, mode='pos'):
