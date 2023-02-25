@@ -43,15 +43,15 @@ class AgentLayer(nn.Module):
 
     def __init__(
         self,
-        input_dim,
-        static_dim=0,
-        cell="gru",
-        use_baseline=True,
-        n_actions=10,
-        n_units=64,
-        n_hidden=128,
-        dropout=0.5,
-        lamda=0.5,
+        input_dim: int,
+        static_dim: int = 0,
+        cell: str = "gru",
+        use_baseline: bool = True,
+        n_actions: int = 10,
+        n_units: int = 64,
+        n_hidden: int = 128,
+        dropout: int = 0.5,
+        lamda: int = 0.5,
     ):
         super(AgentLayer, self).__init__()
 
@@ -714,7 +714,7 @@ if __name__ == "__main__":
             "list_list_codes",
             # "list_list_vectors",
         ],
-        static_key="demographic",
+        # static_key="demographic",
         label_key="label",
         mode="binary",
     )
