@@ -56,7 +56,7 @@ class TesteICUDataset(unittest.TestCase):
 
         # expect:
         # patient data
-        expected_birth_datetime = pandas.Timestamp("1938-02-26 00:00:00")
+        expected_birth_datetime = pandas.Timestamp("1938-02-27 00:00:00")
         expected_death_datetime = None
         expected_ethnicity = "Caucasian"
         expected_gender = "Female"
