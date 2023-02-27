@@ -15,7 +15,7 @@ class TesteICUDataset(unittest.TestCase):
     ROOT = "https://storage.googleapis.com/pyhealth/eicu-demo/"
     TABLES = ["diagnosis", "medication", "lab", "treatment", "physicalExam"]
     CODE_MAPPING = {}
-    DEV = True  # not needed when using demo set since its 100 patients large
+    DEV = False  # not needed when using demo set since its 100 patients large
     REFRESH_CACHE = True
 
     dataset = eICUDataset(
