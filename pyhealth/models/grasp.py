@@ -15,8 +15,6 @@ import copy
 import random
 import numpy as np
 
-# VALID_OPERATION_LEVEL = ["visit", "event"]
-
 
 def random_init(dataset, num_centers, device):
     num_points = dataset.size(0)
@@ -28,7 +26,9 @@ def random_init(dataset, num_centers, device):
         np.array(random.sample(range(num_points), k=num_centers)), dtype=torch.long
     )
 
-    centers = torch.gather(dataset, 0, indices.view(-1, 1).expand(-1, dimension).to(device=device))
+    centers = torch.gather(
+        dataset, 0, indices.view(-1, 1).expand(-1, dimension).to(device=device)
+    )
     return centers
 
 
@@ -44,12 +44,12 @@ def compute_codes(dataset, centers):
     chunk_size = int(5e8 / num_centers)
     codes = torch.zeros(num_points, dtype=torch.long)
     centers_t = torch.transpose(centers, 0, 1)
-    centers_norms = torch.sum(centers ** 2, dim=1).view(1, -1)
+    centers_norms = torch.sum(centers**2, dim=1).view(1, -1)
     for i in range(0, num_points, chunk_size):
         begin = i
         end = min(begin + chunk_size, num_points)
         dataset_piece = dataset[begin:end, :]
-        dataset_norms = torch.sum(dataset_piece ** 2, dim=1).view(-1, 1)
+        dataset_norms = torch.sum(dataset_piece**2, dim=1).view(-1, 1)
         distances = torch.mm(dataset_piece, centers_t)
         distances *= -2.0
         distances += dataset_norms
@@ -65,7 +65,9 @@ def update_centers(dataset, codes, num_centers, device):
     dimension = dataset.size(1)
     centers = torch.zeros(num_centers, dimension, dtype=torch.float).to(device=device)
     cnt = torch.zeros(num_centers, dtype=torch.float)
-    centers.scatter_add_(0, codes.view(-1, 1).expand(-1, dimension).to(device=device), dataset)
+    centers.scatter_add_(
+        0, codes.view(-1, 1).expand(-1, dimension).to(device=device), dataset
+    )
     cnt.scatter_add_(0, codes, torch.ones(num_points, dtype=torch.float))
     # Avoiding division by zero
     # Not necessary if there are no duplicates among the data points
@@ -79,21 +81,17 @@ def cluster(dataset, num_centers, device):
     codes = compute_codes(dataset, centers)
     num_iterations = 0
     while True:
-        #         sys.stdout.write('.')
-        #         sys.stdout.flush()
-        #         num_iterations += 1
         centers = update_centers(dataset, codes, num_centers, device)
         new_codes = compute_codes(dataset, centers)
         # Waiting until the clustering stops updating altogether
         # This is too strict in practice
         if torch.equal(codes, new_codes):
-            #             sys.stdout.write('\n')
-            #             # print('Converged in %d iterations' % num_iterations)
             break
         if num_iterations > 1000:
             break
         codes = new_codes
     return centers, codes
+
 
 class GraphConvolution(nn.Module):
     def __init__(self, in_features, out_features, bias=True):
@@ -121,9 +119,11 @@ class GraphConvolution(nn.Module):
         else:
             return output
 
+
 def clones(module, N):
     "Produce N identical layers."
     return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
+
 
 class GRASPLayer(nn.Module):
     """GRASPLayer layer.
@@ -144,29 +144,37 @@ class GRASPLayer(nn.Module):
     Examples:
         >>> from pyhealth.models import GRASPLayer
         >>> input = torch.randn(3, 128, 64)  # [batch size, sequence len, feature_size]
-        >>> layer = GRASPLayer(64)
+        >>> layer = GRASPLayer(64, cluster_num=2)
         >>> c = layer(input)
         >>> c.shape
-        torch.Size([3, 64])
+        torch.Size([3, 128])
     """
 
     def __init__(
-        self, input_dim, static_dim=0, hidden_dim=128, cluster_num=12, dropout=0.5, block='ConCare'
+        self,
+        input_dim: int,
+        static_dim: int = 0,
+        hidden_dim: int = 128,
+        cluster_num: int = 2,
+        dropout: int = 0.5,
+        block: int = "ConCare",
     ):
         super(GRASPLayer, self).__init__()
-        
+
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.cluster_num = cluster_num
         self.dropout = dropout
         self.block = block
 
-        if self.block == 'ConCare':
-            self.backbone = ConCareLayer(input_dim, static_dim, hidden_dim, hidden_dim, dropout=0)
-        elif self.block == 'GRU':
-            self.backbone = RNNLayer(input_dim, hidden_dim, rnn_type='GRU', dropout=0)
-        elif self.block == 'LSTM':
-            self.backbone = RNNLayer(input_dim, hidden_dim, rnn_type='LSTM', dropout=0)
+        if self.block == "ConCare":
+            self.backbone = ConCareLayer(
+                input_dim, static_dim, hidden_dim, hidden_dim, dropout=0
+            )
+        elif self.block == "GRU":
+            self.backbone = RNNLayer(input_dim, hidden_dim, rnn_type="GRU", dropout=0)
+        elif self.block == "LSTM":
+            self.backbone = RNNLayer(input_dim, hidden_dim, rnn_type="LSTM", dropout=0)
 
         self.relu = nn.ReLU()
         self.tanh = nn.Tanh()
@@ -212,13 +220,9 @@ class GRASPLayer(nn.Module):
         return y_hard
 
     def grasp_encoder(self, input, static=None, mask=None):
-        batch_size = input.size(0)
-        time_step = input.size(1)
-        feature_dim = input.size(2)
 
-        # _, _, hidden_t = self.backbone(input)
-        if self.block == 'ConCare':
-            hidden_t,_ = self.backbone(input, mask=mask, static=static)
+        if self.block == "ConCare":
+            hidden_t, _ = self.backbone(input, mask=mask, static=static)
         else:
             hidden_t, _ = self.backbone(input, mask)
         hidden_t = torch.squeeze(hidden_t, 0)
@@ -279,6 +283,7 @@ class GRASPLayer(nn.Module):
         out = self.dropout(out)
         return out
 
+
 class GRASP(BaseModel):
     """GRASP model.
 
@@ -320,6 +325,7 @@ class GRASP(BaseModel):
             e.g. [True, False].
         embedding_dim: the embedding dimension. Default is 128.
         hidden_dim: the hidden dimension of the GRASP layer. Default is 128.
+        cluster_num: the number of clusters. Default is 10. Note that batch size should be greater than cluster_num.
         **kwargs: other parameters for the GRASP layer.
 
 
@@ -398,6 +404,7 @@ class GRASP(BaseModel):
         static_key: Optional[str] = None,
         embedding_dim: int = 128,
         hidden_dim: int = 128,
+        cluster_num: int = 10,
         **kwargs,
     ):
         super(GRASP, self).__init__(
@@ -430,7 +437,7 @@ class GRASP(BaseModel):
         self.static_dim = 0
         if self.static_key is not None:
             self.static_dim = self.dataset.input_info[self.static_key]["len"]
-        
+
         self.grasp = nn.ModuleDict()
         # add feature GRASP layers
         for idx, feature_key in enumerate(self.feature_keys):
@@ -454,13 +461,26 @@ class GRASP(BaseModel):
                 raise ValueError(
                     "GRASP only supports 2-dim or 3-dim float and int as input types"
                 )
+
             # for code based input, we need Type
             # for float/int based input, we need Type, input_dim
             if use_embedding[idx]:
                 self.add_feature_transform_layer(feature_key, input_info)
-                self.grasp[feature_key] = GRASPLayer(input_dim=embedding_dim, static_dim=self.static_dim, **kwargs)
+                self.grasp[feature_key] = GRASPLayer(
+                    input_dim=embedding_dim,
+                    static_dim=self.static_dim,
+                    hidden_dim=self.hidden_dim,
+                    cluster_num=cluster_num,
+                    **kwargs,
+                )
             else:
-                self.grasp[feature_key] = GRASPLayer(input_dim=input_info["len"], static_dim=self.static_dim, **kwargs)
+                self.grasp[feature_key] = GRASPLayer(
+                    input_dim=input_info["len"],
+                    static_dim=self.static_dim,
+                    hidden_dim=self.hidden_dim,
+                    cluster_num=cluster_num,
+                    **kwargs,
+                )
 
         output_size = self.get_output_size(self.label_tokenizer)
         self.fc = nn.Linear(len(self.feature_keys) * self.hidden_dim, output_size)
@@ -529,7 +549,7 @@ class GRASP(BaseModel):
                 x = torch.tensor(x, dtype=torch.float, device=self.device)
                 # (patient, visit, embedding_dim)
                 x = torch.sum(x, dim=2)
-                
+
                 if self.use_embedding[idx]:
                     x = self.linear_layers[feature_key](x)
                 # (patient, event)
@@ -539,7 +559,9 @@ class GRASP(BaseModel):
                 raise NotImplementedError
 
             if self.static_dim > 0:
-                static = torch.tensor(kwargs[self.static_key], dtype=torch.float, device=self.device)
+                static = torch.tensor(
+                    kwargs[self.static_key], dtype=torch.float, device=self.device
+                )
                 x = self.grasp[feature_key](x, static=static, mask=mask)
             else:
                 x = self.grasp[feature_key](x, mask=mask)
@@ -575,7 +597,7 @@ if __name__ == "__main__":
                 [[7.7, 8.5, 9.4]],
             ],
             "label": 1,
-            "demographic": [1.0, 2.0, 1.3]
+            "demographic": [1.0, 2.0, 1.3],
         },
         {
             "patient_id": "patient-0",
@@ -594,7 +616,7 @@ if __name__ == "__main__":
                 [[1.0, 2.8, 3.3], [4.9, 5.0, 6.6], [7.7, 8.4, 1.3], [7.7, 8.4, 1.3]],
             ],
             "label": 0,
-            "demographic": [1.0, 2.0, 1.3]
+            "demographic": [1.0, 2.0, 1.3],
         },
     ]
 

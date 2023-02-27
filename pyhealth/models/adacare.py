@@ -8,8 +8,6 @@ from pyhealth.datasets import SampleEHRDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.utils import get_last_visit
 
-# VALID_OPERATION_LEVEL = ["visit", "event"]
-
 
 class Sparsemax(nn.Module):
     """Sparsemax function."""
@@ -289,6 +287,7 @@ class AdaCare(BaseModel):
         use_embedding: list of bools indicating whether to use embedding for each feature type,
             e.g. [True, False].
         embedding_dim: the embedding dimension. Default is 128.
+        hidden_dim: the hidden dimension. Default is 128.
         **kwargs: other parameters for the AdaCare layer.
 
 
@@ -408,6 +407,7 @@ class AdaCare(BaseModel):
                 raise ValueError(
                     "AdaCare only supports 2-dim or 3-dim float and int as input types"
                 )
+
             # for code based input, we need Type
             # for float/int based input, we need Type, input_dim
             if use_embedding[idx]:
@@ -515,10 +515,15 @@ class AdaCare(BaseModel):
         y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
         loss = self.get_loss_function()(logits, y_true)
         y_prob = self.prepare_y_prob(logits)
+        # return {
+        #     "loss": loss,
+        #     "feature_importance": feature_importance,
+        #     "conv_feature_importance": conv_feature_importance,
+        #     "y_prob": y_prob,
+        #     "y_true": y_true,
+        # }
         return {
             "loss": loss,
-            "feature_importance": feature_importance,
-            "conv_feature_importance": conv_feature_importance,
             "y_prob": y_prob,
             "y_true": y_true,
         }

@@ -9,8 +9,6 @@ from pyhealth.models import BaseModel
 from pyhealth.models.utils import get_last_visit
 import torch.nn.functional as F
 
-# VALID_OPERATION_LEVEL = ["visit", "event"]
-
 
 class AgentLayer(nn.Module):
     """Dr. Agent layer.
@@ -38,7 +36,7 @@ class AgentLayer(nn.Module):
         >>> layer = AgentLayer(64)
         >>> c, _ = layer(input)
         >>> c.shape
-        torch.Size([3, 64])
+        torch.Size([3, 128])
     """
 
     def __init__(
@@ -255,7 +253,7 @@ class AgentLayer(nn.Module):
             h.append(cur_h)
 
         h = torch.stack(h, dim=1)
-        
+
         if self.static_dim > 0:
             static = static.unsqueeze(1).repeat(1, time_step, 1)
             h = torch.cat((h, static), dim=2)
@@ -431,6 +429,7 @@ class Agent(BaseModel):
                 raise ValueError(
                     "Dr. Agent only supports 2-dim or 3-dim float and int as input types"
                 )
+
             # for code based input, we need Type
             # for float/int based input, we need Type, input_dim
             self.add_feature_transform_layer(feature_key, input_info)
@@ -461,6 +460,10 @@ class Agent(BaseModel):
         elif self.mode == "regression":
             rewards = (1 / torch.abs(pred - true)).squeeze()  # b*t
             rewards = torch.clamp(rewards, min=0, max=5)
+        else:
+            raise ValueError(
+                "mode should be binary, multiclass, multilabel or regression"
+            )
 
         act_prob1 = model.agent1_prob
         act_prob1 = torch.stack(act_prob1).permute(1, 0).to(self.device)
@@ -650,10 +653,15 @@ class Agent(BaseModel):
             loss_rl += cur_loss
         loss = loss_task + loss_rl
         y_prob = self.prepare_y_prob(logits)
+        # return {
+        #     "loss": loss,
+        #     "loss_task": loss_task,
+        #     "loss_rl": loss_rl,
+        #     "y_prob": y_prob,
+        #     "y_true": y_true,
+        # }
         return {
             "loss": loss,
-            "loss_task": loss_task,
-            "loss_rl": loss_rl,
             "y_prob": y_prob,
             "y_true": y_true,
         }
@@ -715,7 +723,7 @@ if __name__ == "__main__":
             "list_list_codes",
             # "list_list_vectors",
         ],
-        # static_key="demographic",
+        static_key="demographic",
         label_key="label",
         mode="binary",
     )

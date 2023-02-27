@@ -33,20 +33,20 @@ class StageNetLayer(nn.Module):
         >>> from pyhealth.models import StageNetLayer
         >>> input = torch.randn(3, 128, 64)  # [batch size, sequence len, feature_size]
         >>> layer = StageNetLayer(64)
-        >>> c, _ = layer(input)
+        >>> c, _, _ = layer(input)
         >>> c.shape
-        torch.Size([3, 64])
+        torch.Size([3, 384])
     """
 
     def __init__(
         self,
-        input_dim,
-        chunk_size=128,
-        conv_size=10,
-        levels=3,
-        dropconnect=0.3,
-        dropout=0.3,
-        dropres=0.3,
+        input_dim: int,
+        chunk_size: int = 128,
+        conv_size: int = 10,
+        levels: int = 3,
+        dropconnect: int = 0.3,
+        dropout: int = 0.3,
+        dropres: int = 0.3,
     ):
         super(StageNetLayer, self).__init__()
 
@@ -410,6 +410,7 @@ class StageNet(BaseModel):
                 raise ValueError(
                     "StageNet only supports 2-dim or 3-dim float and int as input types"
                 )
+
             # for code based input, we need Type
             # for float/int based input, we need Type, input_dim
             self.add_feature_transform_layer(feature_key, input_info)
@@ -523,9 +524,14 @@ class StageNet(BaseModel):
         loss = self.get_loss_function()(logits, y_true)
 
         y_prob = self.prepare_y_prob(logits)
+        # return {
+        #     "loss": loss,
+        #     "distance": distance,
+        #     "y_prob": y_prob,
+        #     "y_true": y_true,
+        # }
         return {
             "loss": loss,
-            "distance": distance,
             "y_prob": y_prob,
             "y_true": y_true,
         }

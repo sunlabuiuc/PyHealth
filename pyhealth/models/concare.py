@@ -10,8 +10,6 @@ from pyhealth.models.utils import get_last_visit
 
 import math
 
-# VALID_OPERATION_LEVEL = ["visit", "event"]
-
 
 class FinalAttentionQKV(nn.Module):
     def __init__(
@@ -102,6 +100,12 @@ class FinalAttentionQKV(nn.Module):
             h = self.tanh(h)
             e = torch.matmul(h, self.Wa) + self.ba  # B*T*1
             e = torch.reshape(e, (batch_size, time_step))  # b t
+        else:
+            raise ValueError(
+                "Unknown attention type: {}, please use add, mul, concat".format(
+                    self.attention_type
+                )
+            )
 
         a = self.softmax(e)  # B*T
         if self.dropout is not None:
@@ -345,7 +349,9 @@ class SingleAttention(nn.Module):
             nn.init.kaiming_uniform_(self.Wt, a=math.sqrt(5))
 
         else:
-            raise RuntimeError("Wrong attention type.")
+            raise RuntimeError(
+                "Wrong attention type. Please use 'add', 'mul', 'concat' or 'new'."
+            )
 
         self.tanh = nn.Tanh()
         self.softmax = nn.Softmax(dim=1)
@@ -387,7 +393,10 @@ class SingleAttention(nn.Module):
             last_visit = get_last_visit(input, mask)
             e = torch.matmul(last_visit, self.Wa)  # b i
             e = (
-                torch.matmul(e.unsqueeze(1), input.permute(0, 2, 1)).reshape(batch_size, time_step) + self.ba
+                torch.matmul(e.unsqueeze(1), input.permute(0, 2, 1)).reshape(
+                    batch_size, time_step
+                )
+                + self.ba
             )  # b t
         elif self.attention_type == "concat":
             last_visit = get_last_visit(input, mask)
@@ -406,16 +415,21 @@ class SingleAttention(nn.Module):
             q = torch.matmul(last_visit, self.Wt)  # b h
             q = torch.reshape(q, (batch_size, 1, self.attention_hidden_dim))  # B*1*H
             k = torch.matmul(input, self.Wx)  # b t h
-            dot_product = torch.matmul(q, k.transpose(1, 2)).reshape(batch_size, time_step)  # b t
+            dot_product = torch.matmul(q, k.transpose(1, 2)).reshape(
+                batch_size, time_step
+            )  # b t
             denominator = self.sigmoid(self.rate) * (
                 torch.log(2.72 + (1 - self.sigmoid(dot_product)))
                 * (b_time_decays.reshape(batch_size, time_step))
             )
             e = self.relu(self.sigmoid(dot_product) / (denominator))  # b * t
-        # s = torch.sum(e, dim=-1, keepdim=True)
-        # mask = subsequent_mask(time_step).to(device) # 1 t t lower triangle
-        # scores = e.masked_fill(mask == 0, -1e9)# b t t upper triangle
-        e = e.masked_fill(mask == 0, -1e9)
+        else:
+            raise ValueError(
+                "Wrong attention type. Plase use 'add', 'mul', 'concat' or 'new'."
+            )
+
+        if mask is not None:
+            e = e.masked_fill(mask == 0, -1e9)
         a = self.softmax(e)  # B*T
         v = torch.matmul(a.unsqueeze(1), input).reshape(batch_size, input_dim)  # B*I
 
@@ -445,17 +459,17 @@ class ConCareLayer(nn.Module):
         >>> layer = ConCareLayer(64)
         >>> c, _ = layer(input)
         >>> c.shape
-        torch.Size([3, 64])
+        torch.Size([3, 128])
     """
 
     def __init__(
         self,
-        input_dim,
-        static_dim=0,
-        hidden_dim=128,
-        num_head=4,
-        pe_hidden=64,
-        dropout=0.5,
+        input_dim: int,
+        static_dim: int = 0,
+        hidden_dim: int = 128,
+        num_head: int = 4,
+        pe_hidden: int = 64,
+        dropout: int = 0.5,
     ):
         super(ConCareLayer, self).__init__()
 
@@ -660,6 +674,7 @@ class ConCare(BaseModel):
         use_embedding: list of bools indicating whether to use embedding for each feature type,
             e.g. [True, False].
         embedding_dim: the embedding dimension. Default is 128.
+        hidden_dim: the hidden dimension. Default is 128.
         **kwargs: other parameters for the ConCare layer.
 
 
@@ -788,6 +803,7 @@ class ConCare(BaseModel):
                 raise ValueError(
                     "ConCare only supports 2-dim or 3-dim float and int as input types"
                 )
+
             # for code based input, we need Type
             # for float/int based input, we need Type, input_dim
             if use_embedding[idx]:
@@ -903,10 +919,15 @@ class ConCare(BaseModel):
         loss_task = self.get_loss_function()(logits, y_true)
         loss = decov_loss + loss_task
         y_prob = self.prepare_y_prob(logits)
+        # return {
+        #     "loss": loss,
+        #     "loss_task": loss_task,
+        #     "decov_loss": decov_loss,
+        #     "y_prob": y_prob,
+        #     "y_true": y_true,
+        # }
         return {
             "loss": loss,
-            "loss_task": loss_task,
-            "decov_loss": decov_loss,
             "y_prob": y_prob,
             "y_true": y_true,
         }
@@ -968,7 +989,7 @@ if __name__ == "__main__":
             "list_list_codes",
             # "list_list_vectors",
         ],
-        # static_key="demographic",
+        static_key="demographic",
         label_key="label",
         use_embedding=[True, False, True],
         mode="binary",

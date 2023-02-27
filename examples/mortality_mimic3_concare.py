@@ -7,7 +7,7 @@ from pyhealth.trainer import Trainer
 if __name__ == "__main__":
     # STEP 1: load data
     base_dataset = MIMIC3Dataset(
-        root="D:/Data/MIMICIII/",
+        root="/srv/local/data/physionet.org/files/mimiciii/1.4",
         tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
         code_mapping={"ICD9CM": "CCSCM", "ICD9PROC": "CCSPROC", "NDC": "ATC"},
         dev=False,
@@ -33,7 +33,7 @@ if __name__ == "__main__":
         label_key="label",
         mode="binary",
         use_embedding=[True, True, True],
-        hidden_dim=128,
+        hidden_dim=32,
     )
 
     # STEP 4: define trainer
@@ -41,7 +41,7 @@ if __name__ == "__main__":
     trainer.train(
         train_dataloader=train_dataloader,
         val_dataloader=val_dataloader,
-        epochs=20,
+        epochs=3,
         monitor="roc_auc",
     )
 

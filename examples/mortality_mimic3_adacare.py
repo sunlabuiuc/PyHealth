@@ -11,7 +11,7 @@ if __name__ == "__main__":
         tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
         code_mapping={"ICD9CM": "CCSCM", "ICD9PROC": "CCSPROC", "NDC": "ATC"},
         dev=False,
-        refresh_cache=True,
+        refresh_cache=False,
     )
     base_dataset.stat()
 
@@ -33,8 +33,9 @@ if __name__ == "__main__":
         label_key="label",
         mode="binary",
         use_embedding=[True, True, True],
-        hidden_dim=64,
-        dropout=0.0,
+        embedding_dim=32,
+        hidden_dim=32,
+        dropout=0.5,
     )
 
     # STEP 4: define trainer

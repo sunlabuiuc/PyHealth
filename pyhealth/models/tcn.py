@@ -90,7 +90,7 @@ class TemporalBlock(nn.Module):
 
 class TCNLayer(nn.Module):
     """Temporal Convolutional Networks layer.
-    
+
     Shaojie Bai et al. An Empirical Evaluation of Generic Convolutional and Recurrent Networks for Sequence Modeling.
 
     This layer wraps the PyTorch TCN layer with masking and dropout support. It is
@@ -137,10 +137,12 @@ class TCNLayer(nn.Module):
             raise Exception(
                 "a maximum sequence length needs to be provided if num_channels is int"
             )
+        else:
+            pass
 
         num_levels = len(num_channels)
         for i in range(num_levels):
-            dilation_size = 2 ** i
+            dilation_size = 2**i
             in_channels = input_dim if i == 0 else num_channels[i - 1]
             out_channels = num_channels[i]
             layers += [
@@ -156,7 +158,7 @@ class TCNLayer(nn.Module):
             ]
 
         self.network = nn.Sequential(*layers)
-        
+
     def forward(
         self,
         x: torch.tensor,
@@ -173,7 +175,7 @@ class TCNLayer(nn.Module):
             last_out: a tensor of shape [batch size, hidden size], containing
                 the output features for the last time step.
             out: a tensor of shape [batch size, sequence len, hidden size],
-                containing the output features for each time step.            
+                containing the output features for each time step.
         """
         out = self.network(x.permute(0, 2, 1)).permute(0, 2, 1)
         last_out = get_last_visit(out, mask)
@@ -218,7 +220,7 @@ class TCN(BaseModel):
         label_key: key in samples to use as label (e.g., "drugs").
         mode: one of "binary", "multiclass", or "multilabel".
         embedding_dim: the embedding dimension. Default is 128.
-        hidden_dim: the hidden dimension. Default is 128.
+        num_channels: the number of channels in the TCN layer. Default is 128.
         **kwargs: other parameters for the TCN layer.
 
     Examples:
@@ -330,6 +332,8 @@ class TCN(BaseModel):
                 raise ValueError(
                     "TCN only supports 2-dim or 3-dim float and int as input types"
                 )
+            else:
+                pass
             # for code based input, we need Type
             # for float/int based input, we need Type, input_dim
             self.add_feature_transform_layer(feature_key, input_info)
