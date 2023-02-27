@@ -27,3 +27,12 @@ jobs:
         run: |
           cd pyhealth/unittests
           pytest -rP
+          
+      - name: dataset pickles to upload
+        run: |
+          ls -al /home/runner/.cache/pyhealth/datasets/
+      - name: upload datasets pickle
+        uses: actions/upload-artifact@v3
+        with:
+          name: datasets
+          path: /home/runner/.cache/pyhealth/datasets/

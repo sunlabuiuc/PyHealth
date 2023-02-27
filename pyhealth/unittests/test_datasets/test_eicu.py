@@ -49,6 +49,7 @@ class TesteICUDataset(unittest.TestCase):
         )
 
     def test_patient(self):
+        pass
         # given parametes:
         selected_patient_id = "002-10009+193705"
         selected_visit_index = 0
