@@ -1,6 +1,7 @@
-from typing import List, Optional, Dict
+from typing import Dict, List, Optional
 
 import numpy as np
+import pandas as pd
 import sklearn.metrics as sklearn_metrics
 
 
@@ -60,6 +61,7 @@ def multiclass_metrics_fn(
     """
     if metrics is None:
         metrics = ["accuracy", "f1_macro", "f1_micro"]
+        metrics += ['brier_top1', 'ECE', 'ECE_adapt', 'cwECEt', 'cwECEt_adapt']
 
     y_pred = np.argmax(y_prob, axis=-1)
 
@@ -118,12 +120,94 @@ def multiclass_metrics_fn(
         elif metric == "cohen_kappa":
             cohen_kappa = sklearn_metrics.cohen_kappa_score(y_true, y_pred)
             output["cohen_kappa"] = cohen_kappa
+        elif metric == 'brier_top1':
+            _,_,output[metric] = CalibrationEval.ECE_confidence(y_prob, y_true, bins=20)
+        elif metric in {'ECE', 'ECE_adapt'}:
+            _,output[metric],_ = CalibrationEval.ECE_confidence(y_prob, y_true, bins=20, adaptive=metric.endswith("_adapt"))
+        elif metric in {'cwECEt', 'cwECEt_adapt'}:
+            thres = min(0.01, 1./y_prob.shape[1])
+            _, classECE_by_class = CalibrationEval.ECE_class(y_prob, y_true, bins=20, adaptive=metric.endswith("_adapt"), threshold=thres)
+            output[metric] = classECE_by_class['avg']
         else:
             raise ValueError(f"Unknown metric for multiclass classification: {metric}")
 
     return output
 
 
+class CalibrationEval:
+    
+    @classmethod
+    def get_bins(cls, bins):
+        if isinstance(bins, int):
+            bins = list(np.arange(bins+1) / bins)
+        return bins
+    
+    @classmethod
+    def assign_bin(cls, sorted_ser, bins, adaptive=False):
+        ret = pd.DataFrame(sorted_ser)
+        if adaptive:
+            assert isinstance(bins, int)
+            step = len(sorted_ser) // bins
+            nvals = [step for _ in range(bins)]
+            for _ in range(len(sorted_ser) % bins): nvals[-_-1] += 1
+            ret['bin'] = [ith for ith, val in enumerate(nvals) for _ in range(val)]
+            nvals = list(np.asarray(nvals).cumsum())
+            bins = [ret.iloc[0]['conf']]
+            for iloc in nvals:
+                bins.append(ret.iloc[iloc-1]['conf'])
+                if iloc != nvals[-1]:
+                    bins[-1] = 0.5 * bins[-1] + 0.5 *ret.iloc[iloc]['conf']
+        else:
+            bins = cls.get_bins(bins)
+            import bisect
+
+            bin_assign = pd.Series(0, index=sorted_ser.index)
+            locs = [bisect.bisect(sorted_ser, b) for b in bins]
+            locs[0], locs[-1] = 0, len(ret)
+            for i, loc in enumerate(locs[:-1]):
+                bin_assign.iloc[loc:locs[i+1]] = i
+            ret['bin'] = bin_assign
+        return ret['bin'], bins
+
+    @classmethod
+    def _ECE_loss(cls, summ):
+        w = summ['cnt'] / summ['cnt'].sum()
+        loss = np.average((summ['conf'] - summ['acc']).abs(), weights=w)
+        return loss
+
+    @classmethod
+    def ECE_confidence(cls, preds, label, bins=20, adaptive=False, return_bins=False):
+        df = pd.DataFrame({"conf": preds.max(1), 'truth': label, 'pred': np.argmax(preds, 1)}).sort_values(['conf']).reset_index()
+        df['acc'] = (df['truth'] == df['pred']).astype(int)
+        df['bin'], bin_boundary = cls.assign_bin(df['conf'], bins, adaptive=adaptive)
+        summ = pd.DataFrame(df.groupby('bin')[['acc', 'conf']].mean())#.fillna(0.)
+        summ['cnt'] = df.groupby('bin').size()
+        summ = summ.reset_index()
+        if return_bins: return summ, cls._ECE_loss(summ), np.mean(np.square(df['conf'].values - df['acc'].values)), bin_boundary
+        return summ, cls._ECE_loss(summ), np.mean(np.square(df['conf'].values - df['acc'].values))
+    @classmethod
+    def ECE_class(cls, preds, label, bins=15, threshold=0., adaptive=False, return_bins=False):
+        K = preds.shape[1]
+        summs = []
+        class_losses = {}
+        bin_boundaries = {}
+        for k in range(K):
+            msk = preds[:, k] >= threshold
+            if msk.sum() == 0: continue
+            df = pd.DataFrame({"conf": preds[msk, k], 'truth': label[msk]}).sort_values(['conf']).reset_index()
+            df['acc'] = (df['truth'] == k).astype(int)
+            df['bin'], bin_boundaries[k] = cls.assign_bin(df['conf'], bins, adaptive=adaptive)
+            summ = pd.DataFrame(df.groupby('bin')[['acc', 'conf']].mean())
+            summ['cnt'] = df.groupby('bin').size()
+            summ['k'] = k
+            summs.append(summ.reset_index())
+            class_losses[k] = cls._ECE_loss(summs[-1])
+        class_losses = pd.Series(class_losses)
+        class_losses['avg'], class_losses['sum'] = class_losses.mean(), class_losses.sum()
+        summs = pd.concat(summs, ignore_index=True)
+        if return_bins: return summs, class_losses, bin_boundaries
+        return summs, class_losses
+    
 if __name__ == "__main__":
     all_metrics = [
         "roc_auc_macro_ovo",
@@ -140,6 +224,7 @@ if __name__ == "__main__":
         "jaccard_weighted",
         "cohen_kappa",
     ]
+    all_metrics += ['brier_top1', 'ECE', 'ECE_adapt', 'cwECEt', 'cwECEt_adapt']
     y_true = np.random.randint(4, size=100000)
     y_prob = np.random.randn(100000, 4)
     y_prob = np.exp(y_prob) / np.sum(np.exp(y_prob), axis=-1, keepdims=True)

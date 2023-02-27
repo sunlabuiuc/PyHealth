@@ -1,8 +1,7 @@
 import logging
 import os
 from datetime import datetime
-from typing import Dict, List, Type, Callable
-from typing import Optional
+from typing import Callable, Dict, List, Optional, Type
 
 import numpy as np
 import torch
@@ -12,11 +11,8 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from tqdm.autonotebook import trange
 
-from pyhealth.metrics import (
-    binary_metrics_fn,
-    multiclass_metrics_fn,
-    multilabel_metrics_fn,
-)
+from pyhealth.metrics import (binary_metrics_fn, multiclass_metrics_fn,
+                              multilabel_metrics_fn)
 from pyhealth.utils import create_directory
 
 logger = logging.getLogger(__name__)
@@ -311,6 +307,7 @@ if __name__ == "__main__":
     import torch.nn as nn
     from torch.utils.data import DataLoader, Dataset
     from torchvision import datasets, transforms
+
     from pyhealth.datasets.utils import collate_fn_dict
 
     class MNISTDataset(Dataset):

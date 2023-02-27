@@ -1,1 +1,1 @@
-from .kcal import KCal
+from pyhealth.uq.kcal import KCal

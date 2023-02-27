@@ -1,15 +1,17 @@
+"""Bandwidth selection."""
 import numpy as np
 import torch
 import tqdm
 from sklearn.model_selection import GroupKFold, KFold
 
-import pyhealth.uq.utils as uq_utils
 from pyhealth.uq.utils import LogLoss
 
 from .kde import KDE_classification, RBFKernelMean
 
 
 class GoldenSectionBoundedSearch():
+    """An implementation of https://en.wikipedia.org/wiki/Golden-section_search
+    """
     gr = (1 + (5 ** 0.5)) * 0.5
     def __init__(self, func, lb, ub, tol=1e-4):
         self.func = func
@@ -24,6 +26,8 @@ class GoldenSectionBoundedSearch():
 
 
     def eval(self, x):
+        """Cached evaluation of the target function.
+        """
         assert x >= self.lb and x <= self.ub
         x = np.round(x, self.round_digit)
         v = self.mem.get(x, None)
@@ -55,15 +59,32 @@ class GoldenSectionBoundedSearch():
 
     @classmethod
     def search(cls, func, lb, ub, tol=1e-4):
+        """Wrapper of the main search function.
+        """
         o = GoldenSectionBoundedSearch(func, lb, ub, tol)
         return o._search(lb, ub), o
 
 
-def fit_bandwidth(X:torch.Tensor, Y:torch.Tensor, groups=None, *, 
+def fit_bandwidth(X:torch.Tensor, Y:torch.Tensor, groups=None, *,
                  kern:RBFKernelMean=None,
-                 num_fold=np.inf, lb=1e-1, ub=1e1, seed=42, **kwargs):
-    """
-    Y: one-hot
+                 num_fold=np.inf, lb:float=1e-1, ub:float=1e1, seed=42) -> float:
+    """Use k-fold cross-validation to find the best bandwidth.
+
+    Args:
+        X (torch.Tensor): embeddings
+        Y (torch.Tensor): one-hot target
+        groups (List[str,int,...], optional): groups to observe during the cross-validation. 
+            Defaults to None.
+        kern (RBFKernelMean, optional): kernel object. 
+            Defaults to None.
+        num_fold (int, optional): number of folds for cross-validation. 
+            Defaults to np.inf, which means leave-one-out cross-validation.
+        lb (float, optional): lower-bound of the search range. Defaults to 1e-1.
+        ub (float, optional): upper-bound of the search range. Defaults to 1e1.
+        seed (int, optional): random seed. Defaults to 42.
+
+    Returns:
+        h (float): the optimal bandwidth found.
     """
     loss_func = LogLoss(reduction='mean')
     if kern is None:
