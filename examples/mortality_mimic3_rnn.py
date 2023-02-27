@@ -10,7 +10,7 @@ base_dataset = MIMIC3Dataset(
     tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
     code_mapping={"ICD9CM": "CCSCM", "ICD9PROC": "CCSPROC", "NDC": "ATC"},
     dev=False,
-    refresh_cache=True,
+    refresh_cache=False,
 )
 base_dataset.stat()
 
