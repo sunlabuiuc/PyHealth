@@ -7,3 +7,9 @@ pandarallel>=1.5.3
 mne>=1.0.3
 numpy
 tqdm
+torch_scatter
+torch_sparse
+torch_cluster
+torch_spline_conv
+torch_geometric==2.2.0
+ogb>=1.3.5
