@@ -30,6 +30,24 @@ class TesteICUDataset(unittest.TestCase):
     def setUp(self):
         pass
 
+    def test_statistics(self):
+        # self.dataset.stat()
+
+        self.assertEqual(sorted(self.TABLES), sorted(self.dataset.available_tables))
+
+        EHRDatasetStatAssertion(self.dataset, 0.01).assertEHRStats(
+            expected_num_patients=2174,
+            expected_num_visits=2520,
+            expected_num_visits_per_patient=1.1592,
+            expected_events_per_visit_per_table=[
+                16.7202,
+                17.8345,
+                172.4841,
+                15.1944,
+                33.3563,
+            ],
+        )
+
     def test_patient(self):
         # given parametes:
         selected_patient_id = "002-10009+193705"
@@ -205,25 +223,6 @@ class TesteICUDataset(unittest.TestCase):
                     actual_event.vocabulary,
                     error_message,
                 )
-
-    def test_statistics(self):
-        # self.dataset.stat()
-
-        self.assertEqual(sorted(self.TABLES), sorted(self.dataset.available_tables))
-
-        EHRDatasetStatAssertion(self.dataset, 0.01).assertEHRStats(
-            expected_num_patients=2174,
-            expected_num_visits=2520,
-            expected_num_visits_per_patient=1.1592,
-            expected_events_per_visit_per_table=[
-                16.7202,
-                17.8345,
-                172.4841,
-                15.1944,
-                33.3563,
-            ],
-        )
-
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
