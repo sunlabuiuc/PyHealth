@@ -255,8 +255,9 @@ class AgentLayer(nn.Module):
             h.append(cur_h)
 
         h = torch.stack(h, dim=1)
-        static = static.unsqueeze(1).repeat(1, time_step, 1)
+        
         if self.static_dim > 0:
+            static = static.unsqueeze(1).repeat(1, time_step, 1)
             h = torch.cat((h, static), dim=2)
             h = self.fusion(h)
 
@@ -506,9 +507,9 @@ class Agent(BaseModel):
                 )
             running_rewards.insert(0, discounted_rewards)
         rewards = torch.stack(running_rewards).permute(1, 0)
-        rewards = (rewards - rewards.mean(dim=1).unsqueeze(-1)) / (
-            rewards.std(dim=1) + 1e-7
-        ).unsqueeze(-1)
+        # rewards = (rewards - rewards.mean(dim=1).unsqueeze(-1)) / (
+        #     rewards.std(dim=1) + 1e-7
+        # ).unsqueeze(-1)
         rewards = rewards.detach()
 
         if self.use_baseline == True:

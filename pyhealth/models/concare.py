@@ -387,7 +387,7 @@ class SingleAttention(nn.Module):
             last_visit = get_last_visit(input, mask)
             e = torch.matmul(last_visit, self.Wa)  # b i
             e = (
-                torch.matmul(e.unsqueeze(1), input.permute(0, 2, 1)).squeeze() + self.ba
+                torch.matmul(e.unsqueeze(1), input.permute(0, 2, 1)).reshape(batch_size, time_step) + self.ba
             )  # b t
         elif self.attention_type == "concat":
             last_visit = get_last_visit(input, mask)
@@ -406,10 +406,10 @@ class SingleAttention(nn.Module):
             q = torch.matmul(last_visit, self.Wt)  # b h
             q = torch.reshape(q, (batch_size, 1, self.attention_hidden_dim))  # B*1*H
             k = torch.matmul(input, self.Wx)  # b t h
-            dot_product = torch.matmul(q, k.transpose(1, 2)).squeeze()  # b t
+            dot_product = torch.matmul(q, k.transpose(1, 2)).reshape(batch_size, time_step)  # b t
             denominator = self.sigmoid(self.rate) * (
                 torch.log(2.72 + (1 - self.sigmoid(dot_product)))
-                * (b_time_decays.squeeze())
+                * (b_time_decays.reshape(batch_size, time_step))
             )
             e = self.relu(self.sigmoid(dot_product) / (denominator))  # b * t
         # s = torch.sum(e, dim=-1, keepdim=True)
@@ -417,7 +417,7 @@ class SingleAttention(nn.Module):
         # scores = e.masked_fill(mask == 0, -1e9)# b t t upper triangle
         e = e.masked_fill(mask == 0, -1e9)
         a = self.softmax(e)  # B*T
-        v = torch.matmul(a.unsqueeze(1), input).squeeze()  # B*I
+        v = torch.matmul(a.unsqueeze(1), input).reshape(batch_size, input_dim)  # B*I
 
         return v, a
 
