@@ -34,7 +34,7 @@ class TestOMOPDataset(unittest.TestCase):
         pass
 
     def test_patient(self):
-
+        pass
         print(self.dataset)
 
         expected_len_patients = 1000
