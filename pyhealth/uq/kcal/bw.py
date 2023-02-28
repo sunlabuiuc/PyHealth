@@ -65,7 +65,7 @@ class GoldenSectionBoundedSearch():
         return o._search(lb, ub), o
 
 
-def fit_bandwidth(X:torch.Tensor, Y:torch.Tensor, groups=None, *,
+def fit_bandwidth(X:torch.Tensor, Y:torch.Tensor, group=None, *,
                  kern:RBFKernelMean=None,
                  num_fold=np.inf, lb:float=1e-1, ub:float=1e1, seed=42) -> float:
     """Use k-fold cross-validation to find the best bandwidth.
@@ -92,18 +92,18 @@ def fit_bandwidth(X:torch.Tensor, Y:torch.Tensor, groups=None, *,
     base_h = kern.get_bandwidth()
     
     num_fold = min(num_fold, len(Y))
-    if groups is not None:
-        num_fold = min(num_fold, len(set(groups)))
+    if group is not None:
+        num_fold = min(num_fold, len(set(group)))
     print(f"Using {num_fold}-folds")
         
     def eval_loss(h):
         kern.set_bandwidth(h)
-        if groups is None:
+        if group is None:
             kf = KFold(n_splits=num_fold, random_state=seed, shuffle=True)
         else:
             kf = GroupKFold(n_splits=num_fold)
         preds, y_true = [], []
-        for _supp, _pred in kf.split(Y, Y, groups):
+        for _supp, _pred in kf.split(Y, Y, group):
             preds.append(KDE_classification(X[_supp], Y[_supp], kern, X[_pred]))
             y_true.append(Y[_pred].argmax(1))
         return loss_func(torch.cat(preds, 0), torch.cat(y_true, 0)).item()

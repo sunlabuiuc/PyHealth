@@ -1,3 +1,12 @@
+"""
+KCal: Kernel-based Calibration 
+
+From:
+    Lin, Zhen, Shubhendu Trivedi, and Jimeng Sun. "Taking a Step Back with KCal: Multi-Class Kernel-Based Calibration for Deep Neural Networks." ICLR 2023.
+
+Implementation based on https://github.com/zlin7/KCal
+
+"""
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -70,7 +79,7 @@ class SkipELU(ProjectionWrap):
     def forward(self, data, target=None):
         return super().forward(data, target, self.fc.weight.device)
 
-def _prepare_embedding_dataset(model, dataset, record_id_name='record_id', debug=False, batch_size=32):
+def _prepare_embedding_dataset(model, dataset, record_id_name=None, debug=False, batch_size=32):
     embeds = []
     indices = []
     labels = []
@@ -80,24 +89,26 @@ def _prepare_embedding_dataset(model, dataset, record_id_name='record_id', debug
         for _i, data in tqdm.tqdm(enumerate(loader), desc="embedding...", total=len(loader)):
             if debug and _i % 10 != 0: continue
             res = model(embed=True, **data)
-            indices.extend(data[record_id_name])
+            if record_id_name is not None:
+                indices.extend(data[record_id_name])
             labels.append(res['y_true'].detach().cpu().numpy())
             embeds.append(res['embed'].detach().cpu().numpy())
             patient_ids.extend(data['patient_id'])
+    if record_id_name is None:
+        indices = None
     return {'labels': pd.Series(np.concatenate(labels), indices), 'embed': np.concatenate(embeds), 'group': patient_ids}
 
 
 class KCal(PostHocCalibrator):
-    def __init__(self, model:torch.nn.Module, debug=False, d=32, **kwargs) -> None:
+    def __init__(self, model:torch.nn.Module, debug=False, dim=32, **kwargs) -> None:
         super().__init__(model, **kwargs)
         if model.mode != 'multiclass':
             raise NotImplementedError()
         self.mode = self.model.mode # multiclass
-
         self.model.eval()
-        # TODO: Try to get rid of "device"?
+        
         self.device = model.device
-        self.d = d
+        self.dim = dim
         self.debug = debug
 
         self.proj = Identity()
@@ -106,14 +117,12 @@ class KCal(PostHocCalibrator):
         self.cal_data = {}
         self.num_classes = None
         
-        
-
-    def fit(self, train_dataset, val_dataset=None, record_id_name='record_id', split_by_patient=True,
+    def _fit(self, train_dataset, val_dataset=None, split_by_patient=True,
             bs_pred=64, bs_supp=20, niters_per_epoch=5000, epochs=10,
             load_best_model_at_last=False):
         from pyhealth.trainer import Trainer
 
-        _train_data = _prepare_embedding_dataset(self.model, train_dataset, record_id_name, self.debug)
+        _train_data = _prepare_embedding_dataset(self.model, train_dataset, self.record_id_name, self.debug)
         self.num_classes = max(_train_data['labels'].values) + 1
         if not split_by_patient:
             # Allow using other samples from the same patient to make the prediction
@@ -123,11 +132,11 @@ class KCal(PostHocCalibrator):
 
         val_loader = None
         if val_dataset is not None:
-            _val_data = _prepare_embedding_dataset(self.model, val_dataset, record_id_name, self.debug)
+            _val_data = _prepare_embedding_dataset(self.model, val_dataset, self.record_id_name, self.debug)
             _val_data = _EmbedData(niters_per_epoch=1, **_val_data)
             val_loader = DataLoader(_val_data, batch_size=1, collate_fn=_EmbedData._collate_func)
             
-        self.proj = SkipELU(len(_train_data.embed[0]), self.d).to(self.device)
+        self.proj = SkipELU(len(_train_data.embed[0]), self.dim).to(self.device)
         trainer = Trainer(model=self.proj)
         trainer.train(
             train_dataloader=train_loader,
@@ -138,15 +147,19 @@ class KCal(PostHocCalibrator):
             load_best_model_at_last=load_best_model_at_last,
         )
         self.proj.eval()
-
-        # remember a few things
-        self.record_id_name = record_id_name
     
-    def calibrate(self, cal_dataset, split_by_patient=True, record_id_name='record_id'):
-        # in case no `fit` happened
-        if self.record_id_name is None: 
-            self.record_id_name = record_id_name
-        assert self.record_id_name == record_id_name
+    def calibrate(self, cal_dataset, record_id_name='record_id',
+                  train_dataset=None, train_split_by_patient=True,
+                  load_best_model_at_last=False, **train_kwargs):
+        self.record_id_name = record_id_name
+        if train_dataset is not None:
+            self._fit(train_dataset, val_dataset=cal_dataset,
+                      split_by_patient=train_split_by_patient,
+                      load_best_model_at_last=load_best_model_at_last,
+                      **train_kwargs)
+        else:
+            print("No `train_dataset` found - using the raw embeddings from the base classifier.")
+
         _cal_data = _prepare_embedding_dataset(self.model, cal_dataset, self.record_id_name, self.debug)
         if self.num_classes is None:
             self.num_classes = max(_cal_data['labels'].values) + 1
@@ -156,10 +169,7 @@ class KCal(PostHocCalibrator):
             self.cal_data['X'] = self.proj.embed(torch.tensor(_cal_data['embed'], dtype=torch.float, device=self.device))
         
         # Choose bandwidth
-        groups = None
-        if split_by_patient:
-            groups = _cal_data['group']
-        self.kern.set_bandwidth(fit_bandwidth(groups=groups, **self.cal_data))
+        self.kern.set_bandwidth(fit_bandwidth(group=_cal_data['group'], **self.cal_data))
 
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:

@@ -346,6 +346,7 @@ class SparcNet(BaseModel):
             "loss": loss,
             "y_prob": y_prob,
             "y_true": y_true,
+            'logit': logits,
         }
         if kwargs.get('embed', False):
             results['embed'] = emb
