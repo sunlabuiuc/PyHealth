@@ -169,6 +169,19 @@ class AttenAgger(torch.nn.Module):
         self, main_feat: torch.Tensor, other_feat: torch.Tensor,
         fix_feat: torch.Tensor, mask: Optional[torch.Tensor] = None
     ):
+        """[summary]
+        
+        [description]
+        
+        Args:
+            main_feat (torch.Tensor): [description]
+            other_feat (torch.Tensor): [description]
+            fix_feat (torch.Tensor): [description]
+            mask (torch.Tensor): [description] (default: `None`)
+        
+        Returns:
+            [type]: [description]
+        """
         Q = self.Qdense(main_feat)
         K = self.Kdense(other_feat)
         Attn = torch.matmul(Q, K.transpose(0, 1)) / math.sqrt(self.model_dim)
