@@ -156,10 +156,10 @@ class SAB(torch.nn.Module):
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         return self.net(X, X)
 
-# TODO: should be rewrite
-class AttenAgger(torch.nn.Module):
+
+class AttnAgg(torch.nn.Module):
     def __init__(self, Qdim: int, Kdim: int, mid_dim: int):
-        super(AdjAttenAgger, self).__init__()
+        super(AttnAgg, self).__init__()
         self.model_dim = mid_dim
         self.Qdense = torch.nn.Linear(Qdim, mid_dim)
         self.Kdense = torch.nn.Linear(Kdim, mid_dim)
@@ -168,19 +168,21 @@ class AttenAgger(torch.nn.Module):
     def forward(
         self, main_feat: torch.Tensor, other_feat: torch.Tensor,
         fix_feat: torch.Tensor, mask: Optional[torch.Tensor] = None
-    ):
-        """[summary]
-        
-        [description]
-        
+    ) -> torch.Tensor:
+        """Forward propagation.
+
+        Adjusted Attention Aggregator
+
         Args:
-            main_feat (torch.Tensor): [description]
-            other_feat (torch.Tensor): [description]
-            fix_feat (torch.Tensor): [description]
-            mask (torch.Tensor): [description] (default: `None`)
-        
+            main_feat (torch.Tensor): shape of [main_num, Q_dim]
+            other_feat (torch.Tensor): shape of [other_num, K_dim]
+            fix_feat (torch.Tensor): shape of [batch, other_num], adjust parameter
+            mask (torch.Tensor): shape of [main_num, other_num] a mask representing 
+                where main object should have attention with other obj 
+                1 means no attention should be done. (default: `None`)
+
         Returns:
-            [type]: [description]
+            torch.Tensor: aggregated features, shape of [batch, main_num, K_dim]
         """
         Q = self.Qdense(main_feat)
         K = self.Kdense(other_feat)
@@ -190,11 +192,15 @@ class AttenAgger(torch.nn.Module):
             Attn = torch.masked_fill(Attn, mask, -(1 << 32))
 
         Attn = torch.softmax(Attn, dim=-1)
-        fix_feat = torch.diag(fix_feat)
+        batch_size = fix_feat.shape[0]
+        # [batch_size, other_num, other_num]
+        fix_feat = torch.diag_embed(fix_feat)
+        # [batch_size, other_num, K_dim]
+        other_feat = other_feat.repeat(batch_size, 1, 1)
         other_feat = torch.matmul(fix_feat, other_feat)
-        O = torch.matmul(Attn, other_feat)
+        Attn = Attn.repeat(batch_size, 1, 1)
 
-        return O
+        return torch.matmul(Attn, other_feat)
 
 
 class MoleRecLayer(torch.nn.Module):
@@ -213,9 +219,6 @@ class MoleRecLayer(torch.nn.Module):
         GNN_layers: the number of layers of GNNs encoding molecule and
             substructures. Default is 4.
         dropout: the dropout ratio of model. Default is 0.7.
-        multi_loss_weight: the weight for multilabel_margin_loss for 
-            prediction, the weight should between 0 and 1. Default is 0.05.
-
     """
 
     def __init__(
@@ -241,14 +244,19 @@ class MoleRecLayer(torch.nn.Module):
         self.combination_feature_aggregator = AttenAgger(
             hidden_size, hidden_size, hidden_size
         )
+        score_extractor = [
+            torch.nn.Linear(hidden_size, hidden_size // 2),
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden_size // 2, 1)
+        ]
+        self.score_extractor = torch.nn.Sequential(*score_extractor)
 
     def calc_loss(
         self, logits: torch.Tensor, y_prob: torch.Tensor,
         ddi_adj: torch.Tensor, labels: torch.Tensor
     ) -> torch.Tensor:
         mul_pred_prob = y_prob.T @ y_prob  # (voc_size, voc_size)
-        batch_ddi_loss = torch.sum(mul_pred_prob.mul(ddi_adj))\
-            / (self.ddi_adj.shape[0] ** 2)
+        ddi_loss = (mul_pred_prob * ddi_adj).sum() / (ddi_adj.shape[0] ** 2)
 
         y_pred = y_prob.detach().cpu().numpy()
         y_pred[y_pred >= 0.5] = 1
@@ -260,14 +268,15 @@ class MoleRecLayer(torch.nn.Module):
         if cur_ddi_rate > self.target_ddi:
             beta = coef * (1 - (current_ddi_rate / target_ddi))
             beta = min(math.exp(beta), 1)
-            loss = beta * loss_cls + (1 - beta) * batch_ddi_loss
+            loss = beta * loss_cls + (1 - beta) * ddi_loss
         else:
             loss = loss_cls
         return loss
 
     def forward(
         self, patient_emb: torch.Tensor, drugs: torch.Tensor,
-        substructure_mask: torch.Tensor, average_projection: torch.Tensor,
+        average_projection: torch.Tensor, ddi_adj: torch.Tensor,
+        substructure_mask: torch.Tensor,
         substructure_graph: Dict[str, Union[int, torch.Tensor]],
         molecule_graph: Dict[str, Unionp[int, torch.Tensor]],
         mask: Optional[torch.tensor] = None
@@ -290,6 +299,8 @@ class MoleRecLayer(torch.nn.Module):
                 'smiles2graph' api of ogb library.
             molecule_graph: dictionary with same form of substructure_graph,
                 representing the graph batch of all molecules.
+            ddi_adj: an adjacency tensor for drug drug interaction 
+                of shape [num_drugs, num_drugs].
         Returns:
             loss: a scalar tensor representing the loss.
             y_prob: a tensor of shape [patient, num_labels] representing
@@ -298,6 +309,7 @@ class MoleRecLayer(torch.nn.Module):
         if mask is None:
             mask = torch.ones_like(patient_emb[:, :, 0])
         substructure_relation = get_last_visit(patient_emb, mask)
+        # [patient, num_substructures]
         substructure_embedding = self.substructure_interaction_module(
             self.substructure_encoder(substructure_graph).unsqueeze(0)
         ).squeeze(0)
@@ -307,12 +319,14 @@ class MoleRecLayer(torch.nn.Module):
             molecule_embedding, substructure_embedding,
             substructure_relation, torch.logical_not(substructure_mask > 0)
         )
-        score_extractor = [
-            torch.nn.Linear(substruct_dim, substruct_dim // 2),
-            torch.nn.ReLU(),
-            torch.nn.Linear(substruct_dim // 2, 1)
-        ]
-        self.score_extractor = torch.nn.Sequential(*score_extractor)
+        # [patient, num_drugs, hidden]
+        logits = self.score_extractor(combination_embedding).squeeze(-1)
+
+        y_prob = torch.sigmoid(logits)
+
+        loss = self.calc_loss(logits, y_prob, ddi_adj, drugs)
+
+        return loss, y_prob
 
 
 if __name__ == '__main__':
