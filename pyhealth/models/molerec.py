@@ -5,6 +5,8 @@ import numpy as np
 from ogb.utils import smiles2graph
 from typing import Any, Dict, List, Tuple, Optional, Union
 from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
+from rdkit import Chem
+
 # from .model import BaseModel
 # from .utils import get_last_visit
 
@@ -67,9 +69,10 @@ class GINGraph(torch.nn.Module):
         embedding_dim: int = 64,
         dropout: float = 0.7
     ):
+        super(GINGraph, self).__init__()
         if num_layers < 2:
             raise ValueError("Number of GNN layers must be greater than 1.")
-        self.atom_encoder = AtomEncoder
+        self.atom_encoder = AtomEncoder(emb_dim=embedding_dim)
         self.convs = torch.nn.ModuleList()
         self.batch_norms = torch.nn.ModuleList()
         self.num_layers = num_layers
@@ -80,12 +83,12 @@ class GINGraph(torch.nn.Module):
 
     def forward(
         self,
-        graph_batch: Dict[str, Union[int, torch.Tensor]]
+        graph: Dict[str, Union[int, torch.Tensor]]
     ) -> torch.Tensor:
         h_list = [self.atom_encoder(graph['x'])]
         for layer in range(self.num_layers):
             h = self.batch_norms[layer](self.convs[layer](
-                node_feats=h_list[layer], edge_feats=graph['edge_feat'],
+                node_feats=h_list[layer], edge_feats=graph['edge_attr'],
                 edge_index=graph['edge_index'], num_nodes=graph['num_nodes'],
                 num_edges=graph['num_edges']
             ))
@@ -153,6 +156,33 @@ class SAB(torch.nn.Module):
         return self.net(X, X)
 
 
+class AttenAgger(torch.nn.Module):
+    def __init__(self, Qdim: int, Kdim: int, mid_dim: int):
+        super(AdjAttenAgger, self).__init__()
+        self.model_dim = mid_dim
+        self.Qdense = torch.nn.Linear(Qdim, mid_dim)
+        self.Kdense = torch.nn.Linear(Kdim, mid_dim)
+        # self.use_ln = use_ln
+
+    def forward(
+        self, main_feat: torch.Tensor, other_feat: torch.Tensor, 
+        fix_feat:torch.Tensor, mask:Optional[torch.Tensor]=None
+    ):
+        Q = self.Qdense(main_feat)
+        K = self.Kdense(other_feat)
+        Attn = torch.matmul(Q, K.transpose(0, 1)) / math.sqrt(self.model_dim)
+
+        if mask is not None:
+            Attn = torch.masked_fill(Attn, mask, -(1 << 32))
+
+        Attn = torch.softmax(Attn, dim=-1)
+        fix_feat = torch.diag(fix_feat)
+        other_feat = torch.matmul(fix_feat, other_feat)
+        O = torch.matmul(Attn, other_feat)
+
+        return O
+
+
 class MoleRecLayer(torch.nn.Module):
     def __init__(
         self,
@@ -171,12 +201,21 @@ class MoleRecLayer(torch.nn.Module):
         }
         self.substructure_encoder = GINGraph(**GNN_para)
         self.molecule_encoder = GINGraph(**GNN_para)
-        
+        self.substructure_relation = torch.nn.Sequential(
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden_size * 4, hidden_size),
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden_size)
+        )
+        self.substructure_interaction_module = SAB(
+            hidden_size, hidden_size, 2, use_ln=True
+        )
+        self.combination_feature_aggregator =
 
 
 if __name__ == '__main__':
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    smiles_list = ['cc1c=cc2=cc=cc=c21', 'cn1c2=cc=cc=c2n=c1']
+    smiles_list = ['c1=cc=cc=c1-c2=cc=cc=c2'.upper(), 'c1=cc=nc=c1'.upper()]
     graph_batch = graph_batch_from_smile(smiles_list, device)
     print(graph_batch)
     Net = GINGraph().to(device)
