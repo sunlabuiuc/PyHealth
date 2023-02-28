@@ -25,7 +25,7 @@ class RBFKernelMean(torch.nn.Module):
         return self.h
 
 def KDE_classification(X: torch.Tensor, Y: torch.Tensor, kern=None, X_pred: torch.Tensor=None,
-                       weights: Union[torch.Tensor, float, int]=1., min_eps=1e-10):
+                       weights: Union[torch.Tensor, float, int]=1., min_eps=1e-10, drop_max=False):
     """_summary_
 
     Args:
@@ -43,18 +43,34 @@ def KDE_classification(X: torch.Tensor, Y: torch.Tensor, kern=None, X_pred: torc
     #Y is a one-hot representation
     if X_pred is None:
         Kijs = kern(X, X)
-        Kijs = torch.where(
-            Kijs < _MAX_KERNEL_VALUE-min_eps, 
-            Kijs, 
-            torch.zeros((), device=Kijs.device, dtype=Kijs.dtype)
-            )
+        drop_max = True
     else:
         if len(X_pred.shape) == 1: X_pred = X_pred.unsqueeze(0)
         Kijs = kern(X_pred, X)
+    if drop_max:
+        Kijs = torch.where(
+                Kijs < _MAX_KERNEL_VALUE-min_eps, 
+                Kijs, 
+                torch.zeros((), device=Kijs.device, dtype=Kijs.dtype)
+                )
     Kijs = Kijs * weights #Kijs[:, j] *= weights[j]
     Kijs = Kijs / torch.sum(Kijs, 1, keepdim=True).clip(min_eps) #K[i,j] = K(x[i], self.X[j])
     pred = torch.matmul(Kijs, Y)
     return pred
+
+def batched_KDE_classification(X: torch.Tensor, Y: torch.Tensor, kern=None, X_pred: torch.Tensor=None,
+                       weights: Union[torch.Tensor, float, int]=1., min_eps=1e-10):
+    pred = []
+    batch_size=32
+    drop_max = False
+    if X_pred is None:
+        drop_max = True
+        X_pred = X
+    with torch.no_grad():
+        for st in range(0, len(X_pred), batch_size):
+            ed = min(len(X_pred), st+batch_size)
+            pred.append(KDE_classification(X, Y, kern, X_pred[st:ed], weights, min_eps=min_eps, drop_max=drop_max))
+        return torch.concat(pred)
 
 class KDECrossEntropyLoss(torch.nn.Module):
     reduction: str
@@ -66,13 +82,15 @@ class KDECrossEntropyLoss(torch.nn.Module):
         self.log_loss = LogLoss(reduction=reduction)
         self.nclass = nclass
 
-    def forward(self, input: dict, target: torch.Tensor) -> torch.Tensor:
+    def forward(self, input: dict, target: torch.Tensor, eval_only=False) -> torch.Tensor:
         weights = input['weights'] if 'weights' in input else 1.
         nclass = self.nclass or max(input['supp_target'].max(), target.max()).item() + 1
         supp_Y = torch.nn.functional.one_hot(input['supp_target'], nclass).float()
-        pred = KDE_classification(input['supp_embed'], supp_Y, self.kern, weights=weights, X_pred=input['pred_embed'])
+        if eval_only:
+            pred = batched_KDE_classification(input['supp_embed'], supp_Y, self.kern, weights=weights, X_pred=input['pred_embed'])
+        else:
+            pred = KDE_classification(input['supp_embed'], supp_Y, self.kern, weights=weights, X_pred=input['pred_embed'])
         ret = {}
         ret['loss'] = self.log_loss(pred, target)
-        #ret['extra_output'] = {"prediction": pred, 'target': target}
         ret['extra_output'] = {"prediction": pred}
         return ret

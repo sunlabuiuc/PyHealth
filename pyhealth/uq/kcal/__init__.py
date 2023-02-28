@@ -15,26 +15,17 @@ from .kde import KDE_classification, KDECrossEntropyLoss, RBFKernelMean
 
 __all__ = ['KCal']
 
-class SkipELU(torch.nn.Module):
-    def __init__(self, input_features, output_features):
+class ProjectionWrap(torch.nn.Module):
+    def __init__(self) -> None:
         super().__init__()
-        self.bn = torch.nn.BatchNorm1d(input_features)
-        self.mid = torch.nn.Linear(input_features, output_features)
-        self.bn2 = torch.nn.BatchNorm1d(output_features)
-        self.fc = torch.nn.Linear(output_features, output_features, bias=False)
-        self.act = torch.nn.ELU()
-
         self.criterion = KDECrossEntropyLoss()
-    
         self.mode = 'multiclass' #TODO: use metric later
-        
-    def embed(self, x):
-        x = self.mid(self.bn(x))
-        ret = self.fc(self.act(x))
-        return ret + x
 
-    def forward(self, data, target=None):
-        device = self.fc.weight.device
+    def embed(self, x):
+        raise NotImplementedError()
+
+    def forward(self, data, target=None, device=None):
+        device = device or self.fc.weight.device
 
         data['supp_embed'] = self.embed(data['supp_embed'].to(device))
         data['supp_target'] = data['supp_target'].to(device)
@@ -43,15 +34,41 @@ class SkipELU(torch.nn.Module):
             assert 'pred_embed' not in data
             data['pred_embed'] = None
             target = data['supp_target']
+            assert not self.training
         else:
             # used for train
             data['pred_embed'] = self.embed(data['pred_embed'].to(device))
             if 'weights' in data and isinstance(data['weights'], torch.Tensor):
                 data['weights'] = data['weights'].to(device)
-        loss = self.criterion(data, target.to(device))
+        loss = self.criterion(data, target.to(device), eval_only=data['pred_embed'] is None)
         return {'loss': loss['loss'],
                 'y_prob': loss['extra_output']['prediction'],
                 'y_true': target}
+
+class Identity(ProjectionWrap):
+    def __init__(self):
+        super().__init__()
+    def embed(self, x):
+        return x
+    def forward(self, data, target=None):
+        return super().forward(data, target, data['supp_embed'].device)
+
+class SkipELU(ProjectionWrap):
+    def __init__(self, input_features, output_features):
+        super().__init__()
+        self.bn = torch.nn.BatchNorm1d(input_features)
+        self.mid = torch.nn.Linear(input_features, output_features)
+        self.bn2 = torch.nn.BatchNorm1d(output_features)
+        self.fc = torch.nn.Linear(output_features, output_features, bias=False)
+        self.act = torch.nn.ELU()
+
+    def embed(self, x):
+        x = self.mid(self.bn(x))
+        ret = self.fc(self.act(x))
+        return ret + x
+
+    def forward(self, data, target=None):
+        return super().forward(data, target, self.fc.weight.device)
 
 def _prepare_embedding_dataset(model, dataset, record_id_name='record_id', debug=False, batch_size=32):
     embeds = []
@@ -83,7 +100,7 @@ class KCal(PostHocCalibrator):
         self.d = d
         self.debug = debug
 
-        self.proj = None
+        self.proj = Identity()
         self.kern = RBFKernelMean()
         self.record_id_name = None
         self.cal_data = {}
@@ -91,13 +108,14 @@ class KCal(PostHocCalibrator):
         
         
 
-    def fit(self, train_dataset, val_dataset=None, record_id_name='record_id', iid_training=False,
-            bs_pred=64, bs_supp=20, niters_per_epoch=5000, epochs=10):
+    def fit(self, train_dataset, val_dataset=None, record_id_name='record_id', split_by_patient=True,
+            bs_pred=64, bs_supp=20, niters_per_epoch=5000, epochs=10,
+            load_best_model_at_last=False):
         from pyhealth.trainer import Trainer
 
         _train_data = _prepare_embedding_dataset(self.model, train_dataset, record_id_name, self.debug)
         self.num_classes = max(_train_data['labels'].values) + 1
-        if iid_training:
+        if not split_by_patient:
             # Allow using other samples from the same patient to make the prediction
             _train_data.pop('group')
         _train_data = _EmbedData(bs_pred=bs_pred, bs_supp=bs_supp, niters_per_epoch=niters_per_epoch, **_train_data)
@@ -106,26 +124,32 @@ class KCal(PostHocCalibrator):
         val_loader = None
         if val_dataset is not None:
             _val_data = _prepare_embedding_dataset(self.model, val_dataset, record_id_name, self.debug)
-            #_val_data = _EmbedData(labels=_val_data['labels'], embed = _val_data['embed'], niters_per_epoch=1)
             _val_data = _EmbedData(niters_per_epoch=1, **_val_data)
             val_loader = DataLoader(_val_data, batch_size=1, collate_fn=_EmbedData._collate_func)
             
         self.proj = SkipELU(len(_train_data.embed[0]), self.d).to(self.device)
         trainer = Trainer(model=self.proj)
-        if True:
-            trainer.train(
-                train_dataloader=train_loader,
-                val_dataloader=val_loader,
-                epochs=epochs,
-                monitor="loss",
-            )
+        trainer.train(
+            train_dataloader=train_loader,
+            val_dataloader=val_loader,
+            epochs=epochs,
+            monitor="loss",
+            monitor_criterion='min',
+            load_best_model_at_last=load_best_model_at_last,
+        )
         self.proj.eval()
 
         # remember a few things
         self.record_id_name = record_id_name
     
-    def calibrate(self, cal_dataset, split_by_patient=True):
+    def calibrate(self, cal_dataset, split_by_patient=True, record_id_name='record_id'):
+        # in case no `fit` happened
+        if self.record_id_name is None: 
+            self.record_id_name = record_id_name
+        assert self.record_id_name == record_id_name
         _cal_data = _prepare_embedding_dataset(self.model, cal_dataset, self.record_id_name, self.debug)
+        if self.num_classes is None:
+            self.num_classes = max(_cal_data['labels'].values) + 1
         self.cal_data['Y'] = torch.tensor(_cal_data['labels'].values, dtype=torch.long, device=self.device)
         self.cal_data['Y'] = torch.nn.functional.one_hot(self.cal_data['Y'], self.num_classes).float()
         with torch.no_grad():
