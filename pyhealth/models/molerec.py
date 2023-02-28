@@ -165,8 +165,8 @@ class AttenAgger(torch.nn.Module):
         # self.use_ln = use_ln
 
     def forward(
-        self, main_feat: torch.Tensor, other_feat: torch.Tensor, 
-        fix_feat:torch.Tensor, mask:Optional[torch.Tensor]=None
+        self, main_feat: torch.Tensor, other_feat: torch.Tensor,
+        fix_feat: torch.Tensor, mask: Optional[torch.Tensor] = None
     ):
         Q = self.Qdense(main_feat)
         K = self.Kdense(other_feat)
@@ -184,6 +184,26 @@ class AttenAgger(torch.nn.Module):
 
 
 class MoleRecLayer(torch.nn.Module):
+    """MoleRec model.
+
+    Paper: Nianzu Yang et al. MoleRec: Combinatorial Drug Recommendation 
+    with Substructure-Aware Molecular Representation Learning. WWW 2023.
+
+    This layer is used in the MoleRec model. But it can also be used as a
+    standalone layer.
+
+    Args:
+        hidden_size: hidden feature size.
+        coef: coefficient of ddi loss weight annealing. Default is 2.5.
+        target_ddi: DDI acceptance rate. Default is 0.06.
+        GNN_layers: the number of layers of GNNs encoding molecule and
+            substructures. Default is 4.
+        dropout: the dropout ratio of model. Default is 0.7.
+        multi_loss_weight: the weight for multilabel_margin_loss for 
+            prediction, the weight should between 0 and 1. Default is 0.05.
+
+    """
+
     def __init__(
         self,
         hidden_size: int,
@@ -191,6 +211,7 @@ class MoleRecLayer(torch.nn.Module):
         target_ddi: float = 0.06,
         GNN_layers: int = 4,
         dropout: float = 0.7,
+        multi_loss_weight: float = 0.05
     ):
         super(MoleRecLayer, self).__init__()
         self.hidden_size = hidden_size
@@ -210,7 +231,39 @@ class MoleRecLayer(torch.nn.Module):
         self.substructure_interaction_module = SAB(
             hidden_size, hidden_size, 2, use_ln=True
         )
-        self.combination_feature_aggregator =
+        self.combination_feature_aggregator = AttenAgger(
+            hidden_size, hidden_size, hidden_size
+        )
+        self.multi_weight = multi_loss_weight
+
+    def calc_loss(
+        self, logits: torch.Tensor, y_prob: torch.Tensor,
+        ddi_adj: torch.Tensor, labels: torch.Tensor
+    ) -> torch.Tensor:
+        mul_pred_prob = y_prob.T @ y_prob  # (voc_size, voc_size)
+        batch_ddi_loss = torch.sum(mul_pred_prob.mul(ddi_adj))\
+            / (self.ddi_adj.shape[0] ** 2)
+
+        y_pred = y_prob.detach().cpu().numpy()
+        y_pred[y_pred >= 0.5] = 1
+        y_pred[y_pred < 0.5] = 0
+        y_pred = [np.where(sample == 1)[0] for sample in y_pred]
+
+
+        # TODO: modify loss
+
+        cur_ddi_rate = ddi_rate_score(y_pred, ddi_adj.cpu().numpy())
+        if cur_ddi_rate > self.target_ddi:
+            beta = max(0.0, 1 + (self.target_ddi - cur_ddi_rate) / self.kp)
+            add_loss, beta = batch_ddi_loss, beta
+        else:
+            add_loss, beta = 0, 1
+
+        # obtain target, loss, prob, pred
+        bce_loss = self.loss_fn(logits, labels)
+
+        loss = beta * bce_loss + (1 - beta) * add_loss
+        return loss
 
 
 if __name__ == '__main__':
