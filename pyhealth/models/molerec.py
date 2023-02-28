@@ -149,3 +149,7 @@ class SAB(torch.nn.Module):
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         return self.net(X, X)
+
+
+if __name__ == '__main__':
+    smiles_list = ['cc1c=cc2=cc=cc=c21', 'cn1c2=cc=cc=c2n=c1']
