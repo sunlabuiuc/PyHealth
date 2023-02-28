@@ -5,6 +5,8 @@ import numpy as np
 from ogb.utils import smiles2graph
 from typing import Any, Dict, List, Tuple, Optional, Union
 from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
+# from .model import BaseModel
+# from .utils import get_last_visit
 
 
 def graph_batch_from_smile(smiles_list, device=torch.device('cpu')):
@@ -63,7 +65,7 @@ class GINGraph(torch.nn.Module):
     def __init__(
         self,  num_layers: int = 4,
         embedding_dim: int = 64,
-        dropout: float = 0.7,
+        dropout: float = 0.7
     ):
         if num_layers < 2:
             raise ValueError("Number of GNN layers must be greater than 1.")
@@ -151,5 +153,32 @@ class SAB(torch.nn.Module):
         return self.net(X, X)
 
 
+class MoleRecLayer(torch.nn.Module):
+    def __init__(
+        self,
+        hidden_size: int,
+        coef: float = 2.5,
+        target_ddi: float = 0.06,
+        GNN_layers: int = 4,
+        dropout: float = 0.7,
+    ):
+        super(MoleRecLayer, self).__init__()
+        self.hidden_size = hidden_size
+        self.coef, self.target_ddi = coef, target_ddi
+        GNN_para = {
+            'num_layers': GNN_layers, 'dropout': dropout,
+            'embedding_dim': hidden_size
+        }
+        self.substructure_encoder = GINGraph(**GNN_para)
+        self.molecule_encoder = GINGraph(**GNN_para)
+        
+
+
 if __name__ == '__main__':
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     smiles_list = ['cc1c=cc2=cc=cc=c21', 'cn1c2=cc=cc=c2n=c1']
+    graph_batch = graph_batch_from_smile(smiles_list, device)
+    print(graph_batch)
+    Net = GINGraph().to(device)
+    result = Net(graph_batch)
+    print(result)
