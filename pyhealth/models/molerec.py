@@ -6,6 +6,7 @@ from ogb.utils import smiles2graph
 from typing import Any, Dict, List, Tuple, Optional, Union
 from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
 from rdkit import Chem
+from torch.nn.functional import binary_cross_entropy_with_logits
 
 # from .model import BaseModel
 # from .utils import get_last_visit
@@ -155,7 +156,7 @@ class SAB(torch.nn.Module):
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         return self.net(X, X)
 
-
+# TODO: should be rewrite
 class AttenAgger(torch.nn.Module):
     def __init__(self, Qdim: int, Kdim: int, mid_dim: int):
         super(AdjAttenAgger, self).__init__()
@@ -210,8 +211,7 @@ class MoleRecLayer(torch.nn.Module):
         coef: float = 2.5,
         target_ddi: float = 0.06,
         GNN_layers: int = 4,
-        dropout: float = 0.7,
-        multi_loss_weight: float = 0.05
+        dropout: float = 0.7
     ):
         super(MoleRecLayer, self).__init__()
         self.hidden_size = hidden_size
@@ -222,19 +222,12 @@ class MoleRecLayer(torch.nn.Module):
         }
         self.substructure_encoder = GINGraph(**GNN_para)
         self.molecule_encoder = GINGraph(**GNN_para)
-        self.substructure_relation = torch.nn.Sequential(
-            torch.nn.ReLU(),
-            torch.nn.Linear(hidden_size * 4, hidden_size),
-            torch.nn.ReLU(),
-            torch.nn.Linear(hidden_size)
-        )
         self.substructure_interaction_module = SAB(
             hidden_size, hidden_size, 2, use_ln=True
         )
         self.combination_feature_aggregator = AttenAgger(
             hidden_size, hidden_size, hidden_size
         )
-        self.multi_weight = multi_loss_weight
 
     def calc_loss(
         self, logits: torch.Tensor, y_prob: torch.Tensor,
@@ -249,21 +242,64 @@ class MoleRecLayer(torch.nn.Module):
         y_pred[y_pred < 0.5] = 0
         y_pred = [np.where(sample == 1)[0] for sample in y_pred]
 
-
-        # TODO: modify loss
-
+        loss_cls = binary_cross_entropy_with_logits(logits, labels)
         cur_ddi_rate = ddi_rate_score(y_pred, ddi_adj.cpu().numpy())
         if cur_ddi_rate > self.target_ddi:
-            beta = max(0.0, 1 + (self.target_ddi - cur_ddi_rate) / self.kp)
-            add_loss, beta = batch_ddi_loss, beta
+            beta = coef * (1 - (current_ddi_rate / target_ddi))
+            beta = min(math.exp(beta), 1)
+            loss = beta * loss_cls + (1 - beta) * batch_ddi_loss
         else:
-            add_loss, beta = 0, 1
-
-        # obtain target, loss, prob, pred
-        bce_loss = self.loss_fn(logits, labels)
-
-        loss = beta * bce_loss + (1 - beta) * add_loss
+            loss = loss_cls
         return loss
+
+    def forward(
+        self, patient_emb: torch.Tensor, drugs: torch.Tensor,
+        substructure_mask: torch.Tensor, average_projection: torch.Tensor,
+        substructure_graph: Dict[str, Union[int, torch.Tensor]],
+        molecule_graph: Dict[str, Unionp[int, torch.Tensor]],
+        mask: Optional[torch.tensor] = None
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Forward propagation.
+
+        Args:
+            patient_emb: a tensor of shape [patient, visit, num_substructures].
+            drugs: a multihot tensor of shape [patient, num_labels].
+            mask: an optional tensor of shape [patient, visit] where 1
+                indicates valid visits and 0 indicates invalid visits.
+            substructure_mask: a tensor of shape [num_drugs, num_substructures],
+                representing whether a substructure shows up in one of the
+                molecule of each drug.
+            average_projection: a tensor of shape [num_drugs, num_molecules] 
+                representing the average projection for aggregating multiple 
+                molecules of the same drug into one vector.
+            substructure_graph: a dictionary representating a graph batch 
+                of all substructures, where each graph is extracted via 
+                'smiles2graph' api of ogb library.
+            molecule_graph: dictionary with same form of substructure_graph,
+                representing the graph batch of all molecules.
+        Returns:
+            loss: a scalar tensor representing the loss.
+            y_prob: a tensor of shape [patient, num_labels] representing
+                the probability of each drug.
+        """
+        if mask is None:
+            mask = torch.ones_like(patient_emb[:, :, 0])
+        substructure_relation = get_last_visit(patient_emb, mask)
+        substructure_embedding = self.substructure_interaction_module(
+            self.substructure_encoder(substructure_graph).unsqueeze(0)
+        ).squeeze(0)
+        molecule_embedding = self.molecule_encoder(molecule_graph)
+        molecule_embedding = torch.mm(average_projection, molecule_embedding)
+        combination_embedding = self.combination_feature_aggregator(
+            molecule_embedding, substructure_embedding,
+            substructure_relation, torch.logical_not(substructure_mask > 0)
+        )
+        score_extractor = [
+            torch.nn.Linear(substruct_dim, substruct_dim // 2),
+            torch.nn.ReLU(),
+            torch.nn.Linear(substruct_dim // 2, 1)
+        ]
+        self.score_extractor = torch.nn.Sequential(*score_extractor)
 
 
 if __name__ == '__main__':
