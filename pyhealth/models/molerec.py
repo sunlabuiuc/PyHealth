@@ -1,3 +1,6 @@
+from pyhealth.metrics import ddi_rate_score
+from pyhealth.medcode import ATC
+from pyhealth.datasets import SampleEHRDataset
 import torch
 import math
 import torch_scatter
@@ -8,8 +11,8 @@ from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
 from rdkit import Chem
 from torch.nn.functional import binary_cross_entropy_with_logits
 
-# from .model import BaseModel
-# from .utils import get_last_visit
+from pyhealth.models import BaseModel
+from pyhealth.models.utils import get_last_visit
 
 
 def graph_batch_from_smile(smiles_list, device=torch.device('cpu')):
@@ -32,6 +35,32 @@ def graph_batch_from_smile(smiles_list, device=torch.device('cpu')):
     result['num_nodes'] = lstnode
     result['num_edges'] = result['edge_index'].shape[1]
     return result
+
+
+class StaticDataDict(torch.nn.Module):
+    def __init__(self, **kwargs):
+        super(DataDict, self).__init__()
+        for k, v in kwargs.items():
+            if isinstance(v, torch.Tensor):
+                setattr(self, k, torch.nn.Parameter(v, requires_grad=False))
+            elif isinstance(v, np.ndarray):
+                v = torch.from_numpy(v)
+                setattr(self, k, torch.nn.Parameter(v, requires_grad=False))
+            else:
+                setattr(self, k, v)
+
+    def forward(self, key: str) -> Any:
+        return getattr(self, key)
+
+    def __getitem__(self, key: str) -> Any:
+        return self(key)
+
+    def __setitem__(self, key: str, value: Any):
+        if isinstance(value, np.ndarray):
+            value = torch.from_numpy(value)
+        if isinstance(value, torch.Tensor):
+            value = torch.nn.Parameter(value, requires_grad=False)
+        setattr(self, key, value)
 
 
 class GINConv(torch.nn.Module):
@@ -313,6 +342,13 @@ class MoleRecLayer(torch.nn.Module):
         substructure_embedding = self.substructure_interaction_module(
             self.substructure_encoder(substructure_graph).unsqueeze(0)
         ).squeeze(0)
+
+        if substructure_relation.shape[-1] != substructure_embedding.shape[0]:
+            raise RuntimeError(
+                'the substructure relation vector of each patient should have '
+                'the same dimension as the number of substructure'
+            )
+
         molecule_embedding = self.molecule_encoder(molecule_graph)
         molecule_embedding = torch.mm(average_projection, molecule_embedding)
         combination_embedding = self.combination_feature_aggregator(
@@ -327,6 +363,124 @@ class MoleRecLayer(torch.nn.Module):
         loss = self.calc_loss(logits, y_prob, ddi_adj, drugs)
 
         return loss, y_prob
+
+
+class MoleRec(BaseModel):
+    """MoleRec model.
+
+    Paper: Nianzu Yang et al. MoleRec: Combinatorial Drug Recommendation 
+    with Substructure-Aware Molecular Representation Learning. WWW 2023.
+
+    Note:
+        This model is only for medication prediction which takes conditions
+        and procedures as feature_keys, and drugs as label_key. It only operates
+        on the visit level.
+
+    Note:
+        This model only accepts ATC level 3 as medication codes.
+
+    Args:
+        dataset: the dataset to train the model. It is used to query certain
+            information such as the set of all tokens.
+        embedding_dim: the embedding dimension. Default is 128.
+        hidden_dim: the hidden dimension. Default is 128.
+        num_rnn_layers: the number of layers used in RNN. Default is 1.
+        num_gnn_layers: the number of layers used in GNN. Default is 4.
+        dropout: the dropout rate. Default is 0.5.
+        **kwargs: other parameters for the SafeDrug layer.
+    """
+
+    def __init__(
+        self,
+        dataset: SampleEHRDataset,
+        embedding_dim: int = 128,
+        hidden_dim: int = 128,
+        num_rnn_layers: int = 1,
+        num_gnn_layers: int = 4,
+        dropout: float = 0.5,
+        **kwargs
+    ):
+        super(MoleRec, self).__init__(
+            dataset=dataset,
+            feature_keys=["conditions", "procedures"],
+            label_key="drugs",
+            mode="multilabel",
+        )
+
+        self.embedding_dim = embedding_dim
+        self.hidden_dim = hidden_dim
+        self.num_rnn_layers = num_rnn_layers
+        self.num_gnn_layers = num_gnn_layers
+        self.dropout = dropout
+
+        self.feat_tokenizers = self.get_feature_tokenizers()
+        self.label_tokenizer = self.get_label_tokenizer()
+        self.embeddings = self.get_embedding_layers(
+            self.feat_tokenizers, embedding_dim)
+
+        self.substructure_relation = torch.nn.Sequential(
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden_dim * 4, hidden_dim),
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden_size)
+        )
+
+        self.ddi_adj = torch.nn.Parameter(
+            self.generate_ddi_adj(), requires_grad=False
+        )
+        substructure_mask, substructure_smiles =\
+            self.generate_substructure_mask()
+
+        if "hidden_size" in kwargs:
+            raise ValueError("hidden_size is determined by hidden_dim")
+        if "substructure_mask" in kwargs:
+            raise ValueError("substructure_mask is determined by the dataset")
+        if "ddi_adj" in kwargs:
+            raise ValueError("ddi_adj is determined by the dataset")
+        if "substructure_graph" in kwargs:
+            raise ValueError('substructure_graph is determined by the dataset')
+        if 'molecule_graph' in kwargs:
+            raise ValueError('molecule_graph is determined by the dataset')
+        if "average_projection" in kwargs:
+            raise ValueError("average_projection is determined by the dataset")
+
+    def generate_ddi_adj(self) -> torch.FloatTensor:
+        """Generates the DDI graph adjacency matrix."""
+        atc = ATC()
+        ddi = atc.get_ddi(gamenet_ddi=True)
+        label_size = self.label_tokenizer.get_vocabulary_size()
+        vocab_to_index = self.label_tokenizer.vocabulary
+        ddi_adj = np.zeros((label_size, label_size))
+        ddi_atc3 = [
+            [ATC.convert(l[0], level=3), ATC.convert(l[1], level=3)]
+            for l in ddi
+        ]
+        for atc_i, atc_j in ddi_atc3:
+            if atc_i in vocab_to_index and atc_j in vocab_to_index:
+                ddi_adj[vocab_to_index(atc_i), vocab_to_index(atc_j)] = 1
+                ddi_adj[vocab_to_index(atc_j), vocab_to_index(atc_i)] = 1
+        ddi_adj = torch.FloatTensor(ddi_adj)
+        return ddi_adj
+
+    def generate_substructure_mask(self)->torch.Tensor:
+        # Generates the molecular segmentation mask H and substructure smiles.
+        all_substructures_list = [[] for _ in range(self.label_size)]
+        for index, smiles_list in enumerate(self.all_smiles_list):
+            for smiles in smiles_list:
+                mol = Chem.MolFromSmiles(smiles)
+                if mol is None:
+                    continue
+                substructures = BRICS.BRICSDecompose(mol)
+                all_substructures_list[index] += substructures
+        # all segment set
+        substructures_set = list(set(sum(all_substructures_list, [])))
+        # mask_H
+        mask_H = np.zeros((self.label_size, len(substructures_set)))
+        for index, substructures in enumerate(all_substructures_list):
+            for s in substructures:
+                mask_H[index, substructures_set.index(s)] = 1
+        mask_H = torch.from_numpy(mask_H)
+        return mask_H, substructures_set
 
 
 if __name__ == '__main__':
