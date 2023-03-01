@@ -431,7 +431,10 @@ class MoleRec(BaseModel):
         self.feat_tokenizers = self.get_feature_tokenizers()
         self.label_tokenizer = self.get_label_tokenizer()
         self.embeddings = self.get_embedding_layers(
-            self.feat_tokenizers, embedding_dim)
+            self.feat_tokenizers, embedding_dim
+        )
+
+        self.label_size = self.label_tokenizer.get_vocabulary_size()
 
         self.substructure_relation = torch.nn.Sequential(
             torch.nn.ReLU(),
@@ -443,8 +446,24 @@ class MoleRec(BaseModel):
         self.ddi_adj = torch.nn.Parameter(
             self.generate_ddi_adj(), requires_grad=False
         )
+        self.all_smiles_list = self.generate_smiles_list()
+
         substructure_mask, substructure_smiles =\
             self.generate_substructure_mask()
+
+        self.substructure_mask = torch.nn.Parameter(
+            substructure_mask, requires_grad=False
+        )
+        self.substructure_smiles = substructure_smiles
+
+        self.cond_rnn = torch.nn.GRU(
+            embedding_dim, hidden_dim, num_layers=num_rnn_layers,
+            dropout=dropout if num_layers > 1 else 0, batch_first=True
+        )
+        self.proc_rnn = torch.nn.GRU(
+            embedding_dim, hidden_dim, num_layers=num_layers,
+            dropout=dropout if num_layers > 1 else 0, batch_first=True
+        )
 
         if "hidden_size" in kwargs:
             raise ValueError("hidden_size is determined by hidden_dim")
