@@ -194,8 +194,18 @@ class SampleKGDataset(SampleBaseDataset):
         for KG datasets.
 
     Args:
-        samples: two lists (head and tail) of samples, each sample is a positive sample, a list of
-            negative samples, a sub-sampling weight and a mode
+        samples: a list of samples 
+        A sample is a dict containing following data:
+        {
+            'triple': a positive triple  e.g., (0, 0, 2835)
+            'ground_truth_head': a list of ground truth of the head entity in the dataset given
+                query (e.g., (?, 0, 2835)) with current relation r and tail entity t.
+                e.g., [1027, 1293, 5264, 1564, 7416, 6434, 2610, 4094, 2717, 5007, 5277, 5949, 0, 6870, 6029]
+            'ground_truth_tail': a list of ground truth of the tail entity in the dataset given
+                query (e.g., (0, 0, ?)) with current head entity h and relation r.
+                e.g., [398, 244, 3872, 3053, 1711, 2835, 1348, 2309]
+            'subsampling_weight': the subsampling weight (a scalar) of this triple, which may be applied for loss calculation
+        }
         dataset_name: the name of the dataset. Default is None.
         task_name: the name of the task. Default is None.
     """
@@ -204,25 +214,36 @@ class SampleKGDataset(SampleBaseDataset):
         samples, 
         dataset_name="", 
         task_name="", 
-        dev=False, 
-        triples=[], 
+        dev=False,  
         entity_num=0,
-        relation_num=0
+        relation_num=0,
+        **kwargs
         ):
 
         super().__init__(samples, dataset_name, task_name)
         self.dev = dev
-        self.triples = triples
         self.entity_num = entity_num
         self.relation_num = relation_num
-        self.sample_size = len(triples) * 2
+        self.sample_size = len(samples)
+        self.task_spec_param = None
+        if kwargs != None:
+            self.task_spec_param = kwargs
 
     def __getitem__(self, index):
-        return (self.samples['head_train'][index], self.samples['tail_train'][index],
-                self.samples['head_test'][index], self.samples['tail_test'][index])
-
-    def get_samples(self):
-        return self.samples
+        """
+        A sample is a dict containing following data:
+        {
+            'triple': a positive triple  e.g., (0, 0, 2835)
+            'ground_truth_head': a list of ground truth of the head entity in the dataset given
+                query (e.g., (?, 0, 2835)) with current relation r and tail entity t.
+                e.g., [1027, 1293, 5264, 1564, 7416, 6434, 2610, 4094, 2717, 5007, 5277, 5949, 0, 6870, 6029]
+            'ground_truth_tail': a list of ground truth of the tail entity in the dataset given
+                query (e.g., (0, 0, ?)) with current head entity h and relation r.
+                e.g., [398, 244, 3872, 3053, 1711, 2835, 1348, 2309]
+            'subsampling_weight': the subsampling weight (a scalar) of this triple, which may be applied for loss calculation
+        }
+        """
+        return self.samples[index]
 
     def stat(self):
         """Returns some statistics of the base dataset."""
@@ -230,11 +251,11 @@ class SampleKGDataset(SampleBaseDataset):
         lines.append("")
         lines.append(f"Statistics of base dataset (dev={self.dev}):")
         lines.append(f"\t- Dataset: {self.dataset_name}")
-        lines.append(f"\t- Number of triples: {len(self.triples)}")
+        lines.append(f"\t- Number of triples: {len(self.samples)}")
         lines.append(f"\t- Number of entities: {self.entity_num}")
         lines.append(f"\t- Number of relations: {self.relation_num}")
         lines.append(f"\t- Task name: {self.task_name}")
-        lines.append(f"\t- Number of samples: {self.sample_size}")
+        lines.append(f"\t- Task-specific hyperparameters: {self.task_spec_param}")
         lines.append("")
         print("\n".join(lines))
         return 

@@ -137,7 +137,7 @@ class BaseKGDataset(ABC):
         
         else:
             print(f"Processing {self.dataset_name} base dataset...")
-            self.samples = task_fn(self.triples, self.entity_num, **kwargs)
+            self.samples = task_fn(self.triples)
 
             # save to cache
             print(f"Saving {self.dataset_name} base dataset to {self.filepath}")
@@ -149,9 +149,9 @@ class BaseKGDataset(ABC):
             dataset_name=self.dataset_name,
             task_name=self.task_name,
             dev=self.dev,
-            triples=self.triples,
             entity_num=self.entity_num,
-            relation_num=self.relation_num
+            relation_num=self.relation_num,
+            **kwargs
         )
 
         return sample_dataset

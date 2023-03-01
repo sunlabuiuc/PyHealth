@@ -10,5 +10,5 @@ from .isruc import ISRUCDataset
 from .shhs import SHHSDataset
 from .umls import UMLSDataset
 from .sample_dataset import SampleBaseDataset, SampleSignalDataset, SampleEHRDataset
-from .splitter import split_by_patient, split_by_visit, split_by_keys
-from .utils import collate_fn_dict, get_dataloader, get_dataloader_kg, strptime
+from .splitter import split_by_patient, split_by_visit, split
+from .utils import collate_fn_dict, get_dataloader, strptime

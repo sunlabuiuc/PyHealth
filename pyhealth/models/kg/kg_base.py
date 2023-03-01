@@ -134,6 +134,114 @@ class KGEBaseModel(ABC, nn.Module):
 
         return head, relation, tail
 
+    
+    def train_neg_sample_gen(self, gt_head, gt_tail, negative_sampling):
+        """
+        (only run in train batch) 
+        This function creates negative triples for training (sampling size: negative_sampling)
+             with ground truth masked.
+        """
+        negative_sample_head = []
+        negative_sample_tail = []
+        for i in range(len(gt_head)):
+            # head, relation, tail = triples[i]
+            
+            ## negative samples for head prediction
+            negative_sample_list_head = []
+            negative_sample_size_head = 0
+
+            while negative_sample_size_head < negative_sampling:
+                negative_sample = np.random.randint(self.e_num, size=negative_sampling*2)
+                mask = np.in1d(
+                    negative_sample,
+                    gt_head[i],
+                    assume_unique=True,
+                    invert=True
+                )
+                negative_sample = negative_sample[mask]
+                negative_sample_list_head.append(negative_sample)
+                negative_sample_size_head += negative_sample.size
+            
+            ## negative samples for tail prediction
+            negative_sample_list_tail = []
+            negative_sample_size_tail = 0
+
+            while negative_sample_size_tail < negative_sampling:
+                negative_sample = np.random.randint(self.e_num, size=negative_sampling*2)
+                mask = np.in1d(
+                    negative_sample,
+                    gt_tail[i],
+                    assume_unique=True,
+                    invert=True
+                )
+                negative_sample = negative_sample[mask]
+                negative_sample_list_tail.append(negative_sample)
+                negative_sample_size_tail += negative_sample.size
+
+            neg_head = torch.LongTensor(np.concatenate(negative_sample_list_head)[:negative_sampling])
+            neg_tail = torch.LongTensor(np.concatenate(negative_sample_list_tail)[:negative_sampling])
+            negative_sample_head.append(neg_head)
+            negative_sample_tail.append(neg_tail)
+        
+        negative_sample_head = torch.stack([d for d in negative_sample_head], dim=0)
+        negative_sample_tail = torch.stack([d for d in negative_sample_tail], dim=0)
+
+        return negative_sample_head, negative_sample_tail
+
+
+    def test_neg_sample_filter_bias_gen(self, triples, gt_head, gt_tail):
+        """
+        (only run in val/test batch) 
+        This function creates negative triples for validation/testing with ground truth masked.
+        """
+
+        negative_sample_head = []
+        negative_sample_tail = []
+        filter_bias_head = []
+        filter_bias_tail = []
+
+        for i in range(len(triples)):
+            head, _, tail = triples[i]
+
+            try:
+                gt_h_ = gt_head[i]
+                gt_h = gt_h_[:]
+                gt_h.remove(head)
+                gt_t_ = gt_tail[i]
+                gt_t = gt_t_[:]
+                gt_t.remove(tail)
+            except:
+                print(gt_h)
+                print(head)
+
+            neg_head = np.arange(0, self.e_num)
+            neg_head[gt_h] = head
+            neg_head = torch.LongTensor(neg_head)
+
+            neg_tail = np.arange(0, self.e_num)
+            neg_tail[gt_t] = tail
+            neg_tail = torch.LongTensor(neg_tail)
+
+            fb_head = np.zeros(self.e_num)
+            fb_head[gt_h] = -1
+            fb_head = torch.LongTensor(fb_head)
+
+            fb_tail = np.zeros(self.e_num)
+            fb_tail[gt_t] = -1
+            fb_tail = torch.LongTensor(fb_tail)
+
+            negative_sample_head.append(neg_head)
+            negative_sample_tail.append(neg_tail)
+            filter_bias_head.append(fb_head)
+            filter_bias_tail.append(fb_tail)
+
+        negative_sample_head = torch.stack([d for d in negative_sample_head], dim=0)
+        negative_sample_tail = torch.stack([d for d in negative_sample_tail], dim=0)
+        filter_bias_head = torch.stack([d for d in filter_bias_head], dim=0)
+        filter_bias_tail = torch.stack([d for d in filter_bias_tail], dim=0)
+
+        return negative_sample_head, negative_sample_tail, filter_bias_head, filter_bias_tail
+
 
     def calc(self, sample_batch, mode='pos'):
         """ score calculation
@@ -169,13 +277,22 @@ class KGEBaseModel(ABC, nn.Module):
 
 
     def forward(self, **data):
-        if data['train']:
-            inputs, mode = (data['positive_sample'], data['negative_sample'], data['subsample_weight']), data['mode']
-            inputs = [x.to(self.device) for x in inputs]
-            pos_sample, neg_sample, subsampling_weight = inputs
-            sample_batch = (pos_sample, neg_sample)
 
-            neg_score = self.calc(sample_batch=sample_batch, mode=mode)
+        positive_sample = torch.stack([torch.LongTensor(d) for d in data['triple']], dim=0).to(self.device)
+
+        if data['train'][0]:
+            negative_sample_head, negative_sample_tail = self.train_neg_sample_gen(
+                gt_head=data['ground_truth_head'],
+                gt_tail=data['ground_truth_tail'],
+                negative_sampling=data['hyperparameters'][0]['negative_sampling']
+            )
+
+            negative_sample_head, negative_sample_tail = negative_sample_head.to(self.device), negative_sample_tail.to(self.device)
+            
+            neg_score_head = self.calc(sample_batch=(positive_sample, negative_sample_head), mode="head")
+            neg_score_tail = self.calc(sample_batch=(positive_sample, negative_sample_tail), mode="tail")
+
+            neg_score = neg_score_head + neg_score_tail
 
             if self.ns == 'adv':
                 neg_score = (F.softmax(neg_score * 1.0, dim=1).detach() * F.logsigmoid(-neg_score)).sum(dim=1)
@@ -183,9 +300,9 @@ class KGEBaseModel(ABC, nn.Module):
             else:
                 neg_score = F.logsigmoid(-neg_score).mean(dim=1)
 
-            pos_score = F.logsigmoid(self.calc(pos_sample)).squeeze(dim=1)
+            pos_score = F.logsigmoid(self.calc(positive_sample)).squeeze(dim=1)
 
-            
+            subsampling_weight = torch.cat([d for d in data['subsampling_weight']], dim=0).to(self.device)
             pos_sample_loss = \
                 - (subsampling_weight * pos_score).sum()/subsampling_weight.sum() if self.use_subsampling_weight else (- pos_score.mean())
             neg_sample_loss = \
@@ -201,24 +318,34 @@ class KGEBaseModel(ABC, nn.Module):
             return {"loss": loss}
 
         else: # valid/test
-            inputs, mode = (data['positive_sample'], data['negative_sample'], data['filter_bias']), data['mode']
+            inputs = self.test_neg_sample_filter_bias_gen(
+                    triples=data['triple'],
+                    gt_head=data['ground_truth_head'],
+                    gt_tail=data['ground_truth_tail']
+                )
+
+            # inputs, mode = (data['positive_sample'], data['negative_sample'], data['filter_bias']), data['mode']
             inputs = [x.to(self.device) for x in inputs]
-            pos_sample, neg_sample, filter_bias = inputs
-            sample_batch = (pos_sample, neg_sample)
-            score = self.calc(sample_batch=sample_batch, mode=mode)
-            score += filter_bias
+            negative_sample_head, negative_sample_tail, filter_bias_head, filter_bias_tail = inputs
+            score_head = self.calc(sample_batch=(positive_sample, negative_sample_head), mode="head")
+            score_tail = self.calc(sample_batch=(positive_sample, negative_sample_tail), mode="tail")
+            score_head += filter_bias_head
+            score_tail += filter_bias_tail
+
+            score = score_head + score_tail
             loss = (-F.logsigmoid(-score).mean(dim=1)).mean()
             
-            if mode == "head":
-                y_true = pos_sample[:, 0]
+            
+            y_true_head = positive_sample[:, 0]
+            y_true_tail = positive_sample[:, 2]
 
-            elif mode == "tail":
-                y_true = pos_sample[:, 2]
+            y_true = torch.cat((y_true_head, y_true_tail))
+            y_prob = torch.cat((score_head, score_tail))
 
             return {
                 "loss": loss,
                 "y_true": y_true,
-                "y_prob": score
+                "y_prob": y_prob
                 }
 
 

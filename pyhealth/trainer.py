@@ -184,7 +184,7 @@ class Trainer:
         global_step = 0
 
         # epoch training loop
-        for epoch in range(epochs):
+        for epoch in range(epochs+1):
             training_loss = []
             self.model.zero_grad()
             self.model.train()
