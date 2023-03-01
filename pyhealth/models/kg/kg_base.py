@@ -238,20 +238,16 @@ class KGEBaseModel(ABC, nn.Module):
         return negative_sample_head, negative_sample_tail, filter_bias_head, filter_bias_tail
 
 
-    def calc(self, sample_batch, mode='pos'):
+    def calc(self, head, relation, tail, mode='pos'):
         """ score calculation
         Args:
+            head:       head entity h
+            relation:   relation    r
+            tail:       tail entity t
             mode: 
                 (1) 'pos': for possitive samples  
                 (2) 'head': for negative samples with head prediction
                 (3) 'tail' for negative samples with tail prediction
-            sample_batch: 
-                (1) If mode is 'pos', the sample_batch will be in shape of (batch_size, 3) where the 1-dim are 
-                    triples of positive_sample in the format [head, relation, tail]
-                (2) If mode is 'head' or 'tail', the sample_batch will be in shape of (batch size, 2) where the 1-dim are
-                    tuples of (positive_sample, negative_sample), where positive_sample is a triple [head, relation, tail]
-                    and negative_sample is a 1-d array (length: e_num) with negative (head or tail) entities indecies filled
-                    and positive entities masked.
         
         Return:
             score of positive/negative samples, in shape of braodcasted result of calulation with head, tail and relation.
@@ -284,8 +280,10 @@ class KGEBaseModel(ABC, nn.Module):
 
             negative_sample_head, negative_sample_tail = negative_sample_head.to(self.device), negative_sample_tail.to(self.device)
             
-            neg_score_head = self.calc(sample_batch=(positive_sample, negative_sample_head), mode="head")
-            neg_score_tail = self.calc(sample_batch=(positive_sample, negative_sample_tail), mode="tail")
+            head, relation, tail = self.data_process((positive_sample, negative_sample_head), mode="head")
+            neg_score_head = self.calc(head=head, relation=relation, tail=tail, mode="head")
+            head, relation, tail = self.data_process((positive_sample, negative_sample_tail), mode="tail")
+            neg_score_tail = self.calc(head=head, relation=relation, tail=tail, mode="tail")
 
             neg_score = neg_score_head + neg_score_tail
 
@@ -295,7 +293,8 @@ class KGEBaseModel(ABC, nn.Module):
             else:
                 neg_score = F.logsigmoid(-neg_score).mean(dim=1)
 
-            pos_score = F.logsigmoid(self.calc(positive_sample)).squeeze(dim=1)
+            head, relation, tail = self.data_process((positive_sample), mode="pos")
+            pos_score = F.logsigmoid(self.calc(head=head, relation=relation, tail=tail)).squeeze(dim=1)
 
             subsampling_weight = torch.cat([d for d in data['subsampling_weight']], dim=0).to(self.device)
             pos_sample_loss = \
@@ -322,8 +321,10 @@ class KGEBaseModel(ABC, nn.Module):
             # inputs, mode = (data['positive_sample'], data['negative_sample'], data['filter_bias']), data['mode']
             inputs = [x.to(self.device) for x in inputs]
             negative_sample_head, negative_sample_tail, filter_bias_head, filter_bias_tail = inputs
-            score_head = self.calc(sample_batch=(positive_sample, negative_sample_head), mode="head")
-            score_tail = self.calc(sample_batch=(positive_sample, negative_sample_tail), mode="tail")
+            head, relation, tail = self.data_process((positive_sample, negative_sample_head), mode="head")
+            score_head = self.calc(head=head, relation=relation, tail=tail, mode="head")
+            head, relation, tail = self.data_process((positive_sample, negative_sample_tail), mode="tail")
+            score_tail = self.calc(head=head, relation=relation, tail=tail, mode="tail")
             score_head += filter_bias_head
             score_tail += filter_bias_tail
 
@@ -342,6 +343,57 @@ class KGEBaseModel(ABC, nn.Module):
                 "y_true": y_true,
                 "y_prob": y_prob
                 }
+    
+    def inference(self, head=None, relation=None, tail=None, top_k=1):
+        # Check if two or more arguments are None
+        if sum(arg is None for arg in (head, relation, tail)) >= 2:
+            print("At least 2 place holders need to be filled. ")
+            return
+        
+        mode = "head" if head is None else ("tail" if tail is None else ("relation" if relation is None else "clf"))
+
+        if mode == "head":
+            tail_index = torch.tensor(tail)
+            relation_index = torch.tensor(relation)
+            relation = torch.index_select(self.R_emb, dim=0, index=relation_index).unsqueeze(1)
+            tail = torch.index_select(self.E_emb, dim=0, index=tail_index).unsqueeze(1)
+            head_all_idx = torch.tensor(np.arange(0, self.e_num))
+            head_all = torch.index_select(self.E_emb, dim=0, index=head_all_idx).unsqueeze(1)
+            score_head = self.calc(head=head_all, relation=relation, tail=tail, mode="head")
+            result_eid = torch.topk(score_head.flatten(), top_k).indices
+            return result_eid.tolist()
+
+        if mode == "tail":
+            head_index = torch.tensor(head)
+            relation_index = torch.tensor(relation)
+            head = torch.index_select(self.E_emb, dim=0, index=head_index).unsqueeze(1)
+            relation = torch.index_select(self.R_emb, dim=0, index=relation_index).unsqueeze(1)
+            tail_all_idx = torch.tensor(np.arange(0, self.e_num))
+            tail_all = torch.index_select(self.E_emb, dim=0, index=tail_all_idx).unsqueeze(1)
+            score_tail = self.calc(head=head, relation=relation, tail=tail_all, mode="tail")
+            result_eid = torch.topk(score_tail.flatten(), top_k).indices
+            return result_eid.tolist()
+        
+        if mode == "relation":
+            print("Not implemented yet.")
+
+        if mode == "clf":
+            head_index = torch.tensor(head)
+            relation_index = torch.tensor(relation)
+            tail_index = torch.tensor(tail)
+            head = torch.index_select(self.E_emb, dim=0, index=head_index).unsqueeze(1)
+            relation = torch.index_select(self.R_emb, dim=0, index=relation_index).unsqueeze(1)
+            tail = torch.index_select(self.E_emb, dim=0, index=tail_index).unsqueeze(1)
+            score = self.calc(head=head, relation=relation, tail=tail, mode="pos")
+            return score.tolist()
+
+            
+
+
+
+
+
+
 
 
 

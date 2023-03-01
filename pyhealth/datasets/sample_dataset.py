@@ -217,6 +217,8 @@ class SampleKGDataset(SampleBaseDataset):
         dev=False,  
         entity_num=0,
         relation_num=0,
+        entity2id=None,
+        relation2id=None,
         **kwargs
         ):
 
@@ -226,6 +228,10 @@ class SampleKGDataset(SampleBaseDataset):
         self.relation_num = relation_num
         self.sample_size = len(samples)
         self.task_spec_param = None
+        self.entity2id = entity2id
+        self.id2entity = {v: k for k, v in entity2id.items()}
+        self.relation2id = relation2id
+        self.id2relation = {v: k for k, v in relation2id.items()}
         if kwargs != None:
             self.task_spec_param = kwargs
 

@@ -35,8 +35,7 @@ class DistMult(KGEBaseModel):
         return reg_l3
 
 
-    def calc(self, sample_batch, mode='pos'):
-        head, relation, tail = self.data_process(sample_batch, mode)
+    def calc(self, head, relation, tail, mode='pos'):
 
         if mode == 'head':
             score = head * (relation * tail)

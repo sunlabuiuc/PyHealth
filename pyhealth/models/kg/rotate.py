@@ -31,8 +31,7 @@ class RotatE(KGEBaseModel):
         return reg
        
 
-    def calc(self, sample_batch, mode='pos'):
-        head, relation, tail = self.data_process(sample_batch, mode)
+    def calc(self, head, relation, tail, mode='pos'):
 
         head_re, head_im = torch.chunk(head, 2, dim=2)
         tail_re, tail_im = torch.chunk(tail, 2, dim=2)

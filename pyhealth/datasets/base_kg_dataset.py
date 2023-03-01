@@ -54,6 +54,8 @@ class BaseKGDataset(ABC):
         self.task_name = "Null"
         self.entity_num = 0
         self.relation_num = 0
+        self.entity2id = None
+        self.relation2id = None
         self.refresh_cache = refresh_cache
 
         # hash filename for cache
@@ -151,6 +153,8 @@ class BaseKGDataset(ABC):
             dev=self.dev,
             entity_num=self.entity_num,
             relation_num=self.relation_num,
+            entity2id=self.entity2id,
+            relation2id=self.relation2id,
             **kwargs
         )
 

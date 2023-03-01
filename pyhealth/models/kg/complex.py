@@ -46,8 +46,7 @@ class ComplEx(KGEBaseModel):
         return reg_l3
 
 
-    def calc(self, sample_batch, mode='pos'):
-        head, relation, tail = self.data_process(sample_batch, mode)
+    def calc(self, head, relation, tail, mode='pos'):
         head_re, head_im = torch.chunk(head, 2, dim=2)
         relation_re, relation_im = torch.chunk(relation, 2, dim=2)
         tail_re, tail_im = torch.chunk(tail, 2, dim=2)
@@ -63,6 +62,7 @@ class ComplEx(KGEBaseModel):
 
         score = score.sum(dim = 2)
         return score
+        
 
 if __name__ == "__main__":
     from pyhealth.datasets import SampleKGDataset

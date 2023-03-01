@@ -34,8 +34,7 @@ class TransE(KGEBaseModel):
         return reg
 
 
-    def calc(self, sample_batch, mode='pos'):
-        head, relation, tail = self.data_process(sample_batch=sample_batch, mode=mode)
+    def calc(self, head, relation, tail, mode='pos'):
 
         if mode == 'head':
             score = head + (relation - tail)
