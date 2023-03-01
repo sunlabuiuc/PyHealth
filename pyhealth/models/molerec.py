@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Tuple, Optional, Union
 from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
 from rdkit import Chem
 from torch.nn.functional import binary_cross_entropy_with_logits
+from torch.nn.functional import multilabel_margin_loss
 
 from pyhealth.models import BaseModel
 from pyhealth.models.utils import get_last_visit
@@ -248,6 +249,9 @@ class MoleRecLayer(torch.nn.Module):
         GNN_layers: the number of layers of GNNs encoding molecule and
             substructures. Default is 4.
         dropout: the dropout ratio of model. Default is 0.7.
+        multiloss_weight: the weight of multilabel_margin_loss for
+            multilabel classification. Value should be set between [0, 1].
+            Default is 0.05
     """
 
     def __init__(
@@ -256,7 +260,8 @@ class MoleRecLayer(torch.nn.Module):
         coef: float = 2.5,
         target_ddi: float = 0.06,
         GNN_layers: int = 4,
-        dropout: float = 0.7
+        dropout: float = 0.7,
+        multiloss_weight: float = 0.05
     ):
         super(MoleRecLayer, self).__init__()
         self.hidden_size = hidden_size
@@ -279,10 +284,12 @@ class MoleRecLayer(torch.nn.Module):
             torch.nn.Linear(hidden_size // 2, 1)
         ]
         self.score_extractor = torch.nn.Sequential(*score_extractor)
+        self.multiloss_weight = multiloss_weight
 
     def calc_loss(
         self, logits: torch.Tensor, y_prob: torch.Tensor,
-        ddi_adj: torch.Tensor, labels: torch.Tensor
+        ddi_adj: torch.Tensor, labels: torch.Tensor,
+        label_index: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
         mul_pred_prob = y_prob.T @ y_prob  # (voc_size, voc_size)
         ddi_loss = (mul_pred_prob * ddi_adj).sum() / (ddi_adj.shape[0] ** 2)
@@ -293,6 +300,11 @@ class MoleRecLayer(torch.nn.Module):
         y_pred = [np.where(sample == 1)[0] for sample in y_pred]
 
         loss_cls = binary_cross_entropy_with_logits(logits, labels)
+        if self.multiloss_weight > 0 and label_index is not None:
+            loss_multi = multilabel_margin_loss(y_prob, label_index)
+            loss_cls = self.multiloss_weight * loss_multi + \
+                (1 - self.multiloss_weight) * loss_cls
+
         cur_ddi_rate = ddi_rate_score(y_pred, ddi_adj.cpu().numpy())
         if cur_ddi_rate > self.target_ddi:
             beta = coef * (1 - (current_ddi_rate / target_ddi))
@@ -308,7 +320,8 @@ class MoleRecLayer(torch.nn.Module):
         substructure_mask: torch.Tensor,
         substructure_graph: Dict[str, Union[int, torch.Tensor]],
         molecule_graph: Dict[str, Unionp[int, torch.Tensor]],
-        mask: Optional[torch.tensor] = None
+        mask: Optional[torch.tensor] = None,
+        drug_indexes: Optional[torch.Tensor] = None
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Forward propagation.
 
@@ -330,6 +343,8 @@ class MoleRecLayer(torch.nn.Module):
                 representing the graph batch of all molecules.
             ddi_adj: an adjacency tensor for drug drug interaction 
                 of shape [num_drugs, num_drugs].
+            drug_indexes: the index version of drugs (ground truth) of shape
+                [patient, num_labels], padded with -1
         Returns:
             loss: a scalar tensor representing the loss.
             y_prob: a tensor of shape [patient, num_labels] representing
