@@ -202,17 +202,12 @@ class KGEBaseModel(ABC, nn.Module):
 
         for i in range(len(triples)):
             head, _, tail = triples[i]
-
-            try:
-                gt_h_ = gt_head[i]
-                gt_h = gt_h_[:]
-                gt_h.remove(head)
-                gt_t_ = gt_tail[i]
-                gt_t = gt_t_[:]
-                gt_t.remove(tail)
-            except:
-                print(gt_h)
-                print(head)
+            gt_h_ = gt_head[i]
+            gt_h = gt_h_[:]
+            gt_h.remove(head)
+            gt_t_ = gt_tail[i]
+            gt_t = gt_t_[:]
+            gt_t.remove(tail)
 
             neg_head = np.arange(0, self.e_num)
             neg_head[gt_h] = head
