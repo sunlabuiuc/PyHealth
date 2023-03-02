@@ -206,13 +206,16 @@ class AttnAgg(torch.nn.Module):
         Args:
             main_feat (torch.Tensor): shape of [main_num, Q_dim]
             other_feat (torch.Tensor): shape of [other_num, K_dim]
-            fix_feat (torch.Tensor): shape of [batch, other_num], adjust parameter
-            mask (torch.Tensor): shape of [main_num, other_num] a mask representing 
-                where main object should have attention with other obj 
-                1 means no attention should be done. (default: `None`)
+            fix_feat (torch.Tensor): shape of [batch, other_num],
+                adjust parameter for attention weight
+            mask (torch.Tensor): shape of [main_num, other_num] a mask
+                representing where main object should have attention
+                with other obj 1 means no attention should be done.
+                (default: `None`)
 
         Returns:
-            torch.Tensor: aggregated features, shape of [batch, main_num, K_dim]
+            torch.Tensor: aggregated features, shape of
+                [batch, main_num, K_dim]
         """
         Q = self.Qdense(main_feat)
         K = self.Kdense(other_feat)
@@ -236,7 +239,7 @@ class AttnAgg(torch.nn.Module):
 class MoleRecLayer(torch.nn.Module):
     """MoleRec model.
 
-    Paper: Nianzu Yang et al. MoleRec: Combinatorial Drug Recommendation 
+    Paper: Nianzu Yang et al. MoleRec: Combinatorial Drug Recommendation
     with Substructure-Aware Molecular Representation Learning. WWW 2023.
 
     This layer is used in the MoleRec model. But it can also be used as a
@@ -318,8 +321,8 @@ class MoleRecLayer(torch.nn.Module):
         self, patient_emb: torch.Tensor, drugs: torch.Tensor,
         average_projection: torch.Tensor, ddi_adj: torch.Tensor,
         substructure_mask: torch.Tensor,
-        substructure_graph: Dict[str, Union[int, torch.Tensor]],
-        molecule_graph: Dict[str, Unionp[int, torch.Tensor]],
+        substructure_graph: Union[StaticParaDict, Dict[str, Union[int, torch.Tensor]]],
+        molecule_graph: Union[StaticParaDict, Dict[str, Union[int, torch.Tensor]]],
         mask: Optional[torch.tensor] = None,
         drug_indexes: Optional[torch.Tensor] = None
     ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -330,18 +333,18 @@ class MoleRecLayer(torch.nn.Module):
             drugs: a multihot tensor of shape [patient, num_labels].
             mask: an optional tensor of shape [patient, visit] where 1
                 indicates valid visits and 0 indicates invalid visits.
-            substructure_mask: a tensor of shape [num_drugs, num_substructures],
+            substructure_mask: tensor of shape [num_drugs, num_substructures],
                 representing whether a substructure shows up in one of the
                 molecule of each drug.
-            average_projection: a tensor of shape [num_drugs, num_molecules] 
-                representing the average projection for aggregating multiple 
+            average_projection: a tensor of shape [num_drugs, num_molecules]
+                representing the average projection for aggregating multiple
                 molecules of the same drug into one vector.
-            substructure_graph: a dictionary representating a graph batch 
-                of all substructures, where each graph is extracted via 
+            substructure_graph: a dictionary representating a graph batch
+                of all substructures, where each graph is extracted via
                 'smiles2graph' api of ogb library.
             molecule_graph: dictionary with same form of substructure_graph,
                 representing the graph batch of all molecules.
-            ddi_adj: an adjacency tensor for drug drug interaction 
+            ddi_adj: an adjacency tensor for drug drug interaction
                 of shape [num_drugs, num_drugs].
             drug_indexes: the index version of drugs (ground truth) of shape
                 [patient, num_labels], padded with -1
@@ -383,13 +386,13 @@ class MoleRecLayer(torch.nn.Module):
 class MoleRec(BaseModel):
     """MoleRec model.
 
-    Paper: Nianzu Yang et al. MoleRec: Combinatorial Drug Recommendation 
+    Paper: Nianzu Yang et al. MoleRec: Combinatorial Drug Recommendation
     with Substructure-Aware Molecular Representation Learning. WWW 2023.
 
     Note:
         This model is only for medication prediction which takes conditions
-        and procedures as feature_keys, and drugs as label_key. It only operates
-        on the visit level.
+        and procedures as feature_keys, and drugs as label_key. It only
+        operates on the visit level.
 
     Note:
         This model only accepts ATC level 3 as medication codes.
@@ -455,20 +458,29 @@ class MoleRec(BaseModel):
             average_projection, requires_grad=False
         )
 
-        self.cond_rnn = torch.nn.GRU(
-            embedding_dim, hidden_dim, num_layers=num_rnn_layers,
-            dropout=dropout if num_layers > 1 else 0, batch_first=True
+        self.substructure_graphs = StaticParaDict(
+            **graph_batch_from_smile(self.substructure_smiles)
         )
-        self.proc_rnn = torch.nn.GRU(
-            embedding_dim, hidden_dim, num_layers=num_layers,
-            dropout=dropout if num_layers > 1 else 0, batch_first=True
+        self.molecule_graphs = StaticParaDict(
+            **graph_batch_from_smiles(self.all_smiles_flatten)
         )
+
+        self.rnns = torch.nn.ModuleDict({
+            x: torch.nn.GRU(
+                embedding_dim, hidden_dim, num_layers=num_layers,
+                dropout=dropout if num_layers > 1 else 0, batch_first=True
+            ) for x in ["conditions", "procedures"]
+        })
         num_substructures = substructure_mask.shape[1]
         self.substructure_relation = torch.nn.Sequential(
             torch.nn.ReLU(),
-            torch.nn.Linear(hidden_dim * 4, hidden_dim),
+            torch.nn.Linear(hidden_dim * 2, hidden_dim),
             torch.nn.ReLU(),
             torch.nn.Linear(hidden_dim, num_substructures)
+        )
+        self.layer = MoleRecLayer(
+            hidden_size=hidden_dim, dropout=dropout,
+            GNN_layers=num_gnn_layers, **kwargs
         )
 
         if "hidden_size" in kwargs:
@@ -568,6 +580,73 @@ class MoleRec(BaseModel):
         average_projection = torch.from_numpy(average_projection)
         return average_projection, molecule_set
 
+    def encode_patient(
+        self, feature_key: str,
+        raw_values: List[List[List[str]]]
+    ) -> torch.Tensor:
+        codes = self.feat_tokenizers[feature_key].batch_encode_3d(raw_values)
+        codes = torch.tensor(codes, dtype=torch.long, device=self.device)
+        embeddings = self.embeddings[feature_key](codes).sum(dim=2)
+        outputs, _ = self.rnns[feature_key](embeddings)
+        return outputs
+
+    def forward(
+        self,
+        conditions: List[List[List[str]]],
+        procedures: List[List[List[str]]],
+        drugs: List[List[str]],
+        **kwargs,
+    ) -> Dict[str, torch.Tensor]:
+        """Forward propagation.
+
+        Args:
+            conditions: a nested list in three levels with
+                shape [patient, visit, condition].
+            procedures: a nested list in three levels with
+                shape [patient, visit, procedure].
+            drugs: a nested list in two levels [patient, drug].
+
+        Returns:
+            A dictionary with the following keys:
+                loss: a scalar tensor representing the loss.
+                y_prob: a tensor of shape [patient, visit, num_labels]
+                    representing the probability of each drug.
+                y_true: a tensor of shape [patient, visit, num_labels]
+                    representing the ground truth of each drug.
+        """
+
+        # prepare labels
+        labels_index = self.label_tokenizer.batch_encode_2d(
+            drugs, padding=False, truncation=False
+        )
+        # convert to multihot
+        num_labels = self.label_tokenizer.get_vocabulary_size()
+        labels = batch_to_multihot(labels_index, num_labels)
+        index_labels = -np.ones((len(labels), num_labels), dtype=np.int64)
+        for idx, cont in enumerate(labels_index):
+            index_labels[idx, :len(cont)] = cont
+        index_labels = torch.from_numpy(index_labels)
+
+        labels = labels.to(self.device)
+        index_labels = index_labels.to(self.device)
+
+        # encoding procs and diags
+        condition_emb = self.encode_patient('conditions', conditions)
+        procedure_emb = self.encode_patient('procedures', procedures)
+        mask = torch.sum(condition_embeddings, dim=2) != 0
+
+        patient_emb = torch.cat([conditions_emb, procedures_emb], dim=-1)
+        substruct_rela = self.substructure_relation(patient_emb)
+
+        loss, y_prob = self.layer(
+            patient_emb=substruct_rela, drugs=labels, ddi_adj=self.ddi_adj,
+            average_projection=self.average_projection,
+            substructure_mask=self.substructure_mask,
+            substructure_graph=self.substructure_graphs,
+            molecule_graph=self.molecule_graphs,
+            mask=mask, drug_indexes=index_labels
+        )
+
 
 if __name__ == '__main__':
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -577,4 +656,3 @@ if __name__ == '__main__':
     Net = GINGraph().to(device)
     result = Net(graph_batch)
     print(result)
-t(result)
