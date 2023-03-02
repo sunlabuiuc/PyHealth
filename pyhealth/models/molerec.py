@@ -646,6 +646,12 @@ class MoleRec(BaseModel):
             molecule_graph=self.molecule_graphs,
             mask=mask, drug_indexes=index_labels
         )
+        
+        return {
+            "loss": loss,
+            "y_prob": y_prob,
+            "y_true": labels,
+        }
 
 
 if __name__ == '__main__':
