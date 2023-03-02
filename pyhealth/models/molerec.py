@@ -436,20 +436,24 @@ class MoleRec(BaseModel):
 
         self.label_size = self.label_tokenizer.get_vocabulary_size()
 
-        
-
         self.ddi_adj = torch.nn.Parameter(
             self.generate_ddi_adj(), requires_grad=False
         )
         self.all_smiles_list = self.generate_smiles_list()
 
-        substructure_mask, substructure_smiles =\
+        substructure_mask, self.substructure_smiles =\
             self.generate_substructure_mask()
 
         self.substructure_mask = torch.nn.Parameter(
             substructure_mask, requires_grad=False
         )
-        self.substructure_smiles = substructure_smiles
+
+        average_projection, self.all_smiles_flatten = \
+            self.generate_average_projection()
+
+        self.average_projection = torch.nn.Parameter(
+            average_projection, requires_grad=False
+        )
 
         self.cond_rnn = torch.nn.GRU(
             embedding_dim, hidden_dim, num_layers=num_rnn_layers,
@@ -505,6 +509,7 @@ class MoleRec(BaseModel):
             for smiles in smiles_list:
                 mol = Chem.MolFromSmiles(smiles)
                 if mol is None:
+                    ndarray
                     continue
                 substructures = BRICS.BRICSDecompose(mol)
                 all_substructures_list[index] += substructures
@@ -541,6 +546,28 @@ class MoleRec(BaseModel):
                 all_smiles_list[index] += smiles_list
         return all_smiles_list
 
+    def generate_average_projection(self)->Tuple[torch.Tensor, List[str]]:
+        molecule_set, average_index = [], []
+        for smiles_list in self.all_smiles_list:
+            """Create each data with the above defined functions."""
+            counter = 0  # counter how many drugs are under that ATC-3
+            for smiles in smiles_list:
+                mol = Chem.MolFromSmiles(smiles)
+                if mol is None:
+                    continue
+                molecule_set.append(smiles)
+                counter += 1
+            average_index.append(counter)
+        average_projection = np.zeros((len(average_index), sum(average_index)))
+        col_counter = 0
+        for i, item in enumerate(average_index):
+            if item <= 0:
+                continue
+            average_projection[i, col_counter: col_counter + item] = 1 / item
+            col_counter += item
+        average_projection = torch.from_numpy(average_projection)
+        return average_projection, molecule_set
+
 
 if __name__ == '__main__':
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -550,3 +577,4 @@ if __name__ == '__main__':
     Net = GINGraph().to(device)
     result = Net(graph_batch)
     print(result)
+t(result)
