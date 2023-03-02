@@ -483,6 +483,10 @@ class MoleRec(BaseModel):
             GNN_layers=num_gnn_layers, **kwargs
         )
 
+        if 'GNN_layers' in kwargs:
+            raise ValueError(
+                'number of GNN layers is determined by num_gnn_layers'
+            )
         if "hidden_size" in kwargs:
             raise ValueError("hidden_size is determined by hidden_dim")
         if "substructure_mask" in kwargs:
@@ -646,19 +650,10 @@ class MoleRec(BaseModel):
             molecule_graph=self.molecule_graphs,
             mask=mask, drug_indexes=index_labels
         )
-        
+
         return {
             "loss": loss,
             "y_prob": y_prob,
             "y_true": labels,
         }
 
-
-if __name__ == '__main__':
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    smiles_list = ['c1=cc=cc=c1-c2=cc=cc=c2'.upper(), 'c1=cc=nc=c1'.upper()]
-    graph_batch = graph_batch_from_smile(smiles_list, device)
-    print(graph_batch)
-    Net = GINGraph().to(device)
-    result = Net(graph_batch)
-    print(result)
