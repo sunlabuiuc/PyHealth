@@ -38,9 +38,9 @@ def graph_batch_from_smile(smiles_list, device=torch.device('cpu')):
     return result
 
 
-class StaticDataDict(torch.nn.Module):
+class StaticParaDict(torch.nn.Module):
     def __init__(self, **kwargs):
-        super(DataDict, self).__init__()
+        super(StaticParaDict, self).__init__()
         for k, v in kwargs.items():
             if isinstance(v, torch.Tensor):
                 setattr(self, k, torch.nn.Parameter(v, requires_grad=False))
@@ -496,7 +496,7 @@ class MoleRec(BaseModel):
         ddi_adj = torch.FloatTensor(ddi_adj)
         return ddi_adj
 
-    def generate_substructure_mask(self)->torch.Tensor:
+    def generate_substructure_mask(self)->Tuple[torch.Tensor, List[str]]:
         # Generates the molecular segmentation mask H and substructure smiles.
         all_substructures_list = [[] for _ in range(self.label_size)]
         for index, smiles_list in enumerate(self.all_smiles_list):
@@ -515,6 +515,29 @@ class MoleRec(BaseModel):
                 mask_H[index, substructures_set.index(s)] = 1
         mask_H = torch.from_numpy(mask_H)
         return mask_H, substructures_set
+
+    def generate_smiles_list(self) -> List[List[str]]:
+        """Generates the list of SMILES strings."""
+        atc3_to_smiles = {}
+        atc = ATC()
+        for code in atc.graph.nodes:
+            if len(code) != 7:
+                continue
+            code_atc3 = ATC.convert(code, level=3)
+            smiles = atc.graph.nodes[code]["smiles"]
+            if smiles != smiles:
+                continue
+            atc3_to_smiles[code_atc3] = atc3_to_smiles.get(
+                code_atc3, []) + [smiles]
+        # just take first one for computational efficiency
+        atc3_to_smiles = {k: v[:1] for k, v in atc3_to_smiles.items()}
+        all_smiles_list = [[] for _ in range(self.label_size)]
+        vocab_to_index = self.label_tokenizer.vocabulary
+        for atc3, smiles_list in atc3_to_smiles.items():
+            if atc3 in vocab_to_index:
+                index = vocab_to_index(atc3)
+                all_smiles_list[index] += smiles_list
+        return all_smiles_list
 
 
 if __name__ == '__main__':
