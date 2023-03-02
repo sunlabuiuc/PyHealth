@@ -436,12 +436,7 @@ class MoleRec(BaseModel):
 
         self.label_size = self.label_tokenizer.get_vocabulary_size()
 
-        self.substructure_relation = torch.nn.Sequential(
-            torch.nn.ReLU(),
-            torch.nn.Linear(hidden_dim * 4, hidden_dim),
-            torch.nn.ReLU(),
-            torch.nn.Linear(hidden_size)
-        )
+        
 
         self.ddi_adj = torch.nn.Parameter(
             self.generate_ddi_adj(), requires_grad=False
@@ -463,6 +458,13 @@ class MoleRec(BaseModel):
         self.proc_rnn = torch.nn.GRU(
             embedding_dim, hidden_dim, num_layers=num_layers,
             dropout=dropout if num_layers > 1 else 0, batch_first=True
+        )
+        num_substructures = substructure_mask.shape[1]
+        self.substructure_relation = torch.nn.Sequential(
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden_dim * 4, hidden_dim),
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden_dim, num_substructures)
         )
 
         if "hidden_size" in kwargs:
