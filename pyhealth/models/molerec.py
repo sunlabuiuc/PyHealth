@@ -311,7 +311,7 @@ class MoleRecLayer(torch.nn.Module):
 
         cur_ddi_rate = ddi_rate_score(y_pred, ddi_adj.cpu().numpy())
         if cur_ddi_rate > self.target_ddi:
-            beta = coef * (1 - (current_ddi_rate / target_ddi))
+            beta = self.coef * (1 - (current_ddi_rate / target_ddi))
             beta = min(math.exp(beta), 1)
             loss = beta * loss_cls + (1 - beta) * ddi_loss
         else:
@@ -378,13 +378,10 @@ class MoleRecLayer(torch.nn.Module):
         )
         # [patient, num_drugs, hidden]
         logits = self.score_extractor(combination_embedding).squeeze(-1)
-        
-        print(logits.shape)
-        exit()
 
         y_prob = torch.sigmoid(logits)
 
-        loss = self.calc_loss(logits, y_prob, ddi_adj, drugs)
+        loss = self.calc_loss(logits, y_prob, ddi_adj, drugs, drug_indexes)
 
         return loss, y_prob
 
@@ -410,8 +407,8 @@ class MoleRec(BaseModel):
         hidden_dim: the hidden dimension. Default is 128.
         num_rnn_layers: the number of layers used in RNN. Default is 1.
         num_gnn_layers: the number of layers used in GNN. Default is 4.
-        dropout: the dropout rate. Default is 0.5.
-        **kwargs: other parameters for the SafeDrug layer.
+        dropout: the dropout rate. Default is 0.7.
+        **kwargs: other parameters for the MoleRec layer.
     """
 
     def __init__(
@@ -421,7 +418,7 @@ class MoleRec(BaseModel):
         hidden_dim: int = 128,
         num_rnn_layers: int = 1,
         num_gnn_layers: int = 4,
-        dropout: float = 0.5,
+        dropout: float = 0.7,
         **kwargs
     ):
         super(MoleRec, self).__init__(
@@ -496,16 +493,6 @@ class MoleRec(BaseModel):
             )
         if "hidden_size" in kwargs:
             raise ValueError("hidden_size is determined by hidden_dim")
-        if "substructure_mask" in kwargs:
-            raise ValueError("substructure_mask is determined by the dataset")
-        if "ddi_adj" in kwargs:
-            raise ValueError("ddi_adj is determined by the dataset")
-        if "substructure_graph" in kwargs:
-            raise ValueError('substructure_graph is determined by the dataset')
-        if 'molecule_graph' in kwargs:
-            raise ValueError('molecule_graph is determined by the dataset')
-        if "average_projection" in kwargs:
-            raise ValueError("average_projection is determined by the dataset")
 
     def generate_ddi_adj(self) -> torch.FloatTensor:
         """Generates the DDI graph adjacency matrix."""
@@ -629,12 +616,6 @@ class MoleRec(BaseModel):
         labels_index = self.label_tokenizer.batch_encode_2d(
             drugs, padding=False, truncation=False
         )
-        # print("[INFO] num_sample", len(labels_index))
-        # print('[INFO] label_size', self.label_size)
-        # for i, t in enumerate(labels_index):
-        #     if len(t) > self.label_size:
-        #         print(i, len(t), t)
-        # exit()
         # convert to multihot
         labels = batch_to_multihot(labels_index, self.label_size)
         index_labels = -np.ones((len(labels), self.label_size), dtype=np.int64)
@@ -655,7 +636,7 @@ class MoleRec(BaseModel):
         patient_emb = torch.cat([condition_emb, procedure_emb], dim=-1)
         substruct_rela = self.substructure_relation(patient_emb)
         
-        
+        # calculate loss
         loss, y_prob = self.layer(
             patient_emb=substruct_rela, drugs=labels, ddi_adj=self.ddi_adj,
             average_projection=self.average_projection,
