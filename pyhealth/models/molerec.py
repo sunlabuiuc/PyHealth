@@ -262,7 +262,7 @@ class MoleRecLayer(torch.nn.Module):
         self,
         hidden_size: int,
         coef: float = 2.5,
-        target_ddi: float = 0.06,
+        target_ddi: float = 0.08,
         GNN_layers: int = 4,
         dropout: float = 0.7,
         multiloss_weight: float = 0.05
