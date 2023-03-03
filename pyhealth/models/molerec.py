@@ -506,9 +506,8 @@ class MoleRec(BaseModel):
         """Generates the DDI graph adjacency matrix."""
         atc = ATC()
         ddi = atc.get_ddi(gamenet_ddi=True)
-        label_size = self.label_tokenizer.get_vocabulary_size()
         vocab_to_index = self.label_tokenizer.vocabulary
-        ddi_adj = np.zeros((label_size, label_size))
+        ddi_adj = np.zeros((label_size, self.label_size))
         ddi_atc3 = [
             [ATC.convert(l[0], level=3), ATC.convert(l[1], level=3)]
             for l in ddi
@@ -626,9 +625,8 @@ class MoleRec(BaseModel):
             drugs, padding=False, truncation=False
         )
         # convert to multihot
-        num_labels = self.label_tokenizer.get_vocabulary_size()
-        labels = batch_to_multihot(labels_index, num_labels)
-        index_labels = -np.ones((len(labels), num_labels), dtype=np.int64)
+        labels = batch_to_multihot(labels_index, self.label_size)
+        index_labels = -np.ones((len(labels), self.label_size), dtype=np.int64)
         for idx, cont in enumerate(labels_index):
             index_labels[idx, :len(cont)] = cont
         index_labels = torch.from_numpy(index_labels)
