@@ -221,11 +221,11 @@ class AttnAgg(torch.nn.Module):
         Q = self.Qdense(main_feat)
         K = self.Kdense(other_feat)
         Attn = torch.matmul(Q, K.transpose(0, 1)) / math.sqrt(self.model_dim)
-        
+
         if mask is not None:
             Attn = torch.masked_fill(Attn, mask, -(1 << 32))
         Attn = torch.softmax(Attn, dim=-1)
-        
+
         batch_size = fix_feat.shape[0]
         # [batch_size, other_num, other_num]
         fix_feat = torch.diag_embed(fix_feat)
@@ -248,7 +248,8 @@ class MoleRecLayer(torch.nn.Module):
 
     Args:
         hidden_size: hidden feature size.
-        coef: coefficient of ddi loss weight annealing. Default is 2.5.
+        coef: coefficient of ddi loss weight annealing. larger coefficient
+            means higher penalty to the drug-drug-interaction. Default is 2.5.
         target_ddi: DDI acceptance rate. Default is 0.06.
         GNN_layers: the number of layers of GNNs encoding molecule and
             substructures. Default is 4.
@@ -358,11 +359,11 @@ class MoleRecLayer(torch.nn.Module):
             mask = torch.ones_like(patient_emb[:, :, 0])
         substructure_relation = get_last_visit(patient_emb, mask)
         # [patient, num_substructures]
-        
+
         substructure_embedding = self.substructure_interaction_module(
             self.substructure_encoder(substructure_graph).unsqueeze(0)
         ).squeeze(0)
-        
+
         if substructure_relation.shape[-1] != substructure_embedding.shape[0]:
             raise RuntimeError(
                 'the substructure relation vector of each patient should have '
@@ -371,7 +372,7 @@ class MoleRecLayer(torch.nn.Module):
 
         molecule_embedding = self.molecule_encoder(molecule_graph)
         molecule_embedding = torch.mm(average_projection, molecule_embedding)
-        
+
         combination_embedding = self.combination_feature_aggregator(
             molecule_embedding, substructure_embedding,
             substructure_relation, torch.logical_not(substructure_mask > 0)
@@ -620,7 +621,7 @@ class MoleRec(BaseModel):
         labels = batch_to_multihot(labels_index, self.label_size)
         index_labels = -np.ones((len(labels), self.label_size), dtype=np.int64)
         for idx, cont in enumerate(labels_index):
-            # remove redundant labels 
+            # remove redundant labels
             cont = list(set(cont))
             index_labels[idx, :len(cont)] = cont
         index_labels = torch.from_numpy(index_labels)
@@ -635,7 +636,7 @@ class MoleRec(BaseModel):
 
         patient_emb = torch.cat([condition_emb, procedure_emb], dim=-1)
         substruct_rela = self.substructure_relation(patient_emb)
-        
+
         # calculate loss
         loss, y_prob = self.layer(
             patient_emb=substruct_rela, drugs=labels, ddi_adj=self.ddi_adj,
@@ -651,4 +652,3 @@ class MoleRec(BaseModel):
             "y_prob": y_prob,
             "y_true": labels,
         }
-
