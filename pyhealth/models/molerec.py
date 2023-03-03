@@ -311,7 +311,7 @@ class MoleRecLayer(torch.nn.Module):
 
         cur_ddi_rate = ddi_rate_score(y_pred, ddi_adj.cpu().numpy())
         if cur_ddi_rate > self.target_ddi:
-            beta = self.coef * (1 - (cur_ddi_rate / target_ddi))
+            beta = self.coef * (1 - (cur_ddi_rate / self.target_ddi))
             beta = min(math.exp(beta), 1)
             loss = beta * loss_cls + (1 - beta) * ddi_loss
         else:
