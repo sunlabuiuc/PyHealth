@@ -248,7 +248,8 @@ class MoleRecLayer(torch.nn.Module):
 
     Args:
         hidden_size: hidden feature size.
-        coef: coefficient of ddi loss weight annealing. Default is 2.5.
+        coef: coefficient of ddi loss weight annealing. larger coefficient
+            means higher penalty to the drug-drug-interaction. Default is 2.5.
         target_ddi: DDI acceptance rate. Default is 0.06.
         GNN_layers: the number of layers of GNNs encoding molecule and
             substructures. Default is 4.
