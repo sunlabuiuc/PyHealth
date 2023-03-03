@@ -221,13 +221,11 @@ class AttnAgg(torch.nn.Module):
         Q = self.Qdense(main_feat)
         K = self.Kdense(other_feat)
         Attn = torch.matmul(Q, K.transpose(0, 1)) / math.sqrt(self.model_dim)
-        print(Attn.shape)
-        exit()
-
+        
         if mask is not None:
             Attn = torch.masked_fill(Attn, mask, -(1 << 32))
-
         Attn = torch.softmax(Attn, dim=-1)
+        
         batch_size = fix_feat.shape[0]
         # [batch_size, other_num, other_num]
         fix_feat = torch.diag_embed(fix_feat)
@@ -380,6 +378,9 @@ class MoleRecLayer(torch.nn.Module):
         )
         # [patient, num_drugs, hidden]
         logits = self.score_extractor(combination_embedding).squeeze(-1)
+        
+        print(logits.shape)
+        exit()
 
         y_prob = torch.sigmoid(logits)
 
