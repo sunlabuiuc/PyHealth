@@ -16,7 +16,7 @@ from pyhealth.models import BaseModel
 from pyhealth.models.utils import get_last_visit
 
 
-def graph_batch_from_smile(smiles_list, device=torch.device('cpu')):
+def graph_batch_from_smiles(smiles_list, device=torch.device('cpu')):
     edge_idxes, edge_feats, node_feats, lstnode, batch = [], [], [], 0, []
     graphs = [smiles2graph(x) for x in smiles_list]
     for idx, graph in enumerate(graphs):
@@ -278,7 +278,7 @@ class MoleRecLayer(torch.nn.Module):
         self.substructure_interaction_module = SAB(
             hidden_size, hidden_size, 2, use_ln=True
         )
-        self.combination_feature_aggregator = AttenAgger(
+        self.combination_feature_aggregator = AttnAgg(
             hidden_size, hidden_size, hidden_size
         )
         score_extractor = [
@@ -430,6 +430,7 @@ class MoleRec(BaseModel):
         self.num_rnn_layers = num_rnn_layers
         self.num_gnn_layers = num_gnn_layers
         self.dropout = dropout
+        self.dropout_fn = torch.nn.Dropout(dropout)
 
         self.feat_tokenizers = self.get_feature_tokenizers()
         self.label_tokenizer = self.get_label_tokenizer()
@@ -459,7 +460,7 @@ class MoleRec(BaseModel):
         )
 
         self.substructure_graphs = StaticParaDict(
-            **graph_batch_from_smile(self.substructure_smiles)
+            **graph_batch_from_smiles(self.substructure_smiles)
         )
         self.molecule_graphs = StaticParaDict(
             **graph_batch_from_smiles(self.all_smiles_flatten)
@@ -467,8 +468,8 @@ class MoleRec(BaseModel):
 
         self.rnns = torch.nn.ModuleDict({
             x: torch.nn.GRU(
-                embedding_dim, hidden_dim, num_layers=num_layers,
-                dropout=dropout if num_layers > 1 else 0, batch_first=True
+                embedding_dim, hidden_dim, num_layers=num_rnn_layers,
+                dropout=dropout if num_rnn_layers > 1 else 0, batch_first=True
             ) for x in ["conditions", "procedures"]
         })
         num_substructures = substructure_mask.shape[1]
@@ -589,7 +590,8 @@ class MoleRec(BaseModel):
     ) -> torch.Tensor:
         codes = self.feat_tokenizers[feature_key].batch_encode_3d(raw_values)
         codes = torch.tensor(codes, dtype=torch.long, device=self.device)
-        embeddings = self.embeddings[feature_key](codes).sum(dim=2)
+        embeddings = self.embeddings[feature_key](codes)
+        embeddings = torch.sum(self.dropout_fn(embeddings), dim=2)
         outputs, _ = self.rnns[feature_key](embeddings)
         return outputs
 
