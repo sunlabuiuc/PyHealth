@@ -525,7 +525,6 @@ class MoleRec(BaseModel):
             for smiles in smiles_list:
                 mol = Chem.MolFromSmiles(smiles)
                 if mol is None:
-                    ndarray
                     continue
                 substructures = Chem.BRICS.BRICSDecompose(mol)
                 all_substructures_list[index] += substructures
