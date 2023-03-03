@@ -221,6 +221,8 @@ class AttnAgg(torch.nn.Module):
         Q = self.Qdense(main_feat)
         K = self.Kdense(other_feat)
         Attn = torch.matmul(Q, K.transpose(0, 1)) / math.sqrt(self.model_dim)
+        print(Attn.shape)
+        exit()
 
         if mask is not None:
             Attn = torch.masked_fill(Attn, mask, -(1 << 32))
@@ -358,12 +360,11 @@ class MoleRecLayer(torch.nn.Module):
             mask = torch.ones_like(patient_emb[:, :, 0])
         substructure_relation = get_last_visit(patient_emb, mask)
         # [patient, num_substructures]
-        print(substructure_relation.shape)
-        exit()
+        
         substructure_embedding = self.substructure_interaction_module(
             self.substructure_encoder(substructure_graph).unsqueeze(0)
         ).squeeze(0)
-
+        
         if substructure_relation.shape[-1] != substructure_embedding.shape[0]:
             raise RuntimeError(
                 'the substructure relation vector of each patient should have '
@@ -372,6 +373,7 @@ class MoleRecLayer(torch.nn.Module):
 
         molecule_embedding = self.molecule_encoder(molecule_graph)
         molecule_embedding = torch.mm(average_projection, molecule_embedding)
+        
         combination_embedding = self.combination_feature_aggregator(
             molecule_embedding, substructure_embedding,
             substructure_relation, torch.logical_not(substructure_mask > 0)
@@ -583,7 +585,7 @@ class MoleRec(BaseModel):
                 continue
             average_projection[i, col_counter: col_counter + item] = 1 / item
             col_counter += item
-        average_projection = torch.from_numpy(average_projection)
+        average_projection = torch.FloatTensor(average_projection)
         return average_projection, molecule_set
 
     def encode_patient(
