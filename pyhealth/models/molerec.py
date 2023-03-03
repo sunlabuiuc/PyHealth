@@ -527,7 +527,7 @@ class MoleRec(BaseModel):
                 if mol is None:
                     ndarray
                     continue
-                substructures = BRICS.BRICSDecompose(mol)
+                substructures = Chem.BRICS.BRICSDecompose(mol)
                 all_substructures_list[index] += substructures
         # all segment set
         substructures_set = list(set(sum(all_substructures_list, [])))

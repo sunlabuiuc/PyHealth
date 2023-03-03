@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 
 
 base_dataset = MIMIC3Dataset(
-    root="G:/files/Lab/ThinkLab/datasets/mimic3",
+    root="/mnt/nas/home/yangnianzu/drug_rec/dataset/MIMIC-III/",
     tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
     dev=True,
     code_mapping={"NDC": "ATC"},
