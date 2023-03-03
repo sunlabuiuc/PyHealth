@@ -358,6 +358,8 @@ class MoleRecLayer(torch.nn.Module):
             mask = torch.ones_like(patient_emb[:, :, 0])
         substructure_relation = get_last_visit(patient_emb, mask)
         # [patient, num_substructures]
+        print(substructure_relation.shape)
+        exit()
         substructure_embedding = self.substructure_interaction_module(
             self.substructure_encoder(substructure_graph).unsqueeze(0)
         ).squeeze(0)
@@ -507,7 +509,7 @@ class MoleRec(BaseModel):
         atc = ATC()
         ddi = atc.get_ddi(gamenet_ddi=True)
         vocab_to_index = self.label_tokenizer.vocabulary
-        ddi_adj = np.zeros((label_size, self.label_size))
+        ddi_adj = np.zeros((self.label_size, self.label_size))
         ddi_atc3 = [
             [ATC.convert(l[0], level=3), ATC.convert(l[1], level=3)]
             for l in ddi
@@ -624,10 +626,18 @@ class MoleRec(BaseModel):
         labels_index = self.label_tokenizer.batch_encode_2d(
             drugs, padding=False, truncation=False
         )
+        # print("[INFO] num_sample", len(labels_index))
+        # print('[INFO] label_size', self.label_size)
+        # for i, t in enumerate(labels_index):
+        #     if len(t) > self.label_size:
+        #         print(i, len(t), t)
+        # exit()
         # convert to multihot
         labels = batch_to_multihot(labels_index, self.label_size)
         index_labels = -np.ones((len(labels), self.label_size), dtype=np.int64)
         for idx, cont in enumerate(labels_index):
+            # remove redundant labels 
+            cont = list(set(cont))
             index_labels[idx, :len(cont)] = cont
         index_labels = torch.from_numpy(index_labels)
 
@@ -637,11 +647,12 @@ class MoleRec(BaseModel):
         # encoding procs and diags
         condition_emb = self.encode_patient('conditions', conditions)
         procedure_emb = self.encode_patient('procedures', procedures)
-        mask = torch.sum(condition_embeddings, dim=2) != 0
+        mask = torch.sum(condition_emb, dim=2) != 0
 
-        patient_emb = torch.cat([conditions_emb, procedures_emb], dim=-1)
+        patient_emb = torch.cat([condition_emb, procedure_emb], dim=-1)
         substruct_rela = self.substructure_relation(patient_emb)
-
+        
+        
         loss, y_prob = self.layer(
             patient_emb=substruct_rela, drugs=labels, ddi_adj=self.ddi_adj,
             average_projection=self.average_projection,
