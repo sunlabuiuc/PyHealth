@@ -1,6 +1,3 @@
-from pyhealth.metrics import ddi_rate_score
-from pyhealth.medcode import ATC
-from pyhealth.datasets import SampleEHRDataset
 import torch
 import math
 import torch_scatter
@@ -14,6 +11,10 @@ from torch.nn.functional import multilabel_margin_loss
 
 from pyhealth.models import BaseModel
 from pyhealth.models.utils import get_last_visit
+from pyhealth.models.utils import batch_to_multihot
+from pyhealth.metrics import ddi_rate_score
+from pyhealth.medcode import ATC
+from pyhealth.datasets import SampleEHRDataset
 
 
 def graph_batch_from_smiles(smiles_list, device=torch.device('cpu')):
