@@ -265,7 +265,7 @@ class MoleRecLayer(torch.nn.Module):
         coef: float = 2.5,
         target_ddi: float = 0.08,
         GNN_layers: int = 4,
-        dropout: float = 0.7,
+        dropout: float = 0.5,
         multiloss_weight: float = 0.05
     ):
         super(MoleRecLayer, self).__init__()
@@ -417,11 +417,11 @@ class MoleRec(BaseModel):
     def __init__(
         self,
         dataset: SampleEHRDataset,
-        embedding_dim: int = 128,
-        hidden_dim: int = 128,
+        embedding_dim: int = 64,
+        hidden_dim: int = 64,
         num_rnn_layers: int = 1,
         num_gnn_layers: int = 4,
-        dropout: float = 0.7,
+        dropout: float = 0.5,
         **kwargs
     ):
         super(MoleRec, self).__init__(
@@ -557,7 +557,7 @@ class MoleRec(BaseModel):
                 all_smiles_list[index] += smiles_list
         return all_smiles_list
 
-    def generate_average_projection(self)->Tuple[torch.Tensor, List[str]]:
+    def generate_average_projection(self) -> Tuple[torch.Tensor, List[str]]:
         molecule_set, average_index = [], []
         for smiles_list in self.all_smiles_list:
             """Create each data with the above defined functions."""
