@@ -4,12 +4,12 @@ from libc.stdlib cimport calloc, free
 
 import numpy as np
 cimport numpy as np
-DTYPE = np.float
-DTYPE_INT = np.int
+DTYPE = np.float64
+DTYPE_INT = np.int32
 _FLAG_FILLMAX = 2 ** 5
 
 ctypedef np.float64_t DTYPE_t
-ctypedef np.int_t DTYPE_int_t
+ctypedef np.int32_t DTYPE_int_t
 
 cdef _parse_mode(int mode):
     cdef int fill_max = <int> ((mode & _FLAG_FILLMAX) > 0)
@@ -132,57 +132,6 @@ cdef double loss_overall_q__(np.ndarray[DTYPE_int_t, ndim=2] idx2rnk, #input dat
     cdef double loss_ = loss_overall_helper__(total_err, total_sure, alpha, N, la, lc, lcs)
     free(cnt)
     return loss_
-
-cdef (int, double) search_full_class_specific_complete_globalt__(np.ndarray[DTYPE_int_t, ndim=2] rnk2ik, #rnk to i and k. Rank is descending
-                                                                 np.ndarray[DTYPE_int_t, ndim=1] labels,
-                                                                 np.ndarray[DTYPE_int_t, ndim=1] max_classes,
-                                                                 int ascending,
-                                                                 #Start of loss function args
-                                                                 double* rs, double* weights,
-                                                                 double la, double lc, double lcs, int fill_max
-                                                                 ):
-
-    cdef int best_rnk, rnk, total = rnk2ik.shape[0], ni, ki, total_sure = 0, tempint, N = labels.shape[0], K, yi
-    K = total / N
-    cdef double best_loss = np.inf, tempf
-    cdef char** preds = <char**> calloc(K, sizeof(char*)) #preds[k, i]
-    for ki in range(K): preds[ki] = <char*> calloc(N, sizeof(char))
-    cdef int* err = <int*> calloc(K, sizeof(int))
-    cdef int* sure = <int*> calloc(K, sizeof(int))
-    cdef int* cnt = <int*> calloc(N, sizeof(int)) #This does not count fill_max
-
-    if fill_max:
-        for ni in range(N):
-            tempint = max_classes[ni]
-            total_sure += _update_counts(tempint, labels[ni], err, sure, 1)
-
-    for rnk in range(total):
-        if ascending: rnk = total - rnk - 1 #rnk better be increasing
-        ni = rnk2ik[rnk, 0]
-        ki = rnk2ik[rnk, 1]
-        yi = labels[ni]
-        #eval...
-        if cnt[ni] == 0: #0->1
-            if fill_max:
-                total_sure += _update_counts(max_classes[ni], yi, err, sure, -1)
-            total_sure += _update_counts(ki, yi, err, sure, 1)
-        elif cnt[ni] == 1: #1->2
-            for tempint in range(K):
-                if preds[tempint][ni] == 1:
-                    total_sure += _update_counts(tempint, yi, err, sure, -1)
-                    break
-        preds[ki][ni] = 1
-        cnt[ni] += 1
-
-        curr_loss = loss_class_specific_complete_helper__(K, err, sure, rs, weights, total_sure, N, la, lc, lcs)
-
-        if curr_loss < best_loss:
-            best_loss = curr_loss
-            best_rnk = rnk + 1
-    free(err); free(sure)
-    for ki in range(K): free(preds[ki])
-    free(preds); free(cnt)
-    return best_rnk, best_loss
 
 cdef (int, double) search_full_class_specific_complete__(np.ndarray[DTYPE_int_t, ndim=2] idx2rnk,  #ranks[ni, ki] is the ranking of ni-th data's score ki in all (small is low)
                                                          np.ndarray[DTYPE_int_t, ndim=2] rnk2idx,  #idx2ranks[ranks2idx[j,k], k] = j
@@ -478,33 +427,6 @@ cpdef main_coord_descent_overall_(idx2rnk, rnk2idx, labels, max_classes, init_ps
     n_searches , best_loss = main_coord_descent_overall__(idx2rnk, rnk2idx, labels, max_classes, init_ps,
                                                           &new_ps[0], &best_loss, float(r), max_step or -1,
                                                           float(la), float(lc), float(lcs), int(fill_max))
-    return best_loss, np.asarray(new_ps, dtype=np.int), n_searches
+    return best_loss, np.asarray(new_ps, dtype=np.int32), n_searches
 
 
-
-#=======================================================================New Global threshold thing
-cpdef main_coord_descent_class_specific_globalt_(rnk2ik, labels, max_classes, rks, ascending=False, class_weights=None, la=0.04, lc=1, lcs=0.1, fill_max=False):
-    #Checks
-    cdef int N = len(labels), K = len(rks)
-    assert N * K == len(rnk2ik), "rnk2ik len issues"
-    assert rnk2ik[:, 1].max() < K and rnk2ik[:, 0].max() < N, "rnk2ik val issues"
-    assert not isinstance(class_weights, bool), "class_weights cannot be bool now."
-
-    #clean classes
-    cdef double[::1] weights_
-    cdef double* weights_ptr = NULL
-    if class_weights is not None:
-        weights_ = class_weights
-        weights_ptr = &weights_[0]
-
-    #clean risks
-    cdef double[::1] rks_
-    cdef double* rks_ptr = NULL
-    if rks is not None:
-        rks_ = rks
-        rks_ptr = &rks_[0]
-
-    best_rnk, best_loss = search_full_class_specific_complete_globalt__(rnk2ik, labels, max_classes,
-                                                                        1 if ascending else 0,
-                                                                        rks_ptr, weights_ptr, la, lc, lcs, int(fill_max))
-    return best_rnk, best_loss

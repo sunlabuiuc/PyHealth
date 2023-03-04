@@ -8,14 +8,13 @@ try:
 except:
     print("This is a warning of potentially slow compute. You could uncomment this line and use the Python implementation instead of Cython.")
 
-
 def one_hot(labels, K):
     new_labels = np.zeros((len(labels), K))
     new_labels[np.arange(len(labels)), labels] = 1
     return new_labels
 
 def thresholding_py(ts, output):
-    pred = np.asarray(output > ts, dtype=np.int)
+    pred = np.asarray(output > ts, dtype=np.int32)
     return pred
 
 def __loss_overall_helper(total_err, total_sure, alpha, N, la, lc, lcs):
@@ -58,7 +57,6 @@ def loss_class_specific_py(preds, labels, max_classes, alphas, class_weights=Fal
     cnt = preds.sum(1)
     sure_msk = cnt == 1
     total_sure = np.sum(sure_msk)
-    #preds, labels = preds[sure_msk], labels[sure_msk]
     correct_msk = np.sum(preds * labels, 1) == 1
     sure = np.sum(labels[sure_msk], 0)
     err = np.sum(labels[sure_msk & ~correct_msk], 0)
@@ -70,7 +68,7 @@ def loss_class_specific_py(preds, labels, max_classes, alphas, class_weights=Fal
         err += np.sum(labels[sure_msk & ~correct_msk], 0)
     if isinstance(class_weights, bool):
         if class_weights:
-            class_weights = np.asarray(np.unique(labels, return_counts=True)[1], dtype=np.float) * K / float(N)
+            class_weights = np.asarray(np.unique(labels, return_counts=True)[1], dtype=np.float64) * K / float(N)
         else:
             class_weights = None
     elif class_weights is not None:
@@ -236,7 +234,6 @@ def naive_coord_descnet_overall_py(mo, rnkscores_or_maxclasses, scores_idx, labe
     while keep_going:
         curr_ps = np.zeros(K)
         best_ki, curr_loss = None, best_loss
-        #pred = thresholding_py(ts, mo)
         for ki in range(K):
             curr_ps[ki], temp_loss = search_full_overall_py(mo, rnkscores_or_maxclasses, scores_idx, labels, alpha, ps, ki, la=la, lc=lc, lcs=lcs, fill_max=fill_max)
             if temp_loss < curr_loss:
@@ -250,97 +247,61 @@ def naive_coord_descnet_overall_py(mo, rnkscores_or_maxclasses, scores_idx, labe
 
 
 # ========================================Interfaces
-
 def loss_overall(idx2rnk, rnk2idx, labels, max_classes, ps, r=0.3, la=0.03, lc=10, lcs=0.01, fill_max=False):
     if not _CYTHON_ENABLED:
-        preds = np.asarray(idx2rnk > ps, np.int)
+        preds = np.asarray(idx2rnk > ps, np.int32)
         return loss_overall_py(preds, one_hot(labels, idx2rnk.shape[1]), max_classes, r, la, lc, lcs, fill_max)
-    idx2rnk = np.asarray(idx2rnk, np.int)
-    rnk2idx = np.asarray(rnk2idx, np.int)
-    labels = np.asarray(labels, np.int)
-    max_classes = np.asarray(max_classes, np.int)
-    ps = np.asarray(ps, np.int)
+    idx2rnk = np.asarray(idx2rnk, np.int32)
+    rnk2idx = np.asarray(rnk2idx, np.int32)
+    labels = np.asarray(labels, np.int32)
+    max_classes = np.asarray(max_classes, np.int32)
+    ps = np.asarray(ps, np.int32)
     return cdc.loss_overall_q_(idx2rnk, rnk2idx, labels, max_classes, ps, r, la, lc, lcs, fill_max)
-
 
 def loss_class_specific(idx2rnk, rnk2idx, labels, max_classes, ps, rks, class_weights=None,
                              la=0.03, lc=10, lcs=0.01, fill_max=False):
     if not _CYTHON_ENABLED:
-        preds = np.asarray(idx2rnk > ps, np.int)
+        preds = np.asarray(idx2rnk > ps, np.int32)
         return loss_class_specific_py(preds, one_hot(labels, idx2rnk.shape[1]), max_classes, rks,
                                       class_weights, la, lc, lcs, fill_max)
-    idx2rnk = np.asarray(idx2rnk, np.int)
-    rnk2idx = np.asarray(rnk2idx, np.int)
-    labels = np.asarray(labels, np.int)
-    max_classes = np.asarray(max_classes, np.int)
-    ps = np.asarray(ps, np.int)
-    if class_weights is not None: class_weights = np.asarray(class_weights, np.float)
-    if rks is not None: rks = np.asarray(rks, np.float)
+    idx2rnk = np.asarray(idx2rnk, np.int32)
+    rnk2idx = np.asarray(rnk2idx, np.int32)
+    labels = np.asarray(labels, np.int32)
+    max_classes = np.asarray(max_classes, np.int32)
+    ps = np.asarray(ps, np.int32)
+    if class_weights is not None: class_weights = np.asarray(class_weights, np.float64)
+    if rks is not None: rks = np.asarray(rks, np.float64)
     return cdc.loss_class_specific_q_(idx2rnk, rnk2idx, labels, max_classes, ps, rks, class_weights, la, lc, lcs, fill_max)
 
-def search_full_overall(idx2rnk, rnk2idx, labels, max_classes, ps, k, r, la=0.03, lc=10, lcs=0.01, fill_max=False):
+def main_coord_descent_overall(idx2rnk, rnk2idx, labels, max_classes, init_ps, r, *,
+                               max_step_size=None, la=0.03, lc=10, lcs=0.01, fill_max=False):
     if not _CYTHON_ENABLED:
-        return search_full_overall_py(idx2rnk, max_classes, rnk2idx, labels, r, ps, k, la, lc, lcs, fill_max=fill_max)
-    idx2rnk = np.asarray(idx2rnk, np.int)
-    rnk2idx = np.asarray(rnk2idx, np.int)
-    labels = np.asarray(labels, np.int)
-    max_classes = np.asarray(max_classes, np.int)
-    ps = np.asarray(ps, np.int)
-    return cdc.search_full_overall(idx2rnk, rnk2idx, labels, max_classes, ps, k, r,
-                                   la, lc, lcs, fill_max)
-
-def search_full_class_specific(idx2rnk, rnk2idx, labels, max_classes, ps, k, rks, la=0.03, lc=10, lcs=0.01, fill_max=False):
-    if not _CYTHON_ENABLED:
-        return search_full_class_specific_py(idx2rnk, max_classes, rnk2idx, labels, rks,
-                                             None, ps, k, la, lc, lcs, fill_max)
-    idx2rnk = np.asarray(idx2rnk, np.int)
-    rnk2idx = np.asarray(rnk2idx, np.int)
-    labels = np.asarray(labels, np.int)
-    max_classes = np.asarray(max_classes, np.int)
-    ps = np.asarray(ps, np.int)
-    if rks is not None: rks = np.asarray(rks, np.float)
-    return cdc.search_full_class_specific(idx2rnk, rnk2idx, labels, max_classes, ps, k, rks,
-                                          la, lc, lcs, fill_max)
-
-def main_coord_descent_overall(idx2rnk, rnk2idx, labels, max_classes, init_ps, r,
-                                  max_step=None, la=0.03, lc=10, lcs=0.01,
-                                  fill_max=False):
-    if not _CYTHON_ENABLED:
-        assert max_step is None
+        assert max_step_size is None
         return naive_coord_descnet_overall_py(idx2rnk, max_classes, rnk2idx, labels, init_ps, r,
                                               la, lc, lcs, fill_max)
-    idx2rnk = np.asarray(idx2rnk, np.int)
-    rnk2idx = np.asarray(rnk2idx, np.int)
-    labels = np.asarray(labels, np.int)
-    max_classes = np.asarray(max_classes, np.int)
-    init_ps = np.asarray(init_ps, np.int)
+    idx2rnk = np.asarray(idx2rnk, np.int32)
+    rnk2idx = np.asarray(rnk2idx, np.int32)
+    labels = np.asarray(labels, np.int32)
+    max_classes = np.asarray(max_classes, np.int32)
+    init_ps = np.asarray(init_ps, np.int32)
     return cdc.main_coord_descent_overall_(idx2rnk, rnk2idx, labels, max_classes, init_ps, r,
-                                           max_step, la, lc, lcs, fill_max)
+                                           max_step_size, la, lc, lcs, fill_max)
 
 
-def main_coord_descent_class_specific(idx2rnk, rnk2idx, labels, max_classes, init_ps, rks,
-                                      class_weights=None, max_step=None, la=0.03, lc=10, lcs=0.01,
-                                      fill_max=False):
+def main_coord_descent_class_specific(idx2rnk, rnk2idx, labels, max_classes, init_ps, rks, *,
+                                      class_weights=None,
+                                      max_step_size=None, la=0.03, lc=10, lcs=0.01, fill_max=False):
     if not _CYTHON_ENABLED:
-        assert max_step is None
+        assert max_step_size is None
         return naive_coord_descnet_class_specific_py(idx2rnk, max_classes, rnk2idx, labels, init_ps, rks,
                                                      class_weights, la, lc, lcs, fill_max)
-    idx2rnk = np.asarray(idx2rnk, np.int)
-    rnk2idx = np.asarray(rnk2idx, np.int)
-    labels = np.asarray(labels, np.int)
-    max_classes = np.asarray(max_classes, np.int)
-    init_ps = np.asarray(init_ps, np.int)
-    if class_weights is not None: class_weights = np.asarray(class_weights, np.float)
-    if rks is not None: rks = np.asarray(rks, np.float)
+    idx2rnk = np.asarray(idx2rnk, np.int32)
+    rnk2idx = np.asarray(rnk2idx, np.int32)
+    labels = np.asarray(labels, np.int32)
+    max_classes = np.asarray(max_classes, np.int32)
+    init_ps = np.asarray(init_ps, np.int32)
+    if class_weights is not None: class_weights = np.asarray(class_weights, np.float64)
+    if rks is not None: rks = np.asarray(rks, np.float64)
     return cdc.main_coord_descent_class_specific_(idx2rnk, rnk2idx, labels, max_classes, init_ps, rks,
-                                                  class_weights, max_step, la, lc, lcs, fill_max)
+                                                  class_weights, max_step_size, la, lc, lcs, fill_max)
 
-
-def main_coord_descent_class_specific_globalt(rnk2ik, labels, max_classes, rks, ascending=False, class_weights=None, la=0.04, lc=1, lcs=0.1, fill_max=False):
-    assert _CYTHON_ENABLED, "This function currently only has cython version"
-    rnk2ik = np.asarray(rnk2ik, np.int)
-    labels = np.asarray(labels, np.int)
-    max_classes = np.asarray(max_classes, np.int)
-    if rks is not None: rks = np.asarray(rks, np.float)
-    return cdc.main_coord_descent_class_specific_globalt_(rnk2ik, labels, max_classes, rks, ascending,
-                                                          class_weights, la, lc, lcs, fill_max)
