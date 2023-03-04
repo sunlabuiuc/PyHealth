@@ -331,7 +331,9 @@ class MoleRecLayer(torch.nn.Module):
         """Forward propagation.
 
         Args:
-            patient_emb: a tensor of shape [patient, visit, num_substructures].
+            patient_emb: a tensor of shape [patient, visit, num_substructures],
+                representating the relation between each patient visit and 
+                each substructures.
             drugs: a multihot tensor of shape [patient, num_labels].
             mask: an optional tensor of shape [patient, visit] where 1
                 indicates valid visits and 0 indicates invalid visits.
