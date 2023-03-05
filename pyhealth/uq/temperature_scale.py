@@ -10,12 +10,9 @@ Implementation based on https://github.com/gpleiss/temperature_scaling
 
 from typing import Dict
 
-import numpy as np
 import torch
-import tqdm
 from torch import optim
 
-from pyhealth.datasets import utils as datautils
 from pyhealth.models import BaseModel
 from pyhealth.uq.base_classes import PostHocCalibrator
 from pyhealth.uq.utils import prepare_numpy_dataset
@@ -98,18 +95,13 @@ class TemperatureScaling(PostHocCalibrator):
         """Forward propagation (just like the original model).
 
         Returns:
-            A dictionary with the following keys:
-                loss: a scalar tensor representing the loss.
-                y_prob: a tensor representing the (calibrated) predicted probabilities.
-                y_true: a tensor representing the true labels.
-                logit: a tensor representing the (calibrated) logits.
+            A dictionary with all results from the base model, with the following modified:
+                logit: temperature-scaled logits.
+                y_prob: calibrated predicted probabilities.
+                loss: Cross entropy loss with the new logits.
         """
-        old_pred = self.model(**kwargs)
-        logits = old_pred['logit'] / self.temperature
-        y_prob = torch.softmax(logits, 1)
-        return {
-            'y_prob': y_prob,
-            'y_true': old_pred['y_true'],
-            'loss': torch.nn.CrossEntropyLoss()(logits, old_pred['y_true']),
-            'logit': logits,
-        }
+        ret = self.model(**kwargs)
+        ret['logit'] = ret['logit'] / self.temperature
+        ret['y_prob'] = torch.softmax(ret['logit'], 1)
+        ret['loss'] = torch.nn.CrossEntropyLoss()(ret['logit'], ret['y_true'])
+        return ret

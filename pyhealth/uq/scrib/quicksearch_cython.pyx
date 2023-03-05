@@ -327,14 +327,14 @@ cdef (int, double) main_coord_descent_overall__(np.ndarray[DTYPE_int_t, ndim=2] 
 #=============================Python Interfaces
 #https://stackoverflow.com/questions/552744/how-do-i-profile-memory-usage-in-python
 
-cpdef double loss_overall_q_(idx2rnk, rnk2idx, labels, max_classes, ps, alpha=0.3, la=0.03, lc=10, lcs=0.01, fill_max=False):
+cpdef double loss_overall_q_(idx2rnk, rnk2idx, labels, max_classes, ps, alpha, la=1, lc=1e4, lcs=0, fill_max=False):
     #Can't do np.asarray as it creates memory leak on Windows (not on Ubuntu for some reason...)
     cdef loss_ = loss_overall_q__(idx2rnk, rnk2idx, labels, max_classes, ps,
                                   float(alpha), float(la), float(lc), float(lcs), int(fill_max))
     return loss_
 
 cpdef double loss_class_specific_q_(idx2rnk, rnk2idx, labels, max_classes, ps, rks, class_weights=None,
-                             la=0.03, lc=10, lcs=0.01, fill_max=False):
+                             la=1, lc=1e4, lcs=0, fill_max=False):
     #Checks
     cdef int N = idx2rnk.shape[0], K = idx2rnk.shape[1]
     assert rks is None or idx2rnk.shape[1] == rks.shape[0], "rks issue"
@@ -361,7 +361,7 @@ cpdef double loss_class_specific_q_(idx2rnk, rnk2idx, labels, max_classes, ps, r
     return loss_
 
 
-def search_full_class_specific(idx2rnk, rnk2idx, labels, max_classes, ps, k, rks, la=0.03, lc=10, lcs=0.01, fill_max=False):
+def search_full_class_specific(idx2rnk, rnk2idx, labels, max_classes, ps, k, rks, la=1, lc=1e4, lcs=0, fill_max=False):
     #clean risks
     cdef double[::1] rks_
     cdef double* rks_ptr = NULL
@@ -373,13 +373,13 @@ def search_full_class_specific(idx2rnk, rnk2idx, labels, max_classes, ps, k, rks
                                                  k, 0, -1, rks_ptr, NULL, la, lc, lcs, int(fill_max))
 
 
-def search_full_overall(idx2rnk, rnk2idx, labels, max_classes, ps, k, r, la=0.03, lc=10, lcs=0.01, fill_max=False):
+def search_full_overall(idx2rnk, rnk2idx, labels, max_classes, ps, k, r, la=1, lc=1e4, lcs=0, fill_max=False):
     return search_full_overall__(idx2rnk, rnk2idx, labels, max_classes, ps,
                                  k, 0, -1, r, la, lc, lcs, int(fill_max))
 
 
 cpdef main_coord_descent_class_specific_(idx2rnk, rnk2idx, labels, max_classes, init_ps, rks,
-                                         class_weights=None, max_step=None, la=0.03, lc=10, lcs=0.01,
+                                         class_weights=None, max_step=None, la=1, lc=1e4, lcs=0,
                                          fill_max=False):
     #Checks
     cdef int N = idx2rnk.shape[0], K = idx2rnk.shape[1]
@@ -414,7 +414,7 @@ cpdef main_coord_descent_class_specific_(idx2rnk, rnk2idx, labels, max_classes, 
 
 
 cpdef main_coord_descent_overall_(idx2rnk, rnk2idx, labels, max_classes, init_ps, r,
-                                  max_step=None, la=0.03, lc=10, lcs=0.01,
+                                  max_step=None, la=1, lc=1e4, lcs=0,
                                   fill_max=False):
     #Checks
     cdef int N = idx2rnk.shape[0], K = idx2rnk.shape[1]

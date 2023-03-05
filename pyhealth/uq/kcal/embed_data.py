@@ -51,7 +51,7 @@ class _IndexSampler:
         return pred_indices, indices, cnt, weights
 
 class _EmbedData(Dataset):
-    def __init__(self, labels:pd.Series, embed, niters_per_epoch=5000, bs_pred=64, bs_supp=20, group=None) -> None:
+    def __init__(self, labels:pd.Series, embed, epoch_len=5000, bs_pred=64, bs_supp=20, group=None) -> None:
         self.num_classes = labels.max() + 1
 
         self.labels, self.indices = labels.values, labels.index
@@ -64,12 +64,12 @@ class _EmbedData(Dataset):
             if len(set(group)) == 1: 
                 group = None
         self.group = group
-        self.niters_per_epoch = niters_per_epoch
+        self.niters_per_epoch = epoch_len
         self.index_sampler = _IndexSampler(self.labels, seed=42, group=self.group)
         self.bs_pred = bs_pred
         self.bs_supp = bs_supp
         
-        self.use_full = niters_per_epoch == 1
+        self.use_full = epoch_len == 1
         if self.niters_per_epoch == 1 and group is not None:
             self.niters_per_epoch = len(set(group))
 
