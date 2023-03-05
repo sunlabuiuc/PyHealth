@@ -1,7 +1,9 @@
-from typing import List, Optional, Dict
+from typing import Dict, List, Optional
 
 import numpy as np
 import sklearn.metrics as sklearn_metrics
+
+import pyhealth.metrics.calibration as calib
 
 
 def multilabel_metrics_fn(
@@ -190,6 +192,8 @@ def multilabel_metrics_fn(
         elif metric == "hamming_loss":
             hamming_loss = sklearn_metrics.hamming_loss(y_true, y_pred)
             output["hamming_loss"] = hamming_loss
+        elif metric in {'cwECE', 'cwECE_adapt'}:
+            output[metric] = calib.ECE_classwise(y_prob, y_true, bins=20, adaptive=metric.endswith("_adapt"), threshold=0.)
         else:
             raise ValueError(f"Unknown metric for multilabel classification: {metric}")
 

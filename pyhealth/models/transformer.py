@@ -1,5 +1,5 @@
 import math
-from typing import List, Optional, Tuple, Dict
+from typing import Dict, List, Optional, Tuple
 
 import torch
 from torch import nn
@@ -422,6 +422,7 @@ class Transformer(BaseModel):
             "loss": loss,
             "y_prob": y_prob,
             "y_true": y_true,
+            'logit': logits
         }
 
 

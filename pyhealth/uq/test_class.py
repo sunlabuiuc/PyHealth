@@ -4,10 +4,128 @@ import pandas as pd
 import persist_to_disk as ptd
 import torch
 
-from pyhealth.datasets import ISRUCDataset, get_dataloader, split_by_patient
-from pyhealth.models import ContraWR, SparcNet
-from pyhealth.tasks import sleep_staging_isruc_fn
+from pyhealth.datasets import (ISRUCDataset, MIMIC3Dataset, get_dataloader,
+                               split_by_patient)
+from pyhealth.models import RNN, ContraWR, SparcNet, Transformer
+from pyhealth.tasks import (drug_recommendation_mimic3_fn,
+                            readmission_prediction_mimic3_fn,
+                            sleep_staging_isruc_fn)
 from pyhealth.trainer import Trainer
+
+metrics = {
+    'multiclass': ["accuracy", "f1_macro", "f1_micro"] + ['brier_top1', 'ECE', 'ECE_adapt', 'cwECEt', 'cwECEt_adapt'],
+    'multilabel': ['pr_auc_samples'] + ['cwECE', 'cwECE_adapt'],
+    'binary': ["pr_auc", "roc_auc", "f1"] + ['ECE', 'ECE_adapt']
+}
+
+@ptd.persistf()
+def get_dataset_mimic_drug(dev=True, train_split=0.6, val_split=0.2):
+    base_dataset = MIMIC3Dataset(
+        root="/srv/scratch1/data/physionet.org/files/mimiciii/1.4",
+        tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
+        code_mapping={"NDC": ("ATC", {"target_kwargs": {"level": 3}})},
+        dev=dev,
+        refresh_cache=False,
+    )
+
+    print(base_dataset.stat())
+
+    # step 2: set task
+    sample_dataset = base_dataset.set_task(drug_recommendation_mimic3_fn)
+    sample_dataset.stat()
+    print(sample_dataset.samples[0])
+
+    # split dataset
+    train_dataset, val_dataset, test_dataset = split_by_patient(
+        sample_dataset, [train_split, val_split, 1-train_split -val_split]
+    )
+    return sample_dataset, {'val': val_dataset, 'test': test_dataset, 'train': train_dataset}
+
+@ptd.persistf()
+def get_dataset_mimic_binary(dev=True, train_split=0.6, val_split=0.2):
+    base_dataset = MIMIC3Dataset(
+        root="/srv/scratch1/data/physionet.org/files/mimiciii/1.4",
+        tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
+        code_mapping={"ICD9CM": "CCSCM", "ICD9PROC": "CCSPROC", "NDC": "ATC"},
+        dev=dev,
+        refresh_cache=False,
+    )
+
+    print(base_dataset.stat())
+
+    # step 2: set task
+    sample_dataset = base_dataset.set_task(readmission_prediction_mimic3_fn)
+    sample_dataset.stat()
+    print(sample_dataset.samples[0])
+
+    # split dataset
+    train_dataset, val_dataset, test_dataset = split_by_patient(
+        sample_dataset, [train_split, val_split, 1-train_split -val_split]
+    )
+    return sample_dataset, {'val': val_dataset, 'test': test_dataset, 'train': train_dataset}
+
+
+@ptd.persistf()
+def get_get_trained_model_drug(dev=True, epochs=50, train_split=0.6, val_split=0.2):
+    sample_dataset, datasets = get_dataset_mimic_drug(dev=dev, train_split=train_split, val_split=val_split)
+
+    train_dataloader = get_dataloader(datasets['train'], batch_size=32, shuffle=True)
+    val_dataloader = get_dataloader(datasets['val'], batch_size=32, shuffle=False)
+    test_dataloader = get_dataloader(datasets['test'], batch_size=32, shuffle=False)
+
+    # STEP 3: define model
+    model = Transformer(
+        dataset=sample_dataset,
+        feature_keys=["conditions", "procedures"],
+        label_key="drugs",
+        mode="multilabel",
+    )
+
+
+    # STEP 4: define trainer
+    trainer = Trainer(model=model)
+    trainer.train(
+        train_dataloader=train_dataloader,
+        val_dataloader=val_dataloader,
+        epochs=epochs,
+        monitor="pr_auc_samples",
+    )
+
+
+    # STEP 5: evaluate
+    print(trainer.evaluate(test_dataloader))
+    
+    return model
+
+
+@ptd.persistf()
+def get_trained_model_binary(dev=True, epochs=50, train_split=0.6, val_split=0.2):
+    sample_dataset, datasets = get_dataset_mimic_binary(dev=dev, train_split=train_split, val_split=val_split)
+
+    train_dataloader = get_dataloader(datasets['train'], batch_size=32, shuffle=True)
+    val_dataloader = get_dataloader(datasets['val'], batch_size=32, shuffle=False)
+    test_dataloader = get_dataloader(datasets['test'], batch_size=32, shuffle=False)
+
+    # STEP 3: define model
+    model = RNN(
+        dataset=sample_dataset,
+        feature_keys=["conditions", "procedures", "drugs"],
+        label_key="label",
+        mode="binary",
+    )
+
+
+    # STEP 4: define trainer
+    trainer = Trainer(model=model)
+    trainer.train(
+        train_dataloader=train_dataloader,
+        val_dataloader=val_dataloader,
+        epochs=epochs,
+        monitor="roc_auc",
+    )
+    
+    return model
+
 
 
 @ptd.persistf()
@@ -36,7 +154,7 @@ def get_dataset(dev=True, train_split=0.6, val_split=0.2):
 
 
 @ptd.persistf()
-def get_get_trained_model(dev=True, epochs=5, train_split=0.6, val_split=0.2):
+def get_get_trained_model(dev=True, epochs=10, train_split=0.6, val_split=0.2):
     sleep_staging_ds, datasets = get_dataset(dev=dev, train_split=train_split, val_split=val_split)
 
     train_dataloader = get_dataloader(datasets['train'], batch_size=32, shuffle=True)
@@ -69,14 +187,15 @@ def get_get_trained_model(dev=True, epochs=5, train_split=0.6, val_split=0.2):
 def test_KCal(model, datasets, dev=False, split_by_patient=False, load_best_model_at_last=False):
     cal_model = uq.KCal(model, debug=dev, dim=32)
     if dev:
-        cal_model.calibrate(cal_dataset=datasets['train'], train_dataset=datasets['train'], epochs=2, train_split_by_patient=split_by_patient)
-        #cal_model.calibrate(cal_dataset=datasets['train'])
+        #cal_model.calibrate(cal_dataset=datasets['train'], train_dataset=datasets['train'], epochs=2, train_split_by_patient=split_by_patient)
+        cal_model.calibrate(cal_dataset=datasets['train'])
     else:
         #NOTE: The option to directly apply is commented out. Uncomment (and comment out the line below it) to test "Untrained"
-        #cal_model.calibrate(cal_dataset=datasets['val']) 
-        cal_model.calibrate(cal_dataset=datasets['val'], train_dataset=datasets['train'], 
-                            train_split_by_patient=split_by_patient, load_best_model_at_last=load_best_model_at_last)
-    print(Trainer(model=cal_model).evaluate(test_dataloader))
+        cal_model.calibrate(cal_dataset=datasets['val']) 
+        #cal_model.calibrate(cal_dataset=datasets['val'], train_dataset=datasets['train'], 
+        #                    train_split_by_patient=split_by_patient, load_best_model_at_last=load_best_model_at_last)
+    test_dataloader = get_dataloader(datasets['test'], batch_size=32, shuffle=False)
+    print(Trainer(model=cal_model, metrics=metrics[model.mode]).evaluate(test_dataloader))
     print(split_by_patient, load_best_model_at_last)
     # iid training:
         # last: {'accuracy': 0.7303689172252193, 'f1_macro': 0.6723729303147306, 'f1_micro': 0.7303689172252193, 'brier_top1': 0.1624394356864779, 'ECE': 0.01857905730632738, 'ECE_adapt': 0.018753550572241425, 'cwECEt': 0.03351102548966962, 'cwECEt_adapt': 0.03324275630220515, 'loss': 0.7355402175110874}
@@ -88,23 +207,26 @@ def test_KCal(model, datasets, dev=False, split_by_patient=False, load_best_mode
 
     # Untrained: {'accuracy': 0.7228125624398307, 'f1_macro': 0.6620750673184927, 'f1_micro': 0.7228125624398308, 'brier_top1': 0.16823867486854877, 'ECE': 0.0070479668872682425, 'ECE_adapt': 0.008330089265145252, 'cwECEt': 0.03842654176149014, 'cwECEt_adapt': 0.03817514330317887, 'loss': 0.7374457463807167}
 
-def test_TemperatureScaling(model, datasets, dev=False):
+def test_TemperatureScaling(model, datasets, dev=False, **kwargs):
     cal_model = uq.TemperatureScaling(model, debug=dev)
-    cal_model.calibrate(cal_dataset=datasets['val'])
-    print(Trainer(model=cal_model).evaluate(test_dataloader))
+    cal_model.calibrate(cal_dataset=datasets['val'], **kwargs)
+    test_dataloader = get_dataloader(datasets['test'], batch_size=32, shuffle=False)
+    print(Trainer(model=cal_model, metrics=metrics[model.mode]).evaluate(test_dataloader))
     # After: {'accuracy': 0.709843241966832, 'f1_macro': 0.6511024300262231, 'f1_micro': 0.709843241966832, 'brier_top1': 0.1690855287831884, 'ECE': 0.0133140537816558, 'ECE_adapt': 0.012904327771012886, 'cwECEt': 0.05194820100811948, 'cwECEt_adapt': 0.051673596521491505, 'loss': 0.747624546357088}
 
 def test_SCRIB(model, datasets, dev=False):
     cal_model = uq.SCRIB(model, 0.1, debug=dev)
     #cal_model = uq.SCRIB(model, [0.1] * 5, debug=dev)
     cal_model.calibrate(cal_dataset=datasets['val'])
-    print(Trainer(model=cal_model).evaluate(test_dataloader))
+    test_dataloader = get_dataloader(datasets['test'], batch_size=32, shuffle=False)
+    print(Trainer(model=cal_model, metrics=metrics[model.mode]).evaluate(test_dataloader))
     
 def test_LABEL(model, datasets, dev=False):
     cal_model = uq.LABEL(model, 0.1, debug=dev)
     #cal_model = uq.LABEL(model, [0.1] * 5, debug=dev)
     cal_model.calibrate(cal_dataset=datasets['val'])
-    print(Trainer(model=cal_model).evaluate(test_dataloader))
+    test_dataloader = get_dataloader(datasets['test'], batch_size=32, shuffle=False)
+    print(Trainer(model=cal_model, metrics=metrics[model.mode]).evaluate(test_dataloader))
     
 
 
@@ -112,12 +234,26 @@ if __name__ == '__main__':
     from importlib import reload
 
     import pyhealth.uq as uq
-    dev = True
+    dev = False
+    if False: # multiclass
+        _, datasets = get_dataset(dev)
+        model = get_get_trained_model(epochs=10, dev=dev)
+        test_dataloader = get_dataloader(datasets['test'], batch_size=32, shuffle=False)
+        print(Trainer(model=model, metrics=metrics[model.mode]).evaluate(test_dataloader))
+        # Pre-calibrate: {'accuracy': 0.709843241966832, 'f1_macro': 0.6511024300262231, 'f1_micro': 0.709843241966832, 'brier_top1': 0.17428343458993806, 'ECE': 0.06710521236002231, 'ECE_adapt': 0.06692437927112259, 'cwECEt': 0.07640062884173958, 'cwECEt_adapt': 0.07623978359739776, 'loss': 0.7824779271569161}
+        
+        #test_KCal(model, datasets, dev)
+        test_TemperatureScaling(model, datasets, dev)
+    if False: # multilabel
+        _, datasets = get_dataset_mimic_drug(dev)
+        model = get_get_trained_model_drug(dev=dev)
+        test_dataloader = get_dataloader(datasets['test'], batch_size=32, shuffle=False)
+        print(Trainer(model=model, metrics=metrics[model.mode]).evaluate(test_dataloader))
+        test_TemperatureScaling(model, datasets, dev)
 
-    model = get_get_trained_model(epochs=10, dev=dev)
-    _, datasets = get_dataset(dev)
-    test_dataloader = get_dataloader(datasets['test'], batch_size=32, shuffle=False)
-    print(Trainer(model=model).evaluate(test_dataloader))
-    # Pre-calibrate: {'accuracy': 0.709843241966832, 'f1_macro': 0.6511024300262231, 'f1_micro': 0.709843241966832, 'brier_top1': 0.17428343458993806, 'ECE': 0.06710521236002231, 'ECE_adapt': 0.06692437927112259, 'cwECEt': 0.07640062884173958, 'cwECEt_adapt': 0.07623978359739776, 'loss': 0.7824779271569161}
-    
-    test_KCal(model, datasets, dev)
+    if False:
+        _, datasets = get_dataset_mimic_binary(dev)
+        model = get_trained_model_binary(dev=dev)
+        test_dataloader = get_dataloader(datasets['test'], batch_size=32, shuffle=False)
+        print(Trainer(model=model, metrics=metrics[model.mode]).evaluate(test_dataloader))
+        test_TemperatureScaling(model, datasets, dev)

@@ -50,9 +50,7 @@ class TemperatureScaling(PostHocCalibrator):
     """
     def __init__(self, model:BaseModel, debug=False, **kwargs) -> None:
         super().__init__(model, **kwargs)
-        if model.mode != 'multiclass':
-            raise NotImplementedError()
-        self.mode = self.model.mode # multiclass
+        self.mode = self.model.mode
         for param in model.parameters():
             param.requires_grad = False
 
@@ -61,27 +59,38 @@ class TemperatureScaling(PostHocCalibrator):
         self.debug = debug
 
         self.num_classes = None
-        
-        self.temperature = torch.tensor(1.5, dtype=torch.float32, device=self.device, requires_grad=True)
 
-    def calibrate(self, cal_dataset, lr=0.01, max_iter=50):
+        self.temperature = torch.tensor(
+            1.5, dtype=torch.float32, device=self.device, requires_grad=True)
+
+    def calibrate(self, cal_dataset, lr=0.01, max_iter=50, mult_temp=False):
         """calibrate self.model using cal_dataset. 
 
         Args:
             cal_dataset (_type_): _description_
             lr (float, optional): learning rate. Defaults to 0.01.
             max_iter (int, optional): maximum numerb of iterations. Defaults to 50.
+            mult_temp (bool): if mult_temp and mode='multilabel', 
+                use one temperature for each class.
 
         Returns:
             None
         """
-        _cal_data = prepare_numpy_dataset(self.model, cal_dataset, ['y_true', 'logit'], debug=self.debug)
+        _cal_data = prepare_numpy_dataset(self.model, cal_dataset, 
+                                          ['y_true', 'logit'], debug=self.debug)
+        
         if self.num_classes is None:
-            self.num_classes = max(_cal_data['y_true']) + 1
+            self.num_classes = _cal_data['logit'].shape[1]
+        if self.mode == 'multilabel' and mult_temp:
+            self.temperature = torch.tensor([1.5 for _ in range(self.num_classes)], 
+                                            dtype=torch.float32,
+                                            device=self.device, requires_grad=True)
         optimizer = optim.LBFGS([self.temperature], lr=lr, max_iter=max_iter)
-        criterion = torch.nn.CrossEntropyLoss()
+        criterion = self.model.get_loss_function()
         logits = torch.tensor(_cal_data['logit'], dtype=torch.float, device=self.device)
-        label = torch.tensor(_cal_data['y_true'], dtype=torch.long, device=self.device)
+        label = torch.tensor(_cal_data['y_true'],
+                             dtype=torch.long if self.model.mode == 'multiclass' else torch.float32,
+                             device=self.device)
         def _eval():
             optimizer.zero_grad()
             loss = criterion(logits / self.temperature, label)
@@ -102,6 +111,7 @@ class TemperatureScaling(PostHocCalibrator):
         """
         ret = self.model(**kwargs)
         ret['logit'] = ret['logit'] / self.temperature
-        ret['y_prob'] = torch.softmax(ret['logit'], 1)
-        ret['loss'] = torch.nn.CrossEntropyLoss()(ret['logit'], ret['y_true'])
+        ret['y_prob'] = self.model.prepare_y_prob(ret['logit'])
+        criterion = self.model.get_loss_function()
+        ret['loss'] = criterion(ret['logit'], ret['y_true'])
         return ret

@@ -1,4 +1,4 @@
-from typing import List, Tuple, Dict, Optional
+from typing import Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -6,7 +6,6 @@ import torch.nn.utils.rnn as rnn_utils
 
 from pyhealth.datasets import SampleEHRDataset
 from pyhealth.models import BaseModel
-
 
 # VALID_OPERATION_LEVEL = ["visit", "event"]
 
@@ -368,6 +367,7 @@ class RNN(BaseModel):
             "loss": loss,
             "y_prob": y_prob,
             "y_true": y_true,
+            'logit': logits
         }
 
 

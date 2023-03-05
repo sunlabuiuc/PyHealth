@@ -1,7 +1,9 @@
-from typing import List, Optional, Dict
+from typing import Dict, List, Optional
 
 import numpy as np
 import sklearn.metrics as sklearn_metrics
+
+import pyhealth.metrics.calibration as calib
 
 
 def binary_metrics_fn(
@@ -83,6 +85,8 @@ def binary_metrics_fn(
         elif metric == "jaccard":
             jaccard = sklearn_metrics.jaccard_score(y_true, y_pred)
             output["jaccard"] = jaccard
+        elif metric in {'ECE', 'ECE_adapt'}:
+            output[metric] = calib.ECE_confidence_binary(y_prob, y_true, bins=20, adaptive=metric.endswith("_adapt"))
         else:
             raise ValueError(f"Unknown metric for binary classification: {metric}")
     return output
