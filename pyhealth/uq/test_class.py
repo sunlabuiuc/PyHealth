@@ -94,11 +94,24 @@ def test_TemperatureScaling(model, datasets, dev=False):
     print(Trainer(model=cal_model).evaluate(test_dataloader))
     # After: {'accuracy': 0.709843241966832, 'f1_macro': 0.6511024300262231, 'f1_micro': 0.709843241966832, 'brier_top1': 0.1690855287831884, 'ECE': 0.0133140537816558, 'ECE_adapt': 0.012904327771012886, 'cwECEt': 0.05194820100811948, 'cwECEt_adapt': 0.051673596521491505, 'loss': 0.747624546357088}
 
+def test_SCRIB(model, datasets, dev=False):
+    cal_model = uq.SCRIB(model, 0.1, 'overall', debug=dev)
+    cal_model.calibrate(cal_dataset=datasets['val'])
+    print(Trainer(model=cal_model).evaluate(test_dataloader))
+    
+def test_LABEL(model, datasets, dev=False):
+    cal_model = uq.LABEL(model, 0.1, debug=dev)
+    #cal_model = uq.LABEL(model, [0.1, 0.1, 0.1, 0.1, 0.1], debug=dev)
+    cal_model.calibrate(cal_dataset=datasets['val'])
+    print(Trainer(model=cal_model).evaluate(test_dataloader))
+    
+
+
 if __name__ == '__main__':
     from importlib import reload
 
     import pyhealth.uq as uq
-    dev = False
+    dev = True
 
     model = get_get_trained_model(epochs=10, dev=dev)
     _, datasets = get_dataset(dev)
@@ -106,6 +119,4 @@ if __name__ == '__main__':
     print(Trainer(model=model).evaluate(test_dataloader))
     # Pre-calibrate: {'accuracy': 0.709843241966832, 'f1_macro': 0.6511024300262231, 'f1_micro': 0.709843241966832, 'brier_top1': 0.17428343458993806, 'ECE': 0.06710521236002231, 'ECE_adapt': 0.06692437927112259, 'cwECEt': 0.07640062884173958, 'cwECEt_adapt': 0.07623978359739776, 'loss': 0.7824779271569161}
     
-    test_KCal(model, datasets, dev=dev, split_by_patient=True, load_best_model_at_last=True)
-
-    
+    test_LABEL(model, datasets, dev)

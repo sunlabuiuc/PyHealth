@@ -17,6 +17,7 @@ from torch.utils.data import DataLoader
 
 from pyhealth.datasets import utils as datautils
 from pyhealth.uq.base_classes import PostHocCalibrator
+from pyhealth.uq.utils import prepare_numpy_dataset
 
 from .bw import fit_bandwidth
 from .embed_data import _EmbedData
@@ -80,24 +81,12 @@ class SkipELU(ProjectionWrap):
         return super().forward(data, target, self.fc.weight.device)
 
 def _prepare_embedding_dataset(model, dataset, record_id_name=None, debug=False, batch_size=32):
-    embeds = []
-    indices = []
-    labels = []
-    patient_ids = []
-    loader = datautils.get_dataloader(dataset, batch_size, shuffle=False)
-    with torch.no_grad():
-        for _i, data in tqdm.tqdm(enumerate(loader), desc="embedding...", total=len(loader)):
-            if debug and _i % 10 != 0: continue
-            res = model(embed=True, **data)
-            if record_id_name is not None:
-                indices.extend(data[record_id_name])
-            labels.append(res['y_true'].detach().cpu().numpy())
-            embeds.append(res['embed'].detach().cpu().numpy())
-            patient_ids.extend(data['patient_id'])
-    if record_id_name is None:
-        indices = None
-    return {'labels': pd.Series(np.concatenate(labels), indices), 'embed': np.concatenate(embeds), 'group': patient_ids}
 
+    ret = prepare_numpy_dataset(model, dataset, ['y_true', 'embed'],
+                                incl_data_keys=['patient_id'] + ([] if record_id_name is None else [record_id_name]),
+                                forward_kwargs={'embed': True}, debug=debug, batch_size=batch_size)
+    return {"labels": pd.Series(ret['y_true'], ret.get(record_id_name, None)),
+            'embed': ret['embed'], 'group': ret['patient_id']}
 
 class KCal(PostHocCalibrator):
     def __init__(self, model:torch.nn.Module, debug=False, dim=32, **kwargs) -> None:
@@ -123,6 +112,7 @@ class KCal(PostHocCalibrator):
         from pyhealth.trainer import Trainer
 
         _train_data = _prepare_embedding_dataset(self.model, train_dataset, self.record_id_name, self.debug)
+        
         self.num_classes = max(_train_data['labels'].values) + 1
         if not split_by_patient:
             # Allow using other samples from the same patient to make the prediction

@@ -247,7 +247,8 @@ def naive_coord_descnet_overall_py(mo, rnkscores_or_maxclasses, scores_idx, labe
 
 
 # ========================================Interfaces
-def loss_overall(idx2rnk, rnk2idx, labels, max_classes, ps, r=0.3, la=0.03, lc=10, lcs=0.01, fill_max=False):
+def loss_overall(idx2rnk, rnk2idx, labels, max_classes, ps, r, *,
+                la=1, lc=1e4, lcs=1, fill_max=False):
     if not _CYTHON_ENABLED:
         preds = np.asarray(idx2rnk > ps, np.int32)
         return loss_overall_py(preds, one_hot(labels, idx2rnk.shape[1]), max_classes, r, la, lc, lcs, fill_max)
@@ -258,8 +259,8 @@ def loss_overall(idx2rnk, rnk2idx, labels, max_classes, ps, r=0.3, la=0.03, lc=1
     ps = np.asarray(ps, np.int32)
     return cdc.loss_overall_q_(idx2rnk, rnk2idx, labels, max_classes, ps, r, la, lc, lcs, fill_max)
 
-def loss_class_specific(idx2rnk, rnk2idx, labels, max_classes, ps, rks, class_weights=None,
-                             la=0.03, lc=10, lcs=0.01, fill_max=False):
+def loss_class_specific(idx2rnk, rnk2idx, labels, max_classes, ps, rks, *, 
+                        class_weights=None, la=1, lc=1e4, lcs=0, fill_max=False):
     if not _CYTHON_ENABLED:
         preds = np.asarray(idx2rnk > ps, np.int32)
         return loss_class_specific_py(preds, one_hot(labels, idx2rnk.shape[1]), max_classes, rks,
@@ -274,7 +275,7 @@ def loss_class_specific(idx2rnk, rnk2idx, labels, max_classes, ps, rks, class_we
     return cdc.loss_class_specific_q_(idx2rnk, rnk2idx, labels, max_classes, ps, rks, class_weights, la, lc, lcs, fill_max)
 
 def main_coord_descent_overall(idx2rnk, rnk2idx, labels, max_classes, init_ps, r, *,
-                               max_step_size=None, la=0.03, lc=10, lcs=0.01, fill_max=False):
+                               max_step_size=None, la=1, lc=1e4, lcs=1, fill_max=False):
     if not _CYTHON_ENABLED:
         assert max_step_size is None
         return naive_coord_descnet_overall_py(idx2rnk, max_classes, rnk2idx, labels, init_ps, r,
@@ -290,7 +291,7 @@ def main_coord_descent_overall(idx2rnk, rnk2idx, labels, max_classes, init_ps, r
 
 def main_coord_descent_class_specific(idx2rnk, rnk2idx, labels, max_classes, init_ps, rks, *,
                                       class_weights=None,
-                                      max_step_size=None, la=0.03, lc=10, lcs=0.01, fill_max=False):
+                                      max_step_size=None, la=1, lc=1e4, lcs=0, fill_max=False):
     if not _CYTHON_ENABLED:
         assert max_step_size is None
         return naive_coord_descnet_class_specific_py(idx2rnk, max_classes, rnk2idx, labels, init_ps, rks,

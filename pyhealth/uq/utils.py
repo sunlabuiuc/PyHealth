@@ -1,7 +1,12 @@
+from collections import defaultdict
 from typing import Optional, Union
 
+import numpy as np
 import torch
+import tqdm
 from torch import Tensor
+
+from pyhealth.datasets import utils as datautils
 
 
 def agg_loss(loss:torch.Tensor, reduction: str):
@@ -31,3 +36,30 @@ class LogLoss(torch.nn.Module):
             input = input * self.weight.unsqueeze(0)
         loss = torch.gather(input, -1, target.unsqueeze(-1)).squeeze(-1)
         return agg_loss(loss, self.reduction)
+    
+
+def prepare_numpy_dataset(model, dataset, keys, forward_kwargs=None,
+                         incl_data_keys=None, debug=False, batch_size=32):
+    if forward_kwargs is None:
+        forward_kwargs = {}
+    if incl_data_keys is None:
+        incl_data_keys = []
+    loader = datautils.get_dataloader(dataset, batch_size, shuffle=False)
+
+    ret = defaultdict(list)
+    with torch.no_grad():
+        for _i, data in tqdm.tqdm(enumerate(loader), desc=f"retrieving {keys}", total=len(loader)):
+            if debug and _i % 10 != 0:
+                continue
+            data.update(forward_kwargs)
+            res = model(**data)
+            for key in keys:
+                ret[key].append(res[key].detach().cpu().numpy())
+            for key in incl_data_keys:
+                ret[key].extend(data[key])
+    for key in incl_data_keys:
+        ret[key] = np.asarray(ret[key])
+    for key in keys:
+        ret[key] = np.concatenate(ret[key])
+    return ret
+    

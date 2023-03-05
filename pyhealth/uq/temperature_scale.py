@@ -1,43 +1,57 @@
 """
-Temperature Scaling 
+Temperature Scaling.
 
 From:
-    Guo, Chuan, Geoff Pleiss, Yu Sun, and Kilian Q. Weinberger. "On calibration of modern neural networks." In International conference on machine learning, pp. 1321-1330. PMLR, 2017
-
+    Guo, Chuan, Geoff Pleiss, Yu Sun, and Kilian Q. Weinberger. 
+        "On calibration of modern neural networks." ICML 2017.
 Implementation based on https://github.com/gpleiss/temperature_scaling
 
 """
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict
 
-import ipdb
 import numpy as np
-import pandas as pd
 import torch
 import tqdm
 from torch import optim
-from torch.utils.data import DataLoader
 
 from pyhealth.datasets import utils as datautils
+from pyhealth.models import BaseModel
 from pyhealth.uq.base_classes import PostHocCalibrator
+from pyhealth.uq.utils import prepare_numpy_dataset
 
 __all__ = ['TemperatureScaling']
 
-def _prepare_logit_dataset(model, dataset, debug=False, batch_size=32):
-    logits = []
-    labels = []
-    loader = datautils.get_dataloader(dataset, batch_size, shuffle=False)
-    with torch.no_grad():
-        for _i, data in tqdm.tqdm(enumerate(loader), desc="embedding...", total=len(loader)):
-            if debug and _i % 10 != 0: continue
-            res = model(**data)
-            labels.append(res['y_true'].detach().cpu().numpy())
-            logits.append(res['logit'].detach().cpu().numpy())
-    return {'labels': np.concatenate(labels), 'logits': np.concatenate(logits)}
-
-
 class TemperatureScaling(PostHocCalibrator):
-    def __init__(self, model:torch.nn.Module, debug=False, **kwargs) -> None:
+    """Temperature Scaling 
+
+    This is a *confidence* calibration method for *multiclass* classification. 
+    It tries to calibrate the predicted class' predicted probability. 
+
+
+    Paper: Guo, Chuan, Geoff Pleiss, Yu Sun, and Kilian Q. Weinberger. 
+        "On calibration of modern neural networks." ICML 2017.
+
+    Args:
+        model (BaseModel): A trained model.
+
+    Examples:
+        >>> from pyhealth.models import SparcNet
+        >>> from pyhealth.tasks import sleep_staging_isruc_fn
+        >>> sleep_ds = ISRUCDataset("/srv/scratch1/data/ISRUC-I").set_task(sleep_staging_isruc_fn)
+        >>> train_data, val_data, test_data = split_by_patient(sleep_ds, [0.6, 0.2, 0.2])
+        >>> model = SparcNet(dataset=sleep_staging_ds, feature_keys=["signal"],
+        ...     label_key="label", mode="multiclass")
+        >>> # ... Train the model here ...
+        >>> # Calibrate
+        >>> cal_model = uq.TemperatureScaling(model)
+        >>> cal_model.calibrate(cal_dataset=val_data)
+        >>> # Evaluate
+        >>> from pyhealth.trainer import Trainer
+        >>> test_dl = get_dataloader(test_data, batch_size=32, shuffle=False)
+        >>> print(Trainer(model=cal_model).evaluate(test_dl))
+    """
+    def __init__(self, model:BaseModel, debug=False, **kwargs) -> None:
         super().__init__(model, **kwargs)
         if model.mode != 'multiclass':
             raise NotImplementedError()
@@ -46,41 +60,56 @@ class TemperatureScaling(PostHocCalibrator):
             param.requires_grad = False
 
         self.model.eval()
-        # TODO: Try to get rid of "device"?
         self.device = model.device
         self.debug = debug
 
         self.num_classes = None
         
         self.temperature = torch.tensor(1.5, dtype=torch.float32, device=self.device, requires_grad=True)
-        
-    def fit(self, **kwargs):
-        pass
 
     def calibrate(self, cal_dataset, lr=0.01, max_iter=50):
-        _cal_data = _prepare_logit_dataset(self.model, cal_dataset, self.debug)
+        """calibrate self.model using cal_dataset. 
+
+        Args:
+            cal_dataset (_type_): _description_
+            lr (float, optional): learning rate. Defaults to 0.01.
+            max_iter (int, optional): maximum numerb of iterations. Defaults to 50.
+
+        Returns:
+            None
+        """
+        _cal_data = prepare_numpy_dataset(self.model, cal_dataset, ['y_true', 'logit'], debug=self.debug)
         if self.num_classes is None:
-            self.num_classes = max(_cal_data['labels']) + 1
+            self.num_classes = max(_cal_data['y_true']) + 1
         optimizer = optim.LBFGS([self.temperature], lr=lr, max_iter=max_iter)
         criterion = torch.nn.CrossEntropyLoss()
-        logits = torch.tensor(_cal_data['logits'], dtype=torch.float, device=self.device)
-        label = torch.tensor(_cal_data['labels'], dtype=torch.long, device=self.device)
-        def eval():
+        logits = torch.tensor(_cal_data['logit'], dtype=torch.float, device=self.device)
+        label = torch.tensor(_cal_data['y_true'], dtype=torch.long, device=self.device)
+        def _eval():
             optimizer.zero_grad()
             loss = criterion(logits / self.temperature, label)
             loss.backward()
             return loss
         self.train()
-        optimizer.step(eval)
+        optimizer.step(_eval)
         self.eval()
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
-        # like the forward for all basemodels (take batches of data)
+        """Forward propagation (just like the original model).
+
+        Returns:
+            A dictionary with the following keys:
+                loss: a scalar tensor representing the loss.
+                y_prob: a tensor representing the (calibrated) predicted probabilities.
+                y_true: a tensor representing the true labels.
+                logit: a tensor representing the (calibrated) logits.
+        """
         old_pred = self.model(**kwargs)
         logits = old_pred['logit'] / self.temperature
         y_prob = torch.softmax(logits, 1)
         return {
             'y_prob': y_prob,
             'y_true': old_pred['y_true'],
-            'loss': torch.nn.CrossEntropyLoss()(logits, old_pred['y_true'])
+            'loss': torch.nn.CrossEntropyLoss()(logits, old_pred['y_true']),
+            'logit': logits,
         }
