@@ -13,7 +13,6 @@ Implementation based on https://github.com/zlin7/scrib
 import time
 from typing import Dict, Union
 
-import ipdb
 import numpy as np
 import pandas as pd
 import torch
@@ -35,8 +34,7 @@ class _CoordDescent():
     def __init__(self, model_output, labels, rks,
                  loss_func=OVERALL_LOSSFUNC, loss_kwargs=None,
                  restart_n=1000, restart_range=0.1,
-                 init_range=None,
-                 fill_max=False, verbose=False):
+                 init_range=None, verbose=False):
         self.N, self.K = model_output.shape
 
         # quantities useful for loss eval
@@ -48,7 +46,6 @@ class _CoordDescent():
             assert isinstance(rks, float)
         elif rks is not None:
             rks = np.asarray(rks)
-        self.loss_kwargs.update({"fill_max": fill_max})
         self.idx2rnk = np.asarray(pd.DataFrame(model_output).rank(ascending=True), np.int32)
         if np.min(self.idx2rnk) == 1:
             self.idx2rnk -= 1
@@ -86,21 +83,19 @@ class _CoordDescent():
         # Translate ranks to thresholds
         return [self.model_output[self.rnk2idx[p[k], k], k] for k in range(self.K)]
 
-    def sample_new_loc(self, old_p, restart_range=0.1):
+    def _sample_new_loc(self, old_p, restart_range=0.1):
         diff = np.random.uniform(-restart_range, restart_range, self.K)
         new_p = old_p.copy()
         for k in range(self.K):
             new_p[k] = max(min(int(new_p[k] + diff[k] * self.N), self.N-1), 0)
         return new_p
 
-    def search_once(self, seed=7, get_complexity=False):
+    def search_once(self, seed=7):
         np.random.seed(seed)
-        total_searches = 0
         best_ps = np.random.randint(*self.init_range, self.K)
 
         st = time.time()
-        best_loss, best_ps, n_searches = self._search(best_ps)
-        total_searches += n_searches
+        best_loss, best_ps, _ = self._search(best_ps)
         ed1 = time.time()
         if self.restart_n > 0:
             keep_going = True
@@ -110,14 +105,13 @@ class _CoordDescent():
 
                 for _ in range(self.restart_n):
                     # Restart in neighborhood
-                    new_ps_ = self.sample_new_loc(best_ps, self.restart_range)
+                    new_ps_ = self._sample_new_loc(best_ps, self.restart_range)
                     loss_ = self._loss_eval(new_ps_)
                     if loss_ < best_loss:
                         if self.verbose: 
                             print("Neighborhood has a better loc with loss={} < {} ".format(loss_, best_loss))
-                        best_loss, best_ps, n_searches = self._search(new_ps_)
+                        best_loss, best_ps, _ = self._search(new_ps_)
                         
-                        total_searches += n_searches
                         keep_going = True
                         break
                     elif loss_ < curr_restart_best_loss:
@@ -127,9 +121,8 @@ class _CoordDescent():
                         print(f"Tried {curr_restart_best_ps} vs {best_ps}, loss:{curr_restart_best_loss} > {best_loss}")
         ed2 = time.time()
         if self.verbose: print(f"{ed1-st:.3f} + {ed2-ed1:.3f} seconds")
-        if get_complexity: return self._p2t(best_ps), best_loss, total_searches
         return self._p2t(best_ps), best_loss
-    
+
     @classmethod
     def search(cls, prob:np.ndarray, label:np.ndarray,
                rks: Union[float, np.ndarray], loss_func, B:int=10,  **kwargs):
@@ -143,13 +136,53 @@ class _CoordDescent():
             if _l < best_loss:
                 best_loss,best_ts = _l, ts
         return best_ts, best_loss
-    
 
 class SCRIB(SetPredictor):
-    def __init__(self, model:BaseModel, rks: Union[float, np.ndarray],
-                 loss_kwargs=None,
-                 debug=False, 
-                 **kwargs) -> None:
+    """SCRIB: Set-classifier with Class-specific Risk Bounds
+    
+    This is a prediction-set constructor for multi-class classification problems.
+    SCRIB tries to control class-specific risk while minimizing the ambiguity. 
+    To to this, it selects class-specific thresholds for the predictions, on a calibration set.
+
+
+    Paper: Lin, Zhen, Lucas Glass, M. Brandon Westover, Cao Xiao, and Jimeng Sun. 
+        "SCRIB: Set-classifier with Class-specific Risk Bounds for Blackbox Models." 
+        AAAI 2022.
+
+    Args:
+        model (BaseModel): A trained model.
+        risk (Union[float, np.ndarray]): risk targets.
+            If risk is a float (say 0.1), SCRIB controls the overall risk:
+                r(H) = P{Y not in H(X) | |H(X)| = 1}
+            If risk is an array (say `np.asarray([0.1] * 5)`), 
+            SCRIB controls the class specific risks:
+                r_k(H) = P{k not in H(X) | |H(X)| = 1, Y = k}
+        loss_kwargs (dict, optional): Additional loss parameters (including hyperparameters). 
+            It could contain the following float/int hyperparameters:
+                lk: The coefficient for the loss term associated with risk violation penalty. 
+                    The higher the lk, the more penalty on risk violation (likely higher ambiguity).
+                fill_max: Whether to fill the class with max predicted score 
+                    when no class exceeds the threshold. In other words, if fill_max, 
+                    the null region will be filled with max-prediction class.
+            Defaults to {'lk': 1e4, 'fill_max': False}
+    Examples:
+        >>> from pyhealth.models import SparcNet
+        >>> from pyhealth.tasks import sleep_staging_isruc_fn
+        >>> sleep_ds = ISRUCDataset("/srv/scratch1/data/ISRUC-I").set_task(sleep_staging_isruc_fn)
+        >>> train_data, val_data, test_data = split_by_patient(sleep_ds, [0.6, 0.2, 0.2])
+        >>> model = SparcNet(dataset=sleep_staging_ds, feature_keys=["signal"],
+        ...     label_key="label", mode="multiclass")
+        >>> # ... Train the model here ...
+        >>> # Calibrate the set classifier, with target risk of 0.1 for each class
+        >>> cal_model = uq.SCRIB(model, [0.1] * 5)
+        >>> cal_model.calibrate(cal_dataset=val_data)
+        >>> # Evaluate
+        >>> from pyhealth.trainer import Trainer
+        >>> test_dl = get_dataloader(test_data, batch_size=32, shuffle=False)
+        >>> print(Trainer(model=cal_model).evaluate(test_dl))
+    """
+    def __init__(self, model:BaseModel, risk: Union[float, np.ndarray],
+                 loss_kwargs:dict=None, debug=False, **kwargs) -> None:
         super().__init__(model, **kwargs)
         if model.mode != 'multiclass':
             raise NotImplementedError()
@@ -160,32 +193,38 @@ class SCRIB(SetPredictor):
         self.device = model.device
         self.debug = debug
 
-        if isinstance(rks, float):
+        if isinstance(risk, float):
             self.loss_name = OVERALL_LOSSFUNC
         else:
-            rks = np.asarray(rks)
+            risk = np.asarray(risk)
             self.loss_name = CLASSPECIFIC_LOSSFUNC
-        self.rks = rks
+        self.risk = risk
         if loss_kwargs is None:
-            if self.loss_name == OVERALL_LOSSFUNC:
-                loss_kwargs = {'la': 1, 'lc': 1e4, 'lcs': 1}
-            else:
-                loss_kwargs = {'la': 1, 'lc': 1e4}
+            loss_kwargs = {'lk': 1e4, 'fill_max': False}
         self.loss_kwargs = loss_kwargs
+
+        self.t = None
 
 
     def calibrate(self, cal_dataset):
-        cal_dataset = prepare_numpy_dataset(self.model, cal_dataset, ['y_prob', 'y_true'], debug=self.debug)
+        cal_dataset = prepare_numpy_dataset(
+            self.model, cal_dataset, ['y_prob', 'y_true'], debug=self.debug)
         if self.loss_name == CLASSPECIFIC_LOSSFUNC:
-            assert len(self.rks) == cal_dataset['y_prob'].shape[1]
-        best_ts, best_loss = _CoordDescent.search(
+            assert len(self.risk) == cal_dataset['y_prob'].shape[1]
+        best_ts, _ = _CoordDescent.search(
             cal_dataset['y_prob'],
             cal_dataset['y_true'],
-            self.rks, self.loss_name, loss_kwargs=self.loss_kwargs,
+            self.risk, self.loss_name, loss_kwargs=self.loss_kwargs,
             verbose=self.debug)
-        self.ts = torch.tensor(best_ts, device=self.device)
-    
+        self.t = torch.tensor(best_ts, device=self.device)
+
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
-        pred = self.model(**kwargs)
-        pred['y_pred'] = pred['y_prob'] > self.ts
-        return pred
+        """Forward propagation (just like the original model).
+
+        Returns:
+            A dictionary with all results from the base model, with the following updates:
+                y_pred: a bool tensor representing the prediction for each class.
+        """
+        ret = self.model(**kwargs)
+        ret['y_pred'] = ret['y_prob'] > self.t
+        return ret
