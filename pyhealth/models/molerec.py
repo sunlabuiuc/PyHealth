@@ -1,10 +1,8 @@
 import torch
 import math
-import torch_scatter
+import pkg_resources
 import numpy as np
-from ogb.utils import smiles2graph
 from typing import Any, Dict, List, Tuple, Optional, Union
-from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
 from rdkit import Chem
 from torch.nn.functional import binary_cross_entropy_with_logits
 from torch.nn.functional import multilabel_margin_loss
@@ -17,25 +15,28 @@ from pyhealth.medcode import ATC
 from pyhealth.datasets import SampleEHRDataset
 
 
-def graph_batch_from_smiles(smiles_list, device=torch.device('cpu')):
+dependencies = ["torch_scatter", "ogb>=1.3.5"]
+
+
+def graph_batch_from_smiles(smiles_list, device=torch.device("cpu")):
     edge_idxes, edge_feats, node_feats, lstnode, batch = [], [], [], 0, []
     graphs = [smiles2graph(x) for x in smiles_list]
     for idx, graph in enumerate(graphs):
-        edge_idxes.append(graph['edge_index'] + lstnode)
-        edge_feats.append(graph['edge_feat'])
-        node_feats.append(graph['node_feat'])
-        lstnode += graph['num_nodes']
-        batch.append(np.ones(graph['num_nodes'], dtype=np.int64) * idx)
+        edge_idxes.append(graph["edge_index"] + lstnode)
+        edge_feats.append(graph["edge_feat"])
+        node_feats.append(graph["node_feat"])
+        lstnode += graph["num_nodes"]
+        batch.append(np.ones(graph["num_nodes"], dtype=np.int64) * idx)
 
     result = {
-        'edge_index': np.concatenate(edge_idxes, axis=-1),
-        'edge_attr': np.concatenate(edge_feats, axis=0),
-        'batch': np.concatenate(batch, axis=0),
-        'x': np.concatenate(node_feats, axis=0)
+        "edge_index": np.concatenate(edge_idxes, axis=-1),
+        "edge_attr": np.concatenate(edge_feats, axis=0),
+        "batch": np.concatenate(batch, axis=0),
+        "x": np.concatenate(node_feats, axis=0),
     }
     result = {k: torch.from_numpy(v).to(device) for k, v in result.items()}
-    result['num_nodes'] = lstnode
-    result['num_edges'] = result['edge_index'].shape[1]
+    result["num_nodes"] = lstnode
+    result["num_edges"] = result["edge_index"].shape[1]
     return result
 
 
@@ -72,24 +73,24 @@ class GINConv(torch.nn.Module):
             torch.nn.Linear(embedding_dim, 2 * embedding_dim),
             torch.nn.BatchNorm1d(2 * embedding_dim),
             torch.nn.ReLU(),
-            torch.nn.Linear(2 * embedding_dim, embedding_dim)
+            torch.nn.Linear(2 * embedding_dim, embedding_dim),
         )
         self.eps = torch.nn.Parameter(torch.Tensor([0]))
         self.bond_encoder = BondEncoder(emb_dim=embedding_dim)
 
     def forward(
         self,
-        node_feats: torch.Tensor, edge_feats: torch.Tensor,
-        edge_index: torch.Tensor, num_nodes: int, num_edges: int
+        node_feats: torch.Tensor,
+        edge_feats: torch.Tensor,
+        edge_index: torch.Tensor,
+        num_nodes: int,
+        num_edges: int,
     ) -> torch.Tensor:
         edge_feats = self.bond_encoder(edge_feats)
-        message_node = torch.index_select(
-            input=node_feats, dim=0, index=edge_index[1]
-        )
+        message_node = torch.index_select(input=node_feats, dim=0, index=edge_index[1])
         message = torch.relu(message_node + edge_feats)
         message_reduce = torch_scatter.scatter(
-            message, index=edge_index[0], dim=0,
-            dim_size=num_nodes, reduce='sum'
+            message, index=edge_index[0], dim=0, dim_size=num_nodes, reduce="sum"
         )
 
         return self.mlp((1 + self.eps) * node_feats + message_reduce)
@@ -97,9 +98,7 @@ class GINConv(torch.nn.Module):
 
 class GINGraph(torch.nn.Module):
     def __init__(
-        self,  num_layers: int = 4,
-        embedding_dim: int = 64,
-        dropout: float = 0.7
+        self, num_layers: int = 4, embedding_dim: int = 64, dropout: float = 0.7
     ):
         super(GINGraph, self).__init__()
         if num_layers < 2:
@@ -113,38 +112,39 @@ class GINGraph(torch.nn.Module):
             self.convs.append(GINConv(embedding_dim))
             self.batch_norms.append(torch.nn.BatchNorm1d(embedding_dim))
 
-    def forward(
-        self,
-        graph: Dict[str, Union[int, torch.Tensor]]
-    ) -> torch.Tensor:
-        h_list = [self.atom_encoder(graph['x'])]
+    def forward(self, graph: Dict[str, Union[int, torch.Tensor]]) -> torch.Tensor:
+        h_list = [self.atom_encoder(graph["x"])]
         for layer in range(self.num_layers):
-            h = self.batch_norms[layer](self.convs[layer](
-                node_feats=h_list[layer], edge_feats=graph['edge_attr'],
-                edge_index=graph['edge_index'], num_nodes=graph['num_nodes'],
-                num_edges=graph['num_edges']
-            ))
+            h = self.batch_norms[layer](
+                self.convs[layer](
+                    node_feats=h_list[layer],
+                    edge_feats=graph["edge_attr"],
+                    edge_index=graph["edge_index"],
+                    num_nodes=graph["num_nodes"],
+                    num_edges=graph["num_edges"],
+                )
+            )
             if layer != self.num_layers - 1:
                 h = self.dropout_fun(torch.relu(h))
             else:
                 h = self.dropout_fun(h)
             h_list.append(h)
         return torch_scatter.scatter(
-            h_list[-1], dim=0, index=graph['batch'], reduce='mean'
+            h_list[-1], dim=0, index=graph["batch"], reduce="mean"
         )
 
 
 class MAB(torch.nn.Module):
     def __init__(
-        self, Qdim: int, Kdim: int, Vdim: int,
-        number_heads: int, use_ln: bool = False
+        self, Qdim: int, Kdim: int, Vdim: int, number_heads: int, use_ln: bool = False
     ):
         super(MAB, self).__init__()
         self.Vdim = Vdim
         self.number_heads = number_heads
 
-        assert self.Vdim % self.number_heads == 0, \
-            'the dim of features should be divisible by number_heads'
+        assert (
+            self.Vdim % self.number_heads == 0
+        ), "the dim of features should be divisible by number_heads"
 
         self.Qdense = torch.nn.Linear(Qdim, self.Vdim)
         self.Kdense = torch.nn.Linear(Kdim, self.Vdim)
@@ -178,8 +178,7 @@ class MAB(torch.nn.Module):
 
 class SAB(torch.nn.Module):
     def __init__(
-        self, in_dim: int, out_dim: int,
-        number_heads: int, use_ln: bool = False
+        self, in_dim: int, out_dim: int, number_heads: int, use_ln: bool = False
     ):
         super(SAB, self).__init__()
         self.net = MAB(in_dim, in_dim, out_dim, number_heads, use_ln)
@@ -197,8 +196,11 @@ class AttnAgg(torch.nn.Module):
         # self.use_ln = use_ln
 
     def forward(
-        self, main_feat: torch.Tensor, other_feat: torch.Tensor,
-        fix_feat: torch.Tensor, mask: Optional[torch.Tensor] = None
+        self,
+        main_feat: torch.Tensor,
+        other_feat: torch.Tensor,
+        fix_feat: torch.Tensor,
+        mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Forward propagation.
 
@@ -266,14 +268,28 @@ class MoleRecLayer(torch.nn.Module):
         target_ddi: float = 0.08,
         GNN_layers: int = 4,
         dropout: float = 0.5,
-        multiloss_weight: float = 0.05
+        multiloss_weight: float = 0.05,
     ):
         super(MoleRecLayer, self).__init__()
+
+        # test whether the ogb and torch_scatter packages are ready
+        try:
+            pkg_resources.require(dependencies)
+            from ogb.utils import smiles2graph
+            from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
+            import torch_scatter
+        except Exception as e:
+            print(
+                "Please follow the error message and install the ogb or torch_scatter packages first."
+            )
+            print(e)
+
         self.hidden_size = hidden_size
         self.coef, self.target_ddi = coef, target_ddi
         GNN_para = {
-            'num_layers': GNN_layers, 'dropout': dropout,
-            'embedding_dim': hidden_size
+            "num_layers": GNN_layers,
+            "dropout": dropout,
+            "embedding_dim": hidden_size,
         }
         self.substructure_encoder = GINGraph(**GNN_para)
         self.molecule_encoder = GINGraph(**GNN_para)
@@ -286,15 +302,18 @@ class MoleRecLayer(torch.nn.Module):
         score_extractor = [
             torch.nn.Linear(hidden_size, hidden_size // 2),
             torch.nn.ReLU(),
-            torch.nn.Linear(hidden_size // 2, 1)
+            torch.nn.Linear(hidden_size // 2, 1),
         ]
         self.score_extractor = torch.nn.Sequential(*score_extractor)
         self.multiloss_weight = multiloss_weight
 
     def calc_loss(
-        self, logits: torch.Tensor, y_prob: torch.Tensor,
-        ddi_adj: torch.Tensor, labels: torch.Tensor,
-        label_index: Optional[torch.Tensor] = None
+        self,
+        logits: torch.Tensor,
+        y_prob: torch.Tensor,
+        ddi_adj: torch.Tensor,
+        labels: torch.Tensor,
+        label_index: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         mul_pred_prob = y_prob.T @ y_prob  # (voc_size, voc_size)
         ddi_loss = (mul_pred_prob * ddi_adj).sum() / (ddi_adj.shape[0] ** 2)
@@ -307,8 +326,10 @@ class MoleRecLayer(torch.nn.Module):
         loss_cls = binary_cross_entropy_with_logits(logits, labels)
         if self.multiloss_weight > 0 and label_index is not None:
             loss_multi = multilabel_margin_loss(y_prob, label_index)
-            loss_cls = self.multiloss_weight * loss_multi + \
-                (1 - self.multiloss_weight) * loss_cls
+            loss_cls = (
+                self.multiloss_weight * loss_multi
+                + (1 - self.multiloss_weight) * loss_cls
+            )
 
         cur_ddi_rate = ddi_rate_score(y_pred, ddi_adj.cpu().numpy())
         if cur_ddi_rate > self.target_ddi:
@@ -320,19 +341,22 @@ class MoleRecLayer(torch.nn.Module):
         return loss
 
     def forward(
-        self, patient_emb: torch.Tensor, drugs: torch.Tensor,
-        average_projection: torch.Tensor, ddi_adj: torch.Tensor,
+        self,
+        patient_emb: torch.Tensor,
+        drugs: torch.Tensor,
+        average_projection: torch.Tensor,
+        ddi_adj: torch.Tensor,
         substructure_mask: torch.Tensor,
         substructure_graph: Union[StaticParaDict, Dict[str, Union[int, torch.Tensor]]],
         molecule_graph: Union[StaticParaDict, Dict[str, Union[int, torch.Tensor]]],
         mask: Optional[torch.tensor] = None,
-        drug_indexes: Optional[torch.Tensor] = None
+        drug_indexes: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Forward propagation.
 
         Args:
             patient_emb: a tensor of shape [patient, visit, num_substructures],
-                representating the relation between each patient visit and 
+                representating the relation between each patient visit and
                 each substructures.
             drugs: a multihot tensor of shape [patient, num_labels].
             mask: an optional tensor of shape [patient, visit] where 1
@@ -368,16 +392,18 @@ class MoleRecLayer(torch.nn.Module):
 
         if substructure_relation.shape[-1] != substructure_embedding.shape[0]:
             raise RuntimeError(
-                'the substructure relation vector of each patient should have '
-                'the same dimension as the number of substructure'
+                "the substructure relation vector of each patient should have "
+                "the same dimension as the number of substructure"
             )
 
         molecule_embedding = self.molecule_encoder(molecule_graph)
         molecule_embedding = torch.mm(average_projection, molecule_embedding)
 
         combination_embedding = self.combination_feature_aggregator(
-            molecule_embedding, substructure_embedding,
-            substructure_relation, torch.logical_not(substructure_mask > 0)
+            molecule_embedding,
+            substructure_embedding,
+            substructure_relation,
+            torch.logical_not(substructure_mask > 0),
         )
         # [patient, num_drugs, hidden]
         logits = self.score_extractor(combination_embedding).squeeze(-1)
@@ -422,7 +448,7 @@ class MoleRec(BaseModel):
         num_rnn_layers: int = 1,
         num_gnn_layers: int = 4,
         dropout: float = 0.5,
-        **kwargs
+        **kwargs,
     ):
         super(MoleRec, self).__init__(
             dataset=dataset,
@@ -440,26 +466,20 @@ class MoleRec(BaseModel):
 
         self.feat_tokenizers = self.get_feature_tokenizers()
         self.label_tokenizer = self.get_label_tokenizer()
-        self.embeddings = self.get_embedding_layers(
-            self.feat_tokenizers, embedding_dim
-        )
+        self.embeddings = self.get_embedding_layers(self.feat_tokenizers, embedding_dim)
 
         self.label_size = self.label_tokenizer.get_vocabulary_size()
 
-        self.ddi_adj = torch.nn.Parameter(
-            self.generate_ddi_adj(), requires_grad=False
-        )
+        self.ddi_adj = torch.nn.Parameter(self.generate_ddi_adj(), requires_grad=False)
         self.all_smiles_list = self.generate_smiles_list()
 
-        substructure_mask, self.substructure_smiles =\
-            self.generate_substructure_mask()
+        substructure_mask, self.substructure_smiles = self.generate_substructure_mask()
 
         self.substructure_mask = torch.nn.Parameter(
             substructure_mask, requires_grad=False
         )
 
-        average_projection, self.all_smiles_flatten = \
-            self.generate_average_projection()
+        average_projection, self.all_smiles_flatten = self.generate_average_projection()
 
         self.average_projection = torch.nn.Parameter(
             average_projection, requires_grad=False
@@ -472,28 +492,31 @@ class MoleRec(BaseModel):
             **graph_batch_from_smiles(self.all_smiles_flatten)
         )
 
-        self.rnns = torch.nn.ModuleDict({
-            x: torch.nn.GRU(
-                embedding_dim, hidden_dim, num_layers=num_rnn_layers,
-                dropout=dropout if num_rnn_layers > 1 else 0, batch_first=True
-            ) for x in ["conditions", "procedures"]
-        })
+        self.rnns = torch.nn.ModuleDict(
+            {
+                x: torch.nn.GRU(
+                    embedding_dim,
+                    hidden_dim,
+                    num_layers=num_rnn_layers,
+                    dropout=dropout if num_rnn_layers > 1 else 0,
+                    batch_first=True,
+                )
+                for x in ["conditions", "procedures"]
+            }
+        )
         num_substructures = substructure_mask.shape[1]
         self.substructure_relation = torch.nn.Sequential(
             torch.nn.ReLU(),
             torch.nn.Linear(hidden_dim * 2, hidden_dim),
             torch.nn.ReLU(),
-            torch.nn.Linear(hidden_dim, num_substructures)
+            torch.nn.Linear(hidden_dim, num_substructures),
         )
         self.layer = MoleRecLayer(
-            hidden_size=hidden_dim, dropout=dropout,
-            GNN_layers=num_gnn_layers, **kwargs
+            hidden_size=hidden_dim, dropout=dropout, GNN_layers=num_gnn_layers, **kwargs
         )
 
-        if 'GNN_layers' in kwargs:
-            raise ValueError(
-                'number of GNN layers is determined by num_gnn_layers'
-            )
+        if "GNN_layers" in kwargs:
+            raise ValueError("number of GNN layers is determined by num_gnn_layers")
         if "hidden_size" in kwargs:
             raise ValueError("hidden_size is determined by hidden_dim")
 
@@ -504,8 +527,7 @@ class MoleRec(BaseModel):
         vocab_to_index = self.label_tokenizer.vocabulary
         ddi_adj = np.zeros((self.label_size, self.label_size))
         ddi_atc3 = [
-            [ATC.convert(l[0], level=3), ATC.convert(l[1], level=3)]
-            for l in ddi
+            [ATC.convert(l[0], level=3), ATC.convert(l[1], level=3)] for l in ddi
         ]
         for atc_i, atc_j in ddi_atc3:
             if atc_i in vocab_to_index and atc_j in vocab_to_index:
@@ -545,8 +567,7 @@ class MoleRec(BaseModel):
             smiles = atc.graph.nodes[code]["smiles"]
             if smiles != smiles:
                 continue
-            atc3_to_smiles[code_atc3] = atc3_to_smiles.get(
-                code_atc3, []) + [smiles]
+            atc3_to_smiles[code_atc3] = atc3_to_smiles.get(code_atc3, []) + [smiles]
         # just take first one for computational efficiency
         atc3_to_smiles = {k: v[:1] for k, v in atc3_to_smiles.items()}
         all_smiles_list = [[] for _ in range(self.label_size)]
@@ -574,14 +595,13 @@ class MoleRec(BaseModel):
         for i, item in enumerate(average_index):
             if item <= 0:
                 continue
-            average_projection[i, col_counter: col_counter + item] = 1 / item
+            average_projection[i, col_counter : col_counter + item] = 1 / item
             col_counter += item
         average_projection = torch.FloatTensor(average_projection)
         return average_projection, molecule_set
 
     def encode_patient(
-        self, feature_key: str,
-        raw_values: List[List[List[str]]]
+        self, feature_key: str, raw_values: List[List[List[str]]]
     ) -> torch.Tensor:
         codes = self.feat_tokenizers[feature_key].batch_encode_3d(raw_values)
         codes = torch.tensor(codes, dtype=torch.long, device=self.device)
@@ -625,15 +645,15 @@ class MoleRec(BaseModel):
         for idx, cont in enumerate(labels_index):
             # remove redundant labels
             cont = list(set(cont))
-            index_labels[idx, :len(cont)] = cont
+            index_labels[idx, : len(cont)] = cont
         index_labels = torch.from_numpy(index_labels)
 
         labels = labels.to(self.device)
         index_labels = index_labels.to(self.device)
 
         # encoding procs and diags
-        condition_emb = self.encode_patient('conditions', conditions)
-        procedure_emb = self.encode_patient('procedures', procedures)
+        condition_emb = self.encode_patient("conditions", conditions)
+        procedure_emb = self.encode_patient("procedures", procedures)
         mask = torch.sum(condition_emb, dim=2) != 0
 
         patient_emb = torch.cat([condition_emb, procedure_emb], dim=-1)
@@ -641,12 +661,15 @@ class MoleRec(BaseModel):
 
         # calculate loss
         loss, y_prob = self.layer(
-            patient_emb=substruct_rela, drugs=labels, ddi_adj=self.ddi_adj,
+            patient_emb=substruct_rela,
+            drugs=labels,
+            ddi_adj=self.ddi_adj,
             average_projection=self.average_projection,
             substructure_mask=self.substructure_mask,
             substructure_graph=self.substructure_graphs,
             molecule_graph=self.molecule_graphs,
-            mask=mask, drug_indexes=index_labels
+            mask=mask,
+            drug_indexes=index_labels,
         )
 
         return {
