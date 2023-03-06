@@ -243,20 +243,25 @@ class Trainer:
 
         return
 
-    def inference(self, dataloader) -> Dict[str, float]:
+    def inference(self, dataloader, additional_outputs=None) -> Dict[str, float]:
         """Model inference.
 
         Args:
             dataloader: Dataloader for evaluation.
+            additional_outputs: List of additional output to collect.
+                Defaults to None ([]).
 
         Returns:
             y_true_all: List of true labels.
             y_prob_all: List of predicted probabilities.
             loss_mean: Mean loss over batches.
+            additional_outputs (only if requested): Dict of additional results.
         """
         loss_all = []
         y_true_all = []
         y_prob_all = []
+        if additional_outputs is not None:
+            additional_outputs = {k: [] for k in additional_outputs}
         for data in tqdm(dataloader, desc="Evaluation"):
             self.model.eval()
             with torch.no_grad():
@@ -267,9 +272,16 @@ class Trainer:
                 loss_all.append(loss.item())
                 y_true_all.append(y_true)
                 y_prob_all.append(y_prob)
+                if additional_outputs is not None:
+                    for key in additional_outputs.keys():
+                        additional_outputs[key].append(output[key].cpu().numpy())
         loss_mean = sum(loss_all) / len(loss_all)
         y_true_all = np.concatenate(y_true_all, axis=0)
         y_prob_all = np.concatenate(y_prob_all, axis=0)
+        if additional_outputs is not None:
+            additional_outputs = {key: np.concatenate(val)
+                                  for key, val in additional_outputs.items()}
+            return y_true_all, y_prob_all, loss_mean, additional_outputs
         return y_true_all, y_prob_all, loss_mean
 
     def evaluate(self, dataloader) -> Dict[str, float]:

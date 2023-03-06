@@ -11,10 +11,11 @@ from pyhealth.tasks import (drug_recommendation_mimic3_fn,
                             length_of_stay_prediction_mimic3_fn,
                             readmission_prediction_mimic3_fn,
                             sleep_staging_isruc_fn)
-from pyhealth.trainer import Trainer
+from pyhealth.trainer import Trainer, get_metrics_fn
 
+ps_metrics = ['rejection_rate', 'set_size', 'missrate_max', 'missrate_mean', 'missrate_overall', 'missrate_max_certain', 'missrate_mean_certain', 'missrate_overall_certain']
 metrics = {
-    'multiclass': ["accuracy", "f1_macro", "f1_micro"] + ['brier_top1', 'ECE', 'ECE_adapt', 'cwECEt', 'cwECEt_adapt'],
+    'multiclass': ["accuracy", "f1_macro", "f1_micro"] + ['brier_top1', 'ECE', 'ECE_adapt', 'cwECEt', 'cwECEt_adapt'] + ps_metrics,
     'multilabel': ['pr_auc_samples'] + ['cwECE', 'cwECE_adapt'],
     'binary': ["pr_auc", "roc_auc", "f1"] + ['ECE', 'ECE_adapt']
 }
@@ -266,19 +267,29 @@ def test_TemperatureScaling(model, datasets, dev=False, **kwargs):
     # After: {'accuracy': 0.709843241966832, 'f1_macro': 0.6511024300262231, 'f1_micro': 0.709843241966832, 'brier_top1': 0.1690855287831884, 'ECE': 0.0133140537816558, 'ECE_adapt': 0.012904327771012886, 'cwECEt': 0.05194820100811948, 'cwECEt_adapt': 0.051673596521491505, 'loss': 0.747624546357088}
 
 def test_SCRIB(model, datasets, dev=False):
-    cal_model = uq.SCRIB(model, 0.1, debug=dev)
-    #cal_model = uq.SCRIB(model, [0.1] * 5, debug=dev)
+    #cal_model = uq.SCRIB(model, 0.1, debug=dev)
+    #cal_model = uq.SCRIB(model, [0.3] * 10, debug=dev)
+    cal_model = uq.SCRIB(model, [0.15, 0.3, 0.15, 0.15, 0.15], debug=dev)
     cal_model.calibrate(cal_dataset=datasets['val'])
     test_dataloader = get_dataloader(datasets['test'], batch_size=32, shuffle=False)
-    print(Trainer(model=cal_model, metrics=metrics[model.mode]).evaluate(test_dataloader))
+    y_true_all, y_prob_all, _, extra_output = Trainer(model=cal_model).inference(test_dataloader, additional_outputs=['y_predset'])
+    print(get_metrics_fn(cal_model.mode)(
+        y_true_all, y_prob_all, metrics=metrics[model.mode],
+        y_predset=extra_output['y_predset'])
+    )
+    #print(Trainer(model=cal_model, metrics=metrics[model.mode]).evaluate(test_dataloader))
 
 def test_LABEL(model, datasets, dev=False):
-    cal_model = uq.LABEL(model, 0.1, debug=dev)
-    #cal_model = uq.LABEL(model, [0.1] * 5, debug=dev)
+    #cal_model = uq.LABEL(model, 0.1, debug=dev)
+    #cal_model = uq.LABEL(model, [0.3] * 10, debug=dev)
+    cal_model = uq.LABEL(model, [0.15, 0.3, 0.15, 0.15, 0.15], debug=dev)
     cal_model.calibrate(cal_dataset=datasets['val'])
     test_dataloader = get_dataloader(datasets['test'], batch_size=32, shuffle=False)
-    print(Trainer(model=cal_model, metrics=metrics[model.mode]).evaluate(test_dataloader))
-
+    y_true_all, y_prob_all, _, extra_output = Trainer(model=cal_model).inference(test_dataloader, additional_outputs=['y_predset'])
+    print(get_metrics_fn(cal_model.mode)(
+        y_true_all, y_prob_all, metrics=metrics[model.mode],
+        y_predset=extra_output['y_predset'])
+    )
 
 def test_HB(model, datasets, dev=False, **kwargs):
     cal_model = uq.HistogramBinning(model, debug=dev)
@@ -302,7 +313,11 @@ if __name__ == '__main__':
         # {'accuracy': 0.4401496259351621, 'f1_macro': 0.2877082476835488, 'f1_micro': 0.4401496259351621, 'brier_top1': 0.19963319080703884, 'ECE': 0.02726052619045594, 'ECE_adapt': 0.026895376073073643, 'cwECEt': 0.01591851540294672, 'cwECEt_adapt': 0.017954394785340017, 'loss': 1.4853952246299689}
         #test_TemperatureScaling(model, datasets, dev)
         # {'accuracy': 0.44321015642711403, 'f1_macro': 0.30895310531080705, 'f1_micro': 0.44321015642711403, 'brier_top1': 0.20031940694168032, 'ECE': 0.01941438210818589, 'ECE_adapt': 0.02330048461162809, 'cwECEt': 0.022519317838478676, 'cwECEt_adapt': 0.02455287158864352, 'loss': 1.4698933535727903}
-        #test_SCRIB(model, datasets, dev)
+
+        test_SCRIB(model, datasets, dev)
+        # {'accuracy': 0.44321015642711403, 'f1_macro': 0.30895310531080705, 'f1_micro': 0.44321015642711403, 'brier_top1': 0.21334323259891283, 'ECE': 0.1028498556575546, 'ECE_adapt': 0.1016021073894878, 'cwECEt': 0.047120377409866285, 'cwECEt_adapt': 0.047463473065865375, 'rejection_rate': 0.894241668555883, 'set_size': 2.0846746769440037, 'missrate_max': 0.806989247311828, 'missrate_mean': 0.4814574476963694, 'missrate_overall': 0.5701654953525277, 'missrate_max_certain': 1.0, 'missrate_mean_certain': 0.5999509930052384, 'missrate_overall_certain': 0.412647374062165}
+        test_LABEL(model, datasets, dev)
+        # {'accuracy': 0.44321015642711403, 'f1_macro': 0.30895310531080705, 'f1_micro': 0.44321015642711403, 'brier_top1': 0.21334323259891283, 'ECE': 0.1028498556575546, 'ECE_adapt': 0.1016021073894878, 'cwECEt': 0.047120377409866285, 'cwECEt_adapt': 0.047463473065865375, 'rejection_rate': 0.6866923600090682, 'set_size': 2.7340739061437316, 'missrate_max': 0.3263598326359832, 'missrate_mean': 0.2988817449526192, 'missrate_overall': 0.29981863523010654, 'missrate_max_certain': 1.0, 'missrate_mean_certain': 0.6983335252931168, 'missrate_overall_certain': 0.3248914616497829}
 
         #test_HB(model, datasets, dev)
         # sum
@@ -310,16 +325,21 @@ if __name__ == '__main__':
         # None
         # {'accuracy': 0.4407163908410791, 'f1_macro': 0.2640266353953583, 'f1_micro': 0.4407163908410791, 'brier_top1': 0.20056810416311954, 'ECE': 0.027721811747218536, 'ECE_adapt': 0.022718262078539896, 'cwECEt': 0.009997820777836595, 'cwECEt_adapt': 0.01568430235516669, 'loss': 1.49660099848457}
 
-    if False: # multiclass (ISRUC)
+    if True: # multiclass (ISRUC)
         _, datasets = get_dataset(dev)
         model = get_get_trained_model(epochs=10, dev=dev)
         test_dataloader = get_dataloader(datasets['test'], batch_size=32, shuffle=False)
         print(Trainer(model=model, metrics=metrics[model.mode]).evaluate(test_dataloader))
         # Pre-calibrate: {'accuracy': 0.709843241966832, 'f1_macro': 0.6511024300262231, 'f1_micro': 0.709843241966832, 'brier_top1': 0.17428343458993806, 'ECE': 0.06710521236002231, 'ECE_adapt': 0.06692437927112259, 'cwECEt': 0.07640062884173958, 'cwECEt_adapt': 0.07623978359739776, 'loss': 0.7824779271569161}
 
+        test_SCRIB(model, datasets, dev)
+        # {'rejection_rate': 0.7937987030679527, 'set_size': 0.2062012969320473, 'missrate_max': 0.8918049947659639, 'missrate_mean': 0.8157973065620215, 'missrate_overall': 0.8274571776288304, 'missrate_max_certain': 0.23971377459749554, 'missrate_mean_certain': 0.1776450583553692, 'missrate_overall_certain': 0.16323114869626498}
+        test_LABEL(model, datasets, dev)
+        # {'rejection_rate': 0.3188745390805224, 'set_size': 1.3156776197482427, 'missrate_max': 0.3102491439367103, 'missrate_mean': 0.22039613931321478, 'missrate_overall': 0.22211323633589453, 'missrate_max_certain': 0.4973621103117506, 'missrate_mean_certain': 0.3118047598076288, 'missrate_overall_certain': 0.24051949437303322}
+
         #test_KCal(model, datasets, dev)
         #test_TemperatureScaling(model, datasets, dev)
-        test_HB(model, datasets, dev)
+        #test_HB(model, datasets, dev)
     if False: # multilabel
         _, datasets = get_dataset_mimic_drug(dev)
         model = get_get_trained_model_drug(dev=dev)

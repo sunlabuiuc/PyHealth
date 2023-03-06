@@ -5,12 +5,14 @@ import pandas as pd
 import sklearn.metrics as sklearn_metrics
 
 import pyhealth.metrics.calibration as calib
+import pyhealth.metrics.prediction_set as pset
 
 
 def multiclass_metrics_fn(
     y_true: np.ndarray,
     y_prob: np.ndarray,
     metrics: Optional[List[str]] = None,
+    y_predset: Optional[np.ndarray]=None,
 ) -> Dict[str, float]:
     """Computes metrics for multiclass classification.
 
@@ -68,7 +70,10 @@ def multiclass_metrics_fn(
     """
     if metrics is None:
         metrics = ["accuracy", "f1_macro", "f1_micro"]
-
+    prediction_set_metrics = [
+        'rejection_rate', 'set_size',
+        'missrate_max', 'missrate_mean', 'missrate_overall',
+        'missrate_max_certain', 'missrate_mean_certain', 'missrate_overall_certain']
     y_pred = np.argmax(y_prob, axis=-1)
 
     output = {}
@@ -135,6 +140,25 @@ def multiclass_metrics_fn(
             thres = min(0.01, 1./y_prob.shape[1])
             output[metric] = calib.ECE_classwise(
                 y_prob, y_true, bins=20, adaptive=metric.endswith("_adapt"), threshold=thres)
+        elif metric in prediction_set_metrics:
+            if y_predset is None:
+                continue
+            if metric == 'rejection_rate':
+                output[metric] = pset.rejection_rate(y_predset)
+            elif metric == 'set_size':
+                output[metric] = pset.size(y_predset)
+            elif metric == 'missrate_max':
+                output[metric] = pset.missrate(y_predset, y_true).max()
+            elif metric == 'missrate_mean':
+                output[metric] = pset.missrate(y_predset, y_true).mean()
+            elif metric == 'missrate_overall':
+                output[metric] = pset.missrate_overall(y_predset, y_true)
+            elif metric == 'missrate_max_certain':
+                output[metric] = pset.missrate_certain(y_predset, y_true).max()
+            elif metric == 'missrate_mean_certain':
+                output[metric] = pset.missrate_certain(y_predset, y_true).mean()
+            elif metric == 'missrate_overall_certain':
+                output[metric] = pset.missrate_certain_overall(y_predset, y_true)
         else:
             raise ValueError(f"Unknown metric for multiclass classification: {metric}")
 
