@@ -51,10 +51,10 @@ class _IndexSampler:
         return pred_indices, indices, cnt, weights
 
 class _EmbedData(Dataset):
-    def __init__(self, labels:pd.Series, embed, epoch_len=5000, bs_pred=64, bs_supp=20, group=None) -> None:
+    def __init__(self, labels:np.ndarray, embed:np.ndarray, epoch_len=5000, bs_pred=64, bs_supp=20, group=None, indices=None) -> None:
         self.num_classes = labels.max() + 1
 
-        self.labels, self.indices = labels.values, labels.index
+        self.labels, self.indices = labels, indices
         self.embed = embed
 
         #self._debug_group, group = group, None

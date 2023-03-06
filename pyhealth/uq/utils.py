@@ -15,6 +15,10 @@ def agg_loss(loss:torch.Tensor, reduction: str):
     return loss
 
 
+def one_hot_np(labels, K):
+    new_labels = np.zeros((len(labels), K))
+    new_labels[np.arange(len(labels)), labels] = 1
+    return new_labels
 
 class LogLoss(torch.nn.Module):
     reduction: str

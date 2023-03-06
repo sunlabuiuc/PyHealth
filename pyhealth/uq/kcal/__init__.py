@@ -1,16 +1,12 @@
 """
 KCal: Kernel-based Calibration 
 
-From:
-    Lin, Zhen, Shubhendu Trivedi, and Jimeng Sun. 
-    "Taking a Step Back with KCal: Multi-Class Kernel-Based Calibration for Deep Neural Networks." 
-    ICLR 2023.
-
 Implementation based on https://github.com/zlin7/KCal
 
 """
 from typing import Dict
 
+import ipdb
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader, Subset
@@ -91,9 +87,15 @@ class SkipELU(ProjectionWrap):
 def _embed_dataset(model, dataset, record_id_name=None, debug=False, batch_size=32):
 
     ret = prepare_numpy_dataset(
-        model, dataset, ['y_true', 'embed'], 
+        model, dataset, ['y_true', 'embed'],
         incl_data_keys=['patient_id'] + ([] if record_id_name is None else [record_id_name]),
         forward_kwargs={'embed': True}, debug=debug, batch_size=batch_size)
+    return {
+        "labels": ret['y_true'],
+        'indices': ret.get(record_id_name, None),
+        'embed': ret['embed'], 
+        'group': ret['patient_id']
+    }
     return {"labels": pd.Series(ret['y_true'], ret.get(record_id_name, None)),
             'embed': ret['embed'], 'group': ret['patient_id']}
 
@@ -147,12 +149,12 @@ class KCal(PostHocCalibrator):
 
     def _fit(self, train_dataset, val_dataset=None, split_by_patient=False,
             dim=32, bs_pred=64, bs_supp=20, epoch_len=5000, epochs=10,
-            load_best_model_at_last=False):
+            load_best_model_at_last=False, **train_kwargs):
         from pyhealth.trainer import Trainer
 
         _train_data = _embed_dataset(self.model, train_dataset, self.record_id_name, self.debug)
 
-        self.num_classes = max(_train_data['labels'].values) + 1
+        self.num_classes = max(_train_data['labels']) + 1
         if not split_by_patient:
             # Allow using other samples from the same patient to make the prediction
             _train_data.pop('group')
@@ -175,12 +177,14 @@ class KCal(PostHocCalibrator):
             monitor="loss",
             monitor_criterion='min',
             load_best_model_at_last=load_best_model_at_last,
+            **train_kwargs
         )
         self.proj.eval()
 
-    def calibrate(self, cal_dataset:Subset, record_id_name='record_id',
+    def calibrate(self, cal_dataset:Subset, num_fold=20,
+                  record_id_name=None,
                   train_dataset:Subset=None, train_split_by_patient=False,
-                  load_best_model_at_last=False, **train_kwargs):
+                  load_best_model_at_last=True, **train_kwargs):
         """Calibrate using a calibration dataset. 
         If train_dataset is not None, it will be used to fit 
         a re-projection from the base model embeddings.
@@ -189,7 +193,7 @@ class KCal(PostHocCalibrator):
         Args:
             cal_dataset (Subset): Calibration set.
             record_id_name (str, optional): the key/name of the unique index for records. 
-                Defaults to 'record_id'.
+                Defaults to None.
             train_dataset (Subset, optional): Dataset to train the reprojection. 
                 Defaults to None (no training).
             train_split_by_patient (bool, optional): 
@@ -198,7 +202,7 @@ class KCal(PostHocCalibrator):
                 Defaults to False.
             load_best_model_at_last (bool, optional): 
                 Whether to load the best reprojection basing on the calibration set. 
-                Defaults to False.
+                Defaults to True.
         """
 
         self.record_id_name = record_id_name
@@ -212,9 +216,11 @@ class KCal(PostHocCalibrator):
 
         _cal_data = _embed_dataset(self.model, cal_dataset, self.record_id_name, self.debug)
         if self.num_classes is None:
-            self.num_classes = max(_cal_data['labels'].values) + 1
+            self.num_classes = max(_cal_data['labels']) + 1
+        assert self.num_classes == max(_cal_data['labels']) + 1, \
+            "Train/Calibration data seem to have different classes"
         self.cal_data['Y'] = torch.tensor(
-            _cal_data['labels'].values, dtype=torch.long, device=self.device)
+            _cal_data['labels'], dtype=torch.long, device=self.device)
         self.cal_data['Y'] = torch.nn.functional.one_hot(
             self.cal_data['Y'], self.num_classes).float()
         with torch.no_grad():
@@ -222,7 +228,7 @@ class KCal(PostHocCalibrator):
                 _cal_data['embed'], dtype=torch.float, device=self.device))
 
         # Choose bandwidth
-        self.kern.set_bandwidth(fit_bandwidth(group=_cal_data['group'], **self.cal_data))
+        self.kern.set_bandwidth(fit_bandwidth(group=_cal_data['group'], num_fold=num_fold, **self.cal_data))
 
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:

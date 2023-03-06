@@ -1,11 +1,6 @@
 """
 SCRIB: Set-classifier with Class-specific Risk Bounds
 
-From:
-    Lin, Zhen, Lucas Glass, M. Brandon Westover, Cao Xiao, and Jimeng Sun. 
-    "SCRIB: Set-classifier with Class-specific Risk Bounds for Blackbox Models." 
-    AAAI 2022.
-
 Implementation based on https://github.com/zlin7/scrib
 
 """

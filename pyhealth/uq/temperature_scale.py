@@ -1,11 +1,7 @@
 """
-Temperature Scaling.
+Temperature/Platt Scaling.
 
-From:
-    Guo, Chuan, Geoff Pleiss, Yu Sun, and Kilian Q. Weinberger. 
-        "On calibration of modern neural networks." ICML 2017.
 Implementation based on https://github.com/gpleiss/temperature_scaling
-
 """
 
 from typing import Dict
@@ -22,12 +18,22 @@ __all__ = ['TemperatureScaling']
 class TemperatureScaling(PostHocCalibrator):
     """Temperature Scaling 
 
-    This is a *confidence* calibration method for *multiclass* classification. 
-    It tries to calibrate the predicted class' predicted probability. 
+    Temprature scaling refers to scaling the logits by a "temprature" tuned 
+    on the calibration set. For binary classification tasks, this amounts to
+    Platt scaling. For multilabel classification, users can use one temperature
+    for all classes, or one for each. For multiclass classification, this is 
+    a *confidence* calibration method: It tries to calibrate the predicted 
+    class' predicted probability. 
 
 
-    Paper: Guo, Chuan, Geoff Pleiss, Yu Sun, and Kilian Q. Weinberger. 
+    Paper: 
+        [1] Guo, Chuan, Geoff Pleiss, Yu Sun, and Kilian Q. Weinberger. 
         "On calibration of modern neural networks." ICML 2017.
+        
+        [2] Platt, John. 
+        "Probabilistic outputs for support vector machines and 
+        comparisons to regularized likelihood methods." 
+        Advances in large margin classifiers 10, no. 3 (1999): 61-74.
 
     Args:
         model (BaseModel): A trained model.

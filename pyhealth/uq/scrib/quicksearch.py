@@ -1,5 +1,7 @@
 import numpy as np
 
+from pyhealth.uq.utils import one_hot_np
+
 _CYTHON_ENABLED = False
 try:
     import pyximport; pyximport.install()
@@ -10,11 +12,6 @@ except:
 
 __all__ = ['loss_overall', 'loss_class_specific', 
            'main_coord_descent_overall', 'main_coord_descent_class_specific']
-
-def one_hot(labels, K):
-    new_labels = np.zeros((len(labels), K))
-    new_labels[np.arange(len(labels)), labels] = 1
-    return new_labels
 
 def _thresholding_py(ts, output):
     pred = np.asarray(output > ts, dtype=np.int32)
@@ -99,7 +96,7 @@ def search_full_class_specific_py(mo, rnkscores_or_maxclasses, scores_idx, label
     preds = _thresholding_py(ts, mo)
     preds[:, d] = 1
     cnt = preds.sum(1)
-    labels_onehot = one_hot(labels, K)
+    labels_onehot = one_hot_np(labels, K)
     cnt1_msk = cnt == 1
     correct_msk = cnt1_msk & (np.sum(preds * labels_onehot, 1) == 1)
     total_sure = np.sum(cnt1_msk)
@@ -193,7 +190,7 @@ def naive_coord_descnet_class_specific_py(mo, rnkscores_or_maxclasses, scores_id
     keep_going = True
     if isinstance(class_weights, bool):
         if class_weights:
-            weights = np.sum(one_hot(labels, K), 0) / float(N) * K
+            weights = np.sum(one_hot_np(labels, K), 0) / float(N) * K
         else:
             weights = None
     else:
@@ -240,7 +237,7 @@ def loss_overall(idx2rnk, rnk2idx, labels, max_classes, ps, r, *,
                  lk=1e4, fill_max=False):
     if not _CYTHON_ENABLED:
         preds = np.asarray(idx2rnk > ps, np.int32)
-        return loss_overall_py(preds, one_hot(labels, idx2rnk.shape[1]), max_classes, r, lk=lk, fill_max=fill_max)
+        return loss_overall_py(preds, one_hot_np(labels, idx2rnk.shape[1]), max_classes, r, lk=lk, fill_max=fill_max)
     idx2rnk = np.asarray(idx2rnk, np.int32)
     rnk2idx = np.asarray(rnk2idx, np.int32)
     labels = np.asarray(labels, np.int32)
@@ -252,7 +249,7 @@ def loss_class_specific(idx2rnk, rnk2idx, labels, max_classes, ps, rks, *,
                         class_weights=None, lk=1e4, fill_max=False):
     if not _CYTHON_ENABLED:
         preds = np.asarray(idx2rnk > ps, np.int32)
-        return loss_class_specific_py(preds, one_hot(labels, idx2rnk.shape[1]), max_classes, rks,
+        return loss_class_specific_py(preds, one_hot_np(labels, idx2rnk.shape[1]), max_classes, rks,
                                       class_weights=class_weights, lk=lk, fill_max=fill_max)
     idx2rnk = np.asarray(idx2rnk, np.int32)
     rnk2idx = np.asarray(rnk2idx, np.int32)
