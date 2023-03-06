@@ -2,6 +2,19 @@ Development logs
 ======================
 We track the new development here:
 
+**Feb 26, 2023**
+
+.. code-block:: bash
+ 
+    1. add 6 EHR predictiom model: Adacare, Concare, Stagenet, TCN, Grasp, Agent
+
+**Feb 24, 2023**
+
+.. code-block:: bash
+ 
+    1. add unittest for omop dataset
+    2. add github action triggered manually, check #104
+
 **Feb 19, 2023**
 
 .. code-block:: bash
