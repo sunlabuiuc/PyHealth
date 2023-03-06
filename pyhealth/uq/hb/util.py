@@ -27,12 +27,6 @@ def bin_points(scores, bin_edges):
     return np.sum(scores > bin_edges, axis=1)
 
 
-def bin_points_uniform(x, n_bins):
-    x = x.squeeze()
-    bin_upper_edges = get_uniform_mass_bins(x, n_bins)
-    return np.sum(x.reshape((-1, 1)) > bin_upper_edges, axis=1)
-
-
 def nudge(matrix, delta):
     return ((matrix + np.random.uniform(low=0,
                                         high=delta,

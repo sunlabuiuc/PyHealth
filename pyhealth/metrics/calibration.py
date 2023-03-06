@@ -1,3 +1,31 @@
+"""Calibration metrics
+
+Papers:
+    
+    Lin, Zhen, Shubhendu Trivedi, and Jimeng Sun. 
+    "Taking a Step Back with KCal: Multi-Class Kernel-Based Calibration 
+    for Deep Neural Networks." 
+    ICLR 2023.
+
+    Nixon, Jeremy, Michael W. Dusenberry, Linchuan Zhang, Ghassen Jerfel, and Dustin Tran. 
+    "Measuring Calibration in Deep Learning." 
+    In CVPR workshops, vol. 2, no. 7. 2019.
+
+    Patel, Kanil, William Beluch, Bin Yang, Michael Pfeiffer, and Dan Zhang. 
+    "Multi-class uncertainty calibration via mutual information maximization-based binning." 
+    ICLR 2021.
+
+    Guo, Chuan, Geoff Pleiss, Yu Sun, and Kilian Q. Weinberger. 
+    "On calibration of modern neural networks." 
+    ICML 2017.
+
+    Kull, Meelis, Miquel Perello Nieto, Markus Kängsepp, Telmo Silva Filho,
+        Hao Song, and Peter Flach. 
+    "Beyond temperature scaling: Obtaining well-calibrated multi-class
+        probabilities with dirichlet calibration." 
+    Advances in neural information processing systems 32 (2019).
+    
+"""
 import bisect
 
 import numpy as np

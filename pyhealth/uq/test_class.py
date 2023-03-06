@@ -95,7 +95,7 @@ def get_get_trained_model_drug(dev=True, epochs=50, train_split=0.6, val_split=0
 
     # STEP 5: evaluate
     print(trainer.evaluate(test_dataloader))
-    
+
     return model
 
 
@@ -124,7 +124,7 @@ def get_trained_model_binary(dev=True, epochs=50, train_split=0.6, val_split=0.2
         epochs=epochs,
         monitor="roc_auc",
     )
-    
+
     return model
 
 
@@ -174,14 +174,14 @@ def get_trained_model_multiclass(dev=True, epochs=50, train_split=0.6, val_split
         epochs=epochs,
         monitor="accuracy",
     )
-    
+
     return model
 
 
 
 @ptd.persistf()
 def get_dataset(dev=True, train_split=0.6, val_split=0.2):
-    
+
     # step 1: load signal data
     dataset = ISRUCDataset(
         root="/srv/scratch1/data/ISRUC-I",
@@ -232,7 +232,7 @@ def get_get_trained_model(dev=True, epochs=10, train_split=0.6, val_split=0.2):
 
     # STEP 5: evaluate
     print(trainer.evaluate(test_dataloader))
-    
+
     return model
 
 def test_KCal(model, datasets, dev=False, split_by_patient=False, load_best_model_at_last=False, **kwargs):
@@ -253,7 +253,7 @@ def test_KCal(model, datasets, dev=False, split_by_patient=False, load_best_mode
         # best: {'accuracy': 0.7299511379942965, 'f1_macro': 0.674266314382974, 'f1_micro': 0.7299511379942965, 'brier_top1': 0.1640010064908008, 'ECE': 0.016736564971431108, 'ECE_adapt': 0.016472468704773945, 'cwECEt': 0.03285920705761686, 'cwECEt_adapt': 0.03276531069411252, 'loss': 0.7352885068813636}
 
     # cross-group training:
-        # last: {'accuracy': 0.7234301491290211, 'f1_macro': 0.6704747419823732, 'f1_micro': 0.7234301491290211, 'brier_top1': 0.16744656293673485, 'ECE': 0.014152077469427982, 'ECE_adapt': 0.013806219407609724, 'cwECEt': 0.03320402350861207, 'cwECEt_adapt': 0.033243825050117234, 'loss': 0.750489552379226} 
+        # last: {'accuracy': 0.7234301491290211, 'f1_macro': 0.6704747419823732, 'f1_micro': 0.7234301491290211, 'brier_top1': 0.16744656293673485, 'ECE': 0.014152077469427982, 'ECE_adapt': 0.013806219407609724, 'cwECEt': 0.03320402350861207, 'cwECEt_adapt': 0.033243825050117234, 'loss': 0.750489552379226}
         # best: {'accuracy': 0.7259913174577226, 'f1_macro': 0.6707387450082415, 'f1_micro': 0.7259913174577226, 'brier_top1': 0.16649657759376135, 'ECE': 0.013335821308244854, 'ECE_adapt': 0.013295454057411078, 'cwECEt': 0.03407399784974526, 'cwECEt_adapt': 0.03398056066755895, 'loss': 0.7413015165065893}
 
     # Untrained: {'accuracy': 0.7228125624398307, 'f1_macro': 0.6620750673184927, 'f1_micro': 0.7228125624398308, 'brier_top1': 0.16823867486854877, 'ECE': 0.0070479668872682425, 'ECE_adapt': 0.008330089265145252, 'cwECEt': 0.03842654176149014, 'cwECEt_adapt': 0.03817514330317887, 'loss': 0.7374457463807167}
@@ -271,14 +271,14 @@ def test_SCRIB(model, datasets, dev=False):
     cal_model.calibrate(cal_dataset=datasets['val'])
     test_dataloader = get_dataloader(datasets['test'], batch_size=32, shuffle=False)
     print(Trainer(model=cal_model, metrics=metrics[model.mode]).evaluate(test_dataloader))
-    
+
 def test_LABEL(model, datasets, dev=False):
     cal_model = uq.LABEL(model, 0.1, debug=dev)
     #cal_model = uq.LABEL(model, [0.1] * 5, debug=dev)
     cal_model.calibrate(cal_dataset=datasets['val'])
     test_dataloader = get_dataloader(datasets['test'], batch_size=32, shuffle=False)
     print(Trainer(model=cal_model, metrics=metrics[model.mode]).evaluate(test_dataloader))
-    
+
 
 def test_HB(model, datasets, dev=False, **kwargs):
     cal_model = uq.HistogramBinning(model, debug=dev)
@@ -302,8 +302,9 @@ if __name__ == '__main__':
         # {'accuracy': 0.4401496259351621, 'f1_macro': 0.2877082476835488, 'f1_micro': 0.4401496259351621, 'brier_top1': 0.19963319080703884, 'ECE': 0.02726052619045594, 'ECE_adapt': 0.026895376073073643, 'cwECEt': 0.01591851540294672, 'cwECEt_adapt': 0.017954394785340017, 'loss': 1.4853952246299689}
         #test_TemperatureScaling(model, datasets, dev)
         # {'accuracy': 0.44321015642711403, 'f1_macro': 0.30895310531080705, 'f1_micro': 0.44321015642711403, 'brier_top1': 0.20031940694168032, 'ECE': 0.01941438210818589, 'ECE_adapt': 0.02330048461162809, 'cwECEt': 0.022519317838478676, 'cwECEt_adapt': 0.02455287158864352, 'loss': 1.4698933535727903}
-        
-        test_HB(model, datasets, dev)
+        #test_SCRIB(model, datasets, dev)
+
+        #test_HB(model, datasets, dev)
         # sum
         # {'accuracy': 0.4407163908410791, 'f1_macro': 0.2640266353953583, 'f1_micro': 0.4407163908410791, 'brier_top1': 0.19667096873346457, 'ECE': 0.032893533392561666, 'ECE_adapt': 0.033776329521607494, 'cwECEt': 0.01616424215561377, 'cwECEt_adapt': 0.02126586349394122, 'loss': 1.4877435789592024}
         # None
@@ -315,7 +316,7 @@ if __name__ == '__main__':
         test_dataloader = get_dataloader(datasets['test'], batch_size=32, shuffle=False)
         print(Trainer(model=model, metrics=metrics[model.mode]).evaluate(test_dataloader))
         # Pre-calibrate: {'accuracy': 0.709843241966832, 'f1_macro': 0.6511024300262231, 'f1_micro': 0.709843241966832, 'brier_top1': 0.17428343458993806, 'ECE': 0.06710521236002231, 'ECE_adapt': 0.06692437927112259, 'cwECEt': 0.07640062884173958, 'cwECEt_adapt': 0.07623978359739776, 'loss': 0.7824779271569161}
-        
+
         #test_KCal(model, datasets, dev)
         #test_TemperatureScaling(model, datasets, dev)
         test_HB(model, datasets, dev)
@@ -327,7 +328,7 @@ if __name__ == '__main__':
         test_TemperatureScaling(model, datasets, dev)
         # {'pr_auc_samples': 0.761561145402367, 'cwECE': 0.028285707645770656, 'cwECE_adapt': 0.028208456076028652, 'loss': 0.2162835333454475}
         test_HB(model, datasets, dev)
-        # {'pr_auc_samples': 0.7571941712990254, 'cwECE': 0.011628713390838414, 'cwECE_adapt': 0.01729795687946442, 'loss': 0.223203511720293} 
+        # {'pr_auc_samples': 0.7571941712990254, 'cwECE': 0.011628713390838414, 'cwECE_adapt': 0.01729795687946442, 'loss': 0.223203511720293}
 
     if False: # binary
         _, datasets = get_dataset_mimic_binary(dev)

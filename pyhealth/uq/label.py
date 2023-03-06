@@ -96,8 +96,8 @@ class LABEL(SetPredictor):
 
         Returns:
             A dictionary with all results from the base model, with the following updates:
-                y_pred: a bool tensor representing the prediction for each class.
+                y_predset: a bool tensor representing the prediction for each class.
         """
         pred = self.model(**kwargs)
-        pred['y_pred'] = pred['y_prob'] > self.t
+        pred['y_predset'] = pred['y_prob'] > self.t
         return pred

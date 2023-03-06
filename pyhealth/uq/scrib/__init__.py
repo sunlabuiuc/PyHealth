@@ -23,8 +23,6 @@ CLASSPECIFIC_LOSSFUNC = 'classspec'
 
 __all__ = ['SCRIB']
 
-
-
 class _CoordDescent():
     def __init__(self, model_output, labels, rks,
                  loss_func=OVERALL_LOSSFUNC, loss_kwargs=None,
@@ -60,20 +58,20 @@ class _CoordDescent():
 
     def _search(self, ps):
         _search_fn = {
-            CLASSPECIFIC_LOSSFUNC: qs.main_coord_descent_class_specific,
-            OVERALL_LOSSFUNC: qs.main_coord_descent_overall
+            CLASSPECIFIC_LOSSFUNC: qs.coord_desc_classspecific,
+            OVERALL_LOSSFUNC: qs.coord_desc_overall
             }[self.loss_name]
         return _search_fn(self.idx2rnk, self.rnk2idx, self.labels, self.max_classes,
                           ps, self.rks, **self.loss_kwargs)
-    
+
     def _loss_eval(self, ps):
         _loss_fn = {
-            CLASSPECIFIC_LOSSFUNC: qs.loss_class_specific,
+            CLASSPECIFIC_LOSSFUNC: qs.loss_classspecific,
             OVERALL_LOSSFUNC: qs.loss_overall
             }[self.loss_name]
         return _loss_fn(self.idx2rnk, self.rnk2idx, self.labels, self.max_classes,
                         ps, self.rks, **self.loss_kwargs)
-        
+
     def _p2t(self, p):
         # Translate ranks to thresholds
         return [self.model_output[self.rnk2idx[p[k], k], k] for k in range(self.K)]
@@ -86,6 +84,9 @@ class _CoordDescent():
         return new_p
 
     def search_once(self, seed=7):
+        def print_(s):
+            if self.verbose:
+                print(s)
         np.random.seed(seed)
         best_ps = np.random.randint(*self.init_range, self.K)
 
@@ -103,19 +104,19 @@ class _CoordDescent():
                     new_ps_ = self._sample_new_loc(best_ps, self.restart_range)
                     loss_ = self._loss_eval(new_ps_)
                     if loss_ < best_loss:
-                        if self.verbose: 
-                            print("Neighborhood has a better loc with loss={} < {} ".format(loss_, best_loss))
+                        print_("Neighborhood has a better loc with "
+                               f"loss={loss_} < {best_loss}")
                         best_loss, best_ps, _ = self._search(new_ps_)
-                        
+
                         keep_going = True
                         break
                     elif loss_ < curr_restart_best_loss:
                         curr_restart_best_loss, curr_restart_best_ps = loss_, new_ps_
                 if not keep_going:
-                    if self.verbose: 
-                        print(f"Tried {curr_restart_best_ps} vs {best_ps}, loss:{curr_restart_best_loss} > {best_loss}")
+                    print_(f"Tried {curr_restart_best_ps} vs {best_ps}, "
+                            f"loss:{curr_restart_best_loss} > {best_loss}")
         ed2 = time.time()
-        if self.verbose: print(f"{ed1-st:.3f} + {ed2-ed1:.3f} seconds")
+        print_(f"{ed1-st:.3f} + {ed2-ed1:.3f} seconds")
         return self._p2t(best_ps), best_loss
 
     @classmethod
@@ -134,14 +135,14 @@ class _CoordDescent():
 
 class SCRIB(SetPredictor):
     """SCRIB: Set-classifier with Class-specific Risk Bounds
-    
+
     This is a prediction-set constructor for multi-class classification problems.
-    SCRIB tries to control class-specific risk while minimizing the ambiguity. 
+    SCRIB tries to control class-specific risk while minimizing the ambiguity.
     To to this, it selects class-specific thresholds for the predictions, on a calibration set.
 
 
-    Paper: Lin, Zhen, Lucas Glass, M. Brandon Westover, Cao Xiao, and Jimeng Sun. 
-        "SCRIB: Set-classifier with Class-specific Risk Bounds for Blackbox Models." 
+    Paper: Lin, Zhen, Lucas Glass, M. Brandon Westover, Cao Xiao, and Jimeng Sun.
+        "SCRIB: Set-classifier with Class-specific Risk Bounds for Blackbox Models."
         AAAI 2022.
 
     Args:
@@ -149,15 +150,15 @@ class SCRIB(SetPredictor):
         risk (Union[float, np.ndarray]): risk targets.
             If risk is a float (say 0.1), SCRIB controls the overall risk:
                 r(H) = P{Y not in H(X) | |H(X)| = 1}
-            If risk is an array (say `np.asarray([0.1] * 5)`), 
+            If risk is an array (say `np.asarray([0.1] * 5)`),
             SCRIB controls the class specific risks:
                 r_k(H) = P{k not in H(X) | |H(X)| = 1, Y = k}
-        loss_kwargs (dict, optional): Additional loss parameters (including hyperparameters). 
+        loss_kwargs (dict, optional): Additional loss parameters (including hyperparameters).
             It could contain the following float/int hyperparameters:
-                lk: The coefficient for the loss term associated with risk violation penalty. 
+                lk: The coefficient for the loss term associated with risk violation penalty.
                     The higher the lk, the more penalty on risk violation (likely higher ambiguity).
-                fill_max: Whether to fill the class with max predicted score 
-                    when no class exceeds the threshold. In other words, if fill_max, 
+                fill_max: Whether to fill the class with max predicted score
+                    when no class exceeds the threshold. In other words, if fill_max,
                     the null region will be filled with max-prediction class.
             Defaults to {'lk': 1e4, 'fill_max': False}
     Examples:
@@ -218,8 +219,8 @@ class SCRIB(SetPredictor):
 
         Returns:
             A dictionary with all results from the base model, with the following updates:
-                y_pred: a bool tensor representing the prediction for each class.
+                y_predset: a bool tensor representing the prediction for each class.
         """
         ret = self.model(**kwargs)
-        ret['y_pred'] = ret['y_prob'] > self.t
+        ret['y_predset'] = ret['y_prob'] > self.t
         return ret

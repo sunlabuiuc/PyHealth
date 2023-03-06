@@ -69,10 +69,10 @@ class HB_binary(object):
 
         # delta-randomization
         y_score = nudge(y_score, self.delta)
-        
+
         # assign test data to bins
         y_bins = bin_points(y_score, self.bin_upper_edges)
-            
+
         # get calibrated predicted probabilities
         y_pred_prob = self.mean_pred_values[y_bins]
         return y_pred_prob

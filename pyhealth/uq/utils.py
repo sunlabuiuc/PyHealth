@@ -1,5 +1,5 @@
 from collections import defaultdict
-from typing import Optional, Union
+from typing import Optional
 
 import numpy as np
 import torch
@@ -10,8 +10,10 @@ from pyhealth.datasets import utils as datautils
 
 
 def agg_loss(loss:torch.Tensor, reduction: str):
-    if reduction == 'mean': return loss.mean()
-    if reduction == 'sum': return loss.sum()
+    if reduction == 'mean':
+        return loss.mean()
+    if reduction == 'sum':
+        return loss.sum()
     return loss
 
 
@@ -21,8 +23,8 @@ def one_hot_np(labels, K):
     return new_labels
 
 class LogLoss(torch.nn.Module):
+    """Cross entropy, but takes in the probability instead of the logits"""
     reduction: str
-    #Cross entropy, but takes in the probability instead of the logits
     def __init__(self, weight: Optional[Tensor] = None,  ignore_index: int = -100, reduction: str = 'mean', clip=1e-10) -> None:
         super(LogLoss, self).__init__()
         self.register_buffer('weight', weight)
@@ -40,7 +42,7 @@ class LogLoss(torch.nn.Module):
             input = input * self.weight.unsqueeze(0)
         loss = torch.gather(input, -1, target.unsqueeze(-1)).squeeze(-1)
         return agg_loss(loss, self.reduction)
-    
+
 
 def prepare_numpy_dataset(model, dataset, keys, forward_kwargs=None,
                          incl_data_keys=None, debug=False, batch_size=32):

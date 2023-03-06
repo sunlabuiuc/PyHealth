@@ -84,7 +84,7 @@ class TemperatureScaling(PostHocCalibrator):
         """
         _cal_data = prepare_numpy_dataset(self.model, cal_dataset, 
                                           ['y_true', 'logit'], debug=self.debug)
-        
+
         if self.num_classes is None:
             self.num_classes = _cal_data['logit'].shape[1]
         if self.mode == 'multilabel' and mult_temp:

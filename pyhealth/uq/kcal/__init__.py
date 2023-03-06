@@ -6,7 +6,6 @@ Implementation based on https://github.com/zlin7/KCal
 """
 from typing import Dict
 
-import ipdb
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader, Subset
@@ -96,8 +95,6 @@ def _embed_dataset(model, dataset, record_id_name=None, debug=False, batch_size=
         'embed': ret['embed'], 
         'group': ret['patient_id']
     }
-    return {"labels": pd.Series(ret['y_true'], ret.get(record_id_name, None)),
-            'embed': ret['embed'], 'group': ret['patient_id']}
 
 class KCal(PostHocCalibrator):
     """Kernel-based Calibration. 
@@ -228,7 +225,8 @@ class KCal(PostHocCalibrator):
                 _cal_data['embed'], dtype=torch.float, device=self.device))
 
         # Choose bandwidth
-        self.kern.set_bandwidth(fit_bandwidth(group=_cal_data['group'], num_fold=num_fold, **self.cal_data))
+        self.kern.set_bandwidth(
+            fit_bandwidth(group=_cal_data['group'], num_fold=num_fold, **self.cal_data))
 
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:

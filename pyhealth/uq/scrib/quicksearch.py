@@ -1,3 +1,4 @@
+"""Wrapper for the coordinate descent ("QuickSearch")"""
 import numpy as np
 
 from pyhealth.uq.utils import one_hot_np
@@ -10,8 +11,8 @@ try:
 except:
     print("This is a warning of potentially slow compute. You could uncomment this line and use the Python implementation instead of Cython.")
 
-__all__ = ['loss_overall', 'loss_class_specific', 
-           'main_coord_descent_overall', 'main_coord_descent_class_specific']
+__all__ = ['loss_overall', 'loss_classspecific',
+           'coord_desc_overall', 'coord_desc_classspecific']
 
 def _thresholding_py(ts, output):
     pred = np.asarray(output > ts, dtype=np.int32)
@@ -30,7 +31,8 @@ def __loss_class_specific_complete_helper(err, sure, rs, weights, total_sure, N,
     a_loss = (1- total_sure / N)
     if sure.min() == 0: return np.inf
     tempf = err / sure
-    if rs is not None: tempf -= rs
+    if rs is not None:
+        tempf -= rs
     if weights is None:
         c_loss = np.power(tempf.clip(0, 1), 2).sum()
         cs_loss = np.power(tempf, 2).sum()
@@ -40,7 +42,8 @@ def __loss_class_specific_complete_helper(err, sure, rs, weights, total_sure, N,
     return a_loss * la + c_loss * lc + cs_loss * lcs
 
 def __update_cnts(pred, y, err, sure, inc=1):
-    if pred != y: err[y] += inc
+    if pred != y:
+        err[y] += inc
     sure[y] += inc
     return inc
 
@@ -73,15 +76,18 @@ def loss_class_specific_py(preds, labels, max_classes, risk, *, class_weights=Fa
         err += np.sum(labels[sure_msk & ~correct_msk], 0)
     if isinstance(class_weights, bool):
         if class_weights:
-            class_weights = np.asarray(np.unique(labels, return_counts=True)[1], dtype=np.float64) * K / float(N)
+            class_weights = np.asarray(
+                np.unique(labels, return_counts=True)[1], dtype=np.float64
+                ) * K / float(N)
         else:
             class_weights = None
     elif class_weights is not None:
         class_weights = np.asarray(class_weights)
-    return __loss_class_specific_complete_helper(err, sure, risk, class_weights, total_sure, N, la=1, lc=lk, lcs=0)
+    return __loss_class_specific_complete_helper(
+        err, sure, risk, class_weights, total_sure, N, la=1, lc=lk, lcs=0)
 
 
-def search_full_class_specific_py(mo, rnkscores_or_maxclasses, scores_idx, labels, alphas, class_weights, ps, d, *, 
+def search_full_class_specific_py(mo, rnkscores_or_maxclasses, scores_idx, labels, alphas, class_weights, ps, d, *,
                                   lk=1e4, fill_max=False):
     # d is dimesion to search/descend
     N,K = mo.shape
@@ -124,13 +130,14 @@ def search_full_class_specific_py(mo, rnkscores_or_maxclasses, scores_idx, label
             if fill_max and cnt[i] == 1:
                 total_sure += __update_cnts(max_classes[i], yi, err, sure, 1)
         cnt[i] -= 1
-        curr_loss = __loss_class_specific_complete_helper(err, sure, alphas, class_weights, total_sure, N, la=1, lc=lk, lcs=0)
+        curr_loss = __loss_class_specific_complete_helper(
+            err, sure, alphas, class_weights, total_sure, N, la=1, lc=lk, lcs=0)
         if curr_loss < best_loss:
             best_i, best_loss = ijjj, curr_loss
     return best_i, best_loss
 
 
-def search_full_overall_py(mo, rnkscores_or_maxclasses, scores_idx, labels, alpha, ps, d, *, 
+def search_full_overall_py(mo, rnkscores_or_maxclasses, scores_idx, labels, alpha, ps, d, *,
                            lk=1e4, fill_max=False):
     N,K = mo.shape
     ps = ps.copy()
@@ -153,7 +160,8 @@ def search_full_overall_py(mo, rnkscores_or_maxclasses, scores_idx, labels, alph
             total_err += 1 - preds[ii, yii]
         if cnt[ii] == 0 and fill_max:
             total_sure += 1
-            if max_classes[ii] != yii: total_err += 1
+            if max_classes[ii] != yii:
+                total_err += 1
     best_i, best_loss = -1, np.inf
 
     for ijjj in range(N-1):
@@ -167,11 +175,13 @@ def search_full_overall_py(mo, rnkscores_or_maxclasses, scores_idx, labels, alph
                 total_err += 1
             total_sure += 1
         elif cnt[i] == 1: #Sure -> unsure. Also, this cnt has to be class d
-            if d != yi: total_err -= 1
+            if d != yi:
+                total_err -= 1
             total_sure -= 1
             if fill_max:
                 total_sure += 1
-                if max_classes[i] != yi: total_err += 1
+                if max_classes[i] != yi:
+                    total_err += 1
         else: #Do nothing as we have an unsure -> unsure case
             pass
         cnt[i] -= 1
@@ -182,7 +192,7 @@ def search_full_overall_py(mo, rnkscores_or_maxclasses, scores_idx, labels, alph
             best_i, best_loss = ijjj, curr_loss
     return best_i, best_loss
 
-def naive_coord_descnet_class_specific_py(mo, rnkscores_or_maxclasses, scores_idx, labels, ps, alphas, *,
+def coord_desc_classspecific_py(mo, rnkscores_or_maxclasses, scores_idx, labels, ps, alphas, *,
                                           class_weights=False, lk=1e4, fill_max=False):
     N, K = mo.shape
     best_loss, ps = np.inf, ps.copy()
@@ -200,7 +210,9 @@ def naive_coord_descnet_class_specific_py(mo, rnkscores_or_maxclasses, scores_id
         curr_ps = np.zeros(K)
         best_ki, curr_loss = None, best_loss
         for ki in range(K):
-            curr_ps[ki], temp_loss = search_full_class_specific_py(mo, rnkscores_or_maxclasses, scores_idx, labels, alphas, weights, ps, ki, lk=lk, fill_max=fill_max)
+            curr_ps[ki], temp_loss = search_full_class_specific_py(
+                mo, rnkscores_or_maxclasses, scores_idx, labels, alphas, weights, ps, ki,
+                lk=lk, fill_max=fill_max)
             if temp_loss < curr_loss:
                 best_ki, curr_loss = ki, temp_loss
         if curr_loss < best_loss:
@@ -211,7 +223,7 @@ def naive_coord_descnet_class_specific_py(mo, rnkscores_or_maxclasses, scores_id
     return best_loss, ps
 
 
-def naive_coord_descnet_overall_py(mo, rnkscores_or_maxclasses, scores_idx, labels, ps, alpha, *,
+def coord_desc_overall_py(mo, rnkscores_or_maxclasses, scores_idx, labels, ps, alpha, *,
                                    lk=1e4, fill_max=False):
     N, K = mo.shape
     best_loss, ps = np.inf, ps.copy()
@@ -222,7 +234,9 @@ def naive_coord_descnet_overall_py(mo, rnkscores_or_maxclasses, scores_idx, labe
         curr_ps = np.zeros(K)
         best_ki, curr_loss = None, best_loss
         for ki in range(K):
-            curr_ps[ki], temp_loss = search_full_overall_py(mo, rnkscores_or_maxclasses, scores_idx, labels, alpha, ps, ki, lk=lk, fill_max=fill_max)
+            curr_ps[ki], temp_loss = search_full_overall_py(
+                mo, rnkscores_or_maxclasses, scores_idx, labels, alpha, ps, ki,
+                lk=lk, fill_max=fill_max)
             if temp_loss < curr_loss:
                 best_ki, curr_loss = ki, temp_loss
         if curr_loss < best_loss:
@@ -232,63 +246,77 @@ def naive_coord_descnet_overall_py(mo, rnkscores_or_maxclasses, scores_idx, labe
             keep_going = False
     return best_loss, ps
 
-
 def loss_overall(idx2rnk, rnk2idx, labels, max_classes, ps, r, *,
                  lk=1e4, fill_max=False):
     if not _CYTHON_ENABLED:
         preds = np.asarray(idx2rnk > ps, np.int32)
-        return loss_overall_py(preds, one_hot_np(labels, idx2rnk.shape[1]), max_classes, r, lk=lk, fill_max=fill_max)
+        return loss_overall_py(
+            preds, one_hot_np(labels, idx2rnk.shape[1]), max_classes, r,
+            lk=lk, fill_max=fill_max)
     idx2rnk = np.asarray(idx2rnk, np.int32)
     rnk2idx = np.asarray(rnk2idx, np.int32)
     labels = np.asarray(labels, np.int32)
     max_classes = np.asarray(max_classes, np.int32)
     ps = np.asarray(ps, np.int32)
-    return cdc.loss_overall_q_(idx2rnk, rnk2idx, labels, max_classes, ps, r, la=1, lc=lk, lcs=0, fill_max=fill_max)
+    return cdc.loss_overall_c(
+        idx2rnk, rnk2idx, labels, max_classes, ps, r,
+        la=1, lc=lk, lcs=0, fill_max=fill_max)
 
-def loss_class_specific(idx2rnk, rnk2idx, labels, max_classes, ps, rks, *, 
+def loss_classspecific(idx2rnk, rnk2idx, labels, max_classes, ps, rks, *,
                         class_weights=None, lk=1e4, fill_max=False):
     if not _CYTHON_ENABLED:
         preds = np.asarray(idx2rnk > ps, np.int32)
-        return loss_class_specific_py(preds, one_hot_np(labels, idx2rnk.shape[1]), max_classes, rks,
-                                      class_weights=class_weights, lk=lk, fill_max=fill_max)
+        return loss_class_specific_py(
+            preds, one_hot_np(labels, idx2rnk.shape[1]), max_classes, rks,
+            class_weights=class_weights, lk=lk, fill_max=fill_max)
     idx2rnk = np.asarray(idx2rnk, np.int32)
     rnk2idx = np.asarray(rnk2idx, np.int32)
     labels = np.asarray(labels, np.int32)
     max_classes = np.asarray(max_classes, np.int32)
     ps = np.asarray(ps, np.int32)
-    if class_weights is not None: class_weights = np.asarray(class_weights, np.float64)
-    if rks is not None: rks = np.asarray(rks, np.float64)
-    return cdc.loss_class_specific_q_(idx2rnk, rnk2idx, labels, max_classes, ps, rks, class_weights, la=1, lc=lk, lcs=0, fill_max=fill_max)
+    if class_weights is not None:
+        class_weights = np.asarray(class_weights, np.float64)
+    if rks is not None:
+        rks = np.asarray(rks, np.float64)
+    return cdc.loss_class_specific_c(
+        idx2rnk, rnk2idx, labels, max_classes, ps, rks,
+        class_weights, la=1, lc=lk, lcs=0, fill_max=fill_max)
 
-def main_coord_descent_overall(idx2rnk, rnk2idx, labels, max_classes, init_ps, r, *,
+def coord_desc_overall(idx2rnk, rnk2idx, labels, max_classes, init_ps, r, *,
                                max_step_size=None, lk=1e4, fill_max=False):
     if not _CYTHON_ENABLED:
         assert max_step_size is None
-        return naive_coord_descnet_overall_py(idx2rnk, max_classes, rnk2idx, labels, init_ps, r,
-                                              lk=lk, fill_max=fill_max)
+        return coord_desc_overall_py(
+            idx2rnk, max_classes, rnk2idx, labels, init_ps, r,
+            lk=lk, fill_max=fill_max)
     idx2rnk = np.asarray(idx2rnk, np.int32)
     rnk2idx = np.asarray(rnk2idx, np.int32)
     labels = np.asarray(labels, np.int32)
     max_classes = np.asarray(max_classes, np.int32)
     init_ps = np.asarray(init_ps, np.int32)
-    return cdc.main_coord_descent_overall_(idx2rnk, rnk2idx, labels, max_classes, init_ps, r,
-                                           max_step_size, la=1, lc=lk, lcs=0, fill_max=fill_max)
+    return cdc.coord_desc_overall_c(
+        idx2rnk, rnk2idx, labels, max_classes, init_ps, r,
+        max_step_size, la=1, lc=lk, lcs=0, fill_max=fill_max)
 
 
-def main_coord_descent_class_specific(idx2rnk, rnk2idx, labels, max_classes, init_ps, rks, *,
+def coord_desc_classspecific(idx2rnk, rnk2idx, labels, max_classes, init_ps, rks, *,
                                       class_weights=None,
                                       max_step_size=None, lk=1e4, fill_max=False):
     if not _CYTHON_ENABLED:
         assert max_step_size is None
-        return naive_coord_descnet_class_specific_py(idx2rnk, max_classes, rnk2idx, labels, init_ps, rks,
-                                                     class_weights=class_weights, lk=lk, fill_max=fill_max)
+        return coord_desc_classspecific_py(
+            idx2rnk, max_classes, rnk2idx, labels, init_ps, rks,
+            class_weights=class_weights, lk=lk, fill_max=fill_max)
     idx2rnk = np.asarray(idx2rnk, np.int32)
     rnk2idx = np.asarray(rnk2idx, np.int32)
     labels = np.asarray(labels, np.int32)
     max_classes = np.asarray(max_classes, np.int32)
     init_ps = np.asarray(init_ps, np.int32)
-    if class_weights is not None: class_weights = np.asarray(class_weights, np.float64)
-    if rks is not None: rks = np.asarray(rks, np.float64)
-    return cdc.main_coord_descent_class_specific_(idx2rnk, rnk2idx, labels, max_classes, init_ps, rks,
-                                                  class_weights, max_step_size, la=1, lc=lk, lcs=0, fill_max=fill_max)
+    if class_weights is not None:
+        class_weights = np.asarray(class_weights, np.float64)
+    if rks is not None:
+        rks = np.asarray(rks, np.float64)
+    return cdc.coord_desc_classspecific_c(
+        idx2rnk, rnk2idx, labels, max_classes, init_ps, rks,
+        class_weights, max_step_size, la=1, lc=lk, lcs=0, fill_max=fill_max)
 

@@ -327,13 +327,13 @@ cdef (int, double) main_coord_descent_overall__(np.ndarray[DTYPE_int_t, ndim=2] 
 #=============================Python Interfaces
 #https://stackoverflow.com/questions/552744/how-do-i-profile-memory-usage-in-python
 
-cpdef double loss_overall_q_(idx2rnk, rnk2idx, labels, max_classes, ps, alpha, la=1, lc=1e4, lcs=0, fill_max=False):
+cpdef double loss_overall_c(idx2rnk, rnk2idx, labels, max_classes, ps, alpha, la=1, lc=1e4, lcs=0, fill_max=False):
     #Can't do np.asarray as it creates memory leak on Windows (not on Ubuntu for some reason...)
     cdef loss_ = loss_overall_q__(idx2rnk, rnk2idx, labels, max_classes, ps,
                                   float(alpha), float(la), float(lc), float(lcs), int(fill_max))
     return loss_
 
-cpdef double loss_class_specific_q_(idx2rnk, rnk2idx, labels, max_classes, ps, rks, class_weights=None,
+cpdef double loss_class_specific_c(idx2rnk, rnk2idx, labels, max_classes, ps, rks, class_weights=None,
                              la=1, lc=1e4, lcs=0, fill_max=False):
     #Checks
     cdef int N = idx2rnk.shape[0], K = idx2rnk.shape[1]
@@ -378,7 +378,7 @@ def search_full_overall(idx2rnk, rnk2idx, labels, max_classes, ps, k, r, la=1, l
                                  k, 0, -1, r, la, lc, lcs, int(fill_max))
 
 
-cpdef main_coord_descent_class_specific_(idx2rnk, rnk2idx, labels, max_classes, init_ps, rks,
+cpdef coord_desc_classspecific_c(idx2rnk, rnk2idx, labels, max_classes, init_ps, rks,
                                          class_weights=None, max_step=None, la=1, lc=1e4, lcs=0,
                                          fill_max=False):
     #Checks
@@ -388,7 +388,6 @@ cpdef main_coord_descent_class_specific_(idx2rnk, rnk2idx, labels, max_classes, 
     assert len(init_ps.shape) == 1, "init_ps"
     assert not isinstance(class_weights, bool), "class_weights cannot be bool now."
     cdef int[::1] new_ps = np.asarray(init_ps.copy(), np.int32)
-    #print(init_ps)
 
     #clean classes
     cdef double[::1] weights_
@@ -413,7 +412,7 @@ cpdef main_coord_descent_class_specific_(idx2rnk, rnk2idx, labels, max_classes, 
 
 
 
-cpdef main_coord_descent_overall_(idx2rnk, rnk2idx, labels, max_classes, init_ps, r,
+cpdef coord_desc_overall_c(idx2rnk, rnk2idx, labels, max_classes, init_ps, r,
                                   max_step=None, la=1, lc=1e4, lcs=0,
                                   fill_max=False):
     #Checks
