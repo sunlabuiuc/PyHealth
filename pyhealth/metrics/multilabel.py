@@ -46,6 +46,8 @@ def multilabel_metrics_fn(
         - jaccard_weighted: Jaccard similarity coefficient score, weighted averaged
         - jaccard_samples: Jaccard similarity coefficient score, samples averaged
         - hamming_loss: Hamming loss
+        - cwECE: classwise ECE (with 20 equal-width bins)
+        - cwECE_adapt: classwise adaptive ECE (with 20 equal-size bins)
     If no metrics are specified, pr_auc_samples is computed by default.
 
     This function calls sklearn.metrics functions to compute the metrics. For
@@ -193,7 +195,8 @@ def multilabel_metrics_fn(
             hamming_loss = sklearn_metrics.hamming_loss(y_true, y_pred)
             output["hamming_loss"] = hamming_loss
         elif metric in {'cwECE', 'cwECE_adapt'}:
-            output[metric] = calib.ECE_classwise(y_prob, y_true, bins=20, adaptive=metric.endswith("_adapt"), threshold=0.)
+            output[metric] = calib.ECE_classwise(
+                y_prob, y_true, bins=20, adaptive=metric.endswith("_adapt"), threshold=0.)
         else:
             raise ValueError(f"Unknown metric for multilabel classification: {metric}")
 

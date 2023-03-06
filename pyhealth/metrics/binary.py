@@ -26,6 +26,8 @@ def binary_metrics_fn(
         - recall: recall score
         - cohen_kappa: Cohen's kappa score
         - jaccard: Jaccard similarity coefficient score
+        - ECE: Expected Calibration Error (with 20 equal-width bins)
+        - ECE_adapt: adaptive ECE (with 20 equal-size bins)
     If no metrics are specified, pr_auc, roc_auc and f1 are computed by default.
 
     This function calls sklearn.metrics functions to compute the metrics. For
@@ -86,7 +88,8 @@ def binary_metrics_fn(
             jaccard = sklearn_metrics.jaccard_score(y_true, y_pred)
             output["jaccard"] = jaccard
         elif metric in {'ECE', 'ECE_adapt'}:
-            output[metric] = calib.ECE_confidence_binary(y_prob, y_true, bins=20, adaptive=metric.endswith("_adapt"))
+            output[metric] = calib.ECE_confidence_binary(
+                y_prob, y_true, bins=20, adaptive=metric.endswith("_adapt"))
         else:
             raise ValueError(f"Unknown metric for binary classification: {metric}")
     return output

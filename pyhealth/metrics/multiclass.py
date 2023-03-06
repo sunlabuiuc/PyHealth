@@ -34,6 +34,11 @@ def multiclass_metrics_fn(
         - jaccard_macro: Jaccard similarity coefficient score, macro averaged
         - jaccard_weighted: Jaccard similarity coefficient score, weighted averaged
         - cohen_kappa: Cohen's kappa score
+        - brier_top1: brier score between the top prediction and the true label
+        - ECE: Expected Calibration Error (with 20 equal-width bins)
+        - ECE_adapt: adaptive ECE (with 20 equal-size bins)
+        - cwECEt: classwise ECE with threshold=min(0.01,1/K)
+        - cwECEt_adapt: classwise adaptive ECE with threshold=min(0.01,1/K)
     If no metrics are specified, accuracy, f1_macro, and f1_micro are computed
     by default.
 
@@ -124,10 +129,12 @@ def multiclass_metrics_fn(
         elif metric == 'brier_top1':
             output[metric] = calib.brier_top1(y_prob, y_true)
         elif metric in {'ECE', 'ECE_adapt'}:
-            output[metric] = calib.ECE_confidence_multiclass(y_prob, y_true, bins=20, adaptive=metric.endswith("_adapt"))
+            output[metric] = calib.ECE_confidence_multiclass(
+                y_prob, y_true, bins=20, adaptive=metric.endswith("_adapt"))
         elif metric in {'cwECEt', 'cwECEt_adapt'}:
             thres = min(0.01, 1./y_prob.shape[1])
-            output[metric] = calib.ECE_classwise(y_prob, y_true, bins=20, adaptive=metric.endswith("_adapt"), threshold=thres)
+            output[metric] = calib.ECE_classwise(
+                y_prob, y_true, bins=20, adaptive=metric.endswith("_adapt"), threshold=thres)
         else:
             raise ValueError(f"Unknown metric for multiclass classification: {metric}")
 
