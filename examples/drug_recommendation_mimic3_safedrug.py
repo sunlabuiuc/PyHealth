@@ -1,6 +1,6 @@
 from pyhealth.datasets import MIMIC3Dataset
 from pyhealth.datasets import split_by_patient, get_dataloader
-from pyhealth.models import GAMENet
+from pyhealth.models import SafeDrug
 from pyhealth.tasks import drug_recommendation_mimic3_fn
 from pyhealth.trainer import Trainer
 
@@ -10,7 +10,7 @@ base_dataset = MIMIC3Dataset(
     tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
     code_mapping={"NDC": ("ATC", {"target_kwargs": {"level": 3}})},
     dev=False,
-    refresh_cache=False,
+    refresh_cache=True,
 )
 base_dataset.stat()
 
@@ -26,7 +26,7 @@ val_dataloader = get_dataloader(val_dataset, batch_size=32, shuffle=False)
 test_dataloader = get_dataloader(test_dataset, batch_size=32, shuffle=False)
 
 # STEP 3: define model
-model = GAMENet(
+model = SafeDrug(
     sample_dataset,
     feature_keys=["conditions", "procedures"],
     label_key="drugs",
@@ -38,7 +38,7 @@ trainer = Trainer(model=model)
 trainer.train(
     train_dataloader=train_dataloader,
     val_dataloader=val_dataloader,
-    epochs=5,
+    epochs=50,
     monitor="pr_auc_samples",
 )
 
