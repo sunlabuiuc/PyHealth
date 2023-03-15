@@ -2,8 +2,8 @@
 LABEL: Least ambiguous set-valued classifiers with bounded error levels.
 
 From:
-    Sadinle, Mauricio, Jing Lei, and Larry Wasserman. 
-    "Least ambiguous set-valued classifiers with bounded error levels." 
+    Sadinle, Mauricio, Jing Lei, and Larry Wasserman.
+    "Least ambiguous set-valued classifiers with bounded error levels."
     Journal of the American Statistical Association 114, no. 525 (2019): 223-234.
 
 """
@@ -13,9 +13,9 @@ from typing import Dict, Union
 import numpy as np
 import torch
 
+from pyhealth.calib.base_classes import SetPredictor
+from pyhealth.calib.utils import prepare_numpy_dataset
 from pyhealth.models import BaseModel
-from pyhealth.uq.base_classes import SetPredictor
-from pyhealth.uq.utils import prepare_numpy_dataset
 
 __all__ = ['LABEL']
 
@@ -27,14 +27,14 @@ def _query_quantile(scores, alpha):
 
 class LABEL(SetPredictor):
     """LABEL: Least ambiguous set-valued classifiers with bounded error levels.
-    
+
     This is a prediction-set constructor for multi-class classification problems.
     It controls either P{Y in C(X) | Y = k}  for each class k, or P{Y in C(X)} overall.
     Here, C(X) denotes the final prediction set.
     This is essentially a split conformal prediction method using the predicted scores.
 
-    Paper: Sadinle, Mauricio, Jing Lei, and Larry Wasserman. 
-        "Least ambiguous set-valued classifiers with bounded error levels." 
+    Paper: Sadinle, Mauricio, Jing Lei, and Larry Wasserman.
+        "Least ambiguous set-valued classifiers with bounded error levels."
         Journal of the American Statistical Association 114, no. 525 (2019): 223-234.
 
     Args:

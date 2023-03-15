@@ -2,7 +2,7 @@ from typing import Union
 
 import torch
 
-from pyhealth.uq.utils import LogLoss
+from pyhealth.calib.utils import LogLoss
 
 _MAX_KERNEL_VALUE = 1.
 
@@ -15,7 +15,8 @@ class RBFKernelMean(torch.nn.Module):
     def forward(self, x, x1=None):
         #if x1 is None: return 1
         _, dim = x.shape
-        if x1 is None: x1 = x
+        if x1 is None:
+            x1 = x
         d = torch.pow(torch.cdist(x,x1,2), 2) / (-dim * self.h)
         return torch.exp(d)
     def set_bandwidth(self, h: Union[int, float]):
@@ -26,41 +27,42 @@ class RBFKernelMean(torch.nn.Module):
 
 def KDE_classification(X: torch.Tensor, Y: torch.Tensor, kern:RBFKernelMean=None, X_pred: torch.Tensor=None,
                        weights: Union[torch.Tensor, float, int]=1., min_eps:float=1e-10, drop_max:bool=False):
-    """KDE classifier. 
+    """KDE classifier.
     We will be using X and Y to estimate the density for each of the K classes.
-    kern is the kernel. X_pred is the data to predict. 
+    kern is the kernel. X_pred is the data to predict.
 
     Args:
-        X (torch.Tensor): Data of shape (N, d) 
+        X (torch.Tensor): Data of shape (N, d)
         Y (torch.Tensor): One-hot label of shape (N, K)
-        kern (RBFKernelMean, optional): kernel. 
+        kern (RBFKernelMean, optional): kernel.
             Defaults to None (a RBFKernelMean of bandwidth=1).
-        X_pred (torch.Tensor, optional): Data to predict. 
+        X_pred (torch.Tensor, optional): Data to predict.
             Defaults to None, which means we will perform leave-one-out prediction.
-        weights (Union[torch.Tensor, float, int], optional): Weights on each data in X. 
+        weights (Union[torch.Tensor, float, int], optional): Weights on each data in X.
             Defaults to 1.
-        drop_max (bool, optional): Whether to ignore x where K(x_0, x) = 1. 
+        drop_max (bool, optional): Whether to ignore x where K(x_0, x) = 1.
             This typically means x is just x_0.
-            Defaults to False. 
-            If you know there are overlap between X and X_pred, you could 
-            set this to True for convenience. 
+            Defaults to False.
+            If you know there are overlap between X and X_pred, you could
+            set this to True for convenience.
             Note that if X_pred=None (LOO) this is automatically set to True.
 
     Returns:
         torch.Tensor: Probability predictions for X_pred.
     """
-    if kern is None: 
+    if kern is None:
         kern = RBFKernelMean(h=1.)
     #Y is a one-hot representation
     if X_pred is None:
         Kijs = kern(X, X)
         drop_max = True
     else:
-        if len(X_pred.shape) == 1: X_pred = X_pred.unsqueeze(0)
+        if len(X_pred.shape) == 1:
+            X_pred = X_pred.unsqueeze(0)
         Kijs = kern(X_pred, X)
     if drop_max:
         Kijs = torch.where(
-                Kijs < _MAX_KERNEL_VALUE-min_eps, 
+                Kijs < _MAX_KERNEL_VALUE-min_eps,
                 Kijs,
                 torch.zeros((), device=Kijs.device, dtype=Kijs.dtype)
                 )

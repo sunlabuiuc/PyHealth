@@ -41,6 +41,17 @@ def multiclass_metrics_fn(
         - ECE_adapt: adaptive ECE (with 20 equal-size bins)
         - cwECEt: classwise ECE with threshold=min(0.01,1/K)
         - cwECEt_adapt: classwise adaptive ECE with threshold=min(0.01,1/K)
+    The following metrics related to the prediction sets are accepted as well, but
+        will be ignored if y_predset is None:
+        - rejection_rate: Frequency of rejection, where rejection happens
+            then the prediction set has cardinality other than 1
+        - set_size: Average size of the prediction sets.
+        - missrate_mean: The average (across different classes k) of P(k not in prediction set)
+        - missrate_overall: P(Y not in prediction set)
+        - missrate_mean_certain: Same as missrate_mean, but retricted to un-rejected samples
+        - missrate_overall_certain: Same as missrate_overall, but restricted to un-rejected samples.
+            This could be understood as accuracy for non-rejected (i.e. certain) samples.
+
     If no metrics are specified, accuracy, f1_macro, and f1_micro are computed
     by default.
 
@@ -147,14 +158,10 @@ def multiclass_metrics_fn(
                 output[metric] = pset.rejection_rate(y_predset)
             elif metric == 'set_size':
                 output[metric] = pset.size(y_predset)
-            elif metric == 'missrate_max':
-                output[metric] = pset.missrate(y_predset, y_true).max()
             elif metric == 'missrate_mean':
                 output[metric] = pset.missrate(y_predset, y_true).mean()
             elif metric == 'missrate_overall':
                 output[metric] = pset.missrate_overall(y_predset, y_true)
-            elif metric == 'missrate_max_certain':
-                output[metric] = pset.missrate_certain(y_predset, y_true).max()
             elif metric == 'missrate_mean_certain':
                 output[metric] = pset.missrate_certain(y_predset, y_true).mean()
             elif metric == 'missrate_overall_certain':

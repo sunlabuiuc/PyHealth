@@ -12,9 +12,9 @@ import numpy as np
 import pandas as pd
 import torch
 
+from pyhealth.calib.base_classes import SetPredictor
+from pyhealth.calib.utils import prepare_numpy_dataset
 from pyhealth.models import BaseModel
-from pyhealth.uq.base_classes import SetPredictor
-from pyhealth.uq.utils import prepare_numpy_dataset
 
 from . import quicksearch as qs
 

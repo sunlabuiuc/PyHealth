@@ -1,11 +1,12 @@
 """Wrapper for the coordinate descent ("QuickSearch")"""
 import numpy as np
 
-from pyhealth.uq.utils import one_hot_np
+from pyhealth.calib.utils import one_hot_np
 
 _CYTHON_ENABLED = False
 try:
-    import pyximport; pyximport.install()
+    import pyximport
+    pyximport.install()
     from . import quicksearch_cython as cdc
     _CYTHON_ENABLED = True
 except:
@@ -28,7 +29,7 @@ def __loss_overall_helper(total_err, total_sure, alpha, N, la, lc, lcs):
     return loss
 
 def __loss_class_specific_complete_helper(err, sure, rs, weights, total_sure, N, la, lc, lcs):
-    a_loss = (1- total_sure / N)
+    a_loss = 1- total_sure / N
     if sure.min() == 0: return np.inf
     tempf = err / sure
     if rs is not None:
@@ -319,4 +320,3 @@ def coord_desc_classspecific(idx2rnk, rnk2idx, labels, max_classes, init_ps, rks
     return cdc.coord_desc_classspecific_c(
         idx2rnk, rnk2idx, labels, max_classes, init_ps, rks,
         class_weights, max_step_size, la=1, lc=lk, lcs=0, fill_max=fill_max)
-

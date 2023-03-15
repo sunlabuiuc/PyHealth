@@ -4,7 +4,7 @@ import torch
 import tqdm
 from sklearn.model_selection import GroupKFold, KFold
 
-from pyhealth.uq.utils import LogLoss
+from pyhealth.calib.utils import LogLoss
 
 from .kde import KDE_classification, RBFKernelMean
 
@@ -73,11 +73,11 @@ def fit_bandwidth(X:torch.Tensor, Y:torch.Tensor, group=None, *,
     Args:
         X (torch.Tensor): embeddings
         Y (torch.Tensor): one-hot target
-        groups (List[str,int,...], optional): groups to observe during the cross-validation. 
+        groups (List[str,int,...], optional): groups to observe during the cross-validation.
             Defaults to None.
-        kern (RBFKernelMean, optional): kernel object. 
+        kern (RBFKernelMean, optional): kernel object.
             Defaults to None.
-        num_fold (int, optional): number of folds for cross-validation. 
+        num_fold (int, optional): number of folds for cross-validation.
             Defaults to np.inf, which means leave-one-out cross-validation.
         lb (float, optional): lower-bound of the search range. Defaults to 1e-1.
         ub (float, optional): upper-bound of the search range. Defaults to 1e1.
@@ -90,12 +90,12 @@ def fit_bandwidth(X:torch.Tensor, Y:torch.Tensor, group=None, *,
     if kern is None:
         kern = RBFKernelMean()
     base_h = kern.get_bandwidth()
-    
+
     num_fold = min(num_fold, len(Y))
     if group is not None:
         num_fold = min(num_fold, len(set(group)))
     print(f"Using {num_fold}-folds")
-        
+
     def eval_loss(h):
         kern.set_bandwidth(h)
         if group is None:
@@ -107,6 +107,6 @@ def fit_bandwidth(X:torch.Tensor, Y:torch.Tensor, group=None, *,
             preds.append(KDE_classification(X[_supp], Y[_supp], kern, X[_pred]))
             y_true.append(Y[_pred].argmax(1))
         return loss_func(torch.cat(preds, 0), torch.cat(y_true, 0)).item()
-    h, o = GoldenSectionBoundedSearch.search(eval_loss, lb * base_h, ub * base_h)
+    h, _ = GoldenSectionBoundedSearch.search(eval_loss, lb * base_h, ub * base_h)
     kern.set_bandwidth(base_h)
     return h

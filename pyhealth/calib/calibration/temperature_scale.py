@@ -9,30 +9,30 @@ from typing import Dict
 import torch
 from torch import optim
 
+from pyhealth.calib.base_classes import PostHocCalibrator
+from pyhealth.calib.utils import prepare_numpy_dataset
 from pyhealth.models import BaseModel
-from pyhealth.uq.base_classes import PostHocCalibrator
-from pyhealth.uq.utils import prepare_numpy_dataset
 
 __all__ = ['TemperatureScaling']
 
 class TemperatureScaling(PostHocCalibrator):
-    """Temperature Scaling 
+    """Temperature Scaling
 
-    Temprature scaling refers to scaling the logits by a "temprature" tuned 
+    Temprature scaling refers to scaling the logits by a "temprature" tuned
     on the calibration set. For binary classification tasks, this amounts to
     Platt scaling. For multilabel classification, users can use one temperature
-    for all classes, or one for each. For multiclass classification, this is 
-    a *confidence* calibration method: It tries to calibrate the predicted 
-    class' predicted probability. 
+    for all classes, or one for each. For multiclass classification, this is
+    a *confidence* calibration method: It tries to calibrate the predicted
+    class' predicted probability.
 
 
-    Paper: 
-        [1] Guo, Chuan, Geoff Pleiss, Yu Sun, and Kilian Q. Weinberger. 
+    Paper:
+        [1] Guo, Chuan, Geoff Pleiss, Yu Sun, and Kilian Q. Weinberger.
         "On calibration of modern neural networks." ICML 2017.
-        
-        [2] Platt, John. 
-        "Probabilistic outputs for support vector machines and 
-        comparisons to regularized likelihood methods." 
+
+        [2] Platt, John.
+        "Probabilistic outputs for support vector machines and
+        comparisons to regularized likelihood methods."
         Advances in large margin classifiers 10, no. 3 (1999): 61-74.
 
     Args:
@@ -70,25 +70,25 @@ class TemperatureScaling(PostHocCalibrator):
             1.5, dtype=torch.float32, device=self.device, requires_grad=True)
 
     def calibrate(self, cal_dataset, lr=0.01, max_iter=50, mult_temp=False):
-        """calibrate self.model using cal_dataset. 
+        """calibrate self.model using cal_dataset.
 
         Args:
             cal_dataset (_type_): _description_
             lr (float, optional): learning rate. Defaults to 0.01.
             max_iter (int, optional): maximum numerb of iterations. Defaults to 50.
-            mult_temp (bool): if mult_temp and mode='multilabel', 
+            mult_temp (bool): if mult_temp and mode='multilabel',
                 use one temperature for each class.
 
         Returns:
             None
         """
-        _cal_data = prepare_numpy_dataset(self.model, cal_dataset, 
+        _cal_data = prepare_numpy_dataset(self.model, cal_dataset,
                                           ['y_true', 'logit'], debug=self.debug)
 
         if self.num_classes is None:
             self.num_classes = _cal_data['logit'].shape[1]
         if self.mode == 'multilabel' and mult_temp:
-            self.temperature = torch.tensor([1.5 for _ in range(self.num_classes)], 
+            self.temperature = torch.tensor([1.5 for _ in range(self.num_classes)],
                                             dtype=torch.float32,
                                             device=self.device, requires_grad=True)
         optimizer = optim.LBFGS([self.temperature], lr=lr, max_iter=max_iter)

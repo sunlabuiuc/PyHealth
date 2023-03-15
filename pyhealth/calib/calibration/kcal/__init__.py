@@ -1,17 +1,17 @@
 """
-KCal: Kernel-based Calibration 
+KCal: Kernel-based Calibration
 
 Implementation based on https://github.com/zlin7/KCal
 
 """
 from typing import Dict
 
-import pandas as pd
 import torch
 from torch.utils.data import DataLoader, Subset
 
-from pyhealth.uq.base_classes import PostHocCalibrator
-from pyhealth.uq.utils import prepare_numpy_dataset
+from pyhealth.calib.base_classes import PostHocCalibrator
+from pyhealth.calib.utils import prepare_numpy_dataset
+from pyhealth.trainer import Trainer
 
 from .bw import fit_bandwidth
 from .embed_data import _EmbedData
@@ -92,19 +92,19 @@ def _embed_dataset(model, dataset, record_id_name=None, debug=False, batch_size=
     return {
         "labels": ret['y_true'],
         'indices': ret.get(record_id_name, None),
-        'embed': ret['embed'], 
+        'embed': ret['embed'],
         'group': ret['patient_id']
     }
 
 class KCal(PostHocCalibrator):
-    """Kernel-based Calibration. 
+    """Kernel-based Calibration.
 
-    This is a *full* calibration method for *multiclass* classification. 
-    It tries to calibrate the predicted probabilities for all classes, 
-        by using KDE classifiers estimated from the calibration set. 
+    This is a *full* calibration method for *multiclass* classification.
+    It tries to calibrate the predicted probabilities for all classes,
+        by using KDE classifiers estimated from the calibration set.
 
-    Paper: Lin, Zhen, Shubhendu Trivedi, and Jimeng Sun. 
-        "Taking a Step Back with KCal: Multi-Class Kernel-Based Calibration 
+    Paper: Lin, Zhen, Shubhendu Trivedi, and Jimeng Sun.
+        "Taking a Step Back with KCal: Multi-Class Kernel-Based Calibration
         for Deep Neural Networks." ICLR 2023.
 
     Args:
@@ -147,7 +147,7 @@ class KCal(PostHocCalibrator):
     def _fit(self, train_dataset, val_dataset=None, split_by_patient=False,
             dim=32, bs_pred=64, bs_supp=20, epoch_len=5000, epochs=10,
             load_best_model_at_last=False, **train_kwargs):
-        from pyhealth.trainer import Trainer
+
 
         _train_data = _embed_dataset(self.model, train_dataset, self.record_id_name, self.debug)
 
@@ -155,7 +155,7 @@ class KCal(PostHocCalibrator):
         if not split_by_patient:
             # Allow using other samples from the same patient to make the prediction
             _train_data.pop('group')
-        _train_data = _EmbedData(bs_pred=bs_pred, bs_supp=bs_supp, epoch_len=epoch_len, 
+        _train_data = _EmbedData(bs_pred=bs_pred, bs_supp=bs_supp, epoch_len=epoch_len,
                                  **_train_data)
         train_loader = DataLoader(_train_data, batch_size=1, collate_fn=_EmbedData._collate_func)
 
@@ -182,23 +182,23 @@ class KCal(PostHocCalibrator):
                   record_id_name=None,
                   train_dataset:Subset=None, train_split_by_patient=False,
                   load_best_model_at_last=True, **train_kwargs):
-        """Calibrate using a calibration dataset. 
-        If train_dataset is not None, it will be used to fit 
+        """Calibrate using a calibration dataset.
+        If train_dataset is not None, it will be used to fit
         a re-projection from the base model embeddings.
-        In either case, the calibration set will be used to construct the KDE classifier. 
+        In either case, the calibration set will be used to construct the KDE classifier.
 
         Args:
             cal_dataset (Subset): Calibration set.
-            record_id_name (str, optional): the key/name of the unique index for records. 
+            record_id_name (str, optional): the key/name of the unique index for records.
                 Defaults to None.
-            train_dataset (Subset, optional): Dataset to train the reprojection. 
+            train_dataset (Subset, optional): Dataset to train the reprojection.
                 Defaults to None (no training).
-            train_split_by_patient (bool, optional): 
-                Whether to split by patient when training the embeddings. 
+            train_split_by_patient (bool, optional):
+                Whether to split by patient when training the embeddings.
                 That is, do we use samples from the same patient in KDE during *training*.
                 Defaults to False.
-            load_best_model_at_last (bool, optional): 
-                Whether to load the best reprojection basing on the calibration set. 
+            load_best_model_at_last (bool, optional):
+                Whether to load the best reprojection basing on the calibration set.
                 Defaults to True.
         """
 
