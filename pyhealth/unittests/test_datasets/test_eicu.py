@@ -77,7 +77,7 @@ class TesteICUDataset(unittest.TestCase):
         # event level data
         expected_event_count = 319
 
-        # during a specified visit assert the event data is correct. Event data is parametrized by tables
+        # during a specified visit assert the event data is correct. Event data is parametrized by tables.
         # schema:
         #   event type (from one of the requested tables)
         #       'length': number of events for that event type
