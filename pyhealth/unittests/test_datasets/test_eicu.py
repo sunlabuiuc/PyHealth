@@ -15,7 +15,7 @@ class TesteICUDataset(unittest.TestCase):
     ROOT = "https://storage.googleapis.com/pyhealth/eicu-demo/"
     TABLES = ["diagnosis", "medication", "lab", "treatment", "physicalExam"]
     CODE_MAPPING = {}
-    DEV = False  # not needed when using demo set since its 100 patients large
+    DEV = True  # not needed when using demo set since its 100 patients large
     REFRESH_CACHE = True
 
     dataset = eICUDataset(
@@ -30,26 +30,7 @@ class TesteICUDataset(unittest.TestCase):
     def setUp(self):
         pass
 
-    def test_statistics(self):
-        # self.dataset.stat()
-
-        self.assertEqual(sorted(self.TABLES), sorted(self.dataset.available_tables))
-
-        EHRDatasetStatAssertion(self.dataset, 0.01).assertEHRStats(
-            expected_num_patients=2174,
-            expected_num_visits=2520,
-            expected_num_visits_per_patient=1.1592,
-            expected_events_per_visit_per_table=[
-                16.7202,
-                17.8345,
-                172.4841,
-                15.1944,
-                33.3563,
-            ],
-        )
-
     def test_patient(self):
-        return
         # given parametes:
         selected_patient_id = "002-10009+193705"
         selected_visit_index = 0
@@ -57,7 +38,7 @@ class TesteICUDataset(unittest.TestCase):
 
         # expect:
         # patient data
-        expected_birth_datetime = pandas.Timestamp("1938-02-27 00:00:00")
+        expected_birth_datetime = pandas.Timestamp("1938-02-24 00:00:00")
         expected_death_datetime = None
         expected_ethnicity = "Caucasian"
         expected_gender = "Female"
@@ -66,8 +47,8 @@ class TesteICUDataset(unittest.TestCase):
         expected_visit_len = 1
         expected_visit_id = "224606"
         expected_visit_discharge_status = "Alive"
-        expected_discharge_time = datetime.datetime(2014, 3, 1, 0, 45)
-        expected_encounter_time = datetime.datetime(2014, 2, 26, 2, 59)
+        expected_discharge_time = datetime.datetime(2014, 2, 27, 0, 45)
+        expected_encounter_time = datetime.datetime(2014, 2, 24, 2, 59)
 
         # visit attribute dict data
         expected_visit_attr_dict_len = 2
@@ -77,7 +58,7 @@ class TesteICUDataset(unittest.TestCase):
         # event level data
         expected_event_count = 319
 
-        # during a specified visit assert the event data is correct. Event data is parametrized by tables.
+        # during a specified visit assert the event data is correct. Event data is parametrized by tables
         # schema:
         #   event type (from one of the requested tables)
         #       'length': number of events for that event type
@@ -91,7 +72,7 @@ class TesteICUDataset(unittest.TestCase):
                         0,
                         Event(
                             code="567.9",
-                            timestamp=pandas.Timestamp("2014-02-26 03:36:00"),
+                            timestamp=pandas.Timestamp("2014-02-24 03:36:00"),
                             vocabulary="ICD9CM",
                         ),
                     ),
@@ -99,7 +80,7 @@ class TesteICUDataset(unittest.TestCase):
                         1,
                         Event(
                             code="K65.0",
-                            timestamp=pandas.Timestamp("2014-02-26 03:36:00"),
+                            timestamp=pandas.Timestamp("2014-02-24 03:36:00"),
                             vocabulary="ICD10CM",
                         ),
                     ),
@@ -112,7 +93,7 @@ class TesteICUDataset(unittest.TestCase):
                         0,
                         Event(
                             code="MORPHINE INJ",
-                            timestamp=pandas.Timestamp("2014-02-25 21:09:00"),
+                            timestamp=pandas.Timestamp("2014-02-23 21:09:00"),
                             vocabulary="eICU_DRUGNAME",
                         ),
                     ),
@@ -120,7 +101,7 @@ class TesteICUDataset(unittest.TestCase):
                         5,
                         Event(
                             code="CIPROFLOXACIN IN D5W 400 MG/200ML IV SOLN",
-                            timestamp=pandas.Timestamp("2014-02-25 22:43:00"),
+                            timestamp=pandas.Timestamp("2014-02-23 22:43:00"),
                             vocabulary="eICU_DRUGNAME",
                         ),
                     ),
@@ -133,7 +114,7 @@ class TesteICUDataset(unittest.TestCase):
                         0,
                         Event(
                             code="sodium",
-                            timestamp=pandas.Timestamp("2014-02-25 21:04:00"),
+                            timestamp=pandas.Timestamp("2014-02-23 21:04:00"),
                             vocabulary="eICU_LABNAME",
                         ),
                     ),
@@ -141,7 +122,7 @@ class TesteICUDataset(unittest.TestCase):
                         2,
                         Event(
                             code="BUN",
-                            timestamp=pandas.Timestamp("2014-02-25 21:04:00"),
+                            timestamp=pandas.Timestamp("2014-02-23 21:04:00"),
                             vocabulary="eICU_LABNAME",
                         ),
                     ),
@@ -154,7 +135,7 @@ class TesteICUDataset(unittest.TestCase):
                         0,
                         Event(
                             code="notes/Progress Notes/Physical Exam/Physical Exam/Neurologic/GCS/Score/scored",
-                            timestamp=pandas.Timestamp("2014-02-26 03:05:00"),
+                            timestamp=pandas.Timestamp("2014-02-24 03:05:00"),
                             vocabulary="eICU_PHYSICALEXAMPATH",
                         ),
                     ),
@@ -162,7 +143,7 @@ class TesteICUDataset(unittest.TestCase):
                         1,
                         Event(
                             code="notes/Progress Notes/Physical Exam/Physical Exam Obtain Options/Performed - Structured",
-                            timestamp=pandas.Timestamp("2014-02-26 03:05:00"),
+                            timestamp=pandas.Timestamp("2014-02-24 03:05:00"),
                             vocabulary="eICU_PHYSICALEXAMPATH",
                         ),
                     ),
@@ -224,6 +205,25 @@ class TesteICUDataset(unittest.TestCase):
                     actual_event.vocabulary,
                     error_message,
                 )
+
+    def test_statistics(self):
+        # self.dataset.stat()
+
+        self.assertEqual(sorted(self.TABLES), sorted(self.dataset.available_tables))
+
+        EHRDatasetStatAssertion(self.dataset, 0.01).assertEHRStats(
+            expected_num_patients=2174,
+            expected_num_visits=2520,
+            expected_num_visits_per_patient=1.1592,
+            expected_events_per_visit_per_table=[
+                16.7202,
+                17.8345,
+                172.4841,
+                15.1944,
+                33.3563,
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
