@@ -1,0 +1,8 @@
+title: "PyHealth"
+description: PyHealth is designed for both ML researchers and medical practitioners. We can make your healthcare AI applications easier to develop, test and validate. Your development process becomes more flexible and more customizable.
+google_analytics:
+theme: jekyll-theme-cayman
+
+
+url: "https://sunlabuiuc.github.io/PyHealth/"
+baseurl: "/"

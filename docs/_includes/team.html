@@ -1,0 +1,28 @@
+{% if include.id %}
+  {% assign team = page[include.id] %}
+{% else %}
+  {% assign team = page.team %}
+{% endif %}
+
+<style>
+img {
+  border-radius: 50%;
+}
+</style>
+
+<div class="row justify-content-center">
+  {% for member in team %}
+  <div class="col-20 col-md-3 mb-2" style="font-size:16px; text-align:center;">
+    <div class="team team-summary team-summary-large">
+      {% if member.image %}
+      <div class="team-image">
+          <img alt="{{ member.name }}" class="img-fluid mb-2" style="height: 200px;" src="{{ member.image | relative_url }}" />
+      </div>
+      {% endif %}
+      <div class="team-meta">
+        <h2 class="team-name" style="font-size:16px; text-align:center;"><a{% if member.url %} href="{{ member.url }}"{% endif %}>{{ member.name }}</a><br>{{ member.aff }}<br><i>{{ member.interest }}</i></h2>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>

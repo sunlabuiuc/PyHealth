@@ -1,0 +1,11 @@
+{% assign item = include.item %}
+
+{% if item.first %} <!-- dict -->
+  {% if item.url %}
+    <a href="{{ item.url }}">{{ item.name }}</a>
+  {% else %}
+    {{ item.name }}
+  {% endif %}
+{% else %} <!-- string -->
+  {{ item }}
+{% endif %}
