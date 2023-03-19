@@ -53,9 +53,11 @@ Authors:
 ---
 
 
-<img src="../figure/poster.png" width="620">
+<img src="assets/images/poster.png" width="620">
 
-## 1. Installation :rocket:
+PyHealth is designed for both **ML researchers and medical practitioners**. We can make your **healthcare AI applications** easier to deploy and more flexible and customizable.
+
+## 1. Installation
 
 - You could install from PyPi:
 ```
@@ -66,10 +68,10 @@ pip install pyhealth
 pip install .
 ```
 
-## 2. Introduction :book:
+## 2. Introduction
 ``pyhealth`` provides these functionalities (we are still enriching some modules):
 
-<img src="../figure/overview.png" width="770">
+<img src="assets/images/overview.png" width="770">
 
 You can use the following functions independently:
 
@@ -80,16 +82,16 @@ You can use the following functions independently:
 *Build a healthcare AI pipeline can be as short as 10 lines of code in PyHealth*.
 
 
-## 3. Build ML Pipelines :trophy:
+## 3. Build ML Pipelines
 
 All healthcare tasks in our package follow a **five-stage pipeline**: 
-<img src="../figure/five-stage-pipeline.png" width="640">
+<img src="assets/images/five-stage-pipeline.png" width="640">
 
  We try hard to make sure each stage is as separate as possibe, so that people can customize their own pipeline by only using our data processing steps or the ML models.
 
 
 
-## 4. Medical Code Map :hospital: 
+## 4. Medical Code Map
 
 ``pyhealth.codemap`` provides two core functionalities. **This module can be used independently.**
 
@@ -110,6 +112,7 @@ atc.lookup("M01AE51", "description")
 ```
 
 * For code mapping between two coding systems (e.g., ICD9CM to CCSCM). 
+
 ```python
 from pyhealth.medcode import CrossMap
 
@@ -118,7 +121,7 @@ codemap.map("428.0")
 # ['108']
 ```
 
-## 5. Medical Code Tokenizer :speech_balloon:
+## 5. Medical Code Tokenizer
 
 ``pyhealth.tokenizer`` is used for transformations between string-based tokens and integer-based indices, based on the overall token space. We provide flexible functions to tokenize 1D, 2D and 3D lists. **This module can be used independently.**
 ```python
@@ -137,7 +140,7 @@ tokenizer = Tokenizer(tokens=token_space, special_tokens=["<pad>", "<unk>"])
 ...
 ```
 
-## 6. Tutorials :teacher:
+## 6. Tutorials
 
 We provide the following tutorials to help users get started with our pyhealth. 
 
@@ -182,25 +185,12 @@ The following tutorials will help users build their own task pipelines.
 - [Advanced Tutorial 3: Adopt customized model into pyhealth](https://colab.research.google.com/drive/1F_NJ90GC8_Eq-vKTf7Tyziew4gWjjKoH?usp=sharing) [[Video]](https://www.youtube.com/watch?v=lADFlcmLtdE&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=14)
 
 - [Advanced Tutorial 4: Load your own processed data into pyhealth and try out our ML models](https://colab.research.google.com/drive/1ZRnKch2EyJLrI3G5AvDXVpeE2wwgBWfw?usp=sharing) [[Video]](https://www.youtube.com/watch?v=xw2hGLEQ4Y0&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=13)
+                                            |
 
-
-## 7. Datasets :mountain_snow:
-We provide the processing files for the following open EHR datasets:
-
-| Dataset   | Module                                    | Year | Information                                                                                                     |
-| --------- | ----------------------------------------- | ---- | -------------------------------------------------------------------------------------------------------------- |
-| MIMIC-III | `pyhealth.datasets.MIMIC3Dataset`         | 2016 | [MIMIC-III Clinical Database](https://physionet.org/content/mimiciii/1.4//)                                  |
-| MIMIC-IV  | `pyhealth.datasets.MIMIC4Dataset`         | 2020 | [MIMIC-IV Clinical Database](https://physionet.org/content/mimiciv/0.4/)                                       |
-| eICU      | `pyhealth.datasets.eICUDataset`           | 2018 | [eICU Collaborative Research Database](https://eicu-crd.mit.edu//)                                          |
-| OMOP      | `pyhealth.datasets.OMOPDataset`           |      | [OMOP-CDM schema based dataset](https://www.ohdsi.org/data-standardization/the-common-data-model)  |
-| SleepEDF  | `pyhealth.datasets.SleepEDFDataset`       | 2018 | [Sleep-EDF dataset](https://physionet.org/content/sleep-edfx/1.0.0/)                                            |
-| SHHS      | `pyhealth.datasets.SHHSDataset`           | 2016 | [Sleep Heart Health Study dataset](https://sleepdata.org/datasets/shhs)                                         |
-| ISRUC     | `pyhealth.datasets.ISRUCDataset`          | 2016 | [ISRUC-SLEEP dataset](https://sleeptight.isr.uc.pt/?page_id=48)                                                 |
-
-## 8. Tutorial Schedule :mortar_board:
+## 7. Tutorial Schedule
 TBA
 
-## 9. Authors :information_desk_person:
+## 8. PyHealth Tutors
 
 {% include team.html id="Authors" %}
 
