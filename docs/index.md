@@ -53,7 +53,7 @@ Authors:
 ---
 
 
-<img src="assets/images/poster.png" width="620">
+<img src="assets/images/poster.png" style="border-radius: 0%;" width="620">
 
 PyHealth is designed for both **ML researchers and medical practitioners**. We can make your **healthcare AI applications** easier to deploy and more flexible and customizable.
 
@@ -71,7 +71,7 @@ pip install .
 ## 2. Introduction
 ``pyhealth`` provides these functionalities (we are still enriching some modules):
 
-<img src="assets/images/overview.png" width="770">
+<img src="assets/images/overview.png" style="border-radius: 0%;"  width="770">
 
 You can use the following functions independently:
 
@@ -85,7 +85,7 @@ You can use the following functions independently:
 ## 3. Build ML Pipelines
 
 All healthcare tasks in our package follow a **five-stage pipeline**: 
-<img src="assets/images/five-stage-pipeline.png" width="640">
+<img src="assets/images/five-stage-pipeline.png" style="border-radius: 0%;"  width="640">
 
  We try hard to make sure each stage is as separate as possibe, so that people can customize their own pipeline by only using our data processing steps or the ML models.
 
@@ -140,9 +140,9 @@ tokenizer = Tokenizer(tokens=token_space, special_tokens=["<pad>", "<unk>"])
 ...
 ```
 
-## 6. Tutorials
+## 6. Colab Tutorials
 
-We provide the following tutorials to help users get started with our pyhealth. 
+We provide the following colab tutorials to help users get started with our pyhealth. 
 
 - [Tutorial 0: Introduction to pyhealth.data](https://colab.research.google.com/drive/1y9PawgSbyMbSSMw1dpfwtooH7qzOEYdN?usp=sharing) [[Video]](https://www.youtube.com/watch?v=Nk1itBoLOX8&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=2)  
 
@@ -163,20 +163,20 @@ We provide the following tutorials to help users get started with our pyhealth.
 - [Tutorial 7: Introduction to pyhealth.medcode](https://colab.research.google.com/drive/1xrp_ACM2_Hg5Wxzj0SKKKgZfMY0WwEj3?usp=sharing) [[Video]](https://www.youtube.com/watch?v=MmmfU6_xkYg&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=9)
 
 
-The following tutorials will help users build their own task pipelines.
+The following colab tutorials will help users build their own task pipelines.
 
-- [Pipeline 1: Drug Recommendation](https://colab.research.google.com/drive/10CSb4F4llYJvv42yTUiRmvSZdoEsbmFF?usp=sharing)
+- [Pipeline 1: Drug Recommendation](https://colab.research.google.com/drive/10CSb4F4llYJvv42yTUiRmvSZdoEsbmFF?usp=sharing) [[Video]](https://www.youtube.com/watch?v=GGP3Dhfyisc&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=12)
 
-- [Pipeline 2: Length of Stay Prediction](https://colab.research.google.com/drive/1JoPpXqqB1_lGF1XscBOsDHMLtgvlOYI1?usp=sharing)
+- [Pipeline 2: Length of Stay Prediction](https://colab.research.google.com/drive/1JoPpXqqB1_lGF1XscBOsDHMLtgvlOYI1?usp=sharing) [[Video]](https://www.youtube.com/watch?v=GGP3Dhfyisc&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=12)
 
-- [Pipeline 3: Readmission Prediction](https://colab.research.google.com/drive/1bhCwbXce1YFtVaQLsOt4FcyZJ1_my7Cs?usp=sharing)
+- [Pipeline 3: Readmission Prediction](https://colab.research.google.com/drive/1bhCwbXce1YFtVaQLsOt4FcyZJ1_my7Cs?usp=sharing) [[Video]](https://www.youtube.com/watch?v=GGP3Dhfyisc&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=12)
 
-- [Pipeline 4: Mortality Prediction](https://colab.research.google.com/drive/1Qblpcv4NWjrnADT66TjBcNwOe8x6wU4c?usp=sharing)
+- [Pipeline 4: Mortality Prediction](https://colab.research.google.com/drive/1Qblpcv4NWjrnADT66TjBcNwOe8x6wU4c?usp=sharing) [[Video]](https://www.youtube.com/watch?v=GGP3Dhfyisc&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=12)
 
-- [Pipeline 5: Sleep Staging](https://colab.research.google.com/drive/1mpSeNCAthXG3cqROkdUcUdozIPIMTCuo?usp=sharing)
+- [Pipeline 5: Sleep Staging](https://colab.research.google.com/drive/1mpSeNCAthXG3cqROkdUcUdozIPIMTCuo?usp=sharing) [[Video]](https://www.youtube.com/watch?v=ySAIU-rO6so&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=16)
 
 
- We provided the advanced tutorials for supporting various needs. 
+ We provided the advanced colab tutorials for supporting various needs. 
 
 - [Advanced Tutorial 1: Fit your dataset into our pipeline](https://colab.research.google.com/drive/1UurxwAAov1bL_5OO3gQJ4gAa_paeJwJp?usp=sharing) [[Video]](https://www.youtube.com/watch?v=xw2hGLEQ4Y0&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=13)
 
@@ -185,10 +185,58 @@ The following tutorials will help users build their own task pipelines.
 - [Advanced Tutorial 3: Adopt customized model into pyhealth](https://colab.research.google.com/drive/1F_NJ90GC8_Eq-vKTf7Tyziew4gWjjKoH?usp=sharing) [[Video]](https://www.youtube.com/watch?v=lADFlcmLtdE&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=14)
 
 - [Advanced Tutorial 4: Load your own processed data into pyhealth and try out our ML models](https://colab.research.google.com/drive/1ZRnKch2EyJLrI3G5AvDXVpeE2wwgBWfw?usp=sharing) [[Video]](https://www.youtube.com/watch?v=xw2hGLEQ4Y0&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=13)
-                                            |
 
-## 7. Tutorial Schedule
-TBA
+## 7. KDD Tutorial Schedule
+### 7.1 Introduction to PyHealth (20 minutes)
+We will use slides to present this part.
+- background and motivation of pyhealth
+- overview of modules and current status
+- useful pyhealth resources (documentation, unit tests, colab notebooks, YouTube videos)
+
+### 7.2 PyHealth for EHR modeling (40 minutes)
+We will use slides as well as colab notebooks to present.
+- five-stage pipeline architecture (dataset loading, task processing, model initialization, training, and evaluation)
+- supported EHR datasets (MIMIC-III, MIMIC-IV, eICU, OMOP) and their stored structures in pyhealth
+- how the healthcare task functions are defined
+- how to initialize the healthcare AI model
+- how to train then model (list the models that we can used for this data modality)
+- how to conduct evaluate
+
+### 7.3 PyHealth for medical code mapping (10 minutes)
+We will use slides as well as colab notebooks to present.
+- We currently support common diagnosis standards (e.g., xxx), procedure standards (e.g., xxx), drug standards (e.g., xxx).
+- demo on medical code look up within one standard
+- demo on medical code mapping across two standards
+
+### 7.4 PyHealth for physiological signals (20 minutes)
+We will use slides as well as colab notebooks to present.
+- introduce the physiological signal datasets that we support (e.g, ISRUC, Sleep-EDF, SHHS)
+- list the models that we can used for this data modality
+- demo: use sparcnet for sleep staging task on Sleep-EDF.
+
+### 7.5 PyHealth for medical imaging (15 minutes)
+We will use slides as well as colab notebooks to present.
+- introduce the medical image datasets that we support (e.g, xxx)
+- list the models that we can used for this data modality
+- demo: use xxx for xxx task on xxx.
+
+### 7.6 PyHealth for biomedical text mining (15 minutes)
+We will use slides as well as colab notebooks to present.
+- introduce the biomedical text datasets that we support (e.g, xxx)
+- list the models that we can used for this data modality
+- demo: use xxx for xxx task on xxx.
+
+### 7.7 PyHealth pre-trained embedding (30 minutes) 
+We will use slides as well as colab notebooks to present.
+- introduce that our package supports biomedical concept embedding (KG embedding)
+- what embeddings we have supported (from what resources)
+- demo: use the UMLS KG embedding to improve drug recommendation task on MIMIC-III
+
+### 7.8 PyHealth uncertainty quantification (30 minutes)
+We will use slides as well as colab notebooks to present.
+- briefly introduce prediction sets and prediction interval
+- list the models that we can use for this module
+- demo: use xxx for xxx task on xxx. (show some plots to let user understand the concepts)
 
 ## 8. PyHealth Tutors
 
