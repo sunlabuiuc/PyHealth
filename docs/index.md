@@ -53,45 +53,38 @@ Authors:
 ---
 
 
-<img src="assets/images/poster.png" style="border-radius: 0%;" width="620">
+<img src="assets/images/poster.png" style="border-radius: 0%;" width="720">
 
-PyHealth is designed for both **ML researchers and medical practitioners**. We can make your **healthcare AI applications** easier to deploy and more flexible and customizable.
+PyHealth is designed for both **ML researchers and medical practitioners**. We can make your **healthcare AI applications** easier to deploy, test and validate. Your development process becomes more flexible and more customizable.
 
-## 1. Installation
-
-- You could install from PyPi:
 ```
 pip install pyhealth
 ```
-- or from github source:
-```
-pip install .
-```
 
-## 2. Introduction
+## 1. Introduction
 ``pyhealth`` provides these functionalities (we are still enriching some modules):
 
 <img src="assets/images/overview.png" style="border-radius: 0%;"  width="770">
 
 You can use the following functions independently:
 
-- **Dataset**: ``MIMIC-III``, ``MIMIC-IV``, ``eICU``, ``OMOP-CDM``, ``customized EHR datasets``, etc.
-- **Tasks**: ``diagnosis-based drug recommendation``, ``patient hospitalization and mortality prediction``, ``length stay forecasting``, etc. 
-- **ML models**: ``CNN``, ``LSTM``, ``GRU``, ``LSTM``, ``RETAIN``, ``SafeDrug``, ``Deepr``, etc.
+- **Dataset**: ``MIMIC-III``, ``MIMIC-IV``, ``eICU``, ``OMOP-CDM``, ``Sleep-EDF``, ``Chest X-ray``, ``ISURC``, etc.
+- **Tasks**: ``diagnosis-based drug recommendation``, ``patient hospitalization and mortality prediction``, ``sleep staging``, ``chest disease classificatio``, etc. 
+- **ML models**: ``CNN``, ``LSTM``, ``GRU``, ``LSTM``, ``RETAIN``, ``SafeDrug``, ``Deepr``, ``SparcNet``, ``ContraWR``, ``GAMENet``, etc.
 
 *Build a healthcare AI pipeline can be as short as 10 lines of code in PyHealth*.
 
 
-## 3. Build ML Pipelines
+## 2. Build ML Pipelines
 
 All healthcare tasks in our package follow a **five-stage pipeline**: 
 <img src="assets/images/five-stage-pipeline.png" style="border-radius: 0%;"  width="640">
 
- We try hard to make sure each stage is as separate as possibe, so that people can customize their own pipeline by only using our data processing steps or the ML models.
+We try hard to ensure the modules are independent, so that people can customize their own pipeline by only using parts of our pipelines, such as using data processing steps or borrowing the ML models.
 
 
 
-## 4. Medical Code Map
+## 3. Medical Code Map
 
 ``pyhealth.codemap`` provides two core functionalities. **This module can be used independently.**
 
@@ -105,8 +98,7 @@ icd9cm.lookup("428.0")
 # `Congestive heart failure, unspecified`
 
 atc = InnerMap.load("ATC")
-atc.lookup("M01AE51")
-# `ibuprofen, combinations`
+atc.lookup("M01AE51") # `ibuprofen, combinations`
 atc.lookup("M01AE51", "description")
 # Ibuprofen is a non-steroidal anti-inflammatory drug (NSAID) derived ...
 ```
@@ -117,11 +109,10 @@ atc.lookup("M01AE51", "description")
 from pyhealth.medcode import CrossMap
 
 codemap = CrossMap.load("ICD9CM", "CCSCM")
-codemap.map("428.0")
-# ['108']
+codemap.map("428.0") # ['108']
 ```
 
-## 5. Medical Code Tokenizer
+## 4. Medical Code Tokenizer
 
 ``pyhealth.tokenizer`` is used for transformations between string-based tokens and integer-based indices, based on the overall token space. We provide flexible functions to tokenize 1D, 2D and 3D lists. **This module can be used independently.**
 ```python
@@ -140,7 +131,7 @@ tokenizer = Tokenizer(tokens=token_space, special_tokens=["<pad>", "<unk>"])
 ...
 ```
 
-## 6. Colab Tutorials
+## 5. Colab Tutorials
 
 We provide the following colab tutorials to help users get started with our pyhealth. 
 
@@ -186,59 +177,66 @@ The following colab tutorials will help users build their own task pipelines.
 
 - [Advanced Tutorial 4: Load your own processed data into pyhealth and try out our ML models](https://colab.research.google.com/drive/1ZRnKch2EyJLrI3G5AvDXVpeE2wwgBWfw?usp=sharing) [[Video]](https://www.youtube.com/watch?v=xw2hGLEQ4Y0&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=13)
 
-## 7. KDD Tutorial Schedule
-### 7.1 Introduction to PyHealth (20 minutes)
+## 6. KDD Tutorial Schedule
+We will release the slides and colab notebooks on [Google Drive](https://drive.google.com/drive/folders/10SRErhMgmwIvBwafp_YmaZEziOhYTaYk?usp=sharing) before the tutorial.
+### 6.1 Introduction to PyHealth (20 min)
 We will use slides to present this part.
-- background and motivation of pyhealth
-- overview of modules and current status
-- useful pyhealth resources (documentation, unit tests, colab notebooks, YouTube videos)
+- Background and motivations.
+- Key features of PyHealth.
+- Quickstart examples.
 
-### 7.2 PyHealth for EHR modeling (40 minutes)
+### 6.2 PyHealth for EHR (40 min)
 We will use slides as well as colab notebooks to present.
-- five-stage pipeline architecture (dataset loading, task processing, model initialization, training, and evaluation)
-- supported EHR datasets (MIMIC-III, MIMIC-IV, eICU, OMOP) and their stored structures in pyhealth
-- how the healthcare task functions are defined
-- how to initialize the healthcare AI model
-- how to train then model (list the models that we can used for this data modality)
-- how to conduct evaluate
+- Introduce the five-stage pipeline
+- (Stage 1) Load EHR datasets, such as MIMIC-III, MIMIC-IV, eICU, OMOP-CDM
+- (Stage 2) Define healthcare tasks, such as drug recommendation, length of stay prediction.
+- (Stage 3) Initialize healthcare AI models, such as RETAIN, GAMENet, MICRON, and SafeDrug.
+- (Stage 4) Train the model.
+- (Stage 5) Evaluate the model.
 
-### 7.3 PyHealth for medical code mapping (10 minutes)
+It is worth noting that the same five-stage pipeline applies to other data modalities as well. Therefore, we will focus on introducing the datasets, tasks, and models in the subsequent sections.
+
+### 6.3 PyHealth for physiological signals (20 min)
 We will use slides as well as colab notebooks to present.
-- We currently support common diagnosis standards (e.g., xxx), procedure standards (e.g., xxx), drug standards (e.g., xxx).
-- demo on medical code look up within one standard
-- demo on medical code mapping across two standards
+- Overview of biosignal datasets supported by PyHealth, such as ISRUC, Sleep-EDF, and SHHS.
+- Introduce existing biosignal models in PyHealth.
+- Demonstrate the sleep staging task on the Sleep-EDF dataset using SparcNet.
 
-### 7.4 PyHealth for physiological signals (20 minutes)
+### 6.4 PyHealth for medical imaging (15 min)
 We will use slides as well as colab notebooks to present.
-- introduce the physiological signal datasets that we support (e.g, ISRUC, Sleep-EDF, SHHS)
-- list the models that we can used for this data modality
-- demo: use sparcnet for sleep staging task on Sleep-EDF.
+- Overview of medical image datasets supported by PyHealth, such as CheXpert, RSNA, COVID, and MIMIC-CXR.
+- Overview of tasks supported by PyHealth, such as x-ray representation learning, chest disease classification, medical report generation.
+- Introduce existing models in PyHealth.
+- Demonstrate the chest disease classification on the COVID dataset using ResNet.
 
-### 7.5 PyHealth for medical imaging (15 minutes)
+### 6.5 PyHealth for biomedical text mining (15 min)
 We will use slides as well as colab notebooks to present.
-- introduce the medical image datasets that we support (e.g, xxx)
-- list the models that we can used for this data modality
-- demo: use xxx for xxx task on xxx.
+- Overview of medical text datasets supported by PyHealth, such as MIMIC-III clinical notes, MIMIC-CXR, and IU-XRay.
+- Overview of tasks supported by PyHealth, such as clinical notes classification and medical report generation.
+- Introduce existing models in PyHealth.
+- Demonstrate on radiology reports generation from x-ray images.
 
-### 7.6 PyHealth for biomedical text mining (15 minutes)
+### 6.6 PyHealth pre-trained embedding (30 min) 
 We will use slides as well as colab notebooks to present.
-- introduce the biomedical text datasets that we support (e.g, xxx)
-- list the models that we can used for this data modality
-- demo: use xxx for xxx task on xxx.
+- Overview of the medical knowledge base, including the supported medical coding systems, code mappings, and 
+- Medical concept lookup.
+- Medical code mapping.
+- Pre-trained medical concepte embeddings.
+- Demo: Leveraing the UMLS knowledge graph embedding to improve drug recommendation task on the MIMIC-III dataset.
 
-### 7.7 PyHealth pre-trained embedding (30 minutes) 
+### 6.7 PyHealth uncertainty quantification and model calibration (30 min)
 We will use slides as well as colab notebooks to present.
-- introduce that our package supports biomedical concept embedding (KG embedding)
-- what embeddings we have supported (from what resources)
-- demo: use the UMLS KG embedding to improve drug recommendation task on MIMIC-III
+- Introduction of basic concepts and common post-hoc tasks in uncertainty quantification, such as model calibration,  prediction set construction and prediction interval construction. 
+- How to perform such tasks on arbitrary PyHealth models, after the training is done (which is why this is post-hoc).
+- (Demo 1) We will use Temperature Scaling, Historgram Binning, and Kernel-based Calibration to calibrate a trained SPaRCNet, used for sleep staging task on the ISRUC dataset. (show some plots to let user understand the concepts)
+- (Demo 2) We will use conformal prediction (LABEL) to construct prediction set with guarantee on the mis-coverage risk, again on a trained SPaRCNet on sleep staing task with the ISRUC dataset. 
 
-### 7.8 PyHealth uncertainty quantification (30 minutes)
-We will use slides as well as colab notebooks to present.
-- briefly introduce prediction sets and prediction interval
-- list the models that we can use for this module
-- demo: use xxx for xxx task on xxx. (show some plots to let user understand the concepts)
-
-## 8. PyHealth Tutors
+### 6.8 Conclusion (10 min)
+- A brief summary of the benefits of using PyHealth.
+- Future development plans for PyHealth.
+- A call for contributions from the community.
+- Useful resources for PyHealth users.
+## 7. PyHealth Tutors
 
 {% include team.html id="Authors" %}
 
