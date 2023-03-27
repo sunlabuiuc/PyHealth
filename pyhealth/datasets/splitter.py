@@ -4,7 +4,7 @@ from typing import Optional, Tuple, Union, List
 import numpy as np
 import torch
 
-from pyhealth.datasets import SampleBaseDataset
+from pyhealth.datasets.sample_dataset import SampleBaseDataset
 
 
 # TODO: train_dataset.dataset still access the whole dataset which may leak information
@@ -83,6 +83,54 @@ def split_by_patient(
     )
     val_index = list(chain(*[dataset.patient_to_index[i] for i in val_patient_indx]))
     test_index = list(chain(*[dataset.patient_to_index[i] for i in test_patient_indx]))
+    train_dataset = torch.utils.data.Subset(dataset, train_index)
+    val_dataset = torch.utils.data.Subset(dataset, val_index)
+    test_dataset = torch.utils.data.Subset(dataset, test_index)
+    return train_dataset, val_dataset, test_dataset
+
+
+# we can define this more generally for the patient and visit methods
+# todo: would also be good to have a split by fn that accepts a lambda as the param
+def split_by_index_dict(
+    dataset: SampleBaseDataset,
+    ratios: Union[Tuple[float, float, float], List[float]],
+    seed: Optional[int] = None,
+    index_dict: dict[int, str] = None # assigned --> key within dataset
+):
+    """Splits the dataset by the provided index.
+
+    Args:
+        dataset: a `SampleBaseDataset` object
+        ratios: a list/tuple of ratios for train / val / test
+        seed: random seed for shuffling the dataset
+
+    Returns:
+        train_dataset, val_dataset, test_dataset: three subsets of the dataset of
+            type `torch.utils.data.Subset`.
+
+    Note:
+        The original dataset can be accessed by `train_dataset.dataset`,
+            `val_dataset.dataset`, and `test_dataset.dataset`.
+    """
+    if not index_dict:
+        index_dict = dataset.index_dict
+    
+    if seed is not None:
+        np.random.seed(seed)
+    assert sum(ratios) == 1.0, "ratios must sum to 1.0"
+    indeces = list(dataset.index_dict.keys())
+    num_patients = len(indeces)
+    np.random.shuffle(indeces)
+    train_patient_indx = indeces[: int(num_patients * ratios[0])]
+    val_patient_indx = indeces[
+        int(num_patients * ratios[0]) : int(num_patients * (ratios[0] + ratios[1]))
+    ]
+    test_patient_indx = indeces[int(num_patients * (ratios[0] + ratios[1])) :]
+    train_index = list(
+        chain(*[dataset.index_dict[i] for i in train_patient_indx])
+    )
+    val_index = list(chain(*[dataset.index_dict[i] for i in val_patient_indx]))
+    test_index = list(chain(*[dataset.index_dict[i] for i in test_patient_indx]))
     train_dataset = torch.utils.data.Subset(dataset, train_index)
     val_dataset = torch.utils.data.Subset(dataset, val_index)
     test_dataset = torch.utils.data.Subset(dataset, test_index)

@@ -5,6 +5,7 @@ import pandas as pd
 
 from pyhealth.data import Event, Visit, Patient
 from pyhealth.datasets import BaseEHRDataset
+from pyhealth.datasets.splitter import split_by_index_dict
 from pyhealth.datasets.utils import strptime
 
 # TODO: add other tables
@@ -374,6 +375,7 @@ if __name__ == "__main__":
     )
     dataset.stat()
     dataset.info()
+    train_ehr_dataset, val_ehr_dataset, test_ehr_dataset = split_by_index_dict(dataset, [0.8, 0.1, 0.1])
 
     # dataset = MIMIC3Dataset(
     #     root="/srv/local/data/physionet.org/files/mimiciii/1.4",

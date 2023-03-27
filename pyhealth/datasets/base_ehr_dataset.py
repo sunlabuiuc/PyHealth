@@ -134,6 +134,18 @@ class BaseEHRDataset(ABC):
             # save to cache
             logger.debug(f"Saved {self.dataset_name} base dataset to {self.filepath}")
             save_pickle(self.patients, self.filepath)
+            
+        self.index_dict = self._index_dict()
+        
+    # basic index function used for shuffling implemented via a dict
+    # Unless otherwise defined, for EHR dataset we just map patient id (string) to an arbitrary index
+    def _index_dict(self):
+        
+        index_to_patient_id = {}
+        for i, patient_id in enumerate(self.patients):
+            index_to_patient_id.setdefault(i, self.patients[patient_id])
+            
+        return index_to_patient_id
 
     def _load_code_mapping_tools(self) -> Dict[str, CrossMap]:
         """Helper function which loads code mapping tools CrossMap for code mapping.
