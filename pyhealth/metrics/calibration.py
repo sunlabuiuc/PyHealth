@@ -1,30 +1,34 @@
 """Calibration metrics
 
 Papers:
-    
-    Lin, Zhen, Shubhendu Trivedi, and Jimeng Sun. 
-    "Taking a Step Back with KCal: Multi-Class Kernel-Based Calibration 
-    for Deep Neural Networks." 
+
+    [1] Lin, Zhen, Shubhendu Trivedi, and Jimeng Sun.
+    "Taking a Step Back with KCal: Multi-Class Kernel-Based Calibration
+    for Deep Neural Networks."
     ICLR 2023.
 
-    Nixon, Jeremy, Michael W. Dusenberry, Linchuan Zhang, Ghassen Jerfel, and Dustin Tran. 
-    "Measuring Calibration in Deep Learning." 
+    [2] Nixon, Jeremy, Michael W. Dusenberry, Linchuan Zhang, Ghassen Jerfel, and Dustin Tran.
+    "Measuring Calibration in Deep Learning."
     In CVPR workshops, vol. 2, no. 7. 2019.
 
-    Patel, Kanil, William Beluch, Bin Yang, Michael Pfeiffer, and Dan Zhang. 
-    "Multi-class uncertainty calibration via mutual information maximization-based binning." 
+    [3] Patel, Kanil, William Beluch, Bin Yang, Michael Pfeiffer, and Dan Zhang.
+    "Multi-class uncertainty calibration via mutual information maximization-based binning."
     ICLR 2021.
 
-    Guo, Chuan, Geoff Pleiss, Yu Sun, and Kilian Q. Weinberger. 
-    "On calibration of modern neural networks." 
+    [4] Guo, Chuan, Geoff Pleiss, Yu Sun, and Kilian Q. Weinberger.
+    "On calibration of modern neural networks."
     ICML 2017.
 
-    Kull, Meelis, Miquel Perello Nieto, Markus Kängsepp, Telmo Silva Filho,
-        Hao Song, and Peter Flach. 
+    [5] Kull, Meelis, Miquel Perello Nieto, Markus Kängsepp, Telmo Silva Filho,
+        Hao Song, and Peter Flach.
     "Beyond temperature scaling: Obtaining well-calibrated multi-class
-        probabilities with dirichlet calibration." 
+        probabilities with dirichlet calibration."
     Advances in neural information processing systems 32 (2019).
-    
+
+    [6] Brier, Glenn W.
+    "Verification of forecasts expressed in terms of probability."
+    Monthly weather review 78, no. 1 (1950): 1-3.
+
 """
 import bisect
 
@@ -96,7 +100,74 @@ def _ECE_classwise(prob:np.ndarray, label_onehot:np.ndarray, bins=20, threshold=
     summs = pd.concat(summs, ignore_index=True)
     return summs, class_losses
 
+def ECE_confidence_multiclass(prob:np.ndarray, label:np.ndarray, bins=20, adaptive=False):
+    """Expected Calibration Error (ECE).
+    We group samples into 'bins' basing on the top-class prediction.
+    Then, we compute the absolute difference between the average top-class prediction and
+    the frequency of top-class being correct (i.e. accuracy) for each bin.
+    ECE is the average (weighed by number of points in each bin) of these absolute differences.
+
+    For example, if we have samples with predicted probabilities:
+        [0.2, 0.2, 0.6], [0.2, 0.31, 0.49] and [0.1, 0.1, 0.8].
+    If the bins are [0, 0.5] and (0.5, 1], and the labels are 2, 1, 2.
+    Then, the absolute difference in the first bin is 0.49 (|0.49-0|) and the second is
+    0.3 (|0.7-1|). The ECE is 0.49 * 1/3 + 0.3 * 2/3 = 0.3633.
+
+    The following formula from Guo, Chuan, Geoff Pleiss, Yu Sun, and Kilian Q. Weinberger.
+    "On calibration of modern neural networks." ICML 2017.
+
+    .. math::
+        ECE = \\sum_{m=1}^M \\frac{|B_m|}{N} |acc(B_m) - conf(B_m)|
+
+
+    Args:
+        prob (np.ndarray): (N, C)
+        label (np.ndarray): (N,)
+        bins (int, optional): Number of bins. Defaults to 20.
+        adaptive (bool, optional): If False, bins are equal width ([0, 0.05, 0.1, ..., 1])
+            If True, bin widths are adaptive such that each bin contains the same number
+            of points. Defaults to False.
+    """
+    df = pd.DataFrame({'acc': label == np.argmax(prob, 1), 'conf': prob.max(1)})
+    return _ECE_confidence(df, bins, adaptive)[1]
+
+def ECE_confidence_binary(prob:np.ndarray, label:np.ndarray, bins=20, adaptive=False):
+    """Expected Calibration Error (ECE) for binary classification.
+    Similar to `ECE_confidence_multiclass`, but on class 1 instead of the top-prediction.
+
+
+    Args:
+        prob (np.ndarray): (N, C)
+        label (np.ndarray): (N,)
+        bins (int, optional): Number of bins. Defaults to 20.
+        adaptive (bool, optional): If False, bins are equal width ([0, 0.05, 0.1, ..., 1])
+            If True, bin widths are adaptive such that each bin contains the same number
+            of points. Defaults to False.
+    """
+
+    df = pd.DataFrame({'acc': label[:,0], 'conf': prob[:,0]})
+    return _ECE_confidence(df, bins, adaptive)[1]
+
 def ECE_classwise(prob, label, bins=20, threshold=0., adaptive=False):
+    """Classwise Expected Calibration Error (ECE).
+
+    ECE is computed for each class separately like `ECE_confidence_multiclass`
+    and `ECE_confidence_binary`. Then, we compute the average across all classes.
+
+
+    Args:
+        prob (np.ndarray): (N, C)
+        label (np.ndarray): (N,)
+        bins (int, optional): Number of bins. Defaults to 20.
+        threshold (float): threshold to filter out samples.
+            If the number of classes C is very large, many classes receive close to 0
+            prediction. Any prediction below threshold is considered noise and ignored.
+            In recent papers, this is typically set to a small number (such as 1/C).
+        adaptive (bool, optional): If False, bins are equal width ([0, 0.05, 0.1, ..., 1])
+            If True, bin widths are adaptive such that each bin contains the same number
+            of points. Defaults to False.
+    """
+
     K = prob.shape[1]
     if len(label.shape) == 1:
         # make it one-hot
@@ -104,15 +175,9 @@ def ECE_classwise(prob, label, bins=20, threshold=0., adaptive=False):
         label[np.arange(len(label)), _] = 1
     return _ECE_classwise(prob, label, bins, threshold, adaptive)[1]['avg']
 
-def ECE_confidence_multiclass(prob:np.ndarray, label:np.ndarray, bins=20, adaptive=False):
-    df = pd.DataFrame({'acc': label == np.argmax(prob, 1), 'conf': prob.max(1)})
-    return _ECE_confidence(df, bins, adaptive)[1]
-
-def ECE_confidence_binary(prob:np.ndarray, label:np.ndarray, bins=20, adaptive=False):
-    df = pd.DataFrame({'acc': label[:,0], 'conf': prob[:,0]})
-    return _ECE_confidence(df, bins, adaptive)[1]
-
 def brier_top1(prob:np.ndarray, label:np.ndarray):
+    """Brier score (i.e. MSE between prediction and 0-1 label) of the top prediction.
+    """
     conf = prob.max(1)
     acc = (label == np.argmax(prob, 1)).astype(int)
     return np.mean(np.square(conf - acc))
