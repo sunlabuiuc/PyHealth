@@ -1,4 +1,4 @@
-calibration [func explanation]
+[core] calibration
 ===================================
 
 .. automodule:: pyhealth.metrics.calibration
