@@ -75,12 +75,19 @@ def miscoverage_overall_ps(y_pred:np.ndarray, y_true:np.ndarray):
     return 1 - np.mean(truth_pred)
 
 def error_overall_ps(y_pred:np.ndarray, y_true:np.ndarray):
-    """Miscoverage rate for the true label for unrejected samples. Only for multiclass.
-    .. _pyhealth-metrics-prediction_set-error_overall_ps:
-    For example, if a prediction set is {0} and the label is 1, it is an error.
-    {0} and 0 incurs no error. {0,1} and 1 is *ignored*.
-    If we compute miscoverage rates for unrejected samples for these three
-    samples, we get 0.5. Note this is similar to accuracy on the unrejected samples.
+    """Overall error rate for the un-rejected samples.
+
+    Example:
+        >>> y_pred = np.asarray([[1,0,0],[1,0,0],[1,1,0]])
+        >>> y_true = np.asarray([1,0,1])
+        >>> error_overall_ps(y_pred, y_true)
+        0.5
+
+    Explanation:
+    The first sample's prediction set is {0} and the label is 1, so it is an error (no rejection
+    as its prediction set has only one class).
+    The second sample is not rejected and incurs on error.
+    The third sample is rejected, thus excluded from the computation.
     """
     assert len(y_true.shape) == 1
     truth_pred = y_pred[np.arange(len(y_true)), y_true]

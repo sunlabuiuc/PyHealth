@@ -62,5 +62,5 @@ ps_model = predictionset.LABEL(model, 0.1, debug=True)
 ps_model.calibrate(cal_dataset=val_dataset)
 y_true_all, y_prob_all, _, extra_output = Trainer(model=ps_model).inference(test_dataloader, additional_outputs=['y_predset'])
 print(get_metrics_fn(ps_model.mode)(y_true_all, y_prob_all,
-                                     metrics=metrics + ['missrate_overall', 'rejection_rate'],
+                                     metrics=metrics + ['miscoverage_overall_ps', 'rejection_rate'],
                                      y_predset=extra_output['y_predset']))

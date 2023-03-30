@@ -105,14 +105,12 @@ def ECE_confidence_multiclass(prob:np.ndarray, label:np.ndarray, bins=20, adapti
     Then, we compute the absolute difference between the average top-class prediction and
     the frequency of top-class being correct (i.e. accuracy) for each bin.
     ECE is the average (weighed by number of points in each bin) of these absolute differences.
+    It could be expressed by the following formula, with :math:`B_m` denoting the m-th bin:
 
-
-    The following formula is taken from Guo, Chuan, Geoff Pleiss, Yu Sun, and Kilian Q. Weinberger.
-    "On calibration of modern neural networks." ICML 2017.
     .. math::
         ECE = \\sum_{m=1}^M \\frac{|B_m|}{N} |acc(B_m) - conf(B_m)|
 
-    Examples:
+    Example:
         >>> pred = np.asarray([[0.2, 0.2, 0.6], [0.2, 0.31, 0.49], [0.1, 0.1, 0.8]])
         >>> label = np.asarray([2,1,2])
         >>> ECE_confidence_multiclass(pred, label, bins=2)
