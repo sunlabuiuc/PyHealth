@@ -1,4 +1,4 @@
-"""Calibration metrics
+"""Metrics that meature model calibration.
 
 Papers:
 
@@ -98,7 +98,7 @@ def _ECE_classwise(prob:np.ndarray, label_onehot:np.ndarray, bins=20, threshold=
     summs = pd.concat(summs, ignore_index=True)
     return summs, class_losses
 
-def ECE_confidence_multiclass(prob:np.ndarray, label:np.ndarray, bins=20, adaptive=False):
+def ece_confidence_multiclass(prob:np.ndarray, label:np.ndarray, bins=20, adaptive=False):
     """Expected Calibration Error (ECE).
 
     We group samples into 'bins' basing on the top-class prediction.
@@ -132,9 +132,10 @@ def ECE_confidence_multiclass(prob:np.ndarray, label:np.ndarray, bins=20, adapti
     df = pd.DataFrame({'acc': label == np.argmax(prob, 1), 'conf': prob.max(1)})
     return _ECE_confidence(df, bins, adaptive)[1]
 
-def ECE_confidence_binary(prob:np.ndarray, label:np.ndarray, bins=20, adaptive=False):
+def ece_confidence_binary(prob:np.ndarray, label:np.ndarray, bins=20, adaptive=False):
     """Expected Calibration Error (ECE) for binary classification.
-    Similar to `ECE_confidence_multiclass`, but on class 1 instead of the top-prediction.
+
+    Similar to :func:`ece_confidence_multiclass`, but on class 1 instead of the top-prediction.
 
 
     Args:
@@ -149,12 +150,10 @@ def ECE_confidence_binary(prob:np.ndarray, label:np.ndarray, bins=20, adaptive=F
     df = pd.DataFrame({'acc': label[:,0], 'conf': prob[:,0]})
     return _ECE_confidence(df, bins, adaptive)[1]
 
-def ECE_classwise(prob, label, bins=20, threshold=0., adaptive=False):
+def ece_classwise(prob, label, bins=20, threshold=0., adaptive=False):
     """Classwise Expected Calibration Error (ECE).
 
-    ECE is computed for each class separately like `ECE_confidence_multiclass`
-    and `ECE_confidence_binary`. Then, we compute the average across all classes.
-
+    This is equivalent to applying :func:`ece_confidence_binary` to each class and take the average.
 
     Args:
         prob (np.ndarray): (N, C)
@@ -177,7 +176,7 @@ def ECE_classwise(prob, label, bins=20, threshold=0., adaptive=False):
     return _ECE_classwise(prob, label, bins, threshold, adaptive)[1]['avg']
 
 def brier_top1(prob:np.ndarray, label:np.ndarray):
-    """Brier score (i.e. MSE between prediction and 0-1 label) of the top prediction.
+    """Brier score (i.e. mean squared error between prediction and 0-1 label) of the top prediction.
     """
     conf = prob.max(1)
     acc = (label == np.argmax(prob, 1)).astype(int)

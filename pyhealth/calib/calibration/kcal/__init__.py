@@ -1,7 +1,13 @@
-"""
-KCal: Kernel-based Calibration
+"""KCal: Kernel-based Calibration
 
-Implementation based on https://github.com/zlin7/KCal
+Implementation based on https://github.com/zlin7/KCal.
+
+Paper:
+
+    Lin, Zhen, Shubhendu Trivedi, and Jimeng Sun.
+    "Taking a Step Back with KCal: Multi-Class Kernel-Based Calibration
+    for Deep Neural Networks." ICLR 2023.
+
 
 """
 from typing import Dict

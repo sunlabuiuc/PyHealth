@@ -1,7 +1,8 @@
 """
 LABEL: Least ambiguous set-valued classifiers with bounded error levels.
 
-From:
+Paper:
+
     Sadinle, Mauricio, Jing Lei, and Larry Wasserman.
     "Least ambiguous set-valued classifiers with bounded error levels."
     Journal of the American Statistical Association 114, no. 525 (2019): 223-234.

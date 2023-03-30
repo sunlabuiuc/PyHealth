@@ -37,10 +37,10 @@ def multiclass_metrics_fn(
         - jaccard_weighted: Jaccard similarity coefficient score, weighted averaged
         - cohen_kappa: Cohen's kappa score
         - brier_top1: brier score between the top prediction and the true label
-        - ECE: Expected Calibration Error (with 20 equal-width bins). Check :func:`pyhealth.metrics.calibration.ECE_confidence_multiclass`.
-        - ECE_adapt: adaptive ECE (with 20 equal-size bins). Check :func:`pyhealth.metrics.calibration.ECE_confidence_multiclass`.
-        - cwECEt: classwise ECE with threshold=min(0.01,1/K). Check :func:`pyhealth.metrics.calibration.ECE_classwise`.
-        - cwECEt_adapt: classwise adaptive ECE with threshold=min(0.01,1/K). Check :func:`pyhealth.metrics.calibration.ECE_classwise`.
+        - ECE: Expected Calibration Error (with 20 equal-width bins). Check :func:`pyhealth.metrics.calibration.ece_confidence_multiclass`.
+        - ECE_adapt: adaptive ECE (with 20 equal-size bins). Check :func:`pyhealth.metrics.calibration.ece_confidence_multiclass`.
+        - cwECEt: classwise ECE with threshold=min(0.01,1/K). Check :func:`pyhealth.metrics.calibration.ece_classwise`.
+        - cwECEt_adapt: classwise adaptive ECE with threshold=min(0.01,1/K). Check :func:`pyhealth.metrics.calibration.ece_classwise`.
 
     The following metrics related to the prediction sets are accepted as well, but will be ignored if y_predset is None:
         - rejection_rate: Frequency of rejection, where rejection happens when the prediction set has cardinality other than 1. Check :func:`pyhealth.metrics.prediction_set.rejection_rate`.
@@ -149,12 +149,12 @@ def multiclass_metrics_fn(
         elif metric == "brier_top1":
             output[metric] = calib.brier_top1(y_prob, y_true)
         elif metric in {"ECE", "ECE_adapt"}:
-            output[metric] = calib.ECE_confidence_multiclass(
+            output[metric] = calib.ece_confidence_multiclass(
                 y_prob, y_true, bins=20, adaptive=metric.endswith("_adapt")
             )
         elif metric in {"cwECEt", "cwECEt_adapt"}:
             thres = min(0.01, 1.0 / y_prob.shape[1])
-            output[metric] = calib.ECE_classwise(
+            output[metric] = calib.ece_classwise(
                 y_prob,
                 y_true,
                 bins=20,
