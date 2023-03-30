@@ -12,7 +12,7 @@ def multiclass_metrics_fn(
     y_true: np.ndarray,
     y_prob: np.ndarray,
     metrics: Optional[List[str]] = None,
-    y_predset: Optional[np.ndarray]=None,
+    y_predset: Optional[np.ndarray] = None,
 ) -> Dict[str, float]:
     """Computes metrics for multiclass classification.
 
@@ -37,20 +37,21 @@ def multiclass_metrics_fn(
         - jaccard_weighted: Jaccard similarity coefficient score, weighted averaged
         - cohen_kappa: Cohen's kappa score
         - brier_top1: brier score between the top prediction and the true label
-        - ECE: Expected Calibration Error (with 20 equal-width bins)
-        - ECE_adapt: adaptive ECE (with 20 equal-size bins)
-        - cwECEt: classwise ECE with threshold=min(0.01,1/K)
-        - cwECEt_adapt: classwise adaptive ECE with threshold=min(0.01,1/K)
+        - ECE: Expected Calibration Error (with 20 equal-width bins). Check `[definition] <https://pyhealth.readthedocs.io/en/pipeline_uq/api/metrics/pyhealth.metrics.calibration.html#pyhealth.metrics.calibration.ECE_confidence_multiclass>`_.
+        - ECE_adapt: adaptive ECE (with 20 equal-size bins). Check `[definition] <https://pyhealth.readthedocs.io/en/pipeline_uq/api/metrics/pyhealth.metrics.calibration.html#pyhealth.metrics.calibration.ECE_confidence_multiclass>`_.
+        - cwECEt: classwise ECE with threshold=min(0.01,1/K). Check `[definition] <https://pyhealth.readthedocs.io/en/pipeline_uq/api/metrics/pyhealth.metrics.calibration.html#pyhealth.metrics.calibration.ECE_classwise>`_.
+        - cwECEt_adapt: classwise adaptive ECE with threshold=min(0.01,1/K). Check `[definition] <https://pyhealth.readthedocs.io/en/pipeline_uq/api/metrics/pyhealth.metrics.calibration.html#pyhealth.metrics.calibration.ECE_classwise>`_.
     The following metrics related to the prediction sets are accepted as well, but
         will be ignored if y_predset is None:
+
         - rejection_rate: Frequency of rejection, where rejection happens
-            then the prediction set has cardinality other than 1
-        - set_size: Average size of the prediction sets.
-        - missrate_mean: The average (across different classes k) of P(k not in prediction set)
-        - missrate_overall: P(Y not in prediction set)
-        - missrate_mean_certain: Same as missrate_mean, but retricted to un-rejected samples
+            then the prediction set has cardinality other than 1. Check `[definition] <https://pyhealth.readthedocs.io/en/pipeline_uq/api/metrics/pyhealth.metrics.prediction_set.html#pyhealth.metrics.prediction_set.rejection_rate>`_.
+        - set_size: Average size of the prediction sets. Check `[definition] <https://pyhealth.readthedocs.io/en/pipeline_uq/api/metrics/pyhealth.metrics.prediction_set.html#pyhealth.metrics.prediction_set.size>`_.
+        - missrate_mean: The average (across different classes k) of P(k not in prediction set). Check `[definition] <https://pyhealth.readthedocs.io/en/pipeline_uq/api/metrics/pyhealth.metrics.prediction_set.html#pyhealth.metrics.prediction_set.missrate_certain>`_.
+        - missrate_overall: P(Y not in prediction set). Check `[definition] <https://pyhealth.readthedocs.io/en/pipeline_uq/api/metrics/pyhealth.metrics.prediction_set.html#pyhealth.metrics.prediction_set.missrate_overall>`_.
+        - missrate_mean_certain: Same as missrate_mean, but retricted to un-rejected samples. Check `[definition] <https://pyhealth.readthedocs.io/en/pipeline_uq/api/metrics/pyhealth.metrics.prediction_set.html#pyhealth.metrics.prediction_set.missrate_mean_certain>`_.
         - missrate_overall_certain: Same as missrate_overall, but restricted to un-rejected samples.
-            This could be understood as accuracy for non-rejected (i.e. certain) samples.
+            This could be understood as accuracy for non-rejected (i.e. certain) samples. Check `[definition] <https://pyhealth.readthedocs.io/en/pipeline_uq/api/metrics/pyhealth.metrics.prediction_set.html#pyhealth.metrics.prediction_set.missrate_certain_overall>`_.
 
     If no metrics are specified, accuracy, f1_macro, and f1_micro are computed
     by default.
@@ -82,9 +83,15 @@ def multiclass_metrics_fn(
     if metrics is None:
         metrics = ["accuracy", "f1_macro", "f1_micro"]
     prediction_set_metrics = [
-        'rejection_rate', 'set_size',
-        'missrate_max', 'missrate_mean', 'missrate_overall',
-        'missrate_max_certain', 'missrate_mean_certain', 'missrate_overall_certain']
+        "rejection_rate",
+        "set_size",
+        "missrate_max",
+        "missrate_mean",
+        "missrate_overall",
+        "missrate_max_certain",
+        "missrate_mean_certain",
+        "missrate_overall_certain",
+    ]
     y_pred = np.argmax(y_prob, axis=-1)
 
     output = {}
@@ -142,29 +149,35 @@ def multiclass_metrics_fn(
         elif metric == "cohen_kappa":
             cohen_kappa = sklearn_metrics.cohen_kappa_score(y_true, y_pred)
             output["cohen_kappa"] = cohen_kappa
-        elif metric == 'brier_top1':
+        elif metric == "brier_top1":
             output[metric] = calib.brier_top1(y_prob, y_true)
-        elif metric in {'ECE', 'ECE_adapt'}:
+        elif metric in {"ECE", "ECE_adapt"}:
             output[metric] = calib.ECE_confidence_multiclass(
-                y_prob, y_true, bins=20, adaptive=metric.endswith("_adapt"))
-        elif metric in {'cwECEt', 'cwECEt_adapt'}:
-            thres = min(0.01, 1./y_prob.shape[1])
+                y_prob, y_true, bins=20, adaptive=metric.endswith("_adapt")
+            )
+        elif metric in {"cwECEt", "cwECEt_adapt"}:
+            thres = min(0.01, 1.0 / y_prob.shape[1])
             output[metric] = calib.ECE_classwise(
-                y_prob, y_true, bins=20, adaptive=metric.endswith("_adapt"), threshold=thres)
+                y_prob,
+                y_true,
+                bins=20,
+                adaptive=metric.endswith("_adapt"),
+                threshold=thres,
+            )
         elif metric in prediction_set_metrics:
             if y_predset is None:
                 continue
-            if metric == 'rejection_rate':
+            if metric == "rejection_rate":
                 output[metric] = pset.rejection_rate(y_predset)
-            elif metric == 'set_size':
+            elif metric == "set_size":
                 output[metric] = pset.size(y_predset)
-            elif metric == 'missrate_mean':
+            elif metric == "missrate_mean":
                 output[metric] = pset.missrate(y_predset, y_true).mean()
-            elif metric == 'missrate_overall':
+            elif metric == "missrate_overall":
                 output[metric] = pset.missrate_overall(y_predset, y_true)
-            elif metric == 'missrate_mean_certain':
+            elif metric == "missrate_mean_certain":
                 output[metric] = pset.missrate_certain(y_predset, y_true).mean()
-            elif metric == 'missrate_overall_certain':
+            elif metric == "missrate_overall_certain":
                 output[metric] = pset.missrate_certain_overall(y_predset, y_true)
         else:
             raise ValueError(f"Unknown metric for multiclass classification: {metric}")
@@ -188,7 +201,7 @@ if __name__ == "__main__":
         "jaccard_weighted",
         "cohen_kappa",
     ]
-    all_metrics += ['brier_top1', 'ECE', 'ECE_adapt', 'cwECEt', 'cwECEt_adapt']
+    all_metrics += ["brier_top1", "ECE", "ECE_adapt", "cwECEt", "cwECEt_adapt"]
     y_true = np.random.randint(4, size=100000)
     y_prob = np.random.randn(100000, 4)
     y_prob = np.exp(y_prob) / np.sum(np.exp(y_prob), axis=-1, keepdims=True)

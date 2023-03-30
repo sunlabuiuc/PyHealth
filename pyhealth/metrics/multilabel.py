@@ -46,8 +46,9 @@ def multilabel_metrics_fn(
         - jaccard_weighted: Jaccard similarity coefficient score, weighted averaged
         - jaccard_samples: Jaccard similarity coefficient score, samples averaged
         - hamming_loss: Hamming loss
-        - cwECE: classwise ECE (with 20 equal-width bins)
-        - cwECE_adapt: classwise adaptive ECE (with 20 equal-size bins)
+        - cwECE: classwise ECE (with 20 equal-width bins). Check `[definition] <https://pyhealth.readthedocs.io/en/pipeline_uq/api/metrics/pyhealth.metrics.calibration.html#pyhealth.metrics.calibration.ECE_classwise>`_.
+        - cwECE_adapt: classwise adaptive ECE (with 20 equal-size bins). Check `[definition] <https://pyhealth.readthedocs.io/en/pipeline_uq/api/metrics/pyhealth.metrics.calibration.html#pyhealth.metrics.calibration.ECE_classwise>`_.
+
     If no metrics are specified, pr_auc_samples is computed by default.
 
     This function calls sklearn.metrics functions to compute the metrics. For
@@ -194,9 +195,14 @@ def multilabel_metrics_fn(
         elif metric == "hamming_loss":
             hamming_loss = sklearn_metrics.hamming_loss(y_true, y_pred)
             output["hamming_loss"] = hamming_loss
-        elif metric in {'cwECE', 'cwECE_adapt'}:
+        elif metric in {"cwECE", "cwECE_adapt"}:
             output[metric] = calib.ECE_classwise(
-                y_prob, y_true, bins=20, adaptive=metric.endswith("_adapt"), threshold=0.)
+                y_prob,
+                y_true,
+                bins=20,
+                adaptive=metric.endswith("_adapt"),
+                threshold=0.0,
+            )
         else:
             raise ValueError(f"Unknown metric for multilabel classification: {metric}")
 
