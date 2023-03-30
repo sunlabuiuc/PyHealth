@@ -19,10 +19,8 @@ Papers:
     "On calibration of modern neural networks."
     ICML 2017.
 
-    [5] Kull, Meelis, Miquel Perello Nieto, Markus Kängsepp, Telmo Silva Filho,
-        Hao Song, and Peter Flach.
-    "Beyond temperature scaling: Obtaining well-calibrated multi-class
-        probabilities with dirichlet calibration."
+    [5] Kull, Meelis, Miquel Perello Nieto, Markus Kängsepp, Telmo Silva Filho, Hao Song, and Peter Flach.
+    "Beyond temperature scaling: Obtaining well-calibrated multi-class probabilities with dirichlet calibration."
     Advances in neural information processing systems 32 (2019).
 
     [6] Brier, Glenn W.
@@ -102,23 +100,28 @@ def _ECE_classwise(prob:np.ndarray, label_onehot:np.ndarray, bins=20, threshold=
 
 def ECE_confidence_multiclass(prob:np.ndarray, label:np.ndarray, bins=20, adaptive=False):
     """Expected Calibration Error (ECE).
+
     We group samples into 'bins' basing on the top-class prediction.
     Then, we compute the absolute difference between the average top-class prediction and
     the frequency of top-class being correct (i.e. accuracy) for each bin.
     ECE is the average (weighed by number of points in each bin) of these absolute differences.
 
-    For example, if we have samples with predicted probabilities:
-        [0.2, 0.2, 0.6], [0.2, 0.31, 0.49] and [0.1, 0.1, 0.8].
-    If the bins are [0, 0.5] and (0.5, 1], and the labels are 2, 1, 2.
-    Then, the absolute difference in the first bin is 0.49 (|0.49-0|) and the second is
-    0.3 (|0.7-1|). The ECE is 0.49 * 1/3 + 0.3 * 2/3 = 0.3633.
 
-    The following formula from Guo, Chuan, Geoff Pleiss, Yu Sun, and Kilian Q. Weinberger.
+    The following formula is taken from Guo, Chuan, Geoff Pleiss, Yu Sun, and Kilian Q. Weinberger.
     "On calibration of modern neural networks." ICML 2017.
-
     .. math::
         ECE = \\sum_{m=1}^M \\frac{|B_m|}{N} |acc(B_m) - conf(B_m)|
 
+    Examples:
+        >>> pred = np.asarray([[0.2, 0.2, 0.6], [0.2, 0.31, 0.49], [0.1, 0.1, 0.8]])
+        >>> label = np.asarray([2,1,2])
+        >>> ECE_confidence_multiclass(pred, label, bins=2)
+        0.36333333333333334
+
+    Explanation of the example: The bins are [0, 0.5] and (0.5, 1].
+    In the first bin, we have one sample with top-class prediction of 0.49, and its
+    accuracy is 0. In the second bin, we have average confidence of 0.7 and average
+    accuracy of 1. Thus, the ECE is :math:`\\frac{1}{3} \cdot 0.49 + \\frac{2}{3}\cdot 0.3=0.3633`.
 
     Args:
         prob (np.ndarray): (N, C)

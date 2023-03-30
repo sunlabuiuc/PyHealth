@@ -48,7 +48,7 @@ def multiclass_metrics_fn(
         - miscoverage_mean_ps: The average (across different classes k) of P(k not in prediction set). Check `[definition] <https://pyhealth.readthedocs.io/en/pipeline_uq/api/metrics/pyhealth.metrics.prediction_set.html#pyhealth.metrics.prediction_set.missrate_certain>`_.
         - miscoverage_overall_ps: P(Y not in prediction set). Check `[definition] <https://pyhealth.readthedocs.io/en/pipeline_uq/api/metrics/pyhealth.metrics.prediction_set.html#pyhealth.metrics.prediction_set.missrate_overall>`_.
         - error_mean_ps: Same as miscoverage_mean_ps, but retricted to un-rejected samples. Check `[definition] <https://pyhealth.readthedocs.io/en/pipeline_uq/api/metrics/pyhealth.metrics.prediction_set.html#pyhealth.metrics.prediction_set.missrate_mean_certain>`_.
-        - error_overall_ps: Same as miscoverage_overall_ps, but restricted to un-rejected samples. Check :ref:`pyhealth-metrics-prediction_set-error_overall_ps`.
+        - error_overall_ps: Same as miscoverage_overall_ps, but restricted to un-rejected samples. Check :func:`pyhealth.metrics.prediction_set.error_overall_ps`.
 
         `[definition] <https://pyhealth.readthedocs.io/en/pipeline_uq/api/metrics/pyhealth.metrics.prediction_set.html#pyhealth.metrics.prediction_set.missrate_certain_overall>`_.
 
