@@ -41,17 +41,16 @@ def multiclass_metrics_fn(
         - ECE_adapt: adaptive ECE (with 20 equal-size bins). Check `[definition] <https://pyhealth.readthedocs.io/en/pipeline_uq/api/metrics/pyhealth.metrics.calibration.html#pyhealth.metrics.calibration.ECE_confidence_multiclass>`_.
         - cwECEt: classwise ECE with threshold=min(0.01,1/K). Check `[definition] <https://pyhealth.readthedocs.io/en/pipeline_uq/api/metrics/pyhealth.metrics.calibration.html#pyhealth.metrics.calibration.ECE_classwise>`_.
         - cwECEt_adapt: classwise adaptive ECE with threshold=min(0.01,1/K). Check `[definition] <https://pyhealth.readthedocs.io/en/pipeline_uq/api/metrics/pyhealth.metrics.calibration.html#pyhealth.metrics.calibration.ECE_classwise>`_.
-    The following metrics related to the prediction sets are accepted as well, but
-        will be ignored if y_predset is None:
 
-        - rejection_rate: Frequency of rejection, where rejection happens
-            then the prediction set has cardinality other than 1. Check `[definition] <https://pyhealth.readthedocs.io/en/pipeline_uq/api/metrics/pyhealth.metrics.prediction_set.html#pyhealth.metrics.prediction_set.rejection_rate>`_.
+    The following metrics related to the prediction sets are accepted as well, but will be ignored if y_predset is None:
+        - rejection_rate: Frequency of rejection, where rejection happens when the prediction set has cardinality other than 1. Check `[definition] <https://pyhealth.readthedocs.io/en/pipeline_uq/api/metrics/pyhealth.metrics.prediction_set.html#pyhealth.metrics.prediction_set.rejection_rate>`_.
         - set_size: Average size of the prediction sets. Check `[definition] <https://pyhealth.readthedocs.io/en/pipeline_uq/api/metrics/pyhealth.metrics.prediction_set.html#pyhealth.metrics.prediction_set.size>`_.
-        - missrate_mean: The average (across different classes k) of P(k not in prediction set). Check `[definition] <https://pyhealth.readthedocs.io/en/pipeline_uq/api/metrics/pyhealth.metrics.prediction_set.html#pyhealth.metrics.prediction_set.missrate_certain>`_.
-        - missrate_overall: P(Y not in prediction set). Check `[definition] <https://pyhealth.readthedocs.io/en/pipeline_uq/api/metrics/pyhealth.metrics.prediction_set.html#pyhealth.metrics.prediction_set.missrate_overall>`_.
-        - missrate_mean_certain: Same as missrate_mean, but retricted to un-rejected samples. Check `[definition] <https://pyhealth.readthedocs.io/en/pipeline_uq/api/metrics/pyhealth.metrics.prediction_set.html#pyhealth.metrics.prediction_set.missrate_mean_certain>`_.
-        - missrate_overall_certain: Same as missrate_overall, but restricted to un-rejected samples.
-            This could be understood as accuracy for non-rejected (i.e. certain) samples. Check `[definition] <https://pyhealth.readthedocs.io/en/pipeline_uq/api/metrics/pyhealth.metrics.prediction_set.html#pyhealth.metrics.prediction_set.missrate_certain_overall>`_.
+        - miscoverage_mean_ps: The average (across different classes k) of P(k not in prediction set). Check `[definition] <https://pyhealth.readthedocs.io/en/pipeline_uq/api/metrics/pyhealth.metrics.prediction_set.html#pyhealth.metrics.prediction_set.missrate_certain>`_.
+        - miscoverage_overall_ps: P(Y not in prediction set). Check `[definition] <https://pyhealth.readthedocs.io/en/pipeline_uq/api/metrics/pyhealth.metrics.prediction_set.html#pyhealth.metrics.prediction_set.missrate_overall>`_.
+        - error_mean_ps: Same as miscoverage_mean_ps, but retricted to un-rejected samples. Check `[definition] <https://pyhealth.readthedocs.io/en/pipeline_uq/api/metrics/pyhealth.metrics.prediction_set.html#pyhealth.metrics.prediction_set.missrate_mean_certain>`_.
+        - error_overall_ps: Same as miscoverage_overall_ps, but restricted to un-rejected samples. Check :ref:`pyhealth-metrics-prediction_set-error_overall_ps`.
+
+        `[definition] <https://pyhealth.readthedocs.io/en/pipeline_uq/api/metrics/pyhealth.metrics.prediction_set.html#pyhealth.metrics.prediction_set.missrate_certain_overall>`_.
 
     If no metrics are specified, accuracy, f1_macro, and f1_micro are computed
     by default.
@@ -172,13 +171,13 @@ def multiclass_metrics_fn(
             elif metric == "set_size":
                 output[metric] = pset.size(y_predset)
             elif metric == "missrate_mean":
-                output[metric] = pset.missrate(y_predset, y_true).mean()
+                output[metric] = pset.miscoverage_ps(y_predset, y_true).mean()
             elif metric == "missrate_overall":
-                output[metric] = pset.missrate_overall(y_predset, y_true)
+                output[metric] = pset.miscoverage_overall_ps(y_predset, y_true)
             elif metric == "missrate_mean_certain":
-                output[metric] = pset.missrate_certain(y_predset, y_true).mean()
+                output[metric] = pset.error_ps(y_predset, y_true).mean()
             elif metric == "missrate_overall_certain":
-                output[metric] = pset.missrate_certain_overall(y_predset, y_true)
+                output[metric] = pset.error_overall_ps(y_predset, y_true)
         else:
             raise ValueError(f"Unknown metric for multiclass classification: {metric}")
 

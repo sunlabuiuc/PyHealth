@@ -39,7 +39,7 @@ def _missrate(y_pred:np.ndarray, y_true:np.ndarray, ignore_rejected=False):
 
 
 
-def missrate(y_pred:np.ndarray, y_true:np.ndarray):
+def miscoverage_ps(y_pred:np.ndarray, y_true:np.ndarray):
     """Miscoverage rates for all samples (similar to recall).
 
     For example, if our prediction sets are {1}, {1}, {0,2} and the labels
@@ -49,7 +49,7 @@ def missrate(y_pred:np.ndarray, y_true:np.ndarray):
     """
     return _missrate(y_pred, y_true, False)
 
-def missrate_certain(y_pred:np.ndarray, y_true:np.ndarray):
+def error_ps(y_pred:np.ndarray, y_true:np.ndarray):
     """Miscoverage rates for unrejected samples,
         where rejection is defined to be sets with size !=1).
 
@@ -60,7 +60,7 @@ def missrate_certain(y_pred:np.ndarray, y_true:np.ndarray):
     """
     return _missrate(y_pred, y_true, True)
 
-def missrate_overall(y_pred:np.ndarray, y_true:np.ndarray):
+def miscoverage_overall_ps(y_pred:np.ndarray, y_true:np.ndarray):
     """Miscoverage rate for the true label. Only for multiclass.
 
 
@@ -74,9 +74,9 @@ def missrate_overall(y_pred:np.ndarray, y_true:np.ndarray):
 
     return 1 - np.mean(truth_pred)
 
-def missrate_certain_overall(y_pred:np.ndarray, y_true:np.ndarray):
+def error_overall_ps(y_pred:np.ndarray, y_true:np.ndarray):
     """Miscoverage rate for the true label for unrejected samples. Only for multiclass.
-
+    .. _pyhealth-metrics-prediction_set-error_overall_ps:
     For example, if a prediction set is {0} and the label is 1, it is an error.
     {0} and 0 incurs no error. {0,1} and 1 is *ignored*.
     If we compute miscoverage rates for unrejected samples for these three
