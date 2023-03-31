@@ -8,6 +8,7 @@ from typing import Dict
 
 import numpy as np
 import torch
+from torch.utils.data import Subset
 
 from pyhealth.calib.base_classes import PostHocCalibrator
 from pyhealth.calib.utils import LogLoss, one_hot_np, prepare_numpy_dataset
@@ -128,6 +129,7 @@ class HistogramBinning(PostHocCalibrator):
 
 
     Paper:
+
         [1] Gupta, Chirag, and Aaditya Ramdas.
         "Top-label calibration and multiclass-to-binary reductions."
         ICLR 2022.
@@ -170,7 +172,12 @@ class HistogramBinning(PostHocCalibrator):
         self.num_classes = None
         self.calib = None
 
-    def calibrate(self, cal_dataset):
+    def calibrate(self, cal_dataset:Subset):
+        """Calibrate the model using a calibration dataset.
+
+        :param cal_dataset: Calibration set.
+        :type cal_dataset: Subset
+        """
         _cal_data = prepare_numpy_dataset(self.model, cal_dataset,
                                           ['y_true', 'y_prob'], debug=self.debug)
         if self.num_classes is None:
@@ -189,10 +196,15 @@ class HistogramBinning(PostHocCalibrator):
     def forward(self, normalization='sum', **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation (just like the original model).
 
-        Returns:
-            A dictionary with all results from the base model, with the following modified:
-                y_prob: calibrated predicted probabilities.
-                loss: Cross entropy loss  with the new y_prob.
+        :param normalization: how to normalize the calibrated probability.
+        Defaults to 'sum' (and only 'sum' is supported for now).
+        :type normalization: str, optional
+        :param **kwargs: Additional arguments to the base model.
+
+        :return:  A dictionary with all results from the base model, with the following modified:
+            y_prob: calibrated predicted probabilities.
+            loss: Cross entropy loss  with the new y_prob.
+        :rtype: Dict[str, torch.Tensor]
         """
         assert normalization is None or normalization == 'sum'
         ret = self.model(**kwargs)

@@ -141,9 +141,9 @@ class SCRIB(SetPredictor):
     To to this, it selects class-specific thresholds for the predictions, on a calibration set.
 
 
-    If `risk` is a float (say 0.1), SCRIB controls the overall risk:
+    If ``risk`` is a float (say 0.1), SCRIB controls the overall risk:
     :math:`\\mathbb{P}\\{Y \\not \\in C(X) | |C(X)| = 1\\}\\leq \\risk`.
-    If `risk` is an array (say `np.asarray([0.1] * 5)`), SCRIB controls the class specific risks:
+    If ``risk`` is an array (say `np.asarray([0.1] * 5)`), SCRIB controls the class specific risks:
     :math:`\\mathbb{P}\\{Y \\not \\in C(X) | Y=k \\land |C(X)| = 1\\}\\leq \\risk_k`
     Here, :math:`C(X)` denotes the final prediction set.
 

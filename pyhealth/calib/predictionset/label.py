@@ -32,7 +32,7 @@ class LABEL(SetPredictor):
 
     This is a prediction-set constructor for multi-class classification problems.
     It controls either :math:`\\mathbb{P}\\{Y \\not \\in C(X) | Y=k\\}\\leq \\alpha_k`
-    (when `alpha` is an array), or :math:`\\mathbb{P}\\{Y \\not \\in C(X)\\}\\leq \\alpha` (when `alpha` is a float).
+    (when ``alpha`` is an array), or :math:`\\mathbb{P}\\{Y \\not \\in C(X)\\}\\leq \\alpha` (when ``alpha`` is a float).
     Here, :math:`C(X)` denotes the final prediction set.
     This is essentially a split conformal prediction method using the predicted scores.
 
@@ -83,8 +83,8 @@ class LABEL(SetPredictor):
     def calibrate(self, cal_dataset:Subset):
         """Calibrate the thresholds used to construct the prediction set.
 
-        Args:
-            cal_dataset (Subset): Calibration set.
+        :param cal_dataset: Calibration set.
+        :type cal_dataset: Subset
         """
         cal_dataset = prepare_numpy_dataset(
             self.model, cal_dataset, ['y_prob', 'y_true'], debug=self.debug)
@@ -101,10 +101,9 @@ class LABEL(SetPredictor):
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation (just like the original model).
 
-        Returns:
-            result (dict):
-                A dictionary with all results from the base model, with the following updates:
+        :return: A dictionary with all results from the base model, with the following updates:
                     y_predset: a bool tensor representing the prediction for each class.
+        :rtype: Dict[str, torch.Tensor]
         """
         pred = self.model(**kwargs)
         pred['y_predset'] = pred['y_prob'] > self.t

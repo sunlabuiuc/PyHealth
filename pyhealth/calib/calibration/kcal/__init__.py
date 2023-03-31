@@ -214,7 +214,7 @@ class KCal(PostHocCalibrator):
                   record_id_name=None,
                   train_dataset:Subset=None, train_split_by_patient=False,
                   load_best_model_at_last=True, **train_kwargs):
-        """Calibrate using a calibration dataset. If `train_dataset` is not None,
+        """Calibrate using a calibration dataset. If ``train_dataset`` is not None,
         it will be used to fit a re-projection from the base model embeddings.
         In either case, the calibration set will be used to construct the KDE classifier.
 
