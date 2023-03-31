@@ -266,9 +266,10 @@ class KCal(PostHocCalibrator):
         """Forward propagation (just like the original model).
 
         Returns:
-            A dictionary with all results from the base model, with the following updated:
-                y_prob: calibrated predicted probabilities.
-                loss: Cross entropy loss (log-loss, to be precise) with the new y_prob.
+            result (dict):
+                A dictionary with all results from the base model, with the following updated:
+                    y_prob: calibrated predicted probabilities.
+                    loss: Cross entropy loss (log-loss, to be precise) with the new y_prob.
         """
         ret = self.model(embed=True, **kwargs)
         X_pred = self.proj.embed(ret.pop('embed'))

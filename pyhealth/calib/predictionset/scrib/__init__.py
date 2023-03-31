@@ -141,18 +141,21 @@ class SCRIB(SetPredictor):
     To to this, it selects class-specific thresholds for the predictions, on a calibration set.
 
 
-    Paper: Lin, Zhen, Lucas Glass, M. Brandon Westover, Cao Xiao, and Jimeng Sun.
+    If `risk` is a float (say 0.1), SCRIB controls the overall risk:
+    :math:`\\mathbb{P}\\{Y \\not \\in C(X) | |C(X)| = 1\\}\\leq \\risk`.
+    If `risk` is an array (say `np.asarray([0.1] * 5)`), SCRIB controls the class specific risks:
+    :math:`\\mathbb{P}\\{Y \\not \\in C(X) | Y=k \\land |C(X)| = 1\\}\\leq \\risk_k`
+    Here, :math:`C(X)` denotes the final prediction set.
+
+    Paper:
+
+        Lin, Zhen, Lucas Glass, M. Brandon Westover, Cao Xiao, and Jimeng Sun.
         "SCRIB: Set-classifier with Class-specific Risk Bounds for Blackbox Models."
         AAAI 2022.
 
     Args:
         model (BaseModel): A trained model.
         risk (Union[float, np.ndarray]): risk targets.
-            If risk is a float (say 0.1), SCRIB controls the overall risk:
-                r(H) = P{Y not in H(X) | |H(X)| = 1}
-            If risk is an array (say `np.asarray([0.1] * 5)`),
-            SCRIB controls the class specific risks:
-                r_k(H) = P{k not in H(X) | |H(X)| = 1, Y = k}
         loss_kwargs (dict, optional): Additional loss parameters (including hyperparameters).
             It could contain the following float/int hyperparameters:
                 lk: The coefficient for the loss term associated with risk violation penalty.
@@ -161,6 +164,7 @@ class SCRIB(SetPredictor):
                     when no class exceeds the threshold. In other words, if fill_max,
                     the null region will be filled with max-prediction class.
             Defaults to {'lk': 1e4, 'fill_max': False}
+
     Examples:
         >>> from pyhealth.models import SparcNet
         >>> from pyhealth.tasks import sleep_staging_isruc_fn
@@ -203,6 +207,11 @@ class SCRIB(SetPredictor):
 
 
     def calibrate(self, cal_dataset):
+        """Calibrate/Search for the thresholds used to construct the prediction set.
+
+        Args:
+            cal_dataset (Subset): Calibration set.
+        """
         cal_dataset = prepare_numpy_dataset(
             self.model, cal_dataset, ['y_prob', 'y_true'], debug=self.debug)
         if self.loss_name == CLASSPECIFIC_LOSSFUNC:
@@ -218,8 +227,9 @@ class SCRIB(SetPredictor):
         """Forward propagation (just like the original model).
 
         Returns:
-            A dictionary with all results from the base model, with the following updates:
-                y_predset: a bool tensor representing the prediction for each class.
+            result (dict):
+                A dictionary with all results from the base model, with the following updates:
+                    y_predset: a bool tensor representing the prediction for each class.
         """
         ret = self.model(**kwargs)
         ret['y_predset'] = ret['y_prob'] > self.t

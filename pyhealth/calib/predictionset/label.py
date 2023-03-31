@@ -13,6 +13,7 @@ from typing import Dict, Union
 
 import numpy as np
 import torch
+from torch.utils.data import Subset
 
 from pyhealth.calib.base_classes import SetPredictor
 from pyhealth.calib.utils import prepare_numpy_dataset
@@ -30,21 +31,21 @@ class LABEL(SetPredictor):
     """LABEL: Least ambiguous set-valued classifiers with bounded error levels.
 
     This is a prediction-set constructor for multi-class classification problems.
-    It controls either P{Y in C(X) | Y = k}  for each class k, or P{Y in C(X)} overall.
-    Here, C(X) denotes the final prediction set.
+    It controls either :math:`\\mathbb{P}\\{Y \\not \\in C(X) | Y=k\\}\\leq \\alpha_k`
+    (when `alpha` is an array), or :math:`\\mathbb{P}\\{Y \\not \\in C(X)\\}\\leq \\alpha` (when `alpha` is a float).
+    Here, :math:`C(X)` denotes the final prediction set.
     This is essentially a split conformal prediction method using the predicted scores.
 
-    Paper: Sadinle, Mauricio, Jing Lei, and Larry Wasserman.
+    Paper:
+
+        Sadinle, Mauricio, Jing Lei, and Larry Wasserman.
         "Least ambiguous set-valued classifiers with bounded error levels."
         Journal of the American Statistical Association 114, no. 525 (2019): 223-234.
 
     Args:
         model (BaseModel): A trained model.
         alpha (Union[float, np.ndarray]): Target mis-coverage rate(s).
-            If alpha is a float (say 0.1), the guarantee is:
-                P{Y not in C(X)} <= alpha
-            If alpha is an array (say `np.asarray([0.1] * 5)`), the guarantee is:
-                P{Y not in C(X) | Y = k} <= alpha[k]
+
     Examples:
         >>> from pyhealth.models import SparcNet
         >>> from pyhealth.tasks import sleep_staging_isruc_fn
@@ -79,7 +80,12 @@ class LABEL(SetPredictor):
 
         self.t = None
 
-    def calibrate(self, cal_dataset):
+    def calibrate(self, cal_dataset:Subset):
+        """Calibrate the thresholds used to construct the prediction set.
+
+        Args:
+            cal_dataset (Subset): Calibration set.
+        """
         cal_dataset = prepare_numpy_dataset(
             self.model, cal_dataset, ['y_prob', 'y_true'], debug=self.debug)
         y_prob = cal_dataset['y_prob']
@@ -96,8 +102,9 @@ class LABEL(SetPredictor):
         """Forward propagation (just like the original model).
 
         Returns:
-            A dictionary with all results from the base model, with the following updates:
-                y_predset: a bool tensor representing the prediction for each class.
+            result (dict):
+                A dictionary with all results from the base model, with the following updates:
+                    y_predset: a bool tensor representing the prediction for each class.
         """
         pred = self.model(**kwargs)
         pred['y_predset'] = pred['y_prob'] > self.t

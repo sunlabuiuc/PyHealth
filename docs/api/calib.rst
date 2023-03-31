@@ -10,4 +10,8 @@ combined with any PyHealth models.
     :maxdepth: 3
 
     calib/pyhealth.calib.calibration.KCal
+    calib/pyhealth.calib.calibration.HistogramBinning
+    calib/pyhealth.calib.calibration.TemperatureScaling
+
     calib/pyhealth.calib.predictionset.LABEL
+    calib/pyhealth.calib.predictionset.SCRIB
