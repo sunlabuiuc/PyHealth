@@ -155,6 +155,7 @@ class KCal(PostHocCalibrator):
             dim=32, bs_pred=64, bs_supp=20, epoch_len=5000, epochs=10,
             load_best_model_at_last=False, **train_kwargs):
         """Fit the reprojection module.
+        You don't need to call this function - it is called in :func:`KCal.calibrate`.
         For training details, please refer to the paper.
 
         Args:
@@ -265,11 +266,13 @@ class KCal(PostHocCalibrator):
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation (just like the original model).
 
-        Returns:
-            result (dict):
-                A dictionary with all results from the base model, with the following updated:
-                    y_prob: calibrated predicted probabilities.
-                    loss: Cross entropy loss (log-loss, to be precise) with the new y_prob.
+        :param **kwargs: Additional arguments to the base model.
+
+        :return:  A dictionary with all results from the base model, with the following modified:
+
+            ``y_prob``: calibrated predicted probabilities.
+            ``loss``: Cross entropy loss  with the new y_prob.
+        :rtype: Dict[str, torch.Tensor]
         """
         ret = self.model(embed=True, **kwargs)
         X_pred = self.proj.embed(ret.pop('embed'))
