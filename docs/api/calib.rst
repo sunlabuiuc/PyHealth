@@ -1,4 +1,4 @@
-Model Calibration and Uncertainty Quantification
+Calibration and Uncertainty Quantification
 ===============
 
 In this module, we implemented the following prediction

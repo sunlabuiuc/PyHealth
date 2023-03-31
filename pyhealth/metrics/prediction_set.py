@@ -42,32 +42,53 @@ def _missrate(y_pred:np.ndarray, y_true:np.ndarray, ignore_rejected=False):
 def miscoverage_ps(y_pred:np.ndarray, y_true:np.ndarray):
     """Miscoverage rates for all samples (similar to recall).
 
-    For example, if our prediction sets are {1}, {1}, {0,2} and the labels
-    are 0, 1, 1. Then, the micoverage rate for class 1 is 0.5 (two samples
-    belong to class 1, but one of the prediction sets does not contain 1).
-    Similarly, the miscoverage rate for class 0 is 0.
+    Example:
+        >>> y_pred = np.asarray([[1,0,0],[1,0,0],[1,1,0],[0, 1, 0]])
+        >>> y_true = np.asarray([1,0,1,2])
+        >>> error_ps(y_pred, y_true)
+        array([0. , 0.5, 1. ])
+
+
+    Explanation:
+    For class 0, the 1-th prediction set ({0}) contains the label, so the miss-coverage is 0/1=0.
+    For class 1, the 0-th prediction set ({0}) does not contain the label, the 2-th prediction
+    set ({0,1}) contains the label. Thus, the miss-coverage is 1/2=0.5.
+    For class 2, the last prediction set is {1} and the label is 2, so the miss-coverage is 1/1=1.
     """
     return _missrate(y_pred, y_true, False)
 
 def error_ps(y_pred:np.ndarray, y_true:np.ndarray):
-    """Miscoverage rates for unrejected samples,
-        where rejection is defined to be sets with size !=1).
+    """Miscoverage rates for unrejected samples, where rejection is defined to be sets with size !=1).
 
-    For example, if our prediction sets are {1}, {1}, {0,2} and the labels
-    are 0, 1, 1. Then, the micoverage rate for unrejected samples for class 1
-    is 0: only the second sample is unrejected, and belongs to class 1, and its
-    prediction set contains class 1. Similarly, this rate for class 0 is 1.
+    Example:
+        >>> y_pred = np.asarray([[1,0,0],[1,0,0],[1,1,0],[0, 1, 0]])
+        >>> y_true = np.asarray([1,0,1,2])
+        >>> error_ps(y_pred, y_true)
+        array([0., 1., 1.])
+
+    Explanation:
+    For class 0, the 1-th sample is correct and not rejected, so the error is 0/1=0.
+    For class 1, the 0-th sample is incorrerct and not rejected, the 2-th is rejected.
+    Thus, the error is 1/1=1.
+    For class 2, the last sample is not-rejected but the prediction set is {1}, so the error
+    is 1/1=1.
     """
     return _missrate(y_pred, y_true, True)
 
 def miscoverage_overall_ps(y_pred:np.ndarray, y_true:np.ndarray):
     """Miscoverage rate for the true label. Only for multiclass.
 
+    Example:
+        >>> y_pred = np.asarray([[1,0,0],[1,0,0],[1,1,0]])
+        >>> y_true = np.asarray([1,0,1])
+        >>> miscoverage_overall_ps(y_pred, y_true)
+        0.333333
 
-    For example, if a prediction set is {0,1} and the label is 2, then this is an error.
-    If a prediction set is {0,1} and the label is 1, this is not an error.
-    Miscoverage is the average of errors. The overall miscoverage rate for these two samples
-    is 0.5.
+    Explanation:
+    The 0-th prediction set is {0} and the label is 1 (not covered).
+    The 1-th prediction set is {0} and the label is 0 (covered).
+    The 2-th prediction set is {0,1} and the label is 1 (covered).
+    Thus the miscoverage rate is 1/3.
     """
     assert len(y_true.shape) == 1
     truth_pred = y_pred[np.arange(len(y_true)), y_true]
@@ -84,10 +105,10 @@ def error_overall_ps(y_pred:np.ndarray, y_true:np.ndarray):
         0.5
 
     Explanation:
-    The first sample's prediction set is {0} and the label is 1, so it is an error (no rejection
+    The 0-th prediction set is {0} and the label is 1, so it is an error (no rejection
     as its prediction set has only one class).
-    The second sample is not rejected and incurs on error.
-    The third sample is rejected, thus excluded from the computation.
+    The 1-th sample is not rejected and incurs on error.
+    The 2-th sample is rejected, thus excluded from the computation.
     """
     assert len(y_true.shape) == 1
     truth_pred = y_pred[np.arange(len(y_true)), y_true]

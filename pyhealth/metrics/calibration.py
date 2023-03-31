@@ -1,6 +1,6 @@
 """Metrics that meature model calibration.
 
-Papers:
+Reference Papers:
 
     [1] Lin, Zhen, Shubhendu Trivedi, and Jimeng Sun.
     "Taking a Step Back with KCal: Multi-Class Kernel-Based Calibration

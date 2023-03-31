@@ -104,12 +104,13 @@ def _embed_dataset(model, dataset, record_id_name=None, debug=False, batch_size=
 
 class KCal(PostHocCalibrator):
     """Kernel-based Calibration.
-
     This is a *full* calibration method for *multiclass* classification.
     It tries to calibrate the predicted probabilities for all classes,
-        by using KDE classifiers estimated from the calibration set.
+    by using KDE classifiers estimated from the calibration set.
 
-    Paper: Lin, Zhen, Shubhendu Trivedi, and Jimeng Sun.
+    Paper:
+
+        Lin, Zhen, Shubhendu Trivedi, and Jimeng Sun.
         "Taking a Step Back with KCal: Multi-Class Kernel-Based Calibration
         for Deep Neural Networks." ICLR 2023.
 
@@ -150,9 +151,34 @@ class KCal(PostHocCalibrator):
         self.cal_data = {}
         self.num_classes = None
 
-    def _fit(self, train_dataset, val_dataset=None, split_by_patient=False,
+    def fit(self, train_dataset, val_dataset=None, split_by_patient=False,
             dim=32, bs_pred=64, bs_supp=20, epoch_len=5000, epochs=10,
             load_best_model_at_last=False, **train_kwargs):
+        """Fit the reprojection module.
+        For training details, please refer to the paper.
+
+        Args:
+            train_dataset (Dataset):
+                The training dataset.
+            val_dataset (Dataset, optional):
+                The validation dataset. Defaults to None.
+            split_by_patient (bool, optional):
+                Whether to split the dataset by patient during training. Defaults to False.
+            dim (int, optional):
+                The dimension of the embedding. Defaults to 32.
+            bs_pred (int, optional):
+                The batch size for the prediction set. Defaults to 64.
+            bs_supp (int, optional):
+                The batch size for the support set. Defaults to 20.
+            epoch_len (int, optional):
+                The number of batches in an epoch. Defaults to 5000.
+            epochs (int, optional):
+                The number of epochs. Defaults to 10.
+            load_best_model_at_last (bool, optional):
+                Whether to load the best model (or the last model). Defaults to False.
+            **train_kwargs:
+                Other keyword arguments for :func:`pyhealth.trainer.Trainer.train`.
+        """
 
 
         _train_data = _embed_dataset(self.model, train_dataset, self.record_id_name, self.debug)
@@ -188,9 +214,8 @@ class KCal(PostHocCalibrator):
                   record_id_name=None,
                   train_dataset:Subset=None, train_split_by_patient=False,
                   load_best_model_at_last=True, **train_kwargs):
-        """Calibrate using a calibration dataset.
-        If train_dataset is not None, it will be used to fit
-        a re-projection from the base model embeddings.
+        """Calibrate using a calibration dataset. If `train_dataset` is not None,
+        it will be used to fit a re-projection from the base model embeddings.
         In either case, the calibration set will be used to construct the KDE classifier.
 
         Args:
@@ -206,6 +231,8 @@ class KCal(PostHocCalibrator):
             load_best_model_at_last (bool, optional):
                 Whether to load the best reprojection basing on the calibration set.
                 Defaults to True.
+            train_kwargs (dict, optional): Additional arguments for training the reprojection.
+                Passed to  :func:`KCal.fit`
         """
 
         self.record_id_name = record_id_name
