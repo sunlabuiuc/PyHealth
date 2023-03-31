@@ -8,6 +8,7 @@ from typing import Dict
 
 import torch
 from torch import optim
+from torch.utils.data import Subset
 
 from pyhealth.calib.base_classes import PostHocCalibrator
 from pyhealth.calib.utils import prepare_numpy_dataset
@@ -27,6 +28,7 @@ class TemperatureScaling(PostHocCalibrator):
 
 
     Paper:
+
         [1] Guo, Chuan, Geoff Pleiss, Yu Sun, and Kilian Q. Weinberger.
         "On calibration of modern neural networks." ICML 2017.
 
@@ -35,8 +37,8 @@ class TemperatureScaling(PostHocCalibrator):
         comparisons to regularized likelihood methods."
         Advances in large margin classifiers 10, no. 3 (1999): 61-74.
 
-    Args:
-        model (BaseModel): A trained model.
+    :param model: A trained base model.
+    :type model: BaseModel
 
     Examples:
         >>> from pyhealth.models import SparcNet
@@ -69,19 +71,22 @@ class TemperatureScaling(PostHocCalibrator):
         self.temperature = torch.tensor(
             1.5, dtype=torch.float32, device=self.device, requires_grad=True)
 
-    def calibrate(self, cal_dataset, lr=0.01, max_iter=50, mult_temp=False):
-        """calibrate self.model using cal_dataset.
+    def calibrate(self, cal_dataset:Subset, lr=0.01, max_iter=50, mult_temp=False):
+        """Calibrate the base model using a calibration dataset.
 
-        Args:
-            cal_dataset (_type_): _description_
-            lr (float, optional): learning rate. Defaults to 0.01.
-            max_iter (int, optional): maximum numerb of iterations. Defaults to 50.
-            mult_temp (bool): if mult_temp and mode='multilabel',
-                use one temperature for each class.
-
-        Returns:
-            None
+        :param cal_dataset: Calibration set.
+        :type cal_dataset: Subset
+        :param lr: learning rate, defaults to 0.01
+        :type lr: float, optional
+        :param max_iter: maximum iterations, defaults to 50
+        :type max_iter: int, optional
+        :param mult_temp: if mult_temp and mode='multilabel',
+            defaults to False
+        :type mult_temp: bool, optional
+        :return: None
+        :rtype: None
         """
+
         _cal_data = prepare_numpy_dataset(self.model, cal_dataset,
                                           ['y_true', 'logit'], debug=self.debug)
 
@@ -109,11 +114,14 @@ class TemperatureScaling(PostHocCalibrator):
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation (just like the original model).
 
-        Returns:
-            A dictionary with all results from the base model, with the following modified:
-                logit: temperature-scaled logits.
-                y_prob: calibrated predicted probabilities.
-                loss: Cross entropy loss with the new logits.
+        :param **kwargs: Additional arguments to the base model.
+
+        :return:  A dictionary with all results from the base model, with the following modified:
+
+            ``y_prob``: calibrated predicted probabilities.
+            ``loss``: Cross entropy loss with the new y_prob.
+            ``logit``: temperature-scaled logits.
+        :rtype: Dict[str, torch.Tensor]
         """
         ret = self.model(**kwargs)
         ret['logit'] = ret['logit'] / self.temperature

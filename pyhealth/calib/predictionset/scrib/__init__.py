@@ -209,8 +209,8 @@ class SCRIB(SetPredictor):
     def calibrate(self, cal_dataset):
         """Calibrate/Search for the thresholds used to construct the prediction set.
 
-        Args:
-            cal_dataset (Subset): Calibration set.
+        :param cal_dataset: Calibration set.
+        :type cal_dataset: Subset
         """
         cal_dataset = prepare_numpy_dataset(
             self.model, cal_dataset, ['y_prob', 'y_true'], debug=self.debug)
@@ -226,10 +226,10 @@ class SCRIB(SetPredictor):
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation (just like the original model).
 
-        Returns:
-            result (dict):
-                A dictionary with all results from the base model, with the following updates:
+        :return: A dictionary with all results from the base model, with the following updates:
+
                     y_predset: a bool tensor representing the prediction for each class.
+        :rtype: Dict[str, torch.Tensor]
         """
         ret = self.model(**kwargs)
         ret['y_predset'] = ret['y_prob'] > self.t

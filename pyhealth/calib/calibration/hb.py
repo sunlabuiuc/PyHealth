@@ -139,8 +139,8 @@ class HistogramBinning(PostHocCalibrator):
         In Proceedings of the seventh ACM SIGKDD international conference on Knowledge
         discovery and data mining, pp. 204-213. 2001.
 
-    Args:
-        model (BaseModel): A trained model.
+    :param model: A trained base model.
+    :type model: BaseModel
 
     Examples:
         >>> from pyhealth.models import SparcNet
@@ -172,18 +172,20 @@ class HistogramBinning(PostHocCalibrator):
         self.num_classes = None
         self.calib = None
 
-    def calibrate(self, cal_dataset:Subset):
-        """Calibrate the model using a calibration dataset.
+    def calibrate(self, cal_dataset:Subset, nbins:int=15):
+        """Calibrate the base model using a calibration dataset.
 
         :param cal_dataset: Calibration set.
         :type cal_dataset: Subset
+        :param nbins: number of bins to use, defaults to 15
+        :type nbins: int, optional
         """
         _cal_data = prepare_numpy_dataset(self.model, cal_dataset,
                                           ['y_true', 'y_prob'], debug=self.debug)
         if self.num_classes is None:
             self.num_classes = _cal_data['y_prob'].shape[1]
         if self.mode == 'binary':
-            self.calib = [HB_binary().fit(_cal_data['y_prob'][:, 0], _cal_data['y_true'][:, 0])]
+            self.calib = [HB_binary(nbins).fit(_cal_data['y_prob'][:, 0], _cal_data['y_true'][:, 0])]
         else:
             self.calib = []
             y_true = _cal_data['y_true']
@@ -197,13 +199,14 @@ class HistogramBinning(PostHocCalibrator):
         """Forward propagation (just like the original model).
 
         :param normalization: how to normalize the calibrated probability.
-        Defaults to 'sum' (and only 'sum' is supported for now).
+            Defaults to 'sum' (and only 'sum' is supported for now).
         :type normalization: str, optional
         :param **kwargs: Additional arguments to the base model.
 
         :return:  A dictionary with all results from the base model, with the following modified:
-            y_prob: calibrated predicted probabilities.
-            loss: Cross entropy loss  with the new y_prob.
+
+            ``y_prob``: calibrated predicted probabilities.
+            ``loss``: Cross entropy loss  with the new y_prob.
         :rtype: Dict[str, torch.Tensor]
         """
         assert normalization is None or normalization == 'sum'

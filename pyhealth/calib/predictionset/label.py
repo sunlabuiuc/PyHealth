@@ -42,9 +42,11 @@ class LABEL(SetPredictor):
         "Least ambiguous set-valued classifiers with bounded error levels."
         Journal of the American Statistical Association 114, no. 525 (2019): 223-234.
 
-    Args:
-        model (BaseModel): A trained model.
-        alpha (Union[float, np.ndarray]): Target mis-coverage rate(s).
+
+    :param model: A trained base model.
+    :type model: BaseModel
+    :param alpha: Target mis-coverage rate(s).
+    :type alpha: Union[float, np.ndarray]
 
     Examples:
         >>> from pyhealth.models import SparcNet
@@ -102,6 +104,7 @@ class LABEL(SetPredictor):
         """Forward propagation (just like the original model).
 
         :return: A dictionary with all results from the base model, with the following updates:
+
                     y_predset: a bool tensor representing the prediction for each class.
         :rtype: Dict[str, torch.Tensor]
         """
