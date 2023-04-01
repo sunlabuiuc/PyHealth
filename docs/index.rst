@@ -15,7 +15,7 @@ Welcome to PyHealth!
 .. image:: https://readthedocs.org/projects/pyhealth/badge/?version=latest
    :target: https://pyhealth.readthedocs.io/en/latest/
    :alt: Documentation status
-   
+
 
 .. image:: https://img.shields.io/github/stars/yzhao062/pyhealth.svg
    :target: https://github.com/sunlabuiuc/pyhealth/stargazers
@@ -67,11 +67,11 @@ Welcome to PyHealth!
 ..    :alt: License
 
 PyHealth is designed for both **ML researchers and medical practitioners**. We can make your **healthcare AI applications** easier to develop, test and validate. Your development process becomes more flexible and more customizable. `[GitHub] <https://github.com/sunlabuiuc/PyHealth>`_
- 
+
 ----------
 
- **[News!]** We are running the "PyHealth Live" gathering at 8 PM central time every Wednesday night! Welcome to join the live discussion over `zoom <https://illinois.zoom.us/j/87450975602?pwd=ckQyaHhkRitlUzlwYUY3NjdEQ0pFdz09>`_. You may also add the schedules to your `Google Calender <https://illinois.zoom.us/meeting/tZMpcumhqT4sGtYh_bBC37B9At6vTpwjDBW4/calendar/google/add>`_ or `Microsoft Outlook (.ics) <https://illinois.zoom.us/meeting/tZMpcumhqT4sGtYh_bBC37B9At6vTpwjDBW4/ics>`_. 
- 
+ **[News!]** We are running the "PyHealth Live" gathering at 8 PM central time every Wednesday night! Welcome to join the live discussion over `zoom <https://illinois.zoom.us/j/87450975602?pwd=ckQyaHhkRitlUzlwYUY3NjdEQ0pFdz09>`_. You may also add the schedules to your `Google Calender <https://illinois.zoom.us/meeting/tZMpcumhqT4sGtYh_bBC37B9At6vTpwjDBW4/calendar/google/add>`_ or `Microsoft Outlook (.ics) <https://illinois.zoom.us/meeting/tZMpcumhqT4sGtYh_bBC37B9At6vTpwjDBW4/ics>`_.
+
  FYI, the PyHealth Weekly Live will introduce basic pyhealth modules sequentially and showcase the newly developed functions as well as different use cases. For efficiency, all live lasts for around half an hour and the video collections are can be found in `YouTube <https://www.youtube.com/playlist?list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV>`_. The future scheduled topics are announced `here <https://pyhealth.readthedocs.io/en/latest/live.html>`_. Hope to see you all on every wednesday night!
 
 
@@ -83,7 +83,7 @@ Introduction `[Video] <https://www.youtube.com/watch?v=1Ir6hzU4Nro&list=PLR3CNIF
 ..    :alt: PyHealth Logo
 ..    :align: center
 
-PyHealth can support **diverse electronic health records (EHRs)** such as MIMIC and eICU and all OMOP-CDM based databases and provide **various advanced deep learning algorithms** for handling **important healthcare tasks** such as diagnosis-based drug recommendation, patient hospitalization and mortality prediction, and ICU length stay forecasting, etc.  
+PyHealth can support **diverse electronic health records (EHRs)** such as MIMIC and eICU and all OMOP-CDM based databases and provide **various advanced deep learning algorithms** for handling **important healthcare tasks** such as diagnosis-based drug recommendation, patient hospitalization and mortality prediction, and ICU length stay forecasting, etc.
 
 *Build a healthcare AI pipeline can be as short as 10 lines of code in PyHealth*.
 
@@ -91,13 +91,13 @@ PyHealth can support **diverse electronic health records (EHRs)** such as MIMIC 
 Modules
 --------------------------
 
-All healthcare tasks in our package follow a **five-stage pipeline**: 
+All healthcare tasks in our package follow a **five-stage pipeline**:
 
  load dataset -> define task function -> build ML/DL model -> model training -> inference
 
 ! We try hard to make sure each stage is as separate as possibe, so that people can customize their own pipeline by only using our data processing steps or the ML models. Each step will call one module and we introduce them using an example.
 
-An ML Pipeline Example 
+An ML Pipeline Example
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 * **STEP 1: <pyhealth.datasets>** provides a clean structure for the dataset, independent from the tasks. We support ``MIMIC-III``, ``MIMIC-IV`` and ``eICU``, as well as the standard ``OMOP-formatted data``. The dataset is stored in a unified ``Patient-Visit-Event`` structure.
@@ -106,7 +106,7 @@ An ML Pipeline Example
 
     from pyhealth.datasets import MIMIC3Dataset
     mimic3base = MIMIC3Dataset(
-        root="https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III/", 
+        root="https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III/",
         tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
         # map all NDC codes to ATC 3-rd level codes in these tables
         code_mapping={"NDC": ("ATC", {"target_kwargs": {"level": 3}})},
@@ -145,7 +145,7 @@ User could also store their own dataset into our ``<pyhealth.datasets.SampleBase
 * **STEP 4: <pyhealth.trainer>** is the training manager with ``train_loader``, the ``val_loader``, ``val_metric``, and specify other arguemnts, such as epochs, optimizer, learning rate, etc. The trainer will automatically save the best model and output the path in the end.
 
 .. code-block:: python
-    
+
     from pyhealth.trainer import Trainer
 
     trainer = Trainer(model=model)
@@ -159,7 +159,7 @@ User could also store their own dataset into our ``<pyhealth.datasets.SampleBase
 * **STEP 5: <pyhealth.metrics>** provides several **common evaluation metrics** (refer to `Doc <https://pyhealth.readthedocs.io/en/latest/api/metrics.html>`_ and see what are available) and **special metrics** in healthcare, such as drug-drug interaction (DDI) rate.
 
 .. code-block:: python
-    
+
     trainer.evaluate(test_loader)
 
 
@@ -205,11 +205,11 @@ Medical Code Tokenizer
             'A12B', 'A12C', 'A13A', 'A14A', 'A14B', 'A16A']
     tokenizer = Tokenizer(tokens=token_space, special_tokens=["<pad>", "<unk>"])
 
-    # 2d encode 
+    # 2d encode
     tokens = [['A03C', 'A03D', 'A03E', 'A03F'], ['A04A', 'B035', 'C129']]
     indices = tokenizer.batch_encode_2d(tokens) # [[8, 9, 10, 11], [12, 1, 1, 0]]
 
-    # 2d decode 
+    # 2d decode
     indices = [[8, 9, 10, 11], [12, 1, 1, 0]]
     tokens = tokenizer.batch_decode_2d(indices) # [['A03C', 'A03D', 'A03E', 'A03F'], ['A04A', '<unk>', '<unk>']]
 
@@ -253,16 +253,16 @@ Datasets
 --------------------------
 We provide the following datasets for general purpose healthcare AI research:
 
-===================  =======================================  ========================================  ======================================================================================================== 
-Dataset              Module                                   Year                                      Information                                                             
 ===================  =======================================  ========================================  ========================================================================================================
-MIMIC-III            ``pyhealth.datasets.MIMIC3Dataset``      2016                                      `MIMIC-III Clinical Database <https://physionet.org/content/mimiciii/1.4//>`_    
-MIMIC-IV             ``pyhealth.datasets.MIMIC4Dataset``      2020                                      `MIMIC-IV Clinical Database <https://physionet.org/content/mimiciv/0.4/>`_  
-eICU                 ``pyhealth.datasets.eICUDataset``        2018                                      `eICU Collaborative Research Database <https://eicu-crd.mit.edu//>`_                 
-OMOP                 ``pyhealth.datasets.OMOPDataset``                                                  `OMOP-CDM schema based dataset <https://www.ohdsi.org/data-standardization/the-common-data-model/>`_    
-SleepEDF             ``pyhealth.datasets.SleepEDFDataset``    2018                                      `Sleep-EDF dataset <https://physionet.org/content/sleep-edfx/1.0.0/>`_        
-SHHS                 ``pyhealth.datasets.SHHSDataset``        2016                                      `Sleep Heart Health Study dataset <https://sleepdata.org/datasets/shhs>`_        
-ISRUC                ``pyhealth.datasets.ISRUCDataset``       2016                                      `ISRUC-SLEEP dataset <https://sleeptight.isr.uc.pt/?page_id=48>`_                  
+Dataset              Module                                   Year                                      Information
+===================  =======================================  ========================================  ========================================================================================================
+MIMIC-III            ``pyhealth.datasets.MIMIC3Dataset``      2016                                      `MIMIC-III Clinical Database <https://physionet.org/content/mimiciii/1.4//>`_
+MIMIC-IV             ``pyhealth.datasets.MIMIC4Dataset``      2020                                      `MIMIC-IV Clinical Database <https://physionet.org/content/mimiciv/0.4/>`_
+eICU                 ``pyhealth.datasets.eICUDataset``        2018                                      `eICU Collaborative Research Database <https://eicu-crd.mit.edu//>`_
+OMOP                 ``pyhealth.datasets.OMOPDataset``                                                  `OMOP-CDM schema based dataset <https://www.ohdsi.org/data-standardization/the-common-data-model/>`_
+SleepEDF             ``pyhealth.datasets.SleepEDFDataset``    2018                                      `Sleep-EDF dataset <https://physionet.org/content/sleep-edfx/1.0.0/>`_
+SHHS                 ``pyhealth.datasets.SHHSDataset``        2016                                      `Sleep Heart Health Study dataset <https://sleepdata.org/datasets/shhs>`_
+ISRUC                ``pyhealth.datasets.ISRUCDataset``       2016                                      `ISRUC-SLEEP dataset <https://sleeptight.isr.uc.pt/?page_id=48>`_
 ===================  =======================================  ========================================  ========================================================================================================
 
 
@@ -336,6 +336,7 @@ the performance for different models doing different tasks on different datasets
    api/tokenizer
    api/metrics
    api/medcode
+   api/calib
 
 
 .. toctree::

@@ -1,8 +1,7 @@
 import logging
 import os
 from datetime import datetime
-from typing import Dict, List, Type, Callable
-from typing import Optional
+from typing import Callable, Dict, List, Optional, Type
 
 import numpy as np
 import torch
@@ -12,11 +11,8 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from tqdm.autonotebook import trange
 
-from pyhealth.metrics import (
-    binary_metrics_fn,
-    multiclass_metrics_fn,
-    multilabel_metrics_fn,
-)
+from pyhealth.metrics import (binary_metrics_fn, multiclass_metrics_fn,
+                              multilabel_metrics_fn)
 from pyhealth.utils import create_directory
 
 logger = logging.getLogger(__name__)
@@ -234,7 +230,7 @@ class Trainer:
                             self.save_ckpt(os.path.join(self.exp_path, "best.ckpt"))
 
         # load best model
-        if load_best_model_at_last and self.exp_path is not None:
+        if load_best_model_at_last and self.exp_path is not None and os.path.isfile(os.path.join(self.exp_path, "best.ckpt")):
             logger.info("Loaded best model")
             self.load_ckpt(os.path.join(self.exp_path, "best.ckpt"))
 
@@ -247,20 +243,25 @@ class Trainer:
 
         return
 
-    def inference(self, dataloader) -> Dict[str, float]:
+    def inference(self, dataloader, additional_outputs=None) -> Dict[str, float]:
         """Model inference.
 
         Args:
             dataloader: Dataloader for evaluation.
+            additional_outputs: List of additional output to collect.
+                Defaults to None ([]).
 
         Returns:
             y_true_all: List of true labels.
             y_prob_all: List of predicted probabilities.
             loss_mean: Mean loss over batches.
+            additional_outputs (only if requested): Dict of additional results.
         """
         loss_all = []
         y_true_all = []
         y_prob_all = []
+        if additional_outputs is not None:
+            additional_outputs = {k: [] for k in additional_outputs}
         for data in tqdm(dataloader, desc="Evaluation"):
             self.model.eval()
             with torch.no_grad():
@@ -271,9 +272,16 @@ class Trainer:
                 loss_all.append(loss.item())
                 y_true_all.append(y_true)
                 y_prob_all.append(y_prob)
+                if additional_outputs is not None:
+                    for key in additional_outputs.keys():
+                        additional_outputs[key].append(output[key].cpu().numpy())
         loss_mean = sum(loss_all) / len(loss_all)
         y_true_all = np.concatenate(y_true_all, axis=0)
         y_prob_all = np.concatenate(y_prob_all, axis=0)
+        if additional_outputs is not None:
+            additional_outputs = {key: np.concatenate(val)
+                                  for key, val in additional_outputs.items()}
+            return y_true_all, y_prob_all, loss_mean, additional_outputs
         return y_true_all, y_prob_all, loss_mean
 
     def evaluate(self, dataloader) -> Dict[str, float]:
@@ -311,6 +319,7 @@ if __name__ == "__main__":
     import torch.nn as nn
     from torch.utils.data import DataLoader, Dataset
     from torchvision import datasets, transforms
+
     from pyhealth.datasets.utils import collate_fn_dict
 
     class MNISTDataset(Dataset):
