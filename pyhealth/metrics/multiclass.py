@@ -45,9 +45,11 @@ def multiclass_metrics_fn(
     The following metrics related to the prediction sets are accepted as well, but will be ignored if y_predset is None:
         - rejection_rate: Frequency of rejection, where rejection happens when the prediction set has cardinality other than 1. Check :func:`pyhealth.metrics.prediction_set.rejection_rate`.
         - set_size: Average size of the prediction sets. Check :func:`pyhealth.metrics.prediction_set.size`.
-        - miscoverage_mean_ps: The average (across different classes k) of P(k not in prediction set). Check :func:`pyhealth.metrics.prediction_set.miscoverage_ps`.
-        - miscoverage_overall_ps: P(Y not in prediction set). Check :func:`pyhealth.metrics.prediction_set.miscoverage_overall_ps`.
-        - error_mean_ps: Same as miscoverage_mean_ps, but retricted to un-rejected samples. Check :func:`pyhealth.metrics.prediction_set.error_ps`.
+        - miscoverage_ps:  Prob(k not in prediction set). Check :func:`pyhealth.metrics.prediction_set.miscoverage_ps`.
+        - miscoverage_mean_ps: The average (across different classes k) of miscoverage_ps.
+        - miscoverage_overall_ps: Prob(Y not in prediction set). Check :func:`pyhealth.metrics.prediction_set.miscoverage_overall_ps`.
+        - error_ps: Same as miscoverage_ps, but retricted to un-rejected samples. Check :func:`pyhealth.metrics.prediction_set.error_ps`.
+        - error_mean_ps: The average (across different classes k) of error_ps.
         - error_overall_ps: Same as miscoverage_overall_ps, but restricted to un-rejected samples. Check :func:`pyhealth.metrics.prediction_set.error_overall_ps`.
 
     If no metrics are specified, accuracy, f1_macro, and f1_micro are computed
@@ -82,12 +84,12 @@ def multiclass_metrics_fn(
     prediction_set_metrics = [
         "rejection_rate",
         "set_size",
-        "missrate_max",
-        "missrate_mean",
-        "missrate_overall",
-        "missrate_max_certain",
-        "missrate_mean_certain",
-        "missrate_overall_certain",
+        "miscoverage_mean_ps",
+        "miscoverage_ps",
+        "miscoverage_overall_ps",
+        "error_mean_ps",
+        "error_ps",
+        "error_overall_ps",
     ]
     y_pred = np.argmax(y_prob, axis=-1)
 
@@ -170,10 +172,14 @@ def multiclass_metrics_fn(
                 output[metric] = pset.size(y_predset)
             elif metric == "miscoverage_mean_ps":
                 output[metric] = pset.miscoverage_ps(y_predset, y_true).mean()
+            elif metric == "miscoverage_ps":
+                output[metric] = pset.miscoverage_ps(y_predset, y_true)
             elif metric == "miscoverage_overall_ps":
                 output[metric] = pset.miscoverage_overall_ps(y_predset, y_true)
             elif metric == "error_mean_ps":
                 output[metric] = pset.error_ps(y_predset, y_true).mean()
+            elif metric == "error_ps":
+                output[metric] = pset.error_ps(y_predset, y_true)
             elif metric == "error_overall_ps":
                 output[metric] = pset.error_overall_ps(y_predset, y_true)
         else:

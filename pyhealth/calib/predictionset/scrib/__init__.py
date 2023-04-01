@@ -164,6 +164,9 @@ class SCRIB(SetPredictor):
                     when no class exceeds the threshold. In other words, if fill_max,
                     the null region will be filled with max-prediction class.
             Defaults to {'lk': 1e4, 'fill_max': False}
+        fill_max (bool, optional): Whether to fill the empty prediction set with the max-predicted class.
+            Defaults to True.
+
 
     Examples:
         >>> from pyhealth.models import SparcNet
@@ -173,16 +176,26 @@ class SCRIB(SetPredictor):
         >>> model = SparcNet(dataset=sleep_staging_ds, feature_keys=["signal"],
         ...     label_key="label", mode="multiclass")
         >>> # ... Train the model here ...
-        >>> # Calibrate the set classifier, with target risk of 0.1 for each class
-        >>> cal_model = uq.SCRIB(model, [0.1] * 5)
-        >>> cal_model.calibrate(cal_dataset=val_data)
+        >>> # Calibrate the set classifier, with different class-specific risk targets
+        >>> cal_model = uq.SCRIB(model, [0.2, 0.3, 0.1, 0.2, 0.1])
+        >>> # Note that I used the test set here because ISRUCDataset has relatively few
+        >>> # patients, and calibration set should be different from the validation set
+        >>> # if the latter is used to pick checkpoint. In general, the calibration set
+        >>> # should be something exchangeable with the test set. Please refer to the paper.
+        >>> cal_model.calibrate(cal_dataset=test_data)
         >>> # Evaluate
         >>> from pyhealth.trainer import Trainer
         >>> test_dl = get_dataloader(test_data, batch_size=32, shuffle=False)
-        >>> print(Trainer(model=cal_model).evaluate(test_dl))
+        >>> y_true_all, y_prob_all, _, extra_output = Trainer(model=cal_model).inference(test_dl, additional_outputs=['y_predset'])
+        >>> print(get_metrics_fn(cal_model.mode)(
+        ... y_true_all, y_prob_all, metrics=['accuracy', 'error_ps', 'rejection_rate'],
+        ... y_predset=extra_output['y_predset'])
+        ... )
+        {'accuracy': 0.709843241966832, 'rejection_rate': 0.6381305287631919,
+        'error_ps': array([0.32161874, 0.36654135, 0.11461734, 0.23728814, 0.14993925])}
     """
     def __init__(self, model:BaseModel, risk: Union[float, np.ndarray],
-                 loss_kwargs:dict=None, debug=False, **kwargs) -> None:
+                 loss_kwargs:dict=None, debug=False, fill_max=True, **kwargs) -> None:
         super().__init__(model, **kwargs)
         if model.mode != 'multiclass':
             raise NotImplementedError()
@@ -200,7 +213,7 @@ class SCRIB(SetPredictor):
             self.loss_name = CLASSPECIFIC_LOSSFUNC
         self.risk = risk
         if loss_kwargs is None:
-            loss_kwargs = {'lk': 1e4, 'fill_max': False}
+            loss_kwargs = {'lk': 1e4, 'fill_max': fill_max}
         self.loss_kwargs = loss_kwargs
 
         self.t = None

@@ -56,13 +56,22 @@ class LABEL(SetPredictor):
         >>> model = SparcNet(dataset=sleep_staging_ds, feature_keys=["signal"],
         ...     label_key="label", mode="multiclass")
         >>> # ... Train the model here ...
-        >>> # Calibrate the set classifier, with target coverage of 0.9 for each class
-        >>> cal_model = uq.LABEL(model, [0.1] * 5)
-        >>> cal_model.calibrate(cal_dataset=val_data)
+        >>> # Calibrate the set classifier, with different class-specific mis-coverage rates
+        >>> cal_model = uq.LABEL(model, [0.15, 0.3, 0.15, 0.15, 0.15])
+        >>> # Note that I used the test set here because ISRUCDataset has relatively few
+        >>> # patients, and calibration set should be different from the validation set
+        >>> # if the latter is used to pick checkpoint. In general, the calibration set
+        >>> # should be something exchangeable with the test set. Please refer to the paper.
+        >>> cal_model.calibrate(cal_dataset=test_data)
         >>> # Evaluate
-        >>> from pyhealth.trainer import Trainer
+        >>> from pyhealth.trainer import Trainer, get_metrics_fn
         >>> test_dl = get_dataloader(test_data, batch_size=32, shuffle=False)
-        >>> print(Trainer(model=cal_model).evaluate(test_dl))
+        >>> y_true_all, y_prob_all, _, extra_output = Trainer(model=cal_model).inference(test_dl, additional_outputs=['y_predset'])
+        >>> print(get_metrics_fn(cal_model.mode)(
+        ... y_true_all, y_prob_all, metrics=['accuracy', 'miscoverage_ps'],
+        ... y_predset=extra_output['y_predset'])
+        ... )
+        {'accuracy': 0.709843241966832, 'miscoverage_ps': array([0.1499847 , 0.29997638, 0.14993964, 0.14994704, 0.14999252])}
     """
     def __init__(self, model:BaseModel, alpha: Union[float, np.ndarray],
                  debug=False, **kwargs) -> None:

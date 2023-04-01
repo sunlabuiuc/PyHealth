@@ -133,7 +133,8 @@ class KCal(PostHocCalibrator):
         >>> # Evaluate
         >>> from pyhealth.trainer import Trainer
         >>> test_dl = get_dataloader(test_data, batch_size=32, shuffle=False)
-        >>> print(Trainer(model=cal_model).evaluate(test_dl))
+        >>> print(Trainer(model=cal_model, metrics=['cwECEt_adapt', 'accuracy']).evaluate(test_dl))
+        {'accuracy': 0.7303689172252193, 'cwECEt_adapt': 0.03324275630220515}
     """
     def __init__(self, model:torch.nn.Module, debug=False, **kwargs) -> None:
         super().__init__(model, **kwargs)

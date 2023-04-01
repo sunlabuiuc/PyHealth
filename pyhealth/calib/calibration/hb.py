@@ -156,7 +156,8 @@ class HistogramBinning(PostHocCalibrator):
         >>> # Evaluate
         >>> from pyhealth.trainer import Trainer
         >>> test_dl = get_dataloader(test_data, batch_size=32, shuffle=False)
-        >>> print(Trainer(model=cal_model).evaluate(test_dl))
+        >>> print(Trainer(model=cal_model, metrics=['cwECEt_adapt', 'accuracy']).evaluate(test_dl))
+        {'accuracy': 0.7189072348464207, 'cwECEt_adapt': 0.04455814993598299}
     """
 
     def __init__(self, model:BaseModel, debug=False, **kwargs) -> None:
