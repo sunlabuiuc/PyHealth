@@ -1,7 +1,9 @@
-from typing import List, Optional, Dict
+from typing import Dict, List, Optional
 
 import numpy as np
 import sklearn.metrics as sklearn_metrics
+
+import pyhealth.metrics.calibration as calib
 
 
 def multilabel_metrics_fn(
@@ -15,13 +17,13 @@ def multilabel_metrics_fn(
     User can specify which metrics to compute by passing a list of metric names.
     The accepted metric names are:
         - roc_auc_micro: area under the receiver operating characteristic curve,
-            micro averaged
+          micro averaged
         - roc_auc_macro: area under the receiver operating characteristic curve,
-            macro averaged
+          macro averaged
         - roc_auc_weighted: area under the receiver operating characteristic curve,
-            weighted averaged
+          weighted averaged
         - roc_auc_samples: area under the receiver operating characteristic curve,
-            samples averaged
+          samples averaged
         - pr_auc_micro: area under the precision recall curve, micro averaged
         - pr_auc_macro: area under the precision recall curve, macro averaged
         - pr_auc_weighted: area under the precision recall curve, weighted averaged
@@ -44,6 +46,9 @@ def multilabel_metrics_fn(
         - jaccard_weighted: Jaccard similarity coefficient score, weighted averaged
         - jaccard_samples: Jaccard similarity coefficient score, samples averaged
         - hamming_loss: Hamming loss
+        - cwECE: classwise ECE (with 20 equal-width bins). Check :func:`pyhealth.metrics.calibration.ece_classwise`.
+        - cwECE_adapt: classwise adaptive ECE (with 20 equal-size bins). Check :func:`pyhealth.metrics.calibration.ece_classwise`.
+
     If no metrics are specified, pr_auc_samples is computed by default.
 
     This function calls sklearn.metrics functions to compute the metrics. For
@@ -190,6 +195,14 @@ def multilabel_metrics_fn(
         elif metric == "hamming_loss":
             hamming_loss = sklearn_metrics.hamming_loss(y_true, y_pred)
             output["hamming_loss"] = hamming_loss
+        elif metric in {"cwECE", "cwECE_adapt"}:
+            output[metric] = calib.ece_classwise(
+                y_prob,
+                y_true,
+                bins=20,
+                adaptive=metric.endswith("_adapt"),
+                threshold=0.0,
+            )
         else:
             raise ValueError(f"Unknown metric for multilabel classification: {metric}")
 
