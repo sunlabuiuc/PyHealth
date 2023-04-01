@@ -1,8 +1,8 @@
-from pyhealth.datasets import MIMIC3Dataset
-from pyhealth.datasets import split_by_patient, get_dataloader
-from pyhealth.models import RNN, Transformer
+from pyhealth.calib import calibration, predictionset
+from pyhealth.datasets import MIMIC3Dataset, get_dataloader, split_by_patient
+from pyhealth.models import Transformer
 from pyhealth.tasks import length_of_stay_prediction_mimic3_fn
-from pyhealth.trainer import Trainer
+from pyhealth.trainer import Trainer, get_metrics_fn
 
 # STEP 1: load data
 base_dataset = MIMIC3Dataset(
@@ -43,4 +43,24 @@ trainer.train(
 )
 
 # STEP 5: evaluate
-trainer.evaluate(test_dataloader)
+metrics = ['accuracy', 'f1_macro', 'f1_micro'] + ['ECE_adapt', 'cwECEt_adapt']
+y_true_all, y_prob_all = trainer.inference(test_dataloader)[:2]
+print(get_metrics_fn(model.mode)(y_true_all, y_prob_all, metrics=metrics))
+
+# STEP 6: calibrate the model
+cal_model = calibration.HistogramBinning(model, debug=True)
+cal_model.calibrate(cal_dataset=val_dataset)
+y_true_all, y_prob_all = Trainer(model=cal_model).inference(test_dataloader)[:2]
+print(get_metrics_fn(cal_model.mode)(y_true_all, y_prob_all, metrics=metrics))
+
+
+# STEP 7: Construct prediction set, controlling overall miscoverage rate (<0.1)
+# Note that if you use calibrated model the coverate rate cannot be controlled, because
+# with repect to the calibrated model (which was trained on the calibration set), the
+# test set and calibration set is not i.i.d
+ps_model = predictionset.LABEL(model, 0.1, debug=True)
+ps_model.calibrate(cal_dataset=val_dataset)
+y_true_all, y_prob_all, _, extra_output = Trainer(model=ps_model).inference(test_dataloader, additional_outputs=['y_predset'])
+print(get_metrics_fn(ps_model.mode)(y_true_all, y_prob_all,
+                                     metrics=metrics + ['miscoverage_overall_ps', 'rejection_rate'],
+                                     y_predset=extra_output['y_predset']))

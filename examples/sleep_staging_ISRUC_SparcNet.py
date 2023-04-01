@@ -1,8 +1,8 @@
-from pyhealth.datasets import split_by_patient, get_dataloader
-from pyhealth.trainer import Trainer
-from pyhealth.datasets import ISRUCDataset
-from pyhealth.tasks import sleep_staging_isruc_fn
+from pyhealth.calib import calibration
+from pyhealth.datasets import ISRUCDataset, get_dataloader, split_by_patient
 from pyhealth.models import ContraWR, SparcNet
+from pyhealth.tasks import sleep_staging_isruc_fn
+from pyhealth.trainer import Trainer, get_metrics_fn
 
 # step 1: load signal data
 dataset = ISRUCDataset(
@@ -51,4 +51,16 @@ trainer.train(
 )
 
 # STEP 5: evaluate
-print(trainer.evaluate(test_dataloader))
+metrics = ['accuracy', 'f1_macro', 'f1_micro'] + ['cwECEt_adapt']
+y_true_all, y_prob_all = trainer.inference(test_dataloader)[:2]
+print(get_metrics_fn(model.mode)(y_true_all, y_prob_all, metrics=metrics))
+
+# STEP 6: calibrate the model
+cal_model = calibration.KCal(model, debug=True, dim=32)
+cal_model.calibrate(
+    cal_dataset=val_dataset,
+    # Uncomment the following line if you want to re-train the embeddings
+    # train_dataset=train_dataset,
+)
+y_true_all, y_prob_all = Trainer(model=cal_model).inference(test_dataloader)[:2]
+print(get_metrics_fn(cal_model.mode)(y_true_all, y_prob_all, metrics=metrics))
