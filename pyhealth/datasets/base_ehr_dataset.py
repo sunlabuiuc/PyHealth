@@ -11,7 +11,7 @@ from tqdm import tqdm
 from pandarallel import pandarallel
 
 from pyhealth.data import Patient, Event
-from pyhealth.datasets.sample_dataset import SampleEHRDataset
+from pyhealth.datasets.sample_dataset import SampleBaseDataset, SampleEHRDataset
 from pyhealth.datasets.utils import MODULE_CACHE_PATH, DATASET_BASIC_TABLES
 from pyhealth.datasets.utils import hash_str
 from pyhealth.medcode import CrossMap
@@ -372,7 +372,8 @@ class BaseEHRDataset(ABC):
         task_fn: Callable,
         dataset_attributes: list[str] = [], # dataset attributes to include in the task_fn call
         task_name: Optional[str] = None,
-    ) -> SampleEHRDataset:
+        OutputClass: SampleBaseDataset = SampleEHRDataset # the output type must inherit from the sample base dataset, but otherwise can be anything
+    ) -> SampleBaseDataset:
         """Processes the base dataset to generate the task-specific sample dataset.
 
         This function should be called by the user after the base dataset is
@@ -405,7 +406,7 @@ class BaseEHRDataset(ABC):
             self.patients.items(), desc=f"Generating samples for {task_name}"
         ):
             samples.extend(task_fn(patient, *attributes) if attributes else task_fn(patient))
-        sample_dataset = SampleEHRDataset(
+        sample_dataset = OutputClass(
             samples,
             dataset_name=self.dataset_name,
             task_name=task_name,
