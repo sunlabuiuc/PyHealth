@@ -5,6 +5,7 @@ import numpy as np
 import torch
 
 from pyhealth.datasets import SampleBaseDataset
+from pyhealth.datasets.sample_dataset import SampleEHRDataset
 
 
 # TODO: train_dataset.dataset still access the whole dataset which may leak information
@@ -48,7 +49,7 @@ def split_by_visit(
 
 
 def split_by_patient(
-    dataset: SampleBaseDataset,
+    dataset: SampleEHRDataset,
     ratios: Union[Tuple[float, float, float], List[float]],
     seed: Optional[int] = None,
 ):
