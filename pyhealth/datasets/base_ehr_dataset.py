@@ -370,6 +370,7 @@ class BaseEHRDataset(ABC):
     def set_task(
         self,
         task_fn: Callable,
+        dataset_attributes: list[str] = [], # dataset attributes to include in the task_fn call
         task_name: Optional[str] = None,
     ) -> SampleEHRDataset:
         """Processes the base dataset to generate the task-specific sample dataset.
@@ -398,14 +399,32 @@ class BaseEHRDataset(ABC):
         """
         if task_name is None:
             task_name = task_fn.__name__
+        attributes = [getattr(self, item) for item in dataset_attributes]
         samples = []
         for patient_id, patient in tqdm(
             self.patients.items(), desc=f"Generating samples for {task_name}"
         ):
-            samples.extend(task_fn(patient))
+            samples.extend(task_fn(patient, *attributes) if attributes else task_fn(patient))
         sample_dataset = SampleEHRDataset(
             samples,
             dataset_name=self.dataset_name,
             task_name=task_name,
         )
         return sample_dataset
+    
+# def fakeTask(patient, *args):
+#     print(patient, args)
+
+# if __name__ == "__main__":
+#     import mimic3
+#     dataset = mimic3.MIMIC3Dataset(
+#         root="https://storage.googleapis.com/pyhealth/mimiciii-demo/1.4/",
+#         tables=["DIAGNOSES_ICD", "PRESCRIPTIONS"],
+#         dev=True,
+#         code_mapping={"NDC": ("ATC", {"target_kwargs": {"level": 3}})},
+#         refresh_cache=False,
+#     )
+#     dataset.set_task(fakeTask, ['patients', 'tables'])
+#     print(dataset.stat())
+#     print(dataset.available_tables)
+#     print(list(dataset.patients.values())[4])
