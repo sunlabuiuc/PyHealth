@@ -88,3 +88,48 @@ def split_by_patient(
     val_dataset = torch.utils.data.Subset(dataset, val_index)
     test_dataset = torch.utils.data.Subset(dataset, test_index)
     return train_dataset, val_dataset, test_dataset
+
+
+def split_by_index(dataset: SampleBaseDataset, splits: list[int], shuffle=False, seed=None):
+
+    """Splits the dataset by index. Index is assumed to range from [0, len(dataset)), 
+
+    Args:
+        dataset: a `SampleBaseDataset` object
+        ratios: a list/tuple of ratios for splits
+        shuffle: flag for shuffling `dataset` prior to splitting
+        seed: random seed for shuffling the dataset
+
+    Returns:
+        splits: three datasets
+            type `torch.utils.data.Subset`.
+
+    Note:
+        The original dataset can be accessed by `train_dataset.dataset`,
+            `val_dataset.dataset`, and `test_dataset.dataset`.
+    """
+    assert sum(splits) == 1, f"Splits don't sum to 1. Summed to {sum(splits)}."
+
+    if seed is not None:
+        np.random.seed(seed)
+
+    l = len(dataset)
+
+    offset = 0
+    split_indeces = []
+    for split in splits:
+        split_index = offset + int(np.floor((l * split)))
+
+        split_indeces.append(split_index)
+        offset = split_index
+
+    dataset_indeces = np.arange(l)
+
+    if shuffle:
+        np.random.shuffle(dataset_indeces)
+
+    # the last split is implied; may receive additional indeces from rounding
+    split_dataset_indeces = np.split(dataset_indeces, split_indeces[:-1])
+
+    return [torch.utils.data.Subset(dataset, s) for s in split_dataset_indeces]
+    
