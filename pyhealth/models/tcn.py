@@ -275,9 +275,15 @@ class TCN(BaseModel):
         >>>
         >>> ret = model(**data_batch)
         >>> print(ret)
-        {'loss': tensor(0.7664, grad_fn=<BinaryCrossEntropyWithLogitsBackward0>), 'y_prob': tensor([[0.4714],
-                [0.4085]], grad_fn=<SigmoidBackward0>), 'y_true': tensor([[0.],
-                [1.]])}
+        {
+            'loss': tensor(1.1641, grad_fn=<BinaryCrossEntropyWithLogitsBackward0>),
+            'y_prob': tensor([[0.6837],
+                            [0.3081]], grad_fn=<SigmoidBackward0>),
+            'y_true': tensor([[0.],
+                            [1.]]),
+            'logit': tensor([[ 0.7706],
+                            [-0.8091]], grad_fn=<AddmmBackward0>)
+        }
         >>>
 
 
@@ -429,10 +435,10 @@ class TCN(BaseModel):
             "loss": loss,
             "y_prob": y_prob,
             "y_true": y_true,
-            'logit': logits,
+            "logit": logits,
         }
-        if kwargs.get('embed', False):
-            results['embed'] = patient_emb
+        if kwargs.get("embed", False):
+            results["embed"] = patient_emb
         return results
 
 

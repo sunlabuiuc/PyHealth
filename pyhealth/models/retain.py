@@ -203,9 +203,15 @@ class RETAIN(BaseModel):
         >>>
         >>> ret = model(**data_batch)
         >>> print(ret)
-        {'loss': tensor(0.7234, grad_fn=<BinaryCrossEntropyWithLogitsBackward0>), 'y_prob': tensor([[0.5423],
-                [0.5142]], grad_fn=<SigmoidBackward0>), 'y_true': tensor([[0.],
-                [1.]])}
+        {
+            'loss': tensor(0.5640, grad_fn=<BinaryCrossEntropyWithLogitsBackward0>),
+            'y_prob': tensor([[0.5325],
+                            [0.3922]], grad_fn=<SigmoidBackward0>),
+            'y_true': tensor([[1.],
+                            [0.]]),
+            'logit': tensor([[ 0.1303],
+                            [-0.4382]], grad_fn=<AddmmBackward0>)
+        }
         >>>
 
     """
@@ -353,10 +359,10 @@ class RETAIN(BaseModel):
             "loss": loss,
             "y_prob": y_prob,
             "y_true": y_true,
-            'logit': logits,
+            "logit": logits,
         }
-        if kwargs.get('embed', False):
-            results['embed'] = patient_emb
+        if kwargs.get("embed", False):
+            results["embed"] = patient_emb
         return results
 
 

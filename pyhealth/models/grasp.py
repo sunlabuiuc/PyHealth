@@ -385,9 +385,15 @@ class GRASP(BaseModel):
         >>>
         >>> ret = model(**data_batch)
         >>> print(ret)
-        {'loss': tensor(0.7015, grad_fn=<BinaryCrossEntropyWithLogitsBackward0>), 'y_prob': tensor([[0.5124],
-        [0.5042]], grad_fn=<SigmoidBackward0>), 'y_true': tensor([[0.],
-        [1.]])}
+        {
+            'loss': tensor(0.6896, grad_fn=<BinaryCrossEntropyWithLogitsBackward0>),
+            'y_prob': tensor([[0.4983],
+                        [0.4947]], grad_fn=<SigmoidBackward0>),
+            'y_true': tensor([[1.],
+                        [0.]]),
+            'logit': tensor([[-0.0070],
+                        [-0.0213]], grad_fn=<AddmmBackward0>)
+        }
         >>>
 
     """
@@ -402,7 +408,6 @@ class GRASP(BaseModel):
         static_key: Optional[str] = None,
         embedding_dim: int = 128,
         hidden_dim: int = 128,
-        cluster_num: int = 10,
         **kwargs,
     ):
         super(GRASP, self).__init__(
@@ -422,6 +427,8 @@ class GRASP(BaseModel):
             raise ValueError("cluster_num is required for small dataset, default 12")
         if "cluster_num" in kwargs and kwargs["cluster_num"] > len(dataset):
             raise ValueError("cluster_num must be no larger than dataset size")
+
+        cluster_num = kwargs.get("cluster_num", 12)
 
         # the key of self.feat_tokenizers only contains the code based inputs
         self.feat_tokenizers = {}
@@ -468,7 +475,6 @@ class GRASP(BaseModel):
                     input_dim=embedding_dim,
                     static_dim=self.static_dim,
                     hidden_dim=self.hidden_dim,
-                    cluster_num=cluster_num,
                     **kwargs,
                 )
             else:
@@ -476,7 +482,6 @@ class GRASP(BaseModel):
                     input_dim=input_info["len"],
                     static_dim=self.static_dim,
                     hidden_dim=self.hidden_dim,
-                    cluster_num=cluster_num,
                     **kwargs,
                 )
 
@@ -576,10 +581,10 @@ class GRASP(BaseModel):
             "loss": loss,
             "y_prob": y_prob,
             "y_true": y_true,
-            'logit': logits,
+            "logit": logits,
         }
-        if kwargs.get('embed', False):
-            results['embed'] = patient_emb
+        if kwargs.get("embed", False):
+            results["embed"] = patient_emb
         return results
 
 

@@ -85,9 +85,15 @@ class MLP(BaseModel):
         >>>
         >>> ret = model(**data_batch)
         >>> print(ret)
-        {'loss': tensor(0.6816, grad_fn=<BinaryCrossEntropyWithLogitsBackward0>), 'y_prob': tensor([[0.5418],
-                [0.5584]], grad_fn=<SigmoidBackward0>), 'y_true': tensor([[0.],
-                [1.]])}
+        {
+            'loss': tensor(0.6659, grad_fn=<BinaryCrossEntropyWithLogitsBackward0>),
+            'y_prob': tensor([[0.5680],
+                            [0.5352]], grad_fn=<SigmoidBackward0>),
+            'y_true': tensor([[1.],
+                            [0.]]),
+            'logit': tensor([[0.2736],
+                            [0.1411]], grad_fn=<AddmmBackward0>)
+        }
         >>>
 
     """
@@ -307,10 +313,10 @@ class MLP(BaseModel):
             "loss": loss,
             "y_prob": y_prob,
             "y_true": y_true,
-            'logit': logits,
+            "logit": logits,
         }
-        if kwargs.get('embed', False):
-            results['embed'] = patient_emb
+        if kwargs.get("embed", False):
+            results["embed"] = patient_emb
         return results
 
 

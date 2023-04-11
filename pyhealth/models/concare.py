@@ -735,7 +735,12 @@ class ConCare(BaseModel):
         >>>
         >>> ret = model(**data_batch)
         >>> print(ret)
-        {'loss': tensor(28.2995, grad_fn=<AddBackward0>), 'loss_task': tensor(0.7120, grad_fn=<BinaryCrossEntropyWithLogitsBackward0>), 'decov_loss': tensor(27.5875, grad_fn=<AddBackward0>), 'y_prob': tensor([[0.5389], [0.5533]], grad_fn=<SigmoidBackward0>), 'y_true': tensor([[1.], [0.]])}
+        {
+            'loss': tensor(9.5541, grad_fn=<AddBackward0>), 
+            'y_prob': tensor([[0.5323], [0.5363]], grad_fn=<SigmoidBackward0>), 
+            'y_true': tensor([[1.], [0.]]), 
+            'logit': tensor([[0.1293], [0.1454]], grad_fn=<AddmmBackward0>)
+        }
         >>>
 
     """

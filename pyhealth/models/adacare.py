@@ -346,11 +346,12 @@ class AdaCare(BaseModel):
         >>>
         >>> ret = model(**data_batch)
         >>> print(ret)
-        {'loss': tensor(0.7234, grad_fn=<BinaryCrossEntropyWithLogitsBackward0>), 'feature_importance': tensor(...), 'conv_feature_importance': tensor(...), 'y_prob': tensor([[0.5423],
-                [0.5142]], grad_fn=<SigmoidBackward0>), 'y_true': tensor([[0.],
-                [1.]])}
-        >>>
-
+        {
+            'loss': tensor(0.7167, grad_fn=<BinaryCrossEntropyWithLogitsBackward0>),
+            'y_prob': tensor([[0.5009], [0.4779]], grad_fn=<SigmoidBackward0>),
+            'y_true': tensor([[0.], [1.]]),
+            'logit': tensor([[ 0.0036], [-0.0886]], grad_fn=<AddmmBackward0>)
+        }
     """
 
     def __init__(
@@ -519,10 +520,10 @@ class AdaCare(BaseModel):
             "loss": loss,
             "y_prob": y_prob,
             "y_true": y_true,
-            'logit': logits,
+            "logit": logits,
         }
-        if kwargs.get('embed', False):
-            results['embed'] = patient_emb
+        if kwargs.get("embed", False):
+            results["embed"] = patient_emb
         return results
 
 

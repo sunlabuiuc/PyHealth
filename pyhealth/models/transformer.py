@@ -263,7 +263,7 @@ class Transformer(BaseModel):
         ...             "list_list_vectors",
         ...         ],
         ...         label_key="label",
-        ...         mode="binary",
+        ...         mode="multiclass",
         ...     )
         >>>
         >>> from pyhealth.datasets import get_dataloader
@@ -272,8 +272,14 @@ class Transformer(BaseModel):
         >>>
         >>> ret = model(**data_batch)
         >>> print(ret)
-        {'loss': tensor(0.4234, grad_fn=<NllLossBackward0>), 'y_prob': tensor([[9.9998e-01, 2.2920e-05],
-                [5.7120e-01, 4.2880e-01]], grad_fn=<SoftmaxBackward0>), 'y_true': tensor([0, 1])}
+        {
+            'loss': tensor(4.0555, grad_fn=<NllLossBackward0>),
+            'y_prob': tensor([[1.0000e+00, 1.8206e-06],
+                        [9.9970e-01, 3.0020e-04]], grad_fn=<SoftmaxBackward0>),
+            'y_true': tensor([0, 1]),
+            'logit': tensor([[ 7.6283, -5.5881],
+                        [ 1.0898, -7.0210]], grad_fn=<AddmmBackward0>)
+        }
         >>>
 
     """
@@ -418,14 +424,9 @@ class Transformer(BaseModel):
         y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
         loss = self.get_loss_function()(logits, y_true)
         y_prob = self.prepare_y_prob(logits)
-        results = {
-            "loss": loss,
-            "y_prob": y_prob,
-            "y_true": y_true,
-            'logit': logits
-        }
-        if kwargs.get('embed', False):
-            results['embed'] = patient_emb
+        results = {"loss": loss, "y_prob": y_prob, "y_true": y_true, "logit": logits}
+        if kwargs.get("embed", False):
+            results["embed"] = patient_emb
         return results
 
 

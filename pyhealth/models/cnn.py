@@ -220,9 +220,12 @@ class CNN(BaseModel):
         >>>
         >>> ret = model(**data_batch)
         >>> print(ret)
-        {'loss': tensor(0.8725, grad_fn=<BinaryCrossEntropyWithLogitsBackward0>), 'y_prob': tensor([[0.7620],
-                [0.7339]], grad_fn=<SigmoidBackward0>), 'y_true': tensor([[0.],
-                [1.]])}
+        {
+            'loss': tensor(0.8872, grad_fn=<BinaryCrossEntropyWithLogitsBackward0>),
+            'y_prob': tensor([[0.5008], [0.6614]], grad_fn=<SigmoidBackward0>),
+            'y_true': tensor([[1.], [0.]]),
+            'logit': tensor([[0.0033], [0.6695]], grad_fn=<AddmmBackward0>)
+        }
         >>>
     """
 
@@ -365,12 +368,11 @@ class CNN(BaseModel):
             "loss": loss,
             "y_prob": y_prob,
             "y_true": y_true,
-            'logit': logits,
+            "logit": logits,
         }
-        if kwargs.get('embed', False):
-            results['embed'] = patient_emb
+        if kwargs.get("embed", False):
+            results["embed"] = patient_emb
         return results
-
 
 
 if __name__ == "__main__":

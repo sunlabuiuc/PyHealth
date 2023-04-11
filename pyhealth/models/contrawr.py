@@ -111,13 +111,13 @@ class ContraWR(BaseModel):
         ...         {
         ...             "record_id": "SC4001-0",
         ...             "patient_id": "SC4001",
-        ...             "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/70d6dbb28bd81bab27ae2f271b2cbb0f/SC4001-0.pkl",
+        ...             "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/2f06a9232e54254cbcb4b62624294d71/SC4001-0.pkl",
         ...             "label": "W",
         ...         },
         ...         {
         ...             "record_id": "SC4001-1",
         ...             "patient_id": "SC4001",
-        ...             "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/70d6dbb28bd81bab27ae2f271b2cbb0f/SC4001-1.pkl",
+        ...             "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/2f06a9232e54254cbcb4b62624294d71/SC4001-1.pkl",
         ...             "label": "R",
         ...         }
         ...     ]
@@ -138,11 +138,12 @@ class ContraWR(BaseModel):
         >>> ret = model(**data_batch)
         >>> print(ret)
         {
-            'loss': tensor(1.2093, device='cuda:0', grad_fn=<NllLossBackward0>),
-            'y_prob': tensor([[0.0703, 0.1683, 0.5114, 0.0754, 0.1745],
-                            [0.1768, 0.0211, 0.2276, 0.0641, 0.5103]], device='cuda:0',
-                            grad_fn=<SoftmaxBackward0>),
-            'y_true': tensor([4, 2], device='cuda:0')
+            'loss': tensor(2.8425, device='cuda:0', grad_fn=<NllLossBackward0>),
+            'y_prob': tensor([[0.9345, 0.0655],
+                            [0.9482, 0.0518]], device='cuda:0', grad_fn=<SoftmaxBackward0>),
+            'y_true': tensor([1, 1], device='cuda:0'),
+            'logit': tensor([[ 0.1472, -2.5104],
+                            [2.1584, -0.7481]], device='cuda:0', grad_fn=<AddmmBackward0>)
         }
         >>>
     """
@@ -295,12 +296,11 @@ class ContraWR(BaseModel):
             "loss": loss,
             "y_prob": y_prob,
             "y_true": y_true,
-            'logit': logits,
+            "logit": logits,
         }
-        if kwargs.get('embed', False):
-            results['embed'] = emb
+        if kwargs.get("embed", False):
+            results["embed"] = emb
         return results
-
 
 
 if __name__ == "__main__":
@@ -372,32 +372,14 @@ if __name__ == "__main__":
         {
             "record_id": "SC4001-0",
             "patient_id": "SC4001",
-            "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/70d6dbb28bd81bab27ae2f271b2cbb0f/SC4001-0.pkl",
+            "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/2f06a9232e54254cbcb4b62624294d71/SC4001-0.pkl",
             "label": "W",
         },
         {
             "record_id": "SC4001-0",
             "patient_id": "SC4001",
-            "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/70d6dbb28bd81bab27ae2f271b2cbb0f/SC4001-1.pkl",
+            "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/2f06a9232e54254cbcb4b62624294d71/SC4001-1.pkl",
             "label": "R",
-        },
-        {
-            "record_id": "SC4001-0",
-            "patient_id": "SC4001",
-            "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/70d6dbb28bd81bab27ae2f271b2cbb0f/SC4001-2.pkl",
-            "label": "1",
-        },
-        {
-            "record_id": "SC4001-0",
-            "patient_id": "SC4001",
-            "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/70d6dbb28bd81bab27ae2f271b2cbb0f/SC4001-3.pkl",
-            "label": "2",
-        },
-        {
-            "record_id": "SC4001-0",
-            "patient_id": "SC4001",
-            "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/70d6dbb28bd81bab27ae2f271b2cbb0f/SC4001-4.pkl",
-            "label": "3",
         },
     ]
 
