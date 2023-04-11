@@ -1,13 +1,13 @@
-from typing import List, Tuple, Dict, Optional
+from typing import Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.nn.utils.rnn as rnn_utils
 
 from pyhealth.datasets import SampleEHRDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.utils import get_last_visit
-import torch.nn.functional as F
 
 # VALID_OPERATION_LEVEL = ["visit", "event"]
 
@@ -524,17 +524,15 @@ class StageNet(BaseModel):
         loss = self.get_loss_function()(logits, y_true)
 
         y_prob = self.prepare_y_prob(logits)
-        # return {
-        #     "loss": loss,
-        #     "distance": distance,
-        #     "y_prob": y_prob,
-        #     "y_true": y_true,
-        # }
-        return {
+        results = {
             "loss": loss,
             "y_prob": y_prob,
             "y_true": y_true,
+            'logit': logits,
         }
+        if kwargs.get('embed', False):
+            results['embed'] = patient_emb
+        return results
 
 
 if __name__ == "__main__":

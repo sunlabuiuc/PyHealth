@@ -1,5 +1,5 @@
-from typing import Tuple, List, Dict, Optional
 import functools
+from typing import Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -284,11 +284,16 @@ class Deepr(BaseModel):
         y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
         loss = self.get_loss_function()(logits, y_true)
         y_prob = self.prepare_y_prob(logits)
-        return {
+        results = {
             "loss": loss,
             "y_prob": y_prob,
             "y_true": y_true,
+            'logit': logits,
         }
+        if kwargs.get('embed', False):
+            results['embed'] = patient_emb
+        return results
+
 
 
 if __name__ == "__main__":

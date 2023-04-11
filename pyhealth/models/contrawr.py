@@ -1,10 +1,10 @@
-from typing import Tuple, List, Dict, Optional
 import functools
 import math
+from typing import Dict, List, Optional, Tuple
 
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
 
 from pyhealth.datasets import BaseSignalDataset
 from pyhealth.models import BaseModel
@@ -291,11 +291,16 @@ class ContraWR(BaseModel):
         y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
         loss = self.get_loss_function()(logits, y_true)
         y_prob = self.prepare_y_prob(logits)
-        return {
+        results = {
             "loss": loss,
             "y_prob": y_prob,
             "y_true": y_true,
+            'logit': logits,
         }
+        if kwargs.get('embed', False):
+            results['embed'] = emb
+        return results
+
 
 
 if __name__ == "__main__":
@@ -361,7 +366,7 @@ if __name__ == "__main__":
     """
     test ContraWR 2
     """
-    from pyhealth.datasets import get_dataloader, SampleSignalDataset
+    from pyhealth.datasets import SampleSignalDataset, get_dataloader
 
     samples = [
         {

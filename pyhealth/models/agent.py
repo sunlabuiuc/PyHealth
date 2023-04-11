@@ -653,18 +653,15 @@ class Agent(BaseModel):
             loss_rl += cur_loss
         loss = loss_task + loss_rl
         y_prob = self.prepare_y_prob(logits)
-        # return {
-        #     "loss": loss,
-        #     "loss_task": loss_task,
-        #     "loss_rl": loss_rl,
-        #     "y_prob": y_prob,
-        #     "y_true": y_true,
-        # }
-        return {
+        results = {
             "loss": loss,
             "y_prob": y_prob,
             "y_true": y_true,
+            'logit': logits,
         }
+        if kwargs.get('embed', False):
+            results['embed'] = patient_emb
+        return results
 
 
 if __name__ == "__main__":

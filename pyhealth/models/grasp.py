@@ -1,19 +1,17 @@
-from typing import List, Tuple, Dict, Optional
+import copy
+import math
+import random
+from typing import Dict, List, Optional, Tuple
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.utils.rnn as rnn_utils
+from sklearn.neighbors import kneighbors_graph
 
 from pyhealth.datasets import SampleEHRDataset
-from pyhealth.models import BaseModel
+from pyhealth.models import BaseModel, ConCareLayer, RNNLayer
 from pyhealth.models.utils import get_last_visit
-from pyhealth.models import ConCareLayer, RNNLayer
-
-from sklearn.neighbors import kneighbors_graph
-import math
-import copy
-import random
-import numpy as np
 
 
 def random_init(dataset, num_centers, device):
@@ -574,11 +572,15 @@ class GRASP(BaseModel):
         y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
         loss = self.get_loss_function()(logits, y_true)
         y_prob = self.prepare_y_prob(logits)
-        return {
+        results = {
             "loss": loss,
             "y_prob": y_prob,
             "y_true": y_true,
+            'logit': logits,
         }
+        if kwargs.get('embed', False):
+            results['embed'] = patient_emb
+        return results
 
 
 if __name__ == "__main__":

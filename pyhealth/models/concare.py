@@ -1,4 +1,5 @@
-from typing import List, Tuple, Dict, Optional
+import math
+from typing import Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -7,8 +8,6 @@ import torch.nn.utils.rnn as rnn_utils
 from pyhealth.datasets import SampleEHRDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.utils import get_last_visit
-
-import math
 
 
 class FinalAttentionQKV(nn.Module):
@@ -919,18 +918,15 @@ class ConCare(BaseModel):
         loss_task = self.get_loss_function()(logits, y_true)
         loss = decov_loss + loss_task
         y_prob = self.prepare_y_prob(logits)
-        # return {
-        #     "loss": loss,
-        #     "loss_task": loss_task,
-        #     "decov_loss": decov_loss,
-        #     "y_prob": y_prob,
-        #     "y_true": y_true,
-        # }
-        return {
+        results = {
             "loss": loss,
             "y_prob": y_prob,
             "y_true": y_true,
+            'logit': logits,
         }
+        if kwargs.get('embed', False):
+            results['embed'] = patient_emb
+        return results
 
 
 if __name__ == "__main__":
