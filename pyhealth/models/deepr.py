@@ -1,5 +1,5 @@
-from typing import Tuple, List, Dict, Optional
 import functools
+from typing import Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -166,12 +166,15 @@ class Deepr(BaseModel):
         >>>
         >>> ret = model(**data_batch)
         >>> print(ret)
-        {'loss': tensor(0.9139, device='cuda:0',
-            grad_fn=<BinaryCrossEntropyWithLogitsBackward0>), 'y_prob': tensor([[0.7530],
-                [0.6510]], device='cuda:0', grad_fn=<SigmoidBackward0>), 'y_true': tensor([[0.],
-                [1.]], device='cuda:0')}
-        >>>
-
+        {
+            'loss': tensor(0.8908, device='cuda:0', grad_fn=<BinaryCrossEntropyWithLogitsBackward0>),
+            'y_prob': tensor([[0.2295],
+                        [0.2665]], device='cuda:0', grad_fn=<SigmoidBackward0>),
+            'y_true': tensor([[1.],
+                        [0.]], device='cuda:0'),
+            'logit': tensor([[-1.2110],
+                        [-1.0126]], device='cuda:0', grad_fn=<AddmmBackward0>)
+        }
     """
 
     def __init__(
@@ -284,11 +287,15 @@ class Deepr(BaseModel):
         y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
         loss = self.get_loss_function()(logits, y_true)
         y_prob = self.prepare_y_prob(logits)
-        return {
+        results = {
             "loss": loss,
             "y_prob": y_prob,
             "y_true": y_true,
+            "logit": logits,
         }
+        if kwargs.get("embed", False):
+            results["embed"] = patient_emb
+        return results
 
 
 if __name__ == "__main__":
