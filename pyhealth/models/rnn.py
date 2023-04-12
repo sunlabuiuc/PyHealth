@@ -211,9 +211,15 @@ class RNN(BaseModel):
         >>>
         >>> ret = model(**data_batch)
         >>> print(ret)
-        {'loss': tensor(0.7664, grad_fn=<BinaryCrossEntropyWithLogitsBackward0>), 'y_prob': tensor([[0.4714],
-                [0.4085]], grad_fn=<SigmoidBackward0>), 'y_true': tensor([[0.],
-                [1.]])}
+        {
+            'loss': tensor(0.8056, grad_fn=<BinaryCrossEntropyWithLogitsBackward0>),
+            'y_prob': tensor([[0.5906],
+                            [0.6620]], grad_fn=<SigmoidBackward0>),
+            'y_true': tensor([[1.],
+                            [0.]]),
+            'logit': tensor([[0.3666],
+                            [0.6721]], grad_fn=<AddmmBackward0>)
+        }
         >>>
 
 
@@ -363,16 +369,10 @@ class RNN(BaseModel):
         y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
         loss = self.get_loss_function()(logits, y_true)
         y_prob = self.prepare_y_prob(logits)
-        results = {
-            "loss": loss,
-            "y_prob": y_prob,
-            "y_true": y_true,
-            'logit': logits
-        }
-        if kwargs.get('embed', False):
-            results['embed'] = patient_emb
+        results = {"loss": loss, "y_prob": y_prob, "y_true": y_true, "logit": logits}
+        if kwargs.get("embed", False):
+            results["embed"] = patient_emb
         return results
-
 
 
 if __name__ == "__main__":

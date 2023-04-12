@@ -1,13 +1,13 @@
-from typing import List, Tuple, Dict, Optional
+from typing import Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.nn.utils.rnn as rnn_utils
 
 from pyhealth.datasets import SampleEHRDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.utils import get_last_visit
-import torch.nn.functional as F
 
 # VALID_OPERATION_LEVEL = ["visit", "event"]
 
@@ -344,9 +344,15 @@ class StageNet(BaseModel):
         >>>
         >>> ret = model(**data_batch)
         >>> print(ret)
-        {'loss': tensor(0.7272, grad_fn=<BinaryCrossEntropyWithLogitsBackward0>), 'distance':..., 'y_prob': tensor([[0.4328],
-        [0.4605]], grad_fn=<SigmoidBackward0>), 'y_true': tensor([[1.],
-        [0.]])}
+        {
+            'loss': tensor(0.7111, grad_fn=<BinaryCrossEntropyWithLogitsBackward0>),
+            'y_prob': tensor([[0.4815],
+                        [0.4991]], grad_fn=<SigmoidBackward0>),
+            'y_true': tensor([[1.],
+                        [0.]]),
+            'logit': tensor([[-0.0742],
+                        [-0.0038]], grad_fn=<AddmmBackward0>)
+        }
         >>>
 
     """
@@ -524,17 +530,15 @@ class StageNet(BaseModel):
         loss = self.get_loss_function()(logits, y_true)
 
         y_prob = self.prepare_y_prob(logits)
-        # return {
-        #     "loss": loss,
-        #     "distance": distance,
-        #     "y_prob": y_prob,
-        #     "y_true": y_true,
-        # }
-        return {
+        results = {
             "loss": loss,
             "y_prob": y_prob,
             "y_true": y_true,
+            "logit": logits,
         }
+        if kwargs.get("embed", False):
+            results["embed"] = patient_emb
+        return results
 
 
 if __name__ == "__main__":
