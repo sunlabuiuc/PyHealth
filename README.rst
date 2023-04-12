@@ -99,7 +99,7 @@ You can use the following functions independently:
 - **Tasks**: ``diagnosis-based drug recommendation``, ``patient hospitalization and mortality prediction``, ``length stay forecasting``, etc. 
 - **ML models**: ``CNN``, ``LSTM``, ``GRU``, ``LSTM``, ``RETAIN``, ``SafeDrug``, ``Deepr``, etc.
 
-*Build a healthcare AI pipeline can be as short as 10 lines of code in PyHealth*.
+*Building a healthcare AI pipeline can be as short as 10 lines of code in PyHealth*.
 
 
 3. Build ML Pipelines :trophy:
@@ -112,7 +112,7 @@ All healthcare tasks in our package follow a **five-stage pipeline**:
 
 ..
 
- We try hard to make sure each stage is as separate as possibe, so that people can customize their own pipeline by only using our data processing steps or the ML models.
+ We try hard to make sure each stage is as separate as possible, so that people can customize their own pipeline by only using our data processing steps or the ML models.
 
 Module 1: <pyhealth.datasets>
 """"""""""""""""""""""""""""""""""""
@@ -185,7 +185,7 @@ Module 3: <pyhealth.models>
 Module 4: <pyhealth.trainer>
 """"""""""""""""""""""""""""""""""""
 
-``pyhealth.trainer`` can specify training arguemnts, such as epochs, optimizer, learning rate, etc. The trainer will automatically save the best model and output the path in the end.
+``pyhealth.trainer`` can specify training arguments, such as epochs, optimizer, learning rate, etc. The trainer will automatically save the best model and output the path in the end.
 
 .. code-block:: python
     
