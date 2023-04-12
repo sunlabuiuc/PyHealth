@@ -39,6 +39,19 @@ def strptime(s: str) -> Optional[datetime]:
         return None
     return dateutil_parse(s)
 
+def padyear(year: str, month='1', day='1') -> str:
+    """Pad a date time year of format 'YYYY' to format 'YYYY-MM-DD'
+    
+    Args: 
+        year: str, year to be padded. Must be non-zero value.
+        month: str, month string to be used as padding. Must be in [1, 12]
+        day: str, day string to be used as padding. Must be in [1, 31]
+        
+    Returns:
+        padded_date: str, padded year.
+    
+    """
+    return f"{year}-{month}-{day}"
 
 def flatten_list(l: List) -> List:
     """Flattens a list of list.
