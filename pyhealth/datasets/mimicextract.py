@@ -17,7 +17,7 @@ class MIMICExtractDataset(BaseEHRDataset):
     Args:
         dataset_name: name of the dataset.
         root: root directory of the raw data (should contain one or more HDF5 files).
-        tables: list of tables to be loaded (e.g., ["DIAGNOSES_ICD", "PROCEDURES_ICD"]). TODO: What here?
+        tables: list of tables to be loaded (e.g., ["DIAGNOSES_ICD", "NOTES"]). TODO: What here?
         code_mapping: a dictionary containing the code mapping information.
             The key is a str of the source code vocabulary and the value is of
             two formats:
@@ -31,6 +31,8 @@ class MIMICExtractDataset(BaseEHRDataset):
             Default is False.
         refresh_cache: whether to refresh the cache; if true, the dataset will
             be processed from scratch and the cache will be updated. Default is False.
+        pop_size: If your MIMIC-Extract dataset was created with a pop_size parameter,
+            include it here. This is used to find the correct filenames.
 
     Attributes:
         task: Optional[str], name of the task (e.g., "mortality prediction").
@@ -47,7 +49,7 @@ class MIMICExtractDataset(BaseEHRDataset):
         >>> from pyhealth.datasets import MIMICExtractDataset
         >>> dataset = MIMICExtractDataset(
         ...         root="/srv/local/data/physionet.org/files/mimiciii/1.4",
-        ...         tables=["DIAGNOSES_ICD", "PRESCRIPTIONS"], TODO: What here?
+        ...         tables=["DIAGNOSES_ICD", "NOTES"], TODO: What here?
         ...         code_mapping={"NDC": ("ATC", {"target_kwargs": {"level": 3}})},
         ...     )
         >>> dataset.stat()
@@ -133,7 +135,7 @@ class MIMICExtractDataset(BaseEHRDataset):
         return patients
 
     def parse_diagnoses_icd(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
-        """Helper function which parses DIAGNOSES_ICD table.
+        """Helper function which parses the C (ICD9 diagnosis codes) table in a way compatible with MIMIC3Dataset.
 
         Will be called in `self.parse_tables()`
 
@@ -150,7 +152,29 @@ class MIMICExtractDataset(BaseEHRDataset):
             MIMIC-III does not provide specific timestamps in DIAGNOSES_ICD
                 table, so we set it to None.
         """
-        table='DIAGNOSES_ICD'
+        return self._parse_c(patients, table='DIAGNOSES_ICD')
+
+    def parse_c(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
+        """Helper function which parses the C (ICD9 diagnosis codes) table.
+
+        Will be called in `self.parse_tables()`
+
+        Docs:
+            - DIAGNOSES_ICD: https://mimic.mit.edu/docs/iii/tables/diagnoses_icd/
+
+        Args:
+            patients: a dict of `Patient` objects indexed by patient_id.
+
+        Returns:
+            The updated patients dict.
+
+        Note:
+            MIMIC-III does not provide specific timestamps in DIAGNOSES_ICD
+                table, so we set it to None.
+        """
+        return self._parse_c(patients, table='C')
+
+    def _parse_c(self, patients: Dict[str, Patient], table: str = 'C') -> Dict[str, Patient]:
         # read table
         df = pd.read_hdf(self._c_filename, 'C')
         # drop records of the other patients
@@ -184,179 +208,11 @@ class MIMICExtractDataset(BaseEHRDataset):
         patients = self._add_events_to_patient_dict(patients, df)
         return patients
 
-    def parse_procedures_icd(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
-        """Helper function which parses PROCEDURES_ICD table.
-
-        Will be called in `self.parse_tables()`
-
-        Docs:
-            - PROCEDURES_ICD: https://mimic.mit.edu/docs/iii/tables/procedures_icd/
-
-        Args:
-            patients: a dict of `Patient` objects indexed by patient_id.
-
-        Returns:
-            The updated patients dict.
-
-        Note:
-            MIMIC-III does not provide specific timestamps in PROCEDURES_ICD
-                table, so we set it to None.
-        """
-        table='C'
-        # read table
-        df = pd.read_hdf(self._c_filename, 'C')
-        # drop records of the other patients
-        df = df.loc[(patients.keys(),slice(None),slice(None)),:].reset_index()
-        # drop rows with missing values
-        df = df.dropna(subset=["subject_id", "hadm_id", "seq_num", "icd9_codes"])
-        # sort by sequence number (i.e., priority)
-        df = df.sort_values(["subject_id", "hadm_id", "seq_num"], ascending=True)
-        # group by patient and visit
-        group_df = df.groupby("subject_id")
-
-        # parallel unit of procedure (per patient)
-        def procedure_unit(p_id, p_info):
-            events = []
-            for v_id, v_info in p_info.groupby("hadm_id"):
-                for code in v_info["icd9_code"]:
-                    event = Event(
-                        code=code,
-                        table=table,
-                        vocabulary="icd9proc",
-                        visit_id=v_id,
-                        patient_id=p_id,
-                    )
-                    events.append(event)
-            return events
-
-        # parallel apply
-        group_df = group_df.parallel_apply(
-            lambda x: procedure_unit(x.subject_id.unique()[0], x)
-        )
-
-        # summarize the results
-        patients = self._add_events_to_patient_dict(patients, group_df)
-        return patients
-
-    def parse_prescriptions(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
-        """Helper function which parses PRESCRIPTIONS table.
-
-        Will be called in `self.parse_tables()`
-
-        Docs:
-            - PRESCRIPTIONS: https://mimic.mit.edu/docs/iii/tables/prescriptions/
-
-        Args:
-            patients: a dict of `Patient` objects indexed by patient_id.
-
-        Returns:
-            The updated patients dict.
-        """
-        table = "PRESCRIPTIONS"
-        # read table
-        df = pd.read_csv(
-            os.path.join(self.root, f"{table}.csv"),
-            low_memory=False,
-            dtype={"SUBJECT_ID": str, "HADM_ID": str, "NDC": str},
-        )
-        # drop records of the other patients
-        df = df[df["SUBJECT_ID"].isin(patients.keys())]
-        # drop rows with missing values
-        df = df.dropna(subset=["SUBJECT_ID", "HADM_ID", "NDC"])
-        # sort by start date and end date
-        df = df.sort_values(
-            ["SUBJECT_ID", "HADM_ID", "STARTDATE", "ENDDATE"], ascending=True
-        )
-        # group by patient and visit
-        group_df = df.groupby("SUBJECT_ID")
-
-        # parallel unit for prescription (per patient)
-        def prescription_unit(p_id, p_info):
-            events = []
-            for v_id, v_info in p_info.groupby("HADM_ID"):
-                for timestamp, code in zip(v_info["STARTDATE"], v_info["NDC"]):
-                    event = Event(
-                        code=code,
-                        table=table,
-                        vocabulary="NDC",
-                        visit_id=v_id,
-                        patient_id=p_id,
-                        timestamp=strptime(timestamp),
-                    )
-                    events.append(event)
-            return events
-
-        # parallel apply
-        #group_df = group_df.parallel_apply(
-        group_df = group_df.apply(
-            lambda x: prescription_unit(x.SUBJECT_ID.unique()[0], x)
-        )
-
-        # summarize the results
-        patients = self._add_events_to_patient_dict(patients, group_df)
-        return patients
-
-    def parse_labevents(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
-        """Helper function which parses LABEVENTS table.
-
-        Will be called in `self.parse_tables()`
-
-        Docs:
-            - LABEVENTS: https://mimic.mit.edu/docs/iii/tables/labevents/
-
-        Args:
-            patients: a dict of `Patient` objects indexed by patient_id.
-
-        Returns:
-            The updated patients dict.
-        """
-        table = "LABEVENTS"
-        # read table
-        df = pd.read_csv(
-            os.path.join(self.root, f"{table}.csv"),
-            dtype={"SUBJECT_ID": str, "HADM_ID": str, "ITEMID": str},
-        )
-        # drop records of the other patients
-        df = df[df["SUBJECT_ID"].isin(patients.keys())]
-        # drop rows with missing values
-        df = df.dropna(subset=["SUBJECT_ID", "HADM_ID", "ITEMID"])
-        # sort by charttime
-        df = df.sort_values(["SUBJECT_ID", "HADM_ID", "CHARTTIME"], ascending=True)
-        # group by patient and visit
-        group_df = df.groupby("SUBJECT_ID")
-
-        # parallel unit for lab (per patient)
-        def lab_unit(p_id, p_info):
-            events = []
-            for v_id, v_info in p_info.groupby("HADM_ID"):
-                for timestamp, code in zip(v_info["CHARTTIME"], v_info["ITEMID"]):
-                    event = Event(
-                        code=code,
-                        table=table,
-                        vocabulary="MIMIC3_ITEMID",
-                        visit_id=v_id,
-                        patient_id=p_id,
-                        timestamp=strptime(timestamp),
-                    )
-                    events.append(event)
-            return events
-
-        # parallel apply
-        group_df = group_df.parallel_apply(
-            lambda x: lab_unit(x.SUBJECT_ID.unique()[0], x)
-        )
-
-        # summarize the results
-        patients = self._add_events_to_patient_dict(patients, group_df)
-        return patients
-
 if __name__ == "__main__":
     dataset = MIMICExtractDataset(
         root="../data/baseline5000/grouping",
         tables=[
-            "DIAGNOSES_ICD",
-            "PROCEDURES_ICD",
-            "LABEVENTS",
+            "C"
         ],
         #code_mapping={"NDC": "ATC"},
         dev=True,
