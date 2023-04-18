@@ -17,7 +17,7 @@ dataset.patients:
 """
 
 
-class BaseImageCaptionGenerationDataset(ABC):
+class BaseImageCaptionDataset(ABC):
     """Abstract base Image Caption Generation dataset class.
 
     This abstract class defines a uniform interface for all 
