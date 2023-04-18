@@ -43,6 +43,8 @@ class eICUDataset(BaseEHRDataset):
             for patients
         - physicalExam: contains all physical exam (eICU_PHYSICALEXAMPATH)
             conducted for patients.
+        - admissionDx:  table contains the primary diagnosis for admission to
+            the ICU per the APACHE scoring criteria. (eICU_ADMITDXPATH)
 
     Args:
         dataset_name: name of the dataset.
@@ -77,7 +79,7 @@ class eICUDataset(BaseEHRDataset):
         >>> from pyhealth.datasets import eICUDataset
         >>> dataset = eICUDataset(
         ...         root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
-        ...         tables=["diagnosis", "medication", "lab", "treatment", "physicalExam"],
+        ...         tables=["diagnosis", "medication", "lab", "treatment", "physicalExam", "admissionDx"],
         ...     )
         >>> dataset.stat()
         >>> dataset.info()
@@ -563,11 +565,78 @@ class eICUDataset(BaseEHRDataset):
         patients = self._add_events_to_patient_dict(patients, group_df)
         return patients
 
+    def parse_admissiondx(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
+        """Helper function which parses admissionDx (admission diagnosis) table.
+
+        Will be called in `self.parse_tables()`.
+
+        Docs:
+            - admissionDx: https://eicu-crd.mit.edu/eicutables/admissiondx/
+
+        Args:
+            patients: a dict of `Patient` objects indexed by patient_id.
+
+        Returns:
+            The updated patients dict.
+        """
+        table = "admissionDx"
+        # read table
+        df = pd.read_csv(
+            os.path.join(self.root, f"{table}.csv"),
+            dtype={"patientunitstayid": str, "admitdxpath": str},
+        )
+        # drop rows with missing values
+        df = df.dropna(subset=["patientunitstayid", "admitdxpath"])
+        # sort by admitDxEnteredOffset
+        df = df.sort_values(["patientunitstayid", "admitdxenteredoffset"], ascending=True)
+        # add the patient id info
+        df["patient_id"] = df["patientunitstayid"].apply(
+            lambda x: self.visit_id_to_patient_id.get(x, None)
+        )
+        # add the visit encounter time info
+        df["v_encounter_time"] = df["patientunitstayid"].apply(
+            lambda x: self.visit_id_to_encounter_time.get(x, None)
+        )
+        # group by visit
+        group_df = df.groupby("patientunitstayid")
+
+        # parallel unit of admissionDx (per visit)
+        def admissionDx_unit(v_info):
+            v_id = v_info["patientunitstayid"].values[0]
+            patient_id = v_info["patient_id"].values[0]
+            v_encounter_time = v_info["v_encounter_time"].values[0]
+            if patient_id is None:
+                return []
+
+            events = []
+            for offset, code in zip(
+                v_info["admitdxenteredoffset"], v_info["admitdxpath"]
+            ):
+                # compute the absolute timestamp
+                timestamp = v_encounter_time + pd.Timedelta(minutes=offset)
+                event = Event(
+                    code=code,
+                    table=table,
+                    vocabulary="eICU_ADMITDXPATH",
+                    visit_id=v_id,
+                    patient_id=patient_id,
+                    timestamp=timestamp,
+                )
+                # update patients
+                events.append(event)
+            return events
+
+        # parallel apply
+        group_df = group_df.parallel_apply(lambda x: admissionDx_unit(x))
+
+        # summarize the results
+        patients = self._add_events_to_patient_dict(patients, group_df)
+        return patients
 
 if __name__ == "__main__":
     dataset = eICUDataset(
         root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
-        tables=["diagnosis", "medication", "lab", "treatment", "physicalExam"],
+        tables=["diagnosis", "medication", "lab", "treatment", "physicalExam", "admissionDx"],
         refresh_cache=True,
     )
     dataset.stat()
