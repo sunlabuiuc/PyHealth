@@ -183,14 +183,16 @@ class MIMICExtractDataset(BaseEHRDataset):
         df = df.loc[(list(patients.keys()),slice(None),slice(None)),:]
         # drop rows with missing values
         #df = df.dropna(subset=["subject_id", "hadm_id", "icd9_codes"])
+        dfgroup = df.reset_index().groupby("subject_id")
 
+        #display(df)
         #df = df.reset_index(['icustay_id']) #drops this one only.. interesting
         #display(df)
         def diagnosis_unit(p_id, p_info):
             events = []
             for v_id, v_info in p_info.groupby(self._v_id_column):
                 codes = set(v_info['icd9_codes'].sum())
-                for code in v_info:
+                for code in codes:
                     event = Event(
                         code=code,
                         table=table,
@@ -202,9 +204,8 @@ class MIMICExtractDataset(BaseEHRDataset):
             return events
 
         # parallel apply
-        #df = df.parallel_apply(
-        df = df.apply(
-            lambda x: diagnosis_unit(x.reset_index().subject_id.unique()[0], x)
+        dfgroup = dfgroup.parallel_apply(
+            lambda x: diagnosis_unit(x.subject_id.unique()[0], x)
         )
         # summarize the results
         patients = self._add_events_to_patient_dict(patients, df)
