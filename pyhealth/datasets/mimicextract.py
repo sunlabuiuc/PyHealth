@@ -64,13 +64,15 @@ class MIMICExtractDataset(BaseEHRDataset):
         code_mapping: Optional[Dict[str, Union[str, Tuple[str, Dict]]]] = None,
         dev: bool = False,
         refresh_cache: bool = False,
-        pop_size: int = None
+        is_icustay_visit: Optional[bool] = False
     ):
         if pop_size is not None:
             self._fname_suffix = f"_{pop_size}"
         self._ahd_filename = os.path.join(root, f"all_hourly_data{self._fname_suffix}.h5")
         self._c_filename = os.path.join(root, f"C{self._fname_suffix}.h5")
         self._notes_filename = os.path.join(root, f"all_hourly_data{self._fname_suffix}.hdf")
+        self._v_id_column = 'icustay_id' if is_icustay_visit else 'hadm_id'
+
         super().__init__(root=root, tables=tables,
             dataset_name=dataset_name, code_mapping=code_mapping,
             dev=dev, refresh_cache=refresh_cache)
@@ -186,8 +188,8 @@ class MIMICExtractDataset(BaseEHRDataset):
         #display(df)
         def diagnosis_unit(p_id, p_info):
             events = []
-            for v_id, v_info in p_info.groupby("hadm_id"):
-                v_info = set(v_info.sum())
+            for v_id, v_info in p_info.groupby(self._v_id_column):
+                codes = set(v_info['icd9_codes'].sum())
                 for code in v_info:
                     event = Event(
                         code=code,
