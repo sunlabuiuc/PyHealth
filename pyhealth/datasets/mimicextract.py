@@ -64,6 +64,7 @@ class MIMICExtractDataset(BaseEHRDataset):
         code_mapping: Optional[Dict[str, Union[str, Tuple[str, Dict]]]] = None,
         dev: bool = False,
         refresh_cache: bool = False,
+        pop_size: Optional[int] = None,
         is_icustay_visit: Optional[bool] = False
     ):
         if pop_size is not None:
