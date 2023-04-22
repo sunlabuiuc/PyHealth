@@ -2,7 +2,9 @@ from collections import Counter
 from typing import Dict, List
 import pickle
 
+from PIL import Image
 from torch.utils.data import Dataset
+from torchvision import transforms
 
 from pyhealth.datasets.utils import list_nested_levels, flatten_list
 
@@ -498,6 +500,95 @@ class SampleEHRDataset(SampleBaseDataset):
         print("\n".join(lines))
         return "\n".join(lines)
 
+class SampleImageCaptionDataset(SampleBaseDataset):
+    """Sample image caption dataset class.
+
+    This class the takes a list of samples as input (either from
+    `BaseDataset.set_task()` or user-provided input), and provides
+    a uniform interface for accessing the samples.
+
+    Args:
+        samples: a list of samples
+        dataset_name: the name of the dataset. Default is None.
+        task_name: the name of the task. Default is None.
+    """
+
+    def __init__(
+        self, 
+        samples: List[Dict],  
+        dataset_name: str = "", 
+        task_name: str = ""
+    ):
+        super().__init__(samples, dataset_name, task_name)
+        self.patient_to_index: Dict[str, List[int]] = self._index_patient()
+        self.type_ = "image_text"
+        self.input_info: Dict = self._validate()
+        self.img_transforms = transforms.Compose([
+            transforms.ToTensor(),
+        ])
+
+    def set_transform(self, img_transforms):
+        self.img_transforms = img_transforms
+
+    def _index_patient(self) -> Dict[str, List[int]]:
+        """Helper function which indexes the samples by patient_id.
+
+        Will be called in `self.__init__()`.
+        Returns:
+            patient_to_index: Dict[str, int], a dict mapping patient_id to a list
+                of sample indices.
+        """
+        patient_to_index = {}
+        for idx, sample in enumerate(self.samples):
+            patient_to_index.setdefault(sample["patient_id"], []).append(idx)
+        return patient_to_index
+
+    def _validate(self) -> Dict:
+        """Helper function which gets the input information of each attribute.
+
+        Will be called in `self.__init__()`.
+
+        Returns:
+            input_info: Dict, a dict whose keys are the same as the keys in the
+                samples, and values are the corresponding input information
+        """
+        input_info = {}
+        # get info
+        input_info["image_path"] = {"type": str, "dim": 2}
+        input_info["caption"] = {"type": str, "dim": 3}
+        return input_info
+
+    def __getitem__(self, index) -> Dict:
+        """Returns a sample by index.
+
+        Returns:
+             Dict, a dict with patient_id, image_{number}, caption, and other task-specific
+                attributes as key. Conversion of caption to index/tensor will be done
+                in the model.
+        """
+        sample = self.samples[index]
+        for i in range(len(sample['image_path'])):
+            image_key = f'image_{i+1}'
+            image = Image.open(sample["image_path"][i]).convert("RGB")
+            image = self.img_transforms(image)
+            sample[image_key] = image
+        return sample
+
+    def stat(self) -> str:
+        """Returns some statistics of the task-specific dataset."""
+        lines = list()
+        lines.append(f"Statistics of sample dataset:")
+        lines.append(f"\t- Dataset: {self.dataset_name}")
+        lines.append(f"\t- Task: {self.task_name}")
+        lines.append(f"\t- Number of samples: {len(self)}")
+        num_patients = len(set([sample["patient_id"] for sample in self.samples]))
+        lines.append(f"\t- Number of patients: {num_patients}")
+        lines.append(f"\t- Number of records: {len(self)}")
+        lines.append(
+            f"\t- Number of samples per patient: {len(self) / num_patients:.4f}"
+        )
+        print("\n".join(lines))
+        return "\n".join(lines)
 
 if __name__ == "__main__":
     samples = [

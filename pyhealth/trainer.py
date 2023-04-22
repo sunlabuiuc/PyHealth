@@ -12,7 +12,7 @@ from tqdm import tqdm
 from tqdm.autonotebook import trange
 
 from pyhealth.metrics import (binary_metrics_fn, multiclass_metrics_fn,
-                              multilabel_metrics_fn)
+                              multilabel_metrics_fn,sequence_metrics_fn)
 from pyhealth.utils import create_directory
 
 logger = logging.getLogger(__name__)
@@ -44,6 +44,8 @@ def get_metrics_fn(mode: str) -> Callable:
         return multiclass_metrics_fn
     elif mode == "multilabel":
         return multilabel_metrics_fn
+    elif mode == "sequence":
+        return sequence_metrics_fn
     else:
         raise ValueError(f"Mode {mode} is not supported")
 
@@ -176,6 +178,7 @@ class Trainer:
 
         # epoch training loop
         for epoch in range(epochs):
+            self.current_epoch = epoch
             training_loss = []
             self.model.zero_grad()
             self.model.train()
@@ -257,6 +260,8 @@ class Trainer:
             loss_mean: Mean loss over batches.
             additional_outputs (only if requested): Dict of additional results.
         """
+        if self.model.mode == "sequence":
+            return self.inference_sequence(dataloader)
         loss_all = []
         y_true_all = []
         y_prob_all = []
@@ -298,7 +303,8 @@ class Trainer:
         mode = self.model.mode
         metrics_fn = get_metrics_fn(mode)
         scores = metrics_fn(y_true_all, y_prob_all, metrics=self.metrics)
-        scores["loss"] = loss_mean
+        if mode != "sequence":
+            scores["loss"] = loss_mean
         return scores
 
     def save_ckpt(self, ckpt_path: str) -> None:
@@ -312,6 +318,33 @@ class Trainer:
         state_dict = torch.load(ckpt_path, map_location=self.device)
         self.model.load_state_dict(state_dict)
         return
+
+    def inference_sequence(self, dataloader) -> Dict[int, str]:
+        """Model inference
+        """
+        y_true_all = {}
+        y_pred_all = {}
+        for data in tqdm(dataloader, desc="Evaluation"):
+            self.model.eval()
+            with torch.no_grad():
+                output = self.model(**data)
+                y_true = output["y_true"]
+                y_generated = output["y_generated"]
+                for key in y_generated.keys():
+                    y_true_all[key] = y_true[key]
+                    y_pred_all[key] = y_generated[key]
+        
+        if self.model.save_generated_caption:
+            with open(os.path.join(self.exp_path, 
+                                  f'val_e{self.current_epoch}.csv'),'w') as f1:
+                with open(os.path.join(self.exp_path, 
+                                        'val_gts.csv'), 'w') as f2:
+                    for patient_id in y_pred_all.keys():
+                        f1.write(y_pred_all[patient_id][0] + '\n')
+                        f2.write(y_true_all[patient_id][0] + '\n')
+
+                
+        return y_true_all, y_pred_all, 0
 
 
 if __name__ == "__main__":

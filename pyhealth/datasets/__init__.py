@@ -8,6 +8,7 @@ from .omop import OMOPDataset
 from .sleepedf import SleepEDFDataset
 from .isruc import ISRUCDataset
 from .shhs import SHHSDataset
-from .sample_dataset import SampleBaseDataset, SampleSignalDataset, SampleEHRDataset
+from .sample_dataset import SampleBaseDataset, SampleSignalDataset, SampleEHRDataset,\
+                            SampleImageCaptionDataset
 from .splitter import split_by_patient, split_by_visit
 from .utils import collate_fn_dict, get_dataloader, strptime

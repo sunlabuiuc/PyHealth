@@ -10,7 +10,7 @@ from pyhealth.models.utils import batch_to_multihot
 from pyhealth.tokenizer import Tokenizer
 
 # TODO: add support for regression
-VALID_MODE = ["binary", "multiclass", "multilabel"]
+VALID_MODE = ["binary", "multiclass", "multilabel","sequence"]
 
 
 class BaseModel(ABC, nn.Module):
@@ -232,6 +232,7 @@ class BaseModel(ABC, nn.Module):
             - binary: `F.binary_cross_entropy_with_logits`
             - multiclass: `F.cross_entropy`
             - multilabel: `F.binary_cross_entropy_with_logits`
+            - sequence: `F.cross_entropy`
 
         Returns:
             The default loss function.
@@ -242,6 +243,8 @@ class BaseModel(ABC, nn.Module):
             return F.cross_entropy
         elif self.mode == "multilabel":
             return F.binary_cross_entropy_with_logits
+        elif self.mode == "sequence":
+            return F.cross_entropy
         else:
             raise ValueError("Invalid mode: {}".format(self.mode))
 

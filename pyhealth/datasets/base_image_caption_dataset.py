@@ -6,7 +6,7 @@ from typing import Optional, Callable
 import pandas as pd
 from tqdm import tqdm
 
-#from pyhealth.datasets.sample_dataset import SampleImageDataset
+from pyhealth.datasets.sample_dataset import SampleImageCaptionDataset
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +98,7 @@ class BaseImageCaptionDataset(ABC):
         self,
         task_fn: Callable,
         task_name: Optional[str] = None,
-    ): #-> SampleImageDataset:
+    ) -> SampleImageCaptionDataset:
         """Processes the base dataset to generate the task-specific sample dataset.
 
         This function should be called by the user after the base dataset is
@@ -136,10 +136,9 @@ class BaseImageCaptionDataset(ABC):
             self.patients.items(), desc=f"Generating samples for {task_name}"):
             samples.extend(task_fn(patient))
         
-        #sample_dataset = SampleImageDataset(
-        #    samples,
-        #    dataset_name=self.dataset_name,
-        #    task_name=task_name,
-        #)
-        #return sample_dataset
-        return samples
+        sample_dataset = SampleImageCaptionDataset(
+            samples,
+            dataset_name=self.dataset_name,
+            task_name=task_name,
+        )
+        return sample_dataset
