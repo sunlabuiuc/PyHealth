@@ -7,7 +7,7 @@ from datetime import datetime
 
 from pyhealth.data import Event, Visit, Patient
 from pyhealth.datasets import BaseEHRDataset
-from pyhealth.datasets.utils import strptime
+from pyhealth.datasets.utils import strptime, padyear
 
 # TODO: add other tables
 
@@ -144,7 +144,7 @@ class eICUDataset(BaseEHRDataset):
             patient_id = f"{p_id}+{ha_id}"
 
             # hospital admission time (Jan 1 of hospitaldischargeyear, 00:00:00)
-            ha_datetime = strptime(str(p_info["hospitaldischargeyear"].values[0]))
+            ha_datetime = strptime(padyear(str(p_info["hospitaldischargeyear"].values[0])))
 
             # no exact birth datetime in eICU
             # use hospital admission time and age to approximate birth datetime

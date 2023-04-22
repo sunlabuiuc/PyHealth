@@ -1,11 +1,11 @@
-from collections import OrderedDict
-from typing import Tuple, List, Dict, Optional
 import math
+from collections import OrderedDict
+from typing import Dict, List, Optional, Tuple
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
 
 from pyhealth.datasets import BaseSignalDataset
 from pyhealth.models import BaseModel
@@ -187,13 +187,13 @@ class SparcNet(BaseModel):
         ...         {
         ...             "record_id": "SC4001-0",
         ...             "patient_id": "SC4001",
-        ...             "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/70d6dbb28bd81bab27ae2f271b2cbb0f/SC4001-0.pkl",
+        ...             "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/2f06a9232e54254cbcb4b62624294d71/SC4001-0.pkl",
         ...             "label": "W",
         ...         },
         ...         {
         ...             "record_id": "SC4001-1",
         ...             "patient_id": "SC4001",
-        ...             "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/70d6dbb28bd81bab27ae2f271b2cbb0f/SC4001-1.pkl",
+        ...             "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/2f06a9232e54254cbcb4b62624294d71/SC4001-1.pkl",
         ...             "label": "R",
         ...         }
         ...     ]
@@ -214,11 +214,12 @@ class SparcNet(BaseModel):
         >>> ret = model(**data_batch)
         >>> print(ret)
         {
-            'loss': tensor(1.7816, device='cuda:0', grad_fn=<NllLossBackward0>),
-            'y_prob': tensor([[0.1975, 0.0971, 0.3471, 0.1311, 0.2272],
-                [0.1033, 0.3692, 0.0948, 0.3079, 0.1248]], device='cuda:0',
-                grad_fn=<SoftmaxBackward0>),
-            'y_true': tensor([4, 4], device='cuda:0')
+            'loss': tensor(0.6530, device='cuda:0', grad_fn=<NllLossBackward0>),
+            'y_prob': tensor([[0.4459, 0.5541],
+                            [0.5111, 0.4889]], device='cuda:0', grad_fn=<SoftmaxBackward0>),
+            'y_true': tensor([1, 1], device='cuda:0'),
+            'logit': tensor([[-0.2750, -0.0577],
+                            [-0.1319, -0.1763]], device='cuda:0', grad_fn=<AddmmBackward0>)
         }
 
     """
@@ -342,11 +343,15 @@ class SparcNet(BaseModel):
         y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
         loss = self.get_loss_function()(logits, y_true)
         y_prob = self.prepare_y_prob(logits)
-        return {
+        results = {
             "loss": loss,
             "y_prob": y_prob,
             "y_true": y_true,
+            "logit": logits,
         }
+        if kwargs.get("embed", False):
+            results["embed"] = emb
+        return results
 
 
 if __name__ == "__main__":
@@ -380,38 +385,20 @@ if __name__ == "__main__":
     """
     For sparcenet
     """
-    from pyhealth.datasets import get_dataloader, SampleSignalDataset
+    from pyhealth.datasets import SampleSignalDataset, get_dataloader
 
     samples = [
         {
             "record_id": "SC4001-0",
             "patient_id": "SC4001",
-            "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/70d6dbb28bd81bab27ae2f271b2cbb0f/SC4001-0.pkl",
+            "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/2f06a9232e54254cbcb4b62624294d71/SC4001-0.pkl",
             "label": "W",
         },
         {
             "record_id": "SC4001-0",
             "patient_id": "SC4001",
-            "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/70d6dbb28bd81bab27ae2f271b2cbb0f/SC4001-1.pkl",
+            "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/2f06a9232e54254cbcb4b62624294d71/SC4001-1.pkl",
             "label": "R",
-        },
-        {
-            "record_id": "SC4001-0",
-            "patient_id": "SC4001",
-            "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/70d6dbb28bd81bab27ae2f271b2cbb0f/SC4001-2.pkl",
-            "label": "1",
-        },
-        {
-            "record_id": "SC4001-0",
-            "patient_id": "SC4001",
-            "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/70d6dbb28bd81bab27ae2f271b2cbb0f/SC4001-3.pkl",
-            "label": "2",
-        },
-        {
-            "record_id": "SC4001-0",
-            "patient_id": "SC4001",
-            "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/70d6dbb28bd81bab27ae2f271b2cbb0f/SC4001-4.pkl",
-            "label": "3",
         },
     ]
 
