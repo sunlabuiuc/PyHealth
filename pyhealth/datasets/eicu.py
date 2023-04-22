@@ -1,4 +1,5 @@
 import os
+import re
 from typing import Optional, List, Dict, Tuple, Union
 
 import pandas as pd
@@ -236,7 +237,15 @@ class eICUDataset(BaseEHRDataset):
                 return "ICD10CM"
             else:
                 return "Unknown"
-
+            
+        # prefer icd10 code when possible, fallback to the icd9 code
+        def preferred_code(codes: List[str]):
+            preferred_codes = set()
+            for code in codes:
+                if code in icd9cm:
+                    preferred_codes.add(code)
+            return list(preferred_codes)
+                    
         table = "diagnosis"
         # read table
         df = pd.read_csv(
@@ -271,13 +280,14 @@ class eICUDataset(BaseEHRDataset):
                 # compute the absolute timestamp
                 timestamp = v_encounter_time + pd.Timedelta(minutes=offset)
                 codes = [c.strip() for c in codes.split(",")]
-                # for each code in a single cell (mixed ICD9CM and ICD10CM)
+                # determine preferred code, and create event. There may be multiple semantically related ICD9/10 codes, or a single ICD9 code. 
+                # we just use the icd9cm code.
+                codes = preferred_code(codes)
                 for code in codes:
-                    vocab = icd9cm_or_icd10cm(code)
                     event = Event(
                         code=code,
                         table=table,
-                        vocabulary=vocab,
+                        vocabulary="ICD9CM", # only use icd9 codes
                         visit_id=v_id,
                         patient_id=patient_id,
                         timestamp=timestamp,
@@ -342,16 +352,19 @@ class eICUDataset(BaseEHRDataset):
             ):
                 # compute the absolute timestamp
                 timestamp = v_encounter_time + pd.Timedelta(minutes=offset)
-                event = Event(
-                    code=code,
-                    table=table,
-                    vocabulary="eICU_TREATMENTSTRING",
-                    visit_id=v_id,
-                    patient_id=patient_id,
-                    timestamp=timestamp,
-                )
-                # update patients
-                events.append(event)
+                
+                # in eICU a string of treatments is separated by `|`
+                for treatment_substr in code.split('|'):
+                    event = Event(
+                        code=treatment_substr,
+                        table=table,
+                        vocabulary="eICU_TREATMENTSTRING",
+                        visit_id=v_id,
+                        patient_id=patient_id,
+                        timestamp=timestamp,
+                    )
+                    # update patients
+                    events.append(event)
 
             return events
 
@@ -410,8 +423,11 @@ class eICUDataset(BaseEHRDataset):
             for offset, code in zip(v_info["drugstartoffset"], v_info["drugname"]):
                 # compute the absolute timestamp
                 timestamp = v_encounter_time + pd.Timedelta(minutes=offset)
+                
+                # reduce coding errors by removing whitespaces
+                medication_code = re.sub(r"\s+", '', code)
                 event = Event(
-                    code=code,
+                    code=medication_code,
                     table=table,
                     vocabulary="eICU_DRUGNAME",
                     visit_id=v_id,
