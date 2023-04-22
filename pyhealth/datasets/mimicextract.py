@@ -96,6 +96,24 @@ class MIMICExtractDataset(BaseEHRDataset):
                 #self._vocab_map[linksto] = df[["ITEMID"]].to_dict(orient="index")
                 for r in df.iterrows():
                     self._vocab_map[linksto][r[0].lower()] = r[1]["ITEMID"]
+
+        # reverse engineered from mimic-code concepts SQL and MIMIC-Extractt SQL...
+        self._vocab_map['interventions'] = { 
+            'vent': 467,
+            'adenosine': 4649,
+            'dobutamine': 30042,
+            'dopamine': 30043,
+            'epinephrine': 30044,
+            'isuprel': 30046,
+            'milrinone': 30125,
+            'norepinephrine': 30047,
+            'phenylephrine': 30127,
+            'vasopressin': 30051,
+            'colloid_bolus': 46729, # "Dextran" Arbitrary! No general itemid!
+            'crystalloid_bolus': 41491, # "fluid bolus"
+            'nivdurations': 468
+        }
+
                 
         super().__init__(root=root, tables=tables,
             dataset_name=dataset_name, code_mapping=code_mapping,
@@ -341,6 +359,65 @@ class MIMICExtractDataset(BaseEHRDataset):
         # parallel apply
         group_df = group_df.parallel_apply(
             lambda x: vlm_unit(x.subject_id.unique()[0], x)
+        )
+
+        # summarize the results
+        patients = self._add_events_to_patient_dict(patients, group_df)
+        return patients
+
+    def parse_interventions(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
+        table = 'interventions'
+        linksto = table.lower() # we might put these in CHARTEVENTS also?
+
+        # read table
+        df = pd.read_hdf(self._ahd_filename, 'interventions')
+        # drop records of the other patients
+        df = df.loc[(list(patients.keys()),slice(None),slice(None)),:]
+
+        # parallel unit for interventions (per patient)
+        captured_v_id_column = self._v_id_column
+        captured_vocab_map = self._vocab_map[linksto] 
+        def interv_unit(p_id, p_info):
+            events = []
+            for v_id, v_info in p_info.groupby(captured_v_id_column):
+                for e_id, e_info in v_info.iterrows():
+                    event = Event(
+                        code=captured_vocab_map[e_info['variable']],
+                        table=table,
+                        vocabulary="MIMIC3_ITEMID",
+                        visit_id=v_id,
+                        patient_id=p_id,
+                        timestamp=pd.Timestamp.to_pydatetime(e_info['timestamp']),
+                        hours_in=int(e_info['hours_in']),
+                        intervention=e_info['variable']
+                    )
+                    events.append(event)
+            return events
+
+        ahd_index = ["subject_id","hadm_id","icustay_id","hours_in"]
+
+        #if 'LEVEL1' in df.columns.names:
+        #    df.columns = df.columns.get_level_values(2)
+        #else:
+        #    df.columns = df.columns.get_level_values(0)
+
+        # reconstruct nominal timestamps for hours_in values...
+        df_p = pd.read_hdf(self._ahd_filename, 'patients')
+        df_p = df_p.loc[(list(patients.keys()),slice(None),slice(None)),:][['intime']]
+        df = df.merge(df_p, left_on=['subject_id','hadm_id','icustay_id'], right_index=True, how="left")
+        df['timestamp'] = df['intime'].dt.ceil('H')+pd.to_timedelta(df.index.get_level_values(3), unit="H")
+
+        df = df.drop(columns=[col for col in df.columns if col not in self._vocab_map[linksto] and col not in ['timestamp']])
+        df = df.reset_index()
+        df = df.melt(id_vars=ahd_index+['timestamp'])
+        df = df[df['value'] > 0]
+        df = df.sort_values(ahd_index)
+        print(df)
+        group_df = df.groupby("subject_id")
+
+        # parallel apply
+        group_df = group_df.parallel_apply(
+            lambda x: interv_unit(x.subject_id.unique()[0], x)
         )
 
         # summarize the results
