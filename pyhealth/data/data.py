@@ -41,11 +41,11 @@ class Event:
 
     def __init__(
         self,
-        code: str,
-        table: str,
-        vocabulary: str,
-        visit_id: str,
-        patient_id: str,
+        code: str = None,
+        table: str = None,
+        vocabulary: str = None,
+        visit_id: str = None,
+        patient_id: str = None,
         timestamp: Optional[datetime] = None,
         **attr,
     ):

@@ -15,6 +15,7 @@ Datasets
     datasets/pyhealth.datasets.OMOPDataset
     datasets/pyhealth.datasets.SleepEDFDataset
     datasets/pyhealth.datasets.SHHSDataset
+    datasets/pyhealth.datasets.ISRUCDataset
     datasets/pyhealth.datasets.splitter
     datasets/pyhealth.datasets.utils
 

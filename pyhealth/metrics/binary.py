@@ -1,7 +1,9 @@
-from typing import List, Optional, Dict
+from typing import Dict, List, Optional
 
 import numpy as np
 import sklearn.metrics as sklearn_metrics
+
+import pyhealth.metrics.calibration as calib
 
 
 def binary_metrics_fn(
@@ -18,12 +20,14 @@ def binary_metrics_fn(
         - roc_auc: area under the receiver operating characteristic curve
         - accuracy: accuracy score
         - balanced_accuracy: balanced accuracy score (usually used for imbalanced
-            datasets)
+          datasets)
         - f1: f1 score
         - precision: precision score
         - recall: recall score
         - cohen_kappa: Cohen's kappa score
         - jaccard: Jaccard similarity coefficient score
+        - ECE: Expected Calibration Error (with 20 equal-width bins). Check :func:`pyhealth.metrics.calibration.ece_confidence_binary`.
+        - ECE_adapt: adaptive ECE (with 20 equal-size bins). Check :func:`pyhealth.metrics.calibration.ece_confidence_binary`.
     If no metrics are specified, pr_auc, roc_auc and f1 are computed by default.
 
     This function calls sklearn.metrics functions to compute the metrics. For
@@ -83,6 +87,10 @@ def binary_metrics_fn(
         elif metric == "jaccard":
             jaccard = sklearn_metrics.jaccard_score(y_true, y_pred)
             output["jaccard"] = jaccard
+        elif metric in {"ECE", "ECE_adapt"}:
+            output[metric] = calib.ece_confidence_binary(
+                y_prob, y_true, bins=20, adaptive=metric.endswith("_adapt")
+            )
         else:
             raise ValueError(f"Unknown metric for binary classification: {metric}")
     return output
