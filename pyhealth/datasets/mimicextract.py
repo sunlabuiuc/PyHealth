@@ -212,9 +212,10 @@ class MIMICExtractDataset(BaseEHRDataset):
         #display(df)
         #df = df.reset_index(['icustay_id']) #drops this one only.. interesting
         #display(df)
+        captured_v_id_column = self._v_id_column
         def diagnosis_unit(p_id, p_info):
             events = []
-            for v_id, v_info in p_info.groupby(self._v_id_column):
+            for v_id, v_info in p_info.groupby(captured_v_id_column):
                 codes = set(v_info['icd9_codes'].sum())
                 for code in codes:
                     event = Event(
@@ -229,10 +230,13 @@ class MIMICExtractDataset(BaseEHRDataset):
 
         # parallel apply
         dfgroup = dfgroup.parallel_apply(
+        #dfgroup = dfgroup.apply(
             lambda x: diagnosis_unit(x.subject_id.unique()[0], x)
         )
         # summarize the results
-        patients = self._add_events_to_patient_dict(patients, df)
+        patients = self._add_events_to_patient_dict(patients, dfgroup)
+        return patients
+
         return patients
 
 if __name__ == "__main__":
