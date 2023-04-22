@@ -140,6 +140,10 @@ class MIMICExtractDataset(BaseEHRDataset):
         # sort by admission and discharge time
         df = patients_df.reset_index().sort_values(["subject_id", "admittime", "dischtime"], ascending=True)
         # group by patient
+        #TODO: This can probably be simplified--MIMIC-Extract includes only the first ICU
+        # visit for each patient (see paper)... it is unclear whether it might be easily
+        # modified to include multiple visits however, so this may have value for customised
+        # versions of the pipeline.
         df_group = df.groupby("subject_id")
 
         # parallel unit of basic information (per patient)
