@@ -237,13 +237,123 @@ class MIMICExtractDataset(BaseEHRDataset):
         patients = self._add_events_to_patient_dict(patients, dfgroup)
         return patients
 
+    def parse_labevents(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
+        """Helper function which parses ...
+
+        Will be called in `self.parse_tables()`
+
+        Docs:
+            - LABEVENTS: https://mimic.mit.edu/docs/iii/tables/labevents/
+
+        Args:
+            patients: a dict of `Patient` objects indexed by patient_id.
+
+        Returns:
+            The updated patients dict.
+        """
+        table = "LABEVENTS"
+        return self._parse_vitals_labs_mean(patients=patients, table=table)
+
+    def parse_chartevents(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
+        """Helper function which parses ...
+
+        Will be called in `self.parse_tables()`
+
+        Docs:
+            - CHARTEVENTS: https://mimic.mit.edu/docs/iii/tables/chartevents/
+
+        Args:
+            patients: a dict of `Patient` objects indexed by patient_id.
+
+        Returns:
+            The updated patients dict.
+        """
+        table = "CHARTEVENTS"
+        return self._parse_vitals_labs_mean(patients=patients, table=table)
+
+    def parse_vitals_labs_mean(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
+        """Helper function which parses ...
+
+        Will be called in `self.parse_tables()`
+
+        Docs:
+            - TODO
+
+        Args:
+            patients: a dict of `Patient` objects indexed by patient_id.
+
+        Returns:
+            The updated patients dict.
+        """
+        table = "vitals_labs_mean"
+        return self._parse_vitals_labs_mean(patients=patients, table=table)
+
+    def _parse_vitals_labs_mean(self, patients: Dict[str, Patient], table: str = 'vitals_labs_mean') -> Dict[str, Patient]:
+        linksto = table.lower()
+        # read table
+        df = pd.read_hdf(self._ahd_filename, 'vitals_labs_mean')
+        # drop records of the other patients
+        df = df.loc[(list(patients.keys()),slice(None),slice(None)),:]
+
+        # parallel unit for lab (per patient)
+        captured_v_id_column = self._v_id_column
+        captured_vocab_map = self._vocab_map[linksto]
+        def vlm_unit(p_id, p_info):
+            events = []
+            for v_id, v_info in p_info.groupby(captured_v_id_column):
+                for e_id, e_info in v_info.iterrows():
+                    #print(e_id)
+                    #print(f"{e_info['variable']} -> {self._vocab_map[linksto][e_info['variable']]=}")
+                    event = Event(
+                        code=captured_vocab_map[e_info['variable']],
+                        table=table,
+                        vocabulary="MIMIC3_ITEMID",
+                        visit_id=v_id,
+                        patient_id=p_id,
+                        timestamp=pd.Timestamp.to_pydatetime(e_info['timestamp']),
+                        hours_in=int(e_info['hours_in']),
+                        #level_n=e_info['variable'], #this can be reverse-looked up, so save some mem here?
+                        value=e_info['value'], # This is not stored in MIMIC3Dataset... why?
+                        #TODO: Units, somewhere?
+                    )
+                    events.append(event)
+            return events
+
+        ahd_index = ["subject_id","hadm_id","icustay_id","hours_in"]
+
+        if 'LEVEL1' in df.columns.names:
+            df.columns = df.columns.get_level_values(2)
+        else:
+            df.columns = df.columns.get_level_values(0)
+
+        # reconstruct nominal timestamps for hours_in values...
+        df_p = pd.read_hdf(self._ahd_filename, 'patients')
+        df_p = df_p.loc[(list(patients.keys()),slice(None),slice(None)),:][['intime']]
+        df = df.merge(df_p, left_on=['subject_id','hadm_id','icustay_id'], right_index=True, how="left")
+        df['timestamp'] = df['intime'].dt.ceil('H')+pd.to_timedelta(df.index.get_level_values(3), unit="H")
+
+        df = df.drop(columns=[col for col in df.columns if col not in self._vocab_map[linksto] and col not in ['timestamp']])
+        df = df.reset_index()
+        df = df.melt(id_vars=ahd_index+['timestamp']).dropna()
+        df = df.sort_values(ahd_index)
+        group_df = df.groupby("subject_id")
+
+        # parallel apply
+        group_df = group_df.parallel_apply(
+            lambda x: vlm_unit(x.subject_id.unique()[0], x)
+        )
+
+        # summarize the results
+        patients = self._add_events_to_patient_dict(patients, group_df)
         return patients
+
 
 if __name__ == "__main__":
     dataset = MIMICExtractDataset(
         root="../data/baseline5000/grouping",
         tables=[
-            "C"
+            "C",
+            "vitals_labs_mean"
         ],
         #code_mapping={"NDC": "ATC"},
         dev=True,
