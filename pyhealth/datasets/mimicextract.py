@@ -65,6 +65,7 @@ class MIMICExtractDataset(BaseEHRDataset):
         dev: bool = False,
         refresh_cache: bool = False,
         pop_size: Optional[int] = None,
+        itemid_to_variable_map: Optional[str] = None,
         is_icustay_visit: Optional[bool] = False
     ):
         if pop_size is not None:
@@ -74,6 +75,28 @@ class MIMICExtractDataset(BaseEHRDataset):
         self._notes_filename = os.path.join(root, f"all_hourly_data{self._fname_suffix}.hdf")
         self._v_id_column = 'icustay_id' if is_icustay_visit else 'hadm_id'
 
+        # This could be implemented with MedCode.CrossMap, however part of the idea behind
+        # MIMIC-Extract is that the user can customize this mapping--therefore we will
+        # make a map specific to this dataset instance based on a possibly-customized CSV.
+        self._vocab_map = { "chartevents": {}, "labevents": {}, "vitals_labs_mean": {} }
+        if itemid_to_variable_map is not None:
+            # We are just going to read some metadata here...
+            df_ahd = pd.read_hdf(self._ahd_filename, 'vitals_labs_mean')
+            grptype = "LEVEL1" if "LEVEL1" in df_ahd.columns.names else "LEVEL2"
+
+            itemid_map = pd.read_csv(itemid_to_variable_map)
+            for linksto, dict in self._vocab_map.items():
+                df = itemid_map
+                if linksto != 'vitals_labs_mean':
+                    df = df[df["LINKSTO"] == linksto]
+                # Pick the most common ITEMID to use for our vocabulary...
+                df = df.sort_values(by="COUNT", ascending=False).groupby(grptype).head(1)
+                df = df[[grptype,"ITEMID"]].set_index([grptype])
+                #TODO: Probably a better way than iterrows? At least this is a small df.
+                #self._vocab_map[linksto] = df[["ITEMID"]].to_dict(orient="index")
+                for r in df.iterrows():
+                    self._vocab_map[linksto][r[0].lower()] = r[1]["ITEMID"]
+                
         super().__init__(root=root, tables=tables,
             dataset_name=dataset_name, code_mapping=code_mapping,
             dev=dev, refresh_cache=refresh_cache)
