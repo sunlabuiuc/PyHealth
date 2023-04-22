@@ -416,7 +416,6 @@ class MIMICExtractDataset(BaseEHRDataset):
         df = df.melt(id_vars=ahd_index+['timestamp'])
         df = df[df['value'] > 0]
         df = df.sort_values(ahd_index)
-        print(df)
         group_df = df.groupby("subject_id")
 
         # parallel apply
