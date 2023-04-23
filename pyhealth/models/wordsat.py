@@ -234,13 +234,18 @@ class WordSAT(BaseModel):
         Returns:
             A dictionary with the following keys:
                 loss: a scalar tensor representing the loss.
-                y_generated: a dictionary list of text representing the generated caption.
-                    The list contains only one element.
-                y_true: a list of text representing the true caption.
-                    The list contains only one element.
+                y_generated: a dictionary with following key
+                    - "patient_id": list of text representing the generated
+                                    text.
+                    e.g.
+                        {123: ["generated text"], 456: ["generated text"]}
+                y_true: a dictionary with following key
+                    - "patient_id": list of text representing the true text.
+                    e.g.
+                        {123: ["true text"], 456: ["true text"]}
         """
         # Initialize the output
-        output = {"loss": None,"y_generated": "","y_true": ""}
+        output = {"loss": None,"y_generated": [""],"y_true": [""]}
 
         # Get list of patient_ids
         patient_ids = kwargs["patient_id"]
@@ -286,21 +291,34 @@ class WordSAT(BaseModel):
         return images
 
     def _prepare_batch_captions(self,captions):
-        """Prepare caption for input.
+        """Prepare caption idx for input.
+
+        Args:
+            captions: list of captions. Each caption is a list of list, where
+                each list represents a sentence in the caption.
+                Following is an example of a caption
+                    [
+                     ["<start>","first","sentence","."],
+                     [".", "second", "sentence",".", "<end>"]
+                    ]
+        Returns:
+            captions_idx: an int tensor of size [batch_size,max_caption_length]
+            masks: a bool tensor of size [batch_size,max_caption_length]
         """
         samples = []
+        # Combine all sentences in each caption to create a single sentence
         for caption in captions:
             tokens = []
             tokens.extend(flatten_list(caption))
             text = ' '.join(tokens).replace('. .','.')
             samples.append([text.split()])
-        #print(caption)
-        x = self.caption_tokenizer.batch_encode_3d(samples)
-        captions = torch.tensor(x, dtype=torch.long, device=self.device)
-        masks = torch.sum(captions,dim=1) !=0
-        captions = captions.squeeze(1)
 
-        return captions,masks
+        x = self.caption_tokenizer.batch_encode_3d(samples)
+        captions_idx = torch.tensor(x, dtype=torch.long, device=self.device)
+        masks = torch.sum(captions_idx,dim=1) !=0
+        captions_idx = captions_idx.squeeze(1)
+
+        return captions_idx,masks
 
     def _forward_inference(self,patient_ids,cnn_features):
         """
