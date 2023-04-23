@@ -171,8 +171,8 @@ class eICUDataset(BaseEHRDataset):
                 patient_id=patient_id,
                 birth_datetime=birth_datetime,
                 death_datetime=death_datetime,
-                gender=p_info["gender"].values[0],
-                ethnicity=p_info["ethnicity"].values[0],
+                gender=str(p_info["gender"].values[0]),
+                ethnicity=str(p_info["ethnicity"].values[0]),
             )
 
             # load visits
