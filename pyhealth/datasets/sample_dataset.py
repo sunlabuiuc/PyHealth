@@ -309,7 +309,7 @@ class SampleEHRDataset(SampleBaseDataset):
             - a list of vectors
             - a list of list of codes
             - a list of list of vectors
-        Note that a value is either float, int, or str; a vector is a list of float 
+        Note that a value is either float, int, or str; a vector is a list of float
         or int; and a code is str.
         """
         # record input information for each key
@@ -349,7 +349,7 @@ class SampleEHRDataset(SampleBaseDataset):
                 ]
 
             """
-            4.2. Check type: the basic type of each element should be float, 
+            4.2. Check type: the basic type of each element should be float,
             int, or str.
             """
             types = set([type(v) for v in flattened_values])
@@ -514,9 +514,9 @@ class SampleImageCaptionDataset(SampleBaseDataset):
     """
 
     def __init__(
-        self, 
-        samples: List[Dict],  
-        dataset_name: str = "", 
+        self,
+        samples: List[Dict],
+        dataset_name: str = "",
         task_name: str = ""
     ):
         super().__init__(samples, dataset_name, task_name)
@@ -535,8 +535,8 @@ class SampleImageCaptionDataset(SampleBaseDataset):
 
         Will be called in `self.__init__()`.
         Returns:
-            patient_to_index: Dict[str, int], a dict mapping patient_id to a list
-                of sample indices.
+            patient_to_index: Dict[str, int], a dict mapping patient_id to a
+                list of sample indices.
         """
         patient_to_index = {}
         for idx, sample in enumerate(self.samples):
@@ -554,7 +554,7 @@ class SampleImageCaptionDataset(SampleBaseDataset):
         """
         input_info = {}
         # get info
-        input_info["image_path"] = {"type": str, "dim": 2}
+        #input_info["image_path"] = {"type": str, "dim": 2}
         input_info["caption"] = {"type": str, "dim": 3}
         return input_info
 
@@ -562,14 +562,14 @@ class SampleImageCaptionDataset(SampleBaseDataset):
         """Returns a sample by index.
 
         Returns:
-             Dict, a dict with patient_id, image_{number}, caption, and other task-specific
-                attributes as key. Conversion of caption to index/tensor will be done
-                in the model.
+             Dict, a dict with patient_id, image_{number}, caption, and other
+                task-specific attributes as key. Conversion of caption to
+                index/tensor will be done in the model.
         """
         sample = self.samples[index]
-        for i in range(len(sample['image_path'])):
+        for i in range(len(sample['image_path_list'])):
             image_key = f'image_{i+1}'
-            image = Image.open(sample["image_path"][i]).convert("RGB")
+            image = Image.open(sample["image_path_list"][i]).convert("RGB")
             image = self.img_transforms(image)
             sample[image_key] = image
         return sample
