@@ -78,16 +78,16 @@ class MIMICExtractDataset(BaseEHRDataset):
         # This could be implemented with MedCode.CrossMap, however part of the idea behind
         # MIMIC-Extract is that the user can customize this mapping--therefore we will
         # make a map specific to this dataset instance based on a possibly-customized CSV.
-        self._vocab_map = { "chartevents": {}, "labevents": {}, "vitals_labs_mean": {} }
+        self._vocab_map = { "chartevents": {}, "labevents": {}, "vitals_labs": {} }
         if itemid_to_variable_map is not None:
             # We are just going to read some metadata here...
-            df_ahd = pd.read_hdf(self._ahd_filename, 'vitals_labs_mean')
+            df_ahd = pd.read_hdf(self._ahd_filename, 'vitals_labs')
             grptype = "LEVEL1" if "LEVEL1" in df_ahd.columns.names else "LEVEL2"
 
             itemid_map = pd.read_csv(itemid_to_variable_map)
             for linksto, dict in self._vocab_map.items():
                 df = itemid_map
-                if linksto != 'vitals_labs_mean':
+                if linksto != 'vitals_labs':
                     df = df[df["LINKSTO"] == linksto]
                 # Pick the most common ITEMID to use for our vocabulary...
                 df = df.sort_values(by="COUNT", ascending=False).groupby(grptype).head(1)
@@ -274,7 +274,7 @@ class MIMICExtractDataset(BaseEHRDataset):
             The updated patients dict.
         """
         table = "LABEVENTS"
-        return self._parse_vitals_labs_mean(patients=patients, table=table)
+        return self._parse_vitals_labs(patients=patients, table=table)
 
     def parse_chartevents(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
         """Helper function which parses ...
@@ -291,9 +291,9 @@ class MIMICExtractDataset(BaseEHRDataset):
             The updated patients dict.
         """
         table = "CHARTEVENTS"
-        return self._parse_vitals_labs_mean(patients=patients, table=table)
+        return self._parse_vitals_labs(patients=patients, table=table)
 
-    def parse_vitals_labs_mean(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
+    def parse_vitals_labs(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
         """Helper function which parses ...
 
         Will be called in `self.parse_tables()`
@@ -307,20 +307,20 @@ class MIMICExtractDataset(BaseEHRDataset):
         Returns:
             The updated patients dict.
         """
-        table = "vitals_labs_mean"
-        return self._parse_vitals_labs_mean(patients=patients, table=table)
+        table = "vitals_labs"
+        return self._parse_vitals_labs(patients=patients, table=table)
 
-    def _parse_vitals_labs_mean(self, patients: Dict[str, Patient], table: str = 'vitals_labs_mean') -> Dict[str, Patient]:
+    def _parse_vitals_labs(self, patients: Dict[str, Patient], table: str = 'vitals_labs') -> Dict[str, Patient]:
         linksto = table.lower()
         # read table
-        df = pd.read_hdf(self._ahd_filename, 'vitals_labs_mean')
+        df = pd.read_hdf(self._ahd_filename, 'vitals_labs')
         # drop records of the other patients
         df = df.loc[(list(patients.keys()),slice(None),slice(None)),:]
 
         # parallel unit for lab (per patient)
         captured_v_id_column = self._v_id_column
         captured_vocab_map = self._vocab_map[linksto]
-        def vlm_unit(p_id, p_info):
+        def vl_unit(p_id, p_info):
             events = []
             for v_id, v_info in p_info.groupby(captured_v_id_column):
                 for e_id, e_info in v_info.iterrows():
@@ -335,8 +335,10 @@ class MIMICExtractDataset(BaseEHRDataset):
                         timestamp=pd.Timestamp.to_pydatetime(e_info['timestamp']),
                         hours_in=int(e_info['hours_in']),
                         #level_n=e_info['variable'], #this can be reverse-looked up, so save some mem here?
-                        value=e_info['value'], # This is not stored in MIMIC3Dataset... why?
+                        mean=e_info['mean'], # Value is not stored in MIMIC3Dataset... why? Unit uncertainty?
                         #TODO: Units, somewhere?
+                        count=e_info['count'],
+                        std=e_info['std']
                     )
                     events.append(event)
             return events
@@ -344,25 +346,39 @@ class MIMICExtractDataset(BaseEHRDataset):
         ahd_index = ["subject_id","hadm_id","icustay_id","hours_in"]
 
         if 'LEVEL1' in df.columns.names:
-            df.columns = df.columns.get_level_values(2)
+            df.columns = [df.columns.get_level_values(2),df.columns.get_level_values(4)]
         else:
-            df.columns = df.columns.get_level_values(0)
+            df.columns = [df.columns.get_level_values(0),df.columns.get_level_values(1)]
+
+        # drop columns not applicable to the wanted table...
+        df = df.drop(columns=[col for col in df.columns if col[0] not in self._vocab_map[linksto]])
+
+        # "melt" down to a per-event representation...
+        df = df.reset_index().melt(id_vars=ahd_index).dropna()
+        df = df.rename(columns={"LEVEL2":"variable","LEVEL1":"variable"}, errors="ignore")
+        
+        # Get rid of count == 0.0 rows
+        df = df.loc[(df['Aggregation Function'] != 'count') | (df['value'] != 0.0)] 
+
+        #display(df.pivot_table(values='value', index=ahd_index+['variable'], columns='Aggregation Function', aggfunc='first'))
+        # Manual/brute force "pivot", as I can't get pivot functions to work right with the MultiIndex columns...
+        df = df.set_index(ahd_index+['variable'])
+        df_mean = df.loc[df['Aggregation Function'] == 'mean'].rename(columns={"value":"mean"})['mean']
+        df_count = df.loc[df['Aggregation Function'] == 'count'].rename(columns={"value":"count"})['count']
+        df_std = df.loc[df['Aggregation Function'] == 'std'].rename(columns={"value":"std"})['std']
+        df = pd.concat([df_mean, df_count, df_std], axis=1).reset_index().sort_values(ahd_index+['variable'])
 
         # reconstruct nominal timestamps for hours_in values...
         df_p = pd.read_hdf(self._ahd_filename, 'patients')
         df_p = df_p.loc[(list(patients.keys()),slice(None),slice(None)),:][['intime']]
-        df = df.merge(df_p, left_on=['subject_id','hadm_id','icustay_id'], right_index=True, how="left")
-        df['timestamp'] = df['intime'].dt.ceil('H')+pd.to_timedelta(df.index.get_level_values(3), unit="H")
+        df = df.merge(df_p, on=['subject_id','hadm_id','icustay_id'], how="left")
+        df['timestamp'] = df['intime'].dt.ceil('H')+pd.to_timedelta(df['hours_in'], unit="H")
 
-        df = df.drop(columns=[col for col in df.columns if col not in self._vocab_map[linksto] and col not in ['timestamp']])
-        df = df.reset_index()
-        df = df.melt(id_vars=ahd_index+['timestamp']).dropna()
-        df = df.sort_values(ahd_index)
         group_df = df.groupby("subject_id")
 
         # parallel apply
         group_df = group_df.parallel_apply(
-            lambda x: vlm_unit(x.subject_id.unique()[0], x)
+            lambda x: vl_unit(x.subject_id.unique()[0], x)
         )
 
         # summarize the results
@@ -433,7 +449,8 @@ if __name__ == "__main__":
         root="../data/baseline5000/grouping",
         tables=[
             "C",
-            "vitals_labs_mean"
+            "vitals_labs",
+            "interventions"
         ],
         #code_mapping={"NDC": "ATC"},
         dev=True,
