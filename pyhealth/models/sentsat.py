@@ -10,7 +10,7 @@ from pyhealth.models import BaseModel
 from pyhealth.tokenizer import Tokenizer
 from pyhealth.datasets.utils import flatten_list
 
-class WordSATEncoder(nn.Module):
+class SentSATEncoder(nn.Module):
     """ SAT CNN(Densenet121) Encoder model"""
     def __init__(self):
         super().__init__()
@@ -32,7 +32,7 @@ class WordSATEncoder(nn.Module):
         x = F.relu(x)
         return x
 
-class WordSATAttention(nn.Module):
+class SentSATAttention(nn.Module):
     """SAT Attention Module
 
     Computes a set of attention weights based on the current hidden state of 
@@ -76,7 +76,7 @@ class WordSATAttention(nn.Module):
 
         return context, alpha
 
-class WordSATDecoder(nn.Module):
+class SentSATDecoder(nn.Module):
     """ Word SAT decoder model for one sentence
 
     An LSTM based model that takes as input the attention-weighted feature 
@@ -111,19 +111,25 @@ class WordSATDecoder(nn.Module):
         self.embed = nn.Embedding(self.vocab_size, self.embedding_dim)
         self.init_h = nn.Linear(self.n_encoder_inputs * self.feature_dim,
                                 self.hidden_dim)
-        self.init_c = nn.Linear(self.n_encoder_inputs * feature_dim,
+        self.init_c = nn.Linear(self.n_encoder_inputs * self.feature_dim,
                                 hidden_dim)
-        self.lstmcell = nn.LSTMCell(self.embedding_dim +
-                                    self.n_encoder_inputs * feature_dim,
-                                    hidden_dim)
+        self.sent_lstm = nn.LSTMCell(self.n_encoder_inputs * self.feature_dim,
+                                     hidden_dim)
+        
+        self.word_lstm = nn.LSTMCell(self.embedding_dim + self.hidden_dim +
+                                     self.n_encoder_inputs * feature_dim,
+                                     hidden_dim)
         self.fc = nn.Linear(self.hidden_dim, self.vocab_size)
         self.dropout = nn.Dropout(dropout)
 
     def forward(
             self, 
             cnn_features: List[torch.Tensor], 
-            captions: List[torch.Tensor] = None, 
-            max_len: int = 100) -> torch.Tensor:
+            captions: List[torch.Tensor] = None,
+            update_masks: torch.Tensor = None,
+            max_sents: int = 10,
+            max_len: int = 30,
+            stop_id: int = None) -> torch.Tensor:
         
         """Forward propagation
 
@@ -139,8 +145,10 @@ class WordSATDecoder(nn.Module):
         """
         batch_size = cnn_features[0].size(0)
         if captions is not None:
-            seq_len = captions.size(1)
+            num_sents = captions.size(1)
+            seq_len = captions.size(2)
         else:
+            num_sents = max_sents
             seq_len = max_len
 
         cnn_feats_t = [ cnn_feat.view(batch_size, self.feature_dim, -1) \
@@ -148,43 +156,73 @@ class WordSATDecoder(nn.Module):
                         for cnn_feat in cnn_features ]
         global_feats = [cnn_feat.mean(dim=(2, 3)) for cnn_feat in cnn_features]
 
-        h = self.init_h(torch.cat(global_feats, dim=1))
-        c = self.init_c(torch.cat(global_feats, dim=1))
+        sent_h = self.init_h(torch.cat(global_feats, dim=1))
+        sent_c = self.init_c(torch.cat(global_feats, dim=1))
+
+        word_h = cnn_features[0].new_zeros((batch_size,
+                                            self.hidden_dim),dtype=torch.float)
+        
+        word_c = cnn_features[0].new_zeros((batch_size,
+                                            self.hidden_dim),dtype=torch.float)
 
         logits = cnn_features[0].new_zeros((batch_size,
+                                            num_sents,
                                             seq_len,
                                             self.vocab_size),dtype=torch.float)
         # Training phase
         if captions is not None:
             embeddings = self.embed(captions)
-            for t in range(seq_len):
-                contexts = [self.attend(h, cnn_feat_t)[0]
+
+            for k in range(num_sents):
+                contexts = [self.attend(sent_h, cnn_feat_t)[0]
                             for cnn_feat_t in cnn_feats_t]
                 context = torch.cat(contexts, dim=1)
-                h, c = self.lstmcell(torch.cat((embeddings[:, t], context),
-                                                dim=1),
-                                     (h, c))
-                logits[:, t] = self.fc(self.dropout(h))
+                sent_h, sent_c = self.sent_lstm(context, (sent_h, sent_c))
+                seq_len_k = update_masks[:, k].sum(dim=1).max().item()
+
+                for t in range(seq_len_k):
+                    batch_mask = update_masks[:, k, t]
+                    
+                    word_h_, word_c_ = self.word_lstm(
+                        torch.cat((embeddings[batch_mask, k, t], 
+                                sent_h[batch_mask], 
+                                context[batch_mask]), dim=1),
+                        (word_h[batch_mask], word_c[batch_mask]))
+
+                    indices = [*batch_mask.unsqueeze(1). \
+                                repeat(1, self.hidden_dim).nonzero().t()]
+                    word_h = word_h.index_put(indices, word_h_.view(-1))
+                    word_c = word_c.index_put(indices, word_c_.view(-1))
+                    logits[batch_mask, k, t] = self.fc(
+                                        self.dropout(word_h[batch_mask]))
 
             return logits
 
         # Evaluation/Inference phase
         else:
             x_t = cnn_features[0].new_full((batch_size,), 1, dtype=torch.long)
-            for t in range(seq_len):
-                embedding = self.embed(x_t)
-                contexts = [self.attend(h, cnn_feat_t)[0]
+            
+            for k in range(num_sents):
+                contexts = [self.attend(sent_h, cnn_feat_t)[0]
                             for cnn_feat_t in cnn_feats_t]
                 context = torch.cat(contexts, dim=1)
-                h, c = self.lstmcell(torch.cat((embedding, context), dim=1),
-                                                (h, c))
-                logit = self.fc(h)
-                x_t = logit.argmax(dim=1)
-                logits[:, t] = logit
+                sent_h, sent_c = self.sent_lstm(context, (sent_h, sent_c))
+            
+                for t in range(seq_len):
+                    embedding = self.embed(x_t)
+                    word_h, word_c = self.word_lstm(
+                        torch.cat((embedding, sent_h, context), dim=1), 
+                                 (word_h, word_c))
+                    logit = self.fc(word_h)
+                    x_t = logit.argmax(dim=1)
+                    logits[:, k, t] = logit
 
-            return logits.argmax(dim=2)
+                    if x_t[0] == stop_id:
+                        break
 
-class WordSAT(BaseModel):
+            return logits.argmax(dim=3)
+
+class SentSAT(BaseModel):
     """Show Attend & Tell model, treating entire caption as one sentence.
     This model is based on Show, Attend, and Tell (SAT) paper. The model uses
     convolutional neural networks (CNNs) to encode the image and a
@@ -239,17 +277,17 @@ class WordSAT(BaseModel):
         save_generated_caption: bool = False,
         **kwargs
     ):
-        super(WordSAT, self).__init__(
+        super(SentSAT, self).__init__(
             dataset=dataset,
             feature_keys=[f'image_{i+1}' for i in range(n_input_images)],
             label_key=label_key,
             mode="sequence",
+            save_generated_caption = save_generated_caption
         )
         self.n_input_images = n_input_images
-        self.save_generated_caption = save_generated_caption
-
+        
         # Encoder component
-        self.encoder = WordSATEncoder()
+        self.encoder = SentSATEncoder()
         if encoder_pretrained_weights:
             print(f'Loading encoder pretrained model')
             self.encoder.load_state_dict(encoder_pretrained_weights)
@@ -257,14 +295,14 @@ class WordSAT(BaseModel):
             self.encoder.eval()
 
         # Attention component
-        self.attention = WordSATAttention(decoder_hidden_dim,
+        self.attention = SentSATAttention(decoder_hidden_dim,
                                           decoder_feature_dim,
                                           attention_affine_dim)
 
         # Decoder component
         self.caption_tokenizer = tokenizer
         vocab_size = self.caption_tokenizer.get_vocabulary_size()
-        self.decoder = WordSATDecoder(  self.attention,
+        self.decoder = SentSATDecoder(  self.attention,
                                         vocab_size,
                                         n_input_images,
                                         decoder_feature_dim,
@@ -273,7 +311,12 @@ class WordSAT(BaseModel):
                                         decoder_dropout
                                     )
 
-    def forward(self, decoder_maxlen:int = 100, **kwargs) -> Dict[str,str]:
+    def forward(
+        self, 
+        decoder_maxsents: int =10, 
+        decoder_maxlen:int = 20, 
+        decoder_stop_id: int = None, 
+        **kwargs) -> Dict[str,str]:
         """Forward propagation.
 
         The features `kwargs[self.feature_keys]` is a list of feature keys
@@ -283,8 +326,6 @@ class WordSAT(BaseModel):
         for each patient.
 
         Args:
-            decder_maxlen: maximum caption length used during training or
-                generated during inference. Default is 100.
             **kwargs: keyword arguments for the model. The keys must contain
                 all the feature keys and the label key.
 
@@ -314,24 +355,32 @@ class WordSAT(BaseModel):
 
         if self.training:
             # Get caption as indicies and corresponding masks
-            captions,masks=self._prepare_batch_captions(kwargs[self.label_key])
+            captions, loss_masks, update_masks=self._prepare_batch_captions(
+                                                    kwargs[self.label_key])
 
             # Perform predictions
-            logits = self.decoder(cnn_features, captions[:,:-1],
-                                  decoder_maxlen)
-            logits = logits.permute(0, 2, 1).contiguous()
-            captions = captions[:, 1:].contiguous()
-            masks = masks[:, 1:].contiguous()
+            logits = self.decoder(cnn_features, 
+                                  captions[:, :, :-1],
+                                  update_masks,
+                                  decoder_maxsents,
+                                  decoder_maxlen,
+                                  decoder_stop_id)
+
+            logits = logits.permute(0, 3, 1, 2).contiguous()
+            captions = captions[:, :, 1:].contiguous()
+            loss_masks = loss_masks[:, :, 1:].contiguous()
 
             # Compute loss
             loss = self.get_loss_function()(logits, captions)
-            loss = loss.masked_select(masks).mean()
+            loss = loss.masked_select(loss_masks).mean()
             output["loss"] = loss
         
         with torch.no_grad():
             output["y_generated"] = self._forward_inference(patient_ids,
+                                                            decoder_maxsents,
                                                             decoder_maxlen,
-                                                            cnn_features)
+                                                            cnn_features,
+                                                            decoder_stop_id)
             output["y_true"] = self._forward_ground_truths(patient_ids,
                                                         kwargs[self.label_key])
         return output
@@ -367,28 +416,29 @@ class WordSAT(BaseModel):
             captions_idx: an int tensor
             masks: a bool tensor
         """
-        
-        # Combine all sentences in each caption to create a single sentence
-        samples = []
-        for caption in captions:
-            tokens = []
-            tokens.extend(flatten_list(caption))
-            text = ' '.join(tokens).replace('. .','.')
-            samples.append([text.split()])
-        
-        x = self.caption_tokenizer.batch_encode_3d(samples)
+        x = self.caption_tokenizer.batch_encode_3d(captions)
         captions_idx = torch.tensor(x, dtype=torch.long, 
                                     device=self.device)
-        masks = torch.sum(captions_idx,dim=1) !=0
-        captions_idx = captions_idx.squeeze(1)    
         
-        return captions_idx,masks
+        loss_masks = torch.zeros_like(captions_idx,dtype=torch.bool)
+        update_masks = torch.zeros_like(captions_idx,dtype=torch.bool)
+
+        for icap, cap in enumerate(captions_idx):
+            for isent, sent in enumerate(cap):
+                l = len(sent[sent !=0])
+                if l==0: continue
+                loss_masks[icap, isent, 1:l].fill_(1)
+                update_masks[icap, isent, :l-1].fill_(1)
+        
+        return captions_idx, loss_masks, update_masks
 
     def _forward_inference(
             self,
             patient_ids: List[int],
+            decoder_maxsents: int,
             decoder_maxlen: int,
-            cnn_features:List[torch.Tensor]) -> Dict[int,str]:
+            cnn_features:List[torch.Tensor],
+            decoder_stop_id: int = None) -> Dict[int,str]:
         """Forward propagation during inference
 
         Args:
@@ -405,20 +455,27 @@ class WordSAT(BaseModel):
             generated_results[patient_id] = [""]
             cnn_feature = [cnn_feat[idx].unsqueeze(0)
                             for cnn_feat in cnn_features]
-            pred = self.decoder(cnn_feature, None, decoder_maxlen)[0]
+            pred = self.decoder(cnn_feature, None, None,
+                                decoder_maxsents,decoder_maxlen,
+                                decoder_stop_id)[0]
             pred = pred.detach().cpu()
-            pred_tokens = self.caption_tokenizer \
-                              .convert_indices_to_tokens(pred.tolist())
             generated_results[patient_id] = [""]
-            words = []
-            for token in pred_tokens:
-                if token == '<start>' or token == '<pad>':
+            for isent in range(pred.size(0)):
+                pred_tokens = self.caption_tokenizer \
+                            .convert_indices_to_tokens(pred[isent].tolist())
+                
+                words = []
+                for token in pred_tokens:
+                    if token == '<start>' or token == '<pad>':
+                        continue
+                    if token == '<end>':
+                        break
+                    words.append(token)
+                if len(words) < 2:
                     continue
-                if token == '<end>':
-                    break
-                words.append(token)
-
-            generated_results[patient_id][0] = " ".join(words)
+                generated_results[patient_id][0] += " ".join(words)
+                generated_results[patient_id][0] += " "
+                generated_results[patient_id][0] = generated_results[patient_id][0].replace(". .",'.')
 
         return generated_results
 
@@ -449,6 +506,3 @@ class WordSAT(BaseModel):
                                                  .strip()
 
         return ground_truths
-
-
-

@@ -335,10 +335,11 @@ class Trainer:
                     y_pred_all[key] = y_generated[key]
         
         if self.model.save_generated_caption:
+            fname = datetime.now().strftime("%Y%m%d-%H%M%S")
             with open(os.path.join(self.exp_path, 
-                                  f'val_e{self.current_epoch}.csv'),'w') as f1:
+                                  f"{fname}_gen{self.current_epoch}.csv"),"w") as f1:
                 with open(os.path.join(self.exp_path, 
-                                        'val_gts.csv'), 'w') as f2:
+                                        f"{fname}_gts.csv"), "w") as f2:
                     for patient_id in y_pred_all.keys():
                         f1.write(y_pred_all[patient_id][0] + '\n')
                         f2.write(y_true_all[patient_id][0] + '\n')

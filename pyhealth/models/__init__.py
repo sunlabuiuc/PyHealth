@@ -22,4 +22,5 @@ from .agent import Agent, AgentLayer
 from .grasp import GRASP, GRASPLayer
 from .stagenet import StageNet, StageNetLayer
 from .tcn import TCN, TCNLayer
-from .wordsat import WordSAT
+from .wordsat import WordSAT, WordSATEncoder,WordSATDecoder, WordSATAttention
+from .sentsat import SentSAT

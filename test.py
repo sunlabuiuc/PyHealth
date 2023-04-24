@@ -4,7 +4,7 @@ from pyhealth.datasets import BaseImageCaptionDataset
 from pyhealth.tasks.xray_report_generation import biview_multisent_fn
 from pyhealth.datasets import split_by_patient, get_dataloader
 from pyhealth.tokenizer import Tokenizer
-from pyhealth.models import WordSAT
+from pyhealth.models import WordSAT, SentSAT
 from pyhealth.trainer import Trainer
 from pyhealth.datasets.utils import list_nested_levels, flatten_list
 
@@ -73,26 +73,24 @@ train_dataset, val_dataset, test_dataset = split_by_patient(
     sample_dataset,[0.8,0.1,0.1]
 )
 
-train_dataloader = get_dataloader(train_dataset,batch_size=8,shuffle=True)
-val_dataloader = get_dataloader(val_dataset,batch_size=1,shuffle=False)
+train_dataloader = get_dataloader(train_dataset,batch_size=16,shuffle=True)
+val_dataloader = get_dataloader(val_dataset,batch_size=2,shuffle=False)
 test_dataloader = get_dataloader(test_dataset,batch_size=1,shuffle=False)
 
-print(len(train_dataset),len(val_dataset),len(test_dataset))
-
-model=WordSAT(dataset=sample_dataset,
-              feature_keys=['image_1','image_2'],
+model=SentSAT(
+              dataset=sample_dataset,
+              n_input_images = 2,
               label_key='caption',
               tokenizer=tokenizer,
-              mode='sequence',
               encoder_pretrained_weights=state_dict,
               save_generated_caption = True
              )
 #model.eval()
 #data = next(iter(val_dataloader))
 #print(model(**data))
-"""
+
 output_path = '/home/keshari2/ChestXrayReporting/IU_XRay/src/output/pyhealth'
-ckpt_path = '/home/keshari2/ChestXrayReporting/IU_XRay/src/output/pyhealth/20230422-005011/best.ckpt'
+ckpt_path = '/home/keshari2/ChestXrayReporting/IU_XRay/src/output/pyhealth/20230424-114914/best.ckpt'
 
 trainer = Trainer(
             model=model, 
@@ -104,8 +102,7 @@ trainer.train(
     val_dataloader = val_dataloader,
     optimizer_params = {"lr": 1e-4},
     weight_decay = 1e-5,
-    max_grad_norm = 1,
+    #max_grad_norm = 1,
     epochs = 5,
     monitor = 'Bleu_1'
 )
-"""

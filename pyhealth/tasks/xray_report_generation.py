@@ -15,7 +15,7 @@ def biview_multisent_fn(patient):
         -   Impression, describing the overall interpretation of X-ray results
 
     Args:
-        patient: a dictionary of patient X-ray report with following keys
+        patient: a list of dictionary of patient X-ray report with below keys
             -   patient_id: type(int)
                     unique identifier for patient
             -   frontal_img_path: type(str)
@@ -42,6 +42,7 @@ def biview_multisent_fn(patient):
             first and end of last sentence. These are mandatory for the task.
     """
     sample = {}
+    patient = patient[0]
 
     report = f"{patient['impression']} . {patient['findings']}"
     caption = []

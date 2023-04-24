@@ -22,7 +22,7 @@ class BaseModel(ABC, nn.Module):
         feature_keys: list of keys in samples to use as features,
             e.g. ["conditions", "procedures"].
         label_key: key in samples to use as label (e.g., "drugs").
-        mode: one of "binary", "multiclass", or "multilabel".
+        mode: one of "binary", "multiclass", "multilabel", or sequence.
     """
 
     def __init__(
@@ -31,6 +31,7 @@ class BaseModel(ABC, nn.Module):
         feature_keys: List[str],
         label_key: str,
         mode: str,
+        save_generated_caption: bool = False
     ):
         super(BaseModel, self).__init__()
         assert mode in VALID_MODE, f"mode must be one of {VALID_MODE}"
@@ -38,6 +39,8 @@ class BaseModel(ABC, nn.Module):
         self.feature_keys = feature_keys
         self.label_key = label_key
         self.mode = mode
+        if mode == "sequence":
+            self.save_generated_caption = save_generated_caption
         # used to query the device of the model
         self._dummy_param = nn.Parameter(torch.empty(0))
         return
