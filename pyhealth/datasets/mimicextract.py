@@ -345,28 +345,44 @@ class MIMICExtractDataset(BaseEHRDataset):
 
         ahd_index = ["subject_id","hadm_id","icustay_id","hours_in"]
 
-        if 'LEVEL1' in df.columns.names:
-            df.columns = [df.columns.get_level_values(2),df.columns.get_level_values(4)]
-        else:
-            df.columns = [df.columns.get_level_values(0),df.columns.get_level_values(1)]
+        df.columns = df.columns.values # Collapse MultiIndex to tuples!
+        is_level1 = True if(len(df.columns[0]) == 5) else False
 
         # drop columns not applicable to the wanted table...
-        df = df.drop(columns=[col for col in df.columns if col[0] not in self._vocab_map[linksto]])
+        if is_level1:
+            df = df.drop(columns=[col for col in df.columns if col[2] not in self._vocab_map[linksto]])
+        else:
+            df = df.drop(columns=[col for col in df.columns if col[0] not in self._vocab_map[linksto]])
 
         # "melt" down to a per-event representation...
         df = df.reset_index().melt(id_vars=ahd_index).dropna()
-        df = df.rename(columns={"LEVEL2":"variable","LEVEL1":"variable"}, errors="ignore")
-        
-        # Get rid of count == 0.0 rows
-        df = df.loc[(df['Aggregation Function'] != 'count') | (df['value'] != 0.0)] 
+        if is_level1:
+            _,_,df['variable'],_,df['Aggregation Function'] = zip(*df['variable'])
+        else:
+            df['variable'],df['Aggregation Function'] = zip(*df['variable'])
 
-        #display(df.pivot_table(values='value', index=ahd_index+['variable'], columns='Aggregation Function', aggfunc='first'))
+        # Discard count == 0.0 rows
+        df = df.loc[(df['Aggregation Function'] != 'count') | (df['value'] != 0.0)]
+        df = df.drop_duplicates()
+
         # Manual/brute force "pivot", as I can't get pivot functions to work right with the MultiIndex columns...
-        df = df.set_index(ahd_index+['variable'])
+        df = df.reset_index().sort_values(ahd_index+['variable']).set_index(ahd_index+['variable'])
         df_mean = df.loc[df['Aggregation Function'] == 'mean'].rename(columns={"value":"mean"})['mean']
         df_count = df.loc[df['Aggregation Function'] == 'count'].rename(columns={"value":"count"})['count']
         df_std = df.loc[df['Aggregation Function'] == 'std'].rename(columns={"value":"std"})['std']
-        df = pd.concat([df_mean, df_count, df_std], axis=1).reset_index().sort_values(ahd_index+['variable'])
+        if is_level1:
+            #FIXME: Duplicates appear in the LEVEL1 representation... this is puzzling.
+            # These should all be almost equal, or there is a significant problem.
+            # For now, take some mean, and the highest count and std... though they 
+            # may not match. LEVEL1 representation is usually not preferred anyway.
+            # In theory, these should probably be aggregated??
+            df_mean = df_mean[~df_mean.index.duplicated(keep='first')]
+            df_count = df_count.sort_values(ascending=False)
+            df_count = df_count[~df_count.index.duplicated(keep='first')]
+            df_std = df_std.sort_values(ascending=False)
+            df_std = df_std[~df_std.index.duplicated(keep='first')]
+        df = pd.concat([df_mean, df_count, df_std], axis=1)
+        df = df.reset_index().sort_values(ahd_index+['variable'])
 
         # reconstruct nominal timestamps for hours_in values...
         df_p = pd.read_hdf(self._ahd_filename, 'patients')
@@ -380,7 +396,6 @@ class MIMICExtractDataset(BaseEHRDataset):
         group_df = group_df.parallel_apply(
             lambda x: vl_unit(x.subject_id.unique()[0], x)
         )
-
         # summarize the results
         patients = self._add_events_to_patient_dict(patients, group_df)
         return patients
