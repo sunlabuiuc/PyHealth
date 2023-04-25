@@ -10,7 +10,7 @@ from pyhealth.models.utils import batch_to_multihot
 from pyhealth.tokenizer import Tokenizer
 
 # TODO: add support for regression
-VALID_MODE = ["binary", "multiclass", "multilabel","sequence"]
+VALID_MODE = ["binary", "multiclass", "multilabel", "sequence"]
 
 
 class BaseModel(ABC, nn.Module):

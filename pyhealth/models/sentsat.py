@@ -18,14 +18,14 @@ class SentSATEncoder(nn.Module):
         self.densenet121.classifier = nn.Identity()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward propagation. 
+        """Forward propagation.
         Extract fixed-length feature vectors from the input image.
-        
+
         Args:
-            x: A tensor of tranfomed image of size
-                [batch_size,3,224,224]
+            x: A tensor of transfomed image of size
+                [batch_size,3,512,512]
         Return:
-            x: A tensor of image feature vectors of size 
+            x: A tensor of image feature vectors of size
                 [batch_size,1024,16,16]
         """
         x = self.densenet121.features(x)
@@ -35,8 +35,8 @@ class SentSATEncoder(nn.Module):
 class SentSATAttention(nn.Module):
     """SAT Attention Module
 
-    Computes a set of attention weights based on the current hidden state of 
-    the RNN and the feature vectors from the CNN, which are then used to 
+    Computes a set of attention weights based on the current hidden state of
+    the RNN and the feature vectors from the CNN, which are then used to
     compute a weighted average of the feature vectors.
 
     Args:
@@ -45,9 +45,9 @@ class SentSATAttention(nn.Module):
         affine_dim: affine dimension. Default is 512
     """
     def __init__(
-        self, 
-        k_size: int, 
-        v_size: int, 
+        self,
+        k_size: int,
+        v_size: int,
         affine_dim: int =512):
         super().__init__()
         self.affine_k = nn.Linear(k_size, affine_dim, bias=False)
@@ -55,8 +55,8 @@ class SentSATAttention(nn.Module):
         self.affine = nn.Linear(affine_dim, 1, bias=False)
 
     def forward(
-            self, 
-            k: torch.Tensor, 
+            self,
+            k: torch.Tensor,
             v: torch.Tensor) -> (torch.Tensor,torch.Tensor):
         """Forward propagation
 
@@ -77,18 +77,20 @@ class SentSATAttention(nn.Module):
         return context, alpha
 
 class SentSATDecoder(nn.Module):
-    """ Word SAT decoder model for one sentence
+    """ Sentence SAT decoder model that treats a caption as multiple sentences
 
-    An LSTM based model that takes as input the attention-weighted feature 
-    vector and generates a sequence of words, one at a time.
+    An LSTM based model that takes as input the attention-weighted feature
+    vector and generates a sequence of sentences and followed by words, in each
+    sentence
 
     Args:
         attention: attention module instance
         vocab_size: vocabulary size
         n_encoder_inputs: number of image inputs given to the encoder
-        feature_dim: encoder output feature dimesion
+        feature_dim: encoder output feature dimension
+        embedding_dim: decoder embedding dimension
         hidden_dim: LSTM hidden dimension
-        dropout: dropout rate between [0,1] 
+        dropout: dropout rate between [0,1]
     """
     def __init__(
         self,
@@ -115,7 +117,7 @@ class SentSATDecoder(nn.Module):
                                 hidden_dim)
         self.sent_lstm = nn.LSTMCell(self.n_encoder_inputs * self.feature_dim,
                                      hidden_dim)
-        
+
         self.word_lstm = nn.LSTMCell(self.embedding_dim + self.hidden_dim +
                                      self.n_encoder_inputs * feature_dim,
                                      hidden_dim)
@@ -123,21 +125,25 @@ class SentSATDecoder(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(
-            self, 
-            cnn_features: List[torch.Tensor], 
+            self,
+            cnn_features: List[torch.Tensor],
             captions: List[torch.Tensor] = None,
             update_masks: torch.Tensor = None,
             max_sents: int = 10,
             max_len: int = 30,
             stop_id: int = None) -> torch.Tensor:
-        
+
         """Forward propagation
 
         Args:
             cnn_features: a list of tensors where each tensor is of
                 size [batch_size, feature_dim, spatial_size].
             captions: a list of tensors.
+            updat_masks: a boolean tensor to identify the actual tokens
+            max_sents: maximum number of sentences that can be generated
             max_len: maximum length of training or generated caption
+            stop_id: token id from vocabulary to stop word generation for a
+                     sentence during inference
 
         Returns:
             logits: a tensor
@@ -161,7 +167,7 @@ class SentSATDecoder(nn.Module):
 
         word_h = cnn_features[0].new_zeros((batch_size,
                                             self.hidden_dim),dtype=torch.float)
-        
+
         word_c = cnn_features[0].new_zeros((batch_size,
                                             self.hidden_dim),dtype=torch.float)
 
@@ -182,10 +188,10 @@ class SentSATDecoder(nn.Module):
 
                 for t in range(seq_len_k):
                     batch_mask = update_masks[:, k, t]
-                    
+
                     word_h_, word_c_ = self.word_lstm(
-                        torch.cat((embeddings[batch_mask, k, t], 
-                                sent_h[batch_mask], 
+                        torch.cat((embeddings[batch_mask, k, t],
+                                sent_h[batch_mask],
                                 context[batch_mask]), dim=1),
                         (word_h[batch_mask], word_c[batch_mask]))
 
@@ -201,17 +207,17 @@ class SentSATDecoder(nn.Module):
         # Evaluation/Inference phase
         else:
             x_t = cnn_features[0].new_full((batch_size,), 1, dtype=torch.long)
-            
+
             for k in range(num_sents):
                 contexts = [self.attend(sent_h, cnn_feat_t)[0]
                             for cnn_feat_t in cnn_feats_t]
                 context = torch.cat(contexts, dim=1)
                 sent_h, sent_c = self.sent_lstm(context, (sent_h, sent_c))
-            
+
                 for t in range(seq_len):
                     embedding = self.embed(x_t)
                     word_h, word_c = self.word_lstm(
-                        torch.cat((embedding, sent_h, context), dim=1), 
+                        torch.cat((embedding, sent_h, context), dim=1),
                                  (word_h, word_c))
                     logit = self.fc(word_h)
                     x_t = logit.argmax(dim=1)
@@ -285,7 +291,7 @@ class SentSAT(BaseModel):
             save_generated_caption = save_generated_caption
         )
         self.n_input_images = n_input_images
-        
+
         # Encoder component
         self.encoder = SentSATEncoder()
         if encoder_pretrained_weights:
@@ -312,10 +318,10 @@ class SentSAT(BaseModel):
                                     )
 
     def forward(
-        self, 
-        decoder_maxsents: int =10, 
-        decoder_maxlen:int = 20, 
-        decoder_stop_id: int = None, 
+        self,
+        decoder_maxsents: int =10,
+        decoder_maxlen:int = 20,
+        decoder_stop_id: int = None,
         **kwargs) -> Dict[str,str]:
         """Forward propagation.
 
@@ -359,7 +365,7 @@ class SentSAT(BaseModel):
                                                     kwargs[self.label_key])
 
             # Perform predictions
-            logits = self.decoder(cnn_features, 
+            logits = self.decoder(cnn_features,
                                   captions[:, :, :-1],
                                   update_masks,
                                   decoder_maxsents,
@@ -374,7 +380,7 @@ class SentSAT(BaseModel):
             loss = self.get_loss_function()(logits, captions)
             loss = loss.masked_select(loss_masks).mean()
             output["loss"] = loss
-        
+
         with torch.no_grad():
             output["y_generated"] = self._forward_inference(patient_ids,
                                                             decoder_maxsents,
@@ -414,12 +420,13 @@ class SentSAT(BaseModel):
                     ]
         Returns:
             captions_idx: an int tensor
-            masks: a bool tensor
+            loss_masks: a bool tensor for each sentence in a caption
+            update_masks: a bool tensor for each sentence in a caption
         """
         x = self.caption_tokenizer.batch_encode_3d(captions)
-        captions_idx = torch.tensor(x, dtype=torch.long, 
+        captions_idx = torch.tensor(x, dtype=torch.long,
                                     device=self.device)
-        
+
         loss_masks = torch.zeros_like(captions_idx,dtype=torch.bool)
         update_masks = torch.zeros_like(captions_idx,dtype=torch.bool)
 
@@ -429,7 +436,7 @@ class SentSAT(BaseModel):
                 if l==0: continue
                 loss_masks[icap, isent, 1:l].fill_(1)
                 update_masks[icap, isent, :l-1].fill_(1)
-        
+
         return captions_idx, loss_masks, update_masks
 
     def _forward_inference(
@@ -443,7 +450,12 @@ class SentSAT(BaseModel):
 
         Args:
             patient_ids: a list of patient ids
+            decoder_maxsents: maximum number of sentences that can be generated
+            decoder_maxlen: maximum length of words in a every sentence of a
+                            caption
             cnn_features: a list of tensors
+            stop_id: token id from vocabulary to stop word generation for a
+                     sentence
 
         Returns:
             generated_results: a dict with following keys
@@ -463,7 +475,7 @@ class SentSAT(BaseModel):
             for isent in range(pred.size(0)):
                 pred_tokens = self.caption_tokenizer \
                             .convert_indices_to_tokens(pred[isent].tolist())
-                
+
                 words = []
                 for token in pred_tokens:
                     if token == '<start>' or token == '<pad>':

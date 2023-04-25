@@ -18,14 +18,14 @@ class WordSATEncoder(nn.Module):
         self.densenet121.classifier = nn.Identity()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward propagation. 
+        """Forward propagation.
         Extract fixed-length feature vectors from the input image.
-        
+
         Args:
-            x: A tensor of tranfomed image of size
-                [batch_size,3,224,224]
+            x: A tensor of transfomed image of size
+                [batch_size,3,512,512]
         Return:
-            x: A tensor of image feature vectors of size 
+            x: A tensor of image feature vectors of size
                 [batch_size,1024,16,16]
         """
         x = self.densenet121.features(x)
@@ -35,8 +35,8 @@ class WordSATEncoder(nn.Module):
 class WordSATAttention(nn.Module):
     """SAT Attention Module
 
-    Computes a set of attention weights based on the current hidden state of 
-    the RNN and the feature vectors from the CNN, which are then used to 
+    Computes a set of attention weights based on the current hidden state of
+    the RNN and the feature vectors from the CNN, which are then used to
     compute a weighted average of the feature vectors.
 
     Args:
@@ -45,9 +45,9 @@ class WordSATAttention(nn.Module):
         affine_dim: affine dimension. Default is 512
     """
     def __init__(
-        self, 
-        k_size: int, 
-        v_size: int, 
+        self,
+        k_size: int,
+        v_size: int,
         affine_dim: int =512):
         super().__init__()
         self.affine_k = nn.Linear(k_size, affine_dim, bias=False)
@@ -55,8 +55,8 @@ class WordSATAttention(nn.Module):
         self.affine = nn.Linear(affine_dim, 1, bias=False)
 
     def forward(
-            self, 
-            k: torch.Tensor, 
+            self,
+            k: torch.Tensor,
             v: torch.Tensor) -> (torch.Tensor,torch.Tensor):
         """Forward propagation
 
@@ -79,16 +79,17 @@ class WordSATAttention(nn.Module):
 class WordSATDecoder(nn.Module):
     """ Word SAT decoder model for one sentence
 
-    An LSTM based model that takes as input the attention-weighted feature 
+    An LSTM based model that takes as input the attention-weighted feature
     vector and generates a sequence of words, one at a time.
 
     Args:
         attention: attention module instance
         vocab_size: vocabulary size
         n_encoder_inputs: number of image inputs given to the encoder
-        feature_dim: encoder output feature dimesion
+        feature_dim: encoder output feature dimension
+        embedding_dim: decoder embedding dimension
         hidden_dim: LSTM hidden dimension
-        dropout: dropout rate between [0,1] 
+        dropout: dropout rate between [0,1]
     """
     def __init__(
         self,
@@ -120,11 +121,11 @@ class WordSATDecoder(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(
-            self, 
-            cnn_features: List[torch.Tensor], 
-            captions: List[torch.Tensor] = None, 
+            self,
+            cnn_features: List[torch.Tensor],
+            captions: List[torch.Tensor] = None,
             max_len: int = 100) -> torch.Tensor:
-        
+
         """Forward propagation
 
         Args:
@@ -244,6 +245,7 @@ class WordSAT(BaseModel):
             feature_keys=[f'image_{i+1}' for i in range(n_input_images)],
             label_key=label_key,
             mode="sequence",
+            save_generated_caption = save_generated_caption
         )
         self.n_input_images = n_input_images
         self.save_generated_caption = save_generated_caption
@@ -327,7 +329,7 @@ class WordSAT(BaseModel):
             loss = self.get_loss_function()(logits, captions)
             loss = loss.masked_select(masks).mean()
             output["loss"] = loss
-        
+
         with torch.no_grad():
             output["y_generated"] = self._forward_inference(patient_ids,
                                                             decoder_maxlen,
@@ -367,7 +369,7 @@ class WordSAT(BaseModel):
             captions_idx: an int tensor
             masks: a bool tensor
         """
-        
+
         # Combine all sentences in each caption to create a single sentence
         samples = []
         for caption in captions:
@@ -375,13 +377,13 @@ class WordSAT(BaseModel):
             tokens.extend(flatten_list(caption))
             text = ' '.join(tokens).replace('. .','.')
             samples.append([text.split()])
-        
+
         x = self.caption_tokenizer.batch_encode_3d(samples)
-        captions_idx = torch.tensor(x, dtype=torch.long, 
+        captions_idx = torch.tensor(x, dtype=torch.long,
                                     device=self.device)
         masks = torch.sum(captions_idx,dim=1) !=0
-        captions_idx = captions_idx.squeeze(1)    
-        
+        captions_idx = captions_idx.squeeze(1)
+
         return captions_idx,masks
 
     def _forward_inference(
@@ -393,6 +395,7 @@ class WordSAT(BaseModel):
 
         Args:
             patient_ids: a list of patient ids
+            decoder_maxlen: maximum length of generated caption
             cnn_features: a list of tensors
 
         Returns:

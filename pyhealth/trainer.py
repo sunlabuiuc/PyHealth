@@ -320,7 +320,7 @@ class Trainer:
         return
 
     def inference_sequence(self, dataloader) -> Dict[int, str]:
-        """Model inference
+        """Model inference  for sequences
         """
         y_true_all = {}
         y_pred_all = {}
@@ -333,18 +333,18 @@ class Trainer:
                 for key in y_generated.keys():
                     y_true_all[key] = y_true[key]
                     y_pred_all[key] = y_generated[key]
-        
+
         if self.model.save_generated_caption:
             fname = datetime.now().strftime("%Y%m%d-%H%M%S")
-            with open(os.path.join(self.exp_path, 
+            with open(os.path.join(self.exp_path,
                                   f"{fname}_gen{self.current_epoch}.csv"),"w") as f1:
-                with open(os.path.join(self.exp_path, 
+                with open(os.path.join(self.exp_path,
                                         f"{fname}_gts.csv"), "w") as f2:
                     for patient_id in y_pred_all.keys():
                         f1.write(y_pred_all[patient_id][0] + '\n')
                         f2.write(y_true_all[patient_id][0] + '\n')
 
-                
+
         return y_true_all, y_pred_all, 0
 
 

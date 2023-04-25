@@ -7,11 +7,11 @@ from pycocoevalcap.cider.cider import Cider
 from pycocoevalcap.meteor.meteor import Meteor
 
 def sequence_metrics_fn(
-    y_true: Dict[int,str],
-    y_generated: Dict[int,str],
+    y_true: List[Dict[int,str]],
+    y_generated: List[Dict[int,str]],
     metrics: Optional[List[str]] = None
 ) -> Dict[str, float]:
-    """
+    """Compute metrics relevant for evaluating sequences
     """
     scorers = [
         (Bleu(4), ["Bleu_1", "Bleu_2", "Bleu_3", "Bleu_4"]),
