@@ -79,6 +79,7 @@ def cluster(dataset, num_centers, device):
     codes = compute_codes(dataset, centers)
     num_iterations = 0
     while True:
+        num_iterations += 1
         centers = update_centers(dataset, codes, num_centers, device)
         new_codes = compute_codes(dataset, centers)
         # Waiting until the clustering stops updating altogether
