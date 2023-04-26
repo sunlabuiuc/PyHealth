@@ -155,7 +155,7 @@ class GRASPLayer(nn.Module):
         hidden_dim: int = 128,
         cluster_num: int = 2,
         dropout: int = 0.5,
-        block: int = "ConCare",
+        block: str = "ConCare",
     ):
         super(GRASPLayer, self).__init__()
 
