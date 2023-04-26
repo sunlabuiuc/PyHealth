@@ -222,7 +222,7 @@ class GRASPLayer(nn.Module):
         if self.block == "ConCare":
             hidden_t, _ = self.backbone(input, mask=mask, static=static)
         else:
-            hidden_t, _ = self.backbone(input, mask)
+            _, hidden_t = self.backbone(input, mask)
         hidden_t = torch.squeeze(hidden_t, 0)
 
         centers, codes = cluster(hidden_t, self.cluster_num, input.device)
