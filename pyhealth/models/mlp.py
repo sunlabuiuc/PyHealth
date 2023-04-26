@@ -243,7 +243,7 @@ class MLP(BaseModel):
                 # (patient, event, embedding_dim)
                 x = self.embeddings[feature_key](x)
                 # (patient, event)
-                mask = torch.sum(x, dim=2) != 0
+                maks = torch.any(x !=0, dim=2)
                 # (patient, embedding_dim)
                 x = self.mean_pooling(x, mask)
 
@@ -259,7 +259,7 @@ class MLP(BaseModel):
                 # (patient, visit, embedding_dim)
                 x = torch.sum(x, dim=2)
                 # (patient, visit)
-                mask = torch.sum(x, dim=2) != 0
+                maks = torch.any(x !=0, dim=2)
                 # (patient, embedding_dim)
                 x = self.mean_pooling(x, mask)
 
