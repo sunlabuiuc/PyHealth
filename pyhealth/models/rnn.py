@@ -318,7 +318,7 @@ class RNN(BaseModel):
                 # (patient, event, embedding_dim)
                 x = self.embeddings[feature_key](x)
                 # (patient, event)
-                mask = torch.sum(x, dim=2) != 0
+                maks = torch.any(x !=0, dim=2)
 
             # for case 2: [[code1, code2], [code3, ...], ...]
             elif (dim_ == 3) and (type_ == str):
@@ -332,7 +332,7 @@ class RNN(BaseModel):
                 # (patient, visit, embedding_dim)
                 x = torch.sum(x, dim=2)
                 # (patient, visit)
-                mask = torch.sum(x, dim=2) != 0
+                maks = torch.any(x !=0, dim=2)
 
             # for case 3: [[1.5, 2.0, 0.0], ...]
             elif (dim_ == 2) and (type_ in [float, int]):
