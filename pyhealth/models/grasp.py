@@ -263,7 +263,7 @@ class GRASPLayer(nn.Module):
         x: torch.tensor,
         static: Optional[torch.tensor] = None,
         mask: Optional[torch.tensor] = None,
-    ) -> Tuple[torch.tensor]:
+    ) -> torch.tensor:
         """Forward propagation.
 
         Args:
