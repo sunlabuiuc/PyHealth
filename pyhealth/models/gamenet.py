@@ -222,8 +222,8 @@ class GAMENet(BaseModel):
 
     Note:
         This model is only for medication prediction which takes conditions
-        and procedures as feature_keys, and drugs_all as label_key (i.e., both
-        current and previous drugs). It only operates on the visit level.
+        and procedures as feature_keys, and drugs as label_key.
+        It only operates on the visit level.
 
     Note:
         This model only accepts ATC level 3 as medication codes.
@@ -250,7 +250,7 @@ class GAMENet(BaseModel):
         super(GAMENet, self).__init__(
             dataset=dataset,
             feature_keys=["conditions", "procedures"],
-            label_key="drugs_all",
+            label_key="drugs",
             mode="multilabel",
         )
         self.embedding_dim = embedding_dim
@@ -304,7 +304,7 @@ class GAMENet(BaseModel):
         label_size = self.label_tokenizer.get_vocabulary_size()
         ehr_adj = torch.zeros((label_size, label_size))
         for sample in self.dataset:
-            curr_drugs = sample["drugs_all"][-1]
+            curr_drugs = sample["drugs"]
             encoded_drugs = self.label_tokenizer.convert_tokens_to_indices(curr_drugs)
             for idx1, med1 in enumerate(encoded_drugs):
                 for idx2, med2 in enumerate(encoded_drugs):
@@ -334,7 +334,8 @@ class GAMENet(BaseModel):
         self,
         conditions: List[List[List[str]]],
         procedures: List[List[List[str]]],
-        drugs_all: List[List[List[str]]],
+        drugs_hist: List[List[List[str]]],
+        drugs: List[List[str]],
         **kwargs
     ) -> Dict[str, torch.Tensor]:
         """Forward propagation.
@@ -342,7 +343,8 @@ class GAMENet(BaseModel):
         Args:
             conditions: a nested list in three levels [patient, visit, condition].
             procedures: a nested list in three levels [patient, visit, procedure].
-            drugs_all: a nested list in three levels [patient, visit, drug].
+            drugs_hist: a nested list in three levels [patient, visit, drug], up to visit (N-1)
+            drugs: a nested list in two levels [patient, drug], at visit N
 
         Returns:
             A dictionary with the following keys:
@@ -379,15 +381,15 @@ class GAMENet(BaseModel):
         queries = self.query(patient_representations)
 
         label_size = self.label_tokenizer.get_vocabulary_size()
-        drugs_all = self.label_tokenizer.batch_encode_3d(
-            drugs_all, padding=(False, False), truncation=(True, False)
+        drugs_hist = self.label_tokenizer.batch_encode_3d(
+            drugs_hist, padding=(False, False), truncation=(True, False)
         )
 
-        curr_drugs = [p[-1] for p in drugs_all]
+        curr_drugs = [p[-1] for p in drugs_hist]
         curr_drugs = batch_to_multihot(curr_drugs, label_size)
         curr_drugs = curr_drugs.to(self.device)
 
-        prev_drugs = [p[:-1] for p in drugs_all]
+        prev_drugs = drugs_hist
         max_num_visit = max([len(p) for p in prev_drugs])
         prev_drugs = [p + [[]] * (max_num_visit - len(p)) for p in prev_drugs]
         prev_drugs = [batch_to_multihot(p, label_size) for p in prev_drugs]

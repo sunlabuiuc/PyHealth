@@ -10,7 +10,7 @@ base_dataset = MIMIC3Dataset(
     tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
     code_mapping={"NDC": ("ATC", {"target_kwargs": {"level": 3}})},
     dev=False,
-    refresh_cache=True,
+    refresh_cache=False,
 )
 base_dataset.stat()
 
@@ -26,16 +26,21 @@ val_dataloader = get_dataloader(val_dataset, batch_size=32, shuffle=False)
 test_dataloader = get_dataloader(test_dataset, batch_size=32, shuffle=False)
 
 # STEP 3: define model
-model = GAMENet(sample_dataset)
+model = GAMENet(
+    sample_dataset,
+    feature_keys=["conditions", "procedures"],
+    label_key="drugs",
+    mode="multilabel",
+)
 
 # STEP 4: define trainer
 trainer = Trainer(model=model)
 trainer.train(
     train_dataloader=train_dataloader,
     val_dataloader=val_dataloader,
-    epochs=50,
+    epochs=5,
     monitor="pr_auc_samples",
 )
 
 # STEP 5: evaluate
-trainer.evaluate(test_dataloader)
+print (trainer.evaluate(test_dataloader))
