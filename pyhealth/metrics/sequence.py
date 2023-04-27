@@ -36,18 +36,19 @@ def sequence_metrics_fn(
     if metrics:
         for metric in metrics:
             if metric not in allowed_metrics:
-                raise ValueError(f"Unknown metric for \
-                                   sequence evaluation: {metric}")
-                
+                raise ValueError(f"Unknown metric for evaluation: {metric}")
+    else:
+        metrics = allowed_metrics
+         
     output = {}
     for scorer, method in scorers:
         score, scores = scorer.compute_score(y_true, y_generated)
         if type(score) == list:
             for m, s in zip(method, score):
-                if m in allowed_metrics:
+                if m in metrics:
                     output[m] = s
         else:
-            if m in allowed_metrics:
+            if method in metrics:
                 output[method] = score
 
     return output
