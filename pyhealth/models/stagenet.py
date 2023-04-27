@@ -465,7 +465,7 @@ class StageNet(BaseModel):
                 # (patient, event, embedding_dim)
                 x = self.embeddings[feature_key](x)
                 # (patient, event)
-                maks = torch.any(x !=0, dim=2)
+                mask = torch.any(x !=0, dim=2)
                 mask_dict[feature_key] = mask
 
             # for case 2: [[code1, code2], [code3, ...], ...]
@@ -480,7 +480,7 @@ class StageNet(BaseModel):
                 # (patient, visit, embedding_dim)
                 x = torch.sum(x, dim=2)
                 # (patient, visit)
-                maks = torch.any(x !=0, dim=2)
+                mask = torch.any(x !=0, dim=2)
                 mask_dict[feature_key] = mask
 
             # for case 3: [[1.5, 2.0, 0.0], ...]
