@@ -89,9 +89,11 @@ class GINConv(torch.nn.Module):
         edge_feats = self.bond_encoder(edge_feats)
         message_node = torch.index_select(input=node_feats, dim=0, index=edge_index[1])
         message = torch.relu(message_node + edge_feats)
-        message_reduce = torch_scatter.scatter(
-            message, index=edge_index[0], dim=0, dim_size=num_nodes, reduce="sum"
-        )
+        dim = message.shape[-1]
+
+        message_reduce = torch.zeros(num_nodes, dim).to(message)
+        index = edge_index[0].unsqueeze(-1).repeat(1, dim)
+        message_reduce.scatter_add_(dim=0, index=index, src=message)
 
         return self.mlp((1 + self.eps) * node_feats + message_reduce)
 
@@ -129,9 +131,16 @@ class GINGraph(torch.nn.Module):
             else:
                 h = self.dropout_fun(h)
             h_list.append(h)
-        return torch_scatter.scatter(
-            h_list[-1], dim=0, index=graph["batch"], reduce="mean"
-        )
+        
+        batch_size, dim = graph['batch'].max(), h_list[-1].shape[-1]
+        out_feat = torch.zeros(batch_size, dim).to(h_list[-1])
+        cnt = torch.zeros_like(out_feat).to(out_feat)
+        index = graph['batch'].unsqueeze(-1).repeat(1, dim)
+
+        out_feat.scatter_add_(dim=0, index=index, src=h_list[-1])
+        cnt.scatter_add_(dim=0, index=index, src=torch.ones_like(h_list[-1]))
+
+        return out_feat / (cnt + 1e-9)
 
 
 class MAB(torch.nn.Module):
