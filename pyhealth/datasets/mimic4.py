@@ -365,11 +365,67 @@ class MIMIC4Dataset(BaseEHRDataset):
         patients = self._add_events_to_patient_dict(patients, group_df)
         return patients
 
+    def parse_hcpcsevents(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
+        """Helper function which parses hcpcsevents table.
 
+        Will be called in `self.parse_tables()`
+
+        Docs:
+            - hcpcsevents: https://mimic.mit.edu/docs/iv/modules/hosp/hcpcsevents/
+
+        Args:
+            patients: a dict of `Patient` objects indexed by patient_id.
+
+        Returns:
+            The updated patients dict.
+
+        Note:
+            MIMIC-IV does not provide specific timestamps in hcpcsevents
+                table, so we set it to None.
+        """
+        table = "hcpcsevents"
+        # read table
+        df = pd.read_csv(
+            os.path.join(self.root, f"{table}.csv"),
+            dtype={"subject_id": str, "hadm_id": str, "hcpcs_cd": str},
+        )
+        # drop rows with missing values
+        df = df.dropna(subset=["subject_id", "hadm_id", "hcpcs_cd"])
+        # sort by sequence number (i.e., priority)
+        df = df.sort_values(["subject_id", "hadm_id", "seq_num"], ascending=True)
+        # group by patient and visit
+        group_df = df.groupby("subject_id")
+
+        # parallel unit of hcpcsevents (per patient)
+        def hcpcsevents_unit(p_id, p_info):
+            events = []
+            for v_id, v_info in p_info.groupby("hadm_id"):
+                for code in v_info["hcpcs_cd"]:
+                    event = Event(
+                        code=code,
+                        table=table,
+                        vocabulary="MIMIC4_HCPCS_CD",
+                        visit_id=v_id,
+                        patient_id=p_id,
+                    )
+                    # update patients
+                    events.append(event)
+            return events
+            
+        # parallel apply
+        group_df = group_df.parallel_apply(
+            lambda x: hcpcsevents_unit(x.subject_id.unique()[0], x)
+        )
+
+        # summarize the results
+        patients = self._add_events_to_patient_dict(patients, group_df)
+        
+        return patients
+        
 if __name__ == "__main__":
     dataset = MIMIC4Dataset(
         root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
-        tables=["diagnoses_icd", "procedures_icd", "prescriptions", "labevents"],
+        tables=["diagnoses_icd", "procedures_icd", "prescriptions", "labevents", "hcpcsevents"],
         code_mapping={"NDC": "ATC"},
         refresh_cache=False,
     )
