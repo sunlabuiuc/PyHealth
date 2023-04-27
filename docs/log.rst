@@ -2,6 +2,26 @@ Development logs
 ======================
 We track the new development here:
 
+**Apr 26, 2023**
+
+.. code-block:: bash
+ 
+    1. fix bugs in GRASP model (https://github.com/sunlabuiuc/PyHealth/pull/141)
+    2. add pandas install <2 constraints (https://github.com/sunlabuiuc/PyHealth/pull/135)
+    3. add hcpcsevents table process in MIMIC4 dataset (https://github.com/sunlabuiuc/PyHealth/pull/134)
+    
+**Apr 10, 2023**
+
+.. code-block:: bash
+
+    1. fix Ambiguous datetime usage in eICU (https://github.com/sunlabuiuc/PyHealth/pull/132)
+
+**Mar 26, 2023**    
+
+.. code-block:: bash
+
+    1. add the entire uncertainty quantification module (https://github.com/sunlabuiuc/PyHealth/pull/111)
+
 **Feb 26, 2023**
 
 .. code-block:: bash
