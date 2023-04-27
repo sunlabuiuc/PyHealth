@@ -138,7 +138,10 @@ class GINGraph(torch.nn.Module):
         index = graph['batch'].unsqueeze(-1).repeat(1, dim)
 
         out_feat.scatter_add_(dim=0, index=index, src=h_list[-1])
-        cnt.scatter_add_(dim=0, index=index, src=torch.ones_like(h_list[-1]))
+        cnt.scatter_add_(
+            dim=0, index=index, 
+            src=torch.ones_like(h_list[-1]).to(h_list[-1])
+        )
 
         return out_feat / (cnt + 1e-9)
 
