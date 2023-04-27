@@ -18,6 +18,7 @@ from pyhealth.datasets import SampleEHRDataset
 def graph_batch_from_smiles(smiles_list, device=torch.device("cpu")):
     edge_idxes, edge_feats, node_feats, lstnode, batch = [], [], [], 0, []
     graphs = [smiles2graph(x) for x in smiles_list]
+
     for idx, graph in enumerate(graphs):
         edge_idxes.append(graph["edge_index"] + lstnode)
         edge_feats.append(graph["edge_feat"])
@@ -102,6 +103,7 @@ class GINGraph(torch.nn.Module):
         super(GINGraph, self).__init__()
         if num_layers < 2:
             raise ValueError("Number of GNN layers must be greater than 1.")
+
         self.atom_encoder = AtomEncoder(emb_dim=embedding_dim)
         self.convs = torch.nn.ModuleList()
         self.batch_norms = torch.nn.ModuleList()
@@ -128,16 +130,15 @@ class GINGraph(torch.nn.Module):
             else:
                 h = self.dropout_fun(h)
             h_list.append(h)
-        
-        batch_size, dim = graph['batch'].max() + 1, h_list[-1].shape[-1]
+
+        batch_size, dim = graph["batch"].max() + 1, h_list[-1].shape[-1]
         out_feat = torch.zeros(batch_size, dim).to(h_list[-1])
         cnt = torch.zeros_like(out_feat).to(out_feat)
-        index = graph['batch'].unsqueeze(-1).repeat(1, dim)
+        index = graph["batch"].unsqueeze(-1).repeat(1, dim)
 
         out_feat.scatter_add_(dim=0, index=index, src=h_list[-1])
         cnt.scatter_add_(
-            dim=0, index=index, 
-            src=torch.ones_like(h_list[-1]).to(h_list[-1])
+            dim=0, index=index, src=torch.ones_like(h_list[-1]).to(h_list[-1])
         )
 
         return out_feat / (cnt + 1e-9)
@@ -278,6 +279,7 @@ class MoleRecLayer(torch.nn.Module):
         GNN_layers: int = 4,
         dropout: float = 0.5,
         multiloss_weight: float = 0.05,
+        **kwargs,
     ):
         super(MoleRecLayer, self).__init__()
 
@@ -454,17 +456,17 @@ class MoleRec(BaseModel):
             mode="multilabel",
         )
 
-        dependencies = ["torch_scatter", "ogb>=1.3.5"]
+        dependencies = ["ogb>=1.3.5"]
 
         # test whether the ogb and torch_scatter packages are ready
         try:
             pkg_resources.require(dependencies)
+            global smiles2graph, AtomEncoder, BondEncoder
             from ogb.utils import smiles2graph
             from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
-            import torch_scatter
         except Exception as e:
             print(
-                "Please follow the error message and install the [ogb] or [torch_scatter] packages first."
+                "Please follow the error message and install the [ogb>=1.3.5] packages first."
             )
             print(e)
 
@@ -495,7 +497,6 @@ class MoleRec(BaseModel):
         self.average_projection = torch.nn.Parameter(
             average_projection, requires_grad=False
         )
-
         self.substructure_graphs = StaticParaDict(
             **graph_batch_from_smiles(self.substructure_smiles)
         )
