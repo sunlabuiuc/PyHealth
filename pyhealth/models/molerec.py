@@ -15,9 +15,6 @@ from pyhealth.medcode import ATC
 from pyhealth.datasets import SampleEHRDataset
 
 
-dependencies = ["torch_scatter", "ogb>=1.3.5"]
-
-
 def graph_batch_from_smiles(smiles_list, device=torch.device("cpu")):
     edge_idxes, edge_feats, node_feats, lstnode, batch = [], [], [], 0, []
     graphs = [smiles2graph(x) for x in smiles_list]
@@ -284,18 +281,6 @@ class MoleRecLayer(torch.nn.Module):
     ):
         super(MoleRecLayer, self).__init__()
 
-        # test whether the ogb and torch_scatter packages are ready
-        try:
-            pkg_resources.require(dependencies)
-            from ogb.utils import smiles2graph
-            from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
-            import torch_scatter
-        except Exception as e:
-            print(
-                "Please follow the error message and install the ogb or torch_scatter packages first."
-            )
-            print(e)
-
         self.hidden_size = hidden_size
         self.coef, self.target_ddi = coef, target_ddi
         GNN_para = {
@@ -468,6 +453,20 @@ class MoleRec(BaseModel):
             label_key="drugs",
             mode="multilabel",
         )
+
+        dependencies = ["torch_scatter", "ogb>=1.3.5"]
+
+        # test whether the ogb and torch_scatter packages are ready
+        try:
+            pkg_resources.require(dependencies)
+            from ogb.utils import smiles2graph
+            from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
+            import torch_scatter
+        except Exception as e:
+            print(
+                "Please follow the error message and install the [ogb] or [torch_scatter] packages first."
+            )
+            print(e)
 
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
