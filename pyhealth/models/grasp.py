@@ -79,6 +79,7 @@ def cluster(dataset, num_centers, device):
     codes = compute_codes(dataset, centers)
     num_iterations = 0
     while True:
+        num_iterations += 1
         centers = update_centers(dataset, codes, num_centers, device)
         new_codes = compute_codes(dataset, centers)
         # Waiting until the clustering stops updating altogether
@@ -155,7 +156,7 @@ class GRASPLayer(nn.Module):
         hidden_dim: int = 128,
         cluster_num: int = 2,
         dropout: int = 0.5,
-        block: int = "ConCare",
+        block: str = "ConCare",
     ):
         super(GRASPLayer, self).__init__()
 
@@ -222,7 +223,7 @@ class GRASPLayer(nn.Module):
         if self.block == "ConCare":
             hidden_t, _ = self.backbone(input, mask=mask, static=static)
         else:
-            hidden_t, _ = self.backbone(input, mask)
+            _, hidden_t = self.backbone(input, mask)
         hidden_t = torch.squeeze(hidden_t, 0)
 
         centers, codes = cluster(hidden_t, self.cluster_num, input.device)
@@ -263,7 +264,7 @@ class GRASPLayer(nn.Module):
         x: torch.tensor,
         static: Optional[torch.tensor] = None,
         mask: Optional[torch.tensor] = None,
-    ) -> Tuple[torch.tensor]:
+    ) -> torch.tensor:
         """Forward propagation.
 
         Args:
