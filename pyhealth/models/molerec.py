@@ -131,7 +131,7 @@ class GINGraph(torch.nn.Module):
                 h = self.dropout_fun(h)
             h_list.append(h)
 
-        batch_size, dim = graph["batch"].max() + 1, h_list[-1].shape[-1]
+        batch_size, dim = graph["batch"].max().item() + 1, h_list[-1].shape[-1]
         out_feat = torch.zeros(batch_size, dim).to(h_list[-1])
         cnt = torch.zeros_like(out_feat).to(out_feat)
         index = graph["batch"].unsqueeze(-1).repeat(1, dim)
@@ -282,6 +282,21 @@ class MoleRecLayer(torch.nn.Module):
         **kwargs,
     ):
         super(MoleRecLayer, self).__init__()
+
+        dependencies = ["ogb>=1.3.5"]
+
+        # test whether the ogb and torch_scatter packages are ready
+        try:
+            pkg_resources.require(dependencies)
+            global smiles2graph, AtomEncoder, BondEncoder
+            from ogb.utils import smiles2graph
+            from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
+        except Exception as e:
+            print(
+                "Please follow the error message and install the [ogb>=1.3.5] packages first."
+            )
+            print(e)
+
 
         self.hidden_size = hidden_size
         self.coef, self.target_ddi = coef, target_ddi
