@@ -131,7 +131,7 @@ class GINGraph(torch.nn.Module):
                 h = self.dropout_fun(h)
             h_list.append(h)
 
-        batch_size, dim = graph["batch"].max() + 1, h_list[-1].shape[-1]
+        batch_size, dim = graph["batch"].max().item() + 1, h_list[-1].shape[-1]
         out_feat = torch.zeros(batch_size, dim).to(h_list[-1])
         cnt = torch.zeros_like(out_feat).to(out_feat)
         index = graph["batch"].unsqueeze(-1).repeat(1, dim)
