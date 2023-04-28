@@ -283,6 +283,21 @@ class MoleRecLayer(torch.nn.Module):
     ):
         super(MoleRecLayer, self).__init__()
 
+        dependencies = ["ogb>=1.3.5"]
+
+        # test whether the ogb and torch_scatter packages are ready
+        try:
+            pkg_resources.require(dependencies)
+            global smiles2graph, AtomEncoder, BondEncoder
+            from ogb.utils import smiles2graph
+            from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
+        except Exception as e:
+            print(
+                "Please follow the error message and install the [ogb>=1.3.5] packages first."
+            )
+            print(e)
+
+
         self.hidden_size = hidden_size
         self.coef, self.target_ddi = coef, target_ddi
         GNN_para = {
