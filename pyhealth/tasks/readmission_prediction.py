@@ -186,6 +186,7 @@ def readmission_prediction_eicu_fn(patient: Patient, time_window=5):
     # no cohort selection
     return samples
 
+
 def readmission_prediction_eicu_fn2(patient: Patient, time_window=5):
     """Processes a single patient for the readmission prediction task.
 
@@ -216,8 +217,8 @@ def readmission_prediction_eicu_fn2(patient: Patient, time_window=5):
         ...     code_mapping={},
         ...     dev=True
         ... )
-        >>> from pyhealth.tasks import readmission_prediction_eicu_fn
-        >>> eicu_sample = eicu_base.set_task(readmission_prediction_eicu_fn)
+        >>> from pyhealth.tasks import readmission_prediction_eicu_fn2
+        >>> eicu_sample = eicu_base.set_task(readmission_prediction_eicu_fn2)
         >>> eicu_sample.samples[0]
         [{'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '98', '663', '58', '51']], 'procedures': [['1']], 'label': 1}]
     """
@@ -249,6 +250,7 @@ def readmission_prediction_eicu_fn2(patient: Patient, time_window=5):
         )
     # no cohort selection
     return samples
+
 
 def readmission_prediction_omop_fn(patient: Patient, time_window=15):
     """Processes a single patient for the readmission prediction task.

@@ -183,6 +183,7 @@ def mortality_prediction_eicu_fn(patient: Patient):
     # no cohort selection
     return samples
 
+
 def mortality_prediction_eicu_fn2(patient: Patient):
     """Processes a single patient for the mortality prediction task.
 
@@ -211,8 +212,8 @@ def mortality_prediction_eicu_fn2(patient: Patient):
         ...     code_mapping={},
         ...     dev=True
         ... )
-        >>> from pyhealth.tasks import mortality_prediction_eicu_fn
-        >>> eicu_sample = eicu_base.set_task(mortality_prediction_eicu_fn)
+        >>> from pyhealth.tasks import mortality_prediction_eicu_fn2
+        >>> eicu_sample = eicu_base.set_task(mortality_prediction_eicu_fn2)
         >>> eicu_sample.samples[0]
         [{'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '98', '663', '58', '51']], 'procedures': [['1']], 'label': 0}]
     """
@@ -246,6 +247,7 @@ def mortality_prediction_eicu_fn2(patient: Patient):
         )
     # no cohort selection
     return samples
+
 
 def mortality_prediction_omop_fn(patient: Patient):
     """Processes a single patient for the mortality prediction task.
