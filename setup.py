@@ -47,9 +47,6 @@ setup(
     include_package_data=True,
     install_requires=requirements,
     setup_requires=["setuptools>=38.6.0"],
-    extras_require={
-        "hdf5": ["tables>=3.7.0"], # Pandas 2.0 has an hdf5 variant... use that later?
-    },
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Education",

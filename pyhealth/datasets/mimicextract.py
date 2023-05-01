@@ -12,12 +12,15 @@ from pyhealth.datasets.utils import strptime
 class MIMICExtractDataset(BaseEHRDataset):
     """Base dataset for MIMIC-Extract dataset.
 
-    TODO: Dataset description
+    Reads the HDF5 data produced by 
+    [MIMIC-Extract](https://github.com/MLforHealth/MIMIC_Extract#step-4-set-cohort-selection-and-extraction-criteria).
+    Works with files created with or without LEVEL2 grouping and with restricted cohort population
+    sizes, other optional parameter values, and should work with many customized versions of the pipeline.
 
     Args:
         dataset_name: name of the dataset.
         root: root directory of the raw data (should contain one or more HDF5 files).
-        tables: list of tables to be loaded (e.g., ["DIAGNOSES_ICD", "NOTES"]). TODO: What here?
+        tables: list of tables to be loaded (e.g., ["vitals_labs", "interventions"]). 
         code_mapping: a dictionary containing the code mapping information.
             The key is a str of the source code vocabulary and the value is of
             two formats:
@@ -33,6 +36,9 @@ class MIMICExtractDataset(BaseEHRDataset):
             be processed from scratch and the cache will be updated. Default is False.
         pop_size: If your MIMIC-Extract dataset was created with a pop_size parameter,
             include it here. This is used to find the correct filenames.
+        itemid_to_variable_map: Path to the CSV file used for aggregation mapping during
+            your dataset's creation. Probably the one located in the MIMIC-Extract
+            repo at `resources/itemid_to_variable_map.csv`, unless you have customized it.
 
     Attributes:
         task: Optional[str], name of the task (e.g., "mortality prediction").
@@ -66,14 +72,14 @@ class MIMICExtractDataset(BaseEHRDataset):
         refresh_cache: bool = False,
         pop_size: Optional[int] = None,
         itemid_to_variable_map: Optional[str] = None,
-        is_icustay_visit: Optional[bool] = False
+        #is_icustay_visit: Optional[bool] = False #TODO: implement fully
     ):
         if pop_size is not None:
             self._fname_suffix = f"_{pop_size}"
         self._ahd_filename = os.path.join(root, f"all_hourly_data{self._fname_suffix}.h5")
         self._c_filename = os.path.join(root, f"C{self._fname_suffix}.h5")
         self._notes_filename = os.path.join(root, f"all_hourly_data{self._fname_suffix}.hdf")
-        self._v_id_column = 'icustay_id' if is_icustay_visit else 'hadm_id'
+        self._v_id_column = 'hadm_id' #'icustay_id' if is_icustay_visit else 'hadm_id'
 
         # This could be implemented with MedCode.CrossMap, however part of the idea behind
         # MIMIC-Extract is that the user can customize this mapping--therefore we will
@@ -121,7 +127,7 @@ class MIMICExtractDataset(BaseEHRDataset):
         
 
     def parse_basic_info(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
-        """Helper function which parses PATIENTS and ADMISSIONS tables.
+        """Helper function which parses patients table.
 
         Will be called in `self.parse_tables()`
 
@@ -183,7 +189,7 @@ class MIMICExtractDataset(BaseEHRDataset):
         return patients
 
     def parse_diagnoses_icd(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
-        """Helper function which parses the C (ICD9 diagnosis codes) table in a way compatible with MIMIC3Dataset.
+        """Helper function which parses the `C` (ICD9 diagnosis codes) table in a way compatible with MIMIC3Dataset.
 
         Will be called in `self.parse_tables()`
 
@@ -260,7 +266,13 @@ class MIMICExtractDataset(BaseEHRDataset):
         return patients
 
     def parse_labevents(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
-        """Helper function which parses ...
+        """Helper function which parses in a way compatible with MIMIC3Dataset.
+        Features in `vitals_labs` are corellated with MIMIC-III ITEM_ID values, and those ITEM_IDs
+        that correspond to LABEVENTS table items in raw MIMIC-III will be
+        added as events. Note that this will likely not match the raw MIMIC-III data because of the
+        harmonization/aggregation done in MIMIC-Extract.
+
+        See also `self.parse_vitals_labs()` 
 
         Will be called in `self.parse_tables()`
 
@@ -277,7 +289,11 @@ class MIMICExtractDataset(BaseEHRDataset):
         return self._parse_vitals_labs(patients=patients, table=table)
 
     def parse_chartevents(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
-        """Helper function which parses ...
+        """Helper function which parses the `vitals_labs` table in a way compatible with MIMIC3Dataset.
+        Features in `vitals_labs` are corellated with MIMIC-III ITEM_ID values, and those ITEM_IDs
+        that correspond to CHARTEVENTS table items in raw MIMIC-III will be
+        added as events. Note that this will likely not match the raw MIMIC-III data because of the
+        harmonization/aggregation done in MIMIC-Extract. 
 
         Will be called in `self.parse_tables()`
 
@@ -294,12 +310,19 @@ class MIMICExtractDataset(BaseEHRDataset):
         return self._parse_vitals_labs(patients=patients, table=table)
 
     def parse_vitals_labs(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
-        """Helper function which parses ...
+        """Helper function which parses the `vitals_labs` table. 
+        Events are added using the `MIMIC3_ITEMID` vocabulary, and the mapping is determined by the
+        CSV file passed to the constructor in `itemid_to_variable_map`. Since MIMIC-Extract aggregates
+        like events, only a single MIMIC-III ITEMID will be used to represent all like items in the
+        MIMIC-Extract dataset--so the data here will *not* match raw MIMIC-III data. Which ITEMIDs are
+        used depends on the aggregation level in your dataset (i.e. whether you used `--no_group_by_level2`).
 
         Will be called in `self.parse_tables()`
 
+        See also `self.parse_chartevents()` and `self.parse_labevents()`
+
         Docs:
-            - TODO
+            - https://github.com/MLforHealth/MIMIC_Extract#step-4-set-cohort-selection-and-extraction-criteria
 
         Args:
             patients: a dict of `Patient` objects indexed by patient_id.
@@ -401,6 +424,26 @@ class MIMICExtractDataset(BaseEHRDataset):
         return patients
 
     def parse_interventions(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
+        """Helper function which parses the `interventions` table. 
+        Events are added using the `MIMIC3_ITEMID` vocabulary, using a manually derived mapping corresponding to
+        general items descriptive of the intervention. Since the raw MIMIC-III data had multiple codes, and 
+        MIMIC-Extract aggregates like items, these will not match raw MIMIC-III data.
+        
+        In particular, note
+        that ITEMID 41491 ("fluid bolus") is used for `crystalloid_bolus` and ITEMID 46729 ("Dextran") is used 
+        for "Colloid Bolus" because there is no existing general ITEMID for colloid boluses.
+
+        Will be called in `self.parse_tables()`
+
+        Docs:
+            - https://github.com/MLforHealth/MIMIC_Extract#step-4-set-cohort-selection-and-extraction-criteria
+
+        Args:
+            patients: a dict of `Patient` objects indexed by patient_id.
+
+        Returns:
+            The updated patients dict.
+        """
         table = 'interventions'
         linksto = table.lower() # we might put these in CHARTEVENTS also?
 
