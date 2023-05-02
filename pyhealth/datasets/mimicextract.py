@@ -76,6 +76,8 @@ class MIMICExtractDataset(BaseEHRDataset):
     ):
         if pop_size is not None:
             self._fname_suffix = f"_{pop_size}"
+        else:
+            self._fname_suffix = ""
         self._ahd_filename = os.path.join(root, f"all_hourly_data{self._fname_suffix}.h5")
         self._c_filename = os.path.join(root, f"C{self._fname_suffix}.h5")
         self._notes_filename = os.path.join(root, f"all_hourly_data{self._fname_suffix}.hdf")
@@ -504,15 +506,18 @@ class MIMICExtractDataset(BaseEHRDataset):
 
 if __name__ == "__main__":
     dataset = MIMICExtractDataset(
-        root="../data/baseline5000/grouping",
+        root="../mimic3demo/grouping",
         tables=[
+            #"DIAGNOSES_ICD",
             "C",
+            #"LABEVENTS",
+            #"CHARTEVENTS",
             "vitals_labs",
-            "interventions"
+            "interventions",
         ],
-        #code_mapping={"NDC": "ATC"},
         dev=True,
         refresh_cache=True,
+        itemid_to_variable_map='../MIMIC-Extract/MIMIC_Extract/resources/itemid_to_variable_map.csv'
     )
     dataset.stat()
     dataset.info()
