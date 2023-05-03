@@ -17,6 +17,20 @@ class MIMICExtractDataset(BaseEHRDataset):
     Works with files created with or without LEVEL2 grouping and with restricted cohort population
     sizes, other optional parameter values, and should work with many customized versions of the pipeline.
 
+    You can create or obtain a MIMIC-Extract dataset in several ways:
+
+    * The default chort dataset is [available on GCP](https://console.cloud.google.com/storage/browser/mimic_extract)
+      (requires PhysioNet access provisioned in GCP).
+    * Follow the [step-by-step instructions](https://github.com/MLforHealth/MIMIC_Extract#step-by-step-instructions)
+      on the MIMIC_Extract github site, which includes setting up a PostgreSQL database and loading
+      the MIMIC-III data files.
+    * Use the instructions at [MIMICExtractEasy](https://github.com/SphtKr/MIMICExtractEasy) which uses DuckDB
+      instead and should be a good bit simpler.
+    
+    Any of these methods will provide you with a set of HDF5 files containing a cleaned subset of the MIMIC-III dataset.
+    This class can be used to read that dataset (mainly the `all_hourly_data.h5` file). Consult the MIMIC-Extract
+    documentation for all the options available for dataset generation (cohort selection, aggregation level, etc.).
+
     Args:
         dataset_name: name of the dataset.
         root: root directory of the raw data (should contain one or more HDF5 files).
@@ -38,7 +52,8 @@ class MIMICExtractDataset(BaseEHRDataset):
             include it here. This is used to find the correct filenames.
         itemid_to_variable_map: Path to the CSV file used for aggregation mapping during
             your dataset's creation. Probably the one located in the MIMIC-Extract
-            repo at `resources/itemid_to_variable_map.csv`, unless you have customized it.
+            repo at `resources/itemid_to_variable_map.csv`, or your own version if you
+            have customized it.
 
     Attributes:
         task: Optional[str], name of the task (e.g., "mortality prediction").
@@ -129,7 +144,7 @@ class MIMICExtractDataset(BaseEHRDataset):
         
 
     def parse_basic_info(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
-        """Helper function which parses patients table.
+        """Helper function which parses `patients` dataset (within `all_hourly_data.h5`)
 
         Will be called in `self.parse_tables()`
 
@@ -191,7 +206,8 @@ class MIMICExtractDataset(BaseEHRDataset):
         return patients
 
     def parse_diagnoses_icd(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
-        """Helper function which parses the `C` (ICD9 diagnosis codes) table in a way compatible with MIMIC3Dataset.
+        """Helper function which parses the `C` (ICD9 diagnosis codes) dataset (within `C.h5`) in
+          a way compatible with MIMIC3Dataset.
 
         Will be called in `self.parse_tables()`
 
@@ -211,7 +227,7 @@ class MIMICExtractDataset(BaseEHRDataset):
         return self._parse_c(patients, table='DIAGNOSES_ICD')
 
     def parse_c(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
-        """Helper function which parses the C (ICD9 diagnosis codes) table.
+        """Helper function which parses the `C` (ICD9 diagnosis codes) dataset (within `C.h5`).
 
         Will be called in `self.parse_tables()`
 
@@ -268,11 +284,14 @@ class MIMICExtractDataset(BaseEHRDataset):
         return patients
 
     def parse_labevents(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
-        """Helper function which parses in a way compatible with MIMIC3Dataset.
+        """Helper function which parses the `vitals_labs` dataset (within `all_hourly_data.h5`)
+        in a way compatible with MIMIC3Dataset.
+
         Features in `vitals_labs` are corellated with MIMIC-III ITEM_ID values, and those ITEM_IDs
         that correspond to LABEVENTS table items in raw MIMIC-III will be
-        added as events. Note that this will likely not match the raw MIMIC-III data because of the
-        harmonization/aggregation done in MIMIC-Extract.
+        added as events. This corellation depends on the contents of the provided `itemid_to_variable_map.csv`
+        file. Note that this will likely *not* match the raw MIMIC-III data because of the
+        harmonization/aggregation done by MIMIC-Extract.
 
         See also `self.parse_vitals_labs()` 
 
@@ -291,10 +310,13 @@ class MIMICExtractDataset(BaseEHRDataset):
         return self._parse_vitals_labs(patients=patients, table=table)
 
     def parse_chartevents(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
-        """Helper function which parses the `vitals_labs` table in a way compatible with MIMIC3Dataset.
+        """Helper function which parses the `vitals_labs` dataset (within `all_hourly_data.h5`)
+        in a way compatible with MIMIC3Dataset.
+
         Features in `vitals_labs` are corellated with MIMIC-III ITEM_ID values, and those ITEM_IDs
         that correspond to CHARTEVENTS table items in raw MIMIC-III will be
-        added as events. Note that this will likely not match the raw MIMIC-III data because of the
+        added as events. This corellation depends on the contents of the provided `itemid_to_variable_map.csv`
+        file. Note that this will likely *not* match the raw MIMIC-III data because of the
         harmonization/aggregation done in MIMIC-Extract. 
 
         Will be called in `self.parse_tables()`
@@ -312,11 +334,12 @@ class MIMICExtractDataset(BaseEHRDataset):
         return self._parse_vitals_labs(patients=patients, table=table)
 
     def parse_vitals_labs(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
-        """Helper function which parses the `vitals_labs` table. 
+        """Helper function which parses the `vitals_labs` dataset (within `all_hourly_data.h5`). 
+
         Events are added using the `MIMIC3_ITEMID` vocabulary, and the mapping is determined by the
         CSV file passed to the constructor in `itemid_to_variable_map`. Since MIMIC-Extract aggregates
         like events, only a single MIMIC-III ITEMID will be used to represent all like items in the
-        MIMIC-Extract dataset--so the data here will *not* match raw MIMIC-III data. Which ITEMIDs are
+        MIMIC-Extract dataset--so the data here will likely *not* match raw MIMIC-III data. Which ITEMIDs are
         used depends on the aggregation level in your dataset (i.e. whether you used `--no_group_by_level2`).
 
         Will be called in `self.parse_tables()`
@@ -426,14 +449,14 @@ class MIMICExtractDataset(BaseEHRDataset):
         return patients
 
     def parse_interventions(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
-        """Helper function which parses the `interventions` table. 
+        """Helper function which parses the `interventions` dataset (within `all_hourly_data.h5`). 
         Events are added using the `MIMIC3_ITEMID` vocabulary, using a manually derived mapping corresponding to
         general items descriptive of the intervention. Since the raw MIMIC-III data had multiple codes, and 
         MIMIC-Extract aggregates like items, these will not match raw MIMIC-III data.
         
         In particular, note
         that ITEMID 41491 ("fluid bolus") is used for `crystalloid_bolus` and ITEMID 46729 ("Dextran") is used 
-        for "Colloid Bolus" because there is no existing general ITEMID for colloid boluses.
+        for `colloid_bolus` because there is no existing general ITEMID for colloid boluses.
 
         Will be called in `self.parse_tables()`
 
@@ -517,7 +540,7 @@ if __name__ == "__main__":
         ],
         dev=True,
         refresh_cache=True,
-        itemid_to_variable_map='../MIMIC-Extract/MIMIC_Extract/resources/itemid_to_variable_map.csv'
+        itemid_to_variable_map='../MIMIC_Extract/resources/itemid_to_variable_map.csv'
     )
     dataset.stat()
     dataset.info()
