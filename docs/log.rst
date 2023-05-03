@@ -2,6 +2,32 @@ Development logs
 ======================
 We track the new development here:
 
+**Apr 27, 2023**
+
+.. code-block:: bash
+
+    1. add MoleRec model (WWW'23) for drug recommendation `#122 <https://github.com/sunlabuiuc/PyHealth/pull/122>`_
+
+**Apr 26, 2023**
+
+.. code-block:: bash
+ 
+    1. fix bugs in GRASP model `#141 <https://github.com/sunlabuiuc/PyHealth/pull/141>`_
+    2. add pandas install <2 constraints `#135 <https://github.com/sunlabuiuc/PyHealth/pull/135>`_
+    3. add hcpcsevents table process in MIMIC4 dataset `#134 <https://github.com/sunlabuiuc/PyHealth/pull/134>`_
+    
+**Apr 10, 2023**
+
+.. code-block:: bash
+
+    1. fix Ambiguous datetime usage in eICU (https://github.com/sunlabuiuc/PyHealth/pull/132)
+
+**Mar 26, 2023**    
+
+.. code-block:: bash
+
+    1. add the entire uncertainty quantification module (https://github.com/sunlabuiuc/PyHealth/pull/111)
+
 **Feb 26, 2023**
 
 .. code-block:: bash

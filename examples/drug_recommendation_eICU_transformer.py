@@ -114,4 +114,4 @@ trainer.train(
 )
 
 # STEP 5: evaluate
-trainer.evaluate(test_dataloader)
+print (trainer.evaluate(test_dataloader))
