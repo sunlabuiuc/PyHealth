@@ -237,8 +237,14 @@ def readmission_prediction_eicu_fn2(patient: Patient, time_window=5):
         readmission_label = 1 if time_diff < time_window else 0
 
         admissionDx = visit.get_code_list(table="admissionDx")
-        diagnosisString = list(set([dx.attr_dict['diagnosisString']
-                                    for dx in visit.get_event_list('diagnosis')]))
+        diagnosisString = list(
+            set(
+                [
+                    dx.attr_dict["diagnosisString"]
+                    for dx in visit.get_event_list("diagnosis")
+                ]
+            )
+        )
         treatment = visit.get_code_list(table="treatment")
 
         # exclude: visits without treatment, admissionDx, diagnosisString
@@ -249,8 +255,8 @@ def readmission_prediction_eicu_fn2(patient: Patient, time_window=5):
             {
                 "visit_id": visit.visit_id,
                 "patient_id": patient.patient_id,
-                "conditions": [admissionDx] + [diagnosisString],
-                "procedures": [treatment],
+                "conditions": admissionDx + diagnosisString,
+                "procedures": treatment,
                 "label": readmission_label,
             }
         )

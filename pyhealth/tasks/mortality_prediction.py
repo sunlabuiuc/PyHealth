@@ -220,7 +220,7 @@ def mortality_prediction_eicu_fn2(patient: Patient):
         >>> from pyhealth.tasks import mortality_prediction_eicu_fn2
         >>> eicu_sample = eicu_base.set_task(mortality_prediction_eicu_fn2)
         >>> eicu_sample.samples[0]
-        [{'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '98', '663', '58', '51']], 'procedures': [['1']], 'label': 0}]
+        {'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '98', '663', '58', '51']], 'procedures': [['1']], 'label': 0}
     """
     samples = []
     # we will drop the last visit
@@ -234,23 +234,30 @@ def mortality_prediction_eicu_fn2(patient: Patient):
             mortality_label = 0 if next_visit.discharge_status == "Alive" else 1
 
         admissionDx = visit.get_code_list(table="admissionDx")
-        diagnosisString = list(set([dx.attr_dict['diagnosisString']
-                                    for dx in visit.get_event_list('diagnosis')]))
+        diagnosisString = list(
+            set(
+                [
+                    dx.attr_dict["diagnosisString"]
+                    for dx in visit.get_event_list("diagnosis")
+                ]
+            )
+        )
         treatment = visit.get_code_list(table="treatment")
 
         # exclude: visits without treatment, admissionDx, diagnosisString
-        if len(admissionDx) * len(diagnosisString) * len(treatment) == 0:
+        if len(admissionDx) + len(diagnosisString) * len(treatment) == 0:
             continue
         # TODO: should also exclude visit with age < 18
         samples.append(
             {
                 "visit_id": visit.visit_id,
                 "patient_id": patient.patient_id,
-                "conditions": [admissionDx] + [diagnosisString],
-                "procedures": [treatment],
+                "conditions": admissionDx + diagnosisString,
+                "procedures": treatment,
                 "label": mortality_label,
             }
         )
+    print(samples)
     # no cohort selection
     return samples
 
