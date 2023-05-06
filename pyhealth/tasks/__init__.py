@@ -12,12 +12,14 @@ from .length_of_stay_prediction import (
 )
 from .mortality_prediction import (
     mortality_prediction_eicu_fn,
+    mortality_prediction_eicu_fn2,
     mortality_prediction_mimic3_fn,
     mortality_prediction_mimic4_fn,
     mortality_prediction_omop_fn,
 )
 from .readmission_prediction import (
     readmission_prediction_eicu_fn,
+    readmission_prediction_eicu_fn2,
     readmission_prediction_mimic3_fn,
     readmission_prediction_mimic4_fn,
     readmission_prediction_omop_fn,

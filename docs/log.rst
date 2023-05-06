@@ -2,6 +2,12 @@ Development logs
 ======================
 We track the new development here:
 
+**May 6, 2023**
+
+.. code-block:: bash
+
+    1. add new parser functions (admissionDx, diagnosisStrings) and prediction tasks for eICU dataset  `#148 <https://github.com/sunlabuiuc/PyHealth/pull/148>`_
+
 **Apr 27, 2023**
 
 .. code-block:: bash
