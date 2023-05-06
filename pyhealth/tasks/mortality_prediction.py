@@ -130,6 +130,11 @@ def mortality_prediction_eicu_fn(patient: Patient):
     next hospital visit based on the clinical information from current visit
     (e.g., conditions and procedures).
 
+    Features key-value pairs:
+    - using diagnosis table (ICD9CM and ICD10CM) as condition codes
+    - using physicalExam table as procedure codes
+    - using medication table as drugs codes
+
     Args:
         patient: a Patient object
 
@@ -143,7 +148,7 @@ def mortality_prediction_eicu_fn(patient: Patient):
         >>> from pyhealth.datasets import eICUDataset
         >>> eicu_base = eICUDataset(
         ...     root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
-        ...     tables=["diagnosis", "medication"],
+        ...     tables=["diagnosis", "medication", "physicalExam"],
         ...     code_mapping={},
         ...     dev=True
         ... )
@@ -180,6 +185,79 @@ def mortality_prediction_eicu_fn(patient: Patient):
                 "label": mortality_label,
             }
         )
+    # no cohort selection
+    return samples
+
+
+def mortality_prediction_eicu_fn2(patient: Patient):
+    """Processes a single patient for the mortality prediction task.
+
+    Mortality prediction aims at predicting whether the patient will decease in the
+    next hospital visit based on the clinical information from current visit
+    (e.g., conditions and procedures).
+
+    Similar to mortality_prediction_eicu_fn, but with different code mapping:
+    - using admissionDx table and diagnosisString under diagnosis table as condition codes
+    - using treatment table as procedure codes
+
+    Args:
+        patient: a Patient object
+
+    Returns:
+        samples: a list of samples, each sample is a dict with patient_id,
+            visit_id, and other task-specific attributes as key
+
+    Note that we define the task as a binary classification task.
+
+    Examples:
+        >>> from pyhealth.datasets import eICUDataset
+        >>> eicu_base = eICUDataset(
+        ...     root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
+        ...     tables=["diagnosis", "admissionDx", "treatment"],
+        ...     code_mapping={},
+        ...     dev=True
+        ... )
+        >>> from pyhealth.tasks import mortality_prediction_eicu_fn2
+        >>> eicu_sample = eicu_base.set_task(mortality_prediction_eicu_fn2)
+        >>> eicu_sample.samples[0]
+        {'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '98', '663', '58', '51']], 'procedures': [['1']], 'label': 0}
+    """
+    samples = []
+    # we will drop the last visit
+    for i in range(len(patient) - 1):
+        visit: Visit = patient[i]
+        next_visit: Visit = patient[i + 1]
+
+        if next_visit.discharge_status not in ["Alive", "Expired"]:
+            mortality_label = 0
+        else:
+            mortality_label = 0 if next_visit.discharge_status == "Alive" else 1
+
+        admissionDx = visit.get_code_list(table="admissionDx")
+        diagnosisString = list(
+            set(
+                [
+                    dx.attr_dict["diagnosisString"]
+                    for dx in visit.get_event_list("diagnosis")
+                ]
+            )
+        )
+        treatment = visit.get_code_list(table="treatment")
+
+        # exclude: visits without treatment, admissionDx, diagnosisString
+        if len(admissionDx) + len(diagnosisString) * len(treatment) == 0:
+            continue
+        # TODO: should also exclude visit with age < 18
+        samples.append(
+            {
+                "visit_id": visit.visit_id,
+                "patient_id": patient.patient_id,
+                "conditions": admissionDx + diagnosisString,
+                "procedures": treatment,
+                "label": mortality_label,
+            }
+        )
+    print(samples)
     # no cohort selection
     return samples
 
@@ -278,6 +356,16 @@ if __name__ == "__main__":
         refresh_cache=False,
     )
     sample_dataset = base_dataset.set_task(task_fn=mortality_prediction_eicu_fn)
+    sample_dataset.stat()
+    print(sample_dataset.available_keys)
+
+    base_dataset = eICUDataset(
+        root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
+        tables=["diagnosis", "admissionDx", "treatment"],
+        dev=True,
+        refresh_cache=False,
+    )
+    sample_dataset = base_dataset.set_task(task_fn=mortality_prediction_eicu_fn2)
     sample_dataset.stat()
     print(sample_dataset.available_keys)
 
