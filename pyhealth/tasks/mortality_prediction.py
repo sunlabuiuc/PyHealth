@@ -130,6 +130,11 @@ def mortality_prediction_eicu_fn(patient: Patient):
     next hospital visit based on the clinical information from current visit
     (e.g., conditions and procedures).
 
+    Features key-value pairs:
+    - using diagnosis table (ICD9CM and ICD10CM) as condition codes
+    - using physicalExam table as procedure codes
+    - using medication table as drugs codes
+
     Args:
         patient: a Patient object
 
@@ -192,7 +197,7 @@ def mortality_prediction_eicu_fn2(patient: Patient):
     (e.g., conditions and procedures).
 
     Similar to mortality_prediction_eicu_fn, but with different code mapping:
-    - using admissionDx and diagnosisString table as condition codes
+    - using admissionDx table and diagnosisString under diagnosis table as condition codes
     - using treatment table as procedure codes
 
     Args:
@@ -208,7 +213,7 @@ def mortality_prediction_eicu_fn2(patient: Patient):
         >>> from pyhealth.datasets import eICUDataset
         >>> eicu_base = eICUDataset(
         ...     root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
-        ...     tables=["admissionDx", "diagnosisString", "treatment"],
+        ...     tables=["diagnosis", "admissionDx", "treatment"],
         ...     code_mapping={},
         ...     dev=True
         ... )
@@ -229,7 +234,8 @@ def mortality_prediction_eicu_fn2(patient: Patient):
             mortality_label = 0 if next_visit.discharge_status == "Alive" else 1
 
         admissionDx = visit.get_code_list(table="admissionDx")
-        diagnosisString = visit.get_code_list(table="diagnosisString")
+        diagnosisString = list(set([dx.attr_dict['diagnosisString']
+                                    for dx in visit.get_event_list('diagnosis')]))
         treatment = visit.get_code_list(table="treatment")
 
         # exclude: visits without treatment, admissionDx, diagnosisString
@@ -348,7 +354,7 @@ if __name__ == "__main__":
 
     base_dataset = eICUDataset(
         root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
-        tables=["admissionDx", "diagnosisString", "treatment"],
+        tables=["diagnosis", "admissionDx", "treatment"],
         dev=True,
         refresh_cache=False,
     )
