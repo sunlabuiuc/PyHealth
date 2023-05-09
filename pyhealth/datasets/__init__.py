@@ -3,6 +3,7 @@ from .base_signal_dataset import BaseSignalDataset
 from .eicu import eICUDataset
 from .mimic3 import MIMIC3Dataset
 from .mimic4 import MIMIC4Dataset
+from .mimicextract import MIMICExtractDataset
 from .omop import OMOPDataset
 from .sleepedf import SleepEDFDataset
 from .isruc import ISRUCDataset
