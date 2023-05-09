@@ -63,7 +63,7 @@ Welcome to PyHealth!
 
 PyHealth is designed for both **ML researchers and medical practitioners**. We can make your **healthcare AI applications** easier to deploy and more flexible and customizable. `[Tutorials] <https://pyhealth.readthedocs.io/>`_
 
- **[News!]** We are running the "PyHealth Live" gathering at 8 PM CST every Wednesday night! Welcome to join over `zoom <https://illinois.zoom.us/j/87450975602?pwd=ckQyaHhkRitlUzlwYUY3NjdEQ0pFdz09>`_. Check out `PyHealth Live <https://github.com/sunlabuiuc/PyHealth/blob/master/docs/live.rst>`_ for more information and watch the `Live Videos <https://www.youtube.com/playlist?list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV>`_.
+ **[News!]** Our PyHealth is accepted by KDD 2023 Tutorial Track! We will present a 3-hour tutorial on PyHealth at `[KDD 2023] <https://kdd.org/kdd2023/>`_, August 6-10, Long Beach, CA.
 
 .. image:: figure/poster.png
    :width: 810
@@ -405,12 +405,11 @@ GRASP                                 deep learning     ``pyhealth.models.GRASP`
 
 .. code-block:: bibtex
 
-    @misc{pyhealth2022github,
-        author = {Chaoqi Yang and Zhenbang Wu and Patrick Jiang and Zhen Lin and Jimeng Sun},
+    @inproceedings{pyhealth2023yang,
+        author = {Yang, Chaoqi and Wu, Zhenbang and Jiang, Patrick and Lin, Zhen and Gao, Junyi and Danek, Benjamin and Sun, Jimeng},
         title = {{PyHealth}: A Deep Learning Toolkit for Healthcare Predictive Modeling},
         url = {https://github.com/sunlabuiuc/PyHealth},
-        year = {2022},
-        month = {09},
-        organization = {SunLab, UIUC},
+        booktitle = {Proceedings of the 27th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD) 2023},
+        year = {2023}
     }
 
