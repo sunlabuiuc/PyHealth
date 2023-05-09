@@ -2,6 +2,13 @@ Development logs
 ======================
 We track the new development here:
 
+**May 9, 2023**
+
+.. code-block:: bash
+
+    1. add MIMIC-Extract dataset  `#136 <https://github.com/sunlabuiuc/PyHealth/pull/136>`_
+    2. add new maintainer members for pyhealth: Junyi Gao and Benjamin Danek
+
 **May 6, 2023**
 
 .. code-block:: bash

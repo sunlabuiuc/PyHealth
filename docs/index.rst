@@ -70,7 +70,7 @@ PyHealth is designed for both **ML researchers and medical practitioners**. We c
 
 ----------
 
- **[News!]** We are running the "PyHealth Live" gathering at 8 PM central time every Wednesday night! Welcome to join the live discussion over `zoom <https://illinois.zoom.us/j/87450975602?pwd=ckQyaHhkRitlUzlwYUY3NjdEQ0pFdz09>`_. You may also add the schedules to your `Google Calender <https://illinois.zoom.us/meeting/tZMpcumhqT4sGtYh_bBC37B9At6vTpwjDBW4/calendar/google/add>`_ or `Microsoft Outlook (.ics) <https://illinois.zoom.us/meeting/tZMpcumhqT4sGtYh_bBC37B9At6vTpwjDBW4/ics>`_.
+ **[News!]** Our PyHealth is accepted by KDD 2023 Tutorial Track! We will present a 3-hour tutorial on PyHealth at `[KDD 2023] <https://kdd.org/kdd2023/>`_, August 6-10, Long Beach, CA.
 
  FYI, the PyHealth Weekly Live will introduce basic pyhealth modules sequentially and showcase the newly developed functions as well as different use cases. For efficiency, all live lasts for around half an hour and the video collections are can be found in `YouTube <https://www.youtube.com/playlist?list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV>`_. The future scheduled topics are announced `here <https://pyhealth.readthedocs.io/en/latest/live.html>`_. Hope to see you all on every wednesday night!
 
