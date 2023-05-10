@@ -6,28 +6,28 @@ We track the new development here:
 
 .. code-block:: rst
 
-    1. add MIMIC-Extract dataset  #136
+    1. add MIMIC-Extract dataset  `#136`
     2. add new maintainer members for pyhealth: Junyi Gao and Benjamin Danek
 
 **May 6, 2023**
 
 .. code-block:: rst
 
-    1. add new parser functions (admissionDx, diagnosisStrings) and prediction tasks for eICU dataset #148
+    1. add new parser functions (admissionDx, diagnosisStrings) and prediction tasks for eICU dataset `#148`
 
 **Apr 27, 2023**
 
 .. code-block:: rst
 
-    1. add MoleRec model (WWW'23) for drug recommendation #122
+    1. add MoleRec model (WWW'23) for drug recommendation `#122`
 
 **Apr 26, 2023**
 
 .. code-block:: rst
  
-    1. fix bugs in GRASP model #141
-    2. add pandas install <2 constraints #135 
-    3. add hcpcsevents table process in MIMIC4 dataset #134
+    1. fix bugs in GRASP model `#141`
+    2. add pandas install <2 constraints `#135` 
+    3. add hcpcsevents table process in MIMIC4 dataset `#134`
     
 **Apr 10, 2023**
 
@@ -52,7 +52,7 @@ We track the new development here:
 .. code-block:: rst
  
     1. add unittest for omop dataset
-    2. add github action triggered manually, check #104
+    2. add github action triggered manually, check `#104`
 
 **Feb 19, 2023**
 
@@ -113,7 +113,7 @@ We track the new development here:
 
 .. code-block:: rst
 
-    1. Fix the code typo in pyhealth/tasks/drug_recommendation.py for issue #71.
+    1. Fix the code typo in pyhealth/tasks/drug_recommendation.py for issue `#71`.
     2. update the pyhealth live schedule 
 
 **Jan 22, 2023**
