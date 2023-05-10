@@ -1,5 +1,5 @@
 Sphinx==5.2.3
-sphinx-automodapi>
+sphinx-automodapi
 sphinx-autodoc-annotation
 sphinx_last_updated_by_git
 sphinxcontrib-spelling
