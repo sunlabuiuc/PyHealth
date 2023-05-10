@@ -72,8 +72,6 @@ PyHealth is designed for both **ML researchers and medical practitioners**. We c
 
  **[News!]** Our PyHealth is accepted by KDD 2023 Tutorial Track! We will present a 3-hour tutorial on PyHealth at `[KDD 2023] <https://kdd.org/kdd2023/>`_, August 6-10, Long Beach, CA.
 
- FYI, the PyHealth Weekly Live will introduce basic pyhealth modules sequentially and showcase the newly developed functions as well as different use cases. For efficiency, all live lasts for around half an hour and the video collections are can be found in `YouTube <https://www.youtube.com/playlist?list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV>`_. The future scheduled topics are announced `here <https://pyhealth.readthedocs.io/en/latest/live.html>`_. Hope to see you all on every wednesday night!
-
 
 Introduction `[Video] <https://www.youtube.com/watch?v=1Ir6hzU4Nro&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=1>`_
 --------------------------------------------------------------------------------------------------------------------
