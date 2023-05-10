@@ -10,6 +10,7 @@ Datasets
     datasets/pyhealth.datasets.SampleEHRDataset
     datasets/pyhealth.datasets.SampleSignalDataset
     datasets/pyhealth.datasets.MIMIC3Dataset
+    datasets/pyhealth.datasets.MIMICExtractDataset
     datasets/pyhealth.datasets.MIMIC4Dataset
     datasets/pyhealth.datasets.eICUDataset
     datasets/pyhealth.datasets.OMOPDataset

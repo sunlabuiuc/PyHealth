@@ -297,7 +297,6 @@ class MoleRecLayer(torch.nn.Module):
             )
             print(e)
 
-
         self.hidden_size = hidden_size
         self.coef, self.target_ddi = coef, target_ddi
         GNN_para = {
