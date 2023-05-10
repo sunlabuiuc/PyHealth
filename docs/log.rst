@@ -6,28 +6,28 @@ We track the new development here:
 
 .. code-block:: rst
 
-    1. add MIMIC-Extract dataset  `#136 <https://github.com/sunlabuiuc/PyHealth/pull/136>`_
+    1. add MIMIC-Extract dataset  #136
     2. add new maintainer members for pyhealth: Junyi Gao and Benjamin Danek
 
 **May 6, 2023**
 
 .. code-block:: rst
 
-    1. add new parser functions (admissionDx, diagnosisStrings) and prediction tasks for eICU dataset  `#148 <https://github.com/sunlabuiuc/PyHealth/pull/148>`_
+    1. add new parser functions (admissionDx, diagnosisStrings) and prediction tasks for eICU dataset #148
 
 **Apr 27, 2023**
 
 .. code-block:: rst
 
-    1. add MoleRec model (WWW'23) for drug recommendation `#122 <https://github.com/sunlabuiuc/PyHealth/pull/122>`_
+    1. add MoleRec model (WWW'23) for drug recommendation #122
 
 **Apr 26, 2023**
 
 .. code-block:: rst
  
-    1. fix bugs in GRASP model `#141 <https://github.com/sunlabuiuc/PyHealth/pull/141>`_
-    2. add pandas install <2 constraints `#135 <https://github.com/sunlabuiuc/PyHealth/pull/135>`_
-    3. add hcpcsevents table process in MIMIC4 dataset `#134 <https://github.com/sunlabuiuc/PyHealth/pull/134>`_
+    1. fix bugs in GRASP model #141
+    2. add pandas install <2 constraints #135 
+    3. add hcpcsevents table process in MIMIC4 dataset #134
     
 **Apr 10, 2023**
 
