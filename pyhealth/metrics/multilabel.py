@@ -122,7 +122,7 @@ def multilabel_metrics_fn(
             )
             output["pr_auc_samples"] = pr_auc_samples
         elif metric == "accuracy":
-            accuracy = sklearn_metrics.accuracy_score(y_true, y_pred)
+            accuracy = sklearn_metrics.accuracy_score(y_true.flatten(), y_pred.flatten())
             output["accuracy"] = accuracy
         elif metric == "f1_micro":
             f1_micro = sklearn_metrics.f1_score(y_true, y_pred, average="micro")
