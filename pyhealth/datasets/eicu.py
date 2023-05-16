@@ -238,7 +238,7 @@ class eICUDataset(BaseEHRDataset):
             else:
                 return "Unknown"
             
-        # prefer icd10 code when possible, fallback to the icd9 code
+        # prefer icd9 code when possible, fallback to the icd9 code
         def preferred_code(codes: List[str]):
             preferred_codes = set()
             for code in codes:
