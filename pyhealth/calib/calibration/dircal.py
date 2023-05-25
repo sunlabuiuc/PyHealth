@@ -50,6 +50,7 @@ class DirichletCalibration(PostHocCalibrator):
 
     Dirichlet calibration is similar to retraining a linear layer mapping from the
     old logits to the new logits with regularizations.
+    This is a calibration method for *multiclass* classification only.
 
     Paper:
 
