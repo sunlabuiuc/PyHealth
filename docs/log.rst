@@ -2,6 +2,13 @@ Development logs
 ======================
 We track the new development here:
 
+
+**May 25, 2023**
+
+.. code-block:: rst
+
+    1. add dirichlet calibration `PR #139`
+
 **May 9, 2023**
 
 .. code-block:: rst
