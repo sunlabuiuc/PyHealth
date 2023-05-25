@@ -239,7 +239,7 @@ class KCal(PostHocCalibrator):
 
         self.record_id_name = record_id_name
         if train_dataset is not None:
-            self._fit(train_dataset, val_dataset=cal_dataset,
+            self.fit(train_dataset, val_dataset=cal_dataset,
                       split_by_patient=train_split_by_patient,
                       load_best_model_at_last=load_best_model_at_last,
                       **train_kwargs)
