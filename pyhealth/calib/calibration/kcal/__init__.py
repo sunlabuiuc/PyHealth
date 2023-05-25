@@ -120,13 +120,14 @@ class KCal(PostHocCalibrator):
     Examples:
         >>> from pyhealth.models import SparcNet
         >>> from pyhealth.tasks import sleep_staging_isruc_fn
+        >>> from pyhealth.calib.calibration import KCal
         >>> sleep_ds = ISRUCDataset("/srv/scratch1/data/ISRUC-I").set_task(sleep_staging_isruc_fn)
         >>> train_data, val_data, test_data = split_by_patient(sleep_ds, [0.6, 0.2, 0.2])
         >>> model = SparcNet(dataset=sleep_staging_ds, feature_keys=["signal"],
         ...     label_key="label", mode="multiclass")
         >>> # ... Train the model here ...
         >>> # Calibrate
-        >>> cal_model = uq.KCal(model)
+        >>> cal_model = KCal(model)
         >>> cal_model.calibrate(cal_dataset=val_data)
         >>> # Alternatively, you could re-fit the reprojection:
         >>> # cal_model.calibrate(cal_dataset=val_data, train_dataset=train_data)
