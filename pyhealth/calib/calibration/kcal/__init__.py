@@ -338,10 +338,11 @@ class KCal(PostHocCalibrator):
 
 if __name__ == "__main__":
 
-    from pyhealth.datasets import ISRUCDataset, split_by_patient, get_dataloader
+    from pyhealth.calib.calibration import KCal
+    from pyhealth.datasets import (ISRUCDataset, get_dataloader,
+                                   split_by_patient)
     from pyhealth.models import SparcNet
     from pyhealth.tasks import sleep_staging_isruc_fn
-    from pyhealth.calib.calibration import KCal
 
     sleep_ds = ISRUCDataset(
         root="/srv/local/data/trash/",

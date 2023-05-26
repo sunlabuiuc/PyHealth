@@ -73,8 +73,8 @@ class TemperatureScaling(PostHocCalibrator):
 
         self.num_classes = None
 
-        self.temperature = torch.tensor(
-            1.5, dtype=torch.float32, device=self.device, requires_grad=True
+        self.temperature = torch.nn.Parameter(
+            torch.tensor(1.5, dtype=torch.float32, device=self.device), requires_grad=True
         )
 
     def calibrate(self, cal_dataset: Subset, lr=0.01, max_iter=50, mult_temp=False):
@@ -146,10 +146,11 @@ class TemperatureScaling(PostHocCalibrator):
 
 
 if __name__ == "__main__":
-    from pyhealth.datasets import ISRUCDataset, get_dataloader, split_by_patient
+    from pyhealth.calib.calibration import TemperatureScaling
+    from pyhealth.datasets import (ISRUCDataset, get_dataloader,
+                                   split_by_patient)
     from pyhealth.models import SparcNet
     from pyhealth.tasks import sleep_staging_isruc_fn
-    from pyhealth.calib.calibration import TemperatureScaling
 
     sleep_ds = ISRUCDataset(
         root="/srv/local/data/trash/",

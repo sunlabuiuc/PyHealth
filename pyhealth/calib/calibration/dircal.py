@@ -97,14 +97,13 @@ class DirichletCalibration(PostHocCalibrator):
         self.debug = debug
 
         self.num_classes = None
-        self.weights = None
 
     def _forward(self, logits):
         logits = torch.hstack(
             [logits, torch.zeros((logits.shape[0], 1), device=self.device)]
         )
         weights = _get_weights(
-            self._weights, k=self.num_classes, ref_row=True, method="Full"
+            self.weights, k=self.num_classes, ref_row=True, method="Full"
         )
         new_logits = torch.matmul(logits, weights.permute(1, 0))
         return new_logits, weights
@@ -131,12 +130,11 @@ class DirichletCalibration(PostHocCalibrator):
         if self.num_classes is None:
             self.num_classes = _cal_data["logit"].shape[1]
 
-        self._weights = torch.tensor(
-            _get_identity_weights(self.num_classes),
-            device=self.device,
+        self.weights = torch.nn.Parameter(
+            torch.tensor(_get_identity_weights(self.num_classes), device=self.device),
             requires_grad=True,
         )
-        optimizer = optim.LBFGS([self._weights], lr=lr, max_iter=max_iter)
+        optimizer = optim.LBFGS([self.weights], lr=lr, max_iter=max_iter)
         logits = torch.tensor(_cal_data["logit"], dtype=torch.float, device=self.device)
         label = torch.tensor(
             F.one_hot(torch.tensor(_cal_data["y_true"]), num_classes=self.num_classes),
@@ -207,11 +205,11 @@ class DirichletCalibration(PostHocCalibrator):
 
 
 if __name__ == "__main__":
-
-    from pyhealth.datasets import ISRUCDataset, split_by_patient, get_dataloader
+    from pyhealth.calib.calibration import DirichletCalibration
+    from pyhealth.datasets import (ISRUCDataset, get_dataloader,
+                                   split_by_patient)
     from pyhealth.models import SparcNet
     from pyhealth.tasks import sleep_staging_isruc_fn
-    from pyhealth.calib.calibration import DirichletCalibration
 
     sleep_ds = ISRUCDataset(
         root="/srv/local/data/trash/",
