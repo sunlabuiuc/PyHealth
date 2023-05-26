@@ -3,7 +3,7 @@ PyHealth live
 
  **Start Time**: 8 PM Central Time, Wednesday
 
- **Recurrence**: Weekly (starting from Dec 21, 2022)
+ **Recurrence**: There is no live session for now.
 
  **Zoom**: `Join Link <https://illinois.zoom.us/j/87450975602?pwd=ckQyaHhkRitlUzlwYUY3NjdEQ0pFdz09>`_
 

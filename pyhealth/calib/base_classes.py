@@ -16,6 +16,12 @@ class PostHocCalibrator(ABC, torch.nn.Module):
         ...
 
 
+    def to(self, device):
+        super().to(device)
+        self.device = device
+        return self
+
+
 class SetPredictor(ABC, torch.nn.Module):
     def __init__(self, model, **kwargs) -> None:
         super().__init__()
@@ -26,3 +32,8 @@ class SetPredictor(ABC, torch.nn.Module):
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         ...
+
+    def to(self, device):
+        super().to(device)
+        self.device = device
+        return self
