@@ -286,7 +286,7 @@ class SCRIB(SetPredictor):
             loss_kwargs=self.loss_kwargs,
             verbose=self.debug,
         )
-        self.t = torch.tensor(best_ts, device=self.device)
+        self.t = torch.nn.Parameter(torch.tensor(best_ts, device=self.device))
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation (just like the original model).
@@ -302,10 +302,11 @@ class SCRIB(SetPredictor):
 
 
 if __name__ == "__main__":
-    from pyhealth.datasets import ISRUCDataset, split_by_patient, get_dataloader
+    from pyhealth.calib.predictionset import SCRIB
+    from pyhealth.datasets import (ISRUCDataset, get_dataloader,
+                                   split_by_patient)
     from pyhealth.models import SparcNet
     from pyhealth.tasks import sleep_staging_isruc_fn
-    from pyhealth.calib.predictionset import SCRIB
     from pyhealth.trainer import get_metrics_fn
 
     sleep_ds = ISRUCDataset("/srv/local/data/trash", dev=True).set_task(
