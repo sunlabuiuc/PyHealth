@@ -14,7 +14,8 @@ from pyhealth.calib.base_classes import PostHocCalibrator
 from pyhealth.calib.utils import prepare_numpy_dataset
 from pyhealth.models import BaseModel
 
-__all__ = ['TemperatureScaling']
+__all__ = ["TemperatureScaling"]
+
 
 class TemperatureScaling(PostHocCalibrator):
     """Temperature Scaling
@@ -41,15 +42,17 @@ class TemperatureScaling(PostHocCalibrator):
     :type model: BaseModel
 
     Examples:
+        >>> from pyhealth.datasets import ISRUCDataset, get_dataloader, split_by_patient
         >>> from pyhealth.models import SparcNet
         >>> from pyhealth.tasks import sleep_staging_isruc_fn
+        >>> from pyhealth.calib.calibration import TemperatureScaling
         >>> sleep_ds = ISRUCDataset("/srv/scratch1/data/ISRUC-I").set_task(sleep_staging_isruc_fn)
         >>> train_data, val_data, test_data = split_by_patient(sleep_ds, [0.6, 0.2, 0.2])
-        >>> model = SparcNet(dataset=sleep_staging_ds, feature_keys=["signal"],
+        >>> model = SparcNet(dataset=sleep_ds, feature_keys=["signal"],
         ...     label_key="label", mode="multiclass")
         >>> # ... Train the model here ...
         >>> # Calibrate
-        >>> cal_model = uq.TemperatureScaling(model)
+        >>> cal_model = TemperatureScaling(model)
         >>> cal_model.calibrate(cal_dataset=val_data)
         >>> # Evaluate
         >>> from pyhealth.trainer import Trainer
@@ -57,7 +60,8 @@ class TemperatureScaling(PostHocCalibrator):
         >>> print(Trainer(model=cal_model, metrics=['cwECEt_adapt', 'accuracy']).evaluate(test_dl))
         {'accuracy': 0.709843241966832, 'cwECEt_adapt': 0.051673596521491505}
     """
-    def __init__(self, model:BaseModel, debug=False, **kwargs) -> None:
+
+    def __init__(self, model: BaseModel, debug=False, **kwargs) -> None:
         super().__init__(model, **kwargs)
         self.mode = self.model.mode
         for param in model.parameters():
@@ -69,10 +73,11 @@ class TemperatureScaling(PostHocCalibrator):
 
         self.num_classes = None
 
-        self.temperature = torch.tensor(
-            1.5, dtype=torch.float32, device=self.device, requires_grad=True)
+        self.temperature = torch.nn.Parameter(
+            torch.tensor(1.5, dtype=torch.float32, device=self.device), requires_grad=True
+        )
 
-    def calibrate(self, cal_dataset:Subset, lr=0.01, max_iter=50, mult_temp=False):
+    def calibrate(self, cal_dataset: Subset, lr=0.01, max_iter=50, mult_temp=False):
         """Calibrate the base model using a calibration dataset.
 
         :param cal_dataset: Calibration set.
@@ -88,26 +93,34 @@ class TemperatureScaling(PostHocCalibrator):
         :rtype: None
         """
 
-        _cal_data = prepare_numpy_dataset(self.model, cal_dataset,
-                                          ['y_true', 'logit'], debug=self.debug)
+        _cal_data = prepare_numpy_dataset(
+            self.model, cal_dataset, ["y_true", "logit"], debug=self.debug
+        )
 
         if self.num_classes is None:
-            self.num_classes = _cal_data['logit'].shape[1]
-        if self.mode == 'multilabel' and mult_temp:
-            self.temperature = torch.tensor([1.5 for _ in range(self.num_classes)],
-                                            dtype=torch.float32,
-                                            device=self.device, requires_grad=True)
+            self.num_classes = _cal_data["logit"].shape[1]
+        if self.mode == "multilabel" and mult_temp:
+            self.temperature = torch.tensor(
+                [1.5 for _ in range(self.num_classes)],
+                dtype=torch.float32,
+                device=self.device,
+                requires_grad=True,
+            )
         optimizer = optim.LBFGS([self.temperature], lr=lr, max_iter=max_iter)
         criterion = self.model.get_loss_function()
-        logits = torch.tensor(_cal_data['logit'], dtype=torch.float, device=self.device)
-        label = torch.tensor(_cal_data['y_true'],
-                             dtype=torch.long if self.model.mode == 'multiclass' else torch.float32,
-                             device=self.device)
+        logits = torch.tensor(_cal_data["logit"], dtype=torch.float, device=self.device)
+        label = torch.tensor(
+            _cal_data["y_true"],
+            dtype=torch.long if self.model.mode == "multiclass" else torch.float32,
+            device=self.device,
+        )
+
         def _eval():
             optimizer.zero_grad()
             loss = criterion(logits / self.temperature, label)
             loss.backward()
             return loss
+
         self.train()
         optimizer.step(_eval)
         self.eval()
@@ -125,8 +138,39 @@ class TemperatureScaling(PostHocCalibrator):
         :rtype: Dict[str, torch.Tensor]
         """
         ret = self.model(**kwargs)
-        ret['logit'] = ret['logit'] / self.temperature
-        ret['y_prob'] = self.model.prepare_y_prob(ret['logit'])
+        ret["logit"] = ret["logit"] / self.temperature
+        ret["y_prob"] = self.model.prepare_y_prob(ret["logit"])
         criterion = self.model.get_loss_function()
-        ret['loss'] = criterion(ret['logit'], ret['y_true'])
+        ret["loss"] = criterion(ret["logit"], ret["y_true"])
         return ret
+
+
+if __name__ == "__main__":
+    from pyhealth.calib.calibration import TemperatureScaling
+    from pyhealth.datasets import (ISRUCDataset, get_dataloader,
+                                   split_by_patient)
+    from pyhealth.models import SparcNet
+    from pyhealth.tasks import sleep_staging_isruc_fn
+
+    sleep_ds = ISRUCDataset(
+        root="/srv/local/data/trash/",
+        dev=True,
+    ).set_task(sleep_staging_isruc_fn)
+    train_data, val_data, test_data = split_by_patient(sleep_ds, [0.6, 0.2, 0.2])
+    model = SparcNet(
+        dataset=sleep_ds,
+        feature_keys=["signal"],
+        label_key="label",
+        mode="multiclass",
+    )
+    # ... Train the model here ...
+    # Calibrate
+    cal_model = TemperatureScaling(model)
+    cal_model.calibrate(cal_dataset=val_data)
+    # Evaluate
+    from pyhealth.trainer import Trainer
+
+    test_dl = get_dataloader(test_data, batch_size=32, shuffle=False)
+    print(
+        Trainer(model=cal_model, metrics=["cwECEt_adapt", "accuracy"]).evaluate(test_dl)
+    )

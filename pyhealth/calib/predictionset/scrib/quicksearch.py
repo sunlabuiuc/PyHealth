@@ -221,7 +221,7 @@ def coord_desc_classspecific_py(mo, rnkscores_or_maxclasses, scores_idx, labels,
             best_loss = curr_loss
         else:
             keep_going = False
-    return best_loss, ps
+    return best_loss, ps, None
 
 
 def coord_desc_overall_py(mo, rnkscores_or_maxclasses, scores_idx, labels, ps, alpha, *,
@@ -245,7 +245,7 @@ def coord_desc_overall_py(mo, rnkscores_or_maxclasses, scores_idx, labels, ps, a
             best_loss = curr_loss
         else:
             keep_going = False
-    return best_loss, ps
+    return best_loss, ps, None
 
 def loss_overall(idx2rnk, rnk2idx, labels, max_classes, ps, r, *,
                  lk=1e4, fill_max=False):
