@@ -7,7 +7,7 @@ We track the new development here:
 
 .. code-block:: rst
 
-    1. add dirichlet calibration `PR #139`
+    1. add dirichlet calibration `PR #159`
 
 **May 9, 2023**
 
