@@ -116,6 +116,8 @@ class Trainer:
         epochs: int = 5,
         optimizer_class: Type[Optimizer] = torch.optim.Adam,
         optimizer_params: Optional[Dict[str, object]] = None,
+        steps_per_epoch: int = None,
+        evaluation_steps: int = 1,
         weight_decay: float = 0.0,
         max_grad_norm: float = None,
         monitor: Optional[str] = None,
@@ -171,7 +173,8 @@ class Trainer:
         # initialize
         data_iterator = iter(train_dataloader)
         best_score = -1 * float("inf") if monitor_criterion == "max" else float("inf")
-        steps_per_epoch = len(train_dataloader)
+        if steps_per_epoch == None:
+            steps_per_epoch = len(train_dataloader)
         global_step = 0
 
         # epoch training loop
@@ -212,7 +215,7 @@ class Trainer:
                 self.save_ckpt(os.path.join(self.exp_path, "last.ckpt"))
 
             # validation
-            if val_dataloader is not None:
+            if (val_dataloader is not None) and (epoch % evaluation_steps == 0):
                 scores = self.evaluate(val_dataloader)
                 logger.info(f"--- Eval epoch-{epoch}, step-{global_step} ---")
                 for key in scores.keys():
