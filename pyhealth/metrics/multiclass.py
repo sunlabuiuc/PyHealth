@@ -182,6 +182,21 @@ def multiclass_metrics_fn(
                 output[metric] = pset.error_ps(y_predset, y_true)
             elif metric == "error_overall_ps":
                 output[metric] = pset.error_overall_ps(y_predset, y_true)
+        
+        elif metric == "hits@n":
+            argsort = np.argsort(-y_prob, axis=1)
+            ranking = np.array([np.where(argsort[i] == y_true[i])[0][0] for i in range(len(y_true))]) + 1
+            output["HITS@1"] = np.count_nonzero(ranking <= 1) / len(ranking)
+            output["HITS@5"] = np.count_nonzero(ranking <= 5) / len(ranking)
+            output["HITS@10"] = np.count_nonzero(ranking <= 10) / len(ranking)
+        elif metric == "mean_rank":
+            argsort = np.argsort(-y_prob, axis=1)
+            ranking = np.array([np.where(argsort[i] == y_true[i])[0][0] for i in range(len(y_true))]) + 1
+            mean_rank = np.mean(ranking)
+            mean_reciprocal_rank = np.mean(1/ranking)
+            output["mean_rank"] = mean_rank
+            output["mean_reciprocal_rank"] = mean_reciprocal_rank
+            
         else:
             raise ValueError(f"Unknown metric for multiclass classification: {metric}")
 
