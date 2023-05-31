@@ -26,5 +26,6 @@ from .readmission_prediction import (
 )
 from .sleep_staging import (
     sleep_staging_sleepedf_fn,
-    sleep_staging_isruc_fn
+    sleep_staging_isruc_fn,
+    sleep_staging_shhs_fn,
 )
