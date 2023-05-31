@@ -22,7 +22,7 @@ def readme():
 with open(path.join(this_directory, "requirements.txt"), encoding="utf-8") as f:
     requirements = f.read().splitlines()
 
-VERSION = "1.1.3"
+VERSION = "1.1.4"
 
 setup(
     name="pyhealth",
@@ -30,7 +30,7 @@ setup(
     description="A Python library for healthcare AI",
     long_description=readme(),
     long_description_content_type="text/x-rst",
-    author="Chaoqi Yang, Zhenbang Wu, Patrick Jiang",
+    author="Chaoqi Yang, Zhenbang Wu, Patrick Jiang, Zhen Lin, Benjamin Danek, Junyi Gao, Jimeng Sun",
     author_email="chaoqiy2@illinois.edu",
     url="https://github.com/sunlabuiuc/pyhealth",
     keywords=[
