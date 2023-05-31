@@ -419,6 +419,7 @@ class OMOPDataset(BaseEHRDataset):
                             visit_id=v_id,
                             patient_id=p_id,
                             timestamp=strptime(timestamp),
+                            measurement=value_numeric
                         )
                     elif value_categorical:
                         event = Event(
@@ -428,6 +429,7 @@ class OMOPDataset(BaseEHRDataset):
                             visit_id=v_id,
                             patient_id=p_id,
                             timestamp=strptime(timestamp),
+                            measurement=value_categorical
                         )
                     else: 
                         event = Event(
