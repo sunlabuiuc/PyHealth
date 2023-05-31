@@ -240,18 +240,19 @@ def sleep_staging_shhs_fn(record, epoch_seconds=30):
     Note that we define the task as a multi-class classification task.
 
     Examples:
-        >>> from pyhealth.datasets import SleepEDFDataset
-        >>> sleepedf = SleepEDFDataset(
-        ...         root="/srv/local/data/SLEEPEDF/sleep-edf-database-expanded-1.0.0/sleep-cassette",
+        >>> from pyhealth.datasets import SHHSDataset
+        >>> shhs = SleepEDFDataset(
+        ...         root="/srv/local/data/SHHS/polysomnography",
+        ...         dev=True,
         ...     )
-        >>> from pyhealth.tasks import sleep_staging_sleepedf_fn
-        >>> sleepstage_ds = sleepedf.set_task(sleep_staging_sleepedf_fn)
-        >>> sleepstage_ds.samples[0]
+        >>> from pyhealth.tasks import sleep_staging_shhs_fn
+        >>> shhs_ds = sleepedf.set_task(sleep_staging_shhs_fn)
+        >>> shhs_ds.samples[0]
         {
-            'record_id': 'SC4001-0',
-            'patient_id': 'SC4001',
-            'epoch_path': '/home/chaoqiy2/.cache/pyhealth/datasets/70d6dbb28bd81bab27ae2f271b2cbb0f/SC4001-0.pkl',
-            'label': 'W'
+            'record_id': 'shhs1-200001-0', 
+            'patient_id': 'shhs1-200001', 
+            'epoch_path': '/home/chaoqiy2/.cache/pyhealth/datasets/76c1ce8195a2e1a654e061cb5df4671a/shhs1-200001-0.pkl', 
+            'label': '0'
         }
     """
     
