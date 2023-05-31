@@ -1,3 +1,4 @@
+import math
 import os
 from typing import Optional, List, Dict, Tuple, Union
 
@@ -385,6 +386,8 @@ class OMOPDataset(BaseEHRDataset):
                 "person_id": str,
                 "visit_occurrence_id": str,
                 "measurement_concept_id": str,
+                "value_as_number": float,
+                "value_as_concept_id": int
             },
             sep="\t",
         )
@@ -394,7 +397,7 @@ class OMOPDataset(BaseEHRDataset):
         )
         # sort by measurement_datetime
         df = df.sort_values(
-            ["person_id", "visit_occurrence_id", "measurement_datetime"], ascending=True
+            ["person_id", "visit_occurrence_id", "measurement_datetime", "value_as_number", "value_as_concept_id"], ascending=True
         )
         # group by patient and visit
         group_df = df.groupby("person_id")
@@ -405,17 +408,36 @@ class OMOPDataset(BaseEHRDataset):
 
             events = []
             for v_id, v_info in p_info.groupby("visit_occurrence_id"):
-                for timestamp, code in zip(
-                    v_info["measurement_datetime"], v_info["measurement_concept_id"]
+                for timestamp, code, value_numeric, value_categorical in zip(
+                    v_info["measurement_datetime"], v_info["measurement_concept_id"], v_info["value_as_number"], v_info["value_as_concept_id"]
                 ):
-                    event = Event(
-                        code=code,
-                        table=table,
-                        vocabulary="MEASUREMENT_CONCEPT_ID",
-                        visit_id=v_id,
-                        patient_id=p_id,
-                        timestamp=strptime(timestamp),
-                    )
+                    if not math.isnan(value_numeric):
+                        event = Event(
+                            code=code,
+                            table=table,
+                            vocabulary="MEASUREMENT_NUMERIC",
+                            visit_id=v_id,
+                            patient_id=p_id,
+                            timestamp=strptime(timestamp),
+                        )
+                    elif value_categorical:
+                        event = Event(
+                            code=code,
+                            table=table,
+                            vocabulary="MEASUREMENT_CATEGORICAL",
+                            visit_id=v_id,
+                            patient_id=p_id,
+                            timestamp=strptime(timestamp),
+                        )
+                    else: 
+                        event = Event(
+                            code=code,
+                            table=table,
+                            vocabulary="MEASUREMENT_CONCEPT_ID",
+                            visit_id=v_id,
+                            patient_id=p_id,
+                            timestamp=strptime(timestamp),
+                        )
                     events.append(event)
             return events
 
@@ -430,7 +452,7 @@ class OMOPDataset(BaseEHRDataset):
 
 if __name__ == "__main__":
     dataset = OMOPDataset(
-        root="/srv/local/data/zw12/pyhealth/raw_data/synpuf1k_omop_cdm_5.2.2",
+        root="https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2/",
         tables=[
             "condition_occurrence",
             "procedure_occurrence",
