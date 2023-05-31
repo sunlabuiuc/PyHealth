@@ -34,7 +34,7 @@ class SHHSDataset(BaseSignalDataset):
     Examples:
         >>> from pyhealth.datasets import SHHSDataset
         >>> dataset = SHHSDataset(
-        ...         root="/srv/local/data/shhs/files/polysomnography/edfs",
+        ...         root="/srv/local/data/SHHS/",
         ...     )
         >>> dataset.stat()
         >>> dataset.info()
@@ -52,16 +52,18 @@ class SHHSDataset(BaseSignalDataset):
     def process_EEG_data(self):
 
         # get shhs1
-        if os.path.exists(os.path.join(self.root, "shhs1")):
+        shhs1 = []
+        if os.path.exists(os.path.join(self.root, "edfs/shhs1")):
             print("shhs1 exists and load shhs1")
-            shhs1 = os.listdir(os.path.join(self.root, "shhs1"))
+            shhs1 = os.listdir(os.path.join(self.root, "edfs/shhs1"))
         else:
             print("shhs1 does not exist")
 
         # get shhs2
-        if os.path.exists(os.path.join(self.root, "shhs2")):
+        shhs2 = []
+        if os.path.exists(os.path.join(self.root, "edfs/shhs2")):
             print("shhs2 exists and load shhs2")
-            shhs2 = os.listdir(os.path.join(self.root, "shhs2"))
+            shhs2 = os.listdir(os.path.join(self.root, "edfs/shhs2"))
         else:
             print("shhs2 does not exist")
 
@@ -80,8 +82,9 @@ class SHHSDataset(BaseSignalDataset):
             if pid in patient_ids:
                 patients[pid].append(
                     {
-                        "load_from_path": os.path.join(self.root, "shhs1"),
-                        "file": file,
+                        "load_from_path": self.root,
+                        "signal_file": os.path.join("edfs/shhs1", file),
+                        "label_file": os.path.join("annotations-events-profusion/shhs1", f"shhs1-{pid}-profusion.xml"),
                         "save_to_path": os.path.join(self.filepath),
                     }
                 )
@@ -92,8 +95,9 @@ class SHHSDataset(BaseSignalDataset):
             if pid in patient_ids:
                 patients[pid].append(
                     {
-                        "load_from_path": os.path.join(self.root, "shhs2"),
-                        "file": file,
+                        "load_from_path": self.root,
+                        "signal_file": os.path.join("edfs/shhs2", file),
+                        "label_file": os.path.join("annotations-events-profusion/label", f"shhs2-{pid}-profusion.xml"),
                         "save_to_path": os.path.join(self.filepath),
                     }
                 )
@@ -102,7 +106,7 @@ class SHHSDataset(BaseSignalDataset):
 
 if __name__ == "__main__":
     dataset = SHHSDataset(
-        root="/srv/local/data/shhs/files/polysomnography/edfs",
+        root="/srv/local/data/SHHS/polysomnography",
         dev=True,
         refresh_cache=True,
     )
