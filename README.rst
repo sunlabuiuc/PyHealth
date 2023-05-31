@@ -71,7 +71,7 @@ PyHealth is designed for both **ML researchers and medical practitioners**. We c
 ..
 
 1. Installation :rocket:
------------------
+----------------------------
 
 - You could install from PyPi:
 
@@ -103,7 +103,7 @@ You can use the following functions independently:
 
 
 3. Build ML Pipelines :trophy:
---------------------------
+---------------------------------
 
 All healthcare tasks in our package follow a **five-stage pipeline**: 
 
@@ -356,7 +356,7 @@ www.youtube.com/watch?v=GGP3Dhfyisc&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&inde
 
 
 7. Datasets :mountain_snow:
---------------------------
+-----------------------------
 We provide the processing files for the following open EHR datasets:
 
 ===================  =======================================  ========================================  ======================================================================================================== 
@@ -373,7 +373,7 @@ ISRUC                ``pyhealth.datasets.ISRUCDataset``       2016              
 
 
 8. Machine/Deep Learning Models and Benchmarks :airplane:
-----------------------------------------------------------
+------------------------------------------------------------
 
 ==================================    ================  =================================  ======  ============================================================================================================================================================================  =======================================================================================================================================================================================
 Model Name                            Type              Module                             Year    Summary                                                                                                                                                                       Reference
