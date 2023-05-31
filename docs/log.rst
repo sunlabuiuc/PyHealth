@@ -2,6 +2,11 @@ Development logs
 ======================
 We track the new development here:
 
+**May 31, 2023**
+
+.. code-block:: rst
+
+    1. add SHHS dataset and its sleep staging task.
 
 **May 25, 2023**
 
