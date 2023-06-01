@@ -4,7 +4,7 @@
     Original GPT-2 Pytorch Model: https://github.com/huggingface/pytorch-pretrained-BERT
     GPT-2 Pytorch Model Derived From: https://github.com/graykode/gpt-2-Pytorch
 '''
-import bisect
+import numpy as np
 import copy
 import math
 from typing import Dict, List, Union
@@ -13,6 +13,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
 from pyhealth.datasets.base_ehr_dataset import BaseEHRDataset
+from pyhealth.datasets.eicu import eICUDataset
 
 from pyhealth.datasets.sample_dataset import SampleEHRDataset
 
@@ -398,7 +399,7 @@ class HALOAggregator():
                     
                     for te_raw in table_events_raw:
                         
-                        te = event_handler(te_raw) if event_handler else te_raw
+                        te = event_handler(te_raw) if event_handler else te_raw.code
                         global_event = (table, te)
                     
                         index_of_global_event = len(global_events)
@@ -408,7 +409,7 @@ class HALOAggregator():
                         
                         
             # compute global label (method provided by user)
-            label = self.label_fn({ 'p_id': pid, 'patient_data': pdata })
+            label = self.label_fn(p_id=pid, patient_data=pdata)
             index_of_global_label = len(global_labels)
             
             global_labels[label] = index_of_global_label
@@ -441,18 +442,18 @@ class HALOAggregator():
         for pid, pdata in tqdm(self.dataset.patients.items(), desc="HALOAggregator processing samples"):
             total_vocab_size = len(self.global_events) + len(self.global_labels) + len(self.SPECIAL_VOCAB)
             
-            sample_multi_hot = np.zeros(self.max_visits, total_vocab_size) # patient data the model reads
-            sample_mask = np.zeros(self.max_visits, 1) # visits that are unlabeled
+            sample_multi_hot = np.zeros((len(self.SPECIAL_VOCAB) + self.max_visits, total_vocab_size)) # patient data the model reads
+            sample_mask = np.zeros((len(self.SPECIAL_VOCAB) + self.max_visits, 1)) # visits that are unlabeled
             
             # build multihot vector for patient events
-            for visit_index, vid,  in pdata.visits:
+            for visit_index, vid,  in enumerate(pdata.visits):
                 vdata = pdata.visits[vid]
                 
                 sample_mask[visit_index] = 1
                 
                 for table in vdata.available_tables:
 
-                    if table not in self.valid_dataset_tables: continue
+                    if self.valid_dataset_tables != None and table not in self.valid_dataset_tables: continue
                     
                     table_events_raw = vdata.get_event_list(table)
                     
@@ -460,7 +461,7 @@ class HALOAggregator():
                     
                     for te_raw in table_events_raw:
                         
-                        te = event_handler(te_raw) if event_handler else te_raw
+                        te = event_handler(te_raw) if event_handler else te_raw.code
                         global_event = (table, te)
                         event_as_index = self.global_events[global_event]
                         
@@ -471,15 +472,15 @@ class HALOAggregator():
             sample_multi_hot[self.START_INDEX, self.start_token_index] = 1
             
             # set patient label
-            global_label = self.label_fn({ 'p_id': pid, 'patient_data': pdata })
+            global_label = self.label_fn(p_id=pid, patient_data=pdata)
             label_as_index = self.global_labels[global_label]
             sample_multi_hot[self.LABEL_INDEX, len(self.global_events) + label_as_index] = 1
             
             # set the end token
-            sample_multi_hot[self.VISIT_INDEX + len(vdata), self.end_token_index] = 1
+            sample_multi_hot[self.VISIT_INDEX + len(pdata.visits), self.end_token_index] = 1
             
             # set the remainder of the visits to pads if needed
-            sample_multi_hot[(self.VISIT_INDEX + len(vdata)):, self.pad_token_index] = 1
+            sample_multi_hot[(self.VISIT_INDEX + len(pdata.visits)):, self.pad_token_index] = 1
             
             # set the mask to cover the labels
             sample_mask[self.LABEL_INDEX] = 1
@@ -487,13 +488,18 @@ class HALOAggregator():
             # "shift the mask to match the shifted labels & predictions the model will return"
             sample_mask = sample_mask[1:, :]
             
-            samples.append((sample_multi_hot, sample_mask))
+            samples.append({
+                'patient_id': pdata.patient_id,
+                'visit_id': ','.join([v for v in pdata.visits]),
+                'data_vector': sample_multi_hot.tolist(), 
+                'data_mask': sample_mask.tolist()
+            })
             
-            return SampleEHRDataset(
-                samples=samples,
-                dataset_name='dataset_as_halo_vectors',
-                task_name='HALOAggregator.process'
-            )
+        return SampleEHRDataset(
+            samples=samples,
+            dataset_name='dataset_as_halo_vectors',
+            task_name='HALOAggregator.process'
+        )
     
 if __name__ == "__main__":
     from pyhealth.datasets import OMOPDataset
@@ -520,19 +526,35 @@ if __name__ == "__main__":
     #     refresh_cache=REFRESH_CACHE,
     # )
     
-    DATASET_NAME = "omop-demo"
-    ROOT = "https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2/"
-    TABLES = [
-        "condition_occurrence",
-        "procedure_occurrence",
-        "drug_exposure",
-        "measurement",
-    ]
+    # DATASET_NAME = "omop-demo"
+    # ROOT = "https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2/"
+    # TABLES = [
+    #     "condition_occurrence",
+    #     "procedure_occurrence",
+    #     "drug_exposure",
+    #     "measurement",
+    # ]
+    # CODE_MAPPING = {}
+    # DEV = True  # not needed when using demo set since its 100 patients large
+    # REFRESH_CACHE = False
+
+    # dataset = OMOPDataset(
+    #     dataset_name=DATASET_NAME,
+    #     root=ROOT,
+    #     tables=TABLES,
+    #     code_mapping=CODE_MAPPING,
+    #     dev=DEV,
+    #     refresh_cache=REFRESH_CACHE,
+    # )
+    
+    DATASET_NAME = "eICU-demo"
+    ROOT = "https://storage.googleapis.com/pyhealth/eicu-demo/"
+    TABLES = ["diagnosis", "medication", "lab", "treatment", "physicalExam"]
     CODE_MAPPING = {}
     DEV = True  # not needed when using demo set since its 100 patients large
     REFRESH_CACHE = False
 
-    dataset = OMOPDataset(
+    dataset = eICUDataset(
         dataset_name=DATASET_NAME,
         root=ROOT,
         tables=TABLES,
@@ -557,62 +579,18 @@ if __name__ == "__main__":
     event_handlers = {}    
     event_handlers['measurement'] =  handle_measurement
     
-    simpleDataset = HALOAggregator(
+    sampleDataset = HALOAggregator(
         dataset=dataset,
         use_tables=None,
         event_handlers=event_handlers,
         label_fn=simple_label_fn
     ).process()
     
-    print(simpleDataset)
-    # def get_batch(dataset, loc, batch_size):
-    #     ehr = dataset[loc:loc+batch_size]
-    #     batch_ehr = np.zeros((len(ehr), config.n_ctx, config.total_vocab_size))
-    #     batch_mask = np.zeros((len(ehr), config.n_ctx, 1))
-    #     for i, p in enumerate(ehr):
-    #         visits = p['visits']
-    #         for j, v in enumerate(visits):
-    #             batch_ehr[i,j+2][v] = 1
-    #             batch_mask[i,j+2] = 1
-    #         batch_ehr[i,1,config.code_vocab_size+config.continuous_vocab_size:config.code_vocab_size+config.continuous_vocab_size+config.label_vocab_size] = np.array(p['label_vecs']) # Set the patient labels
-    #         batch_ehr[i,len(visits)+1,config.code_vocab_size+config.continuous_vocab_size+config.label_vocab_size+1] = 1 # Set the final visit to have the end token
-    #         batch_ehr[i,len(visits)+2:,config.code_vocab_size+config.continuous_vocab_size+config.label_vocab_size+2] = 1 # Set the rest to the padded visit token
-    #     batch_mask[:,1] = 1 # Set the mask to cover the labels
-    #     batch_ehr[:,0,config.code_vocab_size+config.continuous_vocab_size+config.label_vocab_size] = 1 # Set the first visits to be the start token
-    #     batch_mask = batch_mask[:,1:,:] # Shift the mask to match the shifted labels and predictions the model will return
-    #     return batch_ehr, batch_mask
-    
-    import numpy as np
-    def HALOVisitLabels(patient: Patient, **kwargs):
-        
-        halo_config = kwargs['config']
-        
-        patient_vector = np.zeros((config.n_ctx, config.total_vocab_size))
-        visits = patient.visits
-        # for i, visit in enumerate(visits):
-            
-    
-            
-    # if task_name is None:
-    #     task_name = task_fn.__name__
-    # samples = []
-    # for patient_id, patient in tqdm(
-    #     self.patients.items(), desc=f"Generating samples for {task_name}"
-    # ):
-    #     samples.extend(task_fn(patient))
-    # sample_dataset = SampleEHRDataset(
-    #     samples,
-    #     dataset_name=self.dataset_name,
-    #     task_name=task_name,
-    # )
-    # return sample_dataset
-            
-    
-    dataset = pyhealth_dataset.set_task() # // todo
+    print(sampleDataset)
     
     # dataloader for train, val, test
     # dataset split
-    train_ds, val_ds, test_ds = split_by_patient(dataset, [0.8, 0.1, 0.1])
+    train_ds, val_ds, test_ds = split_by_patient(sampleDataset, [0.8, 0.1, 0.1])
 
     # obtain train/val/test dataloader, they are <torch.data.DataLoader> object
     train_loader = get_dataloader(train_ds, batch_size=32, shuffle=True)
