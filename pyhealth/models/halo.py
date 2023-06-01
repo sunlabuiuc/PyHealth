@@ -1,5 +1,4 @@
 '''
-    code by Brandon Theodorou
     Original GPT-2 Paper and repository here: https://github.com/openai/gpt-2
     Original GPT-2 Pytorch Model: https://github.com/huggingface/pytorch-pretrained-BERT
     GPT-2 Pytorch Model Derived From: https://github.com/graykode/gpt-2-Pytorch
