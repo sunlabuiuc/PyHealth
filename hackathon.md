@@ -1,4 +1,6 @@
 # PyHealth Sunstella Hackathon 2023 (Optional)
+
+
 We will spend one week in **June - July** for the pyhealth hackathon. Doing well in this hackathon will:
 - strengthen your experience on open-source software development
 - get to know pyhealth and learn how to build a typical healthcare AI pipeline
@@ -7,10 +9,15 @@ We will spend one week in **June - July** for the pyhealth hackathon. Doing well
 
 | Timeline | Instruction |
 | ------ | ------ |
-| Before (Now - June 25) | Students will first familiarize themselves with the pyhealth codebase. |
+| Before (Now - June 25) | Students will first familiarize themselves with the [pyhealth codebase](https://github.com/sunlabuiuc/PyHealth) and [Documentation](https://pyhealth.readthedocs.io/en/latest/). |
 | During (June 25 - July 1) | They select from the existing [spreadsheet](https://docs.google.com/spreadsheets/d/1rSXBT5IJO3Cy0ZacWCg4qC3vvMebida32SuZm2A4qNg/edit#gid=0) to work on one or more contribution items (each item is paired with a mentor). We also highly welcome novel contributions out of the list. The estimated time of each item varies from 1-2 hours to 3-4 days or more. |
 | After (July 1 - July 3) | We evaluate the contributions based on the quality of the PRs (one contribution item, one PR). Your efforts here can lead to a strong recommendation letter.|
 
+## Resources
+- PyHealth Documentation: https://pyhealth.readthedocs.io/en/latest/
+- PyHealth GitHub: https://github.com/sunlabuiuc/PyHealth
+- PyHealth Tutorial: https://pyhealth.readthedocs.io/en/latest/tutorials.html
+- PyHealth Live Videos: https://www.youtube.com/playlist?list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV
 
 ## Mentors (Core development team)
 - `Chaoqi Yang` is a Ph.D. student in CS @ UIUC. His research is build ML models and systems for time-dependent data in health, e.g., electronic health records (EHR), EEG.
