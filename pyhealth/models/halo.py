@@ -3,18 +3,20 @@
     Original GPT-2 Pytorch Model: https://github.com/huggingface/pytorch-pretrained-BERT
     GPT-2 Pytorch Model Derived From: https://github.com/graykode/gpt-2-Pytorch
 '''
+import random
 import numpy as np
 import copy
 import math
-from typing import Dict, List, Union
+from typing import Dict, List, Tuple, Union
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
+from pyhealth import datasets
 from pyhealth.datasets.base_ehr_dataset import BaseEHRDataset
 from pyhealth.datasets.eicu import eICUDataset
+from torch.optim import Optimizer
 
-from pyhealth.datasets.sample_dataset import SampleEHRDataset
 
 """
 model configuration
@@ -24,48 +26,22 @@ model configuration
     Original GPT-2 Paper and repository here: https://github.com/openai/gpt-2
     Original GPT-2 Pytorch Model: https://github.com/huggingface/pytorch-pretrained-BERT
     GPT-2 Pytorch Model Derived From: https://github.com/graykode/gpt-2-Pytorch
+    
 '''
 class Config(object):
-    def __init__(
-            self,
-            total_vocab_size=5839,
-
-            code_vocab_size=5812,
-            continuous_vocab_size=12,
-            label_vocab_size=12,
-            special_vocab_size=3,
-            
-            n_positions=20,
-            n_ctx=20,
-            n_embd=768,
-            n_layer=12,
-            n_head=12,
-            layer_norm_epsilon=1e-5,
-            initializer_range=0.02,
-            batch_size=128,
-            sample_batch_size=512,
-            epoch=100,
-            patience=5,
-            lr=1e-4,
-    ):
-        self.total_vocab_size = total_vocab_size
-        self.code_vocab_size = code_vocab_size
-        self.continuous_vocab_size = continuous_vocab_size
-        self.label_vocab_size = label_vocab_size
-        self.special_vocab_size = special_vocab_size
-        self.n_positions = n_positions
-        self.n_ctx = n_ctx
-        self.n_embd = n_embd
-        self.n_layer = n_layer
-        self.n_head = n_head
-        self.layer_norm_epsilon = layer_norm_epsilon
-        self.initializer_range = initializer_range
-        self.batch_size = batch_size
-        self.sample_batch_size = sample_batch_size
-        self.epoch = epoch
-        self.patience = patience
-        self.lr = lr
-
+    required = [
+        "n_positions", "n_ctx", "n_embd", "n_layer", "n_head", "layer_norm_epsilon", "initializer_range"
+    ]
+    def __init__(self, **kwargs):
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+        
+        missing = []
+        for r in self.required:
+            if (r not in self.__dict__):
+                missing.append(r)
+        if missing != []:
+            raise Exception(f"Incorrect HALO config provided. Required fields missing: {', '.join(missing)}")
 
 """
 model definition & building blocks
@@ -331,7 +307,7 @@ preprocessor
     - present in visit set
 
 """
-class HALOAggregator():
+class HALOProcessor():
     
     # what does pad_code do again? 
     SPECIAL_VOCAB = ('start_code', 'last_visit_code', 'pad_code')
@@ -359,19 +335,22 @@ class HALOAggregator():
         
         # whitelisted tables
         self.valid_dataset_tables = use_tables 
-        
+
         # handle processing of event types
         self.event_handlers = event_handlers 
         
         # generate a HALO label based on a patient record
         self.label_fn = label_fn
-        
+                
         self.max_visits = max_visits
+        
+        # set dynamically available information as a part of initialization
+        self.aggregate_halo_indeces()
         
     """
     its necessary to aggregate global event data, prior to trnasforming the dataset
     """
-    def aggregate_halo_indeces(self) -> SampleEHRDataset:
+    def aggregate_halo_indeces(self) -> None:
 
         # two way mapping from global identifier to index & vice-versa
         # possible since index <> global identifier is bijective
@@ -431,24 +410,24 @@ class HALOAggregator():
     similar to dataset.set_task(...)
     - produce a sampleEHRDataset
     """  
-    def process(self):
+    def process_batch(self, batch) -> Tuple:
+        batch_size = len(batch)
         
-        # generate index objects used to make multi hot vectors
-        self.aggregate_halo_indeces()
+        if not self.preprocessed:
+            raise Exception('Preprocessing not complete. call `aggregate_halo_indeces` first.')
         
-        samples = []
-        
-        for pid, pdata in tqdm(self.dataset.patients.items(), desc="HALOAggregator processing samples"):
-            total_vocab_size = len(self.global_events) + len(self.global_labels) + len(self.SPECIAL_VOCAB)
+        total_vocab_size = len(self.global_events) + len(self.global_labels) + len(self.SPECIAL_VOCAB)
             
-            sample_multi_hot = np.zeros((len(self.SPECIAL_VOCAB) + self.max_visits, total_vocab_size)) # patient data the model reads
-            sample_mask = np.zeros((len(self.SPECIAL_VOCAB) + self.max_visits, 1)) # visits that are unlabeled
+        sample_multi_hot = np.zeros((batch_size, len(self.SPECIAL_VOCAB) + self.max_visits, total_vocab_size)) # patient data the model reads
+        sample_mask = np.zeros((batch_size, len(self.SPECIAL_VOCAB) + self.max_visits, 1)) # visits that are unlabeled
+        
+        for pidx, (pid, pdata) in tqdm(enumerate(batch.patients.items()), desc="HALOAggregator processing samples"):
             
             # build multihot vector for patient events
             for visit_index, vid,  in enumerate(pdata.visits):
                 vdata = pdata.visits[vid]
                 
-                sample_mask[visit_index] = 1
+                sample_mask[pidx, visit_index] = 1
                 
                 for table in vdata.available_tables:
 
@@ -465,48 +444,158 @@ class HALOAggregator():
                         event_as_index = self.global_events[global_event]
                         
                         # set table events
-                        sample_multi_hot[self.VISIT_INDEX + visit_index, event_as_index] = 1
+                        sample_multi_hot[pidx, self.VISIT_INDEX + visit_index, event_as_index] = 1
             
             # set the start token
-            sample_multi_hot[self.START_INDEX, self.start_token_index] = 1
+            sample_multi_hot[:, self.START_INDEX, self.start_token_index] = 1
             
             # set patient label
             global_label = self.label_fn(p_id=pid, patient_data=pdata)
             label_as_index = self.global_labels[global_label]
-            sample_multi_hot[self.LABEL_INDEX, len(self.global_events) + label_as_index] = 1
+            sample_multi_hot[:, self.LABEL_INDEX, len(self.global_events) + label_as_index] = 1
             
             # set the end token
-            sample_multi_hot[self.VISIT_INDEX + len(pdata.visits), self.end_token_index] = 1
+            sample_multi_hot[:, self.VISIT_INDEX + len(pdata.visits), self.end_token_index] = 1
             
             # set the remainder of the visits to pads if needed
-            sample_multi_hot[(self.VISIT_INDEX + len(pdata.visits)):, self.pad_token_index] = 1
+            sample_multi_hot[:, (self.VISIT_INDEX + len(pdata.visits)):, self.pad_token_index] = 1
             
             # set the mask to cover the labels
-            sample_mask[self.LABEL_INDEX] = 1
+            sample_mask[:, self.LABEL_INDEX] = 1
             
             # "shift the mask to match the shifted labels & predictions the model will return"
-            sample_mask = sample_mask[1:, :]
+            sample_mask = sample_mask[:, 1:, :]
             
-            samples.append({
-                'patient_id': pdata.patient_id,
-                'visit_id': ','.join([v for v in pdata.visits]),
-                'data_vector': sample_multi_hot.tolist(), 
-                'data_mask': sample_mask.tolist()
-            })
+        res = (sample_multi_hot, sample_mask)
+        
+        return res
+    
+    def get_batch(self, data_subset: BaseEHRDataset, batch_size: int = 16,):
+        
+        # shuffle subset
+        indeces = range(0, len(dataset))
+        indeces = np.random.shuffle(indeces)
+        
+        batch = [dataset[i] for i in indeces]
+
+        batch_offset = 0
+        while (batch_offset + batch_size < len(data_subset)):
             
-        return SampleEHRDataset(
-            samples=samples,
-            dataset_name='dataset_as_halo_vectors',
-            task_name='HALOAggregator.process'
-        )
+            batch = data_subset[batch_offset: batch_offset + batch_size]
+            batch_offset += batch_size # prepare for next iteration
+            
+            yield self.process_batch(batch)
+"""
+trainer for generative models
+"""
+class HALOTrainer:
+    def __init__(self, 
+            dataset: datasets, 
+            model: nn.Module,
+            name: str,
+            processor: HALOProcessor, 
+            optimizer: Optimizer,
+            loss,
+            checkpoint_path
+        ) -> None:
+        self.dataset = dataset
+        self.model = model
+        self.name = name
+        self.processor = processor
+        self.optimizer = optimizer
+        self.checkpoint_path = checkpoint_path
+        
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.model.to(self.device)
+    
+    def set_basic_splits(self):
+        train, test, eval = self.split()
+        self.train_dataset = train
+        self.test_dataset = test
+        self.eval_dataset = eval
+        
+        return self.train_dataset, self.test_dataset, self.eval_dataset
+        
+    def split(self, splits: List[float] = [0.8, 0.1, 0.1], shuffle: bool = False):
+        if shuffle:
+            self.dataset = random.random.shuffle(self.dataset)
+            
+        if sum(splits) != 1:
+            raise Exception(f"splits don't sum to the full dataset. sum(splits) = {sum(splits)}")
+        
+        n = len(self.dataset)
+        dataset_splits = []
+        start_offset = 0
+        for s in splits:
+            n_split = math.ceil(n * s) # size of the current split
+            
+            # the last subset will be the smallest
+            subset = self.dataset[start_offset, min(start_offset + n_split, len(datasets))]
+           
+            dataset_splits.append(subset)
+            start_offset += n_split
+            
+        return dataset_splits
+                
+    def eval(self, current_epoch: int, current_iteration: int, batch_size: int, patience: int):
+        self.model.eval()
+        
+        with torch.no_grad():
+            
+            global_loss = 1e10
+            val_l = []
+            
+            for batch_ehr, batch_mask in self.processor.get_batch(self.eval_dataset, batch_size):
+                
+                batch_ehr = torch.tensor(batch_ehr, dtype=torch.float32).to(self.device)
+                batch_mask = torch.tensor(batch_mask, dtype=torch.float32).to(self.device)
+
+                val_loss, _, _ = self.model(batch_ehr, position_ids=None, ehr_labels=batch_ehr, ehr_masks=batch_mask)
+                val_l.append((val_loss).cpu().detach().numpy())
+                
+                cur_val_loss = np.mean(val_l)
+                print("Epoch %d Validation Loss:%.7f"%(current_epoch, cur_val_loss))
+                
+                # make checkpoint
+                if cur_val_loss < global_loss:
+                    global_loss = cur_val_loss
+                    self.patience = 0
+                    state = {
+                            'model': self.model.state_dict(),
+                            'optimizer': self.optimizer.state_dict(),
+                            'iteration': current_iteration
+                        }
+                    torch.save(state, f"{self.checkpoint_path}/eval_{self.name}")
+                    print('\n------------ Save best model ------------\n')
+                
+                self.patience += 1
+                if patience == patience: break
+    
+    def train(self, batch_size: int, epoch: int, patience: int) -> None:        
+        
+        for e in tqdm(range(epoch), desc="Training HALO model"):
+            
+            self.model.train()
+            
+            for i, (batch_ehr, batch_mask) in enumerate(self.processor.get_batch(self.train_dataset, batch_size)):
+                
+                batch_ehr = torch.tensor(batch_ehr, dtype=torch.float32).to(self.device)
+                batch_mask = torch.tensor(batch_mask, dtype=torch.float32).to(self.device)
+                
+                self.optimizer.zero_grad()
+                
+                loss, _, _ = self.model(batch_ehr, position_ids=None, ehr_labels=batch_ehr, ehr_masks=batch_mask)
+                
+                loss.backward()
+                self.optimizer.step()
+                
+                if i % (100*batch_size) == 0:
+                    print("Epoch %d, Iter %d: Training Loss:%.7f"%(e, i, loss))
+                    self.eval(current_epoch=e, current_iteration=i, batch_size=batch_size, patience=patience)
     
 if __name__ == "__main__":
-    from pyhealth.datasets import OMOPDataset
-    from pyhealth.trainer import Trainer
+    from pyhealth.datasets import eICUDataset
     from pyhealth.data import Patient, Event
-    from pyhealth.datasets import split_by_patient, get_dataloader
-    
-
     
     # # to test the file this path needs to be updated
     # DATASET_NAME = "eICU-demo"
@@ -570,48 +659,46 @@ if __name__ == "__main__":
         return pdata.gender
     
     def handle_measurement(event: Event):
-        
+        # ex:  event = discretizer.discretize(event.lab_value)
         return event
     
     # define a way to handle events that need some special event handling
     # this is where you would define some discrtization strategy
-    event_handlers = {}    
+    event_handlers = {}   
     event_handlers['measurement'] =  handle_measurement
     
-    sampleDataset = HALOAggregator(
+    processor = HALOProcessor(
         dataset=dataset,
         use_tables=None,
         event_handlers=event_handlers,
         label_fn=simple_label_fn
-    ).process()
-    
-    print(sampleDataset)
-    
-    # dataloader for train, val, test
-    # dataset split
-    train_ds, val_ds, test_ds = split_by_patient(sampleDataset, [0.8, 0.1, 0.1])
-
-    # obtain train/val/test dataloader, they are <torch.data.DataLoader> object
-    train_loader = get_dataloader(train_ds, batch_size=32, shuffle=True)
-    val_loader = get_dataloader(val_ds, batch_size=32, shuffle=False)
-    test_loader = get_dataloader(test_ds, batch_size=32, shuffle=False)
-    
-    # get batch function
-    
-    model = HALOModel(config).to(device)
-    
-    print(model.mode)
-    
-    trainer = Trainer(
-        model,
-        checkpoint_path='/Users/benjamindanek/Code/model_checkpoints',
-        metrics=None # //todo: update
     )
     
+    model = HALOModel(Config(
+        n_positions=20,
+        n_ctx=4,
+        n_embd=768,
+        n_layer=12,
+        n_head=12,
+        layer_norm_epsilon=1e-5,
+        initializer_range=0.02,
+        total_vocab_size=len(processor.global_events)
+    ))
+    
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    
+    trainer = HALOTrainer(
+        dataset=dataset,
+        model=model,
+        processor=processor,
+        optimizer=optimizer,
+        checkpoint_path='/Users/benjamindanek/Code/sunlab_pyhealth/model_saves'
+    )
+    
+    train_dataset, test_datset, eval_dataset = trainer.set_basic_splits() # set the train, test, val dataset
+    
     trainer.train(
-        epochs=1, 
-        optimizer_params={"lr": 1e-10},
-        train_dataloader=train_loader,
-        val_dataloader=val_loader,
-        test_dataloader=test_loader,
+        batch_size=64,
+        epoch=1,
+        patience=5
     )
