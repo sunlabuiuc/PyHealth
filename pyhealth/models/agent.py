@@ -567,7 +567,7 @@ class Agent(BaseModel):
 
         Args:
             **kwargs: keyword arguments for the model. The keys must contain
-                all the feature keys and the label key.
+                all the feature keys.
 
         Returns:
             logits: logits for each patient.
