@@ -348,6 +348,8 @@ class AdaCare(BaseModel):
         >>> print(ret)
         {
             'loss': tensor(0.7167, grad_fn=<BinaryCrossEntropyWithLogitsBackward0>),
+            'feature_importance: [tesnor of shape (batch_size, time_step, feature_dim), ...],
+            'conv_feature_importance: [tesnor of shape (batch_size, time_step, 3*kernel_size), ...],
             'y_prob': tensor([[0.5009], [0.4779]], grad_fn=<SigmoidBackward0>),
             'y_true': tensor([[0.], [1.]]),
             'logit': tensor([[ 0.0036], [-0.0886]], grad_fn=<AddmmBackward0>)
@@ -438,7 +440,7 @@ class AdaCare(BaseModel):
                 loss: a scalar tensor representing the loss.
                 feature_importance: a list of tensors with shape (feature_type, batch_size, time_step, features)
                                     representing the feature importance.
-                conv_feature_importance: a list of tensors with shape (feature_type, batch_size, time_step, 3*kernal_size)
+                conv_feature_importance: a list of tensors with shape (feature_type, batch_size, time_step, 3*kernel_size)
                                         representing the convolutional feature importance.
                 y_prob: a tensor representing the predicted probabilities.
                 y_true: a tensor representing the true labels.
@@ -518,6 +520,8 @@ class AdaCare(BaseModel):
         y_prob = self.prepare_y_prob(logits)
         results = {
             "loss": loss,
+            "feature_importance": feature_importance,
+            "conv_feature_importance": conv_feature_importance,
             "y_prob": y_prob,
             "y_true": y_true,
             "logit": logits,

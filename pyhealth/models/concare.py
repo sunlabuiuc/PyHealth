@@ -737,6 +737,8 @@ class ConCare(BaseModel):
         >>> print(ret)
         {
             'loss': tensor(9.5541, grad_fn=<AddBackward0>), 
+            'loss_task': tensor(9.5541, grad_fn=<BinaryCrossEntropyWithLogitsBackward>),
+            'loss_decov': tensor(0., grad_fn=<AddBackward0>),
             'y_prob': tensor([[0.5323], [0.5363]], grad_fn=<SigmoidBackward0>), 
             'y_true': tensor([[1.], [0.]]), 
             'logit': tensor([[0.1293], [0.1454]], grad_fn=<AddmmBackward0>)
@@ -925,6 +927,8 @@ class ConCare(BaseModel):
         y_prob = self.prepare_y_prob(logits)
         results = {
             "loss": loss,
+            "loss_task": loss_task,
+            "loss_decov": decov_loss,
             "y_prob": y_prob,
             "y_true": y_true,
             'logit': logits,

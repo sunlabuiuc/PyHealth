@@ -346,6 +346,7 @@ class StageNet(BaseModel):
         >>> print(ret)
         {
             'loss': tensor(0.7111, grad_fn=<BinaryCrossEntropyWithLogitsBackward0>),
+            'distance': [tensor of shape (batch_size, time_step)], ...],
             'y_prob': tensor([[0.4815],
                         [0.4991]], grad_fn=<SigmoidBackward0>),
             'y_true': tensor([[1.],
@@ -532,6 +533,7 @@ class StageNet(BaseModel):
         y_prob = self.prepare_y_prob(logits)
         results = {
             "loss": loss,
+            'distance': distance,
             "y_prob": y_prob,
             "y_true": y_true,
             "logit": logits,

@@ -368,6 +368,8 @@ class Agent(BaseModel):
         >>> print(ret)
         {
             'loss': tensor(1.4059, grad_fn=<AddBackward0>),
+            'loss_task': tensor(0.6931, grad_fn=<BinaryCrossEntropyWithLogitsBackward>),
+            'loss_RL': tensor(0.7128, grad_fn=<AddBackward0>),
             'y_prob': tensor([[0.4861], [0.5348]], grad_fn=<SigmoidBackward0>),
             'y_true': tensor([[0.], [1.]]),
             'logit': tensor([[-0.0556], [0.1392]], grad_fn=<AddmmBackward0>)
@@ -660,6 +662,8 @@ class Agent(BaseModel):
         y_prob = self.prepare_y_prob(logits)
         results = {
             "loss": loss,
+            'loss_task': loss_task,
+            'loss_RL': loss_rl,
             "y_prob": y_prob,
             "y_true": y_true,
             "logit": logits,

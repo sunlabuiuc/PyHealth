@@ -220,18 +220,21 @@ class BaseModel(ABC, nn.Module):
             output_size: the output size of the model.
         """
         output_size = label_tokenizer.get_vocabulary_size()
-        if self.mode == "binary":
+        if self.mode == "binary" or self.mode == "early_mortality":
             assert output_size == 2
             output_size = 1
         return output_size
 
-    def get_loss_function(self) -> Callable:
+    def get_loss_function(self, **args) -> Callable:
         """Gets the default loss function using `self.mode`.
 
         The default loss functions are:
             - binary: `F.binary_cross_entropy_with_logits`
             - multiclass: `F.cross_entropy`
             - multilabel: `F.binary_cross_entropy_with_logits`
+            - early_mortality: TimeAwareLoss
+            - regression: `F.mse_loss`
+            - multi_target: a list of loss functions with the same format as above
 
         Returns:
             The default loss function.
@@ -242,32 +245,44 @@ class BaseModel(ABC, nn.Module):
             return F.cross_entropy
         elif self.mode == "multilabel":
             return F.binary_cross_entropy_with_logits
+        elif self.mode == "regression":
+            return F.mse_loss
+        elif self.mode == "multi_target":
+            assert args["targets"] is type(list)
+            loss_list = []
+            for target in args["targets"]:                
+                loss_list.append(self.get_loss_function(target))
+        elif self.mode == "early_mortality":
+            assert "outcome_pred" in args.keys() and "outcome_true" in args.keys() and "los_true" in args.keys()
+            return TimeAwareLoss()
         else:
             raise ValueError("Invalid mode: {}".format(self.mode))
 
     def prepare_labels(
         self,
-        labels: Union[List[str], List[List[str]]],
+        labels: Union[List[str], List[List[str]], List[List[List[str]]]],
         label_tokenizer: Tokenizer,
     ) -> torch.Tensor:
         """Prepares the labels for model training and evaluation.
 
         This function converts the labels to different formats depending on the
         mode. The default formats are:
-            - binary: a tensor of shape (batch_size, 1)
+            - binary, early_mortality: a tensor of shape (batch_size, 1)
             - multiclass: a tensor of shape (batch_size,)
             - multilabel: a tensor of shape (batch_size, num_labels)
+            - regression: a tensor of shape (batch_size, 1)
+            - multi_target: a list of tensors with the same format as above
 
         Args:
             labels: the raw labels from the samples. It should be
-                - a list of str for binary and multiclass classificationa
+                - a list of str for binary and multiclass classification
                 - a list of list of str for multilabel classification
             label_tokenizer: the label tokenizer.
 
         Returns:
             labels: the processed labels.
         """
-        if self.mode in ["binary"]:
+        if self.mode in ["binary"] or self.mode in ["early_mortality"]:
             labels = label_tokenizer.convert_tokens_to_indices(labels)
             labels = torch.FloatTensor(labels).unsqueeze(-1)
         elif self.mode in ["multiclass"]:
@@ -281,9 +296,14 @@ class BaseModel(ABC, nn.Module):
             # convert to multihot
             num_labels = label_tokenizer.get_vocabulary_size()
             labels = batch_to_multihot(labels_index, num_labels)
+        elif self.mode in ["regression"]:
+            labels = torch.FloatTensor(labels).unsqueeze(-1)
+        elif self.mode in ["multi_target"]:
+            labels = [self.prepare_labels(label, label_tokenizer) for label in labels]
         else:
             raise NotImplementedError
-        labels = labels.to(self.device)
+        if self.mode not in ["multi_target"]:
+            labels = labels.to(self.device)
         return labels
 
     def prepare_y_prob(self, logits: torch.Tensor) -> torch.Tensor:
@@ -291,13 +311,15 @@ class BaseModel(ABC, nn.Module):
 
         This function converts the predicted logits to predicted probabilities
         depending on the mode. The default formats are:
-            - binary: a tensor of shape (batch_size, 1) with values in [0, 1],
+            - binary, early_mortality: a tensor of shape (batch_size, 1) with values in [0, 1],
                 which is obtained with `torch.sigmoid()`
             - multiclass: a tensor of shape (batch_size, num_classes) with
                 values in [0, 1] and sum to 1, which is obtained with
                 `torch.softmax()`
             - multilabel: a tensor of shape (batch_size, num_labels) with values
                 in [0, 1], which is obtained with `torch.sigmoid()`
+            - regression: a tensor of shape (batch_size, 1)
+            - multi_target: a list of tensors with the same format as above
 
         Args:
             logits: the predicted logit tensor.
@@ -305,12 +327,64 @@ class BaseModel(ABC, nn.Module):
         Returns:
             y_prob: the predicted probability tensor.
         """
-        if self.mode in ["binary"]:
+        if self.mode in ["binary"] or self.mode in ["early_mortality"]:
             y_prob = torch.sigmoid(logits)
         elif self.mode in ["multiclass"]:
             y_prob = F.softmax(logits, dim=-1)
         elif self.mode in ["multilabel"]:
             y_prob = torch.sigmoid(logits)
+        elif self.mode in ["regression"]:
+            y_prob = logits
+        elif self.mode in ["multi_target"]:
+            y_prob = [self.prepare_y_prob(logit) for logit in logits]
         else:
             raise NotImplementedError
         return y_prob
+    
+class TimeAwareLoss(nn.Module):
+    """Computes time-aware loss for early mortality prediction.
+    
+    Paper: Junyi Gao, et al. A Comprehensive Benchmark for COVID-19 Predictive Modeling
+    Using Electronic Health Records in Intensive Care: Choosing the Best Model for
+    COVID-19 Prognosis. arXiv preprint arXiv:2209.07805, 2023.
+
+    Args:
+        decay_rate: decay rate for the los .
+        reward_factor: reward factor for the correct predictions.
+
+    Returns:
+        Dictionary of metrics whose keys are the metric names and values are
+            the metric values.
+
+    Examples:
+        >>> from pyhealth.metrics import early_prediction_score
+        >>> y_true_outcome = np.array([0, 0, 1, 1])
+        >>> y_true_los = np.array([5, 3, 8, 1])
+        >>> y_prob = np.array([0.1, 0.4, 0.7, 0.8])
+        >>> early_prediction_score(y_true_outcome, y_true_los, y_prob)
+        {'score': 0.5952380952380952, 'late_threshold': 2.125, 'fp_penalty': 0.1}
+    """
+    def __init__(self, decay_rate=0.1, reward_factor=0.1):
+        super(TimeAwareLoss, self).__init__()
+        self.bce = nn.BCELoss(reduction='none')
+        self.decay_rate = decay_rate
+        self.reward_factor = reward_factor
+
+    def forward(self, outcome_pred, outcome_true, los_true):
+        """Return the loss value of time-aware loss.
+
+        Args:
+            outcome_pred: the predicted outcome
+            outcome_true: the true outcome
+            los_true: the true length of stay at the prediction time
+
+        Returns:
+            y_prob: the predicted probability tensor.
+        """
+        los_weights = torch.exp(-self.decay_rate * los_true)  # Exponential decay
+        loss_unreduced = self.bce(outcome_pred, outcome_true)
+
+        reward_term = (los_true * torch.abs(outcome_true - outcome_pred)).mean()  # Reward term
+        loss = (loss_unreduced * los_weights).mean()-self.reward_factor * reward_term  # Weighted loss
+        
+        return torch.clamp(loss, min=0)
