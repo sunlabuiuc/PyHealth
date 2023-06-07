@@ -20,14 +20,9 @@ from torch.optim import Optimizer
 
 """
 model configuration
+
+required fields are non-optional for instantiating the HALO model 
 """
-'''
-    code by Brandon Theodorou
-    Original GPT-2 Paper and repository here: https://github.com/openai/gpt-2
-    Original GPT-2 Pytorch Model: https://github.com/huggingface/pytorch-pretrained-BERT
-    GPT-2 Pytorch Model Derived From: https://github.com/graykode/gpt-2-Pytorch
-    
-'''
 class Config(object):
     required = [
         "n_positions", "n_ctx", "n_embd", "n_layer", "n_head", "layer_norm_epsilon", "initializer_range"
@@ -309,13 +304,14 @@ preprocessor
 """
 class HALOProcessor():
     
-    # what does pad_code do again? 
-    SPECIAL_VOCAB = ('start_code', 'last_visit_code', 'pad_code')
-    
-    # visit dimension
+    # visit dimension (dim 1)
+    SPECIAL_VOCAB = ('start_code', 'last_visit_code', 'pad_code') 
     START_INDEX = 0
     LABEL_INDEX = 1
     VISIT_INDEX = 2
+
+    # code dimension (dim 2)
+    SPECIAL_VISITS = ('start_visit', 'label_visit')
     
     """
     discretizator: Table --> Discretizer
@@ -343,10 +339,32 @@ class HALOProcessor():
         self.label_fn = label_fn
                 
         self.max_visits = max_visits
-        
-        # set dynamically available information as a part of initialization
+
+        # init the indeces & dynamically computed utility variables used in HALO training later
+        self.set_indeces()
+
+
+    def set_indeces(self) -> None:
+        # set aggregate indeces
         self.aggregate_halo_indeces()
-        
+
+        # assert the processor works as expected
+        assert len(self.global_events) % 2 == 0, "Event index processor not bijective"
+        assert len(self.global_labels) % 2 == 0, "Label index processor not bijective"
+
+        # bidirectional mappings
+        self.num_global_events = len(self.global_events) // 2
+        self.num_global_labels = len(self.global_labels) // 2
+
+        # define the tokens in the event dimension (visit dimension already specified)
+        self.start_token_index = self.num_global_events + self.num_global_labels
+        self.end_token_index = self.num_global_events + self.num_global_labels + 1
+        self.pad_token_index = self.num_global_events + self.num_global_labels + 2
+
+        # parameters for generating batch vectors
+        self.total_vocab_size = self.num_global_events + self.num_global_labels + len(self.SPECIAL_VOCAB)
+        self.total_visit_size = len(self.SPECIAL_VISITS) + self.max_visits
+    
     """
     its necessary to aggregate global event data, prior to trnasforming the dataset
     """
@@ -359,7 +377,7 @@ class HALOProcessor():
         global_labels: Dict = {}
         max_visits: int = 0
         
-        for pid, pdata in tqdm(self.dataset.patients.items(), desc="HALOAggregator generating indeces"):
+        for pdata in tqdm(list(self.dataset), desc="HALOAggregator generating indeces"):
             
             max_visits = max(max_visits, len(pdata.visits))
             
@@ -380,18 +398,19 @@ class HALOProcessor():
                         te = event_handler(te_raw) if event_handler else te_raw.code
                         global_event = (table, te)
                     
-                        index_of_global_event = len(global_events)
-                        
-                        global_events[global_event] = index_of_global_event
-                        global_events[index_of_global_event] = global_event
+                        if global_event not in global_events:
+                            index_of_global_event = len(global_events) // 2
+                            global_events[global_event] = index_of_global_event
+                            global_events[index_of_global_event] = global_event
                         
                         
             # compute global label (method provided by user)
-            label = self.label_fn(p_id=pid, patient_data=pdata)
-            index_of_global_label = len(global_labels)
+            label = self.label_fn(patient_data=pdata)
             
-            global_labels[label] = index_of_global_label
-            global_labels[index_of_global_label] = label
+            if label not in global_labels:
+                index_of_global_label = len(global_labels) // 2
+                global_labels[label] = index_of_global_label
+                global_labels[index_of_global_label] = label
             
         # set aggregates for downstream processing
         self.global_events = global_events
@@ -401,11 +420,6 @@ class HALOProcessor():
         if self.max_visits == None:
             self.max_visits = max_visits
             
-        # define the tokens in the event dimension (visit dimension already specified)
-        self.start_token_index = len(self.global_events) + len(self.global_labels)
-        self.end_token_index = len(self.global_events) + len(self.global_labels) + 1
-        self.pad_token_index = len(self.global_events) + len(self.global_labels) + 2
-            
     """
     similar to dataset.set_task(...)
     - produce a sampleEHRDataset
@@ -413,21 +427,19 @@ class HALOProcessor():
     def process_batch(self, batch) -> Tuple:
         batch_size = len(batch)
         
-        if not self.preprocessed:
-            raise Exception('Preprocessing not complete. call `aggregate_halo_indeces` first.')
+        # dim 0: batch
+        # dim 1: visit vectors
+        # dim 2: concat(event multihot, label onehot, metadata)
+        sample_multi_hot = np.zeros((batch_size, self.total_visit_size, self.total_vocab_size)) # patient data the model reads
+        sample_mask = np.zeros((batch_size, self.total_visit_size, 1)) # visits that are unlabeled
         
-        total_vocab_size = len(self.global_events) + len(self.global_labels) + len(self.SPECIAL_VOCAB)
-            
-        sample_multi_hot = np.zeros((batch_size, len(self.SPECIAL_VOCAB) + self.max_visits, total_vocab_size)) # patient data the model reads
-        sample_mask = np.zeros((batch_size, len(self.SPECIAL_VOCAB) + self.max_visits, 1)) # visits that are unlabeled
-        
-        for pidx, (pid, pdata) in tqdm(enumerate(batch.patients.items()), desc="HALOAggregator processing samples"):
+        for pidx, pdata in enumerate(batch):
             
             # build multihot vector for patient events
             for visit_index, vid,  in enumerate(pdata.visits):
                 vdata = pdata.visits[vid]
                 
-                sample_mask[pidx, visit_index] = 1
+                sample_mask[pidx, self.VISIT_INDEX + visit_index] = 1
                 
                 for table in vdata.available_tables:
 
@@ -444,39 +456,33 @@ class HALOProcessor():
                         event_as_index = self.global_events[global_event]
                         
                         # set table events
-                        sample_multi_hot[pidx, self.VISIT_INDEX + visit_index, event_as_index] = 1
-            
-            # set the start token
-            sample_multi_hot[:, self.START_INDEX, self.start_token_index] = 1
+                        sample_multi_hot[pidx, self.VISIT_INDEX + visit_index, event_as_index] = 1            
             
             # set patient label
-            global_label = self.label_fn(p_id=pid, patient_data=pdata)
+            global_label = self.label_fn(patient_data=pdata)
             label_as_index = self.global_labels[global_label]
-            sample_multi_hot[:, self.LABEL_INDEX, len(self.global_events) + label_as_index] = 1
+            sample_multi_hot[:, self.LABEL_INDEX, self.num_global_events + label_as_index] = 1
             
             # set the end token
-            sample_multi_hot[:, self.VISIT_INDEX + len(pdata.visits), self.end_token_index] = 1
-            
+            sample_multi_hot[:, self.VISIT_INDEX + (len(pdata.visits) - 1), self.end_token_index] = 1
+
             # set the remainder of the visits to pads if needed
-            sample_multi_hot[:, (self.VISIT_INDEX + len(pdata.visits)):, self.pad_token_index] = 1
+            sample_multi_hot[:, (self.VISIT_INDEX + (len(pdata.visits) - 1)) + 1:, self.pad_token_index] = 1
             
-            # set the mask to cover the labels
-            sample_mask[:, self.LABEL_INDEX] = 1
-            
-            # "shift the mask to match the shifted labels & predictions the model will return"
-            sample_mask = sample_mask[:, 1:, :]
+        # set the start token
+        sample_multi_hot[:, self.START_INDEX, self.start_token_index] = 1
+
+        # set the mask to include the labels
+        sample_mask[:, self.LABEL_INDEX] = 1
+        
+        # "shift the mask to match the shifted labels & predictions the model will return"
+        sample_mask = sample_mask[:, 1:, :]
             
         res = (sample_multi_hot, sample_mask)
         
         return res
     
     def get_batch(self, data_subset: BaseEHRDataset, batch_size: int = 16,):
-        
-        # shuffle subset
-        indeces = range(0, len(dataset))
-        indeces = np.random.shuffle(indeces)
-        
-        batch = [dataset[i] for i in indeces]
 
         batch_offset = 0
         while (batch_offset + batch_size < len(data_subset)):
@@ -492,22 +498,25 @@ class HALOTrainer:
     def __init__(self, 
             dataset: datasets, 
             model: nn.Module,
-            name: str,
             processor: HALOProcessor, 
             optimizer: Optimizer,
-            loss,
-            checkpoint_path
+            checkpoint_name: str,
+            checkpoint_path: str
         ) -> None:
         self.dataset = dataset
         self.model = model
-        self.name = name
         self.processor = processor
         self.optimizer = optimizer
+        self.checkpoint_name = checkpoint_name
         self.checkpoint_path = checkpoint_path
         
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model.to(self.device)
     
+    """
+    Set class variables of a 0.8, 0.1, 0.1 split for train, test, eval sets respectivley.
+    returns the splits for convenience
+    """
     def set_basic_splits(self):
         train, test, eval = self.split()
         self.train_dataset = train
@@ -523,14 +532,14 @@ class HALOTrainer:
         if sum(splits) != 1:
             raise Exception(f"splits don't sum to the full dataset. sum(splits) = {sum(splits)}")
         
-        n = len(self.dataset)
+        n = len(self.dataset.patients)
         dataset_splits = []
         start_offset = 0
         for s in splits:
             n_split = math.ceil(n * s) # size of the current split
             
             # the last subset will be the smallest
-            subset = self.dataset[start_offset, min(start_offset + n_split, len(datasets))]
+            subset = self.dataset[start_offset: min(start_offset + n_split, n)]
            
             dataset_splits.append(subset)
             start_offset += n_split
@@ -565,13 +574,13 @@ class HALOTrainer:
                             'optimizer': self.optimizer.state_dict(),
                             'iteration': current_iteration
                         }
-                    torch.save(state, f"{self.checkpoint_path}/eval_{self.name}")
+                    torch.save(state, f"{self.checkpoint_path}/eval_{self.checkpoint_name}")
                     print('\n------------ Save best model ------------\n')
                 
                 self.patience += 1
                 if patience == patience: break
     
-    def train(self, batch_size: int, epoch: int, patience: int) -> None:        
+    def train(self, batch_size: int, epoch: int, patience: int, eval_period: int) -> None:        
         
         for e in tqdm(range(epoch), desc="Training HALO model"):
             
@@ -589,9 +598,12 @@ class HALOTrainer:
                 loss.backward()
                 self.optimizer.step()
                 
-                if i % (100*batch_size) == 0:
+                # the eval period may never be reached if there aren't enough batches
+                if i % min(eval_period, len(self.train_dataset)//batch_size) == 0:
                     print("Epoch %d, Iter %d: Training Loss:%.7f"%(e, i, loss))
                     self.eval(current_epoch=e, current_iteration=i, batch_size=batch_size, patience=patience)
+        
+        self.eval(current_epoch=epoch, current_iteration=-1, batch_size=batch_size, patience=patience)
     
 if __name__ == "__main__":
     from pyhealth.datasets import eICUDataset
@@ -653,7 +665,6 @@ if __name__ == "__main__":
     
     # define a way to make labels from raw data
     def simple_label_fn(**kwargs):
-        p_id = kwargs['p_id']
         pdata = kwargs['patient_data']
         
         return pdata.gender
@@ -676,29 +687,34 @@ if __name__ == "__main__":
     
     model = HALOModel(Config(
         n_positions=20,
-        n_ctx=4,
+        n_ctx=processor.total_visit_size,
         n_embd=768,
         n_layer=12,
         n_head=12,
         layer_norm_epsilon=1e-5,
         initializer_range=0.02,
-        total_vocab_size=len(processor.global_events)
+        total_vocab_size=processor.total_vocab_size
     ))
     
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     
+    basedir = '/home/bdanek2/PyHealth/' #
     trainer = HALOTrainer(
         dataset=dataset,
         model=model,
         processor=processor,
         optimizer=optimizer,
-        checkpoint_path='/Users/benjamindanek/Code/sunlab_pyhealth/model_saves'
+        checkpoint_name='developement',
+        checkpoint_path=basedir + 'model_saves'
     )
     
-    train_dataset, test_datset, eval_dataset = trainer.set_basic_splits() # set the train, test, val dataset
+    trainer.set_basic_splits()
     
     trainer.train(
-        batch_size=64,
-        epoch=1,
-        patience=5
+        batch_size=128,
+        epoch=3,
+        patience=5,
+        eval_period=100
     )
+
+    print("done")
