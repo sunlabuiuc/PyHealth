@@ -1,7 +1,7 @@
 Installation
 ============
 
-You could install from PyPi:
+You can install from PyPi:
 
 .. code-block:: bash
 
