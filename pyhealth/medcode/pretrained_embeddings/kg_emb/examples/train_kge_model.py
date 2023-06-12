@@ -1,7 +1,7 @@
-from pyhealth.medcode.kg_emb.datasets import UMLSDataset, split
-from pyhealth.medcode.kg_emb.tasks import link_prediction_fn
+from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import UMLSDataset, split
+from pyhealth.medcode.pretrained_embeddings.kg_emb.tasks import link_prediction_fn
 from pyhealth.datasets import get_dataloader
-from pyhealth.medcode.kg_emb.models import TransE, RotatE, ComplEx, DistMult
+from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE, RotatE, ComplEx, DistMult
 from pyhealth.trainer import Trainer
 from pyhealth.medcode import InnerMap
 
@@ -30,27 +30,28 @@ umls_ds = umls_ds.set_task(link_prediction_fn, negative_sampling=512, save=False
 print(umls_ds.stat())
 
 # split the dataset and get the dataloaders
-train_dataset, val_dataset, test_dataset = split(umls_ds, [0.9, 0.05, 0.05])
+train_dataset, val_dataset, test_dataset = split(umls_ds, [0.99, 0.005, 0.005])
 train_loader = get_dataloader(train_dataset, batch_size=256, shuffle=True)
-val_loader = get_dataloader(val_dataset, batch_size=16, shuffle=False)
-test_loader = get_dataloader(test_dataset, batch_size=16, shuffle=False)
+val_loader = get_dataloader(val_dataset, batch_size=4, shuffle=False)
+test_loader = get_dataloader(test_dataset, batch_size=4, shuffle=False)
 
 
 # initialize a KGE model
-model = TransE(
+model = RotatE(
     dataset=umls_ds,
-    e_dim=1600, 
-    r_dim=1600, 
+    e_dim=512, 
+    r_dim=256, 
 )
 
 # initialize a trainer and start training
 trainer = Trainer(
     model=model, 
-    device='cuda:7', 
+    device='cuda:1', 
     metrics=['hits@n', 'mean_rank'], 
     output_path='./pretrained_model',
-    exp_name='umls_transe_new'
+    exp_name='umls_rotate_new'
     )
+
 trainer.train(
     train_dataloader=train_loader,
     val_dataloader=val_loader,
