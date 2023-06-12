@@ -31,6 +31,7 @@ class BaseModel(ABC, nn.Module):
         feature_keys: List[str],
         label_key: str,
         mode: str,
+        pretrained_emb: str = None
     ):
         super(BaseModel, self).__init__()
         assert mode in VALID_MODE, f"mode must be one of {VALID_MODE}"
@@ -38,6 +39,7 @@ class BaseModel(ABC, nn.Module):
         self.feature_keys = feature_keys
         self.label_key = label_key
         self.mode = mode
+        self.pretrained_emb = pretrained_emb
         # used to query the device of the model
         self._dummy_param = nn.Parameter(torch.empty(0))
         return
@@ -188,6 +190,12 @@ class BaseModel(ABC, nn.Module):
             self.linear_layers[feature_key] = nn.Linear(info["len"], self.embedding_dim)
         else:
             raise ValueError("Unsupported feature type: {}".format(info["type"]))
+
+    def get_pretrained_embedding(self, feature_key: str):
+        
+
+
+        return 
 
     def get_label_tokenizer(self, special_tokens=None) -> Tokenizer:
         """Gets the default label tokenizers using `self.label_key`.
