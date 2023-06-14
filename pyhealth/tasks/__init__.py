@@ -1,3 +1,4 @@
+from .task_template import TaskTemplate
 from .drug_recommendation import (
     drug_recommendation_eicu_fn,
     drug_recommendation_mimic3_fn,
@@ -29,3 +30,5 @@ from .sleep_staging import (
     sleep_staging_isruc_fn,
     sleep_staging_shhs_fn,
 )
+from .covid19_cxr_classification import COVID19CXRClassification
+from .medical_transcriptions_classification import MedicalTranscriptionsClassification
