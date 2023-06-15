@@ -231,6 +231,7 @@ class RNN(BaseModel):
         feature_keys: List[str],
         label_key: str,
         mode: str,
+        pretrained_emb: str = None,
         embedding_dim: int = 128,
         hidden_dim: int = 128,
         **kwargs
@@ -240,6 +241,7 @@ class RNN(BaseModel):
             feature_keys=feature_keys,
             label_key=label_key,
             mode=mode,
+            pretrained_emb=pretrained_emb,
         )
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
@@ -358,6 +360,10 @@ class RNN(BaseModel):
 
             else:
                 raise NotImplementedError
+
+            # transform x to (patient, event, embedding_dim)
+            if self.pretrained_emb != None:
+                x = self.linear_layers[feature_key](x)
 
             _, x = self.rnn[feature_key](x, mask)
             patient_emb.append(x)
