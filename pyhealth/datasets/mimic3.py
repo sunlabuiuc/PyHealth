@@ -152,6 +152,7 @@ class MIMIC3Dataset(BaseEHRDataset):
                 table, so we set it to None.
         """
         table = "DIAGNOSES_ICD"
+        self.code_vocs["conditions"] = "ICD9CM"
         # read table
         df = pd.read_csv(
             os.path.join(self.root, f"{table}.csv"),
@@ -209,6 +210,7 @@ class MIMIC3Dataset(BaseEHRDataset):
                 table, so we set it to None.
         """
         table = "PROCEDURES_ICD"
+        self.code_vocs["procedures"] = "ICD9PROC"
         # read table
         df = pd.read_csv(
             os.path.join(self.root, f"{table}.csv"),
@@ -262,6 +264,7 @@ class MIMIC3Dataset(BaseEHRDataset):
             The updated patients dict.
         """
         table = "PRESCRIPTIONS"
+        self.code_vocs["drugs"] = "NDC"
         # read table
         df = pd.read_csv(
             os.path.join(self.root, f"{table}.csv"),
@@ -319,6 +322,7 @@ class MIMIC3Dataset(BaseEHRDataset):
             The updated patients dict.
         """
         table = "LABEVENTS"
+        self.code_vocs["labs"] = "MIMIC3_ITEMID"
         # read table
         df = pd.read_csv(
             os.path.join(self.root, f"{table}.csv"),

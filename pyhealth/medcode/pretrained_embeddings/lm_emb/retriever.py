@@ -1,7 +1,8 @@
 import requests
 import json
+import os
 
-key = "[OpenAI API Key]"
+key = os.environ['OPENAI_API_KEY']
 
 def embedding_retrieve(term):
     # Set up the API endpoint URL and request headers

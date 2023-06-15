@@ -290,6 +290,7 @@ class Transformer(BaseModel):
         feature_keys: List[str],
         label_key: str,
         mode: str,
+        pretrained_emb: str = None,
         embedding_dim: int = 128,
         **kwargs
     ):
@@ -297,6 +298,7 @@ class Transformer(BaseModel):
             dataset=dataset,
             feature_keys=feature_keys,
             label_key=label_key,
+            pretrained_emb=pretrained_emb,
             mode=mode,
         )
         self.embedding_dim = embedding_dim
@@ -413,6 +415,10 @@ class Transformer(BaseModel):
 
             else:
                 raise NotImplementedError
+
+            # transform x to (patient, event, embedding_dim)
+            if self.pretrained_emb != None:
+                x = self.linear_layers[feature_key](x)
 
             _, x = self.transformer[feature_key](x, mask)
             patient_emb.append(x)
