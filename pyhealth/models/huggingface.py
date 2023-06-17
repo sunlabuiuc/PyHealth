@@ -45,6 +45,7 @@ class HuggingfaceAutoModel(BaseModel):
         x = self.tokenizer(
             x, return_tensors="pt", padding=True, truncation=True, max_length=256
         )
+        x = x.to(self.device)
         embeddings = self.model(**x).pooler_output
         logits = self.fc(embeddings)
         y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)

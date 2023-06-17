@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Dict
+import pandas as pd
 
 from pyhealth.tasks import TaskTemplate
 
@@ -11,7 +12,9 @@ class MedicalTranscriptionsClassification(TaskTemplate):
     output_schema: Dict[str, str] = field(default_factory=lambda: {"label": "label"})
 
     def __call__(self, patient):
-        if patient["transcription"] is None or patient["medical_specialty"] is None:
+        if patient["transcription"] is None or pd.isna(patient["transcription"]):
+            return []
+        if patient["medical_specialty"] is None or pd.isna(patient["medical_specialty"]):
             return []
         sample = {
             "transcription": patient["transcription"],
