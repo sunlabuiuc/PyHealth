@@ -192,9 +192,9 @@ class Trainer:
                     data_iterator = iter(train_dataloader)
                     data = next(data_iterator)
                 # forward
-                output = self.model(**data)
+                output = self.model.fit(**data)
                 loss = output["loss"]
-                # backward
+                # backwardf
                 loss.backward()
                 if max_grad_norm is not None:
                     torch.nn.utils.clip_grad_norm_(
@@ -265,7 +265,7 @@ class Trainer:
         for data in tqdm(dataloader, desc="Evaluation"):
             self.model.eval()
             with torch.no_grad():
-                output = self.model(**data)
+                output = self.model.fit(**data)
                 loss = output["loss"]
                 y_true = output["y_true"].cpu().numpy()
                 y_prob = output["y_prob"].cpu().numpy()
