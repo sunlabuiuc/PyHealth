@@ -3,13 +3,17 @@
     Original GPT-2 Pytorch Model: https://github.com/huggingface/pytorch-pretrained-BERT
     GPT-2 Pytorch Model Derived From: https://github.com/graykode/gpt-2-Pytorch
 '''
+from collections import defaultdict
 from datetime import timedelta
+import itertools
 import random
+from matplotlib import pyplot as plt
 import numpy as np
 import copy
 import math
 from typing import Any, Callable, Dict, List, Tuple, Type, Union
 import pandas
+from sklearn.base import r2_score
 from tqdm import tqdm
 import pickle
 
@@ -692,6 +696,11 @@ class HALOTrainer:
         self.eval(batch_size=batch_size, current_epoch=epoch, current_iteration=-1, patience=patience)
     
 class HALOGenerator:
+
+    VISITS = 'visits'
+    TIME = 'inter-visit_gap'
+    LABEL = 'label'
+
     def __init__(
             self,
             model: nn.Module,
@@ -774,7 +783,7 @@ class HALOGenerator:
                 end = bool(sample[j, self.processor.end_token_index])
                 if end: break
             
-            ehr_outputs.append({'visits': sample_as_ehr, 'inter-visit gap': sample_time_gaps, 'labels': parsed_labels_output})
+            ehr_outputs.append({self.VISITS: sample_as_ehr, self.TIME: sample_time_gaps, self.LABEL: parsed_labels_output})
 
         return ehr_outputs
 
@@ -805,42 +814,174 @@ class HALOGenerator:
 
 class HALOEvaluator:
 
+    ALL_LABELS = "all"
+
+    RECORD_LEN_MEAN = "Record Length Mean"
+    RECORD_LEN_STD = "Record Length Standard Deviation"
+    VISIT_LEN_MEAN = "Visit Length Mean"
+    VISIT_LEN_STD = "Visit Length Standard Deviation"
+    TEMPORAL_MEAN = "Inter-visit time Mean"
+    TEMPORAL_STD = "Inter-visit time Standard Deviation"
+    AGGREGATE = "Aggregate"
+
+    RECORD_CODE_PROB = "Per Record Code Probabilities"
+    VISIT_CODE_PROB = "Per Visit Code Probabilities"
+    RECORD_BIGRAM_PROB = "Per Record Bigram Probabilities"
+    VISIT_BIGRAM_PROB = "Per Visit Bigram Probabilities"
+    RECORD_SEQUENTIAL = "Per Record Sequential Visit Bigram Probabilities"
+    VISIT_SEQUENTIAL = "Per Visit Sequential Visit Bigram Probabilities"
+    PROBABILITIES = "Probabilities"
+    LABEL_PROBABILITIES = "Label Probabilities"
+
+    PROBABILITY_DENSITIES = [
+        RECORD_CODE_PROB,
+        VISIT_CODE_PROB,
+        RECORD_BIGRAM_PROB,
+        VISIT_BIGRAM_PROB,
+        RECORD_SEQUENTIAL,
+        VISIT_SEQUENTIAL
+    ]
+
     def __init__(
             self,
-            synthetic_data = None,
-            training_data = None
+            processor: HALOProcessor = None,
+            generator: HALOGenerator = None,
         ):
-        pass
+        self.generator = generator
 
-    def generate_statistics(ehr_dataset):
-        pass
+    def generate_statistics(self, ehr_dataset, labels):
         
-    def generate_plots(stats1, stats2, label1, label2, types=["Per Record Code Probabilities", "Per Visit Code Probabilities", "Per Record Bigram Probabilities", "Per Visit Bigram Probabilities", "Per Record Sequential Visit Bigram Probabilities", "Per Visit Sequential Visit Bigram Probabilities"]):
-        pass
-        # for i in tqdm(range(config.label_vocab_size, config.label_vocab_size + 1)):
-        #     label = label_mapping[i]
-        #     data1 = stats1[label]["Probabilities"]
-        #     data2 = stats2[label]["Probabilities"]
-        #     for t in types:
-        #         probs1 = data1[t]
-        #         probs2 = data2[t]
-        #         keys = set(probs1.keys()).union(set(probs2.keys()))
-        #         values1 = [probs1[k] if k in probs1 else 0 for k in keys]
-        #         values2 = [probs2[k] if k in probs2 else 0 for k in keys]
+        # compute all available lables
+        labels = set()
+        labels.add(self.ALL_LABELS)
+        for sample in ehr_dataset: labels.add(sample)
 
-        #         plt.clf()
-        #         r2 = r2_score(values1, values2)
-        #         print(f"{t} r-squared = {r2}")
-        #         plt.scatter(values1, values2, marker=".", alpha=0.66)
-        #         maxVal = min(1.1 * max(max(values1), max(values2)), 1.0)
-        #         # maxVal *= (0.3 if 'Sequential' in t else (0.45 if 'Code' in t else 0.3))
-        #         plt.xlim([0,maxVal])
-        #         plt.ylim([0,maxVal])
-        #         plt.title(f"{label} {t}")
-        #         plt.xlabel(label1)
-        #         plt.ylabel(label2)
-        #         plt.annotate("r-squared = {:.3f}".format(r2), (0.1*maxVal, 0.9*maxVal))
-        #         plt.savefig(f"./results/dataset_stats/{label2}_{label.split(':')[-1]}_{t}_adjMax".replace(" ", "_"))
+        # collect stats for the current label
+        stats = {}
+        label_counts = {}
+        for label in sorted(list(labels)):
+            
+            # select the current subset to generate stats for
+            ehr_subset = []
+            if label != self.ALL_LABELS:
+                for sample in ehr_dataset:
+                    if sample[self.generator.LABEL] == label:
+                        ehr_subset.append(sample)
+            else:
+                ehr_subset = ehr_dataset
+
+            # compute stats per label
+            label_subset = [ehr_dataset]
+            label_counts[label] = len(label_subset)
+
+            label_stats = {}
+
+            # compute aggregate stats
+            record_lens = []
+            visit_lens = []
+            visit_gaps = []
+            for sample in label_subset:
+                visits = sample[self.generator.VISITS]
+                timegap = sample[self.generator.TIME]
+                record_lens.append(len(visits))
+                visit_lens.append([len(v) for v in visits])
+                visit_gaps.append(timegap)
+
+            aggregate_stats = {}
+            aggregate_stats[self.RECORD_LEN_MEAN] = np.mean(record_lens)
+            aggregate_stats[self.RECORD_LEN_STD] = np.std(record_lens)
+            aggregate_stats[self.VISIT_LEN_MEAN] = np.mean(visit_lens)
+            aggregate_stats[self.VISIT_LEN_STD] = np.std(visit_lens)
+            aggregate_stats[self.TEMPORAL_MEAN] = np.mean(visit_lens)
+            aggregate_stats[self.TEMPORAL_STD] = np.std(visit_lens)
+            label_stats[self.AGGREGATE] = aggregate_stats
+
+            # compute probability densities
+            code_stats = {}
+            n_records = len(record_lens)
+            n_visits = len(visit_lens)
+            record_code_counts = {}
+            visit_code_counts = {}
+            record_bigram_counts = {}
+            visit_bigram_counts = {}
+            record_sequential_bigram_counts = {}
+            visit_sequential_bigram_counts = {}
+            for row in label_subset:
+                patient_codes = set()
+                patient_bigrams = set()
+                sequential_bigrams = set()
+                for j, visit in enumerate(row[self.generator.VISITS]):
+                    v = list(set(visit)) # remove duplicates
+                    for c in v:
+                        visit_code_counts[c] = 1 if c not in visit_code_counts else visit_code_counts[c] + 1
+                        patient_codes.add(c)
+                    for cs in itertools.combinations(v,2):
+                        cs = list(cs)
+                        cs.sort()
+                        cs = tuple(cs)
+                        visit_bigram_counts[cs] = 1 if cs not in visit_bigram_counts else visit_bigram_counts[cs] + 1
+                        patient_bigrams.add(cs)
+                    if j > 0:
+                        v0 = list(set(row[self.generator.VISITS][j - 1]))
+                        for c0 in v0:
+                            for c in v:
+                                sc = (c0, c)
+                                visit_sequential_bigram_counts[sc] = 1 if sc not in visit_sequential_bigram_counts else visit_sequential_bigram_counts[sc] + 1
+                                sequential_bigrams.add(sc)
+                for c in patient_codes:
+                    record_code_counts[c] = 1 if c not in record_code_counts else record_code_counts[c] + 1
+                for cs in patient_bigrams:
+                    record_bigram_counts[cs] = 1 if cs not in record_bigram_counts else record_bigram_counts[cs] + 1
+                for sc in sequential_bigrams:
+                    record_sequential_bigram_counts[sc] = 1 if sc not in record_sequential_bigram_counts else record_sequential_bigram_counts[sc] + 1
+            record_code_probs = {c: record_code_counts[c]/n_records for c in record_code_counts}
+            visit_code_probs = {c: visit_code_counts[c]/n_visits for c in visit_code_counts}
+            record_bigram_probs = {cs: record_bigram_counts[cs]/n_records for cs in record_bigram_counts}
+            visit_bigram_probs = {cs: visit_bigram_counts[cs]/n_visits for cs in visit_bigram_counts}
+            record_sequential_bigram_probs = {sc: record_sequential_bigram_counts[sc]/n_records for sc in record_sequential_bigram_counts}
+            visit_sequential_bigram_probs = {sc: visit_sequential_bigram_counts[sc]/(n_visits - len(label_subset)) for sc in visit_sequential_bigram_counts}
+            
+            code_stats[self.RECORD_CODE_PROB] = record_code_probs
+            code_stats[self.VISIT_CODE_PROB] = visit_code_probs
+            code_stats[self.RECORD_BIGRAM_PROB] = record_bigram_probs
+            code_stats[self.VISIT_BIGRAM_PROB] = visit_bigram_probs
+            code_stats[self.RECORD_SEQUENTIAL] = record_sequential_bigram_probs
+            code_stats[self.VISIT_SEQUENTIAL] = visit_sequential_bigram_probs
+            
+            label_stats[self.PROBABILITIES] = code_stats
+            stats[label] = label_stats
+        label_probs = {l: label_counts[l]/n_records for l in label_counts}
+        
+        stats[self.LABEL_PROBABILITIES] = label_probs
+        
+        return stats
+
+        
+    def generate_plots(self, stats1, stats2, label1, label2):
+        for i in tqdm(range(config.label_vocab_size, config.label_vocab_size + 1)):
+            label = label_mapping[i]
+            data1 = stats1[label][self.PROBABILITIES]
+            data2 = stats2[label][self.PROBABILITIES]
+            for t in self.PROBABILITY_DENSITIES:
+                probs1 = data1[t]
+                probs2 = data2[t]
+                keys = set(probs1.keys()).union(set(probs2.keys()))
+                values1 = [probs1[k] if k in probs1 else 0 for k in keys]
+                values2 = [probs2[k] if k in probs2 else 0 for k in keys]
+
+                plt.clf()
+                r2 = r2_score(values1, values2)
+                print(f"{t} r-squared = {r2}")
+                plt.scatter(values1, values2, marker=".", alpha=0.66)
+                maxVal = min(1.1 * max(max(values1), max(values2)), 1.0)
+                # maxVal *= (0.3 if 'Sequential' in t else (0.45 if 'Code' in t else 0.3))
+                plt.xlim([0,maxVal])
+                plt.ylim([0,maxVal])
+                plt.title(f"{label} {t}")
+                plt.xlabel(label1)
+                plt.ylabel(label2)
+                plt.annotate("r-squared = {:.3f}".format(r2), (0.1*maxVal, 0.9*maxVal))
+                plt.savefig(f"./results/dataset_stats/{label2}_{label.split(':')[-1]}_{t}_adjMax".replace(" ", "_"))
 
 
 if __name__ == "__main__":
