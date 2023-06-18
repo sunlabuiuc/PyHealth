@@ -3,19 +3,26 @@
     Original GPT-2 Pytorch Model: https://github.com/huggingface/pytorch-pretrained-BERT
     GPT-2 Pytorch Model Derived From: https://github.com/graykode/gpt-2-Pytorch
 '''
+from datetime import timedelta
 import random
 import numpy as np
 import copy
 import math
-from typing import Dict, List, Tuple, Union
+from typing import Any, Callable, Dict, List, Tuple, Type, Union
+import pandas
+from tqdm import tqdm
+import pickle
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from tqdm import tqdm
+from torch.optim import Optimizer
+
 from pyhealth import datasets
+from pyhealth.data import Event 
 from pyhealth.datasets.base_ehr_dataset import BaseEHRDataset
 from pyhealth.datasets.eicu import eICUDataset
-from torch.optim import Optimizer
+
 
 
 """
@@ -312,20 +319,62 @@ class HALOProcessor():
 
     # code dimension (dim 2)
     SPECIAL_VISITS = ('start_visit', 'label_visit')
+
+    # the key for the inter_visit_gap handler
+    TEMPORAL_INTER_VISIT_GAP = 'inter_visit_gap'
     
     """
     discretizator: Table --> Discretizer
     max_visits: the maximum number of visits to include per patient. 
         if `None` is provided, this number will be automatically set
+
+    label_fn: a mapping from patient to label. 
+            There is no restriction on a label fn output, except that only one, non-int label must be produced per patient record provided. 
+            no label fn signals unconditioned generation
+    
+    label_vector_len: invert the label_fn output
+    invert_label: optional reverse the conversion from patient data to a multihot label
     """
     def __init__(
         self,
         dataset: BaseEHRDataset,
         use_tables: List[str],
-        event_handlers: Dict[str, any] = {},
+        
+        # allows unpacking/handling patient records into events
+        event_handlers: Dict[str, Callable[[Type[Event]], Any]] = {},
+
+        # used to handle continuous values
+        continuous_value_handlers: Dict[str, Callable[..., int]] = {},
+        continuous_value_handlers_inverter: Dict[str, Callable[[List[int]], Any]] = {},
+
+        # used to discretize time
+        time_handler: Callable[[Type[timedelta]], Any] = None,
+        time_hanlder_inverter: Callable[[List[int]], Any] = None,
+        time_vector_length: int = -1,
+        
         max_visits: Union[None, int] = None,
-        label_fn: callable = lambda data: ''
+        label_fn: Callable[..., Tuple[int]] = None, # lambda data: '',
+        label_vector_len: int = -1,
+        invert_label: Callable[..., Any] = None,
     ) -> None:
+        """Aggregator for collecting latent information in the base Dataset.
+        
+        The HALO methodology requires a dataset to synthesize. This Aggregator initializer iterates through that dataset and computes:
+        the upper bound on number of visits, the set of global event codes, a mapping between global event codes and a 0 based index. 
+        These values are set as instane variables, and used in later HALO steps.
+
+        Args:
+            event_handlers: a set of functions which are used to correctly unpack/handle/process table events into event representations.
+            label_fn: Callable[..., str], a function which is called on a patient record indexing. 
+                The function should produce a string representing the global label vector for a patient. 
+                This method is designed as such to allow the use of multi-hot label vectors, allow conditional generation of severeal labels at once.
+                The label_fn output must be a tuple representing the multi-hot.
+            label_vector_len: the length of the multihot produced by the label_fn.
+            continuous_value_handlers: a set of functions which allow the conversion from a continuous value to a discrete one or a bucket. 
+                The functions should take in a pyhealth.data.Event and output an integer representing the corresponding bucket
+            continuous_value_handlers_inverter: capable of converting a bucket into a continuous value
+            continuous_value_vector_lengths: the length of the one hot/multihot vector representing a discretized version of a discretized continuous value
+        """
         
         self.dataset = dataset
         
@@ -336,8 +385,24 @@ class HALOProcessor():
         self.event_handlers = event_handlers 
         
         # generate a HALO label based on a patient record
+        assert label_fn != None, "Define the label_fn."
+        assert label_vector_len >= 0, "Nonnegative vector_len required. May be due to user error, or value is not defined."
         self.label_fn = label_fn
-                
+        self.label_vector_len = label_vector_len
+        self.invert_label = invert_label
+
+        self.continuous_value_handlers = continuous_value_handlers
+        self.continuous_value_handlers_inverter = continuous_value_handlers_inverter
+
+        assert time_handler != None, "Defining time_handler is not optional. This field converts time values to a discrete one hot/multi hot vector representation."
+        self.time_handler = time_handler
+
+        # optional
+        self.time_hanlder_inverter = time_hanlder_inverter
+        
+        assert time_vector_length != None, "Defining time_vector_length is not optional. This field is equivalent to the number of buckets required to discretie time."
+        self.time_vector_length = time_vector_length
+
         self.max_visits = max_visits
 
         # init the indeces & dynamically computed utility variables used in HALO training later
@@ -346,44 +411,46 @@ class HALOProcessor():
 
     def set_indeces(self) -> None:
         # set aggregate indeces
-        self.aggregate_halo_indeces()
+        self.global_events: Dict = {}
+        self.aggregate_event_indeces()
 
         # assert the processor works as expected
         assert len(self.global_events) % 2 == 0, "Event index processor not bijective"
-        assert len(self.global_labels) % 2 == 0, "Label index processor not bijective"
 
         # bidirectional mappings
-        self.num_global_events = len(self.global_events) // 2
-        self.num_global_labels = len(self.global_labels) // 2
+        self.num_global_events = self.time_vector_length + len(self.global_events) // 2
 
         # define the tokens in the event dimension (visit dimension already specified)
-        self.start_token_index = self.num_global_events + self.num_global_labels
-        self.end_token_index = self.num_global_events + self.num_global_labels + 1
-        self.pad_token_index = self.num_global_events + self.num_global_labels + 2
+        self.label_start_index = self.num_global_events
+        self.label_end_index = self.num_global_events + self.label_vector_len
+        self.start_token_index = self.num_global_events + self.label_vector_len
+        self.end_token_index = self.num_global_events + self.label_vector_len + 1
+        self.pad_token_index = self.num_global_events + self.label_vector_len + 2
 
         # parameters for generating batch vectors
-        self.total_vocab_size = self.num_global_events + self.num_global_labels + len(self.SPECIAL_VOCAB)
+        self.total_vocab_size = self.num_global_events + self.label_vector_len + len(self.SPECIAL_VOCAB)
         self.total_visit_size = len(self.SPECIAL_VISITS) + self.max_visits
-    
+
     """
-    its necessary to aggregate global event data, prior to trnasforming the dataset
+    its necessary to aggregate global event data, prior to transforming the dataset
     """
-    def aggregate_halo_indeces(self) -> None:
+    def aggregate_event_indeces(self) -> None:
 
         # two way mapping from global identifier to index & vice-versa
         # possible since index <> global identifier is bijective
         # type: ((table_name: str, event_value: any): index) or (index: (table_name: str, event_value: any))
-        global_events: Dict = {}
-        global_labels: Dict = {}
         max_visits: int = 0
+        min_birth_datetime = pandas.Timestamp.now()
         
         for pdata in tqdm(list(self.dataset), desc="HALOAggregator generating indeces"):
             
             max_visits = max(max_visits, len(pdata.visits))
-            
+            if pdata.birth_datetime != None:
+                min_birth_datetime = min(min_birth_datetime, pdata.birth_datetime)
+
             # compute global event
             for vid, vdata in pdata.visits.items():
-                
+
                 for table in vdata.available_tables:
 
                     # valid_tables == None signals we want to use all tables
@@ -396,30 +463,24 @@ class HALOProcessor():
                     for te_raw in table_events_raw:
                         
                         te = event_handler(te_raw) if event_handler else te_raw.code
+
+                        if table in self.continuous_value_handlers:
+                            te = self.continuous_value_handlers[table](te)
+
                         global_event = (table, te)
                     
-                        if global_event not in global_events:
-                            index_of_global_event = len(global_events) // 2
-                            global_events[global_event] = index_of_global_event
-                            global_events[index_of_global_event] = global_event
-                        
-                        
-            # compute global label (method provided by user)
-            label = self.label_fn(patient_data=pdata)
-            
-            if label not in global_labels:
-                index_of_global_label = len(global_labels) // 2
-                global_labels[label] = index_of_global_label
-                global_labels[index_of_global_label] = label
-            
-        # set aggregates for downstream processing
-        self.global_events = global_events
-        self.global_labels = global_labels
+                        if global_event not in self.global_events:
+                            # keys 0 - self.time_vector_length are reserved for inter-visit information
+                            index_of_global_event = self.time_vector_length + (len(self.global_events) // 2)
+                            self.global_events[global_event] = index_of_global_event
+                            self.global_events[index_of_global_event] = global_event
+
         
         # if the user does not provide, infer from dataset
         if self.max_visits == None:
             self.max_visits = max_visits
-            
+        
+        self.min_birth_datetime = min_birth_datetime
     """
     similar to dataset.set_task(...)
     - produce a sampleEHRDataset
@@ -434,11 +495,24 @@ class HALOProcessor():
         sample_mask = np.zeros((batch_size, self.total_visit_size, 1)) # visits that are unlabeled
         
         for pidx, pdata in enumerate(batch):
-            
+
+            previous_time = pdata.birth_datetime if pdata.birth_datetime != None else self.min_birth_datetime
             # build multihot vector for patient events
             for visit_index, vid,  in enumerate(pdata.visits):
-                vdata = pdata.visits[vid]
                 
+                vdata = pdata.visits[vid]
+
+                # set temporal attributes
+                current_time = vdata.encounter_time
+                time_since_last_visit = current_time - previous_time                
+                
+                # vector representation of the gap between last visit and current one
+                inter_visit_gap_vector = self.time_handler(time_since_last_visit)
+                sample_multi_hot[pidx, self.VISIT_INDEX, :self.time_vector_length] = inter_visit_gap_vector
+
+                # the next timedelta is previous current visit - discharge of previous visit
+                previous_time = vdata.discharge_time
+
                 sample_mask[pidx, self.VISIT_INDEX + visit_index] = 1
                 
                 for table in vdata.available_tables:
@@ -448,10 +522,15 @@ class HALOProcessor():
                     table_events_raw = vdata.get_event_list(table)
                     
                     event_handler = self.event_handlers[table] if table in self.event_handlers else None
-                    
+                    continuous_value_handler = self.continuous_value_handlers[table] if table in self.continuous_value_handlers else None
+
                     for te_raw in table_events_raw:
                         
                         te = event_handler(te_raw) if event_handler else te_raw.code
+                        
+                        if continuous_value_handler:
+                            te = continuous_value_handler(te)
+
                         global_event = (table, te)
                         event_as_index = self.global_events[global_event]
                         
@@ -459,9 +538,8 @@ class HALOProcessor():
                         sample_multi_hot[pidx, self.VISIT_INDEX + visit_index, event_as_index] = 1            
             
             # set patient label
-            global_label = self.label_fn(patient_data=pdata)
-            label_as_index = self.global_labels[global_label]
-            sample_multi_hot[:, self.LABEL_INDEX, self.num_global_events + label_as_index] = 1
+            global_label_vector = self.label_fn(patient_data=pdata)
+            sample_multi_hot[:, self.LABEL_INDEX, self.num_global_events: self.num_global_events + self.label_vector_len] = global_label_vector
             
             # set the end token
             sample_multi_hot[:, self.VISIT_INDEX + (len(pdata.visits) - 1), self.end_token_index] = 1
@@ -491,6 +569,7 @@ class HALOProcessor():
             batch_offset += batch_size # prepare for next iteration
             
             yield self.process_batch(batch)
+
 """
 trainer for generative models
 """
@@ -501,7 +580,7 @@ class HALOTrainer:
             processor: HALOProcessor, 
             optimizer: Optimizer,
             checkpoint_name: str,
-            checkpoint_path: str
+            checkpoint_path: str,
         ) -> None:
         self.dataset = dataset
         self.model = model
@@ -509,7 +588,7 @@ class HALOTrainer:
         self.optimizer = optimizer
         self.checkpoint_name = checkpoint_name
         self.checkpoint_path = checkpoint_path
-        
+    
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model.to(self.device)
     
@@ -545,8 +624,17 @@ class HALOTrainer:
             start_offset += n_split
             
         return dataset_splits
-                
-    def eval(self, current_epoch: int, current_iteration: int, batch_size: int, patience: int):
+    
+    def make_checkpoint(self, iteration):
+        state = {
+                'model': self.model.state_dict(),
+                'optimizer': self.optimizer.state_dict(),
+                'iteration': iteration
+            }
+        torch.save(state, f"{self.checkpoint_path}/eval_{self.checkpoint_name}.pkl")
+        print('\n------------ Save best model ------------\n')
+
+    def eval(self, batch_size: int,current_epoch: int = 0, current_iteration: int = 0, patience: int = None):
         self.model.eval()
         
         with torch.no_grad():
@@ -563,23 +651,21 @@ class HALOTrainer:
                 val_l.append((val_loss).cpu().detach().numpy())
                 
                 cur_val_loss = np.mean(val_l)
-                print("Epoch %d Validation Loss:%.7f"%(current_epoch, cur_val_loss))
+                if current_epoch or current_iteration:
+                    print("Epoch %d Validation Loss:%.7f"%(current_epoch, cur_val_loss))
                 
                 # make checkpoint
                 if cur_val_loss < global_loss:
                     global_loss = cur_val_loss
-                    self.patience = 0
-                    state = {
-                            'model': self.model.state_dict(),
-                            'optimizer': self.optimizer.state_dict(),
-                            'iteration': current_iteration
-                        }
-                    torch.save(state, f"{self.checkpoint_path}/eval_{self.checkpoint_name}")
-                    print('\n------------ Save best model ------------\n')
+                    patience = 0
+                    self.make_checkpoint(iteration=current_iteration)
                 
-                self.patience += 1
-                if patience == patience: break
+                patience += 1
+                if patience != None and patience == patience: break
     
+    def validate(self, batch_size):
+        self.eval(batch_size=batch_size, current_epoch=0, current_iteration=0, patience=None)
+
     def train(self, batch_size: int, epoch: int, patience: int, eval_period: int) -> None:        
         
         for e in tqdm(range(epoch), desc="Training HALO model"):
@@ -601,55 +687,176 @@ class HALOTrainer:
                 # the eval period may never be reached if there aren't enough batches
                 if i % min(eval_period, len(self.train_dataset)//batch_size) == 0:
                     print("Epoch %d, Iter %d: Training Loss:%.7f"%(e, i, loss))
-                    self.eval(current_epoch=e, current_iteration=i, batch_size=batch_size, patience=patience)
+                    self.eval(current_epoch=e, current_iteration=i, batch_size=batch_size)
         
-        self.eval(current_epoch=epoch, current_iteration=-1, batch_size=batch_size, patience=patience)
+        self.eval(batch_size=batch_size, current_epoch=epoch, current_iteration=-1, patience=patience)
     
+class HALOGenerator:
+    def __init__(
+            self,
+            model: nn.Module,
+            processor: HALOProcessor,
+            batch_size: int, # it is recommended to use the same batch size as that for training
+            save_path: str,
+            device: str,
+        ) -> None:
+        
+        self.model = model
+        self.processor = processor
+        self.batch_size = batch_size
+        self.save_path = save_path
+        self.device = device
+
+    # generate context vector, and the probablility of the label occurrence in the dataset
+    def generate_context(self, label_vector) -> List:
+        stoken = np.zeros((1, processor.total_vocab_size))
+        stoken[0, processor.start_token_index] = 1
+        
+        if label_vector is None:
+            return stoken # probability of label occurrence in dataset
+        
+        ltoken = np.zeros((1, processor.total_vocab_size))
+        ltoken[0, self.processor.label_start_index: self.processor.label_end_index] = label_vector
+
+        context = np.concatenate((stoken, ltoken), axis=0)
+        context = context[:, np.newaxis, :]
+        return context
+
+    # get batches of context vectors with a probability
+    def get_contexts(self, contexts, batch_size: int, probability: float):
+        idx = np.random.choice(len(contexts), batch_size, replace = True, p = probability) # random selection to generate contexts*batch_size seems inefficient
+        return np.array([contexts[i] for i in idx])
+
+    def sample_sequence(self, context, batch_size, sample=True, visit_type=-1):
+        empty = torch.zeros((1,1,processor.total_vocab_size), device=self.device, dtype=torch.float32).repeat(batch_size, 1, 1)
+        prev = torch.tensor(context, device=self.device, dtype=torch.float32)
+
+        with torch.no_grad():
+            for _ in range(self.processor.max_visits - len(self.processor.SPECIAL_VOCAB)): # visits - context lengths; iterate # of ti
+
+                prev = self.model.sample(torch.cat((prev,empty), dim=1), sample)
+
+                if torch.sum(torch.sum(prev[:, :, processor.end_token_index], dim=1).bool().int(), dim=0).item() == batch_size: # why do we do this?
+                    break
+
+        samples = prev.cpu().detach().numpy()
+
+        return samples
+
+
+    # handle conversion from HALO vector output to samples
+    def convert_samples_to_ehr(self, samples):
+        ehr_outputs = []
+        for i in range(len(samples)):
+            sample_as_ehr = []
+            sample_time_gaps = []
+            sample = samples[i]
+
+            labels_output = sample[self.processor.LABEL_INDEX][self.processor.label_start_index: self.processor.label_end_index]
+            parsed_labels_output = self.processor.invert_label(labels_output) if self.processor.invert_label != None else labels_output
+
+            for j in range(self.processor.VISIT_INDEX, len(sample)):
+                
+                visit = sample[j]
+
+                # handle inter-visit gaps
+                visit_time = visit[:self.processor.time_vector_length]
+                convert_to_time = self.processor.time_hanlder_inverter
+                time_gap = convert_to_time(visit_time) if convert_to_time != None else visit_time
+                sample_time_gaps.append(time_gap)
+
+                # handle visit event codes
+                visit_events = visit[self.processor.time_vector_length: self.processor.num_global_events]
+                visit_code_indices = np.nonzero(visit_events)[0]
+                visit_ehr_codes = [self.processor.global_events[self.processor.time_vector_length + index] for index in visit_code_indices]
+                sample_as_ehr.append(visit_ehr_codes)
+
+                end = bool(sample[j, self.processor.end_token_index])
+                if end: break
+            
+            ehr_outputs.append({'visits': sample_as_ehr, 'inter-visit gap': sample_time_gaps, 'labels': parsed_labels_output})
+
+        return ehr_outputs
+
+    def generate_conditioned(self, labels: List[Tuple[any, int]]):
+        synthetic_ehr_dataset = []
+        for (label, count_per_label) in tqdm(labels, desc=f"Generating samples for labels"):
+            context_vectors = self.generate_context(label)
+            for i in tqdm(range(0, count_per_label, self.batch_size), leave=False):
+                amount_remaining = count_per_label - i
+                bs = min(amount_remaining, self.batch_size)
+                context = self.get_contexts(context_vectors, bs, probability=None)
+                
+                batch_synthetic_ehrs = self.sample_sequence(
+                    context=context, 
+                    batch_size=bs, 
+                    sample=True
+                )
+                
+                batch_synthetic_ehrs = self.convert_samples_to_ehr(batch_synthetic_ehrs)
+                synthetic_ehr_dataset += batch_synthetic_ehrs
+        pickle.dump(synthetic_ehr_dataset, open(self.save_path, "wb"))
+
+    def generate_unconditioned(self):    
+        pass
+    
+    def evaluate(self):
+        pass
+
+class HALOEvaluator:
+
+    def __init__(
+            self,
+            synthetic_data = None,
+            training_data = None
+        ):
+        pass
+
+    def generate_statistics(ehr_dataset):
+        pass
+        
+    def generate_plots(stats1, stats2, label1, label2, types=["Per Record Code Probabilities", "Per Visit Code Probabilities", "Per Record Bigram Probabilities", "Per Visit Bigram Probabilities", "Per Record Sequential Visit Bigram Probabilities", "Per Visit Sequential Visit Bigram Probabilities"]):
+        pass
+        # for i in tqdm(range(config.label_vocab_size, config.label_vocab_size + 1)):
+        #     label = label_mapping[i]
+        #     data1 = stats1[label]["Probabilities"]
+        #     data2 = stats2[label]["Probabilities"]
+        #     for t in types:
+        #         probs1 = data1[t]
+        #         probs2 = data2[t]
+        #         keys = set(probs1.keys()).union(set(probs2.keys()))
+        #         values1 = [probs1[k] if k in probs1 else 0 for k in keys]
+        #         values2 = [probs2[k] if k in probs2 else 0 for k in keys]
+
+        #         plt.clf()
+        #         r2 = r2_score(values1, values2)
+        #         print(f"{t} r-squared = {r2}")
+        #         plt.scatter(values1, values2, marker=".", alpha=0.66)
+        #         maxVal = min(1.1 * max(max(values1), max(values2)), 1.0)
+        #         # maxVal *= (0.3 if 'Sequential' in t else (0.45 if 'Code' in t else 0.3))
+        #         plt.xlim([0,maxVal])
+        #         plt.ylim([0,maxVal])
+        #         plt.title(f"{label} {t}")
+        #         plt.xlabel(label1)
+        #         plt.ylabel(label2)
+        #         plt.annotate("r-squared = {:.3f}".format(r2), (0.1*maxVal, 0.9*maxVal))
+        #         plt.savefig(f"./results/dataset_stats/{label2}_{label.split(':')[-1]}_{t}_adjMax".replace(" ", "_"))
+
+
 if __name__ == "__main__":
     from pyhealth.datasets import eICUDataset
-    from pyhealth.data import Patient, Event
-    
-    # # to test the file this path needs to be updated
-    # DATASET_NAME = "eICU-demo"
-    # ROOT = "https://storage.googleapis.com/pyhealth/eicu-demo/"
-    # TABLES = ["diagnosis", "medication", "lab", "treatment", "physicalExam"]
-    # CODE_MAPPING = {}
-    # DEV = True  # not needed when using demo set since its 100 patients large
-    # REFRESH_CACHE = False
+    from pyhealth.data import Event
 
-    # pyhealth_dataset = eICUDataset(
-    #     dataset_name=DATASET_NAME,
-    #     root=ROOT,
-    #     tables=TABLES,
-    #     code_mapping=CODE_MAPPING,
-    #     dev=DEV,
-    #     refresh_cache=REFRESH_CACHE,
-    # )
-    
-    # DATASET_NAME = "omop-demo"
-    # ROOT = "https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2/"
-    # TABLES = [
-    #     "condition_occurrence",
-    #     "procedure_occurrence",
-    #     "drug_exposure",
-    #     "measurement",
-    # ]
-    # CODE_MAPPING = {}
-    # DEV = True  # not needed when using demo set since its 100 patients large
-    # REFRESH_CACHE = False
+    path = '/home/bdanek2/PyHealth/synthetically_generated_data.pkl'
+    d = pickle.load(open(path, 'rb'))
 
-    # dataset = OMOPDataset(
-    #     dataset_name=DATASET_NAME,
-    #     root=ROOT,
-    #     tables=TABLES,
-    #     code_mapping=CODE_MAPPING,
-    #     dev=DEV,
-    #     refresh_cache=REFRESH_CACHE,
-    # )
-    
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    # --- pyhealth dataset/source ---    
     DATASET_NAME = "eICU-demo"
-    ROOT = "https://storage.googleapis.com/pyhealth/eicu-demo/"
-    TABLES = ["diagnosis", "medication", "lab", "treatment", "physicalExam"]
+    # ROOT = "https://storage.googleapis.com/pyhealth/eicu-demo/",
+    ROOT = "/home/bdanek2/ai4health/dataset/physionet.org/files/eicu-crd/2.0_unpacked"
+    TABLES = ["diagnosis", "medication", "lab", "treatment"]
     CODE_MAPPING = {}
     DEV = True  # not needed when using demo set since its 100 patients large
     REFRESH_CACHE = False
@@ -662,59 +869,136 @@ if __name__ == "__main__":
         dev=DEV,
         refresh_cache=REFRESH_CACHE,
     )
+
+    # --- processor ---
+    basedir = '/home/bdanek2/PyHealth'
+    processor_path = f'{basedir}/model_saves/halo_dev_processor.pkl'
+    batch_size = 128
     
     # define a way to make labels from raw data
     def simple_label_fn(**kwargs):
         pdata = kwargs['patient_data']
         
-        return pdata.gender
+        return (1, 0) if pdata.gender == 'Male' else (0, 1)
     
     def handle_measurement(event: Event):
         # ex:  event = discretizer.discretize(event.lab_value)
         return event
     
+    # complex case:
+    # handle labs of 1 kind in one way, and labs of another in another way
+    
     # define a way to handle events that need some special event handling
     # this is where you would define some discrtization strategy
     event_handlers = {}   
     event_handlers['measurement'] =  handle_measurement
+
+    # handle continuous value discretization    
+    def handle_lab(x):
+        bins = [0, 0.5, 1, 2, 4, 8, 16, 32]
+        np.digitize(x, bins)
+
+    continuous_value_handlers = {}
+    continuous_value_handlers['lab'] = handle_lab
     
-    processor = HALOProcessor(
-        dataset=dataset,
-        use_tables=None,
-        event_handlers=event_handlers,
-        label_fn=simple_label_fn
-    )
+    # handle discretization of time
+    def handle_time(x=0):
+        rand_times = [
+            (1, 0, 0), (0, 1, 1), (1, 0, 1)
+        ]
+        i = np.random.choice(range(0, 2), replace=True)
+        return rand_times[i]
     
+    time_vector_length = len(handle_time())
+
+    # processor = HALOProcessor(
+    #     dataset=dataset,
+    #     use_tables=None,
+    #     event_handlers=event_handlers,
+    #     continuous_value_handlers=continuous_value_handlers,
+    #     time_handler=handle_time,
+    #     time_vector_length=time_vector_length,
+    #     label_fn=simple_label_fn,
+    #     label_vector_len=2,
+    #     invert_label=None
+    # )
+    
+    # pickle.dump(processor, open(processor_path, 'wb'))
+    processor = pickle.load(open(processor_path, 'rb'))
     model = HALOModel(Config(
         n_positions=20,
         n_ctx=processor.total_visit_size,
-        n_embd=768,
-        n_layer=12,
-        n_head=12,
-        layer_norm_epsilon=1e-5,
-        initializer_range=0.02,
-        total_vocab_size=processor.total_vocab_size
+        n_embd=768, # move to model
+        n_layer=12, # move to model
+        n_head=12, # move to model
+        layer_norm_epsilon=1e-5, # move to model
+        initializer_range=0.02, # move to model
+        total_vocab_size=processor.total_vocab_size,
+        device=device
     ))
     
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     
     basedir = '/home/bdanek2/PyHealth/' #
-    trainer = HALOTrainer(
-        dataset=dataset,
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    
+    basedir = '/home/bdanek2/PyHealth/' #
+    # trainer = HALOTrainer(
+    #     dataset=dataset,
+    #     model=model,
+    #     processor=processor,
+    #     optimizer=torch.optim.Adam(model.parameters(), lr=1e-4),
+    #     checkpoint_name='developement',
+    #     checkpoint_path=basedir + 'model_saves',
+    # )
+    
+    # trainer.set_basic_splits()
+    
+    # trainer.train(
+    #     batch_size=batch_size,
+    #     epoch=3,
+    #     patience=5,
+    #     eval_period=100
+    # )
+    
+
+    state_dict = torch.load(f'{basedir}/model_saves/eval_developement.pkl', map_location=device)
+
+    model = HALOModel(Config(
+        n_positions=20,
+        n_ctx=processor.total_visit_size,
+        n_embd=768, # move to model
+        n_layer=12, # move to model
+        n_head=12, # move to model
+        layer_norm_epsilon=1e-5, # move to model
+        initializer_range=0.02, # move to model
+        total_vocab_size=processor.total_vocab_size
+    ))
+
+    model.load_state_dict(state_dict['model'])
+    model.to(device)
+
+    generator = HALOGenerator(
         model=model,
         processor=processor,
-        optimizer=optimizer,
-        checkpoint_name='developement',
-        checkpoint_path=basedir + 'model_saves'
+        batch_size=batch_size,
+        device=device,
+        save_path=f"{basedir}/synthetically_generated_data.pkl"
     )
-    
-    trainer.set_basic_splits()
-    
-    trainer.train(
-        batch_size=128,
-        epoch=3,
-        patience=5,
-        eval_period=100
-    )
+
+    labels = [((1, 0), 200)]
+    generator.generate_conditioned(labels)
+
+    # Extract and save statistics
+    train_ehr_stats = HALOEvaluator.generate_statistics(dataset)
+    halo_ehr_stats = HALOEvaluator.generate_statistics(halo_ehr_dataset)
+    print(train_ehr_stats["Overall"]["Aggregate"])
+    print(halo_ehr_stats["Overall"]["Aggregate"])
+    print(train_ehr_stats["Label Probabilities"])
+    print(halo_ehr_stats["Label Probabilities"])
+
+    # Plot per-code statistics
+    generate_plots(train_ehr_stats, halo_ehr_stats, "Real Data", "First HALO Synthetic Data")
 
     print("done")
