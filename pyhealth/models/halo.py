@@ -13,7 +13,7 @@ import copy
 import math
 from typing import Any, Callable, Dict, List, Tuple, Type, Union
 import pandas
-from sklearn.base import r2_score
+from sklearn.metrics import r2_score
 from tqdm import tqdm
 import pickle
 
@@ -754,14 +754,15 @@ class HALOGenerator:
 
 
     # handle conversion from HALO vector output to samples
-    def convert_samples_to_ehr(self, samples):
+    def convert_samples_to_ehr(self, samples) -> List[Dict]:
         ehr_outputs = []
         for i in range(len(samples)):
             sample_as_ehr = []
             sample_time_gaps = []
             sample = samples[i]
 
-            labels_output = sample[self.processor.LABEL_INDEX][self.processor.label_start_index: self.processor.label_end_index]
+            # labels need to be hashable, so we convert them back to tuple representation
+            labels_output = tuple(sample[self.processor.LABEL_INDEX][self.processor.label_start_index: self.processor.label_end_index])
             parsed_labels_output = self.processor.invert_label(labels_output) if self.processor.invert_label != None else labels_output
 
             for j in range(self.processor.VISIT_INDEX, len(sample)):
@@ -804,7 +805,9 @@ class HALOGenerator:
                 
                 batch_synthetic_ehrs = self.convert_samples_to_ehr(batch_synthetic_ehrs)
                 synthetic_ehr_dataset += batch_synthetic_ehrs
+        print("Saving synthetic ehr dataset at:", self.save_path)
         pickle.dump(synthetic_ehr_dataset, open(self.save_path, "wb"))
+        return synthetic_ehr_dataset
 
     def generate_unconditioned(self):    
         pass
@@ -813,8 +816,6 @@ class HALOGenerator:
         pass
 
 class HALOEvaluator:
-
-    ALL_LABELS = "all"
 
     RECORD_LEN_MEAN = "Record Length Mean"
     RECORD_LEN_STD = "Record Length Standard Deviation"
@@ -844,17 +845,62 @@ class HALOEvaluator:
 
     def __init__(
             self,
-            processor: HALOProcessor = None,
-            generator: HALOGenerator = None,
+            generator: HALOGenerator,
+            processor: HALOProcessor,
         ):
         self.generator = generator
+        self.processor = processor
 
-    def generate_statistics(self, ehr_dataset, labels):
+        self.ALL_LABELS = tuple(np.ones(self.processor.label_vector_len + 1))
+    
+    def default_path_fn(self, label_vector):
+        return f"./halo_eval_{str(tuple(label_vector)).replace('.', '').replace(' ', '')}"
+
+    def evaluate(self, source, synthetic, get_plot_path_fn=None, print_overall=True):
+        halo_labels, halo_ehr_stats = self.generate_statistics(ehr_dataset=synthetic)
         
-        # compute all available lables
+        source_as_vectors = self.to_evaluation_format(source)
+        train_erh_labels, train_ehr_stats = self.generate_statistics(ehr_dataset=source_as_vectors)
+        
+        assert halo_labels, "No labels present in HALO Dataset, this is likely because the dataset schema is incorrect."
+        assert train_erh_labels, "No labels present in Training Dataset, this is likely because the dataset schema is incorrect."
+
+        if print_overall:
+            print(train_ehr_stats[self.ALL_LABELS][self.AGGREGATE])
+            print(halo_ehr_stats[self.ALL_LABELS][self.AGGREGATE])
+            print(train_ehr_stats[self.LABEL_PROBABILITIES])
+            print(halo_ehr_stats[self.LABEL_PROBABILITIES])
+
+        # Plot per-code statistics
+        plot_paths = self.generate_plots(train_ehr_stats, halo_ehr_stats, "Source Data", "Synthetic Data", get_plot_path_fn)
+
+        return {"source_stats": train_ehr_stats, "synthetic_stats": halo_ehr_stats, "plot_paths": plot_paths}
+    
+    def to_evaluation_format(self, dataset: BaseEHRDataset) -> List[Dict]:
+        """
+        computing probability densities is more straighforward on a vector dataset.
+        This method processes a pyhealth dataset into the HALO vector format
+        """
+        
+        converted_samples = []
+        for batch_ehr, _ in self.processor.get_batch(dataset, batch_size):
+            converted_sample_batch = self.generator.convert_samples_to_ehr(samples=batch_ehr)    
+            converted_samples += (converted_sample_batch)
+        
+        return converted_samples
+
+    def generate_statistics(self, ehr_dataset) -> Dict:
+        """Compute basic statistics and probability densities of code occurrences (unigram, bigram, sequential bigram)"""
+        
+        # compute all available lables in the dataset
         labels = set()
+        for sample in ehr_dataset: labels.add(sample[self.generator.LABEL])
+
+        # used in plot generation later
+        dataset_labels = tuple(labels)
+
+        # generate overall statistics
         labels.add(self.ALL_LABELS)
-        for sample in ehr_dataset: labels.add(sample)
 
         # collect stats for the current label
         stats = {}
@@ -871,7 +917,7 @@ class HALOEvaluator:
                 ehr_subset = ehr_dataset
 
             # compute stats per label
-            label_subset = [ehr_dataset]
+            label_subset = ehr_dataset
             label_counts[label] = len(label_subset)
 
             label_stats = {}
@@ -884,7 +930,7 @@ class HALOEvaluator:
                 visits = sample[self.generator.VISITS]
                 timegap = sample[self.generator.TIME]
                 record_lens.append(len(visits))
-                visit_lens.append([len(v) for v in visits])
+                visit_lens += [len(v) for v in visits]
                 visit_gaps.append(timegap)
 
             aggregate_stats = {}
@@ -954,14 +1000,17 @@ class HALOEvaluator:
         
         stats[self.LABEL_PROBABILITIES] = label_probs
         
-        return stats
+        return dataset_labels, stats
+    
+    def generate_plots(self, stats_a, stats_b, plot_label_a, plot_label_b, get_plot_path_fn: Callable = None, compare_labels: List = None) -> List[str]:
+        """Generate plots"""
+        if compare_labels == None:
+            compare_labels = [self.ALL_LABELS]
 
-        
-    def generate_plots(self, stats1, stats2, label1, label2):
-        for i in tqdm(range(config.label_vocab_size, config.label_vocab_size + 1)):
-            label = label_mapping[i]
-            data1 = stats1[label][self.PROBABILITIES]
-            data2 = stats2[label][self.PROBABILITIES]
+        plot_paths = []
+        for label in tqdm(compare_labels, desc="Evalutor: generating label plots"):
+            data1 = stats_a[label][self.PROBABILITIES]
+            data2 = stats_b[label][self.PROBABILITIES]
             for t in self.PROBABILITY_DENSITIES:
                 probs1 = data1[t]
                 probs2 = data2[t]
@@ -975,21 +1024,25 @@ class HALOEvaluator:
                 plt.scatter(values1, values2, marker=".", alpha=0.66)
                 maxVal = min(1.1 * max(max(values1), max(values2)), 1.0)
                 # maxVal *= (0.3 if 'Sequential' in t else (0.45 if 'Code' in t else 0.3))
+                
                 plt.xlim([0,maxVal])
                 plt.ylim([0,maxVal])
                 plt.title(f"{label} {t}")
-                plt.xlabel(label1)
-                plt.ylabel(label2)
+                plt.xlabel(plot_label_a)
+                plt.ylabel(plot_label_b)
                 plt.annotate("r-squared = {:.3f}".format(r2), (0.1*maxVal, 0.9*maxVal))
-                plt.savefig(f"./results/dataset_stats/{label2}_{label.split(':')[-1]}_{t}_adjMax".replace(" ", "_"))
+                
+                figure_path = get_plot_path_fn(label) if get_plot_path_fn != None else self.default_path_fn(label)
+                plt.savefig(figure_path)
+                plot_paths.append(figure_path)
+
+        return plot_paths
 
 
 if __name__ == "__main__":
+
     from pyhealth.datasets import eICUDataset
     from pyhealth.data import Event
-
-    path = '/home/bdanek2/PyHealth/synthetically_generated_data.pkl'
-    d = pickle.load(open(path, 'rb'))
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -1085,16 +1138,16 @@ if __name__ == "__main__":
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     
     basedir = '/home/bdanek2/PyHealth/' #
-    # trainer = HALOTrainer(
-    #     dataset=dataset,
-    #     model=model,
-    #     processor=processor,
-    #     optimizer=torch.optim.Adam(model.parameters(), lr=1e-4),
-    #     checkpoint_name='developement',
-    #     checkpoint_path=basedir + 'model_saves',
-    # )
+    trainer = HALOTrainer(
+        dataset=dataset,
+        model=model,
+        processor=processor,
+        optimizer=torch.optim.Adam(model.parameters(), lr=1e-4),
+        checkpoint_name='developement',
+        checkpoint_path=basedir + 'model_saves',
+    )
     
-    # trainer.set_basic_splits()
+    trainer.set_basic_splits()
     
     # trainer.train(
     #     batch_size=batch_size,
@@ -1125,21 +1178,17 @@ if __name__ == "__main__":
         processor=processor,
         batch_size=batch_size,
         device=device,
-        save_path=f"{basedir}/synthetically_generated_data.pkl"
+        save_path=f"{basedir}synthetically_generated_data.pkl"
     )
 
     labels = [((1, 0), 200)]
-    generator.generate_conditioned(labels)
+    synthetic_dataset = generator.generate_conditioned(labels)
 
-    # Extract and save statistics
-    train_ehr_stats = HALOEvaluator.generate_statistics(dataset)
-    halo_ehr_stats = HALOEvaluator.generate_statistics(halo_ehr_dataset)
-    print(train_ehr_stats["Overall"]["Aggregate"])
-    print(halo_ehr_stats["Overall"]["Aggregate"])
-    print(train_ehr_stats["Label Probabilities"])
-    print(halo_ehr_stats["Label Probabilities"])
-
-    # Plot per-code statistics
-    generate_plots(train_ehr_stats, halo_ehr_stats, "Real Data", "First HALO Synthetic Data")
+    # conduct evaluation of the synthetic data w.r.t. it's source
+    evaluator = HALOEvaluator(generator=generator, processor=processor)
+    stats = evaluator.evaluate(
+        source=trainer.train_dataset,
+        synthetic=synthetic_dataset
+    )
 
     print("done")
