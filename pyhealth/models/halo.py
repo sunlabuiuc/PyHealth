@@ -7,12 +7,14 @@ from collections import defaultdict
 from datetime import timedelta
 import itertools
 import random
+import time
 from matplotlib import pyplot as plt
 import numpy as np
 import copy
 import math
 from typing import Any, Callable, Dict, List, Tuple, Type, Union
 import pandas
+from pyhealth.utils import print_dict
 from sklearn.metrics import r2_score
 from tqdm import tqdm
 import pickle
@@ -543,13 +545,13 @@ class HALOProcessor():
             
             # set patient label
             global_label_vector = self.label_fn(patient_data=pdata)
-            sample_multi_hot[:, self.LABEL_INDEX, self.num_global_events: self.num_global_events + self.label_vector_len] = global_label_vector
+            sample_multi_hot[pidx, self.LABEL_INDEX, self.num_global_events: self.num_global_events + self.label_vector_len] = global_label_vector
             
             # set the end token
-            sample_multi_hot[:, self.VISIT_INDEX + (len(pdata.visits) - 1), self.end_token_index] = 1
+            sample_multi_hot[pidx, self.VISIT_INDEX + (len(pdata.visits) - 1), self.end_token_index] = 1
 
             # set the remainder of the visits to pads if needed
-            sample_multi_hot[:, (self.VISIT_INDEX + (len(pdata.visits) - 1)) + 1:, self.pad_token_index] = 1
+            sample_multi_hot[pidx, (self.VISIT_INDEX + (len(pdata.visits) - 1)) + 1:, self.pad_token_index] = 1
             
         # set the start token
         sample_multi_hot[:, self.START_INDEX, self.start_token_index] = 1
@@ -566,8 +568,10 @@ class HALOProcessor():
     
     def get_batch(self, data_subset: BaseEHRDataset, batch_size: int = 16,):
 
+        batch_size = min(len(data_subset), batch_size)
+
         batch_offset = 0
-        while (batch_offset + batch_size < len(data_subset)):
+        while (batch_offset + batch_size <= len(data_subset)):
             
             batch = data_subset[batch_offset: batch_offset + batch_size]
             batch_offset += batch_size # prepare for next iteration
@@ -638,14 +642,14 @@ class HALOTrainer:
         torch.save(state, f"{self.checkpoint_path}/eval_{self.checkpoint_name}.pkl")
         print('\n------------ Save best model ------------\n')
 
-    def eval(self, batch_size: int,current_epoch: int = 0, current_iteration: int = 0, patience: int = None):
+    def eval(self, batch_size: int, current_epoch: int = 0, current_iteration: int = 0, patience: int = 0, save=True):
         self.model.eval()
         
         with torch.no_grad():
             
             global_loss = 1e10
             val_l = []
-            
+            current_patience = 0
             for batch_ehr, batch_mask in self.processor.get_batch(self.eval_dataset, batch_size):
                 
                 batch_ehr = torch.tensor(batch_ehr, dtype=torch.float32).to(self.device)
@@ -655,17 +659,19 @@ class HALOTrainer:
                 val_l.append((val_loss).cpu().detach().numpy())
                 
                 cur_val_loss = np.mean(val_l)
-                if current_epoch or current_iteration:
+                if current_epoch:
                     print("Epoch %d Validation Loss:%.7f"%(current_epoch, cur_val_loss))
-                
+                else:
+                    print("Validation Loss:%.7f"%(cur_val_loss))
+
                 # make checkpoint
-                if cur_val_loss < global_loss:
+                if save and cur_val_loss < global_loss:
                     global_loss = cur_val_loss
                     patience = 0
                     self.make_checkpoint(iteration=current_iteration)
                 
-                patience += 1
-                if patience != None and patience == patience: break
+                current_patience += 1
+                if current_patience == patience: break
     
     def validate(self, batch_size):
         self.eval(batch_size=batch_size, current_epoch=0, current_iteration=0, patience=None)
@@ -692,9 +698,9 @@ class HALOTrainer:
                 if i % min(eval_period, len(self.train_dataset)//batch_size) == 0:
                     print("Epoch %d, Iter %d: Training Loss:%.7f"%(e, i, loss))
                     self.eval(current_epoch=e, current_iteration=i, batch_size=batch_size)
-        
+
         self.eval(batch_size=batch_size, current_epoch=epoch, current_iteration=-1, patience=patience)
-    
+
 class HALOGenerator:
 
     VISITS = 'visits'
@@ -741,7 +747,7 @@ class HALOGenerator:
         prev = torch.tensor(context, device=self.device, dtype=torch.float32)
 
         with torch.no_grad():
-            for _ in range(self.processor.max_visits - len(self.processor.SPECIAL_VOCAB)): # visits - context lengths; iterate # of ti
+            for _ in range(self.processor.max_visits - (len(['start_token', 'label_token']))): # visits - (start vector, label vector); iterate # of ti
 
                 prev = self.model.sample(torch.cat((prev,empty), dim=1), sample)
 
@@ -851,12 +857,13 @@ class HALOEvaluator:
         self.generator = generator
         self.processor = processor
 
+        # all ones, 1 index longer than any other label
         self.ALL_LABELS = tuple(np.ones(self.processor.label_vector_len + 1))
     
     def default_path_fn(self, label_vector):
         return f"./halo_eval_{str(tuple(label_vector)).replace('.', '').replace(' ', '')}"
 
-    def evaluate(self, source, synthetic, get_plot_path_fn=None, print_overall=True):
+    def evaluate(self, source, synthetic, compare_label: List = None, get_plot_path_fn: Callable = None, print_overall: bool = True):
         halo_labels, halo_ehr_stats = self.generate_statistics(ehr_dataset=synthetic)
         
         source_as_vectors = self.to_evaluation_format(source)
@@ -866,13 +873,15 @@ class HALOEvaluator:
         assert train_erh_labels, "No labels present in Training Dataset, this is likely because the dataset schema is incorrect."
 
         if print_overall:
-            print(train_ehr_stats[self.ALL_LABELS][self.AGGREGATE])
-            print(halo_ehr_stats[self.ALL_LABELS][self.AGGREGATE])
-            print(train_ehr_stats[self.LABEL_PROBABILITIES])
-            print(halo_ehr_stats[self.LABEL_PROBABILITIES])
+            print("source (train)")
+            print_dict(train_ehr_stats[self.ALL_LABELS][self.AGGREGATE])
+            print_dict(train_ehr_stats[self.LABEL_PROBABILITIES])
+            print("synthetic")
+            print_dict(halo_ehr_stats[self.ALL_LABELS][self.AGGREGATE])
+            print_dict(halo_ehr_stats[self.LABEL_PROBABILITIES])
 
         # Plot per-code statistics
-        plot_paths = self.generate_plots(train_ehr_stats, halo_ehr_stats, "Source Data", "Synthetic Data", get_plot_path_fn)
+        plot_paths = self.generate_plots(train_ehr_stats, halo_ehr_stats, "Source Data", "Synthetic Data", get_plot_path_fn=get_plot_path_fn, compare_labels=compare_label)
 
         return {"source_stats": train_ehr_stats, "synthetic_stats": halo_ehr_stats, "plot_paths": plot_paths}
     
@@ -1012,6 +1021,8 @@ class HALOEvaluator:
             data1 = stats_a[label][self.PROBABILITIES]
             data2 = stats_b[label][self.PROBABILITIES]
             for t in self.PROBABILITY_DENSITIES:
+                figure_path = get_plot_path_fn(label) if get_plot_path_fn != None else self.default_path_fn(label)
+                print(f"Label stats {figure_path}:")
                 probs1 = data1[t]
                 probs2 = data2[t]
                 keys = set(probs1.keys()).union(set(probs2.keys()))
@@ -1032,7 +1043,6 @@ class HALOEvaluator:
                 plt.ylabel(plot_label_b)
                 plt.annotate("r-squared = {:.3f}".format(r2), (0.1*maxVal, 0.9*maxVal))
                 
-                figure_path = get_plot_path_fn(label) if get_plot_path_fn != None else self.default_path_fn(label)
                 plt.savefig(figure_path)
                 plot_paths.append(figure_path)
 
@@ -1064,10 +1074,11 @@ if __name__ == "__main__":
         refresh_cache=REFRESH_CACHE,
     )
 
-    # --- processor ---
     basedir = '/home/bdanek2/PyHealth'
-    processor_path = f'{basedir}/model_saves/halo_dev_processor.pkl'
-    batch_size = 128
+
+    # --- processor ---
+    save_processor_path = f'{basedir}/model_saves/halo_dev_processor.pkl'
+    batch_size = 2048
     
     # define a way to make labels from raw data
     def simple_label_fn(**kwargs):
@@ -1096,29 +1107,32 @@ if __name__ == "__main__":
     continuous_value_handlers['lab'] = handle_lab
     
     # handle discretization of time
-    def handle_time(x=0):
-        rand_times = [
-            (1, 0, 0), (0, 1, 1), (1, 0, 1)
-        ]
-        i = np.random.choice(range(0, 2), replace=True)
-        return rand_times[i]
-    
-    time_vector_length = len(handle_time())
+    bins = [0.5, 1, 1.5, 2, 2.5, 3, 4] # re-admission to icu is releveant only in the short term
+    time_vector_length = len(bins) + 1
+    def handle_time(t: timedelta):
+        year = t.days / 365
+        bin = np.digitize(year, bins)
+        vect = np.zeros((time_vector_length))
+        vect[bin] = 1
+        return vect
 
-    # processor = HALOProcessor(
-    #     dataset=dataset,
-    #     use_tables=None,
-    #     event_handlers=event_handlers,
-    #     continuous_value_handlers=continuous_value_handlers,
-    #     time_handler=handle_time,
-    #     time_vector_length=time_vector_length,
-    #     label_fn=simple_label_fn,
-    #     label_vector_len=2,
-    #     invert_label=None
-    # )
+    processor = HALOProcessor(
+        dataset=dataset,
+        use_tables=None,
+        event_handlers=event_handlers,
+        continuous_value_handlers=continuous_value_handlers,
+        time_handler=handle_time,
+        time_vector_length=time_vector_length,
+        label_fn=simple_label_fn,
+        label_vector_len=2,
+        invert_label=None
+    )
     
-    # pickle.dump(processor, open(processor_path, 'wb'))
-    processor = pickle.load(open(processor_path, 'rb'))
+    # save for developement
+    pickle.dump(processor, open(save_processor_path, 'wb'))
+    processor = pickle.load(open(save_processor_path, 'rb'))
+
+    # --- define model & opt ---
     model = HALOModel(Config(
         n_positions=20,
         n_ctx=processor.total_visit_size,
@@ -1133,45 +1147,46 @@ if __name__ == "__main__":
     
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     
-    basedir = '/home/bdanek2/PyHealth/' #
-
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
-    
-    basedir = '/home/bdanek2/PyHealth/' #
+    # --- train model ---
+    model_save_path = '/home/bdanek2/PyHealth/'
     trainer = HALOTrainer(
         dataset=dataset,
         model=model,
         processor=processor,
         optimizer=torch.optim.Adam(model.parameters(), lr=1e-4),
         checkpoint_name='developement',
-        checkpoint_path=basedir + 'model_saves',
+        checkpoint_path=model_save_path + 'model_saves',
     )
     
     trainer.set_basic_splits()
     
-    # trainer.train(
-    #     batch_size=batch_size,
-    #     epoch=3,
-    #     patience=5,
-    #     eval_period=100
-    # )
+    start_time = time.perf_counter()
+    trainer.train(
+        batch_size=batch_size,
+        epoch=2000,
+        patience=5,
+        eval_period=1000
+    )
+    end_time = time.perf_counter()
+    run_time = end_time - start_time
+    print("training time:", run_time, run_time / 60, (run_time / 60) / 60)
     
-
+    # --- generate synthetic dataset using the best model ---
     state_dict = torch.load(f'{basedir}/model_saves/eval_developement.pkl', map_location=device)
-
-    model = HALOModel(Config(
-        n_positions=20,
-        n_ctx=processor.total_visit_size,
-        n_embd=768, # move to model
-        n_layer=12, # move to model
-        n_head=12, # move to model
-        layer_norm_epsilon=1e-5, # move to model
-        initializer_range=0.02, # move to model
-        total_vocab_size=processor.total_vocab_size
-    ))
 
     model.load_state_dict(state_dict['model'])
     model.to(device)
+    # trainer = HALOTrainer(
+    #     dataset=dataset,
+    #     model=model,
+    #     processor=processor,
+    #     optimizer=torch.optim.Adam(model.parameters(), lr=1e-4),
+    #     checkpoint_name='developement',
+    #     checkpoint_path=model_save_path + 'model_saves',
+    # )
+    
+    trainer.set_basic_splits()
+    trainer.eval(batch_size=batch_size, save=False)
 
     generator = HALOGenerator(
         model=model,
@@ -1181,14 +1196,24 @@ if __name__ == "__main__":
         save_path=f"{basedir}synthetically_generated_data.pkl"
     )
 
-    labels = [((1, 0), 200)]
-    synthetic_dataset = generator.generate_conditioned(labels)
+    labels = [((1, 0), 10000), ((0, 1), 10000)]
+    # synthetic_dataset = generator.generate_conditioned(labels)
+
+    # --- evaluation ---
+    labels = {
+        (1, 0): 'male',
+        (0, 1): 'female'
+    }
+    def pathfn(label):
+        return f"./halo_eval_{labels[label]}"
 
     # conduct evaluation of the synthetic data w.r.t. it's source
     evaluator = HALOEvaluator(generator=generator, processor=processor)
     stats = evaluator.evaluate(
         source=trainer.train_dataset,
-        synthetic=synthetic_dataset
+        synthetic=pickle.load(file=open('PyHealth/synthetically_generated_data.pkl', 'rb')),
+        get_plot_path_fn=pathfn,
+        compare_label=list(labels.keys()),
     )
 
     print("done")
