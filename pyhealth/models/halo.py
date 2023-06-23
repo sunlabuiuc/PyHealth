@@ -823,6 +823,11 @@ class HALOGenerator:
 
 class HALOEvaluator:
 
+    # used to access the output of the evaluate(...) function
+    SOURCE_STATS = "source_stats"
+    SYNTHETIC_STATS = "synthetic_stats"
+    PLOT_PATHS = "plot_paths"
+
     RECORD_LEN_MEAN = "Record Length Mean"
     RECORD_LEN_STD = "Record Length Standard Deviation"
     VISIT_LEN_MEAN = "Visit Length Mean"
@@ -860,8 +865,10 @@ class HALOEvaluator:
         # all ones, 1 index longer than any other label
         self.ALL_LABELS = tuple(np.ones(self.processor.label_vector_len + 1))
     
-    def default_path_fn(self, label_vector):
-        return f"./halo_eval_{str(tuple(label_vector)).replace('.', '').replace(' ', '')}"
+    def default_path_fn(self, plot_type, label_vector):
+        label_string = str(tuple(label_vector))
+        path = f"./pyhealth_halo_eval_{plot_type}_{label_string}"
+        return path.replace('.', '').replace(' ', '').lower()
 
     def evaluate(self, source, synthetic, compare_label: List = None, get_plot_path_fn: Callable = None, print_overall: bool = True):
         halo_labels, halo_ehr_stats = self.generate_statistics(ehr_dataset=synthetic)
@@ -883,7 +890,7 @@ class HALOEvaluator:
         # Plot per-code statistics
         plot_paths = self.generate_plots(train_ehr_stats, halo_ehr_stats, "Source Data", "Synthetic Data", get_plot_path_fn=get_plot_path_fn, compare_labels=compare_label)
 
-        return {"source_stats": train_ehr_stats, "synthetic_stats": halo_ehr_stats, "plot_paths": plot_paths}
+        return {self.SOURCE_STATS: train_ehr_stats, self.SYNTHETIC_STATS: halo_ehr_stats, self.PLOT_PATHS: plot_paths}
     
     def to_evaluation_format(self, dataset: BaseEHRDataset) -> List[Dict]:
         """
@@ -1021,8 +1028,8 @@ class HALOEvaluator:
             data1 = stats_a[label][self.PROBABILITIES]
             data2 = stats_b[label][self.PROBABILITIES]
             for t in self.PROBABILITY_DENSITIES:
-                figure_path = get_plot_path_fn(label) if get_plot_path_fn != None else self.default_path_fn(label)
-                print(f"Label stats {figure_path}:")
+                figure_path = get_plot_path_fn(t, label) if get_plot_path_fn != None else self.default_path_fn(t, label)
+                print(f"\nLabel stats {figure_path}:")
                 probs1 = data1[t]
                 probs2 = data2[t]
                 keys = set(probs1.keys()).union(set(probs2.keys()))
@@ -1081,10 +1088,11 @@ if __name__ == "__main__":
     batch_size = 2048
     
     # define a way to make labels from raw data
+    simple_label_fn_output_size = 1
     def simple_label_fn(**kwargs):
         pdata = kwargs['patient_data']
         
-        return (1, 0) if pdata.gender == 'Male' else (0, 1)
+        return (1) if pdata.gender == 'Male' else (0)
     
     def handle_measurement(event: Event):
         # ex:  event = discretizer.discretize(event.lab_value)
@@ -1116,20 +1124,20 @@ if __name__ == "__main__":
         vect[bin] = 1
         return vect
 
-    processor = HALOProcessor(
-        dataset=dataset,
-        use_tables=None,
-        event_handlers=event_handlers,
-        continuous_value_handlers=continuous_value_handlers,
-        time_handler=handle_time,
-        time_vector_length=time_vector_length,
-        label_fn=simple_label_fn,
-        label_vector_len=2,
-        invert_label=None
-    )
+    # processor = HALOProcessor(
+    #     dataset=dataset,
+    #     use_tables=None,
+    #     event_handlers=event_handlers,
+    #     continuous_value_handlers=continuous_value_handlers,
+    #     time_handler=handle_time,
+    #     time_vector_length=time_vector_length,
+    #     label_fn=simple_label_fn,
+    #     label_vector_len=simple_label_fn_output_size,
+    #     invert_label=None
+    # )
     
-    # save for developement
-    pickle.dump(processor, open(save_processor_path, 'wb'))
+    # # save for developement
+    # pickle.dump(processor, open(save_processor_path, 'wb'))
     processor = pickle.load(open(save_processor_path, 'rb'))
 
     # --- define model & opt ---
@@ -1161,12 +1169,12 @@ if __name__ == "__main__":
     trainer.set_basic_splits()
     
     start_time = time.perf_counter()
-    trainer.train(
-        batch_size=batch_size,
-        epoch=2000,
-        patience=5,
-        eval_period=1000
-    )
+    # trainer.train(
+    #     batch_size=batch_size,
+    #     epoch=2000,
+    #     patience=5,
+    #     eval_period=1000
+    # )
     end_time = time.perf_counter()
     run_time = end_time - start_time
     print("training time:", run_time, run_time / 60, (run_time / 60) / 60)
@@ -1176,14 +1184,14 @@ if __name__ == "__main__":
 
     model.load_state_dict(state_dict['model'])
     model.to(device)
-    # trainer = HALOTrainer(
-    #     dataset=dataset,
-    #     model=model,
-    #     processor=processor,
-    #     optimizer=torch.optim.Adam(model.parameters(), lr=1e-4),
-    #     checkpoint_name='developement',
-    #     checkpoint_path=model_save_path + 'model_saves',
-    # )
+    trainer = HALOTrainer(
+        dataset=dataset,
+        model=model,
+        processor=processor,
+        optimizer=torch.optim.Adam(model.parameters(), lr=1e-4),
+        checkpoint_name='developement',
+        checkpoint_path=model_save_path + 'model_saves',
+    )
     
     trainer.set_basic_splits()
     trainer.eval(batch_size=batch_size, save=False)
@@ -1193,27 +1201,35 @@ if __name__ == "__main__":
         processor=processor,
         batch_size=batch_size,
         device=device,
-        save_path=f"{basedir}synthetically_generated_data.pkl"
+        save_path=f"{basedir}/synthetically_generated_data.pkl"
     )
 
-    labels = [((1, 0), 10000), ((0, 1), 10000)]
-    # synthetic_dataset = generator.generate_conditioned(labels)
+    labels = [((1), 10000), ((0), 10000)]
+    synthetic_dataset = generator.generate_conditioned(labels)
 
     # --- evaluation ---
     labels = {
-        (1, 0): 'male',
-        (0, 1): 'female'
+        (1, ): 'male',
+        (0, ): 'female',
     }
-    def pathfn(label):
-        return f"./halo_eval_{labels[label]}"
+    def pathfn(plot_type: str, label: List):
+        prefix = f"./halo_eval_plots"
+
+        label = labels[label] if label in labels else 'all_labels'
+        label = label.replace('.', '').replace(' ', '').lower()
+        path_str = f"{prefix}_{plot_type}_{label}"
+
+        return path_str
 
     # conduct evaluation of the synthetic data w.r.t. it's source
     evaluator = HALOEvaluator(generator=generator, processor=processor)
     stats = evaluator.evaluate(
-        source=trainer.train_dataset,
-        synthetic=pickle.load(file=open('PyHealth/synthetically_generated_data.pkl', 'rb')),
+        source=trainer.test_dataset,
+        synthetic=pickle.load(file=open('./synthetically_generated_data.pkl', 'rb')),
         get_plot_path_fn=pathfn,
         compare_label=list(labels.keys()),
     )
+
+    print("plots at:", '\n'.join(stats[evaluator.PLOT_PATHS]))
 
     print("done")
