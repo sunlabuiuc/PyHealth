@@ -743,13 +743,13 @@ class HALOGenerator:
 
     # generate context vector, and the probablility of the label occurrence in the dataset
     def generate_context(self, label_vector) -> List:
-        stoken = np.zeros((1, processor.total_vocab_size))
-        stoken[0, processor.start_token_index] = 1
+        stoken = np.zeros((1, self.processor.total_vocab_size))
+        stoken[0, self.processor.start_token_index] = 1
         
         if label_vector is None:
             return stoken # probability of label occurrence in dataset
         
-        ltoken = np.zeros((1, processor.total_vocab_size))
+        ltoken = np.zeros((1, self.processor.total_vocab_size))
         ltoken[0, self.processor.label_start_index: self.processor.label_end_index] = label_vector
 
         context = np.concatenate((stoken, ltoken), axis=0)
