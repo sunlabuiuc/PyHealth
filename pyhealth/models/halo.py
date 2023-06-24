@@ -229,8 +229,30 @@ class FineAutoregressiveHead(nn.Module):
         return code_logits
 
 class HALOModel(nn.Module):
-    def __init__(self, config):
+    def __init__(self, 
+            n_ctx,
+            total_vocab_size,
+            device,
+            config: Config = None
+        ):
         super(HALOModel, self).__init__()
+        
+        if config == None:
+            config = Config(
+                # user defined
+                n_ctx=n_ctx,
+                total_vocab_size=total_vocab_size,
+                device=device,
+
+                # defaults provided by HALO implementors
+                n_positions=20,
+                n_embd=768,
+                n_layer=12,
+                n_head=12,
+                layer_norm_epsilon=1e-5, 
+                initializer_range=0.02,
+            )
+
         self.transformer = CoarseTransformerModel(config)
         self.ehr_head = FineAutoregressiveHead(config)
 
@@ -316,6 +338,35 @@ preprocessor
 
 """
 class HALOProcessor():
+    """
+    Class used to process a PyHealth dataset so that it can be used in HALO. 
+
+    Args:
+        dataset: Dataset to process.
+        use_tables: Tables to use during processing. If none, all available tables in the dataset are used. 
+        
+        event_handlers: A dictionary of handlers for unpacking, or accessing fields of a pyhealth.data.Event. 
+            The dict key should be a table name, value is a Callable which must accept a pyhealth.data.Event to unpack.
+        continuous_value_handlers: A dictionary of handlers for converting an event from a continuous value to a bucketed/categorical one. 
+            This handler is applied after the event handler. Dict key is table name, and should return an integer representing which bucket the value falls in.
+        continuous_value_handlers_inverter: An optional dictionary of handlers for inverting the operation performed in `continuous_value_handlers`. 
+            The dict key is a table name, and the value is a Callable which accepts a vector (list of integers)
+        time_handler: 
+            A function which converts a timedelta into a multihot vector representation. 
+        time_hanlder_inverter: 
+            An optional function which converts the multihot time vector represention into a human readbile value. 
+        time_vector_length: 
+            The integer representing the length of the multihot time vector produced by `time_handler`
+        max_visits: 
+            The maximum visits to use for modeling. If not provided, the maximum number of visits present in the source dataset is used.
+        label_fn: 
+            A function which accepts the keyword argument `patient_data: pyhealth.data.Patient` and produces a vector representation of the patient label.
+        label_vector_len: 
+            The length of a patient label vector.
+        invert_label: 
+            An optional function for converting the label vector into a human readable patient label
+
+    """
     
     # visit dimension (dim 1)
     SPECIAL_VOCAB = ('start_code', 'last_visit_code', 'pad_code') 
@@ -328,19 +379,7 @@ class HALOProcessor():
 
     # the key for the inter_visit_gap handler
     TEMPORAL_INTER_VISIT_GAP = 'inter_visit_gap'
-    
-    """
-    discretizator: Table --> Discretizer
-    max_visits: the maximum number of visits to include per patient. 
-        if `None` is provided, this number will be automatically set
-
-    label_fn: a mapping from patient to label. 
-            There is no restriction on a label fn output, except that only one, non-int label must be produced per patient record provided. 
-            no label fn signals unconditioned generation
-    
-    label_vector_len: invert the label_fn output
-    invert_label: optional reverse the conversion from patient data to a multihot label
-    """
+        
     def __init__(
         self,
         dataset: BaseEHRDataset,
@@ -359,28 +398,10 @@ class HALOProcessor():
         time_vector_length: int = -1,
         
         max_visits: Union[None, int] = None,
-        label_fn: Callable[..., Tuple[int]] = None, # lambda data: '',
+        label_fn: Callable[..., List[int]] = None, 
         label_vector_len: int = -1,
         invert_label: Callable[..., Any] = None,
     ) -> None:
-        """Aggregator for collecting latent information in the base Dataset.
-        
-        The HALO methodology requires a dataset to synthesize. This Aggregator initializer iterates through that dataset and computes:
-        the upper bound on number of visits, the set of global event codes, a mapping between global event codes and a 0 based index. 
-        These values are set as instane variables, and used in later HALO steps.
-
-        Args:
-            event_handlers: a set of functions which are used to correctly unpack/handle/process table events into event representations.
-            label_fn: Callable[..., str], a function which is called on a patient record indexing. 
-                The function should produce a string representing the global label vector for a patient. 
-                This method is designed as such to allow the use of multi-hot label vectors, allow conditional generation of severeal labels at once.
-                The label_fn output must be a tuple representing the multi-hot.
-            label_vector_len: the length of the multihot produced by the label_fn.
-            continuous_value_handlers: a set of functions which allow the conversion from a continuous value to a discrete one or a bucket. 
-                The functions should take in a pyhealth.data.Event and output an integer representing the corresponding bucket
-            continuous_value_handlers_inverter: capable of converting a bucket into a continuous value
-            continuous_value_vector_lengths: the length of the one hot/multihot vector representing a discretized version of a discretized continuous value
-        """
         
         self.dataset = dataset
         
@@ -587,14 +608,12 @@ class HALOTrainer:
             model: nn.Module,
             processor: HALOProcessor, 
             optimizer: Optimizer,
-            checkpoint_name: str,
             checkpoint_path: str,
         ) -> None:
         self.dataset = dataset
         self.model = model
         self.processor = processor
         self.optimizer = optimizer
-        self.checkpoint_name = checkpoint_name
         self.checkpoint_path = checkpoint_path
     
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -639,7 +658,7 @@ class HALOTrainer:
                 'optimizer': self.optimizer.state_dict(),
                 'iteration': iteration
             }
-        torch.save(state, f"{self.checkpoint_path}/eval_{self.checkpoint_name}.pkl")
+        torch.save(state, f"{self.checkpoint_path}.pkl")
         print('\n------------ Save best model ------------\n')
 
     def eval(self, batch_size: int, current_epoch: int = 0, current_iteration: int = 0, patience: int = 0, save=True):
@@ -1124,34 +1143,28 @@ if __name__ == "__main__":
         vect[bin] = 1
         return vect
 
-    # processor = HALOProcessor(
-    #     dataset=dataset,
-    #     use_tables=None,
-    #     event_handlers=event_handlers,
-    #     continuous_value_handlers=continuous_value_handlers,
-    #     time_handler=handle_time,
-    #     time_vector_length=time_vector_length,
-    #     label_fn=simple_label_fn,
-    #     label_vector_len=simple_label_fn_output_size,
-    #     invert_label=None
-    # )
+    processor = HALOProcessor(
+        dataset=dataset,
+        use_tables=None,
+        event_handlers=event_handlers,
+        continuous_value_handlers=continuous_value_handlers,
+        time_handler=handle_time,
+        time_vector_length=time_vector_length,
+        label_fn=simple_label_fn,
+        label_vector_len=simple_label_fn_output_size,
+        invert_label=None
+    )
     
     # # save for developement
     # pickle.dump(processor, open(save_processor_path, 'wb'))
-    processor = pickle.load(open(save_processor_path, 'rb'))
+    # processor = pickle.load(open(save_processor_path, 'rb'))
 
     # --- define model & opt ---
-    model = HALOModel(Config(
-        n_positions=20,
+    model = HALOModel(
         n_ctx=processor.total_visit_size,
-        n_embd=768, # move to model
-        n_layer=12, # move to model
-        n_head=12, # move to model
-        layer_norm_epsilon=1e-5, # move to model
-        initializer_range=0.02, # move to model
         total_vocab_size=processor.total_vocab_size,
         device=device
-    ))
+    )
     
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     
@@ -1162,8 +1175,7 @@ if __name__ == "__main__":
         model=model,
         processor=processor,
         optimizer=torch.optim.Adam(model.parameters(), lr=1e-4),
-        checkpoint_name='developement',
-        checkpoint_path=model_save_path + 'model_saves',
+        checkpoint_path=f'{basedir}/model_saves/eval_developement.pkl'
     )
     
     trainer.set_basic_splits()
@@ -1189,8 +1201,7 @@ if __name__ == "__main__":
         model=model,
         processor=processor,
         optimizer=torch.optim.Adam(model.parameters(), lr=1e-4),
-        checkpoint_name='developement',
-        checkpoint_path=model_save_path + 'model_saves',
+        checkpoint_path=f'{basedir}/model_saves/eval_developement.pkl'
     )
     
     trainer.set_basic_splits()
