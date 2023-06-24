@@ -762,7 +762,7 @@ class HALOGenerator:
         return np.array([contexts[i] for i in idx])
 
     def sample_sequence(self, context, batch_size, sample=True, visit_type=-1):
-        empty = torch.zeros((1,1,processor.total_vocab_size), device=self.device, dtype=torch.float32).repeat(batch_size, 1, 1)
+        empty = torch.zeros((1, 1, self.processor.total_vocab_size), device=self.device, dtype=torch.float32).repeat(batch_size, 1, 1)
         prev = torch.tensor(context, device=self.device, dtype=torch.float32)
 
         with torch.no_grad():
@@ -770,7 +770,7 @@ class HALOGenerator:
 
                 prev = self.model.sample(torch.cat((prev,empty), dim=1), sample)
 
-                if torch.sum(torch.sum(prev[:, :, processor.end_token_index], dim=1).bool().int(), dim=0).item() == batch_size: # why do we do this?
+                if torch.sum(torch.sum(prev[:, :, self.processor.end_token_index], dim=1).bool().int(), dim=0).item() == batch_size: # why do we do this?
                     break
 
         samples = prev.cpu().detach().numpy()
