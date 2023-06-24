@@ -738,7 +738,7 @@ class HALOGenerator:
         self.model = model
         self.processor = processor
         self.batch_size = batch_size
-        self.save_path = save_path
+        self.save_path = f'{save_path}.pkl'
         self.device = device
 
     # generate context vector, and the probablility of the label occurrence in the dataset
