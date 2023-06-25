@@ -918,7 +918,7 @@ class HALOEvaluator:
         """
         
         converted_samples = []
-        for batch_ehr, _ in self.processor.get_batch(dataset, batch_size):
+        for batch_ehr, _ in self.processor.get_batch(dataset, self.generator.batch_size):
             converted_sample_batch = self.generator.convert_samples_to_ehr(samples=batch_ehr)    
             converted_samples += (converted_sample_batch)
         
