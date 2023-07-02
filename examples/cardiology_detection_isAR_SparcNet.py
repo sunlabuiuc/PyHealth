@@ -5,9 +5,9 @@ from pyhealth.tasks import cardiology_isAR_fn
 from pyhealth.models import ContraWR, SparcNet
 
 # step 1: load signal data
-dataset = CardiologyDataset(root="/Users/liyanjing/Desktop/UIUC/pyhealth/physionet.org/files/challenge-2020/1.0.2/training", 
+dataset = CardiologyDataset(root="/srv/local/data/physionet.org/files/challenge-2020/1.0.2/training", 
                             chosen_dataset=[1,1,1,1,1,1], 
-                            refresh_cache=True, 
+                            refresh_cache=False, 
                             dev=True)
 
 # step 2: set task
@@ -37,7 +37,7 @@ model = SparcNet(
 )
 
 # STEP 4: define trainer
-trainer = Trainer(model=model)
+trainer = Trainer(model=model, device="cuda:4")
 trainer.train(
     train_dataloader=train_dataloader,
     val_dataloader=val_dataloader,

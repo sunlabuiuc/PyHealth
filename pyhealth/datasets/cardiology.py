@@ -15,12 +15,12 @@ class CardiologyDataset(BaseSignalDataset):
 
     Args:
         dataset_name: name of the dataset.
-        root: root directory of the raw data. *You can choose to use the path to Cassette portion or the Telemetry portion.*
+        root: root directory of the raw data.
         dev: whether to enable dev mode (only use a small subset of the data).
             Default is False.
         refresh_cache: whether to refresh the cache; if true, the dataset will
             be processed from scratch and the cache will be updated. Default is False.
-        chose_dataset: a list of (0,1) of length 6 indicting which datasets will be used. 
+        chosen_dataset: a list of (0,1) of length 6 indicting which datasets will be used. Default: [1, 1, 1, 1, 1, 1]
             The datasets contain "cpsc_2018", "cpsc_2018_extra", "georgia", "ptb", "ptb-xl", "st_petersburg_incart".
             eg. [0,1,1,1,1,1] indicates that "cpsc_2018_extra", "georgia", "ptb", "ptb-xl" and "st_petersburg_incart" will be used.
 
@@ -44,7 +44,7 @@ class CardiologyDataset(BaseSignalDataset):
         >>> dataset.info()
     """
 
-    def __init__(self, chosen_dataset: List[int], root: str, dataset_name: Optional[str] = None, dev: bool = False, refresh_cache: bool = False):
+    def __init__(self, root: str, chosen_dataset: List[int] = [1,1,1,1,1,1], dataset_name: Optional[str] = None, dev: bool = False, refresh_cache: bool = False):
         self.chosen_dataset = chosen_dataset
 
         super().__init__(dataset_name=dataset_name, root=root, dev=dev, refresh_cache=refresh_cache) 
@@ -118,4 +118,6 @@ if __name__ == "__main__":
     )
     dataset.stat()
     dataset.info()
-    print(list(dataset.patients.items())[0])
+    # the number of records for the first patient
+    keys = list(dataset.patients.keys())
+    print(len(dataset.patients[keys[0]]))
