@@ -2,6 +2,17 @@ Development logs
 ======================
 We track the new development here:
 
+
+**July 1, 2023**
+
+.. code-block:: rst
+
+    1. add six ECG datasets: "cpsc_2018", "cpsc_2018_extra", "georgia", "ptb", "ptb-xl", "st_petersburg_incart" (from 
+        PhysioNet Cardiology Challenge 2020 https://physionet.org/content/challenge-2020/1.0.2/ `#176`
+    2. add ECG binary classification tasks (for five symptom categories: Arrhythmias symptom, Bundle branch blocks and fascicular blocks symptom, 
+        Axis deviations symptom, Conduction delays symptom, Wave abnormalities symptom) `#176`
+
+
 **May 31, 2023**
 
 .. code-block:: rst
