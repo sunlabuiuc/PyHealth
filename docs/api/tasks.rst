@@ -21,4 +21,5 @@ We support various real-world healthcare predictive tasks defined by **function 
     tasks/pyhealth.tasks.mortality_prediction
     tasks/pyhealth.tasks.length_of_stay_prediction
     tasks/pyhealth.tasks.sleep_staging
+    tasks/pyhealth.tasks.cardiology_detect
 
