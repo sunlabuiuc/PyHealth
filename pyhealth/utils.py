@@ -1,5 +1,6 @@
 import os
 import pickle
+import json
 import random
 
 import numpy as np
@@ -31,3 +32,13 @@ def load_pickle(filename):
 def save_pickle(data, filename):
     with open(filename, "wb") as f:
         pickle.dump(data, f)
+
+
+def load_json(filename):
+    with open(filename, "r") as f:
+        return json.load(f)
+
+
+def save_json(data, filename):
+    with open(filename, "w") as f:
+        json.dump(data, f)

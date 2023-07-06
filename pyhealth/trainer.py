@@ -208,6 +208,8 @@ class Trainer:
                 optimizer.zero_grad()
                 training_loss.append(loss.item())
                 global_step += 1
+                if global_step % 50000 == 0:
+                    self.save_ckpt(os.path.join(self.exp_path, f"2_{str(global_step+50000)}_last.ckpt"))
             # log and save
             logger.info(f"--- Train epoch-{epoch}, step-{global_step} ---")
             logger.info(f"loss: {sum(training_loss) / len(training_loss):.4f}")

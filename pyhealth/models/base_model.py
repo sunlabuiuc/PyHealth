@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 from pyhealth.datasets import SampleBaseDataset
 from pyhealth.models.utils import batch_to_multihot
-from pyhealth.medcode.utils import download_and_read_pkl
+from pyhealth.medcode.utils import download_and_read_json
 from pyhealth.tokenizer import Tokenizer
 
 
@@ -222,12 +222,12 @@ class BaseModel(ABC, nn.Module):
             raise ValueError("Unsupported feature type: {}".format(info["type"]))
 
     def get_pretrained_embedding(self, feature_key: str, special_tokens=None, pretrained_type="LM"):
-        feature_embedding_file = f"embeddings/{pretrained_type}/{feature_key}/{self.dataset.code_vocs[feature_key].lower()}.pkl"
-        feature_embedding = download_and_read_pkl(feature_embedding_file)
+        feature_embedding_file = f"embeddings/{pretrained_type}/{feature_key}/{self.dataset.code_vocs[feature_key].lower()}.json"
+        feature_embedding = download_and_read_json(feature_embedding_file)
 
         if special_tokens is not None:
-            special_tokens_embedding_file = f"embeddings/{pretrained_type}/special_tokens/special_tokens.pkl"
-            special_tokens_embedding = download_and_read_pkl(special_tokens_embedding_file)
+            special_tokens_embedding_file = f"embeddings/{pretrained_type}/special_tokens/special_tokens.json"
+            special_tokens_embedding = download_and_read_json(special_tokens_embedding_file)
         else:
             special_tokens_embedding = None
         
