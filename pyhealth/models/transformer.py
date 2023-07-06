@@ -298,8 +298,8 @@ class Transformer(BaseModel):
             dataset=dataset,
             feature_keys=feature_keys,
             label_key=label_key,
-            pretrained_emb=pretrained_emb,
             mode=mode,
+            pretrained_emb=pretrained_emb,
         )
         self.embedding_dim = embedding_dim
 

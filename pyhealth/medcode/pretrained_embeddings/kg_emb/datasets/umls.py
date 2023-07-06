@@ -1,5 +1,6 @@
 import logging
 import os
+from tqdm import tqdm
 import numpy as np
 import pandas as pd
 from pandarallel import pandarallel
@@ -34,22 +35,26 @@ class UMLSDataset(BaseKGDataset):
         else:
             logger.debug("umls does not exist")
 
+        print("Loading UMLS knowledge graph...")
         graph_df = pd.read_csv(
             self.graph_path, 
             sep='\t',
             names=['e1', 'r', 'e2']
         )
 
+        print("Processing UMLS knowledge graph...")
         entity_list = pd.unique(graph_df[['e1', 'e2']].values.ravel('K'))
         relation_list = pd.unique(graph_df['r'].values)
+
         self.entity2id = {val: i for i, val in enumerate(entity_list)}
         self.relation2id = {val: i for i, val in enumerate(relation_list)}
         self.entity_num = len(self.entity2id)
         self.relation_num = len(self.relation2id)
 
-        for index, row in graph_df.iterrows():
-            self.triples.append(
-                (self.entity2id[row['e1']], self.relation2id[row['r']], self.entity2id[row['e2']]))
+        print("Building UMLS knowledge graph...")
+        self.triples = [(self.entity2id[e1], self.relation2id[r], self.entity2id[e2]) 
+                        for e1, r, e2 in tqdm(zip(graph_df['e1'], graph_df['r'], graph_df['e2']), total=graph_df.shape[0])]
+
 
         return
 
