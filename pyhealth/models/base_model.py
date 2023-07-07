@@ -43,7 +43,9 @@ class BaseModel(ABC, nn.Module):
         self.mode = mode
         # pretrained embedding type, should be in ["KG", "LM", None]
         if pretrained_emb is not None:
-            assert pretrained_emb in ["KG", "LM"], f"pretrained_emb must be one of ['KG', 'LM']"
+            assert pretrained_emb[:3] in ["KG/", "LM/"], f"pretrained_emb must start with one of ['KG/', 'LM/']"
+        # self.rand_init_embedding = nn.ModuleDict()
+        # self.pretrained_embedding = nn.ModuleDict()
         self.pretrained_emb = pretrained_emb
         # used to query the device of the model
         self._dummy_param = nn.Parameter(torch.empty(0))
@@ -187,13 +189,7 @@ class BaseModel(ABC, nn.Module):
             self.feat_tokenizers[feature_key] = tokenizer
 
             # feature embedding
-            if self.pretrained_emb == None:
-                self.embeddings[feature_key] = nn.Embedding(
-                    tokenizer.get_vocabulary_size(),
-                    self.embedding_dim,
-                    padding_idx=tokenizer.get_padding_index(),
-                )
-            else:
+            if self.pretrained_emb != None:
                 print(f"Loading pretrained embedding for {feature_key}...")
                 # load pretrained embedding
                 feature_embedding_dict, special_tokens_embedding_dict \
@@ -206,22 +202,36 @@ class BaseModel(ABC, nn.Module):
                     else:
                         emb.append(feature_embedding_dict[idx2token[i]])
                 emb = torch.FloatTensor(emb)
-                input_emb_dim = emb.shape[1]
+                pretrained_emb_dim = emb.shape[1]
 
                 self.embeddings[feature_key] = nn.Embedding.from_pretrained(
                     emb,
                     padding_idx=tokenizer.get_padding_index(),
                     freeze=False,
                 )
+
+                # self.rand_init_embedding[feature_key] = nn.Embedding(
+                #     tokenizer.get_vocabulary_size(),
+                #     pretrained_emb_dim,
+                #     padding_idx=tokenizer.get_padding_index(),
+                # )
                 # add linear layer to transform pretrained embedding to desired embedding dim
-                self.linear_layers[feature_key] = nn.Linear(input_emb_dim, self.embedding_dim)
+                self.linear_layers[feature_key] = nn.Linear(pretrained_emb_dim , self.embedding_dim)
+
+            else:
+                self.embeddings[feature_key] = nn.Embedding(
+                    tokenizer.get_vocabulary_size(),
+                    self.embedding_dim,
+                    padding_idx=tokenizer.get_padding_index(),
+                )
+                
 
         elif info["type"] in [float, int]:
             self.linear_layers[feature_key] = nn.Linear(info["len"], self.embedding_dim)
         else:
             raise ValueError("Unsupported feature type: {}".format(info["type"]))
 
-    def get_pretrained_embedding(self, feature_key: str, special_tokens=None, pretrained_type="LM"):
+    def get_pretrained_embedding(self, feature_key: str, special_tokens=None, pretrained_type="LM/clinicalbert"):
         feature_embedding_file = f"embeddings/{pretrained_type}/{feature_key}/{self.dataset.code_vocs[feature_key].lower()}.json"
         feature_embedding = download_and_read_json(feature_embedding_file)
 
