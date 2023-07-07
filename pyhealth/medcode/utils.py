@@ -37,15 +37,15 @@ def download_and_read_csv(filename: str, refresh_cache: bool = False) -> pd.Data
     return pd.read_csv(local_filepath, dtype=str)
 
 
-embedding_types = ['KG', 'LM']
+embedding_types = ['KG/transe', 'LM/clinicalbert', 'LM/gpt3']
 features = ['conditions', 'procedures', 'drugs']
 for embedding_type in embedding_types:
     for feature in features:
         MODULE_CACHE_PATH_TMP = os.path.join(BASE_CACHE_PATH, "medcode", "embeddings", embedding_type, feature)
         create_directory(MODULE_CACHE_PATH_TMP)
 
-MODULE_CACHE_PATH_TMP = os.path.join(BASE_CACHE_PATH, "medcode", "embeddings", embedding_type, "special_tokens")
-create_directory(MODULE_CACHE_PATH_TMP)
+    MODULE_CACHE_PATH_TMP = os.path.join(BASE_CACHE_PATH, "medcode", "embeddings", embedding_type, "special_tokens")
+    create_directory(MODULE_CACHE_PATH_TMP)
 
 
 def download_and_read_pkl(filename: str, refresh_cache: bool = False):
