@@ -1,0 +1,26 @@
+{
+  "files": [
+    "README.md"
+  ],
+  "imageSize": 100,
+  "commit": false,
+  "commitType": "docs",
+  "commitConvention": "angular",
+  "contributors": [
+    {
+      "login": "BPDanek",
+      "name": "Benjamin Danek",
+      "avatar_url": "https://avatars.githubusercontent.com/u/24256419?v=4",
+      "profile": "https://bpdanek.github.io",
+      "contributions": [
+        "code"
+      ]
+    }
+  ],
+  "contributorsPerLine": 7,
+  "skipCi": true,
+  "repoType": "github",
+  "repoHost": "https://github.com",
+  "projectName": "PyHealth",
+  "projectOwner": "sunlabuiuc"
+}
