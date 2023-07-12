@@ -1,0 +1,26 @@
+{
+  "files": [
+    "README.md"
+  ],
+  "imageSize": 100,
+  "commit": false,
+  "commitType": "docs",
+  "commitConvention": "angular",
+  "contributors": [
+    {
+      "login": "ycq091044",
+      "name": "Chaoqi Yang",
+      "avatar_url": "https://avatars.githubusercontent.com/u/22296469?v=4",
+      "profile": "http://ycq091044.github.io",
+      "contributions": [
+        "code"
+      ]
+    }
+  ],
+  "contributorsPerLine": 7,
+  "skipCi": true,
+  "repoType": "github",
+  "repoHost": "https://github.com",
+  "projectName": "PyHealth",
+  "projectOwner": "sunlabuiuc"
+}
