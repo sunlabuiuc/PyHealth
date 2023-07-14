@@ -6,7 +6,7 @@ from pyhealth.datasets import BaseSignalDataset
 
 
 class TUABDataset(BaseSignalDataset):
-    """Base EEG dataset for SleepEDF
+    """Base EEG dataset for the TUH Abnormal EEG Corpus
 
     Dataset is available at https://isip.piconepress.com/projects/tuh_eeg/html/downloads.shtml
 
@@ -25,7 +25,7 @@ class TUABDataset(BaseSignalDataset):
             be processed from scratch and the cache will be updated. Default is False.
 
     Attributes:
-        task: Optional[str], name of the task (e.g., "sleep staging").
+        task: Optional[str], name of the task (e.g., "EEG_abnormal").
             Default is None.
         samples: Optional[List[Dict]], a list of samples, each sample is a dict with
             patient_id, record_id, and other task-specific attributes as key.

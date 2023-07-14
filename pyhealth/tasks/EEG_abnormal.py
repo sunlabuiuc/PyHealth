@@ -14,7 +14,7 @@ def EEG_isAbnormal_fn(record):
     Args:
         record: a singleton list of one subject from the TUABDataset.
             The (single) record is a dictionary with the following keys:
-                load_from_path, signal_file, label1_file, label2_file, save_to_path, subject_id
+                load_from_path, patient_id, visit_id, signal_file, label_file, save_to_path
 
     Returns:
         samples: a list of samples, each sample is a dict with patient_id, visit_id, record_id,
