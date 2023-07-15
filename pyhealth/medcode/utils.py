@@ -37,7 +37,7 @@ def download_and_read_csv(filename: str, refresh_cache: bool = False) -> pd.Data
     return pd.read_csv(local_filepath, dtype=str)
 
 
-embedding_types = ['KG/transe', 'LM/clinicalbert', 'LM/gpt3']
+embedding_types = ['KG/transe', 'LM/clinicalbert', 'LM/gpt3', 'LM/biogpt', 'LM/sapbert']
 features = ['conditions', 'procedures', 'drugs']
 for embedding_type in embedding_types:
     for feature in features:

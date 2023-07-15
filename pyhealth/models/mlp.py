@@ -104,6 +104,7 @@ class MLP(BaseModel):
         feature_keys: List[str],
         label_key: str,
         mode: str,
+        pretrained_emb: str = None,
         embedding_dim: int = 128,
         hidden_dim: int = 128,
         n_layers: int = 2,
@@ -115,6 +116,7 @@ class MLP(BaseModel):
             feature_keys=feature_keys,
             label_key=label_key,
             mode=mode,
+            pretrained_emb=pretrained_emb,
         )
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
@@ -299,6 +301,9 @@ class MLP(BaseModel):
             else:
                 raise NotImplementedError
 
+            if self.pretrained_emb != None:
+                x = self.linear_layers[feature_key](x)
+                
             x = self.mlp[feature_key](x)
             patient_emb.append(x)
 
