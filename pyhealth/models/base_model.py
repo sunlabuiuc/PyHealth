@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from pyhealth.datasets import SampleBaseDataset
 from pyhealth.models.utils import batch_to_multihot
 from pyhealth.medcode.utils import download_and_read_json
+from sklearn.decomposition import PCA
 from pyhealth.tokenizer import Tokenizer
 
 
@@ -210,13 +211,21 @@ class BaseModel(ABC, nn.Module):
                     freeze=False,
                 )
 
-                # self.rand_init_embedding[feature_key] = nn.Embedding(
-                #     tokenizer.get_vocabulary_size(),
-                #     pretrained_emb_dim,
-                #     padding_idx=tokenizer.get_padding_index(),
-                # )
-                # add linear layer to transform pretrained embedding to desired embedding dim
                 self.linear_layers[feature_key] = nn.Linear(pretrained_emb_dim , self.embedding_dim)
+
+                # Compute PCA on embeddings
+                # pca = PCA(n_components=self.embedding_dim)
+                # pca.fit(emb.numpy()) # assumes emb is a torch tensor
+
+                # # Use the PCA to transform embeddings
+                # transformed_emb = pca.transform(emb.numpy())
+
+                # # Then load these transformed embeddings into a new nn.Embedding layer
+                # self.embeddings[feature_key] = nn.Embedding.from_pretrained(
+                #     torch.tensor(transformed_emb),
+                #     padding_idx=tokenizer.get_padding_index(),
+                #     freeze=False,
+                # )
 
             else:
                 self.embeddings[feature_key] = nn.Embedding(
