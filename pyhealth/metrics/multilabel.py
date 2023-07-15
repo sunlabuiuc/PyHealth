@@ -4,13 +4,14 @@ import numpy as np
 import sklearn.metrics as sklearn_metrics
 
 import pyhealth.metrics.calibration as calib
-
+import ipdb
 
 def multilabel_metrics_fn(
     y_true: np.ndarray,
     y_prob: np.ndarray,
     metrics: Optional[List[str]] = None,
     threshold: float = 0.5,
+    y_predset: Optional[np.ndarray] = None,
 ) -> Dict[str, float]:
     """Computes metrics for multilabel classification.
 
@@ -49,6 +50,11 @@ def multilabel_metrics_fn(
         - cwECE: classwise ECE (with 20 equal-width bins). Check :func:`pyhealth.metrics.calibration.ece_classwise`.
         - cwECE_adapt: classwise adaptive ECE (with 20 equal-size bins). Check :func:`pyhealth.metrics.calibration.ece_classwise`.
 
+    The following metrics related to the prediction sets are accepted as well, but will be ignored if y_predset is None:
+        - fp: Number of false positives.
+        - tp: Number of true positives.
+
+
     If no metrics are specified, pr_auc_samples is computed by default.
 
     This function calls sklearn.metrics functions to compute the metrics. For
@@ -74,6 +80,7 @@ def multilabel_metrics_fn(
     """
     if metrics is None:
         metrics = ["pr_auc_samples"]
+    prediction_set_metrics = ['tp', 'fp']
 
     y_pred = y_prob.copy()
     y_pred[y_pred >= threshold] = 1
@@ -203,6 +210,13 @@ def multilabel_metrics_fn(
                 adaptive=metric.endswith("_adapt"),
                 threshold=0.0,
             )
+        elif metric in prediction_set_metrics:
+            if y_predset is None:
+                continue
+            if metric == 'tp':
+                output[metric] = (y_true * y_predset).sum(1).mean()
+            elif metric == 'fp':
+                output[metric] = ((1-y_true) * y_predset).sum(1).mean()
         else:
             raise ValueError(f"Unknown metric for multilabel classification: {metric}")
 
