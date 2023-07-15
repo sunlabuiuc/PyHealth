@@ -1086,7 +1086,7 @@ if __name__ == "__main__":
     DATASET_NAME = "eICU-demo"
     # ROOT = "https://storage.googleapis.com/pyhealth/eicu-demo/",
     ROOT = "/home/bdanek2/ai4health/dataset/physionet.org/files/eicu-crd/2.0_unpacked"
-    TABLES = ["diagnosis", "medication", "lab", "treatment"]
+    TABLES = ["diagnosis", "lab"]
     CODE_MAPPING = {}
     DEV = True  # not needed when using demo set since its 100 patients large
     REFRESH_CACHE = False
@@ -1100,7 +1100,7 @@ if __name__ == "__main__":
         refresh_cache=REFRESH_CACHE,
     )
 
-    basedir = '/home/bdanek2/PyHealth'
+    basedir = '/home/bdanek2/PyHealth/reduced_model'
 
     # --- processor ---
     save_processor_path = f'{basedir}/model_saves/halo_dev_processor.pkl'
@@ -1113,9 +1113,22 @@ if __name__ == "__main__":
         
         return (1) if pdata.gender == 'Male' else (0)
     
-    def handle_measurement(event: Event):
-        # ex:  event = discretizer.discretize(event.lab_value)
-        return event
+    def handle_diagnosis(event: Event):
+        """to reduce the complexity of the model, in this example we will convert granular ICD codes to more broad ones (ie 428.3 --> 428)"""
+        split_code = event.code.split('.')
+        assert len(split_code) <= 2
+        return split_code[0]
+
+    # handle continuous value discretization    
+    def digitize_lab_result(x):
+        bins = [0, 0.5, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512]
+        return np.digitize(x, bins)
+
+    def handle_lab(event: Event):
+        """turn a lab event into a discrete value that is easier to generate"""
+        binned_lab_result = digitize_lab_result(event.attr_dict['lab_result'])
+        unit = event.attr_dict['lab_measure_name_system']
+        return f"{event.code}_{unit}_{binned_lab_result}"
     
     # complex case:
     # handle labs of 1 kind in one way, and labs of another in another way
@@ -1123,18 +1136,13 @@ if __name__ == "__main__":
     # define a way to handle events that need some special event handling
     # this is where you would define some discrtization strategy
     event_handlers = {}   
-    event_handlers['measurement'] =  handle_measurement
-
-    # handle continuous value discretization    
-    def handle_lab(x):
-        bins = [0, 0.5, 1, 2, 4, 8, 16, 32]
-        np.digitize(x, bins)
+    event_handlers['diagnosis'] =  handle_diagnosis
+    event_handlers['lab'] =  handle_lab
 
     continuous_value_handlers = {}
-    continuous_value_handlers['lab'] = handle_lab
     
     # handle discretization of time
-    bins = [0.5, 1, 1.5, 2, 2.5, 3, 4] # re-admission to icu is releveant only in the short term
+    bins = [0.5, 1, 1.5, 2, 2.5, 3, 4] # units is years; re-admission to icu is releveant only in the short term
     time_vector_length = len(bins) + 1
     def handle_time(t: timedelta):
         year = t.days / 365
@@ -1169,53 +1177,51 @@ if __name__ == "__main__":
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     
     # --- train model ---
-    model_save_path = '/home/bdanek2/PyHealth/'
+    model_save_path = '/home/bdanek2/PyHealth/reduced_model'
     trainer = HALOTrainer(
         dataset=dataset,
         model=model,
         processor=processor,
         optimizer=torch.optim.Adam(model.parameters(), lr=1e-4),
-        checkpoint_path=f'{basedir}/model_saves/eval_developement.pkl'
+        checkpoint_path=f'{basedir}/model_saves/eval_developement'
     )
-    
     trainer.set_basic_splits()
     
     start_time = time.perf_counter()
-    # trainer.train(
-    #     batch_size=batch_size,
-    #     epoch=2000,
-    #     patience=5,
-    #     eval_period=1000
-    # )
+    trainer.train(
+        batch_size=batch_size,
+        epoch=1000,
+        patience=5,
+        eval_period=1000
+    )
     end_time = time.perf_counter()
     run_time = end_time - start_time
     print("training time:", run_time, run_time / 60, (run_time / 60) / 60)
     
     # --- generate synthetic dataset using the best model ---
-    state_dict = torch.load(f'{basedir}/model_saves/eval_developement.pkl', map_location=device)
-
+    state_dict = torch.load(f'{trainer.checkpoint_path}.pkl', map_location=device)
     model.load_state_dict(state_dict['model'])
     model.to(device)
-    trainer = HALOTrainer(
-        dataset=dataset,
-        model=model,
-        processor=processor,
-        optimizer=torch.optim.Adam(model.parameters(), lr=1e-4),
-        checkpoint_path=f'{basedir}/model_saves/eval_developement.pkl'
-    )
+    # trainer = HALOTrainer(
+    #     dataset=dataset,
+    #     model=model,
+    #     processor=processor,
+    #     optimizer=torch.optim.Adam(model.parameters(), lr=1e-4),
+    #     checkpoint_path=f'{basedir}/model_saves/eval_developement'
+    # )
     
-    trainer.set_basic_splits()
-    trainer.eval(batch_size=batch_size, save=False)
+    # trainer.set_basic_splits()
+    # trainer.eval(batch_size=batch_size, save=False)
 
     generator = HALOGenerator(
         model=model,
         processor=processor,
         batch_size=batch_size,
         device=device,
-        save_path=f"{basedir}/synthetically_generated_data.pkl"
+        save_path=f"{basedir}/synthetically_generated_data"
     )
 
-    labels = [((1), 10000), ((0), 10000)]
+    labels = [((1), 50000), ((0), 50000)]
     synthetic_dataset = generator.generate_conditioned(labels)
 
     # --- evaluation ---
@@ -1236,7 +1242,7 @@ if __name__ == "__main__":
     evaluator = HALOEvaluator(generator=generator, processor=processor)
     stats = evaluator.evaluate(
         source=trainer.test_dataset,
-        synthetic=pickle.load(file=open('./synthetically_generated_data.pkl', 'rb')),
+        synthetic=pickle.load(file=open(generator.save_path, 'rb'))[:20],
         get_plot_path_fn=pathfn,
         compare_label=list(labels.keys()),
     )

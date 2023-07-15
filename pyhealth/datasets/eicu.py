@@ -240,7 +240,7 @@ class eICUDataset(BaseEHRDataset):
             else:
                 return "Unknown"
             
-        # prefer icd9 code when possible, fallback to the icd9 code
+        # only include code if it is ICD9
         def preferred_code(codes: List[str]):
             preferred_codes = set()
             for code in codes:
@@ -467,10 +467,10 @@ class eICUDataset(BaseEHRDataset):
         # read table
         df = pd.read_csv(
             os.path.join(self.root, f"{table}.csv"),
-            dtype={"patientunitstayid": str, "labname": str},
+            dtype={"patientunitstayid": str, "labname": str, "labresult": float, "labmeasurenamesystem": str},
         )
         # drop rows with missing values
-        df = df.dropna(subset=["patientunitstayid", "labname"])
+        df = df.dropna(subset=["patientunitstayid", "labname", "labresult", "labmeasurenamesystem"])
         # sort by labresultoffset
         df = df.sort_values(["patientunitstayid", "labresultoffset"], ascending=True)
         # add the patient id info
@@ -493,7 +493,12 @@ class eICUDataset(BaseEHRDataset):
                 return []
 
             events = []
-            for offset, code in zip(v_info["labresultoffset"], v_info["labname"]):
+            for i in range(0, len(v_info["labresultoffset"])):
+                offset = v_info["labresultoffset"].values[i]
+                code = v_info["labname"].values[i]
+                lab_result = v_info["labresult"].values[i]
+                lab_measure_name_system = v_info["labmeasurenamesystem"].values[i]
+
                 # compute the absolute timestamp
                 timestamp = v_encounter_time + pd.Timedelta(minutes=offset)
                 event = Event(
@@ -503,6 +508,8 @@ class eICUDataset(BaseEHRDataset):
                     visit_id=v_id,
                     patient_id=patient_id,
                     timestamp=timestamp,
+                    lab_result=lab_result,
+                    lab_measure_name_system=lab_measure_name_system
                 )
                 # update patients
                 events.append(event)
