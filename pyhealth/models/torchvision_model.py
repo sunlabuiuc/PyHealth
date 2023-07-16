@@ -115,7 +115,7 @@ class TorchvisionModel(BaseModel):
         hidden_dim = final_layer.in_features
         self.label_tokenizer = self.get_label_tokenizer()
         output_size = self.get_output_size(self.label_tokenizer)
-        setattr(self.model, final_layer_name, nn.Linear(hidden_dim, output_size))
+        setattr(self.model, final_layer_name.split(".")[0], nn.Linear(hidden_dim, output_size))
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation."""
