@@ -34,7 +34,7 @@ for model in SUPPORTED_MODELS:
     elif "densenet" in model:
         SUPPORTED_MODELS_FINAL_LAYER[model] = "classifier"
     elif "vit" in model:
-        SUPPORTED_MODELS_FINAL_LAYER[model] = "heads"
+        SUPPORTED_MODELS_FINAL_LAYER[model] = "heads.head"
     elif "swin" in model:
         SUPPORTED_MODELS_FINAL_LAYER[model] = "head"
     else:
@@ -109,7 +109,10 @@ class TorchvisionModel(BaseModel):
 
         self.model = torchvision.models.get_model(model_name, **model_config)
         final_layer_name = SUPPORTED_MODELS_FINAL_LAYER[model_name]
-        hidden_dim = getattr(self.model, final_layer_name).in_features
+        final_layer = self.model
+        for name in final_layer_name.split("."):
+            final_layer = getattr(final_layer, name)
+        hidden_dim = final_layer.in_features
         self.label_tokenizer = self.get_label_tokenizer()
         output_size = self.get_output_size(self.label_tokenizer)
         setattr(self.model, final_layer_name, nn.Linear(hidden_dim, output_size))
@@ -164,7 +167,7 @@ if __name__ == "__main__":
         feature_keys=["path"],
         label_key="label",
         mode="multiclass",
-        model_name="swin_t",
+        model_name="vit_b_16",
         model_config={"weights": "DEFAULT"},
     )
 

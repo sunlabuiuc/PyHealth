@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Dict
 
-from pyhealth.tasks import TaskTemplate
+from pyhealth.tasks.task_template import TaskTemplate
 
 
 @dataclass(frozen=True)
