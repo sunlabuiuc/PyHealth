@@ -232,6 +232,16 @@ class MedCLIPTextModel(nn.Module):
         return embed
 
 class MedCLIPModel(nn.Module):
+    """MedCLIP model
+    Paper: MedCLIP: Contrastive Learning from Unpaired Medical Images and Texts. EMNLP'22
+    
+    Args:
+        vision_cls: The vision encoder model. Candidates are ResNet (MedCLIPVisionModel) 
+                    and ViT (MedCLIPVisionModel), default vision encoder is MedCLIPVisionModel 
+        checkpoint: Optional
+        visionpoint: Optional
+        logit_scale_init_value: Optional
+    """
     def __init__(self,
         vision_cls=MedCLIPVisionModel,
         checkpoint=None,
