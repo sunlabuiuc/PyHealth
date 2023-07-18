@@ -11,7 +11,8 @@ from transformers.image_utils import is_torch_tensor
 from PIL import Image 
 import torch
 import torch.nn as nn
-import torchvision        
+import torchvision
+from torchvision import transforms        
 
 
 BERT_TYPE = 'emilyalsentzer/Bio_ClinicalBERT'
@@ -358,9 +359,9 @@ class MedCLIPFeatureExtractor(CLIPFeatureExtractor):
         do_resize=True, 
         size=224, 
         resample=Image.BICUBIC,
-        do_center_crop=False,#True, 
+        do_center_crop=True, 
         crop_size=224, 
-        do_normalize=False,#True, 
+        do_normalize=True, 
         image_mean=IMG_MEAN, 
         image_std=IMG_STD, 
         do_convert_rgb=False,
@@ -441,17 +442,18 @@ class MedCLIPFeatureExtractor(CLIPFeatureExtractor):
             ]
         if self.do_center_crop and self.crop_size is not None:
             images = [self.center_crop(image, self.crop_size) for image in images]
-        # if self.do_normalize:
-        #     images = [self.normalize(image=image, mean=IMG_MEAN, std=IMG_STD) for image in images]
-        # add a RGB dim for each image        
-        images_ = []
-        for image in images:
-            if len(image.size) == 2:
-                image = np.array(image)
-                image = image[None]
-            images_.append(image)
-        images = images_
+        if self.do_normalize:
+            images = [self.normalize(image, mean=IMG_MEAN, std=IMG_STD) for image in images]
 
+        # add a RGB dim for each image        
+        # images_ = []
+        # for image in images:
+        #     if len(image.size) == 2:
+        #         image = np.array(image)
+        #         image = image[None]
+        #     images_.append(image)
+        # images = images_
+        
         # return as BatchFeature
         data = {"pixel_values": images}
         encoded_inputs = BatchFeature(data=data, tensor_type=return_tensors)
@@ -467,7 +469,19 @@ class MedCLIPFeatureExtractor(CLIPFeatureExtractor):
         new_im = Image.new('L', (size, size), fill_color)
         new_im.paste(img, (int((size - x) / 2), int((size - y) / 2)))
         return new_im
-
+    
+    def center_crop(self, img, crop_size={'height': 224, 'width': 224}):
+        CenterCrop = transforms.CenterCrop(size=(crop_size['height'], crop_size['width']))
+        cropped_image= CenterCrop(img)
+        return cropped_image
+    
+    def normalize(self, img, mean=IMG_MEAN, std=IMG_STD):
+        ToTensor = transforms.ToTensor()
+        img = ToTensor(img)
+        Normalize = transforms.Normalize(mean, std)
+        normalized_image = Normalize(img).numpy()
+        return normalized_image
+        
 class MedCLIPProcessor(CLIPProcessor):
     '''
     A processor that takes input images and texts and provides inputs for
@@ -575,7 +589,7 @@ if __name__ == "__main__":
     
     image = Image.open('/home/wuzijian1231/Datasets/MedCLIP/example_data/view1_frontal.jpg')
     inputs = processor(images=image, return_tensors="pt")
-    
+
     cls_prompts = process_class_prompts(generate_chexpert_class_prompts(n=10))
     inputs['prompt_inputs'] = cls_prompts
 
