@@ -102,7 +102,7 @@ class TUABDataset(BaseSignalDataset):
                 patients[pid].append({
                     "load_from_path": os.path.join(self.root, data_field, "01_tcp_ar"),
                     "patient_id": pid,
-                    "visit_id": visit.split("_")[1],
+                    "visit_id": visit.strip(".edf").strip(pid.split("_")[1])[1:],
                     "signal_file": visit,
                     "label_file": visit,
                     "save_to_path": self.filepath,

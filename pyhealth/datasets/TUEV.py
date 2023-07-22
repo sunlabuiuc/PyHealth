@@ -66,8 +66,7 @@ class TUEVDataset(BaseSignalDataset):
         patient_ids = list(set(list(all_files.keys())))
 
         if self.dev:
-            patient_ids = patient_ids[:5]
-            print(patient_ids)
+            patient_ids = patient_ids[:30]
 
         # get patient to record maps
         #    - key: pid:
@@ -84,10 +83,15 @@ class TUEVDataset(BaseSignalDataset):
             patient_visits = all_files[pid]
             
             for visit in patient_visits:
+                if split == "train":
+                    visit_id = visit.strip(".edf").split("_")[1]
+                else:
+                    visit_id = visit.strip(".edf")
+                    
                 patients[pid].append({
                     "load_from_path": os.path.join(self.root, split, id),
                     "patient_id": pid,
-                    "visit_id": visit.strip(".edf").split("_")[1],
+                    "visit_id": visit_id,
                     "signal_file": visit,
                     "label_file": visit,
                     "save_to_path": self.filepath,
