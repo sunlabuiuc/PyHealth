@@ -66,6 +66,9 @@ Welcome to PyHealth!
 ..    :target: https://github.com/yzhao062/pyhealth/blob/master/LICENSE
 ..    :alt: License
 
+Go to KDD'23 Tutorial Link https://sunlabuiuc.github.io/PyHealth/
+-----------------------------------------------------------------
+
 PyHealth is designed for both **ML researchers and medical practitioners**. We can make your **healthcare AI applications** easier to develop, test and validate. Your development process becomes more flexible and more customizable. `[GitHub] <https://github.com/sunlabuiuc/PyHealth>`_
 
 ----------
