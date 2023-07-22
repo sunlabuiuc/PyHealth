@@ -1,4 +1,4 @@
-Welcome to PyHealth! `[KDD'23 Tutorial Link] <https://sunlabuiuc.github.io/PyHealth/>`
+Welcome to PyHealth!
 ====================================
 
 .. image:: https://img.shields.io/pypi/v/pyhealth.svg?color=brightgreen
@@ -60,6 +60,10 @@ Welcome to PyHealth! `[KDD'23 Tutorial Link] <https://sunlabuiuc.github.io/PyHea
 .. .. image:: https://img.shields.io/github/license/yzhao062/pyhealth
 ..    :target: https://github.com/yzhao062/pyhealth/blob/master/LICENSE
 ..    :alt: License
+
+`[KDD'23 Tutorial Link] <https://sunlabuiuc.github.io/PyHealth/>`
+-----------------------------------------------------------------
+
 
 PyHealth is designed for both **ML researchers and medical practitioners**. We can make your **healthcare AI applications** easier to deploy and more flexible and customizable. `[Tutorials] <https://pyhealth.readthedocs.io/>`_
 
