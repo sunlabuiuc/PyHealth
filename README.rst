@@ -61,7 +61,7 @@ Welcome to PyHealth!
 ..    :target: https://github.com/yzhao062/pyhealth/blob/master/LICENSE
 ..    :alt: License
 
-`[KDD'23 Tutorial Link] <https://sunlabuiuc.github.io/PyHealth/>`
+Go to KDD'23 Tutorial Link https://sunlabuiuc.github.io/PyHealth/
 -----------------------------------------------------------------
 
 
