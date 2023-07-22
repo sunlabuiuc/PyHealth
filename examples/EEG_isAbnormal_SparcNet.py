@@ -7,7 +7,7 @@ from pyhealth.models import SparcNet
 # step 1: load signal data
 dataset = TUABDataset(root="/srv/local/data/TUH/tuh_eeg_abnormal/v3.0.0/edf/", 
                             dev=True,
-                            refresh_cache=False, 
+                            refresh_cache=True, 
                             )
 
 # step 2: set task
@@ -41,8 +41,9 @@ trainer = Trainer(model=model, device="cuda:4")
 trainer.train(
     train_dataloader=train_dataloader,
     val_dataloader=val_dataloader,
-    epochs=5,
+    epochs=10,
     monitor="pr_auc",
+    optimizer_params={"lr": 1e-3},
 )
 
 # STEP 5: evaluate
