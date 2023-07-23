@@ -67,8 +67,6 @@ class Processor():
             A function which accepts the keyword argument `patient_data: pyhealth.data.Patient` and produces a vector representation of the patient label.
         label_vector_len: 
             The length of a patient label vector.
-        invert_label: 
-            An optional function for converting the label vector into a human readable patient label
 
     """
     
@@ -103,8 +101,7 @@ class Processor():
         
         max_visits: Union[None, int] = None,
         label_fn: Callable[..., List[int]] = None, 
-        label_vector_len: int = -1,
-        invert_label: Callable[..., Any] = None,
+        label_vector_len: int = -1
     ) -> None:
         
         self.dataset = dataset
@@ -120,7 +117,6 @@ class Processor():
         assert label_vector_len >= 0, "Nonnegative vector_len required. May be due to user error, or value is not defined."
         self.label_fn = label_fn
         self.label_vector_len = label_vector_len
-        self.invert_label = invert_label
 
         self.continuous_value_handlers = continuous_value_handlers
         self.continuous_value_handlers_inverter = continuous_value_handlers_inverter

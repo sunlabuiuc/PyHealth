@@ -298,11 +298,11 @@ if __name__ == "__main__":
 
     # --- pyhealth dataset/source ---    
     DATASET_NAME = "eICU-demo"
-    # ROOT = "https://storage.googleapis.com/pyhealth/eicu-demo/",
-    ROOT = "/home/bdanek2/ai4health/dataset/physionet.org/files/eicu-crd/2.0_unpacked"
+    # ROOT = "https://storage.googleapis.com/pyhealth/eicu-demo/"
+    ROOT = "/home/bdanek2/data/physionet.org/files/eicu-crd/2.0"
     TABLES = ["diagnosis", "lab"]
     CODE_MAPPING = {}
-    DEV = True  # not needed when using demo set since its 100 patients large
+    DEV = False
     REFRESH_CACHE = False
 
     dataset = eICUDataset(
@@ -318,14 +318,14 @@ if __name__ == "__main__":
 
     # --- processor ---
     save_processor_path = f'{basedir}/model_saves/halo_dev_processor.pkl'
-    batch_size = 2048
+    batch_size = 512
     
     # define a way to make labels from raw data
     simple_label_fn_output_size = 1
     def simple_label_fn(**kwargs):
         pdata = kwargs['patient_data']
         
-        return (1) if pdata.gender == 'Male' else (0)
+        return (0) if pdata.death_datetime else (1) # 0 for dead, 1 for alive
     
     def handle_diagnosis(event: Event):
         """to reduce the complexity of the model, in this example we will convert granular ICD codes to more broad ones (ie 428.3 --> 428)"""
@@ -356,7 +356,8 @@ if __name__ == "__main__":
     continuous_value_handlers = {}
     
     # handle discretization of time
-    bins = [0.5, 1, 1.5, 2, 2.5, 3, 4] # units is years; re-admission to icu is releveant only in the short term
+    # bins = [0.5, 1, 1.5, 2, 2.5, 3, 4] # units is years; re-admission to icu is releveant only in the short term
+    bins = [0.5, 1, 1.5, 2, 2.5, 3, 4] + list(range(5, 85, 5)) # model both readmission and age in the same representation
     time_vector_length = len(bins) + 1
     def handle_time(t: timedelta):
         year = t.days / 365
@@ -374,7 +375,6 @@ if __name__ == "__main__":
         time_vector_length=time_vector_length,
         label_fn=simple_label_fn,
         label_vector_len=simple_label_fn_output_size,
-        invert_label=None
     )
     
     # # save for developement
@@ -388,7 +388,7 @@ if __name__ == "__main__":
         device=device
     )
     
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    # optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     
     # --- train model ---
     model_save_path = '/home/bdanek2/PyHealth/reduced_model'
@@ -404,9 +404,9 @@ if __name__ == "__main__":
     start_time = time.perf_counter()
     trainer.train(
         batch_size=batch_size,
-        epoch=10,
+        epoch=1000,
         patience=5,
-        eval_period=1000
+        eval_period=10000
     )
     end_time = time.perf_counter()
     run_time = end_time - start_time
@@ -416,33 +416,18 @@ if __name__ == "__main__":
     state_dict = torch.load(f'{trainer.checkpoint_path}.pkl', map_location=device)
     model.load_state_dict(state_dict['model'])
     model.to(device)
-    # trainer = HALOTrainer(
-    #     dataset=dataset,
-    #     model=model,
-    #     processor=processor,
-    #     optimizer=torch.optim.Adam(model.parameters(), lr=1e-4),
-    #     checkpoint_path=f'{basedir}/model_saves/eval_developement'
-    # )
-    
-    # trainer.set_basic_splits()
-    # trainer.eval(batch_size=batch_size, save=False)
 
     generator = Generator(
         model=model,
         processor=processor,
         batch_size=batch_size,
         device=device,
-        save_path=f"{basedir}/synthetically_generated_data"
+        save_path=f"{basedir}/synthetically_generated_mortality_data"
     )
 
-    labels = [((1), 50000), ((0), 50000)]
+    labels = [((1), 40000), ((0), 40000)]
     synthetic_dataset = generator.generate_conditioned(labels)
 
-    # --- evaluation ---
-    labels = {
-        (1, ): 'male',
-        (0, ): 'female',
-    }
     def pathfn(plot_type: str, label: List):
         prefix = f"./halo_eval_plots"
 
@@ -451,6 +436,11 @@ if __name__ == "__main__":
         path_str = f"{prefix}_{plot_type}_{label}"
 
         return path_str
+    
+    labels = {
+        (1, ): 'Alive',
+        (0, ): 'Expired',
+    }
 
     # conduct evaluation of the synthetic data w.r.t. it's source
     evaluator = Evaluator(generator=generator, processor=processor)
@@ -460,7 +450,7 @@ if __name__ == "__main__":
         get_plot_path_fn=pathfn,
         compare_label=list(labels.keys()),
     )
-
     print("plots at:", '\n'.join(stats[evaluator.PLOT_PATHS]))
 
+    # --- conversion ---
     print("done")

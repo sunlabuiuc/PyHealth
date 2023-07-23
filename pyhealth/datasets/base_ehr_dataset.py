@@ -191,7 +191,7 @@ class BaseEHRDataset(ABC):
         Returns:
            A dict mapping patient_id to `Patient` object.
         """
-        pandarallel.initialize(progress_bar=False, shm_size_mb=10000)
+        pandarallel.initialize(progress_bar=False)#, shm_size_mb=10000)
 
         # patients is a dict of Patient objects indexed by patient_id
         patients: Dict[str, Patient] = dict()
