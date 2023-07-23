@@ -229,7 +229,7 @@ class Generator:
         tables = {'patients': pd.DataFrame(patient_table_list, columns=patient_table_columns)}
         for table_type, table_rows in event_tables.items():
             columns = event_columns_per_table[table_type] if table_type in event_columns_per_table else event_columns
-            tables[table_type] = (table_type, pd.DataFrame(event_tables[table_type], columns=columns))
+            tables[table_type] = pd.DataFrame(event_tables[table_type], columns=columns)
 
         return tables
 
