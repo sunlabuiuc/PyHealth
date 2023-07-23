@@ -134,7 +134,7 @@ class Generator:
             for visit_id in range(0, len(sample['visits'])):
 
                 unique_visit_id = f"{patient_id}_{visit_id}"
-                visit, time_gap = sample['visits'], sample['inter-visit_gap']
+                visit, time_gap = sample['visits'][visit_id], sample['inter-visit_gap'][visit_id]
                 
                 time_since_previous_visit = processed_time_gaps[visit_id]
                 try:
@@ -149,7 +149,7 @@ class Generator:
                     encounter_time=visit_time
                 )
 
-                for event_table, event_data in visit[0]:
+                for event_table, event_data in visit:
                     assert event_table in event_handlers, f"No event handler for {event_table}"
                     event_data = event_handlers[event_table](event_data)
                     event = Event(
