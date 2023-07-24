@@ -300,7 +300,7 @@ if __name__ == "__main__":
     DATASET_NAME = "eICU-demo"
     # ROOT = "https://storage.googleapis.com/pyhealth/eicu-demo/"
     ROOT = "/home/bdanek2/data/physionet.org/files/eicu-crd/2.0"
-    TABLES = ["diagnosis", "lab"]
+    TABLES = ["diagnosis"]
     CODE_MAPPING = {}
     DEV = False
     REFRESH_CACHE = False
@@ -318,7 +318,7 @@ if __name__ == "__main__":
 
     # --- processor ---
     save_processor_path = f'{basedir}/model_saves/halo_dev_processor.pkl'
-    batch_size = 512
+    batch_size = 1028
     
     # define a way to make labels from raw data
     simple_label_fn_output_size = 1
@@ -400,6 +400,8 @@ if __name__ == "__main__":
         checkpoint_path=f'{basedir}/model_saves/eval_developement'
     )
     trainer.set_basic_splits()
+
+    print(model)
     
     start_time = time.perf_counter()
     trainer.train(
