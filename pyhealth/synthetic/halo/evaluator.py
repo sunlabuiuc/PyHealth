@@ -2,8 +2,9 @@ import itertools
 
 from matplotlib import pyplot as plt
 import numpy as np
+import os
 
-from typing import Callable, Dict, List
+from typing import Callable, Dict, List, Tuple
 from pyhealth.synthetic.halo.generator import Generator
 from pyhealth.synthetic.halo.processor import Processor
 from pyhealth.utils import print_dict
@@ -13,6 +14,12 @@ from tqdm import tqdm
 from pyhealth.datasets.base_ehr_dataset import BaseEHRDataset
 
 class Evaluator:
+    """Module for evaluating the the generated synthetic dataset from a `halo.Generator`.
+        
+    Args:
+        generator: `halo.Generator` class used for accessing attributes of synthetic data samples, and converting authentic data into HALO data format.
+        processor: `halo.Processor` module for converting authentic data into HALO format.
+    """
 
     # used to access the output of the evaluate(...) function
     SOURCE_STATS = "source_stats"
@@ -57,24 +64,47 @@ class Evaluator:
         self.ALL_LABELS = tuple(np.ones(self.processor.label_vector_len + 1))
     
     def default_path_fn(self, plot_type, label_vector):
+        """
+        Default path for saving halo plots; will store at location `os.getcwd()`.
+        Args: 
+            plot_type: plot type as string; used in constructing file name.
+            label_vector: patient label vector which will be converted to string; used in constructing file name.
+
+        Returns:
+            Save path for the file.
+        """
         label_string = str(tuple(label_vector))
-        path = f"./pyhealth_halo_eval_{plot_type}_{label_string}"
+        path = f"{os.getcwd()}/pyhealth_halo_eval_{plot_type}_{label_string}"
         return path.replace('.', '').replace(' ', '').lower()
 
-    def evaluate(self, source, synthetic, compare_label: List = None, get_plot_path_fn: Callable = None, print_overall: bool = True):
+    def evaluate(self, source: BaseEHRDataset, synthetic: List[Dict], compare_label: List = None, get_plot_path_fn: Callable = None, print_overall: bool = True):
+        """Conduct side-by-side evaluation of the source dataset (authentic) with respect to the synthetic dataset.
+
+        Args:
+            source: PyHealth BaseEHRDataset of authentic data (holdout test dataset).
+            synthetic: List of synthetically generated samples; output of `halo.Generator.generate_conditioned`.
+            compare_label: labels to use in comparison; if `None` provided (default), then will evaluate all labels, 
+                namely producing plots for the datasets partitioned by label, and then the overall dataset (including all labels).
+            get_plot_path_fn: optional function for generating the save path for plots; function called like get_plot_path_fn(plot type, label).
+            print_overall: boolean for printing the statistics for the training and synthetic dataset.
+
+        Returns:
+            Dictionary of statistics for source datset, statistics for synthetic dataset, plot paths. Keys are "source_stats", "synthetic_stats", "plot_paths".
+
+        """
         halo_labels, halo_ehr_stats = self.generate_statistics(ehr_dataset=synthetic)
         
-        source_as_vectors = self.to_evaluation_format(source)
-        train_erh_labels, train_ehr_stats = self.generate_statistics(ehr_dataset=source_as_vectors)
+        source_as_global_vocab = self.to_evaluation_format(source)
+        train_erh_labels, train_ehr_stats = self.generate_statistics(ehr_dataset=source_as_global_vocab)
         
         assert halo_labels, "No labels present in HALO Dataset, this is likely because the dataset schema is incorrect."
         assert train_erh_labels, "No labels present in Training Dataset, this is likely because the dataset schema is incorrect."
 
         if print_overall:
-            print("source (train)")
+            print("authentic dataset stats")
             print_dict(train_ehr_stats[self.ALL_LABELS][self.AGGREGATE])
             print_dict(train_ehr_stats[self.LABEL_PROBABILITIES])
-            print("synthetic")
+            print("synthetic dataset stats")
             print_dict(halo_ehr_stats[self.ALL_LABELS][self.AGGREGATE])
             print_dict(halo_ehr_stats[self.LABEL_PROBABILITIES])
 
@@ -85,8 +115,13 @@ class Evaluator:
     
     def to_evaluation_format(self, dataset: BaseEHRDataset) -> List[Dict]:
         """
-        computing probability densities is more straighforward on a vector dataset.
-        This method processes a pyhealth dataset into the HALO vector format
+        Convert a BaseEHRDataset to the LLM vocabulary `halo.Processor.global_vocab` vocabulary
+
+        Args:
+            dataset: BaseEHRDataset to convert
+        
+        Returns:
+            list of Dict objects denoting samples produced by `halo.Generator.convert_samples_to_ehr`. 
         """
         
         converted_samples = []
@@ -97,7 +132,14 @@ class Evaluator:
         return converted_samples
 
     def generate_statistics(self, ehr_dataset) -> Dict:
-        """Compute basic statistics and probability densities of code occurrences (unigram, bigram, sequential bigram)"""
+        """Compute basic statistics and probability densities of code occurrences (unigram, bigram, sequential bigram) for a `halo.Generator` dataset
+        
+        Args:
+            ehr_dataset: Dict of samples produced by `halo.Generator.convert_samples_to_ehr`. 
+
+        Returns:
+            Dict of basic statistics and probability densities of code occurrences computed over the dataset
+        """
         
         # compute all available lables in the dataset
         labels = set()
@@ -210,7 +252,21 @@ class Evaluator:
         return dataset_labels, stats
     
     def generate_plots(self, stats_a, stats_b, plot_label_a, plot_label_b, get_plot_path_fn: Callable = None, compare_labels: List = None) -> List[str]:
-        """Generate plots"""
+        """
+        Generate probability plots of two statistics dictionaries and save them to the specified file location.
+
+        Args:
+            stats_a: stats dict to compute probs for on x axis
+            stats_b: stats dict to compute probs for on x axis
+            plot_label_a: name of x axis.
+            plot_label_b: name of y axis.
+            get_plot_path_fn: Function which receives plot name, as well as label name, 
+                and should produce a valid path string to save the generated figure to.
+            compare_labels: List of labels to generate plots for.
+
+        Returns:
+            List of plot paths which result was written to. 
+        """
         if compare_labels == None:
             compare_labels = [self.ALL_LABELS]
 

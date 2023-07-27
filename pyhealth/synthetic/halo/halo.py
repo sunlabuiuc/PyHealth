@@ -1,9 +1,9 @@
-'''
-    Original GPT-2 Paper and repository here: https://github.com/openai/gpt-2
-    Original GPT-2 Pytorch Model: https://github.com/huggingface/pytorch-pretrained-BERT
-    GPT-2 Pytorch Model Derived From: https://github.com/graykode/gpt-2-Pytorch
-'''
+
+"""
+Model architecture and method from Theodorou, Brandon, Cao Xiao, and Jimeng Sun. “Synthesize Extremely High-Dimensional Longitudinal Electronic Health Records via Hierarchical Autoregressive Language Model.” arXiv, April 4, 2023. http://arxiv.org/abs/2304.02169.
+"""
 from datetime import timedelta
+import os
 import time
 from matplotlib import pyplot as plt
 import numpy as np
@@ -23,10 +23,8 @@ from pyhealth.synthetic.halo.generator import Generator
 from pyhealth.synthetic.halo.processor import Processor
 from pyhealth.synthetic.halo.trainer import Trainer
 
-"""
-model configuration
-
-required fields are non-optional for instantiating the HALO model 
+"""model configuration
+required fields are non-optional for instantiating the HALO model: "n_positions", "n_ctx", "n_embd", "n_layer", "n_head", "layer_norm_epsilon", "initializer_range"
 """
 class Config(object):
     required = [
@@ -221,6 +219,15 @@ class FineAutoregressiveHead(nn.Module):
         return code_logits
 
 class HALO(nn.Module):
+    """HALO LLM Model.
+    Based on Theodorou, Brandon, Cao Xiao, and Jimeng Sun. “Synthesize Extremely High-Dimensional Longitudinal Electronic Health Records via Hierarchical Autoregressive Language Model.” arXiv, April 4, 2023. http://arxiv.org/abs/2304.02169.
+
+    Args:
+        n_ctx: the number of context vectors the model should expect; equivalent to maximum number of visits to generate
+        total_vocab_size: size of the vocabulary
+        device: training device
+        config: configuration object to instantiate the model. HALO authors provide defaults, but can be modified so long as required fields are included. 
+    """
     def __init__(self, 
             n_ctx,
             total_vocab_size,
@@ -317,8 +324,7 @@ if __name__ == "__main__":
     basedir = '/home/bdanek2/PyHealth/reduced_model'
 
     # --- processor ---
-    save_processor_path = f'{basedir}/model_saves/halo_dev_processor.pkl'
-    batch_size = 1028
+    batch_size = 512
     
     # define a way to make labels from raw data
     simple_label_fn_output_size = 1
@@ -387,6 +393,15 @@ if __name__ == "__main__":
         total_vocab_size=processor.total_vocab_size,
         device=device
     )
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+
+    # state_dict = torch.load(open(f'{basedir}/model_saves/eval_developement.pt', 'rb'), map_location=device)
+    # model.load_state_dict(state_dict['model'])
+    # model.to(device)
+
+    # optimizer.load_state_dict(state_dict['optimizer'])
+
+    # print("loaded previous model from traing; iterations on previous model:", state_dict['iteration'])
     
     # optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     
@@ -396,8 +411,9 @@ if __name__ == "__main__":
         dataset=dataset,
         model=model,
         processor=processor,
-        optimizer=torch.optim.Adam(model.parameters(), lr=1e-4),
-        checkpoint_path=f'{basedir}/model_saves/eval_developement'
+        optimizer=optimizer,
+        checkpoint_path=f'{basedir}/model_saves',
+        model_save_name='eval_developement_test_10.pt'
     )
     trainer.set_basic_splits()
 
@@ -408,16 +424,16 @@ if __name__ == "__main__":
         batch_size=batch_size,
         epoch=1000,
         patience=5,
-        eval_period=10000
+        eval_period=float('inf')
     )
     end_time = time.perf_counter()
     run_time = end_time - start_time
     print("training time:", run_time, run_time / 60, (run_time / 60) / 60)
     
-    # --- generate synthetic dataset using the best model ---
-    state_dict = torch.load(f'{trainer.checkpoint_path}.pkl', map_location=device)
-    model.load_state_dict(state_dict['model'])
-    model.to(device)
+    # # --- generate synthetic dataset using the best model ---
+    # state_dict = torch.load(open(os.path.join(trainer.checkpoint_path, trainer.model_save_name), 'rb'), map_location=device)
+    # model.load_state_dict(state_dict['model'])
+    # model.to(device)
 
     generator = Generator(
         model=model,
@@ -427,11 +443,11 @@ if __name__ == "__main__":
         save_path=f"{basedir}/synthetically_generated_mortality_data"
     )
 
-    labels = [((1), 40000), ((0), 40000)]
+    labels = [((1), 50000), ((0), 50000)]
     synthetic_dataset = generator.generate_conditioned(labels)
 
     def pathfn(plot_type: str, label: List):
-        prefix = f"./halo_eval_plots"
+        prefix = f"/home/bdanek2/PyHealth/reduced_model/10/halo_eval_plots"
 
         label = labels[label] if label in labels else 'all_labels'
         label = label.replace('.', '').replace(' ', '').lower()
@@ -448,7 +464,7 @@ if __name__ == "__main__":
     evaluator = Evaluator(generator=generator, processor=processor)
     stats = evaluator.evaluate(
         source=trainer.test_dataset,
-        synthetic=pickle.load(file=open(generator.save_path, 'rb'))[:20],
+        synthetic=pickle.load(file=open('/home/bdanek2/PyHealth/reduced_model/synthetically_generated_mortality_data.pkl', 'rb')),
         get_plot_path_fn=pathfn,
         compare_label=list(labels.keys()),
     )

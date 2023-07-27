@@ -9,41 +9,15 @@ from tqdm import tqdm
 from pyhealth.data import Event 
 from pyhealth.datasets.base_ehr_dataset import BaseEHRDataset
 
-"""
-produce a discrete value given a continuous one
-strict_range: when a value is outside of the range, do you throw error, or do you just make the value the range maximum? Similar for minimum. 
-"""
-class Discretizer:
-    
-    def __init__(self, strategy: str, strict_range: bool = False, **kwargs):
-        if strategy == 'uniform':
-            self.start = kwargs['start']
-            self.end = kwargs['end']
-            step = kwargs['step']
-            
-            intervals = [self.start]
-            while (intervals[-1] < self.end):
-                # the last interval may be shorter than all the others, but never exceed range
-                intervals.append(min(intervals[-1] + step, self.end))
-            
-            self.clip_overflow = strict_range
-            self.intervals = intervals
-            self.to_discrete = self.uniform
-        else: 
-            # not implemented or discretization strategy is not a correct value
-            raise Exception('Invalid discretization strategy provided')
-        
-    # currently unimplemented
-    # todo: bdanek, would be good to write this algorithm without any bugs... & with unit tests    
-    def uniform(self, value: float):
-        if self.strict_range:
-            assert value <= self.end or value >= self.start, f'Strict range enforced; value: {value} not in range [{self.start}, {self.end}].'
-        
-        return value
-
 class Processor():
     """
-    Class used to process a PyHealth dataset so that it can be used in HALO. 
+    Class used to process a PyHealth dataset for HALO usage. The core features this class supports are 
+        1. converting the `pyhealth.data.Events` into a vocabulary
+        2. facilitating the mapping between `pyhealth.data.Events` and vocuabulary terms
+        3. mapping `pyhealth.data.Visit` metadata, and vocuabulary terms to a multi-hot representation vector the HALO method uses
+        4. provide get batch function for halo trainer
+
+    Instantiating this class wil trigger `aggregate_indeces` and `set_indeces` functions, which computes the global vocabulary needed to represent the provided dataset. 
 
     Args:
         dataset: Dataset to process.
@@ -53,12 +27,8 @@ class Processor():
             The dict key should be a table name, value is a Callable which must accept a pyhealth.data.Event to unpack.
         continuous_value_handlers: A dictionary of handlers for converting an event from a continuous value to a bucketed/categorical one. 
             This handler is applied after the event handler. Dict key is table name, and should return an integer representing which bucket the value falls in.
-        continuous_value_handlers_inverter: An optional dictionary of handlers for inverting the operation performed in `continuous_value_handlers`. 
-            The dict key is a table name, and the value is a Callable which accepts a vector (list of integers)
         time_handler: 
             A function which converts a timedelta into a multihot vector representation. 
-        time_hanlder_inverter: 
-            An optional function which converts the multihot time vector represention into a human readbile value. 
         time_vector_length: 
             The integer representing the length of the multihot time vector produced by `time_handler`
         max_visits: 
@@ -67,7 +37,6 @@ class Processor():
             A function which accepts the keyword argument `patient_data: pyhealth.data.Patient` and produces a vector representation of the patient label.
         label_vector_len: 
             The length of a patient label vector.
-
     """
     
     # visit dimension (dim 1)
@@ -92,11 +61,9 @@ class Processor():
 
         # used to handle continuous values
         continuous_value_handlers: Dict[str, Callable[..., int]] = {},
-        continuous_value_handlers_inverter: Dict[str, Callable[[List[int]], Any]] = {},
 
         # used to discretize time
         time_handler: Callable[[Type[timedelta]], Any] = None,
-        time_hanlder_inverter: Callable[[List[int]], Any] = None,
         time_vector_length: int = -1,
         
         max_visits: Union[None, int] = None,
@@ -119,13 +86,10 @@ class Processor():
         self.label_vector_len = label_vector_len
 
         self.continuous_value_handlers = continuous_value_handlers
-        self.continuous_value_handlers_inverter = continuous_value_handlers_inverter
 
         assert time_handler != None, "Defining time_handler is not optional. This field converts time values to a discrete one hot/multi hot vector representation."
         self.time_handler = time_handler
 
-        # optional
-        self.time_hanlder_inverter = time_hanlder_inverter
         
         assert time_vector_length != None, "Defining time_vector_length is not optional. This field is equivalent to the number of buckets required to discretie time."
         self.time_vector_length = time_vector_length
@@ -137,6 +101,10 @@ class Processor():
 
 
     def set_indeces(self) -> None:
+        """calls `halo.Processor.aggregate_event_indeces` and to compute offsets and define vocabulary. 
+        Uses offsets to set indeces for the HALO visit multi-hot vector representation. Also sets vocabulary metada used when instantiating the `halo.HALO` model. 
+        """
+
         # set aggregate indeces
         self.global_events: Dict = {}
         self.aggregate_event_indeces()
@@ -162,6 +130,11 @@ class Processor():
     its necessary to aggregate global event data, prior to transforming the dataset
     """
     def aggregate_event_indeces(self) -> None:
+        """Iterates through the provided dataset and computes a vocabulary of events. 
+        Each term in the vocabulary is represented as the tuple (`table_name`, `event_handler[table_name](event))` where `table_name` 
+        is a string denoting the table which events were parsed from, and `event_hanlder` is a dictionary of callables for unpacking table events.
+        Precomputes values used for HALO model initialization.
+        """
 
         # two way mapping from global identifier to index & vice-versa
         # possible since index <> global identifier is bijective
@@ -208,11 +181,25 @@ class Processor():
             self.max_visits = max_visits
         
         self.min_birth_datetime = min_birth_datetime
-    """
-    similar to dataset.set_task(...)
-    - produce a sampleEHRDataset
-    """  
+    
     def process_batch(self, batch) -> Tuple:
+        """Convert a batch of `pyhealth.data.Patient` objects into a batch of multi-hot vectors for the HALO model.
+
+        Use the indeces from `halo.Processor.set_indeces` to produce a series of visit vectors; each visit vector will include the following:
+            - patient label
+            - visit events
+            - inter-visit gap
+            - visit metadata
+        Towards this, the following operations will be done: 
+        1. for each `pyhealth.data.Patient` compute the patient label using the label function using the label function provided during object instantiation.
+        2. translate each visit into a mulit-hot vector where indeces using the global vocabulary computed during the object instantiation.
+        3. translate inter-visit gap and patient age into multihot vector 
+        
+        Returns:
+            the tuple: (sample_multi_hot, sample_mask)
+                sample_multi_hot: the vector (batch_size, total_visit_size, total_vocab_size) representing samples within the batch. Each sample is a multihot binary vector converted using the aforementioned operations. 
+                sample_mask: the vector (batch_size, self.total_visit_size, 1) representing which visits do not have any data. This mask denotes whether a visit should be ignored or not in the HALO model.
+        """
         batch_size = len(batch)
         
         # dim 0: batch
@@ -288,6 +275,16 @@ class Processor():
         return res
     
     def get_batch(self, data_subset: BaseEHRDataset, batch_size: int = 16,):
+        """Processing function which takes in a subset of data (such as training data) and returns an interator to get the next batche of the data subset.
+        No data shuffling is performed, and the batches have the `halo.Processor.process_batch` function applied to it. 
+
+        Args:
+            data_subset: an instance of BaseEHRDataset, which contains patient samples
+            batch_size: the batch size for the number of samples to convert at a time
+
+        Returns:
+            Python generator object accessing batches of the data_subset
+        """
 
         batch_size = min(len(data_subset), batch_size)
 

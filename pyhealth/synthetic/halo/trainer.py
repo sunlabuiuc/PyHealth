@@ -13,35 +13,75 @@ from pyhealth import datasets
 from pyhealth.synthetic.halo.processor import Processor
 
 class Trainer:
+    """Trainer for the HALO synthetic data generator module.
+
+    Args:
+        dataset: PyHealth BaseEHRDataset which training will be conducted on; does not need to be a training subset
+        model: a HALO model to train
+        optimizer: pytorch optimizer
+        checkpoint_path: path for writing model checkpoints to; model checkpoints are a dictionary with keys `model`, `iterations`, `epoch`, `optimizer`
+        device: training device
+    """
     def __init__(self, 
-            dataset: datasets, 
+            dataset: datasets.BaseEHRDataset, 
             model: nn.Module,
             processor: Processor, 
             optimizer: Optimizer,
             checkpoint_path: str,
+            model_save_name: str
         ) -> None:
         self.dataset = dataset
         self.model = model
         self.processor = processor
         self.optimizer = optimizer
         self.checkpoint_path = checkpoint_path
+        self.model_save_name = model_save_name
     
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model.to(self.device)
     
-    """
-    Set class variables of a 0.8, 0.1, 0.1 split for train, test, eval sets respectivley.
-    returns the splits for convenience
-    """
-    def set_basic_splits(self):
+    def set_basic_splits(self, from_save=False, save=True):
+        """Set class variables of a 0.8, 0.1, 0.1 split for train, test, eval split. 
+
+            If `from_save` is True, will attempt to load each split from <halo.Trainer.checkpoint_path>/<split_name>.pt. Upon failure, will create new splits with the underlying dataset. 
+            If `save` is True, will store the set splits in memory at path <halo.Trainer.checkpoint_path>/<split_name>.pt
+
+            Args
+        
+            Returns: train, test, eval split
+        """
+        if from_save:
+            try:
+                self.train_dataset = torch.load(self.train_dataset, open(f"{self.checkpoint_path}/train_dataset.pt", 'rb'))
+                self.test_dataset = torch.load(self.test_dataset, open(f"{self.checkpoint_path}/test_dataset.pt", 'rb'))
+                self.eval_dataset = torch.load(self.eval_dataset, open(f"{self.checkpoint_path}/eval_dataset.pt", 'rb'))
+                
+                return self.train_dataset, self.test_dataset, self.eval_dataset
+            except:
+                print("failed to load basic splits from memory, generating splits from source dataset.")
+        
         train, test, eval = self.split()
         self.train_dataset = train
         self.test_dataset = test
         self.eval_dataset = eval
+
+        if save:
+            torch.save(self.train_dataset, open(f"{self.checkpoint_path}/train_dataset.pt", 'wb'))
+            torch.save(self.test_dataset, open(f"{self.checkpoint_path}/test_dataset.pt", 'wb'))
+            torch.save(self.eval_dataset, open(f"{self.checkpoint_path}/eval_dataset.pt", 'wb'))
         
         return self.train_dataset, self.test_dataset, self.eval_dataset
         
     def split(self, splits: List[float] = [0.8, 0.1, 0.1], shuffle: bool = False):
+        """Split the dataset by ratio & return the result
+
+        Args:
+            splits: A list of ratios denoting portion of the dataset per split
+            shuffle: whether to shuffle the dataset randomly prior to splitting. 
+
+        Returns:
+            the computed dataset splits.
+        """
         if shuffle:
             self.dataset = random.random.shuffle(self.dataset)
             
@@ -62,23 +102,37 @@ class Trainer:
             
         return dataset_splits
     
-    def make_checkpoint(self, iteration):
+    def make_checkpoint(self, epoch, iteration):
+        """Make a training checkpoint, recording `model`, `optimizer`, `iteration`, `epoch` in a dict at 
+        `Trainer.checkpoint_path` passed in during initialization. Uses `torch.save`
+        
+        Args:
+            epoch: epoch to store
+            iterations: iterations to store
+        """
         state = {
                 'model': self.model.state_dict(),
                 'optimizer': self.optimizer.state_dict(),
-                'iteration': iteration
+                'iteration': iteration,
+                'epoch': epoch
             }
-        torch.save(state, f"{self.checkpoint_path}.pkl")
+        torch.save(state, open(f'{self.checkpoint_path}/{self.model_save_name}.pt', 'wb'))
         print('\n------------ Save best model ------------\n')
 
-    def eval(self, batch_size: int, current_epoch: int = 0, current_iteration: int = 0, patience: int = 0, save=True):
+    def eval(self, batch_size: int):
+        """Compute current current loss on `Trainer.eval_dataset`, averaged across batches.
+        
+        Args:
+            batch_size: batch size to use during evaluation
+
+        Returns:
+            average loss on `Trainer.eval_dataset` averaged over batches.
+        """
         self.model.eval()
         
         with torch.no_grad():
             
-            global_loss = 1e10
             val_l = []
-            current_patience = 0
             for batch_ehr, batch_mask in self.processor.get_batch(self.eval_dataset, batch_size):
                 
                 batch_ehr = torch.tensor(batch_ehr, dtype=torch.float32).to(self.device)
@@ -87,26 +141,23 @@ class Trainer:
                 val_loss, _, _ = self.model(batch_ehr, position_ids=None, ehr_labels=batch_ehr, ehr_masks=batch_mask)
                 val_l.append((val_loss).cpu().detach().numpy())
                 
-                cur_val_loss = np.mean(val_l)
-                if current_epoch:
-                    print("Epoch %d Validation Loss:%.7f"%(current_epoch, cur_val_loss))
-                else:
-                    print("Validation Loss:%.7f"%(cur_val_loss))
+            return np.mean(val_l)
 
-                # make checkpoint
-                if save and cur_val_loss < global_loss:
-                    global_loss = cur_val_loss
-                    patience = 0
-                    self.make_checkpoint(iteration=current_iteration)
-                
-                current_patience += 1
-                if current_patience == patience: break
-    
-    def validate(self, batch_size):
-        self.eval(batch_size=batch_size, current_epoch=0, current_iteration=0, patience=None)
+    def train(self, batch_size: int, epoch: int, patience: int, eval_period: int) -> None:
+        """Conduct training on pyhealth.synthetic.halo module.
 
-    def train(self, batch_size: int, epoch: int, patience: int, eval_period: int) -> None:        
+        Args:
+            batch_size: the batch size to train with
+            epoch: number of epochs to train for
+            patience: number of eval_periods where loss is increasing before early termination of training
+            eval_period: number of batches to train on before conducting evaluation on `Trainer.eval_dataset`. 
+                If number provided exceeds the number of batches which exist in `Trainer.eval_dataset`,
+                will perform evaluation after all batches in the epoch are trained. 
         
+        """
+        
+        global_val_loss = 1e10
+        current_patience = 0
         for e in tqdm(range(epoch), desc="Training HALO model"):
             
             self.model.train()
@@ -124,8 +175,19 @@ class Trainer:
                 self.optimizer.step()
                 
                 # the eval period may never be reached if there aren't enough batches
-                if i % min(eval_period, len(self.train_dataset)//batch_size) == 0:
+                if i % min(eval_period, len(self.train_dataset)//batch_size - 1) == 0:
                     print("Epoch %d, Iter %d: Training Loss:%.7f"%(e, i, loss))
-                    self.eval(current_epoch=e, current_iteration=i, batch_size=batch_size)
+                    cur_val_loss = self.eval(batch_size=batch_size)
+                    print("Epoch %d Validation Loss:%.7f"%(e, cur_val_loss))
 
-        self.eval(batch_size=batch_size, current_epoch=epoch, current_iteration=-1, patience=patience)
+                    # make checkpoint if our validation set is improving
+                    if cur_val_loss < global_val_loss:
+                        global_val_loss = cur_val_loss
+                        patience = 0
+                        self.make_checkpoint(epoch=e, iteration=i)
+                    
+                    current_patience += 1
+
+            if current_patience == patience: 
+                print("Training parameter `patience` exceeded provided threshold.")
+                break
