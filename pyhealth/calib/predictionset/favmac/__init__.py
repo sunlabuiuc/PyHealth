@@ -14,12 +14,7 @@ import pandas as pd
 import torch
 
 from pyhealth.calib.base_classes import SetPredictor
-import pyhealth.calib.predictionset.favmac.core as _core
-reload(_core)
-#from pyhealth.calib.predictionset.favmac.core import FavMac_GreedyRatio
-FavMac_GreedyRatio = _core.FavMac_GreedyRatio
-#from pyhealth.calib.predictionset.favmac.set_function import \
-#    AdditiveSetFunction
+from pyhealth.calib.predictionset.favmac.core import FavMac_GreedyRatio
 from pyhealth.calib.utils import prepare_numpy_dataset
 from pyhealth.models import BaseModel
 
@@ -34,7 +29,6 @@ class AdditiveSetFunction:
         self.values = values
         assert mode is None or mode in {'util', 'cost', 'proxy'}
         self.mode = mode
-        #self._C_max = self.values.sum() if isinstance(self.values, np.ndarray) else None
 
     def is_additive(self):
         return True
@@ -50,13 +44,12 @@ class AdditiveSetFunction:
         return self.util_call(S, Y, pred, sample=sample)
 
     def naive_call(self, S: np.ndarray) -> float:
-        #C_max = self._C_max or len(S) * self.values
-        return np.sum(S * self.values) #/ C_max
+        return np.sum(S * self.values)
 
     def util_call(self, S: np.ndarray, Y:np.ndarray=None, pred:np.ndarray=None, sample=1000) -> float:
         assert Y is None or pred is None
         if pred is not None:
-            return self.naive_call(S * pred) # THis is because this is additive.
+            return self.naive_call(S * pred) # This is because of additivity.
         if Y is not None: return self.naive_call(S * Y)
         return self.naive_call(S)
 
@@ -65,8 +58,6 @@ class AdditiveSetFunction:
 
     def proxy_call(self, S: np.ndarray, pred: np.ndarray, target_cost: float=None) -> float:
         return self.naive_call(S * (1-pred))
-        #if target_cost is None: #
-        #return self.quantile_method(S, pred, target_cost) #Does not need to be normalized
 
     def greedy_maximize(self, S: np.ndarray, pred: np.ndarray=None, d_proxy:np.ndarray=None, prev_util_and_proxy=None):
         # (prev_u, prev_p) = prev_util_and_proxy
@@ -99,14 +90,88 @@ class AdditiveSetFunction:
 class FavMac(SetPredictor):
     """Fast Online Value-Maximizing Prediction Sets with Conformal Cost Control (FavMac)
 
-    Only supports additive set functions for now.
+    This is a prediction-set constructor for multi-label classification problems.
+    FavMac could control the cost/risk while realizing high value on the prediction set.
 
-    Paper:
+    Value and cost functions are functions in the form of :math:`V(S;Y)` or :math:`C(S;Y)`,
+    with S being the prediction set and Y being the label.
+    For example, a classical cost function would be "numebr of false positives".
 
-        Lin, Zhen, Shubhendu Trivedi, Cao Xiao, and Jimeng Sun.
+    Denote the ``target_cost`` as
+    :math:`c`,
+    if `delta=None`, FavMac controls the expected cost in the following sense:
+
+    :math:`\\mathbb{E}[C(S_{N+1};Y_{N+1}] \\leq c`.
+
+    Otherwise, FavMac controls the violation probability in the following sense:
+
+    :math:`\\mathbb{P}\\{C(S_{N+1};Y_{N+1})>c\\}\\leq delta`.
+
+    Right now, this FavMac implementation only supports additive value and cost functions (unlike the
+    implementation associated with [1]).
+    That is, the value function is specified by the weights `value_weights` and the cost function
+    is specified by `cost_weights`.
+    The cost function is then computed as
+
+    :math:`C(S;Y,w) = \\sum_{k} (1-Y_k)S_k w_k`
+
+    Similarly, the value function is computed as
+
+    :math:`V(S;Y,w) = \\sum_{k} Y_k S_k w_k`.
+
+    Papers:
+
+        [1] Lin, Zhen, Shubhendu Trivedi, Cao Xiao, and Jimeng Sun.
         "Fast Online Value-Maximizing Prediction Sets with Conformal Cost Control (FavMac)."
         ICML 2023.
 
+        [2] Fisch, Adam, Tal Schuster, Tommi Jaakkola, and Regina Barzilay.
+        "Conformal prediction sets with limited false positives."
+        ICML 2022.
+
+    Args:
+        model (BaseModel): A trained model.
+        value_weights (Union[float, np.ndarray]):
+            weights for the value function. See description above.
+            Defaults to 1.
+        cost_weights (Union[float, np.ndarray]):
+            weights for the cost function. See description above.
+            Defaults to 1.
+        target_cost (float): Target cost.
+            When cost_weights is set to 1, this is essentially the number of false positive.
+            Defaults to 1.
+        delta (float): Violation target (in violation control).
+            Defaults to None (which means expectation control instead of violation control).
+
+    Examples:
+        >>> from pyhealth.calib.predictionset import FavMac
+        >>> from pyhealth.datasets import (MIMIC3Dataset, get_dataloader,split_by_patient)
+        >>> from pyhealth.models import Transformer
+        >>> from pyhealth.tasks import drug_recommendation_mimic3_fn
+        >>> from pyhealth.trainer import get_metrics_fn
+
+        >>> base_dataset = MIMIC3Dataset(
+        ...     root="/srv/scratch1/data/physionet.org/files/mimiciii/1.4",
+        ...     tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
+        ...     code_mapping={"NDC": ("ATC", {"target_kwargs": {"level": 3}})},
+        ...     refresh_cache=False)
+        >>> sample_dataset = base_dataset.set_task(drug_recommendation_mimic3_fn)
+        >>> train_data, val_data, test_data = split_by_patient(sample_dataset, [0.6, 0.2, 0.2])
+        >>> model = Transformer(dataset=sample_dataset, feature_keys=["conditions", "procedures"],
+        ...             label_key="drugs", mode="multilabel")
+        >>> # ... Train the model here ...
+        >>> # Try to control false positive to <=3
+        >>> cal_model = FavMac(model, target_cost=3, delta=None)
+        >>> cal_model.calibrate(cal_dataset=val_data)
+        >>> # Evaluate
+        >>> from pyhealth.trainer import Trainer
+        >>> test_dl = get_dataloader(test_data, batch_size=32, shuffle=False)
+        >>> y_true_all, y_prob_all, _, extra_output = Trainer(model=cal_model).inference(
+        ... test_dl, additional_outputs=["y_predset"])
+        >>> print(get_metrics_fn(cal_model.mode)(
+        ...     y_true_all, y_prob_all, metrics=['tp', 'fp'],
+        ...     y_predset=extra_output["y_predset"])) # We get FP~=3
+        {'tp': 0.5049893086243763, 'fp': 2.8442622950819674}
     """
 
     def __init__(
@@ -114,14 +179,14 @@ class FavMac(SetPredictor):
         model: BaseModel,
         value_weights: Union[float, np.ndarray] = 1.,
         cost_weights: Union[float, np.ndarray] = 1.,
-        target_cost: float = 0.1, delta:float = None,
+        target_cost: float = 1., delta:float = None,
         debug=False,
         **kwargs,
     ) -> None:
         super().__init__(model, **kwargs)
         if model.mode != "multilabel":
             raise NotImplementedError()
-        self.mode = self.model.mode  # multiclass
+        self.mode = self.model.mode  # multilabel
         for param in model.parameters():
             param.requires_grad = False
         self.model.eval()
@@ -134,10 +199,8 @@ class FavMac(SetPredictor):
         self.target_cost = target_cost
         self.delta = delta
 
-        #TODO: figure out how the cost/util should be set (C_max)
-
     def calibrate(self, cal_dataset):
-        """Calibrate/Search for the thresholds used to construct the prediction set.
+        """Calibrate the cost-control procedure.
 
         :param cal_dataset: Calibration set.
         :type cal_dataset: Subset
@@ -176,30 +239,26 @@ class FavMac(SetPredictor):
 
 if __name__ == "__main__":
     from pyhealth.calib.predictionset import FavMac
-    from pyhealth.datasets import (ISRUCDataset, get_dataloader,
+    from pyhealth.datasets import (MIMIC3Dataset, get_dataloader,
                                    split_by_patient)
-    from pyhealth.models import SparcNet
-    from pyhealth.tasks import sleep_staging_isruc_fn
+    from pyhealth.models import Transformer
+    from pyhealth.tasks import drug_recommendation_mimic3_fn
     from pyhealth.trainer import get_metrics_fn
 
-    sleep_ds = ISRUCDataset("/srv/local/data/trash", dev=True).set_task(
-        sleep_staging_isruc_fn
+    base_dataset = MIMIC3Dataset(
+        root="/srv/scratch1/data/physionet.org/files/mimiciii/1.4",
+        tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
+        code_mapping={"NDC": ("ATC", {"target_kwargs": {"level": 3}})},
+        refresh_cache=False,
     )
-    train_data, val_data, test_data = split_by_patient(sleep_ds, [0.6, 0.2, 0.2])
-    model = SparcNet(
-        dataset=sleep_ds,
-        feature_keys=["signal"],
-        label_key="label",
-        mode="multiclass",
-    )
+    sample_dataset = base_dataset.set_task(drug_recommendation_mimic3_fn)
+    train_data, val_data, test_data = split_by_patient(sample_dataset, [0.6, 0.2, 0.2])
+    model = Transformer(dataset=sample_dataset, feature_keys=["conditions", "procedures"],
+                        label_key="drugs", mode="multilabel")
     # ... Train the model here ...
-    # Calibrate the set classifier, with different class-specific risk targets
-    cal_model = SCRIB(model, [0.2, 0.3, 0.1, 0.2, 0.1])
-    # Note that I used the test set here because ISRUCDataset has relatively few
-    # patients, and calibration set should be different from the validation set
-    # if the latter is used to pick checkpoint. In general, the calibration set
-    # should be something exchangeable with the test set. Please refer to the paper.
-    cal_model.calibrate(cal_dataset=test_data)
+    # calibrate the prediction sets with FavMac
+    cal_model = FavMac(model, cost_weights=1., target_cost=3, delta=None)
+    cal_model.calibrate(cal_dataset=val_data)
     # Evaluate
     from pyhealth.trainer import Trainer
 
@@ -209,9 +268,7 @@ if __name__ == "__main__":
     )
     print(
         get_metrics_fn(cal_model.mode)(
-            y_true_all,
-            y_prob_all,
-            metrics=["accuracy", "error_ps", "rejection_rate"],
+            y_true_all, y_prob_all, metrics=['tp', 'fp'],
             y_predset=extra_output["y_predset"],
         )
     )
