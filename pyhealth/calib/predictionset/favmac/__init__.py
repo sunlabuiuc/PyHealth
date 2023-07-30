@@ -96,10 +96,9 @@ class FavMac(SetPredictor):
     Value and cost functions are functions in the form of :math:`V(S;Y)` or :math:`C(S;Y)`,
     with S being the prediction set and Y being the label.
     For example, a classical cost function would be "numebr of false positives".
-
     Denote the ``target_cost`` as
     :math:`c`,
-    if `delta=None`, FavMac controls the expected cost in the following sense:
+    if ``delta=None``, FavMac controls the expected cost in the following sense:
 
     :math:`\\mathbb{E}[C(S_{N+1};Y_{N+1}] \\leq c`.
 
@@ -109,9 +108,9 @@ class FavMac(SetPredictor):
 
     Right now, this FavMac implementation only supports additive value and cost functions (unlike the
     implementation associated with [1]).
-    That is, the value function is specified by the weights `value_weights` and the cost function
-    is specified by `cost_weights`.
-    The cost function is then computed as
+    That is, the value function is specified by the weights ``value_weights`` and the cost function
+    is specified by ``cost_weights``.
+    With :math:`k` denoting classes, the cost function is then computed as
 
     :math:`C(S;Y,w) = \\sum_{k} (1-Y_k)S_k w_k`
 
@@ -149,7 +148,6 @@ class FavMac(SetPredictor):
         >>> from pyhealth.models import Transformer
         >>> from pyhealth.tasks import drug_recommendation_mimic3_fn
         >>> from pyhealth.trainer import get_metrics_fn
-
         >>> base_dataset = MIMIC3Dataset(
         ...     root="/srv/scratch1/data/physionet.org/files/mimiciii/1.4",
         ...     tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
