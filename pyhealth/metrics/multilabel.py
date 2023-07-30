@@ -4,7 +4,6 @@ import numpy as np
 import sklearn.metrics as sklearn_metrics
 
 import pyhealth.metrics.calibration as calib
-import ipdb
 
 def multilabel_metrics_fn(
     y_true: np.ndarray,
