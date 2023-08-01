@@ -84,10 +84,15 @@ class TUEVDataset(BaseSignalDataset):
             patient_visits = all_files[pid]
             
             for visit in patient_visits:
+                if split == "train":
+                    visit_id = visit.strip(".edf").split("_")[1]
+                else:
+                    visit_id = visit.strip(".edf")
+                    
                 patients[pid].append({
                     "load_from_path": os.path.join(self.root, split, id),
                     "patient_id": pid,
-                    "visit_id": visit.strip(".edf").split("_")[1],
+                    "visit_id": visit_id,
                     "signal_file": visit,
                     "label_file": visit,
                     "save_to_path": self.filepath,
