@@ -18,6 +18,8 @@ Datasets
     datasets/pyhealth.datasets.SHHSDataset
     datasets/pyhealth.datasets.ISRUCDataset
     datasets/pyhealth.datasets.CardiologyDataset
+    datasets/pyhealth.datasets.TUABDataset
+    datasets/pyhealth.datasets.TUEVDataset
     datasets/pyhealth.datasets.splitter
     datasets/pyhealth.datasets.utils
 

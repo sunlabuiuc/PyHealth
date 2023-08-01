@@ -11,6 +11,9 @@ from .cardiology_detect import (
     cardiology_isCD_fn,
     cardiology_isWA_fn,
 )
+from .temple_university_EEG_tasks import (
+    EEG_isAbnormal_fn, EEG_events_fn,
+)
 from .length_of_stay_prediction import (
     length_of_stay_prediction_eicu_fn,
     length_of_stay_prediction_mimic3_fn,
@@ -36,3 +39,5 @@ from .sleep_staging import (
     sleep_staging_isruc_fn,
     sleep_staging_shhs_fn,
 )
+
+
