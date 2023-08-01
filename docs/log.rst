@@ -2,6 +2,13 @@ Development logs
 ======================
 We track the new development here:
 
+**July 22, 2023**
+
+.. code-block:: rst
+
+    1. add Temple University TUEV and TUAB two datasets in `#194`.
+    2. add the EEG six event detection and abnormal EEG detection tasks.
+
 
 **July 1, 2023**
 
