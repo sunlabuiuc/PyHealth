@@ -41,7 +41,8 @@ trainer = Trainer(model=model, device="cuda:4")
 trainer.train(
     train_dataloader=train_dataloader,
     val_dataloader=val_dataloader,
-    epochs=5,
+    epochs=10,
+    optimizer_params={"lr": 1e-3},
 )
 
 # STEP 5: evaluate

@@ -1,7 +1,7 @@
 Tasks
 ===============
 
-We support various real-world healthcare predictive tasks defined by **function calls**. The following example tasks are collected from top AI/Medical venues: 
+We support various real-world healthcare predictive tasks defined by **function calls**. The following example tasks are collected from top AI/Medical venues, such as: 
 
 (i) Drug Recommendation [Yang et al. IJCAI 2021a, Yang et al. IJCAI 2021b, Shang et al. AAAI 2020]
 
@@ -22,4 +22,5 @@ We support various real-world healthcare predictive tasks defined by **function 
     tasks/pyhealth.tasks.length_of_stay_prediction
     tasks/pyhealth.tasks.sleep_staging
     tasks/pyhealth.tasks.cardiology_detect
+    tasks/pyhealth.tasks.temple_university_EEG_tasks
 
