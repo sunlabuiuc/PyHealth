@@ -95,10 +95,10 @@ class Evaluator:
         halo_labels, halo_ehr_stats = self.generate_statistics(ehr_dataset=synthetic)
         
         source_as_global_vocab = self.to_evaluation_format(source)
-        train_erh_labels, train_ehr_stats = self.generate_statistics(ehr_dataset=source_as_global_vocab)
+        train_ehr_labels, train_ehr_stats = self.generate_statistics(ehr_dataset=source_as_global_vocab)
         
         assert halo_labels, "No labels present in HALO Dataset, this is likely because the dataset schema is incorrect."
-        assert train_erh_labels, "No labels present in Training Dataset, this is likely because the dataset schema is incorrect."
+        assert train_ehr_labels, "No labels present in Training Dataset, this is likely because the dataset schema is incorrect."
 
         if print_overall:
             print("authentic dataset stats")

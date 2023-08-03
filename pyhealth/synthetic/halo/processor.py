@@ -222,7 +222,7 @@ class Processor():
                 
                 # vector representation of the gap between last visit and current one
                 inter_visit_gap_vector = self.time_handler(time_since_last_visit)
-                sample_multi_hot[pidx, self.VISIT_INDEX, :self.time_vector_length] = inter_visit_gap_vector
+                sample_multi_hot[pidx, self.VISIT_INDEX + visit_index, :self.time_vector_length] = inter_visit_gap_vector
 
                 # the next timedelta is previous current visit - discharge of previous visit
                 previous_time = vdata.discharge_time

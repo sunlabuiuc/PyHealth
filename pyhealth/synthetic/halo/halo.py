@@ -321,10 +321,10 @@ if __name__ == "__main__":
         refresh_cache=REFRESH_CACHE,
     )
 
-    basedir = '/home/bdanek2/PyHealth/reduced_model'
+    basedir = '/home/bdanek2/PyHealth/temp'
 
     # --- processor ---
-    batch_size = 512
+    batch_size = 1024
     
     # define a way to make labels from raw data
     simple_label_fn_output_size = 1
