@@ -2,7 +2,7 @@ import collections
 import datetime
 import os
 import numpy as np
-from typing import Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 from tqdm import tqdm
 import pickle
 import pandas as pd
@@ -16,7 +16,7 @@ class Generator:
     """Synthetic Data generator module for HALO model. 
 
     This module conducts model inference on the HALO model, parametrized by the quantity of samples to generate,
-    and in the case of conditional generation, the label of the samples to generate. 
+    and in the case of conditional generation, the label of the samples to generate. It then converts the output to a human-readable format.
 
     This module generates longitudinal EHR records, and has the capability to translate the records from the format produced by the HALO self supervised
     model from multihot vector sequences of the model vocabulary into:
@@ -30,6 +30,7 @@ class Generator:
         batch_size: The batch size used for sample generation.
         save_path: Path to write the synthetic dataset.
         device: Device for model inference.
+        handle_digital_time_gap: used for transforming temporal multi-hot into a human readable format. 
     """
 
     VISITS = 'visits'
@@ -44,13 +45,18 @@ class Generator:
             save_dir: str,
             save_name: str,
             device: str,
+            handle_digital_time_gap: Callable[..., int]
         ) -> None:
         
         self.model = model
         self.processor = processor
         self.batch_size = batch_size
+        self.save_dir = save_dir
+        self.save_name = save_name
         self.save_path = os.path.join(save_dir, f'{save_name}.pkl')
         self.device = device
+
+        self.handle_digital_time_gap = handle_digital_time_gap
 
     def generate_context(self, label_vector) -> List:
         """Generate context vector, and the probablility of the label occurrence in the dataset.
@@ -134,7 +140,8 @@ class Generator:
 
                 # handle inter-visit gaps
                 time_gap = visit[:self.processor.time_vector_length]
-                sample_time_gaps.append(time_gap)
+                handled_time_gap = self.handle_digital_time_gap(time_gap)
+                sample_time_gaps.append(handled_time_gap)
 
                 # handle visit event codes
                 visit_events = visit[self.processor.time_vector_length: self.processor.num_global_events]

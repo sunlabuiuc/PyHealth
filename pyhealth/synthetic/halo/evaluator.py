@@ -1,3 +1,4 @@
+import collections
 import itertools
 
 from matplotlib import pyplot as plt
@@ -97,6 +98,8 @@ class Evaluator:
         source_as_global_vocab = self.to_evaluation_format(source)
         train_ehr_labels, train_ehr_stats = self.generate_statistics(ehr_dataset=source_as_global_vocab)
         
+        print("Performing side-by-side evaluation of datasets:", len(synthetic), len(source_as_global_vocab))
+
         assert halo_labels, "No labels present in HALO Dataset, this is likely because the dataset schema is incorrect."
         assert train_ehr_labels, "No labels present in Training Dataset, this is likely because the dataset schema is incorrect."
 
@@ -187,8 +190,15 @@ class Evaluator:
             aggregate_stats[self.RECORD_LEN_STD] = np.std(record_lens)
             aggregate_stats[self.VISIT_LEN_MEAN] = np.mean(visit_lens)
             aggregate_stats[self.VISIT_LEN_STD] = np.std(visit_lens)
-            aggregate_stats[self.TEMPORAL_MEAN] = np.mean(visit_lens)
-            aggregate_stats[self.TEMPORAL_STD] = np.std(visit_lens)
+            
+            temporal_gaps_per_level = collections.defaultdict(list)
+            for gaps in visit_gaps:
+                # organize gaps by the quantity of visit gaps
+                temporal_gaps_per_level[len(gaps)].append(gaps)
+
+            aggregate_stats[self.TEMPORAL_MEAN] = [np.mean(temporal_gaps_per_level[level]) for level in temporal_gaps_per_level.keys()]
+            aggregate_stats[self.TEMPORAL_STD] = [np.std(temporal_gaps_per_level[level]) for level in temporal_gaps_per_level.keys()]
+
             label_stats[self.AGGREGATE] = aggregate_stats
 
             # compute probability densities
@@ -272,6 +282,8 @@ class Evaluator:
 
         plot_paths = []
         for label in tqdm(compare_labels, desc="Evalutor: generating label plots"):
+            if label not in stats_a or label not in stats_b:
+                continue
             data1 = stats_a[label][self.PROBABILITIES]
             data2 = stats_b[label][self.PROBABILITIES]
             for t in self.PROBABILITY_DENSITIES:

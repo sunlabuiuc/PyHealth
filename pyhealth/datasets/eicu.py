@@ -283,9 +283,6 @@ class eICUDataset(BaseEHRDataset):
                 # compute the absolute timestamp
                 timestamp = v_encounter_time + pd.Timedelta(minutes=offset)
                 codes = [c.strip() for c in codes.split(",")]
-                # determine preferred code, and create event. There may be multiple semantically related ICD9/10 codes, or a single ICD9 code. 
-                # we just use the icd9cm code.
-                codes = preferred_code(codes)
                 for code in codes:
                     event = Event(
                         code=code,

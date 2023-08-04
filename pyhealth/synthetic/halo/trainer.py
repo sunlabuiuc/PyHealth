@@ -20,7 +20,8 @@ class Trainer:
         dataset: PyHealth BaseEHRDataset which training will be conducted on; does not need to be a training subset
         model: a HALO model to train
         optimizer: pytorch optimizer
-        checkpoint_path: path for writing model checkpoints to; model checkpoints are a dictionary with keys `model`, `iterations`, `epoch`, `optimizer`
+        checkpoint_dir: dir for writing checkpoint data to
+        model_save_name: name of file within `checkpoint_dir` for writing model checkpoints to; model checkpoints are a dictionary with keys `model`, `iterations`, `epoch`, `optimizer`
         device: training device
     """
     def __init__(self, 
@@ -28,7 +29,7 @@ class Trainer:
             model: nn.Module,
             processor: Processor, 
             optimizer: Optimizer,
-            checkpoint_path: str,
+            checkpoint_dir: str,
             model_save_name: str
         ) -> None:
         self.dataset = dataset
@@ -36,19 +37,23 @@ class Trainer:
         self.processor = processor
         self.optimizer = optimizer
         
-        self.checkpoint_path = checkpoint_path
-        os.makedirs(self.checkpoint_path, exist_ok=True)
+        self.checkpoint_dir = checkpoint_dir
+        os.makedirs(self.checkpoint_dir, exist_ok=True)
 
         self.model_save_name = model_save_name
     
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model.to(self.device)
+
+    def get_model_checkpoint_path(self):
+        """Return `checkpoint_dir/model_save_name.pt`"""
+        return os.path.join(self.checkpoint_dir, f"{self.model_save_name}.pt")
     
     def set_basic_splits(self, from_save=False, save=True):
         """Set class variables of a 0.8, 0.1, 0.1 split for train, test, eval split. 
 
-            If `from_save` is True, will attempt to load each split from <halo.Trainer.checkpoint_path>/<split_name>.pt. Upon failure, will create new splits with the underlying dataset. 
-            If `save` is True, will store the set splits in memory at path <halo.Trainer.checkpoint_path>/<split_name>.pt
+            If `from_save` is True, will attempt to load each split from <halo.Trainer.checkpoint_dir>/<split_name>.pt. Upon failure, will create new splits with the underlying dataset. 
+            If `save` is True, will store the set splits in memory at path <halo.Trainer.checkpoint_dir>/<split_name>.pt
 
             Args
         
@@ -56,9 +61,9 @@ class Trainer:
         """
         if from_save:
             try:
-                self.train_dataset = torch.load(self.train_dataset, open(f"{self.checkpoint_path}/train_dataset.pt", 'rb'))
-                self.test_dataset = torch.load(self.test_dataset, open(f"{self.checkpoint_path}/test_dataset.pt", 'rb'))
-                self.eval_dataset = torch.load(self.eval_dataset, open(f"{self.checkpoint_path}/eval_dataset.pt", 'rb'))
+                self.train_dataset = torch.load(self.train_dataset, open(f"{self.checkpoint_dir}/train_dataset.pt", 'rb'))
+                self.test_dataset = torch.load(self.test_dataset, open(f"{self.checkpoint_dir}/test_dataset.pt", 'rb'))
+                self.eval_dataset = torch.load(self.eval_dataset, open(f"{self.checkpoint_dir}/eval_dataset.pt", 'rb'))
                 
                 return self.train_dataset, self.test_dataset, self.eval_dataset
             except:
@@ -70,9 +75,9 @@ class Trainer:
         self.eval_dataset = eval
 
         if save:
-            torch.save(self.train_dataset, open(f"{self.checkpoint_path}/train_dataset.pt", 'wb'))
-            torch.save(self.test_dataset, open(f"{self.checkpoint_path}/test_dataset.pt", 'wb'))
-            torch.save(self.eval_dataset, open(f"{self.checkpoint_path}/eval_dataset.pt", 'wb'))
+            torch.save(self.train_dataset, open(f"{self.checkpoint_dir}/train_dataset.pt", 'wb'))
+            torch.save(self.test_dataset, open(f"{self.checkpoint_dir}/test_dataset.pt", 'wb'))
+            torch.save(self.eval_dataset, open(f"{self.checkpoint_dir}/eval_dataset.pt", 'wb'))
         
         return self.train_dataset, self.test_dataset, self.eval_dataset
         
@@ -108,7 +113,7 @@ class Trainer:
     
     def make_checkpoint(self, epoch, iteration):
         """Make a training checkpoint, recording `model`, `optimizer`, `iteration`, `epoch` in a dict at 
-        `Trainer.checkpoint_path` passed in during initialization. Uses `torch.save`
+        `Trainer.checkpoint_dir` passed in during initialization. Uses `torch.save`
         
         Args:
             epoch: epoch to store
@@ -120,7 +125,7 @@ class Trainer:
                 'iteration': iteration,
                 'epoch': epoch
             }
-        torch.save(state, open(f'{self.checkpoint_path}/{self.model_save_name}.pt', 'wb'))
+        torch.save(state, open(self.get_model_checkpoint_path(), 'wb'))
         print('\n------------ Save best model ------------\n')
 
     def eval(self, batch_size: int):

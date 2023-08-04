@@ -3,6 +3,7 @@
 Model architecture and method from Theodorou, Brandon, Cao Xiao, and Jimeng Sun. “Synthesize Extremely High-Dimensional Longitudinal Electronic Health Records via Hierarchical Autoregressive Language Model.” arXiv, April 4, 2023. http://arxiv.org/abs/2304.02169.
 """
 from datetime import timedelta
+import datetime
 import os
 import time
 from matplotlib import pyplot as plt
@@ -307,11 +308,11 @@ if __name__ == "__main__":
     # ROOT = "/home/bdanek2/data/physionet.org/files/eicu-crd/2.0"
     dataset = eICUDataset(
         dataset_name="eICU-demo",
-        root="/home/bdanek2/data/physionet.org/files/eicu-crd/2.0",
+        root=ROOT,
         tables=["diagnosis"],
         code_mapping={},
         dev=False,
-        refresh_cache=False,
+        refresh_cache=True,
     )
 
     basedir = '/home/bdanek2/PyHealth/testing_paths'
@@ -348,7 +349,7 @@ if __name__ == "__main__":
     
     continuous_value_handlers = {}
     
-    # handle discretization of time
+    # handle discretization of time (forward and reverse)
     bins = [0.5, 1, 1.5, 2, 2.5, 3, 4] + list(range(5, 85, 5)) # model both readmission and age in the same representation
     time_vector_length = len(bins) + 1
     def handle_time(t: timedelta):
@@ -357,6 +358,15 @@ if __name__ == "__main__":
         vect = np.zeros((time_vector_length))
         vect[bin] = 1
         return vect
+    
+    def handle_digitized_time(time_gap: int):
+        """Reverse the digitization of datetime objects."""
+
+        # recover time information
+        time_digital = time_gap.nonzero()[0][0] if sum(time_gap) else 0 # use first time index; there may be more if the model is trained poorly
+        num_years = bins[time_digital] if time_digital < len(bins) else bins[-1]
+
+        return num_years
 
     processor = Processor(
         dataset=dataset,
@@ -368,6 +378,8 @@ if __name__ == "__main__":
         label_fn=simple_label_fn,
         label_vector_len=simple_label_fn_output_size,
     )
+
+    print("Processor results in vocab len, max visit num:", processor.total_vocab_size, processor.total_visit_size)
     
     model = HALO(
         n_ctx=processor.total_visit_size,
@@ -390,10 +402,11 @@ if __name__ == "__main__":
         model=model,
         processor=processor,
         optimizer=optimizer,
-        checkpoint_path=f'{basedir}/model_saves',
+        checkpoint_dir=f'{basedir}/model_saves',
         model_save_name='eval_developement_test'
     )
-    trainer.set_basic_splits()
+    s = trainer.set_basic_splits()
+    print('split lengths', [len(_s) for _s in s])
 
     print(model)
     
@@ -418,15 +431,16 @@ if __name__ == "__main__":
         processor=processor,
         batch_size=batch_size,
         device=device,
-        save_path=basedir,
-        save_name="synthetically_generated_mortality_data" # save at `synthetically_generated_mortality_data.pkl`
+        save_dir=basedir,
+        save_name="synthetically_generated_mortality_data", # save at `synthetically_generated_mortality_data.pkl`
+        handle_digital_time_gap=handle_digitized_time
     )
 
     labels = [((1), 5000), ((0), 5000)]
     synthetic_dataset = generator.generate_conditioned(labels)
 
     def pathfn(plot_type: str, label: List):
-        prefix = os.path.join(generator.save_path, 'plots')
+        prefix = os.path.join(generator.save_dir, 'plots')
 
         label = labels[label] if label in labels else 'all_labels'
         label = label.replace('.', '').replace(' ', '').lower()
@@ -442,8 +456,8 @@ if __name__ == "__main__":
     # conduct evaluation of the synthetic data w.r.t. it's source
     evaluator = Evaluator(generator=generator, processor=processor)
     stats = evaluator.evaluate(
-        source=trainer.test_dataset,
-        synthetic=pickle.load(file=open(generator.save_path, 'rb')),
+        source=trainer.test_dataset[:10],
+        synthetic=pickle.load(file=open(generator.save_path, 'rb'))[:10],
         get_plot_path_fn=pathfn,
         compare_label=list(labels.keys()),
     )
