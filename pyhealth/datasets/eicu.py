@@ -1,4 +1,5 @@
 import os
+import re
 from typing import Optional, List, Dict, Tuple, Union
 
 import pandas as pd
@@ -172,8 +173,8 @@ class eICUDataset(BaseEHRDataset):
                 patient_id=patient_id,
                 birth_datetime=birth_datetime,
                 death_datetime=death_datetime,
-                gender=p_info["gender"].values[0],
-                ethnicity=p_info["ethnicity"].values[0],
+                gender=str(p_info["gender"].values[0]),
+                ethnicity=str(p_info["ethnicity"].values[0]),
             )
 
             # load visits
@@ -238,7 +239,15 @@ class eICUDataset(BaseEHRDataset):
                 return "ICD10CM"
             else:
                 return "Unknown"
-
+            
+        # only include code if it is ICD9
+        def preferred_code(codes: List[str]):
+            preferred_codes = set()
+            for code in codes:
+                if code in icd9cm:
+                    preferred_codes.add(code)
+            return list(preferred_codes)
+                    
         table = "diagnosis"
         # read table
         df = pd.read_csv(
@@ -274,13 +283,11 @@ class eICUDataset(BaseEHRDataset):
                 # compute the absolute timestamp
                 timestamp = v_encounter_time + pd.Timedelta(minutes=offset)
                 codes = [c.strip() for c in codes.split(",")]
-                # for each code in a single cell (mixed ICD9CM and ICD10CM)
                 for code in codes:
-                    vocab = icd9cm_or_icd10cm(code)
                     event = Event(
                         code=code,
                         table=table,
-                        vocabulary=vocab,
+                        vocabulary="ICD9CM", # only use icd9 codes
                         visit_id=v_id,
                         patient_id=patient_id,
                         timestamp=timestamp,
@@ -346,16 +353,19 @@ class eICUDataset(BaseEHRDataset):
             ):
                 # compute the absolute timestamp
                 timestamp = v_encounter_time + pd.Timedelta(minutes=offset)
-                event = Event(
-                    code=code,
-                    table=table,
-                    vocabulary="eICU_TREATMENTSTRING",
-                    visit_id=v_id,
-                    patient_id=patient_id,
-                    timestamp=timestamp,
-                )
-                # update patients
-                events.append(event)
+                
+                # in eICU a string of treatments is separated by `|`
+                for treatment_substr in code.split('|'):
+                    event = Event(
+                        code=treatment_substr,
+                        table=table,
+                        vocabulary="eICU_TREATMENTSTRING",
+                        visit_id=v_id,
+                        patient_id=patient_id,
+                        timestamp=timestamp,
+                    )
+                    # update patients
+                    events.append(event)
 
             return events
 
@@ -414,8 +424,11 @@ class eICUDataset(BaseEHRDataset):
             for offset, code in zip(v_info["drugstartoffset"], v_info["drugname"]):
                 # compute the absolute timestamp
                 timestamp = v_encounter_time + pd.Timedelta(minutes=offset)
+                
+                # reduce coding errors by removing whitespaces
+                medication_code = re.sub(r"\s+", '', code)
                 event = Event(
-                    code=code,
+                    code=medication_code,
                     table=table,
                     vocabulary="eICU_DRUGNAME",
                     visit_id=v_id,
@@ -451,10 +464,10 @@ class eICUDataset(BaseEHRDataset):
         # read table
         df = pd.read_csv(
             os.path.join(self.root, f"{table}.csv"),
-            dtype={"patientunitstayid": str, "labname": str},
+            dtype={"patientunitstayid": str, "labname": str, "labresult": float, "labmeasurenamesystem": str},
         )
         # drop rows with missing values
-        df = df.dropna(subset=["patientunitstayid", "labname"])
+        df = df.dropna(subset=["patientunitstayid", "labname", "labresult", "labmeasurenamesystem"])
         # sort by labresultoffset
         df = df.sort_values(["patientunitstayid", "labresultoffset"], ascending=True)
         # add the patient id info
@@ -477,7 +490,12 @@ class eICUDataset(BaseEHRDataset):
                 return []
 
             events = []
-            for offset, code in zip(v_info["labresultoffset"], v_info["labname"]):
+            for i in range(0, len(v_info["labresultoffset"])):
+                offset = v_info["labresultoffset"].values[i]
+                code = v_info["labname"].values[i]
+                lab_result = v_info["labresult"].values[i]
+                lab_measure_name_system = v_info["labmeasurenamesystem"].values[i]
+
                 # compute the absolute timestamp
                 timestamp = v_encounter_time + pd.Timedelta(minutes=offset)
                 event = Event(
@@ -487,6 +505,8 @@ class eICUDataset(BaseEHRDataset):
                     visit_id=v_id,
                     patient_id=patient_id,
                     timestamp=timestamp,
+                    lab_result=lab_result,
+                    lab_measure_name_system=lab_measure_name_system
                 )
                 # update patients
                 events.append(event)

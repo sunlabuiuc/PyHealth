@@ -31,3 +31,9 @@ def load_pickle(filename):
 def save_pickle(data, filename):
     with open(filename, "wb") as f:
         pickle.dump(data, f)
+
+def print_dict(d):
+    print("{")
+    for k, v in d.items():
+        print(f"\t{k}: {v},")
+    print("}")

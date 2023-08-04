@@ -135,6 +135,25 @@ class BaseEHRDataset(ABC):
             logger.debug(f"Saved {self.dataset_name} base dataset to {self.filepath}")
             save_pickle(self.patients, self.filepath)
 
+        self.patient_ids = list(self.patients.keys()) # precompute for use in __getitem__
+
+    def __len__(self):
+        return len(self.patients)
+
+    """
+    access dataset like dataset[10], or convert dataset to list via list(dataset)
+    """
+    def __getitem__(self, index: slice):
+        if (isinstance(index, slice)):
+            patient_ids = self.patient_ids[index]
+            res = []
+            for p in patient_ids:
+                res.append (self.patients[p])
+            return res
+        else:
+            patient_id = self.patient_ids[index]
+            return self.patients[patient_id]
+
     def _load_code_mapping_tools(self) -> Dict[str, CrossMap]:
         """Helper function which loads code mapping tools CrossMap for code mapping.
 
@@ -172,7 +191,7 @@ class BaseEHRDataset(ABC):
         Returns:
            A dict mapping patient_id to `Patient` object.
         """
-        pandarallel.initialize(progress_bar=False)
+        pandarallel.initialize(progress_bar=False)#, shm_size_mb=10000)
 
         # patients is a dict of Patient objects indexed by patient_id
         patients: Dict[str, Patient] = dict()
