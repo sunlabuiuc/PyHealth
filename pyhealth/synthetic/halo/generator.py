@@ -1,5 +1,6 @@
 import collections
 import datetime
+import os
 import numpy as np
 from typing import Callable, Dict, List, Tuple
 from tqdm import tqdm
@@ -40,14 +41,15 @@ class Generator:
             model: nn.Module,
             processor: Processor,
             batch_size: int, # it is recommended to use the same batch size as that for training
-            save_path: str,
+            save_dir: str,
+            save_name: str,
             device: str,
         ) -> None:
         
         self.model = model
         self.processor = processor
         self.batch_size = batch_size
-        self.save_path = f'{save_path}.pkl'
+        self.save_path = os.path.join(save_dir, f'{save_name}.pkl')
         self.device = device
 
     def generate_context(self, label_vector) -> List:
@@ -68,7 +70,7 @@ class Generator:
         ltoken[0, self.processor.label_start_index: self.processor.label_end_index] = label_vector
 
         context = np.concatenate((stoken, ltoken), axis=0)
-        context = context[:, np.newaxis, :]
+        context = context[np.newaxis, :, :]
         return context
 
     # When we have unconditioned generation, this method will be filled out to do more
@@ -379,7 +381,8 @@ class Generator:
             processor=processor,
             batch_size=batch_size,
             device=device,
-            save_path=f"{basedir}/synthetically_generated_mortality_data"
+            save_path=basedir,
+            save_name="synthetically_generated_mortality_data" # save at `synthetically_generated_mortality_data.pkl`
         )
 
         labels = [((1), 40000), ((0), 40000)] # 40k samples of each label

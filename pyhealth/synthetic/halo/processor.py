@@ -142,7 +142,7 @@ class Processor():
         max_visits: int = 0
         min_birth_datetime = pandas.Timestamp.now()
         
-        for pdata in tqdm(list(self.dataset), desc="HALOAggregator generating indeces"):
+        for pdata in tqdm(list(self.dataset), desc="Processor computing vocabulary"):
             
             max_visits = max(max_visits, len(pdata.visits))
             if pdata.birth_datetime != None:

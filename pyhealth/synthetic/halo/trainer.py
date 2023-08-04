@@ -1,3 +1,4 @@
+import os
 import random
 from matplotlib import pyplot as plt
 import numpy as np
@@ -34,7 +35,10 @@ class Trainer:
         self.model = model
         self.processor = processor
         self.optimizer = optimizer
+        
         self.checkpoint_path = checkpoint_path
+        os.makedirs(self.checkpoint_path, exist_ok=True)
+
         self.model_save_name = model_save_name
     
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
