@@ -307,12 +307,12 @@ class Generator:
             The key of the dict is the table name, and the value is the pd.DataFrame object representing the table. 
         """
         # patient table
-        visit_level_patient_columns = ['visit_id', 'discharge_status', 'discharge_time', 'encounter_time']
-        patient_table_columns=['birth_datetime', 'death_datetime', 'gender', 'ethnicity']
+        visit_level_patient_columns = ['patient_id', 'visit_id', 'discharge_status', 'discharge_time', 'encounter_time']
+        patient_table_columns=['patient_id', 'birth_datetime', 'death_datetime', 'gender', 'ethnicity']
         patient_table_list = []
 
         # event tables
-        event_columns = ['visit_id', 'code', 'timestamp']
+        event_columns = ['patient_id', 'visit_id', 'code', 'timestamp']
         event_columns_per_table = {}
 
         event_tables = collections.defaultdict(list)
