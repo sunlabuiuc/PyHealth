@@ -304,15 +304,15 @@ if __name__ == "__main__":
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    ROOT = "https://storage.googleapis.com/pyhealth/eicu-demo/"
-    # ROOT = "/home/bdanek2/data/physionet.org/files/eicu-crd/2.0"
+    # ROOT = "https://storage.googleapis.com/pyhealth/eicu-demo/"
+    ROOT = "/home/bdanek2/data/physionet.org/files/eicu-crd/2.0"
     dataset = eICUDataset(
         dataset_name="eICU-demo",
         root=ROOT,
         tables=["diagnosis"],
         code_mapping={},
         dev=False,
-        refresh_cache=True,
+        refresh_cache=False,
     )
 
     basedir = '/home/bdanek2/PyHealth/testing_paths'
@@ -387,7 +387,7 @@ if __name__ == "__main__":
         device=device
     )
     
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    # optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
 
     # state_dict = torch.load(open(f'{basedir}/model_saves/eval_developement.pt', 'rb'), map_location=device)
     # model.load_state_dict(state_dict['model'])
@@ -401,30 +401,31 @@ if __name__ == "__main__":
         dataset=dataset,
         model=model,
         processor=processor,
-        optimizer=optimizer,
+        optimizer=None, #optimizer,
         checkpoint_dir=f'{basedir}/model_saves',
         model_save_name='eval_developement_test'
     )
-    s = trainer.set_basic_splits()
+    s = trainer.set_basic_splits(from_save=True, save=False)
     print('split lengths', [len(_s) for _s in s])
 
     print(model)
     
     start_time = time.perf_counter()
-    trainer.train(
-        batch_size=batch_size,
-        epoch=1,
-        patience=5,
-        eval_period=float('inf')
-    )
+    # trainer.train(
+    #     batch_size=batch_size,
+    #     epoch=1000,
+    #     patience=5,
+    #     eval_period=float('inf')
+    # )
     end_time = time.perf_counter()
     run_time = end_time - start_time
     print("training time:", run_time, run_time / 60, (run_time / 60) / 60)
     
-    # # --- generate synthetic dataset using the best model ---
-    # state_dict = torch.load(open(os.path.join(trainer.checkpoint_path, trainer.model_save_name), 'rb'), map_location=device)
-    # model.load_state_dict(state_dict['model'])
-    # model.to(device)
+    # --- generate synthetic dataset using the best model ---
+    state_dict = torch.load(open(trainer.get_model_checkpoint_path(), 'rb'), map_location=device)
+
+    model.load_state_dict(state_dict['model'])
+    model.to(device)
 
     generator = Generator(
         model=model,
@@ -436,7 +437,7 @@ if __name__ == "__main__":
         handle_digital_time_gap=handle_digitized_time
     )
 
-    labels = [((1), 5000), ((0), 5000)]
+    labels = [((1), 25000), ((0), 25000)]
     synthetic_dataset = generator.generate_conditioned(labels)
 
     def pathfn(plot_type: str, label: List):
@@ -456,8 +457,8 @@ if __name__ == "__main__":
     # conduct evaluation of the synthetic data w.r.t. it's source
     evaluator = Evaluator(generator=generator, processor=processor)
     stats = evaluator.evaluate(
-        source=trainer.test_dataset[:10],
-        synthetic=pickle.load(file=open(generator.save_path, 'rb'))[:10],
+        source=trainer.test_dataset,
+        synthetic=pickle.load(file=open(generator.save_path, 'rb')),
         get_plot_path_fn=pathfn,
         compare_label=list(labels.keys()),
     )

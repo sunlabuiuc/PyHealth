@@ -159,7 +159,6 @@ class Generator:
     def convert_ehr_to_pyhealth(
             samples: List,
             event_handlers: Dict[str, Callable],
-            handle_inter_visit_time: Callable, # depracate
             base_time: datetime,
             label_mapping: Dict[Tuple, str] = None
         ) -> List[Patient]:
@@ -240,11 +239,11 @@ class Generator:
             patient_label = label_mapping[sample['label']] if label_mapping else sample['label']
 
             # get timedelta for all visits
-            processed_time_gaps = [handle_inter_visit_time(time_gap) for time_gap in sample['inter-visit_gap']]
+            time_gaps = [t * datetime.timedelta(days=365) for t in sample['inter-visit_gap']]
         
             # get the patient birth date time
             total_time = base_time
-            for time_gap in processed_time_gaps:
+            for time_gap in time_gaps:
                 total_time = total_time - time_gap
 
             patient = Patient(
@@ -259,7 +258,7 @@ class Generator:
                 unique_visit_id = f"{patient_id}_{visit_id}"
                 visit, time_gap = sample['visits'][visit_id], sample['inter-visit_gap'][visit_id]
                 
-                time_since_previous_visit = processed_time_gaps[visit_id]
+                time_since_previous_visit = time_gaps[visit_id]
                 try:
                     # todays visit is time of last visit + time since last visit
                     visit_time = time_of_last_visit + time_since_previous_visit

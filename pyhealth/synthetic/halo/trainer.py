@@ -61,9 +61,9 @@ class Trainer:
         """
         if from_save:
             try:
-                self.train_dataset = torch.load(self.train_dataset, open(f"{self.checkpoint_dir}/train_dataset.pt", 'rb'))
-                self.test_dataset = torch.load(self.test_dataset, open(f"{self.checkpoint_dir}/test_dataset.pt", 'rb'))
-                self.eval_dataset = torch.load(self.eval_dataset, open(f"{self.checkpoint_dir}/eval_dataset.pt", 'rb'))
+                self.train_dataset = torch.load(open(f"{self.checkpoint_dir}/train_dataset.pt", 'rb'))
+                self.test_dataset = torch.load(open(f"{self.checkpoint_dir}/test_dataset.pt", 'rb'))
+                self.eval_dataset = torch.load(open(f"{self.checkpoint_dir}/eval_dataset.pt", 'rb'))
                 
                 return self.train_dataset, self.test_dataset, self.eval_dataset
             except:
