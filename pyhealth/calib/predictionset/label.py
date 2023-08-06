@@ -62,7 +62,7 @@ class LABEL(SetPredictor):
         >>> # ... Train the model here ...
         >>> # Calibrate the set classifier, with different class-specific mis-coverage rates
         >>> cal_model = LABEL(model, [0.15, 0.3, 0.15, 0.15, 0.15])
-        >>> # Note that I used the test set here because ISRUCDataset has relatively few
+        >>> # Note that we used the test set here because ISRUCDataset has relatively few
         >>> # patients, and calibration set should be different from the validation set
         >>> # if the latter is used to pick checkpoint. In general, the calibration set
         >>> # should be something exchangeable with the test set. Please refer to the paper.
