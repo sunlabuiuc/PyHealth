@@ -162,7 +162,7 @@ We will use slides as well as colab notebooks to present.
 - Introduction to PyHealth interface for practically implementing HALO training.
 - Demo: Apply PyHealth HALO API to PhysioNet eICU inpatient dataset to generate synthetic medical records.
 
-### 4.8 PyHealth uncertainty quantification and model calibration (30 min)
+### 4.8 PyHealth uncertainty quantification and model calibration (30 min) [Slides](https://docs.google.com/presentation/d/1kuEmGZoYwLrzl26v3iIHgTMZnNE2v6Qq/edit?usp=drive_link&ouid=114056280947748046947&rtpof=true&sd=true)
 We will use slides as well as colab notebooks to present.
 - Introduction of basic concepts and common post-hoc tasks in uncertainty quantification, such as model calibration,  prediction set construction and prediction interval construction. 
 - How to perform such tasks on arbitrary PyHealth models, after the training is done (which is why this is post-hoc).
