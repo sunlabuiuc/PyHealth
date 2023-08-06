@@ -53,7 +53,7 @@ Authors:
 ---
 
 
-<img src="assets/images/poster.png" style="border-radius: 0%;" width="720">
+<img src="assets/images/poster.jpg" style="border-radius: 0%;" width="800">
 
 PyHealth is designed for both **ML researchers and medical practitioners**. We can make your **healthcare AI applications** easier to deploy and reproduce. Your development process becomes more flexible and more customizable.
 
