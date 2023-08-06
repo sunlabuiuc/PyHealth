@@ -180,9 +180,9 @@ class SCRIB(SetPredictor):
 
 
     If ``risk`` is a float (say 0.1), SCRIB controls the overall risk:
-    :math:`\\mathbb{P}\\{Y \\not \\in C(X) | |C(X)| = 1\\}\\leq \\risk`.
+    :math:`\\mathbb{P}\\{Y \\not \\in C(X) | |C(X)| = 1\\}\\leq risk`.
     If ``risk`` is an array (say `np.asarray([0.1] * 5)`), SCRIB controls the class specific risks:
-    :math:`\\mathbb{P}\\{Y \\not \\in C(X) | Y=k \\land |C(X)| = 1\\}\\leq \\risk_k`
+    :math:`\\mathbb{P}\\{Y \\not \\in C(X) | Y=k \\land |C(X)| = 1\\}\\leq risk_k`
     Here, :math:`C(X)` denotes the final prediction set.
 
     Paper:
@@ -219,7 +219,7 @@ class SCRIB(SetPredictor):
         >>> # ... Train the model here ...
         >>> # Calibrate the set classifier, with different class-specific risk targets
         >>> cal_model = SCRIB(model, [0.2, 0.3, 0.1, 0.2, 0.1])
-        >>> # Note that I used the test set here because ISRUCDataset has relatively few
+        >>> # Note that we used the test set here because ISRUCDataset has relatively few
         >>> # patients, and calibration set should be different from the validation set
         >>> # if the latter is used to pick checkpoint. In general, the calibration set
         >>> # should be something exchangeable with the test set. Please refer to the paper.
