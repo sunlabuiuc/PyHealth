@@ -39,7 +39,7 @@ Authors:
 
   - name: Bejamin Danek
     url: https://bpdanek.github.io/
-    aff: ML RS, Datatecnica, MCS@UIUC
+    aff: ML Scientist@Datatecnica, MCS@UIUC
     image: assets/images/bejamin.jpg 
     email: danekbenjamin@gmail.com
 
@@ -125,6 +125,7 @@ It is worth noting that PyHealth follows a five-stage pipeline (dataset process,
 
 ### 4.2 Clinical Predictive Modeling with EHRs (30 min) 
 - [[Slides]](https://docs.google.com/presentation/d/1Bf2YD7-uOtVKLR1k0jeOLyjnf751bvb8/edit?usp=drive_link&ouid=114056280947748046947&rtpof=true&sd=true) [[Notebook]](https://colab.research.google.com/drive/1RzNWEb2Y-YWS1S1rjN5z0GndU5RP3y-B?usp=drive_link)
+We will use slides as well as colab notebooks to present.
 - Supported EHR datasets: MIMIC-III, MIMIC-IV, eICU, OMOP-CDM.
 - Supported EHR tasks: readmissiong prediction, mortality prediction, diagnosis-based drug recommendation, etc.
 - Supported EHR models: RETAIN, SafeDrug, MoleRec, Deepr, GAMENet, MICRON, ConCare, AdaCare, Agent, etc.
@@ -132,6 +133,7 @@ It is worth noting that PyHealth follows a five-stage pipeline (dataset process,
 
 ### 4.3 Deep Learning for Physiological Signals (20 min) 
 - [[Slides]](https://docs.google.com/presentation/d/1Bf2YD7-uOtVKLR1k0jeOLyjnf751bvb8/edit?usp=drive_link&ouid=114056280947748046947&rtpof=true&sd=true) [[Notebook]](https://colab.research.google.com/drive/1pIhfyasmLveCh2QaTz4zhlW_6IKZtYfS?usp=drive_link)
+We will use slides as well as colab notebooks to present.
 - Supported biosignal datasets: ISRUC, Cardiology, Sleep-EDF, SHHS, TUEV, TUAB, etc.
 - Supported biosignal tasks: sleep staging, EEG event detection, abnormal EEG detection, arrythmia detection, etc.
 - Supported EHR models: ContraWR, SPaRCNet, ST-Transformer, etc.
