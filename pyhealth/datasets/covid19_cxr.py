@@ -2,10 +2,11 @@ import os
 from collections import Counter
 
 import pandas as pd
+import sys
+sys.path.append('.')
 
-from pyhealth.datasets.base_dataset_v2 import BaseDataset
-from pyhealth.tasks.covid19_cxr_classification import COVID19CXRClassification
-
+from base_dataset_v2 import BaseDataset
+from tasks.covid19_cxr_classification import COVID19CXRClassification# from pyhealth.tasks.covid19_cxr_classification import COVID19CXRClassification
 
 class COVID19CXRDataset(BaseDataset):
     """Base image dataset for COVID-19 Radiography Database
@@ -120,6 +121,7 @@ class COVID19CXRDataset(BaseDataset):
         patients = {}
         for index, row in df.iterrows():
             patients[index] = row.to_dict()
+        breakpoint()
         return patients
 
     def stat(self):
@@ -136,7 +138,7 @@ class COVID19CXRDataset(BaseDataset):
 
 if __name__ == "__main__":
     dataset = COVID19CXRDataset(
-        root="/srv/local/data/zw12/raw_data/covid19-radiography-database/COVID-19_Radiography_Dataset",
+        root="/home/wuzijian1231/Datasets/COVID-19_Radiography_Dataset"#"/srv/local/data/zw12/raw_data/covid19-radiography-database/COVID-19_Radiography_Dataset",
     )
     print(list(dataset.patients.items())[0])
     dataset.stat()

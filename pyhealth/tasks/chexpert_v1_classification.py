@@ -5,8 +5,8 @@ from tasks.task_template import TaskTemplate # from pyhealth.tasks import TaskTe
 
 
 @dataclass(frozen=True)
-class COVID19CXRClassification(TaskTemplate):
-    task_name: str = "COVID19CXRClassification"
+class CheXpertV1Classification(TaskTemplate):
+    task_name: str = "CheXpertV1Classification"
     input_schema: Dict[str, str] = field(default_factory=lambda: {"path": "image"})
     output_schema: Dict[str, str] = field(default_factory=lambda: {"label": "label"})
 
@@ -15,6 +15,6 @@ class COVID19CXRClassification(TaskTemplate):
 
 
 if __name__ == "__main__":
-    task = COVID19CXRClassification()
+    task = CheXpertV1Classification()
     print(task)
     print(type(task))

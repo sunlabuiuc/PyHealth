@@ -2,7 +2,7 @@ from typing import Dict, List, Optional
 
 from torch.utils.data import Dataset
 
-from pyhealth.datasets.featurizers import ImageFeaturizer, ValueFeaturizer
+from featurizers import ImageFeaturizer, ValueFeaturizer# from pyhealth.datasets.featurizers import ImageFeaturizer, ValueFeaturizer
 
 
 class SampleDataset(Dataset):

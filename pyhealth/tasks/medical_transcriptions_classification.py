@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from typing import Dict
 import pandas as pd
 
-from pyhealth.tasks import TaskTemplate
+from tasks.task_template import TaskTemplate# from pyhealth.tasks import TaskTemplate
 
 
 @dataclass(frozen=True)

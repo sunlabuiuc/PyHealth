@@ -3,9 +3,11 @@ from abc import ABC, abstractmethod
 from typing import Optional, Dict
 
 from tqdm import tqdm
-
-from pyhealth.datasets.sample_dataset_v2 import SampleDataset
-from pyhealth.tasks.task_template import TaskTemplate
+import sys
+sys.path.append('.')
+from sample_dataset_v2 import SampleDataset# from pyhealth.datasets.sample_dataset_v2 import SampleDataset
+sys.path.append('..')
+from tasks.task_template import TaskTemplate #from pyhealth.tasks.task_template import TaskTemplate
 
 logger = logging.getLogger(__name__)
 
