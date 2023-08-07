@@ -3,7 +3,7 @@ import torch
 
 from pyhealth.datasets import MedicalTranscriptionsDataset
 from pyhealth.datasets import get_dataloader
-from pyhealth.models import HuggingfaceAutoModel
+from pyhealth.models import TransformersModel
 from pyhealth.trainer import Trainer
 
 root = "/srv/local/data/zw12/raw_data/MedicalTranscriptions"
@@ -27,7 +27,7 @@ train_dataloader = get_dataloader(train_dataset, batch_size=32, shuffle=True)
 val_dataloader = get_dataloader(val_dataset, batch_size=32, shuffle=False)
 test_dataloader = get_dataloader(test_dataset, batch_size=32, shuffle=False)
 
-model = HuggingfaceAutoModel(
+model = TransformersModel(
     model_name="emilyalsentzer/Bio_ClinicalBERT",
     dataset=sample_dataset,
     feature_keys=["transcription"],

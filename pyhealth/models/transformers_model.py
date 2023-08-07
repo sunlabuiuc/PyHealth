@@ -1,30 +1,26 @@
 from typing import List, Dict
 
 import torch
-from transformers import AutoModel, AutoTokenizer
 import torch.nn as nn
-from torchvision import models
+from transformers import AutoModel, AutoTokenizer
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 
 
-class HuggingfaceAutoModel(BaseModel):
-    """AutoModel class for Huggingface models.
+class TransformersModel(BaseModel):
+    """Transformers class for Huggingface models.
     """
 
     def __init__(
         self,
-        model_name: str,
         dataset: SampleDataset,
         feature_keys: List[str],
         label_key: str,
         mode: str,
-        pretrained=False,
-        num_layers=18,
-        **kwargs,
+        model_name: str,
     ):
-        super(HuggingfaceAutoModel, self).__init__(
+        super(TransformersModel, self).__init__(
             dataset=dataset,
             feature_keys=feature_keys,
             label_key=label_key,
@@ -60,7 +56,6 @@ class HuggingfaceAutoModel(BaseModel):
 
 if __name__ == "__main__":
     from pyhealth.datasets import MedicalTranscriptionsDataset, get_dataloader
-    from torchvision import transforms
 
     base_dataset = MedicalTranscriptionsDataset(
         root="/srv/local/data/zw12/raw_data/MedicalTranscriptions"
@@ -70,14 +65,12 @@ if __name__ == "__main__":
 
     train_loader = get_dataloader(sample_dataset, batch_size=16, shuffle=True)
 
-    model = HuggingfaceAutoModel(
-        model_name="emilyalsentzer/Bio_ClinicalBERT",
+    model = TransformersModel(
         dataset=sample_dataset,
-        feature_keys=[
-            "transcription",
-        ],
+        feature_keys=["transcription"],
         label_key="label",
         mode="multiclass",
+        model_name="emilyalsentzer/Bio_ClinicalBERT",
     )
 
     # data batch
