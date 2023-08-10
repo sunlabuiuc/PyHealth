@@ -183,7 +183,7 @@ class Trainer:
                     # make checkpoint if our validation set is improving
                     if cur_val_loss < global_val_loss:
                         global_val_loss = cur_val_loss
-                        patience = 0
+                        current_patience = 0
                         self.make_checkpoint(epoch=e, iteration=i)
                     
                     current_patience += 1

@@ -297,7 +297,6 @@ class HALO(nn.Module):
     
 
 if __name__ == "__main__":
-
     from pyhealth.datasets import eICUDataset
     from pyhealth.data import Event
 
@@ -306,7 +305,7 @@ if __name__ == "__main__":
     # --- pyhealth dataset/source ---    
     DATASET_NAME = "eICU-demo"
     # ROOT = "https://storage.googleapis.com/pyhealth/eicu-demo/"
-    ROOT = "/home/bdanek2/data/physionet.org/files/eicu-crd/2.0"
+    ROOT = "/home/bpt3/data/physionet.org/files/eicu-crd/2.0"
     TABLES = ["diagnosis"]
     CODE_MAPPING = {}
     DEV = False
@@ -321,10 +320,10 @@ if __name__ == "__main__":
         refresh_cache=REFRESH_CACHE,
     )
 
-    basedir = '/home/bdanek2/PyHealth/temp'
+    basedir = '/home/bpt3/code/PyHealth/pyhealth/synthetic/halo/temp'
 
     # --- processor ---
-    batch_size = 1024
+    batch_size = 128
     
     # define a way to make labels from raw data
     simple_label_fn_output_size = 1
@@ -406,16 +405,15 @@ if __name__ == "__main__":
     # optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     
     # --- train model ---
-    model_save_path = '/home/bdanek2/PyHealth/reduced_model'
     trainer = Trainer(
         dataset=dataset,
         model=model,
         processor=processor,
         optimizer=optimizer,
-        checkpoint_path=f'{basedir}/model_saves',
-        model_save_name='eval_developement_test_10.pt'
+        checkpoint_path=f'{basedir}/save',
+        model_save_name='model.pt'
     )
-    trainer.set_basic_splits()
+    trainer.set_basic_splits(from_save=True)
 
     print(model)
     
@@ -430,24 +428,24 @@ if __name__ == "__main__":
     run_time = end_time - start_time
     print("training time:", run_time, run_time / 60, (run_time / 60) / 60)
     
-    # # --- generate synthetic dataset using the best model ---
-    # state_dict = torch.load(open(os.path.join(trainer.checkpoint_path, trainer.model_save_name), 'rb'), map_location=device)
-    # model.load_state_dict(state_dict['model'])
-    # model.to(device)
+    # --- generate synthetic dataset using the best model ---
+    state_dict = torch.load(open(os.path.join(trainer.checkpoint_path, trainer.model_save_name), 'rb'), map_location=device)
+    model.load_state_dict(state_dict['model'])
+    model.to(device)
 
     generator = Generator(
         model=model,
         processor=processor,
         batch_size=batch_size,
         device=device,
-        save_path=f"{basedir}/synthetically_generated_mortality_data"
+        save_path=f"{basedir}/data"
     )
 
     labels = [((1), 50000), ((0), 50000)]
     synthetic_dataset = generator.generate_conditioned(labels)
 
     def pathfn(plot_type: str, label: List):
-        prefix = f"/home/bdanek2/PyHealth/reduced_model/10/halo_eval_plots"
+        prefix = f"/home/bpt3/code/PyHealth/pyhealth/synthetic/halo/temp/results/plot"
 
         label = labels[label] if label in labels else 'all_labels'
         label = label.replace('.', '').replace(' ', '').lower()
@@ -464,7 +462,7 @@ if __name__ == "__main__":
     evaluator = Evaluator(generator=generator, processor=processor)
     stats = evaluator.evaluate(
         source=trainer.test_dataset,
-        synthetic=pickle.load(file=open('/home/bdanek2/PyHealth/reduced_model/synthetically_generated_mortality_data.pkl', 'rb')),
+        synthetic=pickle.load(file=open('/home/bpt3/code/PyHealth/pyhealth/synthetic/halo/temp/data.pkl', 'rb')),
         get_plot_path_fn=pathfn,
         compare_label=list(labels.keys()),
     )

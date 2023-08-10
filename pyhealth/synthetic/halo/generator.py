@@ -68,7 +68,7 @@ class Generator:
         ltoken[0, self.processor.label_start_index: self.processor.label_end_index] = label_vector
 
         context = np.concatenate((stoken, ltoken), axis=0)
-        context = context[:, np.newaxis, :]
+        context = context[np.newaxis, :, :]
         return context
 
     # When we have unconditioned generation, this method will be filled out to do more

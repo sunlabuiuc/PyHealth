@@ -180,15 +180,15 @@ class Evaluator:
                 timegap = sample[self.generator.TIME]
                 record_lens.append(len(visits))
                 visit_lens += [len(v) for v in visits]
-                visit_gaps.append(timegap)
+                visit_gaps += [g.nonzero()[0][0] for g in timegap if g.sum() > 0]
 
             aggregate_stats = {}
             aggregate_stats[self.RECORD_LEN_MEAN] = np.mean(record_lens)
             aggregate_stats[self.RECORD_LEN_STD] = np.std(record_lens)
             aggregate_stats[self.VISIT_LEN_MEAN] = np.mean(visit_lens)
             aggregate_stats[self.VISIT_LEN_STD] = np.std(visit_lens)
-            aggregate_stats[self.TEMPORAL_MEAN] = np.mean(visit_lens)
-            aggregate_stats[self.TEMPORAL_STD] = np.std(visit_lens)
+            aggregate_stats[self.TEMPORAL_MEAN] = np.mean(visit_gaps)
+            aggregate_stats[self.TEMPORAL_STD] = np.std(visit_gaps)
             label_stats[self.AGGREGATE] = aggregate_stats
 
             # compute probability densities
