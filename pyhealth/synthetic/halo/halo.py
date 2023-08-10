@@ -323,7 +323,7 @@ if __name__ == "__main__":
     basedir = '/home/bpt3/code/PyHealth/pyhealth/synthetic/halo/temp'
 
     # --- processor ---
-    batch_size = 128
+    batch_size = 512
     
     # define a way to make labels from raw data
     simple_label_fn_output_size = 1
@@ -461,7 +461,7 @@ if __name__ == "__main__":
     # conduct evaluation of the synthetic data w.r.t. it's source
     evaluator = Evaluator(generator=generator, processor=processor)
     stats = evaluator.evaluate(
-        source=trainer.test_dataset,
+        source=trainer.train_dataset,
         synthetic=pickle.load(file=open('/home/bpt3/code/PyHealth/pyhealth/synthetic/halo/temp/data.pkl', 'rb')),
         get_plot_path_fn=pathfn,
         compare_label=list(labels.keys()),
