@@ -1,7 +1,8 @@
 import collections
 import datetime
+import os
 import numpy as np
-from typing import Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 from tqdm import tqdm
 import pickle
 import pandas as pd
@@ -15,7 +16,7 @@ class Generator:
     """Synthetic Data generator module for HALO model. 
 
     This module conducts model inference on the HALO model, parametrized by the quantity of samples to generate,
-    and in the case of conditional generation, the label of the samples to generate. 
+    and in the case of conditional generation, the label of the samples to generate. It then converts the output to a human-readable format.
 
     This module generates longitudinal EHR records, and has the capability to translate the records from the format produced by the HALO self supervised
     model from multihot vector sequences of the model vocabulary into:
@@ -29,6 +30,7 @@ class Generator:
         batch_size: The batch size used for sample generation.
         save_path: Path to write the synthetic dataset.
         device: Device for model inference.
+        handle_digital_time_gap: used for transforming temporal multi-hot into a human readable format. 
     """
 
     VISITS = 'visits'
@@ -40,15 +42,21 @@ class Generator:
             model: nn.Module,
             processor: Processor,
             batch_size: int, # it is recommended to use the same batch size as that for training
-            save_path: str,
+            save_dir: str,
+            save_name: str,
             device: str,
+            handle_digital_time_gap: Callable[..., int]
         ) -> None:
         
         self.model = model
         self.processor = processor
         self.batch_size = batch_size
-        self.save_path = f'{save_path}.pkl'
+        self.save_dir = save_dir
+        self.save_name = save_name
+        self.save_path = os.path.join(save_dir, f'{save_name}.pkl')
         self.device = device
+
+        self.handle_digital_time_gap = handle_digital_time_gap
 
     def generate_context(self, label_vector) -> List:
         """Generate context vector, and the probablility of the label occurrence in the dataset.
@@ -132,7 +140,8 @@ class Generator:
 
                 # handle inter-visit gaps
                 time_gap = visit[:self.processor.time_vector_length]
-                sample_time_gaps.append(time_gap)
+                handled_time_gap = self.handle_digital_time_gap(time_gap)
+                sample_time_gaps.append(handled_time_gap)
 
                 # handle visit event codes
                 visit_events = visit[self.processor.time_vector_length: self.processor.num_global_events]
@@ -150,7 +159,6 @@ class Generator:
     def convert_ehr_to_pyhealth(
             samples: List,
             event_handlers: Dict[str, Callable],
-            handle_inter_visit_time: Callable, # depracate
             base_time: datetime,
             label_mapping: Dict[Tuple, str] = None
         ) -> List[Patient]:
@@ -231,11 +239,11 @@ class Generator:
             patient_label = label_mapping[sample['label']] if label_mapping else sample['label']
 
             # get timedelta for all visits
-            processed_time_gaps = [handle_inter_visit_time(time_gap) for time_gap in sample['inter-visit_gap']]
+            time_gaps = [t * datetime.timedelta(days=365) for t in sample['inter-visit_gap']]
         
             # get the patient birth date time
             total_time = base_time
-            for time_gap in processed_time_gaps:
+            for time_gap in time_gaps:
                 total_time = total_time - time_gap
 
             patient = Patient(
@@ -250,7 +258,7 @@ class Generator:
                 unique_visit_id = f"{patient_id}_{visit_id}"
                 visit, time_gap = sample['visits'][visit_id], sample['inter-visit_gap'][visit_id]
                 
-                time_since_previous_visit = processed_time_gaps[visit_id]
+                time_since_previous_visit = time_gaps[visit_id]
                 try:
                     # todays visit is time of last visit + time since last visit
                     visit_time = time_of_last_visit + time_since_previous_visit
@@ -299,12 +307,12 @@ class Generator:
             The key of the dict is the table name, and the value is the pd.DataFrame object representing the table. 
         """
         # patient table
-        visit_level_patient_columns = ['visit_id', 'discharge_status', 'discharge_time', 'encounter_time']
-        patient_table_columns=['birth_datetime', 'death_datetime', 'gender', 'ethnicity']
+        visit_level_patient_columns = ['patient_id', 'visit_id', 'discharge_status', 'discharge_time', 'encounter_time']
+        patient_table_columns=['patient_id', 'birth_datetime', 'death_datetime', 'gender', 'ethnicity']
         patient_table_list = []
 
         # event tables
-        event_columns = ['visit_id', 'code', 'timestamp']
+        event_columns = ['patient_id', 'visit_id', 'code', 'timestamp']
         event_columns_per_table = {}
 
         event_tables = collections.defaultdict(list)
@@ -379,7 +387,8 @@ class Generator:
             processor=processor,
             batch_size=batch_size,
             device=device,
-            save_path=f"{basedir}/synthetically_generated_mortality_data"
+            save_path=basedir,
+            save_name="synthetically_generated_mortality_data" # save at `synthetically_generated_mortality_data.pkl`
         )
 
         labels = [((1), 40000), ((0), 40000)] # 40k samples of each label
