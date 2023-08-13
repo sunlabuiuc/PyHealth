@@ -61,6 +61,7 @@ class Trainer:
         """
         if from_save:
             try:
+              
                 self.train_dataset = torch.load(open(f"{self.checkpoint_dir}/train_dataset.pt", 'rb'))
                 self.test_dataset = torch.load(open(f"{self.checkpoint_dir}/test_dataset.pt", 'rb'))
                 self.eval_dataset = torch.load(open(f"{self.checkpoint_dir}/eval_dataset.pt", 'rb'))
@@ -125,6 +126,7 @@ class Trainer:
                 'iteration': iteration,
                 'epoch': epoch
             }
+
         torch.save(state, open(self.get_model_checkpoint_path(), 'wb'))
         print('\n------------ Save best model ------------\n')
 
@@ -192,11 +194,11 @@ class Trainer:
                     # make checkpoint if our validation set is improving
                     if cur_val_loss < global_val_loss:
                         global_val_loss = cur_val_loss
-                        patience = 0
+                        current_patience = 0
                         self.make_checkpoint(epoch=e, iteration=i)
                     
                     current_patience += 1
 
-            if current_patience == patience: 
+            if current_patience >= patience: 
                 print("Training parameter `patience` exceeded provided threshold.")
                 break

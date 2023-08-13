@@ -1,6 +1,5 @@
 import collections
 import itertools
-
 from matplotlib import pyplot as plt
 import numpy as np
 import os
@@ -183,7 +182,7 @@ class Evaluator:
                 timegap = sample[self.generator.TIME]
                 record_lens.append(len(visits))
                 visit_lens += [len(v) for v in visits]
-                visit_gaps.append(timegap)
+                visit_gaps += [g.nonzero()[0][0] for g in timegap if g.sum() > 0]
 
             aggregate_stats = {}
             aggregate_stats[self.RECORD_LEN_MEAN] = np.mean(record_lens)

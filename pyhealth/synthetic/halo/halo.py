@@ -298,14 +298,15 @@ class HALO(nn.Module):
     
 
 if __name__ == "__main__":
-
     from pyhealth.datasets import eICUDataset
     from pyhealth.data import Event
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # ROOT = "https://storage.googleapis.com/pyhealth/eicu-demo/"
+
     ROOT = "/home/bdanek2/data/physionet.org/files/eicu-crd/2.0"
+    # ROOT = "/home/bpt3/data/physionet.org/files/eicu-crd/2.0"
     dataset = eICUDataset(
         dataset_name="eICU-demo",
         root=ROOT,
@@ -315,7 +316,10 @@ if __name__ == "__main__":
         refresh_cache=False,
     )
 
-    basedir = '/home/bdanek2/PyHealth/testing_paths'
+    basedir = '/home/bdanek2/halo_developement/testing_1'
+    # basedir = '/home/bpt3/code/PyHealth/pyhealth/synthetic/halo/temp'
+
+    # --- processor ---
     batch_size = 512
     
     # define a way to make labels from raw data
