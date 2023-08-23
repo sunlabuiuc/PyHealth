@@ -13,6 +13,10 @@ from torch.optim import Optimizer
 from pyhealth import datasets
 from pyhealth.synthetic.halo.processor import Processor
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 class Trainer:
     """Trainer for the HALO synthetic data generator module.
 
@@ -68,7 +72,7 @@ class Trainer:
                 
                 return self.train_dataset, self.test_dataset, self.eval_dataset
             except:
-                print("failed to load basic splits from memory, generating splits from source dataset.")
+                logger.debug("failed to load basic splits from memory, generating splits from source dataset.")
         
         train, test, eval = self.split()
         self.train_dataset = train

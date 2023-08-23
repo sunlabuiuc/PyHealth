@@ -45,7 +45,6 @@ class Generator:
             save_dir: str,
             save_name: str,
             device: str,
-            handle_digital_time_gap: Callable[..., int]
         ) -> None:
         
         self.model = model
@@ -55,8 +54,6 @@ class Generator:
         self.save_name = save_name
         self.save_path = os.path.join(save_dir, f'{save_name}.pkl')
         self.device = device
-
-        self.handle_digital_time_gap = handle_digital_time_gap
 
     def generate_context(self, label_vector) -> List:
         """Generate context vector, and the probablility of the label occurrence in the dataset.
@@ -140,8 +137,9 @@ class Generator:
 
                 # handle inter-visit gaps
                 time_gap = visit[:self.processor.time_vector_length]
-                handled_time_gap = self.handle_digital_time_gap(time_gap)
-                sample_time_gaps.append(handled_time_gap)
+                time_as_index = np.nonzero(time_gap)[0][0]
+                time_gap_as_days = self.processor.visit_bins[time_as_index]
+                sample_time_gaps.append(time_gap_as_days)
 
                 # handle visit event codes
                 visit_events = visit[self.processor.time_vector_length: self.processor.num_global_events]

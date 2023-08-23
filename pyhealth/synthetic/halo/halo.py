@@ -310,7 +310,7 @@ if __name__ == "__main__":
     dataset = eICUDataset(
         dataset_name="eICU-demo",
         root=ROOT,
-        tables=["diagnosis"],
+        tables=["diagnosis", "lab"],
         code_mapping={},
         dev=False,
         refresh_cache=False,
@@ -333,66 +333,52 @@ if __name__ == "__main__":
         split_code = event.code.split('.')
         assert len(split_code) <= 2
         return split_code[0]
+    # these values will be used to compute histograms
+    def handle_lab(event: Event): 
+        value = float(event.attr_dict['lab_result'])
+        return value
 
-    LAB_DIGITIZATION_BINS = [0, 0.5, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512]
-    def handle_lab(event: Event):
-
-        def digitize_lab_result(x):
-            return np.digitize(x, LAB_DIGITIZATION_BINS)
-
-        lab_name = event.code
-        lab_value = event.attr_dict['lab_result']
-        lab_unit = event.attr_dict['lab_measure_name_system']
-
-        return f"{lab_name}_{lab_unit}_{digitize_lab_result(lab_value)}"
-    
-    # define value handlers
+    # define value handlers; these handlers serve the function of converting an event into a primitive value. 
     event_handlers = {}   
     event_handlers['diagnosis'] =  handle_diagnosis
-    event_handlers['lab'] =  handle_lab
+    event_handlers['lab'] = handle_lab 
     
-    continuous_value_handlers = {}
+    # this event handler is called after the histograms have been computed
+    def handle_discrete_lab(event: Event, bin_index: int):
+        lab_name = event.code
+        lab_value = bin_index
+        lab_unit = event.attr_dict['lab_measure_name_system']
+
+        return f"{lab_name}_{lab_unit}_{lab_value}"
     
-    # handle discretization of time (forward and reverse)
-    bins = [0.5, 1, 1.5, 2, 2.5, 3, 4] + list(range(5, 85, 5)) # model both readmission and age in the same representation
-    time_vector_length = len(bins) + 1
-    def handle_time(t: timedelta):
-        year = t.days / 365
-        bin = np.digitize(year, bins)
-        vect = np.zeros((time_vector_length))
-        vect[bin] = 1
-        return vect
+    discrete_event_handlers = {}
+    discrete_event_handlers['lab'] = handle_discrete_lab
     
-    def handle_digitized_time(time_gap: int):
-        """Reverse the digitization of datetime objects."""
-
-        # recover time information
-        time_digital = time_gap.nonzero()[0][0] if sum(time_gap) else 0 # use first time index; there may be more if the model is trained poorly
-        num_years = bins[time_digital] if time_digital < len(bins) else bins[-1]
-
-        return num_years
-
     processor = Processor(
         dataset=dataset,
         use_tables=None,
         event_handlers=event_handlers,
-        continuous_value_handlers=continuous_value_handlers,
-        time_handler=handle_time,
-        time_vector_length=time_vector_length,
+        compute_histograms=['lab'],
+        size_per_event_bin={'lab': 10},
+        discrete_event_handlers=discrete_event_handlers,
+        size_per_time_bin=10,
         label_fn=simple_label_fn,
         label_vector_len=simple_label_fn_output_size,
+        name="HALO-Developement-Test",
+        refresh_cache=True
     )
 
-    print("Processor results in vocab len, max visit num:", processor.total_vocab_size, processor.total_visit_size)
+    print(f"Processor results in vocab len {processor.total_vocab_size}, max visit num: {processor.total_visit_size}")
     
     model = HALO(
         n_ctx=processor.total_visit_size,
         total_vocab_size=processor.total_vocab_size,
         device=device
     )
+    print(model.__call__)
     
-    # optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
-
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    print(optimizer.__class__)
     # state_dict = torch.load(open(f'{basedir}/model_saves/eval_developement.pt', 'rb'), map_location=device)
     # model.load_state_dict(state_dict['model'])
     # model.to(device)
@@ -405,22 +391,20 @@ if __name__ == "__main__":
         dataset=dataset,
         model=model,
         processor=processor,
-        optimizer=None, #optimizer,
+        optimizer=optimizer,
         checkpoint_dir=f'{basedir}/model_saves',
         model_save_name='eval_developement_test'
     )
-    s = trainer.set_basic_splits(from_save=True, save=False)
+    s = trainer.set_basic_splits(from_save=True, save=True)
     print('split lengths', [len(_s) for _s in s])
-
-    print(model)
     
     start_time = time.perf_counter()
-    # trainer.train(
-    #     batch_size=batch_size,
-    #     epoch=1000,
-    #     patience=5,
-    #     eval_period=float('inf')
-    # )
+    trainer.train(
+        batch_size=batch_size,
+        epoch=1000,
+        patience=3,
+        eval_period=float('inf')
+    )
     end_time = time.perf_counter()
     run_time = end_time - start_time
     print("training time:", run_time, run_time / 60, (run_time / 60) / 60)
@@ -438,7 +422,6 @@ if __name__ == "__main__":
         device=device,
         save_dir=basedir,
         save_name="synthetically_generated_mortality_data", # save at `synthetically_generated_mortality_data.pkl`
-        handle_digital_time_gap=handle_digitized_time
     )
 
     labels = [((1), 25000), ((0), 25000)]
@@ -461,8 +444,8 @@ if __name__ == "__main__":
     # conduct evaluation of the synthetic data w.r.t. it's source
     evaluator = Evaluator(generator=generator, processor=processor)
     stats = evaluator.evaluate(
-        source=trainer.test_dataset,
-        synthetic=pickle.load(file=open(generator.save_path, 'rb')),
+        source=trainer.test_dataset[:10],
+        synthetic=pickle.load(file=open(generator.save_path, 'rb'))[:10],
         get_plot_path_fn=pathfn,
         compare_label=list(labels.keys()),
     )

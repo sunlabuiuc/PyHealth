@@ -182,7 +182,7 @@ class Evaluator:
                 timegap = sample[self.generator.TIME]
                 record_lens.append(len(visits))
                 visit_lens += [len(v) for v in visits]
-                visit_gaps += [g.nonzero()[0][0] for g in timegap if g.sum() > 0]
+                visit_gaps += [timegap]
 
             aggregate_stats = {}
             aggregate_stats[self.RECORD_LEN_MEAN] = np.mean(record_lens)
