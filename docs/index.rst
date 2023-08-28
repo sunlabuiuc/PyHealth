@@ -28,7 +28,7 @@ Welcome to PyHealth!
 
 
 .. image:: https://static.pepy.tech/badge/pyhealth
-   :target: https://static.pepy.tech/badge/pyhealth
+   :target: https://pepy.tech/project/pyhealth
    :alt: Downloads
 
 
