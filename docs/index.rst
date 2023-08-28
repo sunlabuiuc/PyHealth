@@ -27,8 +27,8 @@ Welcome to PyHealth!
    :alt: GitHub forks
 
 
-.. image:: https://pepy.tech/badge/pyhealth
-   :target: https://pepy.tech/project/pyhealth
+.. image:: https://static.pepy.tech/badge/pyhealth
+   :target: https://static.pepy.tech/badge/pyhealth
    :alt: Downloads
 
 
