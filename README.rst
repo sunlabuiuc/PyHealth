@@ -61,11 +61,26 @@ Welcome to PyHealth!
 ..    :target: https://github.com/yzhao062/pyhealth/blob/master/LICENSE
 ..    :alt: License
 
-Go to KDD'23 Tutorial Link https://sunlabuiuc.github.io/PyHealth/
+
+Citing PyHealth :handshake:
+----------------------------------
+Yang, Chaoqi, Zhenbang Wu, Patrick Jiang, Zhen Lin, Junyi Gao, Benjamin P. Danek, and Jimeng Sun. 2023. “PyHealth: A Deep Learning Toolkit for Healthcare Applications.” In Proceedings of the 29th ACM SIGKDD Conference on Knowledge Discovery and Data Mining, 5788–89. KDD ’23. New York, NY, USA: Association for Computing Machinery.
+
+.. code-block:: bibtex
+
+    @inproceedings{pyhealth2023yang,
+        author = {Yang, Chaoqi and Wu, Zhenbang and Jiang, Patrick and Lin, Zhen and Gao, Junyi and Danek, Benjamin and Sun, Jimeng},
+        title = {{PyHealth}: A Deep Learning Toolkit for Healthcare Predictive Modeling},
+        url = {https://github.com/sunlabuiuc/PyHealth},
+        booktitle = {Proceedings of the 27th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD) 2023},
+        year = {2023}
+    }
+
+Introduction of PyHealth from  KDD'23 Tutorial https://sunlabuiuc.github.io/PyHealth/
 -----------------------------------------------------------------
 
 
-PyHealth is designed for both **ML researchers and medical practitioners**. We can make your **healthcare AI applications** easier to deploy and more flexible and customizable. `[Tutorials] <https://pyhealth.readthedocs.io/>`_
+PyHealth is a comprehensive deep learning toolkit for supporting clinical predictive modeling, which is designed for both **ML researchers and medical practitioners**. We can make your **healthcare AI applications** easier to deploy and more flexible and customizable. `[Tutorials] <https://pyhealth.readthedocs.io/>`_
 
  **[News!]** Our PyHealth is accepted by KDD 2023 Tutorial Track! We will present a 3-hour tutorial on PyHealth at `[KDD 2023] <https://kdd.org/kdd2023/>`_, August 6-10, Long Beach, CA. The `[hands-on tutorial jupyters] <https://drive.google.com/drive/folders/10SRErhMgmwIvBwafp_YmaZEziOhYTaYk?usp=sharing>`_ are available. Please check them out!
 
@@ -404,16 +419,5 @@ GRASP                                 deep learning     ``pyhealth.models.GRASP`
 
 * Check the `interactive map on benchmark EHR predictive tasks <https://pyhealth.readthedocs.io/en/latest/index.html#benchmark-on-healthcare-tasks>`_.
 
-9. Citing PyHealth :handshake:
-----------------------------------
 
-.. code-block:: bibtex
-
-    @inproceedings{pyhealth2023yang,
-        author = {Yang, Chaoqi and Wu, Zhenbang and Jiang, Patrick and Lin, Zhen and Gao, Junyi and Danek, Benjamin and Sun, Jimeng},
-        title = {{PyHealth}: A Deep Learning Toolkit for Healthcare Predictive Modeling},
-        url = {https://github.com/sunlabuiuc/PyHealth},
-        booktitle = {Proceedings of the 27th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD) 2023},
-        year = {2023}
-    }
 
