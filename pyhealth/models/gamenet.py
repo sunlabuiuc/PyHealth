@@ -194,7 +194,7 @@ class GAMENetLayer(nn.Module):
 
         # dynamic memory
         DM_keys = queries[:, :-1, :]
-        DM_values = prev_drugs
+        DM_values = prev_drugs[:, :-1, :]
 
         """O: Output memory representation"""
         a_c = torch.softmax(torch.mm(query, MB.t()), dim=-1)
@@ -223,7 +223,8 @@ class GAMENet(BaseModel):
     Note:
         This model is only for medication prediction which takes conditions
         and procedures as feature_keys, and drugs as label_key.
-        It only operates on the visit level.
+        It only operates on the visit level. Thus, we have disable the 
+        feature_keys, label_key, and mode arguments.
 
     Note:
         This model only accepts ATC level 3 as medication codes.
@@ -385,9 +386,7 @@ class GAMENet(BaseModel):
             drugs_hist, padding=(False, False), truncation=(True, False)
         )
 
-        curr_drugs = [p[-1] for p in drugs_hist]
-        curr_drugs = batch_to_multihot(curr_drugs, label_size)
-        curr_drugs = curr_drugs.to(self.device)
+        curr_drugs = self.prepare_labels(drugs, self.label_tokenizer)
 
         prev_drugs = drugs_hist
         max_num_visit = max([len(p) for p in prev_drugs])
