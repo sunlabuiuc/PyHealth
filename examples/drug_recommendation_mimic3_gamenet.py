@@ -8,9 +8,9 @@ from pyhealth.trainer import Trainer
 base_dataset = MIMIC3Dataset(
     root="/srv/local/data/physionet.org/files/mimiciii/1.4",
     tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
-    code_mapping={"NDC": ("ATC", {"target_kwargs": {"level": 3}})},
+    # code_mapping={"NDC": ("ATC", {"target_kwargs": {"level": 3}})},
     dev=False,
-    refresh_cache=False,
+    refresh_cache=True,
 )
 base_dataset.stat()
 
@@ -28,9 +28,6 @@ test_dataloader = get_dataloader(test_dataset, batch_size=32, shuffle=False)
 # STEP 3: define model
 model = GAMENet(
     sample_dataset,
-    feature_keys=["conditions", "procedures"],
-    label_key="drugs",
-    mode="multilabel",
 )
 
 # STEP 4: define trainer
