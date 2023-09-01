@@ -11,11 +11,13 @@ def disparate_impact(sensitive_attributes: np.ndarray, y_pred: np.ndarray, favor
     Computes the disparate impact between the the protected and unprotected group.
 
     disparate_impact = P(y_pred = favorable_outcome | P) / P(y_pred = favorable_outcome | U)
+    
     Args:
         sensitive_attributes: Sensitive attributes of shape (n_samples,) where 1 is the protected group and 0 is the unprotected group.
         y_pred: Predicted target values of shape (n_samples,).
         favorable_outcome: Label value which is considered favorable (i.e. "positive").
         allow_zero_division: If True, use epsilon instead of 0 in the denominator if the denominator is 0. Otherwise, raise a ValueError.
+    
     Returns:
         The disparate impact between the protected and unprotected group.
     """
