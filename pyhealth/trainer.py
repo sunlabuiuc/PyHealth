@@ -243,7 +243,7 @@ class Trainer:
 
         return
 
-    def inference(self, dataloader, additional_outputs=None) -> Dict[str, float]:
+    def inference(self, dataloader, additional_outputs=None, return_patient_ids=False) -> Dict[str, float]:
         """Model inference.
 
         Args:
@@ -256,10 +256,12 @@ class Trainer:
             y_prob_all: List of predicted probabilities.
             loss_mean: Mean loss over batches.
             additional_outputs (only if requested): Dict of additional results.
+            patient_ids (only if requested): List of patient ids in the same order as y_true_all/y_prob_all.
         """
         loss_all = []
         y_true_all = []
         y_prob_all = []
+        patient_ids = []
         if additional_outputs is not None:
             additional_outputs = {k: [] for k in additional_outputs}
         for data in tqdm(dataloader, desc="Evaluation"):
@@ -275,14 +277,19 @@ class Trainer:
                 if additional_outputs is not None:
                     for key in additional_outputs.keys():
                         additional_outputs[key].append(output[key].cpu().numpy())
+            if return_patient_ids:
+                patient_ids.extend(data["patient_id"])
         loss_mean = sum(loss_all) / len(loss_all)
         y_true_all = np.concatenate(y_true_all, axis=0)
         y_prob_all = np.concatenate(y_prob_all, axis=0)
+        outputs = [y_true_all, y_prob_all, loss_mean]
         if additional_outputs is not None:
             additional_outputs = {key: np.concatenate(val)
                                   for key, val in additional_outputs.items()}
-            return y_true_all, y_prob_all, loss_mean, additional_outputs
-        return y_true_all, y_prob_all, loss_mean
+            outputs.append(additional_outputs)
+        if return_patient_ids:
+            outputs.append(patient_ids)
+        return outputs
 
     def evaluate(self, dataloader) -> Dict[str, float]:
         """Evaluates the model.
