@@ -2,6 +2,12 @@ Development logs
 ======================
 We track the new development here:
 
+**Sep 01, 2023**
+
+.. code-block:: rst
+
+    1. add Base fairness metrics and example `#216`.
+
 **July 22, 2023**
 
 .. code-block:: rst
