@@ -7,7 +7,7 @@ Definitions.
 1.1.	 “Commercial Use” means sale, lease, license, distribution or otherwise making the Software available to a third party.
 1.2.	“Derivative Work” means any derivative work, as defined by U.S. copyright law, of the Software, including any modification, enhancement, upgrade, or improvement to the Software.
 1.3.	 “License” means this document.
-1.4.	 “Software” means the PyHealth software in source code format, Technology No. xxx, “https://github.com/sunlabuiuc/PyHealth”.
+1.4.	 “Software” means the PyHealth software in source code format from  “https://github.com/sunlabuiuc/PyHealth”.
 1.5.	“Research Use” means use of the Software for Your non-profit research, development, academic, educational or personal and individual use, and expressly excludes Commercial Use.
 1.6.	“You” (or “Your”) means an individual or legal entity exercising rights under, and complying with all of the terms of, this License.  For legal entities, “You” includes any entity that controls, is controlled by, or is under common control with You.  For purposes of this License, “control” means ownership, directly or indirectly, of more than fifty percent (50%) of the equity capital of the legal entity.
 

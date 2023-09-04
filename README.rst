@@ -21,7 +21,7 @@ Welcome to PyHealth!
    :alt: GitHub forks
 
 
-.. image:: https://pepy.tech/badge/pyhealth
+.. image:: https://static.pepy.tech/badge/pyhealth
    :target: https://pepy.tech/project/pyhealth
    :alt: Downloads
 
@@ -61,11 +61,26 @@ Welcome to PyHealth!
 ..    :target: https://github.com/yzhao062/pyhealth/blob/master/LICENSE
 ..    :alt: License
 
-Go to KDD'23 Tutorial Link https://sunlabuiuc.github.io/PyHealth/
+
+Citing PyHealth :handshake:
+----------------------------------
+ Yang, Chaoqi, Zhenbang Wu, Patrick Jiang, Zhen Lin, Junyi Gao, Benjamin P. Danek, and Jimeng Sun. 2023. “PyHealth: A Deep Learning Toolkit for Healthcare Applications.” In Proceedings of the 29th ACM SIGKDD Conference on Knowledge Discovery and Data Mining, 5788–89. KDD ’23. New York, NY, USA: Association for Computing Machinery.
+
+.. code-block:: bibtex
+
+    @inproceedings{pyhealth2023yang,
+        author = {Yang, Chaoqi and Wu, Zhenbang and Jiang, Patrick and Lin, Zhen and Gao, Junyi and Danek, Benjamin and Sun, Jimeng},
+        title = {{PyHealth}: A Deep Learning Toolkit for Healthcare Predictive Modeling},
+        url = {https://github.com/sunlabuiuc/PyHealth},
+        booktitle = {Proceedings of the 27th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD) 2023},
+        year = {2023}
+    }
+
+Checkout Our KDD'23 Tutorial https://sunlabuiuc.github.io/PyHealth/
 -----------------------------------------------------------------
 
 
-PyHealth is designed for both **ML researchers and medical practitioners**. We can make your **healthcare AI applications** easier to deploy and more flexible and customizable. `[Tutorials] <https://pyhealth.readthedocs.io/>`_
+PyHealth is a comprehensive deep learning toolkit for supporting clinical predictive modeling, which is designed for both **ML researchers and medical practitioners**. We can make your **healthcare AI applications** easier to deploy and more flexible and customizable. `[Tutorials] <https://pyhealth.readthedocs.io/>`_
 
  **[News!]** Our PyHealth is accepted by KDD 2023 Tutorial Track! We will present a 3-hour tutorial on PyHealth at `[KDD 2023] <https://kdd.org/kdd2023/>`_, August 6-10, Long Beach, CA. The `[hands-on tutorial jupyters] <https://drive.google.com/drive/folders/10SRErhMgmwIvBwafp_YmaZEziOhYTaYk?usp=sharing>`_ are available. Please check them out!
 
@@ -385,16 +400,16 @@ Model Name                            Type              Module                  
 Multi-layer Perceptron                deep learning     ``pyhealth.models.MLP``            1986    MLP treats each feature as static                                                                                                                                             `Backpropagation: theory, architectures, and applications <https://www.taylorfrancis.com/books/mono/10.4324/9780203763247/backpropagation-yves-chauvin-david-rumelhart>`_
 Convolutional Neural Network (CNN)    deep learning     ``pyhealth.models.CNN``            1989    CNN runs on the conceptual patient-by-visit grids                                                                                                                             `Handwritten Digit Recognition with a Back-Propagation Network <https://proceedings.neurips.cc/paper/1989/file/53c3bce66e43be4f209556518c2fcb54-Paper.pdf>`_
 Recurrent Neural Nets (RNN)           deep Learning     ``pyhealth.models.RNN``            2011    RNN (includes LSTM and GRU) can run on any sequential level (e.g., visit by visit sequences)                                                                                  `Recurrent neural network based language model <http://www.fit.vutbr.cz/research/groups/speech/servite/2010/rnnlm_mikolov.pdf>`_
-Transformer                           deep Learning     ``pyhealth.models.Transformer``    2017    Transformer can run on any sequential level (e.g., visit by visit sequences)                                                                                                  `Atention is All you Need <https://arxiv.org/abs/1706.03762>`_
+Transformer                           deep Learning     ``pyhealth.models.Transformer``    2017    Transformer can run on any sequential level (e.g., visit by visit sequences)                                                                                                  `Attention Is All You Need <https://arxiv.org/abs/1706.03762>`_
 RETAIN                                deep Learning     ``pyhealth.models.RETAIN``         2016    RETAIN uses two RNN to learn patient embeddings while providing feature-level and visit-level importance.                                                                     `RETAIN: An Interpretable Predictive Model for Healthcare using Reverse Time Attention Mechanism <https://arxiv.org/abs/1608.05745>`_
-GAMENet                               deep Learning     ``pyhealth.models.GAMENet``        2019    GAMENet uses memory networks, used only for drug recommendation task                                                                                                          `GAMENet: Graph Attention Mechanism for Explainable Electronic Health Record Prediction <https://arxiv.org/abs/1809.01852>`_
+GAMENet                               deep Learning     ``pyhealth.models.GAMENet``        2019    GAMENet uses memory networks, used only for drug recommendation task                                                                                                          `GAMENet: Graph Augmented MEmory Networks for Recommending Medication Combination <https://arxiv.org/abs/1809.01852>`_
 MICRON                                deep Learning     ``pyhealth.models.MICRON``         2021    MICRON predicts the future drug combination by instead predicting the changes w.r.t. the current combination, used only for drug recommendation task                          `Change Matters: Medication Change Prediction with Recurrent Residual Networks <https://www.ijcai.org/proceedings/2021/0513>`_
 SafeDrug                              deep Learning     ``pyhealth.models.SafeDrug``       2021    SafeDrug encodes drug molecule structures by graph neural networks, used only for drug recommendation task                                                                    `SafeDrug: Dual Molecular Graph Encoders for Recommending Effective and Safe Drug Combinations <https://arxiv.org/abs/2105.02711>`_
 MoleRec                               deep Learning     ``pyhealth.models.MoleRec``        2023    MoleRec encodes drug molecule in a substructure level as well as the patient's information into a drug combination representation, used only for drug recommendation task     `MoleRec: Combinatorial Drug Recommendation with Substructure-Aware Molecular Representation Learning <https://dl.acm.org/doi/10.1145/3543507.3583872>`_
 Deepr                                 deep Learning     ``pyhealth.models.Deepr``          2017    Deepr is based on 1D CNN. General purpose.                                                                                                                                    `Deepr : A Convolutional Net for Medical Records <https://arxiv.org/abs/1607.07519>`_
 ContraWR Encoder (STFT+CNN)           deep Learning     ``pyhealth.models.ContraWR``       2021    ContraWR encoder uses short time Fourier transform (STFT) + 2D CNN, used for biosignal learning                                                                               `Self-supervised EEG Representation Learning for Automatic Sleep Staging <https://arxiv.org/abs/2110.15278>`_
-SparcNet (1D CNN)                     deep Learning     ``pyhealth.models.SparcNet``       2023    SparcNet is based on 1D CNN, used for biosignal learning                                                                                                                      `Development of Expert-level Classification of Seizures and Rhythmic and Periodic Patterns During EEG Interpretation <#>`_
-TCN                                   deep learning     ``pyhealth.models.TCN``            2018    TCN is based on dilated 1D CNN. General purpose                                                                                                                               `Temporal Convolutional Networks <https://arxiv.org/abs/1803.01271>`_
+SparcNet (1D CNN)                     deep Learning     ``pyhealth.models.SparcNet``       2023    SparcNet is based on 1D CNN, used for biosignal learning                                                                                                                      `Development of Expert-level Classification of Seizures and Rhythmic and Periodic Patterns During EEG Interpretation <https://www.ncbi.nlm.nih.gov/pmc/articles/PMC10136013/>`_
+TCN                                   deep learning     ``pyhealth.models.TCN``            2018    TCN is based on dilated 1D CNN. General purpose                                                                                                                               `An Empirical Evaluation of Generic Convolutional and Recurrent Networks for Sequence Modeling <https://arxiv.org/abs/1803.01271>`_
 AdaCare                               deep learning     ``pyhealth.models.AdaCare``        2020    AdaCare uses CNNs with dilated filters to learn enriched patient embedding. It uses feature calibration module to provide the feature-level and visit-level interpretability  `AdaCare: Explainable Clinical Health Status Representation Learning via Scale-Adaptive Feature Extraction and Recalibration <https://arxiv.org/abs/1911.12205>`_
 ConCare                               deep learning     ``pyhealth.models.ConCare``        2020    ConCare uses transformers to learn patient embedding and calculate inter-feature correlations.                                                                                `ConCare: Personalized Clinical Feature Embedding via Capturing the Healthcare Context <https://arxiv.org/abs/1911.12216>`_
 StageNet                              deep learning     ``pyhealth.models.StageNet``       2020    StageNet uses stage-aware LSTM to conduct clinical predictive tasks while learning patient disease progression stage change unsupervisedly                                    `StageNet: Stage-Aware Neural Networks for Health Risk Prediction <https://arxiv.org/abs/2001.10054>`_
@@ -404,16 +419,5 @@ GRASP                                 deep learning     ``pyhealth.models.GRASP`
 
 * Check the `interactive map on benchmark EHR predictive tasks <https://pyhealth.readthedocs.io/en/latest/index.html#benchmark-on-healthcare-tasks>`_.
 
-9. Citing PyHealth :handshake:
-----------------------------------
 
-.. code-block:: bibtex
-
-    @inproceedings{pyhealth2023yang,
-        author = {Yang, Chaoqi and Wu, Zhenbang and Jiang, Patrick and Lin, Zhen and Gao, Junyi and Danek, Benjamin and Sun, Jimeng},
-        title = {{PyHealth}: A Deep Learning Toolkit for Healthcare Predictive Modeling},
-        url = {https://github.com/sunlabuiuc/PyHealth},
-        booktitle = {Proceedings of the 27th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD) 2023},
-        year = {2023}
-    }
 
