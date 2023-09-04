@@ -117,6 +117,7 @@ class MIMIC4Dataset(BaseEHRDataset):
                 # no exact time, use 00:00:00
                 death_datetime=strptime(p_info["dod"].values[0]),
                 gender=p_info["gender"].values[0],
+                ethnicity=p_info["ethnicity"].values[0],
                 anchor_year_group=p_info["anchor_year_group"].values[0],
             )
             # load visits
