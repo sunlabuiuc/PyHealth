@@ -137,7 +137,8 @@ class Generator:
 
                 # handle inter-visit gaps
                 time_gap = visit[:self.processor.time_vector_length]
-                time_as_index = np.nonzero(time_gap)[0][0]
+                time_gap = np.nonzero(time_gap)[0]
+                time_as_index = time_gap[0] if len(time_gap) > 0 else 0
                 time_gap_as_days = self.processor.visit_bins[time_as_index]
                 sample_time_gaps.append(time_gap_as_days)
 

@@ -176,7 +176,10 @@ class Trainer:
         for e in tqdm(range(epoch), desc="Training HALO model"):
             
             self.model.train()
-            
+
+            # todo: shuffle the whole training dataset
+            random.shuffle(self.train_dataset)
+
             for i, (batch_ehr, batch_mask) in enumerate(self.processor.get_batch(self.train_dataset, batch_size)):
                 
                 batch_ehr = torch.tensor(batch_ehr, dtype=torch.float32).to(self.device)

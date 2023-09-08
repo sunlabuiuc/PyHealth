@@ -147,7 +147,7 @@ class eICUDataset(BaseEHRDataset):
             patient_id = f"{p_id}+{ha_id}"
 
             # hospital admission time (Jan 1 of hospitaldischargeyear, 00:00:00)
-            ha_datetime = strptime(padyear(str(p_info["hospitaldischargeyear"].values[0])))
+            ha_datetime = strptime(padyear(str(p_info["hospitaldischargeyear"].values[0]))) # todo: parse this completely
 
             # no exact birth datetime in eICU
             # use hospital admission time and age to approximate birth datetime
@@ -178,6 +178,8 @@ class eICUDataset(BaseEHRDataset):
             )
 
             # load visits
+            # prev_visit = None
+            # prev_data = None
             for v_id, v_info in p_info.groupby("patientunitstayid"):
                 # each Visit object is a single ICU stay within a hospital admission
 
@@ -196,6 +198,11 @@ class eICUDataset(BaseEHRDataset):
                     hospital_id=v_info["hospitalid"].values[0],
                     region=v_info["region"].values[0],
                 )
+                # if prev_visit and prev_visit.encounter_time == encounter_time:
+                #     print("here")
+
+                # prev_visit = visit
+                # prev_data = v_info
 
                 # add visit
                 patient.add_visit(visit)

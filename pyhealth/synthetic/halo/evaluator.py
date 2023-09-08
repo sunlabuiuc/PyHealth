@@ -30,8 +30,10 @@ class Evaluator:
     RECORD_LEN_STD = "Record Length Standard Deviation"
     VISIT_LEN_MEAN = "Visit Length Mean"
     VISIT_LEN_STD = "Visit Length Standard Deviation"
-    TEMPORAL_MEAN = "Inter-visit time Mean"
-    TEMPORAL_STD = "Inter-visit time Standard Deviation"
+    TEMPORAL_MEAN = "Inter-visit time Mean per level"
+    TEMPORAL_STD = "Inter-visit time Standard Deviation per level"
+    TEMPORAL_MEAN_OVERALL = "Inter-visit time Mean"
+    TEMPORAL_STD_OVERALL = "Inter-visit time Standard Deviation"
     AGGREGATE = "Aggregate"
 
     RECORD_CODE_PROB = "Per Record Code Probabilities"
@@ -197,6 +199,9 @@ class Evaluator:
 
             aggregate_stats[self.TEMPORAL_MEAN] = [np.mean(temporal_gaps_per_level[level]) for level in temporal_gaps_per_level.keys()]
             aggregate_stats[self.TEMPORAL_STD] = [np.std(temporal_gaps_per_level[level]) for level in temporal_gaps_per_level.keys()]
+            
+            # todo: continue here
+            aggregate_stats[self.TEMPORAL_MEAN_OVERALL] = np.mean([v for v_g in visit_gaps for v in v_g])
 
             label_stats[self.AGGREGATE] = aggregate_stats
 

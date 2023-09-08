@@ -310,7 +310,8 @@ if __name__ == "__main__":
     dataset = eICUDataset(
         dataset_name="eICU-demo",
         root=ROOT,
-        tables=["diagnosis", "lab"],
+        # tables=["diagnosis", "lab"],
+        tables=["diagnosis"],
         code_mapping={},
         dev=False,
         refresh_cache=False,
@@ -333,24 +334,44 @@ if __name__ == "__main__":
         split_code = event.code.split('.')
         assert len(split_code) <= 2
         return split_code[0]
+    
+
     # these values will be used to compute histograms
-    def handle_lab(event: Event): 
+    def handle_lab(event: Event):
+        """a method for used to convert the lab event into a numerical value; this value will be discretized and serve as the basis for computing a histogram"""
         value = float(event.attr_dict['lab_result'])
         return value
-
-    # define value handlers; these handlers serve the function of converting an event into a primitive value. 
-    event_handlers = {}   
-    event_handlers['diagnosis'] =  handle_diagnosis
-    event_handlers['lab'] = handle_lab 
+    
+    """this callable serves the purpose of generating a unique ID for an event within a particular table (in this case `lab`); 
+    It is beneficial to compute histograms on a per-event basis, since the ranges of continuous values for each event type may vary significantly.
+    """
+    # compute a histogram for each lab name, lab unit pair
+    def lab_event_id(e: Event):
+        return (e.code, e.attr_dict['lab_measure_name_system'])
+    
+    hist_identifier={'lab': lab_event_id}
     
     # this event handler is called after the histograms have been computed
+    """This function serves the purpose of generating a vocabulary element. 
+    The vocab element must be hashable, and it is acceptable to use a string to serialize data
+    The bin index parameter, is the index within the histogram for this particular lab event.
+    """
     def handle_discrete_lab(event: Event, bin_index: int):
         lab_name = event.code
         lab_value = bin_index
         lab_unit = event.attr_dict['lab_measure_name_system']
 
-        return f"{lab_name}_{lab_unit}_{lab_value}"
+        # return f"{lab_name}_{lab_unit}_{lab_value}"
+        return (lab_name, lab_unit, lab_value)
     
+
+    # define value handlers; these handlers serve the function of converting an event into a primitive value. 
+    # event handlers are called to clean up values
+    event_handlers = {}
+    event_handlers['diagnosis'] =  handle_diagnosis
+    event_handlers['lab'] = handle_lab 
+
+    # discrete event handlers are called to produce primitives for auto-discretization
     discrete_event_handlers = {}
     discrete_event_handlers['lab'] = handle_discrete_lab
     
@@ -359,6 +380,7 @@ if __name__ == "__main__":
         use_tables=None,
         event_handlers=event_handlers,
         compute_histograms=['lab'],
+        hist_identifier=hist_identifier,
         size_per_event_bin={'lab': 10},
         discrete_event_handlers=discrete_event_handlers,
         size_per_time_bin=10,
@@ -395,7 +417,7 @@ if __name__ == "__main__":
         checkpoint_dir=f'{basedir}/model_saves',
         model_save_name='eval_developement_test'
     )
-    s = trainer.set_basic_splits(from_save=True, save=True)
+    s = trainer.set_basic_splits(from_save=False, save=True)
     print('split lengths', [len(_s) for _s in s])
     
     start_time = time.perf_counter()
@@ -408,12 +430,12 @@ if __name__ == "__main__":
     end_time = time.perf_counter()
     run_time = end_time - start_time
     print("training time:", run_time, run_time / 60, (run_time / 60) / 60)
-    
+   [[[] 
     # --- generate synthetic dataset using the best model ---
-    state_dict = torch.load(open(trainer.get_model_checkpoint_path(), 'rb'), map_location=device)
+    # state_dict = torch.load(open(trainer.get_model_checkpoint_path(), 'rb'), map_location=device)
 
-    model.load_state_dict(state_dict['model'])
-    model.to(device)
+    # model.load_state_dict(state_dict['model'])
+    # model.to(device)
 
     generator = Generator(
         model=model,
@@ -425,7 +447,7 @@ if __name__ == "__main__":
     )
 
     labels = [((1), 25000), ((0), 25000)]
-    synthetic_dataset = generator.generate_conditioned(labels)
+    # synthetic_dataset = generator.generate_conditioned(labels)
 
     def pathfn(plot_type: str, label: List):
         prefix = os.path.join(generator.save_dir, 'plots')
@@ -444,8 +466,8 @@ if __name__ == "__main__":
     # conduct evaluation of the synthetic data w.r.t. it's source
     evaluator = Evaluator(generator=generator, processor=processor)
     stats = evaluator.evaluate(
-        source=trainer.test_dataset[:10],
-        synthetic=pickle.load(file=open(generator.save_path, 'rb'))[:10],
+        source=trainer.test_dataset,
+        synthetic=pickle.load(file=open(generator.save_path, 'rb')),
         get_plot_path_fn=pathfn,
         compare_label=list(labels.keys()),
     )
