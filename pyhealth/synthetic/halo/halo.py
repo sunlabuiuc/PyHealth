@@ -305,20 +305,20 @@ if __name__ == "__main__":
 
     # ROOT = "https://storage.googleapis.com/pyhealth/eicu-demo/"
 
-    ROOT = "/home/bdanek2/data/physionet.org/files/eicu-crd/2.0"
-    # ROOT = "/home/bpt3/data/physionet.org/files/eicu-crd/2.0"
+    # ROOT = "/home/bdanek2/data/physionet.org/files/eicu-crd/2.0"
+    ROOT = "/home/bpt3/data/physionet.org/files/eicu-crd/2.0"
     dataset = eICUDataset(
         dataset_name="eICU-demo",
         root=ROOT,
-        # tables=["diagnosis", "lab"],
-        tables=["diagnosis"],
+        tables=["diagnosis", "lab"],
+        # tables=["diagnosis"],
         code_mapping={},
         dev=False,
         refresh_cache=False,
     )
 
-    basedir = '/home/bdanek2/halo_developement/testing_1'
-    # basedir = '/home/bpt3/code/PyHealth/pyhealth/synthetic/halo/temp'
+    # basedir = '/home/bdanek2/halo_development/testing_1'
+    basedir = '/home/bpt3/code/PyHealth/pyhealth/synthetic/halo/temp'
 
     # --- processor ---
     batch_size = 512
@@ -361,7 +361,6 @@ if __name__ == "__main__":
         lab_value = bin_index
         lab_unit = event.attr_dict['lab_measure_name_system']
 
-        # return f"{lab_name}_{lab_unit}_{lab_value}"
         return (lab_name, lab_unit, lab_value)
     
 
@@ -401,7 +400,7 @@ if __name__ == "__main__":
     
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     print(optimizer.__class__)
-    # state_dict = torch.load(open(f'{basedir}/model_saves/eval_developement.pt', 'rb'), map_location=device)
+    # state_dict = torch.load(open(f'{basedir}/model_saves/eval_development.pt', 'rb'), map_location=device)
     # model.load_state_dict(state_dict['model'])
     # model.to(device)
     # optimizer.load_state_dict(state_dict['optimizer'])
@@ -410,14 +409,14 @@ if __name__ == "__main__":
     
     # --- train model ---
     trainer = Trainer(
-        dataset=dataset,
+        dataset=processor.dataset,
         model=model,
         processor=processor,
         optimizer=optimizer,
         checkpoint_dir=f'{basedir}/model_saves',
-        model_save_name='eval_developement_test'
+        model_save_name='eval_development_test'
     )
-    s = trainer.set_basic_splits(from_save=False, save=True)
+    s = trainer.set_basic_splits(from_save=True, save=True)
     print('split lengths', [len(_s) for _s in s])
     
     start_time = time.perf_counter()
@@ -430,12 +429,11 @@ if __name__ == "__main__":
     end_time = time.perf_counter()
     run_time = end_time - start_time
     print("training time:", run_time, run_time / 60, (run_time / 60) / 60)
-   [[[] 
+ 
     # --- generate synthetic dataset using the best model ---
-    # state_dict = torch.load(open(trainer.get_model_checkpoint_path(), 'rb'), map_location=device)
-
-    # model.load_state_dict(state_dict['model'])
-    # model.to(device)
+    state_dict = torch.load(open(trainer.get_model_checkpoint_path(), 'rb'), map_location=device)
+    model.load_state_dict(state_dict['model'])
+    model.to(device)
 
     generator = Generator(
         model=model,
@@ -447,7 +445,7 @@ if __name__ == "__main__":
     )
 
     labels = [((1), 25000), ((0), 25000)]
-    # synthetic_dataset = generator.generate_conditioned(labels)
+    synthetic_dataset = generator.generate_conditioned(labels)
 
     def pathfn(plot_type: str, label: List):
         prefix = os.path.join(generator.save_dir, 'plots')
@@ -466,7 +464,7 @@ if __name__ == "__main__":
     # conduct evaluation of the synthetic data w.r.t. it's source
     evaluator = Evaluator(generator=generator, processor=processor)
     stats = evaluator.evaluate(
-        source=trainer.test_dataset,
+        source=trainer.train_dataset,
         synthetic=pickle.load(file=open(generator.save_path, 'rb')),
         get_plot_path_fn=pathfn,
         compare_label=list(labels.keys()),

@@ -24,7 +24,7 @@ class Processor():
         3. mapping `pyhealth.data.Visit` metadata, and vocuabulary terms to a multi-hot representation vector the HALO method uses
         4. provide get batch function for halo trainer
 
-    Instantiating this class wil trigger `aggregate_indeces` and `set_indeces` functions, which computes the global vocabulary needed to represent the provided dataset. 
+    Instantiating this class wil trigger `aggregate_indices` and `set_indices` functions, which computes the global vocabulary needed to represent the provided dataset. 
 
     Args:
         dataset: Dataset to process.
@@ -86,6 +86,7 @@ class Processor():
         hist_identifier: Dict[str, Callable[[Event], _Hashable]] = {}, # used to identify the event in the histogram
         size_per_event_bin: Dict[str, int] = {}, # number of bins to use for each tables histograms
         discrete_event_handlers: Dict[str, Callable[[Event, int], _Hashable]] = {}, # after digitization we need to apply another layer of handlers for things like serialization
+        max_continuous_per_table: int = 50, # if there are too many continuous events, we only compute histograms for the top k most common
 
         # used to discretize time
         size_per_time_bin: int = 10,
@@ -118,6 +119,7 @@ class Processor():
         self.size_per_event_bin = size_per_event_bin
         
         self.discrete_event_handlers = discrete_event_handlers
+        self.max_continuous_per_table = max_continuous_per_table
 
         assert set(self.compute_histograms) == set(self.size_per_event_bin.keys()), "Histogram bins must be defined for each table"
 
@@ -125,7 +127,7 @@ class Processor():
         assert size_per_time_bin > 0, "Nonnegative size_per_time_bin required. May be due to user error, or value is not defined."
         assert 100 / size_per_time_bin == int(100 / size_per_time_bin), "size_per_time_bin must be a factor of 100" # We make k evenly sized bins, so size_per_time_bin * k = 100%
         self.size_per_time_bin = size_per_time_bin
-        self.time_vector_length = (100 // size_per_time_bin) # + 1 # +1 for the nth bin # todo: remove, since we handle this in the bin formation
+        self.time_vector_length = (100 // size_per_time_bin)
 
         self.max_visits = max_visits
 
@@ -133,16 +135,16 @@ class Processor():
 
         self.refresh_cache = refresh_cache
 
-        # init the indeces & dynamically computed utility variables used in HALO training later
-        self.set_indeces()
+        # init the indices & dynamically computed utility variables used in HALO training later
+        self.set_indices()
 
 
-    def set_indeces(self) -> None:
-        """calls `halo.Processor.aggregate_event_indeces` and to compute offsets and define vocabulary. 
-        Uses offsets to set indeces for the HALO visit multi-hot vector representation. Also sets vocabulary metada used when instantiating the `halo.HALO` model. 
+    def set_indices(self) -> None:
+        """calls `halo.Processor.aggregate_event_indices` and to compute offsets and define vocabulary. 
+        Uses offsets to set indices for the HALO visit multi-hot vector representation. Also sets vocabulary metada used when instantiating the `halo.HALO` model. 
         """
 
-        # set aggregate indeces; try cache first
+        # set aggregate indices; try cache first
         args_to_hash = (
             self.name,
             [self.dataset.filepath]
@@ -155,7 +157,7 @@ class Processor():
             logger.debug(f"Loaded {self.name} from cache at file {self.filepath}")
         else:
             logger.debug(f"Computing {self.name} from scratch")
-            aggregated_results = self.aggregate_event_indeces()
+            aggregated_results = self.aggregate_event_indices()
             save_pickle(aggregated_results, self.filepath)
 
         self.global_events = aggregated_results['global_events']
@@ -165,6 +167,7 @@ class Processor():
         if (self.max_visits == None):
             self.max_visits = aggregated_results['max_visits'] # if the user does not provide, infer from dataset
 
+        self.age_bins = aggregated_results['age_bins'] # bins for age at first visit
         self.visit_bins = aggregated_results['visit_bins'] # bins for time gaps between visits
         self.event_bins = aggregated_results['event_bins'] # bins for continuous values
 
@@ -188,7 +191,7 @@ class Processor():
     """
     its necessary to aggregate global event data, prior to transforming the dataset
     """
-    def aggregate_event_indeces(self) -> None:
+    def aggregate_event_indices(self) -> None:
         """Iterates through the provided dataset and computes a vocabulary of events. 
         Each term in the vocabulary is represented as the tuple (`table_name`, `event_handler[table_name](event))` where `table_name` 
         is a string denoting the table which events were parsed from, and `event_hanlder` is a dictionary of callables for unpacking table events.
@@ -201,29 +204,30 @@ class Processor():
         max_visits: int = 0
         min_birth_datetime = pandas.Timestamp.now()
         missing_birth_datetime = 0
+        missing_birth_datetime_patients = set()
         for pdata in tqdm(list(self.dataset), desc="Computing min birth datetime"):
-                
                 max_visits = max(max_visits, len(pdata.visits))
                 if pdata.birth_datetime != None:
                     min_birth_datetime = min(min_birth_datetime, pdata.birth_datetime)
                 else:
                     missing_birth_datetime += 1
+                    missing_birth_datetime_patients.add(pdata.patient_id)
         logging.debug(f"Missing birth datetime for {missing_birth_datetime} patients")
 
         global_events = {}
 
         # used to compute discretized visit gaps in the processor
+        age_gaps: int = []
         visit_gaps: int = [] 
 
         # a set of all table events in the dataset used to compute histograms for automatic continuous value handling
         # keys: table, value: dictionary of key: event_id, value: list of (raw_event, event_value)
         continuous_values_for_hist: Dict[str, Dict[List[float]]] = self.new_nested_defaultdict()
-        missing_birth_datetime = 0
-        unordered_events = 0
         visits_without_tables = 0
+        visits_without_tables_visits = set()
         coinciding_visits = 0
+        global_event_set = set()
         for pdata in tqdm(list(self.dataset), desc="Processor computing vocabulary"):
-
             if pdata.birth_datetime == None:
                 continue
 
@@ -231,37 +235,36 @@ class Processor():
 
             # compute global event
             for vdata in sorted(pdata.visits.values(), key=lambda v: v.encounter_time): # visit events are not sorted by default
-
                 # compute time since last visit; if negative, skip
                 time_since_last_visit_delta = vdata.encounter_time - previous_time
-                time_since_last_visit = time_since_last_visit_delta.days * 24 + time_since_last_visit_delta.seconds // 60
+                time_since_last_visit = time_since_last_visit_delta.days * 24 + time_since_last_visit_delta.seconds / 3600
             
                 # omit any events which do not have events to model
                 if len(vdata.available_tables) == 0:
                     visits_without_tables += 1
+                    visits_without_tables_visits.add((pdata.patient_id, vdata.visit_id))
                     logger.debug(f"Patient {pdata.patient_id} has a visit with no events to model. This is not allowed.")
                     continue
 
                 if time_since_last_visit == 0:
                     coinciding_visits += 1
 
-                visit_gaps.append(time_since_last_visit) # visit gaps in hours # todo: make hours
-
-                previous_time = vdata.discharge_time
+                if previous_time == pdata.birth_datetime:
+                    age_gaps.append(time_since_last_visit)
+                else:
+                    visit_gaps.append(time_since_last_visit)
+                    
+                previous_time = vdata.encounter_time
 
                 for table in vdata.available_tables:
-
                     # valid_tables == None signals we want to use all tables
                     # otherwise, omit any table not in the whitelist
                     if self.valid_dataset_tables != None and table not in self.valid_dataset_tables: continue
                     
                     table_events_raw = vdata.get_event_list(table)
                     event_handler = self.event_handlers[table] if table in self.event_handlers else None
-                    
                     for te_raw in table_events_raw:
-                        
                         te = event_handler(te_raw) if event_handler else te_raw.code
-                        
                         if table in self.compute_histograms:
                             event_id = self.hist_identifier[table](te_raw)
                             continuous_values_for_hist[table][event_id].append((te_raw, te)) # te only has numerical information, te_raw has the full event with metadata; we give the option to create vocabulary elements with the full event + the discretized value
@@ -271,73 +274,105 @@ class Processor():
                         # which requires the whole dataset to be processed
                         else:
                             global_event = (table, te)
-
-                            if global_event not in global_events:
-                                index_of_global_event = self.time_vector_length + (len(global_events) // 2)
-                                global_events[global_event] = index_of_global_event
-                                global_events[index_of_global_event] = global_event
+                            if global_event not in global_event_set:
+                                global_event_set.add(global_event)
+                  
+        global_event_set = list(global_event_set)
+        np.random.shuffle(global_event_set)
+        for global_event in global_event_set:              
+            index_of_global_event = self.time_vector_length + (len(global_events) // 2)
+            global_events[global_event] = index_of_global_event
+            global_events[index_of_global_event] = global_event
 
         logger.warn(f"Missing birth datetime for {missing_birth_datetime} patients")
-        logger.warn(f"Found {unordered_events} unordered events")
         logger.warn(f"Found {visits_without_tables} visits without tables")
         logger.warn(f"Found {coinciding_visits} coinciding visits")
         logger.warn(f"Determined {[(k, len(v)) for k, v in continuous_values_for_hist.items()]} event_ids to compute histograms for")
+        
+        logger.warn(f'Cleaning dataset of patients with missing birth datetime and visits without tables')
+        for p_id in tqdm(missing_birth_datetime_patients, desc="Removing patients with missing birth datetime"):
+            self.dataset.patients.pop(p_id)
+            self.dataset.patient_ids.remove(p_id)
 
-        # used to compute discretized visit gaps in the processor
+        for p_id, v_id in tqdm(visits_without_tables_visits, desc="Removing visits without tables"):
+            if p_id in self.dataset.patients:
+                self.dataset.patients[p_id].visits.pop(v_id)
+                self.dataset.patients[p_id].index_to_visit_id = {i: v for i, v in enumerate(self.dataset.patients[p_id].visits.keys())}
+                if len(self.dataset.patients[p_id].visits) == 0:
+                    self.dataset.patients.pop(p_id)
+                    self.dataset.patient_ids.remove(p_id)
+
+        # used to compute discretized ages and visit gaps in the processor
+        age_bins = []
+        for b in range(0, 100 + 1, self.size_per_time_bin):
+            age_bins.append(np.percentile(age_gaps, b))
+            
+        age_bins[-1] = age_bins[-1] + self.EPSILON # add epsilon to the last bin to ensure we capture the max value in the dataset
+        logger.warn("Age bins: %s", [("%.3f" % b) for b in age_bins])
+        
         visit_bins = []
-        for b in range(self.size_per_time_bin, 100 + 1, self.size_per_time_bin): # todo: need the right most edge of the histogram values, since we need to have the max value present in the dataset
+        for b in range(0, 100 + 1, self.size_per_time_bin):
             visit_bins.append(np.percentile(visit_gaps, b))
 
         visit_bins[-1] = visit_bins[-1] + self.EPSILON # add epsilon to the last bin to ensure we capture the max value in the dataset
         logger.warn("Visit bins: %s", [("%.3f" % b) for b in visit_bins])
 
-
         # compute the discretization bins for continuous values per event per table (each event_id has its own set of bins) based on the values present for that event in the dataset
         # keys: table, value: dictionary of key: event_id, value: list of bin boundaries
         event_bins = self.new_nested_defaultdict()
-
         for table in self.compute_histograms:
             # compute the quantity of event bins for each event type within the table
             num_event_bins = self.size_per_event_bin[table]
-
-            for event_id, event_values in continuous_values_for_hist[table].items(): # todo: per lab histograms. if there are too many labs, then just do top 50 labs
-                values = [v for pyhealth_event_obj, v in event_values]
-                # compute histograms for continuous values
-                # explenation of the for loop below:
-                # we determine the right boundary of a bin using this loop. 
-                # There is no need to compute the right boundary of the 0th bin, 
-                # since that includes values which are 0th precentile (very few values) or less (does not exist);
-                # it is sufficient to put values of the 0th precentile in to the 1st bin
-                for b in range(num_event_bins, 100 + 1, num_event_bins):
-                    bin_boundary = np.percentile(values, b) # the right boundary of the bin containing the bth precentile
+            table_continuous_events = continuous_values_for_hist[table].items()
+            table_continuous_events = sorted(table_continuous_events, key=lambda x: len(x[1]), reverse=True)[:self.max_continuous_per_table]
+            for event_id, event_values in table_continuous_events:
+                values = [v for _, v in event_values]
+                for b in range(0, 100 + 1, num_event_bins):
+                    bin_boundary = np.percentile(values, b)
                     event_bins[table][event_id].append(bin_boundary)
 
                 event_bins[table][event_id][-1] = event_bins[table][event_id][-1] + self.EPSILON # add epsilon to the last bin to ensure we capture the max value in the dataset
                 logger.warn("Event bins for (%s) %s: %s", table, event_id, [ ("%.3f" % b) for b in event_bins[table][event_id]])
 
         # generate vocabulary for continuous valued events now that we have bins
+        global_event_set = set()
         for table in self.compute_histograms:
-
-            for event_id, event_values in tqdm(continuous_values_for_hist[table].items(), desc=f"Converting continuous events in {table} to vocabulary"):
-
+            # TODO: Ask if this simpler way is going to mess up due to unit differences (and if we're better off separating/converting those if so)
+            # num_event_bins = self.size_per_event_bin[table]
+            # for event_id in event_bins[table]:
+            #     pyhealth_event_obj = continuous_values_for_hist[table][event_id][0][0]
+            #     for bin_id in range(num_event_bins):
+            #         if table in self.discrete_event_handlers:
+            #             vocabulary_element = self.discrete_event_handlers[table](pyhealth_event_obj, bin_id)
+                        
+            #         global_event = (table, vocabulary_element)
+            #         if global_event not in global_event_set:
+            #             global_event_set.add(global_event)
+            
+            for event_id, event_values in tqdm(table_continuous_events, desc=f"Converting continuous events in {table} to vocabulary"):
                 for pyhealth_event_obj, value in event_values:
                     discretization_bins = event_bins[table][event_id]
-                    bin_id = np.digitize(value, discretization_bins)
+                    bin_id = np.digitize(value, discretization_bins) - 1 # -1 to account for the 0th bin
 
                     if table in self.discrete_event_handlers:
                         vocabulary_element = self.discrete_event_handlers[table](pyhealth_event_obj, bin_id)
 
                     global_event = (table, vocabulary_element)
+                    if global_event not in global_event_set:
+                        global_event_set.add(global_event)
 
-                    if global_event not in global_events:
-                        index_of_global_event = self.time_vector_length + (len(global_events) // 2)
-                        global_events[global_event] = index_of_global_event
-                        global_events[index_of_global_event] = global_event
+        global_event_set = list(global_event_set)
+        np.random.shuffle(global_event_set)
+        for global_event in global_event_set:              
+            index_of_global_event = self.time_vector_length + (len(global_events) // 2)
+            global_events[global_event] = index_of_global_event
+            global_events[index_of_global_event] = global_event
 
         return {
             'global_events': global_events,
             'max_visits': max_visits,
             'min_birth_datetime': min_birth_datetime,
+            'age_bins': age_bins,
             'visit_bins': visit_bins,
             'event_bins': event_bins
         }
@@ -345,14 +380,14 @@ class Processor():
     def process_batch(self, batch) -> Tuple:
         """Convert a batch of `pyhealth.data.Patient` objects into a batch of multi-hot vectors for the HALO model.
 
-        Use the indeces from `halo.Processor.set_indeces` to produce a series of visit vectors; each visit vector will include the following:
+        Use the indices from `halo.Processor.set_indices` to produce a series of visit vectors; each visit vector will include the following:
             - patient label
             - visit events
             - inter-visit gap
             - visit metadata
         Towards this, the following operations will be done: 
         1. for each `pyhealth.data.Patient` compute the patient label using the label function using the label function provided during object instantiation.
-        2. translate each visit into a mulit-hot vector where indeces using the global vocabulary computed during the object instantiation.
+        2. translate each visit into a mulit-hot vector where indices using the global vocabulary computed during the object instantiation.
         3. translate inter-visit gap and patient age into multihot vector 
         
         Returns:
@@ -366,54 +401,39 @@ class Processor():
         # dim 1: visit vectors
         # dim 2: concat(event multihot, label onehot, metadata)
         sample_multi_hot = np.zeros((batch_size, self.total_visit_size, self.total_vocab_size)) # patient data the model reads
-        sample_mask = np.zeros((batch_size, self.total_visit_size, 1)) # visits that are unlabeled
-        
+        sample_mask = np.zeros((batch_size, self.total_visit_size, 1)) # visits that are unlabeled        
         for pidx, pdata in enumerate(batch):
-            
             if pdata.birth_datetime == None:
                 continue
 
             previous_time = pdata.birth_datetime
             # build multihot vector for patient events
             for visit_index, vdata in enumerate(sorted(pdata.visits.values(), key=lambda v: v.encounter_time)):
-            
                 time_since_last_visit_delta = vdata.encounter_time - previous_time
-                time_since_last_visit = time_since_last_visit_delta.days * 24 + time_since_last_visit_delta.seconds // 60
-            
-                time_since_last_visit = np.digitize(time_since_last_visit, self.visit_bins)
+                time_since_last_visit = time_since_last_visit_delta.days * 24 + time_since_last_visit_delta.seconds / 3600
+                if visit_index == 0:
+                    time_since_last_visit = np.digitize(time_since_last_visit, self.age_bins) - 1 # -1 to account for the 0th bin
+                else:
+                    time_since_last_visit = np.digitize(time_since_last_visit, self.visit_bins) - 1 # -1 to account for the 0th bin
                 inter_visit_gap_vector = np.zeros(self.time_vector_length)
-                try:
-                    inter_visit_gap_vector[time_since_last_visit] = 1
-                except:
-                    # for debugging purposes only; remove try-catch later. 
-                    print(time_since_last_visit_delta)
-                    print(time_since_last_visit_delta.days * 24 + time_since_last_visit_delta.seconds // 60)
-                    print(time_since_last_visit)
-                    print(self.visit_bins)
-                    raise Exception("")
+                inter_visit_gap_vector[time_since_last_visit] = 1
 
+                # the next timedelta is previous current visit - start of previous visit 
+                # (note: not discharge because we don't model visit durations)
                 sample_multi_hot[pidx, self.VISIT_INDEX + visit_index, :self.time_vector_length] = inter_visit_gap_vector
-
-                # the next timedelta is previous current visit - discharge of previous visit
-                previous_time = vdata.discharge_time
+                previous_time = vdata.encounter_time
 
                 sample_mask[pidx, self.VISIT_INDEX + visit_index] = 1
-                
                 for table in vdata.available_tables:
-
                     if self.valid_dataset_tables != None and table not in self.valid_dataset_tables: continue
                     
                     table_events_raw = vdata.get_event_list(table)
-                    
                     event_handler = self.event_handlers[table] if table in self.event_handlers else None
-
                     for te_raw in table_events_raw:
-                        
                         te = event_handler(te_raw) if event_handler else te_raw.code
-                        
                         if table in self.compute_histograms:
                             event_id = self.hist_identifier[table](te_raw)
-                            te = np.digitize(te, self.event_bins[table][event_id])
+                            te = np.digitize(te, self.event_bins[table][event_id]) - 1 # -1 to account for the 0th bin
                             if table in self.discrete_event_handlers:
                                 te = self.discrete_event_handlers[table](te_raw, te)
 
@@ -443,7 +463,6 @@ class Processor():
         sample_mask = sample_mask[:, 1:, :]
             
         res = (sample_multi_hot, sample_mask)
-        
         return res
     
     def get_batch(self, data_subset: BaseEHRDataset, batch_size: int = 16,):
@@ -462,8 +481,6 @@ class Processor():
 
         batch_offset = 0
         while (batch_offset + batch_size <= len(data_subset)):
-            
             batch = data_subset[batch_offset: batch_offset + batch_size]
             batch_offset += batch_size # prepare for next iteration
-            
             yield self.process_batch(batch)

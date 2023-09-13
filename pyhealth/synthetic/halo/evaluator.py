@@ -30,10 +30,12 @@ class Evaluator:
     RECORD_LEN_STD = "Record Length Standard Deviation"
     VISIT_LEN_MEAN = "Visit Length Mean"
     VISIT_LEN_STD = "Visit Length Standard Deviation"
-    TEMPORAL_MEAN = "Inter-visit time Mean per level"
-    TEMPORAL_STD = "Inter-visit time Standard Deviation per level"
-    TEMPORAL_MEAN_OVERALL = "Inter-visit time Mean"
-    TEMPORAL_STD_OVERALL = "Inter-visit time Standard Deviation"
+    TEMPORAL_MEAN = "Inter-Visit Time Mean Per Level"
+    TEMPORAL_STD = "Inter-Visit Time Standard Deviation Per Level"
+    TEMPORAL_MEAN_AGE = "Age at First Visit Mean"
+    TEMPORAL_STD_AGE = "Age at First Visit Standard Deviation"
+    TEMPORAL_MEAN_OVERALL = "Post First Visit Gap Mean"
+    TEMPORAL_STD_OVERALL = "Post First Visit Gap Standard Deviation"
     AGGREGATE = "Aggregate"
 
     RECORD_CODE_PROB = "Per Record Code Probabilities"
@@ -159,7 +161,6 @@ class Evaluator:
         stats = {}
         label_counts = {}
         for label in sorted(list(labels)):
-            
             # select the current subset to generate stats for
             ehr_subset = []
             if label != self.ALL_LABELS:
@@ -169,17 +170,14 @@ class Evaluator:
             else:
                 ehr_subset = ehr_dataset
 
-            # compute stats per label
-            label_subset = ehr_dataset
-            label_counts[label] = len(label_subset)
-
+            label_counts[label] = len(ehr_subset)
             label_stats = {}
 
             # compute aggregate stats
             record_lens = []
             visit_lens = []
             visit_gaps = []
-            for sample in label_subset:
+            for sample in ehr_subset:
                 visits = sample[self.generator.VISITS]
                 timegap = sample[self.generator.TIME]
                 record_lens.append(len(visits))
@@ -194,14 +192,16 @@ class Evaluator:
             
             temporal_gaps_per_level = collections.defaultdict(list)
             for gaps in visit_gaps:
-                # organize gaps by the quantity of visit gaps
-                temporal_gaps_per_level[len(gaps)].append(gaps)
+                # organize gaps by the number visit
+                for i, g in enumerate(gaps):
+                    temporal_gaps_per_level[i].append(g)
 
             aggregate_stats[self.TEMPORAL_MEAN] = [np.mean(temporal_gaps_per_level[level]) for level in temporal_gaps_per_level.keys()]
             aggregate_stats[self.TEMPORAL_STD] = [np.std(temporal_gaps_per_level[level]) for level in temporal_gaps_per_level.keys()]
-            
-            # todo: continue here
-            aggregate_stats[self.TEMPORAL_MEAN_OVERALL] = np.mean([v for v_g in visit_gaps for v in v_g])
+            aggregate_stats[self.TEMPORAL_MEAN_AGE] = np.mean([gaps[0] for gaps in visit_gaps])
+            aggregate_stats[self.TEMPORAL_STD_AGE] = np.std([gaps[0] for gaps in visit_gaps])
+            aggregate_stats[self.TEMPORAL_MEAN_OVERALL] = np.mean([g for gaps in visit_gaps for g in gaps[1:]])
+            aggregate_stats[self.TEMPORAL_STD_OVERALL] = np.std([g for gaps in visit_gaps for g in gaps[1:]])
 
             label_stats[self.AGGREGATE] = aggregate_stats
 
@@ -215,7 +215,7 @@ class Evaluator:
             visit_bigram_counts = {}
             record_sequential_bigram_counts = {}
             visit_sequential_bigram_counts = {}
-            for row in label_subset:
+            for row in ehr_subset:
                 patient_codes = set()
                 patient_bigrams = set()
                 sequential_bigrams = set()
@@ -248,7 +248,7 @@ class Evaluator:
             record_bigram_probs = {cs: record_bigram_counts[cs]/n_records for cs in record_bigram_counts}
             visit_bigram_probs = {cs: visit_bigram_counts[cs]/n_visits for cs in visit_bigram_counts}
             record_sequential_bigram_probs = {sc: record_sequential_bigram_counts[sc]/n_records for sc in record_sequential_bigram_counts}
-            visit_sequential_bigram_probs = {sc: visit_sequential_bigram_counts[sc]/(n_visits - len(label_subset)) for sc in visit_sequential_bigram_counts}
+            visit_sequential_bigram_probs = {sc: visit_sequential_bigram_counts[sc]/(n_visits - len(ehr_subset)) for sc in visit_sequential_bigram_counts}
             
             code_stats[self.RECORD_CODE_PROB] = record_code_probs
             code_stats[self.VISIT_CODE_PROB] = visit_code_probs
@@ -259,7 +259,7 @@ class Evaluator:
             
             label_stats[self.PROBABILITIES] = code_stats
             stats[label] = label_stats
-        label_probs = {l: label_counts[l]/n_records for l in label_counts}
+        label_probs = {l: label_counts[l]/len(ehr_dataset) for l in label_counts}
         
         stats[self.LABEL_PROBABILITIES] = label_probs
         

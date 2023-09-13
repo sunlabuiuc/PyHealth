@@ -86,7 +86,7 @@ class Trainer:
         
         return self.train_dataset, self.test_dataset, self.eval_dataset
         
-    def split(self, splits: List[float] = [0.8, 0.1, 0.1], shuffle: bool = False):
+    def split(self, splits: List[float] = [0.8, 0.1, 0.1], shuffle: bool = True):
         """Split the dataset by ratio & return the result
 
         Args:
@@ -97,7 +97,7 @@ class Trainer:
             the computed dataset splits.
         """
         if shuffle:
-            self.dataset = random.random.shuffle(self.dataset)
+            random.shuffle(self.dataset.patient_ids)
             
         if sum(splits) != 1:
             raise Exception(f"splits don't sum to the full dataset. sum(splits) = {sum(splits)}")
@@ -174,14 +174,10 @@ class Trainer:
         global_val_loss = 1e10
         current_patience = 0
         for e in tqdm(range(epoch), desc="Training HALO model"):
-            
             self.model.train()
-
-            # todo: shuffle the whole training dataset
             random.shuffle(self.train_dataset)
-
+            train_losses = []
             for i, (batch_ehr, batch_mask) in enumerate(self.processor.get_batch(self.train_dataset, batch_size)):
-                
                 batch_ehr = torch.tensor(batch_ehr, dtype=torch.float32).to(self.device)
                 batch_mask = torch.tensor(batch_mask, dtype=torch.float32).to(self.device)
                 
@@ -191,10 +187,13 @@ class Trainer:
                 
                 loss.backward()
                 self.optimizer.step()
+                train_losses.append((loss).cpu().detach().numpy())
                 
                 # the eval period may never be reached if there aren't enough batches
                 if i % min(eval_period, len(self.train_dataset)//batch_size - 1) == 0:
-                    print("Epoch %d, Iter %d: Training Loss:%.7f"%(e, i, loss))
+                    cur_train_loss = np.mean(train_losses)
+                    train_losses = []
+                    print("Epoch %d, Iter %d: Training Loss:%.7f"%(e, i, cur_train_loss))
                     cur_val_loss = self.eval(batch_size=batch_size)
                     print("Epoch %d Validation Loss:%.7f"%(e, cur_val_loss))
 
@@ -203,8 +202,8 @@ class Trainer:
                         global_val_loss = cur_val_loss
                         current_patience = 0
                         self.make_checkpoint(epoch=e, iteration=i)
-                    
-                    current_patience += 1
+                    else:
+                        current_patience += 1
 
             if current_patience >= patience: 
                 print("Training parameter `patience` exceeded provided threshold.")

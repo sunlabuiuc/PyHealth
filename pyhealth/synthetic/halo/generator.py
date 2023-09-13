@@ -88,14 +88,13 @@ class Generator:
         Args:
             context: the batch of context vectors used to begin the generation. Should include start token and label.
             batch_size: quantity of context vectors to sample per batch.
-            random: # todo
+            random: where we are randomly sampling to generate the next visit, or making predictions through rounding.
         """
         empty = torch.zeros((1, 1, self.processor.total_vocab_size), device=self.device, dtype=torch.float32).repeat(batch_size, 1, 1)
         prev = torch.tensor(context, device=self.device, dtype=torch.float32)
 
         with torch.no_grad():
-            for _ in range(self.processor.max_visits - (len(['start_token', 'label_token']))): # visits - (start vector, label vector); iterate # of ti
-
+            for _ in range(self.processor.max_visits - (len(['start_token', 'label_token']))): # max num - (start vector, label vector)
                 prev = self.model.sample(torch.cat((prev,empty), dim=1), random=random)
 
                 # when we have generated end token break early
@@ -103,7 +102,6 @@ class Generator:
                     break
 
         samples = prev.cpu().detach().numpy()
-
         return samples
 
 
@@ -112,7 +110,7 @@ class Generator:
         """Convert multi hot visit representation used as internal representation of visits in the HALO model into terms in vocabulary.
 
         Uses the `time_handler_inverter` as well as vocuabulary information present in the `halo.Processor` to translate the
-        output of the HALO model into human readable grammer. Namely, the indeces of the visit vectors are mapped using the `halo.Processor.global_events`
+        output of the HALO model into human readable grammer. Namely, the indices of the visit vectors are mapped using the `halo.Processor.global_events`
         back to their unique string identifiers. Additionally, the `time_handler_inverter` function is applied to the inter-visit gap vector,
         allowing the translation of mutli-hot time vectors into an abitrary representation (such as python datetime). 
 
@@ -132,15 +130,17 @@ class Generator:
             labels_output = tuple(sample[self.processor.LABEL_INDEX][self.processor.label_start_index: self.processor.label_end_index])
 
             for j in range(self.processor.VISIT_INDEX, len(sample)):
-                
                 visit = sample[j]
 
                 # handle inter-visit gaps
                 time_gap = visit[:self.processor.time_vector_length]
                 time_gap = np.nonzero(time_gap)[0]
-                time_as_index = time_gap[0] if len(time_gap) > 0 else 0
-                time_gap_as_days = self.processor.visit_bins[time_as_index]
-                sample_time_gaps.append(time_gap_as_days)
+                time_as_index = time_gap[0] if len(time_gap) > 0 else np.random.randint(0, self.processor.time_vector_length)
+                if j == self.processor.VISIT_INDEX:
+                    time_gap_as_hours = np.random.uniform(self.processor.age_bins[time_as_index], self.processor.age_bins[time_as_index+1])
+                else:
+                    time_gap_as_hours = np.random.uniform(self.processor.visit_bins[time_as_index], self.processor.visit_bins[time_as_index+1])
+                sample_time_gaps.append(time_gap_as_hours)
 
                 # handle visit event codes
                 visit_events = visit[self.processor.time_vector_length: self.processor.num_global_events]
