@@ -1,9 +1,14 @@
 import os
+import time
+import random
+import threading
 from typing import Optional, Tuple
 from threading import Lock
 import gradio as gr
-from query_data import get_basic_qa_chain, get_qa_with_sources_chain
-from constant import OPENAI_API_KEY
+from env import OPENAI_API_KEY
+
+
+from qa_chain import MainChain
 
 os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
 
@@ -19,10 +24,8 @@ class ChatWrapper:
     def __init__(self):
         self.lock = Lock()
 
-        # Set OpenAI key
-        import openai
-        openai.api_key = os.environ["OPENAI_API_KEY"]
-        self.chain = get_basic_qa_chain()
+        # self.chain = get_basic_qa_chain()
+        self.chain = MainChain()
 
     def __call__(
         self, inp: str, history: Optional[Tuple[str, str]]
@@ -30,22 +33,22 @@ class ChatWrapper:
         """Execute the chat functionality."""
         self.lock.acquire()
         try:
-            history = history or []
+            # history = history or []
             # Run chain and append input.
-            output = self.chain({"question": inp})["answer"]
-            history.append((inp, output))
+            output = self.chain(inp)
+            history.append([inp, output])
         except Exception as e:
             raise e
         finally:
             self.lock.release()
-        return history, history
+            # pass
+        return history
 
 
 if __name__ == "__main__":
 
     chat = ChatWrapper()
-    block = gr.Blocks(theme="default", css=CSS)
-    with block:
+    with gr.Blocks(theme="default", css=CSS) as block:
         with gr.Row():
             gr.Markdown(
                 "<h1><center>PyHealth Assistant</center></h1> <h3><a href='https://pyhealth.readthedocs.io/en/latest/'>< back to docs</a></h3>")
@@ -58,6 +61,9 @@ if __name__ == "__main__":
                 lines=1,
             )
 
+        # clear = gr.Button("Clear")
+        
+
         gr.Examples(
             examples=[
                 "How can PyHealth help you?",
@@ -67,15 +73,39 @@ if __name__ == "__main__":
             inputs=message,
         )
 
-        state = gr.State()
-        message.submit(chat, inputs=[message, state], outputs=[chatbot, state])
+        # state = gr.State()
+        # message.submit(chat, inputs=[message, state], outputs=[chatbot, state])
 
-        # https://discuss.huggingface.co/t/unable-to-clear-input-after-submit/33543/12
-        message.submit(lambda x: gr.update(value=""),
-                       [state], [message], queue=False)
+        # # https://discuss.huggingface.co/t/unable-to-clear-input-after-submit/33543/12
+        # message.submit(lambda x: gr.update(value=""),
+        #                [state], [message], queue=False)
+    
 
+        def user(user_message, history):
+            return "", history + [[user_message, None]]
+
+        def bot(history):
+            user_message = history[-1][0]
+            history[-1][1] = ""
+            
+            t = threading.Thread(target=chat, args=(user_message, history))
+            t.start()
+            new_token = chat.chain.streaming_buffer.get()
+            while new_token is not None:
+                history[-1][1] += new_token
+                new_token = chat.chain.streaming_buffer.get()
+                yield history
+            
+            t.join()
+
+        message.submit(user, [message, chatbot], [message, chatbot], queue=False).then(
+            bot, chatbot, chatbot
+        )
+        # clear.click(lambda: None, None, chatbot, queue=False)
+
+    block.queue()
     block.launch(
         share=False,
-        debug=False,
+        debug=True,
         server_name="0.0.0.0"
     )
