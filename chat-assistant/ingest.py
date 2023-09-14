@@ -4,7 +4,7 @@ from langchain.vectorstores.faiss import FAISS
 from langchain.embeddings import OpenAIEmbeddings
 import pickle
 import os
-from constant import OPENAI_API_KEY
+from env import OPENAI_API_KEY
 
 os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
 
