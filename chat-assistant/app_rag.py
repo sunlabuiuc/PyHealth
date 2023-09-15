@@ -36,7 +36,7 @@ class ChatWrapper:
             # history = history or []
             # Run chain and append input.
             output = self.chain(inp)
-            history.append([inp, output])
+            # history.append([inp, output])
         except Exception as e:
             raise e
         finally:
