@@ -12,6 +12,7 @@ import copy
 import math
 from typing import List
 import pickle
+from collections import Counter
 
 import torch
 import torch.nn as nn
@@ -327,7 +328,29 @@ if __name__ == "__main__":
     simple_label_fn_output_size = 1
     def simple_label_fn(**kwargs):
         pdata = kwargs['patient_data']
-        return (0) if pdata.death_datetime else (1) # 0 for dead, 1 for alive
+        return (1) if pdata.death_datetime else (0) # 1 for dead, 0 for alive
+    
+    # allEthnicities = set([p.ethnicity for p in dataset])
+    # allGenders = set([p.gender for p in dataset])
+    
+    full_label_fn_output_size = 10
+    def full_label_fn(**kwargs):
+        pdata = kwargs['patient_data']
+        mortality_idx = [1] if pdata.death_datetime else [0]
+        gender_idx = [1, 0, 0] if pdata.gender == 'Male' else [0, 1, 0] if pdata.gender == 'Female' else [0, 0, 1]
+        ethnicity_idx = [1, 0, 0, 0, 0, 0] if pdata.ethnicity == 'Caucasian' else [0, 1, 0, 0, 0, 0] if pdata.ethnicity == 'African American' else [0, 0, 1, 0, 0, 0] if pdata.ethnicity == 'Hispanic' else [0, 0, 0, 1, 0, 0] if pdata.ethnicity == 'Asian' else [0, 0, 0, 0, 1, 0] if pdata.ethnicity == 'Native American' else [0, 0, 0, 0, 0, 1]
+        return tuple(mortality_idx + gender_idx + ethnicity_idx)
+        
+    def reverse_full_label_fn(label_vec):
+        mortality_idx = label_vec[:1]
+        gender_idx = label_vec[1:4]
+        ethnicity_idx = label_vec[4:]
+        return {
+            'death_datetime': datetime.datetime.now() if mortality_idx[0] == 1 else None,
+            'gender': 'Male' if gender_idx[0] == 1 else 'Female' if gender_idx[1] == 1 else 'Other/Unknown',
+            'ethnicity': 'Caucasian' if ethnicity_idx[0] == 1 else 'African American' if ethnicity_idx[1] == 1 else 'Hispanic' if ethnicity_idx[2] == 1 else 'Asian' if ethnicity_idx[3] == 1 else 'Native American' if ethnicity_idx[4] == 1 else 'Other/Unknown',
+        }
+    
     
     def handle_diagnosis(event: Event):
         """to reduce the complexity of the model, in this example we will convert granular ICD codes to more broad ones (ie 428.3 --> 428)"""
@@ -383,10 +406,10 @@ if __name__ == "__main__":
         size_per_event_bin={'lab': 10},
         discrete_event_handlers=discrete_event_handlers,
         size_per_time_bin=10,
-        label_fn=simple_label_fn,
-        label_vector_len=simple_label_fn_output_size,
+        label_fn=full_label_fn,
+        label_vector_len=full_label_fn_output_size,
         name="HALO-Developement-Test",
-        refresh_cache=True
+        refresh_cache=False
     )
 
     print(f"Processor results in vocab len {processor.total_vocab_size}, max visit num: {processor.total_visit_size}")
@@ -441,11 +464,16 @@ if __name__ == "__main__":
         batch_size=batch_size,
         device=device,
         save_dir=basedir,
-        save_name="synthetically_generated_mortality_data", # save at `synthetically_generated_mortality_data.pkl`
+        save_name="synthetic_data", # save at `synthetically_generated_mortality_data.pkl`
     )
 
-    labels = [((1), 25000), ((0), 25000)]
+    # labels = [((1), 25000), ((0), 25000)]
+    labels = Counter([full_label_fn(patient_data=p) for p in processor.dataset])
+    maxLabel = max(labels.values())
+    labels = [(l, maxLabel) for l in labels]
+    label_mapping = {l: reverse_full_label_fn(l) for l, _ in labels}
     synthetic_dataset = generator.generate_conditioned(labels)
+    # synthetic_pyhealth_dataset = generator.convert_ehr_to_pyhealth(synthetic_dataset, event_handlers, datetime.datetime.now(), label_mapping)
 
     def pathfn(plot_type: str, label: List):
         prefix = os.path.join(generator.save_dir, 'plots')
@@ -464,7 +492,7 @@ if __name__ == "__main__":
     # conduct evaluation of the synthetic data w.r.t. it's source
     evaluator = Evaluator(generator=generator, processor=processor)
     stats = evaluator.evaluate(
-        source=trainer.train_dataset,
+        source=[trainer.train_dataset, trainer.val_dataset, trainer.test_dataset],
         synthetic=pickle.load(file=open(generator.save_path, 'rb')),
         get_plot_path_fn=pathfn,
         compare_label=list(labels.keys()),

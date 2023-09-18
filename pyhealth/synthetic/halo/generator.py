@@ -159,7 +159,7 @@ class Generator:
             samples: List,
             event_handlers: Dict[str, Callable],
             base_time: datetime,
-            label_mapping: Dict[Tuple, str] = None
+            label_mapping: Dict[Tuple, dict] = None
         ) -> List[Patient]:
         """Convert a list of patient samples in the EHR representation into a list of `pyhealth.data.Patient` objects.
 
@@ -172,7 +172,7 @@ class Generator:
                 (values in by halo.Processor.global_events dict) into arguments for instantiating a `pyhealth.data.Event` object.
             handle_inter_visit_time: a Callable to handle converting inter-visit gap values into another, arbitrary representation, such as python datetime.
             base_time: the time from which to compute all patient age and time offsets. A sensible default in many cases is datetime.now().
-            label_mapping: A mapping to convert synthetic sample label vectors into a human readable format.
+            label_mapping: A mapping to convert synthetic sample label vectors into a keyword, value pair of patient features.
 
         Returns:
             A list of `pyhealth.data.Patient` objects. 
@@ -238,7 +238,7 @@ class Generator:
             patient_label = label_mapping[sample['label']] if label_mapping else sample['label']
 
             # get timedelta for all visits
-            time_gaps = [t * datetime.timedelta(days=365) for t in sample['inter-visit_gap']]
+            time_gaps = [t * datetime.timedelta(hours=1) for t in sample['inter-visit_gap']]
         
             # get the patient birth date time
             total_time = base_time
@@ -248,7 +248,7 @@ class Generator:
             patient = Patient(
                 patient_id=patient_id, 
                 birth_datetime=total_time,
-                patient_label=patient_label, # replace with semantic meaning for the label
+                **patient_label
             )
 
             time_of_last_visit = patient.birth_datetime
@@ -267,8 +267,12 @@ class Generator:
                 pyhealth_visit = Visit(
                     visit_id=unique_visit_id,
                     patient_id=patient_id,
-                    encounter_time=visit_time
+                    encounter_time=visit_time,
+                    discharge_status='Expired' if visit_id == len(sample['visits']) - 1 and patient.death_datetime is not None else 'Alive'
                 )
+                
+                # {'code': '573.4', 'table': 'diagnosis', 'vocabulary': 'ICD9CM', 'visit_id': '781578', 'patient_id': '006-229574+599399', 'timestamp': Timestamp('2014-01-07 00:39:00'), 'attr_dict': {'diagnosisString': 'gastrointestinal|hepatic disease|hepatic infarction'}}
+                # code, table, vocabulary
 
                 for event_table, event_data in visit:
                     assert event_table in event_handlers, f"No event handler for {event_table}"
@@ -281,10 +285,9 @@ class Generator:
                     )
 
                     pyhealth_visit.add_event(event)
+
                 patient.add_visit(pyhealth_visit)
-                
                 time_of_last_visit = visit_time
-                visit_id += 1
 
             patients.append(patient)
 

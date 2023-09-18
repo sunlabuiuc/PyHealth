@@ -155,6 +155,7 @@ class Processor():
         if os.path.exists(self.filepath) and not self.refresh_cache:
             aggregated_results = load_pickle(self.filepath)
             logger.debug(f"Loaded {self.name} from cache at file {self.filepath}")
+            self.clean_patients()
         else:
             logger.debug(f"Computing {self.name} from scratch")
             aggregated_results = self.aggregate_event_indices()
@@ -376,6 +377,44 @@ class Processor():
             'visit_bins': visit_bins,
             'event_bins': event_bins
         }
+        
+    """
+    If we have loaded the aggregated event indices, we need to do the dataset cleaning separately
+    """
+    def clean_patients(self) -> None:
+        """Iterates through the provided dataset and removes bad datapoints.
+        Specifically removes patients without a birth datetime, visits without tables, and finally patients without good visits
+        """
+
+        missing_birth_datetime_patients = set()
+        for pdata in tqdm(list(self.dataset), desc="Finding patients with missing birth datetime"):
+            if pdata.birth_datetime is None:
+                missing_birth_datetime_patients.add(pdata.patient_id)
+
+        visits_without_tables_visits = set()
+        for pdata in tqdm(list(self.dataset), desc="Finding visits without tables"):
+            if pdata.birth_datetime == None:
+                continue
+
+            # compute global event
+            for vdata in sorted(pdata.visits.values(), key=lambda v: v.encounter_time): # visit events are not sorted by default
+                # omit any events which do not have events to model
+                if len(vdata.available_tables) == 0:
+                    visits_without_tables_visits.add((pdata.patient_id, vdata.visit_id))
+                    continue
+
+        logger.warn(f'Cleaning dataset of patients with missing birth datetime and visits without tables')
+        for p_id in tqdm(missing_birth_datetime_patients, desc="Removing patients with missing birth datetime"):
+            self.dataset.patients.pop(p_id)
+            self.dataset.patient_ids.remove(p_id)
+
+        for p_id, v_id in tqdm(visits_without_tables_visits, desc="Removing visits without tables"):
+            if p_id in self.dataset.patients:
+                self.dataset.patients[p_id].visits.pop(v_id)
+                self.dataset.patients[p_id].index_to_visit_id = {i: v for i, v in enumerate(self.dataset.patients[p_id].visits.keys())}
+                if len(self.dataset.patients[p_id].visits) == 0:
+                    self.dataset.patients.pop(p_id)
+                    self.dataset.patient_ids.remove(p_id)
     
     def process_batch(self, batch) -> Tuple:
         """Convert a batch of `pyhealth.data.Patient` objects into a batch of multi-hot vectors for the HALO model.
