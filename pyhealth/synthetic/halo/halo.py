@@ -478,16 +478,16 @@ if __name__ == "__main__":
     def pathfn(plot_type: str, label: List):
         prefix = os.path.join(generator.save_dir, 'plots')
 
-        label = labels[label] if label in labels else 'all_labels'
-        label = label.replace('.', '').replace(' ', '').lower()
+        label = '_'.join(list(labels[label].values())) if label in labels else 'all_labels'
+        label = label.replace('.', '').replace('/', '').replace(' ', '').lower()
         path_str = f"{prefix}_{plot_type}_{label}"
 
         return path_str
     
-    labels = {
-        (1, ): 'Alive',
-        (0, ): 'Expired',
-    }
+    # labels = {
+    #     (1, ): 'Alive',
+    #     (0, ): 'Expired',
+    # }
 
     # conduct evaluation of the synthetic data w.r.t. it's source
     evaluator = Evaluator(generator=generator, processor=processor)
