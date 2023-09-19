@@ -472,6 +472,9 @@ class Processor():
                         te = event_handler(te_raw) if event_handler else te_raw.code
                         if table in self.compute_histograms:
                             event_id = self.hist_identifier[table](te_raw)
+                            if event_id not in self.event_bins[table]:
+                                continue
+                            
                             te = np.digitize(te, self.event_bins[table][event_id]) - 1 # -1 to account for the 0th bin
                             if table in self.discrete_event_handlers:
                                 te = self.discrete_event_handlers[table](te_raw, te)
