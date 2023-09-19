@@ -437,7 +437,7 @@ if __name__ == "__main__":
         processor=processor,
         optimizer=optimizer,
         checkpoint_dir=f'{basedir}/model_saves',
-        model_save_name='eval_development_test'
+        model_save_name='halo_model'
     )
     s = trainer.set_basic_splits(from_save=True, save=True)
     print('split lengths', [len(_s) for _s in s])
@@ -464,11 +464,11 @@ if __name__ == "__main__":
         batch_size=batch_size,
         device=device,
         save_dir=basedir,
-        save_name="synthetic_data", # save at `synthetically_generated_mortality_data.pkl`
+        save_name="synthetic_data", # save at `synthetic_data.pkl`
     )
 
     # labels = [((1), 25000), ((0), 25000)]
-    labels = Counter([full_label_fn(patient_data=p) for p in processor.dataset])
+    labels = Counter([full_label_fn(patient_data=p) for p in trainer.train_dataset])
     maxLabel = max(labels.values())
     labels = [(l, maxLabel) for l in labels]
     label_mapping = {l: reverse_full_label_fn(l) for l, _ in labels}
@@ -492,7 +492,7 @@ if __name__ == "__main__":
     # conduct evaluation of the synthetic data w.r.t. it's source
     evaluator = Evaluator(generator=generator, processor=processor)
     stats = evaluator.evaluate(
-        source=[trainer.train_dataset, trainer.val_dataset, trainer.test_dataset],
+        source=trainer.train_dataset,
         synthetic=pickle.load(file=open(generator.save_path, 'rb')),
         get_plot_path_fn=pathfn,
         compare_label=list(labels.keys()),
