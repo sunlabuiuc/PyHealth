@@ -518,7 +518,7 @@ if __name__ == "__main__":
         source=trainer.train_dataset,
         synthetic=pickle.load(file=open(generator.save_path, 'rb')),
         get_plot_path_fn=pathfn,
-        compare_label=None, #list(label_mapping.keys()),
+        compare_label=list(label_mapping.keys()),
     )
     print("plots at:", '\n'.join(stats[evaluator.PLOT_PATHS]))
 
