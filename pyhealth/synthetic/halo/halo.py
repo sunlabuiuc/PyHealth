@@ -498,10 +498,11 @@ if __name__ == "__main__":
     synthetic_dataset = generator.generate_conditioned(labels)
     # synthetic_dataset = pickle.load(open(f'{basedir}/synthetic_data.pkl', 'rb'))
 
-    def pathfn(plot_type: str, label: List):
+    def pathfn(plot_type: str, label: tuple):
         prefix = os.path.join(generator.save_dir, 'plots')
 
-        label = '_'.join(list(labels[label].values())) if label in labels else 'all_labels'
+        label = 'all_labels'
+        # '_'.join(list(labels[label].values())) if label in labels else 'all_labels'
         label = label.replace('.', '').replace('/', '').replace(' ', '').lower()
         path_str = f"{prefix}_{plot_type}_{label}"
 
@@ -512,7 +513,7 @@ if __name__ == "__main__":
     #     (0, ): 'Expired',
     # }
 
-    # # conduct evaluation of the synthetic data w.r.t. it's source
+    # conduct evaluation of the synthetic data w.r.t. it's source
     evaluator = Evaluator(generator=generator, processor=processor)
     stats = evaluator.evaluate(
         source=trainer.train_dataset,
@@ -525,9 +526,15 @@ if __name__ == "__main__":
     # --- conversion ---
     print('converting to all data to uniform pyhealth format')
     synthetic_pyhealth_dataset = generator.convert_ehr_to_pyhealth(synthetic_dataset, reverse_event_handlers, datetime.datetime.now(), label_mapping)
-    train_pyhealth_dataset = generator.convert_ehr_to_pyhealth(evaluator.to_evaluation_format(trainer.train_dataset), reverse_event_handlers, datetime.datetime.now(), label_mapping)
-    eval_pyhealth_dataset = generator.convert_ehr_to_pyhealth(evaluator.to_evaluation_format(trainer.eval_dataset), reverse_event_handlers, datetime.datetime.now(), label_mapping)
-    test_pyhealth_dataset = generator.convert_ehr_to_pyhealth(evaluator.to_evaluation_format(trainer.test_dataset), reverse_event_handlers, datetime.datetime.now(), label_mapping)
+    train_evaluation_dataset = evaluator.to_evaluation_format(trainer.train_dataset)
+    # pickle.dump(train_evaluation_dataset, open(f'{basedir}/train_data.pkl', 'wb'))
+    train_pyhealth_dataset = generator.convert_ehr_to_pyhealth(train_evaluation_dataset, reverse_event_handlers, datetime.datetime.now(), label_mapping)
+    eval_evaluation_dataset = evaluator.to_evaluation_format(trainer.eval_dataset)
+    # pickle.dump(eval_evaluation_dataset, open(f'{basedir}/eval_data.pkl', 'wb'))
+    eval_pyhealth_dataset = generator.convert_ehr_to_pyhealth(eval_evaluation_dataset, reverse_event_handlers, datetime.datetime.now(), label_mapping)
+    test_evaluation_dataset = evaluator.to_evaluation_format(trainer.test_dataset)
+    # pickle.dump(test_evaluation_dataset, open(f'{basedir}/test_data.pkl', 'wb'))
+    test_pyhealth_dataset = generator.convert_ehr_to_pyhealth(test_evaluation_dataset, reverse_event_handlers, datetime.datetime.now(), label_mapping)
     # pickle.dump(synthetic_pyhealth_dataset, open(f'{basedir}/synthetic_pyhealth_dataset.pkl', 'wb'))
     # pickle.dump(train_pyhealth_dataset, open(f'{basedir}/train_pyhealth_dataset.pkl', 'wb'))
     # pickle.dump(eval_pyhealth_dataset, open(f'{basedir}/eval_pyhealth_dataset.pkl', 'wb'))
