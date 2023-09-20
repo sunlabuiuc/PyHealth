@@ -358,6 +358,13 @@ if __name__ == "__main__":
         assert len(split_code) <= 2
         return split_code[0]
     
+    def reverse_diagnosis(event: str):
+        return {
+            'table': 'diagnosis',
+            'code': event[0],
+            'vocabulary': 'ICD9CM',
+        }
+    
 
     # these values will be used to compute histograms
     def handle_lab(event: Event):
@@ -386,6 +393,18 @@ if __name__ == "__main__":
 
         return (lab_name, lab_unit, lab_value)
     
+    def reverse_lab(event: tuple, processor: Processor):
+        bins = processor.event_bins['lab'][(event[0], event[1])]
+        return {
+            'table': 'lab',
+            'code': event[0],
+            'vocabulary': 'eICU_LABNAME',
+            'attr_dict': {
+                'lab_result': np.random.uniform(bins[event[2]], bins[event[2]+1]),
+                'lab_measure_name_system': event[1],
+            }
+        }
+    
 
     # define value handlers; these handlers serve the function of converting an event into a primitive value. 
     # event handlers are called to clean up values
@@ -396,6 +415,10 @@ if __name__ == "__main__":
     # discrete event handlers are called to produce primitives for auto-discretization
     discrete_event_handlers = {}
     discrete_event_handlers['lab'] = handle_discrete_lab
+    
+    reverse_event_handlers = {}
+    reverse_event_handlers['diagnosis'] = reverse_diagnosis
+    reverse_event_handlers['lab'] = reverse_lab
     
     processor = Processor(
         dataset=dataset,
@@ -473,7 +496,7 @@ if __name__ == "__main__":
     labels = [(l, maxLabel) for l in labels]
     label_mapping = {l: reverse_full_label_fn(l) for l, _ in labels}
     synthetic_dataset = generator.generate_conditioned(labels)
-    # synthetic_pyhealth_dataset = generator.convert_ehr_to_pyhealth(synthetic_dataset, event_handlers, datetime.datetime.now(), label_mapping)
+    # synthetic_dataset = pickle.load(open(f'{basedir}/synthetic_data.pkl', 'rb'))
 
     def pathfn(plot_type: str, label: List):
         prefix = os.path.join(generator.save_dir, 'plots')
@@ -489,15 +512,24 @@ if __name__ == "__main__":
     #     (0, ): 'Expired',
     # }
 
-    # conduct evaluation of the synthetic data w.r.t. it's source
+    # # conduct evaluation of the synthetic data w.r.t. it's source
     evaluator = Evaluator(generator=generator, processor=processor)
     stats = evaluator.evaluate(
         source=trainer.train_dataset,
         synthetic=pickle.load(file=open(generator.save_path, 'rb')),
         get_plot_path_fn=pathfn,
-        compare_label=list(labels.keys()),
+        compare_label=None, #list(label_mapping.keys()),
     )
     print("plots at:", '\n'.join(stats[evaluator.PLOT_PATHS]))
 
     # --- conversion ---
+    print('converting to all data to uniform pyhealth format')
+    synthetic_pyhealth_dataset = generator.convert_ehr_to_pyhealth(synthetic_dataset, reverse_event_handlers, datetime.datetime.now(), label_mapping)
+    train_pyhealth_dataset = generator.convert_ehr_to_pyhealth(evaluator.to_evaluation_format(trainer.train_dataset), reverse_event_handlers, datetime.datetime.now(), label_mapping)
+    eval_pyhealth_dataset = generator.convert_ehr_to_pyhealth(evaluator.to_evaluation_format(trainer.eval_dataset), reverse_event_handlers, datetime.datetime.now(), label_mapping)
+    test_pyhealth_dataset = generator.convert_ehr_to_pyhealth(evaluator.to_evaluation_format(trainer.test_dataset), reverse_event_handlers, datetime.datetime.now(), label_mapping)
+    # pickle.dump(synthetic_pyhealth_dataset, open(f'{basedir}/synthetic_pyhealth_dataset.pkl', 'wb'))
+    # pickle.dump(train_pyhealth_dataset, open(f'{basedir}/train_pyhealth_dataset.pkl', 'wb'))
+    # pickle.dump(eval_pyhealth_dataset, open(f'{basedir}/eval_pyhealth_dataset.pkl', 'wb'))
+    # pickle.dump(test_pyhealth_dataset, open(f'{basedir}/test_pyhealth_dataset.pkl', 'wb'))
     print("done")

@@ -156,6 +156,7 @@ class Generator:
         return ehr_outputs
     
     def convert_ehr_to_pyhealth(
+            self,
             samples: List,
             event_handlers: Dict[str, Callable],
             base_time: datetime,
@@ -232,7 +233,7 @@ class Generator:
         ```
         """
         patients = []
-        for patient_id, sample in enumerate(samples):
+        for patient_id, sample in tqdm(enumerate(samples), total=len(samples), desc="Converting samples to PyHealth patients"):
             patient_id = str(patient_id)
 
             patient_label = label_mapping[sample['label']] if label_mapping else sample['label']
@@ -253,11 +254,9 @@ class Generator:
 
             time_of_last_visit = patient.birth_datetime
             for visit_id in range(0, len(sample['visits'])):
-
                 unique_visit_id = f"{patient_id}_{visit_id}"
-                visit, time_gap = sample['visits'][visit_id], sample['inter-visit_gap'][visit_id]
+                visit, time_since_previous_visit = sample['visits'][visit_id], time_gaps[visit_id]
                 
-                time_since_previous_visit = time_gaps[visit_id]
                 try:
                     # todays visit is time of last visit + time since last visit
                     visit_time = time_of_last_visit + time_since_previous_visit
@@ -276,7 +275,10 @@ class Generator:
 
                 for event_table, event_data in visit:
                     assert event_table in event_handlers, f"No event handler for {event_table}"
-                    event_data = event_handlers[event_table](event_data)
+                    if event_table in self.processor.compute_histograms:
+                        event_data = event_handlers[event_table](event_data, self.processor)
+                    else:
+                        event_data = event_handlers[event_table](event_data)
                     event = Event(
                         visit_id=unique_visit_id,
                         patient_id=patient_id,
@@ -390,7 +392,7 @@ class Generator:
             batch_size=batch_size,
             device=device,
             save_path=basedir,
-            save_name="synthetically_generated_mortality_data" # save at `synthetically_generated_mortality_data.pkl`
+            save_name="synthetic_data" # save at `synthetic_data.pkl`
         )
 
         labels = [((1), 40000), ((0), 40000)] # 40k samples of each label
