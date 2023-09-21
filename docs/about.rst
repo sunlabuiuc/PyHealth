@@ -18,16 +18,3 @@ We are the `SunLab <http://sunlab.org/>`_ healthcare research team at UIUC.
 `Jimeng Sun <http://sunlab.org/>`_ (Professor @ University of Illinois Urbana-Champaign)
 
 (* indicates equal contribution)
-
------
-
-Acknowledgement
-^^^^^^^^^^^^^^^^^^^^
-
-`Yue Zhao <https://www.andrew.cmu.edu/user/yuezhao2/>`_ (Ph.D. Student @ Carnegie Mellon University)
-
-`Dr. Zhi Qiao <https://scholar.google.com/citations?user=20W38KYAAAAJ&hl=en>`_ (Associate ML Director, ACOE @ IQVIA)
-
-`Dr. Xiao Cao <https://sites.google.com/view/danicaxiao/home>`_ (VP of Machine Learning and NLP, Relativity)
-
-`Xiyang Hu <https://www.andrew.cmu.edu/user/xiyanghu/>`_ (Ph.D. Student @ Carnegie Mellon University)
