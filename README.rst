@@ -82,7 +82,7 @@ Checkout Our KDD'23 Tutorial https://sunlabuiuc.github.io/PyHealth/
 
 PyHealth is a comprehensive deep learning toolkit for supporting clinical predictive modeling, which is designed for both **ML researchers and medical practitioners**. We can make your **healthcare AI applications** easier to deploy and more flexible and customizable. `[Tutorials] <https://pyhealth.readthedocs.io/>`_
 
- **[News!]** Our PyHealth is accepted by KDD 2023 Tutorial Track! We will present a 3-hour tutorial on PyHealth at `[KDD 2023] <https://kdd.org/kdd2023/>`_, August 6-10, Long Beach, CA. The `[hands-on tutorial jupyters] <https://drive.google.com/drive/folders/10SRErhMgmwIvBwafp_YmaZEziOhYTaYk?usp=sharing>`_ are available. Please check them out!
+ **[News!]** We are continueously implemeting good papers and benchmarks into PyHealth, checkout the `[planned List] <https://docs.google.com/spreadsheets/d/1PNMgDe-llOm1SM5ZyGLkmPysjC4wwaVblPLAHLxejTw/edit#gid=159213380`_. Welcome to pick one from the list and send us a PR or add more influential and new papers into the plan list.
 
 .. image:: figure/poster.png
    :width: 810
