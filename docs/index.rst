@@ -73,7 +73,7 @@ PyHealth is designed for both **ML researchers and medical practitioners**. We c
 
 ----------
 
- **[News!]** We are continueously implemeting good papers and benchmarks into PyHealth, checkout the `[planned List] <https://docs.google.com/spreadsheets/d/1PNMgDe-llOm1SM5ZyGLkmPysjC4wwaVblPLAHLxejTw/edit#gid=159213380`_. Welcome to pick one from the list and send us a PR or add more influential and new papers into the plan list.
+ **[News!]** We are continueously implemeting good papers and benchmarks into PyHealth, checkout the `[Planned List] <https://docs.google.com/spreadsheets/d/1PNMgDe-llOm1SM5ZyGLkmPysjC4wwaVblPLAHLxejTw/edit#gid=159213380>`_. Welcome to pick one from the list and send us a PR or add more influential and new papers into the plan list.
 
 
 Introduction `[Video] <https://www.youtube.com/watch?v=1Ir6hzU4Nro&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=1>`_
