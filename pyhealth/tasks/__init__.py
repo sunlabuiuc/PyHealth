@@ -32,3 +32,4 @@ from .sleep_staging import (
 )
 from .covid19_cxr_classification import COVID19CXRClassification
 from .medical_transcriptions_classification import MedicalTranscriptionsClassification
+from .chest_xray_generation import ChestXrayGeneration

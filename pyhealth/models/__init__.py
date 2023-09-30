@@ -25,3 +25,4 @@ from .tcn import TCN, TCNLayer
 from .molerec import MoleRec, MoleRecLayer
 from .torchvision_model import TorchvisionModel
 from .transformers_model import TransformersModel
+from .diffusion import DiffusionModel

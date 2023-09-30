@@ -7,6 +7,7 @@ from .isruc import ISRUCDataset
 from .medical_transriptions import MedicalTranscriptionsDataset
 from .mimic3 import MIMIC3Dataset
 from .mimic4 import MIMIC4Dataset
+from .mimiccxr_text import MIMICCXRDataset
 from .mimicextract import MIMICExtractDataset
 from .omop import OMOPDataset
 from .sample_dataset import SampleBaseDataset, SampleSignalDataset, SampleEHRDataset
