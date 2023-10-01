@@ -8,10 +8,8 @@ from pyhealth.tasks.chest_xray_generation import ChestXrayGeneration
 
 
 class MIMICCXRDataset(BaseDataset):
-    """Medical transcription data scraped from mtsamples.com
-
-    Dataset is available at https://www.kaggle.com/datasets/tboyle10/medicaltranscriptions
-
+    """MIMIC-CXR data
+    
     Args:
         dataset_name: name of the dataset.
         root: root directory of the raw data. *You can choose to use the path to Cassette portion or the Telemetry portion.*
@@ -29,8 +27,8 @@ class MIMICCXRDataset(BaseDataset):
             be processed from scratch and the cache will be updated. Default is False.
 
     Examples:
-        >>> dataset = MedicalTranscriptionsDataset(
-                root="/srv/local/data/zw12/raw_data/MedicalTranscriptions",
+        >>> dataset = MIMICCXRDataset(
+                root="/home/xucao2/xucao/PIEMedApp/checkpoints/mimic_cxr",
             )
         >>> print(dataset[0])
         >>> dataset.stat()

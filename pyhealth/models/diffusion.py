@@ -11,36 +11,19 @@ from pyhealth.models import BaseModel
 
 SUPPORTED_MODELS = [
     "CompVis/stable-diffusion-v1-4",
+    "runwayml/stable-diffusion-v1-5",
     "IrohXu/stable-diffusion-mimic-cxr-v0.1"
 ]
 
 
 class DiffusionModel(BaseModel):
-    """Models from PyTorch's torchvision package.
+    """Models from PyTorch's huggingface package.
 
-    This class is a wrapper for models from torchvision. It will automatically load
-    the corresponding model and weights from torchvision. The final layer will be
-    replaced with a linear layer with the correct output size.
+    This class is a wrapper for diffusion models from huggingface.
 
-    -----------------------------------ResNet------------------------------------------
-    Paper: Kaiming He, Xiangyu Zhang, Shaoqing Ren, Jian Sun. Deep Residual Learning
-    for Image Recognition. CVPR 2016.
-    -----------------------------------DenseNet----------------------------------------
-    Paper: Gao Huang, Zhuang Liu, Laurens van der Maaten, Kilian Q. Weinberger.
-    Densely Connected Convolutional Networks. CVPR 2017.
-    ----------------------------Vision Transformer (ViT)-------------------------------
-    Paper: Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, 
-    Xiaohua Zhai, Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer,
-    Georg Heigold, Sylvain Gelly, Jakob Uszkoreit, Neil Houlsby. An Image is Worth
-    16x16 Words: Transformers for Image Recognition at Scale. ICLR 2021.
-    ----------------------------Swin Transformer (and V2)------------------------------
-    Paper: Ze Liu, Yutong Lin, Yue Cao, Han Hu, Yixuan Wei, Zheng Zhang, Stephen Lin, 
-    Baining Guo. Swin Transformer: Hierarchical Vision Transformer Using Shifted
-    Windows. ICCV 2021.
-
-    Paper: Ze Liu, Han Hu, Yutong Lin, Zhuliang Yao, Zhenda Xie, Yixuan Wei, Jia Ning, 
-    Yue Cao, Zheng Zhang, Li Dong, Furu Wei, Baining Guo. Swin Transformer V2: Scaling
-    Up Capacity and Resolution. CVPR 2022.
+    ------------------------------Stable Diffusion-------------------------------------
+    Paper: Rombach, R., Blattmann, A., Lorenz, D., Esser, P., & Ommer, B. 
+    High-resolution image synthesis with latent diffusion models. CVPR 2022
     -----------------------------------------------------------------------------------
 
     Args:
@@ -50,7 +33,7 @@ class DiffusionModel(BaseModel):
             Only one feature is supported.
         label_key: key in samples to use as label, e.g., "drugs".
         mode: one of "binary", "multiclass", or "multilabel".
-        model_name: str, name of the model to use, e.g., "resnet18".
+        model_name: str, name of the model to use, e.g., "IrohXu/stable-diffusion-mimic-cxr-v0.1".
             See SUPPORTED_MODELS in the source code for the full list.
         model_config: dict, kwargs to pass to the model constructor,
             e.g., {"weights": "DEFAULT"}. See the torchvision documentation for the
