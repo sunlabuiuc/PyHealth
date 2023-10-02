@@ -14,3 +14,4 @@ from .tuev import TUEVDataset
 from .sample_dataset import SampleBaseDataset, SampleSignalDataset, SampleEHRDataset
 from .splitter import split_by_patient, split_by_visit
 from .utils import collate_fn_dict, get_dataloader, strptime
+from .covid19_cxr import COVID19CXRDataset
