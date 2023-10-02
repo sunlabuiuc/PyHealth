@@ -23,3 +23,4 @@ from .grasp import GRASP, GRASPLayer
 from .stagenet import StageNet, StageNetLayer
 from .tcn import TCN, TCNLayer
 from .molerec import MoleRec, MoleRecLayer
+from .cross_modal_transformer import Seq_Cross_Modal_Transformer_PyHealth
