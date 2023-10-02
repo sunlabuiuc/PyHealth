@@ -554,7 +554,7 @@ class Seq_Cross_Modal_Transformer_PyHealth(BaseModel):
     
 
 
-if __name__ == "__main__":
+# if __name__ == "__main__":
 
     # from pyhealth.datasets import SleepEDFDataset
     # url = "https://storage.googleapis.com/pyhealth/sleepedf-sample/SC4001E0-PSG.edf"
