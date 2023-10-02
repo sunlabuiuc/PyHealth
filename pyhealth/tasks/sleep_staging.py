@@ -356,14 +356,14 @@ def multi_epoch_multi_modal_sleep_staging_sleepedf_fn(record, epoch_seconds=30,m
 
     Examples:
         >>> from pyhealth.datasets import SleepEDFDataset
-        >>> sleepedf = SleepEDFDataset(
+        >>> sleepedf_ds = SleepEDFDataset(
         ...         root="/srv/local/data/SLEEPEDF/sleep-edf-database-expanded-1.0.0/sleep-cassette",
         ...     )
         >>> from pyhealth.tasks import multi_epoch_multi_modal_sleep_staging_sleepedf_fn
         >>> modality = ['EEG Fpz-Cz','EOG horizontal']
         >>> num_epoch_seq = 15
-        >>> sleepstage_ds = sleepedf.set_task(lambda x: multi_epoch_multi_modal_sleep_staging_sleepedf_fn(x,modality = modality,num_epoch_seq = num_epoch_seq))
-        >>> sleepstage_ds.samples[0]
+        >>> sleepedf_task_ds = sleepedf_ds.set_task(lambda x: multi_epoch_multi_modal_sleep_staging_sleepedf_fn(x,modality = modality,num_epoch_seq = num_epoch_seq))
+        >>> sleepedf_task_ds.samples[0]
         {'record_id': 'SC4002-1860_1861_1862_1863_1864',
          'patient_id': 'SC4002',
          'epoch_path': '/home/jp65/.cache/pyhealth/datasets/03689253dc58603acb33b904c30ad5a0/SC4002-1860_1861_1862_1863_1864.pkl',
@@ -512,9 +512,9 @@ if __name__ == "__main__":
     # )
     # modality = ['EEG Fpz-Cz','EOG horizontal']
     # num_epoch_seq = 15
-    # sleep_staging_ds = dataset.set_task(lambda x: multi_epoch_multi_modal_sleep_staging_sleepedf_fn(x,modality = modality,num_epoch_seq = num_epoch_seq))
-    # print(sleep_staging_ds.samples[0])
-    # print(sleep_staging_ds.input_info)
+    # sleepedf_task_ds = dataset.set_task(lambda x: multi_epoch_multi_modal_sleep_staging_sleepedf_fn(x,modality = modality,num_epoch_seq = num_epoch_seq))
+    # print(sleepedf_task_ds.samples[0])
+    # print(sleepedf_task_ds.input_info)
 
 
 
