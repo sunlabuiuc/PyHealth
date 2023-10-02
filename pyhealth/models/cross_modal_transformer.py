@@ -25,7 +25,10 @@ from ipywidgets import  interactive, IntSlider
 
 
 
-
+'''
+Colab tutorial can be found at:
+https://colab.research.google.com/drive/1jwD5NX8cR47MRtnOW_drKIS6lP1tbWFc?usp=sharing
+'''
 
 
 class PositionalEncoding(nn.Module):
