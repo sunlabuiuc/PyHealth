@@ -15,7 +15,8 @@ from langchain.vectorstores.base import VectorStoreRetriever
 from langchain.vectorstores.faiss import FAISS
 
 
-from prompts.qa_prompt import QA_PROMPT
+from prompts.qa_prompt import QA_PROMPT_TEMPLATE
+from prompts.introduction_prompt import USER_INTRO, AI_INTRO
 
 
 
@@ -48,7 +49,9 @@ class MainChain:
         self.openai_model = 'gpt-4'
         self.memory_summary_model = 'gpt-3.5-turbo'
         self.qa_chain = self._init_qa_chain([streaming_callback])
-        self.ref_doc_retriever = self._load_retriever('vectorstore.pkl')
+        self.ref_doc_retriever = self._load_retriever('corpus/pyhealth-text.pkl')
+        self.source_code_retriever = self._load_retriever('corpus/pyhealth-code.pkl')
+        self.topk = 4
 
 
     def _load_retriever(self, retriever_path):
@@ -68,7 +71,7 @@ class MainChain:
         """
         chat = ChatOpenAI(model_name=self.openai_model, streaming=True, callbacks=callbacks,
                             temperature=0)
-        template = QA_PROMPT
+        template = QA_PROMPT_TEMPLATE
 
         system_message_prompt = SystemMessagePromptTemplate.from_template(template)
         chat_prompt = ChatPromptTemplate.from_messages([system_message_prompt])
@@ -76,7 +79,7 @@ class MainChain:
                                                     memory_key="chat_history",
                                                     return_messages=True,
                                                     llm=ChatOpenAI(temperature=0, model_name=self.memory_summary_model))
-
+        memory.save_context({'human_input': USER_INTRO}, {'output': AI_INTRO})
         chain = LLMChain(llm=chat, prompt=chat_prompt, memory=memory)
         return chain
 
@@ -91,14 +94,12 @@ class MainChain:
             Answer
         """
         # Reference Document retrieval
-        ref_doc = self.ref_doc_retriever.similarity_search(query, k=4)
+        ref_doc = self.ref_doc_retriever.similarity_search(query, k=self.topk)
         ref_doc = '\n===\n'.join(i.page_content for i in ref_doc)
 
-        # Source Code retrieval TODO
-        # ref_doc = self.retriever.similarity_search(query, k=4)
-        # ref_doc = '\n===\n'.join(i.page_content for i in ref_doc)
-        source_code = ''
-
-
+        # Source Code retrieval
+        source_code = self.source_code_retriever.similarity_search(query, k=self.topk)
+        source_code = '\n===\n'.join(i.page_content for i in source_code)
+        
         result = self.qa_chain.predict(human_input=query, ref_doc=ref_doc, source_code=source_code)
         return result
