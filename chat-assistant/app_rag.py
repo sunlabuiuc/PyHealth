@@ -9,6 +9,7 @@ from env import OPENAI_API_KEY
 
 
 from qa_chain import MainChain
+from prompts.introduction_prompt import AI_INTRO
 
 os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
 
@@ -52,7 +53,7 @@ if __name__ == "__main__":
         with gr.Row():
             gr.Markdown(
                 "<h1><center>PyHealth Assistant</center></h1> <h3><a href='https://pyhealth.readthedocs.io/en/latest/'>< back to docs</a></h3>")
-        chatbot = gr.Chatbot(elem_id="chatbot")
+        chatbot = gr.Chatbot(value=[[None, AI_INTRO]], elem_id="chatbot")
 
         with gr.Row():
             message = gr.Textbox(
@@ -79,7 +80,6 @@ if __name__ == "__main__":
         # # https://discuss.huggingface.co/t/unable-to-clear-input-after-submit/33543/12
         # message.submit(lambda x: gr.update(value=""),
         #                [state], [message], queue=False)
-    
 
         def user(user_message, history):
             return "", history + [[user_message, None]]
@@ -87,7 +87,7 @@ if __name__ == "__main__":
         def bot(history):
             user_message = history[-1][0]
             history[-1][1] = ""
-            
+
             t = threading.Thread(target=chat, args=(user_message, history))
             t.start()
             new_token = chat.chain.streaming_buffer.get()
@@ -97,7 +97,6 @@ if __name__ == "__main__":
                 yield history
             
             t.join()
-
         message.submit(user, [message, chatbot], [message, chatbot], queue=False).then(
             bot, chatbot, chatbot
         )
