@@ -3,13 +3,18 @@ import torch.nn as nn
 import torch.nn.functional as F
 from pyhealth.interpret.tasks.methods.chefer import CheferRelevance
 
+
+
+
+
+# Currently In Progress
+
 class VisionInterpreter():
 
-    def __init__(self, model, method="chefer"):
+    def __init__(self, model):
         self.model = model
-        if method == "chefer":
-            self.relevance= CheferRelevance(model)   
-
+        # if method == "chefer":
+        self.relevance= CheferRelevance(model)   
 
     # if images, we know that input 
     def scale_rel_scores(self, relevance, out_size, vis = False):
