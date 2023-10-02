@@ -1,1 +1,1 @@
-from methods.chefer import CheferRelevance
+from pyhealth.interpret.tasks.methods.chefer import CheferRelevance
