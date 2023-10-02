@@ -192,6 +192,7 @@ class Trainer:
                     data_iterator = iter(train_dataloader)
                     data = next(data_iterator)
                 # forward
+                # print(data)
                 output = self.model(**data)
                 loss = output["loss"]
                 # backward
