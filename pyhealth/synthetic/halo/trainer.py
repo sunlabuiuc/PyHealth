@@ -34,7 +34,8 @@ class Trainer:
             processor: Processor, 
             optimizer: Optimizer,
             checkpoint_dir: str,
-            model_save_name: str
+            model_save_name: str,
+            folds: int = 5
         ) -> None:
         self.dataset = dataset
         self.model = model
@@ -45,6 +46,7 @@ class Trainer:
         os.makedirs(self.checkpoint_dir, exist_ok=True)
 
         self.model_save_name = model_save_name
+        self.folds = folds
     
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model.to(self.device)
@@ -54,6 +56,38 @@ class Trainer:
         return os.path.join(self.checkpoint_dir, f"{self.model_save_name}.pt")
     
     def set_basic_splits(self, from_save=False, save=True):
+        """Set class variables of a 0.8, 0.1, 0.1 split for train, test, eval split. 
+
+            If `from_save` is True, will attempt to load each split from <halo.Trainer.checkpoint_dir>/<split_name>.pt. Upon failure, will create new splits with the underlying dataset. 
+            If `save` is True, will store the set splits in memory at path <halo.Trainer.checkpoint_dir>/<split_name>.pt
+
+            Args
+        
+            Returns: train, test, eval split
+        """
+        if from_save:
+            try:
+                self.train_dataset = torch.load(open(f"{self.checkpoint_dir}/train_dataset.pt", 'rb'))
+                self.test_dataset = torch.load(open(f"{self.checkpoint_dir}/test_dataset.pt", 'rb'))
+                self.eval_dataset = torch.load(open(f"{self.checkpoint_dir}/eval_dataset.pt", 'rb'))
+                
+                return self.train_dataset, self.test_dataset, self.eval_dataset
+            except:
+                logger.debug("failed to load basic splits from memory, generating splits from source dataset.")
+        
+        train, test, eval = self.split()
+        self.train_dataset = train
+        self.test_dataset = test
+        self.eval_dataset = eval
+
+        if save:
+            torch.save(self.train_dataset, open(f"{self.checkpoint_dir}/train_dataset.pt", 'wb'))
+            torch.save(self.test_dataset, open(f"{self.checkpoint_dir}/test_dataset.pt", 'wb'))
+            torch.save(self.eval_dataset, open(f"{self.checkpoint_dir}/eval_dataset.pt", 'wb'))
+        
+        return self.train_dataset, self.test_dataset, self.eval_dataset
+    
+    def set_fold_splits(self, from_save=False, save=True):
         """Set class variables of a 0.8, 0.1, 0.1 split for train, test, eval split. 
 
             If `from_save` is True, will attempt to load each split from <halo.Trainer.checkpoint_dir>/<split_name>.pt. Upon failure, will create new splits with the underlying dataset. 

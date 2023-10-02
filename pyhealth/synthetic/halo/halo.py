@@ -18,8 +18,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from pyhealth import BASE_CACHE_PATH
 from pyhealth.data import Event 
 from pyhealth.datasets.eicu import eICUDataset
+from pyhealth.datasets.utils import hash_str
 from pyhealth.synthetic.halo.evaluator import Evaluator
 from pyhealth.synthetic.halo.generator import Generator
 from pyhealth.synthetic.halo.processor import Processor
@@ -308,15 +310,32 @@ if __name__ == "__main__":
 
     # ROOT = "/home/bdanek2/data/physionet.org/files/eicu-crd/2.0"
     ROOT = "/home/bpt3/data/physionet.org/files/eicu-crd/2.0"
-    dataset = eICUDataset(
-        dataset_name="eICU-demo",
-        root=ROOT,
-        tables=["diagnosis", "lab"],
-        # tables=["diagnosis"],
-        code_mapping={},
-        dev=False,
-        refresh_cache=False,
+    dataset_name = "eICU-demo"
+    tables = ["diagnosis", "lab"] # ["diagnosis"]
+    code_mapping = {}
+    dev = False
+    
+    args_to_hash = (
+        [dataset_name, ROOT]
+        + sorted(tables)
+        + sorted(code_mapping.items())
+        + ["dev" if dev else "prod"]
     )
+    filename = hash_str("+".join([str(arg) for arg in args_to_hash])) + ".pkl"
+    MODULE_CACHE_PATH = os.path.join(BASE_CACHE_PATH, "datasets")
+    dataset_filepath = os.path.join(MODULE_CACHE_PATH, filename)
+    
+    if os.path.exists(dataset_filepath):
+        dataset = eICUDataset(
+            dataset_name=dataset_name,
+            root=ROOT,
+            tables=tables,
+            code_mapping=code_mapping,
+            dev=dev,
+            refresh_cache=False,
+        )
+    else:
+        dataset = None
 
     # basedir = '/home/bdanek2/halo_development/testing_1'
     basedir = '/home/bpt3/code/PyHealth/pyhealth/synthetic/halo/temp'
@@ -325,32 +344,83 @@ if __name__ == "__main__":
     batch_size = 512
     
     # define a way to make labels from raw data
-    simple_label_fn_output_size = 1
-    def simple_label_fn(**kwargs):
-        pdata = kwargs['patient_data']
-        return (1) if pdata.death_datetime else (0) # 1 for dead, 0 for alive
-    
-    # allEthnicities = set([p.ethnicity for p in dataset])
-    # allGenders = set([p.gender for p in dataset])
-    
-    full_label_fn_output_size = 10
+    full_label_fn_output_size = 13
     def full_label_fn(**kwargs):
         pdata = kwargs['patient_data']
         mortality_idx = [1] if pdata.death_datetime else [0]
+        age = (next(iter(pdata.visits.values())).encounter_time - pdata.birth_datetime).days // 365
+        age_idx = [1, 0, 0] if age <= 18 else [0, 1, 0] if age < 65 else [0, 0, 1]
         gender_idx = [1, 0, 0] if pdata.gender == 'Male' else [0, 1, 0] if pdata.gender == 'Female' else [0, 0, 1]
         ethnicity_idx = [1, 0, 0, 0, 0, 0] if pdata.ethnicity == 'Caucasian' else [0, 1, 0, 0, 0, 0] if pdata.ethnicity == 'African American' else [0, 0, 1, 0, 0, 0] if pdata.ethnicity == 'Hispanic' else [0, 0, 0, 1, 0, 0] if pdata.ethnicity == 'Asian' else [0, 0, 0, 0, 1, 0] if pdata.ethnicity == 'Native American' else [0, 0, 0, 0, 0, 1]
-        return tuple(mortality_idx + gender_idx + ethnicity_idx)
-        
+        return tuple(mortality_idx + age_idx + gender_idx + ethnicity_idx)
+      
     def reverse_full_label_fn(label_vec):
         mortality_idx = label_vec[:1]
-        gender_idx = label_vec[1:4]
-        ethnicity_idx = label_vec[4:]
+        age_idx = label_vec[1:4]
+        gender_idx = label_vec[4:7]
+        ethnicity_idx = label_vec[7:]
         return {
             'death_datetime': datetime.datetime.now() if mortality_idx[0] == 1 else None,
+            'age': 'Pediatric' if age_idx[0] == 1 else 'Adult' if age_idx[1] == 1 else 'Geriatric',
             'gender': 'Male' if gender_idx[0] == 1 else 'Female' if gender_idx[1] == 1 else 'Other/Unknown',
             'ethnicity': 'Caucasian' if ethnicity_idx[0] == 1 else 'African American' if ethnicity_idx[1] == 1 else 'Hispanic' if ethnicity_idx[2] == 1 else 'Asian' if ethnicity_idx[3] == 1 else 'Native American' if ethnicity_idx[4] == 1 else 'Other/Unknown',
         }
+        
+    mortality_label_fn_output_size = 1
+    def mortality_label_fn(**kwargs):
+        pdata = kwargs['patient_data']
+        return (1) if pdata.death_datetime else (0) # 1 for dead, 0 for alive
+
+    def reverse_mortality_label_fn(label_vec):
+        return {
+            'death_datetime': datetime.datetime.now() if label_vec[0] == 1 else None
+        }
     
+    age_label_fn_output_size = 4
+    def age_label_fn(**kwargs):
+        pdata = kwargs['patient_data']
+        mortality_idx = [1] if pdata.death_datetime else [0]
+        age = (next(iter(pdata.visits.values())).encounter_time - pdata.birth_datetime).days // 365
+        age_idx = [1, 0, 0] if age <= 18 else [0, 1, 0] if age < 65 else [0, 0, 1]
+        return tuple(mortality_idx + age_idx)
+        
+    def reverse_age_label_fn(label_vec):
+        mortality_idx = label_vec[:1]
+        age_idx = label_vec[1:4]
+        return {
+            'death_datetime': datetime.datetime.now() if mortality_idx[0] == 1 else None,
+            'age': 'Pediatric' if age_idx[0] == 1 else 'Adult' if age_idx[1] == 1 else 'Geriatric'
+        }   
+       
+    gender_label_fn_output_size = 4 
+    def gender_label_fn(**kwargs):
+        pdata = kwargs['patient_data']
+        mortality_idx = [1] if pdata.death_datetime else [0]
+        gender_idx = [1, 0, 0] if pdata.gender == 'Male' else [0, 1, 0] if pdata.gender == 'Female' else [0, 0, 1]
+        return tuple(mortality_idx + gender_idx)
+        
+    def reverse_gender_label_fn(label_vec):
+        mortality_idx = label_vec[:1]
+        gender_idx = label_vec[1:4]
+        return {
+            'death_datetime': datetime.datetime.now() if mortality_idx[0] == 1 else None,
+            'gender': 'Male' if gender_idx[0] == 1 else 'Female' if gender_idx[1] == 1 else 'Other/Unknown'
+        } 
+        
+    ethnicity_label_fn_output_size = 7
+    def ethnicity_label_fn(**kwargs):
+        pdata = kwargs['patient_data']
+        mortality_idx = [1] if pdata.death_datetime else [0]
+        ethnicity_idx = [1, 0, 0, 0, 0, 0] if pdata.ethnicity == 'Caucasian' else [0, 1, 0, 0, 0, 0] if pdata.ethnicity == 'African American' else [0, 0, 1, 0, 0, 0] if pdata.ethnicity == 'Hispanic' else [0, 0, 0, 1, 0, 0] if pdata.ethnicity == 'Asian' else [0, 0, 0, 0, 1, 0] if pdata.ethnicity == 'Native American' else [0, 0, 0, 0, 0, 1]
+        return tuple(mortality_idx + ethnicity_idx)
+        
+    def reverse_ethnicity_label_fn(label_vec):
+        mortality_idx = label_vec[:1]
+        ethnicity_idx = label_vec[1:]
+        return {
+            'death_datetime': datetime.datetime.now() if mortality_idx[0] == 1 else None,
+            'ethnicity': 'Caucasian' if ethnicity_idx[0] == 1 else 'African American' if ethnicity_idx[1] == 1 else 'Hispanic' if ethnicity_idx[2] == 1 else 'Asian' if ethnicity_idx[3] == 1 else 'Native American' if ethnicity_idx[4] == 1 else 'Other/Unknown',
+        }
     
     def handle_diagnosis(event: Event):
         """to reduce the complexity of the model, in this example we will convert granular ICD codes to more broad ones (ie 428.3 --> 428)"""
@@ -365,7 +435,6 @@ if __name__ == "__main__":
             'vocabulary': 'ICD9CM',
         }
     
-
     # these values will be used to compute histograms
     def handle_lab(event: Event):
         """a method for used to convert the lab event into a numerical value; this value will be discretized and serve as the basis for computing a histogram"""
@@ -420,6 +489,10 @@ if __name__ == "__main__":
     reverse_event_handlers['diagnosis'] = reverse_diagnosis
     reverse_event_handlers['lab'] = reverse_lab
     
+    label_fn = mortality_label_fn
+    reverse_label_fn = reverse_mortality_label_fn
+    label_fn_output_size = mortality_label_fn_output_size
+    
     processor = Processor(
         dataset=dataset,
         use_tables=None,
@@ -429,10 +502,12 @@ if __name__ == "__main__":
         size_per_event_bin={'lab': 10},
         discrete_event_handlers=discrete_event_handlers,
         size_per_time_bin=10,
-        label_fn=full_label_fn,
-        label_vector_len=full_label_fn_output_size,
-        name="HALO-Developement-Test",
-        refresh_cache=False
+        label_fn=label_fn,
+        label_vector_len=label_fn_output_size,
+        name="HALO-FairPlay",
+        refresh_cache=False,
+        expedited_load=True,
+        dataset_filepath=None if dataset is not None else dataset_filepath,
     )
 
     print(f"Processor results in vocab len {processor.total_vocab_size}, max visit num: {processor.total_visit_size}")
@@ -460,10 +535,12 @@ if __name__ == "__main__":
         processor=processor,
         optimizer=optimizer,
         checkpoint_dir=f'{basedir}/model_saves',
-        model_save_name='halo_model'
+        model_save_name='halo_mortality_model',
+        folds=10
     )
-    s = trainer.set_basic_splits(from_save=True, save=True)
-    print('split lengths', [len(_s) for _s in s])
+    # s = trainer.set_basic_splits(from_save=True, save=True)
+    # print('split lengths', [len(_s) for _s in s])
+    s = trainer.set_fold_splits(from_save=True, save=True)
     
     start_time = time.perf_counter()
     trainer.train(
@@ -490,28 +567,21 @@ if __name__ == "__main__":
         save_name="synthetic_data", # save at `synthetic_data.pkl`
     )
 
-    # labels = [((1), 25000), ((0), 25000)]
-    labels = Counter([full_label_fn(patient_data=p) for p in trainer.train_dataset])
+    labels = Counter([label_fn(patient_data=p) for p in trainer.train_dataset])
     maxLabel = max(labels.values())
-    labels = [(l, maxLabel) for l in labels]
-    label_mapping = {l: reverse_full_label_fn(l) for l, _ in labels}
+    labels = [(l, maxLabel-labels[l]) for l in labels]
+    label_mapping = {l: reverse_label_fn(l) for l, _ in labels}
     synthetic_dataset = generator.generate_conditioned(labels)
     # synthetic_dataset = pickle.load(open(f'{basedir}/synthetic_data.pkl', 'rb'))
 
     def pathfn(plot_type: str, label: tuple):
         prefix = os.path.join(generator.save_dir, 'plots')
 
-        label = 'all_labels'
-        # '_'.join(list(labels[label].values())) if label in labels else 'all_labels'
+        '_'.join(list(labels[label].values())) if label in labels else 'all_labels'
         label = label.replace('.', '').replace('/', '').replace(' ', '').lower()
         path_str = f"{prefix}_{plot_type}_{label}"
 
         return path_str
-    
-    # labels = {
-    #     (1, ): 'Alive',
-    #     (0, ): 'Expired',
-    # }
 
     # conduct evaluation of the synthetic data w.r.t. it's source
     evaluator = Evaluator(generator=generator, processor=processor)

@@ -95,7 +95,9 @@ class Processor():
         label_fn: Callable[..., List[int]] = None, 
         label_vector_len: int = -1,
         name: str = "halo_processor",
-        refresh_cache: bool = False
+        refresh_cache: bool = False,
+        expedited_load: bool = False,
+        dataset_filepath: str = None,
     ) -> None:
         
         self.dataset = dataset
@@ -134,6 +136,8 @@ class Processor():
         self.name = name
 
         self.refresh_cache = refresh_cache
+        self.expedited_load = expedited_load
+        self.dataset.filepath = dataset_filepath
 
         # init the indices & dynamically computed utility variables used in HALO training later
         self.set_indices()
@@ -147,7 +151,7 @@ class Processor():
         # set aggregate indices; try cache first
         args_to_hash = (
             self.name,
-            [self.dataset.filepath]
+            [self.dataset_filepath if self.dataset_filepath is not None else self.dataset.filepath]
         )
         filename = hash_str("+".join([str(arg) for arg in args_to_hash])) + ".pkl"
         self.filepath = os.path.join(MODULE_CACHE_PATH, filename)
@@ -155,7 +159,8 @@ class Processor():
         if os.path.exists(self.filepath) and not self.refresh_cache:
             aggregated_results = load_pickle(self.filepath)
             logger.debug(f"Loaded {self.name} from cache at file {self.filepath}")
-            self.clean_patients()
+            if not self.expedited_load:
+                self.clean_patients()
         else:
             logger.debug(f"Computing {self.name} from scratch")
             aggregated_results = self.aggregate_event_indices()
