@@ -18,6 +18,12 @@ from pyhealth.datasets import BaseSignalDataset
 from pyhealth.models import BaseModel
 import numpy as np
 import subprocess
+from matplotlib.collections import LineCollection
+import matplotlib.pyplot as plt
+from IPython import display
+from ipywidgets import  interactive, IntSlider
+
+
 
 
 
@@ -552,6 +558,231 @@ class Seq_Cross_Modal_Transformer_PyHealth(BaseModel):
 
         return results
     
+
+# Function and interative visulaization for intrepreting the Cross-Modal Transformer
+
+def atten_interpret(q, k):
+  atten_weights = torch.softmax((q @ k.transpose(-2, -1) / math.sqrt(q.size(-1))), dim=-1)
+  return atten_weights
+
+def interpret_cmt(trainer,test_loader,num_epoch_seq,num_classes):
+    '''
+    Interpret the predictions from the Cross-Modal Transformer as intra-modal, cross-modal 
+    and inter-epoch relationships
+
+    Args:
+        trainer: trainer object
+        test_loader: test data loader
+        num_epoch_seq: int, number of epochs in a sequence
+        num_classes: int, number of sleep stages
+    Returns:
+        test_data: dict, test data with predictions and attention scores
+                    {'patient_id': patient_id,
+                    'record_id': record_id,
+                    'signal': signal,
+                    'label': label,
+                    'y_prob': y_prob (predictions),
+                    'seq_attn': sequence level attention scores (Shape: (B, num_epoch_seq, num_epoch_seq)),
+                    'cross_attn': cross-modal attention scores (Shape: (B, num_epoch_seq,2)),
+                    'eeg_attn': EEG attention scores (Shape: (B, num_epoch_seq, num_time_windows_in_a_epoch)),
+                    'eog_attn': EOG attention scores (Shape: (B, num_epoch_seq, num_time_windows_in_a_epoch))
+                    }
+    '''
+    y_true, y_prob, loss,feat = trainer.inference(test_loader,additional_outputs=['channel_features','cross_modal_features','sequence_features'])
+    
+    # ch_feat, cross_feat, seq_feat
+    ch_feat = feat['channel_features']
+    cross_feat = feat['cross_modal_features']
+    seq_feat = feat['sequence_features']
+
+
+    #reshape y_true and y_prob back to original shape
+    y_true = y_true.reshape(-1,num_epoch_seq)  # (B,num_epoch_seq)
+    y_prob = y_prob.reshape(-1,num_epoch_seq,num_classes) # (B,num_epoch_seq,num_classes)
+
+    # load each sample from test_loader
+    test_data = {'patient_id':[],'record_id':[],'signal':[],'label':[]}
+    for batch in test_loader:
+        patien_id = batch['patient_id']
+        signal = batch['signal']
+        label = batch['label']
+        record_id = batch['record_id']
+        
+        for i in range(len(patien_id)):
+            test_data['patient_id'].append(patien_id[i])
+            test_data['record_id'].append(record_id[i])
+            test_data['signal'].append(signal[i])
+            test_data['label'].append(label[i])
+    print(len(test_data['patient_id']),len(test_data['record_id']),len(test_data['signal']),len(test_data['label']))
+    # print(test_data['patient_id'][0],test_data['record_id'][0],test_data['signal'][0].shape,test_data['label'][0].shape)
+    test_data['y_prob'] = y_prob
+    print(test_data['y_prob'].shape)
+
+    # Get sequence level attention scores
+    seq_attn = []
+    cross_attn = []
+    eeg_attn = []
+    eog_attn = []
+    for i in range(len(test_data['patient_id'])):
+        seq_attn.append(atten_interpret(torch.tensor(seq_feat[i]),torch.tensor(seq_feat[i])).detach().numpy())
+        
+        cross_epoch_attn = []
+        eeg_epoch_attn = []
+        eog_epoch_attn = []
+        for j in range(num_epoch_seq):
+            cross_epoch_attn.append(atten_interpret(torch.tensor(seq_feat[i][j]),torch.tensor(cross_feat[i][j])).detach().numpy())
+            eeg_epoch_attn.append(atten_interpret(torch.tensor(seq_feat[i][j]),torch.tensor(ch_feat[i][j][0])).detach().numpy())
+            eog_epoch_attn.append(atten_interpret(torch.tensor(seq_feat[i][j]),torch.tensor(ch_feat[i][j][1])).detach().numpy())
+
+        
+        
+        cross_attn.append(cross_epoch_attn)
+        eeg_attn.append(eeg_epoch_attn)
+        eog_attn.append(eog_epoch_attn)
+
+
+    test_data['seq_attn'] = np.array(seq_attn)
+    test_data['cross_attn'] = np.array(cross_attn)
+    test_data['eeg_attn'] = np.array(eeg_attn)
+    test_data['eog_attn'] = np.array(eog_attn)
+    
+    print(f'Sequence level attention scores shape: {test_data["seq_attn"].shape}')
+    print(f'Cross-modal attention scores shape: {test_data["cross_attn"].shape}')
+    print(f'EEG attention scores shape: {test_data["eeg_attn"].shape}')
+    print(f'EOG attention scores shape: {test_data["eog_attn"].shape}')
+
+
+    return test_data
+
+def plot_signal_attentions(x,y,dydx,axs,axs_no,title_font_size,signal_type = "EEG"):
+    '''
+    Plot the attention scores on the EEG and EOG signals
+    '''
+
+    points = np.array([x, y]).T.reshape(-1, 1, 2)
+    segments = np.concatenate([points[:-1], points[1:]], axis=1)
+    
+
+    # Create a continuous norm to map from data points to colors
+    norm = plt.Normalize(dydx.min(), dydx.max())
+    lc = LineCollection(segments, cmap='Reds', norm=norm)
+    # Set the values used for colormapping
+    lc.set_array(dydx)
+    lc.set_linewidth(2)
+    line = axs[axs_no[0]][axs_no[1]].add_collection(lc)
+    axs[axs_no[0]][axs_no[1]].set_xlabel(f'{signal_type}',fontsize = title_font_size)
+    axs[axs_no[0]][axs_no[1]].xaxis.set_tick_params(labelbottom=False)
+    axs[axs_no[0]][axs_no[1]].yaxis.set_tick_params(labelleft=False)
+
+    # Hide X and Y axes tick marks
+    axs[axs_no[0]][axs_no[1]].set_xticks([])
+    axs[axs_no[0]][axs_no[1]].set_yticks([])
+    axs[axs_no[0]][axs_no[1]].set_xlim(x.min(), x.max())
+    axs[axs_no[0]][axs_no[1]].set_ylim(y.min()-0.2,y.max()+0.2)
+    line.colorbar = plt.colorbar(line, ax=axs[axs_no[0]][axs_no[1]],format='',ticks=[])
+    
+
+def plot_interpret_cmt(test_data,data_no):
+    '''
+    Plot and visualize the interpretions for each sequence of epochs
+    Args:
+        test_data: dict, test data with predictions and attention scores
+        data_no: int, index of the sample to visualize
+    returns:
+        Figure
+    '''
+    num_epoch_seq = test_data['y_prob'].shape[1]
+    # print(num_epoch_seq)
+
+    record_id = test_data['record_id'][data_no]
+    seq_attn = test_data['seq_attn'][data_no]
+    cross_attn = test_data['cross_attn'][data_no]
+    eeg_attn = test_data['eeg_attn'][data_no]
+    eog_attn = test_data['eog_attn'][data_no]
+    eeg = test_data['signal'][data_no][0]
+    eog = test_data['signal'][data_no][1]
+
+    epoch_len = eeg.shape[0]//num_epoch_seq
+
+    fig, axs = plt.subplots(num_epoch_seq, 4,figsize=(50, 5*num_epoch_seq),gridspec_kw={'width_ratios': [1,1,5,5]})
+    
+    title_font_size = fig.dpi * 0.2
+    label_font_size = fig.dpi * 0.1
+    for i in range(num_epoch_seq):
+
+            # Plotting inter-epoch attention ##############################
+            rgba_colors = np.zeros((num_epoch_seq,4))
+            rgba_colors[:,0]=0#value of red intensity divided by 256
+            rgba_colors[i,0]=0.4#value of red intensity divided by 256
+            rgba_colors[:,1]=0  #value of green intensity divided by 256
+            rgba_colors[:,2]=0.4  #value of blue intensity divided by 256
+            rgba_colors[i,2]=0
+            rgba_colors[:,-1]= seq_attn[i]/seq_attn[i].max()
+            axs[i][0].bar(np.arange(1,num_epoch_seq+1), seq_attn[i]/seq_attn[i].max(),#/seq_attn[i].max(),# color ='blue',
+                    color =rgba_colors,align='center')
+            # axs[i//5][i%5].set_title('')
+            axs[i][0].tick_params(axis='x' ,labelsize=label_font_size)
+            axs[i][0].tick_params(axis='y' ,labelsize=label_font_size)
+            axs[i][0].set_xlabel('Epochs',fontsize = title_font_size)
+            yticks = axs[i][0].yaxis.get_major_ticks()
+            yticks[0].label1.set_visible(False)
+
+
+            # Plotting cross-modal attention ##############################
+            rgba_colors = np.zeros((2,4))
+            rgba_colors[:,0]=0.4 #value of red intensity divided by 256
+            rgba_colors[:,1]=0  #value of green intensity divided by 256
+            rgba_colors[:,2]=0 #value of blue intensity divided by 256
+            rgba_colors[:,-1]= cross_attn[i]
+            axs[i][1].bar(['EEG','EOG'], cross_attn[i],# color ='red',
+                    color =rgba_colors,align='center')
+            axs[i][1].tick_params(axis='x',labelsize=label_font_size)
+            axs[i][1].tick_params(axis='y',labelsize=label_font_size)
+            axs[i][1].set_ylim(0,1.02)
+            axs[i][1].set_xlabel('Signal',fontsize = title_font_size)
+
+
+            # # Plotting EEG attention ##############################
+            eeg_atten_epoch = eeg_attn[i]
+            eeg_epoch = eeg[i*epoch_len:(i+1)*epoch_len]
+            #upsample eeg attention to match eeg_epoch
+            eeg_atten_epoch = np.repeat(eeg_atten_epoch,epoch_len//eeg_atten_epoch.shape[0])
+            
+            t1 = np.arange(0,epoch_len,1)
+            plot_signal_attentions(t1,eeg_epoch,eeg_atten_epoch,axs,[i,2],title_font_size,signal_type = "EEG")
+            
+            
+            # # Plotting EOG attention ##############################
+            eog_atten_epoch = eog_attn[i]
+            eog_epoch = eog[i*epoch_len:(i+1)*epoch_len]
+            #upsample eog attention to match eog_epoch
+            eog_atten_epoch = np.repeat(eog_atten_epoch,epoch_len//eog_atten_epoch.shape[0])
+            plot_signal_attentions(t1,eog_epoch,eog_atten_epoch,axs,[i,3],title_font_size,signal_type = "EOG")
+
+    time = [int(record_id.split('-')[1].split('_')[i]) for i in range(num_epoch_seq)]
+    # plt.subplots_adjust(wspace=0.2)
+    fig.suptitle('Interpretation for patient '+str(record_id.split('-')[0])+' for 30s epochs '+f'{time}',fontsize = title_font_size*2)
+    plt.show()
+
+def interactive_plot_cmt(test_data):
+    '''
+    Interactive plot for interpreting the Cross-Modal Transformer
+    Args:
+        test_data: dict, test data with predictions and attention scores
+    Returns:
+        interactive_plot: interactive plot
+    '''
+    select_data = IntSlider(min=0, max=len(test_data['patient_id'])-1, step=1, value=0, description='Data Index:')
+    # plot_interpret_cmt(test_data,0)
+
+    def update_plot(data_no):
+        display.clear_output(wait=True)
+        plot_interpret_cmt(test_data,data_no)
+
+    interactive_plot = interactive(update_plot, data_no=select_data)
+
+
+    return interactive_plot
 
 
 # if __name__ == "__main__":
