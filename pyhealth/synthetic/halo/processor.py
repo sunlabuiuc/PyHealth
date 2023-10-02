@@ -137,7 +137,7 @@ class Processor():
 
         self.refresh_cache = refresh_cache
         self.expedited_load = expedited_load
-        self.dataset.filepath = dataset_filepath
+        self.dataset_filepath = dataset_filepath
 
         # init the indices & dynamically computed utility variables used in HALO training later
         self.set_indices()

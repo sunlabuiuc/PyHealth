@@ -13,6 +13,7 @@ import math
 from typing import List
 import pickle
 from collections import Counter
+from tqdm import tqdm
 
 import torch
 import torch.nn as nn
@@ -324,8 +325,7 @@ if __name__ == "__main__":
     filename = hash_str("+".join([str(arg) for arg in args_to_hash])) + ".pkl"
     MODULE_CACHE_PATH = os.path.join(BASE_CACHE_PATH, "datasets")
     dataset_filepath = os.path.join(MODULE_CACHE_PATH, filename)
-    
-    if os.path.exists(dataset_filepath):
+    if not os.path.exists(dataset_filepath):
         dataset = eICUDataset(
             dataset_name=dataset_name,
             root=ROOT,
@@ -473,7 +473,6 @@ if __name__ == "__main__":
                 'lab_measure_name_system': event[1],
             }
         }
-    
 
     # define value handlers; these handlers serve the function of converting an event into a primitive value. 
     # event handlers are called to clean up values
@@ -489,9 +488,15 @@ if __name__ == "__main__":
     reverse_event_handlers['diagnosis'] = reverse_diagnosis
     reverse_event_handlers['lab'] = reverse_lab
     
+    
+    
+    
+    
     label_fn = mortality_label_fn
     reverse_label_fn = reverse_mortality_label_fn
     label_fn_output_size = mortality_label_fn_output_size
+    model_save_name = 'halo_mortality_model'
+    synthetic_data_save_name = 'synthetic_mortality_data'
     
     processor = Processor(
         dataset=dataset,
@@ -521,92 +526,200 @@ if __name__ == "__main__":
     
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     print(optimizer.__class__)
-    # state_dict = torch.load(open(f'{basedir}/model_saves/eval_development.pt', 'rb'), map_location=device)
+    # state_dict = torch.load(open(f'{basedir}/model_saves/{model_save_name}.pt', 'rb'), map_location=device)
     # model.load_state_dict(state_dict['model'])
     # model.to(device)
     # optimizer.load_state_dict(state_dict['optimizer'])
     # print("loaded previous model from traing; iterations on previous model:", state_dict['iteration'])
-    # optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     
     # --- train model ---
+    num_folds = 5
     trainer = Trainer(
         dataset=processor.dataset,
         model=model,
         processor=processor,
         optimizer=optimizer,
         checkpoint_dir=f'{basedir}/model_saves',
-        model_save_name='halo_mortality_model',
-        folds=10
+        model_save_name=model_save_name,
+        folds=num_folds
     )
-    # s = trainer.set_basic_splits(from_save=True, save=True)
-    # print('split lengths', [len(_s) for _s in s])
-    s = trainer.set_fold_splits(from_save=True, save=True)
+    s = trainer.set_basic_splits(from_save=True, save=True)
+    print('split lengths', [len(_s) for _s in s])
+    trainer.set_fold_splits(from_save=True, save=True)
+   
+   
     
-    start_time = time.perf_counter()
-    trainer.train(
-        batch_size=batch_size,
-        epoch=1000,
-        patience=3,
-        eval_period=float('inf')
-    )
-    end_time = time.perf_counter()
-    run_time = end_time - start_time
-    print("training time:", run_time, run_time / 60, (run_time / 60) / 60)
+    
+    
+    #############################
+    # Static (Non-Folded) Setup #
+    #############################
+    
+    # start_time = time.perf_counter()
+    # trainer.train(
+    #     batch_size=batch_size,
+    #     epoch=1000,
+    #     patience=3,
+    #     eval_period=float('inf')
+    # )
+    # end_time = time.perf_counter()
+    # run_time = end_time - start_time
+    # print("training time:", run_time, run_time / 60, (run_time / 60) / 60)
  
-    # --- generate synthetic dataset using the best model ---
-    state_dict = torch.load(open(trainer.get_model_checkpoint_path(), 'rb'), map_location=device)
-    model.load_state_dict(state_dict['model'])
-    model.to(device)
+    # # --- generate synthetic dataset using the best model ---
+    # state_dict = torch.load(open(trainer.get_model_checkpoint_path(), 'rb'), map_location=device)
+    # model.load_state_dict(state_dict['model'])
+    # model.to(device)
 
-    generator = Generator(
-        model=model,
-        processor=processor,
-        batch_size=batch_size,
-        device=device,
-        save_dir=basedir,
-        save_name="synthetic_data", # save at `synthetic_data.pkl`
-    )
+    # generator = Generator(
+    #     model=model,
+    #     processor=processor,
+    #     batch_size=batch_size,
+    #     device=device,
+    #     save_dir=basedir,
+    #     save_name=synthetic_data_save_name
+    # )
 
-    labels = Counter([label_fn(patient_data=p) for p in trainer.train_dataset])
-    maxLabel = max(labels.values())
-    labels = [(l, maxLabel-labels[l]) for l in labels]
-    label_mapping = {l: reverse_label_fn(l) for l, _ in labels}
-    synthetic_dataset = generator.generate_conditioned(labels)
-    # synthetic_dataset = pickle.load(open(f'{basedir}/synthetic_data.pkl', 'rb'))
+    # labels = Counter([label_fn(patient_data=p) for p in trainer.train_dataset])
+    # maxLabel = max(labels.values())
+    # labels = [(l, maxLabel-labels[l]) for l in labels]
+    # label_mapping = {l: reverse_label_fn(l) for l, _ in labels}
+    # synthetic_dataset = generator.generate_conditioned(labels)
+    # # synthetic_dataset = pickle.load(open(f'{basedir}/{synthetic_data_save_name}.pkl', 'rb'))
 
-    def pathfn(plot_type: str, label: tuple):
-        prefix = os.path.join(generator.save_dir, 'plots')
+    # def pathfn(plot_type: str, label: tuple):
+    #     prefix = os.path.join(generator.save_dir, 'plots')
 
-        '_'.join(list(labels[label].values())) if label in labels else 'all_labels'
-        label = label.replace('.', '').replace('/', '').replace(' ', '').lower()
-        path_str = f"{prefix}_{plot_type}_{label}"
+    #     '_'.join(list(labels[label].values())) if label in labels else 'all_labels'
+    #     label = label.replace('.', '').replace('/', '').replace(' ', '').lower()
+    #     path_str = f"{prefix}_{plot_type}_{label}"
 
-        return path_str
+    #     return path_str
 
-    # conduct evaluation of the synthetic data w.r.t. it's source
-    evaluator = Evaluator(generator=generator, processor=processor)
-    stats = evaluator.evaluate(
-        source=trainer.train_dataset,
-        synthetic=pickle.load(file=open(generator.save_path, 'rb')),
-        get_plot_path_fn=pathfn,
-        compare_label=list(label_mapping.keys()),
-    )
-    print("plots at:", '\n'.join(stats[evaluator.PLOT_PATHS]))
+    # # conduct evaluation of the synthetic data w.r.t. it's source
+    # evaluator = Evaluator(generator=generator, processor=processor)
+    # stats = evaluator.evaluate(
+    #     source=trainer.train_dataset,
+    #     synthetic=pickle.load(file=open(generator.save_path, 'rb')),
+    #     get_plot_path_fn=pathfn,
+    #     compare_label=list(label_mapping.keys()),
+    # )
+    # print("plots at:", '\n'.join(stats[evaluator.PLOT_PATHS]))
 
-    # --- conversion ---
-    print('converting to all data to uniform pyhealth format')
-    synthetic_pyhealth_dataset = generator.convert_ehr_to_pyhealth(synthetic_dataset, reverse_event_handlers, datetime.datetime.now(), label_mapping)
-    train_evaluation_dataset = evaluator.to_evaluation_format(trainer.train_dataset)
-    # pickle.dump(train_evaluation_dataset, open(f'{basedir}/train_data.pkl', 'wb'))
-    train_pyhealth_dataset = generator.convert_ehr_to_pyhealth(train_evaluation_dataset, reverse_event_handlers, datetime.datetime.now(), label_mapping)
-    eval_evaluation_dataset = evaluator.to_evaluation_format(trainer.eval_dataset)
-    # pickle.dump(eval_evaluation_dataset, open(f'{basedir}/eval_data.pkl', 'wb'))
-    eval_pyhealth_dataset = generator.convert_ehr_to_pyhealth(eval_evaluation_dataset, reverse_event_handlers, datetime.datetime.now(), label_mapping)
-    test_evaluation_dataset = evaluator.to_evaluation_format(trainer.test_dataset)
-    # pickle.dump(test_evaluation_dataset, open(f'{basedir}/test_data.pkl', 'wb'))
-    test_pyhealth_dataset = generator.convert_ehr_to_pyhealth(test_evaluation_dataset, reverse_event_handlers, datetime.datetime.now(), label_mapping)
-    # pickle.dump(synthetic_pyhealth_dataset, open(f'{basedir}/synthetic_pyhealth_dataset.pkl', 'wb'))
-    # pickle.dump(train_pyhealth_dataset, open(f'{basedir}/train_pyhealth_dataset.pkl', 'wb'))
-    # pickle.dump(eval_pyhealth_dataset, open(f'{basedir}/eval_pyhealth_dataset.pkl', 'wb'))
-    # pickle.dump(test_pyhealth_dataset, open(f'{basedir}/test_pyhealth_dataset.pkl', 'wb'))
-    print("done")
+    # # --- conversion ---
+    # print('converting to all data to uniform pyhealth format')
+    # synthetic_pyhealth_dataset = generator.convert_ehr_to_pyhealth(synthetic_dataset, reverse_event_handlers, datetime.datetime.now(), label_mapping)
+    # train_evaluation_dataset = evaluator.to_evaluation_format(trainer.train_dataset)
+    # # pickle.dump(train_evaluation_dataset, open(f'{basedir}/train_data.pkl', 'wb'))
+    # train_pyhealth_dataset = generator.convert_ehr_to_pyhealth(train_evaluation_dataset, reverse_event_handlers, datetime.datetime.now(), label_mapping)
+    # eval_evaluation_dataset = evaluator.to_evaluation_format(trainer.eval_dataset)
+    # # pickle.dump(eval_evaluation_dataset, open(f'{basedir}/eval_data.pkl', 'wb'))
+    # eval_pyhealth_dataset = generator.convert_ehr_to_pyhealth(eval_evaluation_dataset, reverse_event_handlers, datetime.datetime.now(), label_mapping)
+    # test_evaluation_dataset = evaluator.to_evaluation_format(trainer.test_dataset)
+    # # pickle.dump(test_evaluation_dataset, open(f'{basedir}/test_data.pkl', 'wb'))
+    # test_pyhealth_dataset = generator.convert_ehr_to_pyhealth(test_evaluation_dataset, reverse_event_handlers, datetime.datetime.now(), label_mapping)
+    # # pickle.dump(synthetic_pyhealth_dataset, open(f'{basedir}/synthetic_pyhealth_dataset.pkl', 'wb'))
+    # # pickle.dump(train_pyhealth_dataset, open(f'{basedir}/train_pyhealth_dataset.pkl', 'wb'))
+    # # pickle.dump(eval_pyhealth_dataset, open(f'{basedir}/eval_pyhealth_dataset.pkl', 'wb'))
+    # # pickle.dump(test_pyhealth_dataset, open(f'{basedir}/test_pyhealth_dataset.pkl', 'wb'))
+    # print("done")
+
+
+
+
+
+    ################
+    # Folded Setup #
+    ################
+    
+    for fold in tqdm(range(num_folds), desc='Training Folds'):
+        model = HALO(
+            n_ctx=processor.total_visit_size,
+            total_vocab_size=processor.total_vocab_size,
+            device=device
+        )
+        
+        optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+        print(optimizer.__class__)
+        # state_dict = torch.load(open(f'{basedir}/model_saves/{model_save_name}_{fold}.pt', 'rb'), map_location=device)
+        # model.load_state_dict(state_dict['model'])
+        # model.to(device)
+        # optimizer.load_state_dict(state_dict['optimizer'])
+        # print("loaded previous model from traing; iterations on previous model:", state_dict['iteration'])
+        
+        # --- train model ---
+        trainer = Trainer(
+            dataset=processor.dataset,
+            model=model,
+            processor=processor,
+            optimizer=optimizer,
+            checkpoint_dir=f'{basedir}/model_saves',
+            model_save_name=f'{model_save_name}_{fold}',
+            folds=num_folds
+        )
+        trainer.load_fold_split(fold, from_save=True, save=True)
+        
+        start_time = time.perf_counter()
+        trainer.train(
+            batch_size=batch_size,
+            epoch=1000,
+            patience=3,
+            eval_period=float('inf')
+        )
+        end_time = time.perf_counter()
+        run_time = end_time - start_time
+        print("training time:", run_time, run_time / 60, (run_time / 60) / 60)
+    
+        # --- generate synthetic dataset using the best model ---
+        state_dict = torch.load(open(trainer.get_model_checkpoint_path(), 'rb'), map_location=device)
+        model.load_state_dict(state_dict['model'])
+        model.to(device)
+
+        generator = Generator(
+            model=model,
+            processor=processor,
+            batch_size=batch_size,
+            device=device,
+            save_dir=basedir,
+            save_name=f'{synthetic_data_save_name}_{fold}'
+        )
+
+        labels = Counter([label_fn(patient_data=p) for p in trainer.train_dataset])
+        maxLabel = max(labels.values())
+        labels = [(l, maxLabel-labels[l]) for l in labels]
+        label_mapping = {l: reverse_label_fn(l) for l, _ in labels}
+        synthetic_dataset = generator.generate_conditioned(labels)
+
+        def pathfn(plot_type: str, label: tuple):
+            prefix = os.path.join(generator.save_dir, 'plots')
+
+            '_'.join(list(labels[label].values())) if label in labels else 'all_labels'
+            label = label.replace('.', '').replace('/', '').replace(' ', '').lower()
+            path_str = f"{prefix}_{plot_type}_{label}"
+
+            return path_str
+
+        # convert the data for standard format for downstream tasks
+        evaluator = Evaluator(generator=generator, processor=processor)
+        # synthetic_pyhealth_dataset = generator.convert_ehr_to_pyhealth(synthetic_dataset, reverse_event_handlers, datetime.datetime.now(), label_mapping)
+        if not os.path.exists(f'{basedir}/train_data_{fold}.pkl'):
+            train_evaluation_dataset = evaluator.to_evaluation_format(trainer.train_dataset)
+            pickle.dump(train_evaluation_dataset, open(f'{basedir}/train_data_{fold}.pkl', 'wb'))
+        # else:
+        #     train_evaluation_dataset = pickle.load(open(f'{basedir}/train_data_{fold}.pkl', 'rb'))
+
+        if not os.path.exists(f'{basedir}/eval_data_{fold}.pkl'):
+            eval_evaluation_dataset = evaluator.to_evaluation_format(trainer.eval_dataset)
+            pickle.dump(eval_evaluation_dataset, open(f'{basedir}/eval_data_{fold}.pkl', 'wb'))
+        # else:
+        #     eval_evaluation_dataset = pickle.load(open(f'{basedir}/eval_data_{fold}.pkl', 'rb'))
+        
+        if not os.path.exists(f'{basedir}/test_data_{fold}.pkl'):
+            test_evaluation_dataset = evaluator.to_evaluation_format(trainer.test_dataset)
+            pickle.dump(test_evaluation_dataset, open(f'{basedir}/test_data_{fold}.pkl', 'wb'))
+        # else:
+        #     test_evaluation_dataset = pickle.load(open(f'{basedir}/test_data_{fold}.pkl', 'rb'))
+        
+        # train_pyhealth_dataset = generator.convert_ehr_to_pyhealth(train_evaluation_dataset, reverse_event_handlers, datetime.datetime.now(), label_mapping)
+        # eval_pyhealth_dataset = generator.convert_ehr_to_pyhealth(eval_evaluation_dataset, reverse_event_handlers, datetime.datetime.now(), label_mapping)
+        # test_pyhealth_dataset = generator.convert_ehr_to_pyhealth(test_evaluation_dataset, reverse_event_handlers, datetime.datetime.now(), label_mapping)

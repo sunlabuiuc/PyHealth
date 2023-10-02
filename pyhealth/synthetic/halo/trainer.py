@@ -88,43 +88,75 @@ class Trainer:
         return self.train_dataset, self.test_dataset, self.eval_dataset
     
     def set_fold_splits(self, from_save=False, save=True):
-        """Set class variables of a 0.8, 0.1, 0.1 split for train, test, eval split. 
+        """Set class variables of a 0.8, 0.1, 0.1 split for train, test, eval split for each fold in a k-fold setup. 
 
-            If `from_save` is True, will attempt to load each split from <halo.Trainer.checkpoint_dir>/<split_name>.pt. Upon failure, will create new splits with the underlying dataset. 
-            If `save` is True, will store the set splits in memory at path <halo.Trainer.checkpoint_dir>/<split_name>.pt
+            If `from_save` is True, will attempt to load each split from <halo.Trainer.checkpoint_dir>/<split_name>_<fold_number>.pt. Upon failure, will create new splits with the underlying dataset. 
+            If `save` is True, will store the set splits in memory at path <halo.Trainer.checkpoint_dir>/<split_name>_<fold_number>.pt
 
             Args
         
             Returns: train, test, eval split
         """
+        offset_per_fold = 1.0 / self.folds
+        for fold in range(self.folds):
+            if from_save:
+                try:
+                    self.train_dataset = torch.load(open(f"{self.checkpoint_dir}/train_dataset_{fold}.pt", 'rb'))
+                    self.test_dataset = torch.load(open(f"{self.checkpoint_dir}/test_dataset_{fold}.pt", 'rb'))
+                    self.eval_dataset = torch.load(open(f"{self.checkpoint_dir}/eval_dataset_{fold}.pt", 'rb'))    
+                    loaded = True
+                except:
+                    loaded = False
+                    logger.debug(f"failed to load basic splits from memory, generating splits from source dataset for fold {fold}.")
+            if not from_save or not loaded:
+                train, test, eval = self.split(shuffle=False, fold_offset=offset_per_fold * fold)
+                self.train_dataset = train
+                self.test_dataset = test
+                self.eval_dataset = eval
+                if save:
+                    torch.save(self.train_dataset, open(f"{self.checkpoint_dir}/train_dataset_{fold}.pt", 'wb'))
+                    torch.save(self.test_dataset, open(f"{self.checkpoint_dir}/test_dataset_{fold}.pt", 'wb'))
+                    torch.save(self.eval_dataset, open(f"{self.checkpoint_dir}/eval_dataset_{fold}.pt", 'wb'))
+    
+    def load_fold_split(self, fold, from_save=False, save=True):
+        """Set class variables of a 0.8, 0.1, 0.1 split for train, test, eval split for each fold in a k-fold setup. 
+
+            If `from_save` is True, will attempt to load each split from <halo.Trainer.checkpoint_dir>/<split_name>_<fold_number>.pt. Upon failure, will create new splits with the underlying dataset. 
+            If `save` is True, will store the set splits in memory at path <halo.Trainer.checkpoint_dir>/<split_name>_<fold_number>.pt
+
+            Args
+        
+            Returns: train, test, eval split
+        """
+        offset_per_fold = 1.0 / self.folds
         if from_save:
             try:
-                self.train_dataset = torch.load(open(f"{self.checkpoint_dir}/train_dataset.pt", 'rb'))
-                self.test_dataset = torch.load(open(f"{self.checkpoint_dir}/test_dataset.pt", 'rb'))
-                self.eval_dataset = torch.load(open(f"{self.checkpoint_dir}/eval_dataset.pt", 'rb'))
+                self.train_dataset = torch.load(open(f"{self.checkpoint_dir}/train_dataset_{fold}.pt", 'rb'))
+                self.test_dataset = torch.load(open(f"{self.checkpoint_dir}/test_dataset_{fold}.pt", 'rb'))
+                self.eval_dataset = torch.load(open(f"{self.checkpoint_dir}/eval_dataset_{fold}.pt", 'rb'))    
                 
                 return self.train_dataset, self.test_dataset, self.eval_dataset
             except:
-                logger.debug("failed to load basic splits from memory, generating splits from source dataset.")
-        
-        train, test, eval = self.split()
+                logger.debug(f"failed to load basic splits from memory, generating splits from source dataset for fold {fold}.")
+                
+        train, test, eval = self.split(shuffle=False, fold_offset=offset_per_fold * fold)
         self.train_dataset = train
         self.test_dataset = test
         self.eval_dataset = eval
-
         if save:
-            torch.save(self.train_dataset, open(f"{self.checkpoint_dir}/train_dataset.pt", 'wb'))
-            torch.save(self.test_dataset, open(f"{self.checkpoint_dir}/test_dataset.pt", 'wb'))
-            torch.save(self.eval_dataset, open(f"{self.checkpoint_dir}/eval_dataset.pt", 'wb'))
-        
+            torch.save(self.train_dataset, open(f"{self.checkpoint_dir}/train_dataset_{fold}.pt", 'wb'))
+            torch.save(self.test_dataset, open(f"{self.checkpoint_dir}/test_dataset_{fold}.pt", 'wb'))
+            torch.save(self.eval_dataset, open(f"{self.checkpoint_dir}/eval_dataset_{fold}.pt", 'wb'))
+            
         return self.train_dataset, self.test_dataset, self.eval_dataset
         
-    def split(self, splits: List[float] = [0.8, 0.1, 0.1], shuffle: bool = True):
+    def split(self, splits: List[float] = [0.8, 0.1, 0.1], shuffle: bool = True, fold_offset: float = 0.0):
         """Split the dataset by ratio & return the result
 
         Args:
             splits: A list of ratios denoting portion of the dataset per split
             shuffle: whether to shuffle the dataset randomly prior to splitting. 
+            fold_offset: offset used to rotate the dataset for k-fold cross validation.
 
         Returns:
             the computed dataset splits.
@@ -137,15 +169,21 @@ class Trainer:
         
         n = len(self.dataset.patients)
         dataset_splits = []
-        start_offset = 0
+        start_offset = int(n * fold_offset)
         for s in splits:
-            n_split = math.ceil(n * s) # size of the current split
+            n_split = int(n * s) # size of the current split
+
+            # For a wrap-around effect, we'll use modulo operation
+            end_offset = (start_offset + n_split) % n
             
-            # the last subset will be the smallest
-            subset = self.dataset[start_offset: min(start_offset + n_split, n)]
-           
+            if start_offset < end_offset:
+                subset = self.dataset[start_offset: end_offset]
+            else:
+                # wrap-around: combining the end and start portions
+                subset = self.dataset[start_offset:] + self.dataset[:end_offset]
+
             dataset_splits.append(subset)
-            start_offset += n_split
+            start_offset = end_offset
             
         return dataset_splits
     
