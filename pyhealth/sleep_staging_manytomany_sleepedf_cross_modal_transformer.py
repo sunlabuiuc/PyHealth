@@ -1,11 +1,11 @@
 from pyhealth.datasets import SleepEDFDataset
-from pyhealth.tasks.sleep_staging import multi_epoch_multi_modal_sleep_staging_sleepedf_fn
+from tasks.sleep_staging import multi_epoch_multi_modal_sleep_staging_sleepedf_fn
 from pyhealth.datasets.splitter import split_by_patient
 from pyhealth.datasets import split_by_patient, get_dataloader
-from pyhealth.models import Seq_Cross_Modal_Transformer_PyHealth
+from models import Seq_Cross_Modal_Transformer_PyHealth
 from pyhealth.trainer import Trainer
 from pyhealth.metrics.multiclass import multiclass_metrics_fn
-from pyhealth.models.cross_modal_transformer import interpret_cmt, interactive_plot_cmt
+from models.cross_modal_transformer import interpret_cmt, interactive_plot_cmt
 
 '''
 Example Colab tutorial can be found at:
@@ -63,5 +63,5 @@ print (score)
 
 
 # STEP 6: interpret
-# test_data = interpret_cmt(trainer,test_loader,num_epoch_seq,num_classes=6)
-# interactive_plot_cmt(test_data)
+test_data = interpret_cmt(trainer,test_loader,num_epoch_seq,num_classes=6)
+interactive_plot_cmt(test_data)
