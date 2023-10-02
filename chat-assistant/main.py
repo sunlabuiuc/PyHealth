@@ -23,6 +23,7 @@ CSS = """
     .gradio-container { height: 100vh !important; }
     #component-0 { height: 100%; }
     #chatbot { flex-grow: 1; overflow: auto;}
+    footer {visibility: hidden}
     """
 
 
@@ -81,11 +82,22 @@ class ChatWrapper:
 if __name__ == "__main__":
     
     chat = ChatWrapper()
-    
-    with gr.Blocks(theme="default", css=CSS) as block:
+    with gr.Blocks(theme="default", css=CSS, title="PyHealthChat") as block:
         with gr.Row():
             gr.Markdown(
-                "<h1><center>PyHealth Assistant</center></h1> <h3><a href='https://pyhealth.readthedocs.io/en/latest/'>< back to docs</a></h3>")
+                "<div><img src='https://raw.githubusercontent.com/sunlabuiuc/PyHealth/master/docs/_static/pyhealth_logos/pyhealth-logo.png' width=140>")
+            gr.Markdown(
+                "<h1><center style='padding: 25px 0; border: 3px;'>PyHealthChat</center></h1>")
+            gr.Markdown(
+                "<h3 align=right style='padding: 25px 0'><a href='https://pyhealth.readthedocs.io/en/latest/'> back to docs ></a></h3>")
+            # gr.Markdown(
+            #     """
+            #         <p style="display:inline-block;">
+            #             <img src="https://pyhealth.readthedocs.io/en/latest/_static/pyhealth-logo.png" width=140>
+            #             <h1><center>PyHealthChat</center></h1>
+            #         </p>
+            #     """
+            # )
         chatbot = gr.Chatbot(value=[[None, AI_INTRO]], elem_id="chatbot")
         # session state
         user_summarized_history = gr.State(value='AI: '+AI_INTRO)
