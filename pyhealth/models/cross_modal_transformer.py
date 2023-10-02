@@ -635,7 +635,7 @@ def interpret_cmt(trainer,test_loader,num_epoch_seq,num_classes):
         eeg_epoch_attn = []
         eog_epoch_attn = []
         for j in range(num_epoch_seq):
-            seq_epoch_attn.append(atten_interpret(torch.tensor(seq_feat[i,j,:]).unsqueeze(0),torch.tensor(seq_feat[i])).detach().numpy())
+            seq_epoch_attn.append(atten_interpret(torch.tensor(seq_feat[i,j,:]),torch.tensor(seq_feat[i])).detach().numpy())
             cross_epoch_attn.append(atten_interpret(torch.tensor(seq_feat[i][j]),torch.tensor(cross_feat[i][j])).detach().numpy())
             eeg_epoch_attn.append(atten_interpret(torch.tensor(seq_feat[i][j]),torch.tensor(ch_feat[i][j][0])).detach().numpy())
             eog_epoch_attn.append(atten_interpret(torch.tensor(seq_feat[i][j]),torch.tensor(ch_feat[i][j][1])).detach().numpy())
