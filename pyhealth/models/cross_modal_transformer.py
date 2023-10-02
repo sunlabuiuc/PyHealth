@@ -613,10 +613,12 @@ def interpret_cmt(trainer,test_loader,num_epoch_seq,num_classes):
             test_data['record_id'].append(record_id[i])
             test_data['signal'].append(signal[i])
             test_data['label'].append(label[i])
-    print(len(test_data['patient_id']),len(test_data['record_id']),len(test_data['signal']),len(test_data['label']))
-    # print(test_data['patient_id'][0],test_data['record_id'][0],test_data['signal'][0].shape,test_data['label'][0].shape)
+
+    print('Test data statistics:')
+    print(f'Number of samples: {len(test_data["patient_id"])}')
+
+
     test_data['y_prob'] = y_prob
-    print(test_data['y_prob'].shape)
 
     # Get sequence level attention scores
     seq_attn = []
@@ -701,6 +703,19 @@ def plot_interpret_cmt(test_data,data_no):
     eog_attn = test_data['eog_attn'][data_no]
     eeg = test_data['signal'][data_no][0]
     eog = test_data['signal'][data_no][1]
+    y_true = test_data['label'][data_no]
+    y_prob = test_data['y_prob'][data_no]
+
+    all_labels = ["Sleep stage W",
+            "Sleep stage 1",
+            "Sleep stage 2",
+            "Sleep stage 3",
+            "Sleep stage 4",
+            "Sleep stage R"]
+
+    print('True labels and Predictions')
+    print(f'True labels: {[all_labels[i] for i in y_true]}')
+    print(f'Predictions: {[all_labels[i] for i in y_prob.argmax(axis = -1)]}')
 
     epoch_len = eeg.shape[0]//num_epoch_seq
 
