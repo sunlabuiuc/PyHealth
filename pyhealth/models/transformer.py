@@ -21,6 +21,7 @@ class Attention(nn.Module):
             p_attn = p_attn.masked_fill(mask == 0, 0)
         if dropout is not None:
             p_attn = dropout(p_attn)
+ 
         return torch.matmul(p_attn, value), p_attn
 
 
@@ -32,7 +33,7 @@ class MultiHeadedAttention(nn.Module):
         # We assume d_v always equals d_k
         self.d_k = d_model // h
         self.h = h
-
+    
         self.linear_layers = nn.ModuleList(
             [nn.Linear(d_model, d_model, bias=False) for _ in range(3)]
         )
@@ -41,7 +42,21 @@ class MultiHeadedAttention(nn.Module):
 
         self.dropout = nn.Dropout(p=dropout)
 
-    def forward(self, query, key, value, mask=None):
+        self.attn_gradients = None
+        self.attn_map = None
+
+    # helper functions for interpretability
+    def get_attn_map(self):
+        return self.attn_map 
+    
+    def get_attn_grad(self):
+        return self.attn_gradients
+
+    def save_attn_grad(self, attn_grad):
+        self.attn_gradients = attn_grad 
+
+    # register_hook option allows us to save the gradients in backwarding
+    def forward(self, query, key, value, mask=None, register_hook = False):
         batch_size = query.size(0)
 
         # 1) Do all the linear projections in batch from d_model => h x d_k
@@ -49,15 +64,18 @@ class MultiHeadedAttention(nn.Module):
             l(x).view(batch_size, -1, self.h, self.d_k).transpose(1, 2)
             for l, x in zip(self.linear_layers, (query, key, value))
         ]
-
+        
         # 2) Apply attention on all the projected vectors in batch.
         if mask is not None:
             mask = mask.unsqueeze(1)
         x, attn = self.attention(query, key, value, mask=mask, dropout=self.dropout)
-
+        
+        self.attn_map = attn # save the attention map
+        if register_hook:
+            attn.register_hook(self.save_attn_grad)
         # 3) "Concat" using a view and apply a final linear.
         x = x.transpose(1, 2).contiguous().view(batch_size, -1, self.h * self.d_k)
-
+  
         return self.output_linear(x)
 
 
@@ -108,7 +126,7 @@ class TransformerBlock(nn.Module):
         self.output_sublayer = SublayerConnection(size=hidden, dropout=dropout)
         self.dropout = nn.Dropout(p=dropout)
 
-    def forward(self, x, mask=None):
+    def forward(self, x, mask=None, register_hook = False):
         """Forward propagation.
 
         Args:
@@ -118,7 +136,7 @@ class TransformerBlock(nn.Module):
         Returns:
             A tensor of shape [batch_size, seq_len, hidden]
         """
-        x = self.input_sublayer(x, lambda _x: self.attention(_x, _x, _x, mask=mask))
+        x = self.input_sublayer(x, lambda _x: self.attention(_x, _x, _x, mask=mask, register_hook=register_hook))
         x = self.output_sublayer(x, lambda _x: self.feed_forward(_x, mask=mask))
         return self.dropout(x)
 
@@ -136,7 +154,7 @@ class TransformerLayer(nn.Module):
         heads: the number of attention heads. Default is 1.
         dropout: dropout rate. Default is 0.5.
         num_layers: number of transformer layers. Default is 1.
-
+        register_hook: True to save gradients of attention layer, Default is False.
     Examples:
         >>> from pyhealth.models import TransformerLayer
         >>> input = torch.randn(3, 128, 64)  # [batch size, sequence len, feature_size]
@@ -155,7 +173,7 @@ class TransformerLayer(nn.Module):
         )
 
     def forward(
-        self, x: torch.tensor, mask: Optional[torch.tensor] = None
+        self, x: torch.tensor, mask: Optional[torch.tensor] = None, register_hook = False
     ) -> Tuple[torch.tensor, torch.tensor]:
         """Forward propagation.
 
@@ -173,7 +191,7 @@ class TransformerLayer(nn.Module):
         if mask is not None:
             mask = torch.einsum("ab,ac->abc", mask, mask)
         for transformer in self.transformer:
-            x = transformer(x, mask)
+            x = transformer(x, mask, register_hook)
         emb = x
         cls_emb = x[:, 0, :]
         return emb, cls_emb
@@ -413,11 +431,14 @@ class Transformer(BaseModel):
 
             else:
                 raise NotImplementedError
-
-            _, x = self.transformer[feature_key](x, mask)
+            # print("feature:", feature_key, " x:", x.size())
+            _, x = self.transformer[feature_key](x, mask, kwargs.get('register_hook'))
             patient_emb.append(x)
+            print("feature:", feature_key, " x:", x.size())
 
         patient_emb = torch.cat(patient_emb, dim=1)
+        print("patient emb:", patient_emb.size())
+        print("")
         # (patient, label_size)
         logits = self.fc(patient_emb)
         # obtain y_true, loss, y_prob
@@ -427,6 +448,7 @@ class Transformer(BaseModel):
         results = {"loss": loss, "y_prob": y_prob, "y_true": y_true, "logit": logits}
         if kwargs.get("embed", False):
             results["embed"] = patient_emb
+        
         return results
 
 
