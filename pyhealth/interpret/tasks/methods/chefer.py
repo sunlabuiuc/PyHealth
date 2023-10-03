@@ -58,7 +58,7 @@ class CheferRelevance():
 
         attn  = {}
         for key in feature_keys:
-            R = torch.eye(num_tokens).unsqueeze(0).repeat(logits.size()[0], 1, 1).to(logits.device) # initialize identity matrix, but batched
+            R = torch.eye(num_tokens).unsqueeze(0).repeat(input.size()[0], 1, 1).to(logits.device) # initialize identity matrix, but batched
             for blk in self.model.transformer[key].transformer:
                 grad = blk.attention.get_attn_grad()
                 cam = blk.attention.get_attn_map()
