@@ -5,7 +5,6 @@ Implementation based on https://github.com/hila-chefer/Transformer-Explainabilit
 
 :param model: A trained base model.
 :type model: PyHealth Transformer 
-
 """
 
 
@@ -64,7 +63,7 @@ class CheferRelevance():
                 grad = blk.attention.get_attn_grad()
                 cam = blk.attention.get_attn_map()
                 cam = avg_heads(cam, grad)
-                R = apply_self_attention_rules(R, cam).detach()
+                R += apply_self_attention_rules(R, cam).detach()
 
             # R -= torch.eye(num_tokens).unsqueeze(0).expand(logits.size()[0], -1, -1).to(logits.device)
             attn[key] = R[0]

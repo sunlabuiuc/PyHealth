@@ -431,15 +431,12 @@ class Transformer(BaseModel):
 
             else:
                 raise NotImplementedError
-            # print("feature:", feature_key, " x:", x.size())
             _, x = self.transformer[feature_key](x, mask, kwargs.get('register_hook'))
             patient_emb.append(x)
-            print("feature:", feature_key, " x:", x.size())
+           
 
         patient_emb = torch.cat(patient_emb, dim=1)
-        print("patient emb:", patient_emb.size())
-        print("")
-        # (patient, label_size)
+
         logits = self.fc(patient_emb)
         # obtain y_true, loss, y_prob
         y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
