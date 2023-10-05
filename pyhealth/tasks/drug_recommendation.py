@@ -82,6 +82,10 @@ def drug_recommendation_mimic3_fn(patient: Patient):
             samples[i]["drugs_hist"]
         ]
 
+    # remove the target drug from the history
+    for i in range(len(samples)):
+        samples[i]["drugs_hist"][i] = []
+
     return samples
 
 

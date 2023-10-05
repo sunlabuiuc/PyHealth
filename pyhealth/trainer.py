@@ -217,7 +217,7 @@ class Trainer:
                 self.save_ckpt(os.path.join(self.exp_path, "last.ckpt"))
 
             # validation
-            if (val_dataloader is not None) and (epoch % evaluation_steps == 0):
+            if val_dataloader is not None:
                 scores = self.evaluate(val_dataloader)
                 logger.info(f"--- Eval epoch-{epoch}, step-{global_step} ---")
                 for key in scores.keys():
