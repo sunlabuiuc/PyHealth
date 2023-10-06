@@ -12,6 +12,6 @@ from .shhs import SHHSDataset
 from .tuab import TUABDataset
 from .tuev import TUEVDataset
 from .sample_dataset import SampleBaseDataset, SampleSignalDataset, SampleEHRDataset
-from .splitter import split_by_patient, split_by_visit
+from .splitter import split_by_patient, split_by_visit, split_by_sample
 from .utils import collate_fn_dict, get_dataloader, strptime
 from .covid19_cxr import COVID19CXRDataset

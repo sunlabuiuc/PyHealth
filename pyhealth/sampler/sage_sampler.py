@@ -72,6 +72,7 @@ class NeighborSampler(torch.utils.data.DataLoader):
         ogbn_products_sage.py>`_.
 
     Args:
+
         edge_index (Tensor or SparseTensor): A :obj:`torch.LongTensor` or a
             :obj:`torch_sparse.SparseTensor` that defines the underlying graph
             connectivity/message passing flow.
@@ -184,7 +185,7 @@ class NeighborSampler(torch.utils.data.DataLoader):
 
         adjs = adjs[0] if len(adjs) == 1 else adjs[::-1]
         
-        # get images
+        # get images for sampled node indexes
         temp = [self.raw_data.__getitem__(i) for i in n_id]
         image = [i["path"] for i in temp]
         label = [i["label"] for i in temp]
