@@ -155,6 +155,10 @@ class Graph_TorchvisionModel(BaseModel):
     Yue Cao, Zheng Zhang, Li Dong, Furu Wei, Baining Guo. Swin Transformer V2: Scaling
     Up Capacity and Resolution. CVPR 2022.
     -----------------------------------------------------------------------------------
+    ----------------------- Graph Convolutional Networks (GCN)-------------------------
+    Paper: Thomas N. Kipf, Max Welling. 
+    Semi-Supervised Classification with Graph Convolutional Networks. ICLR 2017.
+    -----------------------------------------------------------------------------------
 
     Args:
         dataset: the dataset to train the model. It is used to query certain
@@ -215,7 +219,9 @@ class Graph_TorchvisionModel(BaseModel):
 
 
     def build_graph(self, data, random = False) -> Dict[str, torch.Tensor]:
-
+        """This module generate edge index of graph structure based on given data.
+        Currently, we do not have multi-modal data, so this module randomly generate edge index"""
+        
         if random:
             edge_index = torch.randint(len(data), size = (2, int(1.0 * len(data))))
 
@@ -278,9 +284,19 @@ if __name__ == "__main__":
     )
 
     graph = model.build_graph(sample_dataset, random = True)
-    train_graph_loader = NeighborSampler(sample_dataset, graph["edge_index"], node_idx=None, sizes=[15, 10], batch_size=64, shuffle=True, num_workers=12)
+    
+    from pyhealth.datasets import split_by_sample
 
-    data_graph_batch = next(iter(train_graph_loader))
+    # Get Index of train, valid, test set
+    train_index, val_index, test_index = split_by_sample(
+        dataset=sample_dataset,
+        ratios=[0.7, 0.1, 0.2],
+        get_index = True
+    )
+    
+    train_dataloader = NeighborSampler(sample_dataset, graph["edge_index"], node_idx=train_index, sizes=[15, 10], batch_size=64, shuffle=True, num_workers=12)
+
+    data_graph_batch = next(iter(train_dataloader))
 
     # try the model
     ret = model(**data_graph_batch)
