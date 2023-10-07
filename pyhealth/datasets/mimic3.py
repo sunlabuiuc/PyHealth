@@ -118,6 +118,11 @@ class MIMIC3Dataset(BaseEHRDataset):
                     encounter_time=strptime(v_info["ADMITTIME"].values[0]),
                     discharge_time=strptime(v_info["DISCHTIME"].values[0]),
                     discharge_status=v_info["HOSPITAL_EXPIRE_FLAG"].values[0],
+                    insurance=v_info["INSURANCE"].values[0],
+                    language=v_info["LANGUAGE"].values[0],
+                    religion=v_info["RELIGION"].values[0],
+                    marital_status=v_info["MARITAL_STATUS"].values[0],
+                    ethnicity=v_info["ETHNICITY"].values[0],
                 )
                 # add visit
                 patient.add_visit(visit)
