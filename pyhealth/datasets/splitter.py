@@ -81,6 +81,15 @@ def split_by_patient(
     
     if balanced and (pos_ids is None or neg_ids is None):
             raise ValueError("pos_ids and neg_ids must be provided when balanced is True")
+    
+    if hasattr(dataset, "pos_neg_labels"):
+        balanced = True
+        pos_ids = dataset.pos_neg_labels[0]
+        neg_ids = dataset.pos_neg_labels[1]
+    else:
+        balanced = False
+        pos_ids = None
+        neg_ids = None
         
     if balanced:
         # Separate positive and negative patient indices

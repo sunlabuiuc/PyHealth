@@ -187,6 +187,36 @@ class SampleSignalDataset(SampleBaseDataset):
         return "\n".join(lines)
 
 
+class SampleNoteDataset(SampleBaseDataset):
+    """
+    TODO: add documentation
+    """
+    def __init__(self, samples: List[Dict], dataset_name="", task_name=""):
+        super().__init__(samples, dataset_name, task_name)
+        # self.patient_to_index: Dict[str, List[int]] = self._index_patient()
+        # self.record_to_index: Dict[str, List[int]] = self._index_record()
+        # self.input_info: Dict = self._validate()
+        self.type_ = "note"
+        self.pos_neg_labels = []
+        self._check_label()
+        
+        
+    def _check_label(self):
+        pos_labels = []
+        neg_labels = []
+        samples = self.samples
+        for i in range(len(samples)):
+            if samples[i]['label'] == 1:
+                pos_labels.append(i)
+            else:
+                neg_labels.append(i)
+                
+        self.pos_neg_labels.append(pos_labels)
+        self.pos_neg_labels.append(neg_labels)
+        
+        
+        
+
 class SampleEHRDataset(SampleBaseDataset):
     """Sample EHR dataset class.
 

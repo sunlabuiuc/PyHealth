@@ -11,7 +11,7 @@ from tqdm import tqdm
 from pandarallel import pandarallel
 
 from pyhealth.data import Patient, Event
-from pyhealth.datasets.sample_dataset import SampleEHRDataset
+from pyhealth.datasets.sample_dataset import SampleNoteDataset
 from pyhealth.datasets.utils import MODULE_CACHE_PATH, DATASET_BASIC_TABLES
 from pyhealth.datasets.utils import hash_str
 from pyhealth.medcode import CrossMap
@@ -113,3 +113,47 @@ class BaseNoteDataset(ABC):
         lines.append("")
         print("\n".join(lines))
         return "\n".join(lines)
+    
+    
+    def set_task(
+        self,
+        task_fn: Callable,
+        task_name: Optional[str] = None,
+    ) -> SampleNoteDataset:
+        """Processes the base dataset to generate the task-specific sample dataset.
+
+        This function should be called by the user after the base dataset is
+        initialized. It will iterate through all patients in the base dataset
+        and call `task_fn` which should be implemented by the specific task.
+
+        Args:
+            task_fn: a function that takes a single patient and returns a
+                list of samples (each sample is a dict with patient_id, visit_id,
+                and other task-specific attributes as key). The samples will be
+                concatenated to form the sample dataset.
+            task_name: the name of the task. If None, the name of the task
+                function will be used.
+
+        Returns:
+            sample_dataset: the task-specific sample dataset.
+
+        Note:
+            In `task_fn`, a patient may be converted to multiple samples, e.g.,
+                a patient with three visits may be converted to three samples
+                ([visit 1], [visit 1, visit 2], [visit 1, visit 2, visit 3]).
+                Patients can also be excluded from the task dataset by returning
+                an empty list.
+        """
+        if task_name is None:
+            task_name = task_fn.__name__
+        samples = []
+        for patient_id, patient in tqdm(
+            self.patients.items(), desc=f"Generating samples for {task_name}"
+        ):
+            samples.extend(task_fn(patient))
+        sample_dataset = SampleNoteDataset(
+            samples,
+            dataset_name=self.dataset_name,
+            task_name=task_name,
+        )
+        return sample_dataset
