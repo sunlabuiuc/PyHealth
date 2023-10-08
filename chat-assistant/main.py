@@ -5,13 +5,18 @@ import threading
 from typing import Optional, Tuple
 from threading import Lock
 import gradio as gr
-from env import OPENAI_API_KEY
-
 
 from qa_chain import MainChain
 from prompts.introduction_prompt import AI_INTRO
 
-os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
+
+# with open('OPENAI_API_KEY.txt', 'r') as f:
+#     os.environ["OPENAI_API_KEY"] = f.read().strip()
+
+os.environ["OPENAI_API_KEY"] = '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'
+os.environ["LOG_PATH"] = 'logs'
+os.environ["CORPUS_PATH"] = 'corpus'
+
 
 CSS = """
     .contain { display: flex; flex-direction: column; }
@@ -19,6 +24,23 @@ CSS = """
     #component-0 { height: 100%; }
     #chatbot { flex-grow: 1; overflow: auto;}
     """
+
+
+import logging
+from logging.handlers import TimedRotatingFileHandler
+
+# logger configuration
+logger = logging.getLogger('chatbot_log')
+logger.setLevel(logging.INFO)
+# timed rotating file handler
+log_path = os.path.join(os.environ['LOG_PATH'], 'chatbot.log')
+handler = TimedRotatingFileHandler(log_path, when='midnight', interval=1, backupCount=100)
+handler.setLevel(logging.INFO)
+# logging format
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+# add the handler to the logger
+logger.addHandler(handler)
 
 
 class ChatWrapper:
@@ -29,31 +51,44 @@ class ChatWrapper:
         self.chain = MainChain()
 
     def __call__(
-        self, inp: str, history: Optional[Tuple[str, str]]
+        # self, inp: str, history: Optional[Tuple[str, str]], summarized_history: str, result_dict: dict
+        self, inp: str, summarized_history: str, result_dict: dict
     ):
         """Execute the chat functionality."""
         self.lock.acquire()
         try:
             # history = history or []
             # Run chain and append input.
-            output = self.chain(inp)
+            output, summarized_history = self.chain.run(inp, summarized_history, result_dict)
+            result_dict['summarized_history'] = summarized_history
+            # output = self.chain(inp, history)
+            logger.info('CONVERSATION START')
+            logger.info('[User Input] ' + inp)
+            logger.info('[AI Output] ' + output)
+            logger.info('[Chat Summary] ' + summarized_history)
+            logger.info('CONVERSATION END')
             # history.append([inp, output])
         except Exception as e:
-            raise e
+            # raise e
+            logger.error('[Chatbot Error] ' + str(e))
         finally:
             self.lock.release()
             # pass
-        return history
+
+        # return history, summarized_history
 
 
 if __name__ == "__main__":
-
+    
     chat = ChatWrapper()
+    
     with gr.Blocks(theme="default", css=CSS) as block:
         with gr.Row():
             gr.Markdown(
                 "<h1><center>PyHealth Assistant</center></h1> <h3><a href='https://pyhealth.readthedocs.io/en/latest/'>< back to docs</a></h3>")
         chatbot = gr.Chatbot(value=[[None, AI_INTRO]], elem_id="chatbot")
+        # session state
+        user_summarized_history = gr.State(value='AI: '+AI_INTRO)
 
         with gr.Row():
             message = gr.Textbox(
@@ -84,21 +119,24 @@ if __name__ == "__main__":
         def user(user_message, history):
             return "", history + [[user_message, None]]
 
-        def bot(history):
+        def bot(history, summarized_history):
             user_message = history[-1][0]
             history[-1][1] = ""
 
-            t = threading.Thread(target=chat, args=(user_message, history))
+            result_dict = {}
+            t = threading.Thread(target=chat, args=(user_message, summarized_history, result_dict))
             t.start()
             new_token = chat.chain.streaming_buffer.get()
             while new_token is not None:
                 history[-1][1] += new_token
                 new_token = chat.chain.streaming_buffer.get()
-                yield history
-            
+                yield history, None
             t.join()
+            return history, result_dict['summarized_history']
+
+
         message.submit(user, [message, chatbot], [message, chatbot], queue=False).then(
-            bot, chatbot, chatbot
+            bot, [chatbot, user_summarized_history], [chatbot, user_summarized_history]
         )
         # clear.click(lambda: None, None, chatbot, queue=False)
 
@@ -106,5 +144,4 @@ if __name__ == "__main__":
     block.launch(
         share=False,
         debug=True,
-        server_name="0.0.0.0"
     )
