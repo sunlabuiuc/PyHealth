@@ -1,5 +1,5 @@
 from pyhealth.data import Patient, Visit
-from utils import *
+from pyhealth.tasks.utils import *
 
 
 # TODO: time_window cannot be passed in to base_dataset
@@ -328,7 +328,7 @@ def readmission_prediction_omop_fn(patient: Patient, time_window=15):
     return samples
 
 
-def readmission_prediction_mimic3_note_fn(patient: Patient, time_window=15):
+def readmission_prediction_mimic3_note_fn(patient: Patient, chunk_szie=318):
     """
     TODO: add documentation
     """
@@ -345,25 +345,23 @@ def readmission_prediction_mimic3_note_fn(patient: Patient, time_window=15):
             text = clean_text(text)
             
             x = text.split()
-            n = int(len(x) / 318)
+            n = int(len(x) / chunk_szie)
             for j in range(n):
-                text_chunk = ' '.join(x[j * 318:(j + 1) * 318])
-                embedding = embedding_generator(text_chunk)
+                text_chunk = ' '.join(x[j * chunk_szie:(j + 1) * chunk_szie])
                 samples.append(
-                    {
+                    {   
+                        'patient_id': patient.patient_id,
                         'text': text_chunk,
                         'label': patient.attr_dict['attr']['OUTPUT_LABEL'],
-                        'text-embedding': embedding
                     }
                 )
-            if len(x) % 318 > 10:
-                text_chunk = ' '.join(x[-(len(x) % 318):])
-                embedding = embedding_generator(text_chunk)
+            if len(x) % chunk_szie > 10:
+                text_chunk = ' '.join(x[-(len(x) % chunk_szie):])
                 samples.append(
                     {
-                        'text': ' '.join(x[-(len(x) % 318):]),
+                        'patient_id': patient.patient_id,
+                        'text': ' '.join(x[-(len(x) % chunk_szie):]),
                         'label': patient.attr_dict['attr']['OUTPUT_LABEL'],
-                        'text-embedding': embedding
                     }
                 )
 

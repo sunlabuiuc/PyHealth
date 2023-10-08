@@ -16,6 +16,7 @@ from pyhealth.datasets.utils import MODULE_CACHE_PATH, DATASET_BASIC_TABLES
 from pyhealth.datasets.utils import hash_str
 from pyhealth.medcode import CrossMap
 from pyhealth.utils import load_pickle, save_pickle
+from pyhealth.tasks.utils import add_embedding
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +120,7 @@ class BaseNoteDataset(ABC):
         self,
         task_fn: Callable,
         task_name: Optional[str] = None,
+        emb=False,
     ) -> SampleNoteDataset:
         """Processes the base dataset to generate the task-specific sample dataset.
 
@@ -151,6 +153,8 @@ class BaseNoteDataset(ABC):
             self.patients.items(), desc=f"Generating samples for {task_name}"
         ):
             samples.extend(task_fn(patient))
+        if emb:
+            samples = add_embedding(samples)
         sample_dataset = SampleNoteDataset(
             samples,
             dataset_name=self.dataset_name,
