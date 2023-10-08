@@ -13,9 +13,9 @@ from prompts.introduction_prompt import AI_INTRO
 # with open('OPENAI_API_KEY.txt', 'r') as f:
 #     os.environ["OPENAI_API_KEY"] = f.read().strip()
 
-os.environ["OPENAI_API_KEY"] = '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'
-os.environ["LOG_PATH"] = 'logs'
-os.environ["CORPUS_PATH"] = 'corpus'
+# os.environ["OPENAI_API_KEY"] = 'sk-'
+# os.environ["LOG_PATH"] = 'logs'
+# os.environ["CORPUS_PATH"] = 'corpus'
 
 
 CSS = """
