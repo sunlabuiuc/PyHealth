@@ -17,4 +17,35 @@ Run the retrieval augmented generation (RAG) app for Q & A based on the `pyhealt
 python app_rag.py
 ```
 
+
+### Launch in Docker
+
+1. Modfiy environment variables (OPENAI_API_KEY, server address...)in `Dockerfile`.
+2. Build image by `docker build -t chat-pyhealth .`.
+3. Debug a container by `docker run -p 0.0.0.0:7861:7861 --name chat-pyhealth-c -v ./logs/:/app/logs/ chat-pyhealth`.
+4. Run a container by `docker run -d -p 0.0.0.0:7861:7861 --name chat-pyhealth-c -v ./logs/:/app/logs/ chat-pyhealth`.
+
+```shell
+## build container
+docker run -d -p [container address and port]:[local port] --name [name] -v [container path]:[local path] [image]
+
+# -d: detached
+# -p: port
+# --name: container name
+# -v: mount directory of container to local host path
+
+## check
+docker ps
+docker images
+
+## remove
+docker stop / restart legalai # container
+docker rm legalai # container
+docker rmi legalcaasai # image
+
+## modify directly
+docker cp [local file] chat-pyhealth-c:[container path]
+```
+
+
 **Let me know if you want to join and help us improve the current interface.**

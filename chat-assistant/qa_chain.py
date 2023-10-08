@@ -1,4 +1,5 @@
 import pickle
+import os
 from queue import Queue
 
 from langchain import LLMChain, PromptTemplate
@@ -16,6 +17,7 @@ from langchain.vectorstores.faiss import FAISS
 
 
 from prompts.qa_prompt import QA_PROMPT_TEMPLATE
+from prompts.summary_prompt import SUMMARY_PROMPT_TEMPLATE
 from prompts.introduction_prompt import USER_INTRO, AI_INTRO
 
 
@@ -49,8 +51,11 @@ class MainChain:
         self.openai_model = 'gpt-4'
         self.memory_summary_model = 'gpt-3.5-turbo'
         self.qa_chain = self._init_qa_chain([streaming_callback])
-        self.ref_doc_retriever = self._load_retriever('corpus/pyhealth-text.pkl')
-        self.source_code_retriever = self._load_retriever('corpus/pyhealth-code.pkl')
+        self.memory_chain = self._init_memory_chain()
+        self.corpus_path = os.environ['CORPUS_PATH']
+        self.ref_doc_retriever = self._load_retriever(os.path.join(self.corpus_path, 'pyhealth-text.pkl'))
+        self.source_code_retriever = self._load_retriever(os.path.join(self.corpus_path, 'pyhealth-code.pkl'))
+        self.summary_token_limitation = 2000
         self.topk = 4
 
 
@@ -69,22 +74,22 @@ class MainChain:
         Returns:
             The QA chain.
         """
-        chat = ChatOpenAI(model_name=self.openai_model, streaming=True, callbacks=callbacks,
+        llm = ChatOpenAI(model_name=self.openai_model, streaming=True, callbacks=callbacks,
                             temperature=0)
         template = QA_PROMPT_TEMPLATE
-
         system_message_prompt = SystemMessagePromptTemplate.from_template(template)
         chat_prompt = ChatPromptTemplate.from_messages([system_message_prompt])
-        memory = ConversationSummaryBufferMemory(max_token_limit=2000, input_key='human_input',
-                                                    memory_key="chat_history",
-                                                    return_messages=True,
-                                                    llm=ChatOpenAI(temperature=0, model_name=self.memory_summary_model))
-        memory.save_context({'human_input': USER_INTRO}, {'output': AI_INTRO})
-        chain = LLMChain(llm=chat, prompt=chat_prompt, memory=memory)
+        chain = LLMChain(llm=llm, prompt=chat_prompt)
+        return chain
+    
+    def _init_memory_chain(self) -> LLMChain:
+        llm = ChatOpenAI(model_name=self.memory_summary_model, temperature=0)
+        prompt = PromptTemplate(input_variables=['new_message', 'previous_summary', 'summary_token_limitation'], template=SUMMARY_PROMPT_TEMPLATE)
+        chain = LLMChain(llm=llm, prompt=prompt)
         return chain
 
 
-    def __call__(self, query: str) -> str:
+    def run(self, query: str, summarized_history: str, result_dict: dict) -> str:
         """Asks a question and gets the answer.
 
         Args:
@@ -101,5 +106,10 @@ class MainChain:
         source_code = self.source_code_retriever.similarity_search(query, k=self.topk)
         source_code = '\n===\n'.join(i.page_content for i in source_code)
         
-        result = self.qa_chain.predict(human_input=query, ref_doc=ref_doc, source_code=source_code)
-        return result
+        result = self.qa_chain.predict(human_input=query, chat_history=summarized_history, ref_doc=ref_doc, source_code=source_code)
+
+        # summarize new history
+        new_message = 'Human:\n' + query + '\nAI:\n' + result + '\n'
+        summarized_history = self.memory_chain.predict(new_message=new_message, previous_summary=summarized_history, summary_token_limitation=str(self.summary_token_limitation))
+
+        return result, summarized_history
