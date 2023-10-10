@@ -156,4 +156,6 @@ if __name__ == "__main__":
     block.launch(
         share=False,
         debug=True,
+        server_name="0.0.0.0",
+        # favicon_path="https://raw.githubusercontent.com/sunlabuiuc/PyHealth/master/docs/_static/pyhealth_logos/pyhealth-logo.png",
     )
