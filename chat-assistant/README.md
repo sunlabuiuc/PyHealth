@@ -39,9 +39,9 @@ docker ps
 docker images
 
 ## remove
-docker stop / restart legalai # container
-docker rm legalai # container
-docker rmi legalcaasai # image
+docker stop / restart chat-pyhealth-c # container
+docker rm chat-pyhealth-c # container
+docker rmi chat-pyhealth # image
 
 ## modify directly
 docker cp [local file] chat-pyhealth-c:[container path]
