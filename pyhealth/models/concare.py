@@ -733,7 +733,11 @@ class ConCare(BaseModel):
         >>> train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
         >>> data_batch = next(iter(train_loader))
         >>>
-        >>> ret = model(**data_batch)
+        >>> logits, patient_emb, deconv_loss = model(**data_batch)
+        >>> print(logits)
+        tensor([[0.1293], [0.1454]], grad_fn=<AddmmBackward0>)
+        >>>
+        >>> ret = model.fit(**data_batch)
         >>> print(ret)
         {
             'loss': tensor(9.5541, grad_fn=<AddBackward0>), 
@@ -829,22 +833,19 @@ class ConCare(BaseModel):
         output_size = self.get_output_size(self.label_tokenizer)
         self.fc = nn.Linear(len(self.feature_keys) * self.hidden_dim, output_size)
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+    def forward(self, **kwargs) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Forward propagation.
 
         The label `kwargs[self.label_key]` is a list of labels for each patient.
 
         Args:
             **kwargs: keyword arguments for the model. The keys must contain
-                all the feature keys and the label key.
+                all the feature keys.
 
         Returns:
-            A dictionary with the following keys:
-                loss: a scalar tensor representing the final loss.
-                loss_task: a scalar tensor representing the task loss.
-                loss_decov: a scalar tensor representing the decov loss.
-                y_prob: a tensor representing the predicted probabilities.
-                y_true: a tensor representing the true labels.
+            logits: logits for each patient.
+            patient_emb: last layer embedding for each patient.
+            deconv_loss: deconv loss for each patient.
         """
         patient_emb = []
         decov_loss = 0
@@ -918,6 +919,27 @@ class ConCare(BaseModel):
         patient_emb = torch.cat(patient_emb, dim=1)
         # (patient, label_size)
         logits = self.fc(patient_emb)
+        return logits, patient_emb, decov_loss
+    
+    
+    def fit(self, **kwargs) -> Dict[str, torch.Tensor]:
+        """Forward propagation.
+
+        The label `kwargs[self.label_key]` is a list of labels for each patient.
+
+        Args:
+            **kwargs: keyword arguments for the model. The keys must contain
+                all the feature keys and the label key.
+
+        Returns:
+            A dictionary with the following keys:
+                loss: a scalar tensor representing the final loss.
+                loss_task: a scalar tensor representing the task loss.
+                loss_decov: a scalar tensor representing the decov loss.
+                y_prob: a tensor representing the predicted probabilities.
+                y_true: a tensor representing the true labels.
+        """
+        logits, patient_emb, decov_loss = self.forward(**kwargs)
         # obtain y_true, loss, y_prob
         y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
         loss_task = self.get_loss_function()(logits, y_true)
@@ -1001,8 +1023,9 @@ if __name__ == "__main__":
     data_batch = next(iter(train_loader))
 
     # try the model
-    ret = model(**data_batch)
-    print(ret)
+    logits, _, _ = model(**data_batch)
+    ret = model.fit(**data_batch)
+    print(logits, ret)
 
     # try loss backward
     ret["loss"].backward()

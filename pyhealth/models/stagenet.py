@@ -342,7 +342,11 @@ class StageNet(BaseModel):
         >>> train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
         >>> data_batch = next(iter(train_loader))
         >>>
-        >>> ret = model(**data_batch)
+        >>> logits, patient_emb = model(**data_batch)
+        >>> logits
+        tensor([[-0.0742], [-0.0038]], grad_fn=<AddmmBackward0>)
+        >>>
+        >>> ret = model.fit(**data_batch)
         >>> print(ret)
         {
             'loss': tensor(0.7111, grad_fn=<BinaryCrossEntropyWithLogitsBackward0>),
@@ -432,21 +436,18 @@ class StageNet(BaseModel):
             len(self.feature_keys) * self.chunk_size * self.levels, output_size
         )
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+    def forward(self, **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
         """Forward propagation.
 
         The label `kwargs[self.label_key]` is a list of labels for each patient.
 
         Args:
             **kwargs: keyword arguments for the model. The keys must contain
-                all the feature keys and the label key.
+                all the feature keys.
 
         Returns:
-            A dictionary with the following keys:
-                loss: a scalar tensor representing the final loss.
-                distance: list of tensors representing the stage variation of the patient.
-                y_prob: a tensor representing the predicted probabilities.
-                y_true: a tensor representing the true labels.
+            logits: logits for each patient.
+            patient_emb: last layer embedding for each patient.
         """
         patient_emb = []
         distance = []
@@ -525,10 +526,32 @@ class StageNet(BaseModel):
         patient_emb = torch.cat(patient_emb, dim=1)
         # (patient, label_size)
         logits = self.fc(patient_emb)
+        return logits, patient_emb
+    
+    
+    def fit(self, **kwargs) -> Dict[str, torch.Tensor]:
+        """fit function.
+
+        The label `kwargs[self.label_key]` is a list of labels for each patient.
+
+        Args:
+            **kwargs: keyword arguments for the model. The keys must contain
+                all the feature keys and the label key.
+
+        Returns:
+            A dictionary with the following keys:
+                loss: a scalar tensor representing the loss.
+                feature_importance: a list of tensors with shape (feature_type, batch_size, time_step, features)
+                                    representing the feature importance.
+                conv_feature_importance: a list of tensors with shape (feature_type, batch_size, time_step, 3*kernal_size)
+                                        representing the convolutional feature importance.
+                y_prob: a tensor representing the predicted probabilities.
+                y_true: a tensor representing the true labels.
+        """
+        logits, patient_emb = self.forward(**kwargs)
         # obtain y_true, loss, y_prob
         y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
         loss = self.get_loss_function()(logits, y_true)
-
         y_prob = self.prepare_y_prob(logits)
         results = {
             "loss": loss,
@@ -610,8 +633,9 @@ if __name__ == "__main__":
     data_batch = next(iter(train_loader))
 
     # try the model
-    ret = model(**data_batch)
-    print(ret)
+    logits, _ = model(**data_batch)
+    ret = model.fit(**data_batch)
+    print(logits, ret)
 
     # try loss backward
     ret["loss"].backward()

@@ -211,7 +211,12 @@ class SparcNet(BaseModel):
         >>> train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
         >>> data_batch = next(iter(train_loader))
         >>>
-        >>> ret = model(**data_batch)
+        >>> logits, patient_emb = model(**data_batch)
+        >>> logits
+        tensor([[-0.2750, -0.0577],
+                    [-0.1319, -0.1763]], device='cuda:0', grad_fn=<AddmmBackward0>)
+        >>>
+        >>> ret = model.fit(**data_batch)
         >>> print(ret)
         {
             'loss': tensor(0.6530, device='cuda:0', grad_fn=<NllLossBackward0>),
@@ -221,7 +226,6 @@ class SparcNet(BaseModel):
             'logit': tensor([[-0.2750, -0.0577],
                             [-0.1319, -0.1763]], device='cuda:0', grad_fn=<AddmmBackward0>)
         }
-
     """
 
     def __init__(
@@ -328,8 +332,19 @@ class SparcNet(BaseModel):
             elif isinstance(m, nn.Linear):
                 m.bias.data.zero_()
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
-        """Forward propagation."""
+    def forward(self, **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Forward propagation.
+
+        The label `kwargs[self.label_key]` is a list of labels for each sample.
+
+        Args:
+            **kwargs: keyword arguments for the model. The keys must contain
+                all the feature keys.
+
+        Returns:
+            logits: logits for each patient.
+            patient_emb: last layer embedding for each patient.
+        """
         # concat the info within one batch (batch, channel, length)
         x = torch.tensor(
             np.array(kwargs[self.feature_keys[0]]), device=self.device
@@ -339,6 +354,25 @@ class SparcNet(BaseModel):
         emb = self.encoder(x).view(x.shape[0], -1)
         # (patient, label_size)
         logits = self.fc(emb)
+        return logits, emb
+    
+    def fit(self, **kwargs) -> Dict[str, torch.Tensor]:
+        """Forward propagation.
+
+        The label `kwargs[self.label_key]` is a list of labels for each sample.
+
+        Args:
+            **kwargs: keyword arguments for the model. The keys must contain
+                all the feature keys and the label key.
+
+        Returns:
+            A dictionary with the following keys:
+                loss: a scalar tensor representing the loss.
+                y_prob: a tensor representing the predicted probabilities.
+                y_true: a tensor representing the true labels.
+                logit: a tensor representing the logits.
+        """
+        logits, patient_emb = self.forward(**kwargs)
         # obtain y_true, loss, y_prob
         y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
         loss = self.get_loss_function()(logits, y_true)
@@ -350,7 +384,7 @@ class SparcNet(BaseModel):
             "logit": logits,
         }
         if kwargs.get("embed", False):
-            results["embed"] = emb
+            results["embed"] = patient_emb
         return results
 
 
@@ -422,8 +456,9 @@ if __name__ == "__main__":
     data_batch = next(iter(train_loader))
 
     # try the model
-    ret = model(**data_batch)
-    print(ret)
+    logits, patient_emb = model(**data_batch)
+    ret = model.fit(**data_batch)
+    print(logits, ret)
 
     # try loss backward
     ret["loss"].backward()
