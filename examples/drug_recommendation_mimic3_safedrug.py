@@ -31,11 +31,15 @@ model = SafeDrug(
 )
 
 # STEP 4: define trainer
-trainer = Trainer(model=model)
+trainer = Trainer(
+    model=model,
+    metrics=["jaccard_samples", "f1_samples", "pr_auc_samples"],
+)
+
 trainer.train(
     train_dataloader=train_dataloader,
     val_dataloader=val_dataloader,
-    epochs=5,
+    epochs=100,
     monitor="pr_auc_samples",
 )
 
