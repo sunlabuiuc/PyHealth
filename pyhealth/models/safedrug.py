@@ -123,7 +123,9 @@ class SafeDrugLayer(nn.Module):
     Recommending Effective and Safe Drug Combinations. IJCAI 2021.
 
     This layer is used in the SafeDrug model. But it can also be used as a
-    standalone layer.
+    standalone layer. Note that we improve the layer a little bit to make it
+    compatible with the package. Original code can be found at 
+    https://github.com/ycq091044/SafeDrug/blob/main/src/models.py.
 
     Args:
         hidden_size: hidden feature size.
@@ -165,8 +167,8 @@ class SafeDrugLayer(nn.Module):
 
         # local bipartite encoder
         self.bipartite_transform = nn.Linear(hidden_size, mask_H.shape[1])
-        self.bipartite_output = MaskLinear(mask_H.shape[1], label_size, False)
-        # self.bipartite_output = nn.Linear(mask_H.shape[1], hidden_size)
+        # self.bipartite_output = MaskLinear(mask_H.shape[1], label_size, False)
+        self.bipartite_output = nn.Linear(mask_H.shape[1], label_size)
 
         # global MPNN encoder (add fingerprints and adjacency matrix to parameter list)
         mpnn_molecule_set = list(zip(*molecule_set))
@@ -185,6 +187,7 @@ class SafeDrugLayer(nn.Module):
         self.mpnn_output = nn.Linear(label_size, label_size)
         self.mpnn_layernorm = nn.LayerNorm(label_size)
 
+        self.test = nn.Linear(hidden_size, label_size)
         self.loss_fn = nn.BCEWithLogitsLoss()
 
     def pad(self, matrices, pad_value):
@@ -214,7 +217,7 @@ class SafeDrugLayer(nn.Module):
             torch.sum(mul_pred_prob.mul(self.ddi_adj)) / self.ddi_adj.shape[0] ** 2
         )
 
-        y_pred = y_prob.detach().cpu().numpy()
+        y_pred = y_prob.clone().detach().cpu().numpy()
         y_pred[y_pred >= 0.5] = 1
         y_pred[y_pred < 0.5] = 0
         y_pred = [np.where(sample == 1)[0] for sample in y_pred]
@@ -230,6 +233,7 @@ class SafeDrugLayer(nn.Module):
         bce_loss = self.loss_fn(logits, labels)
 
         loss = beta * bce_loss + (1 - beta) * add_loss
+        # loss = bce_loss
         return loss
 
     def forward(
@@ -267,17 +271,16 @@ class SafeDrugLayer(nn.Module):
         )  # (batch, #med)
 
         # Bipartite Encoder (use the bipartite encoder only for now)
-        bipartite_emb = self.bipartite_transform(query)  # (batch, dim)
+        bipartite_emb = torch.sigmoid(self.bipartite_transform(query))  # (batch, dim)
         bipartite_att = self.bipartite_output(
-            bipartite_emb, self.mask_H.T
-        )  # (batch, hidden_size)
+            bipartite_emb
+        )  # (batch, #med)
 
         # combine
         logits = bipartite_att * MPNN_att
 
         # calculate the ddi_loss by PID stragegy and add to final loss
         y_prob = torch.sigmoid(logits)
-
         loss = self.calculate_loss(logits, y_prob, drugs)
 
         return loss, y_prob
