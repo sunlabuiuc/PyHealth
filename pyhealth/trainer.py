@@ -133,6 +133,7 @@ class Trainer:
             epochs: Number of epochs. Default is 5.
             optimizer_class: Optimizer class. Default is torch.optim.Adam.
             optimizer_params: Parameters for the optimizer. Default is {"lr": 1e-3}.
+            steps_per_epoch: Number of steps per epoch. Default is None.
             weight_decay: Weight decay. Default is 0.0.
             max_grad_norm: Maximum gradient norm. Default is None.
             monitor: Metric name to monitor. Default is None.
@@ -208,8 +209,6 @@ class Trainer:
                 optimizer.zero_grad()
                 training_loss.append(loss.item())
                 global_step += 1
-                if global_step % 50000 == 0:
-                    self.save_ckpt(os.path.join(self.exp_path, f"{str(global_step)}_last.ckpt"))
             # log and save
             logger.info(f"--- Train epoch-{epoch}, step-{global_step} ---")
             logger.info(f"loss: {sum(training_loss) / len(training_loss):.4f}")
