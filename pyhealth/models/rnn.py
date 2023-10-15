@@ -318,9 +318,6 @@ class RNN(BaseModel):
                 # (patient, event)
                 x = torch.tensor(x, dtype=torch.long, device=self.device)
                 # (patient, event, embedding_dim)
-                # if self.pretrained_emb != None:
-                #     x = torch.cat((self.rand_init_embedding[feature_key](x), self.pretrained_embedding[feature_key](x)), dim=-1)
-                # else:
                 x = self.embeddings[feature_key](x)
                 # (patient, event)
                 mask = torch.any(x !=0, dim=2)
@@ -333,9 +330,6 @@ class RNN(BaseModel):
                 # (patient, visit, event)
                 x = torch.tensor(x, dtype=torch.long, device=self.device)
                 # (patient, visit, event, embedding_dim)
-                # if self.pretrained_emb != None:
-                #     x = torch.cat((self.rand_init_embedding[feature_key](x), self.pretrained_embedding[feature_key](x)), dim=-1)
-                # else:
                 x = self.embeddings[feature_key](x)
                 # (patient, visit, embedding_dim)
                 x = torch.sum(x, dim=2)
