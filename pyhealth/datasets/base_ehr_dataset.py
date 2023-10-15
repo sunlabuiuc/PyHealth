@@ -124,7 +124,11 @@ class BaseEHRDataset(ABC):
             logger.debug(
                 f"Loaded {self.dataset_name} base dataset from {self.filepath}"
             )
-            self.patients, self.code_vocs = load_pickle(self.filepath)
+            try:
+                self.patients, self.code_vocs = load_pickle(self.filepath)
+            except:
+                raise ValueError("Please refresh your cache by set refresh_cache=True")
+        
         else:
             # load from raw data
             logger.debug(f"Processing {self.dataset_name} base dataset...")
@@ -411,9 +415,10 @@ class BaseEHRDataset(ABC):
             self.patients.items(), desc=f"Generating samples for {task_name}"
         ):
             samples.extend(task_fn(patient))
-        samples.append(self.code_vocs)
+
         sample_dataset = SampleEHRDataset(
-            samples,
+            samples=samples,
+            code_vocs=self.code_vocs,
             dataset_name=self.dataset_name,
             task_name=task_name,
         )
