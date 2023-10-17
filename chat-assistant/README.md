@@ -27,7 +27,7 @@ python app_rag.py
 
 ```shell
 ## build container
-docker run -d -p [container address and port]:[local port] --name [name] -v [container path]:[local path] [image]
+docker run -d -p [host address and port]:[container port] --name [name] -v [host path]:[container path] [image]
 
 # -d: detached
 # -p: port
@@ -44,7 +44,7 @@ docker rm chat-pyhealth-c # container
 docker rmi chat-pyhealth # image
 
 ## modify directly
-docker cp [local file] chat-pyhealth-c:[container path]
+docker cp [local file in host] chat-pyhealth-c:[container path]
 ```
 
 
