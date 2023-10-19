@@ -328,7 +328,7 @@ def readmission_prediction_omop_fn(patient: Patient, time_window=15):
     return samples
 
 
-def readmission_prediction_mimic3_note_fn(patient: Patient, chunk_szie=318):
+def readmission_prediction_mimic3_note_fn(patient: Patient, chunk_size=318):
     """
     TODO: add documentation
     """
@@ -345,9 +345,9 @@ def readmission_prediction_mimic3_note_fn(patient: Patient, chunk_szie=318):
             text = clean_text(text)
             
             x = text.split()
-            n = int(len(x) / chunk_szie)
+            n = int(len(x) / chunk_size)
             for j in range(n):
-                text_chunk = ' '.join(x[j * chunk_szie:(j + 1) * chunk_szie])
+                text_chunk = ' '.join(x[j * chunk_size:(j + 1) * chunk_size])
                 samples.append(
                     {   
                         'patient_id': patient.patient_id,
@@ -355,12 +355,12 @@ def readmission_prediction_mimic3_note_fn(patient: Patient, chunk_szie=318):
                         'label': patient.attr_dict['attr']['OUTPUT_LABEL'],
                     }
                 )
-            if len(x) % chunk_szie > 10:
-                text_chunk = ' '.join(x[-(len(x) % chunk_szie):])
+            if len(x) % chunk_size > 10:
+                text_chunk = ' '.join(x[-(len(x) % chunk_size):])
                 samples.append(
                     {
                         'patient_id': patient.patient_id,
-                        'text': ' '.join(x[-(len(x) % chunk_szie):]),
+                        'text': ' '.join(x[-(len(x) % chunk_size):]),
                         'label': patient.attr_dict['attr']['OUTPUT_LABEL'],
                     }
                 )
