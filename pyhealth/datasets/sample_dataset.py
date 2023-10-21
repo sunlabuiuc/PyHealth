@@ -263,8 +263,10 @@ class SampleEHRDataset(SampleBaseDataset):
         {'visit-0': [0], 'visit-1': [1]}
     """
 
-    def __init__(self, samples: List[Dict], dataset_name="", task_name=""):
+    def __init__(self, samples: List[Dict], code_vocs: Dict, dataset_name="", task_name=""):
         super().__init__(samples, dataset_name, task_name)
+        self.samples = samples
+        self.code_vocs = code_vocs
         self.input_info: Dict = self._validate()
         self.patient_to_index: Dict[str, List[int]] = self._index_patient()
         self.visit_to_index: Dict[str, List[int]] = self._index_visit()
