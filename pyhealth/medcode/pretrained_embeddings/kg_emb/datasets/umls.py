@@ -4,7 +4,7 @@ from tqdm import tqdm
 import numpy as np
 import pandas as pd
 from pandarallel import pandarallel
-from pyhealth.medcode.kg_emb.datasets import BaseKGDataset
+from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import BaseKGDataset
 
 logger = logging.getLogger(__name__)
 
