@@ -116,6 +116,8 @@ class Trainer:
         epochs: int = 5,
         optimizer_class: Type[Optimizer] = torch.optim.Adam,
         optimizer_params: Optional[Dict[str, object]] = None,
+        steps_per_epoch: int = None,
+        evaluation_steps: int = 1,
         weight_decay: float = 0.0,
         max_grad_norm: float = None,
         monitor: Optional[str] = None,
@@ -131,6 +133,7 @@ class Trainer:
             epochs: Number of epochs. Default is 5.
             optimizer_class: Optimizer class. Default is torch.optim.Adam.
             optimizer_params: Parameters for the optimizer. Default is {"lr": 1e-3}.
+            steps_per_epoch: Number of steps per epoch. Default is None.
             weight_decay: Weight decay. Default is 0.0.
             max_grad_norm: Maximum gradient norm. Default is None.
             monitor: Metric name to monitor. Default is None.
@@ -171,7 +174,8 @@ class Trainer:
         # initialize
         data_iterator = iter(train_dataloader)
         best_score = -1 * float("inf") if monitor_criterion == "max" else float("inf")
-        steps_per_epoch = len(train_dataloader)
+        if steps_per_epoch == None:
+            steps_per_epoch = len(train_dataloader)
         global_step = 0
 
         # epoch training loop

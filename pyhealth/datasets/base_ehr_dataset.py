@@ -103,6 +103,8 @@ class BaseEHRDataset(ABC):
 
         self.tables = tables
 
+        # the medcode vocabularies of the dataset
+        self.code_vocs = {}
         # load medcode for code mapping
         self.code_mapping_tools = self._load_code_mapping_tools()
 
@@ -122,7 +124,11 @@ class BaseEHRDataset(ABC):
             logger.debug(
                 f"Loaded {self.dataset_name} base dataset from {self.filepath}"
             )
-            self.patients = load_pickle(self.filepath)
+            try:
+                self.patients, self.code_vocs = load_pickle(self.filepath)
+            except:
+                raise ValueError("Please refresh your cache by set refresh_cache=True")
+        
         else:
             # load from raw data
             logger.debug(f"Processing {self.dataset_name} base dataset...")
@@ -133,7 +139,7 @@ class BaseEHRDataset(ABC):
             self.patients = patients
             # save to cache
             logger.debug(f"Saved {self.dataset_name} base dataset to {self.filepath}")
-            save_pickle(self.patients, self.filepath)
+            save_pickle((self.patients, self.code_vocs), self.filepath)
 
     def _load_code_mapping_tools(self) -> Dict[str, CrossMap]:
         """Helper function which loads code mapping tools CrossMap for code mapping.
@@ -318,6 +324,12 @@ class BaseEHRDataset(ABC):
             for i, mapped_event in enumerate(mapped_event_list):
                 mapped_event.code = mapped_code_list[i]
                 mapped_event.vocabulary = tgt_vocab
+            
+            # update the code vocs
+            for key, value in self.code_vocs.items():
+                if value == src_vocab:
+                    self.code_vocs[key] = tgt_vocab
+
             return mapped_event_list
         # TODO: should normalize the code here
         return [event]
@@ -403,8 +415,10 @@ class BaseEHRDataset(ABC):
             self.patients.items(), desc=f"Generating samples for {task_name}"
         ):
             samples.extend(task_fn(patient))
+
         sample_dataset = SampleEHRDataset(
-            samples,
+            samples=samples,
+            code_vocs=self.code_vocs,
             dataset_name=self.dataset_name,
             task_name=task_name,
         )
