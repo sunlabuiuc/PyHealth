@@ -7,7 +7,7 @@ import pandas as pd
 from pandarallel import pandarallel
 from typing import Callable, Optional
 from pyhealth.datasets.utils import MODULE_CACHE_PATH, hash_str
-from pyhealth.medcode.kg_emb.datasets import SampleKGDataset
+from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import SampleKGDataset
 from pyhealth.utils import load_pickle, save_pickle
 
 
