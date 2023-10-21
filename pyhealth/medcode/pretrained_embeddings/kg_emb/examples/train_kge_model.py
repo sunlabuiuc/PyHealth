@@ -1,7 +1,7 @@
-from pyhealth.medcode.dev.pretrained_embeddings.kg_emb.datasets import UMLSDataset, split
-from pyhealth.medcode.dev.pretrained_embeddings.kg_emb.tasks import link_prediction_fn
+from pyhealth.medcode.pretrained_embeddings.kg_emb.datasets import UMLSDataset, split
+from pyhealth.medcode.pretrained_embeddings.kg_emb.tasks import link_prediction_fn
 from pyhealth.datasets import get_dataloader
-from pyhealth.medcode.dev.pretrained_embeddings.kg_emb.models import TransE, RotatE, ComplEx, DistMult
+from pyhealth.medcode.pretrained_embeddings.kg_emb.models import TransE, RotatE, ComplEx, DistMult
 from pyhealth.trainer import Trainer
 from pyhealth.medcode import InnerMap
 import torch
