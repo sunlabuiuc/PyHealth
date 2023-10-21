@@ -7,7 +7,10 @@ import torch.nn.functional as F
 
 from pyhealth.datasets import SampleBaseDataset
 from pyhealth.models.utils import batch_to_multihot
+from pyhealth.medcode.utils import download_and_read_json
+from sklearn.decomposition import PCA
 from pyhealth.tokenizer import Tokenizer
+
 
 # TODO: add support for regression
 VALID_MODE = ["binary", "multiclass", "multilabel"]
@@ -31,6 +34,7 @@ class BaseModel(ABC, nn.Module):
         feature_keys: List[str],
         label_key: str,
         mode: str,
+        pretrained_emb: str = None
     ):
         super(BaseModel, self).__init__()
         assert mode in VALID_MODE, f"mode must be one of {VALID_MODE}"
@@ -38,6 +42,12 @@ class BaseModel(ABC, nn.Module):
         self.feature_keys = feature_keys
         self.label_key = label_key
         self.mode = mode
+        # pretrained embedding type, should be in ["KG", "LM", None]
+        if pretrained_emb is not None:
+            assert pretrained_emb[:3] in ["KG/", "LM/"], f"pretrained_emb must start with one of ['KG/', 'LM/']"
+        # self.rand_init_embedding = nn.ModuleDict()
+        # self.pretrained_embedding = nn.ModuleDict()
+        self.pretrained_emb = pretrained_emb
         # used to query the device of the model
         self._dummy_param = nn.Parameter(torch.empty(0))
         return
@@ -178,16 +188,69 @@ class BaseModel(ABC, nn.Module):
                 special_tokens=special_tokens,
             )
             self.feat_tokenizers[feature_key] = tokenizer
+
             # feature embedding
-            self.embeddings[feature_key] = nn.Embedding(
-                tokenizer.get_vocabulary_size(),
-                self.embedding_dim,
-                padding_idx=tokenizer.get_padding_index(),
-            )
+            if self.pretrained_emb != None:
+                print(f"Loading pretrained embedding for {feature_key}...")
+                # load pretrained embedding
+                feature_embedding_dict, special_tokens_embedding_dict \
+                    = self.get_pretrained_embedding(feature_key, special_tokens, self.pretrained_emb)
+                emb = []
+                for i in range(tokenizer.get_vocabulary_size()):
+                    idx2token = tokenizer.vocabulary.idx2token
+                    if idx2token[i] in special_tokens:
+                        emb.append(special_tokens_embedding_dict[idx2token[i]])
+                    else:
+                        emb.append(feature_embedding_dict[idx2token[i]])
+                emb = torch.FloatTensor(emb)
+                pretrained_emb_dim = emb.shape[1]
+
+                self.embeddings[feature_key] = nn.Embedding.from_pretrained(
+                    emb,
+                    padding_idx=tokenizer.get_padding_index(),
+                    freeze=False,
+                )
+
+                self.linear_layers[feature_key] = nn.Linear(pretrained_emb_dim , self.embedding_dim)
+
+                # Compute PCA on embeddings
+                # pca = PCA(n_components=self.embedding_dim)
+                # pca.fit(emb.numpy()) # assumes emb is a torch tensor
+
+                # # Use the PCA to transform embeddings
+                # transformed_emb = pca.transform(emb.numpy())
+
+                # # Then load these transformed embeddings into a new nn.Embedding layer
+                # self.embeddings[feature_key] = nn.Embedding.from_pretrained(
+                #     torch.tensor(transformed_emb),
+                #     padding_idx=tokenizer.get_padding_index(),
+                #     freeze=False,
+                # )
+
+            else:
+                self.embeddings[feature_key] = nn.Embedding(
+                    tokenizer.get_vocabulary_size(),
+                    self.embedding_dim,
+                    padding_idx=tokenizer.get_padding_index(),
+                )
+                
+
         elif info["type"] in [float, int]:
             self.linear_layers[feature_key] = nn.Linear(info["len"], self.embedding_dim)
         else:
             raise ValueError("Unsupported feature type: {}".format(info["type"]))
+
+    def get_pretrained_embedding(self, feature_key: str, special_tokens=None, pretrained_type="LM/clinicalbert"):
+        feature_embedding_file = f"embeddings/{pretrained_type}/{feature_key}/{self.dataset.code_vocs[feature_key].lower()}.json"
+        feature_embedding = download_and_read_json(feature_embedding_file)
+
+        if special_tokens is not None:
+            special_tokens_embedding_file = f"embeddings/{pretrained_type}/special_tokens/special_tokens.json"
+            special_tokens_embedding = download_and_read_json(special_tokens_embedding_file)
+        else:
+            special_tokens_embedding = None
+        
+        return feature_embedding, special_tokens_embedding
 
     def get_label_tokenizer(self, special_tokens=None) -> Tokenizer:
         """Gets the default label tokenizers using `self.label_key`.
