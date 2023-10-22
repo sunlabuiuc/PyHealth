@@ -31,7 +31,11 @@ def ranking_metrics_fn(qrels: Dict[str, Dict[str, int]],
         >>> ranking_metrics_fn(qrels, results, k_values)
         {'NDCG@1': 0.5, 'MAP@1': 0.25, 'Recall@1': 0.25, 'P@1': 0.5, 'NDCG@2': 0.5, 'MAP@2': 0.375, 'Recall@2': 0.5, 'P@2': 0.5}
     """
-    import pytrec_eval
+    try:
+        import pytrec_eval
+    except:
+        raise ImportError("pytrec_eval is not installed. Please install it manually by running \
+            'pip install pytrec_eval'.")
     ret = {}
 
     for k in k_values:
