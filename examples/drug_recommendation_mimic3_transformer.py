@@ -9,8 +9,8 @@ base_dataset = MIMIC3Dataset(
     root="/srv/local/data/physionet.org/files/mimiciii/1.4",
     tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
     code_mapping={"NDC": ("ATC", {"target_kwargs": {"level": 3}})},
-    dev=False,
-    refresh_cache=False,
+    dev=True,
+    refresh_cache=True,
 )
 
 base_dataset.stat()
