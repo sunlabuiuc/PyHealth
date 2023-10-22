@@ -1,5 +1,5 @@
 from abc import ABC
-from typing import List, Dict, Union, Callable
+from typing import List, Dict, Union, Callable, Optional
 
 import torch
 import torch.nn as nn
@@ -10,7 +10,6 @@ from pyhealth.models.utils import batch_to_multihot
 from pyhealth.medcode.utils import download_and_read_json
 from sklearn.decomposition import PCA
 from pyhealth.tokenizer import Tokenizer
-
 
 # TODO: add support for regression
 VALID_MODE = ["binary", "multiclass", "multilabel"]
@@ -25,7 +24,9 @@ class BaseModel(ABC, nn.Module):
         feature_keys: list of keys in samples to use as features,
             e.g. ["conditions", "procedures"].
         label_key: key in samples to use as label (e.g., "drugs").
-        mode: one of "binary", "multiclass", or "multilabel".
+        mode: one of "binary", "multiclass", or "multilabel". Default is None.
+            Note that when mode is None, some class methods may not work (e.g.,
+            `get_loss_function` and `prepare_y_prob`).
     """
 
     def __init__(
@@ -33,18 +34,20 @@ class BaseModel(ABC, nn.Module):
         dataset: SampleBaseDataset,
         feature_keys: List[str],
         label_key: str,
-        mode: str,
+        mode: Optional[str] = None,
         pretrained_emb: str = None
     ):
         super(BaseModel, self).__init__()
-        assert mode in VALID_MODE, f"mode must be one of {VALID_MODE}"
+        if mode is not None:
+            assert mode in VALID_MODE, f"mode must be one of {VALID_MODE}"
         self.dataset = dataset
         self.feature_keys = feature_keys
         self.label_key = label_key
         self.mode = mode
         # pretrained embedding type, should be in ["KG", "LM", None]
         if pretrained_emb is not None:
-            assert pretrained_emb[:3] in ["KG/", "LM/"], f"pretrained_emb must start with one of ['KG/', 'LM/']"
+            assert pretrained_emb[:3] in ["KG/",
+                                          "LM/"], f"pretrained_emb must start with one of ['KG/', 'LM/']"
         # self.rand_init_embedding = nn.ModuleDict()
         # self.pretrained_embedding = nn.ModuleDict()
         self.pretrained_emb = pretrained_emb
@@ -188,7 +191,6 @@ class BaseModel(ABC, nn.Module):
                 special_tokens=special_tokens,
             )
             self.feat_tokenizers[feature_key] = tokenizer
-
             # feature embedding
             if self.pretrained_emb != None:
                 print(f"Loading pretrained embedding for {feature_key}...")
@@ -233,8 +235,6 @@ class BaseModel(ABC, nn.Module):
                     self.embedding_dim,
                     padding_idx=tokenizer.get_padding_index(),
                 )
-                
-
         elif info["type"] in [float, int]:
             self.linear_layers[feature_key] = nn.Linear(info["len"], self.embedding_dim)
         else:
