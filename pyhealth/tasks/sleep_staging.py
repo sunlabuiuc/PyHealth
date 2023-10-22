@@ -369,6 +369,10 @@ def multi_epoch_multi_modal_sleep_staging_sleepedf_fn(record, epoch_seconds=30,m
          'epoch_path': '/home/jp65/.cache/pyhealth/datasets/03689253dc58603acb33b904c30ad5a0/SC4002-1860_1861_1862_1863_1864.pkl',
          'label': array([2, 2, 2, 2, 1])
         }
+     
+        Example Colab tutorial can be found at:
+        https://colab.research.google.com/drive/1jwD5NX8cR47MRtnOW_drKIS6lP1tbWFc?usp=sharing
+
     """
     ALL_CHANNELS = ['EEG Fpz-Cz', 'EEG Pz-Oz', 'EOG horizontal', 'EMG submental', 'Resp oro-nasal', 'Temp rectal', 'Event marker']
     exclude_channels = [ch for ch in ALL_CHANNELS if ch not in modality]
@@ -498,11 +502,7 @@ if __name__ == "__main__":
 
     # sleep_staging_ds = dataset.set_task(sleep_staging_isruc_fn)
     # print(sleep_staging_ds.samples[0])
-    # # print(sleep_staging_ds.patient_to_index)
-    # # print(sleep_staging_ds.record_to_index)
-    # print(sleep_staging_ds.input_info)
-
-
+    
     ############################
     # """ test many-to-many sleep edf"""
     # dataset = SleepEDFDataset(

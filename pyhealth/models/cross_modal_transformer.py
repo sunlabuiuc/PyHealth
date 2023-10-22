@@ -1,3 +1,5 @@
+
+
 import math
 import torch
 import torch.nn as nn
@@ -18,12 +20,13 @@ from pyhealth.datasets import BaseSignalDataset
 from pyhealth.models import BaseModel
 import numpy as np
 import subprocess
+import sys
 from matplotlib.collections import LineCollection
 import matplotlib.pyplot as plt
 from IPython import display
 from ipywidgets import  interactive, IntSlider
 
-
+subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'einops'])
 
 '''
 Colab tutorial can be found at:
@@ -558,6 +561,9 @@ class Seq_Cross_Modal_Transformer_PyHealth(BaseModel):
             'cross_modal_features': cross_feat_list,
             'sequence_features' :seq
         }
+
+        if kwargs.get("embed", False):
+            results["embed"] = seq
 
         return results
     
