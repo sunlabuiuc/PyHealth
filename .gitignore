@@ -128,3 +128,6 @@ leaderboard/rtd_token.txt
 
 # locally pre-trained models
 pyhealth/medcode/pretrained_embeddings/kg_emb/examples/pretrained_model
+
+# local cache path
+pyhealth/__init__.py

@@ -20,8 +20,13 @@ from pyhealth.models import BaseModel
 import numpy as np
 from matplotlib.collections import LineCollection
 import matplotlib.pyplot as plt
-from IPython import display
-from ipywidgets import  interactive, IntSlider
+
+try:
+    from IPython import display
+    from ipywidgets import  interactive, IntSlider
+except:
+    raise ImportError("IPython is not installed. Please install it by running 'pip install ipython'"
+                      "and 'pip install ipywidgets'")
 
 
 
@@ -34,8 +39,8 @@ try:
     from einops import rearrange, reduce, repeat
     from einops.layers.torch import Rearrange, Reduce
 except:
-    raise ImportError("einops is not installed. Please install it by running \
-                       'pip install einops'")
+    raise ImportError("einops is not installed. Please install it by running"
+                      "'pip install einops'")
 
 class PositionalEncoding(nn.Module):
     '''
@@ -813,44 +818,52 @@ def interactive_plot_cmt(test_data):
     return interactive_plot
 
 
-# if __name__ == "__main__":
+if __name__ == "__main__":
 
-    # from pyhealth.datasets import SleepEDFDataset
-    # url = "https://storage.googleapis.com/pyhealth/sleepedf-sample/SC4001E0-PSG.edf"
-    # try:
-    #     subprocess.run(["wget", "-r", url])
-    #     print("File downloaded successfully.")
-    # except Exception as e:
-    #     print(f"Error: {e}")
+    from pyhealth.datasets import SleepEDFDataset
+    import subprocess
+    urls = ["https://storage.googleapis.com/pyhealth/sleepedf-sample/SC4001E0-PSG.edf",
+            "https://storage.googleapis.com/pyhealth/sleepedf-sample/SC4001EC-Hypnogram.edf",
+            "https://storage.googleapis.com/pyhealth/sleepedf-sample/SC4002E0-PSG.edf",
+            "https://storage.googleapis.com/pyhealth/sleepedf-sample/SC4002EC-Hypnogram.edf",
+            "https://storage.googleapis.com/pyhealth/sleepedf-sample/SC4011E0-PSG.edf",
+            "https://storage.googleapis.com/pyhealth/sleepedf-sample/SC4011EH-Hypnogram.edf"]
 
-    # sleepedf_ds = SleepEDFDataset(
-    #                         root="./storage.googleapis.com/pyhealth/sleepedf-sample",
-    #                         refresh_cache=True)
+    try:
+        for url in urls:
+            subprocess.run(["wget", "-r", url])
+        print("File downloaded successfully.")
+    except Exception as e:
+        print(f"Error: {e}")
+
+    sleepedf_ds = SleepEDFDataset(
+        root="./storage.googleapis.com/pyhealth/sleepedf-sample",
+        refresh_cache=True)
     
-    # from pyhealth.tasks.sleep_staging import multi_epoch_multi_modal_sleep_staging_sleepedf_fn
-    # modality = ['EEG Fpz-Cz','EOG horizontal']
-    # num_epoch_seq = 5
-    # sleepedf_task_ds = sleepedf_ds.set_task(lambda x: multi_epoch_multi_modal_sleep_staging_sleepedf_fn(x,modality = modality,num_epoch_seq = num_epoch_seq))
+    from pyhealth.tasks.sleep_staging import multi_epoch_multi_modal_sleep_staging_sleepedf_fn
+    modality = ['EEG Fpz-Cz','EOG horizontal']
+    num_epoch_seq = 5
+    sleepedf_task_ds = sleepedf_ds.set_task(lambda x: multi_epoch_multi_modal_sleep_staging_sleepedf_fn(x,modality = modality,num_epoch_seq = num_epoch_seq))
     
-    # from pyhealth.datasets import get_dataloader
-    # train_loader = get_dataloader(sleepedf_task_ds, batch_size=32, shuffle=True)
-    # from pyhealth.models import Seq_Cross_Modal_Transformer_PyHealth
-    # model = Seq_Cross_Modal_Transformer_PyHealth( dataset= sleepedf_task_ds, 
-    #                                     feature_keys= ['signal'], 
-    #                                     label_key= ['label'], 
-    #                                    mode= 'multiclass', 
-    #                                    d_model = 128,
-    #                                    num_epoch_seq = num_epoch_seq,
-    #                                     dim_feedforward=512,
-    #                                     window_size = 50,
-    #                                      num_classes = 6,).to("cuda:0")
-    # # data batch
-    # data_batch = next(iter(train_loader))
-    # # try the model
-    # ret = model(**data_batch)
-    # print(ret)
-    # #try loss backward
-    # ret["loss"].backward()
+    from pyhealth.datasets import get_dataloader
+    train_loader = get_dataloader(sleepedf_task_ds, batch_size=32, shuffle=True)
+    from pyhealth.models import Seq_Cross_Modal_Transformer_PyHealth
+    model = Seq_Cross_Modal_Transformer_PyHealth( dataset= sleepedf_task_ds, 
+                                        feature_keys= ['signal'], 
+                                        label_key= ['label'], 
+                                       mode= 'multiclass', 
+                                       d_model = 128,
+                                       num_epoch_seq = num_epoch_seq,
+                                        dim_feedforward=512,
+                                        window_size = 50,
+                                         num_classes = 6,).to("cuda:0")
+    # data batch
+    data_batch = next(iter(train_loader))
+    # try the model
+    ret = model(**data_batch)
+    print(ret)
+    #try loss backward
+    ret["loss"].backward()
 
 
 
