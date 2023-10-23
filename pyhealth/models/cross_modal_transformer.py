@@ -12,27 +12,30 @@ from torch.nn.init import xavier_uniform_
 from torch.nn import Dropout
 from torch.nn import Linear
 from torch.nn import LayerNorm, BatchNorm1d
-from einops import rearrange, reduce, repeat
-from einops.layers.torch import Rearrange, Reduce
+
 
 from typing import Dict, List, Optional, Tuple
 from pyhealth.datasets import BaseSignalDataset
 from pyhealth.models import BaseModel
 import numpy as np
-import subprocess
-import sys
 from matplotlib.collections import LineCollection
 import matplotlib.pyplot as plt
 from IPython import display
 from ipywidgets import  interactive, IntSlider
 
-subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'einops'])
+
 
 '''
 Colab tutorial can be found at:
 https://colab.research.google.com/drive/1jwD5NX8cR47MRtnOW_drKIS6lP1tbWFc?usp=sharing
 '''
 
+try:
+    from einops import rearrange, reduce, repeat
+    from einops.layers.torch import Rearrange, Reduce
+except:
+    raise ImportError("einops is not installed. Please install it by running \
+                       'pip install einops'")
 
 class PositionalEncoding(nn.Module):
     '''
