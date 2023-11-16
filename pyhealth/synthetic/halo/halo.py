@@ -389,7 +389,7 @@ if __name__ == "__main__":
         age_idx = label_vec[1:4]
         return {
             'death_datetime': datetime.datetime.now() if mortality_idx[0] == 1 else None,
-            'age': 'Pediatric' if age_idx[0] == 1 else 'Adult' if age_idx[1] == 1 else 'Eldery'
+            'age': 'Pediatric' if age_idx[0] == 1 else 'Adult' if age_idx[1] == 1 else 'Elderly'
         }   
        
     gender_label_fn_output_size = 4 
@@ -437,7 +437,7 @@ if __name__ == "__main__":
         gender_idx = label_vec[4:7]
         return {
             'death_datetime': datetime.datetime.now() if mortality_idx[0] == 1 else None,
-            'age': 'Pediatric' if age_idx[0] == 1 else 'Adult' if age_idx[1] == 1 else 'Eldery',
+            'age': 'Pediatric' if age_idx[0] == 1 else 'Adult' if age_idx[1] == 1 else 'Elderly',
             'gender': 'Male' if gender_idx[0] == 1 else 'Female' if gender_idx[1] == 1 else 'Other/Unknown',
         }
     
