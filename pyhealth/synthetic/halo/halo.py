@@ -344,24 +344,24 @@ if __name__ == "__main__":
     batch_size = 512
     
     # define a way to make labels from raw data
-    full_label_fn_output_size = 13
+    full_label_fn_output_size = 15
     def full_label_fn(**kwargs):
         pdata = kwargs['patient_data']
         mortality_idx = [1] if pdata.death_datetime else [0]
-        age = (next(iter(pdata.visits.values())).encounter_time - pdata.birth_datetime).days // 365
-        age_idx = [1, 0, 0] if age <= 18 else [0, 1, 0] if age < 65 else [0, 0, 1]
+        age = (sorted(pdata.visits.values(), key=lambda v: v.encounter_time)[0].encounter_time - pdata.birth_datetime).days // 365
+        age_idx = [1, 0, 0, 0, 0] if age <= 18 else [0, 1, 0, 0, 0] if age <= 35 else [0, 0, 1, 0, 0] if age <= 55 else [0, 0, 0, 1, 0] if age <= 75 else [0, 0, 0, 0, 1]
         gender_idx = [1, 0, 0] if pdata.gender == 'Male' else [0, 1, 0] if pdata.gender == 'Female' else [0, 0, 1]
         ethnicity_idx = [1, 0, 0, 0, 0, 0] if pdata.ethnicity == 'Caucasian' else [0, 1, 0, 0, 0, 0] if pdata.ethnicity == 'African American' else [0, 0, 1, 0, 0, 0] if pdata.ethnicity == 'Hispanic' else [0, 0, 0, 1, 0, 0] if pdata.ethnicity == 'Asian' else [0, 0, 0, 0, 1, 0] if pdata.ethnicity == 'Native American' else [0, 0, 0, 0, 0, 1]
         return tuple(mortality_idx + age_idx + gender_idx + ethnicity_idx)
       
     def reverse_full_label_fn(label_vec):
         mortality_idx = label_vec[:1]
-        age_idx = label_vec[1:4]
-        gender_idx = label_vec[4:7]
-        ethnicity_idx = label_vec[7:]
+        age_idx = label_vec[1:6]
+        gender_idx = label_vec[6:9]
+        ethnicity_idx = label_vec[9:]
         return {
             'death_datetime': datetime.datetime.now() if mortality_idx[0] == 1 else None,
-            'age': 'Pediatric' if age_idx[0] == 1 else 'Adult' if age_idx[1] == 1 else 'Geriatric',
+            'age': 'Pediatric' if age_idx[0] == 1 else 'Young Adult' if age_idx[1] == 1 else 'Middle Aged' if age_idx[2] == 1 else 'Late Adult' if age_idx[3] == 1 else 'Geriatric',
             'gender': 'Male' if gender_idx[0] == 1 else 'Female' if gender_idx[1] == 1 else 'Other/Unknown',
             'ethnicity': 'Caucasian' if ethnicity_idx[0] == 1 else 'African American' if ethnicity_idx[1] == 1 else 'Hispanic' if ethnicity_idx[2] == 1 else 'Asian' if ethnicity_idx[3] == 1 else 'Native American' if ethnicity_idx[4] == 1 else 'Other/Unknown',
         }
@@ -373,15 +373,15 @@ if __name__ == "__main__":
 
     def reverse_mortality_label_fn(label_vec):
         return {
-            'death_datetime': datetime.datetime.now() if label_vec[0] == 1 else None
+            'death_datetime': datetime.datetime.now() if label_vec == 1 else None
         }
     
     age_label_fn_output_size = 4
     def age_label_fn(**kwargs):
         pdata = kwargs['patient_data']
         mortality_idx = [1] if pdata.death_datetime else [0]
-        age = (next(iter(pdata.visits.values())).encounter_time - pdata.birth_datetime).days // 365
-        age_idx = [1, 0, 0] if age <= 18 else [0, 1, 0] if age < 65 else [0, 0, 1]
+        age = (sorted(pdata.visits.values(), key=lambda v: v.encounter_time)[0].encounter_time - pdata.birth_datetime).days // 365
+        age_idx = [1, 0, 0] if age <= 18 else [0, 1, 0] if age < 75 else [0, 0, 1]
         return tuple(mortality_idx + age_idx)
         
     def reverse_age_label_fn(label_vec):
@@ -389,7 +389,7 @@ if __name__ == "__main__":
         age_idx = label_vec[1:4]
         return {
             'death_datetime': datetime.datetime.now() if mortality_idx[0] == 1 else None,
-            'age': 'Pediatric' if age_idx[0] == 1 else 'Adult' if age_idx[1] == 1 else 'Geriatric'
+            'age': 'Pediatric' if age_idx[0] == 1 else 'Adult' if age_idx[1] == 1 else 'Eldery'
         }   
        
     gender_label_fn_output_size = 4 
@@ -420,6 +420,25 @@ if __name__ == "__main__":
         return {
             'death_datetime': datetime.datetime.now() if mortality_idx[0] == 1 else None,
             'ethnicity': 'Caucasian' if ethnicity_idx[0] == 1 else 'African American' if ethnicity_idx[1] == 1 else 'Hispanic' if ethnicity_idx[2] == 1 else 'Asian' if ethnicity_idx[3] == 1 else 'Native American' if ethnicity_idx[4] == 1 else 'Other/Unknown',
+        }
+        
+    genderAndAge_label_fn_output_size = 7
+    def genderAndAge_label_fn(**kwargs):
+        pdata = kwargs['patient_data']
+        mortality_idx = [1] if pdata.death_datetime else [0]
+        age = (sorted(pdata.visits.values(), key=lambda v: v.encounter_time)[0].encounter_time - pdata.birth_datetime).days // 365
+        age_idx = [1, 0, 0] if age <= 18 else [0, 1, 0] if age < 75 else [0, 0, 1]
+        gender_idx = [1, 0, 0] if pdata.gender == 'Male' else [0, 1, 0] if pdata.gender == 'Female' else [0, 0, 1]
+        return tuple(mortality_idx + age_idx + gender_idx)
+      
+    def reverse_genderAndAge_label_fn(label_vec):
+        mortality_idx = label_vec[:1]
+        age_idx = label_vec[1:4]
+        gender_idx = label_vec[4:7]
+        return {
+            'death_datetime': datetime.datetime.now() if mortality_idx[0] == 1 else None,
+            'age': 'Pediatric' if age_idx[0] == 1 else 'Adult' if age_idx[1] == 1 else 'Eldery',
+            'gender': 'Male' if gender_idx[0] == 1 else 'Female' if gender_idx[1] == 1 else 'Other/Unknown',
         }
     
     def handle_diagnosis(event: Event):
@@ -492,11 +511,12 @@ if __name__ == "__main__":
     
     
     
-    label_fn = mortality_label_fn
-    reverse_label_fn = reverse_mortality_label_fn
-    label_fn_output_size = mortality_label_fn_output_size
-    model_save_name = 'halo_mortality_model'
-    synthetic_data_save_name = 'synthetic_mortality_data'
+    label_fn = genderAndAge_label_fn
+    reverse_label_fn = reverse_genderAndAge_label_fn
+    label_fn_output_size = genderAndAge_label_fn_output_size
+    model_save_name = 'halo_genderAndAge_model'
+    synthetic_data_save_name = 'synthetic_genderAndAge_data'
+    experiment_name = 'genderAndAge'
     
     processor = Processor(
         dataset=dataset,
@@ -517,15 +537,15 @@ if __name__ == "__main__":
 
     print(f"Processor results in vocab len {processor.total_vocab_size}, max visit num: {processor.total_visit_size}")
     
-    model = HALO(
-        n_ctx=processor.total_visit_size,
-        total_vocab_size=processor.total_vocab_size,
-        device=device
-    )
-    print(model.__call__)
+    # model = HALO(
+    #     n_ctx=processor.total_visit_size,
+    #     total_vocab_size=processor.total_vocab_size,
+    #     device=device
+    # )
+    # print(model.__call__)
     
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
-    print(optimizer.__class__)
+    # optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    # print(optimizer.__class__)
     # state_dict = torch.load(open(f'{basedir}/model_saves/{model_save_name}.pt', 'rb'), map_location=device)
     # model.load_state_dict(state_dict['model'])
     # model.to(device)
@@ -534,18 +554,18 @@ if __name__ == "__main__":
     
     # --- train model ---
     num_folds = 5
-    trainer = Trainer(
-        dataset=processor.dataset,
-        model=model,
-        processor=processor,
-        optimizer=optimizer,
-        checkpoint_dir=f'{basedir}/model_saves',
-        model_save_name=model_save_name,
-        folds=num_folds
-    )
-    s = trainer.set_basic_splits(from_save=True, save=True)
-    print('split lengths', [len(_s) for _s in s])
-    trainer.set_fold_splits(from_save=True, save=True)
+    # trainer = Trainer(
+    #     dataset=processor.dataset,
+    #     model=model,
+    #     processor=processor,
+    #     optimizer=optimizer,
+    #     checkpoint_dir=f'{basedir}/model_saves',
+    #     model_save_name=model_save_name,
+    #     folds=num_folds
+    # )
+    # s = trainer.set_basic_splits(from_save=True, save=True)
+    # print('split lengths', [len(_s) for _s in s])
+    # trainer.set_fold_splits(from_save=True, save=True)
    
    
     
@@ -640,7 +660,6 @@ if __name__ == "__main__":
         )
         
         optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
-        print(optimizer.__class__)
         # state_dict = torch.load(open(f'{basedir}/model_saves/{model_save_name}_{fold}.pt', 'rb'), map_location=device)
         # model.load_state_dict(state_dict['model'])
         # model.to(device)
@@ -687,7 +706,6 @@ if __name__ == "__main__":
         labels = Counter([label_fn(patient_data=p) for p in trainer.train_dataset])
         maxLabel = max(labels.values())
         labels = [(l, maxLabel-labels[l]) for l in labels]
-        label_mapping = {l: reverse_label_fn(l) for l, _ in labels}
         synthetic_dataset = generator.generate_conditioned(labels)
 
         def pathfn(plot_type: str, label: tuple):
@@ -701,22 +719,23 @@ if __name__ == "__main__":
 
         # convert the data for standard format for downstream tasks
         evaluator = Evaluator(generator=generator, processor=processor)
+        # label_mapping = {l: reverse_label_fn(l) for l, _ in labels}
         # synthetic_pyhealth_dataset = generator.convert_ehr_to_pyhealth(synthetic_dataset, reverse_event_handlers, datetime.datetime.now(), label_mapping)
-        if not os.path.exists(f'{basedir}/train_data_{fold}.pkl'):
+        if not os.path.exists(f'{basedir}/train_{experiment_name}_data_{fold}.pkl'):
             train_evaluation_dataset = evaluator.to_evaluation_format(trainer.train_dataset)
-            pickle.dump(train_evaluation_dataset, open(f'{basedir}/train_data_{fold}.pkl', 'wb'))
+            pickle.dump(train_evaluation_dataset, open(f'{basedir}/train_{experiment_name}_data_{fold}.pkl', 'wb'))
         # else:
         #     train_evaluation_dataset = pickle.load(open(f'{basedir}/train_data_{fold}.pkl', 'rb'))
 
-        if not os.path.exists(f'{basedir}/eval_data_{fold}.pkl'):
+        if not os.path.exists(f'{basedir}/eval_{experiment_name}_data_{fold}.pkl'):
             eval_evaluation_dataset = evaluator.to_evaluation_format(trainer.eval_dataset)
-            pickle.dump(eval_evaluation_dataset, open(f'{basedir}/eval_data_{fold}.pkl', 'wb'))
+            pickle.dump(eval_evaluation_dataset, open(f'{basedir}/eval_{experiment_name}_data_{fold}.pkl', 'wb'))
         # else:
         #     eval_evaluation_dataset = pickle.load(open(f'{basedir}/eval_data_{fold}.pkl', 'rb'))
         
-        if not os.path.exists(f'{basedir}/test_data_{fold}.pkl'):
+        if not os.path.exists(f'{basedir}/test_{experiment_name}_data_{fold}.pkl'):
             test_evaluation_dataset = evaluator.to_evaluation_format(trainer.test_dataset)
-            pickle.dump(test_evaluation_dataset, open(f'{basedir}/test_data_{fold}.pkl', 'wb'))
+            pickle.dump(test_evaluation_dataset, open(f'{basedir}/test_{experiment_name}_data_{fold}.pkl', 'wb'))
         # else:
         #     test_evaluation_dataset = pickle.load(open(f'{basedir}/test_data_{fold}.pkl', 'rb'))
         

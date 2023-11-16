@@ -5,10 +5,28 @@ import itertools
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+from copy import deepcopy
 from sklearn import ensemble, linear_model, neural_network, metrics, neighbors
 
 basedir = '/home/bpt3/code/PyHealth/pyhealth/synthetic/halo/temp'
 MIN_THRESHOLD = 50
+MIN_VALUE = 1000
+
+class SeparateClassifier:
+    def __init__(self, classifier):
+        self.classifier = classifier
+        self.classifiers = {}
+        
+    def fit(self, combo, X, y):
+        cls = deepcopy(self.classifier)
+        cls.fit(X, y)
+        self.classifiers[combo] = cls
+        
+    def predict(self, combo, X):
+        return self.classifiers[combo].predict(X)
+    
+    def predict_proba(self, combo, X):
+        return self.classifiers[combo].predict_proba(X)
     
 def reverse_full_label_fn(label_vec):
     mortality_idx = label_vec[:1]
@@ -94,16 +112,26 @@ def run_experiments(train_data, test_data, codeToIndex, groups):
 
     def evaluate(competing_metrics, groups, algorithm_name, algorithm, x, y, demographics):
         """evaluate how an algorithm does on the provided dataset & generate a pd row"""
-        preds = algorithm.predict_proba(x)[:, 1]
-        rounded_preds = algorithm.predict(x)
-        results = []
+        full_y = np.zeros(sum([len(v) for v in y.values()]))
+        preds = np.zeros(len(full_y))
+        rounded_preds = np.zeros(len(full_y))
+        demographics = {g: np.concatenate([demographics[c][g] for c in demographics]) for g in list(demographics.values())[0]}
         
+        counter = 0
+        for c in x:
+            cls_size = len(y[c])
+            full_y[counter:counter+cls_size] = y[c]
+            preds[counter:counter+cls_size] = algorithm.predict_proba(c, x[c])[:, 1]
+            rounded_preds[counter:counter+cls_size] = algorithm.predict(c, x[c])
+            counter += cls_size
+        
+        results = []
         for metric_func, binary_metric in competing_metrics:
             if binary_metric:
                 metric_preds = rounded_preds
             else:
                 metric_preds = preds
-            results.append(metric_func(y, metric_preds))
+            results.append(metric_func(full_y, metric_preds))
         
         for metric_func, binary_metric in competing_metrics:
             if binary_metric:
@@ -113,7 +141,7 @@ def run_experiments(train_data, test_data, codeToIndex, groups):
             for category, group_names in groups:
                 category_results = []
                 for g in group_names:
-                    y_g, preds_g = y[demographics[category] == g], metric_preds[demographics[category] == g]
+                    y_g, preds_g = full_y[demographics[category] == g], metric_preds[demographics[category] == g]
                     res = metric_func(y_g, preds_g)
                     print(f'{algorithm_name} {metric_func.__name__} {category} {g}: {res}')
                     category_results.append(res)
@@ -132,7 +160,7 @@ def run_experiments(train_data, test_data, codeToIndex, groups):
                             if len([p for p in x[(demographics[category1] == g1) & (demographics[category2] == g2)]]) < MIN_THRESHOLD:
                                 continue
                             
-                            y_cross = y[(demographics[category1] == g1) & (demographics[category2] == g2)]
+                            y_cross = full_y[(demographics[category1] == g1) & (demographics[category2] == g2)]
                             preds_cross = metric_preds[(demographics[category1] == g1) & (demographics[category2] == g2)]
                             res = metric_func(y_cross, preds_cross)
                             print(f'{algorithm_name} {metric_func.__name__} ({category1}, {category2}) ({g1}, {g2}): {res}')
@@ -158,117 +186,79 @@ def run_experiments(train_data, test_data, codeToIndex, groups):
         column_names += [f'{metric.__name__} Overall' for metric, _ in classification_metrics]
         column_names += [f'{metric.__name__} ({group})' for metric, _ in classification_metrics for group in [g for (category, populations) in groups for g in [pop for pop in populations + [f'Average {category.capitalize()}']]]]
         if len(groups) > 1:
-            column_names += [f'{metric.__name__} ({group1}, {group2})' for metric, _ in classification_metrics for (category1, populations1), (category2, populations2) in itertools.combinations(groups, 2) for group1 in populations1 for group2 in populations2 if len([p for p in x_test[(demographics_test[category1] == group1) & (demographics_test[category2] == group2)]]) >= MIN_THRESHOLD]
+            column_names += [f'{metric.__name__} ({group1}, {group2})' for metric, _ in classification_metrics for (category1, populations1), (category2, populations2) in itertools.combinations(groups, 2) for group1 in populations1 for group2 in populations2 if tuple(sorted(((category1, populations1), category2, populations2))) in demographics_test.keys() and len(x_test[demographics_test[tuple(sorted(((category1, populations1), category2, populations2)))]] >= MIN_THRESHOLD)]
         
         results = []
         for algorithm_name, algorithm in tqdm(algorithms.items(), desc="Competing Algorithms", total=len(algorithms)):
-            algorithm.fit(x_train, y_train)
-            row = evaluate(classification_metrics, groups, algorithm_name, algorithm, x_test, y_test, demographics_test)
+            classifier = SeparateClassifier(algorithm)
+            for c in x_train:
+                classifier.fit(c, x_train[c], y_train[c])
+            row = evaluate(classification_metrics, groups, algorithm_name, classifier, x_test, y_test, demographics_test)
             results.append(row)
 
         res = process_results(column_names, results)
         return res
     
-    # separate predictors
-    x_train, y_train, _ = getInput(train_data, groups)
-    x_test, y_test, demographics_test = getInput(test_data, groups)
+    x_train = {}
+    y_train = {}
+    x_test = {}
+    y_test = {}
+    demographics_test = {}
+    for c in train_data.keys():
+        x_train_group, y_train_group, _ = getInput(train_data[c], groups)
+        x_test_group, y_test_group, demographics_test_group = getInput(test_data[c], groups)
+        x_train[c] = x_train_group
+        y_train[c] = y_train_group
+        x_test[c] = x_test_group
+        y_test[c] = y_test_group
+        demographics_test[c] = demographics_test_group
     
     results = compete(algorithms, x_train, y_train, x_test, y_test, demographics_test, groups)
     print(results)
     return results
 
+
+
 if __name__ == "__main__":
-    real_results = []
-    synthetic_results = []
-    training_demographics = []
+    separate_results = []
     for fold in tqdm(range(num_folds), desc='Evaluation Folds'):
         real_train = pickle.load(open(f'{basedir}/train_{experiment_name}_data_{fold}.pkl', 'rb')) + pickle.load(open(f'{basedir}/eval_{experiment_name}_data_{fold}.pkl', 'rb'))
         real_test = pickle.load(open(f'{basedir}/test_{experiment_name}_data_{fold}.pkl', 'rb'))
-        synthetic_data = pickle.load(open(f'{basedir}/{synthetic_data_name}_{fold}.pkl', 'rb'))
 
-        for p in real_train + real_test + synthetic_data:
+        for p in real_train + real_test:
             p['label'] = reverse_label_fn(p['label'])
 
-        groups = [(g, list(set([p['label'][g] for p in real_train + real_test + synthetic_data]))) for g in real_train[0]['label'].keys() if g != 'mortality']
-        codeToIndex = {c: i for i, c in enumerate(set([c for p in real_train + real_test + synthetic_data for v in p['visits'] for c in v]))}
+        groups = [(g, list(set([p['label'][g] for p in real_train + real_test]))) for g in real_train[0]['label'].keys() if g != 'mortality']
+        combos = [c for c in list(itertools.combinations([(g, v) for (g, l) in groups for v in l], len(groups))) if len(set([g for (g, _) in c])) == len(groups)]
+        codeToIndex = {c: i for i, c in enumerate(set([c for p in real_train + real_test for v in p['visits'] for c in v]))}
 
-        demographics = {}
-        overall_population = len(real_train)
-        for category, populations in groups:
-            category_proportions = {}
-            for pop in populations:
-                demographics[f'{pop.capitalize()} ({category.capitalize()})'] = len([p for p in real_train if p['label'][category] == pop]) / overall_population
+        separate_train = {}
+        for c in combos:
+            comboData = [p for p in real_train if all([p['label'][g] == v for (g, v) in c])]
+            if len(comboData) > 0:
+                separate_train[tuple(sorted(c))] = comboData
                 
-        if len(groups) > 1:
-            for category1, populations1 in groups:
-                for pop1 in populations1:
-                    pop_proportions = {}
-                    overall_group_population = len([p for p in real_train if p['label'][category1] == pop1])
-                    for category2, populations2 in groups:
-                        category_proportions = {}
-                        if category1 == category2:
-                            continue
+        separate_test = {}
+        for c in combos:
+            comboData = [p for p in real_test if all([p['label'][g] == v for (g, v) in c])]
+            if len(comboData) > 0:
+                separate_test[tuple(sorted(c))] = comboData
 
-                        for pop2 in populations2:
-                            category_proportions[pop2.capitalize()] = len([p for p in real_train if p['label'][category1] == pop1 and p['label'][category2] == pop2]) / overall_group_population
-                        
-                        pop_proportions[category2.capitalize()] = category_proportions
-                    demographics[f'{pop1.capitalize()} ({category1.capitalize()}) Detailed'] = pop_proportions
-                    
-        training_demographics.append(demographics)
-
-        if os.path.exists(f'{basedir}/baseline_{experiment_name}_results_{fold}.csv'):
-            baseline_results = pd.read_csv(f'{basedir}/baseline_{experiment_name}_results_{fold}.csv')
+        if os.path.exists(f'{basedir}/separate_{experiment_name}_results_{fold}.csv'):
+            separate_result = pd.read_csv(f'{basedir}/separate_{experiment_name}_results_{fold}.csv')
         else:
-            baseline_results = run_experiments(real_train, real_test, codeToIndex, groups)    
-            baseline_results.to_csv(f'{basedir}/baseline_{experiment_name}_results_{fold}.csv')
-        
-        if os.path.exists(f'{basedir}/combined_{experiment_name}_results_{fold}.csv'):
-            combined_results = pd.read_csv(f'{basedir}/combined_{experiment_name}_results_{fold}.csv')
-        else:
-            combined_data = real_train + synthetic_data
-            combined_results = run_experiments(combined_data, real_test, codeToIndex, groups)
-            combined_results.to_csv(f'{basedir}/combined_{experiment_name}_results_{fold}.csv')
+            separate_result = run_experiments(separate_train, separate_test, codeToIndex, groups)    
+            separate_result.to_csv(f'{basedir}/separate_{experiment_name}_results_{fold}.csv')
             
-        real_results.append(baseline_results)
-        synthetic_results.append(combined_results)
-        
-    baseline_concat = pd.concat(real_results)
-    baseline_grouped = baseline_concat.groupby('algorithm')
-    baseline_df = baseline_grouped.mean()
-    baseline_stderr = baseline_grouped.sem()
-    for col in baseline_df.columns:
-        baseline_df[col] = baseline_df[col].apply(lambda x: '{:.3f}'.format(x)) + " +/- " + baseline_stderr[col].apply(lambda x: '{:.3f}'.format(x))
+        separate_results.append(separate_result)
 
-    print('Baseline Results')
-    print(baseline_df)
-    baseline_df.to_csv(f'{basedir}/baseline_{experiment_name}_results.csv')
-    
-    combined_concat = pd.concat(synthetic_results)
-    combined_grouped = combined_concat.groupby('algorithm')
-    combined_df = combined_grouped.mean()
-    combined_stderr = combined_grouped.sem()
-    for col in combined_df.columns:
-        combined_df[col] = combined_df[col].apply(lambda x: '{:.3f}'.format(x)) + " +/- " + combined_stderr[col].apply(lambda x: '{:.3f}'.format(x))
-        
-    print('Combined Results')
-    print(combined_df)
-    combined_df.to_csv(f'{basedir}/combined_{experiment_name}_results.csv')
-    
-    
-    combined_training_demographics = {}
-    for key in training_demographics[0].keys():
-        if isinstance(training_demographics[0][key], dict):
-            combined_training_demographics[key] = {}
-            for middlekey in training_demographics[0][key].keys():
-                combined_training_demographics[key][middlekey] = {}
-                for subkey in training_demographics[0][key][middlekey].keys():
-                    values = [fold[key][middlekey][subkey] for fold in training_demographics]
-                    combined_training_demographics[key][middlekey][subkey] = f"{np.mean(values):.4f} +/- {np.std(values) / np.sqrt(len(values)):.4f}"
-        else:
-            values = [fold[key] for fold in training_demographics]
-            combined_training_demographics[key] = f"{np.mean(values):.4f} +/- {np.std(values) / np.sqrt(len(values)):.4f}"
+    separate_concat = pd.concat(separate_results)
+    separate_grouped = separate_concat.groupby('algorithm')
+    separate_df = separate_grouped.mean()
+    separate_stderr = separate_grouped.sem()
+    for col in separate_df.columns:
+        separate_df[col] = separate_df[col].apply(lambda x: '{:.3f}'.format(x)) + " +/- " + separate_stderr[col].apply(lambda x: '{:.3f}'.format(x))
 
-    print('Training Demographics')
-    print(combined_training_demographics)
-    pickle.dump(combined_training_demographics, open(f'{basedir}/{experiment_name}_training_demographics.pkl', 'wb'))
+    print('Separate Results')
+    print(separate_df)
+    separate_df.to_csv(f'{basedir}/separate_{experiment_name}_results.csv')

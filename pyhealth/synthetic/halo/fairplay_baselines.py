@@ -5,10 +5,12 @@ import itertools
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+from imblearn.over_sampling import SMOTE
 from sklearn import ensemble, linear_model, neural_network, metrics, neighbors
 
 basedir = '/home/bpt3/code/PyHealth/pyhealth/synthetic/halo/temp'
 MIN_THRESHOLD = 50
+MIN_VALUE = 1000
     
 def reverse_full_label_fn(label_vec):
     mortality_idx = label_vec[:1]
@@ -62,7 +64,6 @@ def reverse_genderAndAge_label_fn(label_vec):
     }
 
 reverse_label_fn = reverse_genderAndAge_label_fn
-synthetic_data_name = 'synthetic_genderAndAge_data'
 experiment_name = 'genderAndAge'
 num_folds = 5
 
@@ -169,7 +170,6 @@ def run_experiments(train_data, test_data, codeToIndex, groups):
         res = process_results(column_names, results)
         return res
     
-    # separate predictors
     x_train, y_train, _ = getInput(train_data, groups)
     x_test, y_test, demographics_test = getInput(test_data, groups)
     
@@ -177,98 +177,126 @@ def run_experiments(train_data, test_data, codeToIndex, groups):
     print(results)
     return results
 
+def getSMOTE(data, allCombos, codeToIndex):
+    comboMap = {tuple(sorted(c)): i for i, c in enumerate(allCombos)}
+    X = np.zeros((len([v for p in data for v in p['visits']]), len(codeToIndex)))  
+    y = np.zeros((len([v for p in data for v in p['visits']])))
+    counter = 0
+    for p in data:
+        for i, v in enumerate(p['visits']):
+            labels = p['label']
+            labels['mortality'] = 1 if i == len(p['visits']) - 1 and p['label']['mortality'] == 1 else 0
+            X[counter, [codeToIndex[c] for c in v]] = 1
+            y[counter] = comboMap[tuple(sorted(labels.items()))]
+            counter += 1
+            
+    sm = SMOTE()
+    X_res, y_res = sm.fit_resample(X, y)
+    indexToCode = {v: k for k, v in codeToIndex.items()}
+    upsampled_data = []
+    for i in range(len(X_res)):
+        p = {}
+        p['label'] = {g: v for (g,v) in allCombos[int(y_res[i])]}
+        p['visits'] = [[indexToCode[c] for c in X_res[i].nonzero()[0]]]
+        upsampled_data.append(p)
+
+    return upsampled_data
+        
+        
+
 if __name__ == "__main__":
-    real_results = []
-    synthetic_results = []
-    training_demographics = []
+    upsampling_results = []
+    downsampling_results = []
+    smote_results = []
     for fold in tqdm(range(num_folds), desc='Evaluation Folds'):
         real_train = pickle.load(open(f'{basedir}/train_{experiment_name}_data_{fold}.pkl', 'rb')) + pickle.load(open(f'{basedir}/eval_{experiment_name}_data_{fold}.pkl', 'rb'))
         real_test = pickle.load(open(f'{basedir}/test_{experiment_name}_data_{fold}.pkl', 'rb'))
-        synthetic_data = pickle.load(open(f'{basedir}/{synthetic_data_name}_{fold}.pkl', 'rb'))
 
-        for p in real_train + real_test + synthetic_data:
+        for p in real_train + real_test:
             p['label'] = reverse_label_fn(p['label'])
 
-        groups = [(g, list(set([p['label'][g] for p in real_train + real_test + synthetic_data]))) for g in real_train[0]['label'].keys() if g != 'mortality']
-        codeToIndex = {c: i for i, c in enumerate(set([c for p in real_train + real_test + synthetic_data for v in p['visits'] for c in v]))}
+        groups = [(g, list(set([p['label'][g] for p in real_train + real_test]))) for g in real_train[0]['label'].keys() if g != 'mortality']
+        combos = [c for c in list(itertools.combinations([(g, v) for (g, l) in groups for v in l], len(groups))) if len(set([g for (g, _) in c])) == len(groups)]
+        codeToIndex = {c: i for i, c in enumerate(set([c for p in real_train + real_test for v in p['visits'] for c in v]))}
 
-        demographics = {}
-        overall_population = len(real_train)
-        for category, populations in groups:
-            category_proportions = {}
-            for pop in populations:
-                demographics[f'{pop.capitalize()} ({category.capitalize()})'] = len([p for p in real_train if p['label'][category] == pop]) / overall_population
-                
-        if len(groups) > 1:
-            for category1, populations1 in groups:
-                for pop1 in populations1:
-                    pop_proportions = {}
-                    overall_group_population = len([p for p in real_train if p['label'][category1] == pop1])
-                    for category2, populations2 in groups:
-                        category_proportions = {}
-                        if category1 == category2:
-                            continue
+        allGroups = [(g, list(set([p['label'][g] for p in real_train + real_test]))) for g in real_train[0]['label'].keys()]
+        allCombos = [c for c in list(itertools.combinations([(g, v) for (g, l) in allGroups for v in l], len(allGroups))) if len(set([g for (g, _) in c])) == len(allGroups)]
 
-                        for pop2 in populations2:
-                            category_proportions[pop2.capitalize()] = len([p for p in real_train if p['label'][category1] == pop1 and p['label'][category2] == pop2]) / overall_group_population
-                        
-                        pop_proportions[category2.capitalize()] = category_proportions
-                    demographics[f'{pop1.capitalize()} ({category1.capitalize()}) Detailed'] = pop_proportions
-                    
-        training_demographics.append(demographics)
-
-        if os.path.exists(f'{basedir}/baseline_{experiment_name}_results_{fold}.csv'):
-            baseline_results = pd.read_csv(f'{basedir}/baseline_{experiment_name}_results_{fold}.csv')
-        else:
-            baseline_results = run_experiments(real_train, real_test, codeToIndex, groups)    
-            baseline_results.to_csv(f'{basedir}/baseline_{experiment_name}_results_{fold}.csv')
-        
-        if os.path.exists(f'{basedir}/combined_{experiment_name}_results_{fold}.csv'):
-            combined_results = pd.read_csv(f'{basedir}/combined_{experiment_name}_results_{fold}.csv')
-        else:
-            combined_data = real_train + synthetic_data
-            combined_results = run_experiments(combined_data, real_test, codeToIndex, groups)
-            combined_results.to_csv(f'{basedir}/combined_{experiment_name}_results_{fold}.csv')
+        maxComboSize = max([len([p for p in real_train if all([p['label'][g] == v for (g, v) in c])]) for c in allCombos])
+        minComboSize = min([len([p for p in real_train if all([p['label'][g] == v for (g, v) in c])]) for c in allCombos if len([p for p in real_train if all([p['label'][g] == v for (g, v) in c])]) > 0])
+        if minComboSize < MIN_VALUE:
+            minComboSize = MIN_VALUE
             
-        real_results.append(baseline_results)
-        synthetic_results.append(combined_results)
+        upsampled_train = []
+        for c in allCombos:
+            comboData = [p for p in real_train if all([p['label'][g] == v for (g, v) in c])]
+            upsampled_train += comboData
+            if 0 < len(comboData) < maxComboSize:
+                upsampled_train += np.random.choice(comboData, maxComboSize-len(comboData), replace=True).tolist()
+                
+        downsampled_train = []
+        for c in allCombos:
+            comboData = [p for p in real_train if all([p['label'][g] == v for (g, v) in c])]
+            if len(comboData) > 0:
+                downsampled_train += comboData if len(comboData) < minComboSize else np.random.choice(comboData, minComboSize, replace=False).tolist()
+                
+        smote_train = getSMOTE(real_train, allCombos, codeToIndex)
         
-    baseline_concat = pd.concat(real_results)
-    baseline_grouped = baseline_concat.groupby('algorithm')
-    baseline_df = baseline_grouped.mean()
-    baseline_stderr = baseline_grouped.sem()
-    for col in baseline_df.columns:
-        baseline_df[col] = baseline_df[col].apply(lambda x: '{:.3f}'.format(x)) + " +/- " + baseline_stderr[col].apply(lambda x: '{:.3f}'.format(x))
-
-    print('Baseline Results')
-    print(baseline_df)
-    baseline_df.to_csv(f'{basedir}/baseline_{experiment_name}_results.csv')
-    
-    combined_concat = pd.concat(synthetic_results)
-    combined_grouped = combined_concat.groupby('algorithm')
-    combined_df = combined_grouped.mean()
-    combined_stderr = combined_grouped.sem()
-    for col in combined_df.columns:
-        combined_df[col] = combined_df[col].apply(lambda x: '{:.3f}'.format(x)) + " +/- " + combined_stderr[col].apply(lambda x: '{:.3f}'.format(x))
-        
-    print('Combined Results')
-    print(combined_df)
-    combined_df.to_csv(f'{basedir}/combined_{experiment_name}_results.csv')
-    
-    
-    combined_training_demographics = {}
-    for key in training_demographics[0].keys():
-        if isinstance(training_demographics[0][key], dict):
-            combined_training_demographics[key] = {}
-            for middlekey in training_demographics[0][key].keys():
-                combined_training_demographics[key][middlekey] = {}
-                for subkey in training_demographics[0][key][middlekey].keys():
-                    values = [fold[key][middlekey][subkey] for fold in training_demographics]
-                    combined_training_demographics[key][middlekey][subkey] = f"{np.mean(values):.4f} +/- {np.std(values) / np.sqrt(len(values)):.4f}"
+        if os.path.exists(f'{basedir}/upsampling_{experiment_name}_results_{fold}.csv'):
+            upsampling_result = pd.read_csv(f'{basedir}/upsampling_{experiment_name}_results_{fold}.csv')
         else:
-            values = [fold[key] for fold in training_demographics]
-            combined_training_demographics[key] = f"{np.mean(values):.4f} +/- {np.std(values) / np.sqrt(len(values)):.4f}"
+            upsampling_result = run_experiments(upsampled_train, real_test, codeToIndex, groups)    
+            upsampling_result.to_csv(f'{basedir}/upsampling_{experiment_name}_results_{fold}.csv')
+            
+        if os.path.exists(f'{basedir}/downsampling_{experiment_name}_results_{fold}.csv'):
+            downsampling_result = pd.read_csv(f'{basedir}/downsampling_{experiment_name}_results_{fold}.csv')
+        else:
+            downsampling_result = run_experiments(downsampled_train, real_test, codeToIndex, groups)    
+            downsampling_result.to_csv(f'{basedir}/downsampling_{experiment_name}_results_{fold}.csv')
+            
+        if os.path.exists(f'{basedir}/smote_{experiment_name}_results_{fold}.csv'):
+            smote_result = pd.read_csv(f'{basedir}/smote_{experiment_name}_results_{fold}.csv')
+        else:
+            smote_result = run_experiments(smote_train, real_test, codeToIndex, groups)    
+            smote_result.to_csv(f'{basedir}/smote_{experiment_name}_results_{fold}.csv')
+            
+        upsampling_results.append(upsampling_result)
+        downsampling_results.append(downsampling_result)
+        smote_results.append(smote_result)
+        
+        
+        
+    upsampling_concat = pd.concat(upsampling_results)
+    upsampling_grouped = upsampling_concat.groupby('algorithm')
+    upsampling_df = upsampling_grouped.mean()
+    upsampling_stderr = upsampling_grouped.sem()
+    for col in upsampling_df.columns:
+        upsampling_df[col] = upsampling_df[col].apply(lambda x: '{:.3f}'.format(x)) + " +/- " + upsampling_stderr[col].apply(lambda x: '{:.3f}'.format(x))
 
-    print('Training Demographics')
-    print(combined_training_demographics)
-    pickle.dump(combined_training_demographics, open(f'{basedir}/{experiment_name}_training_demographics.pkl', 'wb'))
+    print('Upsampled Results')
+    print(upsampling_df)
+    upsampling_df.to_csv(f'{basedir}/upsampling_{experiment_name}_results.csv')
+    
+    
+    downsampling_concat = pd.concat(downsampling_results)
+    downsampling_grouped = downsampling_concat.groupby('algorithm')
+    downsampling_df = downsampling_grouped.mean()
+    downsampling_stderr = downsampling_grouped.sem()
+    for col in downsampling_df.columns:
+        downsampling_df[col] = downsampling_df[col].apply(lambda x: '{:.3f}'.format(x)) + " +/- " + downsampling_stderr[col].apply(lambda x: '{:.3f}'.format(x))
+
+    print('Downsampled Results')
+    print(downsampling_df)
+    downsampling_df.to_csv(f'{basedir}/downsampling_{experiment_name}_results.csv')
+    
+    
+    smote_concat = pd.concat(smote_results)
+    smote_grouped = smote_concat.groupby('algorithm')
+    smote_df = smote_grouped.mean()
+    smote_stderr = smote_grouped.sem()
+    for col in smote_df.columns:
+        smote_df[col] = smote_df[col].apply(lambda x: '{:.3f}'.format(x)) + " +/- " + smote_stderr[col].apply(lambda x: '{:.3f}'.format(x))
+
+    print('SMOTE Results')
+    print(smote_df)
+    smote_df.to_csv(f'{basedir}/smote_{experiment_name}_results.csv')
