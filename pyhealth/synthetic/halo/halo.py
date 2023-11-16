@@ -344,24 +344,24 @@ if __name__ == "__main__":
     batch_size = 512
     
     # define a way to make labels from raw data
-    full_label_fn_output_size = 15
+    full_label_fn_output_size = 13
     def full_label_fn(**kwargs):
         pdata = kwargs['patient_data']
         mortality_idx = [1] if pdata.death_datetime else [0]
         age = (sorted(pdata.visits.values(), key=lambda v: v.encounter_time)[0].encounter_time - pdata.birth_datetime).days // 365
-        age_idx = [1, 0, 0, 0, 0] if age <= 18 else [0, 1, 0, 0, 0] if age <= 35 else [0, 0, 1, 0, 0] if age <= 55 else [0, 0, 0, 1, 0] if age <= 75 else [0, 0, 0, 0, 1]
+        age_idx = [1, 0, 0] if age <= 18 else [0, 1, 0] if age < 75 else [0, 0, 1]
         gender_idx = [1, 0, 0] if pdata.gender == 'Male' else [0, 1, 0] if pdata.gender == 'Female' else [0, 0, 1]
         ethnicity_idx = [1, 0, 0, 0, 0, 0] if pdata.ethnicity == 'Caucasian' else [0, 1, 0, 0, 0, 0] if pdata.ethnicity == 'African American' else [0, 0, 1, 0, 0, 0] if pdata.ethnicity == 'Hispanic' else [0, 0, 0, 1, 0, 0] if pdata.ethnicity == 'Asian' else [0, 0, 0, 0, 1, 0] if pdata.ethnicity == 'Native American' else [0, 0, 0, 0, 0, 1]
         return tuple(mortality_idx + age_idx + gender_idx + ethnicity_idx)
       
     def reverse_full_label_fn(label_vec):
         mortality_idx = label_vec[:1]
-        age_idx = label_vec[1:6]
-        gender_idx = label_vec[6:9]
-        ethnicity_idx = label_vec[9:]
+        age_idx = label_vec[1:4]
+        gender_idx = label_vec[4:7]
+        ethnicity_idx = label_vec[7:]
         return {
             'death_datetime': datetime.datetime.now() if mortality_idx[0] == 1 else None,
-            'age': 'Pediatric' if age_idx[0] == 1 else 'Young Adult' if age_idx[1] == 1 else 'Middle Aged' if age_idx[2] == 1 else 'Late Adult' if age_idx[3] == 1 else 'Geriatric',
+            'age': 'Pediatric' if age_idx[0] == 1 else 'Adult' if age_idx[1] == 1 else 'Elderly',
             'gender': 'Male' if gender_idx[0] == 1 else 'Female' if gender_idx[1] == 1 else 'Other/Unknown',
             'ethnicity': 'Caucasian' if ethnicity_idx[0] == 1 else 'African American' if ethnicity_idx[1] == 1 else 'Hispanic' if ethnicity_idx[2] == 1 else 'Asian' if ethnicity_idx[3] == 1 else 'Native American' if ethnicity_idx[4] == 1 else 'Other/Unknown',
         }

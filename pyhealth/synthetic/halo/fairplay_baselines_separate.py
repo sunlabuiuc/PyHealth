@@ -30,12 +30,12 @@ class SeparateClassifier:
     
 def reverse_full_label_fn(label_vec):
     mortality_idx = label_vec[:1]
-    age_idx = label_vec[1:6]
-    gender_idx = label_vec[6:9]
-    ethnicity_idx = label_vec[9:]
+    age_idx = label_vec[1:4]
+    gender_idx = label_vec[4:7]
+    ethnicity_idx = label_vec[7:]
     return {
         'mortality': 1 if mortality_idx[0] == 1 else 0,
-        'age': 'Pediatric' if age_idx[0] == 1 else 'Young Adult' if age_idx[1] == 1 else 'Middle Aged' if age_idx[2] == 1 else 'Late Adult' if age_idx[3] == 1 else 'Geriatric',
+        'age': 'Pediatric' if age_idx[0] == 1 else 'Adult' if age_idx[1] == 1 else 'Elderly',
         'gender': 'Male' if gender_idx[0] == 1 else 'Female' if gender_idx[1] == 1 else 'Other/Unknown',
         'ethnicity': 'Caucasian' if ethnicity_idx[0] == 1 else 'African American' if ethnicity_idx[1] == 1 else 'Hispanic' if ethnicity_idx[2] == 1 else 'Asian' if ethnicity_idx[3] == 1 else 'Native American' if ethnicity_idx[4] == 1 else 'Other/Unknown',
     }
