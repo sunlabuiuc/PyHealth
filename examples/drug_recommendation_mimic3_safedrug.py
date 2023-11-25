@@ -9,7 +9,7 @@ base_dataset = MIMIC3Dataset(
     root="/srv/local/data/physionet.org/files/mimiciii/1.4",
     tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
     code_mapping={"NDC": ("ATC", {"target_kwargs": {"level": 3}})},
-    dev=False,
+    dev=True,
     refresh_cache=False,
 )
 base_dataset.stat()
@@ -33,13 +33,13 @@ model = SafeDrug(
 # STEP 4: define trainer
 trainer = Trainer(
     model=model,
-    metrics=["jaccard_samples", "f1_samples", "pr_auc_samples"],
+    metrics=["jaccard_samples", "f1_samples", "pr_auc_samples", "ddi"],
 )
 
 trainer.train(
     train_dataloader=train_dataloader,
     val_dataloader=val_dataloader,
-    epochs=100,
+    epochs=25,
     monitor="pr_auc_samples",
 )
 

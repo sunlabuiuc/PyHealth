@@ -1,6 +1,7 @@
 from collections import defaultdict
 from copy import deepcopy
 from typing import List, Tuple, Dict, Optional
+import os
 
 import numpy as np
 import rdkit.Chem.BRICS as BRICS
@@ -13,7 +14,7 @@ from pyhealth.medcode import ATC
 from pyhealth.metrics import ddi_rate_score
 from pyhealth.models import BaseModel
 from pyhealth.models.utils import get_last_visit
-
+from pyhealth import BASE_CACHE_PATH as CACHE_PATH
 
 class MaskLinear(nn.Module):
     """MaskLinear layer.
@@ -387,6 +388,10 @@ class SafeDrug(BaseModel):
             average_projection=average_projection,
             **kwargs,
         )
+        
+        # save ddi adj
+        ddi_adj = self.generate_ddi_adj()
+        np.save(os.path.join(CACHE_PATH, "ddi_adj.npy"), ddi_adj.numpy())
 
     def generate_ddi_adj(self) -> torch.tensor:
         """Generates the DDI graph adjacency matrix."""

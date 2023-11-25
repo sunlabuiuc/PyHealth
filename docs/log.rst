@@ -2,6 +2,16 @@ Development logs
 ======================
 We track the new development here:
 
+**Nov 24, 2023**
+
+..code-blocks:: rst
+
+    1. add ddi metrics to multilabel_metrics_fn per issue #247
+    2. add medlink as a new medical record link pipeline in PR #240
+    3. add chefer transformer in PR #239
+    4. add KG embedding in PR #234
+    5. add LLM for Pyhealth in PR #231
+
 **Sep 01, 2023**
 
 .. code-block:: rst
