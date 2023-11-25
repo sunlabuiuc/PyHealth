@@ -1,14 +1,15 @@
 import math
 from typing import Tuple, List, Dict, Optional
+import os
 
 import torch
 import torch.nn as nn
-
+import numpy as np
 from pyhealth.datasets import SampleEHRDataset
 from pyhealth.medcode import ATC
 from pyhealth.models import BaseModel
 from pyhealth.models.utils import get_last_visit, batch_to_multihot
-
+from pyhealth import BASE_CACHE_PATH as CACHE_PATH
 
 class GCNLayer(nn.Module):
     """GCN layer.
@@ -299,6 +300,26 @@ class GAMENet(BaseModel):
             dropout=dropout,
             **kwargs,
         )
+        
+        # save ddi adj
+        ddi_adj = self.generate_ddi_adj()
+        np.save(os.path.join(CACHE_PATH, "ddi_adj.npy"), ddi_adj)
+        
+    def generate_ddi_adj():
+        """Generates the DDI graph adjacency matrix."""
+        atc = ATC()
+        ddi = atc.get_ddi(gamenet_ddi=True)
+        label_size = self.label_tokenizer.get_vocabulary_size()
+        vocab_to_index = self.label_tokenizer.vocabulary
+        ddi_adj = np.zeros((label_size, label_size))
+        ddi_atc3 = [
+            [ATC.convert(l[0], level=3), ATC.convert(l[1], level=3)] for l in ddi
+        ]
+        for atc_i, atc_j in ddi_atc3:
+            if atc_i in vocab_to_index and atc_j in vocab_to_index:
+                ddi_adj[vocab_to_index(atc_i), vocab_to_index(atc_j)] = 1
+                ddi_adj[vocab_to_index(atc_j), vocab_to_index(atc_i)] = 1
+        return ddi_adj
 
     def generate_ehr_adj(self) -> torch.tensor:
         """Generates the EHR graph adjacency matrix."""
