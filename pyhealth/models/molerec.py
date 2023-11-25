@@ -1,4 +1,5 @@
 import torch
+import os
 import math
 import pkg_resources
 import numpy as np
@@ -14,6 +15,7 @@ from pyhealth.metrics import ddi_rate_score
 from pyhealth.medcode import ATC
 from pyhealth.datasets import SampleEHRDataset
 
+from pyhealth import BASE_CACHE_PATH as CACHE_PATH
 
 def graph_batch_from_smiles(smiles_list, device=torch.device("cpu")):
     edge_idxes, edge_feats, node_feats, lstnode, batch = [], [], [], 0, []
@@ -545,6 +547,10 @@ class MoleRec(BaseModel):
             raise ValueError("number of GNN layers is determined by num_gnn_layers")
         if "hidden_size" in kwargs:
             raise ValueError("hidden_size is determined by hidden_dim")
+    
+            # save ddi adj
+        ddi_adj = self.generate_ddi_adj()
+        np.save(os.path.join(CACHE_PATH, "ddi_adj.npy"), ddi_adj.numpy())
 
     def generate_ddi_adj(self) -> torch.FloatTensor:
         """Generates the DDI graph adjacency matrix."""
