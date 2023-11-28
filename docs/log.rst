@@ -2,6 +2,12 @@ Development logs
 ======================
 We track the new development here:
 
+**Nov 28, 2023**
+
+..code-blocks:: rst
+
+    1. fix ddi metric calculation error raised by issue #249.
+
 **Nov 24, 2023**
 
 ..code-blocks:: rst
