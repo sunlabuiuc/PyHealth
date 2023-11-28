@@ -22,9 +22,9 @@ def ddi_rate_score(medications: List[np.ndarray], ddi_matrix: np.ndarray) -> flo
     for sample in medications:
         for i, med_i in enumerate(sample):
             for j, med_j in enumerate(sample):
-                if j <= i or med_i * med_j == 0: continue
+                if j <= i: continue
                 all_cnt += 1
-                if ddi_matrix[i, j] == 1 or ddi_matrix[j, i] == 1:
+                if ddi_matrix[med_i, med_j] == 1 or ddi_matrix[med_j, med_i] == 1:
                     ddi_cnt += 1
     if all_cnt == 0:
         return 0
