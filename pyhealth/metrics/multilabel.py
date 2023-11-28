@@ -207,8 +207,8 @@ def multilabel_metrics_fn(
             output["hamming_loss"] = hamming_loss
         elif metric == "ddi":
             ddi_adj = np.load(os.path.join(CACHE_PATH, 'ddi_adj.npy'))
+            y_pred = [np.where(item)[0] for item in y_pred]
             output["ddi_score"] = ddi_rate_score(y_pred, ddi_adj)
-    
         elif metric in {"cwECE", "cwECE_adapt"}:
             output[metric] = calib.ece_classwise(
                 y_prob,
