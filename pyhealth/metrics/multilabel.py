@@ -1,15 +1,18 @@
 from typing import Dict, List, Optional
+import os
 
 import numpy as np
 import sklearn.metrics as sklearn_metrics
-
+from pyhealth.medcode import ATC
 import pyhealth.metrics.calibration as calib
+from pyhealth.metrics import ddi_rate_score
+from pyhealth import BASE_CACHE_PATH as CACHE_PATH
 
 def multilabel_metrics_fn(
     y_true: np.ndarray,
     y_prob: np.ndarray,
     metrics: Optional[List[str]] = None,
-    threshold: float = 0.5,
+    threshold: float = 0.3,
     y_predset: Optional[np.ndarray] = None,
 ) -> Dict[str, float]:
     """Computes metrics for multilabel classification.
@@ -45,6 +48,7 @@ def multilabel_metrics_fn(
         - jaccard_macro: Jaccard similarity coefficient score, macro averaged
         - jaccard_weighted: Jaccard similarity coefficient score, weighted averaged
         - jaccard_samples: Jaccard similarity coefficient score, samples averaged
+        - ddi: drug-drug interaction score (specifically for drug-related tasks, such as drug recommendation)
         - hamming_loss: Hamming loss
         - cwECE: classwise ECE (with 20 equal-width bins). Check :func:`pyhealth.metrics.calibration.ece_classwise`.
         - cwECE_adapt: classwise adaptive ECE (with 20 equal-size bins). Check :func:`pyhealth.metrics.calibration.ece_classwise`.
@@ -201,6 +205,10 @@ def multilabel_metrics_fn(
         elif metric == "hamming_loss":
             hamming_loss = sklearn_metrics.hamming_loss(y_true, y_pred)
             output["hamming_loss"] = hamming_loss
+        elif metric == "ddi":
+            ddi_adj = np.load(os.path.join(CACHE_PATH, 'ddi_adj.npy'))
+            y_pred = [np.where(item)[0] for item in y_pred]
+            output["ddi_score"] = ddi_rate_score(y_pred, ddi_adj)
         elif metric in {"cwECE", "cwECE_adapt"}:
             output[metric] = calib.ece_classwise(
                 y_prob,
