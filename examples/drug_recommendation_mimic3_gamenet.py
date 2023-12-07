@@ -9,8 +9,8 @@ base_dataset = MIMIC3Dataset(
     root="/srv/local/data/physionet.org/files/mimiciii/1.4",
     tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
     code_mapping={"NDC": ("ATC", {"target_kwargs": {"level": 3}})},
-    dev=False,
-    refresh_cache=True,
+    dev=True,
+    refresh_cache=False,
 )
 base_dataset.stat()
 
@@ -31,11 +31,15 @@ model = GAMENet(
 )
 
 # STEP 4: define trainer
-trainer = Trainer(model=model)
+trainer = Trainer(
+    model=model,
+    metrics=["jaccard_samples", "f1_samples", "pr_auc_samples", "ddi"],
+)
+
 trainer.train(
     train_dataloader=train_dataloader,
     val_dataloader=val_dataloader,
-    epochs=5,
+    epochs=20,
     monitor="pr_auc_samples",
 )
 

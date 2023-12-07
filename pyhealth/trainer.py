@@ -116,6 +116,8 @@ class Trainer:
         epochs: int = 5,
         optimizer_class: Type[Optimizer] = torch.optim.Adam,
         optimizer_params: Optional[Dict[str, object]] = None,
+        steps_per_epoch: int = None,
+        evaluation_steps: int = 1,
         weight_decay: float = 0.0,
         max_grad_norm: float = None,
         monitor: Optional[str] = None,
@@ -131,6 +133,7 @@ class Trainer:
             epochs: Number of epochs. Default is 5.
             optimizer_class: Optimizer class. Default is torch.optim.Adam.
             optimizer_params: Parameters for the optimizer. Default is {"lr": 1e-3}.
+            steps_per_epoch: Number of steps per epoch. Default is None.
             weight_decay: Weight decay. Default is 0.0.
             max_grad_norm: Maximum gradient norm. Default is None.
             monitor: Metric name to monitor. Default is None.
@@ -171,7 +174,8 @@ class Trainer:
         # initialize
         data_iterator = iter(train_dataloader)
         best_score = -1 * float("inf") if monitor_criterion == "max" else float("inf")
-        steps_per_epoch = len(train_dataloader)
+        if steps_per_epoch == None:
+            steps_per_epoch = len(train_dataloader)
         global_step = 0
 
         # epoch training loop
@@ -230,7 +234,8 @@ class Trainer:
                             self.save_ckpt(os.path.join(self.exp_path, "best.ckpt"))
 
         # load best model
-        if load_best_model_at_last and self.exp_path is not None and os.path.isfile(os.path.join(self.exp_path, "best.ckpt")):
+        if load_best_model_at_last and self.exp_path is not None and os.path.isfile(
+            os.path.join(self.exp_path, "best.ckpt")):
             logger.info("Loaded best model")
             self.load_ckpt(os.path.join(self.exp_path, "best.ckpt"))
 
@@ -243,7 +248,8 @@ class Trainer:
 
         return
 
-    def inference(self, dataloader, additional_outputs=None, return_patient_ids=False) -> Dict[str, float]:
+    def inference(self, dataloader, additional_outputs=None,
+                  return_patient_ids=False) -> Dict[str, float]:
         """Model inference.
 
         Args:
@@ -300,12 +306,22 @@ class Trainer:
         Returns:
             scores: a dictionary of scores.
         """
-        y_true_all, y_prob_all, loss_mean = self.inference(dataloader)
-
-        mode = self.model.mode
-        metrics_fn = get_metrics_fn(mode)
-        scores = metrics_fn(y_true_all, y_prob_all, metrics=self.metrics)
-        scores["loss"] = loss_mean
+        if self.model.mode is not None:
+            y_true_all, y_prob_all, loss_mean = self.inference(dataloader)
+            mode = self.model.mode
+            metrics_fn = get_metrics_fn(mode)
+            scores = metrics_fn(y_true_all, y_prob_all, metrics=self.metrics)
+            scores["loss"] = loss_mean
+        else:
+            loss_all = []
+            for data in tqdm(dataloader, desc="Evaluation"):
+                self.model.eval()
+                with torch.no_grad():
+                    output = self.model(**data)
+                    loss = output["loss"]
+                    loss_all.append(loss.item())
+            loss_mean = sum(loss_all) / len(loss_all)
+            scores = {"loss": loss_mean}
         return scores
 
     def save_ckpt(self, ckpt_path: str) -> None:
@@ -329,6 +345,7 @@ if __name__ == "__main__":
 
     from pyhealth.datasets.utils import collate_fn_dict
 
+
     class MNISTDataset(Dataset):
         def __init__(self, train=True):
             transform = transforms.Compose(
@@ -344,6 +361,7 @@ if __name__ == "__main__":
 
         def __len__(self):
             return len(self.dataset)
+
 
     class Model(nn.Module):
         def __init__(self):
@@ -375,6 +393,7 @@ if __name__ == "__main__":
             loss = self.loss(x, y)
             y_prob = torch.softmax(x, dim=1)
             return {"loss": loss, "y_prob": y_prob, "y_true": y}
+
 
     train_dataset = MNISTDataset(train=True)
     val_dataset = MNISTDataset(train=False)

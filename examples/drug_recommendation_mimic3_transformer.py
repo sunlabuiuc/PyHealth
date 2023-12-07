@@ -9,9 +9,10 @@ base_dataset = MIMIC3Dataset(
     root="/srv/local/data/physionet.org/files/mimiciii/1.4",
     tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
     code_mapping={"NDC": ("ATC", {"target_kwargs": {"level": 3}})},
-    dev=False,
+    dev=True,
     refresh_cache=True,
 )
+
 base_dataset.stat()
 
 # STEP 2: set task
@@ -34,11 +35,15 @@ model = Transformer(
 )
 
 # STEP 4: define trainer
-trainer = Trainer(model=model)
+trainer = Trainer(
+    model=model,
+    metrics=["jaccard_samples", "f1_samples", "pr_auc_samples"],
+)
+
 trainer.train(
     train_dataloader=train_dataloader,
     val_dataloader=val_dataloader,
-    epochs=50,
+    epochs=20,
     monitor="pr_auc_samples",
 )
 
