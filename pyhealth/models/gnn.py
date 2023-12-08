@@ -6,7 +6,6 @@ from copy import deepcopy
 from torch.autograd import Variable
 from torch.utils import data
 from torch.utils.data import SequentialSampler
-sigmoid = torch.nn.Sigmoid() 
 from tqdm import tqdm 
 import numpy as np
 from torch.nn.parameter import Parameter
