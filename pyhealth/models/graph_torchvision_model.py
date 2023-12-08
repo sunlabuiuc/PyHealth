@@ -1,3 +1,10 @@
+"""
+Recommended:
+ - torch: 1.9.1
+ - torchvision: 0.10.0+cu102
+ - torch_sparse: 0.6.12
+"""
+
 from typing import List, Dict
 
 import math
@@ -200,7 +207,8 @@ class Graph_TorchvisionModel(BaseModel):
         assert model_name in SUPPORTED_MODELS_FINAL_LAYER.keys(), \
             f"PyHealth does not currently include {model_name} model!"
 
-        self.model = torchvision.models.get_model(model_name, **model_config)
+        # for torchvision 0.10.0
+        self.model = torchvision.models.__dict__[model_name](**model_config)
         final_layer_name = SUPPORTED_MODELS_FINAL_LAYER[model_name]
         final_layer = self.model
         for name in final_layer_name.split("."):
@@ -253,15 +261,17 @@ if __name__ == "__main__":
     
     from torchvision import transforms
     from pyhealth.datasets import COVID19CXRDataset
+    from pyhealth.datasets import split_by_sample
 
     base_dataset = COVID19CXRDataset(
-        root="data/COVID-19_Radiography_Dataset",
+        root="/srv/local/data/COVID-19_Radiography_Dataset",
     )
 
     sample_dataset = base_dataset.set_task()
 
     transform = transforms.Compose([
-        transforms.Grayscale(),
+        # transforms.Grayscale(),
+        transforms.Lambda(lambda x: x if x.shape[0] == 3 else x.repeat(3, 1, 1)),
         transforms.Resize((224, 224)),
         transforms.Normalize(mean=[0.5862785803043838], std=[0.27950088968644304])
     ])
@@ -272,14 +282,23 @@ if __name__ == "__main__":
         return sample
 
     sample_dataset.set_transform(encode)
+    
+    
+    # Get Index of train, valid, test set
+    train_index, val_index, test_index = split_by_sample(
+        dataset=sample_dataset,
+        ratios=[0.7, 0.1, 0.2],
+        get_index = True
+    )
 
     model = Graph_TorchvisionModel(
         dataset=sample_dataset,
         feature_keys=["path"],
         label_key="label",
         mode="multiclass",
-        model_name="vit_b_16",
-        model_config={"weights": "DEFAULT"},
+        model_name="resnet18",
+        # model_config={"weights": "DEFAULT"},
+        model_config={},
         gnn_config={"input_dim": 256, "hidden_dim": 128},
     )
 
@@ -294,13 +313,39 @@ if __name__ == "__main__":
         get_index = True
     )
     
+    # Define Sampler as Dataloader
     train_dataloader = NeighborSampler(sample_dataset, graph["edge_index"], node_idx=train_index, sizes=[15, 10], batch_size=64, shuffle=True, num_workers=12)
+    # We sample all edges connected to target node for validation and test (Sizes = [-1, -1])
+    valid_dataloader = NeighborSampler(sample_dataset, graph["edge_index"], node_idx=val_index, sizes=[-1, -1], batch_size=64, shuffle=False, num_workers=12)
+    test_dataloader = NeighborSampler(sample_dataset, graph["edge_index"], node_idx=test_index, sizes=[-1, -1], batch_size=64, shuffle=False, num_workers=12)
 
-    data_graph_batch = next(iter(train_dataloader))
+    
+    # train_dataloader = NeighborSampler(sample_dataset, graph["edge_index"], node_idx=train_index, sizes=[15, 10], batch_size=64, shuffle=True, num_workers=12)
 
-    # try the model
-    ret = model(**data_graph_batch)
-    print(ret)
+    # data_graph_batch = next(iter(train_dataloader))
 
-    # try loss backward
-    ret["loss"].backward()
+    # # try the model
+    # ret = model(**data_graph_batch)
+    # print(ret)
+
+    # # try loss backward
+    # ret["loss"].backward()
+    
+    from pyhealth.trainer import Trainer
+    resnet_trainer = Trainer(model=model, device="cpu")
+    resnet_trainer.train(
+        train_dataloader=train_dataloader,
+        val_dataloader=valid_dataloader,
+        epochs=1,
+        monitor="accuracy",
+    )
+    
+    print(resnet_trainer.evaluate(test_dataloader))
+    
+    
+    resnet_trainer.train(
+        train_dataloader=train_dataloader,
+        val_dataloader=valid_dataloader,
+        epochs=1,
+        monitor="accuracy",
+    )

@@ -15,7 +15,7 @@ class ImageFeaturizer:
 
 
 if __name__ == "__main__":
-    sample_image = "data/COVID-19_Radiography_Dataset/Normal/images/Normal-6335.png"
+    sample_image = "/srv/local/data/COVID-19_Radiography_Dataset/Normal/images/Normal-6335.png"
     featurizer = ImageFeaturizer()
     print(featurizer)
     print(type(featurizer))
