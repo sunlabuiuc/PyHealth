@@ -1,5 +1,6 @@
 import os
 from typing import Optional, List, Dict, Union, Tuple
+import numpy as np
 
 import pandas as pd
 
@@ -89,7 +90,7 @@ class MIMIC4Dataset(BaseEHRDataset):
         patients_df = pd.read_csv(
             os.path.join(self.root, "patients.csv"),
             dtype={"subject_id": str},
-            nrows=1000 if self.dev else None,
+            nrows=25000 if self.dev else None,
         )
         # read admissions table
         admissions_df = pd.read_csv(
@@ -344,14 +345,17 @@ class MIMIC4Dataset(BaseEHRDataset):
         def lab_unit(p_id, p_info):
             events = []
             for v_id, v_info in p_info.groupby("hadm_id"):
-                for timestamp, code in zip(v_info["charttime"], v_info["itemid"]):
+                for timestamp, code, unit, value, valuenum in zip(v_info["charttime"], v_info["itemid"], v_info["valueuom"], v_info["value"], v_info["valuenum"]):
                     event = Event(
                         code=code,
                         table=table,
                         vocabulary="MIMIC4_ITEMID",
                         visit_id=v_id,
                         patient_id=p_id,
+                        valueuom=unit, # this is not correct --> v_info["valueuom"].values[0],
                         timestamp=strptime(timestamp),
+                        value=valuenum if np.isnan(valuenum) else value,
+                        unit=unit
                     )
                     events.append(event)
             return events

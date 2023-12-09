@@ -1,6 +1,7 @@
 import collections
 import logging
 import os
+import pdb
 import pandas
 
 import numpy as np
@@ -131,6 +132,8 @@ class Processor():
         self.size_per_time_bin = size_per_time_bin
         self.time_vector_length = (100 // size_per_time_bin)
 
+        if (max_visits is None):
+            logging.warn("No max visits provided. Using the maximum number of visits in the dataset. For datasets with many visits, this may be the source of memory issues")
         self.max_visits = max_visits
 
         self.name = name
@@ -156,6 +159,7 @@ class Processor():
         filename = hash_str("+".join([str(arg) for arg in args_to_hash])) + ".pkl"
         self.filepath = os.path.join(MODULE_CACHE_PATH, filename)
         
+        # set processor determine parameters from memory or compute them from scratch
         if os.path.exists(self.filepath) and not self.refresh_cache:
             aggregated_results = load_pickle(self.filepath)
             logger.debug(f"Loaded {self.name} from cache at file {self.filepath}")
@@ -167,12 +171,8 @@ class Processor():
             save_pickle(aggregated_results, self.filepath)
 
         self.global_events = aggregated_results['global_events']
-
         self.min_birth_datetime = aggregated_results['min_birth_datetime']
-
-        if (self.max_visits == None):
-            self.max_visits = aggregated_results['max_visits'] # if the user does not provide, infer from dataset
-
+        self.max_visits = aggregated_results['max_visits']
         self.age_bins = aggregated_results['age_bins'] # bins for age at first visit
         self.visit_bins = aggregated_results['visit_bins'] # bins for time gaps between visits
         self.event_bins = aggregated_results['event_bins'] # bins for continuous values
@@ -207,24 +207,32 @@ class Processor():
         # two way mapping from global identifier to index & vice-versa
         # possible since index <> global identifier is bijective
         # type: ((table_name: str, event_value: any): index) or (index: (table_name: str, event_value: any))
-        max_visits: int = 0
+        longest_visit: int = 0
         min_birth_datetime = pandas.Timestamp.now()
         missing_birth_datetime = 0
         missing_birth_datetime_patients = set()
+        visits_len = collections.Counter()
         for pdata in tqdm(list(self.dataset), desc="Computing min birth datetime"):
-                max_visits = max(max_visits, len(pdata.visits))
-                if pdata.birth_datetime != None:
-                    min_birth_datetime = min(min_birth_datetime, pdata.birth_datetime)
-                else:
-                    missing_birth_datetime += 1
-                    missing_birth_datetime_patients.add(pdata.patient_id)
+            longest_visit = max(longest_visit, len(pdata.visits))
+            visits_len.update([len(pdata.visits)])
+            if pdata.birth_datetime != None:
+                min_birth_datetime = min(min_birth_datetime, pdata.birth_datetime)
+            else:
+                missing_birth_datetime += 1
+                missing_birth_datetime_patients.add(pdata.patient_id)
         logging.debug(f"Missing birth datetime for {missing_birth_datetime} patients")
+        logging.debug(f"Found max visits: {longest_visit}; threshold for max visits: {self.max_visits}")
+        max_visits = min(longest_visit, self.max_visits) if self.max_visits != None else longest_visit
 
+        logging.debug(sorted(visits_len.items(), key=lambda x: x[0]))
         global_events = {}
+
+        # optimization: we only want to compute histograms for events which occur frequently in the dataset
+        qualified_histogram_events = self.get_qualified_histogram_events()
 
         # used to compute discretized visit gaps in the processor
         age_gaps: int = []
-        visit_gaps: int = [] 
+        visit_gaps: int = []
 
         # a set of all table events in the dataset used to compute histograms for automatic continuous value handling
         # keys: table, value: dictionary of key: event_id, value: list of (raw_event, event_value)
@@ -240,7 +248,12 @@ class Processor():
             previous_time = pdata.birth_datetime
 
             # compute global event
-            for vdata in sorted(pdata.visits.values(), key=lambda v: v.encounter_time): # visit events are not sorted by default
+            for visit_index, vdata in enumerate(sorted(pdata.visits.values(), key=lambda v: v.encounter_time)): # visit events are not sorted by default
+                # skip users who exceed allowed number of visits
+                if (self.max_visits != None and not(visit_index < self.max_visits)):
+                    # pdb.set_trace()
+                    continue
+
                 # compute time since last visit; if negative, skip
                 time_since_last_visit_delta = vdata.encounter_time - previous_time
                 time_since_last_visit = time_since_last_visit_delta.days * 24 + time_since_last_visit_delta.seconds / 3600
@@ -271,9 +284,25 @@ class Processor():
                     event_handler = self.event_handlers[table] if table in self.event_handlers else None
                     for te_raw in table_events_raw:
                         te = event_handler(te_raw) if event_handler else te_raw.code
+                        
+                        # some events are junk, we allow the user to filter them out
+                        if (te is None):
+                            continue
+
                         if table in self.compute_histograms:
+                            
+                            # sample table events for histogram computation
+                            exclude_event = np.random.randint(0, 10) < 0
+                            if exclude_event: # (0% of the time for the current configuration)
+                                continue
+
                             event_id = self.hist_identifier[table](te_raw)
-                            continuous_values_for_hist[table][event_id].append((te_raw, te)) # te only has numerical information, te_raw has the full event with metadata; we give the option to create vocabulary elements with the full event + the discretized value
+                            # te only has numerical information, te_raw has the full event with metadata; we give the option to create vocabulary elements with the full event + the discretized value
+                            
+                            if event_id not in qualified_histogram_events[table]: 
+                                continue
+                            
+                            continuous_values_for_hist[table][event_id].append((te_raw, te))
                         
                         # we can put discrete table events directly into the vocabulary. 
                         # For continuous values, we need to discretize them first, 
@@ -330,7 +359,7 @@ class Processor():
             # compute the quantity of event bins for each event type within the table
             num_event_bins = self.size_per_event_bin[table]
             table_continuous_events = continuous_values_for_hist[table].items()
-            table_continuous_events = sorted(table_continuous_events, key=lambda x: len(x[1]), reverse=True)[:self.max_continuous_per_table]
+            table_continuous_events = sorted(table_continuous_events, key=lambda x: len(x[1]), reverse=True)
             for event_id, event_values in table_continuous_events:
                 values = [v for _, v in event_values]
                 for b in range(0, 100 + 1, num_event_bins):
@@ -364,7 +393,7 @@ class Processor():
                         vocabulary_element = self.discrete_event_handlers[table](pyhealth_event_obj, bin_id)
 
                     global_event = (table, vocabulary_element)
-                    if global_event not in global_event_set:
+                    if global_event != None and global_event not in global_event_set:
                         global_event_set.add(global_event)
 
         global_event_set = list(global_event_set)
@@ -383,6 +412,61 @@ class Processor():
             'event_bins': event_bins
         }
         
+    def get_qualified_histogram_events(self):
+        """
+        To facilitage computing histograms to discretize continuous valued tables, we need to obtain the distribution of values for each event in the table which will be discretized. This distribution is extremely large in some cases.
+        an optimization we apply is to only compute histograms for the top k most common events in the table, where k is defined by the user.
+        this prevents us from having to be be computationally burdened by computing histograms for the long tail of values--values which there are only a few of. In those cases, we can just ignore labs of that type. 
+        In this loop, we compute the top k most common events in each table, and store them in a dictionary. In subsequent iterations, we do skip handling the generation of histograms for any of the N-k (not top k) events.
+        """
+        
+        for compute_histogram_table in self.compute_histograms:
+            # unfortunately, we need to make class variables to record the distribution, because Counter() objects cannot be used as values in a dict
+            setattr(self, f"{compute_histogram_table}_distribution_counter", collections.Counter())
+            
+        for pdata in tqdm(list(self.dataset), desc="Computing top k events for each table"):
+            
+            # bad patients
+            if pdata.birth_datetime == None: continue
+
+            for visit_index, vdata in enumerate(pdata.visits.values()): # visit events are not sorted by default
+                
+                # skip users who exceed allowed number of visits
+                if (self.max_visits != None and not(visit_index < self.max_visits)): continue
+
+                for table in vdata.available_tables:
+                    # valid_tables == None signals we want to use all tables
+                    # otherwise, omit any table not in the whitelist
+                    if self.valid_dataset_tables != None and table not in self.valid_dataset_tables: continue
+                    
+                    table_events_raw = vdata.get_event_list(table)
+                    event_handler = self.event_handlers[table] if table in self.event_handlers else None
+                    for te_raw in table_events_raw:
+                        te = event_handler(te_raw) if event_handler else te_raw.code
+                        
+                        # some events are junk, we allow the user to filter them out
+                        if (te is None):
+                            continue
+
+                        if table in self.compute_histograms:
+                            event_id = self.hist_identifier[table](te_raw)
+                            
+                            # increment the counter for this event
+                            getattr(self, f"{table}_distribution_counter")[event_id] += 1
+        
+        # now that we have the distribution of events, we can compute the top k events for each table.
+        # we will refrence this object in the future when computing vocabulary elements to filter out infrequent lab events
+        qualified_histogram_events = {}
+        for compute_histogram_table in self.compute_histograms:
+            distribution = getattr(self, f"{compute_histogram_table}_distribution_counter")
+            top_k_distribution = distribution.most_common(self.max_continuous_per_table)
+            qualified_histogram_events[compute_histogram_table] = set([k for k, v in top_k_distribution])
+            
+            # remove for space
+            delattr(self, f"{compute_histogram_table}_distribution_counter")
+        return qualified_histogram_events
+
+
     """
     If we have loaded the aggregated event indices, we need to do the dataset cleaning separately
     """
@@ -453,6 +537,12 @@ class Processor():
             previous_time = pdata.birth_datetime
             # build multihot vector for patient events
             for visit_index, vdata in enumerate(sorted(pdata.visits.values(), key=lambda v: v.encounter_time)):
+                
+                # skip users who exceed allowed number of visits
+                if (self.max_visits != None and not(visit_index < self.max_visits)):
+                    # pdb.set_trace()
+                    continue
+
                 time_since_last_visit_delta = vdata.encounter_time - previous_time
                 time_since_last_visit = time_since_last_visit_delta.days * 24 + time_since_last_visit_delta.seconds / 3600
                 if visit_index == 0:
@@ -475,11 +565,17 @@ class Processor():
                     event_handler = self.event_handlers[table] if table in self.event_handlers else None
                     for te_raw in table_events_raw:
                         te = event_handler(te_raw) if event_handler else te_raw.code
+
+                        # some events are junk, we allow the user to filter them out
+                        if (te is None):
+                            continue
+
                         if table in self.compute_histograms:
                             event_id = self.hist_identifier[table](te_raw)
+                            
                             if event_id not in self.event_bins[table]:
                                 continue
-                            
+
                             te = np.digitize(te, self.event_bins[table][event_id]) - 1 # -1 to account for the 0th bin
                             if table in self.discrete_event_handlers:
                                 te = self.discrete_event_handlers[table](te_raw, te)
@@ -494,11 +590,14 @@ class Processor():
             global_label_vector = self.label_fn(patient_data=pdata)
             sample_multi_hot[pidx, self.LABEL_INDEX, self.num_global_events: self.num_global_events + self.label_vector_len] = global_label_vector
             
+            # a patient may have too many visits, here we set the number of visits to the max allowed
+            patient_visits = min(len(pdata.visits), self.max_visits)
+
             # set the end token
-            sample_multi_hot[pidx, self.VISIT_INDEX + (len(pdata.visits) - 1), self.end_token_index] = 1
+            sample_multi_hot[pidx, self.VISIT_INDEX + (patient_visits - 1), self.end_token_index] = 1
 
             # set the remainder of the visits to pads if needed
-            sample_multi_hot[pidx, (self.VISIT_INDEX + (len(pdata.visits) - 1)) + 1:, self.pad_token_index] = 1
+            sample_multi_hot[pidx, (self.VISIT_INDEX + (patient_visits - 1)) + 1:, self.pad_token_index] = 1
             
         # set the start token
         sample_multi_hot[:, self.START_INDEX, self.start_token_index] = 1

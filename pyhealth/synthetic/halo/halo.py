@@ -188,7 +188,7 @@ class CoarseTransformerModel(nn.Module):
         inputs_embeds = self.vis_embed_mat(input_visits)
         position_embeds = self.pos_embed_mat(position_ids)
         hidden_states = inputs_embeds + position_embeds
-        for block, layer_past in zip(self.h, past):
+        for i, (block, layer_past) in enumerate(zip(self.h, past)):
             hidden_states, _ = block(hidden_states, layer_past)
         hidden_states = self.ln_f(hidden_states)
         return hidden_states
@@ -245,11 +245,11 @@ class HALO(nn.Module):
             config = Config(
                 # user defined
                 n_ctx=n_ctx,
+                n_positions=n_ctx,
                 total_vocab_size=total_vocab_size,
                 device=device,
 
                 # defaults provided by HALO implementors
-                n_positions=20,
                 n_embd=768,
                 n_layer=12,
                 n_head=12,
@@ -309,8 +309,8 @@ if __name__ == "__main__":
 
     # ROOT = "https://storage.googleapis.com/pyhealth/eicu-demo/"
 
-    # ROOT = "/home/bdanek2/data/physionet.org/files/eicu-crd/2.0"
-    ROOT = "/home/bpt3/data/physionet.org/files/eicu-crd/2.0"
+    ROOT = "/home/bdanek2/data/physionet.org/files/eicu-crd/2.0"
+    # ROOT = "/home/bpt3/data/physionet.org/files/eicu-crd/2.0"
     dataset_name = "eICU-demo"
     tables = ["diagnosis", "lab"] # ["diagnosis"]
     code_mapping = {}
@@ -335,10 +335,17 @@ if __name__ == "__main__":
             refresh_cache=False,
         )
     else:
-        dataset = None
+        dataset = eICUDataset(
+            dataset_name=dataset_name,
+            root=ROOT,
+            tables=tables,
+            code_mapping=code_mapping,
+            dev=dev,
+            refresh_cache=True,
+        )
 
-    # basedir = '/home/bdanek2/halo_development/testing_1'
-    basedir = '/home/bpt3/code/PyHealth/pyhealth/synthetic/halo/temp'
+    basedir = '/home/bdanek2/halo_development/testing_1'
+    # basedir = '/home/bpt3/code/PyHealth/pyhealth/synthetic/halo/temp'
 
     # --- processor ---
     batch_size = 512
@@ -353,7 +360,7 @@ if __name__ == "__main__":
         gender_idx = [1, 0, 0] if pdata.gender == 'Male' else [0, 1, 0] if pdata.gender == 'Female' else [0, 0, 1]
         ethnicity_idx = [1, 0, 0, 0, 0, 0] if pdata.ethnicity == 'Caucasian' else [0, 1, 0, 0, 0, 0] if pdata.ethnicity == 'African American' else [0, 0, 1, 0, 0, 0] if pdata.ethnicity == 'Hispanic' else [0, 0, 0, 1, 0, 0] if pdata.ethnicity == 'Asian' else [0, 0, 0, 0, 1, 0] if pdata.ethnicity == 'Native American' else [0, 0, 0, 0, 0, 1]
         return tuple(mortality_idx + age_idx + gender_idx + ethnicity_idx)
-      
+
     def reverse_full_label_fn(label_vec):
         mortality_idx = label_vec[:1]
         age_idx = label_vec[1:4]
@@ -510,8 +517,8 @@ if __name__ == "__main__":
         label_fn=label_fn,
         label_vector_len=label_fn_output_size,
         name="HALO-FairPlay",
-        refresh_cache=False,
-        expedited_load=True,
+        refresh_cache=True,
+        expedited_load=False,
         dataset_filepath=None if dataset is not None else dataset_filepath,
     )
 
@@ -657,7 +664,7 @@ if __name__ == "__main__":
             model_save_name=f'{model_save_name}_{fold}',
             folds=num_folds
         )
-        trainer.load_fold_split(fold, from_save=True, save=True)
+        trainer.load_fold_split(fold, from_save=False, save=True)
         
         start_time = time.perf_counter()
         trainer.train(

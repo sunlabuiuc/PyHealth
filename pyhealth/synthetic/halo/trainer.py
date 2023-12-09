@@ -1,4 +1,5 @@
 import os
+import pdb
 import random
 from matplotlib import pyplot as plt
 import numpy as np
@@ -48,7 +49,7 @@ class Trainer:
         self.model_save_name = model_save_name
         self.folds = folds
     
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = "cuda:1" if torch.cuda.is_available() else "cpu"
         self.model.to(self.device)
 
     def get_model_checkpoint_path(self):
@@ -253,7 +254,6 @@ class Trainer:
                 batch_mask = torch.tensor(batch_mask, dtype=torch.float32).to(self.device)
                 
                 self.optimizer.zero_grad()
-                
                 loss, _, _ = self.model(batch_ehr, position_ids=None, ehr_labels=batch_ehr, ehr_masks=batch_mask)
                 
                 loss.backward()
