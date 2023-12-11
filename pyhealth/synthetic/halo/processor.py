@@ -1,4 +1,5 @@
 import collections
+from functools import lru_cache
 import logging
 import os
 import pdb
@@ -411,6 +412,13 @@ class Processor():
             'visit_bins': visit_bins,
             'event_bins': event_bins
         }
+    
+    @lru_cache(maxsize=1000)
+    def get_hist_statevar(self, table):
+        """
+        The getattr function is very slow, so we create this wrapper which caches histogram distribution counters for us.
+        """
+        return getattr(self, f"{table}_distribution_counter")
         
     def get_qualified_histogram_events(self):
         """
@@ -420,9 +428,12 @@ class Processor():
         In this loop, we compute the top k most common events in each table, and store them in a dictionary. In subsequent iterations, we do skip handling the generation of histograms for any of the N-k (not top k) events.
         """
         
-        for compute_histogram_table in self.compute_histograms:
-            # unfortunately, we need to make class variables to record the distribution, because Counter() objects cannot be used as values in a dict
-            setattr(self, f"{compute_histogram_table}_distribution_counter", collections.Counter())
+        # we need to compute the distribution of events in the dataset to determine which events to compute histograms for
+        # keys: (table, event_id), value: count
+        # other solutions we tried, but were too slow:
+        # - defining a counter for each table which is a class variable (setattr, getattr functions are super slow. Could not find a workaround)
+        # 
+        histogram_events = collections.defaultdict(int)
             
         for pdata in tqdm(list(self.dataset), desc="Computing top k events for each table"):
             
@@ -451,19 +462,22 @@ class Processor():
                         if table in self.compute_histograms:
                             event_id = self.hist_identifier[table](te_raw)
                             
-                            # increment the counter for this event
-                            getattr(self, f"{table}_distribution_counter")[event_id] += 1
+                            # increment the distribution counter for the event
+                            histogram_events[(table, event_id)] += 1
         
         # now that we have the distribution of events, we can compute the top k events for each table.
         # we will refrence this object in the future when computing vocabulary elements to filter out infrequent lab events
         qualified_histogram_events = {}
         for compute_histogram_table in self.compute_histograms:
-            distribution = getattr(self, f"{compute_histogram_table}_distribution_counter")
+            
+            # filter the dictionary to only include the top k events
+            filtered_histogram_events = { k: v for k, v in histogram_events.items() if k[0] == compute_histogram_table }
+            
+            distribution = collections.Counter(filtered_histogram_events)
+            
             top_k_distribution = distribution.most_common(self.max_continuous_per_table)
             qualified_histogram_events[compute_histogram_table] = set([k for k, v in top_k_distribution])
             
-            # remove for space
-            delattr(self, f"{compute_histogram_table}_distribution_counter")
         return qualified_histogram_events
 
 

@@ -35,7 +35,7 @@ if __name__ == "__main__":
     dataset_name = "MIMIC4-demo"
     tables = ["procedures_icd", "labevents"]
     code_mapping = {"NDC": "RxNorm"}
-    dev = True
+    dev = False
 
     # use drug name instead of ndc code
     # need to reduce the space for procedures_icd, prescriptions, ect
@@ -160,7 +160,7 @@ if __name__ == "__main__":
         label_fn=naieve_label_fn,
         label_vector_len=label_fn_output_size,
         name="HALO-FairPlay-mimic",
-        refresh_cache=False,
+        refresh_cache=True,
         expedited_load=False,
         dataset_filepath=None if dataset is not None else dataset_filepath,
         max_visits=40, # optional parameter cut off the tail of the distribution of visits
@@ -195,12 +195,12 @@ if __name__ == "__main__":
     trainer.load_fold_split(fold, from_save=True, save=True)
     # pdb.set_trace()
     start_time = time.perf_counter()
-    # trainer.train(
-    #     batch_size=batch_size,
-    #     epoch=10,
-    #     patience=3,
-    #     eval_period=float('inf')
-    # )
+    trainer.train(
+        batch_size=batch_size,
+        epoch=10,
+        patience=3,
+        eval_period=float('inf')
+    )
     end_time = time.perf_counter()
     run_time = end_time - start_time
     print("training time:", run_time, run_time / 60, (run_time / 60) / 60)
