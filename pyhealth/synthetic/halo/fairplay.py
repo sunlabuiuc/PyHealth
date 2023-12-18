@@ -10,6 +10,10 @@ from sklearn import ensemble, linear_model, neural_network, metrics, neighbors
 basedir = '/home/bpt3/code/PyHealth/pyhealth/synthetic/halo/temp'
 MIN_THRESHOLD = 50
 
+def false_positive_rate(y_true, y_pred):
+    tn, fp, fn, tp = metrics.confusion_matrix(y_true, y_pred).ravel()
+    return fp / (fp + tn)
+
 def reverse_full_label_fn(label_vec):
     mortality_idx = label_vec[:1]
     age_idx = label_vec[1:4]
@@ -152,7 +156,7 @@ def run_experiments(train_data, test_data, codeToIndex, groups):
 
     def compete(algorithms, x_train, y_train, x_test, y_test, demographics_test, groups):
         """Compete the algorithms"""
-        classification_metrics = [(metrics.f1_score, True), (metrics.roc_auc_score, False)]
+        classification_metrics = [(metrics.f1_score, True), (metrics.recall_score, True), (false_positive_rate, True), (metrics.roc_auc_score, False)]
 
         column_names = ["algorithm"]
         column_names += [f'{metric.__name__} Overall' for metric, _ in classification_metrics]

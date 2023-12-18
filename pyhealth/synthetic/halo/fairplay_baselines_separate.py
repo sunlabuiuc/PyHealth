@@ -12,6 +12,10 @@ basedir = '/home/bpt3/code/PyHealth/pyhealth/synthetic/halo/temp'
 MIN_THRESHOLD = 50
 MIN_VALUE = 1000
 
+def false_positive_rate(y_true, y_pred):
+    tn, fp, fn, tp = metrics.confusion_matrix(y_true, y_pred).ravel()
+    return fp / (fp + tn)
+
 class SeparateClassifier:
     def __init__(self, classifier):
         self.classifier = classifier
@@ -112,13 +116,16 @@ def run_experiments(train_data, test_data, codeToIndex, groups):
 
     def evaluate(competing_metrics, groups, algorithm_name, algorithm, x, y, demographics):
         """evaluate how an algorithm does on the provided dataset & generate a pd row"""
-        full_y = np.zeros(sum([len(v) for v in y.values()]))
+        full_y = np.zeros(sum([len(v) for v in y.values() if len(v) > MIN_THRESHOLD]))
         preds = np.zeros(len(full_y))
         rounded_preds = np.zeros(len(full_y))
-        demographics = {g: np.concatenate([demographics[c][g] for c in demographics]) for g in list(demographics.values())[0]}
+        demographics = {g: np.concatenate([demographics[c][g] for c in demographics if len(demographics[c][g]) > MIN_THRESHOLD]) for g in list(demographics.values())[0]}
         
         counter = 0
         for c in x:
+            if len(y[c]) < MIN_THRESHOLD:
+                continue
+            
             cls_size = len(y[c])
             full_y[counter:counter+cls_size] = y[c]
             preds[counter:counter+cls_size] = algorithm.predict_proba(c, x[c])[:, 1]
@@ -142,10 +149,15 @@ def run_experiments(train_data, test_data, codeToIndex, groups):
                 category_results = []
                 for g in group_names:
                     y_g, preds_g = full_y[demographics[category] == g], metric_preds[demographics[category] == g]
-                    res = metric_func(y_g, preds_g)
-                    print(f'{algorithm_name} {metric_func.__name__} {category} {g}: {res}')
-                    category_results.append(res)
-                    results.append(res)
+                    if len(y_g) > 0:
+                        res = metric_func(y_g, preds_g)
+                        print(f'{algorithm_name} {metric_func.__name__} {category} {g}: {res}')
+                        category_results.append(res)
+                        results.append(res)
+                    else:
+                        print(f'{algorithm_name} {metric_func.__name__} {category} {g}: Unevaluated')
+                        category_results.append(0)
+                        results.append(0)
                 results.append(np.mean(category_results))
 
         if len(groups) > 1:
@@ -157,10 +169,10 @@ def run_experiments(train_data, test_data, codeToIndex, groups):
                 for (category1, group_names1), (category2, group_names2) in itertools.combinations(groups, 2):
                     for g1 in group_names1:
                         for g2 in group_names2:
-                            if len([p for p in x[(demographics[category1] == g1) & (demographics[category2] == g2)]]) < MIN_THRESHOLD:
+                            y_cross = full_y[(demographics[category1] == g1) & (demographics[category2] == g2)]
+                            if len(y_cross) < MIN_THRESHOLD:
                                 continue
                             
-                            y_cross = full_y[(demographics[category1] == g1) & (demographics[category2] == g2)]
                             preds_cross = metric_preds[(demographics[category1] == g1) & (demographics[category2] == g2)]
                             res = metric_func(y_cross, preds_cross)
                             print(f'{algorithm_name} {metric_func.__name__} ({category1}, {category2}) ({g1}, {g2}): {res}')
@@ -180,13 +192,13 @@ def run_experiments(train_data, test_data, codeToIndex, groups):
 
     def compete(algorithms, x_train, y_train, x_test, y_test, demographics_test, groups):
         """Compete the algorithms"""
-        classification_metrics = [(metrics.f1_score, True), (metrics.roc_auc_score, False)]
+        classification_metrics = [(metrics.f1_score, True), (metrics.recall_score, True), (false_positive_rate, True), (metrics.roc_auc_score, False)]
 
         column_names = ["algorithm"]
         column_names += [f'{metric.__name__} Overall' for metric, _ in classification_metrics]
         column_names += [f'{metric.__name__} ({group})' for metric, _ in classification_metrics for group in [g for (category, populations) in groups for g in [pop for pop in populations + [f'Average {category.capitalize()}']]]]
         if len(groups) > 1:
-            column_names += [f'{metric.__name__} ({group1}, {group2})' for metric, _ in classification_metrics for (category1, populations1), (category2, populations2) in itertools.combinations(groups, 2) for group1 in populations1 for group2 in populations2 if tuple(sorted(((category1, populations1), category2, populations2))) in demographics_test.keys() and len(x_test[demographics_test[tuple(sorted(((category1, populations1), category2, populations2)))]] >= MIN_THRESHOLD)]
+            column_names += [f'{metric.__name__} ({group1}, {group2})' for metric, _ in classification_metrics for (category1, populations1), (category2, populations2) in itertools.combinations(groups, 2) for group1 in populations1 for group2 in populations2 if tuple(sorted(((category1, group1), (category2, group2)))) in demographics_test and len(x_test[tuple(sorted(((category1, group1), (category2, group2))))] >= MIN_THRESHOLD)]
         
         results = []
         for algorithm_name, algorithm in tqdm(algorithms.items(), desc="Competing Algorithms", total=len(algorithms)):
@@ -207,6 +219,9 @@ def run_experiments(train_data, test_data, codeToIndex, groups):
     for c in train_data.keys():
         x_train_group, y_train_group, _ = getInput(train_data[c], groups)
         x_test_group, y_test_group, demographics_test_group = getInput(test_data[c], groups)
+        if len(x_test_group) < MIN_VALUE:
+            continue
+        
         x_train[c] = x_train_group
         y_train[c] = y_train_group
         x_test[c] = x_test_group
