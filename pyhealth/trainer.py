@@ -12,7 +12,7 @@ from tqdm import tqdm
 from tqdm.autonotebook import trange
 
 from pyhealth.metrics import (binary_metrics_fn, multiclass_metrics_fn,
-                              multilabel_metrics_fn)
+                              multilabel_metrics_fn, regression_metrics_fn)
 from pyhealth.utils import create_directory
 
 logger = logging.getLogger(__name__)
@@ -44,6 +44,8 @@ def get_metrics_fn(mode: str) -> Callable:
         return multiclass_metrics_fn
     elif mode == "multilabel":
         return multilabel_metrics_fn
+    elif mode == "regression":
+        return regression_metrics_fn
     else:
         raise ValueError(f"Mode {mode} is not supported")
 

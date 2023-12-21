@@ -2,6 +2,14 @@ Development logs
 ======================
 We track the new development here:
 
+**Dec 20, 2023**
+
+..code-blocks:: rst
+
+    1. add graph neural network models for drug recommendation in PR #251
+    2. add reconstruction_metrics_fn for some unsupervised learning tasks.
+    3. add VAE models in pyhealth PR #252
+
 **Nov 28, 2023**
 
 ..code-blocks:: rst
