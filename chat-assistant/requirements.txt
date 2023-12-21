@@ -4,4 +4,4 @@ faiss-cpu
 unstructured
 tiktoken
 rich #for console formatting
-gradio==3.44.2
+gradio==4.11.0
