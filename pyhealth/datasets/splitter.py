@@ -87,3 +87,45 @@ def split_by_patient(
     val_dataset = torch.utils.data.Subset(dataset, val_index)
     test_dataset = torch.utils.data.Subset(dataset, test_index)
     return train_dataset, val_dataset, test_dataset
+
+
+def split_by_sample(
+    dataset: SampleBaseDataset,
+    ratios: Union[Tuple[float, float, float], List[float]],
+    seed: Optional[int] = None,
+    get_index: Optional[bool] = False,
+):
+    """Splits the dataset by sample
+
+    Args:
+        dataset: a `SampleBaseDataset` object
+        ratios: a list/tuple of ratios for train / val / test
+        seed: random seed for shuffling the dataset
+
+    Returns:
+        train_dataset, val_dataset, test_dataset: three subsets of the dataset of
+            type `torch.utils.data.Subset`.
+
+    Note:
+        The original dataset can be accessed by `train_dataset.dataset`,
+            `val_dataset.dataset`, and `test_dataset.dataset`.
+    """
+    if seed is not None:
+        np.random.seed(seed)
+    assert sum(ratios) == 1.0, "ratios must sum to 1.0"
+    index = np.arange(len(dataset))
+    np.random.shuffle(index)
+    train_index = index[: int(len(dataset) * ratios[0])]
+    val_index = index[
+                int(len(dataset) * ratios[0]): int(
+                    len(dataset) * (ratios[0] + ratios[1]))
+                ]
+    test_index = index[int(len(dataset) * (ratios[0] + ratios[1])):]
+    train_dataset = torch.utils.data.Subset(dataset, train_index)
+    val_dataset = torch.utils.data.Subset(dataset, val_index)
+    test_dataset = torch.utils.data.Subset(dataset, test_index)
+    
+    if get_index:
+        return torch.tensor(train_index), torch.tensor(val_index), torch.tensor(test_index)
+    else:
+        return train_dataset, val_dataset, test_dataset
