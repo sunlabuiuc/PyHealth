@@ -26,3 +26,4 @@ from .molerec import MoleRec, MoleRecLayer
 from .gnn import GCN, GAT
 from .graph_torchvision_model import Graph_TorchvisionModel
 from .medlink import MedLink
+from .vae import VAE
