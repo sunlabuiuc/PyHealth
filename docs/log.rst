@@ -6,7 +6,8 @@ We track the new development here:
 
 ..code-blocks:: rst
 
-    1. add GAN models and demos in pyhealth PR #253
+    1. add GAN models and demos in pyhealth PR #256
+    2. 
 
 **Dec 20, 2023**
 
