@@ -16,8 +16,8 @@ sample_dataset = base_dataset.set_task()
 
 # the transformation automatically normalize the pixel intensity into [0, 1]
 transform = transforms.Compose([
-    transforms.Lambda(lambda x: x if x.shape[0] == 1 else x[:1]), # only use the first channel
-    transforms.Resize((32, 32)),
+    transforms.Lambda(lambda x: x if x.shape[0] == 3 else x.repeat(3, 1, 1)), # only use the first channel
+    transforms.Resize((128, 128)),
 ])
 
 def encode(sample):
@@ -31,9 +31,9 @@ sample_dataset.set_transform(encode)
 train_dataset, val_dataset, test_dataset = split_by_visit(
     sample_dataset, [0.6, 0.2, 0.2]
 )
-train_dataloader = get_dataloader(train_dataset, batch_size=32, shuffle=True)
-val_dataloader = get_dataloader(val_dataset, batch_size=32, shuffle=False)
-test_dataloader = get_dataloader(test_dataset, batch_size=32, shuffle=False)
+train_dataloader = get_dataloader(train_dataset, batch_size=256, shuffle=True)
+val_dataloader = get_dataloader(val_dataset, batch_size=256, shuffle=False)
+test_dataloader = get_dataloader(test_dataset, batch_size=256, shuffle=False)
 
 data = next(iter(train_dataloader))
 print (data)
@@ -50,19 +50,22 @@ print(
 # STEP 3: define model
 model = VAE(
     dataset=sample_dataset,
-    input_flatten_size=32 * 32,
+    input_channel=3,
+    input_size=128,
     feature_keys=["path"],
     label_key="path",
     mode="regression",
-    hidden_dim = 64,
+    hidden_dim = 128,
 )
 
 # STEP 4: define trainer
-trainer = Trainer(model=model, device="cuda:4", metrics=["mse", "mae"])
+trainer = Trainer(model=model, device="cuda:4", metrics=["kl_divergence", "mse", "mae"])
 trainer.train(
     train_dataloader=train_dataloader,
     val_dataloader=val_dataloader,
     epochs=10,
+    monitor="kl_divergence",
+    monitor_criterion="min",
     optimizer_params={"lr": 1e-3},
 )
 
@@ -77,9 +80,9 @@ X, X_rec, _ = trainer.inference(test_dataloader)
 
 plt.figure()
 plt.subplot(1, 2, 1)
-plt.imshow(X[0].reshape(32, 32), cmap="gray")
+plt.imshow(X[0].reshape(128, 128), cmap="gray")
 plt.subplot(1, 2, 2)
-plt.imshow(X_rec[0].reshape(32, 32), cmap="gray")
+plt.imshow(X_rec[0].reshape(128, 128), cmap="gray")
 plt.savefig("chestxray_vae_comparison.png")
 
 # EXP 2: random images
@@ -87,11 +90,11 @@ model = trainer.model
   
 model.eval()
 with torch.no_grad():
-    x = np.random.normal(0, 1, 64)
+    x = np.random.normal(0, 1, 128)
     x = x.astype(np.float32)
     x = torch.from_numpy(x).to(trainer.device)
     rec = model.decoder(x).detach().cpu().numpy()
-    rec = rec.reshape((32, 32))
+    rec = rec.reshape((128, 128))
     plt.figure()
     plt.imshow(rec, cmap="gray")
     plt.savefig("chestxray_vae_synthetic.png")
