@@ -12,7 +12,7 @@ from sklearn.decomposition import PCA
 from pyhealth.tokenizer import Tokenizer
 
 # TODO: add support for regression
-VALID_MODE = ["binary", "multiclass", "multilabel"]
+VALID_MODE = ["binary", "multiclass", "multilabel", "regression"]
 
 
 class BaseModel(ABC, nn.Module):
@@ -305,6 +305,8 @@ class BaseModel(ABC, nn.Module):
             return F.cross_entropy
         elif self.mode == "multilabel":
             return F.binary_cross_entropy_with_logits
+        elif self.mode == "regression":
+            return F.mse_loss
         else:
             raise ValueError("Invalid mode: {}".format(self.mode))
 
