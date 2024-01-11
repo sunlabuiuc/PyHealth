@@ -64,7 +64,6 @@ if __name__ == "__main__":
     
     dataset.stat()
     dataset.info()
-    # pdb.set_trace()
     event_handlers = {}
 
     def diagnoses_icd_handler(event: Event):
@@ -152,6 +151,7 @@ if __name__ == "__main__":
         dataset=dataset,
         use_tables=None,
         event_handlers=event_handlers,
+        save_qualified_histogram_events=True,
         compute_histograms=['labevents'],
         hist_identifier={'labevents': make_lab_event_id },
         size_per_event_bin={'labevents': 10},

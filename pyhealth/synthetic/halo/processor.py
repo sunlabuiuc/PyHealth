@@ -3,6 +3,7 @@ from functools import lru_cache
 import logging
 import os
 import pdb
+import joblib
 import pandas
 
 import numpy as np
@@ -84,6 +85,7 @@ class Processor():
         event_handlers: Dict[str, Callable[[Event], _Hashable]] = {},
 
         # used to handle continuous values
+        save_qualified_histogram_events: bool = False, # if true, we cache the qualified histogram events for future use
         compute_histograms: List[str] = [], # tables for which we want to compute histogram
         hist_identifier: Dict[str, Callable[[Event], _Hashable]] = {}, # used to identify the event in the histogram
         size_per_event_bin: Dict[str, int] = {}, # number of bins to use for each tables histograms
@@ -139,47 +141,99 @@ class Processor():
 
         self.name = name
 
+        self.save_qualified_histogram_events = save_qualified_histogram_events
         self.refresh_cache = refresh_cache
         self.expedited_load = expedited_load
         self.dataset_filepath = dataset_filepath
 
+        # define cache files
+        # we could concievably just have one cached item which is a dictionary, but this blows up memory when we dump it to disk.
+        
+        args_to_hash = (
+            self.name,
+            [self.dataset_filepath if self.dataset_filepath is not None else self.dataset.filepath]
+        )
+
+        self.cached_files = {
+            "global_events": "",
+            "min_birth_datetime": "",
+            "max_visits": "",
+            "age_bins": "",
+            "visit_bins": "",
+            "event_bins": ""
+        }
+        
+        for item_name in self.cached_files:
+            filename = hash_str("+".join([str(arg) for arg in args_to_hash])) + "_" + item_name + ".pkl"
+            filepath = os.path.join(MODULE_CACHE_PATH, filename)
+            
+            self.cached_files[item_name] = filepath
+
         # init the indices & dynamically computed utility variables used in HALO training later
         self.set_indices()
 
+    def get_cached_processor_artifacts(self):
+        """
+        Get a the processor artifacts if theyre cached
+        - save artifacts for the processor to disk
+
+        Note:
+        saving all the artifacts in one python object results in a MemoryError when the global events dict is large. We save all items indpendantly to work around this
+        """
+        if all([os.path.exists(f) for f in self.cached_files.values()]):
+            logger.debug(f"Loaded Processor artifacts ({self.name}) from cache at file {self.filepath}")
+            return (joblib.load(f) for f in self.cached_files.values())
+        else:
+            return None
+
+    def cache_processor_artifacts(self, processor_artifacts):
+        """
+        Save the processed artifacts to disk
+        """
+
+        # save artifacts for the processor to disk
+        # pdb.set_trace()
+        for f_key, a in zip(self.cached_files, processor_artifacts):
+            f = self.cached_files[f_key]
+            joblib.dump(a, f)
 
     def set_indices(self) -> None:
         """calls `halo.Processor.aggregate_event_indices` and to compute offsets and define vocabulary. 
         Uses offsets to set indices for the HALO visit multi-hot vector representation. Also sets vocabulary metada used when instantiating the `halo.HALO` model. 
         """
 
-        # set aggregate indices; try cache first
-        args_to_hash = (
-            self.name,
-            [self.dataset_filepath if self.dataset_filepath is not None else self.dataset.filepath]
-        )
-        filename = hash_str("+".join([str(arg) for arg in args_to_hash])) + ".pkl"
-        self.filepath = os.path.join(MODULE_CACHE_PATH, filename)
+        print("cached file paths", self.cached_files)
+        print("refresh cache", self.refresh_cache)
+        print("expedited load", self.expedited_load)
         
-        # set processor determine parameters from memory or compute them from scratch
-        if os.path.exists(self.filepath) and not self.refresh_cache:
-            aggregated_results = load_pickle(self.filepath)
-            logger.debug(f"Loaded {self.name} from cache at file {self.filepath}")
+        # - do we check the cache correctly?
+        # - do we load the cache correctly?
+        # - can we omit expedited reload?
+
+        # see if we have the cached items
+        processor_cached_artifcats = all([os.path.exists(f) for f in self.cached_files.values()])
+        # pdb.set_trace()
+        # if we don't have cached items, or we want to refresh then compute processor artifacts
+        if processor_cached_artifcats and not self.refresh_cache:
+
+            logger.debug(f"Loaded Processor artifacts ({self.name}) from cache files {self.cached_files.values()}")
+            processed_artifacts = (joblib.load(f) for f in self.cached_files.values())
+
+            # the aggregation process pops patients from the dataset which are not clean.
+            # if we skip the loading process and load from cache, we need to clean the dataset again, otherwise
+            # the base dataset will be misaligned with the vocuabulary the processor uses.
+            # todo: does this actually work?
             if not self.expedited_load:
                 self.clean_patients()
         else:
-            logger.debug(f"Computing {self.name} from scratch")
-            aggregated_results = self.aggregate_event_indices()
-            save_pickle(aggregated_results, self.filepath)
+            logger.debug(f"No valid cache objects for Processor ({self.name}). Aggregating events from dataset.")
+            processed_artifacts = self.aggregate_event_indices() # returns the processor artifacs; HALO model parameters determined rigorously by processing the source dataset
+            self.cache_processor_artifacts(processed_artifacts)
 
-        self.global_events = aggregated_results['global_events']
-        self.min_birth_datetime = aggregated_results['min_birth_datetime']
-        self.max_visits = aggregated_results['max_visits']
-        self.age_bins = aggregated_results['age_bins'] # bins for age at first visit
-        self.visit_bins = aggregated_results['visit_bins'] # bins for time gaps between visits
-        self.event_bins = aggregated_results['event_bins'] # bins for continuous values
-
+        self.global_events, self.max_visits, self.min_birth_datetime, self.age_bins, self.visit_bins, self.event_bins = processed_artifacts
+        
         # assert the processor works as expected
-        assert len(self.global_events) % 2 == 0, "Event index processor not bijective"
+        assert len(self.global_events) % 2 == 0, "Event index processor should be a bijection"
 
         # bidirectional mappings
         self.num_global_events = self.time_vector_length + (len(self.global_events) // 2)
@@ -229,7 +283,18 @@ class Processor():
         global_events = {}
 
         # optimization: we only want to compute histograms for events which occur frequently in the dataset
-        qualified_histogram_events = self.get_qualified_histogram_events()
+        args_to_hash = ("qualified_histogram_events", self.name, [self.dataset_filepath if self.dataset_filepath is not None else self.dataset.filepath])
+
+        filename = hash_str("+".join([str(arg) for arg in args_to_hash])) + ".pkl"
+
+        if (os.path.exists(os.path.join(MODULE_CACHE_PATH, filename)) and self.save_qualified_histogram_events):
+            logger.debug(f"Loaded qualified_histogram_events from cache at file {os.path.join(MODULE_CACHE_PATH, filename)}")
+            # pdb.set_trace()
+            qualified_histogram_events = joblib.load(os.path.join(MODULE_CACHE_PATH, filename))
+        else:
+            # pdb.set_trace()
+            qualified_histogram_events = self.get_qualified_histogram_events()
+            joblib.dump(qualified_histogram_events, os.path.join(MODULE_CACHE_PATH, filename))
 
         # used to compute discretized visit gaps in the processor
         age_gaps: int = []
@@ -242,6 +307,7 @@ class Processor():
         visits_without_tables_visits = set()
         coinciding_visits = 0
         global_event_set = set()
+        # pdb.set_trace()
         for pdata in tqdm(list(self.dataset), desc="Processor computing vocabulary"):
             if pdata.birth_datetime == None:
                 continue
@@ -258,7 +324,7 @@ class Processor():
                 # compute time since last visit; if negative, skip
                 time_since_last_visit_delta = vdata.encounter_time - previous_time
                 time_since_last_visit = time_since_last_visit_delta.days * 24 + time_since_last_visit_delta.seconds / 3600
-            
+
                 # omit any events which do not have events to model
                 if len(vdata.available_tables) == 0:
                     visits_without_tables += 1
@@ -291,12 +357,19 @@ class Processor():
                             continue
 
                         if table in self.compute_histograms:
+                            pdb.set_trace()
                             
                             # sample table events for histogram computation
-                            exclude_event = np.random.randint(0, 10) < 0
+                            exclude_event = np.random.randint(0, 10) < 1
                             if exclude_event: # (0% of the time for the current configuration)
                                 continue
 
+                    
+                            # sample table events for histogram computation
+                            exclude_event = np.random.randint(0, 10) < 1
+                            if exclude_event: # (0% of the time for the current configuration)
+                                continue
+                            
                             event_id = self.hist_identifier[table](te_raw)
                             # te only has numerical information, te_raw has the full event with metadata; we give the option to create vocabulary elements with the full event + the discretized value
                             
@@ -312,13 +385,15 @@ class Processor():
                             global_event = (table, te)
                             if global_event not in global_event_set:
                                 global_event_set.add(global_event)
-                  
+
         global_event_set = list(global_event_set)
         np.random.shuffle(global_event_set)
         for global_event in global_event_set:              
             index_of_global_event = self.time_vector_length + (len(global_events) // 2)
             global_events[global_event] = index_of_global_event
             global_events[index_of_global_event] = global_event
+
+        pdb.set_trace()
 
         logger.warn(f"Missing birth datetime for {missing_birth_datetime} patients")
         logger.warn(f"Found {visits_without_tables} visits without tables")
@@ -404,14 +479,7 @@ class Processor():
             global_events[global_event] = index_of_global_event
             global_events[index_of_global_event] = global_event
 
-        return {
-            'global_events': global_events,
-            'max_visits': max_visits,
-            'min_birth_datetime': min_birth_datetime,
-            'age_bins': age_bins,
-            'visit_bins': visit_bins,
-            'event_bins': event_bins
-        }
+        return global_events, max_visits, min_birth_datetime, age_bins, visit_bins, event_bins
     
     @lru_cache(maxsize=1000)
     def get_hist_statevar(self, table):
@@ -460,6 +528,12 @@ class Processor():
                             continue
 
                         if table in self.compute_histograms:
+
+                            # sample table events for histogram computation
+                            exclude_event = np.random.randint(0, 101) < 95
+                            if exclude_event:
+                                continue
+
                             event_id = self.hist_identifier[table](te_raw)
                             
                             # increment the distribution counter for the event
@@ -468,7 +542,7 @@ class Processor():
         # now that we have the distribution of events, we can compute the top k events for each table.
         # we will refrence this object in the future when computing vocabulary elements to filter out infrequent lab events
         qualified_histogram_events = {}
-        for compute_histogram_table in self.compute_histograms:
+        for compute_histogram_table in tqdm(self.compute_histograms, desc="Reducing histogram events into top K event types"):
             
             # filter the dictionary to only include the top k events
             filtered_histogram_events = { k: v for k, v in histogram_events.items() if k[0] == compute_histogram_table }
@@ -490,7 +564,7 @@ class Processor():
         """
 
         missing_birth_datetime_patients = set()
-        for pdata in tqdm(list(self.dataset), desc="Finding patients with missing birth datetime"):
+        for pdata in tqdm(list(self.dataset), desc="Dataset Cleaning - finding patients with missing birth datetime"):
             if pdata.birth_datetime is None:
                 missing_birth_datetime_patients.add(pdata.patient_id)
 
@@ -511,7 +585,7 @@ class Processor():
             self.dataset.patients.pop(p_id)
             self.dataset.patient_ids.remove(p_id)
 
-        for p_id, v_id in tqdm(visits_without_tables_visits, desc="Removing visits without tables"):
+        for p_id, v_id in tqdm(visits_without_tables_visits, desc="Dataset Cleaning - Removing visits without tables"):
             if p_id in self.dataset.patients:
                 self.dataset.patients[p_id].visits.pop(v_id)
                 self.dataset.patients[p_id].index_to_visit_id = {i: v for i, v in enumerate(self.dataset.patients[p_id].visits.keys())}

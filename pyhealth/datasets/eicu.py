@@ -471,7 +471,7 @@ class eICUDataset(BaseEHRDataset):
         # read table
         df = pd.read_csv(
             os.path.join(self.root, f"{table}.csv"),
-            dtype={"patientunitstayid": str, "labname": str, "labresult": float, "labmeasurenamesystem": str},
+            dtype={"patientun)itstayid": str, "labname": str, "labresult": float, "labmeasurenamesystem": str},
         )
         # drop rows with missing values
         df = df.dropna(subset=["patientunitstayid", "labname", "labresult", "labmeasurenamesystem"])
