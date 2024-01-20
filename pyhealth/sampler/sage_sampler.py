@@ -3,7 +3,6 @@ from typing import List, Optional, Tuple, NamedTuple, Union, Callable, TypeVar
 
 import torch
 from torch import Tensor
-from torch_sparse import SparseTensor
 
 T_co = TypeVar('T_co', covariant=True)
 
@@ -16,17 +15,6 @@ class EdgeIndex(NamedTuple):
         edge_index = self.edge_index.to(*args, **kwargs)
         e_id = self.e_id.to(*args, **kwargs) if self.e_id is not None else None
         return EdgeIndex(edge_index, e_id, self.size)
-
-
-class Adj(NamedTuple):
-    adj_t: SparseTensor
-    e_id: Optional[Tensor]
-    size: Tuple[int, int]
-
-    def to(self, *args, **kwargs):
-        adj_t = self.adj_t.to(*args, **kwargs)
-        e_id = self.e_id.to(*args, **kwargs) if self.e_id is not None else None
-        return Adj(adj_t, e_id, self.size)
     
 
 class NeighborSampler(torch.utils.data.DataLoader):
@@ -106,7 +94,7 @@ class NeighborSampler(torch.utils.data.DataLoader):
             :class:`torch.utils.data.DataLoader`, such as :obj:`batch_size`,
             :obj:`shuffle`, :obj:`drop_last` or :obj:`num_workers`.
     """
-    def __init__(self, dataset, edge_index: Union[Tensor, SparseTensor],
+    def __init__(self, dataset, edge_index, # is a Union[Tensor, SparseTensor],
                  sizes: List[int], node_idx: Optional[Tensor] = None,
                  num_nodes: Optional[int] = None, return_e_id: bool = True,
                  transform: Callable = None, **kwargs):
@@ -115,6 +103,19 @@ class NeighborSampler(torch.utils.data.DataLoader):
 
         if 'collate_fn' in kwargs:
             del kwargs['collate_fn']
+            
+        dependencies = ["torch_sparse"]
+
+        # test whether the ogb and torch_scatter packages are ready
+        try:
+            pkg_resources.require(dependencies)
+            global SparseTensor
+            from torch_sparse import SparseTensor
+        except Exception as e:
+            print(
+                "Please follow the error message and install the [torch_sparse] packages first."
+            )
+            print(e)
 
         # Save for Pytorch Lightning...
         self.raw_data = dataset
@@ -127,6 +128,16 @@ class NeighborSampler(torch.utils.data.DataLoader):
         self.transform = transform
         self.is_sparse_tensor = isinstance(edge_index, SparseTensor)
         self.__val__ = None
+        
+        class Adj(NamedTuple):
+            adj_t: SparseTensor
+            e_id: Optional[Tensor]
+            size: Tuple[int, int]
+
+            def to(self, *args, **kwargs):
+                adj_t = self.adj_t.to(*args, **kwargs)
+                e_id = self.e_id.to(*args, **kwargs) if self.e_id is not None else None
+                return Adj(adj_t, e_id, self.size)
 
         # Obtain a *transposed* `SparseTensor` instance.
         if not self.is_sparse_tensor:
