@@ -1,4 +1,5 @@
 torch>=1.8.0
+torchvision>=0.9.0
 rdkit>=2022.03.4
 scikit-learn>=0.24.2
 networkx>=2.6.3
