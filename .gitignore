@@ -125,3 +125,5 @@ docs/build/
 # leaderboard credentials
 leaderboard/credentials.json
 leaderboard/rtd_token.txt
+
+.vscode/

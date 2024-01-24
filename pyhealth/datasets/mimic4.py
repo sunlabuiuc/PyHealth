@@ -90,7 +90,7 @@ class MIMIC4Dataset(BaseEHRDataset):
         patients_df = pd.read_csv(
             os.path.join(self.root, "patients.csv"),
             dtype={"subject_id": str},
-            nrows=25000 if self.dev else None,
+            nrows=50000 if self.dev else None,
         )
         # read admissions table
         admissions_df = pd.read_csv(

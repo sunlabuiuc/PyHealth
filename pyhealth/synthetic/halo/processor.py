@@ -85,7 +85,7 @@ class Processor():
         event_handlers: Dict[str, Callable[[Event], _Hashable]] = {},
 
         # used to handle continuous values
-        save_qualified_histogram_events: bool = False, # if true, we cache the qualified histogram events for future use
+        # refresh_qualified_histogram_events: bool = True, # if true, we cache the qualified histogram events for future use
         compute_histograms: List[str] = [], # tables for which we want to compute histogram
         hist_identifier: Dict[str, Callable[[Event], _Hashable]] = {}, # used to identify the event in the histogram
         size_per_event_bin: Dict[str, int] = {}, # number of bins to use for each tables histograms
@@ -141,7 +141,7 @@ class Processor():
 
         self.name = name
 
-        self.save_qualified_histogram_events = save_qualified_histogram_events
+        # self.refresh_qualified_histogram_events = refresh_qualified_histogram_events
         self.refresh_cache = refresh_cache
         self.expedited_load = expedited_load
         self.dataset_filepath = dataset_filepath
@@ -160,7 +160,8 @@ class Processor():
             "max_visits": "",
             "age_bins": "",
             "visit_bins": "",
-            "event_bins": ""
+            "event_bins": "",
+            "qualified_histogram_events": ""
         }
         
         for item_name in self.cached_files:
@@ -230,7 +231,7 @@ class Processor():
             processed_artifacts = self.aggregate_event_indices() # returns the processor artifacs; HALO model parameters determined rigorously by processing the source dataset
             self.cache_processor_artifacts(processed_artifacts)
 
-        self.global_events, self.max_visits, self.min_birth_datetime, self.age_bins, self.visit_bins, self.event_bins = processed_artifacts
+        self.global_events, self.max_visits, self.min_birth_datetime, self.age_bins, self.visit_bins, self.event_bins, self.qualified_histogram_events = processed_artifacts
         
         # assert the processor works as expected
         assert len(self.global_events) % 2 == 0, "Event index processor should be a bijection"
@@ -287,14 +288,16 @@ class Processor():
 
         filename = hash_str("+".join([str(arg) for arg in args_to_hash])) + ".pkl"
 
-        if (os.path.exists(os.path.join(MODULE_CACHE_PATH, filename)) and self.save_qualified_histogram_events):
-            logger.debug(f"Loaded qualified_histogram_events from cache at file {os.path.join(MODULE_CACHE_PATH, filename)}")
-            # pdb.set_trace()
-            qualified_histogram_events = joblib.load(os.path.join(MODULE_CACHE_PATH, filename))
-        else:
-            # pdb.set_trace()
-            qualified_histogram_events = self.get_qualified_histogram_events()
-            joblib.dump(qualified_histogram_events, os.path.join(MODULE_CACHE_PATH, filename))
+        # if (os.path.exists(os.path.join(MODULE_CACHE_PATH, filename)) and not self.refresh_qualified_histogram_events):
+        #     logger.debug(f"Loaded qualified histogram events from cache at file {os.path.join(MODULE_CACHE_PATH, filename)}")
+        #     # pdb.set_trace()
+        #     qualified_histogram_events = joblib.load(os.path.join(MODULE_CACHE_PATH, filename))
+        # else:
+        #     # pdb.set_trace()
+        #     qualified_histogram_events = self.get_qualified_histogram_events()
+        #     joblib.dump(qualified_histogram_events, os.path.join(MODULE_CACHE_PATH, filename))
+        
+        qualified_histogram_events = self.get_qualified_histogram_events()
 
         # used to compute discretized visit gaps in the processor
         age_gaps: int = []
@@ -357,16 +360,9 @@ class Processor():
                             continue
 
                         if table in self.compute_histograms:
-                            pdb.set_trace()
                             
                             # sample table events for histogram computation
-                            exclude_event = np.random.randint(0, 10) < 1
-                            if exclude_event: # (0% of the time for the current configuration)
-                                continue
-
-                    
-                            # sample table events for histogram computation
-                            exclude_event = np.random.randint(0, 10) < 1
+                            exclude_event = np.random.randint(0, 10) < 2
                             if exclude_event: # (0% of the time for the current configuration)
                                 continue
                             
@@ -393,7 +389,7 @@ class Processor():
             global_events[global_event] = index_of_global_event
             global_events[index_of_global_event] = global_event
 
-        pdb.set_trace()
+        # pdb.set_trace()
 
         logger.warn(f"Missing birth datetime for {missing_birth_datetime} patients")
         logger.warn(f"Found {visits_without_tables} visits without tables")
@@ -438,11 +434,11 @@ class Processor():
             table_continuous_events = sorted(table_continuous_events, key=lambda x: len(x[1]), reverse=True)
             for event_id, event_values in table_continuous_events:
                 values = [v for _, v in event_values]
-                for b in range(0, 100 + 1, num_event_bins):
+                for b in range(num_event_bins, 100 + 1, num_event_bins):
                     bin_boundary = np.percentile(values, b)
                     event_bins[table][event_id].append(bin_boundary)
 
-                event_bins[table][event_id][-1] = event_bins[table][event_id][-1] + self.EPSILON # add epsilon to the last bin to ensure we capture the max value in the dataset
+                event_bins[table][event_id].append(float('inf'))
                 logger.warn("Event bins for (%s) %s: %s", table, event_id, [ ("%.3f" % b) for b in event_bins[table][event_id]])
 
         # generate vocabulary for continuous valued events now that we have bins
@@ -460,10 +456,10 @@ class Processor():
             #         if global_event not in global_event_set:
             #             global_event_set.add(global_event)
             
-            for event_id, event_values in tqdm(table_continuous_events, desc=f"Converting continuous events in {table} to vocabulary"):
-                for pyhealth_event_obj, value in event_values:
+            for event_id, event_values in table_continuous_events:
+                for pyhealth_event_obj, value in tqdm(event_values, desc=f"Discretizing <{event_id}> from table <{table}>"):
                     discretization_bins = event_bins[table][event_id]
-                    bin_id = np.digitize(value, discretization_bins) - 1 # -1 to account for the 0th bin
+                    bin_id = np.digitize(value, discretization_bins) # -1 to account for the 0th bin
 
                     if table in self.discrete_event_handlers:
                         vocabulary_element = self.discrete_event_handlers[table](pyhealth_event_obj, bin_id)
@@ -479,7 +475,7 @@ class Processor():
             global_events[global_event] = index_of_global_event
             global_events[index_of_global_event] = global_event
 
-        return global_events, max_visits, min_birth_datetime, age_bins, visit_bins, event_bins
+        return global_events, max_visits, min_birth_datetime, age_bins, visit_bins, event_bins, qualified_histogram_events
     
     @lru_cache(maxsize=1000)
     def get_hist_statevar(self, table):
@@ -501,7 +497,7 @@ class Processor():
         # other solutions we tried, but were too slow:
         # - defining a counter for each table which is a class variable (setattr, getattr functions are super slow. Could not find a workaround)
         # 
-        histogram_events = collections.defaultdict(int)
+        histogram_events = { table: collections.defaultdict(int) for table in self.compute_histograms }
             
         for pdata in tqdm(list(self.dataset), desc="Computing top k events for each table"):
             
@@ -537,7 +533,7 @@ class Processor():
                             event_id = self.hist_identifier[table](te_raw)
                             
                             # increment the distribution counter for the event
-                            histogram_events[(table, event_id)] += 1
+                            histogram_events[table][event_id] += 1
         
         # now that we have the distribution of events, we can compute the top k events for each table.
         # we will refrence this object in the future when computing vocabulary elements to filter out infrequent lab events
@@ -545,12 +541,12 @@ class Processor():
         for compute_histogram_table in tqdm(self.compute_histograms, desc="Reducing histogram events into top K event types"):
             
             # filter the dictionary to only include the top k events
-            filtered_histogram_events = { k: v for k, v in histogram_events.items() if k[0] == compute_histogram_table }
+            filtered_histogram_events = { k: v for k, v in histogram_events[compute_histogram_table].items() }
             
             distribution = collections.Counter(filtered_histogram_events)
             
             top_k_distribution = distribution.most_common(self.max_continuous_per_table)
-            qualified_histogram_events[compute_histogram_table] = set([k for k, v in top_k_distribution])
+            qualified_histogram_events[compute_histogram_table] = set([event_id for event_id, counts in top_k_distribution])
             
         return qualified_histogram_events
 
@@ -664,7 +660,7 @@ class Processor():
                             if event_id not in self.event_bins[table]:
                                 continue
 
-                            te = np.digitize(te, self.event_bins[table][event_id]) - 1 # -1 to account for the 0th bin
+                            te = np.digitize(te, self.event_bins[table][event_id])
                             if table in self.discrete_event_handlers:
                                 te = self.discrete_event_handlers[table](te_raw, te)
 

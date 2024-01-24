@@ -1,4 +1,5 @@
 from collections import Counter
+import math
 import os
 import pickle
 import time
@@ -16,14 +17,20 @@ from pyhealth.synthetic.halo.halo import HALO
 from pyhealth.synthetic.halo.processor import Processor
 from pyhealth import logger
 
-import pdb
-
 from pyhealth.synthetic.halo.trainer import Trainer
+
+
+dataset_refresh_cache = False # re-compute the pyhealth dataset
+processor_redo_processing = True # use cached dataset vocabulary
+processor_expedited_reload = False # idk what this does
+processor_refresh_qualified_histogram = False # recompute top K histograms for continuous valued events
+trainer_from_dataset_save = False # used for caching dataset split (good for big datasets that take a long time to split)
+trainer_save_dataset_split = True # used for test reproducibility
+
 
 if __name__ == "__main__":
     # for debugging:
     os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
-
 
     # wget -r -N -c -np --user bdanek --ask-password https://physionet.org/files/mimiciv/2.2/
     # for file in *.gz; do
@@ -31,7 +38,7 @@ if __name__ == "__main__":
         # done
     device = "cuda:1" if torch.cuda.is_available() else "cpu"
 
-    ROOT = "/home/bdanek2/data/physionet.org/files/mimiciv/2.2/hosp"
+    ROOT = "/home/bdanek2/physionet.org/files/mimiciv/2.2/hosp"
     dataset_name = "MIMIC4-demo"
     tables = ["procedures_icd", "labevents"]
     code_mapping = {"NDC": "RxNorm"}
@@ -47,6 +54,7 @@ if __name__ == "__main__":
         + sorted(code_mapping.items())
         + ["dev" if dev else "prod"]
     )
+    
     filename = hash_str("+".join([str(arg) for arg in args_to_hash])) + ".pkl"
     MODULE_CACHE_PATH = os.path.join(BASE_CACHE_PATH, "datasets")
     dataset_filepath = os.path.join(MODULE_CACHE_PATH, filename)
@@ -55,7 +63,7 @@ if __name__ == "__main__":
         root=ROOT,
         tables=tables,
         code_mapping=code_mapping,
-        refresh_cache=False,
+        refresh_cache=dataset_refresh_cache,
         dev=dev
     )
     else:
@@ -95,7 +103,6 @@ if __name__ == "__main__":
     compute_histograms = ["labevents"]
     size_per_event_bin = {"labevents": 10}
 
-
     def make_lab_global_event(event: Event):
         lab_name = event.code
         lab_value = event.attr_dict['value']
@@ -127,11 +134,21 @@ if __name__ == "__main__":
     
     # 2. (optional) create an id for lab event which does not contain the value
     #     This is the identfiier for the distribution which a particular type of lab belongs to
+    
+    def _normalize_key(key):
+        """
+        In floating-point arithmetic, nan is a special value which, according to the IEEE standard, does not compare equal to any other float value, including itself. 
+        This means that if you have multiple nan values as keys in a dictionary, each will be treated as a unique key, because nan != nan.
+        """
+        if isinstance(key, float) and math.isnan(key):
+            return 'nan'  # Convert NaN to a string for consistent key comparison
+        return key
+    
     def make_lab_event_id(event: Event):
         lab_name = event.code
         lab_unit = event.attr_dict['unit']
-        return (lab_name, lab_unit)    
-
+        return (lab_name, _normalize_key(lab_unit))
+    
     # 3. Create a vocabulary element
     def lab_event_id(event: Event, bin_index: int):
         lab_name = event.code
@@ -151,7 +168,6 @@ if __name__ == "__main__":
         dataset=dataset,
         use_tables=None,
         event_handlers=event_handlers,
-        save_qualified_histogram_events=True,
         compute_histograms=['labevents'],
         hist_identifier={'labevents': make_lab_event_id },
         size_per_event_bin={'labevents': 10},
@@ -160,10 +176,11 @@ if __name__ == "__main__":
         label_fn=naieve_label_fn,
         label_vector_len=label_fn_output_size,
         name="HALO-FairPlay-mimic",
-        refresh_cache=True,
-        expedited_load=False,
+        refresh_cache=processor_redo_processing,
+        expedited_load=processor_expedited_reload,
         dataset_filepath=None if dataset is not None else dataset_filepath,
         max_visits=40, # optional parameter cut off the tail of the distribution of visits
+        max_continuous_per_table=10
     )
 
     model = HALO(
@@ -176,7 +193,7 @@ if __name__ == "__main__":
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     print(optimizer.__class__)
 
-    basedir = '/home/bdanek2/halo_development/testing_2'
+    basedir = '/home/bdanek2/halo_development/testing_3'
     model_save_name = 'halo_mortality_model'
     synthetic_data_save_name = 'synthetic_data'
     fold=0
@@ -192,12 +209,12 @@ if __name__ == "__main__":
         model_save_name=f'{model_save_name}_{fold}',
         folds=num_folds
     )
-    trainer.load_fold_split(fold, from_save=True, save=True)
+    trainer.load_fold_split(fold, from_save=trainer_from_dataset_save, save=trainer_save_dataset_split)
     # pdb.set_trace()
     start_time = time.perf_counter()
     trainer.train(
         batch_size=batch_size,
-        epoch=10,
+        epoch=20,
         patience=3,
         eval_period=float('inf')
     )
@@ -247,3 +264,4 @@ if __name__ == "__main__":
         compare_label=list(label_mapping.keys()),
     )
     print("plots at:", '\n'.join(stats[evaluator.PLOT_PATHS]))
+    
