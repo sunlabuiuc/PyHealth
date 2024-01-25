@@ -441,14 +441,15 @@ class Processor():
                 for b in range(bin_size, 100 + 1, bin_size):
                     bin_boundary = np.percentile(values, b)
                     event_bins[table][event_id].append(bin_boundary)   
+                event_bins[table][event_id].append(float('inf'))
+                
                 # Add vocab
-                for b_idx in range(num_event_bins+1): # +1 to account for adding infinity (TODO: is this right?)
+                for b_idx in range(len(event_bins[table][event_id])):
                     vocabulary_element = (*event_id, b_idx) # TODO we need to either enforce this rule or use the full event/function
                     global_event = (table, vocabulary_element)
                     if global_event != None and global_event not in global_event_set:
                         global_event_set.add(global_event)
                     
-                event_bins[table][event_id].append(float('inf'))
                 logger.warn("Event bins for (%s) %s: %s", table, event_id, [ ("%.3f" % b) for b in event_bins[table][event_id]])
 
         global_event_set = list(global_event_set)
