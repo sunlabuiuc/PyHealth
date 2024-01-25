@@ -432,7 +432,6 @@ class Processor():
         for table in self.compute_histograms:
             # compute the quantity of event bins for each event type within the table
             bin_size = self.size_per_event_bin[table]
-            num_event_bins = 100 // bin_size
             table_continuous_events = continuous_values_for_hist[table].items()
             table_continuous_events = sorted(table_continuous_events, key=lambda x: len(x[1]), reverse=True)
             for event_id, event_values in table_continuous_events:
