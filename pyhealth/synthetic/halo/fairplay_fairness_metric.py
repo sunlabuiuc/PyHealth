@@ -3,7 +3,8 @@ import pickle
 import numpy as np
 import pandas as pd
 
-basedir = '/home/bpt3/code/PyHealth/pyhealth/synthetic/halo/temp'
+# basedir = '/home/bpt3/code/PyHealth/pyhealth/synthetic/halo/temp'
+basedir = '/srv/local/data/bpt3/FairPlay'
 methods = [
   'baseline',
   'combined',

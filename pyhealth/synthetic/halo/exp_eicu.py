@@ -8,10 +8,10 @@ import numpy as np
 from tqdm import tqdm
 from collections import Counter
 
-from pyhealth import BASE_CACHE_PATH, logger
-from pyhealth.data.data import Event, Patient
+from pyhealth import BASE_CACHE_PATH
+from pyhealth.data import Event 
 from pyhealth.datasets.utils import hash_str
-from pyhealth.datasets.mimic4 import MIMIC4Dataset
+from pyhealth.datasets.eicu import eICUDataset
 from pyhealth.synthetic.halo.halo import HALO
 from pyhealth.synthetic.halo.trainer import Trainer
 from pyhealth.synthetic.halo.evaluator import Evaluator
@@ -25,25 +25,18 @@ processor_refresh_qualified_histogram = False # recompute top K histograms for c
 trainer_from_dataset_save = False # used for caching dataset split (good for big datasets that take a long time to split)
 trainer_save_dataset_split = True # used for test reproducibility
 
-experiment_class = "mimic4"
+experiment_class = 'eicu'
 
 if __name__ == "__main__":
-    # wget -r -N -c -np --user bdanek --ask-password https://physionet.org/files/mimiciv/2.2/
-    # for file in *.gz; do
-        # gunzip "$file"
-        # done
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    # ROOT = "/home/bdanek2/physionet.org/files/mimiciv/2.2/hosp"
-    ROOT = "/srv/local/data/MIMIC-IV/hosp"
-    dataset_name = "MIMIC4-demo"
-    tables = ["diagnoses_icd", "labevents"]
-    code_mapping = {"NDC": "RxNorm"}
+    # ROOT = "https://storage.googleapis.com/pyhealth/eicu-demo/"
+    # ROOT = "/home/bdanek2/data/physionet.org/files/eicu-crd/2.0"
+    ROOT = "/home/bpt3/data/physionet.org/files/eicu-crd/2.0"
+    dataset_name = "eICU-demo"
+    tables = ["diagnosis", "lab"]
+    code_mapping = {}
     dev = False
-
-    # use drug name instead of ndc code
-    # need to reduce the space for procedures_icd, prescriptions, ect
-    # should use more broad terms for the code mapping
     
     args_to_hash = (
         [dataset_name, ROOT]
@@ -56,19 +49,20 @@ if __name__ == "__main__":
     MODULE_CACHE_PATH = os.path.join(BASE_CACHE_PATH, "datasets")
     dataset_filepath = os.path.join(MODULE_CACHE_PATH, filename)
     if not os.path.exists(dataset_filepath):
-        dataset = MIMIC4Dataset(
+        dataset = eICUDataset(
+            dataset_name=dataset_name,
             root=ROOT,
             tables=tables,
             code_mapping=code_mapping,
+            dev=dev,
             refresh_cache=dataset_refresh_cache,
-            dev=dev
         )
         dataset.stat()
         dataset.info()
     else:
         dataset = None
-    
-    
+
+      
     # Event Handlers
     def _normalize_key(key):
         """
@@ -78,145 +72,187 @@ if __name__ == "__main__":
         if isinstance(key, float) and math.isnan(key):
             return 'nan'  # Convert NaN to a string for consistent key comparison
         return key
-
-    def diagnoses_icd_handler(event: Event):
-        if "ICD9" in event.vocabulary:
-            return f"{event.code}_{event.vocabulary}"
-        else:
-            None
-            
-    def reverse_diagnoses_icd(event: str):
+    
+    def handle_diagnosis(event: Event):
+        """to reduce the complexity of the model, in this example we will convert granular ICD codes to more broad ones (ie 428.3 --> 428)"""
+        split_code = event.code.split('.')
+        assert len(split_code) <= 2
+        return split_code[0]
+    
+    def reverse_diagnosis(event: str):
         return {
-            "table": "diagnoses_icd",
-            "code": event[0].split("_")[0],
-            "vocabulary": event[0].split("_")[1],
+            'table': 'diagnosis',
+            'code': event[0],
+            'vocabulary': 'ICD9CM',
         }
     
-    def procedures_icd_handler(event: Event):
-        # some NDC --> RxNorm do not exist; those codes will be NDC
-        if "ICD9" in event.vocabulary:
-            return f"{event.code}_{event.vocabulary}"
-        else:
-            None
-            
-    def reverse_procedures_icd(event: str):
-        return {
-            "table": "procedures_icd",
-            "code": event[0].split("_")[0],
-            "vocabulary": event[0].split("_")[1],
-        }
+    # these values will be used to compute histograms
+    def handle_lab(event: Event):
+        """a method for used to convert the lab event into a numerical value; this value will be discretized and serve as the basis for computing a histogram"""
+        value = float(event.attr_dict['lab_result'])
+        return value
     
-    def prescriptions_handler(event: Event):
-        # some NDC --> RxNorm do not exist; those codes will be NDC
-        if "RxNorm" in event.vocabulary:
-            return f"{event.code}_{event.vocabulary}"
-        else:
-            None
-            
-    def reverse_prescriptions(event: str):
-        return {
-            "table": "prescriptions",
-            "code": event[0].split("_")[0],
-            "vocabulary": event[0].split("_")[1],
-        }
-
-    def make_lab_global_event(event: Event):
-        lab_name = event.code
-        lab_value = event.attr_dict['value']
-        lab_unit = event.attr_dict['unit']
-        return (lab_name, lab_value, lab_unit)
+    """this callable serves the purpose of generating a unique ID for an event within a particular table (in this case `lab`); 
+    It is beneficial to compute histograms on a per-event basis, since the ranges of continuous values for each event type may vary significantly.
+    """
+    # compute a histogram for each lab name, lab unit pair
+    def make_lab_event_id(e: Event):
+        return (e.code, _normalize_key(e.attr_dict['lab_measure_name_system']))
     
-    # 1. Collect primitives for the histogram (make numeric)
-    def make_lab_numeric(event: Event):
-        # for continuous events, the event handler should just turn this into a float.
-        # we will process the list of floats into a histogram, and make ids based on the 
-        lab_value = event.attr_dict['value']
-        if (type(lab_value) == str):
-            try:
-                lab_value = float(lab_value)
-            except Exception as e:
-                logger.debug(f"Could not convert lab value to float: {lab_value}, type(lab_value)={type(lab_value)})")
-                lab_value = np.nan
-
-        if (np.isnan(lab_value)):
-            lab_value = None
-
-        # data flitering/cleaning for MIMIC4
-        if (event.attr_dict['unit'] == ' '):
-            lab_value = None
-
-        return (lab_value)
-    
-    # 2. (optional) create an id for lab event which does not contain the value
-    #     This is the identfiier for the distribution which a particular type of lab belongs to
-    
-    def make_lab_event_id(event: Event):
-        lab_name = event.code
-        lab_unit = event.attr_dict['unit']
-        return (lab_name, _normalize_key(lab_unit))
-    
-    # 3. Create a vocabulary element
-    def lab_event_id(event: Event, bin_index: int):
+    # this event handler is called after the histograms have been computed
+    """This function serves the purpose of generating a vocabulary element. 
+    The vocab element must be hashable, and it is acceptable to use a string to serialize data
+    The bin index parameter, is the index within the histogram for this particular lab event.
+    """
+    def handle_discrete_lab(event: Event, bin_index: int):
         lab_name = event.code
         lab_value = bin_index
-        lab_unit = event.attr_dict['unit']
+        lab_unit = _normalize_key(event.attr_dict['lab_measure_name_system'])
+
         return (lab_name, lab_unit, lab_value)
     
-    def reverse_labevents(event: str, processor: Processor):
+    def reverse_lab(event: tuple, processor: Processor):
         bins = processor.event_bins['lab'][(event[0], event[1])]
         return {
-            "table": "labevents",
-            "code": event[0],
-            "vocabulary": "MIMIC4_LABNAME",
-            "attr_dict": {
-                "value": np.random.uniform(bins[event[2]], bins[event[2]+1]),
-                "unit": event[1],
+            'table': 'lab',
+            'code': event[0],
+            'vocabulary': 'eICU_LABNAME',
+            'attr_dict': {
+                'lab_result': np.random.uniform(bins[event[2]], bins[event[2]+1]),
+                'lab_measure_name_system': event[1],
             }
         }
-    
-    event_handlers = {}
-    event_handlers["diagnoses_icd"] = diagnoses_icd_handler # just use the .code field
-    event_handlers["procedures_icd"] = procedures_icd_handler # just use the .code field
-    event_handlers["prescriptions"] = prescriptions_handler # uses NDC code by default
-    event_handlers["labevents"] = make_lab_numeric # default handler applied
 
+    # define value handlers; these handlers serve the function of converting an event into a primitive value. 
+    # event handlers are called to clean up values
+    event_handlers = {}
+    event_handlers['diagnosis'] = handle_diagnosis
+    event_handlers['lab'] = handle_lab 
+
+    # discrete event handlers are called to produce primitives for auto-discretization
     discrete_event_handlers = {}
-    discrete_event_handlers["labevents"] = lab_event_id
+    discrete_event_handlers['lab'] = handle_discrete_lab
     
     reverse_event_handlers = {}
-    reverse_event_handlers["diagnoses_icd"] = reverse_diagnoses_icd
-    reverse_event_handlers["procedures_icd"] = reverse_procedures_icd
-    reverse_event_handlers["prescriptions"] = reverse_prescriptions
-    reverse_event_handlers["labevents"] = reverse_labevents
-
-    # histogram for lab values
-    compute_histograms = ["labevents"]
-    size_per_event_bin = {"labevents": 10}
-    hist_identifier = {'labevents': make_lab_event_id }
+    reverse_event_handlers['diagnosis'] = reverse_diagnosis
+    reverse_event_handlers['lab'] = reverse_lab
     
+    # histogram for lab values
+    compute_histograms=['lab']
+    size_per_event_bin={'lab': 10}
+    hist_identifier={'lab': make_lab_event_id}
+        
     
     # Label Functions
+    full_label_fn_output_size = 13
+    def full_label_fn(**kwargs):
+        pdata = kwargs['patient_data']
+        mortality_idx = [1] if pdata.death_datetime else [0]
+        age = (sorted(pdata.visits.values(), key=lambda v: v.encounter_time)[0].encounter_time - pdata.birth_datetime).days // 365
+        age_idx = [1, 0, 0] if age <= 18 else [0, 1, 0] if age < 75 else [0, 0, 1]
+        gender_idx = [1, 0, 0] if pdata.gender == 'Male' else [0, 1, 0] if pdata.gender == 'Female' else [0, 0, 1]
+        ethnicity_idx = [1, 0, 0, 0, 0, 0] if pdata.ethnicity == 'Caucasian' else [0, 1, 0, 0, 0, 0] if pdata.ethnicity == 'African American' else [0, 0, 1, 0, 0, 0] if pdata.ethnicity == 'Hispanic' else [0, 0, 0, 1, 0, 0] if pdata.ethnicity == 'Asian' else [0, 0, 0, 0, 1, 0] if pdata.ethnicity == 'Native American' else [0, 0, 0, 0, 0, 1]
+        return tuple(mortality_idx + age_idx + gender_idx + ethnicity_idx)
+
+    def reverse_full_label_fn(label_vec):
+        mortality_idx = label_vec[:1]
+        age_idx = label_vec[1:4]
+        gender_idx = label_vec[4:7]
+        ethnicity_idx = label_vec[7:]
+        return {
+            'death_datetime': datetime.datetime.now() if mortality_idx[0] == 1 else None,
+            'age': 'Pediatric' if age_idx[0] == 1 else 'Adult' if age_idx[1] == 1 else 'Elderly',
+            'gender': 'Male' if gender_idx[0] == 1 else 'Female' if gender_idx[1] == 1 else 'Other/Unknown',
+            'ethnicity': 'Caucasian' if ethnicity_idx[0] == 1 else 'African American' if ethnicity_idx[1] == 1 else 'Hispanic' if ethnicity_idx[2] == 1 else 'Asian' if ethnicity_idx[3] == 1 else 'Native American' if ethnicity_idx[4] == 1 else 'Other/Unknown',
+        }
+        
     mortality_label_fn_output_size = 1
     def mortality_label_fn(**kwargs):
         pdata = kwargs['patient_data']
         return (1,) if pdata.death_datetime else (0,) # 1 for dead, 0 for alive
-    
+
     def reverse_mortality_label_fn(label_vec):
         return {
             'death_datetime': datetime.datetime.now() if label_vec == 1 else None
         }
-
-
-
-    # basedir = '/home/bdanek2/halo_development/testing_3'
+    
+    age_label_fn_output_size = 4
+    def age_label_fn(**kwargs):
+        pdata = kwargs['patient_data']
+        mortality_idx = [1] if pdata.death_datetime else [0]
+        age = (sorted(pdata.visits.values(), key=lambda v: v.encounter_time)[0].encounter_time - pdata.birth_datetime).days // 365
+        age_idx = [1, 0, 0] if age <= 18 else [0, 1, 0] if age < 75 else [0, 0, 1]
+        return tuple(mortality_idx + age_idx)
+        
+    def reverse_age_label_fn(label_vec):
+        mortality_idx = label_vec[:1]
+        age_idx = label_vec[1:4]
+        return {
+            'death_datetime': datetime.datetime.now() if mortality_idx[0] == 1 else None,
+            'age': 'Pediatric' if age_idx[0] == 1 else 'Adult' if age_idx[1] == 1 else 'Elderly'
+        }   
+       
+    gender_label_fn_output_size = 4 
+    def gender_label_fn(**kwargs):
+        pdata = kwargs['patient_data']
+        mortality_idx = [1] if pdata.death_datetime else [0]
+        gender_idx = [1, 0, 0] if pdata.gender == 'Male' else [0, 1, 0] if pdata.gender == 'Female' else [0, 0, 1]
+        return tuple(mortality_idx + gender_idx)
+        
+    def reverse_gender_label_fn(label_vec):
+        mortality_idx = label_vec[:1]
+        gender_idx = label_vec[1:4]
+        return {
+            'death_datetime': datetime.datetime.now() if mortality_idx[0] == 1 else None,
+            'gender': 'Male' if gender_idx[0] == 1 else 'Female' if gender_idx[1] == 1 else 'Other/Unknown'
+        } 
+        
+    ethnicity_label_fn_output_size = 7
+    def ethnicity_label_fn(**kwargs):
+        pdata = kwargs['patient_data']
+        mortality_idx = [1] if pdata.death_datetime else [0]
+        ethnicity_idx = [1, 0, 0, 0, 0, 0] if pdata.ethnicity == 'Caucasian' else [0, 1, 0, 0, 0, 0] if pdata.ethnicity == 'African American' else [0, 0, 1, 0, 0, 0] if pdata.ethnicity == 'Hispanic' else [0, 0, 0, 1, 0, 0] if pdata.ethnicity == 'Asian' else [0, 0, 0, 0, 1, 0] if pdata.ethnicity == 'Native American' else [0, 0, 0, 0, 0, 1]
+        return tuple(mortality_idx + ethnicity_idx)
+        
+    def reverse_ethnicity_label_fn(label_vec):
+        mortality_idx = label_vec[:1]
+        ethnicity_idx = label_vec[1:]
+        return {
+            'death_datetime': datetime.datetime.now() if mortality_idx[0] == 1 else None,
+            'ethnicity': 'Caucasian' if ethnicity_idx[0] == 1 else 'African American' if ethnicity_idx[1] == 1 else 'Hispanic' if ethnicity_idx[2] == 1 else 'Asian' if ethnicity_idx[3] == 1 else 'Native American' if ethnicity_idx[4] == 1 else 'Other/Unknown',
+        }
+        
+    genderAndAge_label_fn_output_size = 7
+    def genderAndAge_label_fn(**kwargs):
+        pdata = kwargs['patient_data']
+        mortality_idx = [1] if pdata.death_datetime else [0]
+        age = (sorted(pdata.visits.values(), key=lambda v: v.encounter_time)[0].encounter_time - pdata.birth_datetime).days // 365
+        age_idx = [1, 0, 0] if age <= 18 else [0, 1, 0] if age < 75 else [0, 0, 1]
+        gender_idx = [1, 0, 0] if pdata.gender == 'Male' else [0, 1, 0] if pdata.gender == 'Female' else [0, 0, 1]
+        return tuple(mortality_idx + age_idx + gender_idx)
+      
+    def reverse_genderAndAge_label_fn(label_vec):
+        mortality_idx = label_vec[:1]
+        age_idx = label_vec[1:4]
+        gender_idx = label_vec[4:7]
+        return {
+            'death_datetime': datetime.datetime.now() if mortality_idx[0] == 1 else None,
+            'age': 'Pediatric' if age_idx[0] == 1 else 'Adult' if age_idx[1] == 1 else 'Elderly',
+            'gender': 'Male' if gender_idx[0] == 1 else 'Female' if gender_idx[1] == 1 else 'Other/Unknown',
+        }
+        
+        
+        
+    # basedir = '/home/bdanek2/halo_development/testing_1'
+    # basedir = '/home/bpt3/code/PyHealth/pyhealth/synthetic/halo/temp'
     basedir = '/srv/local/data/bpt3/FairPlay'
-
-    label_fn = mortality_label_fn
-    reverse_label_fn = reverse_mortality_label_fn
-    label_fn_output_size = mortality_label_fn_output_size
-    model_save_name = 'halo_mortality_model'
-    synthetic_data_save_name = 'synthetic_mortality_data'
-    experiment_name = 'mortality'
+    
+    label_fn = age_label_fn
+    reverse_label_fn = reverse_age_label_fn
+    label_fn_output_size = age_label_fn_output_size
+    model_save_name = 'halo_age_model'
+    synthetic_data_save_name = 'synthetic_age_data'
+    experiment_name = 'age'
     
     model_save_name = f'{experiment_class}_{model_save_name}'
     synthetic_data_save_name = f'{experiment_class}_{synthetic_data_save_name}'
@@ -233,23 +269,22 @@ if __name__ == "__main__":
         size_per_time_bin=10,
         label_fn=label_fn,
         label_vector_len=label_fn_output_size,
-        name="HALO-FairPlay-mimic",
+        name="HALO-FairPlay-eicu",
         refresh_cache=processor_redo_processing,
         expedited_load=processor_expedited_reload,
         dataset_filepath=None if dataset is not None else dataset_filepath,
-        max_visits=40, # optional parameter cut off the tail of the distribution of visits
-        # max_continuous_per_table=10
+        max_visits=None,
     )
 
     print(f"Processor results in vocab len {processor.total_vocab_size}, max visit num: {processor.total_visit_size}")
-
+    
     # model = HALO(
     #     n_ctx=processor.total_visit_size,
     #     total_vocab_size=processor.total_vocab_size,
     #     device=device
     # )
     # print(model.__call__)
-
+    
     # optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     # print(optimizer.__class__)
     # state_dict = torch.load(open(f'{basedir}/model_saves/{model_save_name}.pt', 'rb'), map_location=device)
@@ -257,12 +292,12 @@ if __name__ == "__main__":
     # model.to(device)
     # optimizer.load_state_dict(state_dict['optimizer'])
     # print("loaded previous model from traing; iterations on previous model:", state_dict['iteration'])
-
-
-
+    
+    
+    
     # --- train model ---
-    num_folds=5
-    batch_size=128
+    num_folds = 5
+    batch_size = 512
     
     # trainer = Trainer(
     #     dataset=processor.dataset,
@@ -270,14 +305,14 @@ if __name__ == "__main__":
     #     processor=processor,
     #     optimizer=optimizer,
     #     checkpoint_dir=f'{basedir}/model_saves',
-    #     model_save_name=f'{model_save_name}_{fold}',
+    #     model_save_name=model_save_name,
     #     folds=num_folds
     # )
     # s = trainer.set_basic_splits(from_save=True, save=True)
     # print('split lengths', [len(_s) for _s in s])
     # trainer.set_fold_splits(from_save=True, save=True)
-    
-    
+   
+   
     
     
     
@@ -295,7 +330,7 @@ if __name__ == "__main__":
     # end_time = time.perf_counter()
     # run_time = end_time - start_time
     # print("training time:", run_time, run_time / 60, (run_time / 60) / 60)
-
+ 
     # # --- generate synthetic dataset using the best model ---
     # state_dict = torch.load(open(trainer.get_model_checkpoint_path(), 'rb'), map_location=device)
     # model.load_state_dict(state_dict['model'])
@@ -307,7 +342,7 @@ if __name__ == "__main__":
     #     batch_size=batch_size,
     #     device=device,
     #     save_dir=basedir,
-    #     save_name=synthetic_data_save_name'
+    #     save_name=synthetic_data_save_name
     # )
 
     # labels = Counter([label_fn(patient_data=p) for p in trainer.train_dataset])
@@ -353,8 +388,12 @@ if __name__ == "__main__":
     # # pickle.dump(eval_pyhealth_dataset, open(f'{basedir}/eval_pyhealth_dataset.pkl', 'wb'))
     # # pickle.dump(test_pyhealth_dataset, open(f'{basedir}/test_pyhealth_dataset.pkl', 'wb'))
     # print("done")
-    
-        ################
+
+
+
+
+
+    ################
     # Folded Setup #
     ################
     

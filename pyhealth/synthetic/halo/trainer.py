@@ -49,7 +49,7 @@ class Trainer:
         self.model_save_name = model_save_name
         self.folds = folds
     
-        self.device = "cuda:1" if torch.cuda.is_available() else "cpu"
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model.to(self.device)
 
     def get_model_checkpoint_path(self):

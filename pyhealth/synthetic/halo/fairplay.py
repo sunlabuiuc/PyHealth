@@ -7,7 +7,8 @@ import pandas as pd
 from tqdm import tqdm
 from sklearn import ensemble, linear_model, neural_network, metrics, neighbors
 
-basedir = '/home/bpt3/code/PyHealth/pyhealth/synthetic/halo/temp'
+# basedir = '/home/bpt3/code/PyHealth/pyhealth/synthetic/halo/temp'
+basedir = '/srv/local/data/bpt3/FairPlay'
 MIN_THRESHOLD = 50
 
 def false_positive_rate(y_true, y_pred):
@@ -65,9 +66,9 @@ def reverse_genderAndAge_label_fn(label_vec):
         'gender': 'Male' if gender_idx[0] == 1 else 'Female' if gender_idx[1] == 1 else 'Other/Unknown',
     }
 
-reverse_label_fn = reverse_genderAndAge_label_fn
-synthetic_data_name = 'synthetic_genderAndAge_data'
-experiment_name = 'genderAndAge'
+reverse_label_fn = reverse_mortality_label_fn
+synthetic_data_name = 'synthetic_mortality_data'
+experiment_name = 'mortality'
 num_folds = 5
 
 def run_experiments(train_data, test_data, codeToIndex, groups):

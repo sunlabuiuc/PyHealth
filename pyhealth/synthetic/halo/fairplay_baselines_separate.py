@@ -8,7 +8,8 @@ from tqdm import tqdm
 from copy import deepcopy
 from sklearn import ensemble, linear_model, neural_network, metrics, neighbors
 
-basedir = '/home/bpt3/code/PyHealth/pyhealth/synthetic/halo/temp'
+# basedir = '/home/bpt3/code/PyHealth/pyhealth/synthetic/halo/temp'
+basedir = '/srv/local/data/bpt3/FairPlay'
 MIN_THRESHOLD = 50
 MIN_VALUE = 1000
 
