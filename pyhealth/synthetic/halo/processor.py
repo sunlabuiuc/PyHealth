@@ -425,48 +425,31 @@ class Processor():
         logger.warn("Visit bins: %s", [("%.3f" % b) for b in visit_bins])
 
         # compute the discretization bins for continuous values per event per table (each event_id has its own set of bins) based on the values present for that event in the dataset
+        # then add each bin the the global vocabulary
         # keys: table, value: dictionary of key: event_id, value: list of bin boundaries
         event_bins = self.new_nested_defaultdict()
+        global_event_set = set()
         for table in self.compute_histograms:
             # compute the quantity of event bins for each event type within the table
-            num_event_bins = self.size_per_event_bin[table]
+            bin_size = self.size_per_event_bin[table]
+            num_event_bins = 100 // bin_size
             table_continuous_events = continuous_values_for_hist[table].items()
             table_continuous_events = sorted(table_continuous_events, key=lambda x: len(x[1]), reverse=True)
             for event_id, event_values in table_continuous_events:
                 values = [v for _, v in event_values]
-                for b in range(num_event_bins, 100 + 1, num_event_bins):
+                # Compute bins
+                for b in range(bin_size, 100 + 1, bin_size):
                     bin_boundary = np.percentile(values, b)
-                    event_bins[table][event_id].append(bin_boundary)
-
-                event_bins[table][event_id].append(float('inf'))
-                logger.warn("Event bins for (%s) %s: %s", table, event_id, [ ("%.3f" % b) for b in event_bins[table][event_id]])
-
-        # generate vocabulary for continuous valued events now that we have bins
-        global_event_set = set()
-        for table in self.compute_histograms:
-            # TODO: Ask if this simpler way is going to mess up due to unit differences (and if we're better off separating/converting those if so)
-            # num_event_bins = self.size_per_event_bin[table]
-            # for event_id in event_bins[table]:
-            #     pyhealth_event_obj = continuous_values_for_hist[table][event_id][0][0]
-            #     for bin_id in range(num_event_bins):
-            #         if table in self.discrete_event_handlers:
-            #             vocabulary_element = self.discrete_event_handlers[table](pyhealth_event_obj, bin_id)
-                        
-            #         global_event = (table, vocabulary_element)
-            #         if global_event not in global_event_set:
-            #             global_event_set.add(global_event)
-            
-            for event_id, event_values in table_continuous_events:
-                for pyhealth_event_obj, value in tqdm(event_values, desc=f"Discretizing <{event_id}> from table <{table}>"):
-                    discretization_bins = event_bins[table][event_id]
-                    bin_id = np.digitize(value, discretization_bins) # -1 to account for the 0th bin
-
-                    if table in self.discrete_event_handlers:
-                        vocabulary_element = self.discrete_event_handlers[table](pyhealth_event_obj, bin_id)
-
+                    event_bins[table][event_id].append(bin_boundary)   
+                # Add vocab
+                for b_idx in range(num_event_bins+1): # +1 to account for adding infinity (TODO: is this right?)
+                    vocabulary_element = (*event_id, b_idx) # TODO we need to either enforce this rule or use the full event/function
                     global_event = (table, vocabulary_element)
                     if global_event != None and global_event not in global_event_set:
                         global_event_set.add(global_event)
+                    
+                event_bins[table][event_id].append(float('inf'))
+                logger.warn("Event bins for (%s) %s: %s", table, event_id, [ ("%.3f" % b) for b in event_bins[table][event_id]])
 
         global_event_set = list(global_event_set)
         np.random.shuffle(global_event_set)

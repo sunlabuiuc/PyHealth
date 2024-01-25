@@ -81,7 +81,9 @@ if __name__ == "__main__":
 
     def diagnoses_icd_handler(event: Event):
         if "ICD9" in event.vocabulary:
-            return f"{event.code}_{event.vocabulary}"
+            split_code = event.code.split('.')
+            assert len(split_code) <= 2
+            return f"{split_code[0]}_{event.vocabulary}"
         else:
             None
             
@@ -95,7 +97,9 @@ if __name__ == "__main__":
     def procedures_icd_handler(event: Event):
         # some NDC --> RxNorm do not exist; those codes will be NDC
         if "ICD9" in event.vocabulary:
-            return f"{event.code}_{event.vocabulary}"
+            split_code = event.code.split('.')
+            assert len(split_code) <= 2
+            return f"{split_code[0]}_{event.vocabulary}"
         else:
             None
             
@@ -157,10 +161,9 @@ if __name__ == "__main__":
     
     # 3. Create a vocabulary element
     def lab_event_id(event: Event, bin_index: int):
-        lab_name = event.code
+        id_info = make_lab_event_id(event)
         lab_value = bin_index
-        lab_unit = event.attr_dict['unit']
-        return (lab_name, lab_unit, lab_value)
+        return (*id_info, lab_value)
     
     def reverse_labevents(event: str, processor: Processor):
         bins = processor.event_bins['lab'][(event[0], event[1])]

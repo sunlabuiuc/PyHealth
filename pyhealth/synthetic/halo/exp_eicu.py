@@ -105,11 +105,9 @@ if __name__ == "__main__":
     The bin index parameter, is the index within the histogram for this particular lab event.
     """
     def handle_discrete_lab(event: Event, bin_index: int):
-        lab_name = event.code
+        id_info = make_lab_event_id(event)
         lab_value = bin_index
-        lab_unit = _normalize_key(event.attr_dict['lab_measure_name_system'])
-
-        return (lab_name, lab_unit, lab_value)
+        return (*id_info, lab_value)
     
     def reverse_lab(event: tuple, processor: Processor):
         bins = processor.event_bins['lab'][(event[0], event[1])]
