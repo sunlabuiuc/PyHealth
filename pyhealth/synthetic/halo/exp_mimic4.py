@@ -66,6 +66,15 @@ if __name__ == "__main__":
         dataset.stat()
         dataset.info()
     else:
+        dataset = MIMIC4Dataset(
+            root=ROOT,
+            tables=tables,
+            code_mapping=code_mapping,
+            refresh_cache=False,
+            dev=dev
+        )
+        dataset.stat()
+        dataset.info()
         dataset = None
     
     
@@ -208,7 +217,109 @@ if __name__ == "__main__":
         return {
             'death_datetime': datetime.datetime.now() if label_vec == 1 else None
         }
+        
+    gender_label_fn_output_size = 3
+    def gender_label_fn(**kwargs):
+        pdata = kwargs['patient_data']
+        mortality_idx = [1] if pdata.death_datetime else [0]
+        gender_idx = [1, 0] if pdata.gender == 'M' else [0, 1]
+        return tuple(mortality_idx + gender_idx)
+        
+    def reverse_gender_label_fn(label_vec):
+        mortality_idx = label_vec[:1]
+        gender_idx = label_vec[1:3]
+        return {
+            'death_datetime': datetime.datetime.now() if mortality_idx[0] == 1 else None,
+            'gender': 'M' if gender_idx[0] == 1 else 'F'
+        } 
 
+    # TODO - check (remaining counts are AMERICAN INDIAN/ALASKA NATIVE: 919, NATIVE HAWAIIAN OR OTHER PACIFIC ISLANDER: 386, PORTUGUESE: 1603)
+    ethnicity_map = {
+        'HISPANIC/LATINO - COLUMBIAN': 'HISPANIC/LATINO',
+        'WHITE': 'WHITE',
+        'ASIAN - SOUTH EAST ASIAN': 'ASIAN',
+        'BLACK/AFRICAN AMERICAN': 'BLACK',
+        'HISPANIC/LATINO - GUATEMALAN': 'HISPANIC/LATINO',
+        'UNABLE TO OBTAIN': 'OTHER/UNKNOWN',
+        'ASIAN - KOREAN': 'ASIAN',
+        'BLACK/CARIBBEAN ISLAND': 'BLACK',
+        'BLACK/AFRICAN': 'BLACK',
+        'WHITE - EASTERN EUROPEAN': 'WHITE',
+        'AMERICAN INDIAN/ALASKA NATIVE': 'OTHER/UNKNOWN', # TODO: Check This One
+        'MULTIPLE RACE/ETHNICITY': 'OTHER/UNKNOWN',
+        'WHITE - OTHER EUROPEAN': 'WHITE',
+        'NATIVE HAWAIIAN OR OTHER PACIFIC ISLANDER': 'OTHER/UNKNOWN', # TODO: Check This One
+        'PORTUGUESE': 'WHITE', # TODO: Check This One
+        'HISPANIC/LATINO - PUERTO RICAN': 'HISPANIC/LATINO',
+        'HISPANIC/LATINO - MEXICAN': 'HISPANIC/LATINO',
+        'UNKNOWN': 'OTHER/UNKNOWN',
+        'HISPANIC/LATINO - CENTRAL AMERICAN': 'HISPANIC/LATINO',
+        'HISPANIC/LATINO - HONDURAN': 'HISPANIC/LATINO',
+        'HISPANIC/LATINO - CUBAN': 'HISPANIC/LATINO',
+        'PATIENT DECLINED TO ANSWER': 'OTHER/UNKNOWN',
+        'OTHER': 'OTHER/UNKNOWN',
+        'HISPANIC/LATINO - DOMINICAN': 'HISPANIC/LATINO',
+        'BLACK/CAPE VERDEAN': 'BLACK',
+        'ASIAN': 'ASIAN',
+        'ASIAN - ASIAN INDIAN': 'ASIAN',
+        'HISPANIC OR LATINO': 'HISPANIC/LATINO',
+        'ASIAN - CHINESE': 'ASIAN',
+        'WHITE - BRAZILIAN': 'WHITE',
+        'SOUTH AMERICAN': 'HISPANIC/LATINO',
+        'WHITE - RUSSIAN': 'WHITE',
+        'HISPANIC/LATINO - SALVADORAN': 'HISPANIC/LATINO',
+    }
+    
+    ethnicity_label_fn_output_size = 6
+    def ethnicity_label_fn(**kwargs):
+        pdata = kwargs['patient_data']
+        ethnicity = ethnicity_map[pdata.ethnicity]
+        mortality_idx = [1] if pdata.death_datetime else [0]
+        ethnicity_idx = [1, 0, 0, 0, 0] if ethnicity == 'WHITE' else [0, 1, 0, 0, 0] if ethnicity == 'BLACK' else [0, 0, 1, 0, 0] if ethnicity == 'HISPANIC/LATINO' else [0, 0, 0, 1, 0] if ethnicity == 'ASIAN' else [0, 0, 0, 0, 1]
+        return tuple(mortality_idx + ethnicity_idx)
+        
+    def reverse_ethnicity_label_fn(label_vec):
+        mortality_idx = label_vec[:1]
+        ethnicity_idx = label_vec[1:6]
+        return {
+            'death_datetime': datetime.datetime.now() if mortality_idx[0] == 1 else None,
+            'ethnicity': 'WHITE' if ethnicity_idx[0] == 1 else 'BLACK' if ethnicity_idx[1] == 1 else 'HISPANIC/LATINO' if ethnicity_idx[2] == 1 else 'ASIAN' if ethnicity_idx[3] == 1 else 'OTHER/UNKNOWN',
+        }
+        
+    insurance_label_fn_output_size = 4
+    def insurance_label_fn(**kwargs):
+        pdata = kwargs['patient_data']
+        mortality_idx = [1] if pdata.death_datetime else [0]
+        insurance_idx = [1, 0, 0] if pdata.insurance == 'Medicare' else [0, 1, 0] if pdata.insurance == 'Medicaid' else [0, 0, 1]
+        return tuple(mortality_idx + insurance_idx)
+        
+    def reverse_insurance_label_fn(label_vec):
+        mortality_idx = label_vec[:1]
+        insurance_idx = label_vec[1:4]
+        return {
+            'death_datetime': datetime.datetime.now() if mortality_idx[0] == 1 else None,
+            'insurance': 'Medicare' if insurance_idx[0] == 1 else 'Medicaid' if insurance_idx[1] == 1 else 'Other',
+        }
+        
+    ethnicityAndInsurance_label_fn_output_size = 9
+    def ethnicityAndInsurance_label_fn(**kwargs):
+        pdata = kwargs['patient_data']
+        ethnicity = ethnicity_map[pdata.ethnicity]
+        mortality_idx = [1] if pdata.death_datetime else [0]
+        ethnicity_idx = [1, 0, 0, 0, 0] if ethnicity == 'WHITE' else [0, 1, 0, 0, 0] if ethnicity == 'BLACK' else [0, 0, 1, 0, 0] if ethnicity == 'HISPANIC/LATINO' else [0, 0, 0, 1, 0] if ethnicity == 'ASIAN' else [0, 0, 0, 0, 1]
+        insurance_idx = [1, 0, 0] if pdata.insurance == 'Medicare' else [0, 1, 0] if pdata.insurance == 'Medicaid' else [0, 0, 1]
+        return tuple(mortality_idx + ethnicity_idx + insurance_idx)
+
+    def reverse_ethnicityAndInsurance_label_fn(label_vec):
+        mortality_idx = label_vec[:1]
+        ethnicity_idx = label_vec[1:6]
+        insurance_idx = label_vec[6:9]
+        return {
+            'death_datetime': datetime.datetime.now() if mortality_idx[0] == 1 else None,
+            'ethnicity': 'WHITE' if ethnicity_idx[0] == 1 else 'BLACK' if ethnicity_idx[1] == 1 else 'HISPANIC/LATINO' if ethnicity_idx[2] == 1 else 'ASIAN' if ethnicity_idx[3] == 1 else 'OTHER/UNKNOWN',
+            'insurance': 'Medicare' if insurance_idx[0] == 1 else 'Medicaid' if insurance_idx[1] == 1 else 'Other',
+        }
+        
 
 
     # basedir = '/home/bdanek2/halo_development/testing_3'
@@ -357,7 +468,7 @@ if __name__ == "__main__":
     # # pickle.dump(test_pyhealth_dataset, open(f'{basedir}/test_pyhealth_dataset.pkl', 'wb'))
     # print("done")
     
-        ################
+    ################
     # Folded Setup #
     ################
     
