@@ -121,7 +121,7 @@ class eICUDataset(BaseEHRDataset):
                 "patienthealthsystemstayid": str,
                 "patientunitstayid": str,
             },
-            nrows=5000 if self.dev else None,
+            nrows=50000 if self.dev else None,
         )
         # read hospital table
         hospital_df = pd.read_csv(os.path.join(self.root, "hospital.csv"))
@@ -471,7 +471,7 @@ class eICUDataset(BaseEHRDataset):
         # read table
         df = pd.read_csv(
             os.path.join(self.root, f"{table}.csv"),
-            dtype={"patientun)itstayid": str, "labname": str, "labresult": float, "labmeasurenamesystem": str},
+            dtype={"patientunitstayid": str, "labname": str, "labresult": float, "labmeasurenamesystem": str},
         )
         # drop rows with missing values
         df = df.dropna(subset=["patientunitstayid", "labname", "labresult", "labmeasurenamesystem"])
