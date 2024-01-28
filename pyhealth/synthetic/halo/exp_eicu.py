@@ -50,18 +50,20 @@ if __name__ == "__main__":
     MODULE_CACHE_PATH = os.path.join(BASE_CACHE_PATH, "datasets")
     dataset_filepath = os.path.join(MODULE_CACHE_PATH, filename)
     if not os.path.exists(dataset_filepath):
-        dataset = eICUDataset(
-            dataset_name=dataset_name,
-            root=ROOT,
-            tables=tables,
-            code_mapping=code_mapping,
-            dev=dev,
-            refresh_cache=dataset_refresh_cache,
-        )
-        dataset.stat()
-        dataset.info()
+        print("dataset doesn't exist - computing")
     else:
-        dataset = None
+        print("loading cached dataset")
+
+    dataset = eICUDataset(
+        dataset_name=dataset_name,
+        root=ROOT,
+        tables=tables,
+        code_mapping=code_mapping,
+        dev=dev,
+        refresh_cache=dataset_refresh_cache,
+    )
+    dataset.stat()
+    dataset.info()
 
       
     # Event Handlers
