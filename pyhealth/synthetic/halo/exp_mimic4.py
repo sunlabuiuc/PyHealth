@@ -19,11 +19,11 @@ from pyhealth.synthetic.halo.generator import Generator
 from pyhealth.synthetic.halo.processor import Processor
 
 dataset_refresh_cache = False # re-compute the pyhealth dataset
-processor_redo_processing = True # use cached dataset vocabulary
+processor_redo_processing = False # use cached dataset vocabulary
 processor_expedited_reload = False # idk what this does
 processor_refresh_qualified_histogram = False # recompute top K histograms for continuous valued events
-trainer_from_dataset_save = False # used for caching dataset split (good for big datasets that take a long time to split)
-trainer_save_dataset_split = True # used for test reproducibility
+trainer_from_dataset_save = True # used for caching dataset split (good for big datasets that take a long time to split)
+trainer_save_dataset_split = False # used for test reproducibility
 
 experiment_class = "mimic4"
 
@@ -39,7 +39,7 @@ if __name__ == "__main__":
     dataset_name = "MIMIC4-demo"
     tables = ["diagnoses_icd", "labevents"]
     code_mapping = {"NDC": "RxNorm"}
-    dev = False
+    dev = True
 
     # use drug name instead of ndc code
     # need to reduce the space for procedures_icd, prescriptions, ect
@@ -217,6 +217,7 @@ if __name__ == "__main__":
         return {
             'death_datetime': datetime.datetime.now() if label_vec == 1 else None
         }
+
         
     gender_label_fn_output_size = 3
     def gender_label_fn(**kwargs):
@@ -496,15 +497,15 @@ if __name__ == "__main__":
             model_save_name=f'{model_save_name}_{fold}',
             folds=num_folds
         )
-        trainer.load_fold_split(fold, from_save=False, save=True)
+        trainer.load_fold_split(fold, from_save=trainer_from_dataset_save, save=trainer_save_dataset_split)
         
         start_time = time.perf_counter()
-        trainer.train(
-            batch_size=batch_size,
-            epoch=1000,
-            patience=3,
-            eval_period=float('inf')
-        )
+        # trainer.train(
+        #     batch_size=batch_size,
+        #     epoch=40,
+        #     patience=3,
+        #     eval_period=float('inf')
+        # )
         end_time = time.perf_counter()
         run_time = end_time - start_time
         print("training time:", run_time, run_time / 60, (run_time / 60) / 60)
@@ -526,7 +527,8 @@ if __name__ == "__main__":
         labels = Counter([label_fn(patient_data=p) for p in trainer.train_dataset])
         maxLabel = max(labels.values())
         labels = [(l, maxLabel-labels[l]) for l in labels]
-        synthetic_dataset = generator.generate_conditioned(labels)
+        
+        # synthetic_dataset = generator.generate_conditioned(labels)
 
         def pathfn(plot_type: str, label: tuple):
             prefix = os.path.join(generator.save_dir, 'plots')
@@ -536,6 +538,19 @@ if __name__ == "__main__":
             path_str = f"{prefix}_{plot_type}_{label}"
 
             return path_str
+        
+        evaluator = Evaluator(generator=generator, processor=processor)
+
+        stats = evaluator.evaluate(
+            source=trainer.train_dataset,
+            # synthetic=pickle.load(file=open(generator.save_path, 'rb')),
+            synthetic=pickle.load(file=open('/home/bdanek2/halo_development/testing_3/mimic4_synthetic_mortality_data_0.pkl', 'rb')),
+            get_plot_path_fn=pathfn,
+            compare_label=labels,
+        )
+        print("plots at:", '\n'.join(stats[evaluator.PLOT_PATHS]))
+
+        break
 
         # convert the data for standard format for downstream tasks
         evaluator = Evaluator(generator=generator, processor=processor)
@@ -562,3 +577,5 @@ if __name__ == "__main__":
         # train_pyhealth_dataset = generator.convert_ehr_to_pyhealth(train_evaluation_dataset, reverse_event_handlers, datetime.datetime.now(), label_mapping)
         # eval_pyhealth_dataset = generator.convert_ehr_to_pyhealth(eval_evaluation_dataset, reverse_event_handlers, datetime.datetime.now(), label_mapping)
         # test_pyhealth_dataset = generator.convert_ehr_to_pyhealth(test_evaluation_dataset, reverse_event_handlers, datetime.datetime.now(), label_mapping)
+            
+        
