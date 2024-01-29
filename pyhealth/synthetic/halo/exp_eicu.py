@@ -435,12 +435,12 @@ if __name__ == "__main__":
         trainer.load_fold_split(fold, from_save=False, save=True)
         
         start_time = time.perf_counter()
-        trainer.train(
-            batch_size=batch_size,
-            epoch=1000,
-            patience=3,
-            eval_period=float('inf')
-        )
+        # trainer.train(
+        #     batch_size=batch_size,
+        #     epoch=1000,
+        #     patience=3,
+        #     eval_period=float('inf')
+        # )
         end_time = time.perf_counter()
         run_time = end_time - start_time
         print("training time:", run_time, run_time / 60, (run_time / 60) / 60)
@@ -461,7 +461,7 @@ if __name__ == "__main__":
 
         labels = Counter([label_fn(patient_data=p) for p in trainer.train_dataset])
         maxLabel = max(labels.values())
-        labels = [(l, maxLabel-labels[l]) for l in labels]
+        labels = [(l, 10000) for l in labels]
         synthetic_dataset = generator.generate_conditioned(labels)
 
         def pathfn(plot_type: str, label: tuple):
