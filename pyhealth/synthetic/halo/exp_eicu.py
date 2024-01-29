@@ -227,7 +227,7 @@ if __name__ == "__main__":
         
     def reverse_ethnicity_label_fn(label_vec):
         mortality_idx = label_vec[:1]
-        ethnicity_idx = label_vec[1:]
+        ethnicity_idx = label_vec[1:7]
         return {
             'death_datetime': datetime.datetime.now() if mortality_idx[0] == 1 else None,
             'ethnicity': 'Caucasian' if ethnicity_idx[0] == 1 else 'African American' if ethnicity_idx[1] == 1 else 'Hispanic' if ethnicity_idx[2] == 1 else 'Asian' if ethnicity_idx[3] == 1 else 'Native American' if ethnicity_idx[4] == 1 else 'Other/Unknown',

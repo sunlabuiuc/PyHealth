@@ -438,7 +438,7 @@ class Processor():
                 values = [v for _, v in event_values]
                 # Compute bins
                 for b in range(bin_size, 100 + 1, bin_size):
-                    bin_boundary = np.percentile(values, b)
+                    bin_boundary = np.percentile(values, b).item()
                     event_bins[table][event_id].append(bin_boundary)   
                 event_bins[table][event_id].append(float('inf'))
                 
@@ -451,6 +451,7 @@ class Processor():
                     
                 logger.warn("Event bins for (%s) %s: %s", table, event_id, [ ("%.3f" % b) for b in event_bins[table][event_id]])
 
+        event_bins = { k: dict(v) for k, v in event_bins.items() } # Converting defaultdict to dict for efficient pickling
         global_event_set = list(global_event_set)
         np.random.shuffle(global_event_set)
         for global_event in global_event_set:              

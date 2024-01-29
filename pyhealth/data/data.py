@@ -337,6 +337,7 @@ class Patient:
         death_datetime: Optional[datetime] = None,
         gender=None,
         ethnicity=None,
+        insurance=None,
         **attr,
     ):
         self.patient_id = patient_id
@@ -344,6 +345,7 @@ class Patient:
         self.death_datetime = death_datetime
         self.gender = gender
         self.ethnicity = ethnicity
+        self.insurance = insurance
         self.attr_dict = dict()
         self.attr_dict.update(attr)
         self.visits = OrderedDict()
