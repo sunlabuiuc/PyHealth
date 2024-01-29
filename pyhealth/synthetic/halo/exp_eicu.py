@@ -195,12 +195,12 @@ if __name__ == "__main__":
     
     # all labels the `age_label_fn` would generate
     age_label_compare_labels = (
-        [1] + [1, 0, 0],
-        [1] + [0, 1, 0],
-        [1] + [0, 0, 1],
-        [0] + [1, 0, 0],
-        [0] + [0, 1, 0],
-        [0] + [0, 0, 1],
+        tuple([1] + [1, 0, 0]),
+        tuple([1] + [0, 1, 0]),
+        tuple([1] + [0, 0, 1]),
+        tuple([0] + [1, 0, 0]),
+        tuple([0] + [0, 1, 0]),
+        tuple([0] + [0, 0, 1]),
     )
        
     gender_label_fn_output_size = 4 
@@ -461,7 +461,7 @@ if __name__ == "__main__":
 
         labels = Counter([label_fn(patient_data=p) for p in trainer.train_dataset])
         maxLabel = max(labels.values())
-        labels = [(l, 10000) for l in labels]
+        labels = [(l, maxLabel-labels[l]) for l in labels]
         synthetic_dataset = generator.generate_conditioned(labels)
 
         def pathfn(plot_type: str, label: tuple):
