@@ -49,7 +49,7 @@ class Trainer:
         self.model_save_name = model_save_name
         self.folds = folds
     
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = "cuda:1" if torch.cuda.is_available() else "cpu"
         self.model.to(self.device)
 
     def get_model_checkpoint_path(self):
@@ -261,7 +261,7 @@ class Trainer:
                 train_losses.append((loss).cpu().detach().numpy())
                 
                 # the eval period may never be reached if there aren't enough batches
-                if i % min(eval_period, len(self.train_dataset)//batch_size - 1) == 0:
+                if i != 0 and i % min(eval_period, len(self.train_dataset)//batch_size - 1) == 0:
                     cur_train_loss = np.mean(train_losses)
                     train_losses = []
                     print("Epoch %d, Iter %d: Training Loss:%.7f"%(e, i, cur_train_loss))

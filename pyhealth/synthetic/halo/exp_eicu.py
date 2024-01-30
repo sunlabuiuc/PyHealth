@@ -29,11 +29,8 @@ trainer_save_dataset_split = False # used for test reproducibility
 experiment_class = 'eicu'
 
 if __name__ == "__main__":
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    # ROOT = "https://storage.googleapis.com/pyhealth/eicu-demo/"
+    device = "cuda:1" if torch.cuda.is_available() else "cpu"
     ROOT = "/srv/local/data/physionet.org/files/eicu-crd/2.0/"
-    # ROOT = "/home/bpt3/data/physionet.org/files/eicu-crd/2.0"
     dataset_name = "eICU-demo"
     tables = ["diagnosis", "lab"]
     code_mapping = {}
@@ -192,16 +189,6 @@ if __name__ == "__main__":
             'death_datetime': datetime.datetime.now() if mortality_idx[0] == 1 else None,
             'age': 'Pediatric' if age_idx[0] == 1 else 'Adult' if age_idx[1] == 1 else 'Elderly'
         }
-    
-    # all labels the `age_label_fn` would generate
-    age_label_compare_labels = (
-        tuple([1] + [1, 0, 0]),
-        tuple([1] + [0, 1, 0]),
-        tuple([1] + [0, 0, 1]),
-        tuple([0] + [1, 0, 0]),
-        tuple([0] + [0, 1, 0]),
-        tuple([0] + [0, 0, 1]),
-    )
        
     gender_label_fn_output_size = 4 
     def gender_label_fn(**kwargs):
@@ -254,16 +241,15 @@ if __name__ == "__main__":
         
         
         
-    basedir = '/home/bdanek2/halo_development/testing_eICU'
-    # basedir = '/home/bpt3/code/PyHealth/pyhealth/synthetic/halo/temp'
-    # basedir = '/srv/local/data/bpt3/FairPlay'
+    # basedir = '/home/bdanek2/halo_development/testing_eICU'
+    basedir = '/srv/local/data/bpt3/FairPlay/eICU'
     
-    label_fn = age_label_fn
-    reverse_label_fn = reverse_age_label_fn
-    label_fn_output_size = age_label_fn_output_size
-    model_save_name = 'halo_age_model'
-    synthetic_data_save_name = 'synthetic_age_data'
-    experiment_name = 'age'
+    label_fn = gender_label_fn
+    reverse_label_fn = reverse_gender_label_fn
+    label_fn_output_size = gender_label_fn_output_size
+    model_save_name = 'halo_gender_model'
+    synthetic_data_save_name = 'synthetic_gender_data'
+    experiment_name = 'gender'
     
     model_save_name = f'{experiment_class}_{model_save_name}'
     synthetic_data_save_name = f'{experiment_class}_{synthetic_data_save_name}'
@@ -280,7 +266,7 @@ if __name__ == "__main__":
         size_per_time_bin=10,
         label_fn=label_fn,
         label_vector_len=label_fn_output_size,
-        name="HALO-FairPlay-eicu",
+        name="HALO-FairPlay-eICU",
         refresh_cache=processor_redo_processing,
         expedited_load=processor_expedited_reload,
         dataset_filepath=None if dataset is not None else dataset_filepath,
@@ -435,12 +421,12 @@ if __name__ == "__main__":
         trainer.load_fold_split(fold, from_save=False, save=True)
         
         start_time = time.perf_counter()
-        # trainer.train(
-        #     batch_size=batch_size,
-        #     epoch=1000,
-        #     patience=3,
-        #     eval_period=float('inf')
-        # )
+        trainer.train(
+            batch_size=batch_size,
+            epoch=1000,
+            patience=3,
+            eval_period=float('inf')
+        )
         end_time = time.perf_counter()
         run_time = end_time - start_time
         print("training time:", run_time, run_time / 60, (run_time / 60) / 60)
@@ -476,16 +462,6 @@ if __name__ == "__main__":
         # convert the data for standard format for downstream tasks
         evaluator = Evaluator(generator=generator, processor=processor)
 
-        stats = evaluator.evaluate(
-            source=trainer.train_dataset,
-            synthetic=pickle.load(file=open(generator.save_path, 'rb')),
-            get_plot_path_fn=pathfn,
-            compare_label=age_label_compare_labels,
-        )
-        print("plots at:", '\n'.join(stats[evaluator.PLOT_PATHS]))
-
-        break
-
         # label_mapping = {l: reverse_label_fn(l) for l, _ in labels}
         # synthetic_pyhealth_dataset = generator.convert_ehr_to_pyhealth(synthetic_dataset, reverse_event_handlers, datetime.datetime.now(), label_mapping)
         if not os.path.exists(f'{basedir}/train_{experiment_name}_data_{fold}.pkl'):
@@ -509,3 +485,11 @@ if __name__ == "__main__":
         # train_pyhealth_dataset = generator.convert_ehr_to_pyhealth(train_evaluation_dataset, reverse_event_handlers, datetime.datetime.now(), label_mapping)
         # eval_pyhealth_dataset = generator.convert_ehr_to_pyhealth(eval_evaluation_dataset, reverse_event_handlers, datetime.datetime.now(), label_mapping)
         # test_pyhealth_dataset = generator.convert_ehr_to_pyhealth(test_evaluation_dataset, reverse_event_handlers, datetime.datetime.now(), label_mapping)
+        
+        # stats = evaluator.evaluate(
+        #     source=trainer.train_dataset,
+        #     synthetic=pickle.load(file=open(generator.save_path, 'rb')),
+        #     get_plot_path_fn=pathfn,
+        #     compare_label=label_mapping.keys(),
+        # )
+        # print("plots at:", '\n'.join(stats[evaluator.PLOT_PATHS]))
