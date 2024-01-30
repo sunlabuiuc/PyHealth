@@ -241,12 +241,12 @@ def sleep_staging_shhs_fn(record, epoch_seconds=30):
 
     Examples:
         >>> from pyhealth.datasets import SHHSDataset
-        >>> shhs = SleepEDFDataset(
+        >>> shhs = SHHSDataset(
         ...         root="/srv/local/data/SHHS/polysomnography",
         ...         dev=True,
         ...     )
         >>> from pyhealth.tasks import sleep_staging_shhs_fn
-        >>> shhs_ds = sleepedf.set_task(sleep_staging_shhs_fn)
+        >>> shhs_ds = shhs.set_task(sleep_staging_shhs_fn)
         >>> shhs_ds.samples[0]
         {
             'record_id': 'shhs1-200001-0', 
