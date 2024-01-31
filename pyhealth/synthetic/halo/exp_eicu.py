@@ -244,12 +244,12 @@ if __name__ == "__main__":
     # basedir = '/home/bdanek2/halo_development/testing_eICU'
     basedir = '/srv/local/data/bpt3/FairPlay/eICU'
     
-    label_fn = gender_label_fn
-    reverse_label_fn = reverse_gender_label_fn
-    label_fn_output_size = gender_label_fn_output_size
-    model_save_name = 'halo_gender_model'
-    synthetic_data_save_name = 'synthetic_gender_data'
-    experiment_name = 'gender'
+    label_fn = age_label_fn
+    reverse_label_fn = reverse_age_label_fn
+    label_fn_output_size = age_label_fn_output_size
+    model_save_name = 'halo_age_model'
+    synthetic_data_save_name = 'synthetic_age_data'
+    experiment_name = 'genderAndAge'
     
     model_save_name = f'{experiment_class}_{model_save_name}'
     synthetic_data_save_name = f'{experiment_class}_{synthetic_data_save_name}'
@@ -418,7 +418,7 @@ if __name__ == "__main__":
             model_save_name=f'{model_save_name}_{fold}',
             folds=num_folds
         )
-        trainer.load_fold_split(fold, from_save=False, save=True)
+        trainer.load_fold_split(fold, from_save=True, save=True)
         
         start_time = time.perf_counter()
         trainer.train(
@@ -459,7 +459,7 @@ if __name__ == "__main__":
 
             return path_str
 
-        # convert the data for standard format for downstream tasks
+        # Convert the data for standard format for downstream tasks
         evaluator = Evaluator(generator=generator, processor=processor)
 
         # label_mapping = {l: reverse_label_fn(l) for l, _ in labels}

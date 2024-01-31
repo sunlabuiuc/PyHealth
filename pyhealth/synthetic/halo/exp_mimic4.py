@@ -9,7 +9,7 @@ from tqdm import tqdm
 from collections import Counter
 
 from pyhealth import BASE_CACHE_PATH, logger
-from pyhealth.data.data import Event, Patient
+from pyhealth.data.data import Event
 from pyhealth.datasets.utils import hash_str
 from pyhealth.datasets.mimic4 import MIMIC4Dataset
 from pyhealth.synthetic.halo.halo import HALO
@@ -23,7 +23,7 @@ processor_redo_processing = False # use cached dataset vocabulary
 processor_expedited_reload = False # idk what this does
 processor_refresh_qualified_histogram = False # recompute top K histograms for continuous valued events
 trainer_from_dataset_save = True # used for caching dataset split (good for big datasets that take a long time to split)
-trainer_save_dataset_split = False # used for test reproducibility
+trainer_save_dataset_split = True # used for test reproducibility
 
 experiment_class = "mimic4"
 
@@ -250,7 +250,7 @@ if __name__ == "__main__":
         'MULTIPLE RACE/ETHNICITY': 'OTHER/UNKNOWN',
         'WHITE - OTHER EUROPEAN': 'WHITE',
         'NATIVE HAWAIIAN OR OTHER PACIFIC ISLANDER': 'OTHER/UNKNOWN', # TODO: Check This One
-        'PORTUGUESE': 'WHITE', # TODO: Check This One
+        'PORTUGUESE': 'WHITE',
         'HISPANIC/LATINO - PUERTO RICAN': 'HISPANIC/LATINO',
         'HISPANIC/LATINO - MEXICAN': 'HISPANIC/LATINO',
         'UNKNOWN': 'OTHER/UNKNOWN',
@@ -324,7 +324,7 @@ if __name__ == "__main__":
 
 
     # basedir = '/home/bdanek2/halo_development/testing_3'
-    basedir = '/srv/local/data/bpt3/FairPlay'
+    basedir = '/srv/local/data/bpt3/FairPlay/MIMIC'
 
     label_fn = mortality_label_fn
     reverse_label_fn = reverse_mortality_label_fn
@@ -527,8 +527,7 @@ if __name__ == "__main__":
         labels = Counter([label_fn(patient_data=p) for p in trainer.train_dataset])
         maxLabel = max(labels.values())
         labels = [(l, maxLabel-labels[l]) for l in labels]
-        
-        # synthetic_dataset = generator.generate_conditioned(labels)
+        synthetic_dataset = generator.generate_conditioned(labels)
 
         def pathfn(plot_type: str, label: tuple):
             prefix = os.path.join(generator.save_dir, 'plots')
@@ -539,21 +538,9 @@ if __name__ == "__main__":
 
             return path_str
         
+        # Convert the data for standard format for downstream tasks
         evaluator = Evaluator(generator=generator, processor=processor)
 
-        stats = evaluator.evaluate(
-            source=trainer.train_dataset,
-            # synthetic=pickle.load(file=open(generator.save_path, 'rb')),
-            synthetic=pickle.load(file=open('/home/bdanek2/halo_development/testing_3/mimic4_synthetic_mortality_data_0.pkl', 'rb')),
-            get_plot_path_fn=pathfn,
-            compare_label=labels,
-        )
-        print("plots at:", '\n'.join(stats[evaluator.PLOT_PATHS]))
-
-        break
-
-        # convert the data for standard format for downstream tasks
-        evaluator = Evaluator(generator=generator, processor=processor)
         # label_mapping = {l: reverse_label_fn(l) for l, _ in labels}
         # synthetic_pyhealth_dataset = generator.convert_ehr_to_pyhealth(synthetic_dataset, reverse_event_handlers, datetime.datetime.now(), label_mapping)
         if not os.path.exists(f'{basedir}/train_{experiment_name}_data_{fold}.pkl'):
@@ -577,5 +564,14 @@ if __name__ == "__main__":
         # train_pyhealth_dataset = generator.convert_ehr_to_pyhealth(train_evaluation_dataset, reverse_event_handlers, datetime.datetime.now(), label_mapping)
         # eval_pyhealth_dataset = generator.convert_ehr_to_pyhealth(eval_evaluation_dataset, reverse_event_handlers, datetime.datetime.now(), label_mapping)
         # test_pyhealth_dataset = generator.convert_ehr_to_pyhealth(test_evaluation_dataset, reverse_event_handlers, datetime.datetime.now(), label_mapping)
+        
+        # stats = evaluator.evaluate(
+        #     source=trainer.train_dataset,
+        #     # synthetic=pickle.load(file=open(generator.save_path, 'rb')),
+        #     synthetic=pickle.load(file=open('/home/bdanek2/halo_development/testing_3/mimic4_synthetic_mortality_data_0.pkl', 'rb')),
+        #     get_plot_path_fn=pathfn,
+        #     compare_label=labels,
+        # )
+        # print("plots at:", '\n'.join(stats[evaluator.PLOT_PATHS]))
             
         
