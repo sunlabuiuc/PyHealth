@@ -53,23 +53,26 @@ if __name__ == "__main__":
         + sorted(code_mapping.items())
         + ["dev" if dev else "prod"]
     )
-    
+    # d9288d770061592c27878a53d7c2c263.pkl
     filename = hash_str("+".join([str(arg) for arg in args_to_hash])) + ".pkl"
     print(filename)
     MODULE_CACHE_PATH = os.path.join(BASE_CACHE_PATH, "datasets")
     dataset_filepath = os.path.join(MODULE_CACHE_PATH, filename)
     if not os.path.exists(dataset_filepath):
-        dataset = MIMIC4Dataset(
-            root=ROOT,
-            tables=tables,
-            code_mapping=code_mapping,
-            refresh_cache=dataset_refresh_cache,
-            dev=dev
-        )
-        dataset.stat()
-        dataset.info()
+        print("dataset doesn't exist - computing")
     else:
-        dataset = None
+        print("loading cached dataset")
+
+    dataset = MIMIC4Dataset(
+        dataset_name=dataset_name,
+        root=ROOT,
+        tables=tables,
+        code_mapping=code_mapping,
+        dev=dev,
+        refresh_cache=dataset_refresh_cache,
+    )
+    dataset.stat()
+    dataset.info()
     
     
     # Event Handlers
