@@ -4,7 +4,8 @@ import numpy as np
 import pandas as pd
 
 # basedir = '/home/bpt3/code/PyHealth/pyhealth/synthetic/halo/temp'
-basedir = '/srv/local/data/bpt3/FairPlay'
+basedir = '/srv/local/data/bpt3/FairPlay/eICU'
+experiment_class = 'eicu'
 methods = [
   'baseline',
   'combined',
@@ -14,11 +15,14 @@ methods = [
   'upsampling'
 ]
 experiments = [
+  'mortality',
   'age',
-  'gender'  
+  'gender',
+  'genderAndAge'
 ]
 
 for experiment in experiments:
+  experiment = f'{experiment_class}_{experiment}'
   demographics = pickle.load(open(os.path.join(basedir, f'{experiment}_training_demographics.pkl'), 'rb'))
   demographics = {k.split(f' ({experiment.capitalize()})')[0]: float(v.split(' +/- ')[0]) for k, v in demographics.items()}
   majority = max(demographics, key=demographics.get)

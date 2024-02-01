@@ -24,22 +24,24 @@ processor_expedited_reload = False # idk what this does
 processor_refresh_qualified_histogram = False # recompute top K histograms for continuous valued events
 trainer_from_dataset_save = True # used for caching dataset split (good for big datasets that take a long time to split)
 trainer_save_dataset_split = True # used for test reproducibility
+dataset_dev = False # use the development version of the dataset
 
 experiment_class = "mimic4"
+# NOTE: 9632 code variables, 180733 patients
 
 if __name__ == "__main__":
     # wget -r -N -c -np --user bdanek --ask-password https://physionet.org/files/mimiciv/2.2/
     # for file in *.gz; do
         # gunzip "$file"
         # done
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cuda:1" if torch.cuda.is_available() else "cpu"
 
     # ROOT = "/home/bdanek2/physionet.org/files/mimiciv/2.2/hosp"
     ROOT = "/srv/local/data/MIMIC-IV/hosp"
     dataset_name = "MIMIC4-demo"
     tables = ["diagnoses_icd", "labevents"]
     code_mapping = {"NDC": "RxNorm"}
-    dev = True
+    dev = dataset_dev
 
     # use drug name instead of ndc code
     # need to reduce the space for procedures_icd, prescriptions, ect
@@ -53,6 +55,7 @@ if __name__ == "__main__":
     )
     
     filename = hash_str("+".join([str(arg) for arg in args_to_hash])) + ".pkl"
+    print(filename)
     MODULE_CACHE_PATH = os.path.join(BASE_CACHE_PATH, "datasets")
     dataset_filepath = os.path.join(MODULE_CACHE_PATH, filename)
     if not os.path.exists(dataset_filepath):
@@ -66,15 +69,6 @@ if __name__ == "__main__":
         dataset.stat()
         dataset.info()
     else:
-        dataset = MIMIC4Dataset(
-            root=ROOT,
-            tables=tables,
-            code_mapping=code_mapping,
-            refresh_cache=False,
-            dev=dev
-        )
-        dataset.stat()
-        dataset.info()
         dataset = None
     
     
@@ -500,12 +494,12 @@ if __name__ == "__main__":
         trainer.load_fold_split(fold, from_save=trainer_from_dataset_save, save=trainer_save_dataset_split)
         
         start_time = time.perf_counter()
-        # trainer.train(
-        #     batch_size=batch_size,
-        #     epoch=40,
-        #     patience=3,
-        #     eval_period=float('inf')
-        # )
+        trainer.train(
+            batch_size=batch_size,
+            epoch=1000,
+            patience=3,
+            eval_period=float('inf')
+        )
         end_time = time.perf_counter()
         run_time = end_time - start_time
         print("training time:", run_time, run_time / 60, (run_time / 60) / 60)

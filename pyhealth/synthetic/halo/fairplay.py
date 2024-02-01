@@ -8,11 +8,12 @@ from tqdm import tqdm
 from sklearn import ensemble, linear_model, neural_network, metrics, neighbors
 
 # basedir = '/home/bpt3/code/PyHealth/pyhealth/synthetic/halo/temp'
-basedir = '/srv/local/data/bpt3/FairPlay'
+basedir = '/srv/local/data/bpt3/FairPlay/eICU'
+experiment_class = 'eicu'
 MIN_THRESHOLD = 50
 
 def false_positive_rate(y_true, y_pred):
-    tn, fp, fn, tp = metrics.confusion_matrix(y_true, y_pred).ravel()
+    tn, fp, fn, tp = metrics.confusion_matrix(y_true, y_pred, labels=[0,1]).ravel()
     return fp / (fp + tn)
 
 def reverse_full_label_fn(label_vec):
@@ -66,10 +67,13 @@ def reverse_genderAndAge_label_fn(label_vec):
         'gender': 'Male' if gender_idx[0] == 1 else 'Female' if gender_idx[1] == 1 else 'Other/Unknown',
     }
 
-reverse_label_fn = reverse_mortality_label_fn
-synthetic_data_name = 'synthetic_mortality_data'
-experiment_name = 'mortality'
+reverse_label_fn = reverse_age_label_fn
+synthetic_data_name = 'synthetic_age_data'
+experiment_name = 'age'
 num_folds = 5
+
+synthetic_data_name = f'{experiment_class}_{synthetic_data_name}'
+experiment_name = f'{experiment_class}_{experiment_name}'
 
 def run_experiments(train_data, test_data, codeToIndex, groups):
 
@@ -157,7 +161,7 @@ def run_experiments(train_data, test_data, codeToIndex, groups):
 
     def compete(algorithms, x_train, y_train, x_test, y_test, demographics_test, groups):
         """Compete the algorithms"""
-        classification_metrics = [(metrics.f1_score, True), (metrics.recall_score, True), (false_positive_rate, True), (metrics.roc_auc_score, False)]
+        classification_metrics = [(metrics.f1_score, True), (metrics.recall_score, True), (false_positive_rate, True)] #, (metrics.roc_auc_score, False)]
 
         column_names = ["algorithm"]
         column_names += [f'{metric.__name__} Overall' for metric, _ in classification_metrics]

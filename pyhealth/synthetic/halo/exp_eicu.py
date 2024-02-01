@@ -27,9 +27,10 @@ trainer_from_dataset_save = True # used for caching dataset split (good for big 
 trainer_save_dataset_split = False # used for test reproducibility
 
 experiment_class = 'eicu'
+# NOTE: 1342 code variables, INSERT patients
 
 if __name__ == "__main__":
-    device = "cuda:1" if torch.cuda.is_available() else "cpu"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     ROOT = "/srv/local/data/physionet.org/files/eicu-crd/2.0/"
     dataset_name = "eICU-demo"
     tables = ["diagnosis", "lab"]
