@@ -49,8 +49,9 @@ class Trainer:
         self.model_save_name = model_save_name
         self.folds = folds
     
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.model.to(self.device)
+        self.device = "cuda:7" if torch.cuda.is_available() else "cpu"
+        print(f'Device: {self.device}')
+        self.model.to('cuda:7')
 
     def get_model_checkpoint_path(self):
         """Return `checkpoint_dir/model_save_name.pt`"""

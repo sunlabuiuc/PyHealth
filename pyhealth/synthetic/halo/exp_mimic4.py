@@ -27,14 +27,13 @@ trainer_save_dataset_split = True # used for test reproducibility
 dataset_dev = False # use the development version of the dataset
 
 experiment_class = "mimic4"
-# NOTE: 9632 code variables, 180733 patients
+# NOTE: 9708 code variables, 190279 patients
 
 if __name__ == "__main__":
     # wget -r -N -c -np --user bdanek --ask-password https://physionet.org/files/mimiciv/2.2/
     # for file in *.gz; do
         # gunzip "$file"
         # done
-    device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # ROOT = "/home/bdanek2/physionet.org/files/mimiciv/2.2/hosp"
     ROOT = "/srv/local/data/physionet.org/files/mimiciv/2.0/hosp/"
@@ -323,12 +322,13 @@ if __name__ == "__main__":
     # basedir = '/home/bdanek2/halo_development/testing_3'
     basedir = '/srv/local/data/bpt3/FairPlay/MIMIC'
 
-    label_fn = mortality_label_fn
-    reverse_label_fn = reverse_mortality_label_fn
-    label_fn_output_size = mortality_label_fn_output_size
-    model_save_name = 'halo_mortality_model'
-    synthetic_data_save_name = 'synthetic_mortality_data'
-    experiment_name = 'mortality'
+    label_fn = ethnicity_label_fn
+    reverse_label_fn = reverse_ethnicity_label_fn
+    label_fn_output_size = ethnicity_label_fn_output_size
+    model_save_name = 'halo_ethnicity_model'
+    synthetic_data_save_name = 'synthetic_ethnicity_data'
+    experiment_name = 'ethnicity'
+    device = "cuda:7" if torch.cuda.is_available() else "cpu"
     
     model_save_name = f'{experiment_class}_{model_save_name}'
     synthetic_data_save_name = f'{experiment_class}_{synthetic_data_save_name}'
@@ -474,8 +474,8 @@ if __name__ == "__main__":
         model = HALO(
             n_ctx=processor.total_visit_size,
             total_vocab_size=processor.total_vocab_size,
-            device=device
-        )
+            device='cuda:7'
+        ).to('cuda:7')
         
         optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
         # state_dict = torch.load(open(f'{basedir}/model_saves/{model_save_name}_{fold}.pt', 'rb'), map_location=device)

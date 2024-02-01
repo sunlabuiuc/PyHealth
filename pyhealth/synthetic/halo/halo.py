@@ -2,31 +2,11 @@
 """
 Model architecture and method from Theodorou, Brandon, Cao Xiao, and Jimeng Sun. “Synthesize Extremely High-Dimensional Longitudinal Electronic Health Records via Hierarchical Autoregressive Language Model.” arXiv, April 4, 2023. http://arxiv.org/abs/2304.02169.
 """
-from datetime import timedelta
-import datetime
-import os
-import time
-from matplotlib import pyplot as plt
-import numpy as np
 import copy
 import math
-from typing import List
-import pickle
-from collections import Counter
-from tqdm import tqdm
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-from pyhealth import BASE_CACHE_PATH
-from pyhealth.data import Event 
-from pyhealth.datasets.eicu import eICUDataset
-from pyhealth.datasets.utils import hash_str
-from pyhealth.synthetic.halo.evaluator import Evaluator
-from pyhealth.synthetic.halo.generator import Generator
-from pyhealth.synthetic.halo.processor import Processor
-from pyhealth.synthetic.halo.trainer import Trainer
 
 """model configuration
 required fields are non-optional for instantiating the HALO model: "n_positions", "n_ctx", "n_embd", "n_layer", "n_head", "layer_norm_epsilon", "initializer_range"
