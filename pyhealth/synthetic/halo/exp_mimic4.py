@@ -34,10 +34,10 @@ if __name__ == "__main__":
     # for file in *.gz; do
         # gunzip "$file"
         # done
-    device = "cuda:1" if torch.cuda.is_available() else "cpu"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # ROOT = "/home/bdanek2/physionet.org/files/mimiciv/2.2/hosp"
-    ROOT = "/srv/local/data/MIMIC-IV/hosp"
+    ROOT = "/srv/local/data/physionet.org/files/mimiciv/2.0/hosp/"
     dataset_name = "MIMIC4-demo"
     tables = ["diagnoses_icd", "labevents"]
     code_mapping = {"NDC": "RxNorm"}
@@ -346,7 +346,7 @@ if __name__ == "__main__":
         refresh_cache=processor_redo_processing,
         expedited_load=processor_expedited_reload,
         dataset_filepath=None if dataset is not None else dataset_filepath,
-        max_visits=40, # optional parameter cut off the tail of the distribution of visits
+        max_visits=20, # optional parameter cut off the tail of the distribution of visits
         # max_continuous_per_table=10
     )
 
@@ -371,7 +371,7 @@ if __name__ == "__main__":
 
     # --- train model ---
     num_folds=5
-    batch_size=128
+    batch_size=256
     
     # trainer = Trainer(
     #     dataset=processor.dataset,
