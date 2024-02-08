@@ -22,7 +22,7 @@ basedir = '/shared/bpt3/data/FairPlay/MIMIC'
 # insurance
 # gender
 # ethnicityAndInsurance
-key = 'mortality'
+key = 'ethnicityAndInsurance'
 
 # 0
 # 1
@@ -35,10 +35,10 @@ fold = 0
 # ethniciy: 0-9
 # insurance: 0-5
 # gender: 0-3
-# ethnicityAndInsurance: 0-30
-label_idx = [1]
+# ethnicityAndInsurance: 0-29
+label_idx = [24, 25, 26]
 
-device = 'cuda:1' # 1, 3, 4, 6
+device = 'cuda:0'
 
 ############
 # CONTENTS #
