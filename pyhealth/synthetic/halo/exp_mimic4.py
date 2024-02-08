@@ -27,7 +27,6 @@ trainer_save_dataset_split = True # used for test reproducibility
 dataset_dev = False # use the development version of the dataset
 
 experiment_class = "mimic4"
-# NOTE: 9708 code variables, 190279 patients
 
 if __name__ == "__main__":
     # wget -r -N -c -np --user bdanek --ask-password https://physionet.org/files/mimiciv/2.2/
@@ -54,7 +53,6 @@ if __name__ == "__main__":
     )
     # d9288d770061592c27878a53d7c2c263.pkl
     filename = hash_str("+".join([str(arg) for arg in args_to_hash])) + ".pkl"
-    print(filename)
     MODULE_CACHE_PATH = os.path.join(BASE_CACHE_PATH, "datasets")
     dataset_filepath = os.path.join(MODULE_CACHE_PATH, filename)
     if not os.path.exists(dataset_filepath):
@@ -72,7 +70,6 @@ if __name__ == "__main__":
     )
     dataset.stat()
     dataset.info()
-    
     
     # Event Handlers
     def _normalize_key(key):
@@ -328,7 +325,7 @@ if __name__ == "__main__":
     model_save_name = 'halo_ethnicity_model'
     synthetic_data_save_name = 'synthetic_ethnicity_data'
     experiment_name = 'ethnicity'
-    device = "cuda:7" if torch.cuda.is_available() else "cpu"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     
     model_save_name = f'{experiment_class}_{model_save_name}'
     synthetic_data_save_name = f'{experiment_class}_{synthetic_data_save_name}'
@@ -474,8 +471,8 @@ if __name__ == "__main__":
         model = HALO(
             n_ctx=processor.total_visit_size,
             total_vocab_size=processor.total_vocab_size,
-            device='cuda:7'
-        ).to('cuda:7')
+            device=device
+        ).to(device)
         
         optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
         # state_dict = torch.load(open(f'{basedir}/model_saves/{model_save_name}_{fold}.pt', 'rb'), map_location=device)
@@ -515,7 +512,7 @@ if __name__ == "__main__":
         generator = Generator(
             model=model,
             processor=processor,
-            batch_size=batch_size,
+            batch_size=1,
             device=device,
             save_dir=basedir,
             save_name=f'{synthetic_data_save_name}_{fold}'
