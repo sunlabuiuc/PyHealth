@@ -212,10 +212,10 @@ class Processor():
         # - can we omit expedited reload?
 
         # see if we have the cached items
-        processor_cached_artifcats = all([os.path.exists(f) for f in self.cached_files.values()])
+        processor_cached_artifacts = all([os.path.exists(f) for f in self.cached_files.values()])
         # pdb.set_trace()
         # if we don't have cached items, or we want to refresh then compute processor artifacts
-        if processor_cached_artifcats and not self.refresh_cache:
+        if processor_cached_artifacts and not self.refresh_cache:
 
             logger.debug(f"Loaded Processor artifacts ({self.name}) from cache files {self.cached_files.values()}")
             processed_artifacts = (joblib.load(f) for f in self.cached_files.values())
