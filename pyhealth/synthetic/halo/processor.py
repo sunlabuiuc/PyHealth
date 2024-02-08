@@ -102,6 +102,7 @@ class Processor():
         refresh_cache: bool = False,
         expedited_load: bool = False,
         dataset_filepath: str = None,
+        cache_path: str = MODULE_CACHE_PATH
     ) -> None:
         
         self.dataset = dataset
@@ -145,6 +146,7 @@ class Processor():
         self.refresh_cache = refresh_cache
         self.expedited_load = expedited_load
         self.dataset_filepath = dataset_filepath
+        self.cache_path = cache_path
 
         # define cache files
         # we could concievably just have one cached item which is a dictionary, but this blows up memory when we dump it to disk.
@@ -166,7 +168,7 @@ class Processor():
         
         for item_name in self.cached_files:
             filename = hash_str("+".join([str(arg) for arg in args_to_hash])) + "_" + item_name + ".pkl"
-            filepath = os.path.join(MODULE_CACHE_PATH, filename)
+            filepath = os.path.join(self.cache_path, filename)
             
             self.cached_files[item_name] = filepath
 
