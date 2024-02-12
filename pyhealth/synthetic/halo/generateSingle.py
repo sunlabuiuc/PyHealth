@@ -29,16 +29,16 @@ key = 'ethnicityAndInsurance'
 # 2
 # 3
 # 4
-fold = 0
+fold = 1
 
 # mortality: 0-1
-# ethniciy: 0-9
+# ethnicity: 0-9
 # insurance: 0-5
 # gender: 0-3
 # ethnicityAndInsurance: 0-29
-label_idx = [24, 25, 26]
+label_idx = [3, 4, 5]
 
-device = 'cuda:0'
+device = 'cuda:6'
 
 ############
 # CONTENTS #

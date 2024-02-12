@@ -7,64 +7,106 @@ import pandas as pd
 from tqdm import tqdm
 from sklearn import ensemble, linear_model, neural_network, metrics, neighbors
 
-# basedir = '/home/bpt3/code/PyHealth/pyhealth/synthetic/halo/temp'
-basedir = '/srv/local/data/bpt3/FairPlay/eICU'
-experiment_class = 'eicu'
-MIN_THRESHOLD = 50
+basedir = '/shared/bpt3/data/FairPlay/MIMIC'
+experiment_class = 'mimic4'
+MIN_THRESHOLD = 10
 
 def false_positive_rate(y_true, y_pred):
     tn, fp, fn, tp = metrics.confusion_matrix(y_true, y_pred, labels=[0,1]).ravel()
     return fp / (fp + tn)
 
-def reverse_full_label_fn(label_vec):
-    mortality_idx = label_vec[:1]
-    age_idx = label_vec[1:4]
-    gender_idx = label_vec[4:7]
-    ethnicity_idx = label_vec[7:]
-    return {
-        'mortality': 1 if mortality_idx[0] == 1 else 0,
-        'age': 'Pediatric' if age_idx[0] == 1 else 'Adult' if age_idx[1] == 1 else 'Elderly',
-        'gender': 'Male' if gender_idx[0] == 1 else 'Female' if gender_idx[1] == 1 else 'Other/Unknown',
-        'ethnicity': 'Caucasian' if ethnicity_idx[0] == 1 else 'African American' if ethnicity_idx[1] == 1 else 'Hispanic' if ethnicity_idx[2] == 1 else 'Asian' if ethnicity_idx[3] == 1 else 'Native American' if ethnicity_idx[4] == 1 else 'Other/Unknown',
-    }
+# eICU Functions
+
+# def reverse_full_label_fn(label_vec):
+#     mortality_idx = label_vec[:1]
+#     age_idx = label_vec[1:4]
+#     gender_idx = label_vec[4:7]
+#     ethnicity_idx = label_vec[7:]
+#     return {
+#         'mortality': 1 if mortality_idx[0] == 1 else 0,
+#         'age': 'Pediatric' if age_idx[0] == 1 else 'Adult' if age_idx[1] == 1 else 'Elderly',
+#         'gender': 'Male' if gender_idx[0] == 1 else 'Female' if gender_idx[1] == 1 else 'Other/Unknown',
+#         'ethnicity': 'Caucasian' if ethnicity_idx[0] == 1 else 'African American' if ethnicity_idx[1] == 1 else 'Hispanic' if ethnicity_idx[2] == 1 else 'Asian' if ethnicity_idx[3] == 1 else 'Native American' if ethnicity_idx[4] == 1 else 'Other/Unknown',
+#     }
+
+# def reverse_mortality_label_fn(label_vec):
+#     return {
+#         'mortality': 1 if label_vec[0] == 1 else 0,
+#     }
+
+# def reverse_age_label_fn(label_vec):
+#     mortality_idx = label_vec[:1]
+#     age_idx = label_vec[1:4]
+#     return {
+#         'mortality': 1 if mortality_idx[0] == 1 else 0,
+#         'age': 'Pediatric' if age_idx[0] == 1 else 'Adult' if age_idx[1] == 1 else 'Elderly'
+#     }   
+
+# def reverse_gender_label_fn(label_vec):
+#     mortality_idx = label_vec[:1]
+#     gender_idx = label_vec[1:4]
+#     return {
+#         'mortality': 1 if mortality_idx[0] == 1 else 0,
+#         'gender': 'Male' if gender_idx[0] == 1 else 'Female' if gender_idx[1] == 1 else 'Other/Unknown'
+#     } 
+
+# def reverse_ethnicity_label_fn(label_vec):
+#     mortality_idx = label_vec[:1]
+#     ethnicity_idx = label_vec[1:]
+#     return {
+#         'mortality': 1 if mortality_idx[0] == 1 else 0,
+#         'ethnicity': 'Caucasian' if ethnicity_idx[0] == 1 else 'African American' if ethnicity_idx[1] == 1 else 'Hispanic' if ethnicity_idx[2] == 1 else 'Asian' if ethnicity_idx[3] == 1 else 'Native American' if ethnicity_idx[4] == 1 else 'Other/Unknown',
+#     }
+    
+# def reverse_genderAndAge_label_fn(label_vec):
+#     mortality_idx = label_vec[:1]
+#     age_idx = label_vec[1:4]
+#     gender_idx = label_vec[4:7]
+#     return {
+#         'mortality': 1 if mortality_idx[0] == 1 else 0,
+#         'age': 'Pediatric' if age_idx[0] == 1 else 'Adult' if age_idx[1] == 1 else 'Elderly',
+#         'gender': 'Male' if gender_idx[0] == 1 else 'Female' if gender_idx[1] == 1 else 'Other/Unknown',
+#     }
+    
+# MIMIC-IV Functions
 
 def reverse_mortality_label_fn(label_vec):
     return {
         'mortality': 1 if label_vec[0] == 1 else 0,
     }
 
-def reverse_age_label_fn(label_vec):
-    mortality_idx = label_vec[:1]
-    age_idx = label_vec[1:4]
-    return {
-        'mortality': 1 if mortality_idx[0] == 1 else 0,
-        'age': 'Pediatric' if age_idx[0] == 1 else 'Adult' if age_idx[1] == 1 else 'Elderly'
-    }   
-
 def reverse_gender_label_fn(label_vec):
     mortality_idx = label_vec[:1]
-    gender_idx = label_vec[1:4]
+    gender_idx = label_vec[1:3]
     return {
         'mortality': 1 if mortality_idx[0] == 1 else 0,
-        'gender': 'Male' if gender_idx[0] == 1 else 'Female' if gender_idx[1] == 1 else 'Other/Unknown'
+        'gender': 'M' if gender_idx[0] == 1 else 'F'
     } 
 
 def reverse_ethnicity_label_fn(label_vec):
     mortality_idx = label_vec[:1]
-    ethnicity_idx = label_vec[1:]
+    ethnicity_idx = label_vec[1:6]
     return {
         'mortality': 1 if mortality_idx[0] == 1 else 0,
-        'ethnicity': 'Caucasian' if ethnicity_idx[0] == 1 else 'African American' if ethnicity_idx[1] == 1 else 'Hispanic' if ethnicity_idx[2] == 1 else 'Asian' if ethnicity_idx[3] == 1 else 'Native American' if ethnicity_idx[4] == 1 else 'Other/Unknown',
+        'ethnicity': 'WHITE' if ethnicity_idx[0] == 1 else 'BLACK' if ethnicity_idx[1] == 1 else 'HISPANIC/LATINO' if ethnicity_idx[2] == 1 else 'ASIAN' if ethnicity_idx[3] == 1 else 'OTHER/UNKNOWN',
     }
     
-def reverse_genderAndAge_label_fn(label_vec):
+def reverse_insurance_label_fn(label_vec):
     mortality_idx = label_vec[:1]
-    age_idx = label_vec[1:4]
-    gender_idx = label_vec[4:7]
+    insurance_idx = label_vec[1:4]
     return {
         'mortality': 1 if mortality_idx[0] == 1 else 0,
-        'age': 'Pediatric' if age_idx[0] == 1 else 'Adult' if age_idx[1] == 1 else 'Elderly',
-        'gender': 'Male' if gender_idx[0] == 1 else 'Female' if gender_idx[1] == 1 else 'Other/Unknown',
+        'insurance': 'Medicare' if insurance_idx[0] == 1 else 'Medicaid' if insurance_idx[1] == 1 else 'Other',
+    }
+    
+def reverse_ethnicityAndInsurance_label_fn(label_vec):
+    mortality_idx = label_vec[:1]
+    ethnicity_idx = label_vec[1:6]
+    insurance_idx = label_vec[6:9]
+    return {
+        'mortality': 1 if mortality_idx[0] == 1 else 0,
+        'ethnicity': 'WHITE' if ethnicity_idx[0] == 1 else 'BLACK' if ethnicity_idx[1] == 1 else 'HISPANIC/LATINO' if ethnicity_idx[2] == 1 else 'ASIAN' if ethnicity_idx[3] == 1 else 'OTHER/UNKNOWN',
+        'insurance': 'Medicare' if insurance_idx[0] == 1 else 'Medicaid' if insurance_idx[1] == 1 else 'Other',
     }
 
 reverse_label_fn = reverse_age_label_fn
