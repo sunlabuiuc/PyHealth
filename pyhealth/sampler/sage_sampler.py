@@ -1,6 +1,6 @@
 import copy
 from typing import List, Optional, Tuple, NamedTuple, Union, Callable, TypeVar
-
+import pkg_resources
 import torch
 from torch import Tensor
 
