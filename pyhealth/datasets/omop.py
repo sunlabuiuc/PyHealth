@@ -226,6 +226,7 @@ class OMOPDataset(BaseEHRDataset):
                     )
                     # update patients
                     events.append(event)
+            return events
 
         # parallel apply
         group_df = group_df.parallel_apply(lambda x: condition_unit(x))
