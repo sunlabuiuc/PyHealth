@@ -55,7 +55,7 @@ def hf_prediction_mimic3_fn(patient: Patient):
                 "patient_id": patient.patient_id,
                 "conditions": [conditions],
                 "procedures": [procedures],
-                "visit_diff": [visit_diff],
+                "drugs": [drugs],
                 "label": hf_label,
             }
         )
