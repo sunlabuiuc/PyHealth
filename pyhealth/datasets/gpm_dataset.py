@@ -4,13 +4,9 @@ File: gpm_dataset.py
 PyHealth GPM Dataset
 """
 
-import numpy as np
 from torch.utils.data import Dataset
 import os
-import csv
 import requests
-import io
-import torch
 import pandas as pd
 import itertools
 from sklearn.model_selection import train_test_split
@@ -244,3 +240,82 @@ class GPMDataset(Dataset):
     if self.data_path: lines.append(f"\t- Dataset saved at: {self.data_path}")
     lines.append("")
     return "\n".join(lines)
+  
+if __name__ == "__main__":
+  from torch.utils.data import DataLoader
+
+  params = {'batch_size': 32,
+            'num_workers': 1}
+
+  # creating a custom dataset by specifiying species
+  single_db = GPMDataset(dataset_name='single_gpm_dataset', data_path='single_gpm', species={'eukayrotes': ["Anopheles gambiae"]}, verbose=True)
+  print(single_db.stat())
+  
+  # results of splitting dataset into training and test sets
+  train_db, test_db = single_db.train_test_split(train_frac=0.8)
+  train_db, val_db = single_db.train_test_split(train_frac=0.8, train_dataset_name=train_db.dataset_name, test_dataset_name=f'{single_db.dataset_name}_val')
+  print(train_db.stat())
+  print(test_db.stat())
+  print(val_db.stat())
+
+  training_generator = DataLoader(train_db, **params)
+  testing_generator = DataLoader(test_db, **params)
+  validation_generator = DataLoader(val_db, **params)
+
+  # creating a mini dataset by taking subset of all data
+  # small_db = GPMDataset(dataset_name='small_gpm_dataset', data_path='small_gpm', species={k:v[:3] for k,v in SPECIES.items()})
+  # print(small_db.stat())
+
+  # complete dataset
+  # gpmdb = GPMDataset()
+  # print(gpmdb.stat())
+
+
+  ### Output
+  # Downloading dataset from https://gpmdb.thegpm.org/thegpm-cgi/peptides_by_species.pl
+  #     Downloading Anopheles gambiae from https://gpmdb.thegpm.org/thegpm-cgi/peptides_by_species.pl.
+  #     Downloaded https://gpmdb.thegpm.org/thegpm-cgi/peptides_by_species.pl?species=Anopheles%20gambiae
+  # Loading data from single_gpm
+  #     Loading from single_gpm/Anopheles gambiae.tsv
+  # Download completed. Data saved at single_gpm.
+  # Mapping amino acid sequences of length 81 with map of size 22
+  # Mapped 45580 amino acid sequences.
+  # 
+  # Statistics of the Dataset:
+  # 	- Dataset Name: single_gpm_dataset
+  # 	- Number of samples: 45580
+  # 	- Types of amino acids: 22
+  # 	- Max sequence length: 81
+  # 	- Number of species: 1
+  # 	- eukayrotes samples included:  ['Anopheles gambiae']
+  # 	- Dataset saved at: single_gpm
+  # 
+  # 
+  # Statistics of the Dataset:
+  # 	- Dataset Name: single_gpm_dataset_train
+  # 	- Number of samples: 29171
+  # 	- Types of amino acids: 22
+  # 	- Max sequence length: 81
+  # 	- Number of species: 1
+  # 	- eukayrotes samples included:  ['Anopheles gambiae']
+  # 	- Dataset saved at: single_gpm
+  # 
+  # 
+  # Statistics of the Dataset:
+  # 	- Dataset Name: single_gpm_dataset_test
+  # 	- Number of samples: 9116
+  # 	- Types of amino acids: 22
+  # 	- Max sequence length: 81
+  # 	- Number of species: 1
+  # 	- eukayrotes samples included:  ['Anopheles gambiae']
+  # 	- Dataset saved at: single_gpm
+  # 
+  # 
+  # Statistics of the Dataset:
+  # 	- Dataset Name: single_gpm_dataset_val
+  # 	- Number of samples: 7293
+  # 	- Types of amino acids: 22
+  # 	- Max sequence length: 81
+  # 	- Number of species: 1
+  # 	- eukayrotes samples included:  ['Anopheles gambiae']
+  # 	- Dataset saved at: single_gpm
