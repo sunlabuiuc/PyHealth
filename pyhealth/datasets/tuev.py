@@ -66,7 +66,8 @@ class TUEVDataset(BaseSignalDataset):
         patient_ids = list(set(list(all_files.keys())))
 
         if self.dev:
-            patient_ids = patient_ids[:30]
+            patient_ids = patient_ids[:20]
+            # print(patient_ids)
 
         # get patient to record maps
         #    - key: pid:
