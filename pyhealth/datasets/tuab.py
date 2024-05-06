@@ -84,7 +84,7 @@ class TUABDataset(BaseSignalDataset):
         patient_ids = list(set(patient_ids))
 
         if self.dev:
-            patient_ids = patient_ids[:20]
+            patient_ids = patient_ids[:5]
 
         # get patient to record maps
         #    - key: pid:
