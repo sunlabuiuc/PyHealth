@@ -40,3 +40,4 @@ from .sleep_staging import (
     sleep_staging_shhs_fn,
 )
 from .patient_linkage import patient_linkage_mimic3_fn
+from .heart_failure_prediction import hf_prediction_mimic3_fn
