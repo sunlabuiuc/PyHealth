@@ -9,7 +9,7 @@ INFO_MSG = """
 The Automated Cardiac Diagnosis Challenge (ACDC) dataset.
 URL: https://www.creatis.insa-lyon.fr/Challenge/acdc/databases.html
 
-The dataset contains the NIfTI-1 neuroimaging data.
+The dataset contains the NIfTI-1 cardiac cine-MRI data.
 
 Citation:
 O. Bernard, A. Lalande, C. Zotti, F. Cervenansky, et al.
