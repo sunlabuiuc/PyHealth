@@ -114,7 +114,7 @@ def drug_recommendation_mimic4_fn(patient: Patient):
         >>> from pyhealth.datasets import MIMIC4Dataset
         >>> mimic4_base = MIMIC4Dataset(
         ...     root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
-        ...     tables=["diagnoses_icd", "procedures_icd"],
+        ...     tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
         ...     code_mapping={"ICD10PROC": "CCSPROC"},
         ... )
         >>> from pyhealth.tasks import drug_recommendation_mimic4_fn
