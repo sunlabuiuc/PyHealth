@@ -78,7 +78,7 @@ class BaseEHRDataset(ABC):
         refresh_cache: bool = False,
     ):
         """Loads tables into a dict of patients and saves it to cache."""
-
+        print("LOL I AM BEING INHERITED!!!")
         if code_mapping is None:
             code_mapping = {}
 

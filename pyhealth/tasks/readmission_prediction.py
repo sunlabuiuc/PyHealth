@@ -1,4 +1,4 @@
-from pyhealth.data import Patient, Visit
+from pyhealth.data import Patient
 
 
 # TODO: time_window cannot be passed in to base_dataset

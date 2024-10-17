@@ -5,11 +5,11 @@ import pandas as pd
 from tqdm import tqdm
 from datetime import datetime
 
-from pyhealth.data import Event, Visit, Patient
+from pyhealth.data import Event, Patient
 from pyhealth.datasets import BaseEHRDataset
 from pyhealth.datasets.utils import strptime, padyear
 
-# TODO: add other tables
+# TODO: add other tables, change to Patient -> Event structure
 
 
 class eICUDataset(BaseEHRDataset):

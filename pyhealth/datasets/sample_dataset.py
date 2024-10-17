@@ -6,7 +6,6 @@ from torch.utils.data import Dataset
 
 from pyhealth.datasets.utils import list_nested_levels, flatten_list
 
-
 class SampleBaseDataset(Dataset):
     """Sample base dataset class.
 

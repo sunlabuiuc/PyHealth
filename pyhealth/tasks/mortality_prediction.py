@@ -1,4 +1,4 @@
-from pyhealth.data import Patient, Visit
+from pyhealth.data import Patient
 
 
 def mortality_prediction_mimic3_fn(patient: Patient):
