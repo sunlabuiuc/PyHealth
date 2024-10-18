@@ -45,3 +45,4 @@ Idea list: https://docs.google.com/spreadsheets/d/12oQXB1Nrf-8kubaYaMoAY28WCsRko
 ## Mentors
 - Zhenbang Wu: Ph.D. student at UIUC, working on foundation model for healthcare.
 - John Wu: Ph.D. student at UIUC, working on explainable AI for healthcare.
+- Dr. Jimeng Sun, Health Innovation Professor at Computer Science Department and Carle's Illinois College of Medicine at UIUC.
