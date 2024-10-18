@@ -1,6 +1,18 @@
 # Sunlab PyHealth Hackathon 2024
 
+Welcome to the Sunlab PyHealth Hackathon 2024! This hackathon is an exciting opportunity to contribute to PyHealth, a cutting-edge open-source framework for healthcare AI, while collaborating with peers and experts. Whether you're a machine learning enthusiast or clinical practitioner, there’s something for everyone.
+
+Throughout the week, you’ll get hands-on experience with PyHealth, develop your coding skills, and work on projects that have the potential to make a real impact in healthcare AI. We will be here to guide you through the process, ensuring that you get the most out of this collaborative learning experience.
+
+Ready to innovate and make meaningful contributions to healthcare AI? Let’s get started!
+
+Sign-up now and join us for a week of learning, building, and sharing ideas.
+
 Sign-up Form: https://forms.gle/bU8z3ih1rD2orZMq7
+
+## What is PyHealth?
+PyHealth is a comprehensive framework that empowers researchers and engineers to easily develop, evaluate, and deploy machine learning models for healthcare applications. 
+It supports various data types, such as electronic health records (EHRs), time-series signals, and imaging data, and provides robust tools for predictive modeling, interpretability, and handling complex healthcare data.
 
 ## Schedule
 
