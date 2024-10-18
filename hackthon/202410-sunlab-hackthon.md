@@ -1,14 +1,16 @@
 # Sunlab PyHealth Hackathon 2024
 
+Sign-up Form: https://forms.gle/bU8z3ih1rD2orZMq7
+
 ## Schedule
 
-| Day	                    | Activity                                                    |
-|-------------------------|-------------------------------------------------------------|
-| Mon (Oct 28)	9AM-12PM CT           | Overview and PyHealth tutorial (3 hrs) by Zhenbang and John |
-| Tue (Oct 29)            | Project formation and discussion                            | 
+| Day	                     | Activity                                                    |
+|--------------------------|-------------------------------------------------------------|
+| Mon (Oct 28)	9AM-12PM CT | Overview and PyHealth tutorial (3 hrs) by Zhenbang and John |
+| Tue (Oct 29)             | Project formation and discussion                            | 
 | Wed - Thu (Oct 30 - 31)	 | Working on the project                                      | 
-| Fri (Nov 1)	            | Presentation (afternoon group meeting)                      | 
-| Following week	         | Ad hoc follow-up                                            |
+| Fri (Nov 1) Time TBD	    | Presentation (afternoon group meeting)                      | 
+| Following week	          | Ad hoc follow-up                                            |
 
 ## Project Ideas
 This hackathon will focus on two main types of contributions:
@@ -16,9 +18,11 @@ This hackathon will focus on two main types of contributions:
 - Research Paper Implementation: This option allows you to implement a new research paper, either your own or from our prepared list. It may involve adding new datasets, task definitions, models, or evaluation techniques. Research paper implementations are more complex and may take longer, but they provide a better opportunity to demonstrate your coding capabilities.
   - Breaking the Paper into Small PRs: If you choose to work on a research paper, we recommend breaking it into multiple small PRs and working on them step-by-step. This approach allows for easier review and feedback, and helps manage the complexity by focusing on incremental progress.
 
-## Team (continuously updated)
-| Team Name	| Team Members | Project |
-|-----|------|---------|
+Idea list: https://docs.google.com/spreadsheets/d/12oQXB1Nrf-8kubaYaMoAY28WCsRkoLeOPXbt2dkpD_g/edit?usp=sharing
+
+## Participant (continuously updated)
+| Name	| Mentor | Project |
+|-----|--------|---------|
 
 ## Resources
 - PyHealth Documentation: https://pyhealth.readthedocs.io/en/latest/
