@@ -4,7 +4,7 @@
 
 | Day	                    | Activity                                                    |
 |-------------------------|-------------------------------------------------------------|
-| Mon (Oct 28)	           | Overview and PyHealth tutorial (3 hrs) by Zhenbang and John |
+| Mon (Oct 28)	9AM-12PM CT           | Overview and PyHealth tutorial (3 hrs) by Zhenbang and John |
 | Tue (Oct 29)            | Project formation and discussion                            | 
 | Wed - Thu (Oct 30 - 31)	 | Working on the project                                      | 
 | Fri (Nov 1)	            | Presentation (afternoon group meeting)                      | 
