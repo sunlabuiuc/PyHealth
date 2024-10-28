@@ -31,8 +31,8 @@ class Mortality30DaysMIMIC4(TaskTemplate):
         diagnoses = [diag.attr_dict["code"] for diag in diagnoses]
         procedures = [proc.attr_dict["code"] for proc in procedures]
 
-        # if len(diagnoses) * len(procedures) == 0:
-        #     return []
+        if len(diagnoses) * len(procedures) == 0:
+            return []
 
         samples = [
             {
