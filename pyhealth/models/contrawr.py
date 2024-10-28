@@ -210,7 +210,7 @@ class ContraWR(BaseModel):
 
         print(f"\n=== Input data statistics ===")
         # obtain input signal size
-        signal_info = self.dataset.input_info["signal"]
+        signal_info = self.dataset.input_info[self.feature_keys[0]]
         in_channels, length = signal_info["n_channels"], signal_info["length"]
         # input signal size (batch, n_channels, length)
         print(f"n_channels: {in_channels}")
@@ -320,7 +320,7 @@ if __name__ == "__main__":
     # """
     # from pyhealth.datasets import split_by_patient, get_dataloader
     # from pyhealth.trainer import Trainer
-    # from pyhealth.datasets import SleepEDFDataset
+    from pyhealth.datasets import SleepEDFDataset
     # from pyhealth.tasks import sleep_staging_sleepedf_fn
 
     # # step 1: load signal data
@@ -366,35 +366,40 @@ if __name__ == "__main__":
     """
     test ContraWR 2
     """
-    from pyhealth.datasets import SampleSignalDataset, get_dataloader
+    # from pyhealth.datasets import SampleSignalDataset, get_dataloader
+    #
+    # samples = [
+    #     {
+    #         "record_id": "SC4001-0",
+    #         "patient_id": "SC4001",
+    #         "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/2f06a9232e54254cbcb4b62624294d71/SC4001-0.pkl",
+    #         "label": "W",
+    #     },
+    #     {
+    #         "record_id": "SC4001-0",
+    #         "patient_id": "SC4001",
+    #         "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/2f06a9232e54254cbcb4b62624294d71/SC4001-1.pkl",
+    #         "label": "R",
+    #     },
+    # ]
+    #
+    # # dataset
+    # dataset = SampleSignalDataset(samples=samples, dataset_name="test")
 
-    samples = [
-        {
-            "record_id": "SC4001-0",
-            "patient_id": "SC4001",
-            "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/2f06a9232e54254cbcb4b62624294d71/SC4001-0.pkl",
-            "label": "W",
-        },
-        {
-            "record_id": "SC4001-0",
-            "patient_id": "SC4001",
-            "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/2f06a9232e54254cbcb4b62624294d71/SC4001-1.pkl",
-            "label": "R",
-        },
-    ]
-
-    # dataset
-    dataset = SampleSignalDataset(samples=samples, dataset_name="test")
+    dataset = SleepEDFDataset(
+        root="/srv/local/data/SLEEPEDF/sleep-edf-database-expanded-1.0.0/sleep-telemetry",
+    )
+    samples = dataset.set_task()
 
     # data loader
     from pyhealth.datasets import get_dataloader
 
-    train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
+    train_loader = get_dataloader(samples, batch_size=2, shuffle=True)
 
     # model
     model = ContraWR(
-        dataset=dataset,
-        feature_keys=["signal"],
+        dataset=samples,
+        feature_keys=["epoch_signal"],
         label_key="label",
         mode="multiclass",
     ).to("cuda:0")
