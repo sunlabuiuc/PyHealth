@@ -3,9 +3,7 @@ from collections import Counter
 
 import pandas as pd
 
-import sys 
-sys.path.append('.')
-
+from pyhealth.data import Patient
 from pyhealth.datasets.base_dataset_v2 import BaseDataset
 from pyhealth.tasks.covid19_cxr_classification import COVID19CXRClassification
 
@@ -25,7 +23,7 @@ class COVID19CXRDataset(BaseDataset):
 
     ***Normal images:
     ----------------------------------------
-    10192 Normal data are collected from from three different dataset.
+    10192 Normal data are collected from three different dataset.
     -8851 RSNA [8]
     -1341 Kaggle [9]
 
@@ -123,13 +121,16 @@ class COVID19CXRDataset(BaseDataset):
         # create patient dict
         patients = {}
         for index, row in df.iterrows():
-            patients[index] = row.to_dict()
+            patients[index] = Patient(
+                patient_id=str(index),
+                attr_dict=row.to_dict(),
+            )
         return patients
 
     def stat(self):
         super().stat()
         print(f"Number of samples: {len(self.patients)}")
-        count = Counter([v['label'] for v in self.patients.values()])
+        count = Counter([v.attr_dict['label'] for v in self.patients.values()])
         print(f"Number of classes: {len(count)}")
         print(f"Class distribution: {count}")
 
@@ -140,7 +141,7 @@ class COVID19CXRDataset(BaseDataset):
 
 if __name__ == "__main__":
     dataset = COVID19CXRDataset(
-        root="./data/COVID-19_Radiography_Dataset",
+        root="/home/zw12/data/raw_data/covid19-radiography-database/COVID-19_Radiography_Dataset",
     )
     print(list(dataset.patients.items())[0])
     dataset.stat()
