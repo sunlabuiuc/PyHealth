@@ -17,13 +17,13 @@ class MIMIC3Dataset(BaseEHRDataset):
     patients. The dataset is available at https://mimic.physionet.org/.
 
     The basic information is stored in the following tables:
-        - PATIENTS: defines a patient in the database, SUBJECT_ID.
-        - ADMISSIONS: defines a patient's hospital admission, HADM_ID.
+        - PATIENTS: defines a patient in the database, subject_id.
+        - ADMISSIONS: defines a patient's hospital admission, hadm_id.
 
     We further support the following tables:
         - DIAGNOSES_ICD: contains ICD-9 diagnoses (ICD9CM code) for patients.
         - PROCEDURES_ICD: contains ICD-9 procedures (ICD9PROC code) for patients.
-        - PRESCRIPTIONS: contains medication related order entries (NDC code)
+        - PRESCRIPTIONS: contains medication related order entries (ndc code)
             for patients.
         - LABEVENTS: contains laboratory measurements (MIMIC3_ITEMID code)
             for patients
@@ -62,7 +62,7 @@ class MIMIC3Dataset(BaseEHRDataset):
         >>> dataset = MIMIC3Dataset(
         ...         root="/srv/local/data/physionet.org/files/mimiciii/1.4",
         ...         tables=["DIAGNOSES_ICD", "PRESCRIPTIONS"],
-        ...         code_mapping={"NDC": ("ATC", {"target_kwargs": {"level": 3}})},
+        ...         code_mapping={"ndc": ("ATC", {"target_kwargs": {"level": 3}})},
         ...     )
         >>> dataset.stat()
         >>> dataset.info()
@@ -86,43 +86,45 @@ class MIMIC3Dataset(BaseEHRDataset):
         # read patients table
         patients_df = pd.read_csv(
             os.path.join(self.root, "PATIENTS.csv"),
-            dtype={"SUBJECT_ID": str},
+            dtype={"subject_id": str},
             nrows=1000 if self.dev else None,
         )
         # read admissions table
         admissions_df = pd.read_csv(
             os.path.join(self.root, "ADMISSIONS.csv"),
-            dtype={"SUBJECT_ID": str, "HADM_ID": str},
+            dtype={"subject_id": str, "hadm_id": str},
         )
         # merge patient and admission tables
-        df = pd.merge(patients_df, admissions_df, on="SUBJECT_ID", how="inner")
+        # import pdb
+        # pdb.set_trace()
+        df = pd.merge(patients_df, admissions_df, on="subject_id", how="inner")
         # sort by admission and discharge time
-        df = df.sort_values(["SUBJECT_ID", "ADMITTIME", "DISCHTIME"], ascending=True)
+        df = df.sort_values(["subject_id", "admittime", "dischtime"], ascending=True)
         # group by patient
-        df_group = df.groupby("SUBJECT_ID")
+        df_group = df.groupby("subject_id")
 
         # parallel unit of basic information (per patient)
         def basic_unit(p_id, p_info):
             patient = Patient(
                 patient_id=p_id,
-                birth_datetime=strptime(p_info["DOB"].values[0]),
-                death_datetime=strptime(p_info["DOD_HOSP"].values[0]),
-                gender=p_info["GENDER"].values[0],
-                ethnicity=p_info["ETHNICITY"].values[0],
+                birth_datetime=strptime(p_info["dob"].values[0]),
+                death_datetime=strptime(p_info["dod_hosp"].values[0]),
+                gender=p_info["gender"].values[0],
+                ethnicity=p_info["ethnicity"].values[0],
             )
             # load visits
-            for v_id, v_info in p_info.groupby("HADM_ID"):
+            for v_id, v_info in p_info.groupby("hadm_id"):
                 visit = Visit(
                     visit_id=v_id,
                     patient_id=p_id,
-                    encounter_time=strptime(v_info["ADMITTIME"].values[0]),
-                    discharge_time=strptime(v_info["DISCHTIME"].values[0]),
-                    discharge_status=v_info["HOSPITAL_EXPIRE_FLAG"].values[0],
-                    insurance=v_info["INSURANCE"].values[0],
-                    language=v_info["LANGUAGE"].values[0],
-                    religion=v_info["RELIGION"].values[0],
-                    marital_status=v_info["MARITAL_STATUS"].values[0],
-                    ethnicity=v_info["ETHNICITY"].values[0],
+                    encounter_time=strptime(v_info["admittime"].values[0]),
+                    discharge_time=strptime(v_info["dischtime"].values[0]),
+                    discharge_status=v_info["hospital_expire_flag"].values[0],
+                    insurance=v_info["insurance"].values[0],
+                    language=v_info["language"].values[0],
+                    religion=v_info["religion"].values[0],
+                    marital_status=v_info["marital_status"].values[0],
+                    ethnicity=v_info["ethnicity"].values[0],
                 )
                 # add visit
                 patient.add_visit(visit)
@@ -130,7 +132,7 @@ class MIMIC3Dataset(BaseEHRDataset):
 
         # parallel apply
         df_group = df_group.parallel_apply(
-            lambda x: basic_unit(x.SUBJECT_ID.unique()[0], x)
+            lambda x: basic_unit(x.subject_id.unique()[0], x)
         )
         # summarize the results
         for pat_id, pat in df_group.items():
@@ -161,22 +163,22 @@ class MIMIC3Dataset(BaseEHRDataset):
         # read table
         df = pd.read_csv(
             os.path.join(self.root, f"{table}.csv"),
-            dtype={"SUBJECT_ID": str, "HADM_ID": str, "ICD9_CODE": str},
+            dtype={"subject_id": str, "hadm_id": str, "icd9_code": str},
         )
         # drop records of the other patients
-        df = df[df["SUBJECT_ID"].isin(patients.keys())]
+        df = df[df["subject_id"].isin(patients.keys())]
         # drop rows with missing values
-        df = df.dropna(subset=["SUBJECT_ID", "HADM_ID", "ICD9_CODE"])
+        df = df.dropna(subset=["subject_id", "hadm_id", "icd9_code"])
         # sort by sequence number (i.e., priority)
-        df = df.sort_values(["SUBJECT_ID", "HADM_ID", "SEQ_NUM"], ascending=True)
+        df = df.sort_values(["subject_id", "hadm_id", "seq_num"], ascending=True)
         # group by patient and visit
-        group_df = df.groupby("SUBJECT_ID")
+        group_df = df.groupby("subject_id")
 
         # parallel unit of diagnosis (per patient)
         def diagnosis_unit(p_id, p_info):
             events = []
-            for v_id, v_info in p_info.groupby("HADM_ID"):
-                for code in v_info["ICD9_CODE"]:
+            for v_id, v_info in p_info.groupby("hadm_id"):
+                for code in v_info["icd9_code"]:
                     event = Event(
                         code=code,
                         table=table,
@@ -189,7 +191,7 @@ class MIMIC3Dataset(BaseEHRDataset):
 
         # parallel apply
         group_df = group_df.parallel_apply(
-            lambda x: diagnosis_unit(x.SUBJECT_ID.unique()[0], x)
+            lambda x: diagnosis_unit(x.subject_id.unique()[0], x)
         )
 
         # summarize the results
@@ -219,22 +221,22 @@ class MIMIC3Dataset(BaseEHRDataset):
         # read table
         df = pd.read_csv(
             os.path.join(self.root, f"{table}.csv"),
-            dtype={"SUBJECT_ID": str, "HADM_ID": str, "ICD9_CODE": str},
+            dtype={"subject_id": str, "hadm_id": str, "icd9_code": str},
         )
         # drop records of the other patients
-        df = df[df["SUBJECT_ID"].isin(patients.keys())]
+        df = df[df["subject_id"].isin(patients.keys())]
         # drop rows with missing values
-        df = df.dropna(subset=["SUBJECT_ID", "HADM_ID", "SEQ_NUM", "ICD9_CODE"])
+        df = df.dropna(subset=["subject_id", "hadm_id", "seq_num", "icd9_code"])
         # sort by sequence number (i.e., priority)
-        df = df.sort_values(["SUBJECT_ID", "HADM_ID", "SEQ_NUM"], ascending=True)
+        df = df.sort_values(["subject_id", "hadm_id", "seq_num"], ascending=True)
         # group by patient and visit
-        group_df = df.groupby("SUBJECT_ID")
+        group_df = df.groupby("subject_id")
 
         # parallel unit of procedure (per patient)
         def procedure_unit(p_id, p_info):
             events = []
-            for v_id, v_info in p_info.groupby("HADM_ID"):
-                for code in v_info["ICD9_CODE"]:
+            for v_id, v_info in p_info.groupby("hadm_id"):
+                for code in v_info["icd9_code"]:
                     event = Event(
                         code=code,
                         table=table,
@@ -247,7 +249,7 @@ class MIMIC3Dataset(BaseEHRDataset):
 
         # parallel apply
         group_df = group_df.parallel_apply(
-            lambda x: procedure_unit(x.SUBJECT_ID.unique()[0], x)
+            lambda x: procedure_unit(x.subject_id.unique()[0], x)
         )
 
         # summarize the results
@@ -269,33 +271,33 @@ class MIMIC3Dataset(BaseEHRDataset):
             The updated patients dict.
         """
         table = "PRESCRIPTIONS"
-        self.code_vocs["drugs"] = "NDC"
+        self.code_vocs["drugs"] = "ndc"
         # read table
         df = pd.read_csv(
             os.path.join(self.root, f"{table}.csv"),
             low_memory=False,
-            dtype={"SUBJECT_ID": str, "HADM_ID": str, "NDC": str},
+            dtype={"subject_id": str, "hadm_id": str, "ndc": str},
         )
         # drop records of the other patients
-        df = df[df["SUBJECT_ID"].isin(patients.keys())]
+        df = df[df["subject_id"].isin(patients.keys())]
         # drop rows with missing values
-        df = df.dropna(subset=["SUBJECT_ID", "HADM_ID", "NDC"])
+        df = df.dropna(subset=["subject_id", "hadm_id", "ndc"])
         # sort by start date and end date
         df = df.sort_values(
-            ["SUBJECT_ID", "HADM_ID", "STARTDATE", "ENDDATE"], ascending=True
+            ["subject_id", "hadm_id", "startdate", "enddate"], ascending=True
         )
         # group by patient and visit
-        group_df = df.groupby("SUBJECT_ID")
+        group_df = df.groupby("subject_id")
 
         # parallel unit for prescription (per patient)
         def prescription_unit(p_id, p_info):
             events = []
-            for v_id, v_info in p_info.groupby("HADM_ID"):
-                for timestamp, code in zip(v_info["STARTDATE"], v_info["NDC"]):
+            for v_id, v_info in p_info.groupby("hadm_id"):
+                for timestamp, code in zip(v_info["startdate"], v_info["ndc"]):
                     event = Event(
                         code=code,
                         table=table,
-                        vocabulary="NDC",
+                        vocabulary="ndc",
                         visit_id=v_id,
                         patient_id=p_id,
                         timestamp=strptime(timestamp),
@@ -305,7 +307,7 @@ class MIMIC3Dataset(BaseEHRDataset):
 
         # parallel apply
         group_df = group_df.parallel_apply(
-            lambda x: prescription_unit(x.SUBJECT_ID.unique()[0], x)
+            lambda x: prescription_unit(x.subject_id.unique()[0], x)
         )
 
         # summarize the results
@@ -331,21 +333,21 @@ class MIMIC3Dataset(BaseEHRDataset):
         # read table
         df = pd.read_csv(
             os.path.join(self.root, f"{table}.csv"),
-            dtype={"SUBJECT_ID": str, "HADM_ID": str, "ITEMID": str},
+            dtype={"subject_id": str, "hadm_id": str, "ITEMID": str},
         )
         # drop records of the other patients
-        df = df[df["SUBJECT_ID"].isin(patients.keys())]
+        df = df[df["subject_id"].isin(patients.keys())]
         # drop rows with missing values
-        df = df.dropna(subset=["SUBJECT_ID", "HADM_ID", "ITEMID"])
+        df = df.dropna(subset=["subject_id", "hadm_id", "ITEMID"])
         # sort by charttime
-        df = df.sort_values(["SUBJECT_ID", "HADM_ID", "CHARTTIME"], ascending=True)
+        df = df.sort_values(["subject_id", "hadm_id", "CHARTTIME"], ascending=True)
         # group by patient and visit
-        group_df = df.groupby("SUBJECT_ID")
+        group_df = df.groupby("subject_id")
 
         # parallel unit for lab (per patient)
         def lab_unit(p_id, p_info):
             events = []
-            for v_id, v_info in p_info.groupby("HADM_ID"):
+            for v_id, v_info in p_info.groupby("hadm_id"):
                 for timestamp, code in zip(v_info["CHARTTIME"], v_info["ITEMID"]):
                     event = Event(
                         code=code,
@@ -360,7 +362,7 @@ class MIMIC3Dataset(BaseEHRDataset):
 
         # parallel apply
         group_df = group_df.parallel_apply(
-            lambda x: lab_unit(x.SUBJECT_ID.unique()[0], x)
+            lambda x: lab_unit(x.subject_id.unique()[0], x)
         )
 
         # summarize the results
@@ -377,7 +379,7 @@ if __name__ == "__main__":
             "PRESCRIPTIONS",
             "LABEVENTS",
         ],
-        code_mapping={"NDC": "ATC"},
+        code_mapping={"ndc": "ATC"},
         dev=True,
         refresh_cache=True,
     )
@@ -388,7 +390,7 @@ if __name__ == "__main__":
     #     root="/srv/local/data/physionet.org/files/mimiciii/1.4",
     #     tables=["DIAGNOSES_ICD", "PRESCRIPTIONS"],
     #     dev=True,
-    #     code_mapping={"NDC": ("ATC", {"target_kwargs": {"level": 3}})},
+    #     code_mapping={"ndc": ("ATC", {"target_kwargs": {"level": 3}})},
     #     refresh_cache=False,
     # )
     # print(dataset.stat())
