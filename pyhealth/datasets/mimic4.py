@@ -1,20 +1,18 @@
+# The original code in 202410-sunlab-hackthon branch has some issue with dataset parsing.
+# Using the code from main branch is a quick fix
 import os
-import time
-from datetime import timedelta
-from typing import List, Dict
+from typing import Optional, List, Dict, Union, Tuple
 
 import pandas as pd
-from pandarallel import pandarallel
 
-from pyhealth.data import Event, Patient
-from pyhealth.datasets.base_dataset_v2 import BaseDataset
+from pyhealth.data import Event, Visit, Patient
+from pyhealth.datasets import BaseEHRDataset
 from pyhealth.datasets.utils import strptime
-
 
 # TODO: add other tables
 
 
-class MIMIC4Dataset(BaseDataset):
+class MIMIC4Dataset(BaseEHRDataset):
     """Base dataset for MIMIC-IV dataset.
 
     The MIMIC-IV dataset is a large dataset of de-identified health records of ICU
@@ -74,53 +72,6 @@ class MIMIC4Dataset(BaseDataset):
         >>> dataset.info()
     """
 
-    def __init__(
-        self,
-        root: str,
-        dev=False,
-        tables: List[str] = None,
-    ):
-        self.dev = dev
-        self.tables = tables
-        super().__init__(root)
-
-    def process(self) -> Dict[str, Patient]:
-        """Parses the tables in `self.tables` and return a dict of patients.
-
-        Will be called in `self.__init__()` if cache file does not exist or
-            refresh_cache is True.
-
-        This function will first call `self.parse_basic_info()` to parse the
-        basic patient information, and then call `self.parse_[table_name]()` to
-        parse the table with name `table_name`. Both `self.parse_basic_info()` and
-        `self.parse_[table_name]()` should be implemented in the subclass.
-
-        Returns:
-           A dict mapping patient_id to `Patient` object.
-        """
-        pandarallel.initialize(progress_bar=False)
-
-        # patients is a dict of Patient objects indexed by patient_id
-        patients: Dict[str, Patient] = dict()
-        # process basic information (e.g., patients and visits)
-        tic = time.time()
-        patients = self.parse_basic_info(patients)
-        print(
-            "finish basic patient information parsing : {}s".format(time.time() - tic)
-        )
-        # process clinical tables
-        for table in self.tables:
-            try:
-                # use lower case for function name
-                tic = time.time()
-                patients = getattr(self, f"parse_{table.lower()}")(patients)
-                print(f"finish parsing {table} : {time.time() - tic}s")
-            except AttributeError:
-                raise NotImplementedError(
-                    f"Parser for table {table} is not implemented yet."
-                )
-        return patients
-
     def parse_basic_info(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
         """Helper functions which parses patients and admissions tables.
 
@@ -161,33 +112,27 @@ class MIMIC4Dataset(BaseDataset):
             anchor_year = int(p_info["anchor_year"].values[0])
             anchor_age = int(p_info["anchor_age"].values[0])
             birth_year = anchor_year - anchor_age
-            attr_dict = {
-                # no exact month, day, and time, use Jan 1st, 00:00:00
-                "birth_datetime": strptime(str(birth_year)),
-                # no exact time, use 00:00:00
-                "death_datetime": strptime(p_info["dod"].values[0]),
-                "gender": p_info["gender"].values[0],
-                "ethnicity": p_info["race"].values[0],
-                "anchor_year_group": p_info["anchor_year_group"].values[0],
-            }
             patient = Patient(
                 patient_id=p_id,
-                attr_dict=attr_dict,
+                # no exact month, day, and time, use Jan 1st, 00:00:00
+                birth_datetime=strptime(str(birth_year)),
+                # no exact time, use 00:00:00
+                death_datetime=strptime(p_info["dod"].values[0]),
+                gender=p_info["gender"].values[0],
+                ethnicity=p_info["race"].values[0],
+                anchor_year_group=p_info["anchor_year_group"].values[0],
             )
-            # load admissions
+            # load visits
             for v_id, v_info in p_info.groupby("hadm_id"):
-                attr_dict = {
-                    "visit_id": v_id,
-                    "discharge_time": strptime(v_info["dischtime"].values[0]),
-                    "discharge_status": v_info["hospital_expire_flag"].values[0],
-                }
-                event = Event(
-                    type="admissions",
-                    timestamp=strptime(v_info["admittime"].values[0]),
-                    attr_dict=attr_dict,
+                visit = Visit(
+                    visit_id=v_id,
+                    patient_id=p_id,
+                    encounter_time=strptime(v_info["admittime"].values[0]),
+                    discharge_time=strptime(v_info["dischtime"].values[0]),
+                    discharge_status=v_info["hospital_expire_flag"].values[0],
                 )
                 # add visit
-                patient.add_event(event)
+                patient.add_visit(visit)
             return patient
 
         # parallel apply
@@ -228,17 +173,6 @@ class MIMIC4Dataset(BaseDataset):
         df = df.dropna(subset=["subject_id", "hadm_id", "icd_code", "icd_version"])
         # sort by sequence number (i.e., priority)
         df = df.sort_values(["subject_id", "hadm_id", "seq_num"], ascending=True)
-        # load admissions table
-        admissions_df = pd.read_csv(
-            os.path.join(self.root, "admissions.csv"),
-            dtype={"subject_id": str, "hadm_id": str},
-        )
-        # merge patients and admissions tables
-        df = df.merge(
-            admissions_df[["subject_id", "hadm_id", "dischtime"]],
-            on=["subject_id", "hadm_id"],
-            how="inner"
-        )
         # group by patient and visit
         group_df = df.groupby("subject_id")
 
@@ -248,17 +182,12 @@ class MIMIC4Dataset(BaseDataset):
             # iterate over each patient and visit
             for v_id, v_info in p_info.groupby("hadm_id"):
                 for code, version in zip(v_info["icd_code"], v_info["icd_version"]):
-                    attr_dict = {
-                        "code": code,
-                        "vocabulary": f"ICD{version}CM",
-                        "visit_id": v_id,
-                        "patient_id": p_id,
-                    }
                     event = Event(
-                        type=table,
-                        timestamp=strptime(v_info["dischtime"].values[0]) - timedelta(
-                            seconds=1),
-                        attr_dict=attr_dict,
+                        code=code,
+                        table=table,
+                        vocabulary=f"ICD{version}CM",
+                        visit_id=v_id,
+                        patient_id=p_id,
                     )
                     events.append(event)
             return events
@@ -300,17 +229,6 @@ class MIMIC4Dataset(BaseDataset):
         df = df.dropna(subset=["subject_id", "hadm_id", "icd_code", "icd_version"])
         # sort by sequence number (i.e., priority)
         df = df.sort_values(["subject_id", "hadm_id", "seq_num"], ascending=True)
-        # load admissions table
-        admissions_df = pd.read_csv(
-            os.path.join(self.root, "admissions.csv"),
-            dtype={"subject_id": str, "hadm_id": str},
-        )
-        # merge patients and admissions tables
-        df = df.merge(
-            admissions_df[["subject_id", "hadm_id", "dischtime"]],
-            on=["subject_id", "hadm_id"],
-            how="inner"
-        )
         # group by patient and visit
         group_df = df.groupby("subject_id")
 
@@ -319,17 +237,12 @@ class MIMIC4Dataset(BaseDataset):
             events = []
             for v_id, v_info in p_info.groupby("hadm_id"):
                 for code, version in zip(v_info["icd_code"], v_info["icd_version"]):
-                    attr_dict = {
-                        "code": code,
-                        "vocabulary": f"ICD{version}PROC",
-                        "visit_id": v_id,
-                        "patient_id": p_id,
-                    }
                     event = Event(
-                        type=table,
-                        timestamp=strptime(v_info["dischtime"].values[0]) - timedelta(
-                            seconds=1),
-                        attr_dict=attr_dict,
+                        code=code,
+                        table=table,
+                        vocabulary=f"ICD{version}PROC",
+                        visit_id=v_id,
+                        patient_id=p_id,
                     )
                     # update patients
                     events.append(event)
@@ -380,16 +293,13 @@ class MIMIC4Dataset(BaseDataset):
             events = []
             for v_id, v_info in p_info.groupby("hadm_id"):
                 for timestamp, code in zip(v_info["starttime"], v_info["ndc"]):
-                    attr_dict = {
-                        "code": code,
-                        "vocabulary": "NDC",
-                        "visit_id": v_id,
-                        "patient_id": p_id,
-                    }
                     event = Event(
-                        type=table,
+                        code=code,
+                        table=table,
+                        vocabulary="NDC",
+                        visit_id=v_id,
+                        patient_id=p_id,
                         timestamp=strptime(timestamp),
-                        attr_dict=attr_dict,
                     )
                     # update patients
                     events.append(event)
@@ -437,16 +347,13 @@ class MIMIC4Dataset(BaseDataset):
             events = []
             for v_id, v_info in p_info.groupby("hadm_id"):
                 for timestamp, code in zip(v_info["charttime"], v_info["itemid"]):
-                    attr_dict = {
-                        "code": code,
-                        "vocabulary": "MIMIC4_ITEMID",
-                        "visit_id": v_id,
-                        "patient_id": p_id,
-                    }
                     event = Event(
-                        type=table,
+                        code=code,
+                        table=table,
+                        vocabulary="MIMIC4_ITEMID",
+                        visit_id=v_id,
+                        patient_id=p_id,
                         timestamp=strptime(timestamp),
-                        attr_dict=attr_dict,
                     )
                     events.append(event)
             return events
@@ -460,85 +367,69 @@ class MIMIC4Dataset(BaseDataset):
         patients = self._add_events_to_patient_dict(patients, group_df)
         return patients
 
-    def _add_events_to_patient_dict(
-        self,
-        patient_dict: Dict[str, Patient],
-        group_df: pd.DataFrame,
-    ) -> Dict[str, Patient]:
-        """Helper function which adds the events column of a df.groupby object to the patient dict.
+    def parse_hcpcsevents(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
+        """Helper function which parses hcpcsevents table.
 
-        Will be called at the end of each `self.parse_[table_name]()` function.
+        Will be called in `self.parse_tables()`
 
-        Args:
-            patient_dict: a dict mapping patient_id to `Patient` object.
-            group_df: a df.groupby object, having two columns: patient_id and events.
-                - the patient_id column is the index of the patient
-                - the events column is a list of <Event> objects
-
-        Returns:
-            The updated patient dict.
-        """
-        for _, events in group_df.items():
-            for event in events:
-                patient_dict = self._add_event_to_patient_dict(patient_dict, event)
-        return patient_dict
-
-    @staticmethod
-    def _add_event_to_patient_dict(
-        patient_dict: Dict[str, Patient],
-        event: Event,
-    ) -> Dict[str, Patient]:
-        """Helper function which adds an event to the patient dict.
-
-        Will be called in `self._add_events_to_patient_dict`.
-
-        Note that if the patient of the event is not in the patient dict, or the
-        visit of the event is not in the patient, this function will do nothing.
+        Docs:
+            - hcpcsevents: https://mimic.mit.edu/docs/iv/modules/hosp/hcpcsevents/
 
         Args:
-            patient_dict: a dict mapping patient_id to `Patient` object.
-            event: an event to be added to the patient dict.
+            patients: a dict of `Patient` objects indexed by patient_id.
 
         Returns:
-            The updated patient dict.
-        """
-        patient_id = event.attr_dict["patient_id"]
-        try:
-            patient_dict[patient_id].add_event(event)
-        except KeyError:
-            pass
-        return patient_dict
+            The updated patients dict.
 
-    def stat(self) -> str:
-        """Returns some statistics of the base dataset."""
-        lines = list()
-        lines.append("")
-        lines.append(f"Statistics of base dataset (dev={self.dev}):")
-        lines.append(f"\t- Dataset: {self.dataset_name}")
-        lines.append(f"\t- Number of patients: {len(self.patients)}")
-        num_visits = [len(p.get_events_by_type("admissions")) for p in
-                      self.patients.values()]
-        lines.append(f"\t- Number of visits: {sum(num_visits)}")
-        lines.append(
-            f"\t- Number of visits per patient: {sum(num_visits) / len(num_visits):.4f}"
+        Note:
+            MIMIC-IV does not provide specific timestamps in hcpcsevents
+                table, so we set it to None.
+        """
+        table = "hcpcsevents"
+        # read table
+        df = pd.read_csv(
+            os.path.join(self.root, f"{table}.csv"),
+            dtype={"subject_id": str, "hadm_id": str, "hcpcs_cd": str},
         )
-        for table in self.tables:
-            num_events = [
-                len(p.get_events_by_type(table)) for p in self.patients.values()
-            ]
-            lines.append(
-                f"\t- Number of events per patient in {table}: "
-                f"{sum(num_events) / len(num_events):.4f}"
-            )
-        lines.append("")
-        print("\n".join(lines))
-        return "\n".join(lines)
+        # drop rows with missing values
+        df = df.dropna(subset=["subject_id", "hadm_id", "hcpcs_cd"])
+        # sort by sequence number (i.e., priority)
+        df = df.sort_values(["subject_id", "hadm_id", "seq_num"], ascending=True)
+        # group by patient and visit
+        group_df = df.groupby("subject_id")
 
+        # parallel unit of hcpcsevents (per patient)
+        def hcpcsevents_unit(p_id, p_info):
+            events = []
+            for v_id, v_info in p_info.groupby("hadm_id"):
+                for code in v_info["hcpcs_cd"]:
+                    event = Event(
+                        code=code,
+                        table=table,
+                        vocabulary="MIMIC4_HCPCS_CD",
+                        visit_id=v_id,
+                        patient_id=p_id,
+                    )
+                    # update patients
+                    events.append(event)
+            return events
+            
+        # parallel apply
+        group_df = group_df.parallel_apply(
+            lambda x: hcpcsevents_unit(x.subject_id.unique()[0], x)
+        )
 
+        # summarize the results
+        patients = self._add_events_to_patient_dict(patients, group_df)
+        
+        return patients
+        
 if __name__ == "__main__":
     dataset = MIMIC4Dataset(
         root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
-        tables=["diagnoses_icd", "procedures_icd"],
-        dev=True,
+        tables=["diagnoses_icd", "procedures_icd", "prescriptions", "labevents", "hcpcsevents"],
+        code_mapping={"NDC": "ATC"},
+        refresh_cache=False,
     )
     dataset.stat()
+    dataset.info()

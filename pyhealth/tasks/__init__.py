@@ -20,13 +20,14 @@
 #     length_of_stay_prediction_mimic4_fn,
 #     length_of_stay_prediction_omop_fn,
 # )
-# from .mortality_prediction import (
-#     mortality_prediction_eicu_fn,
-#     mortality_prediction_eicu_fn2,
-#     mortality_prediction_mimic3_fn,
-#     mortality_prediction_mimic4_fn,
-#     mortality_prediction_omop_fn,
-# )
+from .mortality_prediction import (
+    mimic3_48_ihm,
+    mortality_prediction_eicu_fn,
+    mortality_prediction_eicu_fn2,
+    mortality_prediction_mimic3_fn,
+    mortality_prediction_mimic4_fn,
+    mortality_prediction_omop_fn,
+)
 # from .readmission_prediction import (
 #     readmission_prediction_eicu_fn,
 #     readmission_prediction_eicu_fn2,
@@ -43,4 +44,4 @@
 from .covid19_cxr_classification import COVID19CXRClassification
 from .medical_transcriptions_classification import MedicalTranscriptionsClassification
 from .sleep_staging_v2 import SleepStagingSleepEDF
-from .mortality_prediction_v2 import Mortality30DaysMIMIC4
+from .mortality_prediction_v2 import Mortality30DaysMIMIC4, MIMIC3_48_IHM
