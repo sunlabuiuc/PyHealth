@@ -332,13 +332,13 @@ class MIMIC3Dataset(BaseEHRDataset):
         # read table
         df = pd.read_csv(
             os.path.join(self.root, f"{table}.csv"),
-            dtype={"subject_id": str, "hadm_id": str, "itemid": str},
+            dtype={"subject_id": str, "hadm_id": str, "itemid": str, "valuenum": float},
         )
         # drop records of the other patients
         df = df[df["subject_id"].isin(patients.keys())]
         # drop rows with missing values
         # df = df.dropna(subset=["subject_id", "hadm_id"])
-        df = df.dropna(subset=["subject_id", "hadm_id", "itemid"])
+        df = df.dropna(subset=["subject_id", "hadm_id", "itemid", "valuenum"])
         # sort by charttime
         df = df.sort_values(["subject_id", "hadm_id", "charttime"], ascending=True)
         # group by patient and visit
@@ -348,7 +348,7 @@ class MIMIC3Dataset(BaseEHRDataset):
         def lab_unit(p_id, p_info):
             events = []
             for v_id, v_info in p_info.groupby("hadm_id"):
-                for timestamp, code in zip(v_info["charttime"], v_info["itemid"]):
+                for timestamp, code, valuenum in zip(v_info["charttime"], v_info["itemid"], v_info["valuenum"]):
                     event = Event(
                         code=code,
                         table=table,
@@ -356,6 +356,7 @@ class MIMIC3Dataset(BaseEHRDataset):
                         visit_id=v_id,
                         patient_id=p_id,
                         timestamp=strptime(timestamp),
+                        valuenum=valuenum,
                     )
                     events.append(event)
             return events

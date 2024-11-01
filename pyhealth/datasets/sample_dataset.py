@@ -1,6 +1,7 @@
 from collections import Counter
 from typing import Dict, List
 import pickle
+import numpy as np
 
 from torch.utils.data import Dataset
 
@@ -354,7 +355,7 @@ class SampleEHRDataset(SampleBaseDataset):
             """
             types = set([type(v) for v in flattened_values])
             assert (
-                types == set([str]) or len(types.difference(set([int, float]))) == 0
+                types == set([str]) or len(types.difference(set([int, float]))) == 0 or types == set([np.ndarray])
             ), f"Key {key} has mixed or unsupported types ({types}) across samples"
             type_ = types.pop()
             """
