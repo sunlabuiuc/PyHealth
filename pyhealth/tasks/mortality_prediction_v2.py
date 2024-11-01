@@ -151,12 +151,12 @@ class Discretizer:
         # self._empty_bins_sum += empty_bins / (N_bins + eps)
         # self._unused_data_sum += unused_data / (total_data + eps)
 
-        return (data, mask)
+        return (data.tolist(), mask.tolist())
     
 @dataclass(frozen=True)
 class MIMIC3_48_IHM(TaskTemplate):
     task_name: str = "48_IHM"
-    input_schema: Dict[str, str] = field(default_factory=lambda: {"diagnoses": "sequence", "procedures": "sequence"})
+    input_schema: Dict[str, str] = field(default_factory=lambda: {"discretized_features": "sequence"})
     output_schema: Dict[str, str] = field(default_factory=lambda: {"mortality": "label"})
     __name__: str = task_name
     selected_labitem_ids = {'51221':0, '50971':1, '50983':2, '50912':3, '50902':4} # TODO: use LABEVENTS.csv group statistics to optimize this
@@ -174,11 +174,11 @@ class MIMIC3_48_IHM(TaskTemplate):
             mortality_label = int(visit.discharge_status)
 
             # exclude the event happened after 48 hrs window on admission of the hospital
-            # import pdb
-            # pdb.set_trace()
             labevents = visit.get_event_list(table="LABEVENTS")
+            end_timestamp = visit.encounter_time + timedelta(days=2)
             # exclude: visits without lab events
-            if len(labevents) == 0:
+            if len(labevents) == 0 or labevents[0].timestamp > end_timestamp or labevents[-1].timestamp < end_timestamp:
+                # if no event happens in this visit within the first 48 hrs or this visit is shorter than 48 hrs (2 days), we skip this visit
                 continue
             
             Xs = [[] for _ in range(len(self.selected_labitem_ids))]
@@ -194,18 +194,15 @@ class MIMIC3_48_IHM(TaskTemplate):
                 l = self.selected_labitem_ids[code]
                 x_ts, mask_ts = self.discretizer.transform(Xs[l], code, timespan=48) # TODO: add normalizer later
                 discretized_X.append(x_ts)
-                discretized_mask.append(mask_ts)
-            discretized_X = np.array(discretized_X)
-            discretized_mask = np.array(discretized_mask)
+                discretized_mask.append(mask_ts) # not used so far
             
             # TODO: should also exclude visit with age < 18
             samples.append(
                 {
-                    "visit_id": visit.visit_id,
                     "patient_id": patient.patient_id,
-                    "X": discretized_X,
-                    "mask": discretized_mask,
-                    "label": mortality_label,
+                    "visit_id": visit.visit_id,
+                    "discretized_feature": discretized_X,
+                    "mortality": mortality_label,
                 }
             )
         # no cohort selection

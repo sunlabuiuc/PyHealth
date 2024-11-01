@@ -415,8 +415,6 @@ class BaseEHRDataset(ABC):
             self.patients.items(), desc=f"Generating samples for {task_name}"
         ):
             samples.extend(task_fn(patient))
-        # import pdb
-        # pdb.set_trace()
 
         sample_dataset = SampleEHRDataset(
             samples=samples,
