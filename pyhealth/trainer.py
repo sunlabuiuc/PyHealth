@@ -16,6 +16,7 @@ from pyhealth.metrics import (binary_metrics_fn, multiclass_metrics_fn,
 from pyhealth.utils import create_directory
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 def is_best(best_score: float, score: float, monitor_criterion: str) -> bool:
