@@ -1,5 +1,6 @@
-# import sys
-# sys.path.append('./PyHealth')
+import sys
+sys.path.append('./PyHealth')
+import pyhealth
 from pyhealth.datasets import MIMIC3Dataset
 
 mimic3_ds = MIMIC3Dataset(
