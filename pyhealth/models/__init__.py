@@ -24,3 +24,4 @@ from .vae import VAE
 from .gan import GAN
 from .torchvision_model import TorchvisionModel
 from .transformers_model import TransformersModel
+from .utde import UTDE

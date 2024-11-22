@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.utils.rnn as rnn_utils
 
 from pyhealth.datasets import SampleEHRDataset
-from pyhealth.models import BaseModel
+from pyhealth.models import BaseModel, CNNLayer
 
 # VALID_OPERATION_LEVEL = ["visit", "event"]
 
@@ -112,11 +112,12 @@ class UTDE(nn.Module):
         self.proj1 = nn.Linear(embed_time, embed_time)
         self.proj2 = nn.Linear(embed_time, embed_time)
         self.out_layer= nn.Linear(embed_time, output_dim)
+        self.imputation_conv1d = CNNLayer(5, 64) # TODO: match the dimension with actual immputation
     
     def learn_time_embedding(
         self,
         T: torch.tensor,
-    )
+    ):
         """Function to compute the time embedding for each features
         
         Args:

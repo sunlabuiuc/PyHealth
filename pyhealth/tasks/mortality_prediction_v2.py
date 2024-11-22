@@ -67,18 +67,19 @@ class Discretizer:
         self._empty_bins_sum = 0
         self._unused_data_sum = 0
 
-    def transform(self, X, channel, timespan=None):
+    def transform(self, X, T, channel, timespan=None):
         '''
         Args:
-            X: list of [timestamp, valuenum]
+            X: list of valuenum
+            T: list of timestamp
             channel: the code of lab item
             timespan: the timespan of the data we use
         '''
         eps = 1e-6
 
-        t_ts, x_ts = zip(*X)
+        t_ts, x_ts = T, X
         for i in range(len(t_ts) - 1):
-            assert t_ts[i] < t_ts[i+1] + timedelta(hours=eps)
+            assert t_ts[i] < t_ts[i+1] + eps
 
         if self._start_time == 'relative':
             first_time = t_ts[0]
@@ -88,7 +89,7 @@ class Discretizer:
             raise ValueError("start_time is invalid")
 
         if timespan is None:
-            max_hours = (max(t_ts) - first_time).total_seconds() / 3600
+            max_hours = max(t_ts)
         else:
             max_hours = timespan
 
@@ -100,8 +101,8 @@ class Discretizer:
         total_data = 0
         unused_data = 0
                 
-        for row in X:
-            t = (row[0] - first_time).total_seconds() / 3600
+        for i in range(len(t_ts)):
+            t = t_ts[i]
             if t > max_hours + eps:
                 continue
             bin_id = int(t / self._timestep - eps)
@@ -111,8 +112,8 @@ class Discretizer:
             if mask[bin_id] == 1:
                 unused_data += 1
             mask[bin_id] = 1
-            data[bin_id] = row[1]
-            original_value[bin_id] = row[1]
+            data[bin_id] = x_ts[i]
+            original_value[bin_id] = x_ts[i]
 
         if self._impute_strategy not in ['zero', 'normal_value', 'previous', 'next']:
             raise ValueError("impute strategy is invalid")
@@ -181,18 +182,23 @@ class MIMIC3_48_IHM(TaskTemplate):
                 # if no event happens in this visit within the first 48 hrs or this visit is shorter than 48 hrs (2 days), we skip this visit
                 continue
             
-            Xs = [[] for _ in range(len(self.selected_labitem_ids))]
+            X_ts = [[] for _ in range(len(self.selected_labitem_ids))]
+            T_ts = [[] for _ in range(len(self.selected_labitem_ids))]
             for event in labevents:
+                if event.timestamp < visit.encounter_time:
+                    # TODO: discuss with Zhenbang if this is desired, skip the lab events before the hospital admission
+                    continue
                 if event.timestamp > visit.encounter_time + timedelta(days=2):
                     break 
                 if event.code in self.selected_labitem_ids:
                     l = self.selected_labitem_ids[event.code]
-                    Xs[l].append([event.timestamp, event.attr_dict['valuenum']])
+                    X_ts[l].append(event.attr_dict['valuenum'])
+                    T_ts[l].append((event.timestamp - visit.encounter_time).total_seconds() / 3600)
 
             discretized_X, discretized_mask = [], []
             for code in self.selected_labitem_ids:
                 l = self.selected_labitem_ids[code]
-                x_ts, mask_ts = self.discretizer.transform(Xs[l], code, timespan=48) # TODO: add normalizer later
+                x_ts, mask_ts = self.discretizer.transform(X_ts[l], T_ts[l], code, timespan=48) # TODO: add normalizer later
                 discretized_X.append(x_ts)
                 discretized_mask.append(mask_ts) # not used so far
             
@@ -202,6 +208,8 @@ class MIMIC3_48_IHM(TaskTemplate):
                     "patient_id": patient.patient_id,
                     "visit_id": visit.visit_id,
                     "discretized_feature": discretized_X,
+                    "x_ts": X_ts,
+                    "t_ts": T_ts,
                     "mortality": mortality_label,
                 }
             )

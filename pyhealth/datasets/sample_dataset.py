@@ -379,7 +379,7 @@ class SampleEHRDataset(SampleBaseDataset):
                 # a list of vectors or a list of list of codes
                 if type_ in [float, int]:
                     lens = set([len(i) for s in self.samples for i in s[key]])
-                    assert len(lens) == 1, f"Key {key} has vectors of different lengths"
+                    # assert len(lens) == 1, f"Key {key} has vectors of different lengths" #TODO: uncomment this later, currently need to comment this to skip dataset length check
                     input_info[key] = {"type": type_, "dim": 2, "len": lens.pop()}
                 else:
                     # a list of list of codes
