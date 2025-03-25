@@ -22,3 +22,5 @@ from .graph_torchvision_model import Graph_TorchvisionModel
 from .medlink import MedLink
 from .vae import VAE
 from .gan import GAN
+from .torchvision_model import TorchvisionModel
+from .transformers_model import TransformersModel
