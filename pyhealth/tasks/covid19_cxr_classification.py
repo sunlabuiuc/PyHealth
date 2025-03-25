@@ -11,7 +11,9 @@ class COVID19CXRClassification(TaskTemplate):
     output_schema: Dict[str, str] = field(default_factory=lambda: {"label": "label"})
 
     def __call__(self, patient):
-        return [patient]
+        path = patient.attr_dict["path"]
+        label = patient.attr_dict["label"]
+        return [{"path": path, "label": label}]
 
 
 if __name__ == "__main__":

@@ -31,7 +31,8 @@ class SampleDataset(Dataset):
         self.task_name = task_name
         self.transform = None
         # TODO: get rid of input_info
-        self.input_info: Dict = self.validate()
+        self.input_info = {}
+        self.validate()
         self.build()
 
     def validate(self):
@@ -42,20 +43,27 @@ class SampleDataset(Dataset):
                 "Input schema does not match samples."
             assert output_keys.issubset(s.keys()), \
                 "Output schema does not match samples."
-        input_info = {}
-        # get label signal info
-        input_info["label"] = {"type": str, "dim": 0}
-        return input_info
+        return
 
     def build(self):
         for k, v in self.input_schema.items():
             if v == "image":
                 self.input_schema[k] = ImageFeaturizer()
+            elif v == "signal":
+                n_channels, length = self.samples[0][k].shape
+                self.input_info[k] = {"length": length, "n_channels": n_channels}
+                self.input_schema[k] = ValueFeaturizer()
+            elif v == "sequence":
+                self.input_info[k] = {"type": str, "dim": 2}
+                self.input_schema[k] = ValueFeaturizer()
             else:
                 self.input_schema[k] = ValueFeaturizer()
         for k, v in self.output_schema.items():
             if v == "image":
                 self.output_schema[k] = ImageFeaturizer()
+            elif v == "label":
+                self.input_info[k] = {"type": str, "dim": 0}
+                self.output_schema[k] = ValueFeaturizer()
             else:
                 self.output_schema[k] = ValueFeaturizer()
         return

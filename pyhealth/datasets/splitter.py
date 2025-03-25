@@ -4,7 +4,7 @@ from typing import Optional, Tuple, Union, List
 import numpy as np
 import torch
 
-from pyhealth.datasets import SampleBaseDataset
+from pyhealth.datasets.sample_dataset_v2 import SampleDataset
 
 
 # TODO: train_dataset.dataset still access the whole dataset which may leak information
@@ -12,14 +12,14 @@ from pyhealth.datasets import SampleBaseDataset
 
 
 def split_by_visit(
-    dataset: SampleBaseDataset,
+    dataset: SampleDataset,
     ratios: Union[Tuple[float, float, float], List[float]],
     seed: Optional[int] = None,
 ):
     """Splits the dataset by visit (i.e., samples).
 
     Args:
-        dataset: a `SampleBaseDataset` object
+        dataset: a `SampleDataset` object
         ratios: a list/tuple of ratios for train / val / test
         seed: random seed for shuffling the dataset
 
@@ -48,14 +48,14 @@ def split_by_visit(
 
 
 def split_by_patient(
-    dataset: SampleBaseDataset,
+    dataset: SampleDataset,
     ratios: Union[Tuple[float, float, float], List[float]],
     seed: Optional[int] = None,
 ):
     """Splits the dataset by patient.
 
     Args:
-        dataset: a `SampleBaseDataset` object
+        dataset: a `SampleDataset` object
         ratios: a list/tuple of ratios for train / val / test
         seed: random seed for shuffling the dataset
 
@@ -90,7 +90,7 @@ def split_by_patient(
 
 
 def split_by_sample(
-    dataset: SampleBaseDataset,
+    dataset: SampleDataset,
     ratios: Union[Tuple[float, float, float], List[float]],
     seed: Optional[int] = None,
     get_index: Optional[bool] = False,
@@ -98,7 +98,7 @@ def split_by_sample(
     """Splits the dataset by sample
 
     Args:
-        dataset: a `SampleBaseDataset` object
+        dataset: a `SampleDataset` object
         ratios: a list/tuple of ratios for train / val / test
         seed: random seed for shuffling the dataset
 

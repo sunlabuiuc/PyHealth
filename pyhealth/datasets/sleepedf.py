@@ -2,10 +2,11 @@ import os
 
 import numpy as np
 
-from pyhealth.datasets import BaseSignalDataset
+from pyhealth.data import Patient
+from pyhealth.datasets.base_dataset_v2 import BaseDataset
+from pyhealth.tasks.sleep_staging_v2 import SleepStagingSleepEDF
 
-
-class SleepEDFDataset(BaseSignalDataset):
+class SleepEDFDataset(BaseDataset):
     """Base EEG dataset for SleepEDF
 
     Dataset is available at https://www.physionet.org/content/sleep-edfx/1.0.0/
@@ -54,46 +55,62 @@ class SleepEDFDataset(BaseSignalDataset):
         >>> dataset.info()
     """
 
-    def process_EEG_data(self):
+    def process(self):
 
         # get all file names
         all_files = os.listdir(self.root)
         # get all patient ids
         patient_ids = np.unique([file[:6] for file in all_files])
-        if self.dev:
-            patient_ids = patient_ids[:5]
+        # if self.dev:
+        #     patient_ids = patient_ids[:5]
         # get patient to record maps
         #    - key: pid:
         #    - value: [{"load_from_path": None, "signal_file": None, "label_file": None, "save_to_path": None}, ...]
-        patients = {
-            pid: [
-                {
+        patients = {}
+        for pid in patient_ids:
+            patients[pid] = Patient(
+                patient_id=pid,
+                attr_dict={
                     "load_from_path": self.root,
                     "signal_file": None,
                     "label_file": None,
-                    "save_to_path": self.filepath,
-                }
-            ]
-            for pid in patient_ids
-        }
+                    # "save_to_path": self.filepath,
+                },
+            )
+
         for record in all_files:
             pid = record[:6]
             if pid in patient_ids:
                 if "PSG" in record:
-                    patients[pid][0]["signal_file"] = record
+                    patients[pid].attr_dict["signal_file"] = record
                 elif "Hypnogram" in record:
-                    patients[pid][0]["label_file"] = record
+                    patients[pid].attr_dict["label_file"] = record
                 else:
                     raise ValueError(f"Unknown record: {record}")
+
         return patients
+
+    def stat(self) -> str:
+        """Returns some statistics of the base dataset."""
+        lines = list()
+        lines.append("")
+        lines.append(f"Statistics of base dataset:")
+        lines.append(f"\t- Dataset: {self.dataset_name}")
+        lines.append(f"\t- Number of recordings: {len(self.patients)}")
+        lines.append("")
+        print("\n".join(lines))
+        return "\n".join(lines)
+
+    @property
+    def default_task(self):
+        return SleepStagingSleepEDF()
 
 
 if __name__ == "__main__":
     dataset = SleepEDFDataset(
         root="/srv/local/data/SLEEPEDF/sleep-edf-database-expanded-1.0.0/sleep-telemetry",
-        dev=True,
-        refresh_cache=True,
     )
     dataset.stat()
-    dataset.info()
     print(list(dataset.patients.items())[0])
+    samples = dataset.set_task()
+    print(samples[0])
