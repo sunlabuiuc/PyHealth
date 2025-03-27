@@ -11,9 +11,9 @@ def time_function(func, name):
     print(f"{name} execution time: {execution_time:.2f} seconds")
 
 if __name__ == "__main__":
-    # print("Starting MIMIC-III processing...")
-    # time_function(mimic3.main, "MIMIC-III")
-    # print("\nStarting MIMIC-IV processing...")
-    # time_function(mimic4.main, "MIMIC-IV")
+    print("Starting MIMIC-III processing...")
+    time_function(mimic3.main, "MIMIC-III")
+    print("\nStarting MIMIC-IV processing...")
+    time_function(mimic4.main, "MIMIC-IV")
     print("\nStart Medical Coding Test")
     time_function(coding.main, "Medical Coding")
