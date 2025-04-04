@@ -88,6 +88,7 @@ class MIMIC4Dataset(BaseDataset):
         
         super().__init__(root)
 
+    
     def _initialize_item_mappings(self, root):
         """Initialize mappings for lab and chart events if needed."""
         hosp_path = os.path.join(root, "hosp")
@@ -99,6 +100,9 @@ class MIMIC4Dataset(BaseDataset):
                 os.path.join(hosp_path, "d_labitems.csv"), 
                 dtype={"itemid": str}
             )
+            # Make all column names lowercase
+            lab_event_ids_df.columns = lab_event_ids_df.columns.str.lower()
+            
             self.lab_event_ids = self._get_item_ids(self.lab_events, lab_event_ids_df)
             self.to_lab_event_names = lab_event_ids_df.set_index("itemid").to_dict()["label"]
             
@@ -107,6 +111,9 @@ class MIMIC4Dataset(BaseDataset):
                 os.path.join(icu_path, "d_items.csv"), 
                 dtype={"itemid": str}
             )
+            # Make all column names lowercase
+            chart_event_ids_df.columns = chart_event_ids_df.columns.str.lower()
+            
             self.chart_event_ids = self._get_item_ids(self.chart_events, chart_event_ids_df)
             self.to_chart_event_names = chart_event_ids_df.set_index("itemid").to_dict()["label"]
 
@@ -171,6 +178,372 @@ class MIMIC4Dataset(BaseDataset):
             
         return patients
 
+    def parse_basic_info(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
+        """Helper functions which parses patients and admissions tables."""
+        # read patients table
+        patients_df = pd.read_csv(
+            os.path.join(self.root, "patients.csv"),
+            dtype={"subject_id": str},
+            nrows=1000 if self.dev else None,
+        )
+        # Make all column names lowercase
+        patients_df.columns = patients_df.columns.str.lower()
+        
+        # read admissions table
+        admissions_df = pd.read_csv(
+            os.path.join(self.root, "admissions.csv"),
+            dtype={"subject_id": str, "hadm_id": str},
+        )
+        # Make all column names lowercase
+        admissions_df.columns = admissions_df.columns.str.lower()
+        
+        # merge patients and admissions tables
+        df = pd.merge(patients_df, admissions_df, on="subject_id", how="inner")
+        # sort by admission and discharge time
+        df = df.sort_values(["subject_id", "admittime", "dischtime"], ascending=True)
+        # group by patient
+        df_group = df.groupby("subject_id")
+
+        # parallel unit of basic information (per patient)
+        def basic_unit(p_id, p_info):
+            # no exact birth datetime in MIMIC-IV
+            # use anchor_year and anchor_age to approximate birth datetime
+            anchor_year = int(p_info["anchor_year"].values[0])
+            anchor_age = int(p_info["anchor_age"].values[0])
+            birth_year = anchor_year - anchor_age
+            attr_dict = {
+                # no exact month, day, and time, use Jan 1st, 00:00:00
+                "birth_datetime": strptime(str(birth_year)),
+                # no exact time, use 00:00:00
+                "death_datetime": strptime(p_info["dod"].values[0]) if "dod" in p_info.columns and not pd.isna(p_info["dod"].values[0]) else None,
+                "gender": p_info["gender"].values[0],
+                "ethnicity": p_info["race"].values[0],
+                "anchor_year_group": p_info["anchor_year_group"].values[0] if "anchor_year_group" in p_info.columns else None,
+            }
+            patient = Patient(
+                patient_id=p_id,
+                attr_dict=attr_dict,
+            )
+            # load admissions
+            for v_id, v_info in p_info.groupby("hadm_id"):
+                attr_dict = {
+                    "visit_id": v_id,
+                    "discharge_time": strptime(v_info["dischtime"].values[0]),
+                    "discharge_status": v_info["hospital_expire_flag"].values[0],
+                }
+                event = Event(
+                    type="admissions",
+                    timestamp=strptime(v_info["admittime"].values[0]),
+                    attr_dict=attr_dict,
+                )
+                # add visit
+                patient.add_event(event)
+            return patient
+
+        # parallel apply
+        df_group = df_group.parallel_apply(
+            lambda x: basic_unit(x.subject_id.unique()[0], x)
+        )
+        # summarize the results
+        for pat_id, pat in df_group.items():
+            patients[pat_id] = pat
+
+        return patients
+
+    # Fix for parse_diagnoses_icd method in MIMIC4Dataset
+    def parse_diagnoses_icd(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
+        """Helper function which parses diagnosis_icd table."""
+        table = "diagnoses_icd"
+        # read table
+        df = pd.read_csv(
+            os.path.join(self.root, f"{table}.csv"),
+            dtype={"subject_id": str, "hadm_id": str, "icd_code": str},
+        )
+        # Make all column names lowercase
+        df.columns = df.columns.str.lower()
+        
+        # drop rows with missing values
+        df = df.dropna(subset=["subject_id", "hadm_id", "icd_code", "icd_version"])
+        # sort by sequence number (i.e., priority)
+        df = df.sort_values(["subject_id", "hadm_id", "seq_num"], ascending=True)
+        # load admissions table
+        admissions_df = pd.read_csv(
+            os.path.join(self.root, "admissions.csv"),
+            dtype={"subject_id": str, "hadm_id": str},
+        )
+        # Make all column names lowercase
+        admissions_df.columns = admissions_df.columns.str.lower()
+        
+        # merge patients and admissions tables
+        df = df.merge(
+            admissions_df[["subject_id", "hadm_id", "dischtime"]],
+            on=["subject_id", "hadm_id"],
+            how="inner"
+        )
+        # group by patient and visit
+        group_df = df.groupby("subject_id")
+
+        # parallel unit of diagnosis (per patient)
+        def diagnosis_unit(p_id, p_info):
+            events = []
+            # iterate over each patient and visit
+            for v_id, v_info in p_info.groupby("hadm_id"):
+                for code, version in zip(v_info["icd_code"], v_info["icd_version"]):
+                    attr_dict = {
+                        "code": code,
+                        "vocabulary": f"ICD{version}CM",
+                        "visit_id": v_id,
+                        "patient_id": p_id,
+                    }
+                    event = Event(
+                        type=table,
+                        timestamp=strptime(v_info["dischtime"].values[0]) - timedelta(
+                            seconds=1),
+                        attr_dict=attr_dict,
+                    )
+                    events.append(event)
+            return events
+
+        # parallel apply
+        group_df = group_df.parallel_apply(
+            lambda x: diagnosis_unit(x.subject_id.unique()[0], x)
+        )
+
+        # summarize the results
+        patients = self._add_events_to_patient_dict(patients, group_df)
+        return patients
+
+    # Fix for parse_procedures_icd method in MIMIC4Dataset
+    def parse_procedures_icd(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
+        """Helper function which parses procedures_icd table."""
+        table = "procedures_icd"
+        # read table
+        df = pd.read_csv(
+            os.path.join(self.root, f"{table}.csv"),
+            dtype={"subject_id": str, "hadm_id": str, "icd_code": str},
+        )
+        # Make all column names lowercase
+        df.columns = df.columns.str.lower()
+        
+        # drop rows with missing values
+        df = df.dropna(subset=["subject_id", "hadm_id", "icd_code", "icd_version"])
+        # sort by sequence number (i.e., priority)
+        df = df.sort_values(["subject_id", "hadm_id", "seq_num"], ascending=True)
+        # load admissions table
+        admissions_df = pd.read_csv(
+            os.path.join(self.root, "admissions.csv"),
+            dtype={"subject_id": str, "hadm_id": str},
+        )
+        # Make all column names lowercase
+        admissions_df.columns = admissions_df.columns.str.lower()
+        
+        # merge patients and admissions tables
+        df = df.merge(
+            admissions_df[["subject_id", "hadm_id", "dischtime"]],
+            on=["subject_id", "hadm_id"],
+            how="inner"
+        )
+        # group by patient and visit
+        group_df = df.groupby("subject_id")
+
+        # parallel unit of procedure (per patient)
+        def procedure_unit(p_id, p_info):
+            events = []
+            for v_id, v_info in p_info.groupby("hadm_id"):
+                for code, version in zip(v_info["icd_code"], v_info["icd_version"]):
+                    attr_dict = {
+                        "code": code,
+                        "vocabulary": f"ICD{version}PROC",
+                        "visit_id": v_id,
+                        "patient_id": p_id,
+                    }
+                    event = Event(
+                        type=table,
+                        timestamp=strptime(v_info["dischtime"].values[0]) - timedelta(
+                            seconds=1),
+                        attr_dict=attr_dict,
+                    )
+                    # update patients
+                    events.append(event)
+            return events
+
+        # parallel apply
+        group_df = group_df.parallel_apply(
+            lambda x: procedure_unit(x.subject_id.unique()[0], x)
+        )
+
+        # summarize the results
+        patients = self._add_events_to_patient_dict(patients, group_df)
+
+        return patients
+
+    # Fix for parse_prescriptions method in MIMIC4Dataset
+    def parse_prescriptions(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
+        """Helper function which parses prescriptions table."""
+        table = "prescriptions"
+        # read table
+        df = pd.read_csv(
+            os.path.join(self.root, f"{table}.csv"),
+            low_memory=False,
+            dtype={"subject_id": str, "hadm_id": str, "ndc": str},
+        )
+        # Make all column names lowercase
+        df.columns = df.columns.str.lower()
+        
+        # drop rows with missing values
+        df = df.dropna(subset=["subject_id", "hadm_id", "ndc"])
+        # sort by start date and end date
+        df = df.sort_values(
+            ["subject_id", "hadm_id", "starttime", "stoptime"], ascending=True
+        )
+        # group by patient and visit
+        group_df = df.groupby("subject_id")
+
+        # parallel unit of prescription (per patient)
+        def prescription_unit(p_id, p_info):
+            events = []
+            for v_id, v_info in p_info.groupby("hadm_id"):
+                for timestamp, code in zip(v_info["starttime"], v_info["ndc"]):
+                    attr_dict = {
+                        "code": code,
+                        "vocabulary": "NDC",
+                        "visit_id": v_id,
+                        "patient_id": p_id,
+                    }
+                    event = Event(
+                        type=table,
+                        timestamp=strptime(timestamp),
+                        attr_dict=attr_dict,
+                    )
+                    # update patients
+                    events.append(event)
+            return events
+
+        # parallel apply
+        group_df = group_df.parallel_apply(
+            lambda x: prescription_unit(x.subject_id.unique()[0], x)
+        )
+
+        # summarize the results
+        patients = self._add_events_to_patient_dict(patients, group_df)
+
+        return patients
+
+    # Fix for parse_labevents method in MIMIC4Dataset
+    def parse_labevents(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
+        """Helper function which parses labevents table."""
+        table = "labevents"
+        # read table
+        df = pd.read_csv(
+            os.path.join(self.root, f"{table}.csv"),
+            dtype={"subject_id": str, "hadm_id": str, "itemid": str},
+        )
+        # Make all column names lowercase
+        df.columns = df.columns.str.lower()
+        
+        # drop rows with missing values
+        df = df.dropna(subset=["subject_id", "hadm_id", "itemid"])
+        
+        # Filter by lab_event_ids if specified
+        if self.lab_events and self.lab_event_ids:
+            df = df[df["itemid"].isin(self.lab_event_ids)]
+            
+        # sort by charttime
+        df = df.sort_values(["subject_id", "hadm_id", "charttime"], ascending=True)
+        # group by patient and visit
+        group_df = df.groupby("subject_id")
+
+        # parallel unit of labevent (per patient)
+        def lab_unit(p_id, p_info):
+            events = []
+            for v_id, v_info in p_info.groupby("hadm_id"):
+                for timestamp, code, value in zip(v_info["charttime"], v_info["itemid"], v_info.get("valuenum", [None] * len(v_info))):
+                    attr_dict = {
+                        "code": code,
+                        "vocabulary": "MIMIC4_ITEMID",
+                        "visit_id": v_id,
+                        "patient_id": p_id,
+                    }
+                    
+                    # Add value if available
+                    if value is not None:
+                        attr_dict["value"] = value
+                    
+                    event = Event(
+                        type=table,
+                        timestamp=strptime(timestamp),
+                        attr_dict=attr_dict,
+                    )
+                    events.append(event)
+            return events
+
+        # parallel apply
+        group_df = group_df.parallel_apply(
+            lambda x: lab_unit(x.subject_id.unique()[0], x)
+        )
+
+        # summarize the results
+        patients = self._add_events_to_patient_dict(patients, group_df)
+        return patients
+
+    # Fix for parse_chartevents method in MIMIC4Dataset
+    def parse_chartevents(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
+        """Helper function which parses chartevents table."""
+        table = "chartevents"
+        # read table
+        df = pd.read_csv(
+            os.path.join(self.root, "icu", f"{table}.csv"),
+            dtype={"subject_id": str, "hadm_id": str, "itemid": str},
+        )
+        # Make all column names lowercase
+        df.columns = df.columns.str.lower()
+        
+        # drop rows with missing values
+        df = df.dropna(subset=["subject_id", "hadm_id", "itemid"])
+        
+        # Filter by chart_event_ids if specified
+        if self.chart_events and self.chart_event_ids:
+            df = df[df["itemid"].isin(self.chart_event_ids)]
+            
+        # sort by charttime
+        df = df.sort_values(["subject_id", "hadm_id", "charttime"], ascending=True)
+        # group by patient and visit
+        group_df = df.groupby("subject_id")
+
+        # parallel unit of chartevent (per patient)
+        def chart_unit(p_id, p_info):
+            events = []
+            for v_id, v_info in p_info.groupby("hadm_id"):
+                for timestamp, code, value in zip(v_info["charttime"], v_info["itemid"], v_info.get("valuenum", [None] * len(v_info))):
+                    attr_dict = {
+                        "code": code,
+                        "vocabulary": "MIMIC4_CHART_ITEMID",
+                        "visit_id": v_id,
+                        "patient_id": p_id,
+                    }
+                    
+                    # Add value if available
+                    if value is not None:
+                        attr_dict["value"] = value
+                        
+                    event = Event(
+                        type=table,
+                        timestamp=strptime(timestamp),
+                        attr_dict=attr_dict,
+                    )
+                    events.append(event)
+            return events
+
+        # parallel apply
+        group_df = group_df.parallel_apply(
+            lambda x: chart_unit(x.subject_id.unique()[0], x)
+        )
+
+        # summarize the results
+        patients = self._add_events_to_patient_dict(patients, group_df)
+        return patients
+
+    # Fix for parse_notes method in MIMIC4Dataset
     def parse_notes(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
         """Parse clinical notes from the note_root directory.
         
@@ -191,6 +564,9 @@ class MIMIC4Dataset(BaseDataset):
             return patients
             
         note_df = pd.read_csv(note_path)
+        # Make all column names lowercase
+        note_df.columns = note_df.columns.str.lower()
+        
         note_df = note_df.dropna(subset=["subject_id", "text", "charttime"])
         print(f"Read {len(note_df)} note events.")
         note_df = note_df.sort_values(["subject_id", "charttime"], ascending=True)
@@ -265,6 +641,7 @@ class MIMIC4Dataset(BaseDataset):
         
         return patients
 
+    # Fix for parse_xrays method in MIMIC4Dataset
     def parse_xrays(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
         """Parse X-ray metadata from the cxr_root directory.
         
@@ -285,20 +662,22 @@ class MIMIC4Dataset(BaseDataset):
             return patients
             
         cxr_jpg_meta_df = pd.read_csv(metadata_path)
+        # Make all column names lowercase
+        cxr_jpg_meta_df.columns = cxr_jpg_meta_df.columns.str.lower()
         
         # Process datetime columns
-        cxr_jpg_meta_df.StudyDate = cxr_jpg_meta_df.StudyDate.astype(str)
-        cxr_jpg_meta_df.StudyTime = cxr_jpg_meta_df.StudyTime.astype(str).str.split(".").str[0]
-        cxr_jpg_meta_df["StudyDateTime"] = pd.to_datetime(
-            cxr_jpg_meta_df.StudyDate + cxr_jpg_meta_df.StudyTime,
+        cxr_jpg_meta_df.studydate = cxr_jpg_meta_df.studydate.astype(str)
+        cxr_jpg_meta_df.studytime = cxr_jpg_meta_df.studytime.astype(str).str.split(".").str[0]
+        cxr_jpg_meta_df["studydatetime"] = pd.to_datetime(
+            cxr_jpg_meta_df.studydate + cxr_jpg_meta_df.studytime,
             format="%Y%m%d%H%M%S",
             errors="coerce"
         )
         
         # Filter and prepare dataframe
-        cxr_df = cxr_jpg_meta_df[["subject_id", "study_id", "dicom_id", "StudyDateTime"]]
-        cxr_df = cxr_df.dropna(subset=["subject_id", "dicom_id", "StudyDateTime"])
-        cxr_df = cxr_df.sort_values(["subject_id", "StudyDateTime"], ascending=True)
+        cxr_df = cxr_jpg_meta_df[["subject_id", "study_id", "dicom_id", "studydatetime"]]
+        cxr_df = cxr_df.dropna(subset=["subject_id", "dicom_id", "studydatetime"])
+        cxr_df = cxr_df.sort_values(["subject_id", "studydatetime"], ascending=True)
         print(f"Read {len(cxr_df)} x-ray events.")
         
         cxr_df['subject_id'] = cxr_df['subject_id'].astype(str)
@@ -315,7 +694,7 @@ class MIMIC4Dataset(BaseDataset):
                 
                 event = Event(
                     type="xray",
-                    timestamp=row['StudyDateTime'],
+                    timestamp=row['studydatetime'],
                     attr_dict={
                         "dicom_id": dicom_id,
                         "study_id": row['study_id'],
@@ -325,340 +704,6 @@ class MIMIC4Dataset(BaseDataset):
                 )
                 patients[patient_id].add_event(event)
                 
-        return patients
-
-    # Keep all the original methods unchanged
-    def parse_basic_info(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
-        """Helper functions which parses patients and admissions tables."""
-        # read patients table
-        patients_df = pd.read_csv(
-            os.path.join(self.root, "patients.csv"),
-            dtype={"subject_id": str},
-            nrows=1000 if self.dev else None,
-        )
-        # read admissions table
-        admissions_df = pd.read_csv(
-            os.path.join(self.root, "admissions.csv"),
-            dtype={"subject_id": str, "hadm_id": str},
-        )
-        # merge patients and admissions tables
-        df = pd.merge(patients_df, admissions_df, on="subject_id", how="inner")
-        # sort by admission and discharge time
-        df = df.sort_values(["subject_id", "admittime", "dischtime"], ascending=True)
-        # group by patient
-        df_group = df.groupby("subject_id")
-
-        # parallel unit of basic information (per patient)
-        def basic_unit(p_id, p_info):
-            # no exact birth datetime in MIMIC-IV
-            # use anchor_year and anchor_age to approximate birth datetime
-            anchor_year = int(p_info["anchor_year"].values[0])
-            anchor_age = int(p_info["anchor_age"].values[0])
-            birth_year = anchor_year - anchor_age
-            attr_dict = {
-                # no exact month, day, and time, use Jan 1st, 00:00:00
-                "birth_datetime": strptime(str(birth_year)),
-                # no exact time, use 00:00:00
-                "death_datetime": strptime(p_info["dod"].values[0]),
-                "gender": p_info["gender"].values[0],
-                "ethnicity": p_info["race"].values[0],
-                "anchor_year_group": p_info["anchor_year_group"].values[0],
-            }
-            patient = Patient(
-                patient_id=p_id,
-                attr_dict=attr_dict,
-            )
-            # load admissions
-            for v_id, v_info in p_info.groupby("hadm_id"):
-                attr_dict = {
-                    "visit_id": v_id,
-                    "discharge_time": strptime(v_info["dischtime"].values[0]),
-                    "discharge_status": v_info["hospital_expire_flag"].values[0],
-                }
-                event = Event(
-                    type="admissions",
-                    timestamp=strptime(v_info["admittime"].values[0]),
-                    attr_dict=attr_dict,
-                )
-                # add visit
-                patient.add_event(event)
-            return patient
-
-        # parallel apply
-        df_group = df_group.parallel_apply(
-            lambda x: basic_unit(x.subject_id.unique()[0], x)
-        )
-        # summarize the results
-        for pat_id, pat in df_group.items():
-            patients[pat_id] = pat
-
-        return patients
-
-    def parse_diagnoses_icd(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
-        """Helper function which parses diagnosis_icd table."""
-        table = "diagnoses_icd"
-        # read table
-        df = pd.read_csv(
-            os.path.join(self.root, f"{table}.csv"),
-            dtype={"subject_id": str, "hadm_id": str, "icd_code": str},
-        )
-        # drop rows with missing values
-        df = df.dropna(subset=["subject_id", "hadm_id", "icd_code", "icd_version"])
-        # sort by sequence number (i.e., priority)
-        df = df.sort_values(["subject_id", "hadm_id", "seq_num"], ascending=True)
-        # load admissions table
-        admissions_df = pd.read_csv(
-            os.path.join(self.root, "admissions.csv"),
-            dtype={"subject_id": str, "hadm_id": str},
-        )
-        # merge patients and admissions tables
-        df = df.merge(
-            admissions_df[["subject_id", "hadm_id", "dischtime"]],
-            on=["subject_id", "hadm_id"],
-            how="inner"
-        )
-        # group by patient and visit
-        group_df = df.groupby("subject_id")
-
-        # parallel unit of diagnosis (per patient)
-        def diagnosis_unit(p_id, p_info):
-            events = []
-            # iterate over each patient and visit
-            for v_id, v_info in p_info.groupby("hadm_id"):
-                for code, version in zip(v_info["icd_code"], v_info["icd_version"]):
-                    attr_dict = {
-                        "code": code,
-                        "vocabulary": f"ICD{version}CM",
-                        "visit_id": v_id,
-                        "patient_id": p_id,
-                    }
-                    event = Event(
-                        type=table,
-                        timestamp=strptime(v_info["dischtime"].values[0]) - timedelta(
-                            seconds=1),
-                        attr_dict=attr_dict,
-                    )
-                    events.append(event)
-            return events
-
-        # parallel apply
-        group_df = group_df.parallel_apply(
-            lambda x: diagnosis_unit(x.subject_id.unique()[0], x)
-        )
-
-        # summarize the results
-        patients = self._add_events_to_patient_dict(patients, group_df)
-        return patients
-
-    def parse_procedures_icd(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
-        """Helper function which parses procedures_icd table."""
-        table = "procedures_icd"
-        # read table
-        df = pd.read_csv(
-            os.path.join(self.root, f"{table}.csv"),
-            dtype={"subject_id": str, "hadm_id": str, "icd_code": str},
-        )
-        # drop rows with missing values
-        df = df.dropna(subset=["subject_id", "hadm_id", "icd_code", "icd_version"])
-        # sort by sequence number (i.e., priority)
-        df = df.sort_values(["subject_id", "hadm_id", "seq_num"], ascending=True)
-        # load admissions table
-        admissions_df = pd.read_csv(
-            os.path.join(self.root, "admissions.csv"),
-            dtype={"subject_id": str, "hadm_id": str},
-        )
-        # merge patients and admissions tables
-        df = df.merge(
-            admissions_df[["subject_id", "hadm_id", "dischtime"]],
-            on=["subject_id", "hadm_id"],
-            how="inner"
-        )
-        # group by patient and visit
-        group_df = df.groupby("subject_id")
-
-        # parallel unit of procedure (per patient)
-        def procedure_unit(p_id, p_info):
-            events = []
-            for v_id, v_info in p_info.groupby("hadm_id"):
-                for code, version in zip(v_info["icd_code"], v_info["icd_version"]):
-                    attr_dict = {
-                        "code": code,
-                        "vocabulary": f"ICD{version}PROC",
-                        "visit_id": v_id,
-                        "patient_id": p_id,
-                    }
-                    event = Event(
-                        type=table,
-                        timestamp=strptime(v_info["dischtime"].values[0]) - timedelta(
-                            seconds=1),
-                        attr_dict=attr_dict,
-                    )
-                    # update patients
-                    events.append(event)
-            return events
-
-        # parallel apply
-        group_df = group_df.parallel_apply(
-            lambda x: procedure_unit(x.subject_id.unique()[0], x)
-        )
-
-        # summarize the results
-        patients = self._add_events_to_patient_dict(patients, group_df)
-
-        return patients
-
-    def parse_prescriptions(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
-        """Helper function which parses prescriptions table."""
-        table = "prescriptions"
-        # read table
-        df = pd.read_csv(
-            os.path.join(self.root, f"{table}.csv"),
-            low_memory=False,
-            dtype={"subject_id": str, "hadm_id": str, "ndc": str},
-        )
-        # drop rows with missing values
-        df = df.dropna(subset=["subject_id", "hadm_id", "ndc"])
-        # sort by start date and end date
-        df = df.sort_values(
-            ["subject_id", "hadm_id", "starttime", "stoptime"], ascending=True
-        )
-        # group by patient and visit
-        group_df = df.groupby("subject_id")
-
-        # parallel unit of prescription (per patient)
-        def prescription_unit(p_id, p_info):
-            events = []
-            for v_id, v_info in p_info.groupby("hadm_id"):
-                for timestamp, code in zip(v_info["starttime"], v_info["ndc"]):
-                    attr_dict = {
-                        "code": code,
-                        "vocabulary": "NDC",
-                        "visit_id": v_id,
-                        "patient_id": p_id,
-                    }
-                    event = Event(
-                        type=table,
-                        timestamp=strptime(timestamp),
-                        attr_dict=attr_dict,
-                    )
-                    # update patients
-                    events.append(event)
-            return events
-
-        # parallel apply
-        group_df = group_df.parallel_apply(
-            lambda x: prescription_unit(x.subject_id.unique()[0], x)
-        )
-
-        # summarize the results
-        patients = self._add_events_to_patient_dict(patients, group_df)
-
-        return patients
-
-    def parse_labevents(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
-        """Helper function which parses labevents table."""
-        table = "labevents"
-        # read table
-        df = pd.read_csv(
-            os.path.join(self.root, f"{table}.csv"),
-            dtype={"subject_id": str, "hadm_id": str, "itemid": str},
-        )
-        # drop rows with missing values
-        df = df.dropna(subset=["subject_id", "hadm_id", "itemid"])
-        
-        # Filter by lab_event_ids if specified
-        if self.lab_events and self.lab_event_ids:
-            df = df[df["itemid"].isin(self.lab_event_ids)]
-            
-        # sort by charttime
-        df = df.sort_values(["subject_id", "hadm_id", "charttime"], ascending=True)
-        # group by patient and visit
-        group_df = df.groupby("subject_id")
-
-        # parallel unit of labevent (per patient)
-        def lab_unit(p_id, p_info):
-            events = []
-            for v_id, v_info in p_info.groupby("hadm_id"):
-                for timestamp, code, value in zip(v_info["charttime"], v_info["itemid"], v_info.get("valuenum", [None] * len(v_info))):
-                    attr_dict = {
-                        "code": code,
-                        "vocabulary": "MIMIC4_ITEMID",
-                        "visit_id": v_id,
-                        "patient_id": p_id,
-                    }
-                    
-                    # Add value if available
-                    if value is not None:
-                        attr_dict["value"] = value
-                    
-                    event = Event(
-                        type=table,
-                        timestamp=strptime(timestamp),
-                        attr_dict=attr_dict,
-                    )
-                    events.append(event)
-            return events
-
-        # parallel apply
-        group_df = group_df.parallel_apply(
-            lambda x: lab_unit(x.subject_id.unique()[0], x)
-        )
-
-        # summarize the results
-        patients = self._add_events_to_patient_dict(patients, group_df)
-        return patients
-
-    def parse_chartevents(self, patients: Dict[str, Patient]) -> Dict[str, Patient]:
-        """Helper function which parses chartevents table."""
-        table = "chartevents"
-        # read table
-        df = pd.read_csv(
-            os.path.join(self.root, "icu", f"{table}.csv"),
-            dtype={"subject_id": str, "hadm_id": str, "itemid": str},
-        )
-        # drop rows with missing values
-        df = df.dropna(subset=["subject_id", "hadm_id", "itemid"])
-        
-        # Filter by chart_event_ids if specified
-        if self.chart_events and self.chart_event_ids:
-            df = df[df["itemid"].isin(self.chart_event_ids)]
-            
-        # sort by charttime
-        df = df.sort_values(["subject_id", "hadm_id", "charttime"], ascending=True)
-        # group by patient and visit
-        group_df = df.groupby("subject_id")
-
-        # parallel unit of chartevent (per patient)
-        def chart_unit(p_id, p_info):
-            events = []
-            for v_id, v_info in p_info.groupby("hadm_id"):
-                for timestamp, code, value in zip(v_info["charttime"], v_info["itemid"], v_info.get("valuenum", [None] * len(v_info))):
-                    attr_dict = {
-                        "code": code,
-                        "vocabulary": "MIMIC4_CHART_ITEMID",
-                        "visit_id": v_id,
-                        "patient_id": p_id,
-                    }
-                    
-                    # Add value if available
-                    if value is not None:
-                        attr_dict["value"] = value
-                        
-                    event = Event(
-                        type=table,
-                        timestamp=strptime(timestamp),
-                        attr_dict=attr_dict,
-                    )
-                    events.append(event)
-            return events
-
-        # parallel apply
-        group_df = group_df.parallel_apply(
-            lambda x: chart_unit(x.subject_id.unique()[0], x)
-        )
-
-        # summarize the results
-        patients = self._add_events_to_patient_dict(patients, group_df)
         return patients
 
     def _add_events_to_patient_dict(
