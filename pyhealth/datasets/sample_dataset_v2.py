@@ -57,14 +57,23 @@ class SampleDataset(Dataset):
                 self.input_info[k] = {"type": str, "dim": 2}
                 self.input_schema[k] = ValueFeaturizer()
             else:
+                # Add type info for all other input types
+                self.input_info[k] = {"type": str, "dim": 0}
                 self.input_schema[k] = ValueFeaturizer()
+                
         for k, v in self.output_schema.items():
             if v == "image":
                 self.output_schema[k] = ImageFeaturizer()
             elif v == "label":
                 self.input_info[k] = {"type": str, "dim": 0}
                 self.output_schema[k] = ValueFeaturizer()
+            elif v == "List[str]" or (isinstance(v, str) and v.startswith("List[")):
+                # Handle list outputs properly
+                self.input_info[k] = {"type": str, "dim": 2}
+                self.output_schema[k] = ValueFeaturizer()
             else:
+                # Add type info for all other output types
+                self.input_info[k] = {"type": str, "dim": 0}
                 self.output_schema[k] = ValueFeaturizer()
         return
 
@@ -113,7 +122,7 @@ class SampleDataset(Dataset):
             tokens: a list of tokens.
         """
         # TODO: get rid of this function
-        input_type = self.input_info[key]["type"]
+        input_type = self.input_info[key]['type']
         input_dim = self.input_info[key]["dim"]
         if input_type in [float, int]:
             assert input_dim == 0, f"Cannot get tokens for vector with key {key}"
