@@ -434,6 +434,7 @@ class MIMIC3Dataset(BaseDataset):
             os.path.join(self.root, f"{table}.csv"),
             dtype={"SUBJECT_ID": str, "HADM_ID": str},
         )
+      
         # Make all column names lowercase
         df.columns = df.columns.str.lower()
         
