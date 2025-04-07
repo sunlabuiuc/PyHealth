@@ -1,4 +1,1 @@
-from .data import (
-    Event,
-    Patient,
-)
+from .data import Event, Patient
