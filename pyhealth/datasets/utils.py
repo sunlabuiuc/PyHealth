@@ -1,10 +1,12 @@
 import hashlib
 import os
-from datetime import datetime
-from typing import List, Tuple, Optional
 import pickle
+from datetime import datetime
+from typing import List, Optional, Tuple
 
+import torch
 from dateutil.parser import parse as dateutil_parse
+from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 
 from pyhealth import BASE_CACHE_PATH
@@ -133,17 +135,72 @@ def is_homo_list(l: List) -> bool:
     return all(isinstance(i, type(l[0])) for i in l)
 
 
-def collate_fn_dict(batch):
+def collate_fn_dict(batch: List[dict]) -> dict:
+    """Collates a batch of data into a dictionary of lists.
+
+    Args:
+        batch: List of dictionaries, where each dictionary represents a data sample.
+
+    Returns:
+        A dictionary where each key corresponds to a list of values from the batch.
+    """
     return {key: [d[key] for d in batch] for key in batch[0]}
 
 
-def get_dataloader(dataset, batch_size, shuffle=False):
+def collate_fn_dict_with_padding(batch: List[dict]) -> dict:
+    """Collates a batch of data into a dictionary with padding for tensor values.
 
+    Args:
+        batch: List of dictionaries, where each dictionary represents a data sample.
+
+    Returns:
+        A dictionary where each key corresponds to a list of values from the batch.
+        Tensor values are padded to the same shape.
+    """
+    collated = {}
+    keys = batch[0].keys()
+
+    for key in keys:
+        values = [sample[key] for sample in batch]
+
+        if isinstance(values[0], torch.Tensor):
+            # Check if shapes are the same
+            shapes = [v.shape for v in values]
+            if all(shape == shapes[0] for shape in shapes):
+                # Same shape, just stack
+                collated[key] = torch.stack(values)
+            else:
+                # Variable shapes, pad
+                if values[0].dim() == 0:
+                    # Scalars, treat as stackable
+                    collated[key] = torch.stack(values)
+                elif values[0].dim() >= 1:
+                    collated[key] = pad_sequence(values, batch_first=True, padding_value=0)
+                else:
+                    raise ValueError(f"Unsupported tensor shape: {values[0].shape}")
+        else:
+            # Non-tensor data: keep as list
+            collated[key] = values
+
+    return collated
+
+
+def get_dataloader(dataset: torch.utils.data.Dataset, batch_size: int, shuffle: bool = False) -> DataLoader:
+    """Creates a DataLoader for a given dataset.
+
+    Args:
+        dataset: The dataset to load data from.
+        batch_size: The number of samples per batch.
+        shuffle: Whether to shuffle the data at every epoch.
+
+    Returns:
+        A DataLoader instance for the dataset.
+    """
     dataloader = DataLoader(
         dataset,
         batch_size=batch_size,
         shuffle=shuffle,
-        collate_fn=collate_fn_dict,
+        collate_fn=collate_fn_dict_with_padding,
     )
 
     return dataloader
