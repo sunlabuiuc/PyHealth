@@ -206,7 +206,7 @@ class RNN(BaseModel):
         # (patient, label_size)
         logits = self.fc(patient_emb)
         # obtain y_true, loss, y_prob
-        y_true = kwargs[self.label_key]
+        y_true = kwargs[self.label_key].to(self.device)
         loss = self.get_loss_function()(logits, y_true)
         y_prob = self.prepare_y_prob(logits)
         results = {"loss": loss, "y_prob": y_prob, "y_true": y_true, "logit": logits}
