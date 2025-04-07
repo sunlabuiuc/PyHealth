@@ -1,10 +1,8 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from typing import Dict, List
 
 
-@dataclass(frozen=True)
-class TaskTemplate(ABC):
+class BaseTask(ABC):
     task_name: str
     input_schema: Dict[str, str]
     output_schema: Dict[str, str]
