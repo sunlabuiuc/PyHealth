@@ -26,6 +26,7 @@ class TransformersModel(BaseModel):
         self.feature_key = self.feature_keys[0]
         assert len(self.label_keys) == 1, "Only one label key is supported if RNN is initialized"
         self.label_key = self.label_keys[0]
+        self.mode = self.dataset.output_schema[self.label_key]
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         output_size = self.get_output_size()
         hidden_dim = self.model.config.hidden_size
