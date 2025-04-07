@@ -1,0 +1,77 @@
+patients:
+  file_path: "PATIENTS.csv"
+  patient_id: "subject_id"
+  timestamp: null
+  attributes:
+    - "gender"
+    - "dob"
+    - "dod"
+    - "dod_hosp"
+    - "dod_ssn"
+    - "expire_flag"
+
+admissions:
+  file_path: "ADMISSIONS.csv"
+  patient_id: "subject_id"
+  timestamp: "admittime"
+  attributes:
+    - "hadm_id"
+    - "admission_type"
+    - "admission_location"
+    - "insurance"
+    - "language"
+    - "religion"
+    - "marital_status"
+    - "ethnicity"
+    - "edregtime"
+    - "edouttime"
+    - "diagnosis"
+    - "discharge_location"
+    - "dischtime"
+    - "hospital_expire_flag"
+
+diagnoses_icd:
+  file_path: "DIAGNOSES_ICD.csv"
+  patient_id: "subject_id"
+  join:
+    - file_path: "ADMISSIONS.csv"
+      "on": "hadm_id"
+      how: "inner"
+      columns:
+        - "dischtime"
+  timestamp: "dischtime"
+  attributes:
+    - "icd9_code"
+    - "seq_num"
+
+procedures_icd:
+  file_path: "PROCEDURES_ICD.csv"
+  patient_id: "subject_id"
+  join:
+    - file_path: "ADMISSIONS.csv"
+      "on": "hadm_id"
+      how: "inner"
+      columns:
+        - "dischtime"
+  timestamp: "dischtime"
+  attributes:
+    - "icd9_code"
+    - "seq_num"
+
+noteevents:
+  file_path: "NOTEEVENTS.csv"
+  patient_id: "subject_id"
+  # TODO: synthetic noteevents timestamp is not aligned with admission timeline
+  join:
+  - file_path: "ADMISSIONS.csv"
+    "on": "hadm_id"
+    how: "inner"
+    columns:
+      - "dischtime"
+  timestamp: "dischtime"
+  attributes:
+    - "text"
+    - "category"
+    # Case 1: Use the entire note
+    # TODO: how to support cases 2 and 3?
+    - "description"
