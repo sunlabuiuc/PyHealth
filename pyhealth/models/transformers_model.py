@@ -44,7 +44,7 @@ class TransformersModel(BaseModel):
         # TODO: should not use pooler_output, but use the last hidden state
         embeddings = self.model(**x).pooler_output
         logits = self.fc(embeddings)
-        y_true = kwargs[self.label_key]
+        y_true = kwargs[self.label_key].to(self.device)
         loss = self.get_loss_function()(logits, y_true)
         y_prob = self.prepare_y_prob(logits)
         return {
