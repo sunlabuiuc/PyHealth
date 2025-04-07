@@ -62,8 +62,10 @@ class SampleDataset(Dataset):
         """Builds the processors for input and output data based on schemas."""
         for k, v in self.input_schema.items():
             self.input_processors[k] = get_processor(v)()
+            self.input_processors[k].fit(self.samples, k)
         for k, v in self.output_schema.items():
             self.output_processors[k] = get_processor(v)()
+            self.output_processors[k].fit(self.samples, k)
         for sample in self.samples:
             for k, v in sample.items():
                 if k in self.input_processors:

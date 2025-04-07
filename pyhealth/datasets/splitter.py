@@ -1,11 +1,10 @@
 from itertools import chain
-from typing import Optional, Tuple, Union, List
+from typing import List, Optional, Tuple, Union
 
 import numpy as np
 import torch
 
-from pyhealth.datasets.sample_dataset_v2 import SampleDataset
-
+from .sample_dataset import SampleDataset
 
 # TODO: train_dataset.dataset still access the whole dataset which may leak information
 # TODO: add more splitting methods

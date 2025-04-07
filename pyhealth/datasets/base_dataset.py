@@ -40,7 +40,7 @@ class BaseDataset(ABC):
             dataset_name (Optional[str]): Name of the dataset. Defaults to class name.
             config_path (Optional[str]): Path to the configuration YAML file.
         """
-        self.root = Path(root)
+        self.root = root
         self.tables = tables
         self.dataset_name = dataset_name or self.__class__.__name__
         self.config = load_yaml(config_path)
@@ -91,23 +91,27 @@ class BaseDataset(ABC):
             raise ValueError(f"Table {table_name} not found in config")
 
         table_cfg = self.config[table_name]
-        csv_path = self.root / table_cfg["file_path"]
+        csv_path = f"{self.root}/{table_cfg['file_path']}"
 
-        if not csv_path.exists():
-            raise FileNotFoundError(f"CSV not found: {csv_path}")
+        # TODO: make this work for remote files
+        # if not Path(csv_path).exists():
+        #     raise FileNotFoundError(f"CSV not found: {csv_path}")
 
         logger.info(f"Scanning table: {table_name} from {csv_path}")
         df = pl.scan_csv(csv_path, infer_schema=False)
+        # TODO: this is an ad hoc fix for the MIMIC-III dataset
+        df = df.with_columns([pl.col(col).alias(col.lower()) for col in df.collect_schema().names()])
 
         # Handle joins
         for join_cfg in table_cfg.get("join", []):
-            other_csv_path = self.root / join_cfg["file_path"]
-            if not other_csv_path.exists():
-                raise FileNotFoundError(
-                    f"Join CSV not found: {other_csv_path}"
-                )
+            other_csv_path = f"{self.root}/{join_cfg['file_path']}"
+            # if not Path(other_csv_path).exists():
+            #     raise FileNotFoundError(
+            #         f"Join CSV not found: {other_csv_path}"
+            #     )
 
             join_df = pl.scan_csv(other_csv_path, infer_schema=False)
+            join_df = join_df.with_columns([pl.col(col).alias(col.lower()) for col in join_df.collect_schema().names()])
             join_key = join_cfg["on"]
             columns = join_cfg["columns"]
             how = join_cfg.get("how", "left")
@@ -123,7 +127,7 @@ class BaseDataset(ABC):
         # Timestamp expression
         timestamp_expr = (
             pl.col(timestamp_col).str.strptime(
-                pl.Datetime, "%Y-%m-%d %H:%M:%S", strict=False
+                pl.Datetime, strict=False
             )
             if timestamp_col
             else pl.lit(None, dtype=pl.Datetime)
@@ -182,13 +186,15 @@ class BaseDataset(ABC):
         )
         return Patient(patient_id=patient_id, data_source=df)
 
-    def iter_patients(self) -> Iterator[Patient]:
+    def iter_patients(self, df: Optional[pl.LazyFrame] = None) -> Iterator[Patient]:
         """Yields Patient objects for each unique patient in the dataset.
 
         Yields:
             Iterator[Patient]: An iterator over Patient objects.
         """
-        grouped = self.collected_global_event_df.group_by("patient_id")
+        if df is None:
+            df = self.collected_global_event_df
+        grouped = df.group_by("patient_id")
 
         for patient_id, patient_df in grouped:
             yield Patient(patient_id=patient_id, data_source=patient_df)
@@ -227,9 +233,11 @@ class BaseDataset(ABC):
 
         logger.info(f"Setting task for {self.dataset_name} base dataset...")
 
+        filtered_global_event_df = task.pre_filter(self.collected_global_event_df)
+
         samples = []
         for patient in tqdm(
-            self.iter_patients(), desc=f"Generating samples for {task.task_name}"
+            self.iter_patients(filtered_global_event_df), desc=f"Generating samples for {task.task_name}"
         ):
             samples.extend(task(patient))
         sample_dataset = SampleDataset(
