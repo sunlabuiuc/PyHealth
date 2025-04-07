@@ -26,3 +26,4 @@
 from .base_model import BaseModel
 from .embedding import EmbeddingModel
 from .rnn import RNN, RNNLayer
+from .transformers_model import TransformersModel
