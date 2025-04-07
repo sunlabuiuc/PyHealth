@@ -1,50 +1,137 @@
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional, List, Dict
+from typing import Dict, List, Mapping, Optional, Union
+
+import polars as pl
 
 
-@dataclass
+@dataclass(frozen=True)
 class Event:
-    """Contains information about a single event.
+    """Event class representing a single clinical event.
 
-    An event can be anything from a diagnosis to a prescription or lab test
-    that happened for a patient at a specific time.
-
-    Args:
-        type: type of the event (e.g., "diagnosis", "prescription", "lab_test").
-        timestamp: timestamp of the event.
-        attr_dict: event attributes as a dictionary.
+    Attributes:
+        event_type (str): Type of the clinical event (e.g., 'medication', 'diagnosis')
+        timestamp (datetime): When the event occurred
+        attr_dict (Mapping[str, any]): Dictionary containing event-specific attributes
     """
-    type: str
-    timestamp: Optional[datetime] = None
-    attr_dict: Dict[str, any] = field(default_factory=dict)
 
+    event_type: str
+    timestamp: datetime
+    attr_dict: Mapping[str, any] = field(default_factory=dict)
 
-@dataclass
-class Patient:
-    """Contains information about a single patient and their events.
+    @classmethod
+    def from_dict(cls, d: Dict[str, any]) -> "Event":
+        """Create an Event instance from a dictionary.
 
-    A patient is a person who has a sequence of events over time, each associated
-    with specific health data.
+        Args:
+            d (Dict[str, any]): Dictionary containing event data.
 
-    Args:
-        patient_id: unique identifier for the patient.
-        attr_dict: patient attributes as a dictionary.
-        events: list of events for the patient.
-    """
-    patient_id: str
-    attr_dict: Dict[str, any] = field(default_factory=dict)
-    events: List[Event] = field(default_factory=list)
-
-    def add_event(self, event: Event) -> None:
-        """Adds an event to the patient's event sequence, maintaining order by event_time.
-
-        Events without a timestamp are placed at the end of the list.
+        Returns:
+            Event: An instance of the Event class.
         """
-        self.events.append(event)
-        # Sort events, placing those with None timestamps at the end
-        self.events.sort(key=lambda e: (e.timestamp is None, e.timestamp))
+        timestamp: datetime = d["timestamp"]
+        event_type: str = d["event_type"]
+        attr_dict: Dict[str, any] = {
+            k.replace(event_type + "/", ""): v
+            for k, v in d.items()
+            if k.startswith(event_type)
+        }
+        return cls(event_type=event_type, timestamp=timestamp, attr_dict=attr_dict)
 
-    def get_events_by_type(self, event_type: str) -> List[Event]:
-        """Retrieve events of a specific type."""
-        return [event for event in self.events if event.type == event_type]
+    def __getitem__(self, key: str) -> any:
+        """Get an attribute by key.
+
+        Args:
+            key (str): The key of the attribute to retrieve.
+
+        Returns:
+            any: The value of the attribute.
+        """
+        if key == "timestamp":
+            return self.timestamp
+        elif key == "event_type":
+            return self.event_type
+        else:
+            return self.attr_dict[key]
+
+    def __contains__(self, key: str) -> bool:
+        """Check if an attribute exists by key.
+
+        Args:
+            key (str): The key of the attribute to check.
+
+        Returns:
+            bool: True if the attribute exists, False otherwise.
+        """
+        if key == "timestamp" or key == "event_type":
+            return True
+        return key in self.attr_dict
+
+    def __getattr__(self, key: str) -> any:
+        """Get an attribute using dot notation.
+
+        Args:
+            key (str): The key of the attribute to retrieve.
+
+        Returns:
+            any: The value of the attribute.
+
+        Raises:
+            AttributeError: If the attribute does not exist.
+        """
+        if key == "timestamp" or key == "event_type":
+            return getattr(self, key)
+        if key in self.attr_dict:
+            return self.attr_dict[key]
+        raise AttributeError(f"'Event' object has no attribute '{key}'")
+
+
+class Patient:
+    """Patient class representing a sequence of events.
+
+    Attributes:
+        patient_id (str): Unique patient identifier.
+        data_source (pl.DataFrame): DataFrame containing all events.
+    """
+
+    def __init__(self, patient_id: str, data_source: pl.DataFrame) -> None:
+        """
+        Initialize a Patient instance.
+
+        Args:
+            patient_id (str): Unique patient identifier.
+            data_source (pl.DataFrame): DataFrame containing all events.
+        """
+        self.patient_id = patient_id
+        self.data_source = data_source.sort("timestamp")
+
+    def get_events(
+        self,
+        event_type: Optional[str] = None,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
+        return_df: bool = False,
+    ) -> Union[pl.DataFrame, List[Event]]:
+        """Get events with optional type and time filters.
+
+        Args:
+            event_type (Optional[str]): Type of events to filter.
+            start (Optional[datetime]): Start time for filtering events.
+            end (Optional[datetime]): End time for filtering events.
+            return_df (bool): Whether to return a DataFrame or a list of 
+                Event objects.
+
+        Returns:
+            Union[pl.DataFrame, List[Event]]: Filtered events as a DataFrame 
+            or a list of Event objects.
+        """
+        df = self.data_source
+        if event_type:
+            df = df.filter(pl.col("event_type") == event_type)
+        if start:
+            df = df.filter(pl.col("timestamp") >= start)
+        if end:
+            df = df.filter(pl.col("timestamp") <= end)
+        if return_df:
+            return df
+        return [Event.from_dict(d) for d in df.to_dicts()]
