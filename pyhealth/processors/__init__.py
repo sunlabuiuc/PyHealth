@@ -26,6 +26,7 @@ from .label_processor import (
 )
 from .sequence_processor import SequenceProcessor
 from .signal_processor import SignalProcessor
+from .text_processor import TextProcessor
 from .timeseries_processor import TimeseriesProcessor
 
 # Expose public API

@@ -41,7 +41,10 @@
 # )
 # from .patient_linkage import patient_linkage_mimic3_fn
 from .base_task import BaseTask
-from .covid19_cxr_classification import COVID19CXRClassification
+
+# from .covid19_cxr_classification import COVID19CXRClassification
 from .in_hospital_mortality_mimic4 import InHospitalMortalityMIMIC4
-from .medical_transcriptions_classification import MedicalTranscriptionsClassification
+from .medical_coding import MIMIC3ICD9Coding
+
+# from .medical_transcriptions_classification import MedicalTranscriptionsClassification
 from .readmission_30days_mimic4 import Readmission30DaysMIMIC4

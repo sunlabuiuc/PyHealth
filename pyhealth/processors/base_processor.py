@@ -33,6 +33,14 @@ class FeatureProcessor(Processor):
     Example: Tokenization, image loading, normalization.
     """
 
+    def fit(self, samples: List[Dict[str, Any]], field: str) -> None:
+        """Fit the processor to the samples.
+
+        Args:
+            samples: List of sample dictionaries.
+        """
+        pass
+
     @abstractmethod
     def process(self, value: Any) -> Any:
         """Process an individual field value.
