@@ -53,8 +53,8 @@ class EmbeddingModel(BaseModel):
         """
         embedded = {}
         for field_name, tensor in inputs.items():
-            tensor = tensor.to(self.device)
             if field_name in self.embedding_layers:
+                tensor = tensor.to(self.device)
                 embedded[field_name] = self.embedding_layers[field_name](tensor)
             else:
                 embedded[field_name] = tensor  # passthrough for continuous features
