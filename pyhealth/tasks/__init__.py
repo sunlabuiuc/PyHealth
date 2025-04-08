@@ -40,7 +40,11 @@
 #     sleep_staging_shhs_fn,
 # )
 # from .patient_linkage import patient_linkage_mimic3_fn
-from .covid19_cxr_classification import COVID19CXRClassification
-from .medical_transcriptions_classification import MedicalTranscriptionsClassification
-from .sleep_staging_v2 import SleepStagingSleepEDF
-from .mortality_prediction_v2 import Mortality30DaysMIMIC4
+from .base_task import BaseTask
+
+# from .covid19_cxr_classification import COVID19CXRClassification
+from .in_hospital_mortality_mimic4 import InHospitalMortalityMIMIC4
+from .medical_coding import MIMIC3ICD9Coding
+
+# from .medical_transcriptions_classification import MedicalTranscriptionsClassification
+from .readmission_30days_mimic4 import Readmission30DaysMIMIC4

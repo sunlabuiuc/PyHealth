@@ -3,19 +3,19 @@
 # Description: Medical coding tasks for MIMIC-III and MIMIC-IV datasets
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import field
+from datetime import datetime
 from typing import Dict, List
 
-from tqdm import tqdm
+import polars as pl
 
-from pyhealth.data.data import Patient, Event
-from pyhealth.tasks.task_template import TaskTemplate
-from pyhealth.datasets.base_dataset_v2 import BaseDataset
+from pyhealth.data.data import Patient
+
+from .base_task import BaseTask
 
 logger = logging.getLogger(__name__)
 
-@dataclass(frozen=True)
-class MIMIC3ICD9Coding(TaskTemplate):
+class MIMIC3ICD9Coding(BaseTask):
     """Medical coding task for MIMIC-III using ICD-9 codes.
     
     This task uses clinical notes to predict ICD-9 codes for a patient.
@@ -26,9 +26,20 @@ class MIMIC3ICD9Coding(TaskTemplate):
         output_schema: Definition of the output data schema
     """
     task_name: str = "mimic3_icd9_coding"
-    input_schema: Dict[str, str] = field(default_factory=lambda: {"text": "str"})
-    output_schema: Dict[str, str] = field(default_factory=lambda: {"icd_codes": "List[str]"})
+    input_schema: Dict[str, str] = {"text": "text"}
+    output_schema: Dict[str, str] = {"icd_codes": "multilabel"}
 
+    def pre_filter(self, df: pl.LazyFrame) -> pl.LazyFrame:
+        filtered_df = df.filter(
+            pl.col("patient_id").is_in(
+                df.filter(pl.col("event_type") == "noteevents")
+                .select("patient_id")
+                .unique()
+                .to_series()
+            )
+        )
+        return filtered_df
+    
     def __call__(self, patient: Patient) -> List[Dict]:
         """Process a patient and extract the clinical notes and ICD-9 codes.
         
@@ -38,113 +49,133 @@ class MIMIC3ICD9Coding(TaskTemplate):
         Returns:
             List of samples, each containing text and ICD codes
         """
-        text = ""
-        icd_codes = set()
-        
-        for event in patient.events:
-            event_type = event.type.upper() if isinstance(event.type, str) else ""
-            
-            if event_type == "NOTEEVENTS":
-                if "code" in event.attr_dict:
-                    text += event.attr_dict["code"]
-            
-            if event_type == "DIAGNOSES_ICD":
-                if "code" in event.attr_dict:
-                    icd_codes.add(event.attr_dict["code"])
-            
-            if event_type == "PROCEDURES_ICD":
-                if "code" in event.attr_dict:
-                    icd_codes.add(event.attr_dict["code"])
-        
-        if text == "" or len(icd_codes) < 1:
-            return []
-        
-        return [{"text": text, "icd_codes": list(icd_codes)}]
+        samples = []
+        admissions = patient.get_events(event_type="admissions")
+        for admission in admissions:
+            admission_dischtime = datetime.strptime(
+                admission.dischtime, "%Y-%m-%d"
+            )
+            text = ""
+            icd_codes = set()
+
+            diagnoses_icd = patient.get_events(
+                event_type="diagnoses_icd",
+                start=admission.timestamp,
+                end=admission_dischtime
+            )
+            procedures_icd = patient.get_events(
+                event_type="procedures_icd",
+                start=admission.timestamp,
+                end=admission_dischtime
+            )
+            noteevents = patient.get_events(
+                event_type="noteevents",
+                start=admission.timestamp,
+                end=admission_dischtime
+            )
+            if len(noteevents) != 1:
+                continue
+            noteevent = noteevents[0]
+            text = noteevent.text
+            diagnoses_icd = [event.icd9_code for event in diagnoses_icd]
+            procedures_icd = [event.icd9_code for event in procedures_icd]
+            icd_codes = list(set(diagnoses_icd + procedures_icd))
+           
+            if text == "" or len(icd_codes) < 1:
+                continue
+                
+            samples.append({
+                "patient_id": patient.patient_id,
+                "text": text,
+                "icd_codes": icd_codes
+            })
+           
+        return samples
 
 
-@dataclass(frozen=True)
-class MIMIC4ICD9Coding(TaskTemplate):
-    """Medical coding task for MIMIC-IV using ICD-9 codes.
+# @dataclass(frozen=True)
+# class MIMIC4ICD9Coding(TaskTemplate):
+#     """Medical coding task for MIMIC-IV using ICD-9 codes.
     
-    This task uses discharge notes to predict ICD-9 codes for a patient.
+#     This task uses discharge notes to predict ICD-9 codes for a patient.
     
-    Args:
-        task_name: Name of the task
-        input_schema: Definition of the input data schema
-        output_schema: Definition of the output data schema
-    """
-    task_name: str = "mimic4_icd9_coding"
-    input_schema: Dict[str, str] = field(default_factory=lambda: {"text": "str"})
-    output_schema: Dict[str, str] = field(default_factory=lambda: {"icd_codes": "List[str]"})
+#     Args:
+#         task_name: Name of the task
+#         input_schema: Definition of the input data schema
+#         output_schema: Definition of the output data schema
+#     """
+#     task_name: str = "mimic4_icd9_coding"
+#     input_schema: Dict[str, str] = field(default_factory=lambda: {"text": "str"})
+#     output_schema: Dict[str, str] = field(default_factory=lambda: {"icd_codes": "List[str]"})
 
-    def __call__(self, patient: Patient) -> List[Dict]:
-        """Process a patient and extract the discharge notes and ICD-9 codes."""
-        text = ""
-        icd_codes = set()
+#     def __call__(self, patient: Patient) -> List[Dict]:
+#         """Process a patient and extract the discharge notes and ICD-9 codes."""
+#         text = ""
+#         icd_codes = set()
         
-        for event in patient.events:
-            event_type = event.type.lower() if isinstance(event.type, str) else ""
+#         for event in patient.events:
+#             event_type = event.type.lower() if isinstance(event.type, str) else ""
             
-            # Look for "value" instead of "code" for clinical notes
-            if event_type == "clinical_note":
-                if "value" in event.attr_dict:
-                    text += event.attr_dict["value"]
+#             # Look for "value" instead of "code" for clinical notes
+#             if event_type == "clinical_note":
+#                 if "value" in event.attr_dict:
+#                     text += event.attr_dict["value"]
             
-            vocabulary = event.attr_dict.get("vocabulary", "").upper()
-            if vocabulary == "ICD9CM":
-                if event_type == "diagnoses_icd" or event_type == "procedures_icd":
-                    if "code" in event.attr_dict:
-                        icd_codes.add(event.attr_dict["code"])
+#             vocabulary = event.attr_dict.get("vocabulary", "").upper()
+#             if vocabulary == "ICD9CM":
+#                 if event_type == "diagnoses_icd" or event_type == "procedures_icd":
+#                     if "code" in event.attr_dict:
+#                         icd_codes.add(event.attr_dict["code"])
         
-        if text == "" or len(icd_codes) < 1:
-            return []
+#         if text == "" or len(icd_codes) < 1:
+#             return []
         
-        return [{"text": text, "icd_codes": list(icd_codes)}]
+#         return [{"text": text, "icd_codes": list(icd_codes)}]
 
 
-@dataclass(frozen=True)
-class MIMIC4ICD10Coding(TaskTemplate):
-    """Medical coding task for MIMIC-IV using ICD-10 codes.
+# @dataclass(frozen=True)
+# class MIMIC4ICD10Coding(TaskTemplate):
+#     """Medical coding task for MIMIC-IV using ICD-10 codes.
     
-    This task uses discharge notes to predict ICD-10 codes for a patient.
+#     This task uses discharge notes to predict ICD-10 codes for a patient.
     
-    Args:
-        task_name: Name of the task
-        input_schema: Definition of the input data schema
-        output_schema: Definition of the output data schema
-    """
-    task_name: str = "mimic4_icd10_coding"
-    input_schema: Dict[str, str] = field(default_factory=lambda: {"text": "str"})
-    output_schema: Dict[str, str] = field(default_factory=lambda: {"icd_codes": "List[str]"})
+#     Args:
+#         task_name: Name of the task
+#         input_schema: Definition of the input data schema
+#         output_schema: Definition of the output data schema
+#     """
+#     task_name: str = "mimic4_icd10_coding"
+#     input_schema: Dict[str, str] = field(default_factory=lambda: {"text": "str"})
+#     output_schema: Dict[str, str] = field(default_factory=lambda: {"icd_codes": "List[str]"})
 
-    def __call__(self, patient: Patient) -> List[Dict]:
-        """Process a patient and extract the discharge notes and ICD-9 codes."""
-        text = ""
-        icd_codes = set()
+#     def __call__(self, patient: Patient) -> List[Dict]:
+#         """Process a patient and extract the discharge notes and ICD-9 codes."""
+#         text = ""
+#         icd_codes = set()
         
-        for event in patient.events:
-            event_type = event.type.lower() if isinstance(event.type, str) else ""
+#         for event in patient.events:
+#             event_type = event.type.lower() if isinstance(event.type, str) else ""
             
-            # Look for "value" instead of "code" for clinical notes
-            if event_type == "clinical_note":
-                if "value" in event.attr_dict:
-                    text += event.attr_dict["value"]
+#             # Look for "value" instead of "code" for clinical notes
+#             if event_type == "clinical_note":
+#                 if "value" in event.attr_dict:
+#                     text += event.attr_dict["value"]
             
-            vocabulary = event.attr_dict.get("vocabulary", "").upper()
-            if vocabulary == "ICD10CM":
-                if event_type == "diagnoses_icd" or event_type == "procedures_icd":
-                    if "code" in event.attr_dict:
-                        icd_codes.add(event.attr_dict["code"])
+#             vocabulary = event.attr_dict.get("vocabulary", "").upper()
+#             if vocabulary == "ICD10CM":
+#                 if event_type == "diagnoses_icd" or event_type == "procedures_icd":
+#                     if "code" in event.attr_dict:
+#                         icd_codes.add(event.attr_dict["code"])
         
-        if text == "" or len(icd_codes) < 1:
-            return []
+#         if text == "" or len(icd_codes) < 1:
+#             return []
         
-        return [{"text": text, "icd_codes": list(icd_codes)}]
+#         return [{"text": text, "icd_codes": list(icd_codes)}]
 
 
 def main():
     # Test case for MIMIC4ICD9Coding and MIMIC3
-    from pyhealth.datasets import MIMIC4Dataset, MIMIC3Dataset
+    from pyhealth.datasets import MIMIC3Dataset, MIMIC4Dataset
     
     root = "/srv/local/data/MIMIC-III/mimic-iii-clinical-database-1.4"
     print("Testing MIMIC3ICD9Coding task...")

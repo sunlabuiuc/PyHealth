@@ -1,13 +1,16 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from typing import Dict, List
 
+import polars as pl
 
-@dataclass(frozen=True)
-class TaskTemplate(ABC):
+
+class BaseTask(ABC):
     task_name: str
     input_schema: Dict[str, str]
     output_schema: Dict[str, str]
+
+    def pre_filter(self, df: pl.LazyFrame) -> pl.LazyFrame:
+        return df
 
     @abstractmethod
     def __call__(self, patient) -> List[Dict]:

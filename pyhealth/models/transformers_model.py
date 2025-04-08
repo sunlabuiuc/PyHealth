@@ -1,11 +1,11 @@
-from typing import List, Dict
+from typing import Dict, List
 
 import torch
 import torch.nn as nn
 from transformers import AutoModel, AutoTokenizer
 
-from pyhealth.datasets import SampleDataset
-from pyhealth.models import BaseModel
+from ..datasets import SampleDataset
+from .base_model import BaseModel
 
 
 class TransformersModel(BaseModel):
@@ -15,36 +15,36 @@ class TransformersModel(BaseModel):
     def __init__(
         self,
         dataset: SampleDataset,
-        feature_keys: List[str],
-        label_key: str,
-        mode: str,
         model_name: str,
     ):
         super(TransformersModel, self).__init__(
             dataset=dataset,
-            feature_keys=feature_keys,
-            label_key=label_key,
-            mode=mode,
         )
         self.model_name = model_name
         self.model = AutoModel.from_pretrained(model_name)
+        assert len(self.feature_keys) == 1, "Only one feature key is supported if Transformers is initialized"
+        self.feature_key = self.feature_keys[0]
+        assert len(self.label_keys) == 1, "Only one label key is supported if RNN is initialized"
+        self.label_key = self.label_keys[0]
+        self.mode = self.dataset.output_schema[self.label_key]
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.label_tokenizer = self.get_label_tokenizer()
-        output_size = self.get_output_size(self.label_tokenizer)
+        output_size = self.get_output_size()
         hidden_dim = self.model.config.hidden_size
         self.fc = nn.Linear(hidden_dim, output_size)
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation."""
         # concat the info within one batch (batch, channel, length)
-        x = kwargs[self.feature_keys[0]]
+        x = kwargs[self.feature_key]
+        # TODO: max_length should be a parameter
         x = self.tokenizer(
             x, return_tensors="pt", padding=True, truncation=True, max_length=256
         )
         x = x.to(self.device)
+        # TODO: should not use pooler_output, but use the last hidden state
         embeddings = self.model(**x).pooler_output
         logits = self.fc(embeddings)
-        y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
+        y_true = kwargs[self.label_key].to(self.device)
         loss = self.get_loss_function()(logits, y_true)
         y_prob = self.prepare_y_prob(logits)
         return {
