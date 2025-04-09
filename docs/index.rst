@@ -6,6 +6,10 @@ Welcome to PyHealth!
 ====================================
 
 .. **Deployment & Documentation & Stats**
+.. important::
+
+   * **Join our PyHealth Discord Community!** We are actively looking for contributors and want to get to know our users better! `Click here to join Discord <https://discord.gg/mpb835EHaX>`_
+   * **Signup for our mailing list!** We will email any significant PyHealth changes that are soon to come! `Click here to subscribe <https://docs.google.com/forms/d/e/1FAIpQLSfpJB5tdkI7BccTCReoszV9cyyX2rF99SgznzwlOepi5v-xLw/viewform?usp=header>`_
 
 .. image:: https://img.shields.io/pypi/v/pyhealth.svg?color=brightgreen
    :target: https://pypi.org/project/pyhealth/
@@ -66,10 +70,11 @@ Welcome to PyHealth!
 ..    :target: https://github.com/yzhao062/pyhealth/blob/master/LICENSE
 ..    :alt: License
 
-Go to KDD'23 Tutorial Link https://sunlabuiuc.github.io/PyHealth/
+.. Go to KDD'23 Tutorial Link https://sunlabuiuc.github.io/PyHealth/
 -----------------------------------------------------------------
 
-PyHealth is designed for both **ML researchers and medical practitioners**. We can make your **healthcare AI applications** easier to develop, test and validate. Your development process becomes more flexible and more customizable. `[GitHub] <https://github.com/sunlabuiuc/PyHealth>`_
+PyHealth is designed for both **ML researchers and medical practitioners**. We can make your **healthcare AI applications** easier to develop, test and validate. Your development process becomes more flexible and more customizable. `[GitHub] <https://github.com/sunlabuiuc/PyHealth>`_ 
+
 
 ----------
 
