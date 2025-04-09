@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.utils.rnn as rnn_utils
 
 from pyhealth.datasets import SampleEHRDataset
-from pyhealth.models import BaseModel
+from pyhealth.models.base_model import BaseModel
 from pyhealth.models.utils import get_last_visit
 
 

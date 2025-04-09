@@ -299,27 +299,6 @@ GRASP                                 deep learning     ``pyhealth.models.GRASP`
 ==================================    ================  =================================  ======  ============================================================================================================================================================================  =======================================================================================================================================================================================
 
 
-Benchmark on Healthcare Tasks
-----------------------------------
-
-* Here is our `benchmark doc <https://docs.google.com/spreadsheets/d/1c4OwCSDaEt7vGmocidq1hK2HCTeB6ZHDzAZvlubpi08/edit#gid=2062485923>`_ on healthcare tasks. You can also check this below.
-
-We also provide function for leaderboard generation, check it out in our `github repo <https://github.com/sunlabuiuc/PyHealth/tree/master/leaderboard>`_.
-
-Here are the dynamic visualizations of the leaderboard. You can click the checkbox and easily compare
-the performance for different models doing different tasks on different datasets!
-
-
-.. bokeh-plot::
-
-   import sys
-   sys.path.append('../..')
-
-   from leaderboard import leaderboard_gen, utils
-   args = leaderboard_gen.construct_args()
-   leaderboard_gen.plots_generation(args)
-
-
 .. toctree::
    :maxdepth: 4
    :hidden:

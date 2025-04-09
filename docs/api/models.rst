@@ -7,10 +7,13 @@ We implement the following models for supporting multiple healthcare predictive 
 .. toctree::
     :maxdepth: 3
 
+    models/pyhealth.models.BaseModel
     models/pyhealth.models.MLP
     models/pyhealth.models.CNN
     models/pyhealth.models.RNN
+    models/pyhealth.models.GNN
     models/pyhealth.models.Transformer
+    models/pyhealth.models.TransformersModel
     models/pyhealth.models.RETAIN
     models/pyhealth.models.GAMENet
     models/pyhealth.models.MICRON
@@ -24,7 +27,7 @@ We implement the following models for supporting multiple healthcare predictive 
     models/pyhealth.models.ConCare
     models/pyhealth.models.Agent
     models/pyhealth.models.GRASP
+    models/pyhealth.models.MedLink
     models/pyhealth.models.TCN
     models/pyhealth.models.GAN
     models/pyhealth.models.VAE
-

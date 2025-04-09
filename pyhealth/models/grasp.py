@@ -10,7 +10,9 @@ import torch.nn.utils.rnn as rnn_utils
 from sklearn.neighbors import kneighbors_graph
 
 from pyhealth.datasets import SampleEHRDataset
-from pyhealth.models import BaseModel, ConCareLayer, RNNLayer
+from pyhealth.models.base_model import BaseModel
+from pyhealth.models.concare import ConCareLayer
+from pyhealth.models.rnn import RNNLayer
 from pyhealth.models.utils import get_last_visit
 
 

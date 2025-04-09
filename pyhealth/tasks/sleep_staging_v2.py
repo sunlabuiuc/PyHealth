@@ -4,11 +4,11 @@ from typing import Dict
 
 import mne
 
-from pyhealth.tasks.task_template import TaskTemplate
+from pyhealth.tasks import BaseTask
 
 
 @dataclass(frozen=True)
-class SleepStagingSleepEDF(TaskTemplate):
+class SleepStagingSleepEDF(BaseTask):
     task_name: str = "SleepStaging"
     input_schema: Dict[str, str] = field(
         default_factory=lambda: {"epoch_signal": "signal"})

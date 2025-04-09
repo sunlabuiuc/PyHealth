@@ -1,11 +1,11 @@
 from dataclasses import dataclass, field
 from typing import Dict
 
-from pyhealth.tasks.task_template import TaskTemplate
+from pyhealth.tasks import BaseTask
 
 
 @dataclass(frozen=True)
-class COVID19CXRClassification(TaskTemplate):
+class COVID19CXRClassification(BaseTask):
     task_name: str = "COVID19CXRClassification"
     input_schema: Dict[str, str] = field(default_factory=lambda: {"path": "image"})
     output_schema: Dict[str, str] = field(default_factory=lambda: {"label": "label"})

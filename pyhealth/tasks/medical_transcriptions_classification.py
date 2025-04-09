@@ -1,12 +1,13 @@
 from dataclasses import dataclass, field
 from typing import Dict
+
 import pandas as pd
 
-from pyhealth.tasks.task_template import TaskTemplate
+from pyhealth.tasks import BaseTask
 
 
 @dataclass(frozen=True)
-class MedicalTranscriptionsClassification(TaskTemplate):
+class MedicalTranscriptionsClassification(BaseTask):
     task_name: str = "MedicalTranscriptionsClassification"
     input_schema: Dict[str, str] = field(default_factory=lambda: {"transcription": "text"})
     output_schema: Dict[str, str] = field(default_factory=lambda: {"label": "label"})

@@ -5,18 +5,18 @@ Recommended:
  - torch_sparse: 0.6.12
 """
 
-from typing import List, Dict
-
 import math
+import sys
+from typing import Dict, List
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
 
-import sys
 sys.path.append('.')
 
-from pyhealth.datasets.sample_dataset_v2 import SampleDataset
+from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.sampler import NeighborSampler
 
@@ -260,8 +260,8 @@ class Graph_TorchvisionModel(BaseModel):
 if __name__ == "__main__":
     
     from torchvision import transforms
-    from pyhealth.datasets import COVID19CXRDataset
-    from pyhealth.datasets import split_by_sample
+
+    from pyhealth.datasets import COVID19CXRDataset, split_by_sample
 
     base_dataset = COVID19CXRDataset(
         root="/srv/local/data/COVID-19_Radiography_Dataset",
