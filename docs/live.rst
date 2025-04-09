@@ -13,7 +13,7 @@ PyHealth live
 
  **YouTube**: `Recorded Live Sessions <https://www.youtube.com/playlist?list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV>`_
 
- **User/Developer Slack**: `Click to join <https://join.slack.com/t/pyhealthworkspace/shared_invite/zt-1np4yxs77-aqTKxhlfLOjaPbqTzr6sTA>`_
+ **User/Developer Discord**: `Click to join <https://discord.gg/mpb835EHaX>`_
 
 Schedules
 ^^^^^^^^^^^^^^
