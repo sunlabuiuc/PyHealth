@@ -1,21 +1,17 @@
-PyHealth live
+PyHealth Webinar 4/9/25
 ======================
 
- **Start Time**: 8 PM Central Time, Wednesday
+ **Start Time**: 2 PM Central Time, Wednesday
 
- **Recurrence**: There is no live session for now.
+ **Recurrence**: There are no repeat sessions for now.
 
- **Zoom**: `Join Link <https://illinois.zoom.us/j/87450975602?pwd=ckQyaHhkRitlUzlwYUY3NjdEQ0pFdz09>`_
-
- **Add to Google Calender**: `Invitation <https://illinois.zoom.us/meeting/tZMpcumhqT4sGtYh_bBC37B9At6vTpwjDBW4/calendar/google/add>`_
-
- **Add to Microsoft Outlook (.ics)**: `Invitation <https://illinois.zoom.us/meeting/tZMpcumhqT4sGtYh_bBC37B9At6vTpwjDBW4/ics>`_
+ **Zoom**: `Join Link <https://illinois.zoom.us/j/88033880443?pwd=QzgyekNVVkswNkVKNEFjL3hHRXRIdz09>`_
 
  **YouTube**: `Recorded Live Sessions <https://www.youtube.com/playlist?list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV>`_
 
- **User/Developer Slack**: `Click to join <https://join.slack.com/t/pyhealthworkspace/shared_invite/zt-1np4yxs77-aqTKxhlfLOjaPbqTzr6sTA>`_
+ **User/Developer Discord**: `Click to join <https://discord.gg/Fkj7Wn23>`_
 
-Schedules
+Past Scheduled Videos
 ^^^^^^^^^^^^^^
  **(Dec 21, 2022)** Live 01 - What is PyHealth and How to Get Started? `[Recap] <https://www.youtube.com/watch?v=1Ir6hzU4Nro&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=1>`_
 
