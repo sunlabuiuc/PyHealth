@@ -1,13 +1,13 @@
-from typing import List, Tuple, Dict, Optional
+from typing import Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.nn.utils.rnn as rnn_utils
 
 from pyhealth.datasets import SampleEHRDataset
-from pyhealth.models import BaseModel
+from pyhealth.models.base_model import BaseModel
 from pyhealth.models.utils import get_last_visit
-import torch.nn.functional as F
 
 
 class AgentLayer(nn.Module):
