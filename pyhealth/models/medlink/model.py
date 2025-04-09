@@ -1,5 +1,4 @@
-from typing import Dict
-from typing import List
+from typing import Dict, List
 
 import torch
 import torch.nn as nn
@@ -8,7 +7,7 @@ import tqdm
 
 from pyhealth.datasets import SampleEHRDataset
 from pyhealth.models import BaseModel
-from pyhealth.models import TransformerLayer
+from pyhealth.models.transformer import TransformerLayer
 from pyhealth.tokenizer import Tokenizer
 
 
@@ -231,11 +230,12 @@ class MedLink(BaseModel):
 if __name__ == "__main__":
     from pyhealth.datasets import MIMIC3Dataset
     from pyhealth.models import MedLink
-    from pyhealth.models.medlink import convert_to_ir_format
-    from pyhealth.models.medlink import get_train_dataloader
-    from pyhealth.models.medlink import tvt_split
+    from pyhealth.models.medlink import (
+        convert_to_ir_format,
+        get_train_dataloader,
+        tvt_split,
+    )
     from pyhealth.tasks import patient_linkage_mimic3_fn
-    from pyhealth.datasets import MIMIC3Dataset
 
     base_dataset = MIMIC3Dataset(
         root="/srv/local/data/physionet.org/files/mimiciii/1.4",

@@ -2,9 +2,12 @@ import os
 from collections import Counter
 
 import pandas as pd
+
 from pyhealth.data import Patient
-from pyhealth.datasets.base_dataset_v2 import BaseDataset
-from pyhealth.tasks.medical_transcriptions_classification import MedicalTranscriptionsClassification
+from pyhealth.datasets import BaseDataset
+from pyhealth.tasks.medical_transcriptions_classification import (
+    MedicalTranscriptionsClassification,
+)
 
 
 class MedicalTranscriptionsDataset(BaseDataset):

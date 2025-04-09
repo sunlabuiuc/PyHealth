@@ -3,8 +3,9 @@ import os
 import numpy as np
 
 from pyhealth.data import Patient
-from pyhealth.datasets.base_dataset_v2 import BaseDataset
+from pyhealth.datasets import BaseDataset
 from pyhealth.tasks.sleep_staging_v2 import SleepStagingSleepEDF
+
 
 class SleepEDFDataset(BaseDataset):
     """Base EEG dataset for SleepEDF

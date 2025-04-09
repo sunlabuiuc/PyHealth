@@ -4,7 +4,7 @@ from collections import Counter
 import pandas as pd
 
 from pyhealth.data import Patient
-from pyhealth.datasets.base_dataset_v2 import BaseDataset
+from pyhealth.datasets import BaseDataset
 from pyhealth.tasks.covid19_cxr_classification import COVID19CXRClassification
 
 
