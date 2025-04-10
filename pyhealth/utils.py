@@ -1,8 +1,8 @@
+import json
 import os
 import pickle
-import json
 import random
-import yaml
+
 import numpy as np
 import torch
 
@@ -42,9 +42,4 @@ def load_json(filename):
 def save_json(data, filename):
     with open(filename, "w") as f:
         json.dump(data, f)
-
-
-def load_yaml(filename):
-    with open(filename, "r") as f:
-        return yaml.safe_load(f)
 
