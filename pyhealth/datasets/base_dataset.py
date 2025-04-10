@@ -1,6 +1,5 @@
 import logging
 from abc import ABC
-from pathlib import Path
 from typing import Iterator, List, Optional
 
 import polars as pl
@@ -8,11 +7,10 @@ from tqdm import tqdm
 
 from ..data import Patient
 from ..tasks import BaseTask
-from ..utils import load_yaml
+from .configs import load_yaml_config
 from .sample_dataset import SampleDataset
 
 logger = logging.getLogger(__name__)
-
 
 class BaseDataset(ABC):
     """Abstract base class for all PyHealth datasets.
@@ -43,7 +41,7 @@ class BaseDataset(ABC):
         self.root = root
         self.tables = tables
         self.dataset_name = dataset_name or self.__class__.__name__
-        self.config = load_yaml(config_path)
+        self.config = load_yaml_config(config_path)
         logger.info(
             f"Initializing {self.dataset_name} dataset from {self.root}"
         )
@@ -87,11 +85,11 @@ class BaseDataset(ABC):
             ValueError: If the table is not found in the config.
             FileNotFoundError: If the CSV file for the table or join is not found.
         """
-        if table_name not in self.config:
+        if table_name not in self.config.tables:
             raise ValueError(f"Table {table_name} not found in config")
 
-        table_cfg = self.config[table_name]
-        csv_path = f"{self.root}/{table_cfg['file_path']}"
+        table_cfg = self.config.tables[table_name]
+        csv_path = f"{self.root}/{table_cfg.file_path}"
 
         # TODO: make this work for remote files
         # if not Path(csv_path).exists():
@@ -103,8 +101,8 @@ class BaseDataset(ABC):
         df = df.with_columns([pl.col(col).alias(col.lower()) for col in df.collect_schema().names()])
 
         # Handle joins
-        for join_cfg in table_cfg.get("join", []):
-            other_csv_path = f"{self.root}/{join_cfg['file_path']}"
+        for join_cfg in table_cfg.join:
+            other_csv_path = f"{self.root}/{join_cfg.file_path}"
             # if not Path(other_csv_path).exists():
             #     raise FileNotFoundError(
             #         f"Join CSV not found: {other_csv_path}"
@@ -112,17 +110,17 @@ class BaseDataset(ABC):
 
             join_df = pl.scan_csv(other_csv_path, infer_schema=False)
             join_df = join_df.with_columns([pl.col(col).alias(col.lower()) for col in join_df.collect_schema().names()])
-            join_key = join_cfg["on"]
-            columns = join_cfg["columns"]
-            how = join_cfg.get("how", "left")
+            join_key = join_cfg.on
+            columns = join_cfg.columns
+            how = join_cfg.how
 
             df = df.join(
                 join_df.select([join_key] + columns), on=join_key, how=how
             )
 
-        patient_id_col = table_cfg["patient_id"]
-        timestamp_col = table_cfg.get("timestamp")
-        attribute_cols = table_cfg.get("attributes", [])
+        patient_id_col = table_cfg.patient_id
+        timestamp_col = table_cfg.timestamp
+        attribute_cols = table_cfg.attributes
 
         # Timestamp expression
         timestamp_expr = (
