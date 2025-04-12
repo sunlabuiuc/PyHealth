@@ -97,9 +97,9 @@ def train_medical_coding():
 
 if __name__ == "__main__":
     print("Starting MIMIC-III processing...")
-    time_function(mimic3.main, "MIMIC-III")
+    # time_function(mimic3.main, "MIMIC-III")
     print("\nStarting MIMIC-IV processing...")
-    time_function(mimic4.main, "MIMIC-IV")
+    time_function(mimic4.test_mimic4_dataset, "MIMIC-IV")
     print("\nStart Medical Coding Test")
     time_function(coding.main, "Medical Coding")
     time_function(train_medical_coding, "Train Medical Coding")
