@@ -203,7 +203,6 @@ class MortalityPredictionMIMIC4(BaseTask):
                 "drugs": drugs,
                 "mortality": mortality_label,
             })
-        
         return samples
 
 

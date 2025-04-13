@@ -121,15 +121,9 @@ class BaseDataset(ABC):
 
         logger.info(f"Scanning table: {table_name} from {csv_path}")
         
-        # Implement dev mode at the CSV reading level if possible
-        scan_kwargs = {}
-        if self.dev and "patient_id" in table_cfg:
-            # Some tables may have options for limiting the number of rows in dev mode
-            # This doesn't directly limit to specific patients yet, but helps reduce memory
-            scan_kwargs["n_rows"] = 10000  # Arbitrary limit for dev mode
-            logger.info(f"Dev mode: limiting initial scan to {scan_kwargs['n_rows']} rows")
+
             
-        df = pl.scan_csv(csv_path, infer_schema=False, **scan_kwargs)
+        df = pl.scan_csv(csv_path, infer_schema=False)
         
         # TODO: this is an ad hoc fix for the MIMIC-III dataset
         df = df.with_columns([pl.col(col).alias(col.lower()) for col in df.collect_schema().names()])
@@ -142,7 +136,7 @@ class BaseDataset(ABC):
             #         f"Join CSV not found: {other_csv_path}"
             #     )
 
-            join_df = pl.scan_csv(other_csv_path, infer_schema=False, **scan_kwargs)
+            join_df = pl.scan_csv(other_csv_path, infer_schema=False)
             join_df = join_df.with_columns([pl.col(col).alias(col.lower()) for col in join_df.collect_schema().names()])
             join_key = join_cfg.on
             columns = join_cfg.columns

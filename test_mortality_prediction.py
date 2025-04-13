@@ -93,22 +93,22 @@ def test_mortality_prediction_mimic4():
         # Examine a sample to verify task setup
         logger.info("Examining sample data for verification...")
         
-        sample_idx = 0
+        sample_idx = 1
         sample = sample_dataset[sample_idx]
         logger.info(f"Sample {sample_idx}:")
         logger.info(f"  - Patient ID: {sample['patient_id']}")
         logger.info(f"  - Visit ID: {sample['visit_id']}")
         logger.info(f"  - Mortality label: {sample['mortality']}")
-        logger.info(f"  - Number of conditions: {len(sample['conditions'][0])}")
-        logger.info(f"  - Number of procedures: {len(sample['procedures'][0])}")
-        logger.info(f"  - Number of drugs: {len(sample['drugs'][0])}")
+        logger.info(f"  - Number of conditions: {len(sample['conditions'])}")
+        logger.info(f"  - Number of procedures: {len(sample['procedures'])}")
+        logger.info(f"  - Number of drugs: {len(sample['drugs'])}")
         
         # Check data batch format
         logger.info("Checking dataloader batch format...")
         for batch_idx, batch in enumerate(train_loader):
             logger.info(f"Batch {batch_idx} keys: {list(batch.keys())}")
             logger.info(f"Batch size: {len(batch['patient_id'])}")
-            logger.info(f"Conditions shape (first sample): {len(batch['conditions'][0])} sequences")
+            logger.info(f"Conditions shape (first sample): {len(batch['conditions'])} sequences")
             logger.info(f"Mortality labels shape: {len(batch['mortality'])}")
             break  # Just check the first batch
     else:
