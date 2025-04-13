@@ -1,6 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict, List
-
+from typing import Any, Dict, List, Optional
 from .base_task import BaseTask
 
 
@@ -95,36 +94,160 @@ class MortalityPredictionMIMIC3(BaseTask):
         
         return samples
 
-
 class MortalityPredictionMIMIC4(BaseTask):
-    """Task for predicting mortality using MIMIC-IV dataset with enhanced data.
-    
-    This task aims to predict whether the patient will decease in the next hospital
-    visit based on clinical information including structured data (conditions, procedures, 
-    medications), discharge summaries, and chest X-ray images when available.
-    """
+    """Task for predicting mortality using MIMIC-IV EHR data only."""
     task_name: str = "MortalityPredictionMIMIC4"
     input_schema: Dict[str, str] = {
         "conditions": "sequence", 
         "procedures": "sequence", 
-        "drugs": "sequence",
-        "discharge_notes": "text",      # Added discharge notes
-        "radiology_notes": "text",      # Added radiology reports 
-        "cxr_features": "sequence"      # Added CXR features/metadata
+        "drugs": "sequence"
     }
     output_schema: Dict[str, str] = {"mortality": "binary"}
 
-    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
-        """Processes a single patient for the mortality prediction task.
-
-        Args:
-            patient (Any): A Patient object containing patient data.
-
-        Returns:
-            List[Dict[str, Any]]: A list of samples, each sample is a dict with
-                patient_id, visit_id, conditions, procedures, drugs, clinical notes,
-                imaging features and mortality.
+    def _clean_sequence(self, sequence: Optional[List[Any]]) -> List[str]:
         """
+        Clean a sequence by:
+        1. Removing None values
+        2. Converting to strings
+        3. Removing empty strings
+        """
+        if sequence is None:
+            return []
+        
+        # Remove None, convert to strings, remove empty strings
+        cleaned = [str(item).strip() for item in sequence if item is not None and str(item).strip()]
+        return cleaned
+
+    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+        """Processes a single patient for the mortality prediction task."""
+        samples = []
+
+        # Get demographic info to filter by age
+        demographics = patient.get_events(event_type="patients")
+        if not demographics:
+            return []
+        
+        demographics = demographics[0]
+        anchor_age = getattr(demographics, "anchor_age", None)
+        
+        # Safely check age - fix potential bug with non-numeric ages
+        try:
+            if anchor_age is not None and int(float(anchor_age)) < 18:
+                return []  # Skip patients under 18
+        except (ValueError, TypeError):
+            # If age can't be determined, we'll include the patient
+            pass
+
+        # Get visits
+        admissions = patient.get_events(event_type="admissions")
+        if len(admissions) <= 1:
+            return []
+
+        for i in range(len(admissions) - 1):
+            admission = admissions[i]
+            next_admission = admissions[i + 1]
+
+            # Check discharge status for mortality label - more robust handling
+            try:
+                mortality_label = int(next_admission.hospital_expire_flag)
+            except (ValueError, AttributeError):
+                # Default to 0 if value can't be interpreted
+                mortality_label = 0
+
+            # Parse admission timestamps
+            try:
+                admission_dischtime = datetime.strptime(
+                    admission.dischtime, "%Y-%m-%d %H:%M:%S"
+                )
+            except (ValueError, AttributeError):
+                # If date parsing fails, skip this admission
+                continue
+
+            # Get clinical codes
+            diagnoses_icd = patient.get_events(
+                event_type="diagnoses_icd",
+                start=admission.timestamp,
+                end=admission_dischtime
+            )
+            procedures_icd = patient.get_events(
+                event_type="procedures_icd",
+                start=admission.timestamp,
+                end=admission_dischtime
+            )
+            prescriptions = patient.get_events(
+                event_type="prescriptions",
+                start=admission.timestamp,
+                end=admission_dischtime
+            )
+            
+            # Extract relevant data
+            conditions = self._clean_sequence([
+                getattr(event, 'icd_code', None) for event in diagnoses_icd
+            ])
+            procedures_list = self._clean_sequence([
+                getattr(event, 'icd_code', None) for event in procedures_icd
+            ])
+            drugs = self._clean_sequence([
+                getattr(event, 'drug', None) for event in prescriptions
+            ])
+
+            # Exclude visits without condition, procedure, or drug code
+            if len(conditions) * len(procedures_list) * len(drugs) == 0:
+                continue
+
+            samples.append({
+                "visit_id": admission.hadm_id,
+                "patient_id": patient.patient_id,
+                "conditions": conditions,
+                "procedures": procedures_list,
+                "drugs": drugs,
+                "mortality": mortality_label,
+            })
+        
+        return samples
+
+
+class MultimodalMortalityPredictionMIMIC4(BaseTask):
+    """Task for predicting mortality using MIMIC-IV multimodal data."""
+    task_name: str = "MultimodalMortalityPredictionMIMIC4"
+    input_schema: Dict[str, str] = {
+        "conditions": "sequence", 
+        "procedures": "sequence", 
+        "drugs": "sequence",
+        "discharge": "text",      
+        "radiology": "text",      
+        "xrays_negbio": "sequence"      
+    }
+    output_schema: Dict[str, str] = {"mortality": "binary"}
+
+    def _clean_sequence(self, sequence: Optional[List[Any]]) -> List[str]:
+        """
+        Clean a sequence by:
+        1. Removing None values
+        2. Converting to strings
+        3. Removing empty strings
+        """
+        if sequence is None:
+            return []
+        
+        # Remove None, convert to strings, remove empty strings
+        cleaned = [str(item).strip() for item in sequence if item is not None and str(item).strip()]
+        return cleaned
+
+    def _clean_text(self, text: Optional[str]) -> Optional[str]:
+        """
+        Clean text by:
+        1. Stripping whitespace
+        2. Returning None if empty
+        """
+        if text is None:
+            return None
+        
+        cleaned_text = str(text).strip()
+        return cleaned_text if cleaned_text else None
+
+    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+        """Processes a single patient for the mortality prediction task."""
         samples = []
 
         # Get demographic info to filter by age
@@ -199,56 +322,54 @@ class MortalityPredictionMIMIC4(BaseTask):
                 end=admission_dischtime
             )
             
-            # Get CXR data if available - match by study_id if possible
-            cxr_metadata = patient.get_events(
-                event_type="xrays_metadata"
-            )
-            
-            # Map cxr features with chexpert labels if available
-            cxr_labels = patient.get_events(
-                event_type="xrays_chexpert"
+            # Get X-ray labels if available
+            xrays_negbio = patient.get_events(
+                event_type="xrays_negbio"
             )
             
             # Extract relevant data
-            conditions = [event.icd_code for event in diagnoses_icd]
-            procedures_list = [event.icd_code for event in procedures_icd]
-            drugs = [event.drug for event in prescriptions]
+            conditions = self._clean_sequence([
+                getattr(event, 'icd_code', None) for event in diagnoses_icd
+            ])
+            procedures_list = self._clean_sequence([
+                getattr(event, 'icd_code', None) for event in procedures_icd
+            ])
+            drugs = self._clean_sequence([
+                getattr(event, 'drug', None) for event in prescriptions
+            ])
             
             # Extract text data - concatenate multiple notes if present
-            discharge_text = " ".join([getattr(note, "text", "") for note in discharge_notes])
-            radiology_text = " ".join([getattr(note, "text", "") for note in radiology_notes])
+            discharge_text = self._clean_text(" ".join([
+                getattr(note, "text", "") for note in discharge_notes
+            ]))
+            radiology_text = self._clean_text(" ".join([
+                getattr(note, "text", "") for note in radiology_notes
+            ]))
             
-            # Process CXR features - extract imaging features or metadata
-            cxr_features = []
-            if cxr_metadata:
-                # Extract relevant imaging features from metadata
-                for cxr in cxr_metadata:
-                    feature_dict = {}
-                    # Extract basic metadata properties
-                    for attr in ["viewposition", "studydate", "procedurecodesequence_codemeaning"]:
-                        if hasattr(cxr, attr):
-                            feature_dict[attr] = getattr(cxr, attr)
-                    
-                    # Add corresponding CheXpert labels if available
-                    if cxr_labels:
-                        for label in cxr_labels:
-                            if hasattr(label, "study_id") and hasattr(cxr, "study_id") and label.study_id == cxr.study_id:
-                                # Extract all findings from the labels
-                                for finding in ["no finding", "enlarged cardiomediastinum", "cardiomegaly", 
-                                              "lung opacity", "lung lesion", "edema", "consolidation", 
-                                              "pneumonia", "atelectasis", "pneumothorax", "pleural effusion"]:
-                                    if hasattr(label, finding):
-                                        feature_dict[finding] = getattr(label, finding)
-                    
-                    cxr_features.append(feature_dict)
-
-            # Only include non-empty features
-            if not discharge_text.strip():
-                discharge_text = None
-            if not radiology_text.strip():
-                radiology_text = None
-            if not cxr_features:
-                cxr_features = None
+            # Process X-ray features 
+            xray_negbio_features = []
+            if xrays_negbio:
+                for xray in xrays_negbio:
+                    try:
+                        # Collect all non-empty, non-zero findings
+                        findings = []
+                        for finding in [
+                            "no finding", "enlarged cardiomediastinum", "cardiomegaly", 
+                            "lung opacity", "lung lesion", "edema", "consolidation", 
+                            "pneumonia", "atelectasis", "pneumothorax", 
+                            "pleural effusion", "pleural other", "fracture", 
+                            "support devices"
+                        ]:
+                            value = getattr(xray, finding, None)
+                            # Only add non-zero, non-None findings
+                            if value and value != 0 and value != '0':
+                                findings.append(f"{finding}:{value}")
+                        
+                        # Only add non-empty feature lists
+                        if findings:
+                            xray_negbio_features.extend(findings)
+                    except Exception as e:
+                        print(f"Error processing X-ray NegBio feature: {e}")
 
             # Exclude visits without condition, procedure, or drug code
             if len(conditions) * len(procedures_list) * len(drugs) == 0:
@@ -257,17 +378,16 @@ class MortalityPredictionMIMIC4(BaseTask):
             samples.append({
                 "visit_id": admission.hadm_id,
                 "patient_id": patient.patient_id,
-                "conditions": [conditions],
-                "procedures": [procedures_list],
-                "drugs": [drugs],
-                "discharge_notes": discharge_text,
-                "radiology_notes": radiology_text,
-                "cxr_features": cxr_features,
+                "conditions": conditions,
+                "procedures": procedures_list,
+                "drugs": drugs,
+                "discharge": discharge_text,
+                "radiology": radiology_text,
+                "xrays_negbio": xray_negbio_features if xray_negbio_features else None,
                 "mortality": mortality_label,
             })
         
         return samples
-
 
 class MortalityPredictionEICU(BaseTask):
     """Task for predicting mortality using eICU dataset.
