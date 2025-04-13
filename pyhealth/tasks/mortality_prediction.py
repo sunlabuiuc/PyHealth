@@ -382,7 +382,7 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
                 "drugs": drugs,
                 "discharge": discharge_text,
                 "radiology": radiology_text,
-                "xrays_negbio": xray_negbio_features if xray_negbio_features else None,
+                "xrays_negbio": xray_negbio_features,
                 "mortality": mortality_label,
             })
         
