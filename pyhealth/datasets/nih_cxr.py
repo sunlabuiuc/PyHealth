@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 
 # Import BaseDataset from the PyHealth package.
-from pyhealth.datasets.base_dataset_v2 import BaseDataset
+from pyhealth.datasets.base_dataset import BaseDataset
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
