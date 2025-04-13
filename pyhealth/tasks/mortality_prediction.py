@@ -5,7 +5,7 @@ from .base_task import BaseTask
 
 
 class MortalityPredictionMIMIC3(BaseTask):
-    """Task for predicting mortality using MIMIC-III dataset.
+    """Task for predicting mortality using MIMIC-III dataset with text data.
     
     This task aims to predict whether the patient will decease in the next hospital
     visit based on clinical information from the current visit.
@@ -14,7 +14,8 @@ class MortalityPredictionMIMIC3(BaseTask):
     input_schema: Dict[str, str] = {
         "conditions": "sequence", 
         "procedures": "sequence", 
-        "drugs": "sequence"
+        "drugs": "sequence",
+        "clinical_notes": "text"  # Added support for clinical notes
     }
     output_schema: Dict[str, str] = {"mortality": "binary"}
 
@@ -26,7 +27,7 @@ class MortalityPredictionMIMIC3(BaseTask):
 
         Returns:
             List[Dict[str, Any]]: A list of samples, each sample is a dict with
-                patient_id, visit_id, conditions, procedures, drugs and mortality.
+                patient_id, visit_id, conditions, procedures, drugs, notes and mortality.
         """
         samples = []
 
@@ -39,11 +40,11 @@ class MortalityPredictionMIMIC3(BaseTask):
             visit = visits[i]
             next_visit = visits[i + 1]
 
-            # Check discharge status for mortality label
-            if next_visit.discharge_status not in [0, 1]:
+            # Check discharge status for mortality label - more robust handling
+            try:
+                mortality_label = int(next_visit.discharge_status) if next_visit.discharge_status in [0, 1] else 0
+            except (ValueError, AttributeError):
                 mortality_label = 0
-            else:
-                mortality_label = int(next_visit.discharge_status)
 
             # Get clinical codes
             diagnoses = patient.get_events(
@@ -62,22 +63,33 @@ class MortalityPredictionMIMIC3(BaseTask):
                 end=visit.discharge_time
             )
             
+            # Get clinical notes
+            notes = patient.get_events(
+                event_type="NOTEEVENTS",
+                start=visit.timestamp,
+                end=visit.discharge_time
+            )
+            
             conditions = [event.code for event in diagnoses]
             procedures_list = [event.code for event in procedures]
             drugs = [event.code for event in medications]
+            
+            # Extract note text - concatenate if multiple exist
+            note_text = " ".join([getattr(note, "code", "") for note in notes])
+            if not note_text.strip():
+                note_text = None
 
             # Exclude visits without condition, procedure, or drug code
             if len(conditions) * len(procedures_list) * len(drugs) == 0:
                 continue
             
-            # TODO: Exclude visits with age < 18
-
             samples.append({
                 "visit_id": visit.visit_id,
                 "patient_id": patient.patient_id,
                 "conditions": [conditions],
                 "procedures": [procedures_list],
                 "drugs": [drugs],
+                "clinical_notes": note_text,
                 "mortality": mortality_label,
             })
         
@@ -85,16 +97,20 @@ class MortalityPredictionMIMIC3(BaseTask):
 
 
 class MortalityPredictionMIMIC4(BaseTask):
-    """Task for predicting mortality using MIMIC-IV dataset.
+    """Task for predicting mortality using MIMIC-IV dataset with enhanced data.
     
     This task aims to predict whether the patient will decease in the next hospital
-    visit based on clinical information from the current visit.
+    visit based on clinical information including structured data (conditions, procedures, 
+    medications), discharge summaries, and chest X-ray images when available.
     """
     task_name: str = "MortalityPredictionMIMIC4"
     input_schema: Dict[str, str] = {
         "conditions": "sequence", 
         "procedures": "sequence", 
-        "drugs": "sequence"
+        "drugs": "sequence",
+        "discharge_notes": "text",      # Added discharge notes
+        "radiology_notes": "text",      # Added radiology reports 
+        "cxr_features": "sequence"      # Added CXR features/metadata
     }
     output_schema: Dict[str, str] = {"mortality": "binary"}
 
@@ -106,7 +122,8 @@ class MortalityPredictionMIMIC4(BaseTask):
 
         Returns:
             List[Dict[str, Any]]: A list of samples, each sample is a dict with
-                patient_id, visit_id, conditions, procedures, drugs and mortality.
+                patient_id, visit_id, conditions, procedures, drugs, clinical notes,
+                imaging features and mortality.
         """
         samples = []
 
@@ -118,8 +135,13 @@ class MortalityPredictionMIMIC4(BaseTask):
         demographics = demographics[0]
         anchor_age = getattr(demographics, "anchor_age", None)
         
-        if anchor_age is not None and int(anchor_age) < 18:
-            return []  # Skip patients under 18
+        # Safely check age - fix potential bug with non-numeric ages
+        try:
+            if anchor_age is not None and int(float(anchor_age)) < 18:
+                return []  # Skip patients under 18
+        except (ValueError, TypeError):
+            # If age can't be determined, we'll include the patient
+            pass
 
         # Get visits
         admissions = patient.get_events(event_type="admissions")
@@ -130,16 +152,21 @@ class MortalityPredictionMIMIC4(BaseTask):
             admission = admissions[i]
             next_admission = admissions[i + 1]
 
-            # Check discharge status for mortality label
-            if next_admission.hospital_expire_flag not in [0, 1]:
-                mortality_label = 0
-            else:
+            # Check discharge status for mortality label - more robust handling
+            try:
                 mortality_label = int(next_admission.hospital_expire_flag)
+            except (ValueError, AttributeError):
+                # Default to 0 if value can't be interpreted
+                mortality_label = 0
 
             # Parse admission timestamps
-            admission_dischtime = datetime.strptime(
-                admission.dischtime, "%Y-%m-%d %H:%M:%S"
-            )
+            try:
+                admission_dischtime = datetime.strptime(
+                    admission.dischtime, "%Y-%m-%d %H:%M:%S"
+                )
+            except (ValueError, AttributeError):
+                # If date parsing fails, skip this admission
+                continue
 
             # Get clinical codes
             diagnoses_icd = patient.get_events(
@@ -158,9 +185,70 @@ class MortalityPredictionMIMIC4(BaseTask):
                 end=admission_dischtime
             )
             
+            # Get discharge notes if available
+            discharge_notes = patient.get_events(
+                event_type="discharge",
+                start=admission.timestamp,
+                end=admission_dischtime
+            )
+            
+            # Get radiology notes if available
+            radiology_notes = patient.get_events(
+                event_type="radiology",
+                start=admission.timestamp,
+                end=admission_dischtime
+            )
+            
+            # Get CXR data if available - match by study_id if possible
+            cxr_metadata = patient.get_events(
+                event_type="xrays_metadata"
+            )
+            
+            # Map cxr features with chexpert labels if available
+            cxr_labels = patient.get_events(
+                event_type="xrays_chexpert"
+            )
+            
+            # Extract relevant data
             conditions = [event.icd_code for event in diagnoses_icd]
             procedures_list = [event.icd_code for event in procedures_icd]
             drugs = [event.drug for event in prescriptions]
+            
+            # Extract text data - concatenate multiple notes if present
+            discharge_text = " ".join([getattr(note, "text", "") for note in discharge_notes])
+            radiology_text = " ".join([getattr(note, "text", "") for note in radiology_notes])
+            
+            # Process CXR features - extract imaging features or metadata
+            cxr_features = []
+            if cxr_metadata:
+                # Extract relevant imaging features from metadata
+                for cxr in cxr_metadata:
+                    feature_dict = {}
+                    # Extract basic metadata properties
+                    for attr in ["viewposition", "studydate", "procedurecodesequence_codemeaning"]:
+                        if hasattr(cxr, attr):
+                            feature_dict[attr] = getattr(cxr, attr)
+                    
+                    # Add corresponding CheXpert labels if available
+                    if cxr_labels:
+                        for label in cxr_labels:
+                            if hasattr(label, "study_id") and hasattr(cxr, "study_id") and label.study_id == cxr.study_id:
+                                # Extract all findings from the labels
+                                for finding in ["no finding", "enlarged cardiomediastinum", "cardiomegaly", 
+                                              "lung opacity", "lung lesion", "edema", "consolidation", 
+                                              "pneumonia", "atelectasis", "pneumothorax", "pleural effusion"]:
+                                    if hasattr(label, finding):
+                                        feature_dict[finding] = getattr(label, finding)
+                    
+                    cxr_features.append(feature_dict)
+
+            # Only include non-empty features
+            if not discharge_text.strip():
+                discharge_text = None
+            if not radiology_text.strip():
+                radiology_text = None
+            if not cxr_features:
+                cxr_features = None
 
             # Exclude visits without condition, procedure, or drug code
             if len(conditions) * len(procedures_list) * len(drugs) == 0:
@@ -172,6 +260,9 @@ class MortalityPredictionMIMIC4(BaseTask):
                 "conditions": [conditions],
                 "procedures": [procedures_list],
                 "drugs": [drugs],
+                "discharge_notes": discharge_text,
+                "radiology_notes": radiology_text,
+                "cxr_features": cxr_features,
                 "mortality": mortality_label,
             })
         
