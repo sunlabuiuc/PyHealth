@@ -231,6 +231,130 @@ def test_multimodal_mortality_prediction_mimic4():
     logger.info("Multimodal mortality prediction MIMIC4 test completed!")
 
 
+
+
+def test_multimodal_mortality_prediction_with_images():
+    """
+    Test multimodal mortality prediction with X-ray image path integration.
+    This test validates that the MultimodalMortalityPredictionMIMIC4 task
+    correctly incorporates chest X-ray image paths using the new PathProcessor.
+    """
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    logger = logging.getLogger(__name__)
+    
+    # Define data paths
+    mimic_iv_root = "/srv/local/data/jw3/physionet.org/files/MIMIC-IV/2.0"
+    mimic_note_root = "/srv/local/data/jw3/physionet.org/files/mimic-iv-note/2.2/note"
+    mimic_cxr_root = "/srv/local/data/jw3/physionet.org/files/MIMIC-CXR"
+    
+    logger.info("Initializing MIMIC4Dataset with multimodal data sources (dev mode)...")
+    
+    # Initialize the dataset with all required tables
+    dataset = MIMIC4Dataset(
+        ehr_root=mimic_iv_root,
+        notes_root=mimic_note_root,
+        cxr_root=mimic_cxr_root,
+        ehr_tables=[
+            "patients",
+            "admissions",
+            "diagnoses_icd",
+            "procedures_icd",
+            "prescriptions"
+        ],
+        note_tables=[
+            "discharge",
+            "radiology"
+        ],
+        cxr_tables=[
+            "xrays_metadata",  # Required for image paths
+            "xrays_negbio"     # X-ray finding labels
+        ],
+        dev=True  # Use dev mode to limit memory usage
+    )
+    
+    logger.info(f"Dataset initialized with {len(dataset.unique_patient_ids)} patients")
+    
+    # Set up the multimodal mortality prediction task
+    logger.info("Creating multimodal mortality prediction task...")
+    mortality_task = MultimodalMortalityPredictionMIMIC4()
+    sample_dataset = dataset.set_task(mortality_task)
+    
+    # Report task statistics
+    n_samples = len(sample_dataset)
+    logger.info(f"Generated {n_samples} task samples")
+    
+    if n_samples > 0:
+        # Count samples with image paths
+        samples_with_images = sum(1 for sample in sample_dataset 
+                                 if 'image_paths' in sample and sample['image_paths'])
+        logger.info(f"Found {samples_with_images} samples with image paths")
+        
+        # Find a sample with image paths for detailed inspection
+        sample_with_images = None
+        for i in range(min(100, len(sample_dataset))):
+            if 'image_paths' in sample_dataset[i] and sample_dataset[i]['image_paths']:
+                sample_with_images = i
+                break
+        
+        if sample_with_images is not None:
+            sample = sample_dataset[sample_with_images]
+            logger.info(f"Examining sample {sample_with_images}:")
+            logger.info(f"  - Patient ID: {sample['patient_id']}")
+            logger.info(f"  - Number of image paths: {len(sample['image_paths'])}")
+            
+            # Verify image paths
+            if sample['image_paths']:
+                example_path = sample['image_paths'][0]
+                logger.info(f"  - Example image path: {example_path}")
+                
+                # Check if the path follows expected format
+                path_parts = example_path.split('/')
+                expected_parent_folder = sample['patient_id'][:3]
+                if len(path_parts) == 5 and path_parts[0] == 'files' and path_parts[1] == expected_parent_folder:
+                    logger.info(f"  - Image path format is correct (parent folder: {expected_parent_folder})")
+                else:
+                    logger.warning(f"  - Image path format is unexpected (expected parent folder: {expected_parent_folder})")
+                
+                # Check if the image exists
+                full_path = os.path.join(mimic_cxr_root, example_path)
+                if os.path.exists(full_path):
+                    logger.info("  - Image file exists on disk")
+                else:
+                    logger.warning(f"  - Image file not found at: {full_path}")
+        
+        # Create train/val/test splits to verify pipeline integration
+        logger.info("Creating dataset splits...")
+        train_dataset, val_dataset, test_dataset = split_by_patient(
+            sample_dataset, 
+            ratios=[0.7, 0.1, 0.2], 
+            seed=42
+        )
+        
+        logger.info(f"Split sizes: Train={len(train_dataset)}, Val={len(val_dataset)}, Test={len(test_dataset)}")
+        
+        # Create dataloaders to verify batch processing with the new PathProcessor
+        batch_size = 8
+        logger.info(f"Creating dataloaders with batch size {batch_size}...")
+        train_loader = get_dataloader(train_dataset, batch_size=batch_size, shuffle=True)
+        
+        # Check batch format
+        for batch_idx, batch in enumerate(train_loader):
+            logger.info(f"Batch {batch_idx} keys: {list(batch.keys())}")
+            if 'image_paths' in batch:
+                logger.info(f"Batch image paths shape: {len(batch['image_paths'])}")
+                logger.info(f"First image path in batch: {batch['image_paths'][0]}")
+            break  # Only check the first batch
+    else:
+        logger.warning("No samples found. Check dataset contents and task implementation.")
+    
+    logger.info("Multimodal mortality prediction with X-ray images test completed!")
+
+
 if __name__ == "__main__":
-    test_multimodal_mortality_prediction_mimic4()
+    test_multimodal_mortality_prediction_with_images()
+    # test_multimodal_mortality_prediction_mimic4()
+
     # test_mortality_prediction_mimic4()
