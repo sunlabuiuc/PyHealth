@@ -42,6 +42,8 @@ class MIMIC4_EHR(BaseDataset):
             logger.info(f"Using default EHR config: {config_path}")
         
         log_memory_usage(f"Before initializing {dataset_name}")
+        default_tables = ["patients", "admissions", "icustays"]
+        tables = tables + default_tables
         super().__init__(
             root=root,
             tables=tables,
@@ -102,7 +104,7 @@ class MIMIC4_CXR(BaseDataset):
             **kwargs
         )
         log_memory_usage(f"After initializing {dataset_name}")
-        
+
     class MIMIC4_CXR(BaseDataset):
         """MIMIC-CXR Chest X-ray dataset with improved image path handling."""
         
