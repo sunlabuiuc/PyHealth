@@ -41,7 +41,8 @@ class TableConfig(BaseModel):
     Attributes:
         file_path (str): Path to the table file. Relative to the dataset root
             directory.
-        patient_id (str): Column name containing patient identifiers.
+        patient_id (Optional[str]): Column name containing patient identifiers.
+            If set to `null`, row index will be used as patient_id.
         timestamp (Optional[str]): Column name containing timestamps, if
             applicable. If set to `null`, the timestamp will be set to None.
         attributes (List[str]): List of column names to include as attributes.
@@ -49,7 +50,7 @@ class TableConfig(BaseModel):
             table.
     """
     file_path: str
-    patient_id: str
+    patient_id: Optional[str]
     timestamp: Optional[str]
     attributes: List[str]
     join: List[JoinConfig] = Field(default_factory=list)
