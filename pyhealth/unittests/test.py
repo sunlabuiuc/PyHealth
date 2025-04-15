@@ -11,14 +11,13 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(os.path.dirname(current_dir))
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
+
 def time_function(func, name):
     start_time = time.time()
     func()
     end_time = time.time()
     execution_time = end_time - start_time
     print(f"{name} execution time: {execution_time:.2f} seconds")
-
-
 
 def train_medical_coding():
     from pyhealth.datasets import MIMIC4Dataset, MIMIC3Dataset
@@ -101,8 +100,6 @@ def train_medical_coding():
     # Evaluate after training
     print("Metrics after training:")
     print(trainer.evaluate(test_dataloader))
-
-
 
 if __name__ == "__main__":
     print("Starting MIMIC-III processing...")
