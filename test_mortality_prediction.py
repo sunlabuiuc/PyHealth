@@ -272,7 +272,7 @@ def test_multimodal_mortality_prediction_with_images():
             "xrays_metadata",  # Required for image paths
             "xrays_negbio"     # X-ray finding labels
         ],
-        dev=False  # Use dev mode to limit memory usage
+        dev=True  # Use dev mode to limit memory usage
     )
     
     logger.info(f"Dataset initialized with {len(dataset.unique_patient_ids)} patients")

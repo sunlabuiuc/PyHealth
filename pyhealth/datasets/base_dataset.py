@@ -75,9 +75,9 @@ class BaseDataset(ABC):
             df = self.global_event_df
             if self.dev:
                 # Limit the number of patients in dev mode
-                logger.info(f"Dev mode enabled: limiting to 1000 patients")
+                logger.info(f"Dev mode enabled: limiting to 10000 patients")
                 unique_patients = df.select("patient_id").unique().collect()
-                patient_limit = min(1000, unique_patients.height)
+                patient_limit = min(10000, unique_patients.height)
                 limited_patients = unique_patients.slice(0, patient_limit)
                 patient_list = limited_patients.get_column("patient_id").to_list()
                 df = df.filter(pl.col("patient_id").is_in(patient_list))
