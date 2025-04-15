@@ -366,7 +366,7 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
                         try:
                             # Convert the value to float first, then to int
                             # This handles both string and numeric representations
-                            value = getattr(xray, f"xrays_negbio/{finding}", None)
+                            value = getattr(xray, f"{finding}", None)
                             
                             # Convert to float first to handle string representations like '1.0'
                             if value is not None:

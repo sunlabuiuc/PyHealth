@@ -289,8 +289,39 @@ def test_multimodal_mortality_prediction_with_images():
     if n_samples > 0:
         # Count samples with image paths
         samples_with_images = sum(1 for sample in sample_dataset 
-                                 if 'image_paths' in sample and sample['image_paths'])
+                                if 'image_paths' in sample and sample['image_paths'])
         logger.info(f"Found {samples_with_images} samples with image paths")
+        
+        # Aggregate feature statistics
+        feature_stats = {
+            'conditions': [],
+            'procedures': [],
+            'drugs': [],
+            'discharge': [],
+            'radiology': [],
+            'xrays_negbio': [],
+            'image_paths': []
+        }
+        
+        # Collect statistics for all samples
+        for sample in sample_dataset:
+            feature_stats['conditions'].append(len(sample.get('conditions', [])))
+            feature_stats['procedures'].append(len(sample.get('procedures', [])))
+            feature_stats['drugs'].append(len(sample.get('drugs', [])))
+            feature_stats['discharge'].append(len(str(sample.get('discharge', ''))))
+            feature_stats['radiology'].append(len(str(sample.get('radiology', ''))))
+            feature_stats['xrays_negbio'].append(len(sample.get('xrays_negbio', [])))
+            feature_stats['image_paths'].append(len(sample.get('image_paths', [])))
+        
+        # Print detailed statistics
+        logger.info("Feature Length Statistics:")
+        for feature, lengths in feature_stats.items():
+            if lengths:
+                logger.info(f"  - {feature}:")
+                logger.info(f"    - Total samples: {len(lengths)}")
+                logger.info(f"    - Min length: {min(lengths)}")
+                logger.info(f"    - Max length: {max(lengths)}")
+                logger.info(f"    - Mean length: {sum(lengths)/len(lengths):.2f}")
         
         # Find a sample with image paths for detailed inspection
         sample_with_images = None
@@ -301,29 +332,41 @@ def test_multimodal_mortality_prediction_with_images():
         
         if sample_with_images is not None:
             sample = sample_dataset[sample_with_images]
-            logger.info(f"Examining sample {sample_with_images}:")
+            logger.info(f"\nDetailed Sample {sample_with_images} Inspection:")
             logger.info(f"  - Patient ID: {sample['patient_id']}")
-            logger.info(f"  - Number of image paths: {len(sample['image_paths'])}")
             
-            # Verify image paths
+            # Detailed feature printing
+            logger.info("  - Conditions:")
+            logger.info(f"    - Number of conditions: {len(sample['conditions'])}")
+            logger.info(f"    - First few conditions: {sample['conditions'][:5]}")
+            
+            logger.info("  - Procedures:")
+            logger.info(f"    - Number of procedures: {len(sample['procedures'])}")
+            logger.info(f"    - First few procedures: {sample['procedures'][:5]}")
+            
+            logger.info("  - Drugs:")
+            logger.info(f"    - Number of drugs: {len(sample['drugs'])}")
+            logger.info(f"    - First few drugs: {sample['drugs'][:5]}")
+            
+            logger.info("  - Discharge Note:")
+            logger.info(f"    - Length: {len(str(sample['discharge']))}")
+            logger.info(f"    - First 200 characters: {str(sample['discharge'])[:200]}...")
+            
+            logger.info("  - Radiology Note:")
+            logger.info(f"    - Length: {len(str(sample['radiology']))}")
+            logger.info(f"    - First 200 characters: {str(sample['radiology'])[:200]}...")
+            
+            logger.info("  - X-ray NegBio Features:")
+            logger.info(f"    - Number of features: {len(sample['xrays_negbio'])}")
+            logger.info(f"    - Features: {sample['xrays_negbio']}")
+            
+            logger.info("  - Image Paths:")
+            logger.info(f"    - Number of image paths: {len(sample['image_paths'])}")
             if sample['image_paths']:
                 example_path = sample['image_paths'][0]
-                logger.info(f"  - Example image path: {example_path}")
-                
-                # Check if the path follows expected format
-                path_parts = example_path.split('/')
-                expected_parent_folder = sample['patient_id'][:3]
-                if len(path_parts) == 5 and path_parts[0] == 'files' and path_parts[1] == expected_parent_folder:
-                    logger.info(f"  - Image path format is correct (parent folder: {expected_parent_folder})")
-                else:
-                    logger.warning(f"  - Image path format is unexpected (expected parent folder: {expected_parent_folder})")
-                
-                # Check if the image exists
-                full_path = os.path.join(mimic_cxr_root, example_path)
-                if os.path.exists(full_path):
-                    logger.info("  - Image file exists on disk")
-                else:
-                    logger.warning(f"  - Image file not found at: {full_path}")
+                logger.info(f"    - Example image path: {example_path}")
+            
+            logger.info(f"  - Mortality Label: {sample['mortality']}")
         
         # Create train/val/test splits to verify pipeline integration
         logger.info("Creating dataset splits...")
@@ -335,7 +378,7 @@ def test_multimodal_mortality_prediction_with_images():
         
         logger.info(f"Split sizes: Train={len(train_dataset)}, Val={len(val_dataset)}, Test={len(test_dataset)}")
         
-        # Create dataloaders to verify batch processing with the new PathProcessor
+        # Create dataloaders to verify batch processing with the newZ PathProcessor
         batch_size = 8
         logger.info(f"Creating dataloaders with batch size {batch_size}...")
         train_loader = get_dataloader(train_dataset, batch_size=batch_size, shuffle=True)
