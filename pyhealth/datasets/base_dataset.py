@@ -131,9 +131,14 @@ class BaseDataset(ABC):
             else pl.lit(None, dtype=pl.Datetime)
         )
 
-        # Prepare base event columns
+        # If patient_id_col is None, use row index as patient_id
+        patient_id_expr = (
+            pl.col(patient_id_col).cast(pl.Utf8)
+            if patient_id_col
+            else pl.int_range(0, pl.count()).cast(pl.Utf8)
+        )
         base_columns = [
-            pl.col(patient_id_col).cast(pl.Utf8).alias("patient_id"),
+            patient_id_expr.alias("patient_id"),
             pl.lit(table_name).cast(pl.Utf8).alias("event_type"),
             timestamp_expr.cast(pl.Datetime).alias("timestamp"),
         ]
