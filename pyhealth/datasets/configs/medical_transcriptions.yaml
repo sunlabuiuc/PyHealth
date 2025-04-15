@@ -1,0 +1,12 @@
+version: "1.0"
+tables:
+  mtsamples:
+    file_path: "mtsamples.csv"
+    patient_id: null
+    timestamp: null
+    attributes:
+    - "description"
+    - "medical_specialty"
+    - "sample_name"
+    - "transcription"
+    - "keywords"
