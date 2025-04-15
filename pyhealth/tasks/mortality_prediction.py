@@ -237,21 +237,26 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
         cleaned_text = str(text).strip()
         return cleaned_text if cleaned_text else None
         
-    def _construct_image_path(self, patient_id: str, study_id: str, dicom_id: str) -> str:
+    def _construct_image_path(self, subject_id: str, study_id: str, dicom_id: str) -> str:
         """
         Constructs the relative path to a MIMIC-CXR image file based on the folder structure.
         
         Args:
-            patient_id: The patient ID (e.g., "p10000032")
-            study_id: The study ID (e.g., "s50414267")
+            subject_id: The patient/subject ID (e.g., "10000032")
+            study_id: The study ID (e.g., "50414267")
             dicom_id: The DICOM ID (e.g., "02aa804e-bde0afdd-112c0b34-7bc16630-4e384014")
         
         Returns:
             The relative path to the image file
         """
-        # Extract the first 3 characters of the patient_id as the parent folder
-        parent_folder = patient_id[:3]
-        return f"files/{parent_folder}/{patient_id}/{study_id}/{dicom_id}.jpg"
+        # Extract first two characters of the patient_id for the parent folder
+        parent_folder = f"p{subject_id[0][:2]}"
+        
+        # Format the complete patient ID path component
+        patient_folder = f"p{subject_id[0]}"
+        
+        # Construct the complete path
+        return f"files/{parent_folder}/{patient_folder}/s{study_id}/{dicom_id}.jpg"
 
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
         """Processes a single patient for the mortality prediction task."""
@@ -327,24 +332,23 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
             # Get X-ray data
             xrays_negbio = patient.get_events(event_type="xrays_negbio")
             xrays_metadata = patient.get_events(event_type="xrays_metadata")
-            
             # Extract clinical codes
             conditions = self._clean_sequence([
-                getattr(event, 'diagnoses_icd/icd_code', None) for event in diagnoses_icd
+                getattr(event, 'icd_code', None) for event in diagnoses_icd
             ])
             procedures_list = self._clean_sequence([
-                getattr(event, 'procedures_icd/icd_code', None) for event in procedures_icd
+                getattr(event, 'icd_code', None) for event in procedures_icd
             ])
             drugs = self._clean_sequence([
-                getattr(event, 'prescriptions/drug', None) for event in prescriptions
+                getattr(event, 'drug', None) for event in prescriptions
             ])
             
             # Extract note text
             discharge_text = self._clean_text(" ".join([
-                getattr(note, "discharge/text", "") for note in discharge_notes
+                getattr(note, "discharge", "") for note in discharge_notes
             ]))
             radiology_text = self._clean_text(" ".join([
-                getattr(note, "radiology/text", "") for note in radiology_notes
+                getattr(note, "radiology", "") for note in radiology_notes
             ]))
             
             # Process X-ray findings
@@ -359,13 +363,28 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
                         "pleural effusion", "pleural other", "fracture", 
                         "support devices"
                     ]:
-                        key = f"xrays_negbio/{finding}"
-                        value = getattr(xray, key, None)
-                        if value and value != 0 and value != '0':
-                            findings.append(f"{finding}:{value}")
+                        try:
+                            # Convert the value to float first, then to int
+                            # This handles both string and numeric representations
+                            value = getattr(xray, f"xrays_negbio/{finding}", None)
+                            
+                            # Convert to float first to handle string representations like '1.0'
+                            if value is not None:
+                                try:
+                                    numeric_value = float(value)
+                                    # Check if the numeric value is non-zero
+                                    if numeric_value > 0:
+                                        findings.append(finding)
+                                except (ValueError, TypeError):
+                                    # If conversion fails, skip this finding
+                                    pass
+                        except Exception as sub_e:
+                            print(f"Error processing finding {finding}: {sub_e}")
                     
+                    # Extend the features list with findings for this X-ray
                     if findings:
                         xray_negbio_features.extend(findings)
+                
                 except Exception as e:
                     print(f"Error processing X-ray NegBio feature: {e}")
             
@@ -373,15 +392,14 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
             image_paths = []
             for xray in xrays_metadata:
                 try:
-                    study_id = getattr(xray, "xrays_metadata/study_id", None)
-                    dicom_id = getattr(xray, "xrays_metadata/dicom_id", None)
+                    study_id = getattr(xray, "study_id", None)
+                    dicom_id = getattr(xray, "dicom_id", None)
                     
                     if study_id and dicom_id:
                         image_path = self._construct_image_path(patient.patient_id, study_id, dicom_id)
                         image_paths.append(image_path)
                 except Exception as e:
                     print(f"Error processing X-ray image path: {e}")
-
             # Exclude visits without sufficient clinical data
             if len(conditions) * len(procedures_list) * len(drugs) == 0:
                 continue
