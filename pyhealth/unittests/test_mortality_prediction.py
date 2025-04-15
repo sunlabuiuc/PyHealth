@@ -9,7 +9,11 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
+# Add the parent directory to sys.path if needed
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(os.path.dirname(current_dir))
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
 # Add the parent directory to sys.path if needed
 # sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 

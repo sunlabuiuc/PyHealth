@@ -3,7 +3,14 @@ import pyhealth.datasets.mimic4 as mimic4
 from pyhealth.tasks.mortality_prediction import test_mortality_prediction_mimic4
 import pyhealth.tasks.medical_coding as coding
 import time
+import os
+import sys
 
+# Add the parent directory to sys.path if needed
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(os.path.dirname(current_dir))
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
 def time_function(func, name):
     start_time = time.time()
     func()
