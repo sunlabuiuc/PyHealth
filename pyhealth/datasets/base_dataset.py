@@ -44,13 +44,9 @@ class BaseDataset(ABC):
         self.root = root
         self.tables = tables
         self.dataset_name = dataset_name or self.__class__.__name__
-<<<<<<< HEAD
         self.config = load_yaml_config(config_path)
-=======
-        self.config = load_yaml(config_path)
         self.dev = dev  # Store dev mode flag
-        
->>>>>>> 97f7a59 (more testing, slowly iterating up to multimodal mortality prediction)
+
         logger.info(
             f"Initializing {self.dataset_name} dataset from {self.root} (dev mode: {self.dev})"
         )
