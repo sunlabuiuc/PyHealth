@@ -35,6 +35,7 @@ class MIMIC4_EHR(BaseDataset):
         tables: List[str],
         dataset_name: str = "mimic4_ehr",
         config_path: Optional[str] = None,
+        **kwargs
     ):
         if config_path is None:
             config_path = os.path.join(os.path.dirname(__file__), "configs", "mimic4_ehr.yaml")
@@ -46,6 +47,7 @@ class MIMIC4_EHR(BaseDataset):
             tables=tables,
             dataset_name=dataset_name,
             config_path=config_path,
+            **kwargs
         )
         log_memory_usage(f"After initializing {dataset_name}")
 
@@ -59,6 +61,7 @@ class MIMIC4_Note(BaseDataset):
         tables: List[str],
         dataset_name: str = "mimic4_note",
         config_path: Optional[str] = None,
+        **kwargs
     ):
         if config_path is None:
             config_path = os.path.join(os.path.dirname(__file__), "configs", "mimic4_note.yaml")
@@ -70,6 +73,7 @@ class MIMIC4_Note(BaseDataset):
             tables=tables,
             dataset_name=dataset_name,
             config_path=config_path,
+            **kwargs
         )
         log_memory_usage(f"After initializing {dataset_name}")
 
@@ -83,6 +87,7 @@ class MIMIC4_CXR(BaseDataset):
         tables: List[str],
         dataset_name: str = "mimic4_cxr",
         config_path: Optional[str] = None,
+        **kwargs
     ):
         if config_path is None:
             config_path = os.path.join(os.path.dirname(__file__), "configs", "mimic4_cxr.yaml")
@@ -94,6 +99,7 @@ class MIMIC4_CXR(BaseDataset):
             tables=tables,
             dataset_name=dataset_name,
             config_path=config_path,
+            **kwargs
         )
         log_memory_usage(f"After initializing {dataset_name}")
 
@@ -115,6 +121,7 @@ class MIMIC4Dataset(BaseDataset):
         note_tables: List of clinical note tables to include
         cxr_tables: List of X-ray tables to include
         dataset_name: Name of the dataset
+        dev: Whether to enable dev mode (limit to 1000 patients)
     """
     
     def __init__(
@@ -126,6 +133,7 @@ class MIMIC4Dataset(BaseDataset):
         note_tables: Optional[List[str]] = None,
         cxr_tables: Optional[List[str]] = None,
         dataset_name: str = "mimic4",
+        dev: bool = False,  # Added dev parameter
     ):
         log_memory_usage("Starting MIMIC4Dataset init")
         
@@ -133,6 +141,7 @@ class MIMIC4Dataset(BaseDataset):
         self.dataset_name = dataset_name
         self.sub_datasets = {}
         self.root = ehr_root  # Default root for parent class
+        self.dev = dev  # Store dev mode flag
         
         # We need at least one root directory
         if not any([ehr_root, notes_root, cxr_root]):
@@ -145,31 +154,34 @@ class MIMIC4Dataset(BaseDataset):
         
         # Initialize EHR dataset if root is provided and tables specified
         if ehr_root is not None and ehr_tables:
-            logger.info(f"Initializing MIMIC4_EHR with tables: {ehr_tables}")
+            logger.info(f"Initializing MIMIC4_EHR with tables: {ehr_tables} (dev mode: {dev})")
             self.sub_datasets["ehr"] = MIMIC4_EHR(
                 root=ehr_root,
                 tables=ehr_tables,
-                config_path=os.path.join(os.path.dirname(__file__), "configs", "mimic4_ehr.yaml")
+                config_path=os.path.join(os.path.dirname(__file__), "configs", "mimic4_ehr.yaml"),
+                dev=dev  # Pass dev mode flag
             )
             log_memory_usage("After EHR dataset initialization")
         
         # Initialize Notes dataset if root is provided and tables specified
         if notes_root is not None and note_tables:
-            logger.info(f"Initializing MIMIC4_Note with tables: {note_tables}")
+            logger.info(f"Initializing MIMIC4_Note with tables: {note_tables} (dev mode: {dev})")
             self.sub_datasets["note"] = MIMIC4_Note(
                 root=notes_root,
                 tables=note_tables,
-                config_path=os.path.join(os.path.dirname(__file__), "configs", "mimic4_note.yaml")
+                config_path=os.path.join(os.path.dirname(__file__), "configs", "mimic4_note.yaml"),
+                dev=dev  # Pass dev mode flag
             )
             log_memory_usage("After Note dataset initialization")
         
         # Initialize CXR dataset if root is provided and tables specified
         if cxr_root is not None and cxr_tables:
-            logger.info(f"Initializing MIMIC4_CXR with tables: {cxr_tables}")
+            logger.info(f"Initializing MIMIC4_CXR with tables: {cxr_tables} (dev mode: {dev})")
             self.sub_datasets["cxr"] = MIMIC4_CXR(
                 root=cxr_root,
                 tables=cxr_tables,
-                config_path=os.path.join(os.path.dirname(__file__), "configs", "mimic4_cxr.yaml")
+                config_path=os.path.join(os.path.dirname(__file__), "configs", "mimic4_cxr.yaml"),
+                dev=dev  # Pass dev mode flag
             )
             log_memory_usage("After CXR dataset initialization")
         
@@ -181,19 +193,22 @@ class MIMIC4Dataset(BaseDataset):
                 self.sub_datasets["ehr"] = MIMIC4_EHR(
                     root=ehr_root,
                     tables=["patients"],  # Minimal table
-                    config_path=os.path.join(os.path.dirname(__file__), "configs", "mimic4_ehr.yaml")
+                    config_path=os.path.join(os.path.dirname(__file__), "configs", "mimic4_ehr.yaml"),
+                    dev=dev  # Pass dev mode flag
                 )
             elif notes_root:
                 self.sub_datasets["note"] = MIMIC4_Note(
                     root=notes_root,
                     tables=["discharge"],  # Minimal table
-                    config_path=os.path.join(os.path.dirname(__file__), "configs", "mimic4_note.yaml")
+                    config_path=os.path.join(os.path.dirname(__file__), "configs", "mimic4_note.yaml"),
+                    dev=dev  # Pass dev mode flag
                 )
             elif cxr_root:
                 self.sub_datasets["cxr"] = MIMIC4_CXR(
                     root=cxr_root,
                     tables=["xrays_metadata"],  # Minimal table
-                    config_path=os.path.join(os.path.dirname(__file__), "configs", "mimic4_cxr.yaml")
+                    config_path=os.path.join(os.path.dirname(__file__), "configs", "mimic4_cxr.yaml"),
+                    dev=dev  # Pass dev mode flag
                 )
         
         # Combine data from all sub-datasets
@@ -206,7 +221,7 @@ class MIMIC4Dataset(BaseDataset):
         self._unique_patient_ids = None
         
         log_memory_usage("Completed MIMIC4Dataset init")
-    
+        
     def _combine_data(self) -> pl.LazyFrame:
         """
         Combines data from all initialized sub-datasets into a unified global event dataframe.
@@ -227,46 +242,6 @@ class MIMIC4Dataset(BaseDataset):
             return frames[0]
         else:
             return pl.concat(frames, how="diagonal")
-    
-    @property
-    def collected_global_event_df(self) -> pl.DataFrame:
-        """
-        Collects and returns the global event data frame.
-        
-        This property overrides the one from the parent class to use our combined dataframe.
-        
-        Returns:
-            pl.DataFrame: The collected global event data frame.
-        """
-        log_memory_usage("Before collecting global event df")
-        if self._collected_global_event_df is None:
-            try:
-                self._collected_global_event_df = self.global_event_df.collect()
-                logger.info(f"Collected dataframe shape: {self._collected_global_event_df.shape}")
-            except Exception as e:
-                logger.error(f"Error collecting global event dataframe: {e}")
-                # Try to collect partial results or return an empty dataframe
-                logger.info("Attempting to collect with sample")
-                try:
-                    self._collected_global_event_df = self.global_event_df.sample(frac=0.01).collect()
-                    logger.warning("Using 1% sample of data due to memory constraints")
-                except Exception as e2:
-                    logger.error(f"Error collecting sample: {e2}")
-                    # Create an empty dataframe with the expected schema
-                    self._collected_global_event_df = pl.DataFrame(schema={"patient_id": pl.Utf8, "event_type": pl.Utf8, "timestamp": pl.Datetime})
-        log_memory_usage("After collecting global event df")
-        return self._collected_global_event_df
-    
-    def load_data(self) -> pl.LazyFrame:
-        """
-        This method is not used directly in MIMIC4Dataset since we combine data
-        from sub-datasets in __init__, but we implement it for compatibility.
-        
-        Returns:
-            pl.LazyFrame: The global event dataframe
-        """
-        return self.global_event_df
-    
 
 def test_mimic4_dataset():
     """Test function for the MIMIC4Dataset class."""

@@ -21,6 +21,7 @@ class BaseDataset(ABC):
         dataset_name (str): Name of the dataset.
         config (dict): Configuration loaded from a YAML file.
         global_event_df (pl.LazyFrame): The global event data frame.
+        dev (bool): Whether to enable dev mode (limit to 1000 patients).
     """
 
     def __init__(
@@ -29,6 +30,7 @@ class BaseDataset(ABC):
         tables: List[str],
         dataset_name: Optional[str] = None,
         config_path: Optional[str] = None,
+        dev: bool = False,  # Added dev parameter
     ):
         """Initializes the BaseDataset.
 
@@ -37,13 +39,20 @@ class BaseDataset(ABC):
             tables (List[str]): List of table names to load.
             dataset_name (Optional[str]): Name of the dataset. Defaults to class name.
             config_path (Optional[str]): Path to the configuration YAML file.
+            dev (bool): Whether to run in dev mode (limits to 1000 patients).
         """
         self.root = root
         self.tables = tables
         self.dataset_name = dataset_name or self.__class__.__name__
+<<<<<<< HEAD
         self.config = load_yaml_config(config_path)
+=======
+        self.config = load_yaml(config_path)
+        self.dev = dev  # Store dev mode flag
+        
+>>>>>>> 97f7a59 (more testing, slowly iterating up to multimodal mortality prediction)
         logger.info(
-            f"Initializing {self.dataset_name} dataset from {self.root}"
+            f"Initializing {self.dataset_name} dataset from {self.root} (dev mode: {self.dev})"
         )
 
         self.global_event_df = self.load_data()
@@ -60,7 +69,22 @@ class BaseDataset(ABC):
             pl.DataFrame: The collected global event data frame.
         """
         if self._collected_global_event_df is None:
-            self._collected_global_event_df = self.global_event_df.collect()
+            logger.info("Collecting global event dataframe...")
+            
+            # Collect the dataframe - with dev mode limiting if applicable
+            df = self.global_event_df
+            if self.dev:
+                # Limit the number of patients in dev mode
+                logger.info(f"Dev mode enabled: limiting to 1000 patients")
+                unique_patients = df.select("patient_id").unique().collect()
+                patient_limit = min(1000, unique_patients.height)
+                limited_patients = unique_patients.slice(0, patient_limit)
+                patient_list = limited_patients.get_column("patient_id").to_list()
+                df = df.filter(pl.col("patient_id").is_in(patient_list))
+                
+            self._collected_global_event_df = df.collect()
+            logger.info(f"Collected dataframe with shape: {self._collected_global_event_df.shape}")
+            
         return self._collected_global_event_df
 
     def load_data(self) -> pl.LazyFrame:
@@ -96,7 +120,17 @@ class BaseDataset(ABC):
         #     raise FileNotFoundError(f"CSV not found: {csv_path}")
 
         logger.info(f"Scanning table: {table_name} from {csv_path}")
-        df = pl.scan_csv(csv_path, infer_schema=False)
+        
+        # Implement dev mode at the CSV reading level if possible
+        scan_kwargs = {}
+        if self.dev and "patient_id" in table_cfg:
+            # Some tables may have options for limiting the number of rows in dev mode
+            # This doesn't directly limit to specific patients yet, but helps reduce memory
+            scan_kwargs["n_rows"] = 10000  # Arbitrary limit for dev mode
+            logger.info(f"Dev mode: limiting initial scan to {scan_kwargs['n_rows']} rows")
+            
+        df = pl.scan_csv(csv_path, infer_schema=False, **scan_kwargs)
+        
         # TODO: this is an ad hoc fix for the MIMIC-III dataset
         df = df.with_columns([pl.col(col).alias(col.lower()) for col in df.collect_schema().names()])
 
@@ -108,7 +142,7 @@ class BaseDataset(ABC):
             #         f"Join CSV not found: {other_csv_path}"
             #     )
 
-            join_df = pl.scan_csv(other_csv_path, infer_schema=False)
+            join_df = pl.scan_csv(other_csv_path, infer_schema=False, **scan_kwargs)
             join_df = join_df.with_columns([pl.col(col).alias(col.lower()) for col in join_df.collect_schema().names()])
             join_key = join_cfg.on
             columns = join_cfg.columns
@@ -167,6 +201,7 @@ class BaseDataset(ABC):
                 .to_series()
                 .to_list()
             )
+            logger.info(f"Found {len(self._unique_patient_ids)} unique patient IDs")
         return self._unique_patient_ids
 
     def get_patient(self, patient_id: str) -> Patient:
@@ -206,6 +241,7 @@ class BaseDataset(ABC):
         """Prints statistics about the dataset."""
         df = self.collected_global_event_df
         print(f"Dataset: {self.dataset_name}")
+        print(f"Dev mode: {self.dev}")
         print(f"Number of patients: {df['patient_id'].n_unique()}")
         print(f"Number of events: {df.height}")
 
@@ -234,15 +270,17 @@ class BaseDataset(ABC):
             assert self.default_task is not None, "No default tasks found"
             task = self.default_task
 
-        logger.info(f"Setting task for {self.dataset_name} base dataset...")
+        logger.info(f"Setting task {task.task_name} for {self.dataset_name} base dataset...")
 
         filtered_global_event_df = task.pre_filter(self.collected_global_event_df)
 
         samples = []
         for patient in tqdm(
-            self.iter_patients(filtered_global_event_df), desc=f"Generating samples for {task.task_name}"
+            self.iter_patients(filtered_global_event_df), 
+            desc=f"Generating samples for {task.task_name}"
         ):
             samples.extend(task(patient))
+        
         sample_dataset = SampleDataset(
             samples,
             input_schema=task.input_schema,
@@ -250,4 +288,6 @@ class BaseDataset(ABC):
             dataset_name=self.dataset_name,
             task_name=task,
         )
+        
+        logger.info(f"Generated {len(samples)} samples for task {task.task_name}")
         return sample_dataset
