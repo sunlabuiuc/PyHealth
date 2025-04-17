@@ -1,0 +1,10 @@
+version: "5.0"
+tables:
+  covid19_cxr:
+    file_path: "covid19_cxr-metadata-pyhealth.csv"
+    patient_id: null
+    timestamp: null
+    attributes:
+    - "path"
+    - "url"
+    - "label"
