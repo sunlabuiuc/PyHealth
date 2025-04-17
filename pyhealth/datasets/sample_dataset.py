@@ -1,6 +1,7 @@
 from typing import Dict, List, Optional
 
 from torch.utils.data import Dataset
+from tqdm import tqdm
 
 from ..processors import get_processor
 
@@ -66,7 +67,7 @@ class SampleDataset(Dataset):
         for k, v in self.output_schema.items():
             self.output_processors[k] = get_processor(v)()
             self.output_processors[k].fit(self.samples, k)
-        for sample in self.samples:
+        for sample in tqdm(self.samples, desc="Processing samples"):
             for k, v in sample.items():
                 if k in self.input_processors:
                     sample[k] = self.input_processors[k].process(v)
