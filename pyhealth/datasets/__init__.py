@@ -41,4 +41,5 @@ from .sleepedf import SleepEDFDataset
 from .splitter import split_by_patient, split_by_sample, split_by_visit
 from .tuab import TUABDataset
 from .tuev import TUEVDataset
+from .simglucosedataset import SimGlucoseDataset
 from .utils import collate_fn_dict, collate_fn_dict_with_padding, get_dataloader
