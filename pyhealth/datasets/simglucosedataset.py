@@ -7,6 +7,34 @@ from pyhealth.datasets import BaseDataset
 logger = logging.getLogger(__name__)
 
 class SimGlucoseDataset(BaseDataset):
+
+    """
+    # Example/To Test:
+
+    from pyhealth.datasets import SimGlucoseDataset
+    import gymnasium as gym
+
+    def make_env():
+        return gym.make("Pendulum-v1")
+
+    class DummyController:
+        def compute_action(self, obs):
+            return 0.0
+
+    def make_controller():
+        return DummyController()
+
+    dataset = SimGlucoseDataset(
+        env_fn=make_env,
+        controller_fn=make_controller,
+        num_samples=5,
+        rollout_steps=30,
+    )
+
+    samples = dataset.get_data()
+    print(samples[0])
+    """ 
+    
     def __init__(
         self,
         env_fn,
