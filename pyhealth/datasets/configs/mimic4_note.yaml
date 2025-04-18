@@ -1,0 +1,49 @@
+# split these different into different yamls.
+# ==========================================
+# Clinical Notes Tables (from notes_root)
+# ==========================================
+discharge:
+  file_path: "discharge.csv.gz"
+  patient_id: "subject_id"
+  timestamp: "charttime"
+  attributes:
+    - "note_id"
+    - "hadm_id"
+    - "note_type"
+    - "note_seq"
+    - "charttime"
+    - "storetime"
+    - "text"
+
+discharge_detail:
+  file_path: "discharge_detail.csv.gz"
+  patient_id: "subject_id"
+  timestamp: null
+  attributes:
+    - "note_id"
+    - "field_name"
+    - "field_value"
+    - "field_ordinal"
+
+radiology:
+  file_path: "radiology.csv.gz"
+  patient_id: "subject_id"
+  timestamp: "charttime"
+  attributes:
+    - "note_id"
+    - "hadm_id"
+    - "note_type"
+    - "note_seq"
+    - "charttime"
+    - "storetime"
+    - "text"
+
+radiology_detail:
+  file_path: "radiology_detail.csv.gz"
+  patient_id: "subject_id"
+  timestamp: null
+  attributes:
+    - "note_id"
+    - "field_name"
+    - "field_value"
+    - "field_ordinal"

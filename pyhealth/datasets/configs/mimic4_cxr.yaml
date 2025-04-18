@@ -1,0 +1,91 @@
+
+# X-ray metadata
+xrays_metadata:
+  file_path: "mimic-cxr-2.0.0-metadata.csv.gz"
+  patient_id: "subject_id"
+  timestamp: null  # Will be derived from studydate and studytime in code
+  attributes:
+    - "dicom_id"
+    - "study_id"
+    - "performedprocedurestepdescription"
+    - "viewposition"
+    - "rows"
+    - "columns"
+    - "studydate"
+    - "studytime"
+    - "procedurecodesequence_codemeaning"
+    - "viewcodesequence_codemeaning"
+    - "patientorientationcodesequence_codemeaning"
+
+# CheXpert labels
+xrays_chexpert:
+  file_path: "mimic-cxr-2.0.0-chexpert.csv.gz"
+  patient_id: "subject_id"
+  timestamp: null
+  attributes:
+    - "study_id"
+    - "no finding"
+    - "enlarged cardiomediastinum"
+    - "cardiomegaly"
+    - "lung opacity"
+    - "lung lesion"
+    - "edema"
+    - "consolidation"
+    - "pneumonia"
+    - "atelectasis"
+    - "pneumothorax"
+    - "pleural effusion"
+    - "pleural other"
+    - "fracture"
+    - "support devices"
+
+# NegBio labels
+xrays_negbio:
+  file_path: "mimic-cxr-2.0.0-negbio.csv.gz"
+  patient_id: "subject_id"
+  timestamp: null
+  attributes:
+    - "study_id"
+    - "no finding"
+    - "enlarged cardiomediastinum"
+    - "cardiomegaly"
+    - "lung opacity"
+    - "lung lesion"
+    - "edema"
+    - "consolidation"
+    - "pneumonia"
+    - "atelectasis"
+    - "pneumothorax"
+    - "pleural effusion"
+    - "pleural other"
+    - "fracture"
+    - "support devices"
+
+# Test set labels
+xrays_test_labels:
+  file_path: "mimic-cxr-2.1.0-test-set-labeled.csv"
+  patient_id: "subject_id"
+  timestamp: null
+  attributes:
+    - "study_id"
+    - "atelectasis"
+    - "cardiomegaly"
+    - "consolidation"
+    - "edema"
+    - "enlarged cardiomediastinum"
+    - "fracture"
+    - "lung lesion"
+    - "lung opacity"
+    - "no finding"
+    - "pleural effusion"
+    - "pleural other"
+    - "pneumonia"
+    - "pneumothorax"
+    - "support devices"
+
+# Image path definition
+xrays_images:
+  file_path: "files/{subject_id}/{study_id}/{dicom_id}.jpg"
+  patient_id: "subject_id"
+  timestamp: null
+  attributes: []
