@@ -1,5 +1,5 @@
 from abc import ABC
-from typing import Callable, Optional, List
+from typing import Callable
 
 import torch
 import torch.nn as nn
@@ -7,58 +7,27 @@ import torch.nn.functional as F
 
 from ..datasets import SampleDataset
 
-# Hotfix for old model APIs
-class BaseModel(ABC, nn.Module):
-    """Abstract class for PyTorch models."""
 
-    def __init__(
-        self, 
-        dataset: SampleDataset,
-        feature_keys: Optional[List[str]] = None,
-        label_key: Optional[str] = None,
-        mode: Optional[str] = None,
-        pretrained_emb: Optional[str] = None,
-        **kwargs
-    ):
+class BaseModel(ABC, nn.Module):
+    """Abstract class for PyTorch models.
+
+    Args:
+        dataset (SampleDataset): The dataset to train the model. It is used to query certain
+            information such as the set of all tokens.
+    """
+
+    def __init__(self, dataset: SampleDataset):
         """
         Initializes the BaseModel.
 
         Args:
             dataset (SampleDataset): The dataset to train the model.
-            feature_keys (Optional[List[str]]): Specific feature keys to use. If None, use all from dataset.
-            label_key (Optional[str]): Specific label key to use. If None, use first from dataset.
-            mode (Optional[str]): Output mode. If None, inferred from dataset.
-            pretrained_emb (Optional[str]): Path to pretrained embeddings. If None, train from scratch.
-            **kwargs: Additional keyword arguments.
         """
         super(BaseModel, self).__init__()
         self.dataset = dataset
-        
-        # Handle feature keys - either use provided ones or all from dataset
-        if feature_keys is not None:
-            self.feature_keys = feature_keys
-        else:
-            self.feature_keys = list(dataset.input_schema.keys())
-            
-        # Handle label key - either use provided one or first from dataset
-        if label_key is not None:
-            self.label_key = label_key
-            self.label_keys = [label_key]  # For backward compatibility
-        else:
-            self.label_keys = list(dataset.output_schema.keys())
-            if self.label_keys:
-                self.label_key = self.label_keys[0]
-                
-        # Handle mode - either use provided one or infer from dataset
-        if mode is not None:
-            self.mode = mode
-        elif hasattr(dataset, 'output_schema') and self.label_keys:
-            self.mode = dataset.output_schema[self.label_keys[0]]
-        
-        # Store pretrained embeddings path if provided
-        self.pretrained_emb = pretrained_emb
-            
-        # Used to query the device of the model
+        self.feature_keys = list(dataset.input_schema.keys())
+        self.label_keys = list(dataset.output_schema.keys())
+        # used to query the device of the model
         self._dummy_param = nn.Parameter(torch.empty(0))
 
     @property

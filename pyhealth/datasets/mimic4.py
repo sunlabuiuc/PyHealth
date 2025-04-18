@@ -105,101 +105,78 @@ class MIMIC4_CXR(BaseDataset):
         )
         log_memory_usage(f"After initializing {dataset_name}")
 
-    class MIMIC4_CXR(BaseDataset):
-        """MIMIC-CXR Chest X-ray dataset with improved image path handling."""
+    def get_image_path(self, patient_id: str, study_id: str, dicom_id: str) -> str:
+        """
+        Constructs the correct path to a MIMIC-CXR image file.
         
-        def __init__(
-            self,
-            root: str,
-            tables: List[str],
-            dataset_name: str = "mimic4_cxr",
-            config_path: Optional[str] = None,
-            **kwargs
-        ):
-            if config_path is None:
-                config_path = os.path.join(os.path.dirname(__file__), "configs", "mimic4_cxr.yaml")
-                logger.info(f"Using default CXR config: {config_path}")
-            
-            super().__init__(
-                root=root,
-                tables=tables,
-                dataset_name=dataset_name,
-                config_path=config_path,
-                **kwargs
-            )
+        Args:
+            patient_id: The patient ID (e.g., "p10000032")
+            study_id: The study ID (e.g., "s50414267")
+            dicom_id: The DICOM ID (e.g., "02aa804e-bde0afdd-112c0b34-7bc16630-4e384014")
         
-        def get_image_path(self, patient_id: str, study_id: str, dicom_id: str) -> str:
-            """
-            Constructs the correct path to a MIMIC-CXR image file.
-            
-            Args:
-                patient_id: The patient ID (e.g., "p10000032")
-                study_id: The study ID (e.g., "s50414267")
-                dicom_id: The DICOM ID (e.g., "02aa804e-bde0afdd-112c0b34-7bc16630-4e384014")
-            
-            Returns:
-                The absolute path to the image file
-            """
-            # Extract the first 3 characters of the patient_id as the parent folder
-            parent_folder = patient_id[:3]
-            return os.path.join(self.root, "files", parent_folder, patient_id, study_id, f"{dicom_id}.jpg")
+        Returns:
+            The absolute path to the image file
+        """
+        # Extract the first 3 characters of the patient_id as the parent folder
+        parent_folder = patient_id[:3]
+        return os.path.join(self.root, "files", parent_folder, patient_id, study_id, f"{dicom_id}.jpg")
+    
+    def get_study_images(self, patient_id: str, study_id: str) -> List[str]:
+        """
+        Gets all image paths for a specific study.
         
-        def get_study_images(self, patient_id: str, study_id: str) -> List[str]:
-            """
-            Gets all image paths for a specific study.
-            
-            Args:
-                patient_id: The patient ID (e.g., "p10000032")
-                study_id: The study ID (e.g., "s50414267")
-            
-            Returns:
-                A list of absolute paths to all images in the study
-            """
-            # Get the metadata for this patient and study
-            df = self.collected_global_event_df
-            study_metadata = df.filter(
-                (pl.col("event_type") == "xrays_metadata") &
-                (pl.col("patient_id") == patient_id) &
-                (pl.col("xrays_metadata/study_id") == study_id)
-            )
-            
-            # Construct paths for all dicom_ids in this study
-            image_paths = []
-            for row in study_metadata.iter_rows(named=True):
-                dicom_id = row["xrays_metadata/dicom_id"]
-                image_paths.append(self.get_image_path(patient_id, study_id, dicom_id))
-            
-            return image_paths
+        Args:
+            patient_id: The patient ID (e.g., "p10000032")
+            study_id: The study ID (e.g., "s50414267")
         
-        def get_patient_images(self, patient_id: str) -> Dict[str, List[str]]:
-            """
-            Gets all image paths for a specific patient, organized by study.
+        Returns:
+            A list of absolute paths to all images in the study
+        """
+        # Get the metadata for this patient and study
+        df = self.collected_global_event_df
+        study_metadata = df.filter(
+            (pl.col("event_type") == "xrays_metadata") &
+            (pl.col("patient_id") == patient_id) &
+            (pl.col("xrays_metadata/study_id") == study_id)
+        )
+        
+        # Construct paths for all dicom_ids in this study
+        image_paths = []
+        for row in study_metadata.iter_rows(named=True):
+            dicom_id = row["xrays_metadata/dicom_id"]
+            image_paths.append(self.get_image_path(patient_id, study_id, dicom_id))
+        
+        return image_paths
+    
+    def get_patient_images(self, patient_id: str) -> Dict[str, List[str]]:
+        """
+        Gets all image paths for a specific patient, organized by study.
+        
+        Args:
+            patient_id: The patient ID (e.g., "p10000032")
+        
+        Returns:
+            A dictionary mapping study_id to a list of image paths
+        """
+        # Get the metadata for this patient
+        df = self.collected_global_event_df
+        patient_metadata = df.filter(
+            (pl.col("event_type") == "xrays_metadata") &
+            (pl.col("patient_id") == patient_id)
+        )
+        
+        # Group by study_id
+        studies = {}
+        for row in patient_metadata.iter_rows(named=True):
+            study_id = row["xrays_metadata/study_id"]
+            dicom_id = row["xrays_metadata/dicom_id"]
             
-            Args:
-                patient_id: The patient ID (e.g., "p10000032")
+            if study_id not in studies:
+                studies[study_id] = []
             
-            Returns:
-                A dictionary mapping study_id to a list of image paths
-            """
-            # Get the metadata for this patient
-            df = self.collected_global_event_df
-            patient_metadata = df.filter(
-                (pl.col("event_type") == "xrays_metadata") &
-                (pl.col("patient_id") == patient_id)
-            )
-            
-            # Group by study_id
-            studies = {}
-            for row in patient_metadata.iter_rows(named=True):
-                study_id = row["xrays_metadata/study_id"]
-                dicom_id = row["xrays_metadata/dicom_id"]
-                
-                if study_id not in studies:
-                    studies[study_id] = []
-                
-                studies[study_id].append(self.get_image_path(patient_id, study_id, dicom_id))
-            
-            return studies
+            studies[study_id].append(self.get_image_path(patient_id, study_id, dicom_id))
+        
+        return studies
 
 class MIMIC4Dataset(BaseDataset):
     """
