@@ -44,29 +44,37 @@ class MortalityPredictionMIMIC3(BaseTask):
                 mortality_label = int(next_visit.discharge_status) if next_visit.discharge_status in [0, 1] else 0
             except (ValueError, AttributeError):
                 mortality_label = 0
+            
+            try:
+                dischtime = datetime.strptime(
+                    visit.dischtime, "%Y-%m-%d %H:%M:%S"
+                )
+            except (ValueError, AttributeError):
+                # If date parsing fails, skip this admission
+                continue
 
             # Get clinical codes
             diagnoses = patient.get_events(
                 event_type="DIAGNOSES_ICD",
                 start=visit.timestamp,
-                end=visit.discharge_time
+                end=dischtime
             )
             procedures = patient.get_events(
                 event_type="PROCEDURES_ICD",
                 start=visit.timestamp,
-                end=visit.discharge_time
+                end=dischtime
             )
             medications = patient.get_events(
                 event_type="PRESCRIPTIONS",
                 start=visit.timestamp,
-                end=visit.discharge_time
+                end=dischtime
             )
             
             # Get clinical notes
             notes = patient.get_events(
                 event_type="NOTEEVENTS",
                 start=visit.timestamp,
-                end=visit.discharge_time
+                end=visit.dischtime
             )
             
             conditions = [event.code for event in diagnoses]
