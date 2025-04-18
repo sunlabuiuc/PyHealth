@@ -13,6 +13,95 @@ class MortalityPredictionMIMIC3(BaseTask):
     input_schema: Dict[str, str] = {
         "conditions": "sequence", 
         "procedures": "sequence", 
+        "drugs": "sequence"
+    }
+    output_schema: Dict[str, str] = {"mortality": "binary"}
+
+    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+        """Processes a single patient for the mortality prediction task."""
+        samples = []
+
+        # We will drop the last visit
+        visits = patient.get_events(event_type="admissions")
+        
+        if len(visits) <= 1:
+            return []
+
+        for i in range(len(visits) - 1):
+            visit = visits[i]
+            next_visit = visits[i + 1]
+
+            # Check discharge status for mortality label - more robust handling
+            if next_visit.hospital_expire_flag not in [0, 1]:
+                mortality_label = 0
+            else:
+                mortality_label = int(next_visit.hospital_expire_flag)
+            
+            # Convert string timestamps to datetime objects
+            try:
+                # Check the type and convert if necessary
+                if isinstance(visit.dischtime, str):
+                    discharge_time = datetime.strptime(visit.dischtime, "%Y-%m-%d")
+                else:
+                    discharge_time = visit.dischtime
+            except (ValueError, AttributeError):
+                # If conversion fails, skip this visit
+                print("Error parsing discharge time:", visit.dischtime)
+                continue
+                
+            # Get clinical codes
+            diagnoses = patient.get_events(
+                event_type="diagnoses_icd",
+                start=visit.timestamp,
+                end=discharge_time  # Now using a datetime object
+            )
+            procedures = patient.get_events(
+                event_type="procedures_icd",
+                start=visit.timestamp,
+                end=discharge_time  # Now using a datetime object
+            )
+            prescriptions = patient.get_events(
+                event_type="prescriptions",
+                start=visit.timestamp,
+                end=discharge_time  # Now using a datetime object
+            )
+    
+            conditions = [
+                event.icd9_code for event in diagnoses
+            ]
+            procedures_list = [
+                event.icd9_code for event in procedures
+            ]
+            drugs = [
+                event.drug for event in prescriptions
+            ]
+    
+            # Exclude visits without condition, procedure, or drug code
+            if len(conditions) * len(procedures_list) * len(drugs) == 0:
+                continue
+            
+            samples.append({
+                "hadm_id": visit.hadm_id,
+                "patient_id": patient.patient_id,
+                "conditions": conditions,
+                "procedures": procedures_list,
+                "drugs": drugs,
+                "mortality": mortality_label,
+            })
+        
+        return samples
+
+
+class MultimodalMortalityPredictionMIMIC3(BaseTask):
+    """Task for predicting mortality using MIMIC-III dataset with text data.
+    
+    This task aims to predict whether the patient will decease in the next hospital
+    visit based on clinical information from the current visit.
+    """
+    task_name: str = "MortalityPredictionMIMIC3"
+    input_schema: Dict[str, str] = {
+        "conditions": "sequence", 
+        "procedures": "sequence", 
         "drugs": "sequence",
         "clinical_notes": "text"  # Added support for clinical notes
     }
@@ -82,9 +171,9 @@ class MortalityPredictionMIMIC3(BaseTask):
                 event.drug for event in prescriptions
             ]
             # Extract note text - concatenate if multiple exist
-            note_text = " ".join([getattr(note, "code", "") for note in notes])
-            if not note_text.strip():
-                note_text = None
+            text = ""
+            for note in notes:
+                text += note.text
 
             # Exclude visits without condition, procedure, or drug code
             if len(conditions) * len(procedures_list) * len(drugs) == 0:
@@ -96,11 +185,12 @@ class MortalityPredictionMIMIC3(BaseTask):
                 "conditions": conditions,
                 "procedures": procedures_list,
                 "drugs": drugs,
-                "clinical_notes": note_text,
+                "clinical_notes": text,
                 "mortality": mortality_label,
             })
         
         return samples
+
 
 class MortalityPredictionMIMIC4(BaseTask):
     """Task for predicting mortality using MIMIC-IV EHR data only."""
