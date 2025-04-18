@@ -1,5 +1,5 @@
 from abc import ABC
-from typing import Callable, Optional
+from typing import Callable, Optional, List
 
 import torch
 import torch.nn as nn
@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 from ..datasets import SampleDataset
 
-
+# Hotfix for old model APIs
 class BaseModel(ABC, nn.Module):
     """Abstract class for PyTorch models."""
 
