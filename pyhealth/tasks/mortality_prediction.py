@@ -19,19 +19,12 @@ class MortalityPredictionMIMIC3(BaseTask):
     output_schema: Dict[str, str] = {"mortality": "binary"}
 
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
-        """Processes a single patient for the mortality prediction task.
-
-        Args:
-            patient (Any): A Patient object containing patient data.
-
-        Returns:
-            List[Dict[str, Any]]: A list of samples, each sample is a dict with
-                patient_id, visit_id, conditions, procedures, drugs, notes and mortality.
-        """
+        """Processes a single patient for the mortality prediction task."""
         samples = []
 
         # We will drop the last visit
         visits = patient.get_events(event_type="admissions")
+        
         if len(visits) <= 1:
             return []
 
@@ -40,47 +33,54 @@ class MortalityPredictionMIMIC3(BaseTask):
             next_visit = visits[i + 1]
 
             # Check discharge status for mortality label - more robust handling
-            try:
-                mortality_label = int(next_visit.discharge_status) if next_visit.discharge_status in [0, 1] else 0
-            except (ValueError, AttributeError):
+            if next_visit.hospital_expire_flag not in [0, 1]:
                 mortality_label = 0
+            else:
+                mortality_label = int(next_visit.hospital_expire_flag)
             
+            # Convert string timestamps to datetime objects
             try:
-                dischtime = datetime.strptime(
-                    visit.dischtime, "%Y-%m-%d %H:%M:%S"
-                )
+                # Check the type and convert if necessary
+                if isinstance(visit.dischtime, str):
+                    discharge_time = datetime.strptime(visit.dischtime, "%Y-%m-%d")
+                else:
+                    discharge_time = visit.dischtime
             except (ValueError, AttributeError):
-                # If date parsing fails, skip this admission
+                # If conversion fails, skip this visit
+                print("Error parsing discharge time:", visit.dischtime)
                 continue
-
+                
             # Get clinical codes
             diagnoses = patient.get_events(
-                event_type="DIAGNOSES_ICD",
+                event_type="diagnoses_icd",
                 start=visit.timestamp,
-                end=dischtime
+                end=discharge_time  # Now using a datetime object
             )
             procedures = patient.get_events(
-                event_type="PROCEDURES_ICD",
+                event_type="procedures_icd",
                 start=visit.timestamp,
-                end=dischtime
+                end=discharge_time  # Now using a datetime object
             )
-            medications = patient.get_events(
-                event_type="PRESCRIPTIONS",
+            prescriptions = patient.get_events(
+                event_type="prescriptions",
                 start=visit.timestamp,
-                end=dischtime
+                end=discharge_time  # Now using a datetime object
             )
-            
             # Get clinical notes
             notes = patient.get_events(
-                event_type="NOTEEVENTS",
+                event_type="noteevents",
                 start=visit.timestamp,
-                end=visit.dischtime
+                end=discharge_time  # Now using a datetime object
             )
-            
-            conditions = [event.code for event in diagnoses]
-            procedures_list = [event.code for event in procedures]
-            drugs = [event.code for event in medications]
-            
+            conditions = [
+                event.icd9_code for event in diagnoses
+            ]
+            procedures_list = [
+                event.icd9_code for event in procedures
+            ]
+            drugs = [
+                event.drug for event in prescriptions
+            ]
             # Extract note text - concatenate if multiple exist
             note_text = " ".join([getattr(note, "code", "") for note in notes])
             if not note_text.strip():
@@ -91,11 +91,11 @@ class MortalityPredictionMIMIC3(BaseTask):
                 continue
             
             samples.append({
-                "visit_id": visit.visit_id,
+                "hadm_id": visit.hadm_id,
                 "patient_id": patient.patient_id,
-                "conditions": [conditions],
-                "procedures": [procedures_list],
-                "drugs": [drugs],
+                "conditions": conditions,
+                "procedures": procedures_list,
+                "drugs": drugs,
                 "clinical_notes": note_text,
                 "mortality": mortality_label,
             })
@@ -156,11 +156,10 @@ class MortalityPredictionMIMIC4(BaseTask):
             next_admission = admissions[i + 1]
 
             # Check discharge status for mortality label - more robust handling
-            try:
-                mortality_label = int(next_admission.hospital_expire_flag)
-            except (ValueError, AttributeError):
-                # Default to 0 if value can't be interpreted
+            if next_admission.hospital_expire_flag not in [0, 1]:
                 mortality_label = 0
+            else:
+                mortality_label = int(next_admission.hospital_expire_flag)
 
             # Parse admission timestamps
             try:
@@ -169,6 +168,7 @@ class MortalityPredictionMIMIC4(BaseTask):
                 )
             except (ValueError, AttributeError):
                 # If date parsing fails, skip this admission
+                print("Error parsing admission discharge time:", admission.dischtime)
                 continue
 
             # Get clinical codes
@@ -295,10 +295,10 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
             next_admission = admissions[i + 1]
 
             # Check discharge status for mortality label
-            try:
-                mortality_label = int(next_admission.hospital_expire_flag)
-            except (ValueError, AttributeError):
+            if next_admission.hospital_expire_flag not in [0, 1]:
                 mortality_label = 0
+            else:
+                mortality_label = int(next_admission.hospital_expire_flag)
 
             # Parse admission timestamps
             try:

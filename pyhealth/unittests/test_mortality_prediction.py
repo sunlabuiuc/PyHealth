@@ -23,6 +23,20 @@ from pyhealth.datasets.splitter import split_by_patient
 from pyhealth.datasets.utils import get_dataloader
 
 
+
+def test_mortality_prediction_mimic3():
+    from pyhealth.datasets import MIMIC3Dataset
+    dataset = MIMIC3Dataset(
+        root="https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III",
+        tables=["diagnoses_icd", "procedures_icd", "prescriptions", "noteevents"],
+        dev=False
+    )
+    from pyhealth.tasks.mortality_prediction import MortalityPredictionMIMIC3
+    from pyhealth.datasets import split_by_patient, get_dataloader
+    mimic3_mortality_prediction = MortalityPredictionMIMIC3()
+    samples = dataset.set_task(mimic3_mortality_prediction) # use default task
+    train_ds, val_ds, test_ds = split_by_patient(samples, [0.8, 0.1, 0.1])
+
 def test_mortality_prediction_mimic4():
     """
     Test case for mortality prediction using the new MIMIC4 dataset format.
@@ -401,6 +415,8 @@ def test_multimodal_mortality_prediction_with_images():
 
 
 if __name__ == "__main__":
+    test_mortality_prediction_mimic3()
+
     test_multimodal_mortality_prediction_with_images()
     # test_multimodal_mortality_prediction_mimic4()
 

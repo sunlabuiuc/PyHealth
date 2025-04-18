@@ -57,6 +57,7 @@ tables:
           - "dischtime"
     timestamp: "dischtime"
     attributes:
+      - 'drug'
       - "drug_name_poe"
       - "formulary_drug_cd"
       - "ndc"

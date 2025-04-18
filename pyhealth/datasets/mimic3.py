@@ -27,6 +27,7 @@ class MIMIC3Dataset(BaseDataset):
         tables: List[str],
         dataset_name: Optional[str] = None,
         config_path: Optional[str] = None,
+        **kwargs
     ) -> None:
         """
         Initializes the MIMIC4Dataset with the specified parameters.
@@ -47,6 +48,7 @@ class MIMIC3Dataset(BaseDataset):
             tables=tables,
             dataset_name=dataset_name or "mimic3",
             config_path=config_path,
+            **kwargs
         )
         return
 
