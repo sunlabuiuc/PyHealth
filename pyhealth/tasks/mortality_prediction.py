@@ -494,7 +494,7 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
                     dicom_id = getattr(xray, "dicom_id", None)
                     
                     if study_id and dicom_id:
-                        image_path = self._construct_image_path(patient.patient_id, study_id, dicom_id)
+                        image_path = self._construct_image_path(f"p{patient.patient_id[0]}", study_id, dicom_id)
                         image_paths.append(image_path)
                 except Exception as e:
                     print(f"Error processing X-ray image path: {e}")
