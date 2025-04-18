@@ -4,7 +4,7 @@ from typing import Dict, List, Optional, Tuple
 import torch
 from torch import nn
 
-from pyhealth.datasets import SampleEHRDataset
+from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.tokenizer import Tokenizer
 
@@ -304,7 +304,7 @@ class Transformer(BaseModel):
 
     def __init__(
         self,
-        dataset: SampleEHRDataset,
+        dataset: SampleDataset,
         feature_keys: List[str],
         label_key: str,
         mode: str,
@@ -457,7 +457,7 @@ class Transformer(BaseModel):
 
 
 if __name__ == "__main__":
-    from pyhealth.datasets import SampleEHRDataset
+    from pyhealth.datasets import SampleDataset
 
     samples = [
         {
