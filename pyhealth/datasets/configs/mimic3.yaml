@@ -46,6 +46,23 @@ tables:
       - "icd9_code"
       - "seq_num"
 
+  prescriptions:
+    file_path: "PRESCRIPTIONS.csv"
+    patient_id: "subject_id"
+    join:
+      - file_path: "ADMISSIONS.csv"
+        "on": "hadm_id"
+        how: "inner"
+        columns:
+          - "dischtime"
+    timestamp: "dischtime"
+    attributes:
+      - "drug_name_poe"
+      - "formulary_drug_cd"
+      - "ndc"
+      - "gsn"
+      - "route"
+
   procedures_icd:
     file_path: "PROCEDURES_ICD.csv"
     patient_id: "subject_id"

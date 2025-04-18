@@ -89,7 +89,7 @@ class BaseDataset(ABC):
         Returns:
             pl.LazyFrame: A concatenated lazy frame of all tables.
         """
-        frames = [self.load_table(table) for table in self.tables]
+        frames = [self.load_table(table.lower()) for table in self.tables]
         return pl.concat(frames, how="diagonal")
 
     def load_table(self, table_name: str) -> pl.LazyFrame:
@@ -110,6 +110,7 @@ class BaseDataset(ABC):
 
         table_cfg = self.config.tables[table_name]
         csv_path = f"{self.root}/{table_cfg.file_path}"
+        # TODO: check if it's zipped or not.
 
         # TODO: make this work for remote files
         # if not Path(csv_path).exists():
@@ -117,8 +118,6 @@ class BaseDataset(ABC):
 
         logger.info(f"Scanning table: {table_name} from {csv_path}")
         
-
-            
         df = pl.scan_csv(csv_path, infer_schema=False)
         
         # TODO: this is an ad hoc fix for the MIMIC-III dataset
