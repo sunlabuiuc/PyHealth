@@ -8,54 +8,70 @@ from pyhealth.tasks.base_task import BaseTask
 
 @dataclass(frozen=True)
 class ChestXrayClassificationTask(BaseTask):
-    """Task for Chest X‑ray Classification.
+    """Classification task for NIH Chest X‑ray.
 
-    This task takes a sample dict (as produced by NIHChestXrayDataset.process()) with
-    the key "image_path", loads that image, and assigns a dummy label of 0.
+    This task processes a sample dictionary (from NIHChestXrayDataset.process()),
+    loads the image at ``sample["image_path"]``, and returns it together with
+    its true binary label.
 
     Example:
+        >>> from pyhealth.datasets.nih_cxr import NIHChestXrayDataset
         >>> from pyhealth.tasks.nih_cxr_classification import ChestXrayClassificationTask
-        >>> sample = {"image_path": "/tmp/nih_chestxray/images_001/images/00000001_000.png"}
+        >>> ds = NIHChestXrayDataset(root="/tmp/nih", split="training", download=False)
+        >>> sample = ds.patients[0]
         >>> task = ChestXrayClassificationTask()
-        >>> out = task(sample)
-        >>> print(out)
-        [{"image": <PIL.Image.Image image mode=RGB size=...>, "label": 0}]
+        >>> output = task(sample)
+        >>> print(output)
+        [{"image": <PIL.Image.Image ...>, "label": 0}]
     """
     task_name: str = "ChestXrayClassification"
-    input_schema: Dict[str, str] = field(default_factory=lambda: {"image": "image"})
-    output_schema: Dict[str, str] = field(default_factory=lambda: {"label": "int"})
+    input_schema: Dict[str, str] = field(
+        default_factory=lambda: {"image": "image"}
+    )
+    output_schema: Dict[str, str] = field(
+        default_factory=lambda: {"label": "int"}
+    )
 
     def __call__(self, sample: Dict) -> List[Dict]:
-        """Load the image at `sample["image_path"]` and return it with a dummy label.
+        """Load image and return it with its binary label.
 
         Args:
-            sample (Dict): Must contain:
-                - "image_path" (str): full path to a .png image on disk
+            sample (Dict): A dictionary representing one data point, with keys:
+                - "image_path" (str): full path to the PNG image file.
+                - "label" (int): binary label (0 = No Finding, 1 = Finding).
 
         Returns:
-            List[Dict]: A single‐element list whose dict has:
-                - "image": the loaded PIL.Image.Image
-                - "label": int (0 for demonstration)
+            List[Dict]: A single-item list where the dict has:
+                - "image": a PIL.Image.Image object of the loaded image.
+                - "label": an int (0 or 1) representing the ground-truth label.
 
         Raises:
-            ValueError: If "image_path" is missing or the file cannot be opened.
+            ValueError: If "image_path" or "label" is missing from sample, or
+                if the image file cannot be opened.
+
+        Example:
+            >>> sample = {"image_path": "/tmp/nih/.../00000001_000.png", "label": 1}
+            >>> task = ChestXrayClassificationTask()
+            >>> result = task(sample)
         """
         image_path = sample.get("image_path")
-        if not image_path:
-            raise ValueError("Sample must contain an 'image_path' key.")
+        label = sample.get("label")
+        if image_path is None or label is None:
+            raise ValueError(
+                "Sample must contain keys 'image_path' (str) and 'label' (int)."
+            )
 
         try:
             img = Image.open(image_path).convert("RGB")
         except Exception as err:
             raise ValueError(f"Error loading image from {image_path}: {err}")
 
-        # Dummy label—replace with real logic if you have annotations
-        label = 0
         return [{"image": img, "label": label}]
 
 
 if __name__ == "__main__":
-    # Smoke‐test this task against your NIHChestXrayDataset
+    # Smoke‐test this task using the real dataset labels.
+    from torch.utils.data import DataLoader
     from pyhealth.datasets.nih_cxr import NIHChestXrayDataset
 
     parser = argparse.ArgumentParser(
@@ -65,7 +81,7 @@ if __name__ == "__main__":
         "--root",
         type=str,
         default="/tmp/nih_chestxray",
-        help="Root directory where NIH CXR was downloaded & extracted",
+        help="Root dir of NIH Chest X-ray data",
     )
     parser.add_argument(
         "--split",
@@ -77,19 +93,24 @@ if __name__ == "__main__":
     parser.add_argument(
         "--download",
         action="store_true",
-        help="If set, will re-download & extract the dataset",
+        help="Re-download & extract if set",
     )
     args = parser.parse_args()
 
-    # Load the dataset
+    # Load dataset (with real labels)
     ds = NIHChestXrayDataset(
         root=args.root, split=args.split, transform=None, download=args.download
     )
+    # Get first sample (contains 'image_path' and 'label')
+    sample = ds.patients[0]
 
-    # Grab the very first sample dict
-    sample_dict = ds.patients[0]
-
-    # Run it through our task
     task = ChestXrayClassificationTask()
-    output = task(sample_dict)
+    output = task(sample)
     print("Processed output:", output)
+
+    # Optionally, batch a few via DataLoader to ensure everything stacks
+    loader = DataLoader(ds, batch_size=2, shuffle=True, collate_fn=lambda x: x)
+    batch = next(iter(loader))
+    # batch is a list of sample‐dicts; apply task to each
+    processed_batch = [task(s)[0] for s in batch]
+    print("Batch labels:", [p["label"] for p in processed_batch])
