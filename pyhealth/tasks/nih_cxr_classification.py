@@ -2,6 +2,7 @@ import argparse
 from dataclasses import dataclass, field
 from typing import Dict, List
 from PIL import Image
+from torch.utils.data import DataLoader
 
 from pyhealth.tasks.base_task import BaseTask
 
@@ -71,7 +72,6 @@ class ChestXrayClassificationTask(BaseTask):
 
 if __name__ == "__main__":
     # Smoke‐test this task using the real dataset labels.
-    from torch.utils.data import DataLoader
     from pyhealth.datasets.nih_cxr import NIHChestXrayDataset
 
     parser = argparse.ArgumentParser(
@@ -101,16 +101,23 @@ if __name__ == "__main__":
     ds = NIHChestXrayDataset(
         root=args.root, split=args.split, transform=None, download=args.download
     )
-    # Get first sample (contains 'image_path' and 'label')
+
+    # Retrieve the first sample dict (contains 'image_path' and 'label')
     sample = ds.patients[0]
 
+    # Process a single sample
     task = ChestXrayClassificationTask()
     output = task(sample)
     print("Processed output:", output)
 
-    # Optionally, batch a few via DataLoader to ensure everything stacks
-    loader = DataLoader(ds, batch_size=2, shuffle=True, collate_fn=lambda x: x)
+    # Batch a few sample dicts via DataLoader and apply the task
+    sample_list = list(ds.patients.values())
+    loader = DataLoader(
+        sample_list,
+        batch_size=2,
+        shuffle=True,
+        collate_fn=lambda x: x,  # return list of dicts un-collated
+    )
     batch = next(iter(loader))
-    # batch is a list of sample‐dicts; apply task to each
     processed_batch = [task(s)[0] for s in batch]
     print("Batch labels:", [p["label"] for p in processed_batch])
