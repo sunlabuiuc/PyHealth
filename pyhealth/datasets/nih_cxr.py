@@ -290,7 +290,7 @@ if __name__ == "__main__":
         root=args.root,
         split=args.split,
         transform=my_transform,
-        download=args.download,
+        download=True,
     )
 
     NIHChestXrayDataset.info()
