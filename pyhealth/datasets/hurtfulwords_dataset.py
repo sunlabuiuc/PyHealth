@@ -4,10 +4,10 @@
 #
 # Name: 
 #   Zilal Eiz Al Din
-#
+#   Payel Chakraborty
 # NetID: 
 #   zelalae2@illinois.edu
-#
+#   payelc2@illinois.edu
 # Paper Title: 
 #   Hurtful Words: Quantifying Biases in Clinical Contextual Word Embeddings
 #
