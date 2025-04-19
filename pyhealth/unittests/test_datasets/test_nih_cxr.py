@@ -50,7 +50,7 @@ class TestNIHCxrDataset(unittest.TestCase):
         with open(os.path.join(cls.temp_dir, "test_list.txt"), "w") as f:
             f.write(cls.img_name + "\n")
 
-        # Create a minimal Data_Entry_2017.csv with our dummy image → "No Finding"
+        # Create a minimal Data_Entry_2017.csv with our dummy image -> "No Finding"
         csv_path = os.path.join(cls.temp_dir, "Data_Entry_2017.csv")
         with open(csv_path, "w") as f:
             f.write("Image Index,Finding Labels\n")
