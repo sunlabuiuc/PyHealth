@@ -1,12 +1,13 @@
 # ------------------------------------------------------------------------------
 # Example Script: HurtfulWordsDataset + MaskedBiasScoreTask
 #
-# Name:
+# Names:
 #   Zilal Eiz Al Din
+#   Payel Chakraborty
 #
-# NetID:
+# NetIDs:
 #   zelalae2
-#
+#   payelc2@illinois.edu
 # Purpose:
 #   This script demonstrates how to:
 #   - Load the HurtfulWordsDataset (MIMIC-III noteevents) 
