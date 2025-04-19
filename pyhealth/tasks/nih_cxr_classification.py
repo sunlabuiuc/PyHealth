@@ -3,11 +3,11 @@ from typing import Dict, List
 from PIL import Image
 
 # Import the TaskTemplate from the PyHealth package.
-from pyhealth.tasks.task_template import TaskTemplate
+from pyhealth.tasks.base_task import BaseTask
 
 
 @dataclass(frozen=True)
-class ChestXrayClassificationTask(TaskTemplate):
+class ChestXrayClassificationTask(BaseTask):
     """Task for Chest X-ray Classification.
 
     This task processes a sample from the NIHChestXrayDataset by loading the image

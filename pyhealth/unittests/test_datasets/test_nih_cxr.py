@@ -1,83 +1,72 @@
 import os
 import sys
+import shutil
+import tempfile
 import unittest
 from PIL import Image
 
-# Adjust the repository path so that imports work in your testing environment.
+# Allow imports from repo root
 current = os.path.dirname(os.path.realpath(__file__))
 repo_root = os.path.dirname(os.path.dirname(os.path.dirname(current)))
 sys.path.append(repo_root)
 
 from pyhealth.datasets.nih_cxr import NIHChestXrayDataset
 
-# This test suite verifies the NIH Chest X‑ray demo dataset is loaded correctly
-# and produces the expected sample and statistics.
+
 class TestNIHCxrDataset(unittest.TestCase):
-    DATASET_NAME = "nih-demo"
-    # For demonstration, we use a locally available directory.
-    # This path should contain a demo NIH Chest X-ray dataset extracted in the
-    # expected folder structure (i.e. a "database" folder with "train" and "test"
-    # subdirectories).
-    ROOT = "/tmp/nih_chestxray_demo"
-    SPLIT = "training"
+    @classmethod
+    def setUpClass(cls):
+        # Create a temporary directory for the demo dataset
+        cls.temp_dir = tempfile.mkdtemp(prefix="nih_demo_")
 
-    # Create the dataset instance.
-    # Set download to False if you expect the dataset to be already present at ROOT.
-    dataset = NIHChestXrayDataset(
-        root=ROOT,
-        split=SPLIT,
-        download=False,
-        transform=None,
-    )
+        # Create one images_001/images folder and drop in a dummy PNG
+        images_folder = os.path.join(cls.temp_dir, "images_001", "images")
+        os.makedirs(images_folder, exist_ok=True)
+        cls.img_name = "00000001_000.png"
+        dummy_path = os.path.join(images_folder, cls.img_name)
+        Image.new("RGB", (10, 10)).save(dummy_path)
 
-    def setUp(self):
-        # This method can be used for additional initialization if needed.
-        pass
+        # Write split text files listing that image
+        with open(os.path.join(cls.temp_dir, "train_val_list.txt"), "w") as f:
+            f.write(cls.img_name + "\n")
+        with open(os.path.join(cls.temp_dir, "test_list.txt"), "w") as f:
+            f.write(cls.img_name + "\n")
 
-    def test_sample(self):
-        """Test that a sample image is correctly loaded from the dataset.
-
-        Verifies:
-          - The dataset has at least one sample.
-          - The first sample is a valid PIL Image object with nonzero dimensions.
-        """
-        # Ensure the dataset mapping is not empty.
-        self.assertGreater(
-            len(self.dataset.patients),
-            0,
-            "Dataset should have at least 1 sample.",
+        # Instantiate both splits (download=False since data is already on disk)
+        cls.train_ds = NIHChestXrayDataset(
+            root=cls.temp_dir, split="training", download=False
         )
-        # Retrieve the first sample.
-        sample = self.dataset[0]
-        self.assertIsInstance(
-            sample,
-            Image.Image,
-            "Sample should be a PIL Image object.",
+        cls.test_ds = NIHChestXrayDataset(
+            root=cls.temp_dir, split="test", download=False
         )
-        # Check that the loaded image dimensions are valid.
-        width, height = sample.size
-        self.assertGreater(width, 0, "Image width should be greater than 0.")
-        self.assertGreater(height, 0, "Image height should be greater than 0.")
 
-    def test_statistics(self):
-        """Test that the dataset's statistics are reported correctly.
+    @classmethod
+    def tearDownClass(cls):
+        # Clean up
+        shutil.rmtree(cls.temp_dir)
 
-        Verifies:
-          - The statistics string includes the dataset name.
-          - The reported number of samples matches the length of the dataset.
-        """
-        stats_str = self.dataset.stat()
-        self.assertIn(
-            self.dataset.dataset_name,
-            stats_str,
-            "Dataset statistics should contain the dataset name.",
-        )
-        expected_num_samples = len(self.dataset.patients)
-        self.assertIn(
-            f"Number of samples: {expected_num_samples}",
-            stats_str,
-            "Dataset statistics should report the correct number of samples.",
-        )
+    def test_length(self):
+        # Both splits should contain exactly one sample
+        self.assertEqual(len(self.train_ds), 1)
+        self.assertEqual(len(self.test_ds), 1)
+
+    def test_sample_loading(self):
+        # Ensure sample is a PIL Image of size 10×10
+        img = self.train_ds[0]
+        self.assertIsInstance(img, Image.Image)
+        self.assertEqual(img.size, (10, 10))
+
+    def test_index_error(self):
+        # Out-of-bounds should raise IndexError
+        with self.assertRaises(IndexError):
+            _ = self.train_ds[1]
+
+    def test_stat_output(self):
+        stats = self.train_ds.stat()
+        # Matches the lines printed by stat()
+        self.assertIn("Dataset: NIH Chest X-ray", stats)
+        self.assertIn("Split:   training", stats)
+        self.assertIn("Samples: 1", stats)
 
 
 if __name__ == "__main__":
