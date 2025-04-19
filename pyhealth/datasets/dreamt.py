@@ -5,9 +5,9 @@ from typing import Optional
 
 import pandas as pd
 
-from ..tasks import DREAMTE4SleepingStageClassification
-from .base_dataset import BaseDataset
-from .dreamt_feature_engineering import *
+from pyhealth.tasks.dreamt_sleeping_stage_classification import DREAMTE4SleepingStageClassification
+from pyhealth.datasets.base_dataset import BaseDataset
+from pyhealth.datasets.dreamt_feature_engineering import *
 
 logger = logging.getLogger(__name__)
 
@@ -195,10 +195,9 @@ class DREAMTE4Dataset(BaseDataset):
 if __name__ == "__main__":
     # Example test case for the DREAMTE4Dataset.
     # root = "dreamt-dataset-for-real-time-sleep-stage-estimation-using-multisensor-wearable-technology-1.0.0"
-    root = "dreamt_e4" # small test sample data subset
+    root = "pyhealth/dreamt_e4" # small test sample data subset
     dreamt_dataset = DREAMTE4Dataset(
-        root=root,
-        tables=["dreams_features"]
+        root=root
     )
 
     task = DREAMTE4SleepingStageClassification()

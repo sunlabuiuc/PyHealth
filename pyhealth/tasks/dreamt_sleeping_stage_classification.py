@@ -1,6 +1,6 @@
 from typing import Any, Dict, List
 
-from .base_task import BaseTask
+from pyhealth.tasks.base_task import BaseTask
 import numpy as np
 
 

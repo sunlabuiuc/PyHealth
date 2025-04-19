@@ -3,8 +3,8 @@ import numpy as np
 
 import torch
 
-from . import register_processor
-from .base_processor import FeatureProcessor
+from pyhealth.processors import register_processor
+from pyhealth.processors.base_processor import FeatureProcessor
 
 
 @register_processor("ndarray")
