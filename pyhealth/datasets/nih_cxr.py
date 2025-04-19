@@ -1,3 +1,5 @@
+# Authored by: Ethan Rasmussen (UIUC NetID: ethanmr3@illinois.edu)
+
 import os
 import subprocess
 import zipfile
