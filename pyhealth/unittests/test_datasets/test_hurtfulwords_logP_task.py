@@ -3,10 +3,10 @@
 #
 # Name:
 #   Zilal Eiz Al Din
-#
+#   Payel Chakraborty
 # NetID:
 #   zelalae2
-#
+#   payelc2@illinois.edu
 # Purpose:
 #   This file contains an integration test that verifies end-to-end functionality
 #   of the HurtfulWordsDataset and MaskedBiasScoreTask combination. 
