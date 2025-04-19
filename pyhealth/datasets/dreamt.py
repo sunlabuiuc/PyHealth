@@ -103,7 +103,6 @@ class DREAMTE4Dataset(BaseDataset):
             dataset_name=dataset_name or "dreamt",
             config_path=config_path,
         )
-        # self.patients = self.process()
         return
 
 
