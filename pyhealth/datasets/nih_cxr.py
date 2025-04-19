@@ -1,14 +1,10 @@
 import os
-import subprocess
-import zipfile
 import logging
-from typing import Callable, Dict, Optional
+from typing import Dict, List, Optional
 
 from PIL import Image
-from torch.utils.data import DataLoader
-from torchvision import transforms
+from torch.utils.data import Dataset
 
-# Import BaseDataset from the PyHealth package.
 from pyhealth.datasets.base_dataset import BaseDataset
 
 logger = logging.getLogger(__name__)
@@ -16,276 +12,146 @@ logger.setLevel(logging.INFO)
 
 INFO_MSG = (
     "The NIH Chest X-ray Dataset.\n"
-    "URL: https://www.kaggle.com/datasets/nih-chest-xrays/data\n\n"
-    "The dataset contains over 100,000 frontal-view X-ray images with 14 common "
-    "thoracic disease labels.\n\n"
+    "Root directory must contain:\n"
+    "  - train_val_list.txt  (one image filename per line)\n"
+    "  - test_list.txt       (one image filename per line)\n"
+    "  - images_001/ … images_012/, each with subfolder images/ containing .png files\n\n"
     "Citation:\n"
-    "Wang, X., Peng, Y., Lu, L., Lu, Z., Bagheri, M., & Summers, R. M.\n"
-    '"ChestX-ray8: Hospital-scale Chest X-ray Database and Benchmarks on '
-    "Weakly-Supervised Classification and Localization of Common Thorax "
-    'Diseases."\nIEEE CVPR 2017, ChestX-ray8_Hospital-Scale_Chest_CVPR_2017_paper.pdf\n'
-    "doi: 10.1109/CVPR.2017.369"
+    "Wang, X. et al. ChestX-ray8: Hospital-scale Chest X-ray Database..."
 )
-
-DATASET_ZIP_FILENAME = "nih_chestxray.zip"
 
 
 class NIHChestXrayDataset(BaseDataset):
-    """NIH Chest X-ray Dataset.
-
-    This dataset class supports downloading, extracting, and loading
-    the NIH Chest X-ray images for either the "training" or "test" splits.
-    Each sample is represented as a dictionary containing the image path.
+    """NIH Chest X‑ray Dataset for image classification tasks.
 
     Example:
-        >>> from pyhealth.datasets.nih_cxr import NIHChestXrayDataset
-        >>> from torchvision import transforms
-        >>> my_transforms = transforms.Compose([
-        ...     transforms.Resize((224, 224)),
-        ...     transforms.ToTensor()
-        ... ])
-        >>> dataset = NIHChestXrayDataset(
-        ...     root="/tmp/nih_chestxray",
-        ...     split="training",
-        ...     transform=my_transforms,
-        ...     download=True
-        ... )
-        >>> dataset.stat()
-        >>> sample_image = dataset[0]
+        >>> ds = NIHChestXrayDataset(root="/data/nih", split="training")
+        >>> ds.stat()
+        >>> img = ds[0]    # PIL.Image.Image
     """
 
     def __init__(
         self,
         root: str,
         split: str = "training",
-        transform: Optional[Callable] = None,
-        download: bool = True,
+        transform=None,
     ):
-        """Initialize the NIH Chest X-ray Dataset.
+        """Initialize the dataset.
 
         Args:
-            root (str): Base directory for storing the dataset files.
-            split (str): The dataset split to load, must be either "training" or "test".
-            transform (Callable, optional): A function/transform applied to images.
-            download (bool, optional): Whether to download and extract the dataset
-                if it is not present locally.
+            root (str): Path to dataset root (contains .txt splits & images_* folders).
+            split (str): Either "training" or "test".  
+            transform (callable, optional): transform to apply on loaded PIL image.
 
         Raises:
-            ValueError: If split is not "training" or "test".
+            ValueError: If split is not one of {"training", "test"}.
         """
         if split not in ("training", "test"):
-            raise ValueError("split must be either 'training' or 'test'.")
+            raise ValueError("split must be either 'training' or 'test'")
+        self.root = root
         self.split = split
         self.transform = transform
-        self.dataset_name = "NIH Chest X-ray"
-        self.dataset_url = (
-            "https://www.kaggle.com/api/v1/datasets/download/nih-chest-xrays/data"
-        )
-        self.dataset_zip = os.path.join(root, DATASET_ZIP_FILENAME)
-        self.extracted_folder = os.path.join(root, "database")
-        self.root = root
-
-        if download:
-            self._download()
-            self._prepare()
-
-        # Populate the patients dict by processing the dataset.
-        # Each sample is stored as a dict with key "image_path".
+        self.dataset_name = "nih_cxr"
+        # Build patients map: id → {"image_path": …}
         self.patients = self.process()
 
-    def process(self) -> Dict[int, Dict]:
-        """Process the dataset by scanning the file system and building a sample map.
-
-        This method will:
-          1. Check the appropriate subdirectory based on the split.
-          2. List all JPEG image files.
-          3. Build a dictionary mapping sample IDs (int) to a dict with the image
-             path.
+    def process(self) -> Dict[int, Dict[str, str]]:
+        """Build the sample dictionary by reading split file and indexing images.
 
         Returns:
-            Dict[int, Dict]: A dictionary where the key is the sample ID and the value
-                is a dict containing the key "image_path" (str).
+            Dict[int, Dict]: sample_id → {"image_path": full_path}
 
-        Example Use:
-            Called automatically during initialization via BaseDataset.
+        Example:
+            Called automatically on init to populate self.patients.
         """
-        file_paths = self._load_file_paths()
-        patients = {idx: {"image_path": path} for idx, path in enumerate(file_paths)}
-        return patients
+        # load split filenames
+        list_file = "train_val_list.txt" if self.split == "training" else "test_list.txt"
+        split_path = os.path.join(self.root, list_file)
+        if not os.path.isfile(split_path):
+            raise FileNotFoundError(f"Missing split file: {split_path}")
 
-    def _download(self) -> None:
-        """Download the dataset archive if it does not exist locally.
+        with open(split_path, "r") as f:
+            filenames = [line.strip() for line in f if line.strip()]
 
-        Uses a wget command to download the dataset zip file.
+        # index all images once
+        filename_to_path = self._index_all_images()
+
+        # map filenames to actual paths
+        file_paths: List[str] = []
+        missing = []
+        for fn in filenames:
+            try:
+                file_paths.append(filename_to_path[fn])
+            except KeyError:
+                missing.append(fn)
+        if missing:
+            raise FileNotFoundError(f"Could not locate {len(missing)} files: {missing[:5]}...")
+
+        # build the patients dict
+        return {idx: {"image_path": p} for idx, p in enumerate(file_paths)}
+
+    def _index_all_images(self) -> Dict[str, str]:
+        """Scan images_*/images/ and build a map from filename → full path.
 
         Returns:
-            None
-
-        Example Use:
-            Called during initialization if 'download' is True.
+            Dict[str, str]: mapping of "00000001_000.png" → "/full/path/.../images_005/images/00000001_000.png"
         """
-        os.makedirs(self.root, exist_ok=True)
-        if os.path.exists(self.dataset_zip):
-            logger.info("Dataset zip file already exists; skipping download.")
-            return
+        mapping: Dict[str, str] = {}
+        for subdir in os.listdir(self.root):
+            subdir_path = os.path.join(self.root, subdir)
+            images_folder = os.path.join(subdir_path, "images")
+            if os.path.isdir(images_folder):
+                for img_name in os.listdir(images_folder):
+                    mapping[img_name] = os.path.join(images_folder, img_name)
+        return mapping
 
-        logger.info("Downloading dataset...")
-        command = f"wget -nc -O {self.dataset_zip} {self.dataset_url}"
-        try:
-            subprocess.run(command, check=True, shell=True)
-            logger.info("Download completed successfully.")
-        except subprocess.CalledProcessError as err:
-            logger.error("Download failed.")
-            raise err
+    def __len__(self) -> int:
+        """Number of samples in this split."""
+        return len(self.patients)
 
-    def _prepare(self) -> None:
-        """Extract the dataset archive if not already extracted.
+    def __getitem__(self, index: int) -> Image.Image:
+        """Load and return a single image (after optional transform).
 
-        Returns:
-            None
-
-        Example Use:
-            Called during initialization after downloading.
-        """
-        if os.path.exists(self.extracted_folder):
-            logger.info("Dataset already extracted; skipping extraction.")
-            return
-
-        logger.info("Extracting dataset files...")
-        with zipfile.ZipFile(self.dataset_zip, "r") as zip_ref:
-            zip_ref.extractall(self.root)
-        logger.info("Extraction completed.")
-
-    def _load_file_paths(self) -> list:
-        """Retrieve the list of image file paths for the selected split.
-
-        Assumes that the extracted folder contains a "database" directory with
-        "train" and "test" subdirectories.
+        Args:
+            index (int): sample index
 
         Returns:
-            list: A sorted list of file paths (str) for JPEG images.
+            PIL.Image.Image: the loaded (and transformed, if set) image
 
         Raises:
-            FileNotFoundError: If the expected subdirectory is missing.
-            RuntimeError: If no JPEG images are found in the directory.
-
-        Example Use:
-            Called by process() to generate the mapping of samples.
+            IndexError: if index out of bounds
         """
-        subfolder = "train" if self.split == "training" else "test"
-        base_dir = os.path.join(self.extracted_folder, subfolder)
-        if not os.path.exists(base_dir):
-            raise FileNotFoundError(f"Expected folder {base_dir} does not exist.")
-
-        image_files = sorted(
-            [
-                os.path.join(base_dir, fname)
-                for fname in os.listdir(base_dir)
-                if fname.lower().endswith(".jpg")
-            ]
-        )
-        if not image_files:
-            raise RuntimeError(f"No image files found in {base_dir}.")
-        return image_files
+        if index < 0 or index >= len(self):
+            raise IndexError("Index out of range")
+        img_path = self.patients[index]["image_path"]
+        img = Image.open(img_path).convert("RGB")
+        return self.transform(img) if self.transform else img
 
     def stat(self) -> str:
-        """Print and return statistics about the dataset.
-
-        Statistics include the dataset name, split, and number of samples.
+        """Print and return basic dataset statistics.
 
         Returns:
-            str: A formatted string containing dataset statistics.
-
-        Example Use:
-            >>> stats_str = dataset.stat()
-            >>> print(stats_str)
+            str: formatted statistics
         """
-        stats_lines = [
-            "",
-            "Statistics of Dataset:",
-            f"\t- Dataset Name: {self.dataset_name}",
-            f"\t- Split: {self.split}",
-            f"\t- Number of samples: {len(self.patients)}",
-            "",
+        stats = [
+            f"Dataset: {self.dataset_name}",
+            f"Split:   {self.split}",
+            f"Samples: {len(self)}",
         ]
-        stats_str = "\n".join(stats_lines)
-        logger.info(stats_str)
-        print(stats_str)
-        return stats_str
+        out = "\n".join(stats)
+        print(out)
+        return out
 
     @staticmethod
     def info() -> None:
-        """Print information about the NIH Chest X-ray Dataset.
-
-        Returns:
-            None
-
-        Example Use:
-            >>> NIHChestXrayDataset.info()
-        """
+        """Print dataset citation and structure info."""
         print(INFO_MSG)
-
-    def __getitem__(self, index: int) -> Image.Image:
-        """Retrieve a single sample from the dataset.
-
-        Loads the image at the given index, applies the optional transform,
-        and returns the processed image.
-
-        Args:
-            index (int): The sample index.
-
-        Returns:
-            Image.Image: The loaded (and transformed, if applicable) image.
-
-        Raises:
-            IndexError: If index is out of the range of available samples.
-            Exception: If an error occurs while loading the image.
-
-        Example Use:
-            >>> image = dataset[0]
-        """
-        if index < 0 or index >= len(self.patients):
-            raise IndexError("Index out of range.")
-
-        image_path = self.patients[index]["image_path"]
-        try:
-            image = Image.open(image_path).convert("RGB")
-        except Exception as err:
-            logger.error(f"Error loading image {image_path}: {err}")
-            raise err
-
-        if self.transform:
-            image = self.transform(image)
-
-        return image
 
 
 if __name__ == "__main__":
-    # Example test case to verify dataset integration.
-    my_transforms = transforms.Compose(
-        [
-            transforms.Resize((224, 224)),
-            transforms.ToTensor(),
-        ]
-    )
-    # Initialize the dataset with the training split and download enabled.
-    dataset = NIHChestXrayDataset(
-        root="/tmp/nih_chestxray",
-        split="training",
-        transform=my_transforms,
-        download=True,
-    )
-
-    # Print dataset info and statistics.
+    # simple smoke test
+    ds = NIHChestXrayDataset(root="/tmp/nih_chestxray", split="training")
     NIHChestXrayDataset.info()
-    dataset.stat()
-
-    # Retrieve a sample image.
-    sample_image = dataset[0]
-    logger.info(f"Loaded sample image with size: {sample_image.size}")
-
-    # Create a DataLoader for iterating over the dataset.
-    data_loader = DataLoader(dataset, batch_size=16, shuffle=True)
-    for batch in data_loader:
-        logger.info(f"Processed a batch with shape: {batch.shape}")
-        break
+    ds.stat()
+    img = ds[0]
+    print("Loaded image size:", img.size)
