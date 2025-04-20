@@ -194,7 +194,9 @@ class DREAMTE4Dataset(BaseDataset):
 if __name__ == "__main__":
     # Example test case for the DREAMTE4Dataset.
     # root = "dreamt-dataset-for-real-time-sleep-stage-estimation-using-multisensor-wearable-technology-1.0.0"
-    root = "pyhealth/unittests/test_datasets/dreamt_e4_test_data" # small test sample data subset
+    
+    # Here is the small test sample data subset, otherwise will take more than 12 hours to complete preprocessing data
+    root = "pyhealth/unittests/test_datasets/dreamt_e4_test_data" 
     dreamt_dataset = DREAMTE4Dataset(
         root=root
     )
