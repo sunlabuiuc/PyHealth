@@ -1916,7 +1916,7 @@ def get_variable(group_variables, idx):
     return group_variable
 
 
-def calculate_qaulity_score(feature_df_dir):
+def calculate_qaulity_score(root, feature_df_dir):
     """ Code used to calculate quality score of each participant
     """
     files = os.listdir(feature_df_dir)
@@ -1944,7 +1944,7 @@ def calculate_qaulity_score(feature_df_dir):
                     'total_segments': total_segments,
                     'num_excludes': num_excludes,
                     'percentage_excludes': percentages})
-    qs.to_csv('quality_scores_per_subject.csv', index=False)
-
-
+    output_path = os.path.join(root, "quality_scores_per_subject.csv")
+    qs.to_csv(output_path, index=False)
+    return
 

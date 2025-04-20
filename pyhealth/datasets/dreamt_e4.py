@@ -141,9 +141,9 @@ class DREAMTE4Dataset(BaseDataset):
             feature_file = os.path.join(feature_df_dir, f"{sid}_domain_features_df.csv")
             if not os.path.exists(feature_file):
                 logger.warning(f"Missing feature file for subject {sid}")
-
+  
         # Calculate quality score for each participant
-        calculate_qaulity_score(feature_df_dir)
+        calculate_qaulity_score(root, feature_df_dir)
 
         # Run data preparation pipeline
         logger.info("Processing raw data with quality threshold 0.2")
