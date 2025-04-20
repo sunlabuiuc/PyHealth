@@ -51,7 +51,7 @@ class TestDREAMTE4Dataset(unittest.TestCase):
                         if col == "sid":
                             row[col] = sid
                         elif col == "Sleep_Stage":
-                            row[col] = float(np.random.randint(0,5))
+                            row[col] = float(np.random.randint(0,1))
                         elif col in {"Central_Apnea","Obstructive_Apnea","Multiple_Events","Hypopnea","artifact"}:
                             row[col] = float(np.random.binomial(1,0.1))
                         elif col == "AHI_Severity":
