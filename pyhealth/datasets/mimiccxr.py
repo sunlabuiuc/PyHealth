@@ -5,6 +5,8 @@ from .base_dataset import BaseDataset
 
 import pandas as pd
 import re
+import os
+import pydicom
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +41,7 @@ class MIMICCxr(BaseDataset):
             dataset_name: Optional[str] = None,
             config_path: Optional[str] = None,
     ):
+        self.view_positions = self.extract_view_positions()
 
         super().__init__(
             root=root,
@@ -57,3 +60,18 @@ class MIMICCxr(BaseDataset):
         return re.compile(
             r"(AP\s*chest|Portable.*AP|anteroposterior|single frontal view|portable (semi-upright|semi-erect))|AP VIEW|AP ONLY",
             re.IGNORECASE)
+
+    def extract_view_positions(self):
+        view_positions = {}
+        # Iterate through each DICOM file to extract ViewPosition metadata
+        for (dirpath, dirnames, filenames) in os.walk(self.root):
+            for filename in filenames:
+                if filename.lower().endswith('.dcm'):
+                    dcm_path = os.path.join(dirpath, filename)
+                    dcm_data = pydicom.dcmread(dcm_path, stop_before_pixels=True)
+
+                    # Check if ViewPosition metadata is present
+                    view_position = getattr(dcm_data, 'ViewPosition', 'Unknown')
+                    view_positions[filename] = view_position
+
+        return view_positions
