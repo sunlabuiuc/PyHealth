@@ -39,7 +39,7 @@ from multiprocessing import Pool
 from tqdm import tqdm
 
 warnings.filterwarnings("ignore")
-from aeon.datasets import load_classification
+# from aeon.datasets import load_classification
 from sklearn.preprocessing import LabelEncoder
 from scipy.signal import find_peaks_cwt
 from scipy.signal import butter, filtfilt
@@ -53,7 +53,7 @@ from sklearn.metrics import f1_score, cohen_kappa_score
 
 
 from hyperopt import hp, fmin, tpe, Trials, STATUS_OK
-from imblearn.over_sampling import SMOTE
+# from imblearn.over_sampling import SMOTE
 
 from torch.utils.data import DataLoader
 
@@ -65,11 +65,9 @@ from collections import Counter
 import warnings
 
 import matplotlib.pyplot as plt
-from matplotlib.gridspec import GridSpec
-import seaborn as sns
 
-from sklearn.metrics import accuracy_score, confusion_matrix, recall_score, precision_score, f1_score, auc, precision_recall_curve, roc_auc_score, cohen_kappa_score
-from sklearn.base import TransformerMixin
+# from sklearn.metrics import accuracy_score, confusion_matrix, recall_score, precision_score, f1_score, auc, precision_recall_curve, roc_auc_score, cohen_kappa_score
+# from sklearn.base import TransformerMixin
 
 # from scipy.signal import gaussian, convolve, windows -- Guassian is now in .windows path
 from scipy.signal import convolve, windows
