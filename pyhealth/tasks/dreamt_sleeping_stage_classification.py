@@ -26,8 +26,8 @@ class DREAMTE4SleepingStageClassification(BaseTask):
         - Each sample represents a 30-second epoch of sleep data
     """
 
-    task_name: str = "DREAMTClassification"
-    input_schema: Dict[str, str] = {"features": "ndarray"}
+    task_name: str = "DREAMTE4SleepingStageClassification"
+    input_schema: Dict[str, str] = {"features": "NumericToTensor"}
     output_schema: Dict[str, str] = {"label": "binary"}
 
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
@@ -64,7 +64,7 @@ class DREAMTE4SleepingStageClassification(BaseTask):
             features = [float(v) for k, v in attr.items() if k not in cols_to_remove]
             
             sample = {
-                "patient_id": patient.patient_id,
+                "patient_id": patient.patient_id[0],
                 "features": np.array(features).reshape(1, -1),
                 "label": int(float(attr["Sleep_Stage"])),
             }
