@@ -9,6 +9,7 @@ from pyhealth.tasks.dreamt_sleeping_stage_classification import DREAMTE4Sleeping
 from pyhealth.datasets.base_dataset import BaseDataset
 from pyhealth.datasets.dreamt_e4_feature_engineering import *
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -192,17 +193,92 @@ class DREAMTE4Dataset(BaseDataset):
 
 
 if __name__ == "__main__":
-    # Example test case for the DREAMTE4Dataset.
-    # root = "dreamt-dataset-for-real-time-sleep-stage-estimation-using-multisensor-wearable-technology-1.0.0"
-    
-    # Here is the small test sample data subset, otherwise will take more than 12 hours to complete preprocessing data
-    root = "pyhealth/unittests/test_datasets/dreamt_e4_test_data" 
-    dreamt_dataset = DREAMTE4Dataset(
-        root=root
-    )
+    # Running DREAMTE4Dataset.
 
-    task = DREAMTE4SleepingStageClassification()
-    dreamt_samples = dreamt_dataset.set_task(task)
-    print(dreamt_samples.input_schema)
-    print(dreamt_samples.output_schema)
-    print(len(dreamt_samples))
+    #make sure the root is correct
+    # root = "dreamt-dataset-for-real-time-sleep-stage-estimation-using-multisensor-wearable-technology-1.0.0"
+    # dreamt_dataset = DREAMTE4Dataset(
+    #     root=root
+    # )
+
+    # task = DREAMTE4SleepingStageClassification()
+    # dreamt_samples = dreamt_dataset.set_task(task)
+    # print(dreamt_samples.input_schema)
+    # print(dreamt_samples.output_schema)
+    # print(len(dreamt_samples))
+
+    # here is the test case using dummy data
+    import yaml
+    import polars as pl
+    from pathlib import Path
+    from unittest.mock import patch
+
+    cfg_path = Path(__file__).parent / "configs" / "dreamt_e4.yaml"
+    cfg = yaml.safe_load(open(cfg_path))
+    table_cfg = cfg["tables"]["dreamt_features"]
+    attributes = table_cfg["attributes"]
+
+    def generate_dummy_all_patients_domain_features(
+        num_sids: int = 80,
+        records_per_sid: int = 10,
+        seed: int = 42,
+    ) -> pd.DataFrame:
+        """Same generator as in the unittest example—358 domain + 13 static cols."""
+        np.random.seed(seed)
+        rows = []
+        for pid in range(1, num_sids+1):
+            sid = f"S{pid:03d}"
+            # per‐patient constants
+            bmi = float(np.clip(np.random.normal(25,5), 15, 50))
+            obesity = 1.0 if bmi >= 30 else 0.0
+            circ_vals = np.random.rand(3)
+            for rec in range(records_per_sid):
+                row = {}
+                for col in attributes:
+                    if col == "sid":
+                        row[col] = sid
+                    elif col == "Sleep_Stage":
+                        row[col] = float(np.random.randint(0,5))
+                    elif col in {
+                        "Central_Apnea","Obstructive_Apnea",
+                        "Multiple_Events","Hypopnea","artifact"
+                    }:
+                        row[col] = float(np.random.binomial(1, 0.1))
+                    elif col == "AHI_Severity":
+                        row[col] = float(np.random.uniform(0,10))
+                    elif col == "Obesity":
+                        row[col] = obesity
+                    elif col == "BMI":
+                        row[col] = bmi
+                    elif col in {"circadian_decay","circadian_linear","circadian_cosine"}:
+                        # use those same 3 circ_vals
+                        row[col] = float(circ_vals[{"circadian_decay":0,"circadian_linear":1,"circadian_cosine":2}[col]])
+                    elif col == "timestamp_start":
+                        row[col] = f"2025-01-19T00:00:{rec:02d}"
+                    else:
+                        # everything else is a domain feature → random float
+                        row[col] = float(np.random.rand())
+                rows.append(row)
+        return pd.DataFrame(rows, columns=attributes)
+
+
+    dummy_df = generate_dummy_all_patients_domain_features()
+    dummy_pl_lazy = pl.from_pandas(dummy_df).lazy()
+    dummy_pl_eager = pl.from_pandas(dummy_df)
+
+    # 2) Monkey‑patch exists + read_csv/scan_csv
+    with patch.object(os.path, "exists", return_value=True), \
+         patch("pandas.read_csv", return_value=dummy_df), \
+         patch("polars.read_csv", lambda *args, **kwargs: dummy_pl_eager), \
+         patch("polars.scan_csv", lambda *args, **kwargs: dummy_pl_lazy):
+
+        # 3) Now run exactly as normal
+        root = "does/not/matter"
+        ds   = DREAMTE4Dataset(root=root)
+        task = DREAMTE4SleepingStageClassification()
+        samples = ds.set_task(task)
+
+    print("Loaded samples:", len(samples))
+    print("One sample shape:", samples[0]['features'].shape)
+    print("Dataset input schema:", samples.input_schema)
+    print("Dataset output schema:", samples.output_schema)
