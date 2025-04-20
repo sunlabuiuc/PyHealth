@@ -28,6 +28,7 @@ from .sequence_processor import SequenceProcessor
 from .signal_processor import SignalProcessor
 from .text_processor import TextProcessor
 from .timeseries_processor import TimeseriesProcessor
+from .numeric_processor import NumericProcessor
 
 # Expose public API
 __all__ = [
@@ -40,4 +41,5 @@ __all__ = [
     "MultiClassLabelProcessor",
     "MultiLabelProcessor",
     "RegressionLabelProcessor",
+    "NumericProcessor",
 ]
