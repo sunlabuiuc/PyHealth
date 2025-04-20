@@ -47,7 +47,7 @@ class MultiClassLabelProcessor(FeatureProcessor):
             self.label_vocab[value] = self._next_index
             self._next_index += 1
         index = self.label_vocab[value]
-        return torch.tensor([index], dtype=torch.long)
+        return torch.tensor(index, dtype=torch.long)
     
     def size(self):
         return len(self.label_vocab)

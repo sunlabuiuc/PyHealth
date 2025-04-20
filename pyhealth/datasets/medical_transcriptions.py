@@ -1,74 +1,60 @@
-import os
-from collections import Counter
+import logging
+from pathlib import Path
+from typing import Optional
 
-import pandas as pd
+from ..tasks import MedicalTranscriptionsClassification
+from .base_dataset import BaseDataset
 
-from pyhealth.data import Patient
-from pyhealth.datasets import BaseDataset
-from pyhealth.tasks.medical_transcriptions_classification import (
-    MedicalTranscriptionsClassification,
-)
+logger = logging.getLogger(__name__)
 
 
 class MedicalTranscriptionsDataset(BaseDataset):
-    """Medical transcription data scraped from mtsamples.com
+    """Medical transcription data scraped from mtsamples.com.
 
-    Dataset is available at https://www.kaggle.com/datasets/tboyle10/medicaltranscriptions
+    Dataset is available at:
+    https://www.kaggle.com/datasets/tboyle10/medicaltranscriptions
 
     Args:
-        dataset_name: name of the dataset.
-        root: root directory of the raw data. *You can choose to use the path to Cassette portion or the Telemetry portion.*
-        dev: whether to enable dev mode (only use a small subset of the data).
-            Default is False.
-        refresh_cache: whether to refresh the cache; if true, the dataset will
-            be processed from scratch and the cache will be updated. Default is False.
+        root: Root directory of the raw data.
+        dataset_name: Name of the dataset. Defaults to "medical_transcriptions".
+        config_path: Path to the configuration file. If None, uses default config.
 
     Attributes:
-        root: root directory of the raw data (should contain many csv files).
-        dataset_name: name of the dataset. Default is the name of the class.
-        dev: whether to enable dev mode (only use a small subset of the data).
-            Default is False.
-        refresh_cache: whether to refresh the cache; if true, the dataset will
-            be processed from scratch and the cache will be updated. Default is False.
+        root: Root directory of the raw data (should contain many csv files).
+        dataset_name: Name of the dataset.
+        config_path: Path to the configuration file.
 
     Examples:
+        >>> from pyhealth.datasets import MedicalTranscriptionsDataset
         >>> dataset = MedicalTranscriptionsDataset(
-                root="/srv/local/data/zw12/raw_data/MedicalTranscriptions",
-            )
-        >>> print(dataset[0])
-        >>> dataset.stat()
-        >>> dataset.info()
+        ...     root="path/to/medical_transcriptions",
+        ... )
+        >>> dataset.stats()
+        >>> samples = dataset.set_task()
+        >>> print(samples[0])
     """
 
-    def process(self):
-        df = pd.read_csv(f"{self.root}/mtsamples.csv", index_col=0)
-
-        # create patient dict
-        patients = {}
-        for index, row in df.iterrows():
-            patients[index] = Patient(
-                patient_id=str(index),
-                attr_dict=row.to_dict(),
+    def __init__(
+        self,
+        root: str,
+        dataset_name: Optional[str] = None,
+        config_path: Optional[str] = None,
+    ) -> None:
+        if config_path is None:
+            logger.info("No config path provided, using default config")
+            config_path = (
+                Path(__file__).parent / "configs" / "medical_transcriptions.yaml"
             )
-        return patients
-
-    def stat(self):
-        super().stat()
-        print(f"Number of samples: {len(self.patients)}")
-        count = Counter([v.attr_dict['medical_specialty'] for v in self.patients.values()])
-        print(f"Number of classes: {len(count)}")
-        print(f"Class distribution: {count}")
+        default_tables = ["mtsamples"]
+        super().__init__(
+            root=root,
+            tables=default_tables,
+            dataset_name=dataset_name or "medical_transcriptions",
+            config_path=config_path,
+        )
+        return
 
     @property
-    def default_task(self):
+    def default_task(self) -> MedicalTranscriptionsClassification:
+        """Returns the default task for this dataset."""
         return MedicalTranscriptionsClassification()
-
-
-if __name__ == "__main__":
-    dataset = MedicalTranscriptionsDataset(
-        root="/srv/local/data/zw12/raw_data/MedicalTranscriptions",
-    )
-    print(list(dataset.patients.items())[0])
-    dataset.stat()
-    samples = dataset.set_task()
-    print(samples[0])
