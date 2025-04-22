@@ -7,7 +7,7 @@ https://github.com/WillKeWang/DREAMT_FE
 
 Citation:
 ----------
-Wang, W. K., Yang, J., Hershkovich, L., Jeong, H., Chen, B., Singh, K., ... \& Dunn, J. (2024). 
+Wang, W. K., Yang, J., Hershkovich, L., Jeong, H., Chen, B., Singh, K., ... & Dunn, J. (2024). 
 Addressing Wearable Sleep Tracking Inequity: A New Dataset and Novel Methods for a Population with Sleep Disorders. 
 In Conference on Health, Inference, and Learning (CHIL)
 https://raw.githubusercontent.com/mlresearch/v248/main/assets/wang24a/wang24a.pdf

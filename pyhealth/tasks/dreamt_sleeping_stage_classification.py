@@ -12,17 +12,17 @@ class DREAMTE4SleepingStageClassification(BaseTask):
     and returns corresponding sleep stage labels.
 
     Attributes:
-        task_name (str): The name of the task, set to "DREAMTClassification".
+        task_name (str): The name of the task, set to "DREAMTE4SleepingStageClassification".
         input_schema (Dict[str, str]): The input schema specifying the required
             input format. Contains:
-            - "features": "ndarray" (physiological features as numpy array)
+            - "features": "text" (physiological features as numpy array)
         output_schema (Dict[str, str]): The output schema specifying the output
             format. Contains:
             - "label": "binary" (sleep stage classification label)
 
     Note:
         - Input features include HRV, movement, and other physiological metrics
-        - Sleep stages are mapped as: "P": 1, "N": 0, "R": 0, "W": 1, "Missing": np.nan
+        - Sleep stages are mapped as: "N1", "N2", "N3", "R": 0, "P", "W":1, "Missing": np.nan
         - Each sample represents a 30-second epoch of sleep data
     """
 

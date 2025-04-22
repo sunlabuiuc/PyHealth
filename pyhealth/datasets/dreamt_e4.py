@@ -26,7 +26,7 @@ class DREAMTE4Dataset(BaseDataset):
     Data Description:
     ----------------
     - Contains polysomnography recordings from sleep studies
-    - Includes sleep stage annotations (0-4 corresponding to W, N1, N2, N3, REM)
+    - Includes sleep stage annotations ("N1", "N2", "N3", "R": 0, "P", "W":1, "Missing": np.nan)
     - Provides respiratory event information (apneas, hypopneas)
     - Contains derived physiological features for each 30-second epoch
     - Includes demographic and clinical information (BMI, AHI severity)
@@ -69,7 +69,7 @@ class DREAMTE4Dataset(BaseDataset):
             - records: List of sleep epochs with:
                 * record_id: Unique epoch identifier
                 * features: Physiological features (numpy array)
-                * label: Sleep stage ("P": 1, "N": 0, "R": 0, "W": 1, "Missing": np.nan)
+                * label: Sleep stage ("N1", "N2", "N3", "R": 0, "P", "W":1, "Missing": np.nan)
 
     Examples:
         >>> from pyhealth.datasets import DreamtDataset
