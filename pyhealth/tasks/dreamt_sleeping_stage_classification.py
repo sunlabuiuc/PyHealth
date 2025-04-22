@@ -27,7 +27,7 @@ class DREAMTE4SleepingStageClassification(BaseTask):
     """
 
     task_name: str = "DREAMTE4SleepingStageClassification"
-    input_schema: Dict[str, str] = {"features": "NumericToTensor"}
+    input_schema: Dict[str, str] = {"features": "text"}
     output_schema: Dict[str, str] = {"label": "binary"}
 
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:

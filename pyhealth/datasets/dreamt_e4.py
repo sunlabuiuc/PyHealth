@@ -31,8 +31,13 @@ class DREAMTE4Dataset(BaseDataset):
     - Contains derived physiological features for each 30-second epoch
     - Includes demographic and clinical information (BMI, AHI severity)
 
-    Paper:
-    Addressing Wearable Sleep Tracking Inequity: A New Dataset and Novel Methods for a Population with Sleep Disorders
+    Citation:
+    ----------
+    Wang, W. K., Yang, J., Hershkovich, L., Jeong, H., Chen, B.,
+    Singh, K., ... & Dunn, J. (2024). Addressing Wearable Sleep
+    Tracking Inequity: A New Dataset and Novel Methods for a
+    Population with Sleep Disorders. In Conference on Health,
+    Inference, and Learning (CHIL).
     https://raw.githubusercontent.com/mlresearch/v248/main/assets/wang24a/wang24a.pdf
 
     References:
@@ -71,7 +76,6 @@ class DREAMTE4Dataset(BaseDataset):
         >>> dataset = DreamtDataset(
         ...     root="/path/to/dreamt_data"
         ... )
-        >>> dataset.stat()
         >>> samples = dataset.set_task()
         >>> print(samples[0])
 

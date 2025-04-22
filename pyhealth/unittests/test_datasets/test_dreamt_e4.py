@@ -24,7 +24,7 @@ class TestDREAMTE4Dataset(unittest.TestCase):
     # Dataset configuration
     # ROOT = "pyhealth/unittests/test_datasets/dreamt_e4_test_data"  # Test data subset
     EXPECTED_SAMPLE_COUNT = 800
-    EXPECTED_INPUT_SCHEMA = {"features": "NumericToTensor"}
+    EXPECTED_INPUT_SCHEMA = {"features": "text"}
     EXPECTED_OUTPUT_SCHEMA = {"label": "binary"}
 
     
@@ -111,7 +111,7 @@ class TestDREAMTE4Dataset(unittest.TestCase):
         self.assertIn("label", sample)
         
         # Validate feature array
-        self.assertIsInstance(sample["features"], torch.Tensor)
+        self.assertIsInstance(sample["features"], np.ndarray)
         self.assertEqual(len(sample["features"].shape), 2)  # Should be 2D
         self.assertEqual(sample["features"].shape, (1, 358)) # 358 features in yaml
         
