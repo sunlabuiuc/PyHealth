@@ -1,0 +1,40 @@
+This model extends BaseModel and adds attention-based pooling on top of ClinicalBERT for multi-label classification tasks.
+Uses ClinicalBERT to extract token-level embeddings
+
+Applies multi-head attention to decide which tokens to focus on
+
+Pool the result and run it through a linear head for prediction
+
+
+
+
+Init function added parameters for 
+dataset: The PyHealth dataset object
+
+mode: Task type (multilabel, binary, or multiclass)
+
+model_name: HF model name for ClinicalBERT
+
+hidden_size: Dimensionality of BERT hidden states
+
+dropout: Dropout for regularization
+
+num_attention_heads: Number of heads for the self-attention module
+
+Adds self-attention across the token sequence — so the model can learn to weigh which tokens matter more.
+
+self.classifier = nn.Linear(hidden_size, self.output_size)
+
+
+Forward function 
+Returns token embeddings for each word in each sample.
+outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
+hidden_states = outputs.last_hidden_state  # shape: [B, T, H]
+
+Applies multi-head self-attention across tokens
+
+Learns a weighted sum of token embeddings
+
+key_padding_mask ensures that padding tokens are ignored
+
+Then runs a linear classifier to get predictions (before sigmoid for multilabel)
