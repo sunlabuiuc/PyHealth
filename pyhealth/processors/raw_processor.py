@@ -5,16 +5,16 @@ from .base_processor import FeatureProcessor
 
 
 @register_processor("raw")
-class RawFeatures(FeatureProcessor):
+class RawProcessor(FeatureProcessor):
     """
-    Processor that let's you define any custom return in the SampleDataset
+    Processor that returns the raw value.
     """
 
     def process(self, value: Any) -> str:
         return value
-    
+
     def size(self):
         return None
 
     def __repr__(self):
-        return "RawFeatures()"
+        return "RawProcessor()"
