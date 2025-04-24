@@ -25,11 +25,11 @@ from .length_of_stay_prediction import (
 from .medical_coding import MIMIC3ICD9Coding
 from .medical_transcriptions_classification import MedicalTranscriptionsClassification
 from .mortality_prediction import (
-    mortality_prediction_eicu_fn,
-    mortality_prediction_eicu_fn2,
-    mortality_prediction_mimic3_fn,
-    mortality_prediction_mimic4_fn,
-    mortality_prediction_omop_fn,
+    MortalityPredictionEICU,
+    MortalityPredictionMIMIC3,
+    MortalityPredictionMIMIC4,
+    MortalityPredictionOMOP,
+    MortalityPredictionEICU2
 )
 from .patient_linkage import patient_linkage_mimic3_fn
 from .readmission_30days_mimic4 import Readmission30DaysMIMIC4
