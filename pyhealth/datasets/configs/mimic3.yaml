@@ -32,6 +32,17 @@ tables:
       - "dischtime"
       - "hospital_expire_flag"
 
+  icustays:
+    file_path: "ICUSTAYS.csv"
+    patient_id: "subject_id"
+    timestamp: "intime"
+    attributes:
+      - "icustay_id"
+      - "first_careunit"
+      - "dbsource"
+      - "last_careunit"
+      - "outtime" 
+
   diagnoses_icd:
     file_path: "DIAGNOSES_ICD.csv"
     patient_id: "subject_id"
@@ -46,6 +57,26 @@ tables:
       - "icd9_code"
       - "seq_num"
 
+  prescriptions:
+    file_path: "PRESCRIPTIONS.csv"
+    patient_id: "subject_id"
+    timestamp: "startdate"
+    attributes:
+      - "drug"
+      - "drug_type"
+      - "drug_name_poe"
+      - "drug_name_generic"
+      - "formulary_drug_cd"
+      - "gsn"
+      - "ndc"
+      - "prod_strength"
+      - "dose_val_rx"
+      - "dose_unit_rx"
+      - "form_val_disp"
+      - "form_unit_disp"
+      - "route"
+      - "enddate"
+      
   procedures_icd:
     file_path: "PROCEDURES_ICD.csv"
     patient_id: "subject_id"
@@ -60,20 +91,37 @@ tables:
       - "icd9_code"
       - "seq_num"
 
+  labevents:
+    file_path: "LABEVENTS.csv"
+    patient_id: "subject_id"
+    join:
+      - file_path: "D_LABITEMS.csv"
+        "on": "itemid"
+        how: "inner"
+        columns:
+          - "label"
+          - "fluid"
+          - "category"
+    timestamp: "charttime"
+    attributes:
+      - "itemid"
+      - "label"
+      - "fluid"
+      - "category"
+      - "value"
+      - "valuenum"
+      - "valueuom"
+      - "flag"
+
   noteevents:
     file_path: "NOTEEVENTS.csv"
     patient_id: "subject_id"
-    # TODO: synthetic noteevents timestamp is not aligned with admission timeline
-    join:
-    - file_path: "ADMISSIONS.csv"
-      "on": "hadm_id"
-      how: "inner"
-      columns:
-        - "dischtime"
-    timestamp: "dischtime"
+    timestamp:
+      - "chartdate"
+      - "charttime"
+    timestamp_format: "%Y%m%d%H%M%S"
     attributes:
       - "text"
       - "category"
-      # Case 1: Use the entire note
-      # TODO: how to support cases 2 and 3?
       - "description"
+      - "storetime"

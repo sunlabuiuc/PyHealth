@@ -73,10 +73,11 @@ class MIMIC3ICD9Coding(BaseTask):
                 start=admission.timestamp,
                 end=admission_dischtime
             )
-            if len(noteevents) != 1:
-                continue
-            noteevent = noteevents[0]
-            text = noteevent.text
+
+            text = ""
+            for note in noteevents:
+                text += " " + note.text
+                
             diagnoses_icd = [event.icd9_code for event in diagnoses_icd]
             procedures_icd = [event.icd9_code for event in procedures_icd]
             icd_codes = list(set(diagnoses_icd + procedures_icd))
