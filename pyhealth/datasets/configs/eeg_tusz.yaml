@@ -1,0 +1,13 @@
+version: "5.0"
+tables:
+  eeg_tusz:
+    file_path: "eeg_tusz-metadata-pyhealth.csv"
+    patient_id: "subject_id"
+    timestamp: null
+    attributes:
+    - "session_id"
+    - "slug_number"
+    - "sampling_freq"
+    - "start_time"
+    - "stop_time"
+    - "label"
