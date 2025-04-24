@@ -24,6 +24,7 @@ from .label_processor import (
     MultiLabelProcessor,
     RegressionLabelProcessor,
 )
+from .raw_processor import RawProcessor
 from .sequence_processor import SequenceProcessor
 from .signal_processor import SignalProcessor
 from .text_processor import TextProcessor
@@ -40,4 +41,6 @@ __all__ = [
     "MultiClassLabelProcessor",
     "MultiLabelProcessor",
     "RegressionLabelProcessor",
+    "RawProcessor",
+    "TextProcessor",
 ]

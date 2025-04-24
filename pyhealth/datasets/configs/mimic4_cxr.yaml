@@ -1,0 +1,139 @@
+version: "2.1.0"
+tables:
+  metadata:
+    file_path: "mimic-cxr-2.0.0-metadata-pyhealth.csv"
+    patient_id: "subject_id"
+    timestamp:
+      - "studydate"
+      - "studytime"
+    timestamp_format: "%Y%m%d%H%M%S"
+    attributes:
+      - "image_path"
+      - "dicom_id"
+      - "study_id"
+      - "performedprocedurestepdescription"
+      - "viewposition"
+      - "rows"
+      - "columns"
+      - "procedurecodesequence_codemeaning"
+      - "viewcodesequence_codemeaning"
+      - "patientorientationcodesequence_codemeaning"
+
+  chexpert:
+    file_path: "mimic-cxr-2.0.0-chexpert.csv.gz"
+    patient_id: "subject_id"
+    join:
+      - file_path: "mimic-cxr-2.0.0-metadata-pyhealth.csv"
+        "on": "study_id"
+        how: "inner"
+        columns:
+          - "studydate"
+          - "studytime"
+          - "dicom_id"
+    timestamp:
+      - "studydate"
+      - "studytime"
+    timestamp_format: "%Y%m%d%H%M%S"
+    attributes:
+      - "dicom_id"
+      - "study_id"
+      - "atelectasis"
+      - "cardiomegaly"
+      - "consolidation"
+      - "edema"
+      - "enlarged cardiomediastinum"
+      - "fracture"
+      - "lung lesion"
+      - "lung opacity"
+      - "no finding"
+      - "pleural effusion"
+      - "pleural other"
+      - "pneumonia"
+      - "pneumothorax"
+      - "support devices"
+
+  negbio:
+    file_path: "mimic-cxr-2.0.0-negbio.csv.gz"
+    patient_id: "subject_id"
+    join:
+      - file_path: "mimic-cxr-2.0.0-metadata-pyhealth.csv"
+        "on": "study_id"
+        how: "inner"
+        columns:
+          - "studydate"
+          - "studytime"
+          - "dicom_id"
+    timestamp:
+      - "studydate"
+      - "studytime"
+    timestamp_format: "%Y%m%d%H%M%S"
+    attributes:
+      - "dicom_id"
+      - "study_id"
+      - "atelectasis"
+      - "cardiomegaly"
+      - "consolidation"
+      - "edema"
+      - "enlarged cardiomediastinum"
+      - "fracture"
+      - "lung lesion"
+      - "lung opacity"
+      - "no finding"
+      - "pleural effusion"
+      - "pleural other"
+      - "pneumonia"
+      - "pneumothorax"
+      - "support devices"
+
+  test_set_labeled:
+    file_path: "mimic-cxr-2.1.0-test-set-labeled.csv"
+    patient_id: "subject_id"
+    join:
+      - file_path: "mimic-cxr-2.0.0-metadata-pyhealth.csv"
+        "on": "study_id"
+        how: "inner"
+        columns:
+          - "subject_id"
+          - "studydate"
+          - "studytime"
+          - "dicom_id"
+    timestamp:
+      - "studydate"
+      - "studytime"
+    timestamp_format: "%Y%m%d%H%M%S"
+    attributes:
+      - "dicom_id"
+      - "study_id"
+      - "no finding"
+      - "enlarged cardiomediastinum"
+      - "cardiomegaly"
+      - "lung lesion"
+      - "airspace opacity"
+      - "edema"
+      - "consolidation"
+      - "pneumonia"
+      - "atelectasis"
+      - "pneumothorax"
+      - "pleural effusion"
+      - "pleural other"
+      - "fracture"
+      - "support devices"
+
+  split:
+    file_path: "mimic-cxr-2.0.0-split.csv.gz"
+    patient_id: "subject_id"
+    join:
+      - file_path: "mimic-cxr-2.0.0-metadata-pyhealth.csv"
+        "on": "dicom_id"
+        how: "inner"
+        columns:
+          - "studydate"
+          - "studytime"
+    timestamp:
+      - "studydate"
+      - "studytime"
+    timestamp_format: "%Y%m%d%H%M%S"
+    attributes:
+      - "dicom_id"
+      - "study_id"
+      - "split"

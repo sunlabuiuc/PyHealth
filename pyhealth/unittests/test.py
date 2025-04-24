@@ -1,7 +1,16 @@
 import pyhealth.datasets.mimic3 as mimic3
 import pyhealth.datasets.mimic4 as mimic4
+from pyhealth.tasks.mortality_prediction import test_mortality_prediction_mimic4
 import pyhealth.tasks.medical_coding as coding
 import time
+import os
+import sys
+
+# Add the parent directory to sys.path if needed
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(os.path.dirname(current_dir))
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
 
 def time_function(func, name):
     start_time = time.time()
@@ -9,8 +18,6 @@ def time_function(func, name):
     end_time = time.time()
     execution_time = end_time - start_time
     print(f"{name} execution time: {execution_time:.2f} seconds")
-
-
 
 def train_medical_coding():
     from pyhealth.datasets import MIMIC4Dataset, MIMIC3Dataset
@@ -94,12 +101,12 @@ def train_medical_coding():
     print("Metrics after training:")
     print(trainer.evaluate(test_dataloader))
 
-
 if __name__ == "__main__":
     print("Starting MIMIC-III processing...")
-    time_function(mimic3.main, "MIMIC-III")
+    # time_function(mimic3.main, "MIMIC-III")
+    test_mortality_prediction_mimic4()
     print("\nStarting MIMIC-IV processing...")
-    time_function(mimic4.main, "MIMIC-IV")
+    time_function(mimic4.test_mimic4_dataset, "MIMIC-IV")
     print("\nStart Medical Coding Test")
     time_function(coding.main, "Medical Coding")
     time_function(train_medical_coding, "Train Medical Coding")

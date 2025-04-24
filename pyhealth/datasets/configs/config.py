@@ -5,7 +5,7 @@ configurations in YAML format. It uses Pydantic models to ensure type safety
 and validation of configuration files.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import yaml
 from pydantic import BaseModel, Field, field_validator
@@ -33,25 +33,27 @@ class TableConfig(BaseModel):
 
     This class represents the configuration for a single table in a dataset.
     It includes the file path to the table, the column name for patient
-    identifiers, the column name for timestamps (if applicable), a list of
-    attribute columns, and any join configurations. The join operations
-    specified will be applied before the table is processed into the event
-    DataFrame.
+    identifiers, the column name(s) for timestamps (if applicable), the format
+    of the timestamp (if applicable), a list of attribute columns, and any join
+    configurations. The join operations specified will be applied before the
+    table is processed into the event DataFrame.
 
     Attributes:
         file_path (str): Path to the table file. Relative to the dataset root
             directory.
         patient_id (Optional[str]): Column name containing patient identifiers.
             If set to `null`, row index will be used as patient_id.
-        timestamp (Optional[str]): Column name containing timestamps, if
-            applicable. If set to `null`, the timestamp will be set to None.
+        timestamp (Optional[Union[str, List[str]]]): One or more column names to be
+            used to construct the timestamp. If a list is provided, the columns will
+            be concatenated in order before parsing using the provided format.
+        timestamp_format (Optional[str]): Format of the (possibly concatenated) timestamp.
         attributes (List[str]): List of column names to include as attributes.
-        join (Optional[List[JoinConfig]]): List of join configurations for this
-            table.
+        join (List[JoinConfig]): List of join configurations for this table.
     """
     file_path: str
-    patient_id: Optional[str]
-    timestamp: Optional[str]
+    patient_id: Optional[str] = None
+    timestamp: Optional[Union[str, List[str]]] = None
+    timestamp_format: Optional[str] = None
     attributes: List[str]
     join: List[JoinConfig] = Field(default_factory=list)
 

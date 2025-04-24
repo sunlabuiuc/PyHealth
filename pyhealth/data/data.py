@@ -32,9 +32,9 @@ class Event:
         timestamp: datetime = d["timestamp"]
         event_type: str = d["event_type"]
         attr_dict: Dict[str, any] = {
-            k.replace(event_type + "/", ""): v
+            k.split("/", 1)[1]: v
             for k, v in d.items()
-            if k.startswith(event_type)
+            if k.split("/")[0] == event_type
         }
         return cls(event_type=event_type, timestamp=timestamp, attr_dict=attr_dict)
 
@@ -110,6 +110,7 @@ class Patient:
         event_type: Optional[str] = None,
         start: Optional[datetime] = None,
         end: Optional[datetime] = None,
+        filters: Optional[List[tuple]] = None,
         return_df: bool = False,
     ) -> Union[pl.DataFrame, List[Event]]:
         """Get events with optional type and time filters.
@@ -120,6 +121,9 @@ class Patient:
             end (Optional[datetime]): End time for filtering events.
             return_df (bool): Whether to return a DataFrame or a list of 
                 Event objects.
+            filters (Optional[List[tuple]]): Additional filters as [(attr, op, value), ...], e.g.:
+                [("attr1", "!=", "abnormal"), ("attr2", "!=", 1)]. Filters are applied after type 
+                and time filters. The logic is "AND" between different filters.
 
         Returns:
             Union[pl.DataFrame, List[Event]]: Filtered events as a DataFrame 
@@ -132,6 +136,30 @@ class Patient:
             df = df.filter(pl.col("timestamp") >= start)
         if end:
             df = df.filter(pl.col("timestamp") <= end)
+
+        filters = filters or []
+        for filt in filters:
+            assert event_type is not None, "event_type must be provided if filters are provided"
+            if not (isinstance(filt, tuple) and len(filt) == 3):
+                raise ValueError(f"Invalid filter format: {filt} (must be tuple of (attr, op, value))")
+            attr, op, val = filt
+            col_expr = pl.col(f"{event_type}/{attr}")
+            # Build operator expression
+            if op == "==":
+                expr = col_expr == val
+            elif op == "!=":
+                expr = col_expr != val
+            elif op == "<":
+                expr = col_expr < val
+            elif op == "<=":
+                expr = col_expr <= val
+            elif op == ">":
+                expr = col_expr > val
+            elif op == ">=":
+                expr = col_expr >= val
+            else:
+                raise ValueError(f"Unsupported operator: {op} in filter {filt}")
+            df = df.filter(expr)
         if return_df:
             return df
         return [Event.from_dict(d) for d in df.to_dicts()]
