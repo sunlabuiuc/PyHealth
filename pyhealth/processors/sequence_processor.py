@@ -17,6 +17,7 @@ class SequenceProcessor(FeatureProcessor):
 
     def __init__(self):
         # -1 for <unk> for ease of boolean arithmetic > 0, > -1, etc.
+        # TODO: this can be a problem if we pass -1 into nn.Embedding
         self.code_vocab: Dict[Any, int] = {"<unk>": -1, "<pad>": 0}
         self._next_index = 1
 
