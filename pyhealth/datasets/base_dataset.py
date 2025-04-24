@@ -12,6 +12,7 @@ from .sample_dataset import SampleDataset
 
 logger = logging.getLogger(__name__)
 
+
 class BaseDataset(ABC):
     """Abstract base class for all PyHealth datasets.
 
@@ -66,21 +67,23 @@ class BaseDataset(ABC):
         """
         if self._collected_global_event_df is None:
             logger.info("Collecting global event dataframe...")
-            
+
             # Collect the dataframe - with dev mode limiting if applicable
             df = self.global_event_df
+            # TODO: dev doesn't seem to improve the speed / memory usage
             if self.dev:
                 # Limit the number of patients in dev mode
-                logger.info(f"Dev mode enabled: limiting to 1000 patients")
-                unique_patients = df.select("patient_id").unique().collect()
-                patient_limit = min(1000, unique_patients.height)
-                limited_patients = unique_patients.slice(0, patient_limit)
-                patient_list = limited_patients.get_column("patient_id").to_list()
-                df = df.filter(pl.col("patient_id").is_in(patient_list))
-                
+                logger.info("Dev mode enabled: limiting to 1000 patients")
+                limited_patients = (
+                    df.select(pl.col("patient_id"))
+                    .unique()
+                    .limit(1000)
+                )
+                df = df.join(limited_patients, on="patient_id", how="inner")
+
             self._collected_global_event_df = df.collect()
             logger.info(f"Collected dataframe with shape: {self._collected_global_event_df.shape}")
-            
+
         return self._collected_global_event_df
 
     def load_data(self) -> pl.LazyFrame:
@@ -117,9 +120,9 @@ class BaseDataset(ABC):
         #     raise FileNotFoundError(f"CSV not found: {csv_path}")
 
         logger.info(f"Scanning table: {table_name} from {csv_path}")
-        
+
         df = pl.scan_csv(csv_path, infer_schema=False)
-        
+
         # TODO: this is an ad hoc fix for the MIMIC-III dataset
         df = df.with_columns([pl.col(col).alias(col.lower()) for col in df.collect_schema().names()])
 
@@ -143,16 +146,25 @@ class BaseDataset(ABC):
 
         patient_id_col = table_cfg.patient_id
         timestamp_col = table_cfg.timestamp
+        timestamp_format = table_cfg.timestamp_format
         attribute_cols = table_cfg.attributes
 
         # Timestamp expression
-        timestamp_expr = (
-            pl.col(timestamp_col).str.strptime(
-                pl.Datetime, strict=False
-            )
-            if timestamp_col
-            else pl.lit(None, dtype=pl.Datetime)
-        )
+        if timestamp_col:
+            if isinstance(timestamp_col, list):
+                # Concatenate all timestamp parts in order with no separator
+                combined_timestamp = (
+                    pl.concat_str([pl.col(col) for col in timestamp_col])
+                    .str.strptime(pl.Datetime, format=timestamp_format, strict=True)
+                )
+                timestamp_expr = combined_timestamp
+            else:
+                # Single timestamp column
+                timestamp_expr = pl.col(timestamp_col).str.strptime(
+                    pl.Datetime, format=timestamp_format, strict=True
+                )
+        else:
+            timestamp_expr = pl.lit(None, dtype=pl.Datetime)
 
         # If patient_id_col is None, use row index as patient_id
         patient_id_expr = (
@@ -265,11 +277,11 @@ class BaseDataset(ABC):
 
         samples = []
         for patient in tqdm(
-            self.iter_patients(filtered_global_event_df), 
+            self.iter_patients(filtered_global_event_df),
             desc=f"Generating samples for {task.task_name}"
         ):
             samples.extend(task(patient))
-            
+
         sample_dataset = SampleDataset(
             samples,
             input_schema=task.input_schema,
@@ -277,6 +289,6 @@ class BaseDataset(ABC):
             dataset_name=self.dataset_name,
             task_name=task,
         )
-        
+
         logger.info(f"Generated {len(samples)} samples for task {task.task_name}")
         return sample_dataset
