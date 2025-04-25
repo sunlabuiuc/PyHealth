@@ -52,10 +52,11 @@ class MIMIC4EHRDataset(BaseDataset):
         if config_path is None:
             config_path = os.path.join(os.path.dirname(__file__), "configs", "mimic4_ehr.yaml")
             logger.info(f"Using default EHR config: {config_path}")
+            default_tables = ["patients", "admissions", "icustays"]
+            tables = tables + default_tables
 
         log_memory_usage(f"Before initializing {dataset_name}")
-        default_tables = ["patients", "admissions", "icustays"]
-        tables = tables + default_tables
+
         super().__init__(
             root=root,
             tables=tables,
