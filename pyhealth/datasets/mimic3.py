@@ -42,8 +42,8 @@ class MIMIC3Dataset(BaseDataset):
         if config_path is None:
             logger.info("No config path provided, using default config")
             config_path = Path(__file__).parent / "configs" / "mimic3.yaml"
-        default_tables = ["patients", "admissions", "icustays"]
-        tables = default_tables + tables
+            default_tables = ["patients", "admissions", "icustays"]
+            tables = default_tables + tables
         if "prescriptions" in tables:
             warnings.warn(
                 "Events from prescriptions table only have date timestamp (no specific time). "
