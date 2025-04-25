@@ -7,7 +7,7 @@ import numpy as np
 class DREAMTE4SleepingStageClassification(BaseTask):
     """A task for classifying sleep stages from physiological signals.
 
-    This task processes wearable device (E4) data to classify sleep stages (Sleep pr Wake)
+    This task processes wearable device (E4) data to classify sleep stages (Sleep or Wake)
     using extracted physiological features. It expects sequential physiological measurements
     and returns corresponding sleep stage labels.
 
