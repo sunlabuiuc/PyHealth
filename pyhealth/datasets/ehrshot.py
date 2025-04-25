@@ -33,7 +33,6 @@ class EHRShotDataset(BaseDataset):
         if config_path is None:
             logger.info("No config path provided, using default config")
             config_path = Path(__file__).parent / "configs" / "ehrshot.yaml"
-        tables = tables
         super().__init__(
             root=root,
             tables=tables,
