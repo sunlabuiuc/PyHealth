@@ -47,5 +47,28 @@ docker rmi chat-pyhealth # image
 docker cp [local file in host] chat-pyhealth-c:[container path]
 ```
 
+## Using a Local Model 
+You can also run an instance of a chat assistant that doesn't use an external LLM. There is a simple chat interface (source code is in [chat.py](/chat-assistant/chat.py)). This chat interface uses Streamlit, and the model is served using Ollama, so please install those too. 
+
+You can find the documentation for Ollama [here](https://ollama.com). Follow the installation steps listed there.
+
+To install Streamlit, run:
+
+```{python}
+pip install streamlit
+```
+
+### Steps to Run
+Please follow the steps (in order!) to get started.
+
+1. Navigate into the `chat-assistant` directory
+2. Generate the documents needed for embeddings:
+```{python}
+python generate_context.py
+```
+3. Start the app:
+```{python}
+streamlit run chat.py
+```
 
 **Let me know if you want to join and help us improve the current interface.**
