@@ -1,11 +1,7 @@
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.document_loaders import UnstructuredFileLoader
-from langchain.vectorstores.faiss import FAISS
-from langchain.embeddings import HuggingFaceEmbeddings
-from langchain.embeddings import OpenAIEmbeddings
 import pickle
-import os
-from langchain.embeddings import OllamaEmbeddings
+
 
 def vectorize_corpus(corpus_path):
     print(f"Vectorizing {corpus_path}...")
