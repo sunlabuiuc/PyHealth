@@ -4,10 +4,7 @@ import faiss
 import numpy as np
 import requests
 import pickle
-import faiss
-from sentence_transformers import SentenceTransformer
-import faiss
-import numpy as np
+
 
 model_base_url = "http://localhost:11501"
 
