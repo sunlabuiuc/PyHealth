@@ -20,7 +20,7 @@ python app_rag.py
 
 ### Launch in Docker
 
-1. Modfiy environment variables (OPENAI_API_KEY, server address...)in `Dockerfile`.
+1. Modify environment variables (OPENAI_API_KEY, server address...)in `Dockerfile`.
 2. Build image by `docker build -t chat-pyhealth .`.
 3. Debug a container by `docker run -p 0.0.0.0:7861:7861 --name chat-pyhealth-c -v ./logs/:/app/logs/ chat-pyhealth`.
 4. Run a container by `docker run -d -p 0.0.0.0:7861:7861 --name chat-pyhealth-c -v ./logs/:/app/logs/ chat-pyhealth`.
