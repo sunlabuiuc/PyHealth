@@ -66,7 +66,18 @@ Please follow the steps (in order!) to get started.
 ```{python}
 python generate_context.py
 ```
-3. Start the app:
+3. Start Ollama with 
+```
+ollama serve
+```
+
+By default, it will start on port 11434, but you can have it start on a port of your choosing by setting the `OLLAMA_HOST` environment variable before you run the above command. Example:
+```
+$env:OLLAMA_HOST="127.0.0.1:11500"
+ollama serve
+
+```
+4. Start the app (make sure `model_base_url` in [chat.py](/chat-assistant/chat.py) is set correctly):
 ```{python}
 streamlit run chat.py
 ```
