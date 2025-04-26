@@ -1,13 +1,13 @@
 import logging
 import os
 import warnings
-from typing import Dict, List, Optional
+from typing import List, Optional
 
-import pandas as pd
 import polars as pl
 
 try:
     import psutil
+
     HAS_PSUTIL = True
 except ImportError:
     HAS_PSUTIL = False
@@ -42,12 +42,12 @@ class MIMIC4EHRDataset(BaseDataset):
      """
 
     def __init__(
-        self,
-        root: str,
-        tables: List[str],
-        dataset_name: str = "mimic4_ehr",
-        config_path: Optional[str] = None,
-        **kwargs
+            self,
+            root: str,
+            tables: List[str],
+            dataset_name: str = "mimic4_ehr",
+            config_path: Optional[str] = None,
+            **kwargs
     ):
         if config_path is None:
             config_path = os.path.join(os.path.dirname(__file__), "configs", "mimic4_ehr.yaml")
@@ -82,12 +82,12 @@ class MIMIC4NoteDataset(BaseDataset):
     """
 
     def __init__(
-        self,
-        root: str,
-        tables: List[str],
-        dataset_name: str = "mimic4_note",
-        config_path: Optional[str] = None,
-        **kwargs
+            self,
+            root: str,
+            tables: List[str],
+            dataset_name: str = "mimic4_note",
+            config_path: Optional[str] = None,
+            **kwargs
     ):
         if config_path is None:
             config_path = os.path.join(os.path.dirname(__file__), "configs", "mimic4_note.yaml")
@@ -130,17 +130,16 @@ class MIMIC4CXRDataset(BaseDataset):
     """
 
     def __init__(
-        self,
-        root: str,
-        tables: List[str],
-        dataset_name: str = "mimic4_cxr",
-        config_path: Optional[str] = None,
-        **kwargs
+            self,
+            root: str,
+            tables: List[str],
+            dataset_name: str = "mimic4_cxr",
+            config_path: Optional[str] = None,
+            **kwargs
     ):
         if config_path is None:
             config_path = os.path.join(os.path.dirname(__file__), "configs", "mimic4_cxr.yaml")
             logger.info(f"Using default CXR config: {config_path}")
-        self.prepare_metadata(root)
         log_memory_usage(f"Before initializing {dataset_name}")
         super().__init__(
             root=root,
@@ -149,31 +148,59 @@ class MIMIC4CXRDataset(BaseDataset):
             config_path=config_path,
             **kwargs
         )
+
+        if "metadata" in tables:
+            self._metadata = self._prepare_metadata(root)
+
         log_memory_usage(f"After initializing {dataset_name}")
 
-    def prepare_metadata(self, root: str) -> None:
-        metadata = pd.read_csv(os.path.join(root, "mimic-cxr-2.0.0-metadata.csv.gz"), dtype=str)
+    def _prepare_metadata(self, root: str) -> pl.LazyFrame:
+        """
+        Derive StudyTime and image_path columns for the metadata table.
 
-        def process_studytime(x):
-            # reformat studytime to be 6 digits (e.g. 123.002 -> 000123 which is 12:30:00)
-            try:
-                x = float(x)
-                return f"{int(x):06d}"
-            except Exception:
-                return x
-        metadata["StudyTime"] = metadata["StudyTime"].apply(process_studytime)
+        Constructs a new LazyFrame by loading the existing “metadata” table,
+        formatting the timestamp into a zero-padded HHMMSS StudyTime string,
+        and building the full image path for each record.
 
-        def process_image_path(x):
-            # files/p10/p10000032/s50414267/02aa804e-bde0afdd-112c0b34-7bc16630-4e384014.jpg
-            subject_id = "p" + x["subject_id"]
-            folder = subject_id[:3]
-            study_id = "s" + x["study_id"]
-            dicom_id = x["dicom_id"]
-            return os.path.join(root, "files", folder, subject_id, study_id, f"{dicom_id}.jpg")
-        metadata["image_path"] = metadata.apply(process_image_path, axis=1)
+        Args:
+            root (str): Filesystem root directory where the dataset is stored.
 
-        metadata.to_csv(os.path.join(root, "mimic-cxr-2.0.0-metadata-pyhealth.csv"), index=False)
-        return
+        Returns:
+            pl.LazyFrame: The metadata frame augmented with “StudyTime” and “image_path” columns.
+        """
+        ldf = super().load_table("metadata")
+        studytime = pl.col("timestamp").dt.strftime("%H%M%S").alias("StudyTime")
+        base_path = pl.lit(f"{root}/files", dtype=pl.Utf8)
+        image_path = (
+                base_path
+                + pl.lit("/")
+                + pl.col("patient_id").str.slice(0, 3)
+                + pl.lit("/")
+                + pl.col("patient_id")
+                + pl.lit("/s")
+                + pl.col("metadata/study_id")
+                + pl.lit("/")
+                + pl.col("metadata/dicom_id")
+                + pl.lit(".jpg")
+        ).alias("image_path")
+        return ldf.with_columns([studytime, image_path])
+
+    def load_table(self, table_name: str) -> pl.LazyFrame:
+        """
+        Lazily load a table, returning cached metadata if applicable.
+
+        Overrides the base loader to return an in-memory metadata table
+        when “metadata” is requested and has been previously assigned.
+
+        Args:
+            table_name (str): Name of the table to load (e.g., “metadata”, “chexpert”).
+
+        Returns:
+            pl.LazyFrame: The requested table as a lazy frame.
+        """
+        if table_name.lower() == "metadata" and hasattr(self, "_metadata"):
+            return self._metadata
+        return super().load_table(table_name)
 
 
 class MIMIC4Dataset(BaseDataset):
@@ -200,18 +227,18 @@ class MIMIC4Dataset(BaseDataset):
     """
 
     def __init__(
-        self,
-        ehr_root: Optional[str] = None,
-        note_root: Optional[str] = None,
-        cxr_root: Optional[str] = None,
-        ehr_tables: Optional[List[str]] = None,
-        note_tables: Optional[List[str]] = None,
-        cxr_tables: Optional[List[str]] = None,
-        ehr_config_path: Optional[str] = None,
-        note_config_path: Optional[str] = None,
-        cxr_config_path: Optional[str] = None,
-        dataset_name: str = "mimic4",
-        dev: bool = False,  # Added dev parameter
+            self,
+            ehr_root: Optional[str] = None,
+            note_root: Optional[str] = None,
+            cxr_root: Optional[str] = None,
+            ehr_tables: Optional[List[str]] = None,
+            note_tables: Optional[List[str]] = None,
+            cxr_tables: Optional[List[str]] = None,
+            ehr_config_path: Optional[str] = None,
+            note_config_path: Optional[str] = None,
+            cxr_config_path: Optional[str] = None,
+            dataset_name: str = "mimic4",
+            dev: bool = False,  # Added dev parameter
     ):
         log_memory_usage("Starting MIMIC4Dataset init")
 
@@ -222,7 +249,7 @@ class MIMIC4Dataset(BaseDataset):
         self.tables = None
         self.config = None
         self.dev = dev  # Store dev mode flag
-        
+
         # We need at least one root directory
         if not any([ehr_root, note_root, cxr_root]):
             raise ValueError("At least one root directory must be provided")
