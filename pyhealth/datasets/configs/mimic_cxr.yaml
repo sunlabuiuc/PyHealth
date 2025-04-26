@@ -1,0 +1,12 @@
+version: "5.0"
+tables:
+  mimic_cxr:
+    file_path: "mimic_cxr-metadata-pyhealth.csv"
+    patient_id: "subject_id"
+    timestamp: null
+    attributes:
+    - "subject_id"
+    - "study_id"
+    - "dicom_id"
+    - "view_position"
+    - "path"
