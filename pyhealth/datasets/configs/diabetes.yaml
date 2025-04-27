@@ -1,0 +1,16 @@
+version: "1.0"
+tables:
+  diabetes:
+    file_path: "diabetes.csv"
+    patient_id: null
+    timestamp: null
+    attributes:
+    - "Pregnancies"
+    - "Glucose"
+    - "BloodPressure"
+    - "SkinThickness"
+    - "Insulin"
+    - "BMI"
+    - "DiabetesPedigreeFunction"
+    - "Age"
+    - "Outcome"

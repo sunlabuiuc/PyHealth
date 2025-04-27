@@ -7,6 +7,7 @@ from .cardiology_detect import (
     cardiology_isWA_fn,
 )
 from .covid19_cxr_classification import COVID19CXRClassification
+from .diabetes_prediction import DiabetesPrediction
 from .drug_recommendation import (
     drug_recommendation_eicu_fn,
     drug_recommendation_mimic3_fn,
