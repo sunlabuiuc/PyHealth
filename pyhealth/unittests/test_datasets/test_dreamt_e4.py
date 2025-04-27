@@ -111,7 +111,7 @@ class TestDREAMTE4Dataset(unittest.TestCase):
         self.assertIn("label", sample)
         
         # Validate feature array
-        self.assertIsInstance(sample["features"], np.ndarray)
+        self.assertIsInstance(sample["features"], torch.Tensor)
         self.assertEqual(len(sample["features"].shape), 2)  # Should be 2D
         self.assertEqual(sample["features"].shape, (1, 358)) # 358 features in yaml
         

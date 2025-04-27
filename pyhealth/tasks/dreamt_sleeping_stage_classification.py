@@ -2,6 +2,7 @@ from typing import Any, Dict, List
 
 from pyhealth.tasks.base_task import BaseTask
 import numpy as np
+import torch
 
 
 class DREAMTE4SleepingStageClassification(BaseTask):
@@ -62,13 +63,30 @@ class DREAMTE4SleepingStageClassification(BaseTask):
         for record in records:
             attr = record.attr_dict
             features = [float(v) for k, v in attr.items() if k not in cols_to_remove]
+            values = np.array(features).reshape(1, -1)
             
             sample = {
                 "patient_id": patient.patient_id[0],
-                "features": np.array(features).reshape(1, -1),
+                "features": self.toTensor(values),
                 "label": int(float(attr["Sleep_Stage"])),
             }
             samples.append(sample)
 
         return samples
+    
+    def toTensor(self, value: Any) -> torch.Tensor:
+      if isinstance(value, torch.Tensor):
+          return value.float()
+      try:
+          # Convert to numpy array if not already
+          if not isinstance(value, np.ndarray):
+              value = np.array(value, dtype=np.float32)
+
+          # Ensure numerical dtype
+          if not np.issubdtype(value.dtype, np.number):
+              value = value.astype(np.float32)
+
+          return torch.from_numpy(value).float()
+      except Exception as e:
+            raise ValueError(f"Cannot convert input to tensor: {value}") from e
 
