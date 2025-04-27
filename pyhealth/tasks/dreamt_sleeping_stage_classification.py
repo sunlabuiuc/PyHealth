@@ -47,7 +47,7 @@ class DREAMTE4SleepingStageClassification(BaseTask):
         Returns:
             List[Dict[str, Any]]: A list of dictionaries, each containing:
                 - "patient_id": Unique patient identifier
-                - "features": Physiological features as numpy array (shape 1×N)
+                - "features": Physiological features as tensor array (shape 1×N)
                 - "label": Sleep stage classification 0 or 1 
 
         """
@@ -75,18 +75,18 @@ class DREAMTE4SleepingStageClassification(BaseTask):
         return samples
     
     def toTensor(self, value: Any) -> torch.Tensor:
-      if isinstance(value, torch.Tensor):
-          return value.float()
-      try:
-          # Convert to numpy array if not already
-          if not isinstance(value, np.ndarray):
-              value = np.array(value, dtype=np.float32)
+        if isinstance(value, torch.Tensor):
+            return value.float()
+        try:
+            # Convert to numpy array if not already
+            if not isinstance(value, np.ndarray):
+                value = np.array(value, dtype=np.float32)
 
-          # Ensure numerical dtype
-          if not np.issubdtype(value.dtype, np.number):
-              value = value.astype(np.float32)
+            # Ensure numerical dtype
+            if not np.issubdtype(value.dtype, np.number):
+                value = value.astype(np.float32)
 
-          return torch.from_numpy(value).float()
-      except Exception as e:
+            return torch.from_numpy(value).float()
+        except Exception as e:
             raise ValueError(f"Cannot convert input to tensor: {value}") from e
 
