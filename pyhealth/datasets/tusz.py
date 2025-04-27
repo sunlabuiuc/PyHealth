@@ -6,11 +6,11 @@ from typing import Optional
 import pandas as pd
 
 from .base_dataset import BaseDataset
-from ..tasks import COVID19CXRClassification
+from ..tasks import EEGIsSeizure
 
 logger = logging.getLogger(__name__)
 
-class TUSZDataset(BaseDataset):
+class TUSZBinaryDataset(BaseDataset):
     def __init__(
     self,
     root: str,
@@ -66,7 +66,7 @@ class TUSZDataset(BaseDataset):
                     # Add the .edf file name, extracted metadata, and data from the .csv_bi file to the metadata
                     for _, row in df.iterrows():
                         metadata.append({
-                            "edf_file": edf_file.name,
+                            "edf_file": edf_file,
                             "subject_id": patient_id,
                             "session_id": session_id,
                             "slug_number": slug_number,
@@ -91,10 +91,10 @@ class TUSZDataset(BaseDataset):
 
 
     @property
-    def default_task(self) -> COVID19CXRClassification:
+    def default_task(self) -> EEGIsSeizure:
         """Returns the default task for this dataset.
 
         Returns:
-            COVID19CXRClassification: The default classification task.
+            EEGIsSeizure: The default classification task.
         """
-        return COVID19CXRClassification()
+        return EEGIsSeizure()

@@ -5,9 +5,9 @@ tables:
     patient_id: "subject_id"
     timestamp: null
     attributes:
+    - "edf_file"
     - "session_id"
     - "slug_number"
-    - "sampling_freq"
     - "start_time"
     - "stop_time"
     - "label"

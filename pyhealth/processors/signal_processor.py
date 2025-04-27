@@ -1,4 +1,4 @@
-from typing import Any, List, Tuple
+from typing import Tuple
 import logging
 
 
@@ -14,60 +14,65 @@ logger = logging.getLogger(__name__)
 @register_processor("signal")
 class SignalProcessor(FeatureProcessor):
 
-    def __init__(self, sampling_rate: 200, sample_size: int = 4):
+    def __init__(self, sampling_rate: int = 200, sample_size: int = 4):
+        """Feature processor for loading and processing EEG signals.
+
+        Args:
+        sampling_rate: The sampling rate of the EEG signal. Defaults to 200.
+        sample_size: The number of seconds per sample. Defaults to 4.
+        """
         # Configurable sampling rate
         self.sampling_rate = sampling_rate
         self.sample_size = sample_size
+        self.segment_size = sampling_rate * sample_size
         self.size = None
+        self.segment_cache = {
+            "file_path": None,
+            "segments": None,
+        }
 
-    def process(self, value: Tuple[float, float, str]) -> torch.Tensor:
-        start_time, stop_time, file_path = value
+    def process(self, value: Tuple[float, str]) -> torch.Tensor:
+        """Process a single sample of an edf file into a transformed tensor.
 
-        logger.info(f"Processing file: {file_path}")
+        Args:
+            value: Path to edf file as string or Path object, and the index of 
+            the sample segment.
 
-        #1. open edf file
-        edf = mne.io.read_raw_edf(file_path, preload=True)
+        Returns:
+            Transformed tensor.
+        """
+        segment_idx, file_path = value
 
-        #2. Resample the signal to sampling rate
-        edf.resample(self.sampling_rate, npad="auto")
+        if self.segment_cache["file_path"] != file_path:
 
-        #3. Get the first 32 channels, if there are less than 32 pad the signal with zeros
-        #   to 32 channels
-        num_channels = edf.info['nchan']
-        if num_channels < 32:
-            pad = np.zeros((32 - num_channels, edf.n_times))
-            data = np.concatenate((edf.get_data()[:num_channels], pad), axis=0)
-        else:
-            data = edf.get_data()[:32]
+            edf = mne.io.read_raw_edf(file_path, preload=True, verbose="warning")
 
-        logger.info(f"Signal shape: {data.shape}")
+            edf.resample(self.sampling_rate, npad="auto")
 
-        #4. chunk the signal into an array of 4s segments 
-        
-        segment_size = self.sampling_rate * self.sample_size
-        logger.info(f"Segment size: {segment_size}")
+            num_channels = edf.info['nchan']
+            if num_channels < 32:
+                pad = np.zeros((32 - num_channels, edf.n_times))
+                data = np.concatenate((edf.get_data()[:num_channels], pad), axis=0)
+            else:
+                data = edf.get_data()[:32]
 
-        num_segments = int(data.shape[1] / segment_size)
-        logger.info(f"Number of segments: {num_segments}")
-        
-        segments = np.zeros((num_segments, 32, segment_size))
-        for i in range(num_segments):
-            segments[i] = data[:, i * segment_size:(i + 1) * segment_size]
-        
-        #5. get all of the segments from a start time and stop time
+            num_segments = int(data.shape[1] / self.segment_size)           
+            segments = np.zeros((num_segments, 32, self.segment_size))
 
-        start_segment = int(start_time / self.sample_size)
-        stop_segment = int(stop_time / self.sample_size)
-        segments = segments[start_segment:stop_segment]
+            for i in range(num_segments):
+                start_idx = i * self.segment_size
+                end_idx = start_idx + self.segment_size
+                if end_idx <= data.shape[1]:  
+                    segments[i] = data[:, start_idx:end_idx]
 
-        logger.info(f"Start segment: {start_segment}")
-        logger.info(f"Stop segment: {stop_segment}")
-        logger.info(f"Segments shape: {segments.shape}")
+            self.segment_cache["file_path"] = file_path
+            self.segment_cache["segments"] = segments
 
-        #6. convert the segments to a tensor and return it
+        segment = self.segment_cache["segments"][segment_idx]
+
         if self.size is None:
-            self.size = segments.shape[1]
+            self.size = segment.shape[1]
 
-        return torch.tensor(segments, dtype=torch.float32)
+        return torch.tensor(segment, dtype=torch.float32)
 
     
