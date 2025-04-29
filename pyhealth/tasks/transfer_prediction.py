@@ -7,9 +7,9 @@ from .base_task import BaseTask
 class TransferPrediction(BaseTask):
     """Task for predicting patient transfers between care units.
 
-    This implementation provides a baseline solution for the transfer prediction task
-    discussed in the paper "Uncertainty-Aware Text-to-Program for Question Answering
-    on Structured Electronic Health Records" (CHIL 2022).
+    This implementation provides a baseline solution for a specific aspect of the paper
+    "Uncertainty-Aware Text-to-Program for Question Answering on Structured Electronic
+    Health Records" (CHIL 2022). 
 
     Dataset:
         The implementation uses the MIMIC-III Clinical Database (version 1.4),
