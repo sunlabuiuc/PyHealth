@@ -1,5 +1,7 @@
 import logging
+import os
 from abc import ABC
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Iterator, List, Optional
 
 import polars as pl
@@ -42,6 +44,9 @@ class BaseDataset(ABC):
             config_path (Optional[str]): Path to the configuration YAML file.
             dev (bool): Whether to run in dev mode (limits to 1000 patients).
         """
+        if len(set(tables)) != len(tables):
+            logger.warning("Duplicate table names in tables list. Removing duplicates.")
+            tables = list(set(tables))
         self.root = root
         self.tables = tables
         self.dataset_name = dataset_name or self.__class__.__name__
@@ -236,6 +241,7 @@ class BaseDataset(ABC):
         grouped = df.group_by("patient_id")
 
         for patient_id, patient_df in grouped:
+            patient_id = patient_id[0]
             yield Patient(patient_id=patient_id, data_source=patient_df)
 
     def stats(self) -> None:
@@ -254,12 +260,18 @@ class BaseDataset(ABC):
             Optional[BaseTask]: The default task, if any.
         """
         return None
-
-    def set_task(self, task: Optional[BaseTask] = None) -> SampleDataset:
+    
+    def set_task(
+        self,
+        task: Optional[BaseTask] = None,
+        num_workers: Optional[int] = None
+    ) -> SampleDataset:
         """Processes the base dataset to generate the task-specific sample dataset.
 
         Args:
             task (Optional[BaseTask]): The task to set. Uses default task if None.
+            num_workers (Optional[int]): Number of workers for parallel processing.
+                Use None to use all available cores (max 32). Use 1 for single-threaded.
 
         Returns:
             SampleDataset: The generated sample dataset.
@@ -275,12 +287,27 @@ class BaseDataset(ABC):
 
         filtered_global_event_df = task.pre_filter(self.collected_global_event_df)
 
+        # Determine number of workers
+        if num_workers is None:
+            num_workers = min(8, os.cpu_count())
+
+        logger.info(f"Generating samples with {num_workers} worker(s)...")
+
         samples = []
-        for patient in tqdm(
-            self.iter_patients(filtered_global_event_df),
-            desc=f"Generating samples for {task.task_name}"
-        ):
-            samples.extend(task(patient))
+
+        if num_workers == 1:
+            for patient in tqdm(
+                self.iter_patients(filtered_global_event_df),
+                desc=f"Generating samples for {task.task_name}"
+            ):
+                samples.extend(task(patient))
+        else:
+            logger.info(f"Generating samples for {task.task_name}")
+            patients = list(self.iter_patients(filtered_global_event_df))
+            with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                futures = [executor.submit(task, patient) for patient in patients]
+                for future in as_completed(futures):
+                    samples.extend(future.result())
 
         sample_dataset = SampleDataset(
             samples,
