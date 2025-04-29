@@ -47,3 +47,5 @@ from .sleep_staging import (
 )
 from .sleep_staging_v2 import SleepStagingSleepEDF
 from .temple_university_EEG_tasks import EEG_events_fn, EEG_isAbnormal_fn
+from .mimic3_note_tasks import MIMIC3NoteReplaceDeIdTask
+
