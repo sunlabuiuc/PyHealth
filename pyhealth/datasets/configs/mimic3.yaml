@@ -32,6 +32,22 @@ tables:
       - "dischtime"
       - "hospital_expire_flag"
 
+  transfers:
+    file_path: "TRANSFERS.csv"
+    patient_id: "subject_id"
+    timestamp: "intime"
+    attributes:
+      - "hadm_id"
+      - "icustay_id"
+      - "dbsource"
+      - "eventtype"
+      - "prev_careunit"
+      - "curr_careunit"
+      - "prev_wardid"
+      - "curr_wardid"
+      - "intime"
+      - "outtime"
+
   icustays:
     file_path: "ICUSTAYS.csv"
     patient_id: "subject_id"
