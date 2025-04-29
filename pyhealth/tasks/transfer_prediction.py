@@ -1,17 +1,3 @@
-"""Task for predicting patient transfers between care units.
-
-This module implements a task for predicting whether a patient will be transferred
-to another care unit during their hospital stay. The prediction is based on the
-patient's current unit, admission information, and other relevant features.
-
-The task uses the MIMIC-III dataset, specifically the TRANSFERS table which
-records all unit transfers including:
-- Transfers between regular wards
-- Transfers to/from ICU
-- Transfers to/from emergency department
-- Transfers to/from operating room
-"""
-
 from typing import Any, Dict, List
 from datetime import datetime
 
