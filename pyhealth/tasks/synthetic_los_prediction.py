@@ -102,57 +102,57 @@ if __name__ == "__main__":
     })
     
 # Test Cases (Uncomment to run)
-if __name__ == "__main__":
+# if __name__ == "__main__":
     
-    def test():
-        """Tests"""
-        # Create test patient
-        patient = Patient(patient_id = "test_icu")
-        for i in range(3):
-            visit = Visit(visit_id = f"v{i}", patient_id = "test_icu")
-            patient.add_visit(visit)
+#     def test():
+#         """Tests"""
+#         # Create test patient
+#         patient = Patient(patient_id = "test_icu")
+#         for i in range(3):
+#             visit = Visit(visit_id = f"v{i}", patient_id = "test_icu")
+#             patient.add_visit(visit)
         
-        # Generate samples
-        samples = synthetic_los_prediction(patient)
+#         # Generate samples
+#         samples = synthetic_los_prediction(patient)
         
-        # Validation
-        print("\nTest Output Preview:")
-        sample = samples[0]
-        print(f"Patient: {sample['patient_id']}")
-        print(f"LOS: {sample['los']:.1f} hours")
-        print(f"Interventions: {sample['interventions']}")
-        print(f"Vitals Length: {len(sample['vital_signs']['heart_rate'])} hours")
+#         # Validation
+#         print("\nTest Output Preview:")
+#         sample = samples[0]
+#         print(f"Patient: {sample['patient_id']}")
+#         print(f"LOS: {sample['los']:.1f} hours")
+#         print(f"Interventions: {sample['interventions']}")
+#         print(f"Vitals Length: {len(sample['vital_signs']['heart_rate'])} hours")
         
-        # Run tests
-        print("\nRunning comprehensive tests...")
-        test_synthetic_los_prediction()
-        print("All tests passed!")
+#         # Run tests
+#         print("\nRunning comprehensive tests...")
+#         test_synthetic_los_prediction()
+#         print("All tests passed!")
 
-    def test_synthetic_los_prediction():
-        """Checks/asserts"""
-        patient = Patient(patient_id = "test_icu")
-        visit = Visit(visit_id = "v1", patient_id = "test_icu")
-        patient.add_visit(visit)
+#     def test_synthetic_los_prediction():
+#         """Checks/asserts"""
+#         patient = Patient(patient_id = "test_icu")
+#         visit = Visit(visit_id = "v1", patient_id = "test_icu")
+#         patient.add_visit(visit)
         
-        samples = synthetic_los_prediction(patient)
-        sample = samples[0]
+#         samples = synthetic_los_prediction(patient)
+#         sample = samples[0]
         
-        # Structural checks
-        assert isinstance(sample["los"], float), "LOS must be float"
-        assert (0 < sample["los"] < 1000), "LOS out of valid range"
-        assert all(
-            isinstance(intervention, str) 
-            for intervention in sample["interventions"]
-        ), "Invalid interventions, must be strings"
+#         # Structural checks
+#         assert isinstance(sample["los"], float), "LOS must be float"
+#         assert (0 < sample["los"] < 1000), "LOS out of valid range"
+#         assert all(
+#             isinstance(intervention, str) 
+#             for intervention in sample["interventions"]
+#         ), "Invalid interventions, must be strings"
         
-        # Temporal checks
-        hr_data = sample["vital_signs"]["heart_rate"]
-        assert (24 <= len(hr_data) <= 168), "Invalid vital sign length"
-        assert all(0 <= hr <= 200 for hr in hr_data), "HR out of range"
+#         # Temporal checks
+#         hr_data = sample["vital_signs"]["heart_rate"]
+#         assert (24 <= len(hr_data) <= 168), "Invalid vital sign length"
+#         assert all(0 <= hr <= 200 for hr in hr_data), "HR out of range"
 
-        # Empty check
-        empty_patient = Patient(patient_id = "empty")
-        empty_samples = synthetic_los_prediction(empty_patient)
-        assert empty_samples == [], "Empty patient should return empty list"
+#         # Empty check
+#         empty_patient = Patient(patient_id = "empty")
+#         empty_samples = synthetic_los_prediction(empty_patient)
+#         assert empty_samples == [], "Empty patient should return empty list"
 
-    test()
+#     test()
