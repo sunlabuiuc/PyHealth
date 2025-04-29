@@ -47,14 +47,14 @@ class GDSCDataset(BaseDataset):
         
         self.load_data()
 
-    def load_data(self) -> None:
+    def load_data(self, file_name: str = "gdsc.csv") -> None:
         """
         Loads the GDSC dataset from the CSV file into a pandas DataFrame.
 
         The CSV file is expected to be in the specified root directory and 
         should contain drug and cell line sensitivity data.
         """
-        gdsc_file_path = Path(self.root) / "gdsc.csv"
+        gdsc_file_path = Path(self.root) / file_name
         if not gdsc_file_path.exists():
             logger.error(f"GDSC file {gdsc_file_path} does not exist!")
             raise FileNotFoundError(f"GDSC file {gdsc_file_path} not found.")
