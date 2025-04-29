@@ -1,0 +1,21 @@
+version: "1.0"
+tables:
+  heart_disease:
+    file_path: "heart_disease.csv"
+    patient_id: null
+    timestamp: null
+    attributes:
+    - "age"
+    - "sex"
+    - "cp"
+    - "trestbps"
+    - "chol"
+    - "fbs"
+    - "restecg"
+    - "thalach"
+    - "exang"
+    - "oldpeak"
+    - "slope"
+    - "ca"
+    - "thal"
+    - "target"
