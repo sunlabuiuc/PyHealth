@@ -5,8 +5,17 @@ from .base_task import BaseTask
 
 
 class TransferPrediction(BaseTask):
-    """Task for predicting whether a patient will be transferred to another unit.
-    
+    """Task for predicting patient transfers between care units.
+
+    This implementation provides a baseline solution for the transfer prediction task
+    discussed in the paper "Uncertainty-Aware Text-to-Program for Question Answering
+    on Structured Electronic Health Records" (CHIL 2022).
+
+    Dataset:
+        The implementation uses the MIMIC-III Clinical Database (version 1.4),
+        which requires credentialed access from PhysioNet:
+        https://physionet.org/content/mimiciii/1.4/
+
     This task predicts whether a patient will be transferred to another unit
     during their hospital stay based on their current unit and admission information.
     
