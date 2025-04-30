@@ -2,7 +2,8 @@ import logging
 import os
 from abc import ABC
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Iterator, List, Optional
+from pathlib import Path
+from typing import Iterator, List, Optional, Union
 
 import polars as pl
 from tqdm import tqdm
@@ -13,6 +14,34 @@ from .configs import load_yaml_config
 from .sample_dataset import SampleDataset
 
 logger = logging.getLogger(__name__)
+
+
+def scan_csv_gz_or_csv(csv_path: Union[str, Path]) -> pl.LazyFrame:
+    """
+    Scans a CSV.gz or CSV file and returns a LazyFrame.
+    It will first try to scan the given csv_path, if it fails and
+    the file has a .csv.gz extension, it will try to scan the file
+    with the .csv extension. If it still fails, it will raise a 
+    FileNotFoundError.
+
+    Args:
+        csv_path (str or Path): The path to the CSV.gz or CSV file.
+
+    Returns:
+        pl.LazyFrame: The LazyFrame for the CSV.gz or CSV file.
+    """
+    if isinstance(csv_path, str):
+        csv_path = Path(csv_path)
+    if csv_path.exists():
+        df = pl.scan_csv(csv_path, infer_schema=False)
+    # Try with .csv extension if .csv.gz fails
+    elif "".join(csv_path.suffixes[-2:]) == ".csv.gz" and csv_path.with_suffix("").exists():
+        csv_path = csv_path.with_suffix("")
+        logger.info(f"CSV.GZ file not found, using CSV file instead: {csv_path}")
+        df = pl.scan_csv(csv_path, infer_schema=False)
+    else:
+        raise FileNotFoundError(f"File not found: {csv_path}")
+    return df
 
 
 class BaseDataset(ABC):
@@ -118,28 +147,28 @@ class BaseDataset(ABC):
 
         table_cfg = self.config.tables[table_name]
         csv_path = f"{self.root}/{table_cfg.file_path}"
-        # TODO: check if it's zipped or not.
-
-        # TODO: make this work for remote files
-        # if not Path(csv_path).exists():
-        #     raise FileNotFoundError(f"CSV not found: {csv_path}")
+        csv_path = Path(csv_path)
 
         logger.info(f"Scanning table: {table_name} from {csv_path}")
+        df = scan_csv_gz_or_csv(csv_path)
 
-        df = pl.scan_csv(csv_path, infer_schema=False)
+        # Check if there is a preprocessing function for this table
+        preprocess_func = getattr(self, f"preprocess_{table_name}", None)
+        if preprocess_func is not None:
+            logger.info(f"Preprocessing table: {table_name} with {preprocess_func.__name__}")
+            df = preprocess_func(df)
 
-        # TODO: this is an ad hoc fix for the MIMIC-III dataset
-        df = df.with_columns([pl.col(col).alias(col.lower()) for col in df.collect_schema().names()])
+        col_names = df.collect_schema().names()
+        if any(col != col.lower() for col in col_names):
+            logger.warning("Some column names were converted to lowercase")
+        df = df.with_columns([pl.col(col).alias(col.lower()) for col in col_names])
 
         # Handle joins
         for join_cfg in table_cfg.join:
             other_csv_path = f"{self.root}/{join_cfg.file_path}"
-            # if not Path(other_csv_path).exists():
-            #     raise FileNotFoundError(
-            #         f"Join CSV not found: {other_csv_path}"
-            #     )
-
-            join_df = pl.scan_csv(other_csv_path, infer_schema=False)
+            other_csv_path = Path(other_csv_path)
+            logger.info(f"Joining with table: {other_csv_path}")
+            join_df = scan_csv_gz_or_csv(other_csv_path)
             join_df = join_df.with_columns([pl.col(col).alias(col.lower()) for col in join_df.collect_schema().names()])
             join_key = join_cfg.on
             columns = join_cfg.columns

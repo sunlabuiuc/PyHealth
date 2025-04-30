@@ -3,6 +3,8 @@ import warnings
 from pathlib import Path
 from typing import List, Optional
 
+import polars as pl
+
 from .base_dataset import BaseDataset
 
 logger = logging.getLogger(__name__)
@@ -58,3 +60,28 @@ class MIMIC3Dataset(BaseDataset):
             **kwargs
         )
         return
+
+    def preprocess_noteevents(self, df: pl.LazyFrame) -> pl.LazyFrame:
+        """
+        Table-specific preprocess function which will be called by BaseDataset.load_table().
+    
+        Preprocesses the noteevents table by ensuring that the CHARTTIME column
+        is populated. If CHARTTIME is null, it uses CHARTDATE with a default
+        time of 00:00:00.
+
+        See: https://mimic.mit.edu/docs/iii/tables/noteevents/#chartdate-charttime-storetime.
+
+        Args:
+            df (pl.LazyFrame): The input dataframe containing noteevents data.
+
+        Returns:
+            pl.LazyFrame: The processed dataframe with updated CHARTTIME
+            values.
+        """
+        df = df.with_columns(
+            pl.when(pl.col("CHARTTIME").is_null())
+            .then(pl.col("CHARTDATE") + pl.lit(" 00:00:00"))
+            .otherwise(pl.col("CHARTTIME"))
+            .alias("CHARTTIME")
+        )
+        return df
