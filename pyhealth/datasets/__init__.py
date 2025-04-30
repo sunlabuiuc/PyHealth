@@ -28,6 +28,7 @@ class SampleSignalDataset:
 from .base_dataset import BaseDataset
 from .cardiology import CardiologyDataset
 from .covid19_cxr import COVID19CXRDataset
+from .ehrshot import EHRShotDataset
 from .eicu import eICUDataset
 from .isruc import ISRUCDataset
 from .medical_transcriptions import MedicalTranscriptionsDataset
