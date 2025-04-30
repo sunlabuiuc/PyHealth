@@ -35,9 +35,9 @@ def scan_csv_gz_or_csv(csv_path: Union[str, Path]) -> pl.LazyFrame:
     if csv_path.exists():
         df = pl.scan_csv(csv_path, infer_schema=False)
     # Try with .csv extension if .csv.gz fails
-    elif "".join(csv_path.suffixes[-2:]) == ".csv.gz" and csv_path.with_suffix("").exists():
+    elif csv_path.suffix == ".gz" and csv_path.with_suffix("").exists():
         csv_path = csv_path.with_suffix("")
-        logger.info(f"CSV.GZ file not found, using CSV file instead: {csv_path}")
+        logger.info(f".GZ file not found, removing .gz extension instead: {csv_path}")
         df = pl.scan_csv(csv_path, infer_schema=False)
     else:
         raise FileNotFoundError(f"File not found: {csv_path}")
