@@ -22,7 +22,8 @@ class BaseDataset(ABC):
         dataset_name (str): Name of the dataset.
         config (dict): Configuration loaded from a YAML file.
         global_event_df (pl.LazyFrame): The global event data frame.
-        dev (bool): Whether to enable dev mode (limit to 1000 patients).
+        dev (bool): Whether to enable dev mode (limit to dev_limit or 1000 patients).
+        dev_limit (Optional(int)): Optionally have a custom patient limit number in dev.
     """
 
     def __init__(
@@ -32,6 +33,7 @@ class BaseDataset(ABC):
         dataset_name: Optional[str] = None,
         config_path: Optional[str] = None,
         dev: bool = False,  # Added dev parameter
+        dev_limit: Optional[int] = None
     ):
         """Initializes the BaseDataset.
 
@@ -40,13 +42,15 @@ class BaseDataset(ABC):
             tables (List[str]): List of table names to load.
             dataset_name (Optional[str]): Name of the dataset. Defaults to class name.
             config_path (Optional[str]): Path to the configuration YAML file.
-            dev (bool): Whether to run in dev mode (limits to 1000 patients).
+            dev (bool): Whether to run in dev mode (limits to dev_limit or  1000 patients).
+            dev_limit (Optional(int)): Optionally have a custom patient limit number in dev.
         """
         self.root = root
         self.tables = tables
         self.dataset_name = dataset_name or self.__class__.__name__
         self.config = load_yaml_config(config_path)
         self.dev = dev  # Store dev mode flag
+        self.dev_limit = dev_limit
 
         logger.info(
             f"Initializing {self.dataset_name} dataset from {self.root} (dev mode: {self.dev})"
@@ -72,12 +76,13 @@ class BaseDataset(ABC):
             df = self.global_event_df
             # TODO: dev doesn't seem to improve the speed / memory usage
             if self.dev:
+                patient_limit = self.dev_limit if self.dev_limit is not None else 1000
                 # Limit the number of patients in dev mode
-                logger.info("Dev mode enabled: limiting to 1000 patients")
+                logger.info("Dev mode enabled: limiting to dev_limit or 1000 patients")
                 limited_patients = (
                     df.select(pl.col("patient_id"))
                     .unique()
-                    .limit(1000)
+                    .limit(patient_limit)
                 )
                 df = df.join(limited_patients, on="patient_id", how="inner")
 
