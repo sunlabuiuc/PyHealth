@@ -1,4 +1,5 @@
 from .base_task import BaseTask
+from .benchmark_ehrshot import BenchmarkEHRShot
 from .cardiology_detect import (
     cardiology_isAD_fn,
     cardiology_isAR_fn,
@@ -26,10 +27,10 @@ from .medical_coding import MIMIC3ICD9Coding
 from .medical_transcriptions_classification import MedicalTranscriptionsClassification
 from .mortality_prediction import (
     MortalityPredictionEICU,
+    MortalityPredictionEICU2,
     MortalityPredictionMIMIC3,
     MortalityPredictionMIMIC4,
     MortalityPredictionOMOP,
-    MortalityPredictionEICU2
 )
 from .patient_linkage import patient_linkage_mimic3_fn
 from .readmission_30days_mimic4 import Readmission30DaysMIMIC4
