@@ -137,13 +137,11 @@ User could also store their own dataset into our ``<pyhealth.datasets.SampleBase
 
 .. code-block:: python
 
-    from pyhealth.models import Transformer
+    from pyhealth.models import RNN
 
-    model = Transformer(
-        dataset=mimic3sample,
-        feature_keys=["conditions", "procedures"],
-        label_key="mortality",
-        mode="binary",
+
+    model = RNN(
+      dataset=samples,
     )
 
 * **STEP 4: <pyhealth.trainer>** is the training manager with ``train_loader``, the ``val_loader``, ``val_metric``, and specify other arguemnts, such as epochs, optimizer, learning rate, etc. The trainer will automatically save the best model and output the path in the end.
