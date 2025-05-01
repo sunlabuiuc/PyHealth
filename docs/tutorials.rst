@@ -23,6 +23,7 @@ Tutorials
 
  The following tutorials will help users build their own task pipelines. `[Video] <https://www.youtube.com/watch?v=GGP3Dhfyisc&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=12>`_ 
 
+
 `Pipeline 1: Chest Xray Classification <https://colab.research.google.com/drive/18vK23gyI1LjWbTgkq4f99yDZA3A7Pxp9?usp=sharing>`_ 
 
 `Pipeline 2: Medical Coding <https://colab.research.google.com/drive/1ThYP_5ng5xPQwscv5XztefkkoTruhjeK?usp=sharing>`_ 

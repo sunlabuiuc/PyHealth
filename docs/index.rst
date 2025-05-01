@@ -139,6 +139,7 @@ User could also store their own dataset into our ``<pyhealth.datasets.SampleBase
 
     from pyhealth.models import RNN
 
+
     model = RNN(
       dataset=samples,
     )
