@@ -2,9 +2,12 @@ import logging
 import os
 from abc import ABC
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 from typing import Iterator, List, Optional
+from urllib.parse import urlparse, urlunparse
 
 import polars as pl
+import requests
 from tqdm import tqdm
 
 from ..data import Patient
@@ -13,6 +16,67 @@ from .configs import load_yaml_config
 from .sample_dataset import SampleDataset
 
 logger = logging.getLogger(__name__)
+
+
+def is_url(path: str) -> bool:
+    """URL detection."""
+    result = urlparse(path)
+    # Both scheme and netloc must be present for a valid URL
+    return all([result.scheme, result.netloc])
+
+
+def clean_path(path: str) -> str:
+    """Clean a path string."""
+    if is_url(path):
+        parsed = urlparse(path)
+        cleaned_path = os.path.normpath(parsed.path)
+        # Rebuild the full URL
+        return urlunparse(parsed._replace(path=cleaned_path))
+    else:
+        # It's a local path — resolve and normalize
+        return str(Path(path).expanduser().resolve())
+
+
+def path_exists(path: str) -> bool:
+    """
+    Check if a path exists.
+    If the path is a URL, it will send a HEAD request.
+    If the path is a local file, it will use the Path.exists().
+    """
+    if is_url(path):
+        try:
+            response = requests.head(path, timeout=5)
+            return response.status_code == 200
+        except requests.RequestException:
+            return False
+    else:
+        return Path(path).exists()
+
+
+def scan_csv_gz_or_csv(path: str) -> pl.LazyFrame:
+    """
+    Scan a CSV.gz or CSV file and returns a LazyFrame.
+    It will fall back to the other extension if not found.
+
+    Args:
+        path (str): URL or local path to a .csv or .csv.gz file
+
+    Returns:
+        pl.LazyFrame: The LazyFrame for the CSV.gz or CSV file.
+    """
+    if path_exists(path):
+        return pl.scan_csv(path, infer_schema=False)
+    # Try the alternative extension
+    if path.endswith(".csv.gz"):
+        alt_path = path[:-3]  # Remove .gz
+    elif path.endswith(".csv"):
+        alt_path = f"{path}.gz"  # Add .gz
+    else:
+        raise FileNotFoundError(f"Path does not have expected extension: {path}")
+    if path_exists(alt_path):
+        logger.info(f"Original path does not exist. Using alternative: {alt_path}")
+        return pl.scan_csv(alt_path, infer_schema=False)
+    raise FileNotFoundError(f"Neither path exists: {path} or {alt_path}")
 
 
 class BaseDataset(ABC):
@@ -79,15 +143,13 @@ class BaseDataset(ABC):
             if self.dev:
                 # Limit the number of patients in dev mode
                 logger.info("Dev mode enabled: limiting to 1000 patients")
-                limited_patients = (
-                    df.select(pl.col("patient_id"))
-                    .unique()
-                    .limit(1000)
-                )
+                limited_patients = df.select(pl.col("patient_id")).unique().limit(1000)
                 df = df.join(limited_patients, on="patient_id", how="inner")
 
             self._collected_global_event_df = df.collect()
-            logger.info(f"Collected dataframe with shape: {self._collected_global_event_df.shape}")
+            logger.info(
+                f"Collected dataframe with shape: {self._collected_global_event_df.shape}"
+            )
 
         return self._collected_global_event_df
 
@@ -118,36 +180,42 @@ class BaseDataset(ABC):
 
         table_cfg = self.config.tables[table_name]
         csv_path = f"{self.root}/{table_cfg.file_path}"
-        # TODO: check if it's zipped or not.
-
-        # TODO: make this work for remote files
-        # if not Path(csv_path).exists():
-        #     raise FileNotFoundError(f"CSV not found: {csv_path}")
+        csv_path = clean_path(csv_path)
 
         logger.info(f"Scanning table: {table_name} from {csv_path}")
+        df = scan_csv_gz_or_csv(csv_path)
 
-        df = pl.scan_csv(csv_path, infer_schema=False)
+        # Convert column names to lowercase before calling preprocess_func
+        col_names = df.collect_schema().names()
+        if any(col != col.lower() for col in col_names):
+            logger.warning("Some column names were converted to lowercase")
+        df = df.with_columns([pl.col(col).alias(col.lower()) for col in col_names])
 
-        # TODO: this is an ad hoc fix for the MIMIC-III dataset
-        df = df.with_columns([pl.col(col).alias(col.lower()) for col in df.collect_schema().names()])
+        # Check if there is a preprocessing function for this table
+        preprocess_func = getattr(self, f"preprocess_{table_name}", None)
+        if preprocess_func is not None:
+            logger.info(
+                f"Preprocessing table: {table_name} with {preprocess_func.__name__}"
+            )
+            df = preprocess_func(df)
 
         # Handle joins
         for join_cfg in table_cfg.join:
             other_csv_path = f"{self.root}/{join_cfg.file_path}"
-            # if not Path(other_csv_path).exists():
-            #     raise FileNotFoundError(
-            #         f"Join CSV not found: {other_csv_path}"
-            #     )
-
-            join_df = pl.scan_csv(other_csv_path, infer_schema=False)
-            join_df = join_df.with_columns([pl.col(col).alias(col.lower()) for col in join_df.collect_schema().names()])
+            other_csv_path = clean_path(other_csv_path)
+            logger.info(f"Joining with table: {other_csv_path}")
+            join_df = scan_csv_gz_or_csv(other_csv_path)
+            join_df = join_df.with_columns(
+                [
+                    pl.col(col).alias(col.lower())
+                    for col in join_df.collect_schema().names()
+                ]
+            )
             join_key = join_cfg.on
             columns = join_cfg.columns
             how = join_cfg.how
 
-            df = df.join(
-                join_df.select([join_key] + columns), on=join_key, how=how
-            )
+            df = df.join(join_df.select([join_key] + columns), on=join_key, how=how)
 
         patient_id_col = table_cfg.patient_id
         timestamp_col = table_cfg.timestamp
@@ -158,10 +226,9 @@ class BaseDataset(ABC):
         if timestamp_col:
             if isinstance(timestamp_col, list):
                 # Concatenate all timestamp parts in order with no separator
-                combined_timestamp = (
-                    pl.concat_str([pl.col(col) for col in timestamp_col])
-                    .str.strptime(pl.Datetime, format=timestamp_format, strict=True)
-                )
+                combined_timestamp = pl.concat_str(
+                    [pl.col(col) for col in timestamp_col]
+                ).str.strptime(pl.Datetime, format=timestamp_format, strict=True)
                 timestamp_expr = combined_timestamp
             else:
                 # Single timestamp column
@@ -185,8 +252,7 @@ class BaseDataset(ABC):
 
         # Flatten attribute columns with event_type prefix
         attribute_columns = [
-            pl.col(attr).alias(f"{table_name}/{attr}")
-            for attr in attribute_cols
+            pl.col(attr).alias(f"{table_name}/{attr}") for attr in attribute_cols
         ]
 
         event_frame = df.select(base_columns + attribute_columns)
@@ -225,9 +291,7 @@ class BaseDataset(ABC):
         assert (
             patient_id in self.unique_patient_ids
         ), f"Patient {patient_id} not found in dataset"
-        df = self.collected_global_event_df.filter(
-            pl.col("patient_id") == patient_id
-        )
+        df = self.collected_global_event_df.filter(pl.col("patient_id") == patient_id)
         return Patient(patient_id=patient_id, data_source=df)
 
     def iter_patients(self, df: Optional[pl.LazyFrame] = None) -> Iterator[Patient]:
@@ -260,11 +324,9 @@ class BaseDataset(ABC):
             Optional[BaseTask]: The default task, if any.
         """
         return None
-    
+
     def set_task(
-        self,
-        task: Optional[BaseTask] = None,
-        num_workers: Optional[int] = None
+        self, task: Optional[BaseTask] = None, num_workers: Optional[int] = None
     ) -> SampleDataset:
         """Processes the base dataset to generate the task-specific sample dataset.
 
@@ -283,7 +345,9 @@ class BaseDataset(ABC):
             assert self.default_task is not None, "No default tasks found"
             task = self.default_task
 
-        logger.info(f"Setting task {task.task_name} for {self.dataset_name} base dataset...")
+        logger.info(
+            f"Setting task {task.task_name} for {self.dataset_name} base dataset..."
+        )
 
         filtered_global_event_df = task.pre_filter(self.collected_global_event_df)
 
@@ -298,7 +362,7 @@ class BaseDataset(ABC):
         if num_workers == 1:
             for patient in tqdm(
                 self.iter_patients(filtered_global_event_df),
-                desc=f"Generating samples for {task.task_name}"
+                desc=f"Generating samples for {task.task_name}",
             ):
                 samples.extend(task(patient))
         else:
