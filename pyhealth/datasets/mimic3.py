@@ -65,8 +65,8 @@ class MIMIC3Dataset(BaseDataset):
         """
         Table-specific preprocess function which will be called by BaseDataset.load_table().
     
-        Preprocesses the noteevents table by ensuring that the CHARTTIME column
-        is populated. If CHARTTIME is null, it uses CHARTDATE with a default
+        Preprocesses the noteevents table by ensuring that the charttime column
+        is populated. If charttime is null, it uses chartdate with a default
         time of 00:00:00.
 
         See: https://mimic.mit.edu/docs/iii/tables/noteevents/#chartdate-charttime-storetime.
@@ -75,13 +75,13 @@ class MIMIC3Dataset(BaseDataset):
             df (pl.LazyFrame): The input dataframe containing noteevents data.
 
         Returns:
-            pl.LazyFrame: The processed dataframe with updated CHARTTIME
+            pl.LazyFrame: The processed dataframe with updated charttime
             values.
         """
         df = df.with_columns(
-            pl.when(pl.col("CHARTTIME").is_null())
-            .then(pl.col("CHARTDATE") + pl.lit(" 00:00:00"))
-            .otherwise(pl.col("CHARTTIME"))
-            .alias("CHARTTIME")
+            pl.when(pl.col("charttime").is_null())
+            .then(pl.col("chartdate") + pl.lit(" 00:00:00"))
+            .otherwise(pl.col("charttime"))
+            .alias("charttime")
         )
         return df

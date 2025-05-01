@@ -1,14 +1,13 @@
 import logging
 import os
-import requests
-
 from abc import ABC
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Iterator, List, Optional, Union
-from urllib.parse import urlparse
+from typing import Iterator, List, Optional
+from urllib.parse import urlparse, urlunparse
 
 import polars as pl
+import requests
 from tqdm import tqdm
 
 from ..data import Patient
@@ -19,72 +18,65 @@ from .sample_dataset import SampleDataset
 logger = logging.getLogger(__name__)
 
 
-# Both scheme and netloc must be present for a valid URL
-def is_url(path_string: str) -> bool:
+def is_url(path: str) -> bool:
     """URL detection."""
-    try:
-        result = urlparse(path_string)
-        return all([result.scheme, result.netloc])
-    except:
-        return False
+    result = urlparse(path)
+    # Both scheme and netloc must be present for a valid URL
+    return all([result.scheme, result.netloc])
 
 
-def url_exists(url: str) -> bool:
-    """Check if a URL exists by sending a HEAD request."""
-    try:
-        response = requests.head(url, timeout=5)
-        return response.status_code == 200
-    except requests.RequestException:
-        return False
+def clean_path(path: str) -> str:
+    """Clean a path string."""
+    if is_url(path):
+        parsed = urlparse(path)
+        cleaned_path = os.path.normpath(parsed.path)
+        # Rebuild the full URL
+        return urlunparse(parsed._replace(path=cleaned_path))
+    else:
+        # It's a local path — resolve and normalize
+        return str(Path(path).expanduser().resolve())
 
 
-def scan_csv_gz_or_csv(csv_path: Union[str, Path]) -> pl.LazyFrame:
+def path_exists(path: str) -> bool:
     """
-    Scans a CSV.gz or CSV file and returns a LazyFrame.
+    Check if a path exists.
+    If the path is a URL, it will send a HEAD request.
+    If the path is a local file, it will use the Path.exists().
+    """
+    if is_url(path):
+        try:
+            response = requests.head(path, timeout=5)
+            return response.status_code == 200
+        except requests.RequestException:
+            return False
+    else:
+        return Path(path).exists()
+
+
+def scan_csv_gz_or_csv(path: str) -> pl.LazyFrame:
+    """
+    Scan a CSV.gz or CSV file and returns a LazyFrame.
+    It will fall back to the other extension if not found.
 
     Args:
-        csv_path (str or Path): The path to the CSV.gz or CSV file.
+        path (str): URL or local path to a .csv or .csv.gz file
 
     Returns:
         pl.LazyFrame: The LazyFrame for the CSV.gz or CSV file.
     """
-    # Handle URL case
-    if isinstance(csv_path, str) and is_url(csv_path):
-        logger.info(f"Detected URL: {csv_path}")
-
-        # Check if the URL exists
-        if url_exists(csv_path):
-            logger.info(f"URL exists, scanning: {csv_path}")
-            return pl.scan_csv(csv_path, infer_schema=False)
-
-        # Try the alternative extension
-        if csv_path.endswith(".csv.gz"):
-            alt_path = csv_path[:-3]  # Remove .gz
-        elif csv_path.endswith(".csv"):
-            alt_path = f"{csv_path}.gz"  # Add .gz
-        else:
-            raise FileNotFoundError(f"URL does not have expected extension: {csv_path}")
-
-        if url_exists(alt_path):
-            logger.info(f"Alternative URL exists, scanning: {alt_path}")
-            return pl.scan_csv(alt_path, infer_schema=False)
-
-        raise FileNotFoundError(f"Neither URL exists: {csv_path} or {alt_path}")
-
-    # Handle local file path
-    if isinstance(csv_path, str):
-        csv_path = Path(csv_path)
-
-    if csv_path.exists():
-        df = pl.scan_csv(csv_path, infer_schema=False)
-    # Try with .csv extension if .csv.gz fails
-    elif csv_path.suffix == ".gz" and csv_path.with_suffix("").exists():
-        csv_path = csv_path.with_suffix("")
-        logger.info(f".GZ file not found, removing .gz extension instead: {csv_path}")
-        df = pl.scan_csv(csv_path, infer_schema=False)
+    if path_exists(path):
+        return pl.scan_csv(path, infer_schema=False)
+    # Try the alternative extension
+    if path.endswith(".csv.gz"):
+        alt_path = path[:-3]  # Remove .gz
+    elif path.endswith(".csv"):
+        alt_path = f"{path}.gz"  # Add .gz
     else:
-        raise FileNotFoundError(f"File not found: {csv_path}")
-    return df
+        raise FileNotFoundError(f"Path does not have expected extension: {path}")
+    if path_exists(alt_path):
+        logger.info(f"Original path does not exist. Using alternative: {alt_path}")
+        return pl.scan_csv(alt_path, infer_schema=False)
+    raise FileNotFoundError(f"Neither path exists: {path} or {alt_path}")
 
 
 class BaseDataset(ABC):
@@ -188,9 +180,16 @@ class BaseDataset(ABC):
 
         table_cfg = self.config.tables[table_name]
         csv_path = f"{self.root}/{table_cfg.file_path}"
+        csv_path = clean_path(csv_path)
 
         logger.info(f"Scanning table: {table_name} from {csv_path}")
         df = scan_csv_gz_or_csv(csv_path)
+
+        # Convert column names to lowercase before calling preprocess_func
+        col_names = df.collect_schema().names()
+        if any(col != col.lower() for col in col_names):
+            logger.warning("Some column names were converted to lowercase")
+        df = df.with_columns([pl.col(col).alias(col.lower()) for col in col_names])
 
         # Check if there is a preprocessing function for this table
         preprocess_func = getattr(self, f"preprocess_{table_name}", None)
@@ -200,15 +199,10 @@ class BaseDataset(ABC):
             )
             df = preprocess_func(df)
 
-        col_names = df.collect_schema().names()
-        if any(col != col.lower() for col in col_names):
-            logger.warning("Some column names were converted to lowercase")
-        df = df.with_columns([pl.col(col).alias(col.lower()) for col in col_names])
-
         # Handle joins
         for join_cfg in table_cfg.join:
             other_csv_path = f"{self.root}/{join_cfg.file_path}"
-            # other_csv_path = Path(other_csv_path)
+            other_csv_path = clean_path(other_csv_path)
             logger.info(f"Joining with table: {other_csv_path}")
             join_df = scan_csv_gz_or_csv(other_csv_path)
             join_df = join_df.with_columns(
