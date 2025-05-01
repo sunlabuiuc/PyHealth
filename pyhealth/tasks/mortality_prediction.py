@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+
 from .base_task import BaseTask
 
 
@@ -41,7 +42,7 @@ class MortalityPredictionMIMIC3(BaseTask):
             try:
                 # Check the type and convert if necessary
                 if isinstance(visit.dischtime, str):
-                    discharge_time = datetime.strptime(visit.dischtime, "%Y-%m-%d")
+                    discharge_time = datetime.strptime(visit.dischtime, "%Y-%m-%d %H:%M:%S")
                 else:
                     discharge_time = visit.dischtime
             except (ValueError, AttributeError):
