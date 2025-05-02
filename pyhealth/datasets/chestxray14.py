@@ -12,7 +12,7 @@ from PIL import Image
 import torch
 from torchvision.transforms import Compose
 
-from pyhealth.datasets.base_dataset import BaseDataset
+from .base_dataset import BaseDataset
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +99,7 @@ class ChestXray(TypedDict):
     patient_sex: Literal['M', 'F']
     labels: ChestXrayLabels
 
-class ChextXray14(BaseDataset):
+class ChestXray14(BaseDataset):
     """Dataset class for the NIH ChestX-ray14 dataset.
 
     This class handles downloading, verifying, indexing, and accessing the
@@ -440,7 +440,7 @@ class ChextXray14(BaseDataset):
 
 def main() -> None:
     logger.setLevel(logging.INFO)
-    dataset = ChextXray14(partial=True)
+    dataset = ChestXray14(partial=True)
     dataset.stat()
     dataset.info()
     print(dataset[0])
