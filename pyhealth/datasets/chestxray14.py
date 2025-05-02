@@ -1,3 +1,4 @@
+import argparse
 import hashlib
 import logging
 import os
@@ -438,12 +439,15 @@ class ChestXray14Dataset(BaseDataset):
                 },
             })
 
-def main() -> None:
+if __name__ == "__main__":
     logger.setLevel(logging.INFO)
-    dataset = ChestXray14Dataset(partial=True)
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--no-download", action="store_true")
+    args = parser.parse_args()
+
+    dataset = ChestXray14Dataset(download=(not args.no_download), partial=True)
+
     dataset.stat()
     dataset.info()
     print(dataset[0])
-
-if __name__ == "__main__":
-    main()
