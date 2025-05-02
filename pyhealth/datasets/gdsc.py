@@ -1,3 +1,11 @@
+"""
+Names: Aaron Low, Kevin Zhou
+NetIDs: aclow2, kevinjz3
+Paper title: Reproducing Predicting Drug Sensitivity of Cancer Cell Lines via Collaborative Filtering with Contextual Attention
+Paper link: https://proceedings.mlr.press/v126/tao20a/tao20a.pdf
+Description: A dataset class for handling GDSC (Genomics of Drug Sensitivity in Cancer) data.
+"""
+
 import logging
 import pandas as pd
 from pathlib import Path
