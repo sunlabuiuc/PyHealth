@@ -1,6 +1,4 @@
-import functools
-from typing import Dict, List, Optional, Tuple
-import pickle
+from typing import Dict, List, Tuple
 import numpy as np
 
 import torch
@@ -44,13 +42,9 @@ class VAE(BaseModel):
         hidden_dim: int = 128,
         **kwargs,
     ):
-        super(VAE, self).__init__(
-            dataset=dataset,
-            feature_keys=feature_keys,
-            label_key=label_key,
-            mode=mode,
-        )
+        super(VAE, self).__init__(dataset=dataset)
         self.hidden_dim = hidden_dim
+        self.mode = mode
 
         # encoder part
         if input_size == 128:
@@ -142,7 +136,7 @@ class VAE(BaseModel):
                 np.array(kwargs[self.feature_keys[0]]).astype("float16"), device=self.device
             ).float()
         else:
-            x = torch.stack(kwargs[self.feature_keys[0]], dim=0).to(self.device)
+            x = kwargs[self.feature_keys[0]].to(self.device)
     
         mu, std = self.encoder(x)
         z = self.sampling(mu, std)
@@ -175,7 +169,7 @@ if __name__ == "__main__":
     ])
 
     def encode(sample):
-        sample["path"] = transform(sample["path"])
+        sample["image"] = transform(sample["image"])
         return sample
 
     sample_dataset.set_transform(encode)

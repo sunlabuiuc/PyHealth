@@ -47,6 +47,8 @@ def regression_metrics_fn(
     if x.shape != x_rec.shape:
         raise ValueError("x and x_rec must have the same shape.")
 
+    x_copy = np.copy(x)
+    x_rec_copy = np.copy(x_rec)
     output = {}
     for metric in metrics:
         if metric == "kl_divergence":
@@ -57,10 +59,10 @@ def regression_metrics_fn(
             kl_divergence = np.sum(x_rec * np.log(x_rec / x))
             output["kl_divergence"] = kl_divergence
         elif metric == "mse":
-            mse = sklearn_metrics.mean_squared_error(x, x_rec)
+            mse = sklearn_metrics.mean_squared_error(x_copy, x_rec_copy)
             output["mse"] = mse
         elif metric == "mae":
-            mae = sklearn_metrics.mean_absolute_error(x, x_rec)
+            mae = sklearn_metrics.mean_absolute_error(x_copy, x_rec_copy)
             output["mae"] = mae
         else:
             raise ValueError(f"Unknown metric for regression task: {metric}")

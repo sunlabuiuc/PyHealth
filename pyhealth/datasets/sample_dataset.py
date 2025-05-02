@@ -94,6 +94,10 @@ class SampleDataset(Dataset):
                     sample[k] = self.output_processors[k].process(v)
         return
 
+    def set_transform(self, transform) -> None:
+        """Sets a transformation function to be applied to each sample."""
+        self.transform = transform
+
     def __getitem__(self, index: int) -> Dict:
         """Returns a sample by index.
 
@@ -105,7 +109,10 @@ class SampleDataset(Dataset):
             attributes as key. Conversion to index/tensor will be done
             in the model.
         """
-        return self.samples[index]
+        sample = self.samples[index]
+        if hasattr(self, "transform"):
+            sample = self.transform(sample)
+        return sample
 
     def __str__(self) -> str:
         """Returns a string representation of the dataset.
