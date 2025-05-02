@@ -423,5 +423,258 @@ GRASP                                 deep learning     ``pyhealth.models.GRASP`
 
 * Check the `interactive map on benchmark EHR predictive tasks <https://pyhealth.readthedocs.io/en/latest/index.html#benchmark-on-healthcare-tasks>`_.
 
+9. MedNLI Dataset Integration :hospital:
+------------------------------------------------
 
+``pyhealth.datasets.MedNLIDataset`` provides support for the Medical Natural Language Inference (MedNLI) dataset, a specialized resource for clinical language understanding.
 
+MedNLI is a natural language inference dataset for the clinical domain, consisting of 14,049 sentence pairs derived from MIMIC-III clinical notes. Each pair contains a clinical premise and hypothesis, manually annotated for textual entailment (entailment, contradiction, or neutral).
+
+.. code-block:: python
+
+    from pyhealth.datasets import MedNLIDataset
+    from pyhealth.tasks import MedNLITask
+    
+    # Load the dataset
+    mednli_dataset = MedNLIDataset(
+        root="data/mednli",            # Directory containing JSONL files
+        data_fraction=1.0              # Use 100% of training data (can be set to 0.01, 0.05, 0.1, 0.25)
+    )
+    
+    # Display dataset statistics
+    mednli_dataset.stat()
+    
+    # Set up the MedNLI task
+    task = MedNLITask()
+    samples = mednli_dataset.set_task(task)
+    
+    # View an example sample
+    print(samples[0])
+    """
+    {
+        'patient_id': None,
+        'record_id': '1892c19a-66c7-11e7-be8f-f45c89b91419',
+        'sentence1': 'No history of blood clots or DVTs, has never had chest pain prior to one week ago.',
+        'sentence2': ' Patient has angina',
+        'gold_label': 'entailment',
+        'dataset_split': 'dev'
+    }
+    """
+
+MedNLI Dataset Structure
+"""""""""""""""""""""""""""""
+The MedNLI dataset consists of three JSONL files:
+
+- ``train.jsonl``: 11,232 training samples
+- ``dev.jsonl``: 1,395 development samples
+- ``test.jsonl``: 1,422 test samples
+
+Each record contains the following fields:
+- ``sentence1``: The premise (clinical observation)
+- ``sentence2``: The hypothesis (potential inference)
+- ``gold_label``: Classification label (entailment, contradiction, neutral)
+- ``pairID``: Unique identifier for the sentence pair
+
+Relevant Classes
+"""""""""""""""""""""""""
+The MedNLI implementation consists of the following key components:
+
+- ``pyhealth.datasets.MedNLIDataset``: Handles loading and processing MedNLI data from JSONL files
+   * Supports configurable data fractions (1%, 5%, 10%, 25%, 100%)
+   * Generates statistics about the dataset distribution
+   * Inherits from BaseDataset for integration with PyHealth's pipeline
+
+- ``pyhealth.tasks.MedNLITask``: Defines the NLI task processing
+   * Specifies input schema (premise, hypothesis) and output schema (label)
+   * Transforms patient data into samples suitable for NLI classification
+   * Handles different label formats (text or numerical)
+
+- ``pyhealth.datasets.configs.mednli.yaml``: Configuration file
+   * Defines dataset structure, attributes and data types
+   * Maps data columns to framework expectations
+
+Testing the Implementation
+"""""""""""""""""""""""""""""
+You can verify your MedNLI implementation with the following test script:
+
+.. code-block:: python
+    
+    def test_mednli_dataset():
+        """Test the MedNLI dataset implementation."""
+        from pyhealth.datasets import MedNLIDataset
+        from pyhealth.tasks import MedNLITask
+        import logging
+        
+        # Configure logging
+        logging.basicConfig(level=logging.INFO)
+        logger = logging.getLogger(__name__)
+        
+        # Test data directory
+        data_dir = "data/mednli"
+        
+        # Load dataset
+        logger.info(f"Loading MedNLI dataset from {data_dir}")
+        dataset = MedNLIDataset(root=data_dir)
+        
+        # Display dataset statistics
+        logger.info("Dataset statistics:")
+        dataset.stat()
+        
+        # Set up MedNLI task
+        logger.info("Setting up MedNLI task")
+        task = MedNLITask()
+        sample_dataset = dataset.set_task(task)
+        
+        # Display sample information
+        logger.info(f"Generated {len(sample_dataset)} samples")
+        if sample_dataset:
+            logger.info("Example sample:")
+            sample = sample_dataset[0]
+            for key, value in sample.items():
+                # Truncate long text fields
+                if isinstance(value, str) and len(value) > 100:
+                    value = value[:100] + "..."
+                logger.info(f"  {key}: {value}")
+        
+        logger.info("✅ MedNLI implementation test successful!")
+        return sample_dataset
+    
+    if __name__ == "__main__":
+        test_mednli_dataset()
+
+For a more comprehensive test, you can evaluate a model on the MedNLI task:
+
+.. code-block:: python
+
+    def test_mednli_model():
+        """Test training and evaluation of a model on MedNLI."""
+        from pyhealth.datasets import MedNLIDataset, split_by_patient, get_dataloader
+        from pyhealth.models import Transformer
+        from pyhealth.tasks import MedNLITask
+        from pyhealth.trainer import Trainer
+        
+        # Load dataset and prepare task
+        dataset = MedNLIDataset(root="data/mednli")
+        task = MedNLITask()
+        samples = dataset.set_task(task)
+        
+        # Split dataset
+        train_ds, val_ds, test_ds = split_by_patient(samples, [0.8, 0.1, 0.1])
+        
+        # Create dataloaders
+        train_loader = get_dataloader(train_ds, batch_size=32, shuffle=True)
+        val_loader = get_dataloader(val_ds, batch_size=32, shuffle=False)
+        test_loader = get_dataloader(test_ds, batch_size=32, shuffle=False)
+        
+        # Initialize model
+        model = Transformer(
+            dataset=samples,
+            feature_keys=["sentence1", "sentence2"],
+            label_key="gold_label",
+            mode="multiclass"
+        )
+        
+        # Train model
+        trainer = Trainer(model=model)
+        trainer.train(
+            train_dataloader=train_loader,
+            val_dataloader=val_loader,
+            epochs=3,
+            monitor="accuracy"
+        )
+        
+        # Evaluate model
+        metrics = trainer.evaluate(test_loader)
+        print(f"Test metrics: {metrics}")
+        
+        return metrics
+
+Environmental Setup for Testing
+"""""""""""""""""""""""""""""""""""
+For reliable testing, especially on platforms like Repl.it, you may need to configure the environment properly:
+
+.. code-block:: bash
+
+    #!/bin/bash
+    # setup_environment.sh
+    
+    # Configure Python version
+    echo "Configuring Python 3.9..."
+    cat > .replit << EOL
+    modules = ["python-3.9"]
+    [nix]
+    channel = "stable-24_05"
+    EOL
+    
+    # Install compatible dependencies
+    echo "Installing dependencies..."
+    pip install numpy==1.24.3
+    pip install pandas==1.5.3 scikit-learn polars "pydantic>=2.0.0"
+    pip install -e .
+    
+    echo "Environment setup complete!"
+
+You can run this script before executing your tests to ensure compatibility:
+
+.. code-block:: bash
+
+    ./setup_environment.sh
+    python examples/mednli_example.py
+
+Using MedNLI for Model Evaluation
+""""""""""""""""""""""""""""""""""
+MedNLI is particularly useful for evaluating clinical language models on natural language understanding tasks. The dataset supports experiments comparing specialized clinical language models against general domain models with varying amounts of training data.
+
+.. code-block:: python
+
+    from pyhealth.datasets import split_by_patient, get_dataloader
+    from pyhealth.models import Transformer
+    from pyhealth.trainer import Trainer
+    
+    # Split the dataset
+    train_ds, val_ds, test_ds = split_by_patient(mednli_dataset.set_task(task), [0.8, 0.1, 0.1])
+    
+    # Create data loaders
+    train_loader = get_dataloader(train_ds, batch_size=32, shuffle=True)
+    val_loader = get_dataloader(val_ds, batch_size=32, shuffle=False)
+    test_loader = get_dataloader(test_ds, batch_size=32, shuffle=False)
+    
+    # Initialize a model
+    model = Transformer(
+        dataset=mednli_dataset.set_task(task),
+        feature_keys=["sentence1", "sentence2"],
+        label_key="gold_label",
+        mode="multiclass"
+    )
+    
+    # Train and evaluate
+    trainer = Trainer(model=model)
+    trainer.train(
+        train_dataloader=train_loader,
+        val_dataloader=val_loader,
+        epochs=5
+    )
+    metrics = trainer.evaluate(test_loader)
+
+Citation
+"""""""""""""
+If you use the MedNLI dataset in your research, please cite:
+
+.. code-block:: bibtex
+
+    @article{romanov2018lessons,
+      title={Lessons from natural language inference in the clinical domain},
+      author={Romanov, Alexey and Shivade, Chaitanya},
+      journal={arXiv preprint arXiv:1808.06752},
+      year={2018}
+    }
+
+Dataset Requirements
+""""""""""""""""""""""""
+To use the MedNLI dataset, you need:
+
+- Access to the dataset files from PhysioNet (requires MIMIC-III credentials)
+- Python 3.9 recommended (compatibility issues may occur with Python 3.12+)
+- Compatible dependencies: numpy (1.24.3), pandas (<2.0), polars, scikit-learn, pydantic (≥2.0)
+
+For more details, see our tutorial notebook or refer to the documentation.

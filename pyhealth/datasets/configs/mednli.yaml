@@ -1,0 +1,12 @@
+version: "1.0"
+tables:
+  mednli:
+    file_path: "mednli.jsonl"
+    patient_id: null
+    timestamp: null
+    attributes:
+    - "sentence1"
+    - "sentence2"
+    - "gold_label"
+    - "pairID"
+    - "split"

@@ -30,6 +30,7 @@ from .cardiology import CardiologyDataset
 from .covid19_cxr import COVID19CXRDataset
 from .eicu import eICUDataset
 from .isruc import ISRUCDataset
+from .mednli_dataset import MedNLIDataset  # Added MedNLIDataset
 from .medical_transcriptions import MedicalTranscriptionsDataset
 from .mimic3 import MIMIC3Dataset
 from .mimic4 import MIMIC4CXRDataset, MIMIC4Dataset, MIMIC4EHRDataset, MIMIC4NoteDataset
