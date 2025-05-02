@@ -105,9 +105,9 @@ class CheXpertCXRDataset(BaseDataset):
             lambda x: os.path.join(os.path.dirname(root), x)
         )
 
-        # for path in df.Path:
-            # path = os.path.join(os.path.dirname(root), path)
-            # assert os.path.isfile(path), f"File {path} does not exist"
+        for path in df.Path:
+            path = os.path.join(os.path.dirname(root), path)
+            assert os.path.isfile(path), f"File {path} does not exist"
         df.to_csv(
             os.path.join(root, "chexpert_cxr-pyhealth.csv"),
             index=False
