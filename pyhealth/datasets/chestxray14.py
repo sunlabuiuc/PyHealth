@@ -108,40 +108,34 @@ class ChestXray14Dataset(BaseDataset):
     retrieve individual samples with optional transformations, and display
     dataset statistics and structure.
 
+    Dataset is available at:
+    https://nihcc.app.box.com/v/ChestXray-NIHCC/folder/36938765345
+
+    Please cite:
+    https://arxiv.org/abs/1705.02315
+
     Attributes:
+        root (str): Root directory of the raw data.
         dataset_name (str): Name of the dataset.
-        paper_url (str): URL of the original paper introducing the dataset.
-        dataset_url (str): URL to download the dataset from the NIH repository.
-        root (str): Filesystem path to the dataset root directory.
-        download (bool): Whether to download the dataset if not already present.
-        partial (bool): Whether to download a smaller subset of the dataset.
+        config_path (str) Path to the configuration file.
+        partial (bool): Whether to download only a subset of the dataset.
         transform (Compose): Transformations applied to each image sample.
-        label_path (Path): Path to the CSV file containing image labels.
-        image_path (Path): Path to the directory containing image files.
-        data (List[ChestXray]): Parsed list of dataset entries, including image
-            metadata and associated disease labels.
 
     Methods:
         __len__(): Returns the number of entries in the dataset.
         __getitem__(index): Retrieves a specific image and its metadata.
         info(): Prints information about the dataset's structure.
         stat(): Prints statistics about the dataset's content.
-        _download(): Handles downloading, verifying, and extracting the dataset.
-        _verify_data(): Ensures the dataset structure and contents are correct.
-        _index_data(): Parses and indexes the dataset into `self.data`.
 
     Example:
         >>> from pathlib import Path
         >>> from torchvision.transforms import Compose, Resize, ToTensor
         >>> transform = Compose([Resize((224, 224)), ToTensor()])
-        >>> dataset = ChestXray14Dataset(root="./data", download=True, transform=transform)
+        >>> dataset = ChestXray14Dataset(root="./data", transform=transform)
         >>> print(len(dataset))
         >>> image, metadata = dataset[0]
     """
     def __init__(self,
-                 dataset_name: str = "ChestX-ray14",
-                 paper_url: str = "https://arxiv.org/abs/1705.02315",
-                 dataset_url: str = "https://nihcc.app.box.com/v/ChestXray-NIHCC",
                  root: str = "",
                  download: bool = True,
                  partial: bool = False,
@@ -149,9 +143,6 @@ class ChestXray14Dataset(BaseDataset):
         """Initializes the ChestX-ray14 dataset.
 
         Args:
-            dataset_name (str): Name of the dataset. Defaults to "ChestX-ray14".
-            paper_url (str): URL to the dataset's reference paper. Defaults to the original ChestX-ray14 paper.
-            dataset_url (str): URL to download the dataset. Defaults to the NIHCC Box link.
             root (str): Local path to store or load the dataset. Defaults to the current directory.
             download (bool): Whether to download the dataset or use an existing copy. Defaults to True.
             partial (bool): Whether to download only a subset of the dataset. Defaults to False.
@@ -173,25 +164,23 @@ class ChestXray14Dataset(BaseDataset):
         """
         super().__init__(
             root=root,
-            tables=[dataset_name],
-            dataset_name=dataset_name,
+            tables=["ChestX-ray14"],
+            dataset_name="ChestX-ray14",
+            config_path=(Path(__file__).parent / "configs" / "chestxray14.yaml"),
         )
 
-        self.paper_url = paper_url
-        self.dataset_url = dataset_url
-        self.download = download
         self.partial = partial
         self.transform = transform
 
-        self.label_path: Path = os.path.join(self.root, "Data_Entry_2017_v2020.csv")
-        self.image_path: Path = os.path.join(self.root, "images")
+        self._label_path: Path = os.path.join(self.root, "Data_Entry_2017_v2020.csv")
+        self._image_path: Path = os.path.join(self.root, "images")
 
-        if self.download:
+        if download:
             self._download()
 
         self._verify_data()
 
-        self.data: List[ChestXray] = []
+        self._data: List[ChestXray] = []
         self._index_data()
 
     def __len__(self) -> int:
@@ -204,7 +193,7 @@ class ChestXray14Dataset(BaseDataset):
             >>> dataset = ChestXray14Dataset()
             >>> print(len(dataset))
         """
-        return len(self.data)
+        return len(self._data)
 
     def __getitem__(self, index: int) -> Tuple[Union[Image.Image, torch.Tensor], ChestXray]:
         """Retrieves a single sample from the dataset at the specified index.
@@ -227,15 +216,15 @@ class ChestXray14Dataset(BaseDataset):
             >>> dataset = ChestXray14Dataset()
             >>> print(dataset[0])
         """
-        image_name = self.data[index]["image_name"]
-        image_path = os.path.join(self.image_path, image_name)
+        image_name = self._data[index]["image_name"]
+        image_path = os.path.join(self._image_path, image_name)
 
         image = Image.open(image_path).convert('RGB')
 
         if self.transform:
             image = self.transform(image)
 
-        return image, self.data[index]
+        return image, self._data[index]
 
     def info(self) -> None:
         """Prints information on the structure of the dataset
@@ -257,14 +246,12 @@ class ChestXray14Dataset(BaseDataset):
         lines.append("")
         lines.append(f"Statistics (partial={self.partial}):")
         lines.append(f"\t- Dataset: {self.dataset_name}")
-        lines.append(f"\t- Paper: {self.paper_url}")
-        lines.append(f"\t- Source: {self.dataset_url}")
         lines.append(f"\t- Number of images: {self.__len__()}")
-        lines.append(f"\t- Average number of findings per image: {sum([sum(xray['labels'].values()) for xray in self.data]) / self.__len__():.2}")
-        lines.append(f"\t- Number with no finding: {sum([not any(xray['labels'].values()) for xray in self.data])}")
+        lines.append(f"\t- Average number of findings per image: {sum([sum(xray['labels'].values()) for xray in self._data]) / self.__len__():.2}")
+        lines.append(f"\t- Number with no finding: {sum([not any(xray['labels'].values()) for xray in self._data])}")
 
         for label in ChestXrayLabels.__annotations__:
-            lines.append(f"\t- Number with {label}: {sum([xray['labels'][label] for xray in self.data])}")
+            lines.append(f"\t- Number with {label}: {sum([xray['labels'][label] for xray in self._data])}")
 
         lines.append("")
         print("\n".join(lines))
@@ -290,7 +277,7 @@ class ChestXray14Dataset(BaseDataset):
         # https://nihcc.app.box.com/v/ChestXray-NIHCC/file/219760887468 (mirrored to Google Drive)
         # I couldn't figure out a way to download this file directly from box.com
         response = requests.get('https://drive.google.com/uc?export=download&id=1mkOZNfYt-Px52b8CJZJANNbM3ULUVO3f')
-        with open(self.label_path, "wb") as file:
+        with open(self._label_path, "wb") as file:
             file.write(response.content)
 
         # https://nihcc.app.box.com/v/ChestXray-NIHCC/file/371647823217
@@ -351,7 +338,7 @@ class ChestXray14Dataset(BaseDataset):
             logger.info(f"Deleting {fn}...")
             os.remove(fn)
 
-        num_images = len([f for f in os.listdir(self.image_path) if os.path.isfile(os.path.join(self.image_path, f))])
+        num_images = len([f for f in os.listdir(self._image_path) if os.path.isfile(os.path.join(self._image_path, f))])
         num_images_expected = 14999 if self.partial else 112120
         if num_images != num_images_expected:
             msg = f"Expected {num_images_expected} images but found {num_images}!"
@@ -380,17 +367,17 @@ class ChestXray14Dataset(BaseDataset):
             logger.error(msg)
             raise FileNotFoundError(msg)
 
-        if not os.path.isfile(self.label_path):
+        if not os.path.isfile(self._label_path):
             msg = "Dataset path must contain 'Data_Entry_2017_v2020.csv'!"
             logger.error(msg)
             raise FileNotFoundError(msg)
 
-        if not os.path.exists(self.image_path):
+        if not os.path.exists(self._image_path):
             msg = "Dataset path must contain an 'images' directory!"
             logger.error(msg)
             raise FileNotFoundError(msg)
 
-        if not list(self.image_path.glob("*.png")):
+        if not list(self._image_path.glob("*.png")):
             msg = "Dataset 'images' directory must contain PNG files!"
             logger.error(msg)
             raise ValueError(msg)
@@ -403,10 +390,10 @@ class ChestXray14Dataset(BaseDataset):
         extracts patient metadata and creates a multi-label disease dictionary
         indicating the presence of specific conditions.
 
-        The resulting structured data is stored in `self.data` as a list of dictionaries,
+        The resulting structured data is stored in `self._data` as a list of dictionaries,
         each representing a single chest X-ray image and its associated metadata.
 
-        Each entry in `self.data` contains:
+        Each entry in `self._data` contains:
             - image_name (str): Filename of the X-ray image.
             - patient_age (int): Age of the patient.
             - patient_sex (str): Sex of the patient.
@@ -416,12 +403,12 @@ class ChestXray14Dataset(BaseDataset):
             FileNotFoundError: If the label CSV file does not exist.
             ValueError: If no matching image files are found in the CSV.
         """
-        df = pd.read_csv(self.label_path)
-        image_names = [f.name for f in self.image_path.iterdir() if f.is_file()]
+        df = pd.read_csv(self._label_path)
+        image_names = [f.name for f in self._image_path.iterdir() if f.is_file()]
         filtered_df = df[df["Image Index"].isin(image_names)]
 
         for _, row in filtered_df.iterrows():
-            self.data.append({
+            self._data.append({
                 "image_name": row["Image Index"],
                 "patient_age": row["Patient Age"],
                 "patient_sex": row["Patient Sex"],
