@@ -12,7 +12,7 @@ from PIL import Image
 import torch
 from torchvision.transforms import Compose
 
-from .base_dataset import BaseDataset
+from pyhealth.datasets.base_dataset import BaseDataset
 
 logger = logging.getLogger(__name__)
 
