@@ -97,7 +97,7 @@ class BaseDataset(ABC):
         tables: List[str],
         dataset_name: Optional[str] = None,
         config_path: Optional[str] = None,
-        dev: bool = False,  # Added dev parameter
+        dev: bool = False,
     ):
         """Initializes the BaseDataset.
 
@@ -115,7 +115,7 @@ class BaseDataset(ABC):
         self.tables = tables
         self.dataset_name = dataset_name or self.__class__.__name__
         self.config = load_yaml_config(config_path)
-        self.dev = dev  # Store dev mode flag
+        self.dev = dev
 
         logger.info(
             f"Initializing {self.dataset_name} dataset from {self.root} (dev mode: {self.dev})"
@@ -147,6 +147,21 @@ class BaseDataset(ABC):
                 df = df.join(limited_patients, on="patient_id", how="inner")
 
             self._collected_global_event_df = df.collect()
+
+            # Profile the Polars collect() operation (commented out by default)
+            # self._collected_global_event_df, profile = df.profile()
+            # profile = profile.with_columns([
+            #     (pl.col("end") - pl.col("start")).alias("duration"),
+            # ])
+            # profile = profile.with_columns([
+            #     (pl.col("duration") / profile["duration"].sum() * 100).alias("percentage")
+            # ])
+            # profile = profile.sort("duration", descending=True)
+            # with pl.Config() as cfg:
+            #     cfg.set_tbl_rows(-1)
+            #     cfg.set_fmt_str_lengths(200)
+            #     print(profile)
+
             logger.info(
                 f"Collected dataframe with shape: {self._collected_global_event_df.shape}"
             )
@@ -247,7 +262,8 @@ class BaseDataset(ABC):
         base_columns = [
             patient_id_expr.alias("patient_id"),
             pl.lit(table_name).cast(pl.Utf8).alias("event_type"),
-            timestamp_expr.cast(pl.Datetime).alias("timestamp"),
+            # ms should be sufficient for most cases
+            timestamp_expr.cast(pl.Datetime(time_unit="ms")).alias("timestamp"),
         ]
 
         # Flatten attribute columns with event_type prefix
@@ -326,14 +342,15 @@ class BaseDataset(ABC):
         return None
 
     def set_task(
-        self, task: Optional[BaseTask] = None, num_workers: Optional[int] = None
+        self, task: Optional[BaseTask] = None, num_workers: int = 1
     ) -> SampleDataset:
         """Processes the base dataset to generate the task-specific sample dataset.
 
         Args:
             task (Optional[BaseTask]): The task to set. Uses default task if None.
-            num_workers (Optional[int]): Number of workers for parallel processing.
-                Use None to use all available cores (max 32). Use 1 for single-threaded.
+            num_workers (int): Number of workers for multi-threading. Default is 1.
+                This is because the task function is usually CPU-bound. And using
+                multi-threading may not speed up the task function.
 
         Returns:
             SampleDataset: The generated sample dataset.
@@ -351,26 +368,26 @@ class BaseDataset(ABC):
 
         filtered_global_event_df = task.pre_filter(self.collected_global_event_df)
 
-        # Determine number of workers
-        if num_workers is None:
-            num_workers = min(8, os.cpu_count())
-
         logger.info(f"Generating samples with {num_workers} worker(s)...")
 
         samples = []
 
         if num_workers == 1:
+            # single-threading (by default)
             for patient in tqdm(
                 self.iter_patients(filtered_global_event_df),
-                desc=f"Generating samples for {task.task_name}",
+                total=filtered_global_event_df["patient_id"].n_unique(),
+                desc=f"Generating samples for {task.task_name} with 1 worker",
+                smoothing=0,
             ):
                 samples.extend(task(patient))
         else:
-            logger.info(f"Generating samples for {task.task_name}")
+            # multi-threading (not recommended)
+            logger.info(f"Generating samples for {task.task_name} with {num_workers} workers")
             patients = list(self.iter_patients(filtered_global_event_df))
             with ThreadPoolExecutor(max_workers=num_workers) as executor:
                 futures = [executor.submit(task, patient) for patient in patients]
-                for future in as_completed(futures):
+                for future in tqdm(as_completed(futures), total=len(futures), desc=f"Collecting samples for {task.task_name} from {num_workers} workers"):
                     samples.extend(future.result())
 
         sample_dataset = SampleDataset(
