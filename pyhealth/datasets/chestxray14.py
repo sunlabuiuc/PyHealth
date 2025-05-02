@@ -112,7 +112,7 @@ class ChestXray14Dataset(BaseDataset):
         dataset_name (str): Name of the dataset.
         paper_url (str): URL of the original paper introducing the dataset.
         dataset_url (str): URL to download the dataset from the NIH repository.
-        path (Path): Filesystem path to the dataset root directory.
+        root (str): Filesystem path to the dataset root directory.
         download (bool): Whether to download the dataset if not already present.
         partial (bool): Whether to download a smaller subset of the dataset.
         transform (Compose): Transformations applied to each image sample.
@@ -134,7 +134,7 @@ class ChestXray14Dataset(BaseDataset):
         >>> from pathlib import Path
         >>> from torchvision.transforms import Compose, Resize, ToTensor
         >>> transform = Compose([Resize((224, 224)), ToTensor()])
-        >>> dataset = ChestXray14Dataset(path=Path("./data"), download=True, transform=transform)
+        >>> dataset = ChestXray14Dataset(root="./data", download=True, transform=transform)
         >>> print(len(dataset))
         >>> image, metadata = dataset[0]
     """
@@ -142,7 +142,7 @@ class ChestXray14Dataset(BaseDataset):
                  dataset_name: str = "ChestX-ray14",
                  paper_url: str = "https://arxiv.org/abs/1705.02315",
                  dataset_url: str = "https://nihcc.app.box.com/v/ChestXray-NIHCC",
-                 path: Path = Path(""),
+                 root: str = "",
                  download: bool = True,
                  partial: bool = False,
                  transform: Compose = None) -> None:
@@ -152,7 +152,7 @@ class ChestXray14Dataset(BaseDataset):
             dataset_name (str): Name of the dataset. Defaults to "ChestX-ray14".
             paper_url (str): URL to the dataset's reference paper. Defaults to the original ChestX-ray14 paper.
             dataset_url (str): URL to download the dataset. Defaults to the NIHCC Box link.
-            path (Path): Local path to store or load the dataset. Defaults to the current directory.
+            root (str): Local path to store or load the dataset. Defaults to the current directory.
             download (bool): Whether to download the dataset or use an existing copy. Defaults to True.
             partial (bool): Whether to download only a subset of the dataset. Defaults to False.
             transform (Compose): Optional torchvision transform pipeline to apply to the images. Defaults to None.
@@ -169,18 +169,22 @@ class ChestXray14Dataset(BaseDataset):
             >>> from pathlib import Path
             >>> from torchvision.transforms import Compose, Resize, ToTensor
             >>> transform = Compose([Resize((224, 224)), ToTensor()])
-            >>> dataset = ChestXray14Dataset(path=Path("./data"), download=True, transform=transform)
+            >>> dataset = ChestXray14Dataset(root="./data", download=True, transform=transform)
         """
-        self.dataset_name = dataset_name
+        super().__init__(
+            root=root,
+            tables=[dataset_name],
+            dataset_name=dataset_name,
+        )
+
         self.paper_url = paper_url
         self.dataset_url = dataset_url
-        self.path = path
         self.download = download
         self.partial = partial
         self.transform = transform
 
-        self.label_path: Path = self.path.joinpath("Data_Entry_2017_v2020.csv")
-        self.image_path: Path = self.path.joinpath("images")
+        self.label_path: Path = os.path.join(self.root, "Data_Entry_2017_v2020.csv")
+        self.image_path: Path = os.path.join(self.root, "images")
 
         if self.download:
             self._download()
@@ -342,7 +346,7 @@ class ChestXray14Dataset(BaseDataset):
 
             logger.info(f"Extracting {fn}...")
             with tarfile.open(fn, 'r:gz') as tar:
-                tar.extractall(path=self.path)
+                tar.extractall(path=self.root)
 
             logger.info(f"Deleting {fn}...")
             os.remove(fn)
@@ -371,7 +375,7 @@ class ChestXray14Dataset(BaseDataset):
             FileNotFoundError: If the dataset path does not contain the 'images' directory.
             ValueError: If the dataset 'images' directory does not contain any PNG files.
         """
-        if not os.path.exists(self.path):
+        if not os.path.exists(self.root):
             msg = "Dataset path does not exist!"
             logger.error(msg)
             raise FileNotFoundError(msg)
