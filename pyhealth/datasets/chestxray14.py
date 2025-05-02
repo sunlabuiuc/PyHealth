@@ -99,7 +99,7 @@ class ChestXray(TypedDict):
     patient_sex: Literal['M', 'F']
     labels: ChestXrayLabels
 
-class ChestXray14(BaseDataset):
+class ChestXray14Dataset(BaseDataset):
     """Dataset class for the NIH ChestX-ray14 dataset.
 
     This class handles downloading, verifying, indexing, and accessing the
@@ -133,7 +133,7 @@ class ChestXray14(BaseDataset):
         >>> from pathlib import Path
         >>> from torchvision.transforms import Compose, Resize, ToTensor
         >>> transform = Compose([Resize((224, 224)), ToTensor()])
-        >>> dataset = ChestXray14(path=Path("./data"), download=True, transform=transform)
+        >>> dataset = ChestXray14Dataset(path=Path("./data"), download=True, transform=transform)
         >>> print(len(dataset))
         >>> image, metadata = dataset[0]
     """
@@ -168,7 +168,7 @@ class ChestXray14(BaseDataset):
             >>> from pathlib import Path
             >>> from torchvision.transforms import Compose, Resize, ToTensor
             >>> transform = Compose([Resize((224, 224)), ToTensor()])
-            >>> dataset = ChestXray14(path=Path("./data"), download=True, transform=transform)
+            >>> dataset = ChestXray14Dataset(path=Path("./data"), download=True, transform=transform)
         """
         self.name = name
         self.paper_url = paper_url
@@ -196,7 +196,7 @@ class ChestXray14(BaseDataset):
             int: Total number of samples in the dataset.
 
         Example:
-            >>> dataset = ChestXray14()
+            >>> dataset = ChestXray14Dataset()
             >>> print(len(dataset))
         """
         return len(self.data)
@@ -219,7 +219,7 @@ class ChestXray14(BaseDataset):
             IndexError: If the index is out of bounds.
 
         Example:
-            >>> dataset = ChestXray14()
+            >>> dataset = ChestXray14Dataset()
             >>> print(dataset[0])
         """
         image_name = self.data[index]["image_name"]
@@ -236,7 +236,7 @@ class ChestXray14(BaseDataset):
         """Prints information on the structure of the dataset
 
         Example:
-            >>> dataset = ChestXray14()
+            >>> dataset = ChestXray14Dataset()
             >>> dataset.info()
         """
         print(INFO_MSG)
@@ -245,7 +245,7 @@ class ChestXray14(BaseDataset):
         """Prints information on the contents of the dataset
 
         Example:
-            >>> dataset = ChestXray14()
+            >>> dataset = ChestXray14Dataset()
             >>> dataset.stat()
         """
         lines = list()
@@ -440,7 +440,7 @@ class ChestXray14(BaseDataset):
 
 def main() -> None:
     logger.setLevel(logging.INFO)
-    dataset = ChestXray14(partial=True)
+    dataset = ChestXray14Dataset(partial=True)
     dataset.stat()
     dataset.info()
     print(dataset[0])
