@@ -109,7 +109,7 @@ class ChestXray14Dataset(BaseDataset):
     dataset statistics and structure.
 
     Attributes:
-        name (str): Name of the dataset.
+        dataset_name (str): Name of the dataset.
         paper_url (str): URL of the original paper introducing the dataset.
         dataset_url (str): URL to download the dataset from the NIH repository.
         path (Path): Filesystem path to the dataset root directory.
@@ -139,7 +139,7 @@ class ChestXray14Dataset(BaseDataset):
         >>> image, metadata = dataset[0]
     """
     def __init__(self,
-                 name: str = "ChestX-ray14",
+                 dataset_name: str = "ChestX-ray14",
                  paper_url: str = "https://arxiv.org/abs/1705.02315",
                  dataset_url: str = "https://nihcc.app.box.com/v/ChestXray-NIHCC",
                  path: Path = Path(""),
@@ -149,7 +149,7 @@ class ChestXray14Dataset(BaseDataset):
         """Initializes the ChestX-ray14 dataset.
 
         Args:
-            name (str): Name of the dataset. Defaults to "ChestX-ray14".
+            dataset_name (str): Name of the dataset. Defaults to "ChestX-ray14".
             paper_url (str): URL to the dataset's reference paper. Defaults to the original ChestX-ray14 paper.
             dataset_url (str): URL to download the dataset. Defaults to the NIHCC Box link.
             path (Path): Local path to store or load the dataset. Defaults to the current directory.
@@ -171,7 +171,7 @@ class ChestXray14Dataset(BaseDataset):
             >>> transform = Compose([Resize((224, 224)), ToTensor()])
             >>> dataset = ChestXray14Dataset(path=Path("./data"), download=True, transform=transform)
         """
-        self.name = name
+        self.dataset_name = dataset_name
         self.paper_url = paper_url
         self.dataset_url = dataset_url
         self.path = path
@@ -252,7 +252,7 @@ class ChestXray14Dataset(BaseDataset):
         lines = list()
         lines.append("")
         lines.append(f"Statistics (partial={self.partial}):")
-        lines.append(f"\t- Dataset: {self.name}")
+        lines.append(f"\t- Dataset: {self.dataset_name}")
         lines.append(f"\t- Paper: {self.paper_url}")
         lines.append(f"\t- Source: {self.dataset_url}")
         lines.append(f"\t- Number of images: {self.__len__()}")
