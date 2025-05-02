@@ -47,13 +47,13 @@ class TestChestXray14Dataset(unittest.TestCase):
 
     def test_path(self):
         with self.assertRaises(FileNotFoundError):
-            ds = ChestXray14Dataset(download=False, path=Path("dataset"))
+            ds = ChestXray14Dataset(download=False, root="dataset")
 
         os.makedirs("dataset")
         shutil.move("images", "dataset")
         shutil.move("Data_Entry_2017_v2020.csv", "dataset")
 
-        ds = ChestXray14Dataset(download=False, path=Path("dataset"))
+        ds = ChestXray14Dataset(download=False, root="dataset")
 
         shutil.move("dataset/images", ".")
         shutil.move("dataset/Data_Entry_2017_v2020.csv", ".")
