@@ -3,7 +3,16 @@ import numpy as np
 
 
 class SyntheticSleepDataGenerator:
-    """Generator for synthetic Empatica E4 sleep data with binary states."""
+    """
+    Generator for synthetic Empatica E4 sleep data with binary states.
+
+    Implementation based on:
+    Wang, Z., Zeng, T., Liu, Z., & Williams, C. K. I. (2024). 
+    Addressing Wearable Sleep Tracking Inequity: A New Dataset and Novel Methods for a Population with Sleep Disorders. 
+    In Proceedings of The 27th International Conference on Artificial Intelligence and Statistics, 
+    PMLR 248:8716-8741. https://proceedings.mlr.press/v248/wang24a.html
+    Offical code repository: https://github.com/WillKeWang/DREAMT_FE
+    """
     
     def __init__(
         self, 
