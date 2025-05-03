@@ -42,7 +42,7 @@ class ChestXray14Dataset(BaseDataset):
         """Initializes the ChestX-ray14 dataset.
 
         Args:
-            root (str): Local path to store or load the dataset. Defaults to the current directory.
+            root (str): Root directory of the raw data.
             config_path (Optional[str]): Path to the configuration file. Defaults to "../configs/chestxray14.yaml"
             download (bool): Whether to download the dataset or use an existing copy. Defaults to True.
             partial (bool): Whether to download only a subset of the dataset. Defaults to False.
@@ -58,13 +58,6 @@ class ChestXray14Dataset(BaseDataset):
         Example:
             >>> dataset = ChestXray14Dataset(root="./data")
         """
-        super().__init__(
-            root=root,
-            tables=["chestxray14"],
-            dataset_name="ChestX-ray14",
-            config_path=config_path,
-        )
-
         self.classes = ("atelectasis", "cardiomegaly", "consolidation",
                         "edema", "effusion", "emphysema",
                         "fibrosis", "hernia", "infiltration",
@@ -73,14 +66,21 @@ class ChestXray14Dataset(BaseDataset):
 
         self._partial = partial
 
-        self._label_path: Path = os.path.join(self.root, "Data_Entry_2017_v2020.csv")
-        self._image_path: Path = os.path.join(self.root, "images")
+        self._label_path: Path = os.path.join(root, "Data_Entry_2017_v2020.csv")
+        self._image_path: Path = os.path.join(root, "images")
 
         if download:
-            self._download()
+            self._download(root)
 
-        self._verify_data()
-        self._data: pd.DataFrame = self._index_data()
+        self._verify_data(root)
+        self._data: pd.DataFrame = self._index_data(root)
+
+        super().__init__(
+            root=root,
+            tables=["chestxray14"],
+            dataset_name="ChestX-ray14",
+            config_path=config_path,
+        )
 
     def __len__(self) -> int:
         """Returns the number of samples in the dataset.
@@ -131,7 +131,7 @@ class ChestXray14Dataset(BaseDataset):
         lines.append("")
         print("\n".join(lines))
 
-    def _download(self) -> None:
+    def _download(self, root: str) -> None:
         """Downloads and verifies the ChestX-ray14 dataset files.
 
         This method performs the following steps:
@@ -144,6 +144,9 @@ class ChestXray14Dataset(BaseDataset):
 
         If `self._partial` is True, only a subset of the dataset is downloaded and verified
         (specifically, the first two image archives).
+
+        Args:
+            root (str): Root directory of the raw data.
 
         Raises:
             ValueError: If the MD5 checksum check fails during the download.
@@ -208,7 +211,7 @@ class ChestXray14Dataset(BaseDataset):
 
             logger.info(f"Extracting {fn}...")
             with tarfile.open(fn, 'r:gz') as tar:
-                tar.extractall(path=self.root)
+                tar.extractall(path=root)
 
             logger.info(f"Deleting {fn}...")
             os.remove(fn)
@@ -222,7 +225,7 @@ class ChestXray14Dataset(BaseDataset):
 
         logger.info("Download complete")
 
-    def _verify_data(self) -> None:
+    def _verify_data(self, root: str) -> None:
         """Verifies the presence and structure of the dataset directory.
 
         Checks for the existence of the dataset root path, the CSV file containing
@@ -231,13 +234,16 @@ class ChestXray14Dataset(BaseDataset):
         This method ensures that the dataset has been properly downloaded and extracted
         before any further processing.
 
+        Args:
+            root (str): Root directory of the raw data.
+
         Raises:
             FileNotFoundError: If the dataset path does not exist.
             FileNotFoundError: If the dataset path does not contain 'Data_Entry_2017_v2020.csv'.
             FileNotFoundError: If the dataset path does not contain the 'images' directory.
             ValueError: If the dataset 'images' directory does not contain any PNG files.
         """
-        if not os.path.exists(self.root):
+        if not os.path.exists(root):
             msg = "Dataset path does not exist!"
             logger.error(msg)
             raise FileNotFoundError(msg)
@@ -257,8 +263,11 @@ class ChestXray14Dataset(BaseDataset):
             logger.error(msg)
             raise ValueError(msg)
 
-    def _index_data(self) -> pd.DataFrame:
+    def _index_data(self, root: str) -> pd.DataFrame:
         """Parses and indexes metadata for all available images in the dataset.
+
+        Args:
+            root (str): Root directory of the raw data.
 
         Returns:
             pd.DataFrame: Table of image paths and metadata.
@@ -277,7 +286,7 @@ class ChestXray14Dataset(BaseDataset):
         df.drop(["Finding Labels", "Follow-up #", "Patient ID", "View Position", "OriginalImage[Width", "Height]", "OriginalImagePixelSpacing[x", "y]"], inplace=True)
         df.rename(columns={'Image Index': 'path', 'Patient Age': 'patient_age', 'Patient Sex': 'patient_sex'}, inplace=True)
         df['path'] = str(self._image_path) + df['name']
-        df.to_csv(os.path.join(self.root, "chestxray14-metadata-pyhealth.csv"), index=False)
+        df.to_csv(os.path.join(root, "chestxray14-metadata-pyhealth.csv"), index=False)
 
         return df
 
