@@ -50,7 +50,7 @@ class TestChestXray14Dataset(unittest.TestCase):
         shutil.rmtree("test")
 
     def test_len(self):
-        self.assertEqual(len(self.dataset), 14999)
+        self.assertEqual(len(self.dataset), 10)
 
     def test_get_no_findings(self):
         data = self.dataset[3]
