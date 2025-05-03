@@ -1,12 +1,16 @@
 import sys
 import numpy as np
 import pandas as pd
-from pyhealth.models.base_model import BaseModel
 from typing import List, Dict, Optional, Union, Any
 
-class GPBoostTimeSeriesModel(BaseModel):
+class GPBoostTimeSeriesModel:
     """
     GPBoost Time Series Model for PyHealth.
+    
+    !!! IMPORTANT NOTE !!!
+    This model is NOT a PyTorch model and does NOT inherit from BaseModel.
+    It will NOT work with PyHealth's standard PyTorch-based training workflows,
+    PyTorch optimizers, or PyHealth trainers expecting nn.Module objects.
     
     This model uses the gpboost library to fit a gradient boosting model
     with Gaussian Process random effects for longitudinal/time series data.
@@ -57,8 +61,7 @@ class GPBoostTimeSeriesModel(BaseModel):
             raise ValueError("Dataset missing required 'output_schema' attribute. "
                           "Please define this before creating the model.")
         
-        super(GPBoostTimeSeriesModel, self).__init__(dataset=dataset)
-        
+        self.dataset = dataset
         self.feature_keys = feature_keys
         self.label_key = label_key
         self.group_key = group_key
@@ -66,6 +69,7 @@ class GPBoostTimeSeriesModel(BaseModel):
         self.kwargs = kwargs
         self.model = None
         self.gp_model = None
+        self.kwargs.setdefault("objective", "binary")
         
         # Check GPBoost availability with detailed error messages
         try:
@@ -94,9 +98,7 @@ class GPBoostTimeSeriesModel(BaseModel):
                 print("  pip install gpboost --no-cache-dir")
             
             sys.exit(1)
-        
-        self.kwargs.setdefault("objective", "binary")
-        
+                
     def _data_to_pandas(self, data: List[Dict]) -> pd.DataFrame:
         """Convert PyHealth data format to pandas DataFrame for GPBoost"""
         records = []
