@@ -25,3 +25,4 @@ from .torchvision_model import TorchvisionModel
 from .transformer import Transformer, TransformerLayer
 from .transformers_model import TransformersModel
 from .vae import VAE
+from .resnet1d import ResNet1DModel, ResNet1DBlock
