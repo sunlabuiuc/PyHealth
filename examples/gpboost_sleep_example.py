@@ -48,7 +48,6 @@ import os
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, roc_auc_score, precision_score, recall_score, f1_score
 
-# Simplify the pyhealth imports error handling
 try:
     from pyhealth.datasets import SampleEHRDataset
     from pyhealth.models import GPBoostTimeSeriesModel
@@ -89,25 +88,25 @@ def generate_synthetic_sleep_data(num_patients=100, hours=8, epoch_seconds=30, s
     for i in range(num_patients):
         patient_id = f"patient_{i}"
         
-        # Generate random effects with more variability
+        # Generate random effects
         is_obese = random.choice([0, 1])
         has_apnea = random.choice([0, 1])
         sleep_efficiency = np.random.beta(5, 2) if not has_apnea else np.random.beta(4, 3)  # Apnea patients have lower sleep efficiency
         
-        # Patient-specific physiological baselines with more variability
-        base_hr = 60 + np.random.normal(5, 8)  # Wider distribution
-        base_eda = 0.3 + np.random.gamma(2, 0.1)  # More variable skin conductance
-        base_temp = 36.0 + np.random.normal(0.5, 0.4)  # More temperature variability
-        base_acc = 0.01 + np.random.exponential(0.02)  # Movement level varies more
+        # Patient-specific physiological baselines
+        base_hr = 60 + np.random.normal(5, 8)
+        base_eda = 0.3 + np.random.gamma(2, 0.1)
+        base_temp = 36.0 + np.random.normal(0.5, 0.4)
+        base_acc = 0.01 + np.random.exponential(0.02)
         
         # Patient-specific state differentiation (some patients have less clear differences between states)
         hr_diff = 10 + np.random.normal(0, 5)  # How much HR differs between wake/sleep
         eda_diff = 0.2 + np.random.normal(0, 0.1)
         acc_diff = 0.03 + np.random.exponential(0.02)
         
-        # Apply random effects to base values - more subtle and variable
+        # Apply random effects to base values
         if is_obese:
-            base_hr += np.random.normal(3, 2)  # Less deterministic effect
+            base_hr += np.random.normal(3, 2)
             base_temp -= np.random.normal(0.1, 0.05)
             
         if has_apnea:
@@ -119,13 +118,13 @@ def generate_synthetic_sleep_data(num_patients=100, hours=8, epoch_seconds=30, s
         # Define sleep pattern
         current_state = 0  # 0=Awake, 1=Asleep
         
-        # Sleep onset latency - more variable
+        # Sleep onset latency
         sleep_onset_epochs = int((15 + 15 * np.random.random()) * 60 / epoch_seconds)
         
-        # Morning awakening time - more variable
+        # Morning awakening time
         final_wake_epochs = int((10 + 20 * np.random.random()) * 60 / epoch_seconds)
         
-        # Parameters for mid-sleep awakenings - more realistic
+        # Parameters for mid-sleep awakenings
         awakenings_per_hour = 0.5 + np.random.exponential(0.5)
         if has_apnea:
             awakenings_per_hour += 0.5 + np.random.exponential(1.0)
@@ -140,7 +139,7 @@ def generate_synthetic_sleep_data(num_patients=100, hours=8, epoch_seconds=30, s
                                                         total_epochs - final_wake_epochs),
                                                   num_awakenings))
             
-            # Duration of awakenings - more variable
+            # Duration of awakenings
             awakening_durations = [max(1, int(np.random.exponential(3) * 60 / epoch_seconds)) 
                                 for _ in range(num_awakenings)]
         else:
@@ -150,7 +149,7 @@ def generate_synthetic_sleep_data(num_patients=100, hours=8, epoch_seconds=30, s
         # State and signal history for continuity
         signal_history = {'hr': base_hr, 'eda': base_eda, 'temp': base_temp, 'acc': base_acc}
         last_state = 0
-        transition_momentum = 0  # For gradual transitions
+        transition_momentum = 0 
         
         # Add some temporal autocorrelation to signals
         hr_momentum, eda_momentum, temp_momentum, acc_momentum = 0, 0, 0, 0
@@ -173,7 +172,7 @@ def generate_synthetic_sleep_data(num_patients=100, hours=8, epoch_seconds=30, s
                         true_state = 0
                         break
             
-            # State transition dynamics (more gradual)
+            # State transition dynamics
             if true_state != last_state:
                 transition_momentum = 4 if true_state == 1 else 2  # Takes longer to fall asleep than wake up
                 
@@ -192,7 +191,7 @@ def generate_synthetic_sleep_data(num_patients=100, hours=8, epoch_seconds=30, s
             else:
                 stage = sleep_states[true_state]
             
-            # Generate physiological signals with more noise and autocorrelation
+            # Generate physiological signals with noise and autocorrelation
             
             # Heart rate with temporal dynamics
             hr_momentum = 0.8 * hr_momentum + 0.2 * np.random.normal(0, 2)
@@ -220,7 +219,7 @@ def generate_synthetic_sleep_data(num_patients=100, hours=8, epoch_seconds=30, s
                 
             eda = 0.8 * signal_history['eda'] + 0.2 * eda_target + eda_momentum
             
-            # Temperature changes more slowly
+            # Temperature changes
             temp_momentum = 0.95 * temp_momentum + 0.05 * np.random.normal(0, 0.1)
             if true_state == 0:  # Awake
                 temp_target = base_temp + np.random.normal(0, 0.1)
@@ -232,7 +231,7 @@ def generate_synthetic_sleep_data(num_patients=100, hours=8, epoch_seconds=30, s
                 
             temp = 0.95 * signal_history['temp'] + 0.05 * temp_target + temp_momentum
             
-            # Accelerometer - more sensitive to state, but also noisier
+            # Accelerometer
             acc_momentum = 0.6 * acc_momentum + 0.4 * np.random.normal(0, 0.01)
             if true_state == 0:  # Awake
                 acc_target = base_acc + acc_diff + np.random.exponential(0.02)
@@ -244,7 +243,7 @@ def generate_synthetic_sleep_data(num_patients=100, hours=8, epoch_seconds=30, s
                 
             acc = 0.6 * signal_history['acc'] + 0.4 * acc_target + acc_momentum
                 
-            # Add apnea effects (more varied)
+            # Add apnea effects
             if has_apnea and true_state == 1 and random.random() < 0.1:  # Apnea event during sleep
                 hr += np.random.gamma(4, 1)  # Variable HR increase
                 eda += np.random.gamma(3, 0.05)  # Variable EDA increase
@@ -313,14 +312,11 @@ if __name__ == "__main__":
         train_data, test_data = train_test_split(data, test_size=0.2, random_state=42)
         print(f"Training set: {len(train_data)} patients, Test set: {len(test_data)} patients")
         
-        # Display sample of the generated data
         print("\n=== Sample Data Overview ===")
         
-        # Select a random patient for demo
         sample_patient = random.choice(data)
         patient_id = sample_patient["patient_id"]
         
-        # Extract and count sleep states
         visits = sample_patient["visits"]
         total_epochs = len(visits)
         sleep_epochs = sum(1 for v in visits if v["sleep_stage"] == "Asleep")
@@ -329,7 +325,6 @@ if __name__ == "__main__":
         print(f"Patient {patient_id} - {total_epochs} epochs ({wake_epochs} awake, {sleep_epochs} asleep)")
         print(f"Random effects: Obesity = {sample_patient['obesity']}, Apnea = {sample_patient['apnea']}")
         
-        # Show first few epochs of data
         print("\nFirst 5 epochs of data:")
         print("Time | Sleep Stage | Heart Rate | EDA  | Temperature | Movement")
         print("-" * 70)
@@ -355,7 +350,6 @@ if __name__ == "__main__":
         else:
             print("No clear transition found in the sample")
             
-        # Basic statistics across all patients
         print("\nFeature statistics across all patients:")
         all_hr = [visit['heart_rate'] for patient in data for visit in patient['visits']]
         all_eda = [visit['eda'] for patient in data for visit in patient['visits']]
@@ -367,7 +361,6 @@ if __name__ == "__main__":
         print(f"Temperature: min={min(all_temp):.1f}, max={max(all_temp):.1f}, mean={np.mean(all_temp):.1f}, std={np.std(all_temp):.1f}")
         print(f"Movement: min={min(all_acc):.4f}, max={max(all_acc):.4f}, mean={np.mean(all_acc):.4f}, std={np.std(all_acc):.4f}")
         
-        # Sleep stage distribution
         all_stages = [visit['sleep_stage'] for patient in data for visit in patient['visits']]
         awake_percent = 100 * all_stages.count("Awake") / len(all_stages)
         asleep_percent = 100 * all_stages.count("Asleep") / len(all_stages)
