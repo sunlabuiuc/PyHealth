@@ -1,16 +1,6 @@
 """
 Example using GPBoost for binary sleep classification with Empatica E4 data.
-This example demonstrates how to use GPBoost to model time series data
-with random effects from patient characteristics like obesity and apnea.
-
-Implementation based on:
-Wang, Z., Zeng, T., Liu, Z., & Williams, C. K. I. (2024). 
-Addressing Wearable Sleep Tracking Inequity: A New Dataset and Novel Methods for a Population with Sleep Disorders. 
-In Proceedings of The 27th International Conference on Artificial Intelligence and Statistics, 
-PMLR 248:8716-8741. https://proceedings.mlr.press/v248/wang24a.html
-Offical code repository: https://github.com/WillKeWang/DREAMT_FE
 """
-# Check and print versions first to diagnose compatibility issues
 import sys
 print(f"Python version: {sys.version}")
 
@@ -33,11 +23,9 @@ except ImportError:
 except ValueError as e:
     if "numpy.dtype size changed" in str(e):
         print("\nERROR: NumPy and Pandas version incompatibility detected.")
-        print("This usually happens when NumPy is upgraded without rebuilding pandas.")
-        print("\nSolution options:")
+        print("Solution options:")
         print("1. Reinstall pandas: pip install --force-reinstall pandas")
         print("2. Ensure consistent versions: pip install 'numpy==1.23.5' 'pandas==1.5.3'")
-        print("3. Create a fresh environment: conda create -n fresh_env python=3.10 numpy pandas gpboost")
         sys.exit(1)
     else:
         print(f"Error importing Pandas: {e}")
@@ -54,31 +42,15 @@ try:
 except ImportError as e:
     print("\nERROR: PyHealth modules not found.")
     print("\nTroubleshooting steps:")
-    print("1. Confirm PyHealth is installed:")
-    print("   pip list | grep pyhealth")
-    print("\n2. If not installed or outdated, install in development mode:")
-    print("   pip install -e .")
-    print("\n3. Check your PYTHONPATH:")
-    print("   python -c 'import sys; print(sys.path)'")
+    print("1. Confirm PyHealth is installed: pip list | grep pyhealth")
+    print("2. If not installed: pip install -e .")
     sys.exit(1)
 except Exception as e:
     print(f"Error importing PyHealth modules: {e}")
     sys.exit(1)
 
 class SyntheticSleepDataGenerator:
-    """
-    Generator for synthetic Empatica E4 sleep data with binary states.
-    
-    This class generates realistic physiological time series data with appropriate
-    temporal patterns for sleep vs. wake states, including:
-    - Heart rate
-    - Electrodermal activity (EDA/skin conductance)
-    - Temperature
-    - Movement (accelerometer)
-    
-    Random effects like obesity and sleep apnea influence the baseline values
-    and patterns in the generated data.
-    """
+    """Generator for synthetic Empatica E4 sleep data with binary states."""
     
     def __init__(
         self, 
@@ -86,24 +58,14 @@ class SyntheticSleepDataGenerator:
         epoch_seconds: int = 30, 
         seed: int = 42
     ):
-        """
-        Initialize the sleep data generator.
-        
-        Args:
-            hours: Duration of recording in hours
-            epoch_seconds: Duration of each measurement epoch (typically 30s for PSG)
-            seed: Random seed for reproducibility
-        """
         self.hours = hours
         self.epoch_seconds = epoch_seconds
         self.seed = seed
         self.sleep_states = ["Awake", "Asleep"]
         
-        # Calculate epochs based on duration
         self.epochs_per_hour = int(3600 / epoch_seconds)
         self.total_epochs = int(hours * self.epochs_per_hour)
         
-        # Set random seeds
         np.random.seed(seed)
         random.seed(seed)
         
@@ -351,6 +313,79 @@ class SyntheticSleepDataGenerator:
         
         return hr, eda, temp, acc
 
+def print_model_performance_summary(model):
+    """
+    Print a summary of the model performance.
+    
+    Args:
+        model: The trained GPBoost model.
+    """
+    print("\nModel performance summary:")
+    
+    re_info = model.get_random_effects_info()
+    
+    if 'model_params' in re_info:
+        print("\nGP Model Parameters:")
+        for k, v in re_info['model_params'].items():
+            if not k.startswith('_') and v is not None:
+                if isinstance(v, float):
+                    val_str = f"{v:.4g}"
+                elif isinstance(v, (list, tuple)) and len(v) > 6:
+                    val_str = f"[{', '.join(str(x) for x in v[:3])}..., {', '.join(str(x) for x in v[-3:])}]"
+                else:
+                    val_str = str(v)
+                print(f"  {k}: {val_str}")
+
+    print(f"\nModel type: GPBoost with random effects")
+    print(f"Features used: {', '.join(feature_keys)}")
+    print(f"Random effect features: {', '.join(random_effect_keys)}")
+
+def print_sample_predictions(model, test_data):
+    """
+    Print sample predictions for the first 10 time points of the first test patient.
+    
+    Args:
+        model: The trained GPBoost model.
+        test_data: The test dataset.
+    """
+    df_test = model._data_to_pandas(test_data[:1])
+    sample_true = df_test['label'].values[:10].astype(int)
+    
+    n_samples = min(10, len(sample_true))
+    if len(y_prob) >= n_samples:
+        sample_prob = y_prob[:n_samples, 0] if len(y_prob.shape) > 1 else y_prob[:n_samples]
+        sample_pred = (sample_prob > 0.5).astype(int)
+        
+        print("Time | True State | Predicted State | Probability")
+        print("--------------------------------------------------")
+        for t in range(n_samples):
+            true_state = "Asleep" if sample_true[t] == 1 else "Awake"
+            pred_state = "Asleep" if sample_pred[t] == 1 else "Awake"
+            print(f"{t:4d} | {true_state:10s} | {pred_state:14s} | {float(sample_prob[t]):.4f}")
+
+def print_eval_results(y_true, y_prob):
+    """
+    Print evaluation results.
+    
+    Args:
+        y_true: True labels.
+        y_prob: Predicted probabilities.
+    """
+    y_prob_flat = y_prob.flatten() if len(y_prob.shape) > 1 else y_prob
+    y_pred = (y_prob_flat > 0.5).astype(int)
+        
+    accuracy = accuracy_score(y_true, y_pred)
+    auc = roc_auc_score(y_true, y_prob_flat)
+    precision = precision_score(y_true, y_pred)
+    recall = recall_score(y_true, y_pred)
+    f1 = f1_score(y_true, y_pred)
+
+    print("\nEvaluation Results:")
+    print(f"Accuracy:  {accuracy:.4f}")
+    print(f"AUC-ROC:   {auc:.4f}")
+    print(f"Precision: {precision:.4f}")
+    print(f"Recall:    {recall:.4f}")
+    print(f"F1 Score:  {f1:.4f}")
 
 if __name__ == "__main__":
     print("\n" + "="*50)
@@ -358,19 +393,16 @@ if __name__ == "__main__":
     print("="*50 + "\n")
     
     print("Generating synthetic Empatica E4 sleep data...")
-    # Generate 8 hours of sleep data with 30-second epochs for 100 patients
     generator = SyntheticSleepDataGenerator(hours=8, epoch_seconds=30, seed=123)
     data = generator.generate_data(num_patients=100)
     print(f"Generated data for {len(data)} patients")
     print(f"Average epochs per patient: {sum(len(p['visits']) for p in data)/len(data):.1f}")
     
-    # Define feature, label, and group keys
     feature_keys = ["heart_rate", "eda", "temperature", "accelerometer"]
     label_key = "sleep_stage"
     group_key = "patient_id"
     random_effect_keys = ["obesity", "apnea"]
     
-    # Create a simple binary tokenizer for sleep states
     class BinaryTokenizer:
         def __init__(self):
             self.vocabulary = {"Awake": 0, "Asleep": 1}
@@ -382,27 +414,22 @@ if __name__ == "__main__":
         def decode(self, index):
             return self.reverse_vocab.get(index, "Unknown")
     
-    # Split into train and test sets
     train_data, test_data = train_test_split(data, test_size=0.2, random_state=42)
     print(f"Training set: {len(train_data)} patients, Test set: {len(test_data)} patients")
     
-    # Create PyHealth datasets
     try:
-        # Define input and output schemas
         input_schema = {key: "float" for key in feature_keys}
         output_schema = {label_key: ["Awake", "Asleep"]}
         
-        # Create training dataset
         train_dataset = SampleEHRDataset(samples=train_data, dataset_name="synth_sleep_train")
         train_dataset.label_tokenizer = BinaryTokenizer()
-        train_dataset.input_schema = input_schema  # Apply input schema
-        train_dataset.output_schema = output_schema  # Apply output schema
+        train_dataset.input_schema = input_schema
+        train_dataset.output_schema = output_schema
         
-        # Create test dataset
         test_dataset = SampleEHRDataset(samples=test_data, dataset_name="synth_sleep_test")
         test_dataset.label_tokenizer = BinaryTokenizer()
-        test_dataset.input_schema = input_schema  # Apply input schema
-        test_dataset.output_schema = output_schema  # Apply output schema
+        test_dataset.input_schema = input_schema
+        test_dataset.output_schema = output_schema
         
     except Exception as e:
         print(f"Error creating PyHealth datasets: {e}")
@@ -411,7 +438,7 @@ if __name__ == "__main__":
     print("Training GPBoost model for binary sleep classification...")
     try:
         model = GPBoostTimeSeriesModel(
-            dataset=train_dataset,  # Dataset now has required schemas
+            dataset=train_dataset,
             feature_keys=feature_keys,
             label_key=label_key,
             group_key=group_key,
@@ -433,77 +460,8 @@ if __name__ == "__main__":
     
     y_true = eval_results["y_true"].astype(int)
     y_prob = eval_results["y_prob"]
-    
-    if y_prob is None or len(y_prob) == 0:
-        print("WARNING: Empty predictions, using random values")
-        y_prob = np.random.rand(len(y_true), 1)
         
-    try:
-        y_prob_flat = y_prob.flatten() if len(y_prob.shape) > 1 else y_prob
-        y_pred = (y_prob_flat > 0.5).astype(int)
-    except Exception as e:
-        print(f"Error processing predictions: {e}")
-        y_prob_flat = np.random.rand(len(y_true))
-        y_pred = np.random.randint(0, 2, size=len(y_true))
-        
-    accuracy = accuracy_score(y_true, y_pred)
-    auc = roc_auc_score(y_true, y_prob_flat)
-    precision = precision_score(y_true, y_pred)
-    recall = recall_score(y_true, y_pred)
-    f1 = f1_score(y_true, y_pred)
+    print_eval_results(y_true, y_prob)
+    print_sample_predictions(model, test_data)
+    print_model_performance_summary(model)
 
-    print("\nEvaluation Results:")
-    print(f"Accuracy:  {accuracy:.4f}")
-    print(f"AUC-ROC:   {auc:.4f}")
-    print(f"Precision: {precision:.4f}")
-    print(f"Recall:    {recall:.4f}")
-    print(f"F1 Score:  {f1:.4f}")
-    
-    print("\nSample predictions (first 10 time points for first test patient):")
-    df_test = model._data_to_pandas(test_data[:1])
-    sample_true = df_test['label'].values[:10].astype(int)
-    
-    n_samples = min(10, len(sample_true))
-    if len(y_prob) >= n_samples:
-        sample_prob = y_prob[:n_samples, 0] if len(y_prob.shape) > 1 else y_prob[:n_samples]
-        sample_pred = (sample_prob > 0.5).astype(int)
-        
-        print("Time | True State | Predicted State | Probability")
-        print("--------------------------------------------------")
-        for t in range(n_samples):
-            true_state = "Asleep" if sample_true[t] == 1 else "Awake"
-            pred_state = "Asleep" if sample_pred[t] == 1 else "Awake"
-            print(f"{t:4d} | {true_state:10s} | {pred_state:14s} | {float(sample_prob[t]):.4f}")
-
-    print("\nAnalyzing impact of random effects...")
-    if model.gp_model:
-        print("Model was successfully trained with random effects")
-        print("Random effects are incorporated into the predictions")
-        
-        # Get basic info about the model
-        re_info = model.get_random_effects_info()
-        
-        if 'model_params' in re_info:
-            print("\nGP Model Parameters:")
-            for k, v in re_info['model_params'].items():
-                if not k.startswith('_') and v is not None:
-                    # Format nicer printing for different value types
-                    if isinstance(v, float):
-                        val_str = f"{v:.4g}"
-                    elif isinstance(v, (list, tuple)) and len(v) > 6:
-                        val_str = f"[{', '.join(str(x) for x in v[:3])}..., {', '.join(str(x) for x in v[-3:])}]"
-                    else:
-                        val_str = str(v)
-                    print(f"  {k}: {val_str}")
-
-        # Print simple model performance summary
-        print("\nModel performance summary:")
-        print(f"Model type: GPBoost with random effects")
-        print(f"Features used: {', '.join(feature_keys)}")
-        print(f"Random effect features: {', '.join(random_effect_keys) if random_effect_keys else 'None'}")
-        print(f"Accuracy: {accuracy:.4f}")
-        
-        print("\nNote: Individual random effects coefficients are not directly accessible")
-        print("      with the bernoulli_probit likelihood, but are incorporated in predictions.")
-    else:
-        print("Model was trained without random effects")
