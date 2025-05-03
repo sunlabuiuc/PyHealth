@@ -12,6 +12,13 @@ class GPBoostTimeSeriesModel(BaseModel):
     with Gaussian Process random effects for longitudinal/time series data.
     
     Implementation based on:
+    Sigrist, F. (2022). 
+    GPBoost: Unifying Boosting and Mixed Effects Models. 
+    Journal of Machine Learning Research, 23(120): 1-17.
+    https://www.jmlr.org/papers/v23/20-322.html
+    Official code repository: https://github.com/fabsig/GPBoost
+    
+    Application in time series data analysis:
     Wang, Z., Zeng, T., Liu, Z., & Williams, C. K. I. (2024). 
     Addressing Wearable Sleep Tracking Inequity: A New Dataset and Novel Methods for a Population with Sleep Disorders. 
     In Proceedings of The 27th International Conference on Artificial Intelligence and Statistics, 
@@ -19,7 +26,7 @@ class GPBoostTimeSeriesModel(BaseModel):
     Offical code repository: https://github.com/WillKeWang/DREAMT_FE
     
     The model uses bernoulli_probit likelihood for binary classification with random effects
-    as specified in the reference paper.
+    as specified in the reference papers.
     
     Args:
         dataset: PyHealth dataset object with input_schema and output_schema defined
