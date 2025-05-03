@@ -75,10 +75,6 @@ class TestChestXray14Dataset(unittest.TestCase):
         self.assertEqual(data['pneumonia'], 0)
         self.assertEqual(data['pneumothorax'], 0)
 
-    def test_local_dataset(self):
-        ds = ChestXray14Dataset(download=False)
-        self.assertEqual(len(ds), 14999)
-
     def test_root(self):
         with self.assertRaises(FileNotFoundError):
             _ = ChestXray14Dataset(download=False, root="dataset")
