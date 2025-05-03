@@ -21,8 +21,8 @@ class GPBoostTimeSeriesModel(BaseModel):
     Args:
         dataset: PyHealth dataset object
         feature_keys: List of feature keys to use
-        label_key: Key for the target variable (binary: 0/1, asleep/awake)
-        group_key: Key identifying the grouping variable (e.g., 'patient_id')
+        label_key: Key for the target variable
+        group_key: Key identifying the grouping variable (e.g., 'patient_id', 'subject_id')
         random_effect_features: Features to use for random effects modeling
         **kwargs: Additional arguments passed to gpboost.train()
     """
@@ -43,19 +43,21 @@ class GPBoostTimeSeriesModel(BaseModel):
             
         # Check if dataset has output_schema attribute, add it if missing
         if not hasattr(dataset, 'output_schema'):
-            # Binary classification - specifically for sleep detection
-            output_schema = {label_key: ["Awake", "Asleep"]}
+            # Use label tokenizer vocabulary if available
+            if hasattr(dataset, "label_tokenizer") and hasattr(dataset.label_tokenizer, "vocabulary"):
+                classes = list(dataset.label_tokenizer.vocabulary.keys())
+            else:
+                # Default binary classes
+                classes = ["0", "1"]
+            output_schema = {label_key: classes}
             dataset.output_schema = output_schema
             print("Added missing output_schema to dataset")
         
-        # Initialize BaseModel with minimal parameters
         super(GPBoostTimeSeriesModel, self).__init__(dataset=dataset)
         
-        # Store the parameters specific to our model
         self.feature_keys = feature_keys
         self.label_key = label_key
         self.group_key = group_key
-        self.mode = "binary"  # Fixed to binary classification
         self.random_effect_features = random_effect_features
         self.kwargs = kwargs
         self.model = None
@@ -89,7 +91,7 @@ class GPBoostTimeSeriesModel(BaseModel):
             
             sys.exit(1)
         
-        # Set GPBoost objective to binary
+        # Set objective to binary classification
         self.objective = "binary"
         self.num_classes = 1
         self.kwargs.setdefault("objective", self.objective)
@@ -106,14 +108,13 @@ class GPBoostTimeSeriesModel(BaseModel):
                 for key in self.feature_keys:
                     record[key] = visit.get(key, np.nan)
                 
-                # Extract label - binary (0=Awake, 1=Asleep)
+                # Extract label
                 label = visit.get(self.label_key)
                 if label is not None:
                     if hasattr(self.dataset, "label_tokenizer"):
                         record['label'] = self.dataset.label_tokenizer.encode(label)[0]
                     else:
-                        # If label is already binary (0/1)
-                        record['label'] = 1 if label in ["Asleep", "1", 1, True] else 0
+                        record['label'] = label
                 else:
                     record['label'] = np.nan
                 
@@ -136,11 +137,11 @@ class GPBoostTimeSeriesModel(BaseModel):
         X_train = df_train[self.feature_keys].values
         group_train = df_train['group'].values
         
-        # Try to train with random effects for binary classification
+        # Try to train with random effects
         try:
             # Define GP model for random effects
-            self.gp_model = self.gpb.GPModel(group_data=group_train, likelihood="binary")
-            print("Using random effects model with binary likelihood")
+            self.gp_model = self.gpb.GPModel(group_data=group_train, likelihood=self.objective)
+            print(f"Using random effects model with binary likelihood")
             
             # Create dataset for training
             data_train_gpb = self.gpb.Dataset(X_train, y_train)
@@ -150,7 +151,7 @@ class GPBoostTimeSeriesModel(BaseModel):
                 params=self.kwargs,
                 train_set=data_train_gpb,
                 gp_model=self.gp_model,
-                num_boost_round=self.kwargs.pop('num_boost_round') or 100,
+                num_boost_round=self.kwargs.pop('num_boost_round', 100),
             )
             print("Successfully trained GPBoost model with random effects")
             
