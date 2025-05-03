@@ -445,100 +445,34 @@ if __name__ == "__main__":
 
             print("\nAnalyzing impact of random effects...")
             if model.gp_model:
+                print("Model was successfully trained with random effects")
+                print("Random effects are incorporated into the predictions")
+                
+                # Get basic info about the model
                 re_info = model.get_random_effects_info()
-                print("Random effects analysis:")
                 
-                if 'dataframe_empty' in re_info and re_info['dataframe_empty']:
-                    print("GPBoost returned an empty DataFrame for random effects.")
-                    
-                    if 'model_params' in re_info:
-                        print("\nModel hyperparameters:")
-                        model_params = re_info['model_params']
-                        for k, v in sorted(model_params.items()):
-                            if v is None or k.startswith('_'):
-                                continue
+                if 'model_params' in re_info:
+                    print("\nGP Model Parameters:")
+                    for k, v in re_info['model_params'].items():
+                        if not k.startswith('_') and v is not None:
+                            # Format nicer printing for different value types
                             if isinstance(v, float):
-                                param_value = f"{v:.6g}"
+                                val_str = f"{v:.4g}"
                             elif isinstance(v, (list, tuple)) and len(v) > 6:
-                                param_value = f"[{', '.join(str(x) for x in v[:3])}..., {', '.join(str(x) for x in v[-3:])}]"
+                                val_str = f"[{', '.join(str(x) for x in v[:3])}..., {', '.join(str(x) for x in v[-3:])}]"
                             else:
-                                param_value = str(v)
-                            print(f"  {k}: {param_value}")
-                        
-                        important_params = ['likelihood', 'cov_function', 'optimizer']
-                        found_important = False
-                        for param in important_params:
-                            if param in model_params:
-                                if not found_important:
-                                    print("\nKey model configuration:")
-                                    found_important = True
-                                print(f"  {param}: {model_params[param]}")
-                
-                elif 'dataframe' in re_info:
-                    df = re_info['dataframe']
-                    print("\nRandom effects DataFrame:")
-                    print(f"Shape: {df.shape}")
-                    print(f"Columns: {df.columns.tolist()}")
-                    
-                    if len(df) > 0:
-                        print("\nSample of random effects data:")
-                        print(df.head(5))
-                
-                if 'num_group' in re_info:
-                    print(f"\nNumber of groups/patients: {re_info['num_group']}")
-                
-                if 'variance_components' in re_info and re_info['variance_components']:
-                    print("\nRandom effects variance components:")
-                    for i, var in enumerate(re_info['variance_components']):
-                        print(f"Component {i}: {var:.4f}")
-                
-                group_effects = None
-                for key in ['group_effects', 'model_random_effects']:
-                    if key in re_info and re_info[key] is not None:
-                        group_effects = re_info[key]
-                        print(f"\nFound random effects in '{key}'")
-                        break
-                
-                if group_effects is not None and hasattr(group_effects, '__len__') and len(group_effects) > 0:
-                    try:
-                        effects = np.array(group_effects)
-                        print("\nRandom effects statistics:")
-                        print(f"Mean effect: {np.mean(effects):.4f}")
-                        print(f"Min effect: {np.min(effects):.4f}")
-                        print(f"Max effect: {np.max(effects):.4f}")
-                        print(f"Std dev: {np.std(effects):.4f}")
-                        
-                        if len(effects) >= 6:
-                            sorted_idx = np.argsort(effects)
-                            print("\nTop 3 negative effects:")
-                            for i in sorted_idx[:3]:
-                                print(f"  Patient {i}: {effects[i]:.4f}")
-                            print("\nTop 3 positive effects:")
-                            for i in sorted_idx[-3:]:
-                                print(f"  Patient {i}: {effects[i]:.4f}")
-                    except Exception as e:
-                        print(f"Error analyzing group effects: {e}")
-                else:
-                    print("\nNo detailed group random effects available")
-                    print("This is normal for some GPBoost versions and configurations")
-                    
-                if 'available_keys' in re_info:
-                    print(f"\nDebug info - available keys: {re_info['available_keys']}")
-                
+                                val_str = str(v)
+                            print(f"  {k}: {val_str}")
+
+                # Print simple model performance summary
                 print("\nModel performance summary:")
-                print(f"Training success: Yes")
-                print(f"Random effects modeling: {'Yes' if model.gp_model else 'No'}")
-                model_type = "GPBoost with random effects" if model.gp_model else "Standard GPBoost (without random effects)"
-                print(f"Model type: {model_type}")
+                print(f"Model type: GPBoost with random effects")
                 print(f"Features used: {', '.join(feature_keys)}")
                 print(f"Random effect features: {', '.join(random_effect_keys) if random_effect_keys else 'None'}")
                 print(f"Accuracy: {accuracy:.4f}")
                 
-                print("\nPossible next steps:")
-                print("1. Adjust the GPBoost parameters to improve performance")
-                print("2. Try different features or feature combinations")
-                print("3. Compare with a model without random effects to measure their impact")
-                print("4. Apply the model to real Empatica E4 data")
+                print("\nNote: Individual random effects coefficients are not directly accessible")
+                print("      with the bernoulli_probit likelihood, but are incorporated in predictions.")
             else:
                 print("Model was trained without random effects")
         

@@ -272,87 +272,27 @@ class GPBoostTimeSeriesModel(BaseModel):
         
     def get_random_effects_info(self) -> Dict[str, Any]:
         """
-        Extract and return random effects information in a consistent format.
+        Get basic information about the random effects component of the model.
         
         Returns:
-            Dict with random effects information. Keys depend on GPBoost version and model configuration.
-            Common keys include 'has_random_effects', 'num_group', and possibly 'group_effects'.
+            Dict with basic random effects information, primarily model parameters.
             
         Note:
-            Empty DataFrames from get_coef() are common with bernoulli_probit likelihood in 
-            certain GPBoost versions. This happens because:
-            1. The model is fitted with non-Gaussian likelihood (bernoulli_probit vs. gaussian)
-            2. The random effects are incorporated directly into predictions rather than stored separately
-            3. The model has not fully converged for random effects estimation
-            4. The specific GPBoost version implements coefficient storage differently
+            Due to limitations in GPBoost with bernoulli_probit likelihood,
+            detailed random effect coefficients are not directly accessible.
+            The random effects are still incorporated in predictions.
         """
         if not self.gp_model:
             return {"has_random_effects": False}
         
         try:
-            raw_coef = self.gp_model.get_coef()
-            print(f"Random effects info: {type(raw_coef)}")
-            
+            # Create a simpler result with just the basic info
             result = {"has_random_effects": True}
             
-            if isinstance(raw_coef, pd.DataFrame):
-                if raw_coef.empty:
-                    print("Warning: GPBoost returned an empty DataFrame")
-                    result["dataframe_empty"] = True
-                    
-                    try:
-                        # Try alternative ways to get model information
-                        if hasattr(self.gp_model, 'params'):
-                            result['model_params'] = self.gp_model.params
-                        
-                        # Try to get group count from model attributes
-                        if hasattr(self.gp_model, 'num_groups'):
-                            result['num_group'] = self.gp_model.num_groups
-                        elif hasattr(self.gp_model, 'n_groups'):
-                            result['num_group'] = self.gp_model.n_groups
-                            
-                        # Try to get random effects from alternative sources
-                        try:
-                            # Some GPBoost versions expose random effects via predict
-                            sample_data = np.zeros((1, len(self.feature_keys)))
-                            sample_groups = np.array([0])
-                            pred = self.model.predict(
-                                data=sample_data,
-                                group_data_pred=sample_groups,
-                                predict_var=True,
-                                pred_latent=True
-                            )
-                            
-                            if isinstance(pred, dict) and 'random_effect_mean' in pred:
-                                result['has_random_effect_values'] = True
-                                result['random_effect_example'] = pred['random_effect_mean']
-                                
-                                # Try GPBoost-specific method to get group-specific random effects
-                                try:
-                                    # Note: This method might not exist in all GPBoost versions
-                                    if hasattr(self.gp_model, 'get_group_effects'):
-                                        effect_values = self.gp_model.get_group_effects()
-                                        if effect_values is not None and len(effect_values) > 0:
-                                            result['group_effects'] = effect_values
-                                except:
-                                    pass
-                        except Exception as e:
-                            print(f"Could not extract alternative random effect info: {e}")
-                    except Exception as e:
-                        print(f"Error getting model parameters: {e}")
-                else:
-                    print(f"DataFrame columns: {raw_coef.columns.tolist()}")
-                    result["dataframe"] = raw_coef
-                    
-                    if 'groups' in raw_coef.columns:
-                        result['num_group'] = raw_coef['groups'].nunique()
-                    else:
-                        result['num_group'] = len(raw_coef)
-                    
-                    for col in raw_coef.columns:
-                        if 'variance' in col.lower() or 'effect' in col.lower():
-                            result[f'variance_{col}'] = raw_coef[col].values
-            
+            # Get model parameters if available
+            if hasattr(self.gp_model, 'params'):
+                result['model_params'] = self.gp_model.params
+                
             return result
                 
         except Exception as e:
