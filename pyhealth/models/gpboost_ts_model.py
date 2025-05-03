@@ -27,7 +27,6 @@ class GPBoostTimeSeriesModel:
     Offical code repository: https://github.com/WillKeWang/DREAMT_FE
     
     Args:
-        dataset: PyHealth dataset object with input_schema and output_schema defined
         feature_keys: List of feature keys to use
         label_key: Key for the target variable
         group_key: Key identifying the grouping variable (e.g., 'patient_id', 'subject_id')
@@ -36,24 +35,19 @@ class GPBoostTimeSeriesModel:
     """
     def __init__(
         self,
-        dataset,
         feature_keys: List[str],
         label_key: str,
         group_key: str,
         random_effect_features: Optional[List[str]] = None,
+        label_tokenizer: Optional[Any] = None,
         **kwargs,
     ):
-        if not hasattr(dataset, 'input_schema'):
-            raise ValueError("Dataset missing required 'input_schema' attribute.")
-            
-        if not hasattr(dataset, 'output_schema'):
-            raise ValueError("Dataset missing required 'output_schema' attribute.")
         
-        self.dataset = dataset
         self.feature_keys = feature_keys
         self.label_key = label_key
         self.group_key = group_key
         self.random_effect_features = random_effect_features
+        self.label_tokenizer = label_tokenizer
         self.kwargs = kwargs
         self.model = None
         self.gp_model = None
@@ -92,8 +86,8 @@ class GPBoostTimeSeriesModel:
                 
                 label = visit.get(self.label_key)
                 if label is not None:
-                    if hasattr(self.dataset, "label_tokenizer"):
-                        record['label'] = self.dataset.label_tokenizer.encode(label)[0]
+                    if self.label_tokenizer is not None:
+                        record['label'] = self.label_tokenizer.encode(label)[0]
                     else:
                         record['label'] = label
                 else:
