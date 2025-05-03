@@ -1,3 +1,4 @@
+# Author: Eric Schrock (ejs9@illinois.edu)
 version: "1.0"
 tables:
   chestxray14:

@@ -1,3 +1,9 @@
+"""
+Unit tests for the ChestXray14Dataset and ChestXray14BinaryClassification classes.
+
+Author:
+    Eric Schrock (ejs9@illinois.edu)
+"""
 import os
 from pathlib import Path
 import requests

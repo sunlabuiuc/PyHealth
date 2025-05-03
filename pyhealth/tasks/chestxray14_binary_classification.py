@@ -1,3 +1,21 @@
+"""
+PyHealth task for binary classification using the ChestX-ray14 dataset.
+
+Dataset link:
+    https://nihcc.app.box.com/v/ChestXray-NIHCC/folder/36938765345
+
+Dataset paper: (please cite if you use this dataset)
+    Xiaosong Wang, Yifan Peng, Le Lu, et al. "ChestX-ray8: Hospital-scale Chest
+    X-ray Database and Benchmarks on Weakly-Supervised Classification and
+    Localization of Common Thorax Diseases." 2017 IEEE Conference on Computer
+    Vision and Pattern Recognition (CVPR), pp. 3462-3471.
+
+Dataset paper link:
+    https://arxiv.org/abs/1705.02315
+
+Author:
+    Eric Schrock (ejs9@illinois.edu)
+"""
 import logging
 from typing import Dict, List
 
