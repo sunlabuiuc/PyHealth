@@ -173,14 +173,7 @@ class GPBoostTimeSeriesModel:
             return {'loss': -score, 'status': STATUS_OK, 'params': params}
         
         trials = Trials()
-        best = fmin(
-            fn=objective,
-            space=param_space,
-            algo=tpe.suggest,
-            max_evals=n_iter,
-            trials=trials,
-            verbose=verbose
-        )
+        best = fmin(fn=objective, space=param_space, algo=tpe.suggest, max_evals=n_iter, trials=trials, verbose=verbose)
         
         if verbose > 0:
             print(f"Best parameters: {best}")

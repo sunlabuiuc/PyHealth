@@ -1,5 +1,12 @@
 """
 Example using GPBoost for binary sleep classification with Empatica E4 data.
+
+Implementation based on:
+Wang, Z., Zeng, T., Liu, Z., & Williams, C. K. I. (2024). 
+Addressing Wearable Sleep Tracking Inequity: A New Dataset and Novel Methods for a Population with Sleep Disorders. 
+In Proceedings of The 27th International Conference on Artificial Intelligence and Statistics, 
+PMLR 248:8716-8741. https://proceedings.mlr.press/v248/wang24a.html
+Offical code repository: https://github.com/WillKeWang/DREAMT_FE
 """
 import sys
 
@@ -61,6 +68,61 @@ class BinaryTokenizer:
     
     def decode(self, index):
         return self.reverse_vocab.get(index, "Unknown")
+    
+def print_sample_data_overview(data):
+    print("\n=== Sample Data Overview ===")
+    
+    sample_patient = random.choice(data)
+    patient_id = sample_patient["patient_id"]
+    
+    visits = sample_patient["visits"]
+    total_epochs = len(visits)
+    sleep_epochs = sum(1 for v in visits if v["sleep_stage"] == "Asleep")
+    wake_epochs = total_epochs - sleep_epochs
+    
+    print(f"Patient {patient_id} - {total_epochs} epochs ({wake_epochs} awake, {sleep_epochs} asleep)")
+    print(f"Random effects: Obesity = {sample_patient['obesity']}, Apnea = {sample_patient['apnea']}")
+    
+    print("\nFirst 5 epochs of data:")
+    print("Time | Sleep Stage | Heart Rate | EDA  | Temperature | Movement")
+    print("-" * 70)
+    for i, visit in enumerate(visits[:5]):
+        print(f"{i:4d} | {visit['sleep_stage']:11s} | {visit['heart_rate']:9.1f} | {visit['eda']:.3f} | "
+                f"{visit['temperature']:10.1f} | {visit['accelerometer']:.4f}")
+                
+    # Show transitions: 5 epochs around a state change if possible
+    print("\nSample sleep transition (if available):")
+    transition_idx = None
+    for i in range(1, total_epochs):
+        if visits[i]['sleep_stage'] != visits[i-1]['sleep_stage']:
+            transition_idx = i
+            break
+            
+    if transition_idx and transition_idx > 2 and transition_idx < total_epochs - 2:
+        print("Time | Sleep Stage | Heart Rate | EDA  | Temperature | Movement")
+        print("-" * 70)
+        for i in range(transition_idx - 2, transition_idx + 3):
+            visit = visits[i]
+            print(f"{i:4d} | {visit['sleep_stage']:11s} | {visit['heart_rate']:9.1f} | {visit['eda']:.3f} | "
+                    f"{visit['temperature']:10.1f} | {visit['accelerometer']:.4f}")
+    else:
+        print("No clear transition found in the sample")
+        
+    print("\nFeature statistics across all patients:")
+    all_hr = [visit['heart_rate'] for patient in data for visit in patient['visits']]
+    all_eda = [visit['eda'] for patient in data for visit in patient['visits']]
+    all_temp = [visit['temperature'] for patient in data for visit in patient['visits']]
+    all_acc = [visit['accelerometer'] for patient in data for visit in patient['visits']]
+    
+    print(f"Heart Rate: min={min(all_hr):.1f}, max={max(all_hr):.1f}, mean={np.mean(all_hr):.1f}, std={np.std(all_hr):.1f}")
+    print(f"EDA: min={min(all_eda):.3f}, max={max(all_eda):.3f}, mean={np.mean(all_eda):.3f}, std={np.std(all_eda):.3f}")
+    print(f"Temperature: min={min(all_temp):.1f}, max={max(all_temp):.1f}, mean={np.mean(all_temp):.1f}, std={np.std(all_temp):.1f}")
+    print(f"Movement: min={min(all_acc):.4f}, max={max(all_acc):.4f}, mean={np.mean(all_acc):.4f}, std={np.std(all_acc):.4f}")
+    
+    all_stages = [visit['sleep_stage'] for patient in data for visit in patient['visits']]
+    awake_percent = 100 * all_stages.count("Awake") / len(all_stages)
+    asleep_percent = 100 * all_stages.count("Asleep") / len(all_stages)
+    print(f"\nSleep stages: {awake_percent:.1f}% Awake, {asleep_percent:.1f}% Asleep")
 
 def print_model_performance_summary(model):
     """
@@ -76,14 +138,7 @@ def print_model_performance_summary(model):
     if 'model_params' in re_info:
         print("\nGP Model Parameters:")
         for k, v in re_info['model_params'].items():
-            if not k.startswith('_') and v is not None:
-                if isinstance(v, float):
-                    val_str = f"{v:.4g}"
-                elif isinstance(v, (list, tuple)) and len(v) > 6:
-                    val_str = f"[{', '.join(str(x) for x in v[:3])}..., {', '.join(str(x) for x in v[-3:])}]"
-                else:
-                    val_str = str(v)
-                print(f"  {k}: {val_str}")
+            print(f"  {k}: {v}")
 
     print(f"\nModel type: GPBoost with random effects")
     print(f"Features used: {', '.join(feature_keys)}")
@@ -169,6 +224,8 @@ if __name__ == "__main__":
     data = generator.generate_data(num_patients=100)
     print(f"Generated data for {len(data)} patients")
     print(f"Average epochs per patient: {sum(len(p['visits']) for p in data)/len(data):.1f}")
+
+    print_sample_data_overview(data)
     
     feature_keys = ["heart_rate", "eda", "temperature", "accelerometer"]
     label_key = "sleep_stage"
