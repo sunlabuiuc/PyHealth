@@ -155,6 +155,7 @@ class GPBoostTimeSeriesModel:
             
             trial_params['objective'] = self.objective
             trial_params['metric'] = 'auc'
+            trial_params['verbose'] = -1
             
             gp_model = self.gpb.GPModel(group_data=group_train, likelihood="bernoulli_probit")
             
