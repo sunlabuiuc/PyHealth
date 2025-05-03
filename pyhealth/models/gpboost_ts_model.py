@@ -18,6 +18,9 @@ class GPBoostTimeSeriesModel(BaseModel):
     PMLR 248:8716-8741. https://proceedings.mlr.press/v248/wang24a.html
     Offical code repository: https://github.com/WillKeWang/DREAMT_FE
     
+    The model uses bernoulli_probit likelihood for binary classification with random effects
+    as specified in the reference paper.
+    
     Args:
         dataset: PyHealth dataset object
         feature_keys: List of feature keys to use
@@ -139,9 +142,9 @@ class GPBoostTimeSeriesModel(BaseModel):
         
         # Try to train with random effects
         try:
-            # Define GP model for random effects
-            self.gp_model = self.gpb.GPModel(group_data=group_train, likelihood=self.objective)
-            print(f"Using random effects model with binary likelihood")
+            # Define GP model for random effects using bernoulli_probit likelihood from the reference paper
+            self.gp_model = self.gpb.GPModel(group_data=group_train, likelihood="bernoulli_probit")
+            print("Using random effects model with bernoulli_probit likelihood")
             
             # Create dataset for training
             data_train_gpb = self.gpb.Dataset(X_train, y_train)
@@ -268,7 +271,21 @@ class GPBoostTimeSeriesModel(BaseModel):
         }
         
     def get_random_effects_info(self) -> Dict[str, Any]:
-        """Extract and return random effects information in a consistent format"""
+        """
+        Extract and return random effects information in a consistent format.
+        
+        Returns:
+            Dict with random effects information. Keys depend on GPBoost version and model configuration.
+            Common keys include 'has_random_effects', 'num_group', and possibly 'group_effects'.
+            
+        Note:
+            Empty DataFrames from get_coef() are common with bernoulli_probit likelihood in 
+            certain GPBoost versions. This happens because:
+            1. The model is fitted with non-Gaussian likelihood (bernoulli_probit vs. gaussian)
+            2. The random effects are incorporated directly into predictions rather than stored separately
+            3. The model has not fully converged for random effects estimation
+            4. The specific GPBoost version implements coefficient storage differently
+        """
         if not self.gp_model:
             return {"has_random_effects": False}
         
@@ -284,11 +301,43 @@ class GPBoostTimeSeriesModel(BaseModel):
                     result["dataframe_empty"] = True
                     
                     try:
+                        # Try alternative ways to get model information
                         if hasattr(self.gp_model, 'params'):
                             result['model_params'] = self.gp_model.params
                         
+                        # Try to get group count from model attributes
                         if hasattr(self.gp_model, 'num_groups'):
                             result['num_group'] = self.gp_model.num_groups
+                        elif hasattr(self.gp_model, 'n_groups'):
+                            result['num_group'] = self.gp_model.n_groups
+                            
+                        # Try to get random effects from alternative sources
+                        try:
+                            # Some GPBoost versions expose random effects via predict
+                            sample_data = np.zeros((1, len(self.feature_keys)))
+                            sample_groups = np.array([0])
+                            pred = self.model.predict(
+                                data=sample_data,
+                                group_data_pred=sample_groups,
+                                predict_var=True,
+                                pred_latent=True
+                            )
+                            
+                            if isinstance(pred, dict) and 'random_effect_mean' in pred:
+                                result['has_random_effect_values'] = True
+                                result['random_effect_example'] = pred['random_effect_mean']
+                                
+                                # Try GPBoost-specific method to get group-specific random effects
+                                try:
+                                    # Note: This method might not exist in all GPBoost versions
+                                    if hasattr(self.gp_model, 'get_group_effects'):
+                                        effect_values = self.gp_model.get_group_effects()
+                                        if effect_values is not None and len(effect_values) > 0:
+                                            result['group_effects'] = effect_values
+                                except:
+                                    pass
+                        except Exception as e:
+                            print(f"Could not extract alternative random effect info: {e}")
                     except Exception as e:
                         print(f"Error getting model parameters: {e}")
                 else:
