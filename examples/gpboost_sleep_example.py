@@ -113,7 +113,7 @@ def print_sample_data_overview(data):
     # Show transitions: 5 epochs around a state change if possible
     print("\nSample sleep transition (if available):")
     transition_idx = None
-    for i in range(1, total_epochs):
+    for i in range(3, total_epochs - 2):
         if visits[i]["sleep_stage"] != visits[i - 1]["sleep_stage"]:
             transition_idx = i
             break
