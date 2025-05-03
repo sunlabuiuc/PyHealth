@@ -1,3 +1,12 @@
+"""
+MedNLI Dataset Implementation for PyHealth
+Author: Abraham Arellano, Umesh Kumar
+NetID: aa107, umesh2
+Paper: Lessons from natural language inference in the clinical domain
+Paper Link: https://arxiv.org/abs/1808.06752
+Description: Implementation of the Medical Natural Language Inference dataset for sentence pair classification in the clinical domain.
+"""
+
 import json
 import logging
 import os
@@ -63,6 +72,25 @@ class MedNLIDataset(BaseDataset):
         dev: bool = False,
         data_fraction: float = 1.0,
     ) -> None:
+        """Initialize the MedNLI dataset.
+
+        Creates a dataset instance for Medical Natural Language Inference (MedNLI),
+        which consists of sentence pairs annotated for textual entailment in the
+        clinical domain.
+
+        Args:
+            root: Root directory containing the MedNLI JSONL files (train.jsonl, 
+                dev.jsonl, test.jsonl).
+            dataset_name: Optional name for the dataset. Defaults to "mednli".
+            config_path: Optional path to configuration file. Defaults to the built-in 
+                config.
+            dev: Whether to use development mode with limited samples. Defaults to False.
+            data_fraction: Fraction of training data to use (0.01, 0.05, 0.1, 0.25, 1.0).
+                Defaults to 1.0.
+
+        Returns:
+            None
+        """
         self.data_fraction = data_fraction
 
         if config_path is None:
@@ -155,12 +183,15 @@ class MedNLIDataset(BaseDataset):
     def _process_jsonl_file(self, file_path: str, split: str) -> pd.DataFrame:
         """Process a JSONL file into a pandas DataFrame.
 
+        Reads a JSONL file containing MedNLI data and converts it to a pandas DataFrame
+        with the appropriate structure.
+
         Args:
-            file_path: Path to the JSONL file.
-            split: Data split name (train, dev, test).
+            file_path: Path to the JSONL file to process.
+            split: Data split identifier (train, dev, test).
 
         Returns:
-            pd.DataFrame: Processed data.
+            pd.DataFrame: DataFrame containing processed MedNLI data with split information.
         """
         data = []
         with open(file_path, 'r') as f:
@@ -177,8 +208,11 @@ class MedNLIDataset(BaseDataset):
     def stat(self) -> str:
         """Returns statistics about the dataset.
 
+        Calculates and returns statistics about the MedNLI dataset, including
+        sample counts by split and label distribution.
+
         Returns:
-            str: Statistics information string.
+            str: Formatted string containing dataset statistics.
         """
         df = self.collected_global_event_df
 
@@ -211,7 +245,9 @@ class MedNLIDataset(BaseDataset):
     def default_task(self) -> MedNLITask:
         """Returns the default task for the dataset.
 
+        Provides the default MedNLITask instance configured for this dataset.
+
         Returns:
-            MedNLITask: The default task for this dataset.
+            MedNLITask: The default task instance for MedNLI classification.
         """
         return MedNLITask()
