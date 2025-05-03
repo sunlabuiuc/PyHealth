@@ -14,6 +14,7 @@ from ..data import Patient
 from ..tasks import BaseTask
 from .configs import load_yaml_config
 from .sample_dataset import SampleDataset
+from .utils import detect_timestamp_format
 
 logger = logging.getLogger(__name__)
 
@@ -222,21 +223,73 @@ class BaseDataset(ABC):
         timestamp_format = table_cfg.timestamp_format
         attribute_cols = table_cfg.attributes
 
+        # When detecting the timestamp format (inside load_table):
+        if timestamp_col and timestamp_format is None:
+            # Sample timestamps from the data for format detection
+            if isinstance(timestamp_col, list):
+                # For multi-column timestamps, concatenate the samples
+                sample_df = df.limit(10).collect()
+                sample_timestamps = []
+                for i in range(min(10, len(sample_df))):
+                    try:
+                        # Construct the combined timestamp from the parts
+                        parts = [str(sample_df[i, col]) for col in timestamp_col]
+                        # Remove any None or nan values
+                        parts = [p for p in parts if p and p == p]
+                        if parts:
+                            sample_timestamps.append("".join(parts))
+                    except:
+                        continue
+            else:
+                # For single column timestamps
+                sample_df = (
+                    df.select(timestamp_col)
+                    .filter(pl.col(timestamp_col).is_not_null())
+                    .limit(10)
+                    .collect()
+                )
+                sample_timestamps = [str(row[0]) for row in sample_df.rows()]
+
+            # Detect format from the first valid timestamp
+            detected_format = None
+            for ts in sample_timestamps:
+                detected_format = detect_timestamp_format(ts)
+                if detected_format:
+                    logger.info(
+                        f"Detected timestamp format: {detected_format} for table {table_name}"
+                    )
+                    timestamp_format = detected_format
+                    break
+
         # Timestamp expression
         if timestamp_col:
             if isinstance(timestamp_col, list):
                 # Concatenate all timestamp parts in order with no separator
-                combined_timestamp = pl.concat_str(
-                    [pl.col(col) for col in timestamp_col]
-                ).str.strptime(pl.Datetime, format=timestamp_format, strict=True)
-                timestamp_expr = combined_timestamp
+                if timestamp_format:
+                    # Use specified or detected format
+                    timestamp_expr = pl.concat_str(
+                        [pl.col(col) for col in timestamp_col]
+                    ).str.strptime(pl.Datetime, format=timestamp_format, strict=False)
+                else:
+                    # Try to parse without format (auto detection)
+                    timestamp_expr = pl.concat_str(
+                        [pl.col(col) for col in timestamp_col]
+                    ).str.to_datetime(strict=False)
             else:
                 # Single timestamp column
-                timestamp_expr = pl.col(timestamp_col).str.strptime(
-                    pl.Datetime, format=timestamp_format, strict=True
-                )
+                if timestamp_format:
+                    # Use specified or detected format
+                    timestamp_expr = pl.col(timestamp_col).str.strptime(
+                        pl.Datetime, format=timestamp_format, strict=False
+                    )
+                else:
+                    # Try to parse without format (auto detection)
+                    timestamp_expr = pl.col(timestamp_col).str.to_datetime(strict=False)
         else:
             timestamp_expr = pl.lit(None, dtype=pl.Datetime)
+
+        # Fallback for parsing errors - handle missing timestamps gracefully
+        timestamp_expr = pl.coalesce(timestamp_expr, pl.lit(None, dtype=pl.Datetime))
 
         # If patient_id_col is None, use row index as patient_id
         patient_id_expr = (

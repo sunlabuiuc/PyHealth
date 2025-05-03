@@ -1,6 +1,7 @@
 import hashlib
 import os
 import pickle
+import pandas as pd
 from datetime import datetime
 from typing import List, Optional, Tuple
 
@@ -41,19 +42,21 @@ def strptime(s: str) -> Optional[datetime]:
         return None
     return dateutil_parse(s)
 
-def padyear(year: str, month='1', day='1') -> str:
+
+def padyear(year: str, month="1", day="1") -> str:
     """Pad a date time year of format 'YYYY' to format 'YYYY-MM-DD'
-    
-    Args: 
+
+    Args:
         year: str, year to be padded. Must be non-zero value.
         month: str, month string to be used as padding. Must be in [1, 12]
         day: str, day string to be used as padding. Must be in [1, 31]
-        
+
     Returns:
         padded_date: str, padded year.
-    
+
     """
     return f"{year}-{month}-{day}"
+
 
 def flatten_list(l: List) -> List:
     """Flattens a list of list.
@@ -175,7 +178,9 @@ def collate_fn_dict_with_padding(batch: List[dict]) -> dict:
                     # Scalars, treat as stackable
                     collated[key] = torch.stack(values)
                 elif values[0].dim() >= 1:
-                    collated[key] = pad_sequence(values, batch_first=True, padding_value=0)
+                    collated[key] = pad_sequence(
+                        values, batch_first=True, padding_value=0
+                    )
                 else:
                     raise ValueError(f"Unsupported tensor shape: {values[0].shape}")
         else:
@@ -185,7 +190,9 @@ def collate_fn_dict_with_padding(batch: List[dict]) -> dict:
     return collated
 
 
-def get_dataloader(dataset: torch.utils.data.Dataset, batch_size: int, shuffle: bool = False) -> DataLoader:
+def get_dataloader(
+    dataset: torch.utils.data.Dataset, batch_size: int, shuffle: bool = False
+) -> DataLoader:
     """Creates a DataLoader for a given dataset.
 
     Args:
@@ -204,6 +211,58 @@ def get_dataloader(dataset: torch.utils.data.Dataset, batch_size: int, shuffle: 
     )
 
     return dataloader
+
+
+def detect_timestamp_format(sample_timestamp):
+    """Detect the format of a timestamp string and return a format compatible with strptime.
+
+    Args:
+        sample_timestamp (str): A sample timestamp string
+
+    Returns:
+        str: A format string compatible with strptime
+    """
+    import re
+
+    # Check if the timestamp is valid
+    if pd.isna(sample_timestamp) or sample_timestamp is None:
+        return None
+
+    # Clean up the timestamp for format detection purposes only
+    timestamp = str(sample_timestamp).strip()
+
+    # Common date-time formats and their corresponding format strings
+    format_patterns = [
+        # Full datetime with seconds: 2164-10-23 21:09:00
+        (r"^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}$", "%Y-%m-%d %H:%M:%S"),
+        # Date only: 2103-06-07
+        (r"^\d{4}-\d{2}-\d{2}$", "%Y-%m-%d"),
+        # Date with time but no seconds: 2164-10-23 21:09
+        (r"^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}$", "%Y-%m-%d %H:%M"),
+        # ISO format with T separator: 2164-10-23T21:09:00
+        (r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$", "%Y-%m-%dT%H:%M:%S"),
+        # ISO with timezone: 2164-10-23T21:09:00+00:00
+        (
+            r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$",
+            "%Y-%m-%dT%H:%M:%S%z",
+        ),
+        # US format: MM/DD/YYYY
+        (r"^\d{1,2}/\d{1,2}/\d{4}$", "%m/%d/%Y"),
+        # YYYYMMDD format (like 20211231)
+        (r"^\d{8}$", "%Y%m%d"),
+        # YYYYMMDD HHMMSS format (like 20211231 235959)
+        (r"^\d{8}\s+\d{6}$", "%Y%m%d %H%M%S"),
+        # Time only with potential spaces: 16:30:00
+        (r"^\s*\d{2}:\d{2}:\d{2}\s*$", "%H:%M:%S"),
+    ]
+
+    # Check for matches
+    for pattern, fmt in format_patterns:
+        if re.match(pattern, timestamp):
+            return fmt
+
+    # If unable to determine format, return None
+    return None
 
 
 if __name__ == "__main__":

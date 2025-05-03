@@ -32,9 +32,7 @@ class Event:
         timestamp: datetime = d["timestamp"]
         event_type: str = d["event_type"]
         attr_dict: Dict[str, any] = {
-            k.split("/", 1)[1]: v
-            for k, v in d.items()
-            if k.split("/")[0] == event_type
+            k.split("/", 1)[1]: v for k, v in d.items() if k.split("/")[0] == event_type
         }
         return cls(event_type=event_type, timestamp=timestamp, attr_dict=attr_dict)
 
@@ -119,14 +117,14 @@ class Patient:
             event_type (Optional[str]): Type of events to filter.
             start (Optional[datetime]): Start time for filtering events.
             end (Optional[datetime]): End time for filtering events.
-            return_df (bool): Whether to return a DataFrame or a list of 
+            return_df (bool): Whether to return a DataFrame or a list of
                 Event objects.
             filters (Optional[List[tuple]]): Additional filters as [(attr, op, value), ...], e.g.:
-                [("attr1", "!=", "abnormal"), ("attr2", "!=", 1)]. Filters are applied after type 
+                [("attr1", "!=", "abnormal"), ("attr2", "!=", 1)]. Filters are applied after type
                 and time filters. The logic is "AND" between different filters.
 
         Returns:
-            Union[pl.DataFrame, List[Event]]: Filtered events as a DataFrame 
+            Union[pl.DataFrame, List[Event]]: Filtered events as a DataFrame
             or a list of Event objects.
         """
         df = self.data_source
@@ -141,7 +139,9 @@ class Patient:
         for filt in filters:
             assert event_type is not None, "event_type must be provided if filters are provided"
             if not (isinstance(filt, tuple) and len(filt) == 3):
-                raise ValueError(f"Invalid filter format: {filt} (must be tuple of (attr, op, value))")
+                raise ValueError(
+                    f"Invalid filter format: {filt} (must be tuple of (attr, op, value))"
+                )
             attr, op, val = filt
             col_expr = pl.col(f"{event_type}/{attr}")
             # Build operator expression
