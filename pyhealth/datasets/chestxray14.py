@@ -66,8 +66,8 @@ class ChestXray14Dataset(BaseDataset):
 
         self._partial = partial
 
-        self._label_path: Path = os.path.join(root, "Data_Entry_2017_v2020.csv")
-        self._image_path: Path = os.path.join(root, "images")
+        self._label_path: str = os.path.join(root, "Data_Entry_2017_v2020.csv")
+        self._image_path: str = os.path.join(root, "images")
 
         if download:
             self._download(root)
@@ -258,7 +258,7 @@ class ChestXray14Dataset(BaseDataset):
             logger.error(msg)
             raise FileNotFoundError(msg)
 
-        if not list(self._image_path.glob("*.png")):
+        if not list(Path(self._image_path).glob("*.png")):
             msg = "Dataset 'images' directory must contain PNG files!"
             logger.error(msg)
             raise ValueError(msg)
@@ -277,7 +277,7 @@ class ChestXray14Dataset(BaseDataset):
             ValueError: If no matching image files are found in the CSV.
         """
         df = pd.read_csv(self._label_path)
-        image_names = [f.name for f in self._image_path.iterdir() if f.is_file()]
+        image_names = [f.name for f in Path(self._image_path).iterdir() if f.is_file()]
         df = df[df["Image Index"].isin(image_names)]
 
         for _class in self.classes:
@@ -285,7 +285,7 @@ class ChestXray14Dataset(BaseDataset):
 
         df.drop(["Finding Labels", "Follow-up #", "Patient ID", "View Position", "OriginalImage[Width", "Height]", "OriginalImagePixelSpacing[x", "y]"], inplace=True)
         df.rename(columns={'Image Index': 'path', 'Patient Age': 'patient_age', 'Patient Sex': 'patient_sex'}, inplace=True)
-        df['path'] = str(self._image_path) + df['name']
+        df['path'] = self._image_path + df['name']
         df.to_csv(os.path.join(root, "chestxray14-metadata-pyhealth.csv"), index=False)
 
         return df
