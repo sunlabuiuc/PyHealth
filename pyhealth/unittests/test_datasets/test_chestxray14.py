@@ -6,10 +6,8 @@ import unittest
 
 from pyhealth.datasets.chestxray14 import ChestXray14Dataset
 
-config_path = str(Path(__file__).parent.parent / "datasets" / "configs" / "chestxray14.yaml")
-
 class TestChestXray14Dataset(unittest.TestCase):
-    dataset = ChestXray14Dataset(config_path=config_path, partial=True)
+    dataset = ChestXray14Dataset(config_path=str(Path(__file__).parent.parent.parent / "datasets" / "configs" / "chestxray14.yaml"), partial=True)
 
     def test_len(self):
         self.assertEqual(len(self.dataset), 14999)
@@ -111,10 +109,4 @@ class TestChestXray14Dataset(unittest.TestCase):
         _ = ChestXray14Dataset(download=False)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str)
-    args = parser.parse_args()
-
-    config_path = args.config
-
     unittest.main(verbosity=2)
