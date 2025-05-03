@@ -1,0 +1,24 @@
+version: "1.0"
+tables:
+  chestxray14:
+    file_path: "chestxray14-metadata-pyhealth.csv"
+    patient_id: null
+    timestamp: null
+    attributes:
+    - "path"
+    - "patient_age"
+    - "patient_sex"
+    - "atelectasis"
+    - "cardiomegaly"
+    - "consolidation"
+    - "edema"
+    - "effusion"
+    - "emphysema"
+    - "fibrosis"
+    - "hernia"
+    - "infiltration"
+    - "mass"
+    - "nodule"
+    - "pleural_thickening"
+    - "pneumonia"
+    - "pneumothorax"
