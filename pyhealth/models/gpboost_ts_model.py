@@ -95,10 +95,7 @@ class GPBoostTimeSeriesModel(BaseModel):
             
             sys.exit(1)
         
-        # Set objective to binary classification
-        self.objective = "binary"
-        self.num_classes = 1
-        self.kwargs.setdefault("objective", self.objective)
+        self.kwargs.setdefault("objective", "binary")
         
     def _data_to_pandas(self, data: List[Dict]) -> pd.DataFrame:
         """Convert PyHealth data format to pandas DataFrame for GPBoost"""
@@ -141,44 +138,21 @@ class GPBoostTimeSeriesModel(BaseModel):
         X_train = df_train[self.feature_keys].values
         group_train = df_train['group'].values
         
-        # Try to train with random effects
-        try:
-            # Define GP model for random effects using bernoulli_probit likelihood from the reference paper
-            self.gp_model = self.gpb.GPModel(group_data=group_train, likelihood="bernoulli_probit")
-            print("Using random effects model with bernoulli_probit likelihood")
-            
-            # Create dataset for training
-            data_train_gpb = self.gpb.Dataset(X_train, y_train)
-            
-            # Train model with random effects
-            self.model = self.gpb.train(
-                params=self.kwargs,
-                train_set=data_train_gpb,
-                gp_model=self.gp_model,
-                num_boost_round=self.kwargs.pop('num_boost_round', 100),
-            )
-            print("Successfully trained GPBoost model with random effects")
-            
-        except Exception as e:
-            print(f"Error training random effects model: {e}")
-            print("Falling back to standard GPBoost model without random effects")
-            
-            # Remove potentially problematic parameters
-            train_params = self.kwargs.copy()
-            if 'group' in train_params:
-                del train_params['group']
-                
-            # Create dataset without group
-            data_train_gpb = self.gpb.Dataset(X_train, y_train)
-            
-            # Train model without random effects
-            self.model = self.gpb.train(
-                params=train_params,
-                train_set=data_train_gpb,
-                num_boost_round=self.kwargs.get('num_boost_round', 100)
-            )
-            self.gp_model = None
-            print("Successfully trained standard binary GPBoost model")
+        # Define GP model for random effects using bernoulli_probit likelihood from the reference paper
+        self.gp_model = self.gpb.GPModel(group_data=group_train, likelihood="bernoulli_probit")
+        print("Using random effects model with bernoulli_probit likelihood")
+        
+        # Create dataset for training
+        data_train_gpb = self.gpb.Dataset(X_train, y_train)
+        
+        # Train model with random effects
+        self.model = self.gpb.train(
+            params=self.kwargs,
+            train_set=data_train_gpb,
+            gp_model=self.gp_model,
+            num_boost_round=self.kwargs.pop('num_boost_round', 100),
+        )
+        print("Successfully trained GPBoost model with random effects")
 
     def inference(self, test_data: List[Dict]) -> Dict[str, np.ndarray]:
         """Make predictions on test data"""
@@ -189,34 +163,22 @@ class GPBoostTimeSeriesModel(BaseModel):
         y_true = df_test['label'].values
         X_test = df_test[self.feature_keys].values
         group_test = df_test['group'].values
+    
+        if self.gp_model is not None:
+            print("Making predictions with random effects model")
+            raw_pred = self.model.predict(
+                data=X_test,
+                group_data_pred=group_test,
+                predict_var=False
+            )
+        else:
+            print("Making predictions with standard model")
+            raw_pred = self.model.predict(data=X_test)
+            
+        print(f"Raw prediction type: {type(raw_pred)}")
+        if isinstance(raw_pred, dict):
+            print(f"Available keys: {list(raw_pred.keys())}")
         
-        # Get raw predictions from model
-        try:
-            if self.gp_model is not None:
-                print("Making predictions with random effects model")
-                raw_pred = self.model.predict(
-                    data=X_test,
-                    group_data_pred=group_test,
-                    predict_var=False
-                )
-            else:
-                print("Making predictions with standard model")
-                raw_pred = self.model.predict(data=X_test)
-                
-            print(f"Raw prediction type: {type(raw_pred)}")
-            if isinstance(raw_pred, dict):
-                print(f"Available keys: {list(raw_pred.keys())}")
-        except Exception as e:
-            print(f"Prediction error: {e}")
-            print("Attempting basic prediction")
-            try:
-                raw_pred = self.model.predict(data=X_test)
-            except Exception as e2:
-                print(f"Basic prediction also failed: {e2}")
-                # Generate fixed probabilities
-                raw_pred = np.full(len(y_true), 0.5)
-        
-        # Initialize with default probabilities
         y_prob = np.full((len(y_true), 1), 0.5)
         
         # Process GPBoost output format
