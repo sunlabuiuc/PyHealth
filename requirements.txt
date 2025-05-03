@@ -13,3 +13,4 @@ polars
 transformers
 gpboost
 pydantic
+hyperopt

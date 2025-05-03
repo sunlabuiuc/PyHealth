@@ -414,8 +414,12 @@ if __name__ == "__main__":
         def decode(self, index):
             return self.reverse_vocab.get(index, "Unknown")
     
-    train_data, test_data = train_test_split(data, test_size=0.2, random_state=42)
-    print(f"Training set: {len(train_data)} patients, Test set: {len(test_data)} patients")
+    # Split into train, validation, and test sets
+    train_data, test_data = train_test_split(data, test_size=0.3, random_state=42)
+    val_data, test_data = train_test_split(test_data, test_size=0.5, random_state=42)
+    print(f"Training set: {len(train_data)} patients")
+    print(f"Validation set: {len(val_data)} patients")
+    print(f"Test set: {len(test_data)} patients")
     
     try:
         input_schema = {key: "float" for key in feature_keys}
@@ -426,6 +430,11 @@ if __name__ == "__main__":
         train_dataset.input_schema = input_schema
         train_dataset.output_schema = output_schema
         
+        val_dataset = SampleEHRDataset(samples=val_data, dataset_name="synth_sleep_val")
+        val_dataset.label_tokenizer = BinaryTokenizer()
+        val_dataset.input_schema = input_schema
+        val_dataset.output_schema = output_schema
+        
         test_dataset = SampleEHRDataset(samples=test_data, dataset_name="synth_sleep_test")
         test_dataset.label_tokenizer = BinaryTokenizer()
         test_dataset.input_schema = input_schema
@@ -435,25 +444,48 @@ if __name__ == "__main__":
         print(f"Error creating PyHealth datasets: {e}")
         sys.exit(1)
     
+    # Hyperopt-style parameter space for optimization
+    from hyperopt import hp
+    
+    param_space = {
+        "max_depth": hp.quniform("max_depth", 3, 6, 1),
+        "learning_rate": hp.uniform("learning_rate", 0.005, 0.01),
+        "num_leaves": hp.quniform("num_leaves", 20, 200, 20),
+        "feature_fraction": hp.uniform("feature_fraction", 0.5, 0.95),
+        "lambda_l2": hp.uniform("lambda_l2", 1.0, 10.0),
+        "lambda_l1": hp.quniform("lambda_l1", 10, 100, 10),
+        "pos_bagging_fraction": hp.uniform("pos_bagging_fraction", 0.8, 0.95),
+        "neg_bagging_fraction": hp.uniform("neg_bagging_fraction", 0.6, 0.8),
+        "num_boost_round": hp.quniform("num_boost_round", 400, 1000, 100),
+    }
+    
     print("Training GPBoost model for binary sleep classification...")
-    try:
-        model = GPBoostTimeSeriesModel(
-            dataset=train_dataset,
-            feature_keys=feature_keys,
-            label_key=label_key,
-            group_key=group_key,
-            random_effect_features=random_effect_keys,
-            num_boost_round=100,
-            learning_rate=0.1,
-            max_depth=5,
-            verbose=-1
-        )
-        
-        model.train(train_data)
-        print("Training complete")
-    except Exception as e:
-        print(f"Error during model training: {e}")
-        sys.exit(1)
+    model = GPBoostTimeSeriesModel(
+        dataset=train_dataset,
+        feature_keys=feature_keys,
+        label_key=label_key,
+        group_key=group_key,
+        random_effect_features=random_effect_keys,
+        verbose=-1
+    )
+    
+    # Optimize hyperparameters with hyperopt
+    print("Optimizing hyperparameters...")
+    best_params = model.optimize_hyperparameters(
+        train_data=train_data,
+        val_data=val_data,
+        param_space=param_space,
+        n_iter=20,
+        verbose=1
+    )
+    
+    # Update model parameters with best ones
+    model.kwargs.update(best_params)
+    
+    # Train with optimized parameters
+    print("Training with optimized parameters...")
+    model.train(train_data, val_data)
+    print("Training complete")
     
     print("Evaluating model...")
     eval_results = model.inference(test_data)

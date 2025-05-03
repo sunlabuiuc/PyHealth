@@ -2,6 +2,7 @@ import sys
 import numpy as np
 import pandas as pd
 from typing import List, Dict, Optional, Union, Any
+from hyperopt import fmin, tpe, hp, STATUS_OK, Trials
 
 class GPBoostTimeSeriesModel:
     """
@@ -108,23 +109,141 @@ class GPBoostTimeSeriesModel:
         df['group'] = pd.factorize(df['group'])[0]
         return df
         
-    def train(self, train_data: List[Dict]):
-        """Train the GPBoost model"""
+    def optimize_hyperparameters(
+        self,
+        train_data: List[Dict],
+        val_data: List[Dict],
+        param_space: Optional[Dict] = None,
+        n_iter: int = 20,
+        verbose: int = 0
+    ) -> Dict:
+        """
+        Optimize hyperparameters using hyperopt.
+        
+        Args:
+            train_data: Training data
+            val_data: Validation data
+            param_space: Dictionary with hyperopt-style parameter spaces
+            n_iter: Number of parameter settings sampled
+            verbose: Verbosity level
+            
+        Returns:
+            Dictionary with best hyperparameters
+        """
+        if param_space is None:
+            raise ValueError("missing required 'param_space' parameter.")
+    
+        df_train = self._data_to_pandas(train_data)
+        X_train = df_train[self.feature_keys].values
+        y_train = df_train['label'].values
+        group_train = df_train['group'].values
+        
+        df_val = self._data_to_pandas(val_data)
+        X_val = df_val[self.feature_keys].values
+        y_val = df_val['label'].values
+        group_val = df_val['group'].values
+        
+        def objective(params):
+            # Create a copy of the parameters for this trial
+            trial_params = params.copy()
+            num_boost_round = int(trial_params.pop('num_boost_round', 100))
+            
+            # Convert int parameters from float
+            for param in ['max_depth', 'num_leaves']:
+                if param in trial_params:
+                    trial_params[param] = int(trial_params[param])
+            
+            trial_params['objective'] = self.objective
+            trial_params['metric'] = 'auc'
+            
+            gp_model = self.gpb.GPModel(group_data=group_train, likelihood="bernoulli_probit")
+            
+            train_set = self.gpb.Dataset(X_train, y_train)
+            val_set = self.gpb.Dataset(X_val, y_val)
+            
+            booster = self.gpb.train(
+                params=trial_params,
+                train_set=train_set,
+                valid_sets=[val_set],
+                gp_model=gp_model,
+                num_boost_round=num_boost_round,
+                early_stopping_rounds=20,
+                verbose_eval=False,
+                use_gp_model_for_validation=False
+            )
+            
+            score = booster.best_score['valid_0']['auc']
+                
+            # Return negative score since hyperopt minimizes
+            return {'loss': -score, 'status': STATUS_OK, 'params': params}
+        
+        trials = Trials()
+        best = fmin(
+            fn=objective,
+            space=param_space,
+            algo=tpe.suggest,
+            max_evals=n_iter,
+            trials=trials,
+            verbose=verbose
+        )
+        
+        if verbose > 0:
+            print(f"Best parameters: {best}")
+            best_trial = sorted(trials.trials, key=lambda x: x['result']['loss'])[0]
+            if 'loss' in best_trial['result']:
+                print(f"Best score (AUC): {-best_trial['result']['loss']:.4f}")
+        
+        return best
+    
+    def train(self, train_data: List[Dict], val_data: Optional[List[Dict]] = None):
+        """
+        Train the GPBoost model
+        
+        Args:
+            train_data: Training data
+            val_data: Optional validation data
+        """
         df_train = self._data_to_pandas(train_data)
         y_train = df_train['label'].values
         X_train = df_train[self.feature_keys].values
         group_train = df_train['group'].values
+        
+        eval_set = None
+        eval_group = None
+        
+        if val_data is not None:
+            df_val = self._data_to_pandas(val_data)
+            y_val = df_val['label'].values
+            X_val = df_val[self.feature_keys].values
+            group_val = df_val['group'].values
+            eval_set = [(X_val, y_val)]
+            eval_group = [group_val]
         
         self.gp_model = self.gpb.GPModel(group_data=group_train, likelihood="bernoulli_probit")
         print("Using random effects model with bernoulli_probit likelihood")
         
         data_train_gpb = self.gpb.Dataset(X_train, y_train)
         
+        if eval_set is not None:
+            data_val_gpb = self.gpb.Dataset(X_val, y_val)
+            valid_sets = [data_val_gpb]
+        else:
+            valid_sets = None
+        
+        self.kwargs['metric'] = 'auc'
+        # Convert int parameters from float
+        for param in ['max_depth', 'num_leaves']:
+            if param in self.kwargs:
+                self.kwargs[param] = int(self.kwargs[param])
+
         self.model = self.gpb.train(
             params=self.kwargs,
             train_set=data_train_gpb,
+            valid_sets=valid_sets,
             gp_model=self.gp_model,
-            num_boost_round=self.kwargs.pop('num_boost_round', 100),
+            num_boost_round=int(self.kwargs.pop('num_boost_round', 100)),
+            use_gp_model_for_validation=False,
+            verbose_eval=50,
         )
         print("Successfully trained GPBoost model with random effects")
 
