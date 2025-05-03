@@ -265,4 +265,3 @@ class SyntheticSleepDataGenerator:
         acc = max(0, acc)
         
         return hr, eda, temp, acc
-    
