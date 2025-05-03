@@ -34,6 +34,12 @@ class ChestXray14Dataset(BaseDataset):
         __getitem__(index: int): Retrieves a specific image and its metadata.
         stat(): Prints statistics about the dataset's content.
     """
+    classes = ["atelectasis", "cardiomegaly", "consolidation",
+               "edema", "effusion", "emphysema",
+               "fibrosis", "hernia", "infiltration",
+               "mass", "nodule", "pleural_thickening",
+               "pneumonia", "pneumothorax"]
+
     def __init__(self,
                  root: str = ".",
                  config_path: Optional[str] = str(Path(__file__).parent / "configs" / "chestxray14.yaml"),
@@ -58,12 +64,6 @@ class ChestXray14Dataset(BaseDataset):
         Example:
             >>> dataset = ChestXray14Dataset(root="./data")
         """
-        self.classes = ["atelectasis", "cardiomegaly", "consolidation",
-                        "edema", "effusion", "emphysema",
-                        "fibrosis", "hernia", "infiltration",
-                        "mass", "nodule", "pleural_thickening",
-                        "pneumonia", "pneumothorax"]
-
         self._partial = partial
 
         self._label_path: str = os.path.join(root, "Data_Entry_2017_v2020.csv")
