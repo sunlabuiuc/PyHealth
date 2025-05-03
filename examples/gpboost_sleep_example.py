@@ -65,199 +65,212 @@ except Exception as e:
     print(f"Error importing PyHealth modules: {e}")
     sys.exit(1)
 
-# Function to generate synthetic E4 sleep data (binary: Awake/Asleep)
-def generate_synthetic_sleep_data(num_patients=100, hours=8, epoch_seconds=30, seed=42):
+class SyntheticSleepDataGenerator:
     """
-    Generate synthetic Empatica E4 data with binary sleep states.
+    Generator for synthetic Empatica E4 sleep data with binary states.
     
-    Parameters:
-    - num_patients: Number of patients to simulate
-    - hours: Duration of recording in hours
-    - epoch_seconds: Duration of each measurement epoch (typically 30 seconds for PSG)
-    - seed: Random seed for reproducibility
+    This class generates realistic physiological time series data with appropriate
+    temporal patterns for sleep vs. wake states, including:
+    - Heart rate
+    - Electrodermal activity (EDA/skin conductance)
+    - Temperature
+    - Movement (accelerometer)
+    
+    Random effects like obesity and sleep apnea influence the baseline values
+    and patterns in the generated data.
     """
-    np.random.seed(seed)
-    random.seed(seed)
     
-    sleep_states = ["Awake", "Asleep"]
-    
-    epochs_per_hour = int(3600 / epoch_seconds)
-    total_epochs = int(hours * epochs_per_hour)
-    
-    data = []
-    for i in range(num_patients):
-        patient_id = f"patient_{i}"
+    def __init__(
+        self, 
+        hours: int = 8, 
+        epoch_seconds: int = 30, 
+        seed: int = 42
+    ):
+        """
+        Initialize the sleep data generator.
         
+        Args:
+            hours: Duration of recording in hours
+            epoch_seconds: Duration of each measurement epoch (typically 30s for PSG)
+            seed: Random seed for reproducibility
+        """
+        self.hours = hours
+        self.epoch_seconds = epoch_seconds
+        self.seed = seed
+        self.sleep_states = ["Awake", "Asleep"]
+        
+        # Calculate epochs based on duration
+        self.epochs_per_hour = int(3600 / epoch_seconds)
+        self.total_epochs = int(hours * self.epochs_per_hour)
+        
+        # Set random seeds
+        np.random.seed(seed)
+        random.seed(seed)
+        
+    def generate_data(self, num_patients: int = 100) -> list:
+        """
+        Generate synthetic sleep data for multiple patients.
+        
+        Args:
+            num_patients: Number of patients to generate data for
+            
+        Returns:
+            List of patient data dictionaries
+        """
+        data = []
+        for i in range(num_patients):
+            patient_id = f"patient_{i}"
+            patient_data = self._generate_patient_data(patient_id)
+            data.append(patient_data)
+        
+        return data
+    
+    def _generate_patient_data(self, patient_id: str) -> dict:
+        """Generate data for a single patient."""
         # Generate random effects
         is_obese = random.choice([0, 1])
         has_apnea = random.choice([0, 1])
-        sleep_efficiency = np.random.beta(5, 2) if not has_apnea else np.random.beta(4, 3)  # Apnea patients have lower sleep efficiency
         
-        # Patient-specific physiological baselines
-        base_hr = 60 + np.random.normal(5, 8)
-        base_eda = 0.3 + np.random.gamma(2, 0.1)
-        base_temp = 36.0 + np.random.normal(0.5, 0.4)
-        base_acc = 0.01 + np.random.exponential(0.02)
+        # Generate patient-specific baseline physiological values
+        baselines = self._generate_baselines(is_obese, has_apnea)
         
-        # Patient-specific state differentiation (some patients have less clear differences between states)
-        hr_diff = 10 + np.random.normal(0, 5)  # How much HR differs between wake/sleep
-        eda_diff = 0.2 + np.random.normal(0, 0.1)
-        acc_diff = 0.03 + np.random.exponential(0.02)
+        # Generate state transitions and awakenings
+        sleep_onset, final_wake, awakening_points, awakening_durations = self._create_sleep_structure(has_apnea)
+        
+        # Generate visits with physiological signals
+        visits = self._generate_visits(baselines, sleep_onset, final_wake, 
+                                      awakening_points, awakening_durations, has_apnea)
+        
+        # Create complete patient record
+        patient_record = {
+            "patient_id": patient_id,
+            "visits": visits,
+            "obesity": is_obese,
+            "apnea": has_apnea
+        }
+        
+        return patient_record
+    
+    def _generate_baselines(self, is_obese: int, has_apnea: int) -> dict:
+        """Generate baseline physiological values with random effects."""
+        # Base physiological values with variability
+        baselines = {
+            'hr': 60 + np.random.normal(5, 8),  # Heart rate
+            'eda': 0.3 + np.random.gamma(2, 0.1),  # Skin conductance
+            'temp': 36.0 + np.random.normal(0.5, 0.4),  # Temperature
+            'acc': 0.01 + np.random.exponential(0.02),  # Movement
+        }
+        
+        # Patient-specific state differentiation
+        state_diffs = {
+            'hr_diff': 10 + np.random.normal(0, 5),
+            'eda_diff': 0.2 + np.random.normal(0, 0.1),
+            'acc_diff': 0.03 + np.random.exponential(0.02),
+        }
         
         # Apply random effects to base values
         if is_obese:
-            base_hr += np.random.normal(3, 2)
-            base_temp -= np.random.normal(0.1, 0.05)
+            baselines['hr'] += np.random.normal(3, 2)
+            baselines['temp'] -= np.random.normal(0.1, 0.05)
             
         if has_apnea:
-            base_hr += np.random.normal(2, 1)
-            base_eda += np.random.normal(0.05, 0.03)
+            baselines['hr'] += np.random.normal(2, 1)
+            baselines['eda'] += np.random.normal(0.05, 0.03)
+            
+        return {**baselines, **state_diffs}
+    
+    def _create_sleep_structure(self, has_apnea: int) -> tuple:
+        """Create sleep structure with onset, awakening, and final wake times."""
+        # Sleep onset latency (time to fall asleep)
+        sleep_onset = int((15 + 15 * np.random.random()) * 60 / self.epoch_seconds)
         
-        patient_visits = []
+        # Final awakening time
+        final_wake = int((10 + 20 * np.random.random()) * 60 / self.epoch_seconds)
         
-        # Define sleep pattern
-        current_state = 0  # 0=Awake, 1=Asleep
-        
-        # Sleep onset latency
-        sleep_onset_epochs = int((15 + 15 * np.random.random()) * 60 / epoch_seconds)
-        
-        # Morning awakening time
-        final_wake_epochs = int((10 + 20 * np.random.random()) * 60 / epoch_seconds)
-        
-        # Parameters for mid-sleep awakenings
+        # Generate awakenings based on apnea status
         awakenings_per_hour = 0.5 + np.random.exponential(0.5)
         if has_apnea:
             awakenings_per_hour += 0.5 + np.random.exponential(1.0)
         
-        # Generate awakening timepoints
-        sleep_period = total_epochs - sleep_onset_epochs - final_wake_epochs
-        num_awakenings = max(1, int(awakenings_per_hour * hours))
+        # Calculate total number of awakenings
+        num_awakenings = max(1, int(awakenings_per_hour * self.hours))
+        sleep_period = self.total_epochs - sleep_onset - final_wake
         
-        # Handle case where there aren't enough epochs
+        # Generate awakening timepoints and durations
         if sleep_period > num_awakenings:
-            awakening_points = sorted(random.sample(range(sleep_onset_epochs, 
-                                                        total_epochs - final_wake_epochs),
-                                                  num_awakenings))
+            awakening_points = sorted(
+                random.sample(
+                    range(sleep_onset, self.total_epochs - final_wake),
+                    num_awakenings
+                )
+            )
             
-            # Duration of awakenings
-            awakening_durations = [max(1, int(np.random.exponential(3) * 60 / epoch_seconds)) 
-                                for _ in range(num_awakenings)]
+            # Duration of awakenings (30s to 3 minutes)
+            awakening_durations = [
+                max(1, int(np.random.exponential(3) * 60 / self.epoch_seconds))
+                for _ in range(num_awakenings)
+            ]
         else:
             awakening_points = []
             awakening_durations = []
-        
-        # State and signal history for continuity
-        signal_history = {'hr': base_hr, 'eda': base_eda, 'temp': base_temp, 'acc': base_acc}
-        last_state = 0
-        transition_momentum = 0 
-        
-        # Add some temporal autocorrelation to signals
-        hr_momentum, eda_momentum, temp_momentum, acc_momentum = 0, 0, 0, 0
-        
-        # Generate 5% random mislabeling to simulate annotation errors
-        mislabel_indices = set(random.sample(range(total_epochs), int(0.05 * total_epochs)))
-        
-        for t in range(total_epochs):
-            # Determine ground truth sleep state based on the sleep pattern
-            if t < sleep_onset_epochs:
-                true_state = 0  # Awake during sleep onset period
-            elif t >= (total_epochs - final_wake_epochs):
-                true_state = 0  # Awake during morning awakening
-            else:
-                true_state = 1  # Default to asleep during night
-                
-                # Check for awakenings
-                for i, awakening_time in enumerate(awakening_points):
-                    if 0 <= t - awakening_time < awakening_durations[i]:
-                        true_state = 0
-                        break
             
-            # State transition dynamics
-            if true_state != last_state:
-                transition_momentum = 4 if true_state == 1 else 2  # Takes longer to fall asleep than wake up
-                
-            if transition_momentum > 0:
-                # During transition, signals change gradually
-                transition_factor = transition_momentum / 4.0
-                transition_momentum -= 1
-            else:
-                transition_factor = 0
-                
+        return sleep_onset, final_wake, awakening_points, awakening_durations
+    
+    def _generate_visits(self, baselines: dict, sleep_onset: int, 
+                        final_wake: int, awakening_points: list, 
+                        awakening_durations: list, has_apnea: int) -> list:
+        """Generate visit-level time series data with physiological signals."""
+        visits = []
+        
+        # Track signal history for realistic temporal dynamics
+        signal_history = {
+            'hr': baselines['hr'], 
+            'eda': baselines['eda'], 
+            'temp': baselines['temp'], 
+            'acc': baselines['acc']
+        }
+        
+        # Track state transitions
+        last_state = 0
+        transition_momentum = 0
+        
+        # Add momentum to signals for realistic transitions
+        hr_momentum, eda_momentum = 0, 0
+        temp_momentum, acc_momentum = 0, 0
+        
+        # Create annotation errors (5% mislabeled)
+        mislabel_indices = set(random.sample(range(self.total_epochs), int(0.05 * self.total_epochs)))
+        
+        # Generate time-series data for each epoch
+        for t in range(self.total_epochs):
+            # Determine ground truth sleep state
+            true_state = self._determine_sleep_state(t, sleep_onset, final_wake, 
+                                                    awakening_points, awakening_durations)
+            
+            # Handle transitions between states
+            transition_factor = self._handle_state_transition(true_state, last_state, transition_momentum)
+            transition_momentum = max(0, transition_momentum - 1)
             last_state = true_state
             
-            # Introduce occasional mislabeled epochs
-            if t in mislabel_indices:
-                stage = sleep_states[1 - true_state]  # Opposite of true state
-            else:
-                stage = sleep_states[true_state]
+            # Apply label errors
+            stage = self.sleep_states[1 - true_state] if t in mislabel_indices else self.sleep_states[true_state]
             
-            # Generate physiological signals with noise and autocorrelation
+            # Generate physiological signals for this epoch
+            hr, eda, temp, acc = self._generate_signals(
+                true_state, baselines, signal_history, transition_factor,
+                hr_momentum, eda_momentum, temp_momentum, acc_momentum, has_apnea
+            )
             
-            # Heart rate with temporal dynamics
+            # Update signal momentum (autocorrelation)
             hr_momentum = 0.8 * hr_momentum + 0.2 * np.random.normal(0, 2)
-            if true_state == 0:  # Awake
-                hr_target = base_hr + hr_diff + np.random.normal(0, 3)
-            else:  # Asleep
-                hr_target = base_hr - 5 + np.random.normal(0, 2)
-                
-            # During transition, blend between states
-            if transition_factor > 0:
-                hr_target = hr_target * (1 - transition_factor) + signal_history['hr'] * transition_factor
-                
-            # Update with momentum and noise
-            hr = 0.7 * signal_history['hr'] + 0.3 * hr_target + hr_momentum
-            
-            # EDA with similar approach
             eda_momentum = 0.8 * eda_momentum + 0.2 * np.random.normal(0, 0.05)
-            if true_state == 0:  # Awake
-                eda_target = base_eda + eda_diff + np.random.normal(0, 0.1)
-            else:  # Asleep
-                eda_target = base_eda - 0.1 + np.random.normal(0, 0.05)
-            
-            if transition_factor > 0:
-                eda_target = eda_target * (1 - transition_factor) + signal_history['eda'] * transition_factor
-                
-            eda = 0.8 * signal_history['eda'] + 0.2 * eda_target + eda_momentum
-            
-            # Temperature changes
             temp_momentum = 0.95 * temp_momentum + 0.05 * np.random.normal(0, 0.1)
-            if true_state == 0:  # Awake
-                temp_target = base_temp + np.random.normal(0, 0.1)
-            else:  # Asleep
-                temp_target = base_temp - 0.2 + np.random.normal(0, 0.1)
-                
-            if transition_factor > 0:
-                temp_target = temp_target * (1 - transition_factor) + signal_history['temp'] * transition_factor
-                
-            temp = 0.95 * signal_history['temp'] + 0.05 * temp_target + temp_momentum
-            
-            # Accelerometer
             acc_momentum = 0.6 * acc_momentum + 0.4 * np.random.normal(0, 0.01)
-            if true_state == 0:  # Awake
-                acc_target = base_acc + acc_diff + np.random.exponential(0.02)
-            else:  # Asleep
-                acc_target = base_acc + np.random.exponential(0.005)  # Small movements during sleep
-                
-            if transition_factor > 0:
-                acc_target = acc_target * (1 - transition_factor) + signal_history['acc'] * transition_factor
-                
-            acc = 0.6 * signal_history['acc'] + 0.4 * acc_target + acc_momentum
-                
-            # Add apnea effects
-            if has_apnea and true_state == 1 and random.random() < 0.1:  # Apnea event during sleep
-                hr += np.random.gamma(4, 1)  # Variable HR increase
-                eda += np.random.gamma(3, 0.05)  # Variable EDA increase
-                acc += np.random.exponential(0.02)  # Variable movement
             
-            # Ensure values are in reasonable ranges but allow more extreme values occasionally
-            hr = max(35, min(140, hr))  # Wider range
-            eda = max(0.05, eda)  
-            temp = max(34.5, min(38.5, temp))  # Wider range
-            acc = max(0, acc)
-            
-            # Store signal values for next epoch's continuity
+            # Store signal history for next epoch
             signal_history = {'hr': hr, 'eda': eda, 'temp': temp, 'acc': acc}
             
+            # Create visit record
             visit_data = {
                 "visit_id": f"visit_{t}",
                 "heart_rate": hr,
@@ -267,223 +280,268 @@ def generate_synthetic_sleep_data(num_patients=100, hours=8, epoch_seconds=30, s
                 "sleep_stage": stage
             }
             
-            patient_visits.append(visit_data)
-            
-        patient_record = {
-            "patient_id": patient_id,
-            "visits": patient_visits,
-            "obesity": is_obese,
-            "apnea": has_apnea
-        }
+            visits.append(visit_data)
         
-        data.append(patient_record)
+        return visits
+    
+    def _determine_sleep_state(self, t: int, sleep_onset: int, final_wake: int, 
+                             awakening_points: list, awakening_durations: list) -> int:
+        """Determine sleep state (0=awake, 1=asleep) for a given time point."""
+        if t < sleep_onset or t >= (self.total_epochs - final_wake):
+            # Initial period or final waking: awake
+            return 0
+        else:
+            # Middle period: mostly asleep with awakenings
+            for i, awakening_time in enumerate(awakening_points):
+                if 0 <= t - awakening_time < awakening_durations[i]:
+                    return 0  # Awakening period
+            return 1  # Default to asleep during night
+    
+    def _handle_state_transition(self, true_state: int, last_state: int, momentum: int) -> float:
+        """Handle state transitions with realistic momentum."""
+        if true_state != last_state:
+            # Takes longer to fall asleep than wake up
+            new_momentum = 4 if true_state == 1 else 2
+            return new_momentum / 4.0
+        elif momentum > 0:
+            return momentum / 4.0
+        else:
+            return 0
+    
+    def _generate_signals(self, true_state: int, baselines: dict, history: dict, 
+                         transition_factor: float, hr_momentum: float, eda_momentum: float, 
+                         temp_momentum: float, acc_momentum: float, has_apnea: int) -> tuple:
+        """Generate physiological signals for a single epoch."""
+        # Calculate target values based on state
+        if true_state == 0:  # Awake
+            hr_target = baselines['hr'] + baselines['hr_diff'] + np.random.normal(0, 3)
+            eda_target = baselines['eda'] + baselines['eda_diff'] + np.random.normal(0, 0.1)
+            temp_target = baselines['temp'] + np.random.normal(0, 0.1)
+            acc_target = baselines['acc'] + baselines['acc_diff'] + np.random.exponential(0.02)
+        else:  # Asleep
+            hr_target = baselines['hr'] - 5 + np.random.normal(0, 2)
+            eda_target = baselines['eda'] - 0.1 + np.random.normal(0, 0.05)
+            temp_target = baselines['temp'] - 0.2 + np.random.normal(0, 0.1)
+            acc_target = baselines['acc'] + np.random.exponential(0.005)
         
-    return data
+        # Blend for transitions
+        if transition_factor > 0:
+            hr_target = hr_target * (1 - transition_factor) + history['hr'] * transition_factor
+            eda_target = eda_target * (1 - transition_factor) + history['eda'] * transition_factor
+            temp_target = temp_target * (1 - transition_factor) + history['temp'] * transition_factor
+            acc_target = acc_target * (1 - transition_factor) + history['acc'] * transition_factor
+        
+        # Calculate new values with autocorrelation
+        hr = 0.7 * history['hr'] + 0.3 * hr_target + hr_momentum
+        eda = 0.8 * history['eda'] + 0.2 * eda_target + eda_momentum
+        temp = 0.95 * history['temp'] + 0.05 * temp_target + temp_momentum
+        acc = 0.6 * history['acc'] + 0.4 * acc_target + acc_momentum
+        
+        # Add apnea events during sleep
+        if has_apnea and true_state == 1 and random.random() < 0.1:
+            hr += np.random.gamma(4, 1)
+            eda += np.random.gamma(3, 0.05)
+            acc += np.random.exponential(0.02)
+        
+        # Ensure values are in reasonable ranges
+        hr = max(35, min(140, hr))
+        eda = max(0.05, eda)
+        temp = max(34.5, min(38.5, temp))
+        acc = max(0, acc)
+        
+        return hr, eda, temp, acc
 
 
 if __name__ == "__main__":
-    try:
-        print("\n" + "="*50)
-        print("GPBoost Binary Sleep Classification Example")
-        print("="*50 + "\n")
+    print("\n" + "="*50)
+    print("GPBoost Binary Sleep Classification Example")
+    print("="*50 + "\n")
+    
+    print("Generating synthetic Empatica E4 sleep data...")
+    # Generate 8 hours of sleep data with 30-second epochs for 100 patients
+    generator = SyntheticSleepDataGenerator(hours=8, epoch_seconds=30, seed=123)
+    data = generator.generate_data(num_patients=100)
+    print(f"Generated data for {len(data)} patients")
+    print(f"Average epochs per patient: {sum(len(p['visits']) for p in data)/len(data):.1f}")
+    
+    feature_keys = ["heart_rate", "eda", "temperature", "accelerometer"]
+    label_key = "sleep_stage"
+    group_key = "patient_id"
+    random_effect_keys = ["obesity", "apnea"]
+    
+    class BinaryTokenizer:
+        def __init__(self):
+            self.vocabulary = {"Awake": 0, "Asleep": 1}
+            self.reverse_vocab = {0: "Awake", 1: "Asleep"}
         
-        print("Generating synthetic Empatica E4 sleep data...")
-        # Generate 8 hours of sleep data with 30-second epochs for 100 patients
-        data = generate_synthetic_sleep_data(num_patients=100, hours=8, epoch_seconds=30, seed=123)
-        print(f"Generated data for {len(data)} patients")
-        print(f"Average epochs per patient: {sum(len(p['visits']) for p in data)/len(data):.1f}")
+        def encode(self, label):
+            return [self.vocabulary.get(label, 0)]
         
-        feature_keys = ["heart_rate", "eda", "temperature", "accelerometer"]
-        label_key = "sleep_stage"
-        group_key = "patient_id"
-        random_effect_keys = ["obesity", "apnea"]
-        
-        class BinaryTokenizer:
-            def __init__(self):
-                self.vocabulary = {"Awake": 0, "Asleep": 1}
-                self.reverse_vocab = {0: "Awake", 1: "Asleep"}
+        def decode(self, index):
+            return self.reverse_vocab.get(index, "Unknown")
+    
+    train_data, test_data = train_test_split(data, test_size=0.2, random_state=42)
+    print(f"Training set: {len(train_data)} patients, Test set: {len(test_data)} patients")
+    
+    print("\n=== Sample Data Overview ===")
+    
+    sample_patient = random.choice(data)
+    patient_id = sample_patient["patient_id"]
+    
+    visits = sample_patient["visits"]
+    total_epochs = len(visits)
+    sleep_epochs = sum(1 for v in visits if v["sleep_stage"] == "Asleep")
+    wake_epochs = total_epochs - sleep_epochs
+    
+    print(f"Patient {patient_id} - {total_epochs} epochs ({wake_epochs} awake, {sleep_epochs} asleep)")
+    print(f"Random effects: Obesity = {sample_patient['obesity']}, Apnea = {sample_patient['apnea']}")
+    
+    print("\nFirst 5 epochs of data:")
+    print("Time | Sleep Stage | Heart Rate | EDA  | Temperature | Movement")
+    print("-" * 70)
+    for i, visit in enumerate(visits[:5]):
+        print(f"{i:4d} | {visit['sleep_stage']:11s} | {visit['heart_rate']:9.1f} | {visit['eda']:.3f} | "
+                f"{visit['temperature']:10.1f} | {visit['accelerometer']:.4f}")
+                
+    # Show transitions: 5 epochs around a state change if possible
+    print("\nSample sleep transition (if available):")
+    transition_idx = None
+    for i in range(1, total_epochs):
+        if visits[i]['sleep_stage'] != visits[i-1]['sleep_stage']:
+            transition_idx = i
+            break
             
-            def encode(self, label):
-                return [self.vocabulary.get(label, 0)]
-            
-            def decode(self, index):
-                return self.reverse_vocab.get(index, "Unknown")
-        
-        train_data, test_data = train_test_split(data, test_size=0.2, random_state=42)
-        print(f"Training set: {len(train_data)} patients, Test set: {len(test_data)} patients")
-        
-        print("\n=== Sample Data Overview ===")
-        
-        sample_patient = random.choice(data)
-        patient_id = sample_patient["patient_id"]
-        
-        visits = sample_patient["visits"]
-        total_epochs = len(visits)
-        sleep_epochs = sum(1 for v in visits if v["sleep_stage"] == "Asleep")
-        wake_epochs = total_epochs - sleep_epochs
-        
-        print(f"Patient {patient_id} - {total_epochs} epochs ({wake_epochs} awake, {sleep_epochs} asleep)")
-        print(f"Random effects: Obesity = {sample_patient['obesity']}, Apnea = {sample_patient['apnea']}")
-        
-        print("\nFirst 5 epochs of data:")
+    if transition_idx and transition_idx > 2 and transition_idx < total_epochs - 2:
         print("Time | Sleep Stage | Heart Rate | EDA  | Temperature | Movement")
         print("-" * 70)
-        for i, visit in enumerate(visits[:5]):
+        for i in range(transition_idx - 2, transition_idx + 3):
+            visit = visits[i]
             print(f"{i:4d} | {visit['sleep_stage']:11s} | {visit['heart_rate']:9.1f} | {visit['eda']:.3f} | "
-                  f"{visit['temperature']:10.1f} | {visit['accelerometer']:.4f}")
-                  
-        # Show transitions: 5 epochs around a state change if possible
-        print("\nSample sleep transition (if available):")
-        transition_idx = None
-        for i in range(1, total_epochs):
-            if visits[i]['sleep_stage'] != visits[i-1]['sleep_stage']:
-                transition_idx = i
-                break
-                
-        if transition_idx and transition_idx > 2 and transition_idx < total_epochs - 2:
-            print("Time | Sleep Stage | Heart Rate | EDA  | Temperature | Movement")
-            print("-" * 70)
-            for i in range(transition_idx - 2, transition_idx + 3):
-                visit = visits[i]
-                print(f"{i:4d} | {visit['sleep_stage']:11s} | {visit['heart_rate']:9.1f} | {visit['eda']:.3f} | "
-                      f"{visit['temperature']:10.1f} | {visit['accelerometer']:.4f}")
-        else:
-            print("No clear transition found in the sample")
-            
-        print("\nFeature statistics across all patients:")
-        all_hr = [visit['heart_rate'] for patient in data for visit in patient['visits']]
-        all_eda = [visit['eda'] for patient in data for visit in patient['visits']]
-        all_temp = [visit['temperature'] for patient in data for visit in patient['visits']]
-        all_acc = [visit['accelerometer'] for patient in data for visit in patient['visits']]
+                    f"{visit['temperature']:10.1f} | {visit['accelerometer']:.4f}")
+    else:
+        print("No clear transition found in the sample")
         
-        print(f"Heart Rate: min={min(all_hr):.1f}, max={max(all_hr):.1f}, mean={np.mean(all_hr):.1f}, std={np.std(all_hr):.1f}")
-        print(f"EDA: min={min(all_eda):.3f}, max={max(all_eda):.3f}, mean={np.mean(all_eda):.3f}, std={np.std(all_eda):.3f}")
-        print(f"Temperature: min={min(all_temp):.1f}, max={max(all_temp):.1f}, mean={np.mean(all_temp):.1f}, std={np.std(all_temp):.1f}")
-        print(f"Movement: min={min(all_acc):.4f}, max={max(all_acc):.4f}, mean={np.mean(all_acc):.4f}, std={np.std(all_acc):.4f}")
-        
-        all_stages = [visit['sleep_stage'] for patient in data for visit in patient['visits']]
-        awake_percent = 100 * all_stages.count("Awake") / len(all_stages)
-        asleep_percent = 100 * all_stages.count("Asleep") / len(all_stages)
-        print(f"\nSleep stages: {awake_percent:.1f}% Awake, {asleep_percent:.1f}% Asleep")
-        
-        try:
-            train_dataset = SampleEHRDataset(samples=train_data, dataset_name="synth_sleep_train")
-            train_dataset.label_tokenizer = BinaryTokenizer()
-            test_dataset = SampleEHRDataset(samples=test_data, dataset_name="synth_sleep_test")
-            test_dataset.label_tokenizer = BinaryTokenizer()
-        except Exception as e:
-            print(f"Error creating PyHealth datasets: {e}")
-            sys.exit(1)
-        
-        print("Training GPBoost model for binary sleep classification...")
-        try:
-            model = GPBoostTimeSeriesModel(
-                dataset=train_dataset,
-                feature_keys=feature_keys,
-                label_key=label_key,
-                group_key=group_key,
-                random_effect_features=random_effect_keys,
-                num_boost_round=100,
-                learning_rate=0.1,
-                max_depth=5,
-                verbose=-1
-            )
-            
-            model.train(train_data)
-            print("Training complete")
-        except Exception as e:
-            print(f"Error during model training: {e}")
-            sys.exit(1)
-        
-        print("Evaluating model...")
-        try:
-            eval_results = model.inference(test_data)
-            
-            y_true = eval_results["y_true"].astype(int)
-            y_prob = eval_results["y_prob"]
-            
-            if y_prob is None or len(y_prob) == 0:
-                print("WARNING: Empty predictions, using random values")
-                y_prob = np.random.rand(len(y_true), 1)
-                
-            try:
-                y_prob_flat = y_prob.flatten() if len(y_prob.shape) > 1 else y_prob
-                y_pred = (y_prob_flat > 0.5).astype(int)
-            except Exception as e:
-                print(f"Error processing predictions: {e}")
-                y_prob_flat = np.random.rand(len(y_true))
-                y_pred = np.random.randint(0, 2, size=len(y_true))
-                
-            accuracy = accuracy_score(y_true, y_pred)
-            auc = roc_auc_score(y_true, y_prob_flat)
-            precision = precision_score(y_true, y_pred)
-            recall = recall_score(y_true, y_pred)
-            f1 = f1_score(y_true, y_pred)
-        
-            print("\nEvaluation Results:")
-            print(f"Accuracy:  {accuracy:.4f}")
-            print(f"AUC-ROC:   {auc:.4f}")
-            print(f"Precision: {precision:.4f}")
-            print(f"Recall:    {recall:.4f}")
-            print(f"F1 Score:  {f1:.4f}")
-            
-            print("\nSample predictions (first 10 time points for first test patient):")
-            df_test = model._data_to_pandas(test_data[:1])
-            sample_true = df_test['label'].values[:10].astype(int)
-            
-            n_samples = min(10, len(sample_true))
-            if len(y_prob) >= n_samples:
-                sample_prob = y_prob[:n_samples, 0] if len(y_prob.shape) > 1 else y_prob[:n_samples]
-                sample_pred = (sample_prob > 0.5).astype(int)
-                
-                print("Time | True State | Predicted State | Probability")
-                print("--------------------------------------------------")
-                for t in range(n_samples):
-                    true_state = "Asleep" if sample_true[t] == 1 else "Awake"
-                    pred_state = "Asleep" if sample_pred[t] == 1 else "Awake"
-                    print(f"{t:4d} | {true_state:10s} | {pred_state:14s} | {float(sample_prob[t]):.4f}")
-
-            print("\nAnalyzing impact of random effects...")
-            if model.gp_model:
-                print("Model was successfully trained with random effects")
-                print("Random effects are incorporated into the predictions")
-                
-                # Get basic info about the model
-                re_info = model.get_random_effects_info()
-                
-                if 'model_params' in re_info:
-                    print("\nGP Model Parameters:")
-                    for k, v in re_info['model_params'].items():
-                        if not k.startswith('_') and v is not None:
-                            # Format nicer printing for different value types
-                            if isinstance(v, float):
-                                val_str = f"{v:.4g}"
-                            elif isinstance(v, (list, tuple)) and len(v) > 6:
-                                val_str = f"[{', '.join(str(x) for x in v[:3])}..., {', '.join(str(x) for x in v[-3:])}]"
-                            else:
-                                val_str = str(v)
-                            print(f"  {k}: {val_str}")
-
-                # Print simple model performance summary
-                print("\nModel performance summary:")
-                print(f"Model type: GPBoost with random effects")
-                print(f"Features used: {', '.join(feature_keys)}")
-                print(f"Random effect features: {', '.join(random_effect_keys) if random_effect_keys else 'None'}")
-                print(f"Accuracy: {accuracy:.4f}")
-                
-                print("\nNote: Individual random effects coefficients are not directly accessible")
-                print("      with the bernoulli_probit likelihood, but are incorporated in predictions.")
-            else:
-                print("Model was trained without random effects")
-        
-        except Exception as e:
-            print(f"Error during model evaluation: {e}")
-            import traceback
-            traceback.print_exc()
+    print("\nFeature statistics across all patients:")
+    all_hr = [visit['heart_rate'] for patient in data for visit in patient['visits']]
+    all_eda = [visit['eda'] for patient in data for visit in patient['visits']]
+    all_temp = [visit['temperature'] for patient in data for visit in patient['visits']]
+    all_acc = [visit['accelerometer'] for patient in data for visit in patient['visits']]
     
-    except KeyboardInterrupt:
-        print("\nExecution interrupted by user.")
+    print(f"Heart Rate: min={min(all_hr):.1f}, max={max(all_hr):.1f}, mean={np.mean(all_hr):.1f}, std={np.std(all_hr):.1f}")
+    print(f"EDA: min={min(all_eda):.3f}, max={max(all_eda):.3f}, mean={np.mean(all_eda):.3f}, std={np.std(all_eda):.3f}")
+    print(f"Temperature: min={min(all_temp):.1f}, max={max(all_temp):.1f}, mean={np.mean(all_temp):.1f}, std={np.std(all_temp):.1f}")
+    print(f"Movement: min={min(all_acc):.4f}, max={max(all_acc):.4f}, mean={np.mean(all_acc):.4f}, std={np.std(all_acc):.4f}")
+    
+    all_stages = [visit['sleep_stage'] for patient in data for visit in patient['visits']]
+    awake_percent = 100 * all_stages.count("Awake") / len(all_stages)
+    asleep_percent = 100 * all_stages.count("Asleep") / len(all_stages)
+    print(f"\nSleep stages: {awake_percent:.1f}% Awake, {asleep_percent:.1f}% Asleep")
+    
+    try:
+        train_dataset = SampleEHRDataset(samples=train_data, dataset_name="synth_sleep_train")
+        train_dataset.label_tokenizer = BinaryTokenizer()
+        test_dataset = SampleEHRDataset(samples=test_data, dataset_name="synth_sleep_test")
+        test_dataset.label_tokenizer = BinaryTokenizer()
     except Exception as e:
-        print(f"Unexpected error occurred: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"Error creating PyHealth datasets: {e}")
+        sys.exit(1)
+    
+    print("Training GPBoost model for binary sleep classification...")
+    try:
+        model = GPBoostTimeSeriesModel(
+            dataset=train_dataset,
+            feature_keys=feature_keys,
+            label_key=label_key,
+            group_key=group_key,
+            random_effect_features=random_effect_keys,
+            num_boost_round=100,
+            learning_rate=0.1,
+            max_depth=5,
+            verbose=-1
+        )
+        
+        model.train(train_data)
+        print("Training complete")
+    except Exception as e:
+        print(f"Error during model training: {e}")
+        sys.exit(1)
+    
+    print("Evaluating model...")
+    eval_results = model.inference(test_data)
+    
+    y_true = eval_results["y_true"].astype(int)
+    y_prob = eval_results["y_prob"]
+    
+    if y_prob is None or len(y_prob) == 0:
+        print("WARNING: Empty predictions, using random values")
+        y_prob = np.random.rand(len(y_true), 1)
+        
+    try:
+        y_prob_flat = y_prob.flatten() if len(y_prob.shape) > 1 else y_prob
+        y_pred = (y_prob_flat > 0.5).astype(int)
+    except Exception as e:
+        print(f"Error processing predictions: {e}")
+        y_prob_flat = np.random.rand(len(y_true))
+        y_pred = np.random.randint(0, 2, size=len(y_true))
+        
+    accuracy = accuracy_score(y_true, y_pred)
+    auc = roc_auc_score(y_true, y_prob_flat)
+    precision = precision_score(y_true, y_pred)
+    recall = recall_score(y_true, y_pred)
+    f1 = f1_score(y_true, y_pred)
+
+    print("\nEvaluation Results:")
+    print(f"Accuracy:  {accuracy:.4f}")
+    print(f"AUC-ROC:   {auc:.4f}")
+    print(f"Precision: {precision:.4f}")
+    print(f"Recall:    {recall:.4f}")
+    print(f"F1 Score:  {f1:.4f}")
+    
+    print("\nSample predictions (first 10 time points for first test patient):")
+    df_test = model._data_to_pandas(test_data[:1])
+    sample_true = df_test['label'].values[:10].astype(int)
+    
+    n_samples = min(10, len(sample_true))
+    if len(y_prob) >= n_samples:
+        sample_prob = y_prob[:n_samples, 0] if len(y_prob.shape) > 1 else y_prob[:n_samples]
+        sample_pred = (sample_prob > 0.5).astype(int)
+        
+        print("Time | True State | Predicted State | Probability")
+        print("--------------------------------------------------")
+        for t in range(n_samples):
+            true_state = "Asleep" if sample_true[t] == 1 else "Awake"
+            pred_state = "Asleep" if sample_pred[t] == 1 else "Awake"
+            print(f"{t:4d} | {true_state:10s} | {pred_state:14s} | {float(sample_prob[t]):.4f}")
+
+    print("\nAnalyzing impact of random effects...")
+    if model.gp_model:
+        print("Model was successfully trained with random effects")
+        print("Random effects are incorporated into the predictions")
+        
+        # Get basic info about the model
+        re_info = model.get_random_effects_info()
+        
+        if 'model_params' in re_info:
+            print("\nGP Model Parameters:")
+            for k, v in re_info['model_params'].items():
+                if not k.startswith('_') and v is not None:
+                    # Format nicer printing for different value types
+                    if isinstance(v, float):
+                        val_str = f"{v:.4g}"
+                    elif isinstance(v, (list, tuple)) and len(v) > 6:
+                        val_str = f"[{', '.join(str(x) for x in v[:3])}..., {', '.join(str(x) for x in v[-3:])}]"
+                    else:
+                        val_str = str(v)
+                    print(f"  {k}: {val_str}")
+
+        # Print simple model performance summary
+        print("\nModel performance summary:")
+        print(f"Model type: GPBoost with random effects")
+        print(f"Features used: {', '.join(feature_keys)}")
+        print(f"Random effect features: {', '.join(random_effect_keys) if random_effect_keys else 'None'}")
+        print(f"Accuracy: {accuracy:.4f}")
+        
+        print("\nNote: Individual random effects coefficients are not directly accessible")
+        print("      with the bernoulli_probit likelihood, but are incorporated in predictions.")
+    else:
+        print("Model was trained without random effects")
