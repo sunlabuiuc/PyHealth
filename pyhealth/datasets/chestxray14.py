@@ -58,11 +58,11 @@ class ChestXray14Dataset(BaseDataset):
         Example:
             >>> dataset = ChestXray14Dataset(root="./data")
         """
-        self.classes = ("atelectasis", "cardiomegaly", "consolidation",
+        self.classes = ["atelectasis", "cardiomegaly", "consolidation",
                         "edema", "effusion", "emphysema",
                         "fibrosis", "hernia", "infiltration",
                         "mass", "nodule", "pleural_thickening",
-                        "pneumonia", "pneumothorax")
+                        "pneumonia", "pneumothorax"]
 
         self._partial = partial
 
