@@ -38,7 +38,7 @@ request, you need to
 - Clone it to your local machine
 - Implement your code and test it
 - Push it to your GitHub repository
-- [Create a pull request] in PyHelath repository
+- [Create a pull request] in PyHealth repository
 
 [Fork the PyHealth repository]: https://github.com/sunlabuiuc/PyHealth/fork
 
