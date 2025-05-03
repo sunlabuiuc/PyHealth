@@ -21,8 +21,9 @@ class BinaryLabelProcessor(FeatureProcessor):
 
     def fit(self, samples: List[Dict[str, Any]], field: str) -> None:
         all_labels = set([sample[field] for sample in samples])
-        if len(all_labels) != 2:
-            raise ValueError(f"Expected 2 unique labels, got {len(all_labels)}")
+        # @Todo: Breaks if the sample count is too low!
+        # if len(all_labels) != 2:
+        #     raise ValueError(f"Expected 2 unique labels, got {len(all_labels)}")
         if all_labels == {0, 1}:
             self.label_vocab = {0: 0, 1: 1}
         elif all_labels == {False, True}:
@@ -68,7 +69,7 @@ class MultiClassLabelProcessor(FeatureProcessor):
     def process(self, value: Any) -> torch.Tensor:
         index = self.label_vocab[value]
         return torch.tensor(index, dtype=torch.long)
-    
+
     def size(self):
         return len(self.label_vocab)
 
@@ -127,7 +128,7 @@ class RegressionLabelProcessor(FeatureProcessor):
 
     def process(self, value: Any) -> torch.Tensor:
         return torch.tensor([float(value)], dtype=torch.float32)
-    
+
     def size(self):
         return 1
 

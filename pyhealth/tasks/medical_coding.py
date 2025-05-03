@@ -78,8 +78,16 @@ class MIMIC3ICD9Coding(BaseTask):
             for note in noteevents:
                 text += " " + note.text
 
-            diagnoses_icd = [event.icd9_code for event in diagnoses_icd]
-            procedures_icd = [event.icd9_code for event in procedures_icd]
+            diagnoses_icd = [
+                event.icd9_code
+                for event in diagnoses_icd
+                if event.icd9_code is not None
+            ]
+            procedures_icd = [
+                event.icd9_code
+                for event in procedures_icd
+                if event.icd9_code is not None
+            ]
             icd_codes = list(set(diagnoses_icd + procedures_icd))
 
             if text == "" or len(icd_codes) < 1:
