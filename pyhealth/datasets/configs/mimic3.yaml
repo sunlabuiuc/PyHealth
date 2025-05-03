@@ -1,7 +1,7 @@
 version: "1.4"
 tables:
   patients:
-    file_path: "PATIENTS.csv"
+    file_path: "PATIENTS.csv.gz"
     patient_id: "subject_id"
     timestamp: null
     attributes:
@@ -13,7 +13,7 @@ tables:
     - "expire_flag"
 
   admissions:
-    file_path: "ADMISSIONS.csv"
+    file_path: "ADMISSIONS.csv.gz"
     patient_id: "subject_id"
     timestamp: "admittime"
     attributes:
@@ -33,7 +33,7 @@ tables:
       - "hospital_expire_flag"
 
   icustays:
-    file_path: "ICUSTAYS.csv"
+    file_path: "ICUSTAYS.csv.gz"
     patient_id: "subject_id"
     timestamp: "intime"
     attributes:
@@ -44,10 +44,10 @@ tables:
       - "outtime" 
 
   diagnoses_icd:
-    file_path: "DIAGNOSES_ICD.csv"
+    file_path: "DIAGNOSES_ICD.csv.gz"
     patient_id: "subject_id"
     join:
-      - file_path: "ADMISSIONS.csv"
+      - file_path: "ADMISSIONS.csv.gz"
         "on": "hadm_id"
         how: "inner"
         columns:
@@ -58,7 +58,7 @@ tables:
       - "seq_num"
 
   prescriptions:
-    file_path: "PRESCRIPTIONS.csv"
+    file_path: "PRESCRIPTIONS.csv.gz"
     patient_id: "subject_id"
     timestamp: "startdate"
     attributes:
@@ -76,12 +76,12 @@ tables:
       - "form_unit_disp"
       - "route"
       - "enddate"
-      
+
   procedures_icd:
-    file_path: "PROCEDURES_ICD.csv"
+    file_path: "PROCEDURES_ICD.csv.gz"
     patient_id: "subject_id"
     join:
-      - file_path: "ADMISSIONS.csv"
+      - file_path: "ADMISSIONS.csv.gz"
         "on": "hadm_id"
         how: "inner"
         columns:
@@ -92,10 +92,10 @@ tables:
       - "seq_num"
 
   labevents:
-    file_path: "LABEVENTS.csv"
+    file_path: "LABEVENTS.csv.gz"
     patient_id: "subject_id"
     join:
-      - file_path: "D_LABITEMS.csv"
+      - file_path: "D_LABITEMS.csv.gz"
         "on": "itemid"
         how: "inner"
         columns:
@@ -114,12 +114,10 @@ tables:
       - "flag"
 
   noteevents:
-    file_path: "NOTEEVENTS.csv"
+    file_path: "NOTEEVENTS.csv.gz"
     patient_id: "subject_id"
     timestamp:
-      - "chartdate"
       - "charttime"
-    timestamp_format: "%Y%m%d%H%M%S"
     attributes:
       - "text"
       - "category"

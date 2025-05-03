@@ -1,9 +1,12 @@
+import logging
 from typing import Any, Dict, List
 
 import torch
 
 from . import register_processor
 from .base_processor import FeatureProcessor
+
+logger = logging.getLogger(__name__)
 
 
 @register_processor("binary")
@@ -15,12 +18,22 @@ class BinaryLabelProcessor(FeatureProcessor):
     def __init__(self):
         super().__init__()
         self.label_vocab: Dict[Any, int] = {}
-        self._next_index = 0
+
+    def fit(self, samples: List[Dict[str, Any]], field: str) -> None:
+        all_labels = set([sample[field] for sample in samples])
+        if len(all_labels) != 2:
+            raise ValueError(f"Expected 2 unique labels, got {len(all_labels)}")
+        if all_labels == {0, 1}:
+            self.label_vocab = {0: 0, 1: 1}
+        elif all_labels == {False, True}:
+            self.label_vocab = {False: 0, True: 1}
+        else:
+            all_labels = list(all_labels)
+            all_labels.sort()
+            self.label_vocab = {label: i for i, label in enumerate(all_labels)}
+        logger.info(f"Label {field} vocab: {self.label_vocab}")
 
     def process(self, value: Any) -> torch.Tensor:
-        if value not in self.label_vocab:
-            self.label_vocab[value] = self._next_index
-            self._next_index += 1
         index = self.label_vocab[value]
         return torch.tensor([index], dtype=torch.float32)
 
@@ -40,12 +53,19 @@ class MultiClassLabelProcessor(FeatureProcessor):
     def __init__(self):
         super().__init__()
         self.label_vocab: Dict[Any, int] = {}
-        self._next_index = 0
+
+    def fit(self, samples: List[Dict[str, Any]], field: str) -> None:
+        all_labels = set([sample[field] for sample in samples])
+        num_classes = len(all_labels)
+        if all_labels == set(range(num_classes)):
+            self.label_vocab = {i: i for i in range(num_classes)}
+        else:
+            all_labels = list(all_labels)
+            all_labels.sort()
+            self.label_vocab = {label: i for i, label in enumerate(all_labels)}
+        logger.info(f"Label {field} vocab: {self.label_vocab}")
 
     def process(self, value: Any) -> torch.Tensor:
-        if value not in self.label_vocab:
-            self.label_vocab[value] = self._next_index
-            self._next_index += 1
         index = self.label_vocab[value]
         return torch.tensor(index, dtype=torch.long)
     
@@ -68,14 +88,20 @@ class MultiLabelProcessor(FeatureProcessor):
     def __init__(self):
         super().__init__()
         self.label_vocab: Dict[Any, int] = {}
-        self._next_index = 0
 
     def fit(self, samples: List[Dict[str, Any]], field: str) -> None:
+        all_labels = set()
         for sample in samples:
             for label in sample[field]:
-                if label not in self.label_vocab:
-                    self.label_vocab[label] = self._next_index
-                    self._next_index += 1
+                all_labels.add(label)
+        num_classes = len(all_labels)
+        if all_labels == set(range(num_classes)):
+            self.label_vocab = {i: i for i in range(num_classes)}
+        else:
+            all_labels = list(all_labels)
+            all_labels.sort()
+            self.label_vocab = {label: i for i, label in enumerate(all_labels)}
+        logger.info(f"Label {field} vocab: {self.label_vocab}")
 
     def process(self, value: Any) -> torch.Tensor:
         if not isinstance(value, list):
