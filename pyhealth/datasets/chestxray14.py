@@ -195,7 +195,7 @@ class ChestXray14Dataset(BaseDataset):
             md5_checksums = md5_checksums[:2]
 
         for idx, link in enumerate(links):
-            fn = self.path.joinpath(f"images_{idx+1:02d}.tar.gz")
+            fn = os.path.join(root, f"images_{idx+1:02d}.tar.gz")
 
             logger.info(f'Downloading {fn}...')
             urllib.request.urlretrieve(link, fn)
