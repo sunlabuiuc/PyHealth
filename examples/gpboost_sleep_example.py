@@ -364,11 +364,13 @@ if __name__ == "__main__":
     print(f"Generated data for {len(data)} patients")
     print(f"Average epochs per patient: {sum(len(p['visits']) for p in data)/len(data):.1f}")
     
+    # Define feature, label, and group keys
     feature_keys = ["heart_rate", "eda", "temperature", "accelerometer"]
     label_key = "sleep_stage"
     group_key = "patient_id"
     random_effect_keys = ["obesity", "apnea"]
     
+    # Create a simple binary tokenizer for sleep states
     class BinaryTokenizer:
         def __init__(self):
             self.vocabulary = {"Awake": 0, "Asleep": 1}
@@ -380,68 +382,28 @@ if __name__ == "__main__":
         def decode(self, index):
             return self.reverse_vocab.get(index, "Unknown")
     
+    # Split into train and test sets
     train_data, test_data = train_test_split(data, test_size=0.2, random_state=42)
     print(f"Training set: {len(train_data)} patients, Test set: {len(test_data)} patients")
     
-    print("\n=== Sample Data Overview ===")
-    
-    sample_patient = random.choice(data)
-    patient_id = sample_patient["patient_id"]
-    
-    visits = sample_patient["visits"]
-    total_epochs = len(visits)
-    sleep_epochs = sum(1 for v in visits if v["sleep_stage"] == "Asleep")
-    wake_epochs = total_epochs - sleep_epochs
-    
-    print(f"Patient {patient_id} - {total_epochs} epochs ({wake_epochs} awake, {sleep_epochs} asleep)")
-    print(f"Random effects: Obesity = {sample_patient['obesity']}, Apnea = {sample_patient['apnea']}")
-    
-    print("\nFirst 5 epochs of data:")
-    print("Time | Sleep Stage | Heart Rate | EDA  | Temperature | Movement")
-    print("-" * 70)
-    for i, visit in enumerate(visits[:5]):
-        print(f"{i:4d} | {visit['sleep_stage']:11s} | {visit['heart_rate']:9.1f} | {visit['eda']:.3f} | "
-                f"{visit['temperature']:10.1f} | {visit['accelerometer']:.4f}")
-                
-    # Show transitions: 5 epochs around a state change if possible
-    print("\nSample sleep transition (if available):")
-    transition_idx = None
-    for i in range(1, total_epochs):
-        if visits[i]['sleep_stage'] != visits[i-1]['sleep_stage']:
-            transition_idx = i
-            break
-            
-    if transition_idx and transition_idx > 2 and transition_idx < total_epochs - 2:
-        print("Time | Sleep Stage | Heart Rate | EDA  | Temperature | Movement")
-        print("-" * 70)
-        for i in range(transition_idx - 2, transition_idx + 3):
-            visit = visits[i]
-            print(f"{i:4d} | {visit['sleep_stage']:11s} | {visit['heart_rate']:9.1f} | {visit['eda']:.3f} | "
-                    f"{visit['temperature']:10.1f} | {visit['accelerometer']:.4f}")
-    else:
-        print("No clear transition found in the sample")
-        
-    print("\nFeature statistics across all patients:")
-    all_hr = [visit['heart_rate'] for patient in data for visit in patient['visits']]
-    all_eda = [visit['eda'] for patient in data for visit in patient['visits']]
-    all_temp = [visit['temperature'] for patient in data for visit in patient['visits']]
-    all_acc = [visit['accelerometer'] for patient in data for visit in patient['visits']]
-    
-    print(f"Heart Rate: min={min(all_hr):.1f}, max={max(all_hr):.1f}, mean={np.mean(all_hr):.1f}, std={np.std(all_hr):.1f}")
-    print(f"EDA: min={min(all_eda):.3f}, max={max(all_eda):.3f}, mean={np.mean(all_eda):.3f}, std={np.std(all_eda):.3f}")
-    print(f"Temperature: min={min(all_temp):.1f}, max={max(all_temp):.1f}, mean={np.mean(all_temp):.1f}, std={np.std(all_temp):.1f}")
-    print(f"Movement: min={min(all_acc):.4f}, max={max(all_acc):.4f}, mean={np.mean(all_acc):.4f}, std={np.std(all_acc):.4f}")
-    
-    all_stages = [visit['sleep_stage'] for patient in data for visit in patient['visits']]
-    awake_percent = 100 * all_stages.count("Awake") / len(all_stages)
-    asleep_percent = 100 * all_stages.count("Asleep") / len(all_stages)
-    print(f"\nSleep stages: {awake_percent:.1f}% Awake, {asleep_percent:.1f}% Asleep")
-    
+    # Create PyHealth datasets
     try:
+        # Define input and output schemas
+        input_schema = {key: "float" for key in feature_keys}
+        output_schema = {label_key: ["Awake", "Asleep"]}
+        
+        # Create training dataset
         train_dataset = SampleEHRDataset(samples=train_data, dataset_name="synth_sleep_train")
         train_dataset.label_tokenizer = BinaryTokenizer()
+        train_dataset.input_schema = input_schema  # Apply input schema
+        train_dataset.output_schema = output_schema  # Apply output schema
+        
+        # Create test dataset
         test_dataset = SampleEHRDataset(samples=test_data, dataset_name="synth_sleep_test")
         test_dataset.label_tokenizer = BinaryTokenizer()
+        test_dataset.input_schema = input_schema  # Apply input schema
+        test_dataset.output_schema = output_schema  # Apply output schema
+        
     except Exception as e:
         print(f"Error creating PyHealth datasets: {e}")
         sys.exit(1)
@@ -449,7 +411,7 @@ if __name__ == "__main__":
     print("Training GPBoost model for binary sleep classification...")
     try:
         model = GPBoostTimeSeriesModel(
-            dataset=train_dataset,
+            dataset=train_dataset,  # Dataset now has required schemas
             feature_keys=feature_keys,
             label_key=label_key,
             group_key=group_key,

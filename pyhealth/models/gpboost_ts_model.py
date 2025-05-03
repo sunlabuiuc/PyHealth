@@ -22,12 +22,15 @@ class GPBoostTimeSeriesModel(BaseModel):
     as specified in the reference paper.
     
     Args:
-        dataset: PyHealth dataset object
+        dataset: PyHealth dataset object with input_schema and output_schema defined
         feature_keys: List of feature keys to use
         label_key: Key for the target variable
         group_key: Key identifying the grouping variable (e.g., 'patient_id', 'subject_id')
         random_effect_features: Features to use for random effects modeling
         **kwargs: Additional arguments passed to gpboost.train()
+        
+    Raises:
+        ValueError: If dataset is missing required input_schema or output_schema
     """
     def __init__(
         self,
@@ -38,23 +41,14 @@ class GPBoostTimeSeriesModel(BaseModel):
         random_effect_features: Optional[List[str]] = None,
         **kwargs,
     ):
-        # Check if dataset has input_schema attribute, add it if missing
+        # Verify dataset has required schema attributes
         if not hasattr(dataset, 'input_schema'):
-            input_schema = {key: "float" for key in feature_keys}
-            dataset.input_schema = input_schema
-            print("Added missing input_schema to dataset")
+            raise ValueError("Dataset missing required 'input_schema' attribute. "
+                          "Please define this before creating the model.")
             
-        # Check if dataset has output_schema attribute, add it if missing
         if not hasattr(dataset, 'output_schema'):
-            # Use label tokenizer vocabulary if available
-            if hasattr(dataset, "label_tokenizer") and hasattr(dataset.label_tokenizer, "vocabulary"):
-                classes = list(dataset.label_tokenizer.vocabulary.keys())
-            else:
-                # Default binary classes
-                classes = ["0", "1"]
-            output_schema = {label_key: classes}
-            dataset.output_schema = output_schema
-            print("Added missing output_schema to dataset")
+            raise ValueError("Dataset missing required 'output_schema' attribute. "
+                          "Please define this before creating the model.")
         
         super(GPBoostTimeSeriesModel, self).__init__(dataset=dataset)
         
