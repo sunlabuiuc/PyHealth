@@ -177,8 +177,10 @@ class Patient:
         # df = self._filter_by_event_type_regular(self.data_source, event_type)
         # df = self._filter_by_time_range_regular(df, start, end)
 
-        filters = filters or []
-        assert event_type is not None, "event_type must be provided if filters are provided"
+        if filters:
+            assert event_type is not None, "event_type must be provided if filters are provided"
+        else:
+            filters = []
         exprs = []
         for filt in filters:
             if not (isinstance(filt, tuple) and len(filt) == 3):
