@@ -36,7 +36,7 @@ class ChestXray14Dataset(BaseDataset):
     """
     def __init__(self,
                  root: str = ".",
-                 config_path: Optional[str] = Path(__file__).parent / "configs" / "chestxray14.yaml",
+                 config_path: Optional[str] = str(Path(__file__).parent / "configs" / "chestxray14.yaml"),
                  download: bool = True,
                  partial: bool = False) -> None:
         """Initializes the ChestX-ray14 dataset.
