@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import requests
 import tarfile
+from typing import Optional
 import urllib.request
 
 import pandas as pd
@@ -25,21 +26,24 @@ class ChestXray14Dataset(BaseDataset):
     Attributes:
         root (str): Root directory of the raw data.
         dataset_name (str): Name of the dataset.
-        config_path (str) Path to the configuration file.
+        config_path (str): Path to the configuration file.
+        classes (List[str]): List of diseases that appear in the dataset.
 
     Methods:
         __len__(): Returns the number of entries in the dataset.
-        __getitem__(index): Retrieves a specific image and its metadata.
+        __getitem__(index: int): Retrieves a specific image and its metadata.
         stat(): Prints statistics about the dataset's content.
     """
     def __init__(self,
                  root: str = "",
+                 config_path: Optional[str] = Path(__file__).parent / "configs" / "chestxray14.yaml",
                  download: bool = True,
                  partial: bool = False) -> None:
         """Initializes the ChestX-ray14 dataset.
 
         Args:
             root (str): Local path to store or load the dataset. Defaults to the current directory.
+            config_path (Optional[str]): Path to the configuration file. Defaults to "../configs/chestxray14.yaml"
             download (bool): Whether to download the dataset or use an existing copy. Defaults to True.
             partial (bool): Whether to download only a subset of the dataset. Defaults to False.
 
@@ -58,16 +62,16 @@ class ChestXray14Dataset(BaseDataset):
             root=root,
             tables=["chestxray14"],
             dataset_name="ChestX-ray14",
-            config_path=(Path(__file__).parent / "configs" / "chestxray14.yaml"),
+            config_path=config_path,
         )
 
-        self._partial = partial
+        self.classes = ("atelectasis", "cardiomegaly", "consolidation",
+                        "edema", "effusion", "emphysema",
+                        "fibrosis", "hernia", "infiltration",
+                        "mass", "nodule", "pleural_thickening",
+                        "pneumonia", "pneumothorax")
 
-        self._classes = ("atelectasis", "cardiomegaly", "consolidation",
-                           "edema", "effusion", "emphysema",
-                           "fibrosis", "hernia", "infiltration",
-                           "mass", "nodule", "pleural_thickening",
-                           "pneumonia", "pneumothorax")
+        self._partial = partial
 
         self._label_path: Path = os.path.join(self.root, "Data_Entry_2017_v2020.csv")
         self._image_path: Path = os.path.join(self.root, "images")
@@ -120,9 +124,9 @@ class ChestXray14Dataset(BaseDataset):
         lines.append(f"Statistics (partial={self._partial}):")
         lines.append(f"\t- Dataset: {self.dataset_name}")
         lines.append(f"\t- Number of images: {self.__len__()}")
-        lines.append(f"\t- Average number of findings per image: {self._data[self._classes].sum().sum() / self.__len__():.2}")
+        lines.append(f"\t- Average number of findings per image: {self._data[self.classes].sum().sum() / self.__len__():.2}")
         lines.append(f"\t- Number with no finding: {sum([not any(xray['labels'].values()) for xray in self._data])}")
-        for _class in self._classes:
+        for _class in self.classes:
             lines.append(f"\t- Number with {_class}: {self._data[_class].sum()}")
         lines.append("")
         print("\n".join(lines))
@@ -267,7 +271,7 @@ class ChestXray14Dataset(BaseDataset):
         image_names = [f.name for f in self._image_path.iterdir() if f.is_file()]
         df = df[df["Image Index"].isin(image_names)]
 
-        for _class in self._classes:
+        for _class in self.classes:
             df[_class] = df['Finding Labels'].str.contains(_class, case=False).astype(int)
 
         df.drop(["Finding Labels", "Follow-up #", "Patient ID", "View Position", "OriginalImage[Width", "Height]", "OriginalImagePixelSpacing[x", "y]"], inplace=True)
@@ -282,10 +286,12 @@ if __name__ == "__main__":
     logger.setLevel(logging.INFO)
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--no-download", action="store_true")
+    parser.add_argument("--config", type=str)
+    parser.add_argument("--download", action="store_true")
+    parser.add_argument("--partial", action="store_true")
     args = parser.parse_args()
 
-    dataset = ChestXray14Dataset(download=(not args.no_download), partial=True)
+    dataset = ChestXray14Dataset(config_path=args.config, download=args.download, partial=args.partial)
 
     dataset.stat()
     print(dataset[0])
