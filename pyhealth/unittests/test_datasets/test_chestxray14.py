@@ -7,10 +7,9 @@ import unittest
 from pyhealth.datasets.chestxray14 import ChestXray14Dataset
 
 config_path = str(Path(__file__).parent.parent / "datasets" / "configs" / "chestxray14.yaml")
-download = True
 
 class TestChestXray14Dataset(unittest.TestCase):
-    dataset = ChestXray14Dataset(config_path=config_path, download=download, partial=True)
+    dataset = ChestXray14Dataset(config_path=config_path, partial=True)
 
     def test_len(self):
         self.assertEqual(len(self.dataset), 14999)
@@ -75,6 +74,10 @@ class TestChestXray14Dataset(unittest.TestCase):
         self.assertEqual(data['pneumonia'], 0)
         self.assertEqual(data['pneumothorax'], 0)
 
+    def test_local_dataset(self):
+        ds = ChestXray14Dataset(download=False)
+        self.assertEqual(len(ds), 14999)
+
     def test_root(self):
         with self.assertRaises(FileNotFoundError):
             _ = ChestXray14Dataset(download=False, root="dataset")
@@ -110,10 +113,8 @@ class TestChestXray14Dataset(unittest.TestCase):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str)
-    parser.add_argument("--download", action="store_true")
     args = parser.parse_args()
 
     config_path = args.config
-    download = args.download
 
     unittest.main(verbosity=2)
