@@ -5,108 +5,16 @@ import os
 from pathlib import Path
 import requests
 import tarfile
-from typing import List, Literal, Tuple, TypedDict, Union
 import urllib.request
 
 import pandas as pd
-from PIL import Image
-import torch
-from torchvision.transforms import Compose
 
 from pyhealth.datasets.base_dataset import BaseDataset
 
 logger = logging.getLogger(__name__)
 
-INFO_MSG = """
-dataset: index -> Tuple[Image.Image, <ChestXray>]
-
-<ChestXray>
-    - image_name: str
-    - patient_age: str
-    - patient_sex: Literal['M', 'F']
-    - labels: <ChestXrayLabels>
-
-    <ChestXrayLabels>
-        - atelectasis: bool
-        - cardiomegaly: bool
-        - consolidation: bool
-        - edema: bool
-        - effusion: bool
-        - emphysema: bool
-        - fibrosis: bool
-        - hernia: bool
-        - infiltration: bool
-        - mass: bool
-        - nodule: bool
-        - pleural_thickening: bool
-        - pneumonia: bool
-        - pneumothorax: bool
-"""
-
-class ChestXrayLabels(TypedDict):
-    """Typed dictionary representing disease labels for a chest X-ray.
-
-    Each key corresponds to a medical condition potentially observable in a
-    chest radiograph. The value is a boolean indicating the presence (`True`)
-    or absence (`False`) of that condition in the associated image.
-
-    Attributes:
-        atelectasis (bool): Collapse or closure of lung tissue.
-        cardiomegaly (bool): Enlarged heart.
-        consolidation (bool): Solidification of lung tissue due to accumulation of fluids.
-        edema (bool): Fluid accumulation in lung tissue.
-        effusion (bool): Fluid buildup between the layers of tissue lining the lungs.
-        emphysema (bool): Air sacs in the lungs are damaged and enlarged.
-        fibrosis (bool): Scarring or thickening of lung tissue.
-        hernia (bool): Protrusion of an organ through the chest wall.
-        infiltration (bool): Diffuse or patchy lung opacity.
-        mass (bool): Larger abnormal growth in the lungs.
-        nodule (bool): Small abnormal round growth in the lungs.
-        pleural_thickening (bool): Thickening of the pleura, the membrane surrounding the lungs.
-        pneumonia (bool): Infection causing inflammation in the air sacs of the lungs.
-        pneumothorax (bool): Collapsed lung due to air in the pleural space.
-    """
-    atelectasis: bool
-    cardiomegaly: bool
-    consolidation: bool
-    edema: bool
-    effusion: bool
-    emphysema: bool
-    fibrosis: bool
-    hernia: bool
-    infiltration: bool
-    mass: bool
-    nodule: bool
-    pleural_thickening: bool
-    pneumonia: bool
-    pneumothorax: bool
-
-class ChestXray(TypedDict):
-    """Typed dictionary representing a single chest X-ray metadata entry.
-
-    This structure encapsulates all relevant information for a single image
-    in the ChestX-ray14 dataset, including patient metadata and associated
-    disease labels.
-
-    Attributes:
-        image_name (str): Filename of the chest X-ray image.
-        patient_age (int): Age of the patient at the time of imaging.
-        patient_sex (Literal['M', 'F']): Sex of the patient ('M' for male, 'F' for female).
-        labels (ChestXrayLabels): Dictionary mapping each disease label to a boolean
-            indicating presence (`True`) or absence (`False`) of that finding.
-    """
-    image_name: str
-    patient_age: int
-    patient_sex: Literal['M', 'F']
-    labels: ChestXrayLabels
-
 class ChestXray14Dataset(BaseDataset):
     """Dataset class for the NIH ChestX-ray14 dataset.
-
-    This class handles downloading, verifying, indexing, and accessing the
-    ChestX-ray14 dataset. It provides functionality to load the dataset,
-    retrieve individual samples with optional transformations, and display
-    dataset statistics and structure.
 
     Dataset is available at:
     https://nihcc.app.box.com/v/ChestXray-NIHCC/folder/36938765345
@@ -118,35 +26,22 @@ class ChestXray14Dataset(BaseDataset):
         root (str): Root directory of the raw data.
         dataset_name (str): Name of the dataset.
         config_path (str) Path to the configuration file.
-        partial (bool): Whether to download only a subset of the dataset.
-        transform (Compose): Transformations applied to each image sample.
 
     Methods:
         __len__(): Returns the number of entries in the dataset.
         __getitem__(index): Retrieves a specific image and its metadata.
-        info(): Prints information about the dataset's structure.
         stat(): Prints statistics about the dataset's content.
-
-    Example:
-        >>> from pathlib import Path
-        >>> from torchvision.transforms import Compose, Resize, ToTensor
-        >>> transform = Compose([Resize((224, 224)), ToTensor()])
-        >>> dataset = ChestXray14Dataset(root="./data", transform=transform)
-        >>> print(len(dataset))
-        >>> image, metadata = dataset[0]
     """
     def __init__(self,
                  root: str = "",
                  download: bool = True,
-                 partial: bool = False,
-                 transform: Compose = None) -> None:
+                 partial: bool = False) -> None:
         """Initializes the ChestX-ray14 dataset.
 
         Args:
             root (str): Local path to store or load the dataset. Defaults to the current directory.
             download (bool): Whether to download the dataset or use an existing copy. Defaults to True.
             partial (bool): Whether to download only a subset of the dataset. Defaults to False.
-            transform (Compose): Optional torchvision transform pipeline to apply to the images. Defaults to None.
 
         Raises:
             ValueError: If the MD5 checksum check fails during the download.
@@ -157,20 +52,22 @@ class ChestXray14Dataset(BaseDataset):
             ValueError: If the dataset 'images' directory does not contain any PNG files.
 
         Example:
-            >>> from pathlib import Path
-            >>> from torchvision.transforms import Compose, Resize, ToTensor
-            >>> transform = Compose([Resize((224, 224)), ToTensor()])
-            >>> dataset = ChestXray14Dataset(root="./data", download=True, transform=transform)
+            >>> dataset = ChestXray14Dataset(root="./data")
         """
         super().__init__(
             root=root,
-            tables=["ChestX-ray14"],
+            tables=["chestxray14"],
             dataset_name="ChestX-ray14",
             config_path=(Path(__file__).parent / "configs" / "chestxray14.yaml"),
         )
 
-        self.partial = partial
-        self.transform = transform
+        self._partial = partial
+
+        self._classes = ("atelectasis", "cardiomegaly", "consolidation",
+                           "edema", "effusion", "emphysema",
+                           "fibrosis", "hernia", "infiltration",
+                           "mass", "nodule", "pleural_thickening",
+                           "pneumonia", "pneumothorax")
 
         self._label_path: Path = os.path.join(self.root, "Data_Entry_2017_v2020.csv")
         self._image_path: Path = os.path.join(self.root, "images")
@@ -179,9 +76,7 @@ class ChestXray14Dataset(BaseDataset):
             self._download()
 
         self._verify_data()
-
-        self._data: List[ChestXray] = []
-        self._index_data()
+        self._data: pd.DataFrame = self._index_data()
 
     def __len__(self) -> int:
         """Returns the number of samples in the dataset.
@@ -195,19 +90,14 @@ class ChestXray14Dataset(BaseDataset):
         """
         return len(self._data)
 
-    def __getitem__(self, index: int) -> Tuple[Union[Image.Image, torch.Tensor], ChestXray]:
+    def __getitem__(self, index: int) -> pd.Series:
         """Retrieves a single sample from the dataset at the specified index.
-
-        Loads the image from disk, applies the transform if `self.transform` is set,
-        and returns the image along with its corresponding metadata.
 
         Args:
             index (int): Index of the sample to retrieve.
 
         Returns:
-            Tuple[Union[Image.Image, torch.Tensor], ChestXray]: A tuple containing
-            the image (either as a PIL Image or a torch.Tensor, depending on the
-            transform) and the associated `ChestXray` metadata entry.
+            pd.Series: Requested row of the data table.
 
         Raises:
             IndexError: If the index is out of bounds.
@@ -216,24 +106,7 @@ class ChestXray14Dataset(BaseDataset):
             >>> dataset = ChestXray14Dataset()
             >>> print(dataset[0])
         """
-        image_name = self._data[index]["image_name"]
-        image_path = os.path.join(self._image_path, image_name)
-
-        image = Image.open(image_path).convert('RGB')
-
-        if self.transform:
-            image = self.transform(image)
-
-        return image, self._data[index]
-
-    def info(self) -> None:
-        """Prints information on the structure of the dataset
-
-        Example:
-            >>> dataset = ChestXray14Dataset()
-            >>> dataset.info()
-        """
-        print(INFO_MSG)
+        return self._data.iloc[index]
 
     def stat(self) -> None:
         """Prints information on the contents of the dataset
@@ -244,15 +117,13 @@ class ChestXray14Dataset(BaseDataset):
         """
         lines = list()
         lines.append("")
-        lines.append(f"Statistics (partial={self.partial}):")
+        lines.append(f"Statistics (partial={self._partial}):")
         lines.append(f"\t- Dataset: {self.dataset_name}")
         lines.append(f"\t- Number of images: {self.__len__()}")
-        lines.append(f"\t- Average number of findings per image: {sum([sum(xray['labels'].values()) for xray in self._data]) / self.__len__():.2}")
+        lines.append(f"\t- Average number of findings per image: {self._data[self._classes].sum().sum() / self.__len__():.2}")
         lines.append(f"\t- Number with no finding: {sum([not any(xray['labels'].values()) for xray in self._data])}")
-
-        for label in ChestXrayLabels.__annotations__:
-            lines.append(f"\t- Number with {label}: {sum([xray['labels'][label] for xray in self._data])}")
-
+        for _class in self._classes:
+            lines.append(f"\t- Number with {_class}: {self._data[_class].sum()}")
         lines.append("")
         print("\n".join(lines))
 
@@ -267,7 +138,7 @@ class ChestXray14Dataset(BaseDataset):
         5. Removes the original compressed files after successful extraction.
         6. Validates that the expected number of images are present in the image directory.
 
-        If `self.partial` is True, only a subset of the dataset is downloaded and verified
+        If `self._partial` is True, only a subset of the dataset is downloaded and verified
         (specifically, the first two image archives).
 
         Raises:
@@ -312,7 +183,7 @@ class ChestXray14Dataset(BaseDataset):
             'dc9fda1757c2de0032b63347a7d2895c'
         ]
 
-        if self.partial:
+        if self._partial:
             links = links[:2]
             md5_checksums = md5_checksums[:2]
 
@@ -339,7 +210,7 @@ class ChestXray14Dataset(BaseDataset):
             os.remove(fn)
 
         num_images = len([f for f in os.listdir(self._image_path) if os.path.isfile(os.path.join(self._image_path, f))])
-        num_images_expected = 14999 if self.partial else 112120
+        num_images_expected = 14999 if self._partial else 112120
         if num_images != num_images_expected:
             msg = f"Expected {num_images_expected} images but found {num_images}!"
             logger.error(msg)
@@ -382,22 +253,11 @@ class ChestXray14Dataset(BaseDataset):
             logger.error(msg)
             raise ValueError(msg)
 
-    def _index_data(self) -> None:
+    def _index_data(self) -> pd.DataFrame:
         """Parses and indexes metadata for all available images in the dataset.
 
-        Reads the label CSV file and filters it to include only entries that have
-        corresponding image files in the dataset directory. For each valid entry,
-        extracts patient metadata and creates a multi-label disease dictionary
-        indicating the presence of specific conditions.
-
-        The resulting structured data is stored in `self._data` as a list of dictionaries,
-        each representing a single chest X-ray image and its associated metadata.
-
-        Each entry in `self._data` contains:
-            - image_name (str): Filename of the X-ray image.
-            - patient_age (int): Age of the patient.
-            - patient_sex (str): Sex of the patient.
-            - labels (dict[str, bool]): Presence of each disease label as a boolean.
+        Returns:
+            pd.DataFrame: Table of image paths and metadata.
 
         Raises:
             FileNotFoundError: If the label CSV file does not exist.
@@ -405,30 +265,18 @@ class ChestXray14Dataset(BaseDataset):
         """
         df = pd.read_csv(self._label_path)
         image_names = [f.name for f in self._image_path.iterdir() if f.is_file()]
-        filtered_df = df[df["Image Index"].isin(image_names)]
+        df = df[df["Image Index"].isin(image_names)]
 
-        for _, row in filtered_df.iterrows():
-            self._data.append({
-                "image_name": row["Image Index"],
-                "patient_age": row["Patient Age"],
-                "patient_sex": row["Patient Sex"],
-                "labels": {
-                    "atelectasis": "Atelectasis" in row["Finding Labels"],
-                    "cardiomegaly": "Cardiomegaly" in row["Finding Labels"],
-                    "consolidation": "Consolidation" in row["Finding Labels"],
-                    "edema": "Edema" in row["Finding Labels"],
-                    "effusion": "Effusion" in row["Finding Labels"],
-                    "emphysema": "Emphysema" in row["Finding Labels"],
-                    "fibrosis": "Fibrosis" in row["Finding Labels"],
-                    "hernia": "Hernia" in row["Finding Labels"],
-                    "infiltration": "Infiltration" in row["Finding Labels"],
-                    "mass": "Mass" in row["Finding Labels"],
-                    "nodule": "Nodule" in row["Finding Labels"],
-                    "pleural_thickening": "Pleural_Thickening" in row["Finding Labels"],
-                    "pneumonia": "Pneumonia" in row["Finding Labels"],
-                    "pneumothorax": "Pneumothorax" in row["Finding Labels"],
-                },
-            })
+        for _class in self._classes:
+            df[_class] = df['Finding Labels'].str.contains(_class, case=False).astype(int)
+
+        df.drop(["Finding Labels", "Follow-up #", "Patient ID", "View Position", "OriginalImage[Width", "Height]", "OriginalImagePixelSpacing[x", "y]"], inplace=True)
+        df.rename(columns={'Image Index': 'path', 'Patient Age': 'patient_age', 'Patient Sex': 'patient_sex'}, inplace=True)
+        df['path'] = str(self._image_path) + df['name']
+        df.to_csv(os.path.join(self.root, "chestxray14-metadata-pyhealth.csv"), index=False)
+
+        return df
+
 
 if __name__ == "__main__":
     logger.setLevel(logging.INFO)
@@ -440,5 +288,4 @@ if __name__ == "__main__":
     dataset = ChestXray14Dataset(download=(not args.no_download), partial=True)
 
     dataset.stat()
-    dataset.info()
     print(dataset[0])
