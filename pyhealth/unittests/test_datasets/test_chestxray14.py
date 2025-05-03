@@ -1,11 +1,16 @@
+import argparse
 import os
+from pathlib import Path
 import shutil
 import unittest
 
 from pyhealth.datasets.chestxray14 import ChestXray14Dataset
 
+config_path = str(Path(__file__).parent.parent / "datasets" / "configs" / "chestxray14.yaml")
+download = True
+
 class TestChestXray14Dataset(unittest.TestCase):
-    dataset = ChestXray14Dataset(partial=True)
+    dataset = ChestXray14Dataset(config_path=config_path, download=download, partial=True)
 
     def test_len(self):
         self.assertEqual(len(self.dataset), 14999)
@@ -82,7 +87,7 @@ class TestChestXray14Dataset(unittest.TestCase):
         shutil.move("images", "dataset")
         shutil.move("Data_Entry_2017_v2020.csv", "dataset")
 
-        d_ = ChestXray14Dataset(download=False, root="dataset")
+        _ = ChestXray14Dataset(download=False, root="dataset")
 
         shutil.move("dataset/images", ".")
         shutil.move("dataset/Data_Entry_2017_v2020.csv", ".")
@@ -107,4 +112,12 @@ class TestChestXray14Dataset(unittest.TestCase):
         _ = ChestXray14Dataset(download=False)
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", type=str)
+    parser.add_argument("--download", action="store_true")
+    args = parser.parse_args()
+
+    config_path = args.config
+    download = args.download
+
     unittest.main(verbosity=2)
