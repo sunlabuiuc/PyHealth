@@ -33,7 +33,7 @@ class MortalityPredictionMIMIC3(BaseTask):
             next_visit = visits[i + 1]
 
             # Check discharge status for mortality label - more robust handling
-            if next_visit.hospital_expire_flag not in [0, 1]:
+            if next_visit.hospital_expire_flag not in [0, 1, "0", "1"]:
                 mortality_label = 0
             else:
                 mortality_label = int(next_visit.hospital_expire_flag)
