@@ -64,7 +64,7 @@ class MIMIC3Dataset(BaseDataset):
     def preprocess_noteevents(self, df: pl.LazyFrame) -> pl.LazyFrame:
         """
         Table-specific preprocess function which will be called by BaseDataset.load_table().
-    
+
         Preprocesses the noteevents table by ensuring that the charttime column
         is populated. If charttime is null, it uses chartdate with a default
         time of 00:00:00.

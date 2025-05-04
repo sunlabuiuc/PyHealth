@@ -16,6 +16,7 @@ tables:
     file_path: "ADMISSIONS.csv.gz"
     patient_id: "subject_id"
     timestamp: "admittime"
+    timestamp_format: "%Y-%m-%d %H:%M:%S"
     attributes:
       - "hadm_id"
       - "admission_type"
@@ -36,6 +37,7 @@ tables:
     file_path: "ICUSTAYS.csv.gz"
     patient_id: "subject_id"
     timestamp: "intime"
+    timestamp_format: "%Y-%m-%d %H:%M:%S"
     attributes:
       - "icustay_id"
       - "first_careunit"
@@ -56,6 +58,7 @@ tables:
     attributes:
       - "icd9_code"
       - "seq_num"
+      - "hadm_id"
 
   prescriptions:
     file_path: "PRESCRIPTIONS.csv.gz"
@@ -90,6 +93,7 @@ tables:
     attributes:
       - "icd9_code"
       - "seq_num"
+      - "hadm_id"
 
   labevents:
     file_path: "LABEVENTS.csv.gz"
@@ -116,10 +120,18 @@ tables:
   noteevents:
     file_path: "NOTEEVENTS.csv.gz"
     patient_id: "subject_id"
+    join:
+      - file_path: "ADMISSIONS.csv.gz"
+        "on": "hadm_id"
+        how: "inner"
+        columns:
+          - "dischtime"
     timestamp:
       - "charttime"
+    timestamp_format: "%Y-%m-%d"
     attributes:
       - "text"
       - "category"
       - "description"
       - "storetime"
+      - "hadm_id"
