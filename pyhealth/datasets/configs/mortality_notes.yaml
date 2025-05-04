@@ -1,0 +1,22 @@
+version: "1.0"
+tables:
+  admissions:
+    file_path: "ADMISSIONS.csv"
+    patient_id: "subject_id"
+    timestamp: null
+    attributes:
+      - "dischtime"
+      - "hadm_id"
+      - "hospital_expire_flag"
+
+  noteevents:
+    file_path: "NOTEEVENTS.csv"
+    patient_id: "subject_id"
+    timestamp: null
+    attributes:
+      - "row_id"
+      - "charttime"
+      - "chartdate"
+      - "hadm_id"
+      - "category"
+      - "text"
