@@ -54,6 +54,7 @@ tables:
           - "dischtime"
     timestamp: "dischtime"
     attributes:
+      - "hadm_id"
       - "icd9_code"
       - "seq_num"
 
@@ -123,3 +124,6 @@ tables:
       - "category"
       - "description"
       - "storetime"
+      - "hadm_id"
+      - "chartdate"
+      - "row_id"

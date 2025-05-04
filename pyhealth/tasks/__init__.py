@@ -24,6 +24,7 @@ from .length_of_stay_prediction import (
     length_of_stay_prediction_omop_fn,
 )
 from .medical_coding import MIMIC3ICD9Coding
+from .discharge_notes_coding import MIMIC3DischargeNotesICD9Coding
 from .medical_transcriptions_classification import MedicalTranscriptionsClassification
 from .mortality_prediction import (
     MortalityPredictionEICU,
