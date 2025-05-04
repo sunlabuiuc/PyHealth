@@ -9,6 +9,7 @@ from .embedding import EmbeddingModel
 from .gamenet import GAMENet, GAMENetLayer
 from .gan import GAN
 from .gnn import GAT, GCN
+from .gpboost_ts_model import GPBoostTimeSeriesModel
 from .graph_torchvision_model import Graph_TorchvisionModel
 from .grasp import GRASP, GRASPLayer
 from .medlink import MedLink
