@@ -143,7 +143,7 @@ class BaseDataset(ABC):
             if self.dev:
                 # Limit the number of patients in dev mode
                 logger.info("Dev mode enabled: limiting to 1000 patients")
-                limited_patients = df.select(pl.col("patient_id")).unique().limit(1000)
+                limited_patients = df.select(pl.col("patient_id")).unique(maintain_order=True).limit(1000)
                 df = df.join(limited_patients, on="patient_id", how="inner")
 
             self._collected_global_event_df = df.collect()
@@ -226,14 +226,22 @@ class BaseDataset(ABC):
         if timestamp_col:
             if isinstance(timestamp_col, list):
                 # Concatenate all timestamp parts in order with no separator
+                logger.info(
+                    f"Combining multiple timestamp columns: {timestamp_col}"
+                    f" with format: {timestamp_format}"
+                )
                 combined_timestamp = pl.concat_str(
                     [pl.col(col) for col in timestamp_col]
-                ).str.strptime(pl.Datetime, format=timestamp_format, strict=True)
+                ).str.strptime(pl.Datetime, format=timestamp_format, strict=False)
                 timestamp_expr = combined_timestamp
             else:
+                logger.info(
+                    f"Parsing timestamp column: {timestamp_col}"
+                    f" with format: {timestamp_format}"
+                )
                 # Single timestamp column
                 timestamp_expr = pl.col(timestamp_col).str.strptime(
-                    pl.Datetime, format=timestamp_format, strict=True
+                    pl.Datetime, format=timestamp_format, strict=False
                 )
         else:
             timestamp_expr = pl.lit(None, dtype=pl.Datetime)
@@ -274,6 +282,7 @@ class BaseDataset(ABC):
                 .to_list()
             )
             logger.info(f"Found {len(self._unique_patient_ids)} unique patient IDs")
+            logger.info(f"Unique patient IDs: {self._unique_patient_ids[:5]}...")
         return self._unique_patient_ids
 
     def get_patient(self, patient_id: str) -> Patient:
