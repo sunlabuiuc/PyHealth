@@ -1,0 +1,26 @@
+version: "1.0"
+tables:
+  chexpert_cxr:
+    file_path: "chexpert_cxr-pyhealth.csv"
+    patient_id: null
+    timestamp: null
+    attributes:
+    - "Path"
+    - "Sex"
+    - "Age"
+    - "Frontal/Lateral"
+    - "AP/PA"
+    - "No Finding"
+    - "Enlarged Cardiomediastinum"
+    - "Cardiomegaly"
+    - "Lung Opacity"
+    - "Lung Lesion"
+    - "Edema"
+    - "Consolidation"
+    - "Pneumonia"
+    - "Atelectasis"
+    - "Pneumothorax"
+    - "Pleural Effusion"
+    - "Pleural Other"
+    - "Fracture"
+    - "Support Devices"
