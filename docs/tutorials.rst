@@ -1,7 +1,7 @@
 Tutorials
 ========================
 
- We provide the following tutorials to help users get started with our pyhealth. 
+ We provide the following tutorials to help users get started with our pyhealth. Please bare with us as we update the docuemntation on how to use pyhealth.
 
 
 `Tutorial 0: Introduction to pyhealth.data <https://colab.research.google.com/drive/1y9PawgSbyMbSSMw1dpfwtooH7qzOEYdN?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=Nk1itBoLOX8&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=2>`_ 
@@ -23,15 +23,16 @@ Tutorials
 
  The following tutorials will help users build their own task pipelines. `[Video] <https://www.youtube.com/watch?v=GGP3Dhfyisc&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=12>`_ 
 
-`Pipeline 1: Drug Recommendation <https://colab.research.google.com/drive/10CSb4F4llYJvv42yTUiRmvSZdoEsbmFF?usp=sharing>`_ 
 
-`Pipeline 2: Length of Stay Prediction <https://colab.research.google.com/drive/1JoPpXqqB1_lGF1XscBOsDHMLtgvlOYI1?usp=sharing>`_ 
+`Pipeline 1: Chest Xray Classification <https://colab.research.google.com/drive/18vK23gyI1LjWbTgkq4f99yDZA3A7Pxp9?usp=sharing>`_ 
 
-`Pipeline 3: Readmission Prediction <https://colab.research.google.com/drive/1bhCwbXce1YFtVaQLsOt4FcyZJ1_my7Cs?usp=sharing>`_ 
+`Pipeline 2: Medical Coding <https://colab.research.google.com/drive/1ThYP_5ng5xPQwscv5XztefkkoTruhjeK?usp=sharing>`_ 
 
-`Pipeline 4: Mortality Prediction <https://colab.research.google.com/drive/1Qblpcv4NWjrnADT66TjBcNwOe8x6wU4c?usp=sharing>`_ 
+`Pipeline 3: Medical Transcription Classification <https://colab.research.google.com/drive/1bjk_IArc2ZmXGR6u6Qzyf7kh70RdiY9c?usp=sharing>`_ 
 
-`Pipeline 5: Sleep Staging <https://colab.research.google.com/drive/1mpSeNCAthXG3cqROkdUcUdozIPIMTCuo?usp=sharing>`_ 
+`Pipeline 4: Mortality Prediction <https://colab.research.google.com/drive/1b9xRbxUz-HLzxsrvxdsdJ868ajGQCY6U?usp=sharing>`_ 
+
+`Pipeline 5: Readmission Prediction <https://colab.research.google.com/drive/1h0pAymUlPQfkLFryI9QI37-HAW1tRxGZ?usp=sharing>`_ 
 
 .. `Pipeline 5: Phenotype Prediction <https://colab.research.google.com/drive/10CSb4F4llYJvv42yTUiRmvSZdoEsbmFF>`_ 
 

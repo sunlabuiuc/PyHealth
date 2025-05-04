@@ -45,6 +45,25 @@ class SampleDataset(Dataset):
         self.output_processors = {}
         self.dataset_name = dataset_name
         self.task_name = task_name
+        # Create patient_to_index and record_to_index mappings
+        self.patient_to_index = {}
+        self.record_to_index = {}
+        
+        for i, sample in enumerate(samples):
+            # Create patient_to_index mapping
+            patient_id = sample.get('patient_id')
+            if patient_id is not None:
+                if patient_id not in self.patient_to_index:
+                    self.patient_to_index[patient_id] = []
+                self.patient_to_index[patient_id].append(i)
+            
+            # Create record_to_index mapping (optional)
+            record_id = sample.get('record_id', sample.get('visit_id'))
+            if record_id is not None:
+                if record_id not in self.record_to_index:
+                    self.record_to_index[record_id] = []
+                self.record_to_index[record_id].append(i)
+                
         self.validate()
         self.build()
 
