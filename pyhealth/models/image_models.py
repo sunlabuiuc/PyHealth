@@ -6,12 +6,12 @@ from pyhealth.models import BaseModel
 
 class VGG16(BaseModel):
     """
-    VGG-16 model adapted for chest X-ray binary classification.
+    VGG-16 model adapted for generic image classification tasks.
 
     Author: Karan Thapar, Jonathan Bui
     NetID: kthapar2, jtbui3
     Course: CS598 Deep Learning for Healthcare, Spring 2025
-    Title: ChestXRayVGG16 Model for MIMIC-CXR
+    Title: VGG16 Model for Image Classification
 
     This class loads a VGG-16 architecture pretrained on ImageNet and adapts it
     for classification tasks with a configurable number of output classes.
