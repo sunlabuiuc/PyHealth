@@ -68,7 +68,17 @@ class MIMIC3DischargeNotesICD9Coding(BaseTask):
         return filtered_df
     
     def map_to_toplevel_ICD9(self, code: str):
-        """Return the top-level ICD-9 category for a raw ICD-9 code string."""
+        """Return the top-level ICD-9 category for a raw ICD-9 code string.
+        
+        Will be called in `self.__call()`
+
+        Args:
+            code: a string containing the ICD-9 code
+        
+        Returns:
+            The top-level ICD-9 category associated with the code (eg: "cat:01") 
+            or None (if unable to attribute or not part of the mapping).
+        """
         if code is None:
             return None
 
@@ -84,7 +94,7 @@ class MIMIC3DischargeNotesICD9Coding(BaseTask):
         try:
             num = int(icd9[:3])
         except ValueError:
-            return None          # not a valid numeric code
+            return None
 
         if   1   <= num <= 139:  return "cat:01" # Infectious & parasitic"
         elif 140 <= num <= 239:  return "cat:02" # "Neoplasms",
@@ -104,7 +114,7 @@ class MIMIC3DischargeNotesICD9Coding(BaseTask):
         elif 760 <= num <= 779:  return "cat:16" # "Perinatal period conditions",
         elif 800 <= num <= 999:  return "cat:17" # "Injury and poisoning",
         else:
-            return None          # range not covered
+            return None # range not covered (this is ok, we only the need the explicitly mapped ranges)
 
     
     def __call__(self, patient: Patient) -> List[Dict]:
@@ -134,13 +144,13 @@ class MIMIC3DischargeNotesICD9Coding(BaseTask):
                         ]
             )
 
+            # Only proceeds if there are actually discharge notes to be processed
             if noteevents and len(noteevents) > 0:
 
                 # If only 1 discharge note was returned.
                 if len(noteevents) == 1:         
                     selected_note_event = noteevents[0]
                 else:
-                    
                     # More than 1 discharge note was returned.
                     # FasTag's preprocessing (used by KeyClass) maintains the one with min. discharge date.
                     earliest_chartdate = min(ne.chartdate for ne in noteevents if ne.chartdate)
@@ -151,7 +161,6 @@ class MIMIC3DischargeNotesICD9Coding(BaseTask):
                     selected_note_event = notes_on_earliest_date[0]
 
                 if selected_note_event:
-
                     icd_codes = set()
                     icd_top_level_cats = set()
 
@@ -159,10 +168,9 @@ class MIMIC3DischargeNotesICD9Coding(BaseTask):
                     diagnoses_icd = patient.get_events(
                         event_type="diagnoses_icd",
                         filters = [ ("hadm_id", "==", str(admission.hadm_id)) ]
-                    )
+                        )
 
                     if len(diagnoses_icd) > 0:
-
                         # Map ICD-9 codes to an array
                         diagnoses_icd_codes = [event.icd9_code for event in diagnoses_icd]
                         
@@ -173,8 +181,9 @@ class MIMIC3DischargeNotesICD9Coding(BaseTask):
                         # Keep only the unique values (removes None and duplicates).
                         icd_top_level_cats = list({cat for cat in icd_top_level if cat not in (None, "", "nan")})
 
+                        # skip samples with empty text OR no valid ICD-9 codes
                         if not selected_note_event.text.strip() or not icd_codes:
-                            continue    # skip samples with empty text OR no valid ICD-9 codes
+                            continue
                         
                         # Add sample to list
                         samples.append({

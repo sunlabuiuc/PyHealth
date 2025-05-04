@@ -353,7 +353,7 @@ class BaseDataset(ABC):
 
         # Determine number of workers
         if num_workers is None:
-            num_workers = min(16, os.cpu_count())
+            num_workers = min(8, os.cpu_count())
 
         logger.info(f"Generating samples with {num_workers} worker(s)...")
 

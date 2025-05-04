@@ -69,8 +69,14 @@ OUTPUT_DIR = "example_output_dev"
 # Location of the MIMIC database files
 MIMIC_DB_LOCATION = "../mimicdatabase"
 
-def write_labels_file(label_file):
-    """ Writes the label.txt file with the names of the 19 top-level ICD-9 categories."""
+def write_labels_file(label_file: str):
+    """ Writes the label.txt file with the names of the 19 top-level ICD-9 categories.
+        Will be called in `main()`.
+        Args:
+            label_file: a string with the target location to write the file to.
+        Returns:
+            No return
+    """
     with open(label_file, 'w') as f:
         labels = [
             "Infectious & parasitic",
@@ -98,7 +104,15 @@ def write_labels_file(label_file):
         print()
 
 def write_output_files(dataset, feature_filename, labels_filename):
-    """ Writes the train/test sets and respective labels to file."""
+    """ Writes the train/test sets and respective labels to file.
+        Will be called in `main()`.
+            Args:
+                dataset: PyHealth generated train/test split.
+                feature_filename: filename location where features will be written to.
+                labels_filename: filename location where labels will be written to.
+            Returns:
+                No return
+    """
 
     with open(feature_filename, 'w', encoding='utf-8') as f_text, \
         open(labels_filename, 'w', encoding='utf-8') as f_labels:
@@ -134,8 +148,10 @@ def write_output_files(dataset, feature_filename, labels_filename):
 
 
 def main():
-    """ Writes the train/test sets and respective labels to file."""
-
+    """ Main function to execute the example.
+        Args: None
+        Returns: None
+    """
     dataset = MIMIC3Dataset(
         root=MIMIC_DB_LOCATION,
         dataset_name="mimic3",
