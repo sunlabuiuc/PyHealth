@@ -8,8 +8,8 @@ class ChestXRayVGG16(BaseModel):
     """
     VGG-16 model adapted for chest X-ray binary classification.
 
-    Author: Karan Thapar
-    NetID: kthapar2
+    Author: Karan Thapar, Jonathan Bui
+    NetID: kthapar2, jtbui3
     Course: CS598 Deep Learning for Healthcare, Spring 2025
     Title: ChestXRayVGG16 Model for MIMIC-CXR
 
@@ -20,7 +20,6 @@ class ChestXRayVGG16(BaseModel):
     def __init__(self, num_classes: int = 1, pretrained: bool = True):
         super().__init__()
         self.backbone = models.vgg16(pretrained=pretrained)
-        # Replace the classifier head
         self.backbone.classifier[-1] = nn.Linear(self.backbone.classifier[-1].in_features, num_classes)
         self.sigmoid = nn.Sigmoid()
 
