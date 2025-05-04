@@ -114,20 +114,18 @@ An ML Pipeline Example
     mimic3base = MIMIC3Dataset(
         root="https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III/",
         tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
-        # map all NDC codes to ATC 3-rd level codes in these tables
-        code_mapping={"NDC": ("ATC", {"target_kwargs": {"level": 3}})},
     )
 
-User could also store their own dataset into our ``<pyhealth.datasets.SampleBaseDataset>`` structure and then follow the same pipeline below, see `Tutorial <https://colab.research.google.com/drive/1UurxwAAov1bL_5OO3gQJ4gAa_paeJwJp?usp=sharing>`_
+User could also store their own dataset into our ``<pyhealth.datasets.SampleBaseDataset>`` structure and then follow the same pipeline below, see `Tutorial <https://colab.research.google.com/drive/1b9xRbxUz-HLzxsrvxdsdJ868ajGQCY6U?usp=sharing>`_
 
-* **STEP 2: <pyhealth.tasks>** inputs the ``<pyhealth.datasets>`` object and defines how to process each patient's data into a set of samples for the tasks. In the package, we provide several task examples, such as ``drug recommendation`` and ``length of stay prediction``.
+* **STEP 2: <pyhealth.tasks>** inputs the ``<pyhealth.datasets>`` object and defines how to process each patient's data into a set of samples for the tasks. In the package, we provide several task examples, such as ``mortality prediction`` and ``length of stay prediction``.
 
 .. code-block:: python
 
-    from pyhealth.tasks import drug_recommendation_mimic3_fn
+    from pyhealth.tasks import MortalityPredictionMIMIC3
     from pyhealth.datasets import split_by_patient, get_dataloader
-
-    mimic3sample = mimic3base.set_task(task_fn=drug_recommendation_mimic3_fn) # use default task
+    mimic3_mortality_prediction = MortalityPredictionMIMIC3()
+    mimic3sample = mimic3base.set_task(task_fn=mimic3_mortality_prediction) # use default task
     train_ds, val_ds, test_ds = split_by_patient(mimic3sample, [0.8, 0.1, 0.1])
 
     # create dataloaders (torch.data.DataLoader)
@@ -139,13 +137,11 @@ User could also store their own dataset into our ``<pyhealth.datasets.SampleBase
 
 .. code-block:: python
 
-    from pyhealth.models import Transformer
+    from pyhealth.models import RNN
 
-    model = Transformer(
-        dataset=mimic3sample,
-        feature_keys=["conditions", "procedures"],
-        label_key="drugs",
-        mode="multilabel",
+
+    model = RNN(
+      dataset=samples,
     )
 
 * **STEP 4: <pyhealth.trainer>** is the training manager with ``train_loader``, the ``val_loader``, ``val_metric``, and specify other arguemnts, such as epochs, optimizer, learning rate, etc. The trainer will automatically save the best model and output the path in the end.
@@ -159,7 +155,7 @@ User could also store their own dataset into our ``<pyhealth.datasets.SampleBase
         train_dataloader=train_loader,
         val_dataloader=val_loader,
         epochs=50,
-        monitor="pr_auc_samples",
+        monitor="roc_auc",
     )
 
 * **STEP 5: <pyhealth.metrics>** provides several **common evaluation metrics** (refer to `Doc <https://pyhealth.readthedocs.io/en/latest/api/metrics.html>`_ and see what are available) and **special metrics** in healthcare, such as drug-drug interaction (DDI) rate.

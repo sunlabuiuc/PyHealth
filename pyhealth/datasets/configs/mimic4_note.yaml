@@ -1,0 +1,57 @@
+version: "2.2"
+tables:
+  discharge:
+    file_path: "note/discharge.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "charttime"
+    attributes:
+    - "note_id"
+    - "hadm_id"
+    - "note_type"
+    - "note_seq"
+    - "storetime"
+    - "text"
+
+  discharge_detail:
+    file_path: "note/discharge_detail.csv.gz"
+    patient_id: "subject_id"
+    join:
+      - file_path: "note/discharge.csv.gz"
+        "on": "note_id"
+        how: "inner"
+        columns:
+          - "charttime"
+    timestamp: "charttime"
+    attributes:
+      - "note_id"
+      - "field_name"
+      - "field_value"
+      - "field_ordinal"
+
+  radiology:
+    file_path: "note/radiology.csv.gz"
+    patient_id: "subject_id"
+    timestamp: "charttime"
+    attributes:
+      - "note_id"
+      - "hadm_id"
+      - "note_type"
+      - "note_seq"
+      - "storetime"
+      - "text"
+
+  radiology_detail:
+    file_path: "note/radiology_detail.csv.gz"
+    patient_id: "subject_id"
+    join:
+      - file_path: "note/radiology.csv.gz"
+        "on": "note_id"
+        how: "inner"
+        columns:
+          - "charttime"
+    timestamp: "charttime"
+    attributes:
+      - "note_id"
+      - "field_name"
+      - "field_value"
+      - "field_ordinal"
