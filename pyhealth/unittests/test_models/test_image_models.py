@@ -1,10 +1,10 @@
 import unittest
 import torch
-from pyhealth.models.chestxray_vgg import ChestXRayVGG16
+from pyhealth.models.image_models import VGG16
 
-class TestChestXRayVGG16(unittest.TestCase):
+class TestVGG16(unittest.TestCase):
     def setUp(self):
-        self.model = ChestXRayVGG16(n_classes=2, pretrained=False)
+        self.model = VGG16(num_classes=2, pretrained=False)
         self.input = torch.randn(4, 3, 224, 224)  # batch of 4 images
 
     def test_forward_output_shape(self):
