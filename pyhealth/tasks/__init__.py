@@ -23,6 +23,7 @@ from .length_of_stay_prediction import (
     length_of_stay_prediction_mimic4_fn,
     length_of_stay_prediction_omop_fn,
 )
+from .length_of_stay_prediction_v2 import MIMIC4LoSPredication
 from .medical_coding import MIMIC3ICD9Coding
 from .medical_transcriptions_classification import MedicalTranscriptionsClassification
 from .mortality_prediction import (
