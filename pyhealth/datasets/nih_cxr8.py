@@ -38,9 +38,9 @@ class NIHChestXray8Dataset(BaseDataset):
     Original Image Pixel Spacing (x):      The physical spacing (resolution) of a pixel along the x-axis.
     Original Image Pixel Spacing (y):      The physical spacing (resolution) of a pixel along the y-axis.
     """
-    def __init__(self):
-        self.dataset_dir = DATA_DIR
-        self.split = SPLIT
+    def __init__(self, dataset_dir: str, split: str):
+        self.dataset_dir = DATA_DIR if None else dataset_dir
+        self.split = SPLIT if None else split
         self.transform = TRANSFORM
         self.zip_file = os.path.join(self.dataset_dir, ZIP_FILENAME)
 
