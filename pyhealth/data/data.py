@@ -19,6 +19,33 @@ class Event:
     timestamp: datetime
     attr_dict: Mapping[str, any] = field(default_factory=dict)
 
+    def __init__(self, event_type: str, timestamp: datetime = None, **kwargs):
+        """Initialize an Event instance.
+
+        Args:
+            event_type (str): Type of the clinical event
+            timestamp (datetime, optional): When the event occurred.
+                If not provided, current time will be used.
+            **kwargs: Additional attributes to store in attr_dict
+        """
+        # Create a mutable copy of kwargs to manipulate
+        attr_dict = dict(kwargs)
+
+        # Extract existing attr_dict if provided in kwargs
+        if "attr_dict" in attr_dict:
+            existing_attr_dict = attr_dict.pop("attr_dict")
+            # Merge with remaining kwargs, with kwargs taking precedence
+            attr_dict = {**existing_attr_dict, **attr_dict}
+
+        # Set timestamp to current time if not provided
+        if timestamp is None:
+            timestamp = datetime.now()
+
+        # Use object.__setattr__ since the dataclass is frozen
+        object.__setattr__(self, "event_type", event_type)
+        object.__setattr__(self, "timestamp", timestamp)
+        object.__setattr__(self, "attr_dict", attr_dict)
+
     @classmethod
     def from_dict(cls, d: Dict[str, any]) -> "Event":
         """Create an Event instance from a dictionary.
@@ -32,9 +59,7 @@ class Event:
         timestamp: datetime = d["timestamp"]
         event_type: str = d["event_type"]
         attr_dict: Dict[str, any] = {
-            k.split("/", 1)[1]: v
-            for k, v in d.items()
-            if k.split("/")[0] == event_type
+            k.split("/", 1)[1]: v for k, v in d.items() if k.split("/")[0] == event_type
         }
         return cls(event_type=event_type, timestamp=timestamp, attr_dict=attr_dict)
 
@@ -119,14 +144,14 @@ class Patient:
             event_type (Optional[str]): Type of events to filter.
             start (Optional[datetime]): Start time for filtering events.
             end (Optional[datetime]): End time for filtering events.
-            return_df (bool): Whether to return a DataFrame or a list of 
+            return_df (bool): Whether to return a DataFrame or a list of
                 Event objects.
             filters (Optional[List[tuple]]): Additional filters as [(attr, op, value), ...], e.g.:
-                [("attr1", "!=", "abnormal"), ("attr2", "!=", 1)]. Filters are applied after type 
+                [("attr1", "!=", "abnormal"), ("attr2", "!=", 1)]. Filters are applied after type
                 and time filters. The logic is "AND" between different filters.
 
         Returns:
-            Union[pl.DataFrame, List[Event]]: Filtered events as a DataFrame 
+            Union[pl.DataFrame, List[Event]]: Filtered events as a DataFrame
             or a list of Event objects.
         """
         df = self.data_source
@@ -139,9 +164,13 @@ class Patient:
 
         filters = filters or []
         for filt in filters:
-            assert event_type is not None, "event_type must be provided if filters are provided"
+            assert (
+                event_type is not None
+            ), "event_type must be provided if filters are provided"
             if not (isinstance(filt, tuple) and len(filt) == 3):
-                raise ValueError(f"Invalid filter format: {filt} (must be tuple of (attr, op, value))")
+                raise ValueError(
+                    f"Invalid filter format: {filt} (must be tuple of (attr, op, value))"
+                )
             attr, op, val = filt
             col_expr = pl.col(f"{event_type}/{attr}")
             # Build operator expression
