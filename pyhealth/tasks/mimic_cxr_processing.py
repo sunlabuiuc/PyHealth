@@ -5,7 +5,6 @@ from dataclasses import field
 
 import pandas as pd
 import polars as pl
-import tempfile
 from pathlib import Path
 from pyhealth.datasets import MIMICCXRDataset
 from pyhealth.data.data import Patient
@@ -97,15 +96,14 @@ class MIMICCXRImageReportPairs(BaseTask):
 
         # Create samples for each valid pair
         for _, row in valid_pairs.iterrows():
-            if row["subject_id"] == patient.patient_id:
-                samples.append(
-                    {
-                        "subject_id": row["subject_id"],
-                        "study_id": row["study_id"],
-                        "image_path": os.path.join(self.root_path, row["image_path"]),
-                        "report_path": os.path.join(self.root_path, row["report_path"]),
-                    }
-                )
+            samples.append(
+                {
+                    "subject_id": row["subject_id"],
+                    "study_id": row["study_id"],
+                    "image_path": os.path.join(self.root_path, row["image_path"]),
+                    "report_path": os.path.join(self.root_path, row["report_path"]),
+                }
+            )
 
         return samples
 
