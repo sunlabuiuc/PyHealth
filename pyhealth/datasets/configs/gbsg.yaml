@@ -1,0 +1,17 @@
+version: "1.0"
+tables:
+  gbsg:
+    file_path: "gbsg.csv"
+    patient_id: "pid"
+    timestamp: null
+    attributes:
+      - "age"
+      - "meno"
+      - "size"
+      - "grade"
+      - "nodes"
+      - "pgr"
+      - "er"
+      - "hormon"
+      - "rfstime"
+      - "status"
