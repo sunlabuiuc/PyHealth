@@ -38,35 +38,35 @@ class GBSGDataset(BaseDataset):
         config_path: Optional[str] = None,
         **kwargs
     ) -> None:
-    """
-        Initializes the GBSGDataset with the specified parameters.
+        """
+            Initializes the GBSGDataset with the specified parameters.
 
-        This function sets up the dataset by specifying the root directory,
-        tables to load, dataset name, and configuration path. It calls the
-        constructor of the base class (`BaseDataset`) to handle the core loading
-        logic based on the provided parameters.
+            This function sets up the dataset by specifying the root directory,
+            tables to load, dataset name, and configuration path. It calls the
+            constructor of the base class (`BaseDataset`) to handle the core loading
+            logic based on the provided parameters.
 
-        Args:
-            root: The root directory (str) where the dataset files (e.g., gbsg.csv) are stored.
-            tables: A list of strings specifying additional tables to include. Defaults to None,
-                which will result in loading the default 'gbsg' table.
-            dataset_name: An optional string to name the dataset instance. Defaults to "gbsg".
-            config_path: An optional string specifying the path to a configuration file.
-                If not provided, a default configuration file specific to GBSG will be used.
-            **kwargs: Additional keyword arguments passed to the BaseDataset constructor.
+            Args:
+                root: The root directory (str) where the dataset files (e.g., gbsg.csv) are stored.
+                tables: A list of strings specifying additional tables to include. Defaults to None,
+                    which will result in loading the default 'gbsg' table.
+                dataset_name: An optional string to name the dataset instance. Defaults to "gbsg".
+                config_path: An optional string specifying the path to a configuration file.
+                    If not provided, a default configuration file specific to GBSG will be used.
+                **kwargs: Additional keyword arguments passed to the BaseDataset constructor.
 
-        Returns:
-            None
+            Returns:
+                None
 
-        Example Usage:
-            # Assuming gbsg.csv and gbsg.yaml are in /path/to/data
-            dataset = GBSGDataset(
-                root="/path/to/data/",
-                config_path="/path/to/pyhealth/datasets/configs/gbsg.yaml",
-                dataset_name="my_gbsg_study"
-            )
-            # This will be called when instantiating the GBSGDataset class.
-    """
+            Example Usage:
+                # Assuming gbsg.csv and gbsg.yaml are in /path/to/data
+                dataset = GBSGDataset(
+                    root="/path/to/data/",
+                    config_path="/path/to/pyhealth/datasets/configs/gbsg.yaml",
+                    dataset_name="my_gbsg_study"
+                )
+                # This will be called when instantiating the GBSGDataset class.
+        """
         if config_path is None:
             logger.info("No config path provided, using default config")
             config_path = Path(__file__).parent / "configs" / "gbsg.yaml"
