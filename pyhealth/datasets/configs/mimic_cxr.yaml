@@ -1,0 +1,47 @@
+version: "2.1.0"
+tables:
+  provider:
+    file_path: "cxr-provider-list.csv.gz"
+    study_id: "study_id"
+    timestamp: null
+    attributes:
+      - "study_id"
+      - "ordering_provider_id"
+      - "attending_provider_id"
+      - "resident_provider_id"
+
+  record:
+    file_path: "cxr-record-list.csv.gz"
+    patient_id: "subject_id"
+    study_id: "study_id"
+    timestamp: null
+    join:
+      - file_path: "cxr-provider-list.csv.gz"
+        on: ["study_id"]
+        how: "left"
+        columns:
+          - "ordering_provider_id"
+          - "attending_provider_id"
+          - "resident_provider_id"
+    attributes:
+      - "subject_id"
+      - "study_id"
+      - "dicom_id"
+      - "path"
+
+  study:
+    file_path: "cxr-study-list.csv.gz"
+    patient_id: "subject_id"
+    study_id: "study_id"
+    timestamp: null
+    join:
+      - file_path: "cxr-record-list.csv.gz"
+        on: ["subject_id", "study_id"]
+        how: "inner"
+        columns:
+          - "dicom_id"
+          - "path"
+    attributes:
+      - "subject_id"
+      - "study_id"
+      - "path"
