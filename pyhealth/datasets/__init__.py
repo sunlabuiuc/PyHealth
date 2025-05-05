@@ -24,7 +24,7 @@ class SampleSignalDataset:
         import warnings
         warnings.warn("The SampleSignalDataset class is deprecated and will be removed in a future version.", DeprecationWarning)
 
-
+from .gbsg import GBSGDataset  # Add this line
 from .base_dataset import BaseDataset
 from .cardiology import CardiologyDataset
 from .covid19_cxr import COVID19CXRDataset

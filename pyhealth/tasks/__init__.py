@@ -48,3 +48,53 @@ from .sleep_staging import (
 )
 from .sleep_staging_v2 import SleepStagingSleepEDF
 from .temple_university_EEG_tasks import EEG_events_fn, EEG_isAbnormal_fn
+# Add the new survival analysis tasks
+from .survival_analysis import (
+    SurvivalAnalysisGBSG,
+    TimeToEventGBSG,
+)
+
+__all__ = [
+    "BaseTask",
+    "BenchmarkEHRShot",
+    "cardiology_isAD_fn",
+    "cardiology_isAR_fn",
+    "cardiology_isBBBFB_fn",
+    "cardiology_isCD_fn",
+    "cardiology_isWA_fn",
+    "COVID19CXRClassification",
+    "drug_recommendation_eicu_fn",
+    "drug_recommendation_mimic3_fn",
+    "drug_recommendation_mimic4_fn",
+    "drug_recommendation_omop_fn",
+    "EEG_isAbnormal_fn",
+    "EEG_events_fn",
+    "InHospitalMortalityMIMIC4",
+    "length_of_stay_prediction_eicu_fn",
+    "length_of_stay_prediction_mimic3_fn",
+    "length_of_stay_prediction_mimic4_fn",
+    "length_of_stay_prediction_omop_fn",
+    "MIMIC3ICD9Coding",
+    "MedicalTranscriptionsClassification",
+    "MortalityPredictionEICU",
+    "MortalityPredictionEICU2",
+    "MortalityPredictionMIMIC3",
+    "MortalityPredictionMIMIC4",
+    "MortalityPredictionOMOP",
+    "patient_linkage_mimic3_fn",
+    "Readmission30DaysMIMIC4",
+    "readmission_prediction_eicu_fn",
+    "readmission_prediction_eicu_fn2",
+    "readmission_prediction_mimic3_fn",
+    "readmission_prediction_mimic4_fn",
+    "readmission_prediction_omop_fn",
+    "sleep_staging_isruc_fn",
+    "sleep_staging_shhs_fn",
+    "sleep_staging_sleepedf_fn",
+    "SleepStagingSleepEDF",
+    "EEG_events_fn",
+    "EEG_isAbnormal_fn",
+    # Add the new tasks to __all__
+    "SurvivalAnalysisGBSG",
+    "TimeToEventGBSG",
+]
