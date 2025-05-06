@@ -8,12 +8,14 @@ from .cardiology_detect import (
     cardiology_isWA_fn,
 )
 from .covid19_cxr_classification import COVID19CXRClassification
+
 from .drug_recommendation import (
     drug_recommendation_eicu_fn,
     drug_recommendation_mimic3_fn,
     drug_recommendation_mimic4_fn,
     drug_recommendation_omop_fn,
 )
+from .dailysportsactivities_classification import DSAClassification
 from .EEG_abnormal import EEG_isAbnormal_fn
 from .EEG_events import EEG_events_fn
 from .in_hospital_mortality_mimic4 import InHospitalMortalityMIMIC4
