@@ -1,3 +1,41 @@
+"""
+DeidentificationDataset Class
+Author: Varshini R R
+NetID: vrr4
+
+This module implements the `DeidentificationDataset` class for loading, processing, 
+and preprocessing synthetic hospital discharge summaries used in de-identification 
+tasks. The class reads data from a specified JSON file, validates the contents, 
+and provides basic preprocessing for the text data.
+
+Usage:
+    This class is used in de-identification workflows to load discharge summary 
+    data, perform preprocessing tasks (such as text normalization), and support 
+    downstream machine learning models or evaluations.
+
+Methods:
+    - `load_data`: Loads and validates the data from a JSON file, converting it into a pandas DataFrame.
+    - `get_patient_data`: Retrieves a subset of the dataset for a specific patient based on their ID.
+    - `preprocess_data`: Normalizes and cleans the text data, storing it in a new `processed_text` column.
+    - `log_memory_usage`: Logs the current memory usage of the process.
+    
+Attributes:
+    - `config`: Dictionary containing configuration details such as file path, patient ID, and attributes.
+    - `data`: A pandas DataFrame containing the processed dataset.
+    - `patient_id`: Column name for the unique identifier of the patient/document.
+    - `timestamp`: Column name for the timestamp (optional).
+    - `attributes`: List of attributes to extract from each record.
+    - `dev`: Flag indicating if the dataset should be loaded in development mode with a subset of records.
+
+Dependencies:
+    - pandas
+    - json
+    - logging
+    - psutil (optional for memory logging)
+    - pyhealth (for BaseDataset)
+
+"""
+
 import os
 import json
 import logging
@@ -13,30 +51,50 @@ from .base_dataset import BaseDataset
 
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
-def log_memory_usage(tag=""):
-    """Log current memory usage."""
+
+def log_memory_usage(tag: str = "") -> None:
+    """Logs current memory usage of the process.
+
+    Args:
+        tag: Optional label to indicate where memory is being logged.
+    """
     if psutil is not None:
         try:
-            process = psutil.Process(os.getpid())  # Get the current process
-            mem_info = process.memory_info()  # Retrieve memory info
-            # Log the memory usage in MB
+            process = psutil.Process(os.getpid())
+            mem_info = process.memory_info()
             logger.info(f"Memory usage {tag}: {mem_info.rss / (1024 * 1024):.1f} MB")
         except Exception as e:
             logger.warning(f"Memory logging failed at {tag}: {e}")
     else:
-        logger.warning(f"psutil not available. Unable to log memory usage at {tag}")
+        logger.warning(f"psutil not available. Unable to log memory at {tag}")
+
 
 class DeidentificationDataset(BaseDataset):
-    def __init__(self, config: dict, dev: bool = False):
+    """Dataset loader for discharge summaries used in de-identification tasks."""
+
+    def __init__(self, config: Dict, dev: bool = False) -> None:
+        """Initializes the DeidentificationDataset.
+
+        Args:
+            config: Dictionary with required keys:
+                - 'file_path': Path to JSON file.
+                - 'patient_id': Column name for unique patient/document ID.
+                - 'timestamp': Column name for timestamp (optional).
+                - 'attributes': List of attributes to extract from each record.
+            dev: Whether to run in development mode (loads only first 100 records).
+
+        Raises:
+            ValueError: If required configuration keys are missing or invalid.
+        """
         self.config = config
-        self.file_path = config.get('file_path')
-        self.patient_id = config.get('patient_id')
-        self.timestamp = config.get('timestamp')
-        self.attributes = config.get('attributes', [])
+        self.file_path = config.get("file_path")
+        self.patient_id = config.get("patient_id")
+        self.timestamp = config.get("timestamp")
+        self.attributes = config.get("attributes", [])
         self.dev = dev
 
         if not self.file_path:
@@ -54,12 +112,21 @@ class DeidentificationDataset(BaseDataset):
             self.data = self.data.head(100)
             logger.info("Development mode: limited to first 100 records.")
 
-    def load_data(self):
+    def load_data(self) -> pd.DataFrame:
+        """Loads and validates JSON data from the configured file path.
+
+        Returns:
+            A pandas DataFrame containing the dataset.
+
+        Raises:
+            FileNotFoundError: If the file does not exist.
+            ValueError: If JSON is malformed or required columns are missing.
+        """
         if not os.path.exists(self.file_path):
             raise FileNotFoundError(f"File not found at: {self.file_path}")
 
         try:
-            with open(self.file_path, 'r') as file:
+            with open(self.file_path, "r") as file:
                 raw_data = json.load(file)
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSON format: {e}")
@@ -74,8 +141,7 @@ class DeidentificationDataset(BaseDataset):
         except Exception as e:
             raise ValueError(f"Failed to convert JSON to DataFrame: {e}")
 
-        # Validate essential columns
-        required_columns = [self.patient_id, 'text']
+        required_columns = [self.patient_id, "text"]
         missing = [col for col in required_columns if col not in df.columns]
         if missing:
             raise ValueError(f"Missing required column(s): {', '.join(missing)}")
@@ -83,38 +149,59 @@ class DeidentificationDataset(BaseDataset):
         return df
 
     def get_patient_data(self, patient_id: str) -> pd.DataFrame:
-        """Retrieve data for a specific patient ID."""
+        """Retrieves data for a specific patient/document ID.
+
+        Args:
+            patient_id: Unique identifier to filter records by.
+
+        Returns:
+            Subset of the dataset matching the given patient ID.
+
+        Logs:
+            A warning if no records are found.
+        """
         subset = self.data[self.data[self.patient_id] == patient_id]
         if subset.empty:
             logger.warning(f"No records found for patient ID: {patient_id}")
         return subset
 
-    def preprocess_data(self):
-        """Clean and normalize the 'text' column."""
-        if 'text' not in self.data.columns:
+    def preprocess_data(self) -> None:
+        """Cleans and normalizes the 'text' column.
+
+        Adds a new column `processed_text` with:
+            - Lowercase text
+            - Newlines removed
+            - Leading/trailing whitespace stripped
+
+        Raises:
+            ValueError: If the 'text' column is missing or processing fails.
+        """
+        if "text" not in self.data.columns:
             raise ValueError("Missing 'text' column in dataset.")
 
         try:
-            self.data['processed_text'] = (
-                self.data['text']
+            self.data["processed_text"] = (
+                self.data["text"]
                 .astype(str)
                 .str.lower()
-                .str.replace('\n', ' ', regex=False)
+                .str.replace("\n", " ", regex=False)
                 .str.strip()
             )
         except Exception as e:
             raise ValueError(f"Failed during text preprocessing: {e}")
 
-# Usage Example
+
+# Example Usage
 if __name__ == "__main__":
     dataset_config = {
-        'table_name': 'discharge_summaries',
-        'file_path': 'data/deid_raw/discharge/discharge_summaries.json',
-        'patient_id': 'document_id',
-        'timestamp': 'discharge_date',
-        'attributes': [
-            'document_id', 'text', 'patient_name', 'dob', 'age', 'sex', 'service',
-            'chief_complaint', 'diagnosis', 'treatment', 'follow_up_plan', 'discharge_date', 'attending_physician'
+        "table_name": "discharge_summaries",
+        "file_path": "data/deid_raw/discharge/discharge_summaries.json",
+        "patient_id": "document_id",
+        "timestamp": "discharge_date",
+        "attributes": [
+            "document_id", "text", "patient_name", "dob", "age", "sex", "service",
+            "chief_complaint", "diagnosis", "treatment", "follow_up_plan",
+            "discharge_date", "attending_physician"
         ]
     }
 
