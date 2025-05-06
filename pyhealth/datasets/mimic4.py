@@ -121,6 +121,11 @@ class MIMIC4CXRDataset(BaseDataset):
     This class is responsible for loading and managing the MIMIC-CXR Chest X-ray dataset,
     which includes tables such as metadata, chexpert, and radiology.
 
+    NOTE: The loader is expected to work with the MIMIC-CXR-JPG variant of the Chest X-ray
+    dataset (i.e. data sourced from https://physionet.org/content/mimic-cxr-jpg/2.0.0) 
+    which contains X-ray images in .jpg format, instead of the original MIMIC-CXR
+    (https://physionet.org/content/mimic-cxr/2.0.0) which contains .dcm images.
+
     Attributes:
         root (str): The root directory where the dataset is stored.
         tables (List[str]): A list of tables to be included in the dataset.
@@ -168,7 +173,16 @@ class MIMIC4CXRDataset(BaseDataset):
             folder = subject_id[:3]
             study_id = "s" + x["study_id"]
             dicom_id = x["dicom_id"]
-            return os.path.join(root, "files", folder, subject_id, study_id, f"{dicom_id}.jpg")
+            
+            image_path = os.path.join(root, "files", folder, subject_id, study_id, f"{dicom_id}.jpg")
+            if not os.path.exists(image_path):
+                raise Exception("FileNotFound: %s," + 
+                    "WARN: The loader is expected to work with the MIMIC-CXR-JPG dataset " +
+                    "which contains X-ray images in .jpg format, instead of the original MIMIC-CXR" +
+                    "images in .dcm format." 
+                    % (image_path))
+            return image_path
+
         metadata["image_path"] = metadata.apply(process_image_path, axis=1)
 
         metadata.to_csv(os.path.join(root, "mimic-cxr-2.0.0-metadata-pyhealth.csv"), index=False)
