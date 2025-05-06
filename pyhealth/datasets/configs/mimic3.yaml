@@ -119,6 +119,7 @@ tables:
     timestamp:
       - "charttime"
     attributes:
+      - "hadm_id"
       - "text"
       - "category"
       - "description"
