@@ -24,4 +24,5 @@ from .tcn import TCN, TCNLayer
 from .torchvision_model import TorchvisionModel
 from .transformer import Transformer, TransformerLayer
 from .transformers_model import TransformersModel
+from .unified_transformer import UnifiedTransformerLM
 from .vae import VAE
