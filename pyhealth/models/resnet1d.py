@@ -2,7 +2,7 @@
 ResNet1D Model
 
 Author: Prem Dhoot
-NetID: premdhoot (UIUC)
+NetID: premd2 (UIUC)
 Paper: In-depth Benchmarking of Deep Neural Network Architectures for ECG Diagnosis
 Paper Link: https://proceedings.mlr.press/v158/nonaka21a.html
 Description:
