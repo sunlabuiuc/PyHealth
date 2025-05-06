@@ -1,295 +1,534 @@
-# Adapted from https://github.com/MickEnev/UniXGen/blob/adb91b56456b2858dfa56a5ccba8a981ff8726d5/transformer_pytorch/FAVOR_unified.py
+# Originally, adapted from https://github.com/ttumyche/UniXGen/blob/main/transformer_pytorch/transformer_unified.py
+# However, it contained many Pythonic loops and wasn't a vectorized implementation causing bottlenecks,
+# so was improvised with vectorized torch ops removing loops. Tested to run on CUDA and XLA (TPU) devices.
+
 
 import math
+import numpy as np
 from functools import partial
 
-from torch.cuda.amp import autocast
-
-try:
-    from apex import amp
-
-    APEX_AVAILABLE = True
-except:
-    APEX_AVAILABLE = False
-
-from transformer_pytorch.model_utils import *
-
-def softmax_kernel(data, *, projection_matrix, is_query, normalize_data=True, eps=1e-4, device=None):
-    b, h, *_ = data.shape
-
-    data_normalizer = (data.shape[-1] ** -0.25) if normalize_data else 1.
-
-    ratio = (projection_matrix.shape[0] ** -0.5)
-
-    projection = repeat(projection_matrix, 'j d -> b h j d', b=b, h=h)
-    projection = projection.type_as(data)
-
-    data_dash = torch.einsum('...id,...jd->...ij', (data_normalizer * data), projection)
-
-    diag_data = data ** 2
-    diag_data = torch.sum(diag_data, dim=-1)
-    diag_data = (diag_data / 2.0) * (data_normalizer ** 2)
-    diag_data = diag_data.unsqueeze(dim=-1)
-
-    if is_query:
-        data_dash = ratio * (torch.exp(data_dash - diag_data - torch.max(data_dash, dim=-1, keepdim=True).values) + eps)
-    else:
-        data_dash = ratio * (torch.exp(data_dash - diag_data - torch.max(data_dash)) + eps)
-    return data_dash.type_as(data)
+from pyhealth.models.favor_attention.utils import *
+from pyhealth.models.favor_attention import FAVORAttention, ProjectionUpdater, AxialPositionalEmbedding
 
 
-def generalized_kernel(data, *, projection_matrix, kernel_fn=nn.ReLU(), kernel_epsilon=0.001, normalize_data=True, device=None):
-    b, h, *_ = data.shape
+def eval_decorator(fn):
+    def inner(model, *args, **kwargs):
+        was_training = model.training
+        model.eval()
+        out = fn(model, *args, **kwargs)
+        model.train(was_training)
+        return out
+    return inner
 
-    data_normalizer = (data.shape[-1] ** -0.25) if normalize_data else 1.
+VIEW_MAP = {
+    'AP': 0,
+    'PA': 1,
+    'LATERAL': 2,
+    'LL': 2,       # Map LL to same as LATERAL
+    'PAD': 3
+}
 
-    if projection_matrix is None:
-        return kernel_fn(data_normalizer * data) + kernel_epsilon
-
-    projection = repeat(projection_matrix, 'j d -> b h j d', b=b, h=h)
-    projection = projection.type_as(data)
-
-    data_dash = torch.einsum('...id,...jd->...ij', (data_normalizer * data), projection)
-
-    data_prime = kernel_fn(data_dash) + kernel_epsilon
-    return data_prime.type_as(data)
-
-
-def orthogonal_matrix_chunk(cols, device=None):
-    unstructured_block = torch.randn((cols, cols), device=device)
-    q, r = torch.qr(unstructured_block.cpu(), some=True)
-    q, r = map(lambda t: t.to(device), (q, r))
-    return q.t()
-
-
-def gaussian_orthogonal_random_matrix(nb_rows, nb_columns, scaling=0, device=None):
-    nb_full_blocks = int(nb_rows / nb_columns)
-
-    block_list = []
-
-    for _ in range(nb_full_blocks):
-        q = orthogonal_matrix_chunk(nb_columns, device=device)
-        block_list.append(q)
-
-    remaining_rows = nb_rows - nb_full_blocks * nb_columns
-    if remaining_rows > 0:
-        q = orthogonal_matrix_chunk(nb_columns, device=device)
-        block_list.append(q[:remaining_rows])
-
-    final_matrix = torch.cat(block_list)
-    if scaling == 0:
-        multiplier = torch.randn((nb_rows, nb_columns), device=device).norm(dim=1)
-    elif scaling == 1:
-        multiplier = math.sqrt((float(nb_columns))) * torch.ones((nb_rows,), device=device)
-    else:
-        raise ValueError(f'Invalid scaling {scaling}')
-
-    return torch.diag(multiplier) @ final_matrix
-
-
-def all_modality_causal_linear_attn_noncuda(q, k, v, condition_len, chunk_size=128, eps=1e-6):  # q, k: [B, global_head, seq_len, nb_features]  v: [B, global_head, seq_len, dim_head]
-    last_k_cumsum = 0
-    last_context_cumsum = 0
-    outs = []
-    for q, k, v in zip(*map(lambda t: t.chunk(chunk_size, dim=-2), (q, k, v))):  # q,k:[B, global_head, seq_len/chunk_size, nb_features]  v:[B, global_head, seq_len/chunk_size, dim_head]
-        k_cumsum = last_k_cumsum + k.cumsum(dim=-2)  # [B, global_head, seq_len/chunk_size, nb_features]
-        D_inv = 1. / torch.einsum('...nd,...nd->...n', q, k_cumsum.type_as(q) + eps)  # -> [B, global_head, seq_len/chunk_size]
-
-        context = torch.einsum('...nd,...ne->...nde', k, v)  # -> [B, global_head, seq_len/chunk_size, nb_features ,dim_head] outer product.
-        context_cumsum = last_context_cumsum + context.cumsum(dim=-3)  # [B, global_head, seq_len/chunk_size, nb_features ,dim_head]
-
-        out = torch.einsum('...nde,...nd,...n->...ne', context_cumsum, q, D_inv)  # -> [B, global_head, seq_len/chunk_size, dim_head]
-
-        last_k_cumsum = k_cumsum[:, :, -1:]  # [B, global_head, 1, nb_features]
-        last_context_cumsum = context_cumsum[:, :, -1:]  # [B, global_head, 1, nb_features ,dim_head]
-        outs.append(out)
-
-    return torch.cat(outs, dim=-2)  # -> [B, global_head, seq_len, dim_head]
-    
-def all_modality_causal_linear_attn_cuda(q, k, v, condition_len, eps=1e-6):
-    try:
-        from fast_transformers.causal_product import CausalDotProduct
-    except:
-        raise ImportError("missing soft dependency fast_transformers, you can install with `pip install pytorch-fast-transformers`")
-    
-    autocast_enabled = torch.is_autocast_enabled()
-    is_half = isinstance(q, torch.cuda.HalfTensor)
-    assert not is_half or APEX_AVAILABLE, 'half tensors can only be used if nvidia apex is available'
-    cuda_context = null_context if not autocast_enabled else partial(autocast, enabled=False)
-
-    causal_dot_product_fn = amp.float_function(CausalDotProduct.apply) if is_half else CausalDotProduct.apply
-
-    k_cumsum = k.cumsum(dim=-2) + eps
-    D_inv = 1. / torch.einsum('...nd,...nd->...n', q, k_cumsum.type_as(q))
-
-    with cuda_context():
-        if autocast_enabled:
-            q, k, v = map(lambda t: t.float(), (q, k, v))
-
-        out = causal_dot_product_fn(q, k, v)
-
-    out = torch.einsum('...nd,...n->...nd', out, D_inv)
-    return out
-
-
-class FastAttention(nn.Module):
-    def __init__(
-            self,
-            dim_head,
-            nb_features=None,
-            ortho_scaling=0,
-            causal=False,
-            attn_type="conditioned_noncuda",
-            generalized_attention=False,
-            kernel_fn=nn.ReLU(),
-            no_projection=False
-    ):
+class PositionWiseFeedForward(nn.Module):
+    def __init__(self, dim, mult=4, dropout=0., activation=None):
         super().__init__()
-        nb_features = default(nb_features, int(dim_head * math.log(dim_head)))
 
-        self.dim_head = dim_head
-        self.nb_features = nb_features
-        self.ortho_scaling = ortho_scaling
+        activation = default(activation, nn.GELU)
 
-        self.create_projection = partial(gaussian_orthogonal_random_matrix, nb_rows=self.nb_features,
-                                         nb_columns=dim_head, scaling=ortho_scaling)
-        projection_matrix = self.create_projection()
-        self.register_buffer('projection_matrix', projection_matrix)
+        self.w1 = nn.Linear(dim, mult * dim)
+        self.act = activation()
+        self.w2 = nn.Linear(mult * dim, dim)
+        self.dropout = dropout
 
-        self.generalized_attention = generalized_attention
-        self.kernel_fn = kernel_fn
-        self.no_projection = no_projection
-
-        self.causal = causal
-        if self.causal == 'causal_linear_attn_cuda':
-            self.causal_linear_fn = partial(all_modality_causal_linear_attn_noncuda)
-        else:
-            # In case of running on CUDA device, use Apex optimization to speed-up
-            # parallel CausalDotProduct,
-            # NOTE: this requires the fast-transformers library.
-            self.causal_linear_fn = partial(all_modality_causal_linear_attn_cuda)
-
-    @torch.no_grad()
-    def redraw_projection_matrix(self, device):
-        projections = self.create_projection(device=device)
-        self.projection_matrix.copy_(projections)
-        del projections
-
-    def forward(self, q, k, v, condition_len=0):
-        device = q.device
-
-        if self.no_projection:
-            q = q.softmax(dim=-1)
-            k = torch.exp(k) if self.causal else k.softmax(dim=-2)
-
-        elif self.generalized_attention:
-            create_kernel = partial(generalized_kernel, kernel_fn=self.kernel_fn,
-                                    projection_matrix=self.projection_matrix, device=device)
-            q, k = map(create_kernel, (q, k))
-
-        else:
-            create_kernel = partial(softmax_kernel, projection_matrix=self.projection_matrix, device=device)
-            q = create_kernel(q, is_query=True)
-            k = create_kernel(k, is_query=False)
-
-        attn_fn = self.causal_linear_fn
-        out = attn_fn(q, k, v, condition_len=condition_len)
-
-        out = out.to(device)
-        return out  # [B, global_head, seq_len, dim_head]
+    def forward(self, x, **kwargs):
+        out = self.w1(x)
+        out = self.act(out)
+        out = F.dropout(out, p=self.dropout, training=self.training)
+        out = self.w2(out)
+        out = F.dropout(out, p=self.dropout, training=self.training)
+        return out
 
 
-class FAVORAttention(nn.Module):
+class Transformer(nn.Module):
     def __init__(
             self,
             dim,
-            causal=False,
+            depth,
+            heads,
+            local_attn_heads=0,
+            causal='conditioned_causal',
             attn_type="conditioned_noncuda",
             generalized_attention=False,
             kernel_fn=nn.ReLU(),
-            heads=8,
-            local_heads=0,
+            ff_mult=4,
             nb_features=None,
-            dropout=0.3,
+            feature_redraw_interval=1000,
+            use_scalenorm=False,
+            use_rezero=False,
+            ff_dropout=0.,
+            attn_dropout=0.,
+            cross_attend=False,
+            auto_check_redraw=True,
+            qkv_bias=True,
+            attn_out_bias=True,
             no_projection=False,
-            qkv_bias=False,
-            attn_out_bias=True
+            FAVOR=False,
     ):
         super().__init__()
-        assert dim % heads == 0, 'dimension must be divisible by number of heads'
-        dim_head = (dim // heads)
+        layers = nn.ModuleList([])
+        local_attn_heads = cast_tuple(local_attn_heads)
+        local_attn_heads = local_attn_heads * depth if len(local_attn_heads) == 1 else local_attn_heads
+        assert len(local_attn_heads) == depth, 'tuple specifying number of local attention heads per depth must be equal to the total depth'
+        assert all(map(lambda n: n >= 0 and n <= heads, local_attn_heads)), 'local attention head value must be less than the total number of heads'
 
-        self.heads = heads
-        self.global_heads = heads - local_heads
-        self.dim_head = dim_head
+        if use_scalenorm:
+            wrapper_fn = partial(PreScaleNorm, dim)
+        elif use_rezero:
+            wrapper_fn = ReZero
+        else:
+            wrapper_fn = partial(PreLayerNorm, dim)  # eg. dim=512
 
-        # Fast Attention
-        self.fast_attention = FastAttention(dim_head, nb_features,
-                                            causal=causal, attn_type=attn_type,
-                                            generalized_attention=generalized_attention,
-                                            kernel_fn=kernel_fn,
-                                            no_projection=no_projection)
+        if FAVOR:
+            for _, local_heads in zip(range(depth), local_attn_heads):
+                layers.append(nn.ModuleList([
+                    wrapper_fn(FAVORAttention(dim=dim, causal=causal, attn_type=attn_type,
+                                              generalized_attention=generalized_attention,
+                                              kernel_fn=kernel_fn,
+                                              heads=heads, local_heads=local_heads, nb_features=nb_features,
+                                              dropout=attn_dropout, no_projection=no_projection,
+                                              qkv_bias=qkv_bias, attn_out_bias=attn_out_bias)),
+                    wrapper_fn(PositionWiseFeedForward(dim=dim, mult=ff_mult, dropout=ff_dropout, activation=None))
+                ]))
+                if not cross_attend:
+                    continue
 
-        self.to_q = nn.Linear(dim, dim, bias=qkv_bias)
-        self.to_k = nn.Linear(dim, dim, bias=qkv_bias)
-        self.to_v = nn.Linear(dim, dim, bias=qkv_bias)
-        self.to_output = nn.Linear(dim, dim, bias=attn_out_bias)
-        self.dropout = nn.Dropout(dropout)
+        execute_type = SequentialSequence
 
-    def forward(self, x, pos_emb=None, context=None, mask=None, context_mask=None, condition_len=0, **kwargs):
-        b, n, _, h, gh = *x.shape, self.heads, self.global_heads
+        route_attn = ((True, False),) * depth * (2 if cross_attend else 1)  # len(): 2*depth if cross_attend else depth
+        route_context = ((False, False), (True, False)) * depth
+        attn_route_map = {'pad_mask': route_attn, 'pos_emb': route_attn, 'causal': route_attn, 'condition_len': route_attn}
+        context_route_map = {'context': route_context, 'context_mask': route_context} if cross_attend else {}
+        self.net = execute_type(layers, args_route={**attn_route_map, **context_route_map})
 
-        context = default(context, x)
-        context_mask = default(context_mask, mask)
+        if FAVOR:
+            self.auto_check_redraw = auto_check_redraw  # auto_check_redraw = True
+            self.proj_updater = ProjectionUpdater(self.net, feature_redraw_interval)
+        else:
+            self.auto_check_redraw = False
 
-        q, k, v = self.to_q(x), self.to_k(context), self.to_v(context)
+    def fix_projection_matrices_(self):
+        self.proj_updater.feature_redraw_interval = None
 
-        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h=h), (q, k, v))  # => q, k, v: [B, head, seq_len, dim_head]
-        (q, lq), (k, lk), (v, lv) = map(lambda t: (t[:, :gh], t[:, gh:]), (q, k, v))
-
-        if not empty(q):
-            if exists(context_mask):
-                global_mask = context_mask[:, None, :, None]  # [B, 1, seq_len, 1]
-                v.masked_fill(~global_mask, 0.)
-
-            if exists(pos_emb):
-                q, k = apply_rotary_pos_emb(q, k, pos_emb)
-
-        out = self.fast_attention(q, k, v, condition_len=condition_len)  # [B, global_head, seq_len, dim_head]
-        out = rearrange(out, 'b h n d -> b n (h d)')  # -> [B, seq_len, inner_dim]
-
-        out = self.to_output(out)  # -> [B, seq_len, dim]
-        return self.dropout(out)  # -> [B, seq_len, dim]
+    def forward(self, x, **kwargs):
+        if self.auto_check_redraw:
+            self.proj_updater.redraw_projections()
+        return self.net(x, **kwargs)
 
 
-class ProjectionUpdater(nn.Module):
-    def __init__(self, instance, feature_redraw_interval):
+class UnifiedTransformerLM(nn.Module):
+    def __init__(
+            self,
+            *,
+            num_tokens,  # text vocab size
+            num_img_tokens,  # img vocab size + num img pad
+            img_vocab_size,
+            max_seq_len,  # total max len; img_len * max_img_num + max_text_len
+            max_img_len,
+            max_img_num,  # num img slot
+            img_len,
+            dim,
+            depth,
+            heads=8,
+            local_attn_heads=0,
+            causal='conditioned_causal',
+            attn_type="conditioned_noncuda",
+            generalized_attention=False,
+            kernel_fn=nn.ReLU(),
+            ff_mult=4,
+            nb_features=None,
+            feature_redraw_interval=1000,
+            reversible=False,
+            emb_dropout=0.,
+            ff_dropout=0.,
+            attn_dropout=0.,
+            use_scalenorm=False,
+            use_rezero=False,
+            cross_attend=False,
+            no_projection=False,
+            tie_embed=False,
+            rotary_position_emb=True,
+            axial_position_emb=False,
+            axial_position_shape=None,
+            auto_check_redraw=True,
+            qkv_bias=False,
+            attn_out_bias=False,
+            img_fmap_size=0,
+            FAVOR=False,
+
+            mask_prob=0.15,
+            replace_prob=0.9,
+            random_token_prob=0.,
+            mask_token_id=4,
+            pad_token_id=0,
+            mask_ignore_token_ids=[],
+            **kwargs
+    ):
         super().__init__()
-        self.instance = instance
-        self.feature_redraw_interval = feature_redraw_interval
-        self.register_buffer('calls_since_last_redraw', torch.tensor(0))
 
-    def fix_projections_(self):
-        self.feature_redraw_interval = None
+        self.img_len = img_len
+        self.num_txt_tokens = num_tokens
+        self.num_img_tokens = num_img_tokens
+        self.img_vocab_size = img_vocab_size
+        self.max_seq_len = max_seq_len
+        self.max_img_num = max_img_num
+        local_attn_heads = cast_tuple(local_attn_heads)
+        self.dim = dim
+        dim_head = dim // heads
 
-    def redraw_projections(self):
-        model = self.instance
+        self.mask_prob = mask_prob
+        self.replace_prob = replace_prob
+        self.random_token_prob = random_token_prob
+        self.mask_token_id = mask_token_id
+        self.pad_token_id = pad_token_id
+        self.mask_ignore_token_ids = mask_ignore_token_ids
 
-        if not self.training:
-            return
+        self.attn_type = attn_type
 
-        if exists(
-                self.feature_redraw_interval) and self.calls_since_last_redraw >= self.feature_redraw_interval:
-            device = get_module_device(model)
+        # !# img
+        self.image_token_emb = nn.Embedding(num_img_tokens, dim)
+        self.ap_att_emb = AbsolutePositionalEmbedding(dim, max_seq_len)  # max_seq_len = img_len * max_img_num + max_text_len
+        self.pa_att_emb = AbsolutePositionalEmbedding(dim, max_seq_len)
+        self.la_att_emb = AbsolutePositionalEmbedding(dim, max_seq_len)
+        self.pad_img_att_emb = AbsolutePositionalEmbedding(dim, max_seq_len)
+        self.image_pos_emb = AxialPositionalEmbedding(dim=dim, axial_shape=(img_fmap_size + 1, img_fmap_size + 1))
 
-            fast_attentions = find_modules(model, FastAttention)  # list
-            for fast_attention in fast_attentions:
-                fast_attention.redraw_projection_matrix(device)
+        # !# text
+        self.token_emb = nn.Embedding(num_tokens, dim)
+        if rotary_position_emb:
+            self.pos_emb = FixedPositionalEmbedding(dim, max_seq_len)
+            self.layer_pos_emb = FixedPositionalEmbedding(dim_head, max_seq_len)
+        elif axial_position_emb:
+            axial_position_shape = default(axial_position_shape, (math.ceil(max_seq_len / 64), 64))
+            self.pos_emb = AxialPositionalEmbedding(dim, axial_position_shape)
+            self.layer_pos_emb = Always(None)
+        else:
+            self.pos_emb = FixedPositionalEmbedding(dim, max_seq_len)
+            self.layer_pos_emb = Always(None)
+        self.txt_att_emb = AbsolutePositionalEmbedding(dim, max_seq_len)
 
-            self.calls_since_last_redraw.zero_()
-            return
+        self.dropout = nn.Dropout(emb_dropout)
+        self.transformer = Transformer(dim, depth, heads, local_attn_heads, causal,
+                                       attn_type, generalized_attention,
+                                       kernel_fn,
+                                       ff_mult, nb_features, feature_redraw_interval, use_scalenorm, use_rezero,
+                                       ff_dropout, attn_dropout, cross_attend, auto_check_redraw,
+                                       qkv_bias, attn_out_bias, no_projection, FAVOR)
+        self.norm = nn.LayerNorm(dim)
 
-        self.calls_since_last_redraw += 1
+        self.to_out_txt = nn.Linear(dim, num_tokens)  # if not tie_embed else None
+        self.to_out_img = nn.Linear(dim, num_img_tokens)  # if not tie_embed else None
+        self.to_out_combined_txt_img = nn.Linear(dim, (num_tokens + num_img_tokens))
 
-    def forward(self, x):
-        raise NotImplemented
+    def check_redraw_projections(self):
+        self.performer.check_redraw_projections()
+
+    def fix_projection_matrices_(self):
+        self.performer.fix_projection_matrices_()
+
+    def forward(self, batch, causal, return_encodings=False, **kwargs):  # kwargs = {'mask': tensor with same shape x}
+        txt, view = batch['txt'], batch['view_position']
+        b, n_txt, device = *txt.shape, txt.device
+
+        img1 = batch['img1']
+        b, n_img1, device = *img1.shape, img1.device
+        img2 = batch['img2']
+        b, n_img2, device = *img2.shape, img2.device
+        img3 = batch['img3']
+        b, n_img3, device = *img3.shape, img3.device
+
+        n = n_img1 + n_txt + n_img2 + n_img3
+        imgs = [img1, img2, img3]
+
+        assert n <= self.max_seq_len, f'sequence length {n} must be less than the max sequence length {self.max_seq_len}'
+
+        # !# image; token and positional embeddings
+        # -- VECTORIZED!
+
+        # Step 1: Apply token embeddings to all images
+        x_img1 = self.image_token_emb(img1)  # [b, img_len1, dim]
+        x_img2 = self.image_token_emb(img2)  # [b, img_len2, dim]
+        x_img3 = self.image_token_emb(img3)  # [b, img_len3, dim]
+
+        # Step 2: Apply positional embeddings
+        pos_img1 = self.image_pos_emb(x_img1)  # [b, img_len1, dim]
+        pos_img2 = self.image_pos_emb(x_img2)  # [b, img_len2, dim]
+        pos_img3 = self.image_pos_emb(x_img3)  # [b, img_len3, dim]
+
+        # Step 3: Apply attention embeddings based on view types
+        # Stack views for vectorized operations
+        # views = torch.stack(view, dim=1)  # [b, 3]
+
+        # Create embeddings for each view type
+        # For image 1,2,3
+        view_masks1 = F.one_hot(view[:, 0], num_classes=4).float()  # [b, 4]
+        view_masks2 = F.one_hot(view[:, 1], num_classes=4).float()
+        view_masks3 = F.one_hot(view[:, 2], num_classes=4).float()
+
+        # Apply embeddings for different view types
+        att_tensors1 = torch.stack([
+            self.ap_att_emb(x_img1),
+            self.pa_att_emb(x_img1),
+            self.la_att_emb(x_img1),
+            self.pad_img_att_emb(x_img1)
+        ], dim=1)  # [b, 4, seq_len, dim]
+
+        att_tensors2 = torch.stack([
+            self.ap_att_emb(x_img2),
+            self.pa_att_emb(x_img2),
+            self.la_att_emb(x_img2),
+            self.pad_img_att_emb(x_img2)
+        ], dim=1)  # [b, 4, seq_len, dim]
+
+        att_tensors3 = torch.stack([
+            self.ap_att_emb(x_img3),
+            self.pa_att_emb(x_img3),
+            self.la_att_emb(x_img3),
+            self.pad_img_att_emb(x_img3)
+        ], dim=1)  # [b, 4, seq_len, dim]
+
+
+        # Apply attention embeddings using broadcasting
+        # Reshape masks for broadcasting: [b, 4, 1, 1]
+        view_masks1 = view_masks1.unsqueeze(-1).unsqueeze(-1)
+        view_masks2 = view_masks2.unsqueeze(-1).unsqueeze(-1)
+        view_masks3 = view_masks3.unsqueeze(-1).unsqueeze(-1)
+
+        # Weighted sum using masks
+        att_img1 = (att_tensors1 * view_masks1).sum(dim=1)  # [b, seq_len, dim]
+        att_img2 = (att_tensors2 * view_masks2).sum(dim=1)  # [b, seq_len, dim]
+        att_img3 = (att_tensors3 * view_masks3).sum(dim=1)  # [b, seq_len, dim]
+
+        # Step 4: Combine embeddings
+        x_img1_final = x_img1 + att_img1 + pos_img1  # [b, n_img1, dim]
+        x_img2_final = x_img2 + att_img2 + pos_img2  # [b, n_img2, dim]
+        x_img3_final = x_img3 + att_img3 + pos_img3  # [b, n_img3, dim]
+        
+        # ---
+
+        # !# text; token and positional embeddings
+        x_text = self.token_emb(txt)
+        x_text += self.txt_att_emb(x_text)
+        x_text += self.pos_emb(x_text)
+
+        # FEED x
+        x_text_padded = F.pad(x_text, (0, 0, 0, n_img1 - n_txt), "constant", 0)
+        x_stacked = torch.stack([x_text_padded, x_img1_final, x_img2_final, x_img3_final], dim=1)
+
+        n_seq = x_text_padded.shape[-1]
+
+        perms = batch['modal_perms']
+        batch_indices = torch.arange(b).unsqueeze(1).expand(-1, 4)
+        permuted = x_stacked[batch_indices, perms]
+        x = permuted.reshape(b, -1, n_seq) # [B, seq_len, dim]
+
+        # dropout layer
+        x = self.dropout(x)
+
+        n_condition = n - n_img1
+
+        # performer layers
+        layer_pos_emb = self.layer_pos_emb(x)
+        x = self.transformer(x, pos_emb=layer_pos_emb, causal=causal, condition_len=n_condition, **kwargs)  # x: [B, seq_len, dim] -> [B, seq_len, dim]
+        x = self.norm(x)
+
+        if return_encodings:  # usually False
+            return x
+
+        if self.attn_type in ['all_modality_causal_noncuda', 'all_modality_causal_cuda']:
+            return self.to_out_combined_txt_img(x)
+        return x @ self.token_emb.weight.t()
+
+    # !# Generate Report
+    @torch.no_grad()
+    @eval_decorator
+    def generate_texts(
+            self,
+            # img1,  # tensor[B, img1_len]
+            # img2,  # tensor[B, img2_len]
+            # view,
+            # modes,
+            batch,
+            *,
+            sos_token_idx=None,
+            eos_token_idx=None,
+            pad_token_idx=None,
+            filter_logits_fn='top_k',
+            filter_thres=0.9,
+            temperature=1.,
+            causal='conditioned_causal'
+    ):
+        total_len = self.max_seq_len
+        txt, img1, modes, view = batch['txt'], batch['img1'], batch['modes'], batch['view_position']
+        B, img1_seq_len, device = *img1.shape, img1.device
+        _, txt_seq_len = txt.size()
+
+        if 'img2' in batch.keys():
+            assert self.max_img_num >= 2
+            img2 = batch['img2']
+        if 'img3' in batch.keys():
+            assert self.max_img_num == 3
+            img3 = batch['img3']
+
+        if self.max_img_num == 1:
+            assert modes[0][0] == 'img1'
+            images = img1
+        elif self.max_img_num == 2:
+            if modes[0][0] == 'img1':
+                images = torch.cat((img1, img2), dim=1)  # -> [B, image_seq_len]
+            elif modes[0][0] == 'img2':
+                images = torch.cat((img2, img1), dim=1)  # -> [B, image_seq_len]
+            else:
+                raise ValueError
+        elif self.max_img_num == 3:
+            if modes[0][0] == 'img1':
+                if modes[1][0] == 'img2':
+                    images = torch.cat((img1, img2, img3), dim=1)
+                else:
+                    images = torch.cat((img1, img3, img2), dim=1)
+            elif modes[0][0] == 'img2':
+                if modes[1][0] == 'img1':
+                    images = torch.cat((img2, img1, img3), dim=1)
+                else:
+                    images = torch.cat((img2, img3, img1), dim=1)
+            elif modes[0][0] == 'img3':
+                if modes[1][0] == 'img1':
+                    images = torch.cat((img3, img1, img2), dim=1)
+                else:
+                    images = torch.cat((img3, img2, img1), dim=1)
+
+        B, image_seq_len, device = *images.shape, images.device
+        out = torch.cat((images, torch.tensor([[sos_token_idx]] * B).to(device)), dim=-1)
+        batch['txt'] = out[:, image_seq_len:]
+
+        if filter_logits_fn == 'top_k':
+            filter_logits_fn = top_k
+        elif filter_logits_fn == 'top_p':
+            filter_logits_fn = top_p
+        else:
+            raise ValueError('filter_logits_fn must be in (top_k, top_p)')
+
+        for cur_len in range(txt_seq_len - 1):
+            batch['txt'] = out[:, image_seq_len:]
+            logits = self(batch, causal=causal)
+            max_neg_value = -torch.finfo(logits.dtype).max
+            logits[:, :, self.num_txt_tokens:] = max_neg_value
+            logits = logits[:, -1, :]
+            filtered_logits = filter_logits_fn(logits, thres=filter_thres)
+            probs = F.softmax(filtered_logits / temperature, dim=-1)  # [B, num_text_tokens]
+            sample = torch.multinomial(probs, 1)  # [B, 1]
+            out = torch.cat((out, sample), dim=-1)
+            # break check
+            if ((out[:, image_seq_len:] == eos_token_idx).sum(dim=-1) > 0).sum() == B:
+                break
+
+        text_seq = out[:, image_seq_len:]
+
+        # postprocess
+        indices = [list(row).index(eos_token_idx) if eos_token_idx in row else -1 for row in text_seq]
+        for row, idx in enumerate(indices):
+            if idx >= 0:
+                text_seq[row, idx + 1:] = pad_token_idx
+
+        batch['txt'] = txt
+        pad_size = (0, txt_seq_len - text_seq.size(-1))
+        gen_texts = F.pad(text_seq, pad_size, 'constant', pad_token_idx)
+        return gen_texts
+
+    # !# Generate Certain Image
+    @torch.no_grad()
+    @eval_decorator
+    def generate_image(self,
+                       # txt,
+                       # img,
+                       # view,
+                       # modes,
+                       batch,
+                       *,
+                       filter_logits_fn='top_k',
+                       filter_thres=0.9,
+                       temperature=1.,
+                       causal='conditioned_causal',
+                       target_gen_view='AP',
+                       ):
+        txt, img1, modes, view = batch['txt'], batch['img1'], batch['modes'], batch['view_position']
+
+        if 'img2' in batch.keys():
+            assert self.max_img_num >= 2 or self.max_img_num == -1
+            img2 = batch['img2']
+        if 'img3' in batch.keys():
+            assert self.max_img_num == 3 or self.max_img_num == -1
+            img3 = batch['img3']
+
+        B, n_txt, device = *txt.shape, txt.device
+
+        att_sos_special_tokens = {'AP': 1025, 'PA': 1027, 'LATERAL': 1029, 'LL': 1029, 'PAD': 1024}
+
+        if self.max_img_num == 1:
+            out = txt
+        elif self.max_img_num == 2:
+            if modes[-1][0] == 'img2':
+                if modes[0][0] == 'img1':
+                    out = torch.cat((batch['img1'], txt), dim=1).to(device)
+                else:
+                    out = torch.cat((txt, batch['img1']), dim=1).to(device)
+            elif modes[-1][0] == 'img1':
+                if modes[0][0] == 'img2':
+                    out = torch.cat((batch['img2'], txt), dim=1).to(device)
+                else:
+                    out = torch.cat((txt, batch['img2']), dim=1).to(device)
+        elif self.max_img_num == 3:
+            mode_to_data = {'img1': batch['img1'], 'img2': batch['img2'], 'img3': batch['img3'], 'txt': batch['txt']}
+            conditioned_data = []
+            for mode in modes[:-1]:
+                conditioned_data.append(mode_to_data[mode[0]])
+            out = torch.cat(conditioned_data, dim=1).to(device)
+        B, seq_len, device = *out.shape, out.device
+        out = torch.cat([out, torch.tensor([[att_sos_special_tokens[i]] for i in view[-1]]).to(device)], dim=-1)
+
+        if filter_logits_fn == 'top_k':
+            filter_logits_fn = top_k
+        elif filter_logits_fn == 'top_p':
+            filter_logits_fn = top_p
+        else:
+            raise ValueError('filter_logits_fn must be either top_k or top_p')
+
+        for cur_len in range(self.img_len-1):
+            batch[modes[-1][0]] = out[:, seq_len:]
+
+            logits = self(batch, causal=causal)
+            max_neg_value = -torch.finfo(logits.dtype).max
+            logits[:, :, :self.num_txt_tokens] = max_neg_value
+            logits = logits[:, -1, :]
+
+            if cur_len != (self.img_len-2):
+                logits[:, (self.img_vocab_size + self.num_txt_tokens):] = float('-inf')
+
+            filtered_logits = filter_logits_fn(logits, thres=filter_thres)
+            probs = F.softmax(filtered_logits / temperature, dim=-1)
+            sample = torch.multinomial(probs, 1)  # [B, 1]
+
+            sample -= self.num_txt_tokens
+
+            if cur_len != (self.img_len - 2):
+                assert not set(sum(sample.tolist(), [])) & set(range(1024, self.num_img_tokens)), f'{sample}, Special token are sampled in wrong position.'
+
+            out = torch.cat((out, sample), dim=-1)
+        image_seq = out[:, seq_len:]
+
+        if modes[-1][0] == 'img1':
+            batch[modes[-1][0]] = img1
+        elif modes[-1][0] == 'img2':
+            batch[modes[-1][0]] = img2
+        elif modes[-1][0] == 'img3':
+            batch[modes[-1][0]] = img3
+
+        return image_seq
