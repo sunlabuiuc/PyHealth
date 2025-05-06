@@ -1,7 +1,33 @@
-from .base_task import BaseTask
-from typing import Dict, List, Optional
-import torch
-import numpy as np
+"""
+DeIdentificationTask Class
+Author: Varshini R R
+NetID: vrr4
+
+This module implements the `DeIdentificationTask` class, which handles the 
+training, evaluation, and preprocessing of synthetic hospital discharge summaries 
+for the purpose of de-identification. The task utilizes logistic regression and 
+TF-IDF features for diagnosis extraction and classification.
+
+Usage:
+    This class is used in the de-identification pipeline to load, preprocess, 
+    and train a model on discharge summary data prior to further evaluation 
+    or deployment.
+
+Modules and Methods:
+    - `pre_process_data`: Preprocesses the dataset by cleaning and normalizing the text.
+    - `extract_diagnosis`: Extracts diagnosis mentions from the text and labels them accordingly.
+    - `get_task_info`: Retrieves metadata about the task.
+    - `__call__`: Inferences on a single example and provides the input and predicted label.
+    - `train`: Trains a logistic regression classifier using TF-IDF features on the dataset.
+    - `evaluate`: Evaluates the model using accuracy on a provided test dataset.
+
+Dependencies:
+    - pandas
+    - scikit-learn
+    - pyhealth
+
+"""
+from typing import Dict
 import pandas as pd
 import os
 import re
@@ -9,146 +35,134 @@ import re
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
+
+from .base_task import BaseTask
 from pyhealth.datasets.deidentification_dataset import DeidentificationDataset
 
-class DeIdentificationTask(BaseTask):
-    def __init__(self, dataset: DeidentificationDataset):
-        self.dataset = dataset
-        self.model = None  
 
-    def pre_process_data(self):
+class DeIdentificationTask(BaseTask):
+    """A task class for de-identification using logistic regression and TF-IDF."""
+
+    def __init__(self, dataset: DeidentificationDataset):
         """
-        Preprocess the dataset (clean the text and other necessary transformations).
+        Initialize the task with a given dataset.
+
+        Args:
+            dataset (DeidentificationDataset): The dataset object to use for training and evaluation.
         """
+        self.dataset = dataset
+        self.model = None
+
+    def pre_process_data(self) -> None:
+        """Preprocess the dataset by cleaning and normalizing the text column."""
         self.dataset.preprocess_data()
 
-    def extract_diagnosis(self):
-        """Extract diagnosis from each record's text column."""
-        def extract(text):
-            if "Diagnosis:" in text:
-                return "Diagnosis Found"
-            return "Diagnosis not found"
+    def extract_diagnosis(self) -> None:
+        """Extract diagnosis mentions from the text and label accordingly."""
+        def extract(text: str) -> str:
+            return "Diagnosis Found" if "Diagnosis:" in text else "Diagnosis not found"
 
         self.dataset.data["diagnosis_extracted"] = self.dataset.data["text"].apply(extract)
 
-    def get_task_info(self):
+    def get_task_info(self) -> Dict[str, str]:
         """
-        Return task-related information (e.g., dataset name, task type).
+        Retrieve metadata about the task.
+
+        Returns:
+            Dict[str, str]: Dictionary containing dataset name and task type.
         """
         return {
-            'dataset_name': self.dataset.config['table_name'],
-            'task_type': 'deidentification',  # Task type can be extended for different task types
+            "dataset_name": self.dataset.config["table_name"],
+            "task_type": "deidentification"
         }
 
-    def __call__(self, example):
+    def __call__(self, example: Dict[str, str]) -> Dict[str, str]:
         """
-        Transform an example using the trained model.
+        Run inference on a single example.
+
+        Args:
+            example (Dict[str, str]): A dictionary with a "text" field.
+
+        Returns:
+            Dict[str, str]: A dictionary with the input and predicted label.
         """
         if self.model:
             prediction = self.model.predict([example["text"]])[0]
-            return {
-                "input": example["text"],
-                "label": prediction
-            }
-        else:
-            return {
-                "input": example["text"],
-                "label": example.get("diagnosis_extracted", "Diagnosis not found")
-            }
+            return {"input": example["text"], "label": prediction}
+        return {
+            "input": example["text"],
+            "label": example.get("diagnosis_extracted", "Diagnosis not found")
+        }
 
-    def evaluate(self, test_data: pd.DataFrame) -> Dict[str, float]:
+    def train(self, train_data: pd.DataFrame, epochs: int = 10) -> None:
         """
-        Evaluate the task's performance on a given dataset (e.g., compute accuracy, precision).
-        
+        Train a logistic regression classifier on the training data.
+
         Args:
-            test_data (pd.DataFrame): The dataset to evaluate on.
-        
-        Returns:
-            dict: The evaluation metrics (e.g., accuracy).
-        """
-        correct_predictions = 0
-        total = len(test_data)
-        
-        # Iterate over the test data and count correct predictions
-        for _, example in test_data.iterrows():
-            transformed_example = self(example)
-            predicted = transformed_example["label"]
-            actual = example["diagnosis_extracted"]
-            
-            if predicted == actual:
-                correct_predictions += 1
-
-        accuracy = correct_predictions / total
-        print(f"Accuracy: {accuracy}")
-        return {"accuracy": accuracy, 'total': total}
-
-    def train(self, train_data: pd.DataFrame, epochs: int = 10):
-        """
-        Train a logistic regression model using TF-IDF features.
+            train_data (pd.DataFrame): DataFrame containing 'text' and 'diagnosis_extracted'.
+            epochs (int, optional): Max iterations for training. Defaults to 10.
         """
         print("Training with logistic regression using TF-IDF features...")
 
-        # Prepare training data
         X_train = train_data["text"]
         y_train = train_data["diagnosis_extracted"]
 
-        # Create a pipeline with TF-IDF vectorizer and logistic regression
         self.model = Pipeline([
-            ('tfidf', TfidfVectorizer(max_features=5000)),
-            ('clf', LogisticRegression(max_iter=epochs))
+            ("tfidf", TfidfVectorizer(max_features=5000)),
+            ("clf", LogisticRegression(max_iter=1000, class_weight="balanced"))
         ])
 
-        # Create a pipeline with TF-IDF vectorizer and logistic regression
-        self.model = Pipeline([
-            ('tfidf', TfidfVectorizer(max_features=5000)),
-            ('clf', LogisticRegression(max_iter=500, class_weight='balanced'))
-        ])
-
-        # Train the model
         self.model.fit(X_train, y_train)
-
         print("Training complete.")
 
-if __name__ == "__main__":
-    from pyhealth.datasets.deidentification_dataset import DeidentificationDataset
+    def evaluate(self, test_data: pd.DataFrame) -> Dict[str, float]:
+        """
+        Evaluate the classifier on test data using accuracy.
 
-    # Configuration for the sample dataset
+        Args:
+            test_data (pd.DataFrame): The test dataset.
+
+        Returns:
+            Dict[str, float]: Evaluation results with accuracy and total sample count.
+        """
+        correct_predictions = 0
+        total = len(test_data)
+
+        for _, example in test_data.iterrows():
+            transformed_example = self(example)
+            if transformed_example["label"] == example["diagnosis_extracted"]:
+                correct_predictions += 1
+
+        accuracy = correct_predictions / total
+        print(f"Accuracy: {accuracy:.4f}")
+        return {"accuracy": accuracy, "total": total}
+
+
+if __name__ == "__main__":
     dataset_config = {
-        'table_name': 'discharge_summaries',
-        'file_path': 'data/deid_raw/discharge/discharge_summaries.json',
-        'patient_id': 'document_id',
-        'timestamp': None,
-        'attributes': ['document_id', 'text']
+        "table_name": "discharge_summaries",
+        "file_path": "data/deid_raw/discharge/discharge_summaries.json",
+        "patient_id": "document_id",
+        "timestamp": None,
+        "attributes": ["document_id", "text"]
     }
 
     # Load dataset
     dataset = DeidentificationDataset(dataset_config)
-    
-    # Create DeIdentificationTask
+
+    # Create and run de-identification task
     task = DeIdentificationTask(dataset)
 
-    # Step 1: Preprocess the text
     print("Preprocessing data...")
     task.pre_process_data()
 
-    # Step 2: Extract diagnosis information from the text
     print("Extracting diagnoses...")
     task.extract_diagnosis()
 
-    # Step 3: Transform all examples in the dataset
-    print("\nTransforming examples:")
-    transformed_examples = []
-    for _, example in dataset.data.iterrows():
-        transformed = task(example)
-        transformed_examples.append(transformed)
+    print("Training model...")
+    task.train(train_data=dataset.data, epochs=10)
 
-    # Step 4: Training loop (example, just printing out the epoch info)
-    print("\nTraining model...")
-    task.train(train_data=dataset.data, epochs=3)
-
-    # Step 5: Evaluate the task on test data
-    print("\nEvaluating model...")
-    # Assuming we have test data for evaluation (you should separate train/test in practice)
-    test_data = dataset.data.sample(frac=0.2, random_state=42)  # Take 20% as test data
-    evaluation_results = task.evaluate(test_data)
-    print("Evaluation Results:", evaluation_results)
+    print("Evaluating model...")
+    test_data = dataset.data.sample(frac=0.2, random_state=42)
+    results = task.evaluate(test_data)
+    print("Evaluation Results:", results)
