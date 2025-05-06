@@ -1,0 +1,174 @@
+version: "1.0"
+tables:
+  patients:
+    file_path: "bold_dataset.csv"
+    patient_id: "unique_subject_id"
+    timestamp: null
+    attributes:
+      - "source_db"
+
+  demographics:
+    file_path: "bold_dataset.csv"
+    patient_id: "unique_subject_id"
+    timestamp: null
+    attributes:
+      - "unique_hospital_admission_id"
+      - "unique_icustay_id"
+      - "hospital_admission_id"
+      - "icustay_id"
+      - "subject_id"
+      - "source_db"
+      - "race_ethnicity"
+
+  hospital:
+    file_path: "bold_dataset.csv"
+    patient_id: "unique_subject_id"
+    timestamp: null
+    attributes:
+      - "unique_hospital_admission_id"
+      - "unique_icustay_id"
+      - "hospitalid"
+      - "numbedscategory"
+      - "teachingstatus"
+      - "region"
+      - "admission_age"
+      - "sex_female"
+      - "weight_admission"
+      - "height_admission"
+      - "BMI_admission"
+      - "datetime_hospital_admit"
+      - "datetime_hospital_discharge"
+      - "datetime_icu_admit"
+      - "datetime_icu_discharge"
+      - "los_hospital"
+      - "los_ICU"
+      - "in_hospital_mortality"
+      - "comorbidity_score_name"
+      - "comorbidity_score_value"
+
+  abgdata:
+    file_path: "bold_dataset.csv"
+    patient_id: "unique_subject_id"
+    timestamp: null
+    attributes:
+      - "unique_hospital_admission_id"
+      - "unique_icustay_id"
+      - "SaO2_timestamp"
+      - "pH"
+      - "pCO2"
+      - "pO2"
+      - "SaO2"
+      - "Carboxyhemoglobin"
+      - "Methemoglobin"
+
+  vitalsdata:
+    file_path: "bold_dataset.csv"
+    patient_id: "unique_subject_id"
+    timestamp: null
+    attributes:
+      - "unique_hospital_admission_id"
+      - "unique_icustay_id"
+      - "SpO2"
+      - "SpO2_timestamp"
+      - "vitals_heart_rate"
+      - "vitals_resp_rate"
+      - "vitals_mbp_ni"
+      - "vitals_sbp_ni"
+      - "vitals_dbp_ni"
+      - "vitals_mbp_i"
+      - "vitals_sbp_i"
+      - "vitals_dbp_i"
+      - "vitals_tempc"
+
+  labdata:
+    file_path: "bold_dataset.csv"
+    patient_id: "unique_subject_id"
+    timestamp: null
+    attributes:
+      - "unique_hospital_admission_id"
+      - "unique_icustay_id"
+      - "cbc_wbc"
+      - "cbc_hemoglobin"
+      - "cbc_hematocrit"
+      - "cbc_platelet"
+      - "cbc_mch"
+      - "cbc_mchc"
+      - "cbc_mcv"
+      - "cbc_rbc"
+      - "cbc_rdw"
+
+  coagulationlabs:
+    file_path: "bold_dataset.csv"
+    patient_id: "unique_subject_id"
+    timestamp: null
+    attributes:
+      - "unique_hospital_admission_id"
+      - "unique_icustay_id"
+      - "coag_fibrinogen"
+      - "coag_pt"
+      - "coag_inr"
+      - "coag_ptt"
+
+  bmpdata:
+    file_path: "bold_dataset.csv"
+    patient_id: "unique_subject_id"
+    timestamp: null
+    attributes:
+      - "unique_hospital_admission_id"
+      - "unique_icustay_id"
+      - "bmp_sodium"
+      - "bmp_potassium"
+      - "bmp_chloride"
+      - "bmp_bicarbonate"
+      - "bmp_bun"
+      - "bmp_creatinine"
+      - "bmp_glucose"
+      - "bmp_aniongap"
+      - "bmp_calcium"
+      - "bmp_lactate"
+
+  hfpdata:
+    file_path: "bold_dataset.csv"
+    patient_id: "unique_subject_id"
+    timestamp: null
+    attributes:
+      - "unique_hospital_admission_id"
+      - "unique_icustay_id"
+      - "hfp_alt"
+      - "hfp_alp"
+      - "hfp_ast"
+      - "hfp_bilirubin_total"
+      - "hfp_bilirubin_direct"
+      - "hfp_albumin"
+
+  otherlabdata:
+    file_path: "bold_dataset.csv"
+    patient_id: "unique_subject_id"
+    timestamp: null
+    attributes:
+      - "unique_hospital_admission_id"
+      - "unique_icustay_id"
+      - "others_ck_cpk"
+      - "others_ck_mb"
+      - "others_ld_ldh"
+
+  sofascores:
+    file_path: "bold_dataset.csv"
+    patient_id: "unique_subject_id"
+    timestamp: null
+    attributes:
+      - "unique_hospital_admission_id"
+      - "unique_icustay_id"
+      - "sofa_past_overall_24hr"
+      - "sofa_past_coagulation_24hr"
+      - "sofa_past_liver_24hr"
+      - "sofa_past_cardiovascular_24hr"
+      - "sofa_past_cns_24hr"
+      - "sofa_past_renal_24hr"
+      - "sofa_future_overall_24hr"
+      - "sofa_future_coagulation_24hr"
+      - "sofa_future_liver_24hr"
+      - "sofa_future_cardiovascular_24hr"
+      - "sofa_future_cns_24hr"
+      - "sofa_future_renal_24hr"
+
