@@ -10,6 +10,37 @@ features = 32
 
 
 class CFVAE(BaseModel):
+    """
+    Counterfactual Variational Autoencoder (CFVAE) model for generating 
+    counterfactual explanations in healthcare datasets.
+
+    This model combines a Variational Autoencoder (VAE) branch for reconstructing
+    input features and a Multilayer Perceptron (MLP) classification branch to
+    predict outcomes. It learns a latent representation of patient data and uses
+    it to generate both predictions and feature reconstructions, enabling
+    counterfactual analysis.
+
+    Args:
+        dataset: A PyHealth dataset instance that includes patient records.
+        feat_dim (int): Dimensionality of the input feature vector.
+        emb_dim1 (int): Dimensionality of the intermediate VAE embedding layer.
+        _mlp_dim1 (int): (Unused) First MLP dimension (kept for compatibility).
+        _mlp_dim2 (int): (Unused) Second MLP dimension (kept for compatibility).
+        _mlp_dim3 (int): (Unused) Third MLP dimension (kept for compatibility).
+        mlp_inpemb (int): Dimensionality of the input embedding to the MLP.
+        f_dim1 (int): First hidden layer size in MLP.
+        f_dim2 (int): Second hidden layer size in MLP.
+
+    Attributes:
+        enc1, enc2: Linear layers forming the encoder of the VAE.
+        dec1, dec2: Linear layers forming the decoder of the VAE.
+        word_embeddings: Initial embedding layer for the MLP.
+        fc1, fc2: Fully connected layers in the MLP.
+        ln1, ln2: Layer normalization layers for stabilizing training.
+        scorelayer: Projects final MLP output to a scalar.
+        pred: Final prediction layer using the output size from the base model.
+
+    """
     def __init__(
         self,
         dataset,
@@ -44,6 +75,22 @@ class CFVAE(BaseModel):
         self.pred = nn.Linear(1, self.get_output_size())  # From BaseModel
 
     def reparameterize(self, mu: torch.Tensor, log_var: torch.Tensor) -> torch.Tensor:
+        """
+        Applies the reparameterization trick to sample from a Gaussian distribution
+        with mean `mu` and log-variance `log_var`.
+
+        This is commonly used in variational autoencoders (VAEs) to allow gradients
+        to propagate through stochastic nodes during training.
+
+        Args:
+            mu (torch.Tensor): The mean of the latent Gaussian distribution.
+            log_var (torch.Tensor): The log-variance of the latent Gaussian distribution.
+
+        Returns:
+            torch.Tensor: A sampled tensor from the Gaussian distribution using
+                        the reparameterization trick: z = mu + std * eps,
+                        where eps ~ N(0, I) and std = exp(0.5 * log_var).
+        """
         std = torch.exp(0.5 * log_var)
         eps = torch.randn_like(std)
         return mu + eps * std
