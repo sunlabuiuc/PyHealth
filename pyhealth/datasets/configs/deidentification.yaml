@@ -1,0 +1,10 @@
+version: "1.4"
+
+tables:
+  discharge:
+    file_path: "data/deid_raw/discharge/*.json"
+    patient_id: "document_id"  # Use filename (e.g., ex_ds_1) as patient identifier
+    timestamp: null            # No explicit timestamp tracking
+    attributes:
+      - "document_id"          # Identifier from filename
+      - "text"                 # Raw clinical note text
