@@ -7,9 +7,11 @@ from pyhealth.tasks.deidentification_task import DeIdentificationTask
 
 
 class TestDeIdentificationTask(unittest.TestCase):
+    """Test suite for the DeIdentificationTask class."""
 
     @classmethod
     def setUpClass(cls):
+        """Set up the test environment (mock data and file)."""
         # Sample mock data
         cls.mock_data = [
             {
@@ -62,18 +64,19 @@ class TestDeIdentificationTask(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        """Clean up resources (remove the mock file)."""
         if os.path.exists(cls.mock_file_path):
             os.remove(cls.mock_file_path)
 
     def test_pre_process_data(self):
-        """Test preprocessing of text column."""
+        """Test preprocessing of the text column."""
         original_text = self.dataset.data['text'].iloc[0]
         self.task.pre_process_data()
         processed_text = self.dataset.data['processed_text'].iloc[0]
         self.assertNotEqual(original_text, processed_text)
 
     def test_extract_diagnosis(self):
-        """Test diagnosis extraction logic."""
+        """Test extraction of diagnosis from the discharge summaries."""
         self.task.extract_diagnosis()
         diagnosis_1 = self.dataset.data['diagnosis_extracted'].iloc[0]
         diagnosis_2 = self.dataset.data['diagnosis_extracted'].iloc[1]
@@ -82,29 +85,29 @@ class TestDeIdentificationTask(unittest.TestCase):
         self.assertEqual(diagnosis_2, 'Diagnosis not found')
 
     def test_get_task_info(self):
-        """Test task metadata retrieval."""
+        """Test retrieval of task metadata."""
         info = self.task.get_task_info()
         self.assertEqual(info['dataset_name'], 'discharge_summaries')
         self.assertEqual(info['task_type'], 'deidentification')
 
     def test_single_example_transformation(self):
-        """Test transformation of a single example."""
+        """Test the transformation of a single example."""
         example = self.dataset.data.iloc[0]
         transformed = self.task(example)
         self.assertIn('input', transformed)
         self.assertIn('label', transformed)
 
     def test_evaluate(self):
-        """Test evaluation method after extraction."""
-        self.task.extract_diagnosis()  # Make sure diagnosis_extracted column exists
+        """Test evaluation method after diagnosis extraction."""
+        self.task.extract_diagnosis()  # Ensure the diagnosis_extracted column exists
         test_data = self.dataset.data.sample(frac=1.0, random_state=42)
         evaluation = self.task.evaluate(test_data)
         self.assertIn('accuracy', evaluation)
         self.assertEqual(evaluation['total'], len(test_data))
 
     def test_training_loop(self):
-        """Test dummy training loop."""
-        self.task.train(self.dataset.data, epochs=1)  # No assertion; just shouldn't raise error
+        """Test a dummy training loop to ensure no errors are raised."""
+        self.task.train(self.dataset.data, epochs=1)  # No assertion; just shouldn't raise an error
 
 
 if __name__ == '__main__':
