@@ -196,6 +196,7 @@ class MIMIC4Dataset(BaseDataset):
         cxr_config_path: Path to the CXR config file
         dataset_name: Name of the dataset
         dev: Whether to enable dev mode (limit to 1000 patients)
+        dev_limit (Optional(int)): Optionally have a custom patient limit number in dev
     """
 
     def __init__(
@@ -211,6 +212,7 @@ class MIMIC4Dataset(BaseDataset):
         cxr_config_path: Optional[str] = None,
         dataset_name: str = "mimic4",
         dev: bool = False,  # Added dev parameter
+        dev_limit: Optional[int] = None,
     ):
         log_memory_usage("Starting MIMIC4Dataset init")
 
@@ -221,6 +223,7 @@ class MIMIC4Dataset(BaseDataset):
         self.tables = None
         self.config = None
         self.dev = dev  # Store dev mode flag
+        self.dev_limit = dev_limit
         
         # We need at least one root directory
         if not any([ehr_root, note_root, cxr_root]):
@@ -238,7 +241,8 @@ class MIMIC4Dataset(BaseDataset):
                 root=ehr_root,
                 tables=ehr_tables,
                 config_path=ehr_config_path,
-                dev=dev  # Pass dev mode flag
+                dev=dev,  # Pass dev mode flag
+                dev_limit=dev_limit
             )
             log_memory_usage("After EHR dataset initialization")
 
@@ -249,7 +253,8 @@ class MIMIC4Dataset(BaseDataset):
                 root=note_root,
                 tables=note_tables,
                 config_path=note_config_path,
-                dev=dev  # Pass dev mode flag
+                dev=dev,  # Pass dev mode flag
+                dev_limit=dev_limit
             )
             log_memory_usage("After Note dataset initialization")
 
@@ -260,7 +265,8 @@ class MIMIC4Dataset(BaseDataset):
                 root=cxr_root,
                 tables=cxr_tables,
                 config_path=cxr_config_path,
-                dev=dev  # Pass dev mode flag
+                dev=dev,  # Pass dev mode flag
+                dev_limit=dev_limit
             )
             log_memory_usage("After CXR dataset initialization")
 
