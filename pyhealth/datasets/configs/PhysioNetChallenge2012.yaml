@@ -1,0 +1,25 @@
+# configs/PhysioNetChallenge2012.yaml
+version: "1.0"
+dataset_name: "physionet_2012_mortality"
+description: >
+  Data from the PhysioNet/Computing in Cardiology Challenge 2012,
+  focused on predicting in-hospital mortality for ICU patients.
+url: "https://physionet.org/content/challenge-2012/1.0.0/"
+
+# ADD THIS EMPTY TABLES FIELD
+tables: {} # Satisfies the Pydantic model's requirement for a 'tables' field.
+
+data_layout:
+  train_data_dir: "set-a"
+  test_data_dir: "set-b"
+  train_outcome_file: "Outcomes-a.txt"
+
+patient_file_format:
+  header: ["Time", "Parameter", "Value"]
+  patient_id_parameter: "RecordID"
+  timestamp_column: "Time"
+  timestamp_format: "%H:%M"
+
+outcome_file_format:
+  patient_id_column: "RecordID"
+  label_column: "In-hospital_death"
