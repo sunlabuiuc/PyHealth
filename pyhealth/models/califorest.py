@@ -9,6 +9,12 @@ from pyhealth.models.base_model import BaseModel
 
 
 class CaliForest(ClassifierMixin, BaseEstimator):
+    """
+    CaliForest is a class that implements a random forest classifier using the CaliForest algorithm.
+
+    Y. Park and J. C. Ho. 2020. CaliForest: Calibrated Random Forest for Health Data. ACM Conference on Health, Inference, and Learning (2020)
+    """
+
     def __init__(
         self,
         n_estimators=100,

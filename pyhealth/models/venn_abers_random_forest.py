@@ -8,6 +8,15 @@ from venn_abers import VennAbers
 
 
 class VennAbersRandomForests(ClassifierMixin, BaseEstimator):
+    """
+    VennAbersRandomForests is a class that implements a random forest classifier using the VennAbers algorithm.
+
+
+    Vovk, Vladimir, Ivan Petej and Valentina Fedorova. "Large-scale probabilistic predictors with and without guarantees of validity." Advances in Neural Information Processing Systems 28 (2015) (arxiv version https://arxiv.org/pdf/1511.00213.pdf)
+    Vovk, Vladimir, Ivan Petej. "Venn-Abers predictors". Proceedings of the Thirtieth Conference on Uncertainty in Artificial Intelligence (2014) (arxiv version https://arxiv.org/abs/1211.0025)
+    Manokhin, Valery. "Multi-class probabilistic classification using inductive and cross Venn–Abers predictors." Conformal and Probabilistic Prediction and Applications, PMLR, 2017.
+    """
+
     def __init__(
         self,
         n_estimators=30,
