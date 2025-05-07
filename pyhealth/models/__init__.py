@@ -15,6 +15,7 @@ from .medlink import MedLink
 from .micron import MICRON, MICRONLayer
 from .mlp import MLP
 from .molerec import MoleRec, MoleRecLayer
+from .resnext29 import ResNeXt29
 from .retain import RETAIN, RETAINLayer
 from .rnn import RNN, RNNLayer
 from .safedrug import SafeDrug, SafeDrugLayer
