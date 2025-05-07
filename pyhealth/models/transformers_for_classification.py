@@ -20,6 +20,14 @@ class TransformersforSequenceClassification(BaseModel):
         model_name: str,
         max_length: int = 256
     ):
+        """
+        Initializes the BaseModel.
+
+        Args:
+            dataset (SampleDataset): The dataset to train the model.
+            model_name (str): The name of the Huggingface model to use.
+            max_length (int): The maximum length of the input sequences.
+        """
         super(TransformersforSequenceClassification, self).__init__(
             dataset=dataset,
         )
@@ -55,7 +63,15 @@ class TransformersforSequenceClassification(BaseModel):
         self.max_length = max_length
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
-        """Forward propagation."""
+        """Forward propagation.
+        
+        Args:
+            **kwargs: Keyword arguments for the model.
+            
+        Returns:
+            Dict[str, torch.Tensor]: A dictionary containing the loss, predicted probabilities, and true labels.
+        """
+        
         x = kwargs[self.feature_key]
         x = self.tokenizer(
             x, return_tensors="pt", padding=True, truncation=True, max_length=self.max_length
