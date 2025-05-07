@@ -7,12 +7,12 @@ from .base_dataset import BaseDataset
 logger = logging.getLogger(__name__)
 
 
-class Mimic4DerivedDataset(BaseDataset):
+class MIMIC4DerivedDataset(BaseDataset):
     """Derived Dataset for MIMIC-IV containing ventilation and vasopressor durations
 
     Dataset is available to be derived from the following link for the Metavision information system:
     https://physionet.org/content/mimiciv/3.1/
-    Transformations derived from the following:
+    Transformations derived from the following and adapted for mimic-iv:
     https://github.com/MIT-LCP/mimic-code/blob/main/mimic-iii/concepts/durations/ventilation_durations.sql
     
 
@@ -91,21 +91,21 @@ class Mimic4DerivedDataset(BaseDataset):
             logger.error("Data is not loaded")
             return
         print("---Vasopressor Duration Statistics---")
-        vasoCol = self.vasopressor_duration.select(pl.col("vasopressorduration/duration_hours").cast(pl.Int64))
-        vaso_mean = float(vasoCol.mean()[0,0])
+        vaso_col = self.vasopressor_duration.select(pl.col("vasopressorduration/duration_hours").cast(pl.Int64))
+        vaso_mean = float(vaso_col.mean()[0,0])
         print(f"Mean duration (hrs): {vaso_mean}")
-        vaso_median = int(vasoCol.median()[0,0])
+        vaso_median = int(vaso_col.median()[0,0])
         print(f"Median duration (hrs): {vaso_median}")
-        vaso_max = int(vasoCol.max()[0,0])
+        vaso_max = int(vaso_col.max()[0,0])
         print(f"Max duration (hrs): {vaso_max}")
         print("---Ventilation Duration Statistics---")
-        ventCol = self.vent_duration.select(pl.col("ventduration/duration_hours").cast(pl.Float64))
-        vent_mean = float(ventCol.mean()[0,0])
+        vent_col = self.vent_duration.select(pl.col("ventduration/duration_hours").cast(pl.Float64))
+        vent_mean = float(vent_col.mean()[0,0])
         print(f"Mean duration (hrs): {vent_mean}")
-        vent_median = int(ventCol.median()[0,0])
+        vent_median = int(vent_col.median()[0,0])
         print(f"Median duration (hrs): {vent_median}")
-        vent_max = float(ventCol.max()[0,0])
+        vent_max = float(vent_col.max()[0,0])
         print(f"Max duration (hrs): {vent_max}")
-        print(self.vasopressor_duration.head())
+        print(df.head())
         
 
