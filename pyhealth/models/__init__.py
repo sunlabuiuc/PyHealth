@@ -1,6 +1,7 @@
 from .adacare import AdaCare, AdaCareLayer
 from .agent import Agent, AgentLayer
 from .base_model import BaseModel
+from .califorest import CaliForest
 from .cnn import CNN, CNNLayer
 from .concare import ConCare, ConCareLayer
 from .contrawr import ContraWR, ResBlock2D
@@ -20,8 +21,10 @@ from .rnn import RNN, RNNLayer
 from .safedrug import SafeDrug, SafeDrugLayer
 from .sparcnet import DenseBlock, DenseLayer, SparcNet, TransitionLayer
 from .stagenet import StageNet, StageNetLayer
+from .stlbrf import STLBRF
 from .tcn import TCN, TCNLayer
 from .torchvision_model import TorchvisionModel
 from .transformer import Transformer, TransformerLayer
 from .transformers_model import TransformersModel
 from .vae import VAE
+from .venn_abers_random_forest import VennAbersRandomForests
