@@ -65,7 +65,7 @@ class ADNIDataset(BaseDataset):
     def load_table(self, table_name: str) -> pl.LazyFrame:
         """
         Table-specific preprocess function which will be called by BaseDataset.load_table().
-        
+
         Loads the ADNI metadata table by parsing `.npz` filenames into structured rows.
 
         This method scans the root directory for `.npz` files with filenames formatted as:

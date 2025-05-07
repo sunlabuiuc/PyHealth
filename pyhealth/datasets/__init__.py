@@ -25,6 +25,7 @@ class SampleSignalDataset:
         warnings.warn("The SampleSignalDataset class is deprecated and will be removed in a future version.", DeprecationWarning)
 
 
+from .adni import ADNIDataset
 from .base_dataset import BaseDataset
 from .cardiology import CardiologyDataset
 from .covid19_cxr import COVID19CXRDataset
