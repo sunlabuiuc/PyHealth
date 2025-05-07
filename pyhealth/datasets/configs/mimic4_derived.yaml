@@ -1,0 +1,31 @@
+version: "3.1"
+tables:
+  vasopressorduration:
+    file_path: "mimic_iv_vasopressor.csv.gz"
+    patient_id: null
+    timestamp: "starttime"
+    attributes:
+    - "stay_id"
+    - "vasonum"
+    - "endtime"
+    - "duration_hours"
+
+  ventduration:
+    file_path: "mimic_iv_ventilation_duration.csv.gz"
+    patient_id: null
+    timestamp: "starttime"
+    attributes:
+      - "stay_id"
+      - "vent_num"
+      - "endtime"
+      - "duration_hours"
+  ventclassification:
+    file_path: "mimic_iv_ventilation_classification.csv.gz"
+    patient_id: null
+    timestamp: "charttime"
+    attributes:
+      - "stay_id"
+      - "MechVent"
+      - "OxygenTherapy"
+      - "Extubated"
+      - "SelfExtubated"
