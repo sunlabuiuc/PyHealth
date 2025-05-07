@@ -1,11 +1,15 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torchvision
 from torchvision import models # Explicit import for clarity
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from pyhealth.models import BaseModel
 from pyhealth.datasets import SampleDataset
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Callable
+import unittest
+from abc import ABC
+
 
 # --- Explanatory Comment Block ---
 # NOTE TO REVIEWERS / FUTURE USERS:
@@ -344,3 +348,148 @@ class MedFuse(BaseModel):
 
         return logits
 
+
+# --- Mock SampleDataset for Unit Testing ---
+class UnitTestSampleDataset(SampleDataset):
+    def __init__(self, ehr_feat_key, cxr_feat_key, ehr_len_feat_key, cxr_pair_feat_key, label_feat_key,
+                 ehr_vocab_size, num_classes, mode="multiclass"):
+        # Intentionally NOT calling super().__init__ fully to avoid complex build process.
+        # We only need to set the attributes MedFuse/BaseModel will access.
+        self.samples = [{ # Minimal sample for SampleDataset structure if some methods were called
+            ehr_feat_key: [], cxr_feat_key: "", ehr_len_feat_key: 0, cxr_pair_feat_key: False, label_feat_key: 0, "patient_id": "mock"
+        }]
+        self.input_schema = {
+            ehr_feat_key: "VocabProcessor",
+            cxr_feat_key: "ImageProcessor",
+            ehr_len_feat_key: "DefaultProcessor",
+            cxr_pair_feat_key: "BooleanProcessor",
+        }
+        self.output_schema = {label_feat_key: mode}
+        
+        # Attributes needed by BaseModel.__init__
+        self.feature_keys = list(self.input_schema.keys())
+        self.label_keys = [label_feat_key]
+        # self._dummy_param = nn.Parameter(torch.empty(0)) # Provided by BaseModel's own init now
+
+        # Attribute needed by BaseModel.get_output_size()
+        class MockOutputProc:
+            def __init__(self, n_classes): self.n_classes = n_classes
+            def size(self): return self.n_classes
+        self.output_processors = {label_feat_key: MockOutputProc(num_classes)}
+
+        # Store for the custom method MedFuse needs
+        self._ehr_feature_key_internal = ehr_feat_key
+        self._ehr_vocab_size_internal = ehr_vocab_size
+        
+        # Satisfy other SampleDataset attributes if BaseModel or other parts access them
+        self.dataset_name = "UnitTestDataset"
+        self.task_name = "MockTask"
+        self.patient_to_index = {} # Required by SampleDataset
+        self.record_to_index = {}  # Required by SampleDataset
+
+
+    # This method is directly called by MedFuse model, expected on the dataset instance
+    def get_input_voc_size(self, feature_key: str) -> int:
+        if feature_key == self._ehr_feature_key_internal:
+            return self._ehr_vocab_size_internal
+        raise ValueError(f"UnitTestSampleDataset.get_input_voc_size called for unexpected key: {feature_key}")
+
+# --- Unit Test Class ---
+class TestMedFuse(unittest.TestCase):
+    def setUp(self):
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        self.BATCH_SIZE = 2 # Smaller batch for faster tests
+        self.EHR_SEQ_LEN = 20
+        self.EHR_VOCAB_SIZE = 50
+        self.EHR_PAD_IDX = 0
+        self.CXR_CHANNELS = 3
+        self.CXR_HEIGHT = 64 # Smaller images for faster tests
+        self.CXR_WIDTH = 64
+        self.NUM_CLASSES = 3
+        self.EHR_EMBEDDING_DIM = 64
+        self.EHR_LSTM_HIDDEN_DIM = 128
+        self.VISION_BACKBONE = 'resnet34'
+        self.FUSION_LSTM_HIDDEN_DIM = 128
+
+        self.ehr_feat_key = "ehr_codes"
+        self.cxr_feat_key = "cxr_images"
+        self.ehr_len_feat_key = "ehr_lengths"
+        self.cxr_pair_feat_key = "has_cxr_pair"
+        self.label_feat_key = "task_label"
+
+        self.mock_dataset = UnitTestSampleDataset(
+            ehr_feat_key=self.ehr_feat_key,
+            cxr_feat_key=self.cxr_feat_key,
+            ehr_len_feat_key=self.ehr_len_feat_key,
+            cxr_pair_feat_key=self.cxr_pair_feat_key,
+            label_feat_key=self.label_feat_key,
+            ehr_vocab_size=self.EHR_VOCAB_SIZE,
+            num_classes=self.NUM_CLASSES,
+            mode="multiclass"
+        )
+
+        self.model = MedFuse(
+            dataset=self.mock_dataset,
+            ehr_feature_key=self.ehr_feat_key,
+            cxr_feature_key=self.cxr_feat_key,
+            ehr_length_key=self.ehr_len_feat_key,
+            cxr_pair_key=self.cxr_pair_feat_key,
+            ehr_embedding_dim=self.EHR_EMBEDDING_DIM,
+            ehr_lstm_hidden_dim=self.EHR_LSTM_HIDDEN_DIM,
+            vision_backbone_name=self.VISION_BACKBONE,
+            vision_pretrained=False, # Use False for faster test setup, no download
+            fusion_lstm_hidden_dim=self.FUSION_LSTM_HIDDEN_DIM,
+        ).to(self.device)
+
+        # PATCH for self.batch_size in MedFuse.forward.
+        # See note in MedFuse.forward() and overall description.
+        # Ideally, MedFuse.forward() should derive batch_size from inputs.
+        self.model.batch_size = self.BATCH_SIZE
+
+    def test_medfuse_forward_pass(self):
+        ehr_indices = torch.randint(
+            low=self.EHR_PAD_IDX + 1,
+            high=self.EHR_VOCAB_SIZE,
+            size=(self.BATCH_SIZE, self.EHR_SEQ_LEN),
+            dtype=torch.long
+        ).to(self.device)
+        # Add some padding tokens
+        if self.EHR_SEQ_LEN > 10: # ensure there's space for padding
+             ehr_indices[:, :self.EHR_SEQ_LEN//2] = self.EHR_PAD_IDX
+
+
+        cxr_image = torch.randn(
+            self.BATCH_SIZE, self.CXR_CHANNELS, self.CXR_HEIGHT, self.CXR_WIDTH
+        ).to(self.device)
+
+        ehr_lengths = torch.randint(
+            low=1, 
+            high=self.EHR_SEQ_LEN + 1,
+            size=(self.BATCH_SIZE,),
+            dtype=torch.long
+        ) # On CPU for pack_padded_sequence
+
+        has_cxr_options = [
+            torch.randint(0, 2, (self.BATCH_SIZE,), dtype=torch.bool).to(self.device), # Mixed
+            torch.zeros(self.BATCH_SIZE, dtype=torch.bool).to(self.device),           # All False
+            torch.ones(self.BATCH_SIZE, dtype=torch.bool).to(self.device)            # All True
+        ]
+        
+        self.model.train() # Set to train mode for layers like Dropout
+
+        for i, has_cxr in enumerate(has_cxr_options):
+            with self.subTest(f"CXR pairing scenario {i}"):
+                data = {
+                    self.ehr_feat_key: ehr_indices,
+                    self.cxr_feat_key: cxr_image,
+                    self.ehr_len_feat_key: ehr_lengths,
+                    self.cxr_pair_feat_key: has_cxr,
+                }
+                output_logits = self.model(data)
+                self.assertEqual(output_logits.shape, (self.BATCH_SIZE, self.NUM_CLASSES))
+
+
+if __name__ == '__main__':
+    unittest.main(argv=['first-arg-is-ignored'], exit=False) # Standard way to run in scripts/notebooks
+    # To run from command line: python your_test_file.py
