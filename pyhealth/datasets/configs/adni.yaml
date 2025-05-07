@@ -1,0 +1,13 @@
+version: "5.0"
+
+tables:
+  adni_table:
+    file_path: "."
+    patient_id: patient_id 
+    timestamp: null
+    timestamp_format: null
+    attributes:
+      - label
+      - group
+      - age
+      - sex
