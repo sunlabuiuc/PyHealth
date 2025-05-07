@@ -575,5 +575,7 @@ def analyze_temporal_dataset(dataset, time_col: str = 'timestamp') -> Dict[str, 
 if __name__ == "__main__":
     print(list_nested_levels([1, 2, 3]))
     print(list_nested_levels([1, [2], 3]))
+    print(list_nested_levels([[1, [2], [[3]]]]))
     print(is_homo_list([1, 2, 3]))
-    print(is_homo_list([1, 2, "3"]))
+    print(is_homo_list([1, 2, [3]]))
+    print(is_homo_list([1, 2.0]))
