@@ -5,6 +5,7 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 import polars as pl
+import re
 
 try:
     import psutil
@@ -113,6 +114,52 @@ class MIMIC4NoteDataset(BaseDataset):
         )
         log_memory_usage(f"After initializing {dataset_name}")
 
+
+class MIMIC4BriefHospitalCourseDataset(MIMIC4NoteDataset):
+    """
+    MIMIC-IV Discharge dataset with extracted 'Brief Hospital Course' sections.
+
+    This class processes data from the `discharge` table in MIMIC-IV-Note and extracts the 'Brief Hospital Course' section from the `text` field.
+
+    Attributes:
+        root (str): The root directory where the dataset is stored.
+        tables (List[str]): A list of tables to be included in the dataset.
+        dataset_name (Optional[str]): The name of the dataset.
+        config_path (Optional[str]): The path to the configuration file.
+    """
+
+    def __init__(self, root: str, tables: Optional[List[str]] = None):
+        super().__init__(root, tables)
+        self.dataset_name = "mimic4_discharge_brief_course"
+        self.discharge_table_path = os.path.join(self.root, "discharge.csv")
+
+    def parse_brief_hospital_course(self, text: str) -> Optional[str]:
+        """Extract the 'Brief Hospital Course' section from the text."""
+        if not text or not isinstance(text, str):
+            return None
+
+        pattern = re.compile(r"Brief Hospital Course:(.*?)(?:\n[A-Z][^:\n]{1,80}:|\Z)", re.DOTALL)
+        match = pattern.search(text)
+        if match:
+            return match.group(1).strip()
+        return None
+
+    def load_data(self) -> List[Dict]:
+        """Load and extract the dataset into structured samples."""
+        if not os.path.exists(self.discharge_table_path):
+            raise FileNotFoundError(f"Missing discharge file: {self.discharge_table_path}")
+
+        df = pl.read_csv(self.discharge_table_path)
+
+        if "text" not in df.columns or "subject_id" not in df.columns or "hadm_id" not in df.columns:
+            raise ValueError("Expected columns 'subject_id', 'hadm_id', and/or 'text' not in discharge table")
+
+        df = df.with_columns([
+            pl.col("text").apply(self.parse_brief_hospital_course).alias("brief_hospital_course")
+        ])
+
+        samples = df.select(["subject_id", "hadm_id", "brief_hospital_course"]).to_dicts()
+        return samples
 
 class MIMIC4CXRDataset(BaseDataset):
     """
