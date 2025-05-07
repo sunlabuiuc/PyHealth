@@ -5,16 +5,10 @@ from typing import List, Optional, Dict, Tuple
 import polars as pl
 from tqdm import tqdm
 import datetime  # For time conversion
+from .base_dataset import BaseDataset
+from .configs import load_yaml_config
 
-# --- Step 1: Adjust these imports based on your project structure ---
-# Assuming BaseDataset and load_yaml_config are in the same directory for this example
-# In a real PyHealth scenario, it might be:
-# from pyhealth.datasets.base_dataset import BaseDataset
-# from pyhealth.datasets.configs import load_yaml_config
-from .base_dataset import BaseDataset  # If base_dataset.py is in the same package
-from .configs import load_yaml_config  # If configs.py (containing load_yaml_config) is in the same package
 
-# --- End of import adjustment section ---
 
 logger = logging.getLogger(__name__)
 
@@ -273,10 +267,3 @@ class PhysioNet2012Dataset(BaseDataset):
         except Exception as e:
             logger.error(f"Error reading or processing outcome file {outcome_file_path}: {e}")
             return None
-
-    @property
-    def default_task(self):
-        # from ..tasks import YourMortalityPredictionTask # Example
-        # return YourMortalityPredictionTask()
-        logger.warning("Default task not yet implemented for PhysioNet2012Dataset.")
-        return None

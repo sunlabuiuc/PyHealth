@@ -6,8 +6,8 @@ description: >
   focused on predicting in-hospital mortality for ICU patients.
 url: "https://physionet.org/content/challenge-2012/1.0.0/"
 
-# ADD THIS EMPTY TABLES FIELD
-tables: {} # Satisfies the Pydantic model's requirement for a 'tables' field.
+
+tables: {}
 
 data_layout:
   train_data_dir: "set-a"
