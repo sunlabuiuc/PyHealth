@@ -16,7 +16,8 @@ logger = logging.getLogger(__name__)
 
 class PTBXL(BaseDataset):
     """
-    A dataset class for handling PTB-XL ECG data using PyHealth's configuration system.
+    A dataset class for handling PTB-XL ECG data https://physionet.org/content/ptb-xl/1.0.1/ 
+    using PyHealth's configuration system.
 
     Attributes:
         root (str): Root directory containing the dataset and signal files.
