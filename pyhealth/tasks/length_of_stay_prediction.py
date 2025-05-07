@@ -1,4 +1,7 @@
 from pyhealth.data import Patient
+from typing import Any, Dict, List
+from .base_task import BaseTask
+from datetime import datetime
 
 
 def categorize_los(days: int):
@@ -26,6 +29,120 @@ def categorize_los(days: int):
     # stays of over two weeks
     else:
         return 9
+
+
+class LengthOfStayGreaterThanXPredictionMIMIC3(BaseTask):
+    """Processes a single patient for the length-of-stay prediction task.
+
+    Length of stay prediction aims at predicting the length of stay (in days) of the
+    current hospital visit based on the clinical information from the visit
+    (e.g., conditions and procedures).
+
+    Args:
+        patient: a Patient object.
+
+    Returns:
+        samples: a list of samples, each sample is a dict with patient_id, visit_id,
+            and other task-specific attributes as key.
+
+    Note that we define the task as a multi-class classification task.
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC3Dataset
+        >>> mimic3_base = MIMIC3Dataset(
+        ...    root="/srv/local/data/physionet.org/files/mimiciii/1.4",
+        ...    tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
+        ...    code_mapping={"ICD9CM": "CCSCM"},
+        ... )
+        >>> from pyhealth.tasks import LengthOfStayPredictionMIMIC3
+        >>> mimic3_sample = mimic3_base.set_task(LengthOfStayPredictionMIMIC3())
+        >>> mimic3_sample.samples[0]
+        {
+            'visit_id': '142289',
+            'patient_id': '40189',
+            'conditions': tensor([ 1,  2,  3,  4,  5]),
+            'procedures': tensor([1, 2, 3, 4, 5, 6, 7, 8]),
+            'drugs': tensor([ 1,  2,  3,  4,  5]),
+            'label': tensor([1.])
+        }
+    """
+
+    task_name: str = "LengthOfStayGreaterThanXPredictionMIMIC3"
+    input_schema: Dict[str, str] = {
+        "conditions": "sequence",
+        "procedures": "sequence",
+        "drugs": "sequence",
+    }
+    output_schema: Dict[str, str] = {"label": "binary"}
+
+    def __init__(self, threshold: int):
+        super().__init__()
+        if not isinstance(threshold, int):
+            raise ValueError("Threshold must be an integer")
+        if threshold <= 0:
+            raise ValueError("Threshold must be greater than 0")
+        self.threshold = threshold
+
+    def __call__(self, patient: Patient) -> List[Dict[str, Any]]:
+        samples = []
+
+        for visit in patient.get_events(event_type="admissions"):
+            try:
+                # Check the type and convert if necessary
+                if isinstance(visit.dischtime, str):
+                    discharge_time = datetime.strptime(
+                        visit.dischtime, "%Y-%m-%d %H:%M:%S"
+                    )
+                else:
+                    discharge_time = visit.dischtime
+            except (ValueError, AttributeError):
+                # If conversion fails, skip this visit
+                print("Error parsing discharge time:", visit.dischtime)
+                continue
+
+            # Get clinical codes
+            diagnoses = patient.get_events(
+                event_type="diagnoses_icd",
+                start=visit.timestamp,
+                end=discharge_time,  # Now using a datetime object
+            )
+            procedures = patient.get_events(
+                event_type="procedures_icd",
+                start=visit.timestamp,
+                end=discharge_time,  # Now using a datetime object
+            )
+            prescriptions = patient.get_events(
+                event_type="prescriptions",
+                start=visit.timestamp,
+                end=discharge_time,  # Now using a datetime object
+            )
+
+            conditions = [event.icd9_code for event in diagnoses]
+            procedures_list = [event.icd9_code for event in procedures]
+            drugs = [event.drug for event in prescriptions]
+
+            # exclude: visits without condition, procedure, or drug code
+            if len(conditions) * len(procedures) * len(drugs) == 0:
+                continue
+
+            los_days = (discharge_time - visit.timestamp).days
+            los_category = categorize_los(los_days)
+            print(los_days, los_category)
+            los_category = int(los_category > self.threshold)
+
+            # TODO: should also exclude visit with age < 18
+            samples.append(
+                {
+                    "visit_id": visit.hadm_id,
+                    "patient_id": patient.patient_id,
+                    "conditions": conditions,
+                    "procedures": procedures_list,
+                    "drugs": drugs,
+                    "label": los_category,
+                }
+            )
+        # no cohort selection
+        return samples
 
 
 def length_of_stay_prediction_mimic3_fn(patient: Patient):
