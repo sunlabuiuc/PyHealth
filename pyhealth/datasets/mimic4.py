@@ -5,6 +5,7 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 import polars as pl
+from from pyhealth.datasets import MIMIC4DerivedDataset
 
 try:
     import psutil
@@ -203,12 +204,15 @@ class MIMIC4Dataset(BaseDataset):
         ehr_root: Optional[str] = None,
         note_root: Optional[str] = None,
         cxr_root: Optional[str] = None,
+        der_root: Optional[str] = None,
         ehr_tables: Optional[List[str]] = None,
         note_tables: Optional[List[str]] = None,
         cxr_tables: Optional[List[str]] = None,
+        der_tables: Optional[List[str]] = None,
         ehr_config_path: Optional[str] = None,
         note_config_path: Optional[str] = None,
         cxr_config_path: Optional[str] = None,
+        der_config_path: Optional[str] = None,
         dataset_name: str = "mimic4",
         dev: bool = False,  # Added dev parameter
     ):
@@ -223,13 +227,14 @@ class MIMIC4Dataset(BaseDataset):
         self.dev = dev  # Store dev mode flag
         
         # We need at least one root directory
-        if not any([ehr_root, note_root, cxr_root]):
+        if not any([ehr_root, note_root, cxr_root, der_root]):
             raise ValueError("At least one root directory must be provided")
 
         # Initialize empty lists if None provided
         ehr_tables = ehr_tables or []
         note_tables = note_tables or []
         cxr_tables = cxr_tables or []
+        der_tables = der_tables or []
 
         # Initialize EHR dataset if root is provided
         if ehr_root:
@@ -263,6 +268,15 @@ class MIMIC4Dataset(BaseDataset):
                 dev=dev  # Pass dev mode flag
             )
             log_memory_usage("After CXR dataset initialization")
+        if der_root is not None:
+            logger.info(f"Initializing MIMIC4DerivedDataset with tables: {der_tables} (dev mode: {dev})")
+            self.sub_datasets["der"] = MIMIC4DerivedDataset(
+                root=der_root,
+                tables=der_tables,
+                config_path=der_config_path,
+                dev=dev  # Pass dev mode flag
+            )
+            log_memory_usage("After Derived dataset initialization")
 
         # Combine data from all sub-datasets
         log_memory_usage("Before combining data")

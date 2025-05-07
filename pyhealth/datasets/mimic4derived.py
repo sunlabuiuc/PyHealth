@@ -10,11 +10,22 @@ logger = logging.getLogger(__name__)
 class MIMIC4DerivedDataset(BaseDataset):
     """Derived Dataset for MIMIC-IV containing ventilation and vasopressor durations
 
+    Contributors: Matthew Rimland (NetId: rimland2), Athan Liu (NetId: athanl2)
+
+    Inspiration Paper: Racial Disparities and Mistrust in End-of-Life Care (Boag et al. 2018)
+    Link to paper: https://proceedings.mlr.press/v85/boag18a.html
+
     Dataset is available to be derived from the following link for the Metavision information system:
     https://physionet.org/content/mimiciv/3.1/
+    
     Transformations derived from the following and adapted for mimic-iv:
     https://github.com/MIT-LCP/mimic-code/blob/main/mimic-iii/concepts/durations/ventilation_durations.sql
-    
+    Eventual official derivation queries can be used to generate expected csv.gz files can also be found at the above github. 
+
+    Derivation queries used to generate expected data can be found at https://github.com/mrimland/DL4H-Racial-Disparities-And-Mistrust/blob/main/Notebooks/GenerateVentVasoTables.ipynb
+
+    Note: The expected tables are available in both MIMIC-III and MIMIC-IV. The configuration in mimic4_derived.yaml contains column names specific to 
+    MIMIC-IV 
 
     Args:
         root: Root directory of the raw data.
@@ -27,8 +38,8 @@ class MIMIC4DerivedDataset(BaseDataset):
         config_path: Path to the configuration file.
 
     Examples:
-        >>> from pyhealth.datasets import Mimic4DerivedDataset
-        >>> dataset = Mimic4DerivedDataset(
+        >>> from pyhealth.datasets import MIMIC4DerivedDataset
+        >>> dataset = MIMIC4DerivedDataset(
         ...     root="path/to/mimic4derived",
         ...     dataset_name="VentData"        
         ... )
@@ -83,7 +94,7 @@ class MIMIC4DerivedDataset(BaseDataset):
             cols = ["vasopressorduration/" + s for s in cols]
             return df.filter(pl.col("event_type") == "vasopressorduration").select(["patient_id", "event_type", "timestamp"] + cols)
         else:
-            logger.error("Unknown table")
+            logger.error("Unknown table specified")
 
     def stats(self):
         df = self.collected_global_event_df
