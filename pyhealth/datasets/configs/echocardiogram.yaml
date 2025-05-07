@@ -1,0 +1,10 @@
+version: "1.0"
+tables:
+  tmed2echo:
+    file_path: "view_and_diagnosis_labeled_set/labeled"
+    patient_id: null
+    timestamp: null
+    attributes:
+      - "study_id"
+      - "image"
+      - "diagnosis"
