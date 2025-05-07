@@ -16,7 +16,7 @@ tables:
     timestamp: "starttime"
     attributes:
       - "stay_id"
-      - "vent_num"
+      - "ventnum"
       - "endtime"
       - "duration_hours"
   ventclassification:
