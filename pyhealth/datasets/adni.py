@@ -20,6 +20,19 @@ class ADNIDataset(BaseDataset):
     'MCI-001-IMG123-75.0-F.npz', and builds a patient event table.
     Each `.npz` file should be named as: group-patientid-imageid-age-sex.npz
 
+    Example of what table will look like after loading into table:
+    ┌────────────┬──────────┬─────────────────────────────────┬───────┬───────┬──────┬─────┐
+    │ patient_id ┆ image_id ┆ path                            ┆ group ┆ label ┆ age  ┆ sex │
+    │ ---        ┆ ---      ┆ ---                             ┆ ---   ┆ ---   ┆ ---  ┆ --- │
+    │ str        ┆ str      ┆ str                             ┆ str   ┆ i64   ┆ f64  ┆ str │
+    ╞════════════╪══════════╪═════════════════════════════════╪═══════╪═══════╪══════╪═════╡
+    │ 002_S_1070 ┆ I121071  ┆ /Users/nathanhadi/Documents/Sp… ┆ MCI   ┆ 1     ┆ 75.0 ┆ M   │
+    │ 029_S_1218 ┆ I172267  ┆ /Users/nathanhadi/Documents/Sp… ┆ MCI   ┆ 1     ┆ 87.0 ┆ F   │
+    │ 130_S_0285 ┆ I39118   ┆ /Users/nathanhadi/Documents/Sp… ┆ MCI   ┆ 1     ┆ 67.0 ┆ M   │
+    │ 016_S_1121 ┆ I96238   ┆ /Users/nathanhadi/Documents/Sp… ┆ MCI   ┆ 1     ┆ 58.0 ┆ F   │
+    │ 141_S_1004 ┆ I85687   ┆ /Users/nathanhadi/Documents/Sp… ┆ MCI   ┆ 1     ┆ 75.0 ┆ F   │
+    └────────────┴──────────┴─────────────────────────────────┴───────┴───────┴──────┴─────┘
+
     Attributes:
         root (str): Root directory where dataset is stored (the .npz files).
         tables (List[str]): A list of tables to be included in the dataset. default is ['adni_table'].
