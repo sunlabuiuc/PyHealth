@@ -2,6 +2,8 @@ from typing import Dict, Any
 import torch
 from torch.nn.utils.rnn import pad_sequence
 from pyhealth.tasks import BaseTask
+from seqeval.metrics import classification_report
+
 
 class SymptomExtraction(BaseTask):
     """
@@ -13,7 +15,7 @@ class SymptomExtraction(BaseTask):
         labels = ["O", "O", "O", "B-SYMPTOM", "I-SYMPTOM", "O"]
     """
 
-    def __init__(self, model, tokenizer, optimizer, loss_fn, label_map: Dict[str, int]):
+    def __init__(self, model, tokenizer, optimizer, loss_fn, label_map: Dict[str, int], id2label=None):
         """
         args:
             model: A token classification model (e.g., Bio_ClinicalBERT with token classifier head)
@@ -29,6 +31,7 @@ class SymptomExtraction(BaseTask):
         self.label_map = label_map
         self.id2label = {v: k for k, v in label_map.items()}
         self.device = next(model.parameters()).device
+        self.id2label = id2label or {0: "O", 1: "B-SYMPTOM", 2: "I-SYMPTOM"}
         
     def __call__(self, batch):
         return self.eval_step(batch)
@@ -75,3 +78,5 @@ class SymptomExtraction(BaseTask):
                 "preds": preds.cpu().tolist(),
                 "labels": inputs["labels"].cpu().tolist()
             }
+
+
