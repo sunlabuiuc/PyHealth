@@ -11,3 +11,4 @@ numpy
 tqdm
 polars
 transformers
+python-Levenshtein>=0.12.2
