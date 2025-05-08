@@ -89,16 +89,34 @@ class MIMIC3Dataset(BaseDataset):
         )
         return df
 
+
 MIMIC3_MASK_TOKEN_PATTERN = re.compile(r"\[\*\*(.*?)\*\*\]")
 class MIMIC3NursingNotesDataset(BaseDataset):
-    """
-    A dataset class for handling the de-identified nursing notes corpus.
 
-    This class inherits from BaseDataset and provides specific logic
-    to load and process the 'id.text' or 'id.res' file containing nursing notes.
-    It aligns with the structure of MIMIC3Dataset where appropriate,
-    particularly in initialization.
     """
+    A dataset class for handling the de-identified nursing notes corpus from MIMIC-III.
+
+    This dataset loads and processes the 'id.text' (original text) and 'id.res'
+    (masked text) files containing nursing notes. It aligns the masked text
+    with the original text to identify the spans and labels of the masked
+    sensitive information.
+
+    This class inherits from BaseDataset but overrides the `load_data` method
+    to handle the specific non-tabular format of the nursing notes files,
+    unlike the standard CSV tables in other MIMIC-III datasets.
+
+    Attributes:
+        root (str): The root directory where the nursing notes files ('id.text', 'id.res') are stored.
+        notes_filename (str): The name of the file containing the original nursing notes text (default: "id.text").
+        notes_masked_filename (str): The name of the file containing the masked nursing notes text (default: "id.res").
+
+        text_records (List[str]): A list of original text records after processing and filtering.
+        res_records (List[str]): A list of masked text records after processing and filtering.
+        masks (List[List[MaskInfo]]): A list where each element corresponds to a record
+                                      and contains a list of `MaskInfo` objects detailing
+                                      the identified masks and their corresponding original text spans.
+    """
+    records: List["ProcessedRecord"]
 
     def __init__(
             self,
@@ -132,6 +150,21 @@ class MIMIC3NursingNotesDataset(BaseDataset):
         self.text_records = matched_text_records
         self.res_records = matched_res_records
         self.masks = matched_mask_results
+
+        self.records = []
+        # Ensure the lists have the same length before zipping
+        if not (len(matched_res_records) == len(matched_text_records) == len(matched_mask_results)):
+            logger.error("Internal error: Mismatched lengths after processing and filtering. Cannot create ProcessedRecord list.")
+            self.processed_records = [] # Clear in case of error
+            return
+
+
+        for res_rec, text_rec, mask_list in zip(matched_res_records, matched_text_records, matched_mask_results):
+            self.records.append(ProcessedRecord(
+                res_record=res_rec,
+                text_record=text_rec,
+                mask_info=mask_list
+            ))
 
     def read_and_split_records(self, file_path):
         """
@@ -193,7 +226,7 @@ class MIMIC3NursingNotesDataset(BaseDataset):
                 print(f"Warning: Skipping empty record {i+1}.")
                 continue
 
-            processor = RecordProcessor(res_record, text_record)
+            processor = MIMIC3NoteMatcher(res_record, text_record)
             mask_results = processor.masks # Get the list of MaskResult objects
 
             # Filtering Logic: A record is matched if all masks found in the res_record
@@ -485,7 +518,7 @@ class RecordProcessor:
             mask_info=self.masks
         )
 
-class RecordProcessor:
+class MIMIC3NoteMatcher:
     def __init__(self, res_record: str, text_record: str):
         self.res_record = res_record
         self.text_record = text_record
