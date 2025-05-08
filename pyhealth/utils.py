@@ -43,3 +43,20 @@ def save_json(data, filename):
     with open(filename, "w") as f:
         json.dump(data, f)
 
+
+def tensor_to_numpy(tensor):
+    """Convert a PyTorch tensor to a numpy array.
+    
+    Args:
+        tensor (torch.Tensor): PyTorch tensor to convert.
+        
+    Returns:
+        numpy.ndarray: Numpy array representation of the tensor.
+    """
+    if isinstance(tensor, torch.Tensor):
+        return tensor.detach().cpu().numpy()
+    elif isinstance(tensor, np.ndarray):
+        return tensor
+    else:
+        return np.array(tensor)
+
