@@ -246,7 +246,7 @@ class MIMIC3NursingNotesDataset(BaseDataset):
 
             if is_matched:
                 print(f"Record {i+1} is matched ({len(successfully_mapped_labels)}/{total_unique_masks} unique masks mapped).")
-                matched_res_records.append(ProcessedRecord(
+                matched_res_records.append(MIMIC3Note(
                     res_record=res_record,
                     text_record=text_record,
                     mask_info=mask_results
@@ -258,7 +258,7 @@ class MIMIC3NursingNotesDataset(BaseDataset):
 
 
 @dataclasses.dataclass
-class MaskInfo:
+class MIMIC3NoteMask:
     """Represents a single masked segment found and its corresponding text."""
     start: int          # Start index in the original text record (inclusive)
     end: int            # End index in the original text record (exclusive)
@@ -267,18 +267,18 @@ class MaskInfo:
     masked_text: str    # The original mask string from the res record, e.g., "[**First Name**]"
 
 @dataclasses.dataclass
-class ProcessedRecord:
+class MIMIC3Note:
     """Represents a single processed record with original text, masked text, and mask details."""
     res_record: str         # The masked text of the record
     text_record: str        # The original text of the record
-    mask_info: List[MaskInfo] # A list of MaskResult objects detailing the masks applied
+    mask_info: List[MIMIC3NoteMask] # A list of MaskResult objects detailing the masks applied
 
 class MIMIC3SingleNoteMatcher:
     def __init__(self, res_record: str, text_record: str):
         self.res_record = res_record
         self.text_record = text_record
         self.mask_pattern = re.compile(r"(\[\*\*(.*?)\*\*\])")
-        self.masks: list[MaskInfo] = self._process_raw_record()
+        self.masks: list[MIMIC3NoteMask] = self._process_raw_record()
         self._parsed_segments = None # Stores the parsed segments of res_record
 
     def _parse_res_segments(self):
@@ -363,7 +363,7 @@ class MIMIC3SingleNoteMatcher:
             # If there is only one mask, assign the entire text segment to it
             full_mask_string, mask_label = mask_details_list[0]
             # The start and end are simply the boundaries of the text segment provided
-            self.masks.append(MaskInfo(
+            self.masks.append(MIMIC3NoteMask(
                 label=mask_label,
                 text=full_text_segment,
                 start=text_segment_start_in_text,
@@ -411,7 +411,7 @@ class MIMIC3SingleNoteMatcher:
 
 
                 # Record the result
-                self.masks.append(MaskInfo(
+                self.masks.append(MIMIC3NoteMask(
                     label=mask_label,
                     text=assigned_text,
                     # Add the segment's start offset to get the absolute position in text_record
@@ -430,7 +430,7 @@ class MIMIC3SingleNoteMatcher:
                     current_char_pos_in_segment = sum(len(w) + 1 for w in words[:word_idx])
 
 
-    def _process_raw_record(self) -> list[MaskInfo]:
+    def _process_raw_record(self) -> list[MIMIC3NoteMask]:
         """
         Executes the record parsing and alignment process, generating detailed results.
 
