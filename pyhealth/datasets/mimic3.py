@@ -113,6 +113,7 @@ class MIMIC3NursingNotesDataset(BaseDataset):
 
     """
     A dataset class for handling the de-identified nursing notes corpus from MIMIC-III.
+    http://physionet.org/content/deidentifiedmedicaltext/1.0/
 
     This dataset loads and processes the 'id.text' (original text) and 'id.res'
     (masked text) files containing nursing notes. It aligns the masked text
