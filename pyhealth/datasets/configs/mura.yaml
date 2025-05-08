@@ -1,0 +1,10 @@
+version: "1.0"
+tables:
+  mura:
+    file_path: "mura-metadata-pyhealth.csv"
+    patient_id: "patient_id"
+    visit_id: "visit_id"
+    timestamp: null
+    attributes:
+      - "path"
+      - "label"
