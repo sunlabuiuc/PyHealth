@@ -90,6 +90,24 @@ class MIMIC3Dataset(BaseDataset):
         return df
 
 
+
+@dataclasses.dataclass
+class MaskInfo:
+    """Represents a single masked segment found and its corresponding text."""
+    start: int          # Start index in the original text record (inclusive)
+    end: int            # End index in the original text record (exclusive)
+    label: str          # The content inside the mask, e.g., "First Name"
+    text: str           # The matched text from the original record
+    masked_text: str    # The original mask string from the res record, e.g., "[**First Name**]"
+
+@dataclasses.dataclass
+class ProcessedRecord:
+    """Represents a single processed record with original text, masked text, and mask details."""
+    res_record: str         # The masked text of the record
+    text_record: str        # The original text of the record
+    mask_info: List[MaskInfo] # A list of MaskResult objects detailing the masks applied
+
+
 MIMIC3_MASK_TOKEN_PATTERN = re.compile(r"\[\*\*(.*?)\*\*\]")
 class MIMIC3NursingNotesDataset(BaseDataset):
 
@@ -110,11 +128,7 @@ class MIMIC3NursingNotesDataset(BaseDataset):
         notes_filename (str): The name of the file containing the original nursing notes text (default: "id.text").
         notes_masked_filename (str): The name of the file containing the masked nursing notes text (default: "id.res").
 
-        text_records (List[str]): A list of original text records after processing and filtering.
-        res_records (List[str]): A list of masked text records after processing and filtering.
-        masks (List[List[MaskInfo]]): A list where each element corresponds to a record
-                                      and contains a list of `MaskInfo` objects detailing
-                                      the identified masks and their corresponding original text spans.
+        records (List[ProcessedRecord]): A list fully processed records, which contains original text, masked text, and the mask information.
     """
     records: List["ProcessedRecord"]
 
@@ -137,36 +151,17 @@ class MIMIC3NursingNotesDataset(BaseDataset):
 
     # Override load_table to handle the specific text file format
     # This method is necessary because the nursing notes file is not a standard CSV
-    def load_data(self) -> pl.LazyFrame:
+    def load_data(self):
         res_file_path = os.path.join(self.root, "id.res")
         text_file_path = os.path.join(self.root, "id.text")
 
         print(f"Reading records from {res_file_path} and {text_file_path}...")
-        res_records = self.read_and_split_records(res_file_path)
-        text_records = self.read_and_split_records(text_file_path)
-
-        matched_res_records, matched_text_records, matched_mask_results = self.process_and_filter_records(res_records, text_records)
-
-        self.text_records = matched_text_records
-        self.res_records = matched_res_records
-        self.masks = matched_mask_results
-
-        self.records = []
-        # Ensure the lists have the same length before zipping
-        if not (len(matched_res_records) == len(matched_text_records) == len(matched_mask_results)):
-            logger.error("Internal error: Mismatched lengths after processing and filtering. Cannot create ProcessedRecord list.")
-            self.processed_records = [] # Clear in case of error
-            return
+        res_records = self.read_file_as_records(res_file_path)
+        text_records = self.read_file_as_records(text_file_path)
+        self.records = self.process_and_filter_records(res_records, text_records)
 
 
-        for res_rec, text_rec, mask_list in zip(matched_res_records, matched_text_records, matched_mask_results):
-            self.records.append(ProcessedRecord(
-                res_record=res_rec,
-                text_record=text_rec,
-                mask_info=mask_list
-            ))
-
-    def read_and_split_records(self, file_path):
+    def read_file_as_records(self, file_path):
         """
         Reads file content and splits it into records.
 
@@ -196,7 +191,7 @@ class MIMIC3NursingNotesDataset(BaseDataset):
             print(f"An error occurred during file reading: {e}")
             return []
 
-    def process_and_filter_records(self, res_records, text_records):
+    def process_and_filter_records(self, res_records, text_records) -> List["ProcessedRecord"]:
         """
         Processes pairs of res and text records, performs mapping, and filters
         records where not all masks are successfully mapped.
@@ -209,14 +204,10 @@ class MIMIC3NursingNotesDataset(BaseDataset):
             tuple: (matched_res_records, matched_text_records, matched_mask_results)
                    Lists containing records and the list of MaskResult objects that passed the filtering.
         """
-        matched_res_records = []
-        matched_text_records = []
-        matched_mask_results = [] # This will store lists of MaskResult objects
-
         if len(res_records) != len(text_records):
             print("Error: Number of records in res and text files do not match. Cannot process.")
-            return [], [], []
-
+            return []
+        matched_res_records = []
         for i in range(len(res_records)):
             res_record = res_records[i]
             text_record = text_records[i]
@@ -226,8 +217,8 @@ class MIMIC3NursingNotesDataset(BaseDataset):
                 print(f"Warning: Skipping empty record {i+1}.")
                 continue
 
-            processor = MIMIC3SingleNoteMatcher(res_record, text_record)
-            mask_results = processor.masks # Get the list of MaskResult objects
+            noteMatcher = MIMIC3SingleNoteMatcher(res_record, text_record)
+            mask_results = noteMatcher.masks # Get the list of MaskResult objects
 
             # Filtering Logic: A record is matched if all masks found in the res_record
             # are present in the mask_results with valid (non-None, non-empty text) mappings.
@@ -255,13 +246,15 @@ class MIMIC3NursingNotesDataset(BaseDataset):
 
             if is_matched:
                 print(f"Record {i+1} is matched ({len(successfully_mapped_labels)}/{total_unique_masks} unique masks mapped).")
-                matched_res_records.append(res_record)
-                matched_text_records.append(text_record)
-                matched_mask_results.append(mask_results) # Append the list of MaskResult objects
+                matched_res_records.append(ProcessedRecord(
+                    res_record=res_record,
+                    text_record=text_record,
+                    mask_info=mask_results
+                ))
             else:
                 print(f"Record {i+1} is NOT fully matched (found {total_unique_masks} unique masks, {len(successfully_mapped_labels)} successfully mapped). Skipping.")
 
-        return matched_res_records, matched_text_records, matched_mask_results
+        return matched_res_records
 
 
 @dataclasses.dataclass
@@ -513,19 +506,3 @@ class MIMIC3SingleNoteMatcher:
 
 
 
-
-@dataclasses.dataclass
-class MaskInfo:
-    """Represents a single masked segment found and its corresponding text."""
-    start: int          # Start index in the original text record (inclusive)
-    end: int            # End index in the original text record (exclusive)
-    label: str          # The content inside the mask, e.g., "First Name"
-    text: str           # The matched text from the original record
-    masked_text: str    # The original mask string from the res record, e.g., "[**First Name**]"
-
-@dataclasses.dataclass
-class ProcessedRecord:
-    """Represents a single processed record with original text, masked text, and mask details."""
-    res_record: str         # The masked text of the record
-    text_record: str        # The original text of the record
-    mask_info: List[MaskInfo] # A list of MaskResult objects detailing the masks applied
