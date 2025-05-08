@@ -1,0 +1,22 @@
+version: "1.0"
+tables:
+  sbdh:
+    file_path: "MIMIC-SBDH.csv"
+    patient_id: "row_id"
+    join:
+      - file_path: "NOTEEVENTS.csv"
+        "on": "row_id"
+        how: "inner"
+        columns:
+          - "text"
+    timestamp: null
+    attributes:
+    - "sdoh_community_present"
+    - "sdoh_community_absent"
+    - "sdoh_education"
+    - "sdoh_economics"
+    - "sdoh_environment"
+    - "behavior_alcohol"
+    - "behavior_tobacco"
+    - "behavior_drug"
+    - "text"
