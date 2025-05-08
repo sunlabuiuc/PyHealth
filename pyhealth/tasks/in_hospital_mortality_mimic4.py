@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, ClassVar
+from typing import Any, ClassVar, Dict, List
 
 import polars as pl
 
@@ -8,11 +8,16 @@ from .base_task import BaseTask
 
 class InHospitalMortalityMIMIC4(BaseTask):
     """Task for predicting in-hospital mortality using MIMIC-IV dataset.
-    
+
+    This task leverages lab results to predict the likelihood of in-hospital
+    mortality.
+
     Attributes:
         task_name (str): The name of the task.
-        input_schema (Dict[str, str]): The input schema for the task.
-        output_schema (Dict[str, str]): The output schema for the task.
+        input_schema (Dict[str, str]): The schema for input data, which includes:
+            - labs: A timeseries of lab results.    
+        output_schema (Dict[str, str]): The schema for output data, which includes:
+            - mortality: A binary indicator of mortality.
     """
     task_name: str = "InHospitalMortalityMIMIC4"
     input_schema: Dict[str, str] = {"labs": "timeseries"}
@@ -33,7 +38,7 @@ class InHospitalMortalityMIMIC4(BaseTask):
             "Phosphate": ["50970"],
         },
     }
-    
+
     # Create flat list of all lab items for use in the function
     LABITEMS: ClassVar[List[str]] = [
         item for category in LAB_CATEGORIES.values() 
@@ -42,25 +47,16 @@ class InHospitalMortalityMIMIC4(BaseTask):
     ]
 
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
-        """Processes a single patient for the in-hospital mortality prediction task.
-
-        Args:
-            patient (Any): A Patient object containing patient data.
-
-        Returns:
-            List[Dict[str, Any]]: A list of samples, each sample is a dict with patient_id,
-            admission_id, labs, and mortality as keys.
-        """
         input_window_hours = 48
         samples = []
-        
+
         demographics = patient.get_events(event_type="patients")
         assert len(demographics) == 1
         demographics = demographics[0]
         anchor_age = int(demographics.anchor_age)        
         if anchor_age < 18:
             return []
-    
+
         admissions = patient.get_events(event_type="admissions")
         for admission in admissions:
             admission_dischtime = datetime.strptime(admission.dischtime, "%Y-%m-%d %H:%M:%S")
@@ -95,7 +91,9 @@ class InHospitalMortalityMIMIC4(BaseTask):
             labevents_df = labevents_df.pivot(
                 index="timestamp",
                 columns="labevents/itemid",
-                values="labevents/valuenum"
+                values="labevents/valuenum",
+                # in case of multiple values for the same timestamp
+                aggregate_function="first",
             )
             labevents_df = labevents_df.sort("timestamp")
 
@@ -104,13 +102,13 @@ class InHospitalMortalityMIMIC4(BaseTask):
             missing_cols = [item for item in self.LABITEMS if item not in existing_cols]
             for col in missing_cols:
                 labevents_df = labevents_df.with_columns(pl.lit(None).alias(col))
-        
+
             # Reorder columns by LABITEMS
             labevents_df = labevents_df.select(
                 "timestamp",
                 *self.LABITEMS
             )
-            
+
             timestamps = labevents_df["timestamp"].to_list()
             lab_values = labevents_df.drop("timestamp").to_numpy()
 
