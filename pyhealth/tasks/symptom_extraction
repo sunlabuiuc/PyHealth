@@ -1,0 +1,77 @@
+from typing import Dict, Any
+import torch
+from torch.nn.utils.rnn import pad_sequence
+from pyhealth.tasks import BaseTask
+
+class SymptomExtraction(BaseTask):
+    """
+    Token-level sequence labeling task for extracting symptoms from clinical text.
+    
+    This task assumes input sequences (e.g., tokenized clinical notes) and gold-standard BIO labels
+    for symptoms, such as:
+        tokens = ["The", "patient", "has", "chest", "pain", "."]
+        labels = ["O", "O", "O", "B-SYMPTOM", "I-SYMPTOM", "O"]
+    """
+
+    def __init__(self, model, tokenizer, optimizer, loss_fn, label_map: Dict[str, int]):
+        """
+        args:
+            model: A token classification model (e.g., Bio_ClinicalBERT with token classifier head)
+            tokenizer: Corresponding tokenizer
+            optimizer: Optimizer for training
+            loss_fn: Token-level classification loss (e.g., CrossEntropyLoss)
+            label_map: Dict mapping label strings to integer IDs
+        """
+        self.model = model
+        self.tokenizer = tokenizer
+        self.optimizer = optimizer
+        self.loss_fn = loss_fn
+        self.label_map = label_map
+        self.id2label = {v: k for k, v in label_map.items()}
+        self.device = next(model.parameters()).device
+        
+    def __call__(self, batch):
+        return self.eval_step(batch)
+
+    def collate_fn(self, batch):
+        """
+        pads input token IDs and labels to create uniform batches.
+        """
+        input_ids = [torch.tensor(example["input_ids"]) for example in batch]
+        attention_masks = [torch.tensor(example["attention_mask"]) for example in batch]
+        labels = [torch.tensor(example["labels"]) for example in batch]
+
+        input_ids_padded = pad_sequence(input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id)
+        attention_masks_padded = pad_sequence(attention_masks, batch_first=True, padding_value=0)
+        labels_padded = pad_sequence(labels, batch_first=True, padding_value=-100)  # ignore padding tokens in loss
+
+        return {
+            "input_ids": input_ids_padded.to(self.device),
+            "attention_mask": attention_masks_padded.to(self.device),
+            "labels": labels_padded.to(self.device),
+        }
+
+    def train_step(self, batch: Dict[str, Any]):
+        self.model.train()
+        inputs = self.collate_fn(batch)
+        outputs = self.model(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"])
+        loss = self.loss_fn(outputs.logits.view(-1, outputs.logits.size(-1)), inputs["labels"].view(-1))
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        return loss.item()
+
+    def eval_step(self, batch: Dict[str, Any]):
+        self.model.eval()
+        inputs = self.collate_fn(batch)
+        with torch.no_grad():
+            outputs = self.model(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"])
+            logits = outputs.logits
+            preds = torch.argmax(logits, dim=-1)
+
+            # return token-level predictions and gold labels for metrics
+            return {
+                "loss": self.loss_fn(logits.view(-1, logits.size(-1)), inputs["labels"].view(-1)).item(),
+                "preds": preds.cpu().tolist(),
+                "labels": inputs["labels"].cpu().tolist()
+            }
