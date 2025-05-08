@@ -18,6 +18,7 @@ from .molerec import MoleRec, MoleRecLayer
 from .retain import RETAIN, RETAINLayer
 from .rnn import RNN, RNNLayer
 from .safedrug import SafeDrug, SafeDrugLayer
+from .saliency import GradientSaliencyMapping
 from .sparcnet import DenseBlock, DenseLayer, SparcNet, TransitionLayer
 from .stagenet import StageNet, StageNetLayer
 from .tcn import TCN, TCNLayer
