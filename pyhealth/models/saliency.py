@@ -2,7 +2,7 @@ import torch
 import numpy as np
 
 
-def gradient_saliency_mapping(model, dataloader, batches=1, image_key='image', label_key='disease'):
+def GradientSaliencyMapping(model, dataloader, batches=1, image_key='image', label_key='disease'):
     """ Create gradient saliency maps against batches from the inputted dataloader
 
     Args:
