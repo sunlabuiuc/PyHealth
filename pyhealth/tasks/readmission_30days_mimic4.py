@@ -1,52 +1,42 @@
-from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List
+
+import polars as pl
 
 from .base_task import BaseTask
 
 
 class Readmission30DaysMIMIC4(BaseTask):
-    """Task for predicting 30-day readmission using MIMIC-IV data."""
+    """
+    Task for predicting 30-day readmission using MIMIC-IV data.
+
+    This task processes patient data to predict whether a patient will be
+    readmitted within 30 days after discharge. It uses sequences of
+    conditions, procedures, and drugs as input features.
+
+    Attributes:
+        task_name (str): The name of the task.
+        input_schema (Dict[str, str]): The schema for input data, which includes:
+            - conditions: A sequence of condition codes.
+            - procedures: A sequence of procedure codes.
+            - drugs: A sequence of drug codes.
+        output_schema (Dict[str, str]): The schema for output data, which includes:
+            - readmission: A binary indicator of readmission within 30 days.
+    """
 
     task_name: str = "Readmission30DaysMIMIC4"
     input_schema: Dict[str, str] = {"conditions": "sequence", "procedures": "sequence", "drugs": "sequence"}
     output_schema: Dict[str, str] = {"readmission": "binary"}
 
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
-        """Processes a single patient for the readmission prediction task.
-
-        Readmission prediction aims at predicting whether the patient will be
-        readmitted into hospital within a specified time window based on the
-        clinical information from the current visit (e.g., conditions and procedures).
-
-        Args:
-            patient (Any): A Patient object containing patient data.
-
-        Returns:
-            List[Dict[str, Any]]: A list of samples, each sample is a dictionary
-            with patient_id, visit_id, and other task-specific attributes as keys.
-
-        Note that we define the task as a binary classification task.
-
-        Examples:
-            >>> from pyhealth.datasets import MIMIC4Dataset
-            >>> mimic4_base = MIMIC4Dataset(
-            ...     root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
-            ...     tables=["diagnoses_icd", "procedures_icd"],
-            ...     code_mapping={"ICD10PROC": "CCSPROC"},
-            ... )
-            >>> from pyhealth.tasks import readmission_prediction_mimic4_fn
-            >>> mimic4_sample = mimic4_base.set_task(readmission_prediction_mimic4_fn)
-            >>> mimic4_sample.samples[0]
-            [{'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '19', '122', '98', '663', '58', '51']], 'procedures': [['1']], 'label': 0}]
-        """
         samples = []
 
         demographics = patient.get_events(event_type="patients")
         assert len(demographics) == 1
         demographics = demographics[0]
         anchor_age = int(demographics["anchor_age"])
-        
+
+        # exclude: patients under 18 years old
         if anchor_age < 18:
             return samples
 
@@ -75,28 +65,35 @@ class Readmission30DaysMIMIC4(BaseTask):
             else:
                 readmission = 0
 
+            # returning polars dataframe is much faster than returning list of events
             diagnoses_icd = patient.get_events(
                 event_type="diagnoses_icd",
                 start=admission.timestamp,
-                end=admission_dischtime
+                end=admission_dischtime,
+                return_df=True
             )
             procedures_icd = patient.get_events(
                 event_type="procedures_icd",
                 start=admission.timestamp,
-                end=admission_dischtime
+                end=admission_dischtime,
+                return_df=True
             )
             prescriptions = patient.get_events(
                 event_type="prescriptions",
                 start=admission.timestamp,
-                end=admission_dischtime
+                end=admission_dischtime,
+                return_df=True
             )
-            conditions = [
-                f"{event.icd_version}_{event.icd_code}" for event in diagnoses_icd
-            ]
-            procedures = [
-                f"{event.icd_version}_{event.icd_code}" for event in procedures_icd
-            ]
-            drugs = [f"{event.drug}" for event in prescriptions]
+            # convert to list of codes
+            conditions = diagnoses_icd.select(
+                pl.concat_str(["diagnoses_icd/icd_version", "diagnoses_icd/icd_code"], separator="_")
+            ).to_series().to_list()
+            procedures = procedures_icd.select(
+                pl.concat_str(["procedures_icd/icd_version", "procedures_icd/icd_code"], separator="_")
+            ).to_series().to_list()
+            drugs = prescriptions.select(
+                pl.concat_str(["prescriptions/drug"], separator="_")
+            ).to_series().to_list()
 
             # exclude: visits without condition, procedure, or drug code
             if len(conditions) * len(procedures) * len(drugs) == 0:

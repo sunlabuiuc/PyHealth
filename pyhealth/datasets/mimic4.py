@@ -210,7 +210,7 @@ class MIMIC4Dataset(BaseDataset):
         note_config_path: Optional[str] = None,
         cxr_config_path: Optional[str] = None,
         dataset_name: str = "mimic4",
-        dev: bool = False,  # Added dev parameter
+        dev: bool = False,
     ):
         log_memory_usage("Starting MIMIC4Dataset init")
 
@@ -220,8 +220,10 @@ class MIMIC4Dataset(BaseDataset):
         self.root = None
         self.tables = None
         self.config = None
-        self.dev = dev  # Store dev mode flag
-        
+        # Dev flag is only used in the MIMIC4Dataset class
+        # to ensure the same set of patients are used for all sub-datasets.
+        self.dev = dev
+
         # We need at least one root directory
         if not any([ehr_root, note_root, cxr_root]):
             raise ValueError("At least one root directory must be provided")
@@ -238,7 +240,6 @@ class MIMIC4Dataset(BaseDataset):
                 root=ehr_root,
                 tables=ehr_tables,
                 config_path=ehr_config_path,
-                dev=dev  # Pass dev mode flag
             )
             log_memory_usage("After EHR dataset initialization")
 
@@ -249,7 +250,6 @@ class MIMIC4Dataset(BaseDataset):
                 root=note_root,
                 tables=note_tables,
                 config_path=note_config_path,
-                dev=dev  # Pass dev mode flag
             )
             log_memory_usage("After Note dataset initialization")
 
@@ -260,7 +260,6 @@ class MIMIC4Dataset(BaseDataset):
                 root=cxr_root,
                 tables=cxr_tables,
                 config_path=cxr_config_path,
-                dev=dev  # Pass dev mode flag
             )
             log_memory_usage("After CXR dataset initialization")
 
