@@ -1,4 +1,4 @@
-# unittests/test_clinical_t5.py
+# pyhealth/unittests/test_clinical_t5.py
 import pytest
 import torch
 from pyhealth.datasets import SampleDataset
