@@ -18,8 +18,6 @@ def main():
     )
 
     # in-hospital mortality task
-    #   time_window="all" uses all history up to discharge,
-    #   min_length=24*60 filters out stays shorter than 24h
     task = InHospitalMortality(
         dataset    = mimic3,
         time_window= "all",
