@@ -11,3 +11,6 @@ numpy
 tqdm
 polars
 transformers
+neurokit2
+heartpy
+hyperopt
