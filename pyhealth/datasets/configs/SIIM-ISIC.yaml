@@ -1,0 +1,16 @@
+tables:
+  metadata:
+    file_path: metadata.csv
+    join: []
+    patient_id: patient_id
+    timestamp: null  # no time-based data? use `null`
+    timestamp_format: null
+    attributes: [
+      image_name,
+      sex,
+      age_approx,
+      anatom_site_general_challenge,
+      diagnosis,
+      benign_malignant,
+      target
+    ]
