@@ -1,0 +1,22 @@
+version: "1.0"
+tables:
+  sleepqa_model_agreement:
+    file_path: "model_agreement.csv"
+    patient_id: null
+    timestamp: null
+    attributes:
+    - "q_p1" #question asked to the LLMs(1,2)
+    - "par_1"  #answer paragraph from LLM[1]
+    - "par_2"  #answer paragraph from LLM[2]
+    - "answer_1" #short value answer from LLM[1]
+    - "answer_2" #short value answer from LLM[2]
+    - "score_a_1" #annotator 1 score for LLM[1] answer
+    - "score_p_1" #annotator 1 score for LLM[2] answer
+    - "score_a_2" #annotator 2 score for LLM[1] answer
+    - "score_p_2" #annotator 2 score for LLM[2] answer
+    - "score_a_3" #annotator 3 score for LLM[1] answer
+    - "score_p_3" #annotator 3 score for LLM[2] answer
+    - "score_a_4" #annotator 4 score for LLM[1] answer
+    - "score_p_4" #annotator 4 score for LLM[2] answer
+    - "score_a_5" #annotator 5 score for LLM[1] answer
+    - "score_p_5" #annotator 5 score for LLM[2] answer
