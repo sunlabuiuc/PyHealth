@@ -12,7 +12,7 @@ root = "/srv/local/data/COVID-19_Radiography_Dataset"
 base_dataset = COVID19CXRDataset(root)
 
 # step 2: set task
-sample_dataset = base_dataset.set_task()
+sample_dataset = base_dataset.set_task(num_workers=16)
 
 # the transformation automatically normalize the pixel intensity into [0, 1]
 transform = transforms.Compose([
@@ -21,7 +21,7 @@ transform = transforms.Compose([
 ])
 
 def encode(sample):
-    sample["path"] = transform(sample["path"])
+    sample["image"] = transform(sample["image"])
     return sample
 
 sample_dataset.set_transform(encode)
@@ -38,7 +38,7 @@ test_dataloader = get_dataloader(test_dataset, batch_size=256, shuffle=False)
 data = next(iter(train_dataloader))
 print (data)
 
-print (data["path"][0].shape)
+print (data["image"][0].shape)
 
 print(
     "loader size: train/val/test",
@@ -59,7 +59,7 @@ model = VAE(
 )
 
 # STEP 4: define trainer
-trainer = Trainer(model=model, device="cuda:4", metrics=["kl_divergence", "mse", "mae"])
+trainer = Trainer(model=model, device="cuda:0", metrics=["kl_divergence", "mse", "mae"])
 trainer.train(
     train_dataloader=train_dataloader,
     val_dataloader=val_dataloader,
@@ -80,9 +80,9 @@ X, X_rec, _ = trainer.inference(test_dataloader)
 
 plt.figure()
 plt.subplot(1, 2, 1)
-plt.imshow(X[0].reshape(128, 128), cmap="gray")
+plt.imshow(X[0][0].reshape(128, 128), cmap="gray")
 plt.subplot(1, 2, 2)
-plt.imshow(X_rec[0].reshape(128, 128), cmap="gray")
+plt.imshow(X_rec[0][0].reshape(128, 128), cmap="gray")
 plt.savefig("chestxray_vae_comparison.png")
 
 # EXP 2: random images
@@ -90,11 +90,11 @@ model = trainer.model
   
 model.eval()
 with torch.no_grad():
-    x = np.random.normal(0, 1, 128)
+    x = np.random.normal(0,1,(128,1,1))
     x = x.astype(np.float32)
     x = torch.from_numpy(x).to(trainer.device)
     rec = model.decoder(x).detach().cpu().numpy()
-    rec = rec.reshape((128, 128))
+    rec = rec.reshape((3, 128, 128))
     plt.figure()
-    plt.imshow(rec, cmap="gray")
+    plt.imshow(rec[0], cmap="gray")
     plt.savefig("chestxray_vae_synthetic.png")
