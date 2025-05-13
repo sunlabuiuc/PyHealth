@@ -1,5 +1,6 @@
 from .adacare import AdaCare, AdaCareLayer
 from .agent import Agent, AgentLayer
+from .attention_net import AttentionNet
 from .base_model import BaseModel
 from .cnn import CNN, CNNLayer
 from .concare import ConCare, ConCareLayer
