@@ -1,0 +1,23 @@
+version: "1.0"
+tables:
+  wesad:
+    file_path: "*.pkl"
+    patient_id: "patient_id"
+    timestamp: "timestamp"
+    attributes:
+      # Label (0=undefined, 1=baseline, 2=stress, 3=amusement)
+      - "label"
+
+      # Chest sensors
+      - "chest_acc"
+      - "chest_ecg"
+      - "chest_emg"
+      - "chest_eda"
+      - "chest_resp"
+      - "chest_temp"
+
+      # Wrist sensors
+      - "wrist_acc"
+      - "wrist_bvp"
+      - "wrist_eda"
+      - "wrist_temp"
