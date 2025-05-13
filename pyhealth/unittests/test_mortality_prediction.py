@@ -29,7 +29,7 @@ def test_mortality_prediction_mimic3():
     dataset = MIMIC3Dataset(
         root="https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III",
         tables=["diagnoses_icd", "procedures_icd", "prescriptions", "noteevents"],
-        dev=False
+        dev=True
     )
     from pyhealth.tasks.mortality_prediction import MortalityPredictionMIMIC3
     from pyhealth.datasets import split_by_patient, get_dataloader

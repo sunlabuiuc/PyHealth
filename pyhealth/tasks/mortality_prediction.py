@@ -78,7 +78,7 @@ class MortalityPredictionMIMIC3(BaseTask):
             ]
     
             # Exclude visits without condition, procedure, or drug code
-            if len(conditions) * len(procedures_list) * len(drugs) == 0:
+            if len(conditions) + len(procedures_list) + len(drugs) == 0:
                 continue
             
             samples.append({
@@ -177,7 +177,7 @@ class MultimodalMortalityPredictionMIMIC3(BaseTask):
                 text += note.text
 
             # Exclude visits without condition, procedure, or drug code
-            if len(conditions) * len(procedures_list) * len(drugs) == 0:
+            if len(conditions) + len(procedures_list) + len(drugs) == 0:
                 continue
             
             samples.append({
@@ -291,7 +291,7 @@ class MortalityPredictionMIMIC4(BaseTask):
             ])
 
             # Exclude visits without condition, procedure, or drug code
-            if len(conditions) * len(procedures_list) * len(drugs) == 0:
+            if len(conditions) + len(procedures_list) + len(drugs) == 0:
                 continue
 
             samples.append({
@@ -500,7 +500,7 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
                 except Exception as e:
                     print(f"Error processing X-ray image path: {e}")
             # Exclude visits without sufficient clinical data
-            if len(conditions) * len(procedures_list) * len(drugs) == 0:
+            if len(conditions) + len(procedures_list) + len(drugs) == 0:
                 continue
 
             samples.append({
