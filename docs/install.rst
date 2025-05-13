@@ -21,13 +21,21 @@ or from github source:
 
 .. code-block:: bash
 
-    python>=3.8
     torch>=1.8.0
+    torchvision>=0.9.0
     rdkit>=2022.03.4
     scikit-learn>=0.24.2
     networkx>=2.6.3
-    pandas>=1.3.2
+    pandas>=1.3.2,<2
+    pandarallel>=1.5.3
+    mne>=1.0.3
+    urllib3<=1.26.15
+    numpy==1.26.4
     tqdm
+    polars
+    transformers
+    pydantic
+    PyYaml
 
 **Warning 1**\ :
 
