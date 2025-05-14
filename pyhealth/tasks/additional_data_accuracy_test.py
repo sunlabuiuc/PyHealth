@@ -10,6 +10,29 @@ from pyhealth.datasets import get_dataset_class
 from pyhealth.utils import FastDataLoader, seed_everything
 
 class EmbeddingExtractionTask:
+    """
+    Task class for extracting embeddings from a trained model using a specified dataset and algorithm.
+    Args:
+        args: Namespace or argument object containing configuration parameters such as algorithm, dataset, model, output_dir, etc.
+        device (str, optional): Device to run computations on ('cuda' or 'cpu'). If None, automatically selects CUDA if available.
+    Attributes:
+        args: Configuration arguments.
+        device: Computation device.
+        hparams: Hyperparameters for the algorithm and dataset.
+        dataset: Initialized dataset object.
+        algorithm: Loaded and prepared model/algorithm for embedding extraction.
+    Methods:
+        _init_hparams():
+            Initializes and returns hyperparameters for the algorithm and dataset using a random seed.
+        _init_dataset():
+            Instantiates and returns the dataset class with the initialized hyperparameters and arguments.
+        _load_algorithm():
+            Loads the algorithm/model class, restores its state from a checkpoint, and prepares it for evaluation.
+        run_testing(split_name="test"):
+            Runs embedding extraction and evaluation on the specified data split for all environments, saving results to CSV files.
+        run():
+            Seeds all random number generators, runs the testing procedure, and performs cleanup after extraction.
+    """
     def __init__(self, args, device=None):
         self.args = args
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
