@@ -58,7 +58,7 @@ class ChestXray14BinaryClassification(BaseTask):
 
         self.disease = disease
 
-    def __call__(self, patient: Patient) -> List[Dict[str, str]]:
+    def __call__(self, patient: Patient) -> List[Dict]:
         """
         Generates a binary classification data sample for a single patient.
 
@@ -67,9 +67,9 @@ class ChestXray14BinaryClassification(BaseTask):
                                'chestxray14' event.
 
         Returns:
-            List[Dict[str, str]]: A list containing a single dictionary with:
+            List[Dict]: A list containing a single dictionary with:
                 - 'image': path to the chest X-ray image.
-                - 'label': binary label (as a string) for the specified disease.
+                - 'label': binary label for the specified disease.
 
         Raises:
             ValueError: If the number of chestxray14 events is not exactly one.

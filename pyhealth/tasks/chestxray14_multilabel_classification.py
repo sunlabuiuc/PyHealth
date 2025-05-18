@@ -38,7 +38,7 @@ class ChestXray14MultilabelClassification(BaseTask):
     input_schema: Dict[str, str] = {"image": "image"}
     output_schema: Dict[str, str] = {"labels": "multilabel"}
 
-    def __call__(self, patient: Patient) -> List[Dict[str, str]]:
+    def __call__(self, patient: Patient) -> List[Dict]:
         """
         Generates a multilabel classification data sample for a single patient.
 
@@ -47,9 +47,9 @@ class ChestXray14MultilabelClassification(BaseTask):
                                'chestxray14' event.
 
         Returns:
-            List[Dict[str, str]]: A list containing a single dictionary with:
+            List[Dict]: A list containing a single dictionary with:
                 - 'image': path to the chest X-ray image.
-                - 'labels': a list of binary labels (as strings) for the fourteen classes in ChestXray14Dataset.
+                - 'labels': a list of labels for diseases present in the image.
 
         Raises:
             ValueError: If the number of chestxray14 events is not exactly one.
@@ -61,4 +61,4 @@ class ChestXray14MultilabelClassification(BaseTask):
             raise ValueError(msg)
 
         from ..datasets.chestxray14 import ChestXray14Dataset # Avoid circular import
-        return [{"image": events[0]["path"], "labels": [events[0][disease] for disease in ChestXray14Dataset.classes]}]
+        return [{"image": events[0]["path"], "labels": [disease for disease in ChestXray14Dataset.classes if events[0][disease]]}]

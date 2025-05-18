@@ -1,5 +1,5 @@
 """
-Unit tests for the ChestXray14Dataset and ChestXray14BinaryClassification classes.
+Unit tests for the ChestXray14Dataset, ChestXray14BinaryClassification, and ChestXray14MultilabelClassification classes.
 
 Author:
     Eric Schrock (ejs9@illinois.edu)
@@ -120,7 +120,7 @@ class TestChestXray14Dataset(unittest.TestCase):
         self.assertEqual(data['pneumothorax'], 0)
 
     def test_default_task(self):
-        self.assertEqual(self.dataset.default_task, ChestXray14MultilabelClassification)
+        self.assertIsInstance(self.dataset.default_task, ChestXray14MultilabelClassification)
 
     def test_task_classify_cardiomegaly(self):
         task = ChestXray14BinaryClassification(disease="cardiomegaly")
@@ -137,9 +137,9 @@ class TestChestXray14Dataset(unittest.TestCase):
     def test_task_classify_all(self):
         samples = self.dataset.set_task()
         self.assertEqual(len(samples), 10)
-        self.assertEqual(samples[0]["labels"], [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
-        self.assertEqual(samples[3]["labels"], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
-        self.assertEqual(samples[6]["labels"], [0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0])
+        self.assertEqual(samples[0]["labels"], ['cardiomegaly'])
+        self.assertEqual(samples[3]["labels"], [])
+        self.assertEqual(samples[6]["labels"], ['hernia', 'infiltration'])
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
