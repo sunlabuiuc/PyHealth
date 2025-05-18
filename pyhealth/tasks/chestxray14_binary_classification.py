@@ -16,11 +16,14 @@ Dataset paper link:
 Author:
     Eric Schrock (ejs9@illinois.edu)
 """
+import logging
 from typing import Dict, List
 
 from ..data import Event, Patient
 from ..datasets.chestxray14 import ChestXray14Dataset
 from .base_task import BaseTask
+
+logger = logging.getLogger(__name__)
 
 class ChestXray14BinaryClassification(BaseTask):
     """
