@@ -124,12 +124,12 @@ class ChestXray14Dataset(BaseDataset):
         """
         return self._data.iloc[index]
 
-    def stat(self) -> None:
+    def stats(self) -> None:
         """Prints information on the contents of the dataset
 
         Example:
             >>> dataset = ChestXray14Dataset()
-            >>> dataset.stat()
+            >>> dataset.stats()
         """
         lines = list()
         lines.append("")
@@ -323,5 +323,5 @@ if __name__ == "__main__":
 
     dataset = ChestXray14Dataset(config_path=args.config, download=args.download, partial=args.partial)
 
-    dataset.stat()
+    dataset.stats()
     print(dataset[0])
