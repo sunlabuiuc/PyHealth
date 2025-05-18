@@ -80,4 +80,4 @@ class ChestXray14BinaryClassification(BaseTask):
             logger.error(msg)
             raise ValueError(msg)
 
-        return [{"image": events[0]["path"], "label": events[0][self.disease]}]
+        return [{"image": events[0]["path"], "label": int(events[0][self.disease])}]
