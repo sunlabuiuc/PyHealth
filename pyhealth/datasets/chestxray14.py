@@ -28,7 +28,7 @@ import urllib.request
 
 import pandas as pd
 
-from pyhealth.datasets.base_dataset import BaseDataset
+from .base_dataset import BaseDataset
 
 logger = logging.getLogger(__name__)
 

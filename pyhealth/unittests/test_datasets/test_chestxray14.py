@@ -13,8 +13,8 @@ import unittest
 import numpy as np
 from PIL import Image
 
-from pyhealth.datasets.chestxray14 import ChestXray14Dataset
-from pyhealth.tasks.chestxray14_binary_classification import ChestXray14BinaryClassification
+from ...datasets.chestxray14 import ChestXray14Dataset
+from ...tasks.chestxray14_binary_classification import ChestXray14BinaryClassification
 
 class TestChestXray14Dataset(unittest.TestCase):
     def setUp(self):
