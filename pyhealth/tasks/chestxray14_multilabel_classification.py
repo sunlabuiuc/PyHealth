@@ -49,6 +49,7 @@ class ChestXray14MultilabelClassification(BaseTask):
         Returns:
             List[Dict]: A list containing a single dictionary with:
                 - 'image': path to the chest X-ray image.
+                - 'path': path to the chest X-ray image (excluded from the input and output schemas and used for testing).
                 - 'labels': a list of labels for diseases present in the image (0-based indices of ChestXray14Dataset.classes).
 
         Raises:
@@ -61,4 +62,4 @@ class ChestXray14MultilabelClassification(BaseTask):
             raise ValueError(msg)
 
         from ..datasets.chestxray14 import ChestXray14Dataset # Avoid circular import
-        return [{"image": events[0]["path"], "labels": [disease for disease in ChestXray14Dataset.classes if int(events[0][disease])]}]
+        return [{"image": events[0]["path"], "path": events[0]["path"], "labels": [disease for disease in ChestXray14Dataset.classes if int(events[0][disease])]}]
