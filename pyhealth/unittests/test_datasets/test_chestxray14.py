@@ -12,6 +12,7 @@ import unittest
 
 import numpy as np
 from PIL import Image
+import torch
 
 from ...datasets.chestxray14 import ChestXray14Dataset
 from ...tasks.chestxray14_binary_classification import ChestXray14BinaryClassification
@@ -137,9 +138,9 @@ class TestChestXray14Dataset(unittest.TestCase):
     def test_task_classify_all(self):
         samples = self.dataset.set_task()
         self.assertEqual(len(samples), 10)
-        self.assertEqual(samples[0]["labels"], ['cardiomegaly'])
-        self.assertEqual(samples[3]["labels"], [])
-        self.assertEqual(samples[6]["labels"], ['hernia', 'infiltration'])
+        self.assertEqual(samples[0]["labels"], torch.tensor([1]))
+        self.assertEqual(samples[3]["labels"], torch.tensor([]))
+        self.assertEqual(samples[6]["labels"], torch.tensor([7, 8]))
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

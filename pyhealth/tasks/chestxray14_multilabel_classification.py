@@ -49,7 +49,7 @@ class ChestXray14MultilabelClassification(BaseTask):
         Returns:
             List[Dict]: A list containing a single dictionary with:
                 - 'image': path to the chest X-ray image.
-                - 'labels': a list of labels for diseases present in the image.
+                - 'labels': a list of labels for diseases present in the image (0-based indices of ChestXray14Dataset.classes).
 
         Raises:
             ValueError: If the number of chestxray14 events is not exactly one.
@@ -61,4 +61,4 @@ class ChestXray14MultilabelClassification(BaseTask):
             raise ValueError(msg)
 
         from ..datasets.chestxray14 import ChestXray14Dataset # Avoid circular import
-        return [{"image": events[0]["path"], "labels": [disease for disease in ChestXray14Dataset.classes if events[0][disease]]}]
+        return [{"image": events[0]["path"], "labels": [i for i, disease in enumerate(ChestXray14Dataset.classes) if events[0][disease]]}]
