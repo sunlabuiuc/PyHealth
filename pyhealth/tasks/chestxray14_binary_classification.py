@@ -33,17 +33,11 @@ class ChestXray14BinaryClassification(BaseTask):
         task_name (str): The name of the task.
         input_schema (Dict[str, str]): The schema for the task input.
         output_schema (Dict[str, str]): The schema for the task output.
-        classes (List[str]): List of diseases that appear in the dataset.
         disease (str): The disease label to classify.
     """
     task_name: str = "ChestXray14BinaryClassification"
     input_schema: Dict[str, str] = {"image": "image"}
     output_schema: Dict[str, str] = {"label": "binary"}
-    classes: List[str] = ["atelectasis", "cardiomegaly", "consolidation",
-               "edema", "effusion", "emphysema",
-               "fibrosis", "hernia", "infiltration",
-               "mass", "nodule", "pleural_thickening",
-               "pneumonia", "pneumothorax"]
 
     def __init__(self, disease: str) -> None:
         """
@@ -56,7 +50,8 @@ class ChestXray14BinaryClassification(BaseTask):
         Raises:
             ValueError: If the specified disease is not a valid class in the dataset.
         """
-        if disease not in self.classes:
+        from ..datasets.chestxray14 import ChestXray14Dataset # Avoid circular import
+        if disease not in ChestXray14Dataset.classes:
             msg = "Invalid disease!"
             logger.error(msg)
             raise ValueError(msg)

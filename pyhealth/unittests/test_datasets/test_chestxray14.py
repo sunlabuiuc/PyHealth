@@ -130,9 +130,5 @@ class TestChestXray14Dataset(unittest.TestCase):
         self.assertEqual(len(samples), 10)
         self.assertEqual(sum(sample["label"] for sample in samples), 6)
 
-    def test_dataset_and_task_classes_match(self):
-        # Must define list of classes in both the dataset and task to avoid circular import in this file
-        self.assertEqual(ChestXray14Dataset.classes, ChestXray14BinaryClassification.classes)
-
 if __name__ == "__main__":
     unittest.main(verbosity=2)
