@@ -139,12 +139,13 @@ class TestChestXray14Dataset(unittest.TestCase):
         samples = self.dataset.set_task()
         self.assertEqual(len(samples), 10)
         for sample in samples:
-            if '00000002_000.png' in sample['path']:
-                print(sample)
-            elif '00000001_000.png' in sample['path']:
-                print(sample)
-            elif '00000003_003.png' in sample['path']:
-                print(sample)
+            print(sample)
+            if '00000001_000.png' in sample['image']:
+                self.assertTrue(torch.equal(sample["labels"], torch.tensor([0.0, 0.0, 0.0, 0.0, 0.0])))
+            elif '00000002_000.png' in sample['image']:
+                self.assertTrue(torch.equal(sample["labels"], torch.tensor([1.0, 0.0, 0.0, 0.0, 0.0])))
+            elif '00000003_003.png' in sample['image']:
+                self.assertTrue(torch.equal(sample["labels"], torch.tensor([0.0, 0.0, 0.0, 1.0, 1.0])))
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
