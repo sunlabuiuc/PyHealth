@@ -23,7 +23,7 @@ import os
 from pathlib import Path
 import requests
 import tarfile
-from typing import Optional
+from typing import List, Optional
 import urllib.request
 
 import pandas as pd
@@ -46,7 +46,7 @@ class ChestXray14Dataset(BaseDataset):
         __getitem__(index: int): Retrieves a specific image and its metadata.
         stat(): Prints statistics about the dataset's content.
     """
-    classes = ["atelectasis", "cardiomegaly", "consolidation",
+    classes: List[str] = ["atelectasis", "cardiomegaly", "consolidation",
                "edema", "effusion", "emphysema",
                "fibrosis", "hernia", "infiltration",
                "mass", "nodule", "pleural_thickening",
