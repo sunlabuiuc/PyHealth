@@ -137,9 +137,12 @@ class ChestXray14Dataset(BaseDataset):
         lines.append(f"\t- Dataset: {self.dataset_name}")
         lines.append(f"\t- Number of images: {self.__len__()}")
         lines.append(f"\t- Average number of findings per image: {self._data[self.classes].sum().sum() / self.__len__():.2}")
-        lines.append(f"\t- Number with no finding: {(self._data[self.classes].sum(axis=1) == 0).sum()}")
+        lines.append(f"\t- Max number of findings in an image: {self._data[self.classes].sum(axis=1).max()}")
+        num_no_finding = (self._data[self.classes].sum(axis=1) == 0).sum()
+        lines.append(f"\t- Number with no finding: {num_no_finding} ({(num_no_finding / self.__len__()) * 100:.1}%)")
         for _class in self.classes:
-            lines.append(f"\t- Number with {_class}: {self._data[_class].sum()}")
+            num_finding = self._data[_class].sum()
+            lines.append(f"\t- Number with {_class}: {num_finding} ({(num_finding / self.__len__()) * 100:.1}%)")
         lines.append("")
         print("\n".join(lines))
 
