@@ -141,8 +141,8 @@ class TestChestXray14Dataset(unittest.TestCase):
         for sample in samples:
             if '00000001_000.png' in sample['path']:
                 self.assertTrue(torch.equal(sample["labels"], torch.tensor([1.0, 0.0, 0.0, 0.0, 0.0])))
-            elif '00000002_000.png' in sample['image']:
-                self.assertTrue(torch.equal(sample["path"], torch.tensor([0.0, 0.0, 0.0, 0.0, 0.0])))
+            elif '00000002_000.png' in sample['path']:
+                self.assertTrue(torch.equal(sample["labels"], torch.tensor([0.0, 0.0, 0.0, 0.0, 0.0])))
             elif '00000003_003.png' in sample['path']:
                 self.assertTrue(torch.equal(sample["labels"], torch.tensor([0.0, 0.0, 0.0, 1.0, 1.0])))
 
