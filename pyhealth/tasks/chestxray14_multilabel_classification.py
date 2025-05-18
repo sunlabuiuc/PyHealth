@@ -62,4 +62,4 @@ class ChestXray14MultilabelClassification(BaseTask):
 
         from ..datasets.chestxray14 import ChestXray14Dataset # Avoid circular import
         print(events[0])
-        return [{"image": events[0]["path"], "labels": [i for i, disease in enumerate(ChestXray14Dataset.classes) if events[0][disease]]}]
+        return [{"image": events[0]["path"], "labels": [i for i, disease in enumerate(ChestXray14Dataset.classes) if events[0][disease] == '1']}]
