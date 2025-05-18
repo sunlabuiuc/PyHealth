@@ -138,9 +138,9 @@ class TestChestXray14Dataset(unittest.TestCase):
     def test_task_classify_all(self):
         samples = self.dataset.set_task()
         self.assertEqual(len(samples), 10)
-        self.assertEqual(samples[0]["labels"], torch.tensor([1]))
-        self.assertEqual(samples[3]["labels"], torch.tensor([]))
-        self.assertEqual(samples[6]["labels"], torch.tensor([7, 8]))
+        self.assertTrue(torch.equal(samples[0]["labels"], torch.tensor([1])))
+        self.assertTrue(torch.equal(samples[3]["labels"], torch.tensor([])))
+        self.assertTrue(torch.equal(samples[6]["labels"], torch.tensor([7, 8])))
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
