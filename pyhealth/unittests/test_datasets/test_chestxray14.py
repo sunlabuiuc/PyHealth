@@ -15,6 +15,7 @@ from PIL import Image
 
 from ...datasets.chestxray14 import ChestXray14Dataset
 from ...tasks.chestxray14_binary_classification import ChestXray14BinaryClassification
+from ...tasks.chestxray14_multilabel_classification import ChestXray14MultilabelClassification
 
 class TestChestXray14Dataset(unittest.TestCase):
     def setUp(self):
@@ -118,6 +119,9 @@ class TestChestXray14Dataset(unittest.TestCase):
         self.assertEqual(data['pneumonia'], 0)
         self.assertEqual(data['pneumothorax'], 0)
 
+    def test_default_task(self):
+        self.assertEqual(self.dataset.default_task, ChestXray14MultilabelClassification)
+
     def test_task_classify_cardiomegaly(self):
         task = ChestXray14BinaryClassification(disease="cardiomegaly")
         samples = self.dataset.set_task(task)
@@ -129,6 +133,13 @@ class TestChestXray14Dataset(unittest.TestCase):
         samples = self.dataset.set_task(task)
         self.assertEqual(len(samples), 10)
         self.assertEqual(sum(sample["label"] for sample in samples), 6)
+
+    def test_task_classify_all(self):
+        samples = self.dataset.set_task()
+        self.assertEqual(len(samples), 10)
+        self.assertEqual(samples[0]["labels"], [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+        self.assertEqual(samples[3]["labels"], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+        self.assertEqual(samples[6]["labels"], [0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0])
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

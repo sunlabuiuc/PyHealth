@@ -29,6 +29,7 @@ import urllib.request
 import pandas as pd
 
 from .base_dataset import BaseDataset
+from ..tasks.chestxray14_multilabel_classification import ChestXray14MultilabelClassification
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +146,19 @@ class ChestXray14Dataset(BaseDataset):
             lines.append(f"\t- Number with {_class}: {num_finding} ({(num_finding / self.__len__()) * 100:.1f}%)")
         lines.append("")
         print("\n".join(lines))
+
+    @property
+    def default_task(self) -> ChestXray14MultilabelClassification:
+        """Returns the default task for this dataset.
+
+        Returns:
+            ChestXray14MultilabelClassification: The default classification task.
+
+        Example:
+            >>> dataset = ChestXray14Dataset()
+            >>> task = dataset.default_task
+        """
+        return ChestXray14MultilabelClassification()
 
     def _download(self, root: str) -> None:
         """Downloads and verifies the ChestX-ray14 dataset files.
