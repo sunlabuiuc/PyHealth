@@ -23,12 +23,13 @@ import os
 from pathlib import Path
 import requests
 import tarfile
-from typing import Optional
+from typing import List, Optional
 import urllib.request
 
 import pandas as pd
 
-from pyhealth.datasets.base_dataset import BaseDataset
+from .base_dataset import BaseDataset
+from ..tasks.chestxray14_multilabel_classification import ChestXray14MultilabelClassification
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,7 @@ class ChestXray14Dataset(BaseDataset):
         __getitem__(index: int): Retrieves a specific image and its metadata.
         stat(): Prints statistics about the dataset's content.
     """
-    classes = ["atelectasis", "cardiomegaly", "consolidation",
+    classes: List[str] = ["atelectasis", "cardiomegaly", "consolidation",
                "edema", "effusion", "emphysema",
                "fibrosis", "hernia", "infiltration",
                "mass", "nodule", "pleural_thickening",
@@ -124,24 +125,40 @@ class ChestXray14Dataset(BaseDataset):
         """
         return self._data.iloc[index]
 
-    def stat(self) -> None:
+    def stats(self) -> None:
         """Prints information on the contents of the dataset
 
         Example:
             >>> dataset = ChestXray14Dataset()
-            >>> dataset.stat()
+            >>> dataset.stats()
         """
         lines = list()
         lines.append("")
         lines.append(f"Statistics (partial={self._partial}):")
         lines.append(f"\t- Dataset: {self.dataset_name}")
         lines.append(f"\t- Number of images: {self.__len__()}")
-        lines.append(f"\t- Average number of findings per image: {self._data[self.classes].sum().sum() / self.__len__():.2}")
-        lines.append(f"\t- Number with no finding: {(self._data[self.classes].sum(axis=1) == 0).sum()}")
+        lines.append(f"\t- Average number of findings per image: {self._data[self.classes].sum().sum() / self.__len__():.2f}")
+        lines.append(f"\t- Max number of findings in an image: {self._data[self.classes].sum(axis=1).max()}")
+        num_no_finding = (self._data[self.classes].sum(axis=1) == 0).sum()
+        lines.append(f"\t- Number with no finding: {num_no_finding} ({(num_no_finding / self.__len__()) * 100:.1f}%)")
         for _class in self.classes:
-            lines.append(f"\t- Number with {_class}: {self._data[_class].sum()}")
+            num_finding = self._data[_class].sum()
+            lines.append(f"\t- Number with {_class}: {num_finding} ({(num_finding / self.__len__()) * 100:.1f}%)")
         lines.append("")
         print("\n".join(lines))
+
+    @property
+    def default_task(self) -> ChestXray14MultilabelClassification:
+        """Returns the default task for this dataset.
+
+        Returns:
+            ChestXray14MultilabelClassification: The default classification task.
+
+        Example:
+            >>> dataset = ChestXray14Dataset()
+            >>> task = dataset.default_task
+        """
+        return ChestXray14MultilabelClassification()
 
     def _download(self, root: str) -> None:
         """Downloads and verifies the ChestX-ray14 dataset files.
@@ -305,6 +322,12 @@ class ChestXray14Dataset(BaseDataset):
 
 if __name__ == "__main__":
     logger.setLevel(logging.INFO)
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str)
@@ -314,5 +337,5 @@ if __name__ == "__main__":
 
     dataset = ChestXray14Dataset(config_path=args.config, download=args.download, partial=args.partial)
 
-    dataset.stat()
+    dataset.stats()
     print(dataset[0])

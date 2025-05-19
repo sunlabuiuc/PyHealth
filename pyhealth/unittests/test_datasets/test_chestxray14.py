@@ -1,5 +1,5 @@
 """
-Unit tests for the ChestXray14Dataset and ChestXray14BinaryClassification classes.
+Unit tests for the ChestXray14Dataset, ChestXray14BinaryClassification, and ChestXray14MultilabelClassification classes.
 
 Author:
     Eric Schrock (ejs9@illinois.edu)
@@ -12,9 +12,11 @@ import unittest
 
 import numpy as np
 from PIL import Image
+import torch
 
-from pyhealth.datasets.chestxray14 import ChestXray14Dataset
-from pyhealth.tasks.chestxray14_binary_classification import ChestXray14BinaryClassification
+from ...datasets.chestxray14 import ChestXray14Dataset
+from ...tasks.chestxray14_binary_classification import ChestXray14BinaryClassification
+from ...tasks.chestxray14_multilabel_classification import ChestXray14MultilabelClassification
 
 class TestChestXray14Dataset(unittest.TestCase):
     def setUp(self):
@@ -118,6 +120,9 @@ class TestChestXray14Dataset(unittest.TestCase):
         self.assertEqual(data['pneumonia'], 0)
         self.assertEqual(data['pneumothorax'], 0)
 
+    def test_default_task(self):
+        self.assertIsInstance(self.dataset.default_task, ChestXray14MultilabelClassification)
+
     def test_task_classify_cardiomegaly(self):
         task = ChestXray14BinaryClassification(disease="cardiomegaly")
         samples = self.dataset.set_task(task)
@@ -129,6 +134,17 @@ class TestChestXray14Dataset(unittest.TestCase):
         samples = self.dataset.set_task(task)
         self.assertEqual(len(samples), 10)
         self.assertEqual(sum(sample["label"] for sample in samples), 6)
+
+    def test_task_classify_all(self):
+        samples = self.dataset.set_task()
+        self.assertEqual(len(samples), 10)
+        for sample in samples:
+            if '00000001_000.png' in sample['path']:
+                self.assertTrue(torch.equal(sample["labels"], torch.tensor([1.0, 0.0, 0.0, 0.0, 0.0])))
+            elif '00000002_000.png' in sample['path']:
+                self.assertTrue(torch.equal(sample["labels"], torch.tensor([0.0, 0.0, 0.0, 0.0, 0.0])))
+            elif '00000003_003.png' in sample['path']:
+                self.assertTrue(torch.equal(sample["labels"], torch.tensor([0.0, 0.0, 0.0, 1.0, 1.0])))
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

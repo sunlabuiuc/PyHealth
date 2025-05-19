@@ -1,5 +1,5 @@
 """
-PyHealth task for binary classification using the ChestX-ray14 dataset.
+PyHealth task for multilabel classification using the ChestX-ray14 dataset.
 
 Dataset link:
     https://nihcc.app.box.com/v/ChestXray-NIHCC/folder/36938765345
@@ -24,43 +24,23 @@ from .base_task import BaseTask
 
 logger = logging.getLogger(__name__)
 
-class ChestXray14BinaryClassification(BaseTask):
+class ChestXray14MultilabelClassification(BaseTask):
     """
-    A PyHealth task class for binary classification of a specific disease
+    A PyHealth task class for multilabel classification of all fourteen diseases
     in the ChestXray14 dataset.
 
     Attributes:
         task_name (str): The name of the task.
         input_schema (Dict[str, str]): The schema for the task input.
         output_schema (Dict[str, str]): The schema for the task output.
-        disease (str): The disease label to classify.
     """
-    task_name: str = "ChestXray14BinaryClassification"
+    task_name: str = "ChestXray14MultilabelClassification"
     input_schema: Dict[str, str] = {"image": "image"}
-    output_schema: Dict[str, str] = {"label": "binary"}
-
-    def __init__(self, disease: str) -> None:
-        """
-        Initializes the ChestXray14BinaryClassification task with a specified disease.
-
-        Args:
-            disease (str): The disease to classify in the binary task. Must be one
-                           of the predefined class labels in ChestXray14Dataset.
-
-        Raises:
-            ValueError: If the specified disease is not a valid class in the dataset.
-        """
-        from ..datasets.chestxray14 import ChestXray14Dataset # Avoid circular import
-        if disease not in ChestXray14Dataset.classes:
-            msg = "Invalid disease!"
-            logger.error(msg)
-            raise ValueError(msg)
-
-        self.disease = disease
+    output_schema: Dict[str, str] = {"labels": "multilabel"}
 
     def __call__(self, patient: Patient) -> List[Dict]:
         """
-        Generates a binary classification data sample for a single patient.
+        Generates a multilabel classification data sample for a single patient.
 
         Args:
             patient (Patient): A patient object containing at least one
@@ -69,7 +49,8 @@ class ChestXray14BinaryClassification(BaseTask):
         Returns:
             List[Dict]: A list containing a single dictionary with:
                 - 'image': path to the chest X-ray image.
-                - 'label': binary label for the specified disease.
+                - 'path': path to the chest X-ray image (excluded from the input and output schemas and used for testing).
+                - 'labels': a list of labels for diseases present in the image (0-based indices of ChestXray14Dataset.classes).
 
         Raises:
             ValueError: If the number of chestxray14 events is not exactly one.
@@ -80,4 +61,5 @@ class ChestXray14BinaryClassification(BaseTask):
             logger.error(msg)
             raise ValueError(msg)
 
-        return [{"image": events[0]["path"], "label": int(events[0][self.disease])}]
+        from ..datasets.chestxray14 import ChestXray14Dataset # Avoid circular import
+        return [{"image": events[0]["path"], "path": events[0]["path"], "labels": [disease for disease in ChestXray14Dataset.classes if int(events[0][disease])]}]
