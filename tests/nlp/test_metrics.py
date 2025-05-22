@@ -20,7 +20,7 @@ class TestMetrics(BaseTestCase):
         s2: str = 'The boy threw X the ball. He practiced every day.'
         self.pairs: List[List[str]] = [[s1, s1], [s1, s2]]
 
-    def _test_object_graph(self):
+    def test_object_graph(self):
         # configure only the edit distance method
         scorer = Scorer(
             methods={'editdistance': LevenshteinDistanceScoreMethod()},
