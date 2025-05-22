@@ -1,0 +1,13 @@
+version: "1.0"
+tables:
+  ecg:
+    file_path: "ptbxl_database.csv"
+    patient_id: "ecg_id"
+    attributes:
+      - filename_hr
+      - filename_lr
+      - scp_codes
+      - age
+      - sex
+    read_csv_kwargs:
+      sep: ";"
