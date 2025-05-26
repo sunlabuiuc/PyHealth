@@ -37,7 +37,7 @@ class TestChestXray14Dataset(unittest.TestCase):
         ]
 
         for name in images:
-            img = Image.fromarray(np.random.randint(0, 256, (224, 224, 4), dtype=np.uint8), mode="RGB")
+            img = Image.fromarray(np.random.randint(0, 256, (224, 224, 4), dtype=np.uint8), mode="RGBA")
             img.save(os.path.join("test/images", name))
 
         # https://nihcc.app.box.com/v/ChestXray-NIHCC/file/219760887468 (mirrored to Google Drive)

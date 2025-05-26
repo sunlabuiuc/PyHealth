@@ -45,7 +45,7 @@ class ChestXray14Dataset(BaseDataset):
     Methods:
         __len__(): Returns the number of entries in the dataset.
         __getitem__(index: int): Retrieves a specific image and its metadata.
-        stat(): Prints statistics about the dataset's content.
+        stats(): Prints statistics about the dataset's content.
     """
     classes: List[str] = ["atelectasis", "cardiomegaly", "consolidation",
                "edema", "effusion", "emphysema",
