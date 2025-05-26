@@ -119,6 +119,10 @@ class TestChestXray14Dataset(unittest.TestCase):
     def test_default_task(self):
         self.assertIsInstance(self.dataset.default_task, ChestXray14MultilabelClassification)
 
+    def test_task_given_invalid_disease(self):
+        with self.assertRaises(ValueError):
+            _ = ChestXray14BinaryClassification(disease="toothache")
+
     def test_task_classify_cardiomegaly(self):
         task = ChestXray14BinaryClassification(disease="cardiomegaly")
         samples = self.dataset.set_task(task)
