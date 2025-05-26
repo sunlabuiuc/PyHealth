@@ -23,34 +23,30 @@ class TestChestXray14Dataset(unittest.TestCase):
         os.mkdir("test")
         os.mkdir("test/images")
 
-        images = [
-            "00000001_000.png",
-            "00000001_001.png",
-            "00000001_002.png",
-            "00000002_000.png",
-            "00000003_001.png",
-            "00000003_002.png",
-            "00000003_003.png",
-            "00000003_004.png",
-            "00000003_005.png",
-            "00000003_006.png"
+        # Source: https://nihcc.app.box.com/v/ChestXray-NIHCC/file/219760887468
+        lines = [
+            "Image Index,Finding Labels,Follow-up #,Patient ID,Patient Age,Patient Sex,View Position,OriginalImage[Width,Height],OriginalImagePixelSpacing[x",
+            "00000001_000.png,Cardiomegaly,0,1,57,M,PA,2682,2749,0.14300000000000002",
+            "00000001_001.png,Cardiomegaly|Emphysema,1,1,58,M,PA,2894,2729,0.14300000000000002",
+            "00000001_002.png,Cardiomegaly|Effusion,2,1,58,M,PA,2500,2048,0.168",
+            "00000002_000.png,No Finding,0,2,80,M,PA,2500,2048,0.171",
+            "00000003_001.png,Hernia,0,3,74,F,PA,2500,2048,0.168",
+            "00000003_002.png,Hernia,1,3,75,F,PA,2048,2500,0.168",
+            "00000003_003.png,Hernia|Infiltration,2,3,76,F,PA,2698,2991,0.14300000000000002",
+            "00000003_004.png,Hernia,3,3,77,F,PA,2500,2048,0.168",
+            "00000003_005.png,Hernia,4,3,78,F,PA,2686,2991,0.14300000000000002",
+            "00000003_006.png,Hernia,5,3,79,F,PA,2992,2991,0.14300000000000002",
         ]
 
-        for name in images:
+        # Create mock images to test image loading
+        for line in lines[1:]: # Skip header row
+            name = line.split(',')[0]
             img = Image.fromarray(np.random.randint(0, 256, (224, 224, 4), dtype=np.uint8), mode="RGBA")
             img.save(os.path.join("test/images", name))
 
-        # https://nihcc.app.box.com/v/ChestXray-NIHCC/file/219760887468 (mirrored to Google Drive)
-        # I couldn't figure out a way to download this file directly from box.com
-        response = requests.get('https://drive.google.com/uc?export=download&id=1mkOZNfYt-Px52b8CJZJANNbM3ULUVO3f')
-        with open("test/Data_Entry_2017_v2020.csv", "wb") as file:
-            file.write(response.content)
-
-        with open("test/Data_Entry_2017_v2020.csv", 'r') as f:
-            lines = f.readlines()
-
+        # Save image labels to file
         with open("test/Data_Entry_2017_v2020.csv", 'w') as f:
-            f.writelines(lines[:11])
+            f.writelines(lines)
 
         self.dataset = ChestXray14Dataset(root="./test", config_path=str(Path(__file__).parent.parent.parent / "datasets" / "configs" / "chestxray14.yaml"), download=False, partial=True)
 
