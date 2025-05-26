@@ -6,13 +6,11 @@ Author:
 """
 import os
 from pathlib import Path
-import requests
 import shutil
 import unittest
 
 import numpy as np
 from PIL import Image
-import torch
 
 from ...datasets.chestxray14 import ChestXray14Dataset
 from ...tasks.chestxray14_binary_classification import ChestXray14BinaryClassification
