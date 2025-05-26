@@ -140,13 +140,23 @@ class TestChestXray14Dataset(unittest.TestCase):
     def test_task_classify_all(self):
         samples = self.dataset.set_task()
         self.assertEqual(len(samples), 10)
-        for sample in samples:
-            if '00000001_000.png' in sample['path']:
-                self.assertTrue(torch.equal(sample["labels"], torch.tensor([1.0, 0.0, 0.0, 0.0, 0.0])))
-            elif '00000002_000.png' in sample['path']:
-                self.assertTrue(torch.equal(sample["labels"], torch.tensor([0.0, 0.0, 0.0, 0.0, 0.0])))
-            elif '00000003_003.png' in sample['path']:
-                self.assertTrue(torch.equal(sample["labels"], torch.tensor([0.0, 0.0, 0.0, 1.0, 1.0])))
+
+        actual_labels = [sample["labels"].tolist() for sample in samples]
+
+        expected_labels = [
+            [1.0, 0.0, 0.0, 0.0, 0.0],
+            [1.0, 0.0, 1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0, 1.0],
+            [0.0, 0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0, 0.0],
+        ]
+
+        self.assertCountEqual(actual_labels, expected_labels)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
