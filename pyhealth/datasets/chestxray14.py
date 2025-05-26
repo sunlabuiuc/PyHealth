@@ -235,7 +235,7 @@ class ChestXray14Dataset(BaseDataset):
                 file_md5 = hashlib.md5(f.read()).hexdigest()
 
             if file_md5 != md5_checksums[idx]:
-                msg = "Invalid MD5 checksum"
+                msg = "Invalid MD5 checksum!"
                 logger.error(msg)
                 raise ValueError(msg)
 
@@ -249,7 +249,7 @@ class ChestXray14Dataset(BaseDataset):
                 for member in tar.getmembers():
                     member_path = os.path.join(root, member.name)
                     if not is_within_directory(root, member_path):
-                        msg = f"Unsafe path detected in tar file: '{member.name}'"
+                        msg = f"Unsafe path detected in tar file: '{member.name}'!"
                         logger.error(msg)
                         raise ValueError(msg)
 
