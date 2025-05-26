@@ -52,7 +52,7 @@ class ChestXray14BinaryClassification(BaseTask):
         """
         from ..datasets.chestxray14 import ChestXray14Dataset # Avoid circular import
         if disease not in ChestXray14Dataset.classes:
-            msg = "Invalid disease!"
+            msg = f"Invalid disease: '{disease}'! Must be one of {ChestXray14Dataset.classes}."
             logger.error(msg)
             raise ValueError(msg)
 

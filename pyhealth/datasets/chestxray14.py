@@ -45,7 +45,7 @@ class ChestXray14Dataset(BaseDataset):
     Methods:
         __len__(): Returns the number of entries in the dataset.
         __getitem__(index: int): Retrieves a specific image and its metadata.
-        stat(): Prints statistics about the dataset's content.
+        stats(): Prints statistics about the dataset's content.
     """
     classes: List[str] = ["atelectasis", "cardiomegaly", "consolidation",
                "edema", "effusion", "emphysema",
@@ -179,6 +179,7 @@ class ChestXray14Dataset(BaseDataset):
 
         Raises:
             ValueError: If the MD5 checksum check fails during the download.
+            ValueError: If an image tar file contains an unsafe path.
             ValueError: If an unexpected number of images are downloaded.
         """
         # https://nihcc.app.box.com/v/ChestXray-NIHCC/file/219760887468 (mirrored to Google Drive)
@@ -234,12 +235,24 @@ class ChestXray14Dataset(BaseDataset):
                 file_md5 = hashlib.md5(f.read()).hexdigest()
 
             if file_md5 != md5_checksums[idx]:
-                msg = "Invalid MD5 checksum"
+                msg = "Invalid MD5 checksum!"
                 logger.error(msg)
                 raise ValueError(msg)
 
             logger.info(f"Extracting {fn}...")
             with tarfile.open(fn, 'r:gz') as tar:
+                def is_within_directory(directory, target):
+                    abs_directory = os.path.abspath(directory)
+                    abs_target = os.path.abspath(target)
+                    return os.path.commonpath([abs_directory]) == os.path.commonpath([abs_directory, abs_target])
+
+                for member in tar.getmembers():
+                    member_path = os.path.join(root, member.name)
+                    if not is_within_directory(root, member_path):
+                        msg = f"Unsafe path detected in tar file: '{member.name}'!"
+                        logger.error(msg)
+                        raise ValueError(msg)
+
                 tar.extractall(path=root)
 
             logger.info(f"Deleting {fn}...")
