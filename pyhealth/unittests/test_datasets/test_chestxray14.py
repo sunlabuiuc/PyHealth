@@ -25,17 +25,17 @@ class TestChestXray14Dataset(unittest.TestCase):
 
         # Source: https://nihcc.app.box.com/v/ChestXray-NIHCC/file/219760887468
         lines = [
-            "Image Index,Finding Labels,Follow-up #,Patient ID,Patient Age,Patient Sex,View Position,OriginalImage[Width,Height],OriginalImagePixelSpacing[x",
-            "00000001_000.png,Cardiomegaly,0,1,57,M,PA,2682,2749,0.14300000000000002",
-            "00000001_001.png,Cardiomegaly|Emphysema,1,1,58,M,PA,2894,2729,0.14300000000000002",
-            "00000001_002.png,Cardiomegaly|Effusion,2,1,58,M,PA,2500,2048,0.168",
-            "00000002_000.png,No Finding,0,2,80,M,PA,2500,2048,0.171",
-            "00000003_001.png,Hernia,0,3,74,F,PA,2500,2048,0.168",
-            "00000003_002.png,Hernia,1,3,75,F,PA,2048,2500,0.168",
-            "00000003_003.png,Hernia|Infiltration,2,3,76,F,PA,2698,2991,0.14300000000000002",
-            "00000003_004.png,Hernia,3,3,77,F,PA,2500,2048,0.168",
-            "00000003_005.png,Hernia,4,3,78,F,PA,2686,2991,0.14300000000000002",
-            "00000003_006.png,Hernia,5,3,79,F,PA,2992,2991,0.14300000000000002",
+            "Image Index,Finding Labels,Follow-up #,Patient ID,Patient Age,Patient Sex,View Position,OriginalImage[Width,Height],OriginalImagePixelSpacing[x,y],",
+            "00000001_000.png,Cardiomegaly,0,1,57,M,PA,2682,2749,0.14300000000000002,0.14300000000000002,",
+            "00000001_001.png,Cardiomegaly|Emphysema,1,1,58,M,PA,2894,2729,0.14300000000000002,0.14300000000000002,",
+            "00000001_002.png,Cardiomegaly|Effusion,2,1,58,M,PA,2500,2048,0.168,0.168,",
+            "00000002_000.png,No Finding,0,2,80,M,PA,2500,2048,0.171,0.171,",
+            "00000003_001.png,Hernia,0,3,74,F,PA,2500,2048,0.168,0.168,",
+            "00000003_002.png,Hernia,1,3,75,F,PA,2048,2500,0.168,0.168,",
+            "00000003_003.png,Hernia|Infiltration,2,3,76,F,PA,2698,2991,0.14300000000000002,0.14300000000000002,",
+            "00000003_004.png,Hernia,3,3,77,F,PA,2500,2048,0.168,0.168,",
+            "00000003_005.png,Hernia,4,3,78,F,PA,2686,2991,0.14300000000000002,0.14300000000000002,",
+            "00000003_006.png,Hernia,5,3,79,F,PA,2992,2991,0.14300000000000002,0.14300000000000002,",
         ]
 
         # Create mock images to test image loading
