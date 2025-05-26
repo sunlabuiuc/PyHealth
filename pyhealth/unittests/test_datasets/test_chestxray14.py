@@ -20,8 +20,9 @@ from ...tasks.chestxray14_multilabel_classification import ChestXray14Multilabel
 
 class TestChestXray14Dataset(unittest.TestCase):
     def setUp(self):
-        os.mkdir("test")
-        os.mkdir("test/images")
+        if os.path.exists("test"):
+            shutil.rmtree("test")
+        os.makedirs("test/images")
 
         # Source: https://nihcc.app.box.com/v/ChestXray-NIHCC/file/219760887468
         lines = [
@@ -46,12 +47,13 @@ class TestChestXray14Dataset(unittest.TestCase):
 
         # Save image labels to file
         with open("test/Data_Entry_2017_v2020.csv", 'w') as f:
-            f.writelines(lines)
+            f.write("\n".join(lines))
 
         self.dataset = ChestXray14Dataset(root="./test", config_path=str(Path(__file__).parent.parent.parent / "datasets" / "configs" / "chestxray14.yaml"), download=False, partial=True)
 
     def tearDown(self):
-        shutil.rmtree("test")
+        if os.path.exists("test"):
+            shutil.rmtree("test")
 
     def test_len(self):
         self.assertEqual(len(self.dataset), 10)
