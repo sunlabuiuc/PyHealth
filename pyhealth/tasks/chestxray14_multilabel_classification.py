@@ -50,7 +50,7 @@ class ChestXray14MultilabelClassification(BaseTask):
             List[Dict]: A list containing a single dictionary with:
                 - 'image': path to the chest X-ray image.
                 - 'path': path to the chest X-ray image (excluded from the input and output schemas and used for testing).
-                - 'labels': a list of labels for diseases present in the image (0-based indices of ChestXray14Dataset.classes).
+                - 'labels': a list of labels for diseases present in the image (strings from the list ChestXray14Dataset.classes).
 
         Raises:
             ValueError: If the number of chestxray14 events is not exactly one.
