@@ -7,7 +7,7 @@ import tqdm
 from torch import Tensor
 
 from pyhealth.datasets import utils as datautils
-
+import logging
 
 def agg_loss(loss:torch.Tensor, reduction: str):
     if reduction == 'mean':
@@ -68,4 +68,31 @@ def prepare_numpy_dataset(model, dataset, keys, forward_kwargs=None,
     for key in keys:
         ret[key] = np.concatenate(ret[key])
     return ret
+
+import numpy as np
+from sklearn.model_selection import GridSearchCV
+from sklearn.neighbors import KernelDensity
+from sklearn.model_selection import LeaveOneOut
+
+
+def get_distribution(dist_values):
+    logging.info("Computing distributions .. ")
+    params = {'bandwidth': 10 ** np.linspace(-1, 1, 5)}
+    grid = GridSearchCV(KernelDensity(kernel='gaussian'), params, cv=LeaveOneOut())
+    grid.fit(dist_values)
+    kde = KernelDensity(kernel='gaussian', bandwidth=grid.best_params_['bandwidth'])
+    print("bandwidth ", grid.best_params_['bandwidth'])
+    kde.fit(dist_values)
+    return kde
+
+def compute_weights_for_codrug(
+    calibrate_dist_values, test_dist_values, density_scheme=None
+):
+    calib_density = get_distribution(calibrate_dist_values)
+    test_density = get_distribution(test_dist_values)
+    test_probs = test_density.score_samples(calibrate_dist_values)
+    calib_probs = calib_density.score_samples(calibrate_dist_values)
+    weights = np.exp(test_probs)/np.exp(calib_probs)
+    weights = weights/np.sum(weights)
     
+    return weights
