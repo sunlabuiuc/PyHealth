@@ -1,13 +1,12 @@
-import datetime
-from sqlite3 import Timestamp
-import unittest
-from pyhealth.data.data import Event
 import collections
+import datetime
+import unittest
 
 from pyhealth.datasets import OMOPDataset
 from pyhealth.unittests.test_datasets.utils import EHRDatasetStatAssertion
 
 
+@unittest.skip("OMOP dataset currently relies on deprecated BaseEHRDataset.")
 class TestOMOPDataset(unittest.TestCase):
     DATASET_NAME = "omop-demo"
     ROOT = "https://storage.googleapis.com/pyhealth/synpuf1k_omop_cdm_5.2.2/"

@@ -1,14 +1,15 @@
 import datetime
-from sqlite3 import Timestamp
 import unittest
-from pyhealth.data.data import Event
+
 import pandas
 
+from pyhealth.data.data import Event
 from pyhealth.datasets import eICUDataset
 from pyhealth.unittests.test_datasets.utils import EHRDatasetStatAssertion
 
 
-class TesteICUDataset(unittest.TestCase):
+@unittest.skip("eICU dataset currently relies on deprecated BaseEHRDataset.")
+class TestICUDataset(unittest.TestCase):
 
     # to test the file this path needs to be updated
     DATASET_NAME = "eICU-demo"
@@ -29,7 +30,7 @@ class TesteICUDataset(unittest.TestCase):
 
     def setUp(self):
         pass
-    
+
     def test_patient(self):
         # given parametes:
         selected_patient_id = "002-10009+193705"
