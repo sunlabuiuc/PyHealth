@@ -41,7 +41,7 @@ tables:
       - "first_careunit"
       - "dbsource"
       - "last_careunit"
-      - "outtime" 
+      - "outtime"
 
   diagnoses_icd:
     file_path: "DIAGNOSES_ICD.csv.gz"
@@ -54,6 +54,7 @@ tables:
           - "dischtime"
     timestamp: "dischtime"
     attributes:
+      - "hadm_id"
       - "icd9_code"
       - "seq_num"
 
@@ -62,6 +63,7 @@ tables:
     patient_id: "subject_id"
     timestamp: "startdate"
     attributes:
+      - "hadm_id"
       - "drug"
       - "drug_type"
       - "drug_name_poe"
@@ -88,6 +90,7 @@ tables:
           - "dischtime"
     timestamp: "dischtime"
     attributes:
+      - "hadm_id"
       - "icd9_code"
       - "seq_num"
 

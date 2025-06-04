@@ -1,10 +1,10 @@
 import datetime
+import os
+import sys
 import unittest
 
 from pyhealth.datasets import MIMIC4Dataset
 from pyhealth.unittests.test_datasets.utils import EHRDatasetStatAssertion
-
-import os, sys
 
 current = os.path.dirname(os.path.realpath(__file__))
 repo_root = os.path.dirname(os.path.dirname(os.path.dirname(current)))
@@ -19,7 +19,7 @@ sys.path.append(repo_root)
 class TestMimic4Dataset(unittest.TestCase):
 
     DATASET_NAME = "mimic4-demo"
-    ROOT = "https://storage.googleapis.com/pyhealth/mimiciv-demo/hosp/"
+    ROOT = "https://physionet.org/files/mimic-iv-demo/2.2/"
     TABLES = ["diagnoses_icd", "procedures_icd", "labevents"]
     CODE_MAPPING = {}
     DEV = True  # not needed when using demo set since its 100 patients large
@@ -27,11 +27,9 @@ class TestMimic4Dataset(unittest.TestCase):
 
     dataset = MIMIC4Dataset(
         dataset_name=DATASET_NAME,
-        root=ROOT,
-        tables=TABLES,
-        code_mapping=CODE_MAPPING,
+        ehr_root=ROOT,
+        ehr_tables=TABLES,
         dev=DEV,
-        refresh_cache=REFRESH_CACHE,
     )
 
     def setUp(self):
@@ -42,57 +40,46 @@ class TestMimic4Dataset(unittest.TestCase):
         expected_patient_id = "10000032"
 
         expected_visit_count = 4
-        expected_visit_to_id_keys = 3
-        expected_visit_to_id_values = "29079034"
+        expected_visit_id = "22595853"
 
         expected_diagnoses_icd_event_count = 8
-        expected_procedures_icd_event_count = 1
         expected_labevent_event_count = 57
-        expected_event_length = 66
         expected_encounter_time = datetime.datetime(2180, 5, 6, 22, 23)
         expected_discharge_time = datetime.datetime(2180, 5, 7, 17, 15)
+        visit_filter = [("hadm_id", "==", expected_visit_id)]
 
-        actual_patient_id = list(self.dataset.patients.keys())[0]
-        self.assertEqual(expected_patient_id, actual_patient_id)
-
-        actual_visits = self.dataset.patients[actual_patient_id]
-        self.assertEqual(expected_visit_count, len(actual_visits))
-        self.assertEqual(
-            expected_visit_to_id_keys, list(actual_visits.index_to_visit_id.keys())[-1]
-        )
-        self.assertEqual(
-            expected_visit_to_id_values,
-            list(actual_visits.index_to_visit_id.values())[-1],
-        )
-
-        visit = actual_visits[0]
+        actual_patient = self.dataset.get_patient(expected_patient_id)
         self.assertEqual(
             expected_diagnoses_icd_event_count,
-            len(visit.event_list_dict["diagnoses_icd"]),
+            len(actual_patient.get_events("diagnoses_icd", filters=visit_filter)),
         )
         self.assertEqual(
-            expected_procedures_icd_event_count,
-            len(visit.event_list_dict["procedures_icd"]),
+            expected_labevent_event_count,
+            len(actual_patient.get_events("labevents", filters=visit_filter))
         )
-        self.assertEqual(
-            expected_labevent_event_count, len(visit.event_list_dict["labevents"])
-        )
-        self.assertEqual(expected_event_length, visit.num_events)
-        self.assertEqual(expected_encounter_time, visit.encounter_time)
-        self.assertEqual(expected_discharge_time, visit.discharge_time)
+
+        self.assertEqual(expected_visit_count, len(actual_patient.get_events("admissions")))
+        visit = actual_patient.get_events("admissions", filters=visit_filter)[0]
+        self.assertEqual(expected_visit_id, visit["hadm_id"])
+        self.assertEqual(expected_encounter_time, visit["timestamp"])
+        self.assertEqual(expected_discharge_time, datetime.datetime.strptime(visit["dischtime"], "%Y-%m-%d %H:%M:%S"))
 
     # checks data integrity based on statistics.
     def test_statistics(self):
+        expected_tables = ["patients", "admissions", "icustays"] + self.TABLES
 
-        # self.dataset.stat()
-
-        self.assertEqual(sorted(self.TABLES), sorted(self.dataset.available_tables))
+        self.assertCountEqual(expected_tables, self.dataset.tables)
 
         EHRDatasetStatAssertion(self.dataset, 0.01).assertEHRStats(
             expected_num_patients=100,
             expected_num_visits=275,
             expected_num_visits_per_patient=2.7500,
-            expected_events_per_visit_per_table=[16.3855, 2.6255, 288.3891],
+            # Values are updated due to new group by logic ignoring null columns
+            expected_events_per_visit_per_table={
+                "diagnoses_icd": 16.3855,
+                "procedures_icd": 3.861,
+                "labevents": 314.710317
+            }
         )
 
 
