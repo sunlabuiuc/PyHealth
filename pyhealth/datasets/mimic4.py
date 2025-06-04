@@ -1,7 +1,7 @@
 import logging
 import os
 import warnings
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 import pandas as pd
 import polars as pl
@@ -218,7 +218,7 @@ class MIMIC4Dataset(BaseDataset):
         self.dataset_name = dataset_name
         self.sub_datasets = {}
         self.root = None
-        self.tables = None
+        self.tables = []
         self.config = None
         # Dev flag is only used in the MIMIC4Dataset class
         # to ensure the same set of patients are used for all sub-datasets.
@@ -241,6 +241,7 @@ class MIMIC4Dataset(BaseDataset):
                 tables=ehr_tables,
                 config_path=ehr_config_path,
             )
+            self.tables.extend(self.sub_datasets["ehr"].tables)
             log_memory_usage("After EHR dataset initialization")
 
         # Initialize Notes dataset if root is provided
@@ -251,6 +252,7 @@ class MIMIC4Dataset(BaseDataset):
                 tables=note_tables,
                 config_path=note_config_path,
             )
+            self.tables.extend(self.sub_datasets["note"].tables)
             log_memory_usage("After Note dataset initialization")
 
         # Initialize CXR dataset if root is provided
@@ -261,6 +263,7 @@ class MIMIC4Dataset(BaseDataset):
                 tables=cxr_tables,
                 config_path=cxr_config_path,
             )
+            self.tables.extend(self.sub_datasets["cxr"].tables)
             log_memory_usage("After CXR dataset initialization")
 
         # Combine data from all sub-datasets

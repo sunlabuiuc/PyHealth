@@ -1,6 +1,13 @@
 name: pytest unittest action script
 
-on: workflow_dispatch
+on: 
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    paths:
+      - 'pyhealth/**'
+      - 'requirements.txt'
+  workflow_dispatch:
+
   
 jobs:
   build:
@@ -11,9 +18,9 @@ jobs:
         python-version: ["3.9"]
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip' # caching pip dependencies
@@ -25,5 +32,4 @@ jobs:
 
       - name: Test with pytest
         run: |
-          cd pyhealth/unittests
-          pytest -rP
+          python -m pytest -rP pyhealth/unittests
