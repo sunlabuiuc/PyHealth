@@ -1,10 +1,12 @@
-import pyhealth.datasets.mimic3 as mimic3
-import pyhealth.datasets.mimic4 as mimic4
-from pyhealth.tasks.mortality_prediction import test_mortality_prediction_mimic4
-import pyhealth.tasks.medical_coding as coding
-import time
 import os
 import sys
+import time
+
+import pyhealth.datasets.mimic4 as mimic4
+import pyhealth.tasks.medical_coding as coding
+from pyhealth.datasets import MIMIC3Dataset
+from pyhealth.tasks.medical_coding import MIMIC3ICD9Coding
+from pyhealth.tasks.mortality_prediction import test_mortality_prediction_mimic4
 
 # Add the parent directory to sys.path if needed
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -20,7 +22,6 @@ def time_function(func, name):
     print(f"{name} execution time: {execution_time:.2f} seconds")
 
 def train_medical_coding():
-    from pyhealth.datasets import MIMIC4Dataset, MIMIC3Dataset
     root = "https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III"
     dataset = MIMIC3Dataset(
         root=root,
@@ -35,7 +36,6 @@ def train_medical_coding():
 
     dataset.stat()
 
-    from pyhealth.tasks.medical_coding import MIMIC3ICD9Coding
     mimic3_coding = MIMIC3ICD9Coding()
     samples = dataset.set_task(mimic3_coding)
     # Print sample information
