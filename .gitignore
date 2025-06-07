@@ -1,7 +1,7 @@
 .idea
 *DS_Store*
 *output*
-*resource*
+resource*
 
 debug_entry*
 playground.ipynb
