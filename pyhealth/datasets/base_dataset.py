@@ -3,7 +3,7 @@ import os
 from abc import ABC
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Iterator, List, Optional
+from typing import Any, Iterator, List, Optional
 from urllib.parse import urlparse, urlunparse
 
 import polars as pl
@@ -126,6 +126,8 @@ class BaseDataset(ABC):
         # Cached attributes
         self._collected_global_event_df = None
         self._unique_patient_ids = None
+        # Cache for sample datasets by task name
+        self._sample_dataset_cache = {}
 
     @property
     def collected_global_event_df(self) -> pl.DataFrame:
@@ -304,13 +306,13 @@ class BaseDataset(ABC):
         Raises:
             AssertionError: If the patient ID is not found in the dataset.
         """
-        assert (
-            patient_id in self.unique_patient_ids
-        ), f"Patient {patient_id} not found in dataset"
+        assert patient_id in self.unique_patient_ids, (
+            f"Patient {patient_id} not found in dataset"
+        )
         df = self.collected_global_event_df.filter(pl.col("patient_id") == patient_id)
         return Patient(patient_id=patient_id, data_source=df)
 
-    def iter_patients(self, df: Optional[pl.LazyFrame] = None) -> Iterator[Patient]:
+    def iter_patients(self, df: Optional[pl.DataFrame] = None) -> Iterator[Patient]:
         """Yields Patient objects for each unique patient in the dataset.
 
         Yields:
@@ -342,7 +344,10 @@ class BaseDataset(ABC):
         return None
 
     def set_task(
-        self, task: Optional[BaseTask] = None, num_workers: int = 1
+        self,
+        task: Optional[BaseTask] = None,
+        num_workers: int = 1,
+        use_cache: bool = True,
     ) -> SampleDataset:
         """Processes the base dataset to generate the task-specific sample dataset.
 
@@ -361,6 +366,10 @@ class BaseDataset(ABC):
         if task is None:
             assert self.default_task is not None, "No default tasks found"
             task = self.default_task
+
+        if use_cache and task.task_name in self._sample_dataset_cache:
+            logger.info(f"Using cached sample dataset for task {task.task_name}")
+            return self._sample_dataset_cache[task.task_name]
 
         logger.info(
             f"Setting task {task.task_name} for {self.dataset_name} base dataset..."
@@ -395,8 +404,9 @@ class BaseDataset(ABC):
             input_schema=task.input_schema,
             output_schema=task.output_schema,
             dataset_name=self.dataset_name,
-            task_name=task,
+            task_name=task.task_name,
         )
 
         logger.info(f"Generated {len(samples)} samples for task {task.task_name}")
-        return sample_dataset
+        self._sample_dataset_cache[task.task_name] = sample_dataset
+        return self._sample_dataset_cache[task.task_name]
