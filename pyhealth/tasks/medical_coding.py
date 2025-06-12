@@ -33,7 +33,7 @@ class MIMIC3ICD9Coding(BaseTask):
     def pre_filter(self, df: pl.DataFrame) -> pl.DataFrame:
         filtered_df = df.filter(
             pl.col("patient_id").is_in(
-                df.filter(pl.col("event_type") == "ADMISSIONS".lower())
+                df.filter(pl.col("event_type") == "noteevents")
                 .select("patient_id")
                 .unique()
                 .to_series()
@@ -80,8 +80,8 @@ class MIMIC3ICD9Coding(BaseTask):
             procedures_icd = [event.icd9_code for event in procedures_icd]
             icd_codes = list(set(diagnoses_icd + procedures_icd))
 
-            # if text == "" or len(icd_codes) < 1:
-            #     continue
+            if text == "" or len(icd_codes) < 1:
+                continue
 
             samples.append(
                 {"patient_id": patient.patient_id, "text": text, "icd_codes": icd_codes}

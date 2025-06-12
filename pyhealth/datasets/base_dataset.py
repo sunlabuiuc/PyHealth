@@ -356,6 +356,8 @@ class BaseDataset(ABC):
             num_workers (int): Number of workers for multi-threading. Default is 1.
                 This is because the task function is usually CPU-bound. And using
                 multi-threading may not speed up the task function.
+            use_cache (bool): Whether to cache the generated sample dataset and/or.
+                use existing cached datasets for the task. Default is True.
 
         Returns:
             SampleDataset: The generated sample dataset.
@@ -408,5 +410,6 @@ class BaseDataset(ABC):
         )
 
         logger.info(f"Generated {len(samples)} samples for task {task.task_name}")
-        self._sample_dataset_cache[task.task_name] = sample_dataset
-        return self._sample_dataset_cache[task.task_name]
+        if use_cache:
+            self._sample_dataset_cache[task.task_name] = sample_dataset
+        return sample_dataset
