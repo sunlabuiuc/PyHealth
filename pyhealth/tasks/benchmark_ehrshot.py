@@ -9,17 +9,13 @@ class BenchmarkEHRShot(BaseTask):
     """Benchmark predictive tasks using EHRShot."""
 
     tasks = {
-        "operational_outcomes": [
-            "guo_los",
-            "guo_readmission",
-            "guo_icu"
-        ],
+        "operational_outcomes": ["guo_los", "guo_readmission", "guo_icu"],
         "lab_values": [
             "lab_thrombocytopenia",
             "lab_hyperkalemia",
             "lab_hypoglycemia",
             "lab_hyponatremia",
-            "lab_anemia"
+            "lab_anemia",
         ],
         "new_diagnoses": [
             "new_hypertension",
@@ -27,11 +23,9 @@ class BenchmarkEHRShot(BaseTask):
             "new_pancan",
             "new_celiac",
             "new_lupus",
-            "new_acutemi"
+            "new_acutemi",
         ],
-        "chexpert": [
-            "chexpert"
-        ]
+        "chexpert": ["chexpert"],
     }
 
     def __init__(self, task: str, omop_tables: Optional[List[str]] = None) -> None:
@@ -53,13 +47,13 @@ class BenchmarkEHRShot(BaseTask):
             self.output_schema = {"label": "binary"}
         elif task in self.tasks["chexpert"]:
             self.output_schema = {"label": "multilabel"}
-  
-    def pre_filter(self, df: pl.LazyFrame) -> pl.LazyFrame:
+
+    def pre_filter(self, df: pl.DataFrame) -> pl.DataFrame:
         if self.omop_tables is None:
             return df
         filtered_df = df.filter(
-            (pl.col("event_type") != "ehrshot") |
-            (pl.col("ehrshot/omop_table").is_in(self.omop_tables))
+            (pl.col("event_type") != "ehrshot")
+            | (pl.col("ehrshot/omop_table").is_in(self.omop_tables))
         )
         return filtered_df
 
@@ -81,9 +75,5 @@ class BenchmarkEHRShot(BaseTask):
                 label_value = int(label_value)
                 label_value = [i for i in range(14) if (label_value >> i) & 1]
                 label_value = [13 - i for i in label_value[::-1]]
-            samples.append({
-                "feature": codes,
-                "label": label_value,
-                "split": split
-            })
+            samples.append({"feature": codes, "label": label_value, "split": split})
         return samples
