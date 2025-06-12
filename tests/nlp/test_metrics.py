@@ -1,20 +1,19 @@
-from typing import List
-import logging
-from base import BaseTestCase
+import unittest
 from pathlib import Path
+from typing import List
+
 import pandas as pd
+
 from pyhealth.nlp.metrics import (
     LevenshteinDistanceScoreMethod,
-    ScoreContext, ScoreSet, ScoreResult, Scorer
+    ScoreContext,
+    Scorer,
+    ScoreResult,
+    ScoreSet,
 )
 
 
-class TestMetrics(BaseTestCase):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # silence info messages from rouge package
-        self._setup_logging(logging.WARNING)
-
+class TestMetrics(unittest.TestCase):
     def setUp(self):
         s1: str = 'The boy threw the ball. He practiced every day.'
         s2: str = 'The boy threw X the ball. He practiced every day.'
@@ -35,13 +34,12 @@ class TestMetrics(BaseTestCase):
         self.assertEqual(1., res1.scores['editdistance'].value)
 
     def test_pandas(self):
-        WRITE: bool = 0
+        WRITE: bool = False
         should_file: Path = Path('test-resources/nlp/metrics.csv')
-        self._set_debug()
         scorer = Scorer()
         ss: ScoreSet = scorer.score(ScoreContext(self.pairs))
         df: pd.DataFrame = ss.as_dataframe()
-        # give tolarance for arch high sig digits that might be off by epsilon
+        # give tolerance for arch high sig digits that might be off by epsilon
         df = df.round(4)
         if WRITE:
             should_file.parent.mkdir(parents=True, exist_ok=True)

@@ -5,7 +5,7 @@ import pandas
 
 from pyhealth.data.data import Event
 from pyhealth.datasets import eICUDataset
-from pyhealth.unittests.test_datasets.utils import EHRDatasetStatAssertion
+from tests.test_datasets.utils import EHRDatasetStatAssertion
 
 
 @unittest.skip("eICU dataset currently relies on deprecated BaseEHRDataset.")

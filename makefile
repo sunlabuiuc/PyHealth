@@ -15,14 +15,13 @@ PY_TEST_GLOB ?=		test_metrics.py
 # install dependencies
 .PHONY:			deps
 deps:
-			pip install -r requirements-nlp.txt
+			python -m pip install -r requirements.txt
 
 # run the unit test cases
 .PHONY:			test
 test:
-			@echo "Running tests in $(PY_TEST_DIR)/$(PY_TEST_GLOB)"
-			python -m unittest discover \
-				-s $(PY_TEST_DIR) -p '$(PY_TEST_GLOB)' -v
+			@echo "Running tests in $(PY_TEST_DIR)/"
+			python -m pytest $(PY_TEST_DIR)/
 
 # clean derived objects
 .PHONY:			clean

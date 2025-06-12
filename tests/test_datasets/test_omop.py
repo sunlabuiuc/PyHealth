@@ -3,7 +3,7 @@ import datetime
 import unittest
 
 from pyhealth.datasets import OMOPDataset
-from pyhealth.unittests.test_datasets.utils import EHRDatasetStatAssertion
+from tests.test_datasets.utils import EHRDatasetStatAssertion
 
 
 @unittest.skip("OMOP dataset currently relies on deprecated BaseEHRDataset.")

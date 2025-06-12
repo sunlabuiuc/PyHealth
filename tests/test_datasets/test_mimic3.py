@@ -4,7 +4,7 @@ import sys
 import unittest
 
 from pyhealth.datasets import MIMIC3Dataset
-from pyhealth.unittests.test_datasets.utils import EHRDatasetStatAssertion
+from tests.test_datasets.utils import EHRDatasetStatAssertion
 
 current = os.path.dirname(os.path.realpath(__file__))
 repo_root = os.path.dirname(os.path.dirname(os.path.dirname(current)))
