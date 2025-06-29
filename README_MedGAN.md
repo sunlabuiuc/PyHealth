@@ -4,11 +4,6 @@ This implementation provides a complete pipeline for generating synthetic Electr
 
 ## Overview
 
-This module provides a comprehensive pipeline for:
-- **Preprocessing**: Transforming MIMIC-III data through ICD-9 → ICD-10 → PhecodeX → PhecodeXM conversions
-- **MedGAN Model**: GAN architecture with autoencoder pretraining for generating synthetic medical records
-- **Postprocessing**: Converting synthetic data back to standardized PhecodeXM format (594 codes)
-
 ## Data Pipeline
 
 ### 1. Preprocessing Pipeline
