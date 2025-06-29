@@ -9,13 +9,6 @@ This module provides a comprehensive pipeline for:
 - **MedGAN Model**: GAN architecture with autoencoder pretraining for generating synthetic medical records
 - **Postprocessing**: Converting synthetic data back to standardized PhecodeXM format (594 codes)
 
-## Research Background
-
-The original MedGAN paper introduced a novel approach for generating synthetic patient records using:
-- **Autoencoder pretraining**: To learn meaningful representations of the sparse binary medical data
-- **Generator-Discriminator architecture**: With minibatch averaging for training stability
-- **Binary cross-entropy loss**: Adapted for the discrete nature of medical codes
-
 ## Data Pipeline
 
 ### 1. Preprocessing Pipeline
@@ -49,29 +42,18 @@ The preprocessing follows a multi-stage transformation process:
 ### Data Pipeline Visualization
 
 ```mermaid
-flowchart TD
-    A[MIMIC-III DIAGNOSES_ICD] --> B[ICD-9 Extraction]
-    B --> C[3-digit Truncation]
-    C --> D[ICD-9 Matrix<br/>46,517 × 1,070]
-    
-    D --> E[ICD-9 → ICD-10<br/>Crosswalk Mapping]
-    E --> F[ICD-10 Matrix<br/>46,517 × 5,613]
-    
-    F --> G[ICD-10 → PhecodeX<br/>Phenotypic Mapping]
-    G --> H[PhecodeX Matrix<br/>46,517 × 2,254]
-    
-    H --> I[MedGAN Training<br/>Autoencoder + GAN]
-    I --> J[Synthetic PhecodeX<br/>1,000 × 2,254]
-    
-    J --> K[PhecodeX → PhecodeXM<br/>Medical Mapping]
-    K --> L[Final Synthetic Data<br/>1,000 × 594]
+flowchart LR
+    A[MIMIC-III<br/>ICD-9 Codes] --> B[ICD-9 Matrix<br/>46,517 × 1,070]
+    B --> C[ICD-10 Matrix<br/>46,517 × 5,613]
+    C --> D[PhecodeX Matrix<br/>46,517 × 2,254]
+    D --> E[MedGAN Training]
+    E --> F[Synthetic Data<br/>1,000 × 2,254]
+    F --> G[PhecodeXM Output<br/>1,000 × 594]
     
     style A fill:#e1f5fe
     style D fill:#fff3e0
-    style F fill:#fff3e0
-    style H fill:#fff3e0
-    style J fill:#f3e5f5
-    style L fill:#e8f5e8
+    style F fill:#f3e5f5
+    style G fill:#e8f5e8
 ```
 
 ### 2. MedGAN Architecture
@@ -102,32 +84,18 @@ The MedGAN model consists of three main components:
 
 ```mermaid
 graph TB
-    subgraph "Training Phase 1: Autoencoder Pretraining"
-        A1[Real Patient Data<br/>2,254 features] --> B1[Encoder<br/>Dense + ReLU]
-        B1 --> C1[Latent Space<br/>128 dimensions]
-        C1 --> D1[Decoder<br/>Dense + Sigmoid]
-        D1 --> E1[Reconstructed Data<br/>2,254 features]
-        A1 -.->|Binary Cross-Entropy Loss| E1
+    subgraph "Phase 1: Autoencoder Pretraining"
+        A1[Real Data] --> B1[Encoder] --> C1[Latent Space] --> D1[Decoder] --> E1[Reconstructed]
     end
     
-    subgraph "Training Phase 2: GAN Training"
-        A2[Random Noise<br/>128 dimensions] --> B2[Generator<br/>Dense + BN + ReLU]
-        B2 --> C2[Fake Latent<br/>128 dimensions]
-        C2 --> D2[Autoencoder Decoder<br/>Dense + Sigmoid]
-        D2 --> E2[Fake Patient Data<br/>2,254 features]
-        
-        F2[Real Patient Data<br/>2,254 features] --> G2[Discriminator<br/>Dense + Minibatch Avg]
+    subgraph "Phase 2: GAN Training"
+        A2[Noise] --> B2[Generator] --> C2[Fake Latent] --> D2[Decoder] --> E2[Fake Data]
+        F2[Real Data] --> G2[Discriminator]
         E2 --> G2
-        G2 --> H2[Real/Fake Classification]
     end
     
-    subgraph "Generation Phase"
-        A3[Random Noise<br/>128 dimensions] --> B3[Trained Generator]
-        B3 --> C3[Fake Latent<br/>128 dimensions]
-        C3 --> D3[Trained Decoder]
-        D3 --> E3[Synthetic Data<br/>2,254 features]
-        E3 --> F3[Threshold 0.5]
-        F3 --> G3[Binary Synthetic Data<br/>2,254 features]
+    subgraph "Phase 3: Generation"
+        A3[Noise] --> B3[Generator] --> C3[Decoder] --> D3[Threshold] --> E3[Binary Output]
     end
     
     style A1 fill:#e3f2fd
@@ -136,35 +104,9 @@ graph TB
     style E2 fill:#f3e5f5
     style F2 fill:#e3f2fd
     style A3 fill:#fff3e0
-    style G3 fill:#e8f5e8
+    style E3 fill:#e8f5e8
 ```
 
-### 3. Training Process
-
-#### Phase 1: Autoencoder Pretraining
-```python
-# Pretrain autoencoder for 100+ epochs
-autoencoder_losses = model.pretrain_autoencoder(
-    dataloader=dataloader,
-    epochs=100,
-    lr=0.001,
-    device=device
-)
-```
-
-#### Phase 2: GAN Training
-```python
-# Train generator and discriminator alternately
-for epoch in range(1000):
-    # Train discriminator
-    real_output = discriminator(real_data)
-    fake_output = discriminator(fake_data.detach())
-    d_loss = discriminator_loss(real_output, fake_output)
-    
-    # Train generator
-    fake_output = discriminator(fake_data)
-    g_loss = generator_loss(fake_output)
-```
 
 ### 4. Postprocessing Pipeline
 
@@ -194,50 +136,7 @@ python examples/synthetic_data_generation_mimic3_medgan.py \
     --batch_size 128
 ```
 
-### Simple Training (Raw ICD codes)
-
-```bash
-# Train without phecode mapping (like original paper)
-python examples/synthetic_data_generation_mimic3_medgan_simple.py \
-    --data_path /path/to/mimic3 \
-    --n_epochs 1000 \
-    --n_epochs_pretrain 100
-```
-
-### Generation
-
-```python
-import torch
-import numpy as np
-from pyhealth.models.generators.medgan import MedGAN
-
-# Load trained model
-checkpoint = torch.load("medgan_results/medgan_final.pth")
-config = checkpoint['model_config']
-
-# Initialize model
-dummy_matrix = np.zeros((100, config['input_dim']), dtype=np.float32)
-model = MedGAN.from_phecode_matrix(dummy_matrix, **config)
-
-# Load state dicts
-model.generator.load_state_dict(checkpoint['generator_state_dict'])
-model.discriminator.load_state_dict(checkpoint['discriminator_state_dict'])
-model.autoencoder.load_state_dict(checkpoint['autoencoder_state_dict'])
-
-# Generate synthetic data
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model.to(device)
-model.eval()
-
-with torch.no_grad():
-    synthetic_data = model.generate(1000, device)
-    binary_data = model.sample_transform(synthetic_data, threshold=0.5)
-
-synthetic_matrix = binary_data.cpu().numpy()
-print(f"Generated {synthetic_matrix.shape[0]} synthetic patients")
-```
-
-## Key Components
+## Components
 
 ### PhecodeDataset (`pyhealth/datasets/phecode_dataset.py`)
 - **PhecodeTransformer**: Handles ICD-9 → ICD-10 → PhecodeX conversions
@@ -254,6 +153,9 @@ print(f"Generated {synthetic_matrix.shape[0]} synthetic patients")
 - **icd10_to_phecodex_mapping.json**: ICD-10 to PhecodeX mappings
 - **phecodex_to_phecodexm_mapping.json**: PhecodeX to PhecodeXM mappings
 - **phecodexm_types.json**: Final 594 PhecodeXM code definitions
+
+### Example Scripts
+- **`examples/synthetic_data_generation_mimic3_medgan.py`**: Main training script with phecode mapping
 
 ## Output Files
 
@@ -285,4 +187,4 @@ After training, the pipeline produces:
 ## References
 
 1. Choi, E., Biswal, S., Malin, B., Duke, J., Stewart, W. F., & Sun, J. (2017). Generating Multi-label Discrete Patient Records using Generative Adversarial Networks. arXiv preprint arXiv:1703.06490.
-2. Denny, J. C., et al. (2013). PheWAS: demonstrating the feasibility of a phenome-wide scan to discover gene-disease associations. Bioinformatics, 29(9), 1205-1210. 
+2. Denny, J. C., et al. (2013). PheWAS: demonstrating the feasibility of a phenome-wide scan to discover gene-disease associations. Bioinformatics, 29(9), 1205-1210.
