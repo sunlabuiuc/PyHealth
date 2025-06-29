@@ -22,7 +22,7 @@ from pyhealth.models.generators.medgan import MedGAN
 """
 python examples/synthetic_data_generation_mimic3_medgan.py --autoencoder_epochs 5 --gan_epochs 10 --batch_size 16
 """
-def train_medgan(model, dataloader, n_epochs, device, save_dir, gen_freq=1, lr=0.001, weight_decay=0.0001, b1=0.5, b2=0.9):
+def train_medgan(model, dataloader, n_epochs, device, save_dir, lr=0.001, weight_decay=0.0001, b1=0.5, b2=0.9):
     """
     Train MedGAN model using the original synthEHRella approach.
     
@@ -32,7 +32,6 @@ def train_medgan(model, dataloader, n_epochs, device, save_dir, gen_freq=1, lr=0
         n_epochs: Number of training epochs
         device: Device to train on
         save_dir: Directory to save checkpoints
-        gen_freq: Frequency of generator training (1 = every batch, like original)
         lr: Learning rate
         weight_decay: Weight decay for regularization
         b1: Beta1 for Adam optimizer
@@ -41,13 +40,13 @@ def train_medgan(model, dataloader, n_epochs, device, save_dir, gen_freq=1, lr=0
     Returns:
         loss_history: Dictionary containing loss history
     """
-    # Use original synthEHRella loss functions
-    def generator_loss(y_fake, y_true):
+
+    def generator_loss(y_fake):
         """
         Original synthEHRella generator loss
         """
-        epsilon = 1e-12
-        return -0.5 * torch.mean(torch.log(y_fake + epsilon))
+        # standard GAN generator loss - want fake samples to be classified as real
+        return -torch.mean(torch.log(y_fake + 1e-12))
     
     def discriminator_loss(outputs, labels):
         """
@@ -55,8 +54,7 @@ def train_medgan(model, dataloader, n_epochs, device, save_dir, gen_freq=1, lr=0
         """
         loss = -torch.mean(labels * torch.log(outputs + 1e-12)) - torch.mean((1 - labels) * torch.log(1. - outputs + 1e-12))
         return loss
-    
-    # Optimizers (use original learning rates)
+
     optimizer_g = torch.optim.Adam([
         {'params': model.generator.parameters()},
         {'params': model.autoencoder.decoder.parameters(), 'lr': lr * 0.1}
@@ -65,7 +63,6 @@ def train_medgan(model, dataloader, n_epochs, device, save_dir, gen_freq=1, lr=0
     optimizer_d = torch.optim.Adam(model.discriminator.parameters(), 
                                   lr=lr * 0.1, betas=(b1, b2), weight_decay=weight_decay)
     
-    # Loss tracking
     g_losses = []
     d_losses = []
     
@@ -82,18 +79,12 @@ def train_medgan(model, dataloader, n_epochs, device, save_dir, gen_freq=1, lr=0
             real_data = real_data.to(device)
             batch_size = real_data.size(0)
             
-            # Create labels (no smoothing, use original approach)
-            valid = torch.ones(batch_size).to(device)  # 1D tensor like original
-            fake = torch.zeros(batch_size).to(device)  # 1D tensor like original
+            valid = torch.ones(batch_size).to(device)  # 1D tensor
+            fake = torch.zeros(batch_size).to(device)  # 1D tensor
             
-            # Sample noise as generator input
             z = torch.randn(batch_size, model.latent_dim).to(device)
             
-            # -----------------
-            #  Train Generator
-            # -----------------
-            
-            # disable discriminator gradients for generator training
+            # Disable discriminator gradients for generator training to prevent discriminator from being updated
             for p in model.discriminator.parameters():
                 p.requires_grad = False
             
@@ -103,7 +94,7 @@ def train_medgan(model, dataloader, n_epochs, device, save_dir, gen_freq=1, lr=0
             
             # generator loss using original medgan loss function
             fake_output = model.discriminator(fake_samples).view(-1)
-            g_loss = generator_loss(fake_output, valid)
+            g_loss = generator_loss(fake_output)
             
             optimizer_g.zero_grad()
             g_loss.backward()
@@ -139,19 +130,18 @@ def train_medgan(model, dataloader, n_epochs, device, save_dir, gen_freq=1, lr=0
             epoch_d_loss += d_loss.item()
             num_batches += 1
         
-        # Calculate average losses
+        # calculate average losses
         avg_g_loss = epoch_g_loss / num_batches
         avg_d_loss = epoch_d_loss / num_batches
         
-        # Store losses for tracking
+        # store losses for trackin
         g_losses.append(avg_g_loss)
         d_losses.append(avg_d_loss)
         
-        # Print progress
         progress = (epoch + 1) / n_epochs * 100
         print(f"{epoch+1:5d} | {avg_d_loss:.4f} | {avg_g_loss:.4f} | {progress:5.1f}%")
         
-        # Save checkpoint every 50 epochs
+        # save every 50 epochs
         if (epoch + 1) % 50 == 0:
             checkpoint_path = os.path.join(save_dir, f"medgan_epoch_{epoch+1}.pth")
             torch.save({
@@ -171,7 +161,7 @@ def train_medgan(model, dataloader, n_epochs, device, save_dir, gen_freq=1, lr=0
     print(f"Final G_loss: {g_losses[-1]:.4f}")
     print(f"Final D_loss: {d_losses[-1]:.4f}")
     
-    # Save loss history
+    # save loss history
     loss_history = {
         'g_losses': g_losses,
         'd_losses': d_losses,
@@ -196,11 +186,11 @@ def postprocess_synthetic_data(synthetic_matrix, phecode_mapping, output_path):
     """
     print("Postprocessing synthetic data to PhecodeXM format...")
     
-    # DEBUG: Print the full phecode_mapping structure
+    # DEBUG: print mapping keys and types
     print(f"\nDEBUG: phecode_mapping keys: {list(phecode_mapping.keys())}")
     print(f"DEBUG: phecode_mapping type: {type(phecode_mapping)}")
     
-    # Get the mapping information
+    # get mapping info
     icd9_to_icd10 = phecode_mapping.get('icd9_to_icd10', {})
     icd10_to_phecodex = phecode_mapping.get('icd10_to_phecodex', {})
     phecodex_to_phecodexm = phecode_mapping.get('phecodex_to_phecodexm', {})
@@ -214,107 +204,31 @@ def postprocess_synthetic_data(synthetic_matrix, phecode_mapping, output_path):
     print(f"PhecodeX types: {len(phecodex_types)}")
     print(f"PhecodeXM types: {len(phecodexm_types)}")
     
-    # DEBUG: Print mapping sizes
+    # DEBUG: print mapping sizes
     print(f"DEBUG: icd9_to_icd10 mappings: {len(icd9_to_icd10)}")
     print(f"DEBUG: icd10_to_phecodex mappings: {len(icd10_to_phecodex)}")
     print(f"DEBUG: phecodex_to_phecodexm mappings: {len(phecodex_to_phecodexm)}")
     
-    # DEBUG: Print sample mappings
-    if icd9_to_icd10:
-        print(f"DEBUG: Sample icd9_to_icd10: {list(icd9_to_icd10.items())[:3]}")
-    if icd10_to_phecodex:
-        print(f"DEBUG: Sample icd10_to_phecodex: {list(icd10_to_phecodex.items())[:3]}")
-    if phecodex_to_phecodexm:
-        print(f"DEBUG: Sample phecodex_to_phecodexm: {list(phecodex_to_phecodexm.items())[:3]}")
+    # DEBUG: print sample mappings
+    # if icd9_to_icd10:
+    #     print(f"DEBUG: Sample icd9_to_icd10: {list(icd9_to_icd10.items())[:3]}")
+    # if icd10_to_phecodex:
+    #     print(f"DEBUG: Sample icd10_to_phecodex: {list(icd10_to_phecodex.items())[:3]}")
+    # if phecodex_to_phecodexm:
+    #     print(f"DEBUG: Sample phecodex_to_phecodexm: {list(phecodex_to_phecodexm.items())[:3]}")
     
-    # Check if synthetic data is already in PhecodeX format
     n_patients, n_codes = synthetic_matrix.shape
     if n_codes == len(phecodex_types):
         print(f"INFO: Synthetic data appears to be in PhecodeX format ({n_codes} codes)")
-        print("Skipping ICD-9 to ICD-10 and ICD-10 to PhecodeX conversion")
         
-        # Use synthetic data directly as PhecodeX matrix
         phecodex_matrix = synthetic_matrix
         print(f"DEBUG: Using synthetic data directly as PhecodeX matrix: {phecodex_matrix.shape}")
         
     else:
-        print(f"INFO: Synthetic data appears to be in ICD-9 format ({n_codes} codes)")
-        
-        # DEBUG: Check if we have the expected data structure
-        if not phecodexm_types:
-            print("ERROR: phecodexm_types is empty! This means the mapping was not created correctly.")
-            print("This could be because:")
-            print("1. The PhecodeDataset was not created with use_phecode_mapping=True")
-            print("2. The mapping files are missing or corrupted")
-            print("3. The get_phecode_mapping() method has a bug")
-            
-            # Try to load the mapping files directly
-            print("\nDEBUG: Attempting to load mapping files directly...")
-            try:
-                from pyhealth.datasets.phecode_dataset import PhecodeTransformer
-                transformer = PhecodeTransformer()
-                
-                # Load PhecodeXM types directly
-                phecodexm_types_path = os.path.join(transformer.mapping_dir, "phecodexm_types.json")
-                with open(phecodexm_types_path, 'r') as f:
-                    phecodexm_types = json.load(f)
-                print(f"DEBUG: Loaded {len(phecodexm_types)} PhecodeXM types directly")
-                
-                # Load PhecodeX to PhecodeXM mapping directly
-                phecodex_to_phecodexm_path = os.path.join(transformer.mapping_dir, "phecodex_to_phecodexm_mapping.json")
-                with open(phecodex_to_phecodexm_path, 'r') as f:
-                    phecodex_to_phecodexm_mapping = json.load(f)
-                print(f"DEBUG: Loaded {len(phecodex_to_phecodexm_mapping)} PhecodeX to PhecodeXM mappings directly")
-                
-                # Create the mapping manually
-                phecodex_to_phecodexm = {}
-                for phecodex_code, phecodex_idx in transformer.phecodex_types_dict.items():
-                    phecodex_idx_str = str(phecodex_idx)
-                    if phecodex_idx_str in phecodex_to_phecodexm_mapping:
-                        phecodexm_idx = phecodex_to_phecodexm_mapping[phecodex_idx_str]
-                        phecodex_to_phecodexm[str(phecodex_idx)] = [phecodexm_idx]
-                
-                print(f"DEBUG: Created {len(phecodex_to_phecodexm)} PhecodeX to PhecodeXM mappings manually")
-                
-            except Exception as e:
-                print(f"ERROR: Failed to load mapping files directly: {e}")
-                import traceback
-                traceback.print_exc()
-        
-        # Step 1: Convert ICD-9 to ICD-10
-        print("Step 1: Converting ICD-9 to ICD-10...")
-        icd10_matrix = np.zeros((n_patients, len(icd10_types)), dtype=int)
-        
-        print(f"DEBUG: Step 1 - n_patients={n_patients}, n_icd9_codes={n_codes}, icd10_types={len(icd10_types)}")
-        
-        for icd9_idx in tqdm(range(n_codes), desc="ICD-9 to ICD-10"):
-            if str(icd9_idx) in icd9_to_icd10:
-                for icd10_code in icd9_to_icd10[str(icd9_idx)]:
-                    if icd10_code in icd10_types:
-                        icd10_idx = icd10_types[icd10_code]
-                        # Set ICD-10 code to 1 if any patient has the corresponding ICD-9 code
-                        icd10_matrix[:, icd10_idx] = np.maximum(icd10_matrix[:, icd10_idx], synthetic_matrix[:, icd9_idx])
-        
-        print(f"DEBUG: Step 1 completed - icd10_matrix shape: {icd10_matrix.shape}, non-zero: {np.count_nonzero(icd10_matrix)}")
-        
-        # convert icd10 to phecodex
-        print("Step 2: Converting ICD-10 to PhecodeX...")
-        phecodex_matrix = np.zeros((n_patients, len(phecodex_types)), dtype=int)
-        
-        print(f"DEBUG: Step 2 - phecodex_types={len(phecodex_types)}")
-        
-        for icd10_idx in tqdm(range(len(icd10_types)), desc="ICD-10 to PhecodeX"):
-            if str(icd10_idx) in icd10_to_phecodex:
-                for phecodex_code in icd10_to_phecodex[str(icd10_idx)]:
-                    if phecodex_code in phecodex_types:
-                        phecodex_idx = phecodex_types[phecodex_code]
-                        # Set PhecodeX code to 1 if any patient has the corresponding ICD-10 code
-                        phecodex_matrix[:, phecodex_idx] = np.maximum(phecodex_matrix[:, phecodex_idx], icd10_matrix[:, icd10_idx])
-        
-        print(f"DEBUG: Step 2 completed - phecodex_matrix shape: {phecodex_matrix.shape}, non-zero: {np.count_nonzero(phecodex_matrix)}")
-    
+        print(f"INFO: Synthetic data appears to be in ICD-9 format ({n_codes} codes). Please convert to phecodex.")
+
     # convert phecodex to phecodexm
-    print("Step 3: Converting PhecodeX to PhecodeXM...")
+    print("Converting PhecodeX to PhecodeXM...")
     phecodexm_matrix = np.zeros((n_patients, len(phecodexm_types)), dtype=int)
     
     print(f"DEBUG: Step 3 - phecodexm_types={len(phecodexm_types)}")
@@ -362,7 +276,6 @@ def main():
     parser.add_argument("--use_phecode_mapping", action="store_true", help="use proper phecode mapping (ICD-9 to ICD-10 to PhecodeX)")
     parser.add_argument("--save_dir", type=str, default="medgan_results", help="directory to save results")
     parser.add_argument("--postprocess", action="store_true", help="postprocess synthetic data to PhecodeXM format (requires --use_phecode_mapping)")
-    parser.add_argument("--gen_freq", type=int, default=2, help="train generator every N discriminator updates (default: 2)")
     args = parser.parse_args()
     
     # setup
@@ -451,7 +364,6 @@ def main():
         n_epochs=args.gan_epochs,
         device=device,
         save_dir=args.save_dir,
-        gen_freq=args.gen_freq,
         lr=args.lr,
         weight_decay=args.weight_decay,
         b1=args.b1,
