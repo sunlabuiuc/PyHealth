@@ -8,6 +8,7 @@ from .deepr import Deepr, DeeprLayer
 from .embedding import EmbeddingModel
 from .gamenet import GAMENet, GAMENetLayer
 from .gan import GAN
+from .generators import CorGAN
 from .gnn import GAT, GCN
 from .graph_torchvision_model import Graph_TorchvisionModel
 from .grasp import GRASP, GRASPLayer
