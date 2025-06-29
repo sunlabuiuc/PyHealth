@@ -11,7 +11,6 @@ import numpy as np
 import argparse
 from torch.utils.data import DataLoader
 import pickle
-import json
 from tqdm import tqdm
 import pandas as pd
 
@@ -24,13 +23,13 @@ python examples/synthetic_data_generation_mimic3_medgan.py --autoencoder_epochs 
 """
 def train_medgan(model, dataloader, n_epochs, device, save_dir, lr=0.001, weight_decay=0.0001, b1=0.5, b2=0.9):
     """
-    Train MedGAN model using the original synthEHRella approach.
+    Train the model
     
     Args:
         model: MedGAN model
         dataloader: DataLoader for training data
-        n_epochs: Number of training epochs
-        device: Device to train on
+        n_epochs: number of epochs
+        device: device to train on
         save_dir: Directory to save checkpoints
         lr: Learning rate
         weight_decay: Weight decay for regularization
@@ -253,7 +252,7 @@ def postprocess_synthetic_data(synthetic_matrix, phecode_mapping, output_path):
     np.save(os.path.join(output_path, "synthetic_phecodex_matrix.npy"), phecodex_matrix)
     np.save(os.path.join(output_path, "synthetic_phecodexm_matrix.npy"), phecodexm_matrix)
     
-    # Save as CSV for compatibility with synthEHRella
+    # save as CSV too for human viewing
     phecodexm_df = pd.DataFrame(phecodexm_matrix)
     phecodexm_df.to_csv(os.path.join(output_path, "synthetic_phecodexm.csv"), index=False, header=False)
     
@@ -305,11 +304,9 @@ def main():
     
     # save phecode matrix
     np.save(os.path.join(args.output_path, "phecode_matrix.npy"), phecode_matrix)
-    
-    # get phecode mapping
     phecode_mapping = phecode_dataset.get_phecode_mapping()
     
-    # print phecode_mapping info
+    # checking phecode
     print(f"\nDEBUG: phecode_mapping type: {type(phecode_mapping)}")
     print(f"DEBUG: phecode_mapping keys: {list(phecode_mapping.keys())}")
     if 'phecodexm_types' in phecode_mapping:
@@ -356,7 +353,7 @@ def main():
         device=device
     )
     
-    # train GAN
+    # train GAN, collect loss history
     print("Training GAN...")
     gan_loss_history = train_medgan(
         model=model,
