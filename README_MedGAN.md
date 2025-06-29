@@ -183,8 +183,3 @@ After training, the pipeline produces:
 - **Stability**: Minibatch averaging helps prevent mode collapse
 - **Privacy**: Synthetic data preserves statistical properties while protecting privacy
 - **Compatibility**: Output format matches synthEHRella for easy integration
-
-## References
-
-1. Choi, E., Biswal, S., Malin, B., Duke, J., Stewart, W. F., & Sun, J. (2017). Generating Multi-label Discrete Patient Records using Generative Adversarial Networks. arXiv preprint arXiv:1703.06490.
-2. Denny, J. C., et al. (2013). PheWAS: demonstrating the feasibility of a phenome-wide scan to discover gene-disease associations. Bioinformatics, 29(9), 1205-1210.
