@@ -36,7 +36,7 @@ from .mimic3 import MIMIC3Dataset
 from .mimic4 import MIMIC4CXRDataset, MIMIC4Dataset, MIMIC4EHRDataset, MIMIC4NoteDataset
 from .mimicextract import MIMICExtractDataset
 from .omop import OMOPDataset
-from .phecode_dataset import PhecodeDataset, PhecodeMatrixDataset
+from .icd9_matrix import create_icd9_matrix, ICD9MatrixDataset
 from .sample_dataset import SampleDataset
 from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset
