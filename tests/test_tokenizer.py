@@ -1,10 +1,11 @@
-import unittest
-import sys 
 import os
-current = os.path.dirname(os.path.realpath(__file__))
-sys.path.append(os.path.dirname(os.path.dirname(current)))
+import sys
+import unittest
 
 from pyhealth.tokenizer import Tokenizer
+
+current = os.path.dirname(os.path.realpath(__file__))
+sys.path.append(os.path.dirname(os.path.dirname(current)))
 
 token_space = ['A01A', 'A02A', 'A02B', 'A02X', 'A03A', 'A03B', 'A03C', 'A03D', 'A03E', \
           'A03F', 'A04A', 'A05A', 'A05B', 'A05C', 'A06A', 'A07A', 'A07B', 'A07C', \
@@ -16,14 +17,14 @@ token_space = ['A01A', 'A02A', 'A02B', 'A02X', 'A03A', 'A03B', 'A03C', 'A03D', '
 class Test1D(unittest.TestCase):
     def setUp(self):
         self.tokenizer = Tokenizer(tokens=token_space, special_tokens=["<pad>", "<unk>"])
-    
+
     def test_voc_size(self):
         self.assertEqual(
             self.tokenizer.get_vocabulary_size(),
             44,
             msg="get_vocabulary_size function failed"
         )
-    
+
     def test_encode(self):
         tokens = ['A03C', 'A03D', 'A03E', 'A03F', 'A04A', 'A05A', 'A05B', 'B035', 'C129']
         indices = self.tokenizer.convert_tokens_to_indices(tokens)
@@ -57,19 +58,19 @@ class Test2D(unittest.TestCase):
             self.tokenizer.batch_encode_2d(tokens),
             [[8, 9, 10, 11], [12, 1, 1, 0]],
             msg="batch_encode_2d function failed"
-        )        
+        )
 
         self.assertEqual(
             self.tokenizer.batch_encode_2d(tokens, padding=False),
             [[8, 9, 10, 11], [12, 1, 1]],
             msg="batch_encode_2d function - set padding failed"
-        )   
+        )
 
         self.assertEqual(
             self.tokenizer.batch_encode_2d(tokens, max_length=3),
             [[9, 10, 11], [12, 1, 1]],
             msg="batch_encode_2d function - set max length failed"
-        )   
+        )
 
     def test_decode(self):
         indices = [
@@ -81,7 +82,7 @@ class Test2D(unittest.TestCase):
             self.tokenizer.batch_decode_2d(indices),
             [['A03C', 'A03D', 'A03E', 'A03F'], ['A04A', '<unk>', '<unk>']],
             msg="batch_decode_2d function failed"
-        )   
+        )
 
         self.assertEqual(
             self.tokenizer.batch_decode_2d(indices, padding=True),
@@ -138,11 +139,11 @@ class Test3D(unittest.TestCase):
     def test_decode(self):
         indices = [
             [
-                [8, 9, 10, 11], 
+                [8, 9, 10, 11],
                 [24, 25, 0, 0]
-            ], 
+            ],
             [
-                [12, 1, 1, 0], 
+                [12, 1, 1, 0],
                 [0, 0, 0, 0]
             ]
         ]
@@ -155,7 +156,7 @@ class Test3D(unittest.TestCase):
 
         self.assertEqual(
             self.tokenizer.batch_decode_3d(indices, padding=True),
-            [[['A03C', 'A03D', 'A03E', 'A03F'], ['A08A', 'A09A', '<pad>', '<pad>']], [['A04A', '<unk>', '<unk>', '<pad>'], ['<pad>', '<pad>', '<pad>', '<pad>']]],            
+            [[['A03C', 'A03D', 'A03E', 'A03F'], ['A08A', 'A09A', '<pad>', '<pad>']], [['A04A', '<unk>', '<unk>', '<pad>'], ['<pad>', '<pad>', '<pad>', '<pad>']]],
             msg="batch_decode_3d function - set padding failed"
         )
 

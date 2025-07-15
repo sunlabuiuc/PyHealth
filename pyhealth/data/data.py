@@ -1,3 +1,4 @@
+from typing import Any, Iterable
 import operator
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -35,13 +36,17 @@ class Event:
         timestamp: datetime = d["timestamp"]
         event_type: str = d["event_type"]
         attr_dict: Dict[str, any] = {
-            k.split("/", 1)[1]: v
-            for k, v in d.items()
-            if k.split("/")[0] == event_type
+            k.split("/", 1)[1]: v for k, v in d.items() if k.split("/")[0] == event_type
         }
         return cls(event_type=event_type, timestamp=timestamp, attr_dict=attr_dict)
 
-    def __getitem__(self, key: str) -> any:
+    def to_dict(self) -> dict[str, Any]:
+        res = {f"{self.event_type}/{k}": v for k, v in self.attr_dict.items()}
+        res["timestamp"] = self.timestamp
+        res["event_type"] = self.event_type
+        return res
+
+    def __getitem__(self, key: str) -> Any:
         """Get an attribute by key.
 
         Args:
@@ -108,9 +113,19 @@ class Patient:
         """
         self.patient_id = patient_id
         self.data_source = data_source.sort("timestamp")
-        self.event_type_partitions = self.data_source.partition_by("event_type", maintain_order=True, as_dict=True)
+        self.event_type_partitions = self.data_source.partition_by(
+            "event_type", maintain_order=True, as_dict=True
+        )
 
-    def _filter_by_time_range_regular(self, df: pl.DataFrame, start: Optional[datetime], end: Optional[datetime]) -> pl.DataFrame:
+    @classmethod
+    def from_events(cls, patient_id: str, events: Iterable[Event]) -> "Patient":
+        return cls(
+            patient_id=patient_id, data_source=pl.DataFrame(e.to_dict() for e in events)
+        )
+
+    def _filter_by_time_range_regular(
+        self, df: pl.DataFrame, start: Optional[datetime], end: Optional[datetime]
+    ) -> pl.DataFrame:
         """Regular filtering by time. Time complexity: O(n)."""
         if start is not None:
             df = df.filter(pl.col("timestamp") >= start)
@@ -118,7 +133,9 @@ class Patient:
             df = df.filter(pl.col("timestamp") <= end)
         return df
 
-    def _filter_by_time_range_fast(self, df: pl.DataFrame, start: Optional[datetime], end: Optional[datetime]) -> pl.DataFrame:
+    def _filter_by_time_range_fast(
+        self, df: pl.DataFrame, start: Optional[datetime], end: Optional[datetime]
+    ) -> pl.DataFrame:
         """Fast filtering by time using binary search on sorted timestamps. Time complexity: O(log n)."""
         if start is None and end is None:
             return df
@@ -132,13 +149,17 @@ class Patient:
             end_idx = np.searchsorted(ts_col, end, side="right")
         return df.slice(start_idx, end_idx - start_idx)
 
-    def _filter_by_event_type_regular(self, df: pl.DataFrame, event_type: Optional[str]) -> pl.DataFrame:
+    def _filter_by_event_type_regular(
+        self, df: pl.DataFrame, event_type: Optional[str]
+    ) -> pl.DataFrame:
         """Regular filtering by event type. Time complexity: O(n)."""
         if event_type:
             df = df.filter(pl.col("event_type") == event_type)
         return df
 
-    def _filter_by_event_type_fast(self, df: pl.DataFrame, event_type: Optional[str]) -> pl.DataFrame:
+    def _filter_by_event_type_fast(
+        self, df: pl.DataFrame, event_type: Optional[str]
+    ) -> pl.DataFrame:
         """Fast filtering by event type using pre-built event type index. Time complexity: O(1)."""
         if event_type:
             return self.event_type_partitions.get((event_type,), df[:0])
@@ -150,7 +171,7 @@ class Patient:
         event_type: Optional[str] = None,
         start: Optional[datetime] = None,
         end: Optional[datetime] = None,
-        filters: Optional[List[tuple]] = None,
+        filters: Optional[List[tuple[str, str, Any]]] = None,
         return_df: bool = False,
     ) -> Union[pl.DataFrame, List[Event]]:
         """Get events with optional type and time filters.
@@ -159,14 +180,14 @@ class Patient:
             event_type (Optional[str]): Type of events to filter.
             start (Optional[datetime]): Start time for filtering events.
             end (Optional[datetime]): End time for filtering events.
-            return_df (bool): Whether to return a DataFrame or a list of 
+            return_df (bool): Whether to return a DataFrame or a list of
                 Event objects.
             filters (Optional[List[tuple]]): Additional filters as [(attr, op, value), ...], e.g.:
-                [("attr1", "!=", "abnormal"), ("attr2", "!=", 1)]. Filters are applied after type 
+                [("attr1", "!=", "abnormal"), ("attr2", "!=", 1)]. Filters are applied after type
                 and time filters. The logic is "AND" between different filters.
 
         Returns:
-            Union[pl.DataFrame, List[Event]]: Filtered events as a DataFrame 
+            Union[pl.DataFrame, List[Event]]: Filtered events as a DataFrame
             or a list of Event objects.
         """
         # faster filtering (by default)
@@ -177,14 +198,15 @@ class Patient:
         # df = self._filter_by_event_type_regular(self.data_source, event_type)
         # df = self._filter_by_time_range_regular(df, start, end)
 
-        if filters:
-            assert event_type is not None, "event_type must be provided if filters are provided"
-        else:
-            filters = []
+        if filters and event_type is None:
+            raise ValueError("event_type must be provided if filters are provided")
+
         exprs = []
-        for filt in filters:
+        for filt in filters or []:
             if not (isinstance(filt, tuple) and len(filt) == 3):
-                raise ValueError(f"Invalid filter format: {filt} (must be tuple of (attr, op, value))")
+                raise ValueError(
+                    f"Invalid filter format: {filt} (must be tuple of (attr, op, value))"
+                )
             attr, op, val = filt
             col_expr = pl.col(f"{event_type}/{attr}")
             # Build operator expression
