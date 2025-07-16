@@ -3,7 +3,6 @@ from pyhealth.medcode import InnerMap, CrossMap
 
 
 class TestInnerMap(unittest.TestCase):
-
     def setUp(self):
         map_name = "ICD9CM"
         self.inner_map = InnerMap.load(map_name)
