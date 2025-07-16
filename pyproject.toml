@@ -35,6 +35,7 @@ dependencies = [
   "polars~=1.31.0",
   "pandas~=2.3.1",
   "pandarallel~=1.6.5",
+  "pydantic~=2.11.7",
 ]
 license = "BSD-3-Clause"
 license-files = ["LICENSE.md"]

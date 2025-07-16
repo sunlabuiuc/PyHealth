@@ -1,8 +1,6 @@
 import os
 import pickle
-import pkg_resources
 import mne
-import pandas as pd
 import numpy as np
 
 
