@@ -1,5 +1,5 @@
 # Read the Docs configuration file
-# Only change: use Python 3.9 instead of default
+# Only change: use Python 3.10 instead of default
 
 version: 2
 
