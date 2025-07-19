@@ -17,7 +17,6 @@ sphinxext-opengraph==0.6.3
 sphinxcontrib-httpdomain==1.8.0
 sphinx_copybutton
 sphinx_toggleprompt
-pandas-bokeh==0.5.5
 bokeh>=3.5.2
 gspread==5.6.2
 google-cloud-storage==2.6.0
