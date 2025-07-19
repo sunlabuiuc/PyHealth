@@ -1,3 +1,4 @@
+import unittest
 import logging
 import os
 import sys
@@ -414,10 +415,11 @@ def test_multimodal_mortality_prediction_with_images():
     logger.info("Multimodal mortality prediction with X-ray images test completed!")
 
 
-if __name__ == "__main__":
-    test_mortality_prediction_mimic3()
+class Test(unittest.TestCase):
+    def test(self):
+        test_mortality_prediction_mimic3()
 
-    test_multimodal_mortality_prediction_with_images()
-    # test_multimodal_mortality_prediction_mimic4()
+        test_multimodal_mortality_prediction_with_images()
+        # test_multimodal_mortality_prediction_mimic4()
 
-    # test_mortality_prediction_mimic4()
+        # test_mortality_prediction_mimic4()

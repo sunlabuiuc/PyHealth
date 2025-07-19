@@ -1,9 +1,6 @@
 import unittest
-import sys 
+import sys
 import os
-current = os.path.dirname(os.path.realpath(__file__))
-sys.path.append(os.path.dirname(os.path.dirname(current)))
-
 from pyhealth.tokenizer import Tokenizer
 
 token_space = ['A01A', 'A02A', 'A02B', 'A02X', 'A03A', 'A03B', 'A03C', 'A03D', 'A03E', \

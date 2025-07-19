@@ -1,6 +1,6 @@
-import pyhealth.datasets.mimic3 as mimic3
-import pyhealth.datasets.mimic4 as mimic4
-from pyhealth.tasks.mortality_prediction import test_mortality_prediction_mimic4
+import unittest
+#import pyhealth.datasets.mimic4 as mimic4
+#from pyhealth.tasks.mortality_prediction import test_mortality_prediction_mimic4
 import pyhealth.tasks.medical_coding as coding
 import time
 import os
@@ -12,12 +12,14 @@ parent_dir = os.path.dirname(os.path.dirname(current_dir))
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
+
 def time_function(func, name):
     start_time = time.time()
     func()
     end_time = time.time()
     execution_time = end_time - start_time
     print(f"{name} execution time: {execution_time:.2f} seconds")
+
 
 def train_medical_coding():
     from pyhealth.datasets import MIMIC4Dataset, MIMIC3Dataset
@@ -47,7 +49,6 @@ def train_medical_coding():
         if len(samples[0]['icd_codes']) > 0:
             print(f"  - Sample ICD codes: {samples[0]['icd_codes'][:5] if len(samples[0]['icd_codes']) > 5 else samples[0]['icd_codes']}")
 
-
     from pyhealth.models import TransformersModel
 
     model = TransformersModel(
@@ -58,14 +59,12 @@ def train_medical_coding():
         mode="multilabel",
     )
 
-
     from pyhealth.datasets import split_by_sample
 
     train_dataset, val_dataset, test_dataset = split_by_sample(
         dataset=samples,
         ratios=[0.7, 0.1, 0.2]
     )
-
 
     from pyhealth.datasets import get_dataloader
 
@@ -101,12 +100,17 @@ def train_medical_coding():
     print("Metrics after training:")
     print(trainer.evaluate(test_dataloader))
 
-if __name__ == "__main__":
-    print("Starting MIMIC-III processing...")
-    # time_function(mimic3.main, "MIMIC-III")
-    test_mortality_prediction_mimic4()
-    print("\nStarting MIMIC-IV processing...")
-    time_function(mimic4.test_mimic4_dataset, "MIMIC-IV")
-    print("\nStart Medical Coding Test")
-    time_function(coding.main, "Medical Coding")
-    time_function(train_medical_coding, "Train Medical Coding")
+
+class Test(unittest.TestCase):
+    def test(self):
+        print("Starting MIMIC-III processing...")
+        # time_function(mimic3.main, "MIMIC-III")
+        ## TODO: test_mortality_prediction_mimic4 not found in pyhealth.tasks.mortality_prediction
+        #test_mortality_prediction_mimic4()
+
+        ## TODO: test_mimic4_dataset not found in pyhealth.datasets.mimic4
+        #print("\nStarting MIMIC-IV processing...")
+        #time_function(mimic4.test_mimic4_dataset, "MIMIC-IV")
+        print("\nStart Medical Coding Test")
+        time_function(coding.main, "Medical Coding")
+        time_function(train_medical_coding, "Train Medical Coding")
