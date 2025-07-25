@@ -48,6 +48,7 @@ tables:
           - "dischtime"
     timestamp: "dischtime"
     attributes:
+      - "hadm_id"
       - "icd_code"
       - "icd_version"
       - "seq_num"
@@ -63,6 +64,7 @@ tables:
           - "dischtime"
     timestamp: "dischtime"
     attributes:
+      - "hadm_id"
       - "icd_code"
       - "icd_version"
       - "seq_num"
@@ -93,6 +95,7 @@ tables:
           - "category"
     timestamp: "charttime"
     attributes:
+      - "hadm_id"
       - "itemid"
       - "label"
       - "fluid"
