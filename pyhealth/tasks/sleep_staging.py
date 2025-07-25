@@ -1,6 +1,5 @@
 import os
 import pickle
-import pkg_resources
 import mne
 import pandas as pd
 import numpy as np
@@ -259,7 +258,8 @@ def sleep_staging_shhs_fn(record, epoch_seconds=30):
     # test whether the ogb and torch_scatter packages are ready
     dependencies = ["elementpath"]
     try:
-        pkg_resources.require(dependencies)
+        from importlib.metadata import version
+        version(dependencies)
         import xml.etree.ElementTree as ET
     except Exception as e:
         print(e)
