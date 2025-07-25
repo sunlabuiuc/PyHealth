@@ -1,0 +1,11 @@
+version: "1.4"
+
+tables:
+  admissions:
+    file_path: "fake_los_data.csv"
+    patient_id: "patient_id"
+    timestamp: "admission_date"
+    attributes:
+      - "patient_id"
+      - "admission_date"
+      - "discharge_date"
