@@ -1,9 +1,6 @@
 import os
 import pickle
-import pkg_resources
 import mne
-import pandas as pd
-import numpy as np
 
 
 def EEG_isAbnormal_fn(record):
@@ -155,7 +152,6 @@ def EEG_isAbnormal_fn(record):
         return samples
 
 
-
 if __name__ == "__main__":
     from pyhealth.datasets import TUABDataset
     
@@ -167,7 +163,3 @@ if __name__ == "__main__":
     EEG_abnormal_ds = dataset.set_task(EEG_isAbnormal_fn)
     print(EEG_abnormal_ds.samples[0])
     print(EEG_abnormal_ds.input_info)
-    
-    
-    
-    
