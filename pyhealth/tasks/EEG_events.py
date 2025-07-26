@@ -1,9 +1,8 @@
 import os
 import pickle
-import pkg_resources
 import mne
-import pandas as pd
 import numpy as np
+
 
 def EEG_events_fn(record):
     """Processes a single patient for the EEG events task on TUEV.
@@ -191,7 +190,6 @@ def readEDF(fileName):
     return [signals, times, eventData, Rawdata]
 
 
-
 if __name__ == "__main__":
     from pyhealth.datasets import TUEVDataset
     
@@ -203,7 +201,3 @@ if __name__ == "__main__":
     EEG_events_ds = dataset.set_task(EEG_events_fn)
     print(EEG_events_ds.samples[0])
     print(EEG_events_ds.input_info)
-    
-    
-    
-    
