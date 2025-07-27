@@ -17,10 +17,9 @@ class HALO_MIMIC3Dataset:
     which includes tables such as patients, admissions, and icustays.
 
     Attributes:
-        root (str): The root directory where the dataset is stored.
-        tables (List[str]): A list of tables to be included in the dataset.
-        dataset_name (Optional[str]): The name of the dataset.
-        config_path (Optional[str]): The path to the configuration file.
+        mimic3_dir (str): The root directory where the dataset is stored.
+        pkl_data_dir (str): The directory in which .pkl files related to the dataset object will be stored.
+        gzip (Optional[bool]): Determines whether the object will look for ".csv.gz" (True) or ".csv" (False) files in mimic3_dir.
     """
 
     def __init__(
@@ -29,15 +28,6 @@ class HALO_MIMIC3Dataset:
         pkl_data_dir: str = "./",
         gzip: bool = False
     ) -> None:
-        """
-        Initializes the MIMIC4Dataset with the specified parameters.
-
-        Args:
-            root (str): The root directory where the dataset is stored.
-            tables (List[str]): A list of additional tables to include.
-            dataset_name (Optional[str]): The name of the dataset. Defaults to "mimic3".
-            config_path (Optional[str]): The path to the configuration file. If not provided, a default config is used.
-        """
         self.gzip = gzip
         self.mimic3_dir = mimic3_dir
         self.pkl_data_dir = pkl_data_dir
