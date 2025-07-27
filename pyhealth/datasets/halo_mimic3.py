@@ -1,12 +1,4 @@
 import logging
-import warnings
-from pathlib import Path
-from typing import List, Optional
-
-import polars as pl
-
-from .base_dataset import BaseDataset
-
 import yaml
 import pickle
 import numpy as np
@@ -15,8 +7,6 @@ from tqdm import tqdm
 from sklearn.model_selection import train_test_split
 
 logger = logging.getLogger(__name__)
-
-# TODO: Clean up imports & update docs correctly
 
 
 class HALO_MIMIC3Dataset:
@@ -93,7 +83,6 @@ class HALO_MIMIC3Dataset:
 
         data = list(data.values())
 
-        # print("Adding Labels")
         with open("/u/ethanmr3/halo/PyHealth/pyhealth/datasets/configs/hcup_ccs_2015_definitions_benchmark.yaml") as definitions_file:
             definitions = yaml.full_load(definitions_file)
 
@@ -112,18 +101,15 @@ class HALO_MIMIC3Dataset:
         group_to_id = dict((x, i) for (i, x) in enumerate(id_to_group))
 
         # Add Labels
-        # print(f"DATA LEN IS: {len(data)}")
         for p in data:
             label = np.zeros(len(group_to_id))
             for v in p['visits']:
                 for c in v:
                     if c in code_to_group:
                         label[group_to_id[code_to_group[c]]] = 1
-            # print(f"MIMIC LABELS = {label}")
             
             p['labels'] = label
 
-        # print("Converting Visits")
         for p in data:
             new_visits = []
             for v in p['visits']:
@@ -143,7 +129,6 @@ class HALO_MIMIC3Dataset:
         print(f"NUM LONGITUDINAL RECORDS: {len([p for p in data if len(p['visits']) > 1])}")
 
         # Train-Val-Test Split
-        # print("Splitting Datasets")
         train_dataset, test_dataset = train_test_split(data, test_size=0.2, random_state=4, shuffle=True)
         train_dataset, val_dataset = train_test_split(train_dataset, test_size=0.1, random_state=4, shuffle=True)
 
