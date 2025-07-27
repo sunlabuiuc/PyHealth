@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/u/ethanmr3/halo/PyHealth/halo_testing_script.py", line 3, in <module>
+    definitions = yaml.full_load(definitions_file)
+NameError: name 'yaml' is not defined

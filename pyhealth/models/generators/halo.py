@@ -14,7 +14,7 @@ from pyhealth.models.base_model import BaseModel
 
 # Import the HALO transformer implementation
 from pyhealth.models.generators.halo_resources.halo_model import HALOModel
-from pyhealth.models.generators.halo_resources.halo_model import HALOConfig
+from pyhealth.models.generators.halo_resources.halo_config import HALOConfig
 
 class HALO:
 
@@ -22,7 +22,8 @@ class HALO:
         self,
         dataset: HALO_MIMIC3Dataset,
         config: HALOConfig,
-        save_dir: str = "./save/"
+        save_dir: str = "./save/",
+        train_on_init: bool = True
     ) -> None:
         SEED = 4
         random.seed(SEED)
@@ -49,11 +50,17 @@ class HALO:
         self.train_ehr_dataset = pickle.load(open(f'{self.dataset.pkl_data_dir}trainDataset.pkl', 'rb'))
         self.val_ehr_dataset = pickle.load(open(f'{self.dataset.pkl_data_dir}valDataset.pkl', 'rb'))
         self.index_to_code = pickle.load(open(f"{self.dataset.pkl_data_dir}indexToCode.pkl", "rb"))
+        self.id_to_label = pickle.load(open(f"{self.dataset.pkl_data_dir}idToLabel.pkl", "rb"))
         test_ehr_dataset = pickle.load(open(f'{self.dataset.pkl_data_dir}testDataset.pkl', 'rb'))
-        train_c = set([c for p in train_ehr_dataset for v in p['visits'] for c in v])
+        try:
+            print(f"test data head 1: \n{test_ehr_dataset.head()}")
+        except:
+            print(f"test data head 2: \n{test_ehr_dataset[:5]}")
+        train_c = set([c for p in self.train_ehr_dataset for v in p['visits'] for c in v])
         self.test_ehr_dataset = [{'labels': p['labels'], 'visits': [[c for c in v if c in train_c] for v in p['visits']]} for p in test_ehr_dataset]
 
-        self.train()
+        if train_on_init:
+            self.train()
 
 
     def train(self) -> None:
@@ -76,8 +83,8 @@ class HALO:
             for i, p in enumerate(ehr):
                 visits = p['visits']
                 for j, v in enumerate(visits):
-                batch_ehr[i,j+2][v] = 1
-                batch_mask[i,j+2] = 1
+                    batch_ehr[i,j+2][v] = 1
+                    batch_mask[i,j+2] = 1
                 batch_ehr[i,1,self.config.code_vocab_size:self.config.code_vocab_size+self.config.label_vocab_size] = np.array(p['labels']) # Set the patient labels
                 batch_ehr[i,len(visits)+1,self.config.code_vocab_size+self.config.label_vocab_size+1] = 1 # Set the final visit to have the end token
                 batch_ehr[i,len(visits)+2:,self.config.code_vocab_size+self.config.label_vocab_size+2] = 1 # Set the rest to the padded visit token
@@ -118,34 +125,34 @@ class HALO:
                 loss.backward()
                 self.optimizer.step()
                 
-                # if i % (500*self.config.batch_size) == 0:
-                # print("Epoch %d, Iter %d: Training Loss:%.6f"%(e, i, loss * 8))
+                if i % (500*self.config.batch_size) == 0:
+                    print("Epoch %d, Iter %d: Training Loss:%.6f"%(e, i, loss * 8))
                 if i % (500*self.config.batch_size) == 0:
                     if i == 0:
                         continue
                 
-                self.model.eval()
-                with torch.no_grad():
-                    val_l = []
-                    for v_i in range(0, len(self.val_ehr_dataset), self.config.batch_size):
-                        batch_ehr, batch_mask = get_batch(v_i, self.config.batch_size, 'valid')
-                        batch_ehr = torch.tensor(batch_ehr, dtype=torch.float32).to(self.device)
-                        batch_mask = torch.tensor(batch_mask, dtype=torch.float32).to(self.device)
-                
-                        val_loss, _, _ = self.model(batch_ehr, position_ids=None, ehr_labels=batch_ehr, ehr_masks=batch_mask, pos_loss_weight=self.config.pos_loss_weight)
-                        val_l.append((val_loss).cpu().detach().numpy())
+                    self.model.eval()
+                    with torch.no_grad():
+                        val_l = []
+                        for v_i in range(0, len(self.val_ehr_dataset), self.config.batch_size):
+                            batch_ehr, batch_mask = get_batch(v_i, self.config.batch_size, 'valid')
+                            batch_ehr = torch.tensor(batch_ehr, dtype=torch.float32).to(self.device)
+                            batch_mask = torch.tensor(batch_mask, dtype=torch.float32).to(self.device)
                     
-                    cur_val_loss = np.mean(val_l)
-                    # print("Epoch %d Validation Loss:%.7f"%(e, cur_val_loss))
-                    if cur_val_loss < global_loss:
-                        global_loss = cur_val_loss
-                        state = {
-                                'model': self.model.state_dict(),
-                                'optimizer': self.optimizer.state_dict(),
-                                'iteration': i
-                            }
-                        torch.save(state, f'{self.save_dir}halo_model')
-                        # print('\n------------ Save best model ------------\n')
+                            val_loss, _, _ = self.model(batch_ehr, position_ids=None, ehr_labels=batch_ehr, ehr_masks=batch_mask, pos_loss_weight=self.config.pos_loss_weight)
+                            val_l.append((val_loss).cpu().detach().numpy())
+                    
+                        cur_val_loss = np.mean(val_l)
+                        print("Epoch %d Validation Loss:%.7f"%(e, cur_val_loss))
+                        if cur_val_loss < global_loss:
+                            global_loss = cur_val_loss
+                            state = {
+                                    'model': self.model.state_dict(),
+                                    'optimizer': self.optimizer.state_dict(),
+                                    'iteration': i
+                                }
+                            torch.save(state, f'{self.save_dir}halo_model')
+                            print('\n------------ Save best model ------------\n')
 
     def test(self, testing_results_dir: str = "./results/testing_stats/") -> None:
 
@@ -167,8 +174,8 @@ class HALO:
             for i, p in enumerate(ehr):
                 visits = p['visits']
                 for j, v in enumerate(visits):
-                batch_ehr[i,j+2][v] = 1
-                batch_mask[i,j+2] = 1
+                    batch_ehr[i,j+2][v] = 1
+                    batch_mask[i,j+2] = 1
                 batch_ehr[i,1,self.config.code_vocab_size:self.config.code_vocab_size+self.config.label_vocab_size] = np.array(p['labels']) # Set the patient labels
                 batch_ehr[i,len(visits)+1,self.config.code_vocab_size+self.config.label_vocab_size+1] = 1 # Set the final visit to have the end token
                 batch_ehr[i,len(visits)+2:,self.config.code_vocab_size+self.config.label_vocab_size+2] = 1 # Set the rest to the padded visit token
@@ -303,7 +310,7 @@ class HALO:
         return ehr_outputs
 
 
-    def synthesize_dataset(self, pkl_save_dir: str = "./results/datasets/haloDataset.pkl") -> None:
+    def synthesize_dataset(self, pkl_save_dir: str = "./results/datasets/") -> None:
 
         ## HELPER:
         def sample_sequence(model, length, context, batch_size, device='cuda', sample=True):
@@ -331,7 +338,7 @@ class HALO:
             batch_synthetic_ehrs = self.convert_ehr(batch_synthetic_ehrs)
             synthetic_ehr_dataset += batch_synthetic_ehrs
 
-        pickle.dump(synthetic_ehr_dataset, open(pkl_save_dir, 'wb'))
+        pickle.dump(synthetic_ehr_dataset, open(f"{pkl_save_dir}haloDataset.pkl", 'wb'))
 
 
 

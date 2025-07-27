@@ -37,6 +37,7 @@ class HALO_MIMIC3Dataset:
         self,
         mimic3_dir: str = "./", 
         pkl_data_dir: str = "./",
+        gzip: bool = False
     ) -> None:
         """
         Initializes the MIMIC4Dataset with the specified parameters.
@@ -47,13 +48,14 @@ class HALO_MIMIC3Dataset:
             dataset_name (Optional[str]): The name of the dataset. Defaults to "mimic3".
             config_path (Optional[str]): The path to the configuration file. If not provided, a default config is used.
         """
+        self.gzip = gzip
         self.mimic3_dir = mimic3_dir
         self.pkl_data_dir = pkl_data_dir
         self.build_dataset()
 
     def build_dataset(self) -> None:
-        admissionFile = self.mimic3_dir + "ADMISSIONS.csv"
-        diagnosisFile = self.mimic3_dir + "DIAGNOSES_ICD.csv"
+        admissionFile = self.mimic3_dir + f"ADMISSIONS.csv{'.gz' if self.gzip else ''}"
+        diagnosisFile = self.mimic3_dir + f"DIAGNOSES_ICD.csv{'.gz' if self.gzip else ''}"
 
         admissionDf = pd.read_csv(admissionFile, dtype=str)
         admissionDf['ADMITTIME'] = pd.to_datetime(admissionDf['ADMITTIME'])
@@ -77,47 +79,49 @@ class HALO_MIMIC3Dataset:
             
             # Building the hospital admission data point
             if subject_id not in data:
-            data[subject_id] = {'visits': [diagnoses]}
+                data[subject_id] = {'visits': [diagnoses]}
             else:
-            data[subject_id]['visits'].append(diagnoses)
+                data[subject_id]['visits'].append(diagnoses)
 
         code_to_index = {}
         all_codes = list(set([c for p in data.values() for v in p['visits'] for c in v]))
         np.random.shuffle(all_codes)
         for c in all_codes:
             code_to_index[c] = len(code_to_index)
-        # print(f"VOCAB SIZE: {len(code_to_index)}")
+        print(f"VOCAB SIZE: {len(code_to_index)}")
         index_to_code = {v: k for k, v in code_to_index.items()}
 
         data = list(data.values())
 
         # print("Adding Labels")
-        with open("./configs/hcup_ccs_2015_definitions_benchmark.yaml") as definitions_file:
+        with open("/u/ethanmr3/halo/PyHealth/pyhealth/datasets/configs/hcup_ccs_2015_definitions_benchmark.yaml") as definitions_file:
             definitions = yaml.full_load(definitions_file)
 
         code_to_group = {}
         for group in definitions:
-        if definitions[group]['use_in_benchmark'] == False:
-            continue
-        codes = definitions[group]['codes']
-        for code in codes:
-            if code not in code_to_group:
-                code_to_group[code] = group
-            else:
-                assert code_to_group[code] == group
+            if definitions[group]['use_in_benchmark'] == False:
+                continue
+            codes = definitions[group]['codes']
+            for code in codes:
+                if code not in code_to_group:
+                    code_to_group[code] = group
+                else:
+                    assert code_to_group[code] == group
 
         id_to_group = sorted([k for k in definitions.keys() if definitions[k]['use_in_benchmark'] ==  True])
         group_to_id = dict((x, i) for (i, x) in enumerate(id_to_group))
 
         # Add Labels
+        # print(f"DATA LEN IS: {len(data)}")
         for p in data:
-        label = np.zeros(len(group_to_id))
-        for v in p['visits']:
-            for c in v:
-            if c in code_to_group:
-                label[group_to_id[code_to_group[c]]] = 1
-        
-        p['labels'] = label
+            label = np.zeros(len(group_to_id))
+            for v in p['visits']:
+                for c in v:
+                    if c in code_to_group:
+                        label[group_to_id[code_to_group[c]]] = 1
+            # print(f"MIMIC LABELS = {label}")
+            
+            p['labels'] = label
 
         # print("Converting Visits")
         for p in data:
@@ -131,12 +135,12 @@ class HALO_MIMIC3Dataset:
                 
             p['visits'] = new_visits    
 
-        # print(f"MAX LEN: {max([len(p['visits']) for p in data])}")
-        # print(f"AVG LEN: {np.mean([len(p['visits']) for p in data])}")
-        # print(f"MAX VISIT LEN: {max([len(v) for p in data for v in p['visits']])}")
-        # print(f"AVG VISIT LEN: {np.mean([len(v) for p in data for v in p['visits']])}")
-        # print(f"NUM RECORDS: {len(data)}")
-        # print(f"NUM LONGITUDINAL RECORDS: {len([p for p in data if len(p['visits']) > 1])}")
+        print(f"MAX LEN: {max([len(p['visits']) for p in data])}")
+        print(f"AVG LEN: {np.mean([len(p['visits']) for p in data])}")
+        print(f"MAX VISIT LEN: {max([len(v) for p in data for v in p['visits']])}")
+        print(f"AVG VISIT LEN: {np.mean([len(v) for p in data for v in p['visits']])}")
+        print(f"NUM RECORDS: {len(data)}")
+        print(f"NUM LONGITUDINAL RECORDS: {len([p for p in data if len(p['visits']) > 1])}")
 
         # Train-Val-Test Split
         # print("Splitting Datasets")
@@ -144,8 +148,8 @@ class HALO_MIMIC3Dataset:
         train_dataset, val_dataset = train_test_split(train_dataset, test_size=0.1, random_state=4, shuffle=True)
 
         # Save Everything
-        # print("Saving Everything")
-        # print(len(index_to_code))
+        print("Saving Everything")
+        print(len(index_to_code))
         pickle.dump(code_to_index, open(f"{self.pkl_data_dir}codeToIndex.pkl", "wb"))
         pickle.dump(index_to_code, open(f"{self.pkl_data_dir}indexToCode.pkl", "wb"))
         pickle.dump(id_to_group, open(f"{self.pkl_data_dir}idToLabel.pkl", "wb"))

@@ -1,0 +1,404 @@
+SLURM_JOB_ID: 3713164
+SLURM_JOB_NODELIST: ccc0465
+SLURM_NTASKS: 
+SLURM_CPUS_ON_NODE: 4
+SLURM_GPUS_ON_NODE: 1
+SLURM_GPUS: 
+CUDA_VISIBLE_DEVICES: 0
+Running nvidia-smi to confirm GPU availability:
+Sun Jul 20 10:50:05 2025       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 575.57.08              Driver Version: 575.57.08      CUDA Version: 12.9     |
+|-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA H200                    Off |   00000000:3B:00.0 Off |                    0 |
+| N/A   32C    P0             76W /  700W |       0MiB / 143771MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+                                                                                         
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+Defaulting to user installation because normal site-packages is not writeable
+Obtaining file:///u/ethanmr3/halo/PyHealth
+Requirement already satisfied: torch>=1.8.0 in /u/ethanmr3/.local/lib/python3.9/site-packages (from pyhealth==1.1.4) (2.7.1)
+Requirement already satisfied: torchvision>=0.9.0 in /u/ethanmr3/.local/lib/python3.9/site-packages (from pyhealth==1.1.4) (0.22.1)
+Requirement already satisfied: rdkit>=2022.03.4 in /u/ethanmr3/.local/lib/python3.9/site-packages (from pyhealth==1.1.4) (2025.3.3)
+Requirement already satisfied: scikit-learn>=0.24.2 in /u/ethanmr3/.local/lib/python3.9/site-packages (from pyhealth==1.1.4) (1.6.1)
+Requirement already satisfied: networkx>=2.6.3 in /u/ethanmr3/.local/lib/python3.9/site-packages (from pyhealth==1.1.4) (3.2.1)
+Collecting pandas<2,>=1.3.2
+  Using cached pandas-1.5.3-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (12.2 MB)
+Requirement already satisfied: pandarallel>=1.5.3 in /u/ethanmr3/.local/lib/python3.9/site-packages (from pyhealth==1.1.4) (1.6.5)
+Requirement already satisfied: mne>=1.0.3 in /u/ethanmr3/.local/lib/python3.9/site-packages (from pyhealth==1.1.4) (1.8.0)
+Requirement already satisfied: urllib3<=1.26.15 in /usr/lib/python3.9/site-packages (from pyhealth==1.1.4) (1.26.5)
+Requirement already satisfied: numpy in /u/ethanmr3/.local/lib/python3.9/site-packages (from pyhealth==1.1.4) (2.0.2)
+Requirement already satisfied: tqdm in /u/ethanmr3/.local/lib/python3.9/site-packages (from pyhealth==1.1.4) (4.67.1)
+Requirement already satisfied: polars in /u/ethanmr3/.local/lib/python3.9/site-packages (from pyhealth==1.1.4) (1.31.0)
+Requirement already satisfied: transformers in /u/ethanmr3/.local/lib/python3.9/site-packages (from pyhealth==1.1.4) (4.52.4)
+Requirement already satisfied: scipy>=1.9 in /u/ethanmr3/.local/lib/python3.9/site-packages (from mne>=1.0.3->pyhealth==1.1.4) (1.13.1)
+Requirement already satisfied: lazy-loader>=0.3 in /u/ethanmr3/.local/lib/python3.9/site-packages (from mne>=1.0.3->pyhealth==1.1.4) (0.4)
+Requirement already satisfied: matplotlib>=3.6 in /u/ethanmr3/.local/lib/python3.9/site-packages (from mne>=1.0.3->pyhealth==1.1.4) (3.9.4)
+Requirement already satisfied: packaging in /usr/lib/python3.9/site-packages (from mne>=1.0.3->pyhealth==1.1.4) (20.9)
+Requirement already satisfied: decorator in /usr/lib/python3.9/site-packages (from mne>=1.0.3->pyhealth==1.1.4) (4.4.2)
+Requirement already satisfied: jinja2 in /u/ethanmr3/.local/lib/python3.9/site-packages (from mne>=1.0.3->pyhealth==1.1.4) (3.1.6)
+Requirement already satisfied: pooch>=1.5 in /u/ethanmr3/.local/lib/python3.9/site-packages (from mne>=1.0.3->pyhealth==1.1.4) (1.8.2)
+Requirement already satisfied: python-dateutil>=2.7 in /u/ethanmr3/.local/lib/python3.9/site-packages (from matplotlib>=3.6->mne>=1.0.3->pyhealth==1.1.4) (2.9.0.post0)
+Requirement already satisfied: pillow>=8 in /u/ethanmr3/.local/lib/python3.9/site-packages (from matplotlib>=3.6->mne>=1.0.3->pyhealth==1.1.4) (11.2.1)
+Requirement already satisfied: pyparsing>=2.3.1 in /usr/lib/python3.9/site-packages (from matplotlib>=3.6->mne>=1.0.3->pyhealth==1.1.4) (2.4.7)
+Requirement already satisfied: contourpy>=1.0.1 in /u/ethanmr3/.local/lib/python3.9/site-packages (from matplotlib>=3.6->mne>=1.0.3->pyhealth==1.1.4) (1.3.0)
+Requirement already satisfied: fonttools>=4.22.0 in /u/ethanmr3/.local/lib/python3.9/site-packages (from matplotlib>=3.6->mne>=1.0.3->pyhealth==1.1.4) (4.58.4)
+Requirement already satisfied: kiwisolver>=1.3.1 in /u/ethanmr3/.local/lib/python3.9/site-packages (from matplotlib>=3.6->mne>=1.0.3->pyhealth==1.1.4) (1.4.7)
+Requirement already satisfied: cycler>=0.10 in /u/ethanmr3/.local/lib/python3.9/site-packages (from matplotlib>=3.6->mne>=1.0.3->pyhealth==1.1.4) (0.12.1)
+Requirement already satisfied: importlib-resources>=3.2.0 in /u/ethanmr3/.local/lib/python3.9/site-packages (from matplotlib>=3.6->mne>=1.0.3->pyhealth==1.1.4) (6.5.2)
+Requirement already satisfied: zipp>=3.1.0 in /u/ethanmr3/.local/lib/python3.9/site-packages (from importlib-resources>=3.2.0->matplotlib>=3.6->mne>=1.0.3->pyhealth==1.1.4) (3.23.0)
+Requirement already satisfied: dill>=0.3.1 in /u/ethanmr3/.local/lib/python3.9/site-packages (from pandarallel>=1.5.3->pyhealth==1.1.4) (0.4.0)
+Requirement already satisfied: psutil in /u/ethanmr3/.local/lib/python3.9/site-packages (from pandarallel>=1.5.3->pyhealth==1.1.4) (7.0.0)
+Requirement already satisfied: pytz>=2020.1 in /u/ethanmr3/.local/lib/python3.9/site-packages (from pandas<2,>=1.3.2->pyhealth==1.1.4) (2025.2)
+Requirement already satisfied: platformdirs>=2.5.0 in /u/ethanmr3/.local/lib/python3.9/site-packages (from pooch>=1.5->mne>=1.0.3->pyhealth==1.1.4) (4.3.8)
+Requirement already satisfied: requests>=2.19.0 in /usr/lib/python3.9/site-packages (from pooch>=1.5->mne>=1.0.3->pyhealth==1.1.4) (2.25.1)
+Requirement already satisfied: six>=1.5 in /u/ethanmr3/.local/lib/python3.9/site-packages (from python-dateutil>=2.7->matplotlib>=3.6->mne>=1.0.3->pyhealth==1.1.4) (1.17.0)
+Requirement already satisfied: chardet<5,>=3.0.2 in /usr/lib/python3.9/site-packages (from requests>=2.19.0->pooch>=1.5->mne>=1.0.3->pyhealth==1.1.4) (4.0.0)
+Requirement already satisfied: idna<3,>=2.5 in /usr/lib/python3.9/site-packages (from requests>=2.19.0->pooch>=1.5->mne>=1.0.3->pyhealth==1.1.4) (2.10)
+Requirement already satisfied: threadpoolctl>=3.1.0 in /u/ethanmr3/.local/lib/python3.9/site-packages (from scikit-learn>=0.24.2->pyhealth==1.1.4) (3.6.0)
+Requirement already satisfied: joblib>=1.2.0 in /u/ethanmr3/.local/lib/python3.9/site-packages (from scikit-learn>=0.24.2->pyhealth==1.1.4) (1.5.1)
+Requirement already satisfied: nvidia-cuda-runtime-cu12==12.6.77 in /u/ethanmr3/.local/lib/python3.9/site-packages (from torch>=1.8.0->pyhealth==1.1.4) (12.6.77)
+Requirement already satisfied: nvidia-cusolver-cu12==11.7.1.2 in /u/ethanmr3/.local/lib/python3.9/site-packages (from torch>=1.8.0->pyhealth==1.1.4) (11.7.1.2)
+Requirement already satisfied: nvidia-cuda-nvrtc-cu12==12.6.77 in /u/ethanmr3/.local/lib/python3.9/site-packages (from torch>=1.8.0->pyhealth==1.1.4) (12.6.77)
+Requirement already satisfied: triton==3.3.1 in /u/ethanmr3/.local/lib/python3.9/site-packages (from torch>=1.8.0->pyhealth==1.1.4) (3.3.1)
+Requirement already satisfied: nvidia-curand-cu12==10.3.7.77 in /u/ethanmr3/.local/lib/python3.9/site-packages (from torch>=1.8.0->pyhealth==1.1.4) (10.3.7.77)
+Requirement already satisfied: sympy>=1.13.3 in /u/ethanmr3/.local/lib/python3.9/site-packages (from torch>=1.8.0->pyhealth==1.1.4) (1.14.0)
+Requirement already satisfied: nvidia-nccl-cu12==2.26.2 in /u/ethanmr3/.local/lib/python3.9/site-packages (from torch>=1.8.0->pyhealth==1.1.4) (2.26.2)
+Requirement already satisfied: typing-extensions>=4.10.0 in /u/ethanmr3/.local/lib/python3.9/site-packages (from torch>=1.8.0->pyhealth==1.1.4) (4.14.0)
+Requirement already satisfied: nvidia-cusparse-cu12==12.5.4.2 in /u/ethanmr3/.local/lib/python3.9/site-packages (from torch>=1.8.0->pyhealth==1.1.4) (12.5.4.2)
+Requirement already satisfied: nvidia-cufile-cu12==1.11.1.6 in /u/ethanmr3/.local/lib/python3.9/site-packages (from torch>=1.8.0->pyhealth==1.1.4) (1.11.1.6)
+Requirement already satisfied: nvidia-nvjitlink-cu12==12.6.85 in /u/ethanmr3/.local/lib/python3.9/site-packages (from torch>=1.8.0->pyhealth==1.1.4) (12.6.85)
+Requirement already satisfied: nvidia-cudnn-cu12==9.5.1.17 in /u/ethanmr3/.local/lib/python3.9/site-packages (from torch>=1.8.0->pyhealth==1.1.4) (9.5.1.17)
+Requirement already satisfied: nvidia-nvtx-cu12==12.6.77 in /u/ethanmr3/.local/lib/python3.9/site-packages (from torch>=1.8.0->pyhealth==1.1.4) (12.6.77)
+Requirement already satisfied: nvidia-cusparselt-cu12==0.6.3 in /u/ethanmr3/.local/lib/python3.9/site-packages (from torch>=1.8.0->pyhealth==1.1.4) (0.6.3)
+Requirement already satisfied: nvidia-cuda-cupti-cu12==12.6.80 in /u/ethanmr3/.local/lib/python3.9/site-packages (from torch>=1.8.0->pyhealth==1.1.4) (12.6.80)
+Requirement already satisfied: fsspec in /u/ethanmr3/.local/lib/python3.9/site-packages (from torch>=1.8.0->pyhealth==1.1.4) (2025.5.1)
+Requirement already satisfied: nvidia-cufft-cu12==11.3.0.4 in /u/ethanmr3/.local/lib/python3.9/site-packages (from torch>=1.8.0->pyhealth==1.1.4) (11.3.0.4)
+Requirement already satisfied: nvidia-cublas-cu12==12.6.4.1 in /u/ethanmr3/.local/lib/python3.9/site-packages (from torch>=1.8.0->pyhealth==1.1.4) (12.6.4.1)
+Requirement already satisfied: filelock in /u/ethanmr3/.local/lib/python3.9/site-packages (from torch>=1.8.0->pyhealth==1.1.4) (3.18.0)
+Requirement already satisfied: setuptools>=40.8.0 in /usr/lib/python3.9/site-packages (from triton==3.3.1->torch>=1.8.0->pyhealth==1.1.4) (53.0.0)
+Requirement already satisfied: mpmath<1.4,>=1.1.0 in /u/ethanmr3/.local/lib/python3.9/site-packages (from sympy>=1.13.3->torch>=1.8.0->pyhealth==1.1.4) (1.3.0)
+Requirement already satisfied: MarkupSafe>=2.0 in /u/ethanmr3/.local/lib/python3.9/site-packages (from jinja2->mne>=1.0.3->pyhealth==1.1.4) (3.0.2)
+Requirement already satisfied: pyyaml>=5.1 in /usr/lib64/python3.9/site-packages (from transformers->pyhealth==1.1.4) (5.4.1)
+Requirement already satisfied: huggingface-hub<1.0,>=0.30.0 in /u/ethanmr3/.local/lib/python3.9/site-packages (from transformers->pyhealth==1.1.4) (0.33.0)
+Requirement already satisfied: safetensors>=0.4.3 in /u/ethanmr3/.local/lib/python3.9/site-packages (from transformers->pyhealth==1.1.4) (0.5.3)
+Requirement already satisfied: regex!=2019.12.17 in /u/ethanmr3/.local/lib/python3.9/site-packages (from transformers->pyhealth==1.1.4) (2024.11.6)
+Requirement already satisfied: tokenizers<0.22,>=0.21 in /u/ethanmr3/.local/lib/python3.9/site-packages (from transformers->pyhealth==1.1.4) (0.21.1)
+Requirement already satisfied: hf-xet<2.0.0,>=1.1.2 in /u/ethanmr3/.local/lib/python3.9/site-packages (from huggingface-hub<1.0,>=0.30.0->transformers->pyhealth==1.1.4) (1.1.5)
+Installing collected packages: pandas, pyhealth
+  Attempting uninstall: pandas
+    Found existing installation: pandas 2.3.1
+    Uninstalling pandas-2.3.1:
+      Successfully uninstalled pandas-2.3.1
+  Attempting uninstall: pyhealth
+    Found existing installation: pyhealth 1.1.4
+    Uninstalling pyhealth-1.1.4:
+      Successfully uninstalled pyhealth-1.1.4
+  Running setup.py develop for pyhealth
+Successfully installed pandas-1.5.3 pyhealth
+Defaulting to user installation because normal site-packages is not writeable
+Collecting numpy
+  Using cached numpy-2.0.2-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (19.5 MB)
+Installing collected packages: numpy
+  Attempting uninstall: numpy
+    Found existing installation: numpy 2.0.2
+    Uninstalling numpy-2.0.2:
+      Successfully uninstalled numpy-2.0.2
+Successfully installed numpy-2.0.2
+Defaulting to user installation because normal site-packages is not writeable
+Collecting pandas
+  Using cached pandas-2.3.1-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (12.4 MB)
+Collecting tzdata>=2022.7
+  Using cached tzdata-2025.2-py2.py3-none-any.whl (347 kB)
+Collecting numpy>=1.22.4
+  Using cached numpy-2.0.2-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (19.5 MB)
+Collecting pytz>=2020.1
+  Using cached pytz-2025.2-py2.py3-none-any.whl (509 kB)
+Collecting python-dateutil>=2.8.2
+  Using cached python_dateutil-2.9.0.post0-py2.py3-none-any.whl (229 kB)
+Collecting six>=1.5
+  Using cached six-1.17.0-py2.py3-none-any.whl (11 kB)
+Installing collected packages: six, tzdata, pytz, python-dateutil, numpy, pandas
+  Attempting uninstall: six
+    Found existing installation: six 1.17.0
+    Uninstalling six-1.17.0:
+      Successfully uninstalled six-1.17.0
+  Attempting uninstall: tzdata
+    Found existing installation: tzdata 2025.2
+    Uninstalling tzdata-2025.2:
+      Successfully uninstalled tzdata-2025.2
+  Attempting uninstall: pytz
+    Found existing installation: pytz 2025.2
+    Uninstalling pytz-2025.2:
+      Successfully uninstalled pytz-2025.2
+  Attempting uninstall: python-dateutil
+    Found existing installation: python-dateutil 2.9.0.post0
+    Uninstalling python-dateutil-2.9.0.post0:
+      Successfully uninstalled python-dateutil-2.9.0.post0
+  Attempting uninstall: numpy
+    Found existing installation: numpy 2.0.2
+    Uninstalling numpy-2.0.2:
+      Successfully uninstalled numpy-2.0.2
+  Attempting uninstall: pandas
+    Found existing installation: pandas 1.5.3
+    Uninstalling pandas-1.5.3:
+      Successfully uninstalled pandas-1.5.3
+Successfully installed numpy-2.0.2 pandas-2.3.1 python-dateutil-2.9.0.post0 pytz-2025.2 six-1.17.0 tzdata-2025.2
+BEGIN: Testing
+Success on pip install -e .
+Sucess on imports
+Operating in dir: /u/ethanmr3/halo/PyHealth
+VOCAB SIZE: 6984
+MAX LEN: 42
+AVG LEN: 1.267755803955288
+MAX VISIT LEN: 39
+AVG VISIT LEN: 11.037371134020619
+NUM RECORDS: 46520
+NUM LONGITUDINAL RECORDS: 7537
+Saving Everything
+6984
+test data head 2: 
+[{'visits': [[4185, 5429, 2182, 63]], 'labels': array([0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+       0., 0., 0., 0., 0., 0., 0., 0.])}, {'visits': [[544, 6081, 1440, 5772, 5485, 5552, 6066, 1463, 1661], [1412, 2443, 5519, 3344, 1168, 1809, 1807, 3731, 6172, 4644, 804, 5676, 5947, 6077, 450, 324, 1989, 6471, 4170, 983, 224, 3557, 1637, 5737, 5354, 3185, 2546, 886], [4485, 6540, 1807, 2704, 544, 3750, 44, 5682, 2486, 3896, 184, 6471, 6608, 5329, 6226, 2903, 5719, 5737, 1773, 6384, 1522, 886, 6011], [6784, 2183, 6539, 270, 4623, 2704, 6801, 1807, 802, 5797, 6699, 4524, 5552, 4145, 5555, 950, 3896, 5947, 1217, 4679, 6983, 2903, 983, 2010, 3557, 4967, 5737, 886, 3322, 1916, 3454]], 'labels': array([1., 1., 1., 1., 1., 0., 0., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+       1., 0., 0., 0., 1., 1., 1., 0.])}, {'visits': [[6600, 4105, 5329, 3513, 1596, 4765]], 'labels': array([0., 0., 0., 0., 0., 0., 0., 0., 0., 1., 0., 1., 1., 1., 0., 0., 0.,
+       0., 0., 0., 0., 0., 0., 0., 0.])}, {'visits': [[3008, 1989, 6214, 2535, 5162, 2870, 5208, 4953, 4540]], 'labels': array([0., 0., 0., 0., 0., 0., 0., 0., 1., 0., 0., 0., 0., 0., 0., 0., 0.,
+       0., 0., 0., 0., 1., 1., 0., 1.])}, {'visits': [[4982, 1375, 2879]], 'labels': array([0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 1.,
+       0., 0., 0., 0., 0., 0., 0., 0.])}]
+Success on model setup
+Epoch 0, Iter 0: Training Loss:0.003035
+Epoch 0, Iter 24000: Training Loss:0.002145
+Epoch 0 Validation Loss:0.0002305
+
+------------ Save best model ------------
+
+Epoch 1, Iter 0: Training Loss:0.001832
+Epoch 1, Iter 24000: Training Loss:0.001805
+Epoch 1 Validation Loss:0.0002257
+
+------------ Save best model ------------
+
+Epoch 2, Iter 0: Training Loss:0.001855
+Epoch 2, Iter 24000: Training Loss:0.001980
+Epoch 2 Validation Loss:0.0002229
+
+------------ Save best model ------------
+
+Epoch 3, Iter 0: Training Loss:0.001336
+Epoch 3, Iter 24000: Training Loss:0.001547
+Epoch 3 Validation Loss:0.0002187
+
+------------ Save best model ------------
+
+Epoch 4, Iter 0: Training Loss:0.001439
+Epoch 4, Iter 24000: Training Loss:0.001622
+Epoch 4 Validation Loss:0.0002177
+
+------------ Save best model ------------
+
+Epoch 5, Iter 0: Training Loss:0.001393
+Epoch 5, Iter 24000: Training Loss:0.001476
+Epoch 5 Validation Loss:0.0002161
+
+------------ Save best model ------------
+
+Epoch 6, Iter 0: Training Loss:0.001374
+Epoch 6, Iter 24000: Training Loss:0.001541
+Epoch 6 Validation Loss:0.0002136
+
+------------ Save best model ------------
+
+Epoch 7, Iter 0: Training Loss:0.001676
+Epoch 7, Iter 24000: Training Loss:0.001921
+Epoch 7 Validation Loss:0.0002123
+
+------------ Save best model ------------
+
+Epoch 8, Iter 0: Training Loss:0.001604
+Epoch 8, Iter 24000: Training Loss:0.001605
+Epoch 8 Validation Loss:0.0002100
+
+------------ Save best model ------------
+
+Epoch 9, Iter 0: Training Loss:0.001878
+Epoch 9, Iter 24000: Training Loss:0.001517
+Epoch 9 Validation Loss:0.0002089
+
+------------ Save best model ------------
+
+Epoch 10, Iter 0: Training Loss:0.001447
+Epoch 10, Iter 24000: Training Loss:0.001354
+Epoch 10 Validation Loss:0.0002079
+
+------------ Save best model ------------
+
+Epoch 11, Iter 0: Training Loss:0.001610
+Epoch 11, Iter 24000: Training Loss:0.001414
+Epoch 11 Validation Loss:0.0002068
+
+------------ Save best model ------------
+
+Epoch 12, Iter 0: Training Loss:0.001676
+Epoch 12, Iter 24000: Training Loss:0.001512
+Epoch 12 Validation Loss:0.0002053
+
+------------ Save best model ------------
+
+Epoch 13, Iter 0: Training Loss:0.001766
+Epoch 13, Iter 24000: Training Loss:0.001499
+Epoch 13 Validation Loss:0.0002039
+
+------------ Save best model ------------
+
+Epoch 14, Iter 0: Training Loss:0.001794
+Epoch 14, Iter 24000: Training Loss:0.001430
+Epoch 14 Validation Loss:0.0002030
+
+------------ Save best model ------------
+
+Epoch 15, Iter 0: Training Loss:0.001648
+Epoch 15, Iter 24000: Training Loss:0.001802
+Epoch 15 Validation Loss:0.0002019
+
+------------ Save best model ------------
+
+Epoch 16, Iter 0: Training Loss:0.001942
+Epoch 16, Iter 24000: Training Loss:0.001631
+Epoch 16 Validation Loss:0.0002016
+
+------------ Save best model ------------
+
+Epoch 17, Iter 0: Training Loss:0.001647
+Epoch 17, Iter 24000: Training Loss:0.001143
+Epoch 17 Validation Loss:0.0002010
+
+------------ Save best model ------------
+
+Epoch 18, Iter 0: Training Loss:0.001599
+Epoch 18, Iter 24000: Training Loss:0.001771
+Epoch 18 Validation Loss:0.0002006
+
+------------ Save best model ------------
+
+Epoch 19, Iter 0: Training Loss:0.001910
+Epoch 19, Iter 24000: Training Loss:0.001550
+Epoch 19 Validation Loss:0.0002003
+
+------------ Save best model ------------
+
+Epoch 20, Iter 0: Training Loss:0.001422
+Epoch 20, Iter 24000: Training Loss:0.001366
+Epoch 20 Validation Loss:0.0002001
+
+------------ Save best model ------------
+
+Epoch 21, Iter 0: Training Loss:0.001291
+Epoch 21, Iter 24000: Training Loss:0.001427
+Epoch 21 Validation Loss:0.0001996
+
+------------ Save best model ------------
+
+Epoch 22, Iter 0: Training Loss:0.001385
+Epoch 22, Iter 24000: Training Loss:0.001431
+Epoch 22 Validation Loss:0.0001995
+
+------------ Save best model ------------
+
+Epoch 23, Iter 0: Training Loss:0.001395
+Epoch 23, Iter 24000: Training Loss:0.001319
+Epoch 23 Validation Loss:0.0001989
+
+------------ Save best model ------------
+
+Epoch 24, Iter 0: Training Loss:0.001320
+Epoch 24, Iter 24000: Training Loss:0.001303
+Epoch 24 Validation Loss:0.0001991
+Epoch 25, Iter 0: Training Loss:0.001388
+Epoch 25, Iter 24000: Training Loss:0.001399
+Epoch 25 Validation Loss:0.0001993
+Epoch 26, Iter 0: Training Loss:0.001399
+Epoch 26, Iter 24000: Training Loss:0.001139
+Epoch 26 Validation Loss:0.0001995
+Epoch 27, Iter 0: Training Loss:0.001415
+Epoch 27, Iter 24000: Training Loss:0.001281
+Epoch 27 Validation Loss:0.0001997
+Epoch 28, Iter 0: Training Loss:0.001672
+Epoch 28, Iter 24000: Training Loss:0.001224
+Epoch 28 Validation Loss:0.0001993
+Epoch 29, Iter 0: Training Loss:0.001540
+Epoch 29, Iter 24000: Training Loss:0.001223
+Epoch 29 Validation Loss:0.0001995
+Epoch 30, Iter 0: Training Loss:0.001573
+Epoch 30, Iter 24000: Training Loss:0.001106
+Epoch 30 Validation Loss:0.0002004
+Epoch 31, Iter 0: Training Loss:0.001323
+Epoch 31, Iter 24000: Training Loss:0.001443
+Epoch 31 Validation Loss:0.0002011
+Epoch 32, Iter 0: Training Loss:0.001441
+Epoch 32, Iter 24000: Training Loss:0.001345
+Epoch 32 Validation Loss:0.0002013
+Epoch 33, Iter 0: Training Loss:0.001364
+Epoch 33, Iter 24000: Training Loss:0.001100
+Epoch 33 Validation Loss:0.0002019
+Epoch 34, Iter 0: Training Loss:0.001306
+Epoch 34, Iter 24000: Training Loss:0.001148
+Epoch 34 Validation Loss:0.0002029
+Epoch 35, Iter 0: Training Loss:0.001301
+Epoch 35, Iter 24000: Training Loss:0.001408
+Epoch 35 Validation Loss:0.0002038
+Epoch 36, Iter 0: Training Loss:0.001098
+Epoch 36, Iter 24000: Training Loss:0.001162
+Epoch 36 Validation Loss:0.0002050
+Epoch 37, Iter 0: Training Loss:0.001330
+Epoch 37, Iter 24000: Training Loss:0.001073
+Epoch 37 Validation Loss:0.0002063
+Epoch 38, Iter 0: Training Loss:0.001253
+Epoch 38, Iter 24000: Training Loss:0.001129
+Epoch 38 Validation Loss:0.0002069
+Epoch 39, Iter 0: Training Loss:0.001055
+Epoch 39, Iter 24000: Training Loss:0.001310
+Epoch 39 Validation Loss:0.0002079
+Epoch 40, Iter 0: Training Loss:0.001125
+Epoch 40, Iter 24000: Training Loss:0.001104
+Epoch 40 Validation Loss:0.0002095
+Epoch 41, Iter 0: Training Loss:0.001377
+Epoch 41, Iter 24000: Training Loss:0.001138
+Epoch 41 Validation Loss:0.0002109
+Epoch 42, Iter 0: Training Loss:0.001018
+Epoch 42, Iter 24000: Training Loss:0.000935
+Epoch 42 Validation Loss:0.0002124
+Epoch 43, Iter 0: Training Loss:0.001339
+Epoch 43, Iter 24000: Training Loss:0.001016
+Epoch 43 Validation Loss:0.0002149
+Epoch 44, Iter 0: Training Loss:0.001004
+Epoch 44, Iter 24000: Training Loss:0.001025
+Epoch 44 Validation Loss:0.0002163
+Epoch 45, Iter 0: Training Loss:0.001063
+Epoch 45, Iter 24000: Training Loss:0.000845
+Epoch 45 Validation Loss:0.0002190
+Epoch 46, Iter 0: Training Loss:0.000964
+Epoch 46, Iter 24000: Training Loss:0.001032
+Epoch 46 Validation Loss:0.0002212
+Epoch 47, Iter 0: Training Loss:0.001137
+Epoch 47, Iter 24000: Training Loss:0.001174
+Epoch 47 Validation Loss:0.0002232
+Epoch 48, Iter 0: Training Loss:0.000985
+Epoch 48, Iter 24000: Training Loss:0.001066
+Epoch 48 Validation Loss:0.0002258
+Epoch 49, Iter 0: Training Loss:0.000938
+Epoch 49, Iter 24000: Training Loss:0.001042
+Epoch 49 Validation Loss:0.0002287
+Sucess on model train
+Success on model test
+Success on dataset synthesis
+END: Testing success!!!
