@@ -83,7 +83,7 @@ class HALO_MIMIC3Dataset:
 
         data = list(data.values())
 
-        with open("/u/ethanmr3/halo/PyHealth/pyhealth/datasets/configs/hcup_ccs_2015_definitions_benchmark.yaml") as definitions_file:
+        with open("./configs/hcup_ccs_2015_definitions_benchmark.yaml") as definitions_file:
             definitions = yaml.full_load(definitions_file)
 
         code_to_group = {}
