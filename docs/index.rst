@@ -319,7 +319,7 @@ GRASP                                 deep learning     ``pyhealth.models.GRASP`
    api/metrics
    api/medcode
    api/calib
-
+   api/interpret
 
 .. toctree::
    :maxdepth: 2
