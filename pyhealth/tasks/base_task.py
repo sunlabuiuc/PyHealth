@@ -9,7 +9,7 @@ class BaseTask(ABC):
     input_schema: Dict[str, str]
     output_schema: Dict[str, str]
 
-    def pre_filter(self, df: pl.LazyFrame) -> pl.LazyFrame:
+    def pre_filter(self, df: pl.DataFrame) -> pl.DataFrame:
         return df
 
     @abstractmethod
