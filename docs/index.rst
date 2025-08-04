@@ -302,7 +302,7 @@ GRASP                                 deep learning     ``pyhealth.models.GRASP`
 
    install
    tutorials
-   advance_tutorials
+   .. advance_tutorials
 
 
 .. toctree::
@@ -326,6 +326,7 @@ GRASP                                 deep learning     ``pyhealth.models.GRASP`
    :hidden:
    :caption: Additional Information
 
+   how_to_contribute
    live
    log
    about
