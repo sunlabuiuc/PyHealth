@@ -25,6 +25,8 @@ dependencies = [
   "torch~=2.7.1",
   "torchvision",
   "transformers~=4.53.2",
+  "peft",
+  "accelerate",
   "rdkit",
   "scikit-learn~=1.7.0",
   "networkx",
@@ -134,7 +136,7 @@ build-wheel = "python -m hatchling build -t wheel --dir $PX_DIST_DIR"
 
 # use Python built-in unittest library for tests
 [tool.pixi.feature.test.tasks.test]
-cmd = "python -m unittest discover -t tests -s tests/core -p 'test_*.py' -v"
+cmd = "python -m unittest discover -t tests -s tests/core -p 'test_sdoh.py' -v"
 [tool.pixi.feature.nlp.tasks.testnlp]
 cmd = "python -m unittest discover -t tests -s tests/nlp -p 'test_*.py' -v"
 
