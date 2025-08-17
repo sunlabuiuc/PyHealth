@@ -1,3 +1,3 @@
-from .corgan import CorGAN
+from .promptehr import PromptEHR
 
-__all__ = ["CorGAN"]
+__all__ = ["PromptEHR"]
