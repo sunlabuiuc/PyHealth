@@ -1,0 +1,10 @@
+version: "1.0"
+
+tables:
+  echo_images:
+    file_path: "TMED2SummaryTable.csv"
+    patient_id: null
+    timestamp: null              
+    attributes:
+      - "patient_study"            
+      - "diagnosis_label"              
