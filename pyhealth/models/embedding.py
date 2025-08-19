@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 
 from ..datasets import SampleDataset
-from ..processors import SequenceProcessor, TimeseriesProcessor
+from ..processors import SequenceProcessor, TimeseriesProcessor, SignalProcessor
 from .base_model import BaseModel
 
 
@@ -36,6 +36,11 @@ class EmbeddingModel(BaseModel):
                     padding_idx=0
                 )
             elif isinstance(processor, TimeseriesProcessor):
+                self.embedding_layers[field_name] = nn.Linear(
+                    in_features=processor.size,
+                    out_features=embedding_dim
+                )
+            elif isinstance(processor, SignalProcessor):
                 self.embedding_layers[field_name] = nn.Linear(
                     in_features=processor.size,
                     out_features=embedding_dim
