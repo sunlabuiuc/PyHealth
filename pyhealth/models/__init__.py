@@ -18,6 +18,7 @@ from .molerec import MoleRec, MoleRecLayer
 from .retain import RETAIN, RETAINLayer
 from .rnn import RNN, RNNLayer
 from .safedrug import SafeDrug, SafeDrugLayer
+from .smart_adv import SmartAdversary
 from .sparcnet import DenseBlock, DenseLayer, SparcNet, TransitionLayer
 from .stagenet import StageNet, StageNetLayer
 from .tcn import TCN, TCNLayer
@@ -25,3 +26,4 @@ from .torchvision_model import TorchvisionModel
 from .transformer import Transformer, TransformerLayer
 from .transformers_model import TransformersModel
 from .vae import VAE
+
