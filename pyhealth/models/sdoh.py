@@ -2,7 +2,7 @@
 
 """
 __author__ = 'Paul Landes'
-from typing import Set, ClassVar
+from typing import Dict, Any, Set, ClassVar
 from dataclasses import dataclass, field
 import re
 import torch
@@ -44,6 +44,10 @@ class SdohClassifier(object):
     multi-label classification from clinical text.  The model was trained from
     the MIMIC-III derived dataset from `Guevara et al. (2024)`_.
 
+    **Important**: The :obj:`api_key` needs to be populated if the ``Llama 3.1
+    8B Instruct`` (or the setting of :obj:`base_model_id`) has not yet been
+    downloaded.
+
     Citation:
 
       `Guevara et al. (2024)`_ Large language models to identify social determinants of
@@ -54,11 +58,20 @@ class SdohClassifier(object):
     """
     _ROLE: ClassVar[str] = 'You are a social determinants of health (SDOH) classifier.'
     _LABELS: ClassVar[str] = 'transportation housing relationship employment support parent'.split()
+
+    api_key: str = field(default=None)
+    """The API token that starts with ``tf_`` needed to download the Llama
+    model.
+
+    """
     base_model_id: str = field(default='meta-llama/Llama-3.1-8B-Instruct')
+    """The base model ID, which probably should not be modified."""
+
     adapter_model_id: str = field(default='plandes/sdoh-llama-3-1-8b')
+    """The LoRA adapter model ID, which probably should not be modified."""
 
     def _parse_response(self, text: str) -> Set[str]:
-        """Parse the LLM response."""
+        """Parse the LLM response (also used in the unit test case).."""
         res_regs = (re.compile(r'(?:.*?`([a-z,` ]{3,}`))', re.DOTALL),
                     re.compile(r'.*?[`#-]([a-z, \t\n\r]{3,}?)[`-].*', re.DOTALL))
         matched: str = ''
@@ -81,9 +94,15 @@ class SdohClassifier(object):
         """Create the text generation pipeline.  The output is parsed by
         :meth:`_parse_response`."""
         if not hasattr(self, '_pipeline'):
-            base_model = AutoModelForCausalLM.from_pretrained(self.base_model_id)
-            model = PeftModelForCausalLM.from_pretrained(base_model, self.adapter_model_id)
-            tokenizer = AutoTokenizer.from_pretrained(self.base_model_id)
+            params: Dict[str, Any] = {}
+            if self.api_key is not None:
+                params['token'] = self.api_key
+            base_model = AutoModelForCausalLM.from_pretrained(
+                self.base_model_id, **params)
+            model = PeftModelForCausalLM.from_pretrained(
+                base_model, self.adapter_model_id, **params)
+            tokenizer = AutoTokenizer.from_pretrained(
+                self.base_model_id, **params)
             # suppress bogus error logging message under transformers 4.53
             # https://github.com/huggingface/transformers/issues/29395
             self._mod_ignore_check_type()
