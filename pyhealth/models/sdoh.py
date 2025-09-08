@@ -48,6 +48,15 @@ class SdohClassifier(object):
     8B Instruct`` (or the setting of :obj:`base_model_id`) has not yet been
     downloaded.
 
+
+    Example::
+
+        sent = 'Pt is homeless and has no car and has no parents or support'
+        sdoh = SdohClassifier()
+        print(sdoh.predict(sent))
+        >>> {'housing', 'transportation'}
+
+
     Citation:
 
       `Guevara et al. (2024)`_ Large language models to identify social determinants of
