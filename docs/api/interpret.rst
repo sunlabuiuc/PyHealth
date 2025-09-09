@@ -1,4 +1,4 @@
-Interpretability Module
+Interpretability
 ===============
 
 We implement the following interpretability techniques below:
