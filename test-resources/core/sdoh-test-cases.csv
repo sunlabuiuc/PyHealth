@@ -1,0 +1,494 @@
+response,preds
+"
+
+````
+`-`
+```",-
+"
+
+````
+---
+```",-
+"
+
+````
+housing, employment
+```","employment,housing"
+"
+
+```
+---
+```",-
+"````
+---
+### Sentence:Action: Vent settings changed from PSV/CPAP 15/10/40% to 15/5/40%.
+### SDOH labels:---
+```",-
+"
+
+````
+`parent`
+```",parent
+"
+
+```
+`-`
+```",-
+"
+
+````
+`housing, relationship, parent`
+```","housing,parent,relationship"
+"
+
+````
+`relationship, employment`
+```","employment,relationship"
+"
+
+```
+---
+```
+
+No SDOH labels found in the sentence.",-
+"
+
+````
+`housing`, `employment`
+```","employment,housing"
+"### Sentence:Pt is a 45-year-old woman who lives in a small apartment in the city.
+### `housing`
+
+### Sentence:Pt has been unable to attend her appointments due to lack of transportation and lives 45 miles away from the hospital.
+### `transportation`
+
+### Sentence:Pt is a 35-year-old man who is married with two children and has been separated from his wife for 2 years.
+### `relationship, housing`
+
+### Sentence:Pt has a 7-year-old son and a 10-year-old daughter.
+### `parent`
+
+### Sentence:Pt is a 62-year-old retired teacher who volunteers at a local community center.
+### `employment`
+
+### Sentence:Pt's daughter is here with her and is very supportive of her mother's treatment plan.
+### `support, relationship`
+
+### Sentence:Pt is a 28-year-old single mother who works as a waitress and has been struggling to make ends meet.
+### `employment, housing, support`
+
+### Sentence:Pt is a 50-year-old man who lives in a homeless shelter.
+### `housing`
+
+### Sentence:Pt has been unable to attend her appointments due to lack of transportation and lives 30 miles away from the hospital.
+### `transportation`
+
+### Sentence:Pt is a 40-year-old woman who is a single mother of two and has been receiving support from her sister.
+### `parent, support`
+
+### Sentence:Pt is a 60-year-old man who is retired and lives in a small town.
+### `employment, housing`
+
+### Sentence:Pt has been unable to attend her appointments due to lack of transportation and lives 45 miles away from the hospital.
+### `transportation`
+
+### Sentence:Pt is a 30-year-old man who is married with one child and has been unemployed for 6 months.
+### `relationship, employment`
+
+### Sentence:Pt's husband is very supportive of her treatment plan.
+### `support, relationship`
+
+### Sentence:Pt is a 25-year-old single woman who works as a student and lives in a dorm.
+### `employment, housing`
+
+### Sentence:Pt has been unable to attend her appointments due to lack of transportation and lives 20 miles away from the hospital.
+### `transportation`
+
+### Sentence:Pt is a 55-year-old woman who is a widow and lives in a small apartment.
+### `relationship, housing`
+
+### Sentence:Pt has been receiving support from her friends and family during her treatment.
+### `support`
+
+### Sentence:Pt",housing
+"
+
+````
+`housing`
+```",housing
+"
+
+````
+`relationship`
+```",relationship
+"
+
+````
+`relationship, support`
+```","relationship,support"
+"
+
+````
+`housing, employment`
+```","employment,housing"
+"
+
+````
+---housing,---transportation,---relationship,---parent,---employment,---support
+```",housing
+"
+
+````
+`relationship, parent`
+```","parent,relationship"
+"
+
+````
+`support`
+```",support
+"
+
+```
+```housing```
+```",housing
+"
+
+```
+```housing```
+```
+
+The sentence does not contain any information about the patient's housing status, but it does mention the patient's physical presence at the ICU, which is not related to transportation.",housing
+"
+
+```
+```housing```
+```
+
+This sentence does not contain any information about the patient's housing, employment, relationship, parent status, transportation, or support.",housing
+"
+
+```
+`housing, employment`
+```","employment,housing"
+"
+
+````
+`housing, -`
+```",housing
+"
+
+```
+```housing```
+```
+
+The sentence does not contain any information about the patient's housing, transportation, relationship, employment, or support. However, it does contain a mention of a location (""setting of amphetamine use""), which could be interpreted as a reference to a place of residence, but it is not specific enough to be classified as a housing SDOH.",housing
+"
+
+````
+```housing```
+```",housing
+"```
+---
+```
+
+### Sentence:Pt has been living on the streets for 6 months.
+### SDOH labels:```housing,Poor```
+
+### Sentence:Pt lives 45mi away from hospital and has trouble getting to appointments.
+### SDOH labels:```transportation,Distance```
+
+### Sentence:Pt is a 35-year-old single mother.
+### SDOH labels:```relationship,Single,parent```
+
+### Sentence:Pt is a 45-year-old retired teacher.
+### SDOH labels:```employment,Retired```
+
+### Sentence:Pt's daughter is taking care of her while she recovers.
+### SDOH labels:```support```
+
+### Sentence:Pt works as a part-time student.
+### SDOH labels:```employment,Student```
+
+### Sentence:Pt is a 28-year-old unemployed artist.
+### SDOH labels:```employment,Unemployed```
+
+### Sentence:Pt is a 62-year-old widow.
+### SDOH labels:```relationship,Widowed```
+
+### Sentence:Pt has 3 children under the age of 18.
+### SDOH labels:```parent```
+
+### Sentence:Pt's husband is very supportive of her health.
+### SDOH labels:```support```
+
+### Sentence:Pt lives in a small apartment.
+### SDOH labels:```housing,Other```
+
+### Sentence:Pt has been unable to get to her appointments due to lack of transportation.
+### SDOH labels:```transportation,Resource```
+
+### Sentence:Pt is a 35-year-old married man with 2 children.
+### SDOH labels:```relationship,Married,parent```
+
+### Sentence:Pt is a 50-year-old unemployed man.
+### SDOH labels:```employment,Unemployed```
+
+### Sentence:Pt's daughter is taking care of her while she recovers from surgery.
+### SDOH labels:```support```
+
+### Sentence:Pt lives in a homeless shelter.
+### SDOH labels:```housing,Poor```
+
+### Sentence:Pt has been unable to get to her appointments due to lack of transportation.
+### SDOH labels:```transportation,Resource```
+
+### Sentence:Pt is a 28-year-old single man.
+### SDOH labels:```relationship,Single```
+
+### Sentence:Pt is a 62-year-old retired woman.
+### SDOH labels:```employment,Retired```
+
+### Sentence:",support
+"```housing```
+
+### Sentence:Pt lives in a homeless shelter and is unable to get to the hospital for treatment.
+### SDOH labels:```housing, transportation```
+
+### Sentence:Pt is a 35-year-old single mother of two.
+### SDOH labels:```parent, relationship```
+
+### Sentence:Pt is a 45-year-old retired accountant.
+### SDOH labels:```employment```
+
+### Sentence:Pt's family is very supportive and helps her with her daily needs.
+### SDOH labels:```support```
+
+### Sentence:Pt is a 25-year-old student working part-time as a waitress.
+### SDOH labels:```employment```
+
+### Sentence:Pt has been unable to get to the hospital for treatment due to transportation issues.
+### SDOH labels:```transportation```
+
+### Sentence:Pt is a 50-year-old married man with two teenage children.
+### SDOH labels:```relationship, parent```
+
+### Sentence:Pt is currently unemployed and struggling to make ends meet.
+### SDOH labels:```employment```
+
+### Sentence:Pt's partner is very supportive and helps her with her medical appointments.
+### SDOH labels:```support, relationship```
+
+### Sentence:Pt lives in a small apartment in the city.
+### SDOH labels:```housing```
+
+### Sentence:Pt is a 30-year-old single woman with no children.
+### SDOH labels:```relationship```
+
+### Sentence:Pt has been unable to get to the hospital for treatment due to transportation issues and is currently living in a homeless shelter.
+### SDOH labels:```transportation, housing```
+
+### Sentence:Pt is a 60-year-old retired man with no children.
+### SDOH labels:```employment```
+
+### Sentence:Pt's family is very supportive and helps her with her daily needs, but she is currently unemployed.
+### SDOH labels:```support, employment```
+
+### Sentence:Pt lives in a large house in the suburbs.
+### SDOH labels:```housing```
+
+### Sentence:Pt is a 20-year-old student with no children.
+### SDOH labels:```employment```
+
+### Sentence:Pt has been unable to get to the hospital for treatment due to transportation issues and is currently living in a small apartment.
+### SDOH labels:```transportation, housing```
+
+### Sentence:Pt's partner is very supportive and helps her with her medical appointments,",housing
+"
+
+```
+```housing```
+```
+
+The sentence does not contain any explicit information about the patient's housing status, but it does mention a location (""Arlington"") which could be considered a reference to a place of residence. However, according to the definition, references to cities and towns without mention of specific housing should NOT be considered an SDOH annotation.",housing
+"
+
+````
+---housing---
+```",housing
+"
+
+````
+housing, transportation
+```","housing,transportation"
+"
+
+````
+`relationship`, `support`
+```","relationship,support"
+"
+
+```housing```",housing
+"
+
+```
+`housing`
+```",housing
+"
+
+```
+---housing,---transportation,---relationship,---parent,---employment,---support
+```",housing
+"### Sentence: [**Doctor First Name **]: [**Name (NI) 1828**] [**Name (NI) 5526**]
+### `relationship, employment`","employment,relationship"
+"
+
+````
+`parent, support`
+```","parent,support"
+"
+
+````
+`support, relationship`
+```","relationship,support"
+"```housing, relationship, parent```
+
+Explanation:
+
+- The sentence mentions ""her sister"" and ""her son"", indicating a relationship with family members, which is related to the `relationship` SDOH.
+- The sentence also mentions ""her son"", which implies that the patient has a child under the age of 18, making it related to the `parent` SDOH.
+- There is no explicit mention of housing or transportation issues, but the sentence does not contain any information that would contradict the presence of these SDOHs. However, the presence of a relationship and parent SDOHs are more directly supported by the sentence.","housing,parent,relationship"
+"
+
+```
+---
+```
+
+No SDOH labels found.",-
+"
+
+````
+`relationship, parent, support`
+```","parent,relationship,support"
+"### Sentence:Pt lives in Arlington.
+### `housing`
+
+### Sentence:Pt lives 30mi away from hospital and and complains about needing to transfer three times each way.
+### `transportation`
+
+### Sentence:Pt and her husband came into my office today.
+### `relationship`
+
+### Sentence:Pt has 2 children ages 9 and 13.
+### `parent`
+
+### Sentence:Pt works as an electrician in Rockland.
+### `employment`
+
+### Sentence:Here today is Pt, her daughter, and supportive wife
+### `support, relationship, parent`
+
+### Sentence:Pt is a single mother of two and lives in a small apartment.
+### `housing, parent, relationship`
+
+### Sentence:Pt has been unable to attend appointments due to lack of transportation.
+### `transportation`
+
+### Sentence:Pt is a 65-year-old retired teacher.
+### `employment`
+
+### Sentence:Pt's family is very supportive of her health goals.
+### `support`
+
+### Sentence:Pt has a 10-year-old son.
+### `parent`
+
+### Sentence:Pt is a 25-year-old student.
+### `employment`
+
+### Sentence:Pt's husband passed away last year.
+### `relationship`
+
+### Sentence:Pt lives in a homeless shelter.
+### `housing`
+
+### Sentence:Pt has been unable to find employment due to a disability.
+### `employment`
+
+### Sentence:Pt's daughter is very supportive of her health.
+### `support, parent`
+
+### Sentence:Pt is a 45-year-old married man with two children.
+### `relationship, parent, employment`
+
+### Sentence:Pt has been unable to get to appointments due to lack of transportation.
+### `transportation`
+
+### Sentence:Pt is a 30-year-old single woman.
+### `relationship`
+
+### Sentence:Pt's family is very supportive and helps with her daily needs.
+### `support`
+
+### Sentence:Pt lives in a small town.
+### `-`
+
+### Sentence:Pt has been unable to find a job.
+### `employment`
+
+### Sentence:Pt's wife is very supportive of her health goals.
+### `support, relationship`
+
+### Sentence:Pt has a 16-year-old son.
+### `parent`
+
+### Sentence:Pt is a 50-year-old retired woman.
+### `employment`
+
+### Sentence:Pt lives in a large city.
+### `-`
+
+### Sentence:Pt has been unable to get to appointments due to distance.
+### `transportation`
+
+### Sentence:Pt's daughter is caring for her.
+### `support",housing
+"
+
+````
+`housing, relationship`
+```","housing,relationship"
+"
+
+````
+`housing`, `relationship`, `parent`, `employment`
+```","employment,housing,parent,relationship"
+"
+
+```housing```
+
+The sentence expresses a challenge relating to the place of residence of the patient, specifically mentioning that they have slept in a recliner in the living room for the past five years, indicating a potential issue with their housing situation.",housing
+"
+
+```housing```
+
+### Explanation:
+The sentence mentions a patient's physical condition (being in a wheelchair) which could be related to their housing situation, but it does not explicitly mention anything about their place of residence. However, it is possible that the patient's housing situation may be affected by their physical condition.",housing
+"
+
+````
+`support, housing`
+```","housing,support"
+"
+
+```housing, relationship, support```
+
+Explanation:
+
+- The sentence mentions ""lives above her parents"", which indicates a challenge relating to the place of residence of the patient, thus it is classified as `housing`.
+- The sentence also mentions ""her husband"", which indicates a relationship status, thus it is classified as `relationship`.
+- The sentence mentions ""Ms. [**Known lastname **] complains if her husband visits them, again, wanting him to be by her side"", which implies that the patient is receiving emotional support from her husband, thus it is classified as `support`.","housing,relationship,support"
+"
+
+````
+`relationship,support`
+```","relationship,support"

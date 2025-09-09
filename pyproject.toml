@@ -25,6 +25,8 @@ dependencies = [
   "torch~=2.7.1",
   "torchvision",
   "transformers~=4.53.2",
+  "peft",
+  "accelerate",
   "rdkit",
   "scikit-learn~=1.7.0",
   "networkx",
