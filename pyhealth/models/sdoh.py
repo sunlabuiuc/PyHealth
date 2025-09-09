@@ -10,6 +10,7 @@ import transformers
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.pipelines import Pipeline
 from peft import PeftModelForCausalLM
+from pyhealth.models.base_model import BaseModel
 
 
 # the prompt and role used to supervised-fine tune the model
@@ -39,7 +40,7 @@ Classify sentences for social determinants of health (SDOH) as a list labels in 
 
 
 @dataclass
-class SdohClassifier(object):
+class SdohClassifier(BaseModel):
     """This predicts sentence level social determinants of health (SDoH) as a
     multi-label classification from clinical text.  The model was trained from
     the MIMIC-III derived dataset from `Guevara et al. (2024)`_.
@@ -50,10 +51,10 @@ class SdohClassifier(object):
 
 
     Example::
-
-        sent = 'Pt is homeless and has no car and has no parents or support'
-        sdoh = SdohClassifier()
-        print(sdoh.predict(sent))
+        >>> from pyhealth.models import SdohClassifier
+        >>> sdoh = SdohClassifier()
+        >>> sent = 'Pt is homeless and has no car and has no parents or support'
+        >>> print(sdoh.predict(sent))
         >>> {'housing', 'transportation'}
 
 
