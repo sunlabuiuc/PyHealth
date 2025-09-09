@@ -2,6 +2,7 @@ name: CI
 
 on:
   pull_request:
+    branches: [ master ]
   push:
     paths-ignore:
       - '**.md'
@@ -12,6 +13,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [ "3.10", "3.11", "3.12", "3.13" ]
+    
     steps:
       - name: Checkout reposistory
         uses: actions/checkout@v3
@@ -21,7 +26,7 @@ jobs:
       - name: Install Python environment needed for the relpo command
         uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: ${{ matrix.python-version }}
 
       - name: Install pixi
         run: 'curl -fsSL https://pixi.sh/install.sh | sh'
@@ -34,6 +39,27 @@ jobs:
       # environment
       - name: Create the enviornment, which updates the lock file
         run: 'make init'
+
+      - name: Run tests
+        run: 'make testall'
+  
+  # Including GitHub Action for automated tests
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkoutv@3
+      
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install mne pandarallel rdkit transformers accelerate polars
 
       - name: Run tests
         run: 'make testall'
