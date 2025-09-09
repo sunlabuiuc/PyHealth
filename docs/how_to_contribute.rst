@@ -160,6 +160,8 @@ Every contribution must include two types of test cases:
 
 **Note**: You can use frontier LLMs to help generate basic test cases, which we consider valid as long as they are reasonable and comprehensive.
 
+All unit tests should be placed in the `tests/` directory following the existing structure, with 'tests/core/' for core functionality tests.
+
 Pull Request Guidelines
 =======================
 
