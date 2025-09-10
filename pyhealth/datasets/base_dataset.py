@@ -53,31 +53,41 @@ def path_exists(path: str) -> bool:
         return Path(path).exists()
 
 
-def scan_csv_gz_or_csv(path: str) -> pl.LazyFrame:
+def scan_csv_gz_or_csv_tsv(path: str) -> pl.LazyFrame:
     """
-    Scan a CSV.gz or CSV file and returns a LazyFrame.
+    Scan a CSV.gz, CSV, TSV.gz, or TSV file and returns a LazyFrame.
     It will fall back to the other extension if not found.
 
     Args:
-        path (str): URL or local path to a .csv or .csv.gz file
+        path (str): URL or local path to a .csv, .csv.gz, .tsv, or .tsv.gz file
 
     Returns:
-        pl.LazyFrame: The LazyFrame for the CSV.gz or CSV file.
+        pl.LazyFrame: The LazyFrame for the CSV.gz, CSV, TSV.gz, or TSV file.
     """
+    def scan_file(file_path: str) -> pl.LazyFrame:
+        separator = '\t' if '.tsv' in file_path else ','
+        return pl.scan_csv(file_path, separator=separator, infer_schema=False)
+    
     if path_exists(path):
-        return pl.scan_csv(path, infer_schema=False)
+        return scan_file(path)
+    
     # Try the alternative extension
     if path.endswith(".csv.gz"):
-        alt_path = path[:-3]  # Remove .gz
+        alt_path = path[:-3]  # Remove .gz -> try .csv
     elif path.endswith(".csv"):
-        alt_path = f"{path}.gz"  # Add .gz
+        alt_path = f"{path}.gz"  # Add .gz -> try .csv.gz
+    elif path.endswith(".tsv.gz"):
+        alt_path = path[:-3]  # Remove .gz -> try .tsv
+    elif path.endswith(".tsv"):
+        alt_path = f"{path}.gz"  # Add .gz -> try .tsv.gz
     else:
         raise FileNotFoundError(f"Path does not have expected extension: {path}")
+    
     if path_exists(alt_path):
         logger.info(f"Original path does not exist. Using alternative: {alt_path}")
-        return pl.scan_csv(alt_path, infer_schema=False)
+        return scan_file(alt_path)
+    
     raise FileNotFoundError(f"Neither path exists: {path} or {alt_path}")
-
 
 class BaseDataset(ABC):
     """Abstract base class for all PyHealth datasets.
@@ -198,7 +208,7 @@ class BaseDataset(ABC):
         csv_path = clean_path(csv_path)
 
         logger.info(f"Scanning table: {table_name} from {csv_path}")
-        df = scan_csv_gz_or_csv(csv_path)
+        df = scan_csv_gz_or_csv_tsv(csv_path)
 
         # Convert column names to lowercase before calling preprocess_func
         col_names = df.collect_schema().names()
@@ -219,7 +229,7 @@ class BaseDataset(ABC):
             other_csv_path = f"{self.root}/{join_cfg.file_path}"
             other_csv_path = clean_path(other_csv_path)
             logger.info(f"Joining with table: {other_csv_path}")
-            join_df = scan_csv_gz_or_csv(other_csv_path)
+            join_df = scan_csv_gz_or_csv_tsv(other_csv_path)
             join_df = join_df.with_columns(
                 [
                     pl.col(col).alias(col.lower())
