@@ -7,6 +7,7 @@ def register_processor(name: str):
             raise ValueError(f"Processor '{name}' already registered.")
         PROCESSOR_REGISTRY[name] = cls
         return cls
+
     return decorator
 
 
@@ -27,6 +28,7 @@ from .label_processor import (
 from .raw_processor import RawProcessor
 from .sequence_processor import SequenceProcessor
 from .signal_processor import SignalProcessor
+from .tensor_processor import TensorProcessor
 from .text_processor import TextProcessor
 from .timeseries_processor import TimeseriesProcessor
 
@@ -35,6 +37,7 @@ __all__ = [
     "get_processor",
     "ImageProcessor",
     "SequenceProcessor",
+    "TensorProcessor",
     "TimeseriesProcessor",
     "SignalProcessor",
     "BinaryLabelProcessor",
