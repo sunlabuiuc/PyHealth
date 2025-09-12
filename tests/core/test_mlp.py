@@ -14,7 +14,7 @@ class TestMLP(unittest.TestCase):
             {
                 "patient_id": "patient-0",
                 "visit_id": "visit-0",
-                "conditions": ["cond-33", "cond-86", "cond-80"],
+                "conditions": ["cond-33", "cond-86", "cond-80", "cond-12"],
                 "procedures": [1.0, 2.0, 3.5, 4],
                 "label": 0,
             },
