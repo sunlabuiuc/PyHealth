@@ -67,7 +67,7 @@ extensions = [
     "sphinxcontrib.httpdomain",
     "sphinx_copybutton",
     "sphinx_toggleprompt",
-    "bokeh.sphinxext.bokeh_plot",
+    # "bokeh.sphinxext.bokeh_plot",
 ]
 
 toggleprompt_offset_right = 35

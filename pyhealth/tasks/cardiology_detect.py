@@ -1,9 +1,6 @@
 import os
 import pickle
-import pkg_resources
 from scipy.io import loadmat
-import pandas as pd
-import numpy as np
 
 
 def cardiology_isAR_fn(record, epoch_sec=10, shift=5):
