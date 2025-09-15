@@ -54,6 +54,7 @@ tables:
           - "dischtime"
     timestamp: "dischtime"
     attributes:
+      - "hadm_id"
       - "icd9_code"
       - "seq_num"
 
@@ -61,7 +62,14 @@ tables:
     file_path: "PRESCRIPTIONS.csv.gz"
     patient_id: "subject_id"
     timestamp: "startdate"
+    join:
+      - file_path: "ADMISSIONS.csv.gz"
+        "on": "hadm_id"
+        how: "inner"
+        columns:
+          - "dischtime"
     attributes:
+      - "hadm_id"
       - "drug"
       - "drug_type"
       - "drug_name_poe"
@@ -88,6 +96,7 @@ tables:
           - "dischtime"
     timestamp: "dischtime"
     attributes:
+      - "hadm_id"
       - "icd9_code"
       - "seq_num"
 
@@ -116,9 +125,16 @@ tables:
   noteevents:
     file_path: "NOTEEVENTS.csv.gz"
     patient_id: "subject_id"
+    join:
+      - file_path: "ADMISSIONS.csv.gz"
+        "on": "hadm_id"
+        how: "inner"
+        columns:
+          - "dischtime"
     timestamp:
       - "charttime"
     attributes:
+      - "hadm_id"
       - "text"
       - "category"
       - "description"
