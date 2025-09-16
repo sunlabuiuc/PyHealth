@@ -33,8 +33,8 @@ class MIMIC3ICD9CodingStringSchema(BaseTask):
     """
 
     task_name: str = "mimic3_icd9_coding"
-    input_schema: Dict[str, str] = {"text": "text"}
-    output_schema: Dict[str, str] = {"icd_codes": "multilabel"}
+    input_schema = {"text": "text"}
+    output_schema = {"icd_codes": "multilabel"}
 
     def pre_filter(self, df: pl.LazyFrame) -> pl.LazyFrame:
         filtered_df = df.filter(
@@ -75,7 +75,6 @@ class MIMIC3ICD9CodingStringSchema(BaseTask):
             notes = patient.get_events(
                 event_type="noteevents", filters=[("hadm_id", "==", admission.hadm_id)]
             )
-            text = ""
 
             for note in notes:
                 text += " " + note.text
@@ -106,8 +105,8 @@ class MIMIC3ICD9CodingHybridSchema(BaseTask):
     """
 
     task_name: str = "mimic3_icd9_coding"
-    input_schema: Dict[str, str] = {"text": TextProcessor}
-    output_schema: Dict[str, str] = {"icd_codes": "multilabel"}
+    input_schema = {"text": TextProcessor}
+    output_schema = {"icd_codes": "multilabel"}
 
     def pre_filter(self, df: pl.LazyFrame) -> pl.LazyFrame:
         filtered_df = df.filter(
@@ -148,7 +147,6 @@ class MIMIC3ICD9CodingHybridSchema(BaseTask):
             notes = patient.get_events(
                 event_type="noteevents", filters=[("hadm_id", "==", admission.hadm_id)]
             )
-            text = ""
 
             for note in notes:
                 text += " " + note.text

@@ -5,7 +5,7 @@
 import logging
 from dataclasses import field
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Union, Type
 from pyhealth.processors import TextProcessor, MultiLabelProcessor
 import polars as pl
 
@@ -28,8 +28,8 @@ class MIMIC3ICD9Coding(BaseTask):
     """
 
     task_name: str = "mimic3_icd9_coding"
-    input_schema: Dict[str, str] = {"text": TextProcessor}
-    output_schema: Dict[str, str] = {"icd_codes": MultiLabelProcessor}
+    input_schema: Dict[str, Union[str, Type]] = {"text": TextProcessor}
+    output_schema: Dict[str, Union[str, Type]] = {"icd_codes": MultiLabelProcessor}
 
     def pre_filter(self, df: pl.LazyFrame) -> pl.LazyFrame:
         filtered_df = df.filter(
@@ -70,7 +70,6 @@ class MIMIC3ICD9Coding(BaseTask):
             notes = patient.get_events(
                 event_type="noteevents", filters=[("hadm_id", "==", admission.hadm_id)]
             )
-            text = ""
 
             for note in notes:
                 text += " " + note.text
