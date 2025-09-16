@@ -54,44 +54,25 @@ class MIMIC3ICD9Coding(BaseTask):
         samples = []
         admissions = patient.get_events(event_type="admissions")
         for admission in admissions:
-            try:
-                # Check the type and convert if necessary
-                if isinstance(admission.dischtime, str):
-                    admission_dischtime = datetime.strptime(
-                        admission.dischtime, "%Y-%m-%d %H:%M:%S"
-                    )
-                else:
-                    admission_dischtime = admission.dischtime
-            except (ValueError, AttributeError):
-                # If conversion fails, skip this visit
-                print("Error parsing discharge time:", admission.dischtime)
-                continue
 
             text = ""
             icd_codes = set()
 
             diagnoses_icd = patient.get_events(
                 event_type="diagnoses_icd",
-                start=admission.timestamp,
-                end=admission_dischtime,
+                filters=[("hadm_id", "==", admission.hadm_id)],
             )
             procedures_icd = patient.get_events(
                 event_type="procedures_icd",
-                start=admission.timestamp,
-                end=admission_dischtime,
+                filters=[("hadm_id", "==", admission.hadm_id)],
             )
-            noteevents = patient.get_events(
-                event_type="noteevents",
-                # start=admission.timestamp,
-                # end=admission_dischtime,
+            # Get clinical notes
+            notes = patient.get_events(
+                event_type="noteevents", filters=[("hadm_id", "==", admission.hadm_id)]
             )
-            # print(noteevents)
             text = ""
-            print("Timestamps of admission:", admission.timestamp)
-            print("Timestamps of admissions end:", admission_dischtime)
-            print("Timestamps of notes:")
-            for note in noteevents:
-                print(note.timestamp)
+
+            for note in notes:
                 text += " " + note.text
 
             diagnoses_icd = [event.icd9_code for event in diagnoses_icd]
