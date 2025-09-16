@@ -1,4 +1,10 @@
 import unittest
+import tempfile
+import shutil
+import subprocess
+import os
+from pathlib import Path
+
 from pyhealth.datasets import MIMIC3Dataset
 from pyhealth.tasks.mortality_prediction import (
     MortalityPredictionMIMIC3,
@@ -7,29 +13,55 @@ from pyhealth.tasks.mortality_prediction import (
 
 
 class TestMIMIC3MortalityPrediction(unittest.TestCase):
-    """Test MIMIC-3 mortality prediction tasks with synthetic demo data and
-    hadm_id filtering."""
+    """Test MIMIC-3 mortality prediction tasks with demo data downloaded from PhysioNet."""
 
-    @classmethod
-    def setUpClass(cls):
-        """Set up the synthetic MIMIC-III dataset for all tests."""
-        # Use synthetic MIMIC-III dataset from Google Cloud Storage
-        cls.dataset_root = (
-            "https://storage.googleapis.com/pyhealth/" "Synthetic_MIMIC-III"
-        )
+    def setUp(self):
+        """Download and set up demo dataset for each test."""
+        self.temp_dir = tempfile.mkdtemp()
+        self._download_demo_dataset()
+        self._load_dataset()
 
-        # Load dataset with tables needed for mortality prediction
-        tables = ["diagnoses_icd", "procedures_icd", "prescriptions", "noteevents"]
+    def tearDown(self):
+        """Clean up downloaded dataset after each test."""
+        if self.temp_dir and os.path.exists(self.temp_dir):
+            shutil.rmtree(self.temp_dir)
+
+    def _download_demo_dataset(self):
+        """Download MIMIC-III demo dataset using wget."""
+        download_url = "https://physionet.org/files/mimiciii-demo/1.4/"
+
+        # Use wget to download the demo dataset recursively
+        cmd = [
+            "wget",
+            "-r",
+            "-N",
+            "-c",
+            "-np",
+            "--directory-prefix",
+            self.temp_dir,
+            download_url,
+        ]
 
         try:
-            cls.dataset = MIMIC3Dataset(
-                root=cls.dataset_root,
-                tables=tables,
-                dataset_name="synthetic-mimic3-demo",
-                dev=True,  # Use dev mode for faster testing
-            )
-        except Exception as e:
-            raise unittest.SkipTest(f"Failed to load synthetic MIMIC-III dataset: {e}")
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as e:
+            raise unittest.SkipTest(f"Failed to download MIMIC-III demo dataset: {e}")
+        except FileNotFoundError:
+            raise unittest.SkipTest("wget not available - skipping download test")
+
+        # Find the downloaded dataset path
+        physionet_dir = (
+            Path(self.temp_dir) / "physionet.org" / "files" / "mimiciii-demo" / "1.4"
+        )
+        if physionet_dir.exists():
+            self.demo_dataset_path = str(physionet_dir)
+        else:
+            raise unittest.SkipTest("Downloaded dataset not found in expected location")
+
+    def _load_dataset(self):
+        """Load the dataset for testing."""
+        tables = ["diagnoses_icd", "procedures_icd", "prescriptions", "noteevents"]
+        self.dataset = MIMIC3Dataset(root=self.demo_dataset_path, tables=tables)
 
     def test_dataset_stats(self):
         """Test that the dataset loads correctly and stats() works."""
