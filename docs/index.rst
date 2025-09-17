@@ -314,6 +314,7 @@ GRASP                                 deep learning     ``pyhealth.models.GRASP`
    api/datasets
    api/tasks
    api/models
+   api/processors
    api/interpret
    api/trainer
    api/tokenizer
