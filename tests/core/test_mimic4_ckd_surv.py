@@ -44,9 +44,7 @@ class TestMIMIC4CKDSurv(unittest.TestCase):
         try:
             subprocess.run(cmd, check=True, capture_output=True, text=True)
         except subprocess.CalledProcessError as e:
-            raise unittest.SkipTest(
-                f"Failed to download MIMIC-IV demo dataset: {e}"
-            )
+            raise unittest.SkipTest(f"Failed to download MIMIC-IV demo dataset: {e}")
         except FileNotFoundError:
             raise unittest.SkipTest(
                 "wget not available - skipping MIMIC-IV download test"
@@ -54,18 +52,12 @@ class TestMIMIC4CKDSurv(unittest.TestCase):
 
         # Find the downloaded dataset path
         physionet_dir = (
-            Path(self.temp_dir)
-            / "physionet.org"
-            / "files"
-            / "mimic-iv-demo"
-            / "2.2"
+            Path(self.temp_dir) / "physionet.org" / "files" / "mimic-iv-demo" / "2.2"
         )
         if physionet_dir.exists():
             self.demo_dataset_path = str(physionet_dir)
         else:
-            raise unittest.SkipTest(
-                "Downloaded dataset not found in expected location"
-            )
+            raise unittest.SkipTest("Downloaded dataset not found in expected location")
 
     def _maybe_import_pyhealth(self):
         try:
@@ -74,9 +66,7 @@ class TestMIMIC4CKDSurv(unittest.TestCase):
                 MIMIC4CKDSurvAnalysis,
             )
         except Exception as e:
-            raise unittest.SkipTest(
-                f"pyhealth import failed or incomplete: {e}"
-            )
+            raise unittest.SkipTest(f"pyhealth import failed or incomplete: {e}")
 
     def test_mimic4_ckd_surv_all_modes(self):
         """Instantiate MIMIC4Dataset and run set_task() for all modes.
@@ -89,9 +79,7 @@ class TestMIMIC4CKDSurv(unittest.TestCase):
             from pyhealth.datasets.mimic4 import MIMIC4Dataset
             from pyhealth.tasks.ckd_surv import MIMIC4CKDSurvAnalysis
         except Exception as e:
-            raise unittest.SkipTest(
-                f"pyhealth import failed or incomplete: {e}"
-            )
+            raise unittest.SkipTest(f"pyhealth import failed or incomplete: {e}")
 
         # Initialize dataset with EHR tables needed by the task
         ehr_tables = [
@@ -122,13 +110,9 @@ class TestMIMIC4CKDSurv(unittest.TestCase):
             try:
                 sample_dataset = dataset.set_task(task)
             except Exception as e:
-                self.fail(
-                    f"set_task() raised an exception in mode '{mode}': {e}"
-                )
+                self.fail(f"set_task() raised an exception in mode '{mode}': {e}")
 
-            self.assertIsNotNone(
-                sample_dataset, "set_task should return a dataset"
-            )
+            self.assertIsNotNone(sample_dataset, "set_task should return a dataset")
             self.assertTrue(
                 hasattr(sample_dataset, "samples"),
                 "Returned dataset should have a 'samples' attribute",
@@ -143,13 +127,17 @@ class TestMIMIC4CKDSurv(unittest.TestCase):
                 self.assertIn("patient_id", sample)
 
                 # Pretty-print a compact view depending on mode
-                view = {k: sample.get(k) for k in (
-                    "patient_id",
-                    "duration_days",
-                    "has_esrd",
-                    "baseline_egfr",
-                    "lab_measurements",
-                ) if k in sample}
+                view = {
+                    k: sample.get(k)
+                    for k in (
+                        "patient_id",
+                        "duration_days",
+                        "has_esrd",
+                        "baseline_egfr",
+                        "lab_measurements",
+                    )
+                    if k in sample
+                }
 
                 # Truncate lab_measurements if long
                 if "lab_measurements" in view and isinstance(
