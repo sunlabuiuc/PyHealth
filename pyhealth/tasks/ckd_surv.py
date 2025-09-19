@@ -1,4 +1,5 @@
 from typing import Any, Dict, List, Literal, Union, Type
+from datetime import timedelta
 import polars as pl
 
 from .base_task import BaseTask
@@ -32,7 +33,7 @@ class MIMIC4CKDSurvAnalysis(BaseTask):
     _FEMALE_GENDER = "F"  # Female patients
 
     # CKD-EPI 2021 equation constants (from pkgs.data.utils.calculate_eGFR)
-    _BASE_COEFFICIENT = 141  # Original uses 142 in utils.py
+    _BASE_COEFFICIENT = 142  # Match original pipeline constant
     _AGE_FACTOR = 0.993  # Annual age decline factor
     _FEMALE_ADJUSTMENT = 1.018  # Female gender boost factor
 
@@ -93,13 +94,9 @@ class MIMIC4CKDSurvAnalysis(BaseTask):
             # Use raw processor for time series list of dicts
             base_input.update({"lab_measurements": RawProcessor})
         else:  # heterogeneous
-            # Raw lab measurements with sequence for missing indicators
-            base_input.update(
-                {
-                    "lab_measurements": RawProcessor,
-                    "missing_indicators": SequenceProcessor,
-                }
-            )
+            # Raw lab measurements; per-timestep missing flags inside each
+            # measurement element
+            base_input.update({"lab_measurements": RawProcessor})
 
         return base_input, base_output
 
@@ -141,105 +138,234 @@ class MIMIC4CKDSurvAnalysis(BaseTask):
         if age < self.min_age:
             return []
 
-        # Get CKD baseline date
+        # Gather diagnoses
         ckd_diagnoses = patient.get_events(event_type="diagnoses_icd")
         ckd_events = [e for e in ckd_diagnoses if e.icd_code in self._CKD_CODES]
-
         if not ckd_events:
             return []
-
-        baseline_date = min(e.timestamp for e in ckd_events)
-
-        # Get ESRD outcome
         esrd_events = [e for e in ckd_diagnoses if e.icd_code in self._ESRD_CODES]
+        esrd_date = min((e.timestamp for e in esrd_events), default=None)
 
-        if esrd_events:
-            esrd_date = min(
-                e.timestamp for e in esrd_events if e.timestamp > baseline_date
-            )
-            has_esrd = 1
-            duration_days = (esrd_date - baseline_date).days
-        else:
-            has_esrd = 0
-            # Get all events to find last observation
-            # FIXED: filter out None timestamps
-            all_events = patient.get_events()  # Get all events
-            # Filter out events with None timestamps before finding max
-            valid_events = [e for e in all_events if e.timestamp is not None]
+        # Collect lab events relevant to the scenario and validate
+        lab_events = patient.get_events(event_type="labevents")
 
-            if valid_events:
-                last_event = max(valid_events, key=lambda x: x.timestamp)
-                duration_days = min(
-                    (last_event.timestamp - baseline_date).days,
-                    self.prediction_window_days,
+        def _valid_numeric(e):
+            try:
+                return (
+                    e.valuenum is not None
+                    and float(e.valuenum) > 0
+                    and e.timestamp is not None
+                )
+            except (ValueError, TypeError):
+                return False
+
+        # Select labs per scenario
+        if self.setting in ("time_invariant", "time_variant"):
+            creatinine_events = [
+                e
+                for e in lab_events
+                if e.itemid in self._CREATININE_ITEMIDS and _valid_numeric(e)
+            ]
+            if not creatinine_events:
+                return []
+            # t0 is first creatinine lab
+            t0 = min(e.timestamp for e in creatinine_events)
+            # For positives, keep labs up to ESRD date (inclusive by date)
+            if esrd_date is not None:
+                # Require at least one lab on the ESRD date to match original
+                # pipeline
+                labs_on_esrd_date = [
+                    e
+                    for e in creatinine_events
+                    if e.timestamp.date() == esrd_date.date()
+                ]
+                if not labs_on_esrd_date:
+                    return []
+                considered_creatinine = [
+                    e
+                    for e in creatinine_events
+                    if e.timestamp.date() <= esrd_date.date()
+                ]
+                has_esrd = 1
+                duration_days = (esrd_date.date() - t0.date()).days
+            else:
+                considered_creatinine = creatinine_events
+                has_esrd = 0
+                last_lab_time = max(e.timestamp for e in considered_creatinine)
+                duration_days = (last_lab_time.date() - t0.date()).days
+
+            # Need at least two labs in the window
+            if len(considered_creatinine) < 2 or duration_days <= 0:
+                return []
+
+            # Dispatch per setting
+            if self.setting == "time_invariant":
+                return self._process_time_invariant(
+                    patient,
+                    t0,
+                    age,
+                    gender,
+                    duration_days,
+                    has_esrd,
+                    considered_creatinine,
+                    esrd_date,
                 )
             else:
-                # Fallback: use prediction window if no valid timestamps found
-                duration_days = self.prediction_window_days
+                return self._process_time_variant(
+                    patient,
+                    t0,
+                    age,
+                    gender,
+                    duration_days,
+                    has_esrd,
+                    considered_creatinine,
+                    esrd_date,
+                )
 
-        if duration_days <= 0:
-            return []
-
-        # Process by setting
-        if self.setting == "time_invariant":
-            return self._process_time_invariant(
-                patient, baseline_date, age, gender, duration_days, has_esrd
-            )
-        elif self.setting == "time_variant":
-            return self._process_time_variant(
-                patient, baseline_date, age, gender, duration_days, has_esrd
-            )
         else:  # heterogeneous
+            # Consider creatinine, protein, albumin
+            creatinine_events = [
+                e
+                for e in lab_events
+                if e.itemid in self._CREATININE_ITEMIDS and _valid_numeric(e)
+            ]
+            protein_events = [
+                e
+                for e in lab_events
+                if e.itemid in self._PROTEIN_ITEMIDS and _valid_numeric(e)
+            ]
+            albumin_events = [
+                e
+                for e in lab_events
+                if e.itemid in self._ALBUMIN_ITEMIDS and _valid_numeric(e)
+            ]
+
+            # Need creatinine to derive egfr at minimum
+            if not creatinine_events:
+                return []
+
+            # t0 is min across all available labs for this scenario
+            timestamps = [
+                e.timestamp
+                for e in (creatinine_events + protein_events + albumin_events)
+                if e.timestamp is not None
+            ]
+            if not timestamps:
+                return []
+            t0 = min(timestamps)
+
+            if esrd_date is not None:
+                # Require at least one lab on ESRD date
+                any_on_esrd = any(
+                    e.timestamp.date() == esrd_date.date()
+                    for e in (creatinine_events + protein_events + albumin_events)
+                )
+                if not any_on_esrd:
+                    return []
+                considered_creatinine = [
+                    e
+                    for e in creatinine_events
+                    if e.timestamp.date() <= esrd_date.date()
+                ]
+                considered_protein = [
+                    e for e in protein_events if e.timestamp.date() <= esrd_date.date()
+                ]
+                considered_albumin = [
+                    e for e in albumin_events if e.timestamp.date() <= esrd_date.date()
+                ]
+                has_esrd = 1
+                duration_days = (esrd_date.date() - t0.date()).days
+            else:
+                considered_creatinine = creatinine_events
+                considered_protein = protein_events
+                considered_albumin = albumin_events
+                has_esrd = 0
+                last_time = max(
+                    [
+                        e.timestamp
+                        for e in (
+                            considered_creatinine
+                            + considered_protein
+                            + considered_albumin
+                        )
+                    ]
+                )
+                duration_days = (last_time.date() - t0.date()).days
+
+            # Ensure at least two total timepoints across any lab
+            total_events = len(
+                {
+                    e.timestamp
+                    for e in (
+                        considered_creatinine + considered_protein + considered_albumin
+                    )
+                }
+            )
+            if total_events < 2 or duration_days <= 0:
+                return []
+
             return self._process_heterogeneous(
-                patient, baseline_date, age, gender, duration_days, has_esrd
+                patient,
+                t0,
+                age,
+                gender,
+                duration_days,
+                has_esrd,
+                considered_creatinine,
+                considered_protein,
+                considered_albumin,
+                esrd_date,
             )
 
     def _process_time_invariant(
-        self, patient, baseline_date, age, gender, duration_days, has_esrd
+        self,
+        patient,
+        t0,
+        age,
+        gender,
+        duration_days,
+        has_esrd,
+        considered_creatinine,
+        esrd_date,
     ):
-        """Process for time-invariant analysis."""
-        lab_events = patient.get_events(event_type="labevents")
-        creatinine_events = [
-            e
-            for e in lab_events
-            if (
-                e.itemid in self._CREATININE_ITEMIDS
-                and e.valuenum is not None
-                and e.timestamp >= baseline_date
-            )
-        ]
+        """
+        Process for time-invariant analysis aligned with original
+        NON_TIME_VARIANT.
 
-        if not creatinine_events:
+        - Positives: pick lab on ESRD date (last that day) and compute egfr
+        - Negatives: pick last available lab
+        """
+        # Choose target creatinine event
+        if has_esrd and esrd_date is not None:
+            same_day_events = [
+                e
+                for e in considered_creatinine
+                if e.timestamp.date() == esrd_date.date()
+            ]
+            if not same_day_events:
+                return []
+            target_event = max(same_day_events, key=lambda x: x.timestamp)
+        else:
+            target_event = max(considered_creatinine, key=lambda x: x.timestamp)
+
+        try:
+            creatinine_value = float(target_event.valuenum)
+        except (ValueError, TypeError):
+            return []
+        if creatinine_value <= 0:
             return []
 
-        # Validate and find baseline creatinine
-        valid_creatinine_events = []
-        for e in creatinine_events:
-            try:
-                creatinine_value = float(e.valuenum)
-                if creatinine_value > 0:
-                    valid_creatinine_events.append((e, creatinine_value))
-            except (ValueError, TypeError):
-                continue
+        egfr = self._calculate_egfr(creatinine_value, age, gender)
 
-        if not valid_creatinine_events:
-            return []
-
-        # Closest to baseline
-        _, baseline_creatinine_value = min(
-            valid_creatinine_events,
-            key=lambda x: abs((x[0].timestamp - baseline_date).days),
-        )
-
-        egfr = self._calculate_egfr(baseline_creatinine_value, age, gender)
-
-        # Comorbidities before baseline
+        # Comorbidities before first lab (t0)
         diagnoses = patient.get_events(event_type="diagnoses_icd")
         comorbidities = [
-            e.icd_code for e in diagnoses if e.timestamp <= baseline_date and e.icd_code
+            e.icd_code
+            for e in diagnoses
+            if e.timestamp is not None and e.timestamp <= t0 and e.icd_code
         ]
 
-        # Race from admissions
+        # Race from admissions (optional meta)
         admissions = patient.get_events(event_type="admissions")
         race = admissions[0].race if admissions else "unknown"
 
@@ -259,28 +385,26 @@ class MIMIC4CKDSurvAnalysis(BaseTask):
         return [sample]
 
     def _process_time_variant(
-        self, patient, baseline_date, age, gender, duration_days, has_esrd
+        self,
+        patient,
+        t0,
+        age,
+        gender,
+        duration_days,
+        has_esrd,
+        considered_creatinine,
+        esrd_date,
     ):
-        """Process for time-varying analysis."""
-        lab_events = patient.get_events(event_type="labevents")
-        creatinine_events = [
-            e
-            for e in lab_events
-            if (
-                e.itemid in self._CREATININE_ITEMIDS
-                and e.valuenum is not None
-                and e.timestamp >= baseline_date
-            )
-        ]
+        """
+        Process for time-varying analysis aligned with original
+        TIME_VARIANT.
 
-        if len(creatinine_events) < 2:
-            return []
-
-        # Chronological order
-        creatinine_events.sort(key=lambda x: x.timestamp)
+        Build series from first lab (t0) up to ESRD date (if positive) or last
+        lab (negative).
+        """
+        considered_creatinine.sort(key=lambda x: x.timestamp)
         lab_measurements = []
-
-        for e in creatinine_events:
+        for e in considered_creatinine:
             try:
                 creatinine_value = float(e.valuenum)
                 if creatinine_value <= 0:
@@ -288,15 +412,16 @@ class MIMIC4CKDSurvAnalysis(BaseTask):
             except (ValueError, TypeError):
                 continue
 
-            days_from_baseline = (e.timestamp - baseline_date).days
+            days_from_t0 = (e.timestamp.date() - t0.date()).days
             egfr_value = self._calculate_egfr(creatinine_value, age, gender)
-            lab_measurements.append(
-                {
-                    "timestamp": days_from_baseline,
-                    "egfr": egfr_value,
-                    "creatinine": creatinine_value,
-                }
-            )
+            m = {
+                "timestamp": days_from_t0,
+                "egfr": egfr_value,
+                "creatinine": creatinine_value,
+            }
+            if esrd_date is not None:
+                m["has_esrd_step"] = int(e.timestamp.date() == esrd_date.date())
+            lab_measurements.append(m)
 
         age_group = "elderly" if age >= 65 else "adult"
         gender_str = "male" if gender == self._MALE_GENDER else "female"
@@ -313,95 +438,83 @@ class MIMIC4CKDSurvAnalysis(BaseTask):
         return [sample]
 
     def _process_heterogeneous(
-        self, patient, baseline_date, age, gender, duration_days, has_esrd
+        self,
+        patient,
+        t0,
+        age,
+        gender,
+        duration_days,
+        has_esrd,
+        creatinine_events,
+        protein_events,
+        albumin_events,
+        esrd_date,
     ):
-        """Process for heterogeneous analysis with missing indicators."""
-        lab_events = patient.get_events(event_type="labevents")
+        """Process for heterogeneous analysis with per-timestep missing flags.
 
-        # Validator for lab values
-        def validate(events, itemids):
-            out = []
-            for e in events:
-                if e.itemid in itemids and e.valuenum is not None:
-                    try:
-                        v = float(e.valuenum)
-                        if v > 0:
-                            out.append((e, v))
-                    except (ValueError, TypeError):
-                        continue
-            return out
-
-        creatinine_events = validate(lab_events, self._CREATININE_ITEMIDS)
-        protein_events = validate(lab_events, self._PROTEIN_ITEMIDS)
-        albumin_events = validate(lab_events, self._ALBUMIN_ITEMIDS)
-
-        if not creatinine_events:
-            return []
-
+        Missing flags use names: egfr_missing, protein_missing, albumin_missing
+        (0/1).
+        """
         measurements_by_time: Dict[int, Dict[str, Any]] = {}
 
-        # Creatinine/eGFR
-        for e, creatinine_value in creatinine_events:
-            if e.timestamp >= baseline_date:
-                days = (e.timestamp - baseline_date).days
-                egfr = self._calculate_egfr(creatinine_value, age, gender)
-                if days not in measurements_by_time:
-                    measurements_by_time[days] = {"timestamp": days}
-                measurements_by_time[days].update(
-                    {
-                        "egfr": egfr,
-                        "creatinine": creatinine_value,
-                        "missing_egfr": False,
-                    }
-                )
+        def _upsert(days: int, updates: Dict[str, Any]):
+            if days not in measurements_by_time:
+                measurements_by_time[days] = {
+                    "timestamp": days,
+                    "egfr_missing": 1,
+                    "protein_missing": 1,
+                    "albumin_missing": 1,
+                    "egfr": 0.0,
+                    "protein": 0.0,
+                    "albumin": 0.0,
+                    "creatinine": 0.0,
+                }
+            measurements_by_time[days].update(updates)
 
-        # Protein
-        for e, protein_value in protein_events:
-            if e.timestamp >= baseline_date:
-                days = (e.timestamp - baseline_date).days
-                if days not in measurements_by_time:
-                    measurements_by_time[days] = {
-                        "timestamp": days,
-                        "missing_egfr": True,
-                    }
-                measurements_by_time[days].update(
-                    {"protein": protein_value, "missing_protein": False}
-                )
+        # Within-window events already considered by caller
+        for e in creatinine_events:
+            days = (e.timestamp.date() - t0.date()).days
+            try:
+                cr = float(e.valuenum)
+            except (ValueError, TypeError):
+                continue
+            if cr <= 0:
+                continue
+            egfr = self._calculate_egfr(cr, age, gender)
+            _upsert(days, {"egfr": egfr, "creatinine": cr, "egfr_missing": 0})
 
-        # Albumin
-        for e, albumin_value in albumin_events:
-            if e.timestamp >= baseline_date:
-                days = (e.timestamp - baseline_date).days
-                if days not in measurements_by_time:
-                    measurements_by_time[days] = {
-                        "timestamp": days,
-                        "missing_egfr": True,
-                    }
-                measurements_by_time[days].update(
-                    {"albumin": albumin_value, "missing_albumin": False}
-                )
+        for e in protein_events:
+            days = (e.timestamp.date() - t0.date()).days
+            try:
+                pv = float(e.valuenum)
+            except (ValueError, TypeError):
+                continue
+            if pv <= 0:
+                continue
+            _upsert(days, {"protein": pv, "protein_missing": 0})
+
+        for e in albumin_events:
+            days = (e.timestamp.date() - t0.date()).days
+            try:
+                av = float(e.valuenum)
+            except (ValueError, TypeError):
+                continue
+            if av <= 0:
+                continue
+            _upsert(days, {"albumin": av, "albumin_missing": 0})
 
         if len(measurements_by_time) < 2:
             return []
 
-        # Sorted list and fill missing flags
         lab_measurements: List[Dict[str, Any]] = []
         for days in sorted(measurements_by_time.keys()):
             m = measurements_by_time[days]
-            m.setdefault("missing_egfr", True)
-            m.setdefault("missing_protein", True)
-            m.setdefault("missing_albumin", True)
-            m.setdefault("egfr", 0.0)
-            m.setdefault("protein", 0.0)
-            m.setdefault("albumin", 0.0)
-            m.setdefault("creatinine", 0.0)
+            if esrd_date is not None:
+                # Set step-level ESRD flag when day matches ESRD date
+                m["has_esrd_step"] = int(
+                    (t0.date() + timedelta(days=days)) == esrd_date.date()
+                )
             lab_measurements.append(m)
-
-        missing_indicators = set()
-        for m in lab_measurements:
-            for key, value in m.items():
-                if key.startswith("missing_") and value:
-                    missing_indicators.add(key)
 
         age_group = "elderly" if age >= 65 else "adult"
         gender_str = "male" if gender == self._MALE_GENDER else "female"
@@ -410,7 +523,6 @@ class MIMIC4CKDSurvAnalysis(BaseTask):
             "patient_id": patient.patient_id,
             "demographics": [age_group, gender_str],
             "lab_measurements": lab_measurements,
-            "missing_indicators": list(missing_indicators),
             "age": float(age),
             "gender": [gender],
             "duration_days": float(duration_days),
