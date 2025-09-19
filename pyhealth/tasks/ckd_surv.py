@@ -1,17 +1,22 @@
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Literal
+from typing import Any, Dict, List, Literal, Union, Type
 import polars as pl
 
 from .base_task import BaseTask
+from pyhealth.processors import (
+    SequenceProcessor,
+    TensorProcessor,
+    RawProcessor,
+)
 
 
 class MIMIC4CKDSurvAnalysis(BaseTask):
     """CKD survival analysis task with simplified configuration.
 
-    eGFR calculation methodology adapted from:
+        eGFR calculation methodology adapted from:
     - Original implementation: pkgs.data.utils.calculate_eGFR()
     - Formula source: pkgs.data.store.get_egfr_df()
-    - Reference: CKD-EPI 2021 formula (https://pubmed.ncbi.nlm.nih.gov/34554658/)
+        - Reference: CKD-EPI 2021 formula
+            (https://pubmed.ncbi.nlm.nih.gov/34554658/)
     """
 
     # Private class variables for settings
@@ -56,25 +61,43 @@ class MIMIC4CKDSurvAnalysis(BaseTask):
         self.task_name = f"MIMIC4CKDSurvAnalysis_{self.setting}"
         self.input_schema, self.output_schema = self._configure_schemas()
 
-    def _configure_schemas(self) -> tuple[Dict[str, str], Dict[str, str]]:
-        """Configure schemas based on survival setting."""
-        base_input = {"demographics": "List[str]", "age": "float", "gender": "str"}
+    def _configure_schemas(
+        self,
+    ) -> tuple[Dict[str, Union[str, Type]], Dict[str, Union[str, Type]]]:
+        """Configure schemas based on survival setting.
 
-        base_output = {"duration_days": "float", "has_esrd": "int"}
+        Use registered processors:
+        - "sequence" for categorical lists
+          (e.g., demographics, gender, comorbidities)
+        - "tensor" for numeric values (e.g., age, eGFR, durations, labels)
+        """
+        base_input: Dict[str, Union[str, Type]] = {
+            "demographics": SequenceProcessor,
+            "age": TensorProcessor,
+            "gender": SequenceProcessor,
+        }
+
+        base_output: Dict[str, Union[str, Type]] = {
+            "duration_days": TensorProcessor,
+            "has_esrd": TensorProcessor,
+        }
 
         if self.setting == "time_invariant":
-            base_input.update({"baseline_egfr": "float", "comorbidities": "List[str]"})
-        elif self.setting == "time_variant":
             base_input.update(
                 {
-                    "lab_measurements": "List[Dict[str, Any]]"  # [{"timestamp": days, "egfr": value}, ...]
+                    "baseline_egfr": TensorProcessor,
+                    "comorbidities": SequenceProcessor,
                 }
             )
+        elif self.setting == "time_variant":
+            # Use raw processor for time series list of dicts
+            base_input.update({"lab_measurements": RawProcessor})
         else:  # heterogeneous
+            # Raw lab measurements with sequence for missing indicators
             base_input.update(
                 {
-                    "lab_measurements": "List[Dict[str, Any]]",  # [{"timestamp": days, "egfr": value, "protein": value, "missing_egfr": bool}, ...]
-                    "missing_indicators": "List[str]",
+                    "lab_measurements": RawProcessor,
+                    "missing_indicators": SequenceProcessor,
                 }
             )
 
@@ -138,7 +161,8 @@ class MIMIC4CKDSurvAnalysis(BaseTask):
             duration_days = (esrd_date - baseline_date).days
         else:
             has_esrd = 0
-            # Get all events to find last observation - FIXED: Filter out None timestamps
+            # Get all events to find last observation
+            # FIXED: filter out None timestamps
             all_events = patient.get_events()  # Get all events
             # Filter out events with None timestamps before finding max
             valid_events = [e for e in all_events if e.timestamp is not None]
@@ -178,9 +202,11 @@ class MIMIC4CKDSurvAnalysis(BaseTask):
         creatinine_events = [
             e
             for e in lab_events
-            if e.itemid in self._CREATININE_ITEMIDS
-            and e.valuenum is not None
-            and e.timestamp >= baseline_date
+            if (
+                e.itemid in self._CREATININE_ITEMIDS
+                and e.valuenum is not None
+                and e.timestamp >= baseline_date
+            )
         ]
 
         if not creatinine_events:
@@ -191,29 +217,29 @@ class MIMIC4CKDSurvAnalysis(BaseTask):
         for e in creatinine_events:
             try:
                 creatinine_value = float(e.valuenum)
-                if creatinine_value > 0:  # Must be positive
+                if creatinine_value > 0:
                     valid_creatinine_events.append((e, creatinine_value))
             except (ValueError, TypeError):
-                continue  # Skip non-numeric values
+                continue
 
         if not valid_creatinine_events:
             return []
 
-        # Find baseline creatinine closest to baseline_date
-        baseline_event, baseline_creatinine_value = min(
+        # Closest to baseline
+        _, baseline_creatinine_value = min(
             valid_creatinine_events,
             key=lambda x: abs((x[0].timestamp - baseline_date).days),
         )
 
         egfr = self._calculate_egfr(baseline_creatinine_value, age, gender)
 
-        # Get comorbidities
+        # Comorbidities before baseline
         diagnoses = patient.get_events(event_type="diagnoses_icd")
         comorbidities = [
             e.icd_code for e in diagnoses if e.timestamp <= baseline_date and e.icd_code
         ]
 
-        # Get race
+        # Race from admissions
         admissions = patient.get_events(event_type="admissions")
         race = admissions[0].race if admissions else "unknown"
 
@@ -226,12 +252,11 @@ class MIMIC4CKDSurvAnalysis(BaseTask):
             "baseline_egfr": egfr,
             "comorbidities": comorbidities,
             "age": float(age),
-            "gender": gender,
+            "gender": [gender],
             "duration_days": float(duration_days),
             "has_esrd": has_esrd,
         }
-
-        return [sample]  # Single sample wrapped in list for consistent interface
+        return [sample]
 
     def _process_time_variant(
         self, patient, baseline_date, age, gender, duration_days, has_esrd
@@ -241,30 +266,30 @@ class MIMIC4CKDSurvAnalysis(BaseTask):
         creatinine_events = [
             e
             for e in lab_events
-            if e.itemid in self._CREATININE_ITEMIDS
-            and e.valuenum is not None
-            and e.timestamp >= baseline_date
+            if (
+                e.itemid in self._CREATININE_ITEMIDS
+                and e.valuenum is not None
+                and e.timestamp >= baseline_date
+            )
         ]
 
         if len(creatinine_events) < 2:
             return []
 
-        # Sort by time and create labeled measurements
+        # Chronological order
         creatinine_events.sort(key=lambda x: x.timestamp)
         lab_measurements = []
 
         for e in creatinine_events:
-            # Validate and convert creatinine value
             try:
                 creatinine_value = float(e.valuenum)
                 if creatinine_value <= 0:
-                    continue  # Skip invalid values
+                    continue
             except (ValueError, TypeError):
-                continue  # Skip non-numeric values
+                continue
 
             days_from_baseline = (e.timestamp - baseline_date).days
             egfr_value = self._calculate_egfr(creatinine_value, age, gender)
-
             lab_measurements.append(
                 {
                     "timestamp": days_from_baseline,
@@ -281,12 +306,11 @@ class MIMIC4CKDSurvAnalysis(BaseTask):
             "demographics": [age_group, gender_str],
             "lab_measurements": lab_measurements,
             "age": float(age),
-            "gender": gender,
+            "gender": [gender],
             "duration_days": float(duration_days),
             "has_esrd": has_esrd,
         }
-
-        return [sample]  # Single sample wrapped in list for consistent interface
+        return [sample]
 
     def _process_heterogeneous(
         self, patient, baseline_date, age, gender, duration_days, has_esrd
@@ -294,45 +318,35 @@ class MIMIC4CKDSurvAnalysis(BaseTask):
         """Process for heterogeneous analysis with missing indicators."""
         lab_events = patient.get_events(event_type="labevents")
 
-        # Get multiple biomarkers with validation
-        def validate_and_convert_lab_events(events, itemids):
-            """Helper to validate and convert lab values."""
-            valid_events = []
+        # Validator for lab values
+        def validate(events, itemids):
+            out = []
             for e in events:
                 if e.itemid in itemids and e.valuenum is not None:
                     try:
-                        value = float(e.valuenum)
-                        if value > 0:  # Must be positive for lab values
-                            valid_events.append((e, value))
+                        v = float(e.valuenum)
+                        if v > 0:
+                            out.append((e, v))
                     except (ValueError, TypeError):
                         continue
-            return valid_events
+            return out
 
-        creatinine_events = validate_and_convert_lab_events(
-            lab_events, self._CREATININE_ITEMIDS
-        )
-        protein_events = validate_and_convert_lab_events(
-            lab_events, self._PROTEIN_ITEMIDS
-        )
-        albumin_events = validate_and_convert_lab_events(
-            lab_events, self._ALBUMIN_ITEMIDS
-        )
+        creatinine_events = validate(lab_events, self._CREATININE_ITEMIDS)
+        protein_events = validate(lab_events, self._PROTEIN_ITEMIDS)
+        albumin_events = validate(lab_events, self._ALBUMIN_ITEMIDS)
 
         if not creatinine_events:
             return []
 
-        # Create time-aligned measurements with all biomarkers
-        measurements_by_time = {}
+        measurements_by_time: Dict[int, Dict[str, Any]] = {}
 
-        # Add creatinine/eGFR measurements
+        # Creatinine/eGFR
         for e, creatinine_value in creatinine_events:
             if e.timestamp >= baseline_date:
                 days = (e.timestamp - baseline_date).days
                 egfr = self._calculate_egfr(creatinine_value, age, gender)
-
                 if days not in measurements_by_time:
                     measurements_by_time[days] = {"timestamp": days}
-
                 measurements_by_time[days].update(
                     {
                         "egfr": egfr,
@@ -341,32 +355,28 @@ class MIMIC4CKDSurvAnalysis(BaseTask):
                     }
                 )
 
-        # Add protein measurements
+        # Protein
         for e, protein_value in protein_events:
             if e.timestamp >= baseline_date:
                 days = (e.timestamp - baseline_date).days
-
                 if days not in measurements_by_time:
                     measurements_by_time[days] = {
                         "timestamp": days,
                         "missing_egfr": True,
                     }
-
                 measurements_by_time[days].update(
                     {"protein": protein_value, "missing_protein": False}
                 )
 
-        # Add albumin measurements
+        # Albumin
         for e, albumin_value in albumin_events:
             if e.timestamp >= baseline_date:
                 days = (e.timestamp - baseline_date).days
-
                 if days not in measurements_by_time:
                     measurements_by_time[days] = {
                         "timestamp": days,
                         "missing_egfr": True,
                     }
-
                 measurements_by_time[days].update(
                     {"albumin": albumin_value, "missing_albumin": False}
                 )
@@ -374,28 +384,22 @@ class MIMIC4CKDSurvAnalysis(BaseTask):
         if len(measurements_by_time) < 2:
             return []
 
-        # Convert to sorted list and fill missing indicators
-        lab_measurements = []
+        # Sorted list and fill missing flags
+        lab_measurements: List[Dict[str, Any]] = []
         for days in sorted(measurements_by_time.keys()):
-            measurement = measurements_by_time[days]
+            m = measurements_by_time[days]
+            m.setdefault("missing_egfr", True)
+            m.setdefault("missing_protein", True)
+            m.setdefault("missing_albumin", True)
+            m.setdefault("egfr", 0.0)
+            m.setdefault("protein", 0.0)
+            m.setdefault("albumin", 0.0)
+            m.setdefault("creatinine", 0.0)
+            lab_measurements.append(m)
 
-            # Set missing indicators for features not present
-            measurement.setdefault("missing_egfr", True)
-            measurement.setdefault("missing_protein", True)
-            measurement.setdefault("missing_albumin", True)
-
-            # Set default values for missing features
-            measurement.setdefault("egfr", 0.0)
-            measurement.setdefault("protein", 0.0)
-            measurement.setdefault("albumin", 0.0)
-            measurement.setdefault("creatinine", 0.0)
-
-            lab_measurements.append(measurement)
-
-        # Collect all missing indicator types present
         missing_indicators = set()
-        for measurement in lab_measurements:
-            for key, value in measurement.items():
+        for m in lab_measurements:
+            for key, value in m.items():
                 if key.startswith("missing_") and value:
                     missing_indicators.add(key)
 
@@ -408,12 +412,11 @@ class MIMIC4CKDSurvAnalysis(BaseTask):
             "lab_measurements": lab_measurements,
             "missing_indicators": list(missing_indicators),
             "age": float(age),
-            "gender": gender,
+            "gender": [gender],
             "duration_days": float(duration_days),
             "has_esrd": has_esrd,
         }
-
-        return [sample]  # Single sample wrapped in list for consistent interface
+        return [sample]
 
     def _calculate_egfr(self, creatinine: float, age: int, gender: str) -> float:
         """Calculate eGFR using simplified CKD-EPI equation.
