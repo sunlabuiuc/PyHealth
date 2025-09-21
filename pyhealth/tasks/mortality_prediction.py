@@ -207,7 +207,7 @@ class MortalityPredictionMIMIC4(BaseTask):
             next_admission = admissions[i + 1]
 
             # Check discharge status for mortality label - more robust handling
-            if next_admission.hospital_expire_flag not in [0, 1]:
+            if next_admission.hospital_expire_flag not in [0, 1, "0", "1"]:
                 mortality_label = 0
             else:
                 mortality_label = int(next_admission.hospital_expire_flag)
@@ -355,7 +355,7 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
             next_admission = admissions[i + 1]
 
             # Check discharge status for mortality label
-            if next_admission.hospital_expire_flag not in [0, 1]:
+            if next_admission.hospital_expire_flag not in [0, 1, "0", "1"]:
                 mortality_label = 0
             else:
                 mortality_label = int(next_admission.hospital_expire_flag)
