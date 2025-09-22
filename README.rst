@@ -83,7 +83,6 @@ Citing PyHealth :handshake:
         year = {2023}
     }
 
-Checkout Our KDD'23 Tutorial https://sunlabuiuc.github.io/PyHealth/
 -----------------------------------------------------------------
 
 
