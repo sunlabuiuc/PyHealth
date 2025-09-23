@@ -38,7 +38,6 @@ Build, test, and deploy healthcare machine learning models with ease. PyHealth m
    :target: https://pypi.org/project/pyhealth/
    :alt: PyPI version
 
-
 .. image:: https://img.shields.io/github/stars/yzhao062/pyhealth.svg
    :target: https://github.com/sunlabuiuc/pyhealth/stargazers
    :alt: GitHub stars
