@@ -9,8 +9,7 @@ Welcome to PyHealth
 
 Build, test, and deploy healthcare machine learning models with ease. PyHealth makes healthcare AI development accessible to researchers, data scientists, and medical practitioners.
 
-Key Features
-------------------
+**Key Features**
 
 - Modular 5-stage pipeline for healthcare ML
 - Healthcare-first: medical codes and clinical datasets (MIMIC, eICU, OMOP)
@@ -19,9 +18,13 @@ Key Features
 - Fast (3x faster than pandas) data processing for quick experimentation
 
 
-.. image:: https://readthedocs.org/projects/pyhealth/badge/?version=latest
+.. image:: https://app.readthedocs.org/projects/pyhealth/badge/?version=latest&style=flat
    :target: https://pyhealth.readthedocs.io/en/latest/
    :alt: Documentation status
+
+.. image:: https://img.shields.io/readthedocs/pyhealth?logo=readthedocs&label=docs&version=latest
+   :target: https://pyhealth.readthedocs.io/en/latest/
+   :alt: Docs
 
 .. image:: https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white
    :target: https://discord.gg/mpb835EHaX
@@ -34,7 +37,6 @@ Key Features
 .. image:: https://img.shields.io/pypi/v/pyhealth.svg?color=brightgreen
    :target: https://pypi.org/project/pyhealth/
    :alt: PyPI version
-
 
 .. image:: https://img.shields.io/github/stars/yzhao062/pyhealth.svg
    :target: https://github.com/sunlabuiuc/pyhealth/stargazers
