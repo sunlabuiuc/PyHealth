@@ -61,7 +61,7 @@ Work with the most important healthcare datasets out of the box:
    Dataset              Information                               Year
    ===================  ========================================  =======================================
    **MIMIC-III**        Critical care database (40K+ patients)   2016
-   **MIMIC-IV**         Updated critical care database            2020  
+   **MIMIC-IV**         Updated critical care database (300k+ patients)            2020  
    **eICU**             Multi-center ICU database                 2018
    **OMOP-CDM**         Standardized healthcare data format      Ongoing
    **EHRShot**          Few-shot EHR benchmarking dataset        2023
@@ -158,25 +158,6 @@ PyHealth excels at these healthcare AI applications:
 - **Seizure detection**: EEG abnormality identification
 - **Cardiac monitoring**: ECG analysis and arrhythmia detection
 - **Vital sign prediction**: Forecast patient deterioration
-
-🏆 **Compared to Alternatives**
-==============================
-
-.. table:: **PyHealth vs. Other Libraries**
-   :widths: auto
-
-   ===========================  ===========  ==========  =============  ============
-   Feature                      **PyHealth** scikit-learn TensorFlow    PyTorch
-   ===========================  ===========  ==========  =============  ============
-   Healthcare-specific          ✅           ❌          ❌             ❌
-   Medical code handling        ✅           ❌          ❌             ❌  
-   Clinical datasets            ✅           ❌          ❌             ❌
-   Healthcare metrics           ✅           ❌          ❌             ❌
-   Pre-built health models      ✅           ❌          ❌             ❌
-   Easy pipeline creation       ✅           ⚠️          ❌             ❌
-   Research reproducibility     ✅           ⚠️          ⚠️             ⚠️
-   Clinical interpretability    ✅           ❌          ❌             ❌
-   ===========================  ===========  ==========  =============  ============
 
 ⚡ **Processing Performance**
 ============================
