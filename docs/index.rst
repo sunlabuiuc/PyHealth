@@ -2,7 +2,7 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to PyHealth! 🏥
+Welcome to PyHealth
 ====================================
 
 **The Python Library for Healthcare AI**
@@ -11,7 +11,7 @@ Build, test, and deploy healthcare machine learning models with ease. PyHealth m
 
 .. important::
 
-   🎉 **Join our growing community!**
+   **Join our growing community!**
    
    * **Discord Community**: Connect with healthcare AI developers `[Join Discord] <https://discord.gg/mpb835EHaX>`_
    * **Mailing List**: Get updates on new features and releases `[Subscribe] <https://docs.google.com/forms/d/e/1FAIpQLSfpJB5tdkI7BccTCReoszV9cyyX2rF99SgznzwlOepi5v-xLw/viewform?usp=header>`_
@@ -75,9 +75,6 @@ Build, test, and deploy healthcare machine learning models with ease. PyHealth m
 ..    :target: https://github.com/yzhao062/pyhealth/blob/master/LICENSE
 ..    :alt: License
 
-.. Go to KDD'23 Tutorial Link https://sunlabuiuc.github.io/PyHealth/
------------------------------------------------------------------
-
 PyHealth is designed for both **ML researchers and medical practitioners**. We can make your **healthcare AI applications** easier to develop, test and validate. Your development process becomes more flexible and more customizable. `[GitHub] <https://github.com/sunlabuiuc/PyHealth>`_ 
 
 
@@ -86,7 +83,7 @@ PyHealth is designed for both **ML researchers and medical practitioners**. We c
  **[News!]** We are continuously implementing good papers and benchmarks into PyHealth, checkout the `[Planned List] <https://docs.google.com/spreadsheets/d/1PNMgDe-llOm1SM5ZyGLkmPysjC4wwaVblPLAHLxejTw/edit#gid=159213380>`_. Welcome to pick one from the list and send us a PR or add more influential and new papers into the plan list.
 
 
-🚀 **Get Started in Minutes**
+Get Started in Minutes
 =============================
 
 PyHealth makes healthcare AI development simple and powerful. Build production-ready models with just a few lines of code.
@@ -111,64 +108,63 @@ PyHealth makes healthcare AI development simple and powerful. Build production-r
 
 `View on GitHub <https://github.com/sunlabuiuc/PyHealth>`_
 
-✨ **Key Features**
+Key Features
 ==================
 
-🏗️ **Modular Pipeline**
+**Modular Pipeline**
    Build healthcare AI with a flexible 5-stage pipeline: data → task → model → training → evaluation
 
-🏥 **Healthcare-First Design**
+**Healthcare-First Design**
    Native support for medical codes (ICD, CPT, NDC), clinical datasets (MIMIC, eICU), and healthcare metrics
 
-🤖 **33+ Pre-built Models**
+**33+ Pre-built Models**
    Access state-of-the-art models like RETAIN, GAMENet, SafeDrug, and more without complex implementation
 
-📊 **Rich Dataset Support**
+**Rich Dataset Support**
    Work with MIMIC-III/IV, eICU, OMOP-CDM, and other major healthcare datasets out of the box
 
-🔬 **Research-Ready**
+**Research-Ready**
    Reproduce published results and benchmark new approaches with standardized evaluation
 
-🛡️ **Production-Ready**
+**Production-Ready**
    Built-in model calibration, uncertainty quantification, and safety considerations
 
-⚡ **High Performance**
+**High Performance**
    Near-instant dataset loading and ~3x faster processing than pandas-centric baselines
 
-📚 **Quick Navigation**
+Quick Navigation
 ======================
 
 .. list-table::
    :widths: 50 50
    :class: borderless
 
-   * - 📖 **Getting Started**
+   * - Getting Started
        
        Build your first healthcare AI model in 5 minutes
        
        :doc:`Read Guide → <how_to_get_started>`
-     - 💡 **Why PyHealth?**
+     - Why PyHealth?
        
        Discover the advantages of PyHealth for healthcare AI
        
        :doc:`Learn More → <why_pyhealth>`
 
-   * - 🏥 **Medical Standards**
+   * - Medical Standards
        
        Translate between medical coding systems (ICD, NDC, ATC, CCS)
        
        :doc:`Explore → <medical_standards>`
-     - 📗 **Tutorials**
+     - Tutorials
        
        Hands-on notebooks and step-by-step guides
        
        :doc:`Open Tutorials → <tutorials>`
 
-📢 **Latest News**
+Latest News
 ==================
 
 * **New Models Added**: We continuously implement cutting-edge research papers. Check our `planned list <https://docs.google.com/spreadsheets/d/1PNMgDe-llOm1SM5ZyGLkmPysjC4wwaVblPLAHLxejTw/edit#gid=159213380>`_ and contribute!
-* **Video Introduction**: Watch our `introduction video <https://www.youtube.com/watch?v=1Ir6hzU4Nro&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=1>`_ to get started
 
 
 
