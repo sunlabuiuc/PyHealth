@@ -2,6 +2,7 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
+
 Welcome to PyHealth
 ====================================
 
@@ -9,21 +10,31 @@ Welcome to PyHealth
 
 Build, test, and deploy healthcare machine learning models with ease. PyHealth makes healthcare AI development accessible to researchers, data scientists, and medical practitioners.
 
-.. important::
+Key Features
+------------------
 
-   **Join our growing community!**
-   
-   * **Discord Community**: Connect with healthcare AI developers `[Join Discord] <https://discord.gg/mpb835EHaX>`_
-   * **Mailing List**: Get updates on new features and releases `[Subscribe] <https://docs.google.com/forms/d/e/1FAIpQLSfpJB5tdkI7BccTCReoszV9cyyX2rF99SgznzwlOepi5v-xLw/viewform?usp=header>`_
-
-.. image:: https://img.shields.io/pypi/v/pyhealth.svg?color=brightgreen
-   :target: https://pypi.org/project/pyhealth/
-   :alt: PyPI version
+- Modular 5-stage pipeline for healthcare ML
+- Healthcare-first: medical codes and clinical datasets (MIMIC, eICU, OMOP)
+- 33+ pre-built models and production-ready trainer/metrics
+- 10+ supported healthcare tasks and datasets
+- Fast (3x faster than pandas) data processing for quick experimentation
 
 
 .. image:: https://readthedocs.org/projects/pyhealth/badge/?version=latest
    :target: https://pyhealth.readthedocs.io/en/latest/
    :alt: Documentation status
+
+.. image:: https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white
+   :target: https://discord.gg/mpb835EHaX
+   :alt: Discord
+
+.. image:: https://img.shields.io/badge/Mailing%20List-Subscribe-blue?logo=gmail&logoColor=white
+   :target: https://docs.google.com/forms/d/e/1FAIpQLSfpJB5tdkI7BccTCReoszV9cyyX2rF99SgznzwlOepi5v-xLw/viewform?usp=header
+   :alt: Mailing list
+
+.. image:: https://img.shields.io/pypi/v/pyhealth.svg?color=brightgreen
+   :target: https://pypi.org/project/pyhealth/
+   :alt: PyPI version
 
 
 .. image:: https://img.shields.io/github/stars/yzhao062/pyhealth.svg
@@ -78,10 +89,6 @@ Build, test, and deploy healthcare machine learning models with ease. PyHealth m
 PyHealth is designed for both **ML researchers and medical practitioners**. We can make your **healthcare AI applications** easier to develop, test and validate. Your development process becomes more flexible and more customizable. `[GitHub] <https://github.com/sunlabuiuc/PyHealth>`_ 
 
 
-----------
-
- **[News!]** We are continuously implementing good papers and benchmarks into PyHealth, checkout the `[Planned List] <https://docs.google.com/spreadsheets/d/1PNMgDe-llOm1SM5ZyGLkmPysjC4wwaVblPLAHLxejTw/edit#gid=159213380>`_. Welcome to pick one from the list and send us a PR or add more influential and new papers into the plan list.
-
 
 Get Started in Minutes
 =============================
@@ -96,7 +103,7 @@ PyHealth makes healthcare AI development simple and powerful. Build production-r
    from pyhealth.trainer import Trainer
 
    # Load healthcare data
-   dataset = MIMIC3Dataset(root="data/", tables=["DIAGNOSES_ICD"])
+   dataset = MIMIC3Dataset(root="data/", tables=["diagnoses_icd", "procedures"])
    samples = dataset.set_task(MortalityPredictionMIMIC3())
 
    # Train model
@@ -106,31 +113,7 @@ PyHealth makes healthcare AI development simple and powerful. Build production-r
 
 **That's it!** You now have a trained healthcare AI model ready for deployment.
 
-`View on GitHub <https://github.com/sunlabuiuc/PyHealth>`_
-
-Key Features
-==================
-
-**Modular Pipeline**
-   Build healthcare AI with a flexible 5-stage pipeline: data → task → model → training → evaluation
-
-**Healthcare-First Design**
-   Native support for medical codes (ICD, CPT, NDC), clinical datasets (MIMIC, eICU), and healthcare metrics
-
-**33+ Pre-built Models**
-   Access state-of-the-art models like RETAIN, GAMENet, SafeDrug, and more without complex implementation
-
-**Rich Dataset Support**
-   Work with MIMIC-III/IV, eICU, OMOP-CDM, and other major healthcare datasets out of the box
-
-**Research-Ready**
-   Reproduce published results and benchmark new approaches with standardized evaluation
-
-**Production-Ready**
-   Built-in model calibration, uncertainty quantification, and safety considerations
-
-**High Performance**
-   Near-instant dataset loading and ~3x faster processing than pandas-centric baselines
+ 
 
 Quick Navigation
 ======================
@@ -154,17 +137,17 @@ Quick Navigation
        
        Translate between medical coding systems (ICD, NDC, ATC, CCS)
        
-       :doc:`Explore → <medical_standards>`
+       :doc:`Explore → <api/medcode>`
      - Tutorials
        
        Hands-on notebooks and step-by-step guides
        
        :doc:`Open Tutorials → <tutorials>`
 
-Latest News
-==================
 
-* **New Models Added**: We continuously implement cutting-edge research papers. Check our `planned list <https://docs.google.com/spreadsheets/d/1PNMgDe-llOm1SM5ZyGLkmPysjC4wwaVblPLAHLxejTw/edit#gid=159213380>`_ and contribute!
+----------
+
+ **[News!]** We are continuously implementing good papers and benchmarks into PyHealth, checkout the `[Planned List] <https://docs.google.com/spreadsheets/d/1PNMgDe-llOm1SM5ZyGLkmPysjC4wwaVblPLAHLxejTw/edit#gid=159213380>`_. Welcome to pick one from the list and send us a PR or add more influential and new papers into the plan list.
 
 
 
@@ -204,7 +187,6 @@ Latest News
    
    why_pyhealth
    how_to_get_started
-   medical_standards
    install
    tutorials
    .. advance_tutorials

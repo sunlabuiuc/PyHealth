@@ -145,13 +145,12 @@ Now that you understand the basics, dive deeper into PyHealth's capabilities:
 ------------------
 
 - :doc:`why_pyhealth` - Discover why PyHealth is the best choice for healthcare AI
-- :doc:`medical_standards` - Learn how to translate between medical coding systems (ICD, CPT, NDC, ATC)
-- :doc:`why_pyhealth` - Discover why PyHealth is the best choice for healthcare AI
+- :doc:`api/medcode` - Learn how to translate between medical coding systems (ICD, NDC, ATC, CCS)
+- :doc:`tutorials` - Interactive Jupyter notebooks with real examples
 
 🛠️ **Advanced Topics**
 ----------------------
 
-- :doc:`tutorials` - Interactive Jupyter notebooks with real examples
 - :doc:`api/models` - Complete documentation of all available models
 - :doc:`api/datasets` - Working with healthcare datasets
 - :doc:`api/tasks` - Defining custom healthcare prediction tasks
