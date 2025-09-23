@@ -9,8 +9,7 @@ Welcome to PyHealth
 
 Build, test, and deploy healthcare machine learning models with ease. PyHealth makes healthcare AI development accessible to researchers, data scientists, and medical practitioners.
 
-Key Features
-------------------
+**Key Features**
 
 - Modular 5-stage pipeline for healthcare ML
 - Healthcare-first: medical codes and clinical datasets (MIMIC, eICU, OMOP)
