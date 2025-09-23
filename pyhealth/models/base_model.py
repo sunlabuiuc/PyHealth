@@ -16,7 +16,7 @@ class BaseModel(ABC, nn.Module):
             information such as the set of all tokens.
     """
 
-    def __init__(self, dataset: SampleDataset):
+    def __init__(self, dataset: SampleDataset = None):
         """
         Initializes the BaseModel.
 
