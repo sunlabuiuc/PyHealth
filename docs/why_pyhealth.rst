@@ -54,22 +54,40 @@ Access cutting-edge healthcare AI models without complex implementation:
 
 Work with the most important healthcare datasets out of the box:
 
-.. table:: **Supported Datasets**
-   :widths: auto
+.. list-table:: Supported Datasets
+   :widths: 22 50 12
+   :header-rows: 1
 
-   ===================  ========================================  =======================================
-   Dataset              Information                               Year
-   ===================  ========================================  =======================================
-   **MIMIC-III**        Critical care database (40K+ patients)   2016
-   **MIMIC-IV**         Updated critical care database (300k+ patients)            2020  
-   **eICU**             Multi-center ICU database                 2018
-   **OMOP-CDM**         Standardized healthcare data format      Ongoing
-   **EHRShot**          Few-shot EHR benchmarking dataset        2023
-   **COVID19-CXR**      COVID-19 chest X-ray image dataset       2020
-   **SleepEDF**         Sleep study recordings                    2018
-   **SHHS**             Sleep Heart Health Study                  2016
-   **ISRUC**            Sleep disorder database                   2016
-   ===================  ========================================  =======================================
+   * - Dataset
+     - Information
+     - Year
+   * - MIMIC-III
+     - Critical care database (40K+ patients)
+     - 2016
+   * - MIMIC-IV
+     - Updated critical care database (300k+ patients)
+     - 2020
+   * - eICU
+     - Multi-center ICU database
+     - 2018
+   * - OMOP-CDM
+     - Standardized healthcare data format
+     - Ongoing
+   * - EHRShot
+     - Few-shot EHR benchmarking dataset
+     - 2023
+   * - COVID19-CXR
+     - COVID-19 chest X-ray image dataset
+     - 2020
+   * - SleepEDF
+     - Sleep study recordings
+     - 2018
+   * - SHHS
+     - Sleep Heart Health Study
+     - 2016
+   * - ISRUC
+     - Sleep disorder database
+     - 2016
 
 🤖 **Comprehensive Model Library**
 ==================================

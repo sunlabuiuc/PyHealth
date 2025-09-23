@@ -19,9 +19,13 @@ Key Features
 - Fast (3x faster than pandas) data processing for quick experimentation
 
 
-.. image:: https://readthedocs.org/projects/pyhealth/badge/?version=latest
+.. image:: https://app.readthedocs.org/projects/pyhealth/badge/?version=latest&style=flat
    :target: https://pyhealth.readthedocs.io/en/latest/
    :alt: Documentation status
+
+.. image:: https://img.shields.io/readthedocs/pyhealth?logo=readthedocs&label=docs&version=latest
+   :target: https://pyhealth.readthedocs.io/en/latest/
+   :alt: Docs
 
 .. image:: https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white
    :target: https://discord.gg/mpb835EHaX
