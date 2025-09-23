@@ -18,9 +18,6 @@ Build, test, and deploy healthcare machine learning models with ease. PyHealth m
 - Fast (3x faster than pandas) data processing for quick experimentation
 
 
-.. image:: https://app.readthedocs.org/projects/pyhealth/badge/?version=latest&style=flat
-   :target: https://pyhealth.readthedocs.io/en/latest/
-   :alt: Documentation status
 
 .. image:: https://img.shields.io/readthedocs/pyhealth?logo=readthedocs&label=docs&version=latest
    :target: https://pyhealth.readthedocs.io/en/latest/
