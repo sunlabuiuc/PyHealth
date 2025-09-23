@@ -25,8 +25,11 @@ class BaseModel(ABC, nn.Module):
         """
         super(BaseModel, self).__init__()
         self.dataset = dataset
-        self.feature_keys = list(dataset.input_schema.keys())
-        self.label_keys = list(dataset.output_schema.keys())
+        self.feature_keys = []
+        self.label_keys = []
+        if dataset:
+            self.feature_keys = list(dataset.input_schema.keys())
+            self.label_keys = list(dataset.output_schema.keys())
         # used to query the device of the model
         self._dummy_param = nn.Parameter(torch.empty(0))
 
