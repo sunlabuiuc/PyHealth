@@ -1,33 +1,33 @@
 Installation
 ============
 
-You could install from PyPi:
+You could install from PyPi for the older stable version of PyHealth:
 
 .. code-block:: bash
 
     pip install pyhealth
 
 
-or from github source:
+or from github source for the latest version of PyHealth:
 
 .. code-block:: bash
 
    git clone https://github.com/sunlabuiuc/PyHealth.git
    cd pyhealth
-   pip install .
+   pip install -e .
 
 
-**Required Dependencies**\ :
+.. **Required Dependencies**\ :
 
-.. code-block:: bash
+.. .. code-block:: bash
 
-    python>=3.8
-    torch>=1.8.0
-    rdkit>=2022.03.4
-    scikit-learn>=0.24.2
-    networkx>=2.6.3
-    pandas>=1.3.2
-    tqdm
+..     python>=3.8
+..     torch>=1.8.0
+..     rdkit>=2022.03.4
+..     scikit-learn>=0.24.2
+..     networkx>=2.6.3
+..     pandas>=1.3.2
+..     tqdm
 
 **Warning 1**\ :
 
@@ -38,9 +38,11 @@ If you want to use neural-net based models, please make sure PyTorch is installe
 Similarly, models depending on **xgboost** would **NOT** enforce xgboost installation by default.
 
 
+
+
 **CUDA Setting**\ :
 
-To run PyHealth, you also need CUDA and cudatoolkit that support your GPU well. `More info <https://developer.nvidia.com/cuda-gpus/>`_
+To run PyHealth, you may also need CUDA and cudatoolkit that supports your GPU. `More info <https://developer.nvidia.com/cuda-gpus/>`_
 
 For example, if you use NVIDIA RTX A6000 as your GPU for training, you should install a compatible cudatoolkit using:
 
