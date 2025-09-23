@@ -55,8 +55,7 @@ Example:
 
    mimic3base = MIMIC3Dataset(
        root="https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III/",
-       tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
-       code_mapping={"NDC": "CCSCM"},
+       tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"]
    )
 
 Stage 2: Defining Tasks
@@ -68,9 +67,10 @@ Example:
 
 .. code-block:: python
 
-   from pyhealth.tasks import readmission_prediction_mimic3_fn
+   from pyhealth.tasks.mortality_prediction import MortalityPredictionMIMIC3
 
-   mimic3sample = mimic3base.set_task(task_fn=readmission_prediction_mimic3_fn)
+   mimic3_mortality_prediction = MortalityPredictionMIMIC3()
+   mimic3sample = mimic3base.set_task(mimic3_mortality_prediction)
 
 To split data and create DataLoaders:
 
@@ -96,9 +96,6 @@ Example:
 
    model = Transformer(
        dataset=mimic3sample,
-       feature_keys=["conditions", "procedures", "drugs"],
-       label_key="label",
-       mode="binary",
    )
 
 Stage 4: Training the Model
@@ -145,13 +142,12 @@ Now that you understand the basics, dive deeper into PyHealth's capabilities:
 ------------------
 
 - :doc:`why_pyhealth` - Discover why PyHealth is the best choice for healthcare AI
-- :doc:`medical_standards` - Learn how to translate between medical coding systems (ICD, CPT, NDC, ATC)
-- :doc:`why_pyhealth` - Discover why PyHealth is the best choice for healthcare AI
+- :doc:`api/medcode` - Learn how to translate between medical coding systems (ICD, NDC, ATC, CCS)
+- :doc:`tutorials` - Interactive Jupyter notebooks with real examples
 
 🛠️ **Advanced Topics**
 ----------------------
 
-- :doc:`tutorials` - Interactive Jupyter notebooks with real examples
 - :doc:`api/models` - Complete documentation of all available models
 - :doc:`api/datasets` - Working with healthcare datasets
 - :doc:`api/tasks` - Defining custom healthcare prediction tasks
@@ -160,5 +156,4 @@ Now that you understand the basics, dive deeper into PyHealth's capabilities:
 --------------------------
 
 - :doc:`how_to_contribute` - Join our community of healthcare AI developers
-- :doc:`faq` - Frequently asked questions and troubleshooting
 - `Discord Community <https://discord.gg/mpb835EHaX>`_ - Chat with other users and developers
