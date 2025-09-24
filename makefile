@@ -57,3 +57,14 @@ wheel:		$(DIST_DIR)
 clean:
 		@echo "removing target: $(TARG_DIR)"
 		@rm -fr $(TARG_DIR)
+
+
+# upload to test PyPI
+.PHONY: upload-test
+upload-test: wheel
+	@PX_DIST_DIR=$(DIST_DIR) pixi run -e build-pypi upload-test
+
+# upload to PyPI
+.PHONY: upload
+upload: wheel
+	@PX_DIST_DIR=$(DIST_DIR) pixi run -e build-pypi upload
