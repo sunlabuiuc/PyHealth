@@ -16,21 +16,23 @@ We support various real-world healthcare predictive tasks defined by **function 
 .. toctree::
     :maxdepth: 3
     
-    tasks/pyhealth.tasks.BaseTask
-    tasks/pyhealth.tasks.Readmission30DaysMIMIC4
-    tasks/pyhealth.tasks.InHospitalMortalityMIMIC4
-    tasks/pyhealth.tasks.MIMIC3ICD9Coding
-    tasks/pyhealth.tasks.cardiology_detect
-    tasks/pyhealth.tasks.COVID19CXRClassification
-    tasks/pyhealth.tasks.drug_recommendation
-    tasks/pyhealth.tasks.EEG_abnormal
-    tasks/pyhealth.tasks.EEG_events
-    tasks/pyhealth.tasks.length_of_stay_prediction
-    tasks/pyhealth.tasks.MedicalTranscriptionsClassification
-    tasks/pyhealth.tasks.mortality_prediction
-    tasks/pyhealth.tasks.patient_linkage_mimic3_fn
-    tasks/pyhealth.tasks.readmission_prediction
-    tasks/pyhealth.tasks.sleep_staging
-    tasks/pyhealth.tasks.SleepStagingSleepEDF
-    tasks/pyhealth.tasks.temple_university_EEG_tasks
+    Base Task <tasks/pyhealth.tasks.BaseTask>
+    Readmission (30 Days, MIMIC-IV) <tasks/pyhealth.tasks.Readmission30DaysMIMIC4>
+    In-Hospital Mortality (MIMIC-IV) <tasks/pyhealth.tasks.InHospitalMortalityMIMIC4>
+    MIMIC-III ICD-9 Coding <tasks/pyhealth.tasks.MIMIC3ICD9Coding>
+    Cardiology Detection <tasks/pyhealth.tasks.cardiology_detect>
+    COVID-19 CXR Classification <tasks/pyhealth.tasks.COVID19CXRClassification>
+    Drug Recommendation <tasks/pyhealth.tasks.drug_recommendation>
+    EEG Abnormal <tasks/pyhealth.tasks.EEG_abnormal>
+    EEG Events <tasks/pyhealth.tasks.EEG_events>
+    Length of Stay Prediction <tasks/pyhealth.tasks.length_of_stay_prediction>
+    Medical Transcriptions Classification <tasks/pyhealth.tasks.MedicalTranscriptionsClassification>
+    Mortality Prediction (Next Visit) <tasks/pyhealth.tasks.mortality_prediction>
+    Patient Linkage (MIMIC-III) <tasks/pyhealth.tasks.patient_linkage_mimic3_fn>
+    Readmission Prediction <tasks/pyhealth.tasks.readmission_prediction>
+    Sleep Staging <tasks/pyhealth.tasks.sleep_staging>
+    Sleep Staging (SleepEDF) <tasks/pyhealth.tasks.SleepStagingSleepEDF>
+    Temple University EEG Tasks <tasks/pyhealth.tasks.temple_university_EEG_tasks>
+    Sleep Staging v2 <tasks/pyhealth.tasks.sleep_staging_v2>
+    Benchmark EHRShot <tasks/pyhealth.tasks.benchmark_ehrshot>
 

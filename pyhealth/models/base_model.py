@@ -16,7 +16,7 @@ class BaseModel(ABC, nn.Module):
             information such as the set of all tokens.
     """
 
-    def __init__(self, dataset: SampleDataset):
+    def __init__(self, dataset: SampleDataset = None):
         """
         Initializes the BaseModel.
 
@@ -25,10 +25,15 @@ class BaseModel(ABC, nn.Module):
         """
         super(BaseModel, self).__init__()
         self.dataset = dataset
-        self.feature_keys = list(dataset.input_schema.keys())
-        self.label_keys = list(dataset.output_schema.keys())
+        self.feature_keys = []
+        self.label_keys = []
+        if dataset:
+            self.feature_keys = list(dataset.input_schema.keys())
+            self.label_keys = list(dataset.output_schema.keys())
         # used to query the device of the model
         self._dummy_param = nn.Parameter(torch.empty(0))
+
+        self.mode = None  # legacy API for backward compatibility with the trainer.
 
     @property
     def device(self) -> torch.device:
@@ -50,9 +55,9 @@ class BaseModel(ABC, nn.Module):
         Returns:
             int: The output size of the model.
         """
-        assert len(self.label_keys) == 1, (
-            "Only one label key is supported if get_output_size is called"
-        )
+        assert (
+            len(self.label_keys) == 1
+        ), "Only one label key is supported if get_output_size is called"
         output_size = self.dataset.output_processors[self.label_keys[0]].size()
         return output_size
 
@@ -69,9 +74,9 @@ class BaseModel(ABC, nn.Module):
         Returns:
             Callable: The default loss function.
         """
-        assert len(self.label_keys) == 1, (
-            "Only one label key is supported if get_loss_function is called"
-        )
+        assert (
+            len(self.label_keys) == 1
+        ), "Only one label key is supported if get_loss_function is called"
         label_key = self.label_keys[0]
         mode = self.dataset.output_schema[label_key]
         if mode == "binary":
@@ -106,9 +111,9 @@ class BaseModel(ABC, nn.Module):
         Returns:
             torch.Tensor: The predicted probability tensor.
         """
-        assert len(self.label_keys) == 1, (
-            "Only one label key is supported if get_loss_function is called"
-        )
+        assert (
+            len(self.label_keys) == 1
+        ), "Only one label key is supported if get_loss_function is called"
         label_key = self.label_keys[0]
         mode = self.dataset.output_schema[label_key]
         if mode in ["binary"]:

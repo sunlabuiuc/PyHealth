@@ -39,6 +39,9 @@ Welcome to PyHealth!
    :target: https://www.youtube.com/playlist?list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV
    :alt: YouTube
 
+.. image:: https://github.com/sunlabuiuc/PyHealth/workflows/CI/badge.svg
+   :target: https://github.com/sunlabuiuc/PyHealth/actions
+   :alt: CI status
 
 
 .. -----
@@ -80,7 +83,6 @@ Citing PyHealth :handshake:
         year = {2023}
     }
 
-Checkout Our KDD'23 Tutorial https://sunlabuiuc.github.io/PyHealth/
 -----------------------------------------------------------------
 
 
