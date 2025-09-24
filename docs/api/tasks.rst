@@ -13,24 +13,11 @@ We support various real-world healthcare predictive tasks defined by **function 
 
 (v) Sleep Staging [Yang et al. ArXiv 2021]
 
-.. toctree::
-    :maxdepth: 3
-    
-    tasks/pyhealth.tasks.BaseTask
-    tasks/pyhealth.tasks.Readmission30DaysMIMIC4
-    tasks/pyhealth.tasks.InHospitalMortalityMIMIC4
-    tasks/pyhealth.tasks.MIMIC3ICD9Coding
-    tasks/pyhealth.tasks.cardiology_detect
-    tasks/pyhealth.tasks.COVID19CXRClassification
-    tasks/pyhealth.tasks.drug_recommendation
-    tasks/pyhealth.tasks.EEG_abnormal
-    tasks/pyhealth.tasks.EEG_events
-    tasks/pyhealth.tasks.length_of_stay_prediction
-    tasks/pyhealth.tasks.MedicalTranscriptionsClassification
-    tasks/pyhealth.tasks.mortality_prediction
-    tasks/pyhealth.tasks.patient_linkage_mimic3_fn
-    tasks/pyhealth.tasks.readmission_prediction
-    tasks/pyhealth.tasks.sleep_staging
-    tasks/pyhealth.tasks.SleepStagingSleepEDF
-    tasks/pyhealth.tasks.temple_university_EEG_tasks
+Auto-generated API docs for all modules in ``pyhealth.tasks``:
+
+.. autosummary::
+    :toctree: tasks
+    :recursive:
+
+    pyhealth.tasks
 
