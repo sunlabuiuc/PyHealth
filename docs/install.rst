@@ -7,6 +7,11 @@ You could install from PyPi for the older stable version of PyHealth:
 
     pip install pyhealth
 
+or our most-updated alpha version from PyPi:
+
+.. code-block:: bash
+
+   pip install pyhealth==2.0a2
 
 or from github source for the latest version of PyHealth:
 

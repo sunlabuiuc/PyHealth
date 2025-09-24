@@ -16,11 +16,11 @@ Prefer video? Watch a short introduction to PyHealth before you start.
 Installing PyHealth
 ===================
 
-You can install PyHealth using `pip`:
+You can install the new PyHealth 2.0 alpha release using `pip`:
 
 .. code-block:: bash
 
-   pip install pyhealth
+   !pip install pyhealth==2.0a2
 
 To install the latest development version from GitHub:
 
