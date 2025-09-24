@@ -1,7 +1,5 @@
 pyhealth.tasks.patient_linkage
 =============================
 
-.. automodule:: pyhealth.tasks.patient_linkage
+.. autofunction:: pyhealth.tasks.patient_linkage.patient_linkage_mimic3_fn
    :members:
-   :undoc-members:
-   :show-inheritance:
