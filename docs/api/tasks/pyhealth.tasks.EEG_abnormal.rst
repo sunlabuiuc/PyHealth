@@ -1,8 +1,4 @@
 ﻿pyhealth.tasks.EEG_abnormal
 =======================================
 
-
-.. automodule:: pyhealth.tasks.EEG_abnormal
-    :members:
-    :undoc-members:
-    :show-inheritance:
+.. autofunction:: pyhealth.tasks.EEG_abnormal.EEG_isAbnormal_fn
