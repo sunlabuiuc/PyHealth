@@ -6,21 +6,21 @@ Why PyHealth?
 
 PyHealth is the comprehensive Python library for healthcare AI that makes building, testing, and deploying healthcare machine learning models easier than ever before. Whether you're a researcher, data scientist, or healthcare practitioner, PyHealth provides the tools you need to develop robust healthcare AI applications.
 
-🚀 **Build healthcare AI pipelines in just 10 lines of code**
+Build healthcare AI pipelines in ~10 lines of code
 
 Key Advantages
 ==============
 
-🏗️ **Modular & Flexible Architecture**
+Modular and flexible architecture
 --------------------------------------
 
 PyHealth's 5-stage pipeline design allows you to:
 
-- **Mix and match components**: Use only the parts you need
-- **Easy customization**: Adapt any stage to your specific requirements  
-- **Rapid prototyping**: Test different models and configurations quickly
-- **Production ready**: Scale from research to deployment seamlessly
-- **High performance**: Near-instant dataset loading and ~3x faster processing than pandas baselines
+- Mix and match components: Use only the parts you need
+- Easy customization: Adapt any stage to your specific requirements  
+- Rapid prototyping: Test different models and configurations quickly
+- Production ready: Scale from research to deployment seamlessly
+- High performance: Near-instant dataset loading and ~3x faster processing than pandas baselines
 
 .. code-block:: text
 
@@ -28,26 +28,26 @@ PyHealth's 5-stage pipeline design allows you to:
          ↓            ↓           ↓         ↓        ↓
     Your data → Your task → Your model → Auto → Results
 
-🏥 **Healthcare-Specific Design**
+Healthcare-specific design
 --------------------------------
 
 Unlike general ML libraries, PyHealth is built specifically for healthcare:
 
-- **Medical code handling**: Built-in support for ICD, CPT, NDC, ATC, and more
-- **Healthcare datasets**: Native support for MIMIC-III/IV, eICU, OMOP-CDM
-- **Clinical metrics**: Healthcare-specific evaluation metrics (DDI rate, clinical accuracy)
-- **Temporal modeling**: Handle complex patient timelines and visit sequences
-- **Safety considerations**: Tools for model calibration and uncertainty quantification
+- Medical code handling: Built-in support for ICD, CPT, NDC, ATC, and more
+- Healthcare datasets: Native support for MIMIC-III/IV, eICU, OMOP-CDM
+- Clinical metrics: Healthcare-specific evaluation metrics (DDI rate, clinical accuracy)
+- Temporal modeling: Handle complex patient timelines and visit sequences
+- Safety considerations: Tools for model calibration and uncertainty quantification
 
-🔬 **State-of-the-Art Models**
+State-of-the-art models
 -----------------------------
 
 Access cutting-edge healthcare AI models without complex implementation:
 
-- **33+ pre-built models** from recent research papers
-- **Easy benchmarking** across different approaches
-- **Custom model layers** for building novel architectures
-- **Interpretable models** like RETAIN for clinical decision support
+- 33+ pre-built models from recent research papers
+- Easy benchmarking across different approaches
+- Custom model layers for building novel architectures
+- Interpretable models like RETAIN for clinical decision support
 
 📊 **Rich Dataset Ecosystem**
 ----------------------------
@@ -89,15 +89,15 @@ Work with the most important healthcare datasets out of the box:
      - Sleep disorder database
      - 2016
 
-🤖 **Comprehensive Model Library**
+Comprehensive model library
 ==================================
 
 PyHealth includes implementations of the most important healthcare AI models:
 
-**Deep Learning Models**
+Deep learning models
 -----------------------
 
-.. table:: **Neural Network Models**
+.. table:: Neural network models
    :widths: auto
 
    ============================  ======  ================================================================
@@ -113,10 +113,10 @@ PyHealth includes implementations of the most important healthcare AI models:
    **GRASP**                     2021    Graph neural networks for patient clustering
    ============================  ======  ================================================================
 
-**Foundation Models**
+Foundation models
 --------------------
 
-.. table:: **General Purpose Models**
+.. table:: General purpose models
    :widths: auto
 
    ============================  ======  ================================================================
@@ -129,10 +129,10 @@ PyHealth includes implementations of the most important healthcare AI models:
    **MLP**                       1986    Multi-layer perceptrons for tabular data
    ============================  ======  ================================================================
 
-**Specialized Models**
+Specialized models
 ---------------------
 
-.. table:: **Domain-Specific Models**
+.. table:: Domain-specific models
    :widths: auto
 
    ============================  ======  ================================================================
@@ -144,40 +144,40 @@ PyHealth includes implementations of the most important healthcare AI models:
    **Dr. Agent**                 2020    Reinforcement learning for clinical decisions
    ============================  ======  ================================================================
 
-🎯 **Common Use Cases**
+Common use cases
 ======================
 
 PyHealth excels at these healthcare AI applications:
 
-**Clinical Prediction**
+Clinical prediction
 ----------------------
 - **Mortality prediction**: ICU and hospital mortality risk
 - **Readmission prediction**: 30-day readmission risk
 - **Length of stay**: Hospital and ICU stay duration
 - **Disease progression**: Track patient condition changes
 
-**Drug & Treatment Recommendation**
+Drug and treatment recommendation
 ----------------------------------
 - **Medication recommendation**: Suggest appropriate drugs
 - **Drug-drug interaction**: Identify dangerous combinations  
 - **Treatment optimization**: Personalized therapy selection
 - **Dosage prediction**: Optimal medication dosing
 
-**Medical Coding & Standards**
+Medical coding and standards
 -----------------------------
 - **Code translation**: Convert between ICD, CPT, NDC, ATC systems
 - **Code completion**: Auto-suggest medical codes
 - **Standardization**: Normalize medical terminology
 - **Quality assurance**: Validate coding accuracy
 
-**Biosignal Analysis**
+Biosignal analysis
 ---------------------
 - **Sleep staging**: Automatic sleep phase classification
 - **Seizure detection**: EEG abnormality identification
 - **Cardiac monitoring**: ECG analysis and arrhythmia detection
 - **Vital sign prediction**: Forecast patient deterioration
 
-⚡ **Processing Performance**
+Processing performance
 ============================
 
 .. image:: ../figure/PyHealth_Data_Performance.png
@@ -188,7 +188,7 @@ PyHealth excels at these healthcare AI applications:
 .. note::
    PyHealth uses optimized data loaders and vectorized operations to achieve near-instant dataset loading and preprocessing. In our internal benchmarks, end-to-end processing throughput is roughly **3x faster** than typical pandas-centric baselines on common healthcare workloads.
 
-📈 **Growing Community**
+Growing community
 =======================
 
 Join thousands of healthcare AI practitioners:
@@ -201,7 +201,7 @@ Join thousands of healthcare AI practitioners:
 - **Support**: Active Discord community and GitHub discussions
   - `Join our Discord <https://discord.gg/mpb835EHaX>`_
 
-🚀 **Get Started Today**
+Get started today
 =======================
 
 Ready to build your first healthcare AI application? See :doc:`how_to_get_started` to install PyHealth and build your first model in minutes.

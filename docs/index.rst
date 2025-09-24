@@ -7,7 +7,7 @@ Welcome to PyHealth
 
 **The Python Library for Healthcare AI**
 
-Build, test, and deploy healthcare machine learning models with ease. PyHealth makes healthcare AI development accessible to researchers, data scientists, and medical practitioners.
+Build, test, and deploy healthcare machine learning models with ease. PyHealth is designed for both **ML researchers and medical practitioners**. We can make your **healthcare AI applications** easier to develop, test and validate. Your development process becomes more flexible and more customizable. `[GitHub] <https://github.com/sunlabuiuc/PyHealth>`_ 
 
 **Key Features**
 
@@ -16,7 +16,6 @@ Build, test, and deploy healthcare machine learning models with ease. PyHealth m
 - 33+ pre-built models and production-ready trainer/metrics
 - 10+ supported healthcare tasks and datasets
 - Fast (3x faster than pandas) data processing for quick experimentation
-
 
 
 .. image:: https://img.shields.io/readthedocs/pyhealth?logo=readthedocs&label=docs&version=latest
@@ -83,8 +82,6 @@ Build, test, and deploy healthcare machine learning models with ease. PyHealth m
 .. .. image:: https://img.shields.io/github/license/yzhao062/pyhealth
 ..    :target: https://github.com/yzhao062/pyhealth/blob/master/LICENSE
 ..    :alt: License
-
-PyHealth is designed for both **ML researchers and medical practitioners**. We can make your **healthcare AI applications** easier to develop, test and validate. Your development process becomes more flexible and more customizable. `[GitHub] <https://github.com/sunlabuiuc/PyHealth>`_ 
 
 
 
