@@ -68,3 +68,71 @@ upload-test: wheel
 .PHONY: upload
 upload: wheel
 	@PX_DIST_DIR=$(DIST_DIR) pixi run -e build-pypi upload
+.PHONY: bump-alpha-minor-dry
+bump-alpha-minor-dry:
+	@python tools/bump_version.py --alpha-minor --dry-run
+
+.PHONY: bump-alpha-major-dry
+bump-alpha-major-dry:
+	@python tools/bump_version.py --alpha-major --dry-run
+
+.PHONY: bump-minor-dry
+bump-minor-dry:
+	@python tools/bump_version.py --minor --dry-run
+
+.PHONY: bump-major-dry
+bump-major-dry:
+	@python tools/bump_version.py --major --dry-run
+
+.PHONY: upload-test-alpha-minor
+upload-test-alpha-minor: bump-alpha-minor wheel
+	@PX_DIST_DIR=$(DIST_DIR) pixi run -e build-pypi upload-test
+
+.PHONY: upload-test-alpha-major
+upload-test-alpha-major: bump-alpha-major wheel
+	@PX_DIST_DIR=$(DIST_DIR) pixi run -e build-pypi upload-test
+
+.PHONY: upload-test-minor
+upload-test-minor: bump-minor wheel
+	@PX_DIST_DIR=$(DIST_DIR) pixi run -e build-pypi upload-test
+
+.PHONY: upload-test-major
+upload-test-major: bump-major wheel
+	@PX_DIST_DIR=$(DIST_DIR) pixi run -e build-pypi upload-test
+
+
+## Smart bump + upload helpers
+#
+# Usage examples:
+#   make upload-alpha-minor   # 2.0a04 -> 2.0a05, then build & upload
+#   make upload-alpha-major   # 2.0a04 -> 2.0a10, then build & upload
+#   make upload-minor         # 2.0a04 -> 2.0.0 (or next free patch), then upload
+#   make upload-major         # 2.0.1  -> 2.1.0, then build & upload
+
+.PHONY: bump-alpha-minor
+bump-alpha-minor:
+	@python tools/bump_version.py --alpha-minor
+
+.PHONY: bump-alpha-major
+bump-alpha-major:
+	@python tools/bump_version.py --alpha-major
+
+.PHONY: bump-minor
+bump-minor:
+	@python tools/bump_version.py --minor
+
+.PHONY: bump-major
+bump-major:
+	@python tools/bump_version.py --major
+
+.PHONY: upload-alpha-minor
+upload-alpha-minor: bump-alpha-minor upload
+
+.PHONY: upload-alpha-major
+upload-alpha-major: bump-alpha-major upload
+
+.PHONY: upload-minor
+upload-minor: bump-minor upload
+
+.PHONY: upload-major
+upload-major: bump-major upload
