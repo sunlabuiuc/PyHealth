@@ -11,7 +11,7 @@ or our most-updated alpha version from PyPi:
 
 .. code-block:: bash
 
-   pip install pyhealth==2.0a2
+   pip install pyhealth==2.0a4
 
 or from github source for the latest version of PyHealth:
 
