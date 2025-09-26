@@ -5,3 +5,5 @@ unstructured
 tiktoken
 rich #for console formatting
 gradio==4.19.2
+streamlit
+sentence_transformers
