@@ -1,0 +1,21 @@
+version: "1.0"
+tables:
+  patients:
+    file_path: "set-a"  # or "set-b", "set-c"
+    patient_id: "RecordID"
+    timestamp: "Time"
+    timestamp_format: "%H:%M"
+    attributes:
+      - "Parameter"
+      - "Value"
+      - "Age"
+      - "Gender"
+      - "Height"
+      - "Weight"
+      - "ICUType"
+    join:
+      - file_path: "Outcomes-a.txt"  # or "Outcomes-b.txt", "Outcomes-c.txt"
+        "on": "RecordID"
+        how: "left"
+        columns:
+          - "In-hospital_death" 
