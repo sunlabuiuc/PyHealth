@@ -19,7 +19,10 @@ def GradientSaliencyMapping(model, dataloader, batches=1, image_key='image', lab
     saliency = []
     batch_count = 0
     for inputs in dataloader:
-        batch_images = inputs[image_key].clone().detach().requires_grad_()
+        if batch_count == batches:
+            break
+        imgs = inputs[image_key]
+        batch_images = imgs.clone().detach().requires_grad_()
         batch_labels = inputs[label_key]
         output = model(image=batch_images, disease=batch_labels)
         y_prob = output['y_prob']
@@ -33,7 +36,5 @@ def GradientSaliencyMapping(model, dataloader, batches=1, image_key='image', lab
         sal, _ = torch.max(sal, dim=1)
 
         saliency.append({'saliency': sal, 'image': batch_images, 'label': batch_labels})
-        if batch_count == batches:
-            break
         batch_count += 1
     return saliency
