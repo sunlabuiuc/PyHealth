@@ -25,6 +25,7 @@ from .label_processor import (
     MultiLabelProcessor,
     RegressionLabelProcessor,
 )
+from .multi_hot_processor import MultiHotProcessor
 from .raw_processor import RawProcessor
 from .sequence_processor import SequenceProcessor
 from .signal_processor import SignalProcessor
@@ -40,6 +41,7 @@ __all__ = [
     "TensorProcessor",
     "TimeseriesProcessor",
     "SignalProcessor",
+    "MultiHotProcessor",
     "BinaryLabelProcessor",
     "MultiClassLabelProcessor",
     "MultiLabelProcessor",
