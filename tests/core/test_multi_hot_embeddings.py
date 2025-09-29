@@ -46,6 +46,95 @@ class TestMultiHotEmbeddings(unittest.TestCase):
             dataset_name="test-multihot",
         )
 
+    def test_multihot_encoding_correctness(self):
+        """Test that multi-hot encoding produces correct binary vectors.
+        
+        Verifies that:
+        1. Vocabulary is built correctly from all unique categories
+        2. Each processed sample has 1s at indices corresponding to its categories
+        3. All other indices are 0
+        4. Vector size matches vocabulary size
+        
+        Example:
+            If vocabulary = {"asian": 0, "black": 1, "hispanic": 2, "non_hispanic": 3, "white": 4}
+            Then ["asian", "non_hispanic"] → [1.0, 0.0, 0.0, 1.0, 0.0]
+        """
+        print("\n[TEST] Running: test_multihot_encoding_correctness")
+        
+        # Get the processor
+        processor = self.dataset.input_processors["ethnicity"]
+        
+        # Check vocabulary was built correctly
+        # Expected categories: asian, black, hispanic, non_hispanic, white (sorted alphabetically)
+        expected_categories = {"asian", "black", "hispanic", "non_hispanic", "white"}
+        self.assertEqual(set(processor.label_vocab.keys()), expected_categories)
+        
+        # Verify vocabulary size
+        vocab_size = processor.size()
+        self.assertEqual(vocab_size, 5)
+        print(f"[TEST] Vocabulary: {processor.label_vocab}")
+        
+        # Test each sample's encoding - iterate through dataset directly
+        # to access samples in order
+        
+        # Sample 0: ["asian", "non_hispanic"]
+        ethnicity_0 = self.dataset[0]["ethnicity"]
+        
+        asian_idx = processor.label_vocab["asian"]
+        non_hispanic_idx = processor.label_vocab["non_hispanic"]
+        
+        print(f"[TEST] Sample 0 original: ['asian', 'non_hispanic']")
+        print(f"[TEST] Sample 0 encoded: {ethnicity_0.tolist()}")
+        print(f"[TEST] Checking: asian_idx={asian_idx}, non_hispanic_idx={non_hispanic_idx}")
+        
+        # Check that asian and non_hispanic positions are 1
+        self.assertEqual(ethnicity_0[asian_idx].item(), 1.0)
+        self.assertEqual(ethnicity_0[non_hispanic_idx].item(), 1.0)
+        
+        # Check that all other positions are 0
+        for i in range(vocab_size):
+            if i not in [asian_idx, non_hispanic_idx]:
+                self.assertEqual(ethnicity_0[i].item(), 0.0)
+        
+        print(f"[TEST] ✓ Sample 0 encoding verified")
+        
+        # Sample 1: ["white", "hispanic"]
+        ethnicity_1 = self.dataset[1]["ethnicity"]
+        
+        white_idx = processor.label_vocab["white"]
+        hispanic_idx = processor.label_vocab["hispanic"]
+        
+        print(f"[TEST] Sample 1 original: ['white', 'hispanic']")
+        print(f"[TEST] Sample 1 encoded: {ethnicity_1.tolist()}")
+        print(f"[TEST] Checking: white_idx={white_idx}, hispanic_idx={hispanic_idx}")
+        
+        self.assertEqual(ethnicity_1[white_idx].item(), 1.0)
+        self.assertEqual(ethnicity_1[hispanic_idx].item(), 1.0)
+        
+        for i in range(vocab_size):
+            if i not in [white_idx, hispanic_idx]:
+                self.assertEqual(ethnicity_1[i].item(), 0.0)
+        
+        print(f"[TEST] ✓ Sample 1 encoding verified")
+        
+        # Sample 2: ["black"]
+        ethnicity_2 = self.dataset[2]["ethnicity"]
+        
+        black_idx = processor.label_vocab["black"]
+        
+        print(f"[TEST] Sample 2 original: ['black']")
+        print(f"[TEST] Sample 2 encoded: {ethnicity_2.tolist()}")
+        print(f"[TEST] Checking: black_idx={black_idx}")
+        
+        self.assertEqual(ethnicity_2[black_idx].item(), 1.0)
+        
+        for i in range(vocab_size):
+            if i != black_idx:
+                self.assertEqual(ethnicity_2[i].item(), 0.0)
+        
+        print(f"[TEST] ✓ Sample 2 encoding verified")
+        print("[TEST] ✓ test_multihot_encoding_correctness passed")
+
     def test_embedding_model_linear_projection(self):
         """Test that MultiHotProcessor outputs are linearly projected to embedding_dim.
         
