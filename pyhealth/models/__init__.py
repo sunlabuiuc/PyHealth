@@ -7,6 +7,7 @@ from .contrawr import ContraWR, ResBlock2D
 from .deepr import Deepr, DeeprLayer
 from .embedding import EmbeddingModel
 from .gamenet import GAMENet, GAMENetLayer
+from .logistic_regression import LogisticRegression
 from .gan import GAN
 from .gnn import GAT, GCN
 from .graph_torchvision_model import Graph_TorchvisionModel
@@ -25,3 +26,4 @@ from .torchvision_model import TorchvisionModel
 from .transformer import Transformer, TransformerLayer
 from .transformers_model import TransformersModel
 from .vae import VAE
+from .sdoh import SdohClassifier

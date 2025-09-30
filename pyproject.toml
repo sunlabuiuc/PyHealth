@@ -1,0 +1,156 @@
+#@meta {desc: "PyHealth build configuration", date: "2025-07-16"}
+
+
+### Project
+#
+[project]
+name = "pyhealth"
+# must be kept in sync with git tags; is not updated by any automation tools
+version = "2.0"
+authors = [
+  {name = "John Wu", email = "johnwu3@illinois.edu"},
+  {name = "Chaoqi Yang"},
+  {name = "Zhenbang Wu"},
+  {name = "Patrick Jiang"},
+  {name = "Zhen Lin"},
+  {name = "Benjamin Danek"},
+  {name = "Junyi Gao"},
+  {name = "Paul Landes", email = "landes@mailc.net"},
+  {name = "Jimeng Sun"},
+]
+description = "A Python library for healthcare AI"
+readme = "README.rst"
+requires-python = ">=3.10,<3.14"
+dependencies = [
+  "torch~=2.7.1",
+  "torchvision",
+  "transformers~=4.53.2",
+  "peft",
+  "accelerate",
+  "rdkit",
+  "scikit-learn~=1.7.0",
+  "networkx",
+  "mne~=1.10.0",
+  "urllib3~=2.5.0",
+  "numpy~=1.26.4",
+  "tqdm",
+  "polars~=1.31.0",
+  "pandas~=2.3.1",
+  "pandarallel~=1.6.5",
+  "pydantic~=2.11.7",
+]
+license = "BSD-3-Clause"
+license-files = ["LICENSE.md"]
+keywords = [
+  "heathcare AI",
+  "healthcare",
+  "electronic health records",
+  "EHRs",
+  "machine learning",
+  "data mining",
+  "neural networks",
+  "deep learning",
+]
+
+[project.urls]
+Homepage = "https://github.com/sunlabuiuc/PyHealth"
+Documentation = "https://pyhealth.readthedocs.io/en/latest/about.html"
+Repository = "https://github.com/sunlabuiuc/PyHealth.git"
+Issues = "https://github.com/sunlabuiuc/PyHealth/issues"
+Changelog = "https://github.com/sunlabuiuc/PyHealth/blob/master/CHANGELOG.md"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+
+### Hatchling
+#
+[tool.hatch.build.targets.wheel]
+packages = ["pyhealth"]
+
+
+### Pixi
+#
+# specifies properties for the whole workspace
+[tool.pixi.project]
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "linux-64", "linux-aarch64", "win-64"]
+preview = ["pixi-build"]
+
+# virtual environments (each under '.pixi/envs') for specific tasks
+[tool.pixi.environments]
+default = { features = ["pyverbase"], solve-group = "default" }
+test = { features = ["pyverbase", "test"] }
+base = { features = ["pyverbase", "base"] }
+nlp = { features = ["pyverbase", "nlp"] }
+build-pypi = { features = ["pyverbase", "build-pypi"], solve-group = "default" }
+build-env = { features = ["pyverbase", "build-env"], solve-group = "default" }
+
+# specify where to download the build backend that builds conda files
+[tool.pixi.package.build]
+backend = { name = "pixi-build-python", version = "0.1.*" }
+channels = [
+  "https://prefix.dev/pixi-build-backends",
+  "https://prefix.dev/conda-forge",
+]
+
+# set the Python requirement for its environment
+[tool.pixi.feature.pyverbase.dependencies]
+python = "~=3.13"
+
+# pixi directly supports depending on PyPI packages, the PyPA calls a
+# distributed package a 'distribution'
+[tool.pixi.feature.base.pypi-dependencies]
+pyhealth = { path = ".", editable = true }
+
+[tool.pixi.feature.test.pypi-dependencies]
+pyhealth = { path = ".", editable = true }
+
+[tool.pixi.feature.nlp.pypi-dependencies]
+pyhealth = { path = ".", editable = true }
+
+[tool.pixi.feature.nlp.dependencies]
+pip = "*"
+
+# dependencies for building the wheel
+[tool.pixi.feature.build-pypi.dependencies]
+hatchling = "==1.26.3"
+
+[tool.pixi.feature.build-env.dependencies]
+# pip for environment extract
+pip = "*"
+
+# dependencies needed during build/link time that are specific to the host
+# machine
+[tool.pixi.package.host-dependencies]
+hatchling = "==1.26.3"
+python = "~=3.13"
+
+
+## Tasks
+#
+# task to use hatchling to build the wheel
+[tool.pixi.feature.build-pypi.tasks]
+build-wheel = "python -m hatchling build -t wheel --dir $PX_DIST_DIR"
+
+# use Python built-in unittest library for tests
+[tool.pixi.feature.test.tasks.test]
+cmd = "python -m unittest discover -t tests -s tests/core -p 'test_*.py' -v"
+[tool.pixi.feature.nlp.tasks.testnlp]
+cmd = "python -m unittest discover -t tests -s tests/nlp -p 'test_*.py' -v"
+
+# default environment tasks
+[tool.pixi.tasks]
+# env sanity check
+defaultenv = "python -c 'import sys; print(sys.executable, sys.version)'"
+# build the conda distribution file
+build-conda = "pixi build --output-dir $PX_DIST_DIR"
+# export environment.yml
+export = "pixi workspace export conda-environment"
+
+# command-line program invocation
+[tool.pixi.tasks.invoke]
+args = [{ "arg" = "args", "default" = "" }]
+env = { CLASS = "zensols.relpo.cli", PYTHONPATH = "src" }
+cmd = "\npython -c \"from $CLASS import main;print('_'*80);main('{{args}}'.split())\""
