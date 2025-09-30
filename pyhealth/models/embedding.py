@@ -4,7 +4,12 @@ import torch
 import torch.nn as nn
 
 from ..datasets import SampleDataset
-from ..processors import SequenceProcessor, TimeseriesProcessor, TensorProcessor
+from ..processors import (
+    MultiHotProcessor,
+    SequenceProcessor,
+    TensorProcessor,
+    TimeseriesProcessor,
+)
 from .base_model import BaseModel
 
 
@@ -12,9 +17,33 @@ class EmbeddingModel(BaseModel):
     """
     EmbeddingModel is responsible for creating embedding layers for different types of input data.
 
+    This model automatically creates appropriate embedding transformations based on the processor type:
+    
+    - SequenceProcessor: Creates nn.Embedding for categorical sequences (e.g., diagnosis codes)
+      Input: (batch, seq_len) with integer indices
+      Output: (batch, seq_len, embedding_dim)
+    
+    - TimeseriesProcessor: Creates nn.Linear for time series features
+      Input: (batch, seq_len, num_features)
+      Output: (batch, seq_len, embedding_dim)
+    
+    - TensorProcessor: Creates nn.Linear for fixed-size numerical features
+      Input: (batch, feature_size)
+      Output: (batch, embedding_dim)
+    
+    - MultiHotProcessor: Creates nn.Linear for multi-hot encoded categorical features
+      Input: (batch, num_categories) binary tensor
+      Output: (batch, embedding_dim)
+      Note: Converts sparse categorical representations to dense embeddings
+    
+    - Other processors with size(): Creates nn.Linear if processor reports a positive size
+      Input: (batch, size)
+      Output: (batch, embedding_dim)
+
     Attributes:
         dataset (SampleDataset): The dataset containing input processors.
         embedding_layers (nn.ModuleDict): A dictionary of embedding layers for each input field.
+        embedding_dim (int): The target embedding dimension for all features.
     """
 
     def __init__(self, dataset: SampleDataset, embedding_dim: int = 128):
@@ -26,6 +55,7 @@ class EmbeddingModel(BaseModel):
             embedding_dim (int): The dimension of the embedding space. Default is 128.
         """
         super().__init__(dataset)
+        self.embedding_dim = embedding_dim
         self.embedding_layers = nn.ModuleDict()
         for field_name, processor in self.dataset.input_processors.items():
             if isinstance(processor, SequenceProcessor):
@@ -54,6 +84,36 @@ class EmbeddingModel(BaseModel):
                     self.embedding_layers[field_name] = nn.Linear(
                         in_features=input_size, out_features=embedding_dim
                     )
+            elif isinstance(processor, MultiHotProcessor):
+                # MultiHotProcessor produces fixed-size binary vectors
+                # Use processor.size() to get the vocabulary size (num_categories)
+                num_categories = processor.size()
+                self.embedding_layers[field_name] = nn.Linear(
+                    in_features=num_categories, out_features=embedding_dim
+                )
+            else:
+                # Handle other processors with a size() method
+                size_attr = getattr(processor, "size", None)
+                if callable(size_attr):
+                    size_value = size_attr()
+                else:
+                    size_value = size_attr
+                
+                if isinstance(size_value, int) and size_value > 0:
+                    self.embedding_layers[field_name] = nn.Linear(
+                        in_features=size_value, out_features=embedding_dim
+                    )
+                else:
+                    # No valid size() method found - raise an error
+                    raise ValueError(
+                        f"Processor for field '{field_name}' (type: {type(processor).__name__}) "
+                        f"does not have a valid size() method or it returned an invalid value. "
+                        f"To use this processor with EmbeddingModel, it must either:\n"
+                        f"  1. Be a recognized processor type (SequenceProcessor, TimeseriesProcessor, "
+                        f"TensorProcessor, MultiHotProcessor), or\n"
+                        f"  2. Implement a size() method that returns a positive integer representing "
+                        f"the feature dimension."
+                    )
 
     def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """
@@ -67,8 +127,8 @@ class EmbeddingModel(BaseModel):
         """
         embedded = {}
         for field_name, tensor in inputs.items():
+            tensor = tensor.to(self.device)
             if field_name in self.embedding_layers:
-                tensor = tensor.to(self.device)
                 embedded[field_name] = self.embedding_layers[field_name](tensor)
             else:
                 embedded[field_name] = tensor  # passthrough for continuous features
