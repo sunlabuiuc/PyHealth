@@ -7,6 +7,8 @@ from ..datasets import SampleDataset
 from ..processors import (
     MultiHotProcessor,
     SequenceProcessor,
+    StageNetProcessor,
+    StageNetTensorProcessor,
     TensorProcessor,
     TimeseriesProcessor,
 )
@@ -18,24 +20,24 @@ class EmbeddingModel(BaseModel):
     EmbeddingModel is responsible for creating embedding layers for different types of input data.
 
     This model automatically creates appropriate embedding transformations based on the processor type:
-    
+
     - SequenceProcessor: Creates nn.Embedding for categorical sequences (e.g., diagnosis codes)
       Input: (batch, seq_len) with integer indices
       Output: (batch, seq_len, embedding_dim)
-    
+
     - TimeseriesProcessor: Creates nn.Linear for time series features
       Input: (batch, seq_len, num_features)
       Output: (batch, seq_len, embedding_dim)
-    
+
     - TensorProcessor: Creates nn.Linear for fixed-size numerical features
       Input: (batch, feature_size)
       Output: (batch, embedding_dim)
-    
+
     - MultiHotProcessor: Creates nn.Linear for multi-hot encoded categorical features
       Input: (batch, num_categories) binary tensor
       Output: (batch, embedding_dim)
       Note: Converts sparse categorical representations to dense embeddings
-    
+
     - Other processors with size(): Creates nn.Linear if processor reports a positive size
       Input: (batch, size)
       Output: (batch, embedding_dim)
@@ -58,14 +60,17 @@ class EmbeddingModel(BaseModel):
         self.embedding_dim = embedding_dim
         self.embedding_layers = nn.ModuleDict()
         for field_name, processor in self.dataset.input_processors.items():
-            if isinstance(processor, SequenceProcessor):
+            if isinstance(processor, (SequenceProcessor, StageNetProcessor)):
+                # Categorical codes -> use nn.Embedding
                 vocab_size = len(processor.code_vocab)
                 self.embedding_layers[field_name] = nn.Embedding(
                     num_embeddings=vocab_size,
                     embedding_dim=embedding_dim,
                     padding_idx=0,
                 )
-            elif isinstance(processor, TimeseriesProcessor):
+            elif isinstance(processor, (TimeseriesProcessor, StageNetTensorProcessor)):
+                # Numeric features -> use nn.Linear
+                # Both processors have .size attribute
                 self.embedding_layers[field_name] = nn.Linear(
                     in_features=processor.size, out_features=embedding_dim
                 )
@@ -98,7 +103,7 @@ class EmbeddingModel(BaseModel):
                     size_value = size_attr()
                 else:
                     size_value = size_attr
-                
+
                 if isinstance(size_value, int) and size_value > 0:
                     self.embedding_layers[field_name] = nn.Linear(
                         in_features=size_value, out_features=embedding_dim

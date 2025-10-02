@@ -41,19 +41,21 @@ def strptime(s: str) -> Optional[datetime]:
         return None
     return dateutil_parse(s)
 
-def padyear(year: str, month='1', day='1') -> str:
+
+def padyear(year: str, month="1", day="1") -> str:
     """Pad a date time year of format 'YYYY' to format 'YYYY-MM-DD'
-    
-    Args: 
+
+    Args:
         year: str, year to be padded. Must be non-zero value.
         month: str, month string to be used as padding. Must be in [1, 12]
         day: str, day string to be used as padding. Must be in [1, 31]
-        
+
     Returns:
         padded_date: str, padded year.
-    
+
     """
     return f"{year}-{month}-{day}"
+
 
 def flatten_list(l: List) -> List:
     """Flattens a list of list.
@@ -157,13 +159,42 @@ def collate_fn_dict_with_padding(batch: List[dict]) -> dict:
         A dictionary where each key corresponds to a list of values from the batch.
         Tensor values are padded to the same shape.
     """
+    from ..processors import StageNetFeature
+
     collated = {}
     keys = batch[0].keys()
 
     for key in keys:
         values = [sample[key] for sample in batch]
 
-        if isinstance(values[0], torch.Tensor):
+        if isinstance(values[0], StageNetFeature):
+            # Handle StageNetFeature: collate value and time separately
+            value_tensors = [v.value for v in values]
+            time_tensors = [v.time for v in values if v.time is not None]
+
+            # Collate values
+            if value_tensors[0].dim() == 0:
+                collated_values = torch.stack(value_tensors)
+            elif all(v.shape == value_tensors[0].shape for v in value_tensors):
+                collated_values = torch.stack(value_tensors)
+            else:
+                collated_values = pad_sequence(
+                    value_tensors, batch_first=True, padding_value=0
+                )
+
+            # Collate times (if present)
+            collated_times = None
+            if time_tensors:
+                if all(t.shape == time_tensors[0].shape for t in time_tensors):
+                    collated_times = torch.stack(time_tensors)
+                else:
+                    collated_times = pad_sequence(
+                        time_tensors, batch_first=True, padding_value=0
+                    )
+
+            collated[key] = StageNetFeature(value=collated_values, time=collated_times)
+
+        elif isinstance(values[0], torch.Tensor):
             # Check if shapes are the same
             shapes = [v.shape for v in values]
             if all(shape == shapes[0] for shape in shapes):
@@ -175,7 +206,9 @@ def collate_fn_dict_with_padding(batch: List[dict]) -> dict:
                     # Scalars, treat as stackable
                     collated[key] = torch.stack(values)
                 elif values[0].dim() >= 1:
-                    collated[key] = pad_sequence(values, batch_first=True, padding_value=0)
+                    collated[key] = pad_sequence(
+                        values, batch_first=True, padding_value=0
+                    )
                 else:
                     raise ValueError(f"Unsupported tensor shape: {values[0].shape}")
         else:
@@ -185,7 +218,9 @@ def collate_fn_dict_with_padding(batch: List[dict]) -> dict:
     return collated
 
 
-def get_dataloader(dataset: torch.utils.data.Dataset, batch_size: int, shuffle: bool = False) -> DataLoader:
+def get_dataloader(
+    dataset: torch.utils.data.Dataset, batch_size: int, shuffle: bool = False
+) -> DataLoader:
     """Creates a DataLoader for a given dataset.
 
     Args:
