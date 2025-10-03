@@ -196,14 +196,6 @@ def collate_fn_dict_with_padding(batch: List[dict]) -> dict:
                         time_tensors_all, batch_first=True, padding_value=0
                     )
 
-            # Debug: Print batch-level statistics
-            print(
-                f"Batch '{key}': value {collated_values.shape}, time {collated_times.shape if collated_times is not None else None}"
-            )
-            print(
-                f"  Value range: [{collated_values.min().item()}, {collated_values.max().item()}]"
-            )
-
             collated[key] = StageNetFeature(value=collated_values, time=collated_times)
 
         elif isinstance(values[0], torch.Tensor):
