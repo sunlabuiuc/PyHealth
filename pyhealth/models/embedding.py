@@ -97,28 +97,10 @@ class EmbeddingModel(BaseModel):
                     in_features=num_categories, out_features=embedding_dim
                 )
             else:
-                # Handle other processors with a size() method
-                size_attr = getattr(processor, "size", None)
-                if callable(size_attr):
-                    size_value = size_attr()
-                else:
-                    size_value = size_attr
-
-                if isinstance(size_value, int) and size_value > 0:
-                    self.embedding_layers[field_name] = nn.Linear(
-                        in_features=size_value, out_features=embedding_dim
-                    )
-                else:
-                    # No valid size() method found - raise an error
-                    raise ValueError(
-                        f"Processor for field '{field_name}' (type: {type(processor).__name__}) "
-                        f"does not have a valid size() method or it returned an invalid value. "
-                        f"To use this processor with EmbeddingModel, it must either:\n"
-                        f"  1. Be a recognized processor type (SequenceProcessor, TimeseriesProcessor, "
-                        f"TensorProcessor, MultiHotProcessor), or\n"
-                        f"  2. Implement a size() method that returns a positive integer representing "
-                        f"the feature dimension."
-                    )
+                print(
+                    "Warning: No embedding created for field due to lack of compatible processor:",
+                    field_name,
+                )
 
     def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """
@@ -132,8 +114,8 @@ class EmbeddingModel(BaseModel):
         """
         embedded = {}
         for field_name, tensor in inputs.items():
-            tensor = tensor.to(self.device)
             if field_name in self.embedding_layers:
+                tensor = tensor.to(self.device)
                 embedded[field_name] = self.embedding_layers[field_name](tensor)
             else:
                 embedded[field_name] = tensor  # passthrough for continuous features
