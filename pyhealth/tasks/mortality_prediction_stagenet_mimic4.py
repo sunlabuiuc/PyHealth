@@ -9,64 +9,83 @@ from .base_task import BaseTask
 class MortalityPredictionStageNetMIMIC4(BaseTask):
     """Task for predicting mortality using MIMIC-IV with StageNet format.
 
-    This task leverages diagnosis codes, procedure codes, and lab results to
-    predict the likelihood of in-hospital mortality. Data is formatted for
-    StageNet with time intervals based on differences between visits.
+    This task creates PATIENT-LEVEL samples (not visit-level) by aggregating
+    all admissions for each patient. ICD codes (diagnoses + procedures) and
+    lab results across all visits are combined with time intervals calculated
+    from the patient's first admission timestamp.
+
+    Time Calculation:
+        - ICD codes: Hours from first admission (visit intervals)
+        - Labs: Hours from admission start (within-visit measurements)
+
+    Lab Processing:
+        - 10-dimensional vectors (one per lab category)
+        - Multiple itemids per category → take first observed value
+        - Missing categories → None/NaN in vector
 
     Attributes:
         task_name (str): The name of the task.
         input_schema (Dict[str, str]): The schema for input data:
-            - conditions: Diagnosis codes (stagenet format)
-            - procedures: Procedure codes (stagenet format)
-            - labs: Lab results (stagenet_tensor format)
+            - icd_codes: Combined diagnosis + procedure ICD codes (stagenet format, nested by visit)
+            - labs: Lab results (stagenet_tensor, 10D vectors per timestamp)
         output_schema (Dict[str, str]): The schema for output data:
-            - mortality: Binary indicator of in-hospital mortality
+            - mortality: Binary indicator (1 if any admission had mortality)
     """
 
     task_name: str = "MortalityPredictionStageNetMIMIC4"
     input_schema: Dict[str, str] = {
-        "conditions": "stagenet",
-        "procedures": "stagenet",
+        "icd_codes": "stagenet",
         "labs": "stagenet_tensor",
     }
     output_schema: Dict[str, str] = {"mortality": "binary"}
 
-    # Organize lab items by category (same as InHospitalMortalityMIMIC4)
-    LAB_CATEGORIES: ClassVar[Dict[str, Dict[str, List[str]]]] = {
-        "Electrolytes & Metabolic": {
-            "Sodium": ["50824", "52455", "50983", "52623"],
-            "Potassium": ["50822", "52452", "50971", "52610"],
-            "Chloride": ["50806", "52434", "50902", "52535"],
-            "Bicarbonate": ["50803", "50804"],
-            "Glucose": ["50809", "52027", "50931", "52569"],
-            "Calcium": ["50808", "51624"],
-            "Magnesium": ["50960"],
-            "Anion Gap": ["50868", "52500"],
-            "Osmolality": ["52031", "50964", "51701"],
-            "Phosphate": ["50970"],
-        },
+    # Organize lab items by category
+    # Each category will map to ONE dimension in the output vector
+    LAB_CATEGORIES: ClassVar[Dict[str, List[str]]] = {
+        "Sodium": ["50824", "52455", "50983", "52623"],
+        "Potassium": ["50822", "52452", "50971", "52610"],
+        "Chloride": ["50806", "52434", "50902", "52535"],
+        "Bicarbonate": ["50803", "50804"],
+        "Glucose": ["50809", "52027", "50931", "52569"],
+        "Calcium": ["50808", "51624"],
+        "Magnesium": ["50960"],
+        "Anion Gap": ["50868", "52500"],
+        "Osmolality": ["52031", "50964", "51701"],
+        "Phosphate": ["50970"],
     }
 
-    # Flat list of all lab items
+    # Ordered list of category names (defines vector dimension order)
+    LAB_CATEGORY_NAMES: ClassVar[List[str]] = [
+        "Sodium",
+        "Potassium",
+        "Chloride",
+        "Bicarbonate",
+        "Glucose",
+        "Calcium",
+        "Magnesium",
+        "Anion Gap",
+        "Osmolality",
+        "Phosphate",
+    ]
+
+    # Flat list of all lab item IDs for filtering
     LABITEMS: ClassVar[List[str]] = [
-        item
-        for category in LAB_CATEGORIES.values()
-        for subcategory in category.values()
-        for item in subcategory
+        item for itemids in LAB_CATEGORIES.values() for item in itemids
     ]
 
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
         """Process a patient to create mortality prediction samples.
 
+        Creates ONE sample per patient with all admissions aggregated.
+        Time intervals are calculated from the first admission timestamp.
+
         Args:
             patient: Patient object with get_events method
 
         Returns:
-            List of samples, each with patient_id, visit_id, conditions,
-            procedures, labs, and mortality label
+            List with single sample containing patient_id, all conditions,
+            procedures, labs across visits, and final mortality label
         """
-        samples = []
-
         # Filter patients by age (>= 18)
         demographics = patient.get_events(event_type="patients")
         if not demographics:
@@ -86,17 +105,20 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
         if len(admissions) < 1:
             return []
 
-        # Process each admission (predict mortality for current admission)
-        for i in range(len(admissions)):
-            admission = admissions[i]
+        # Initialize aggregated data structures
+        all_icd_codes = []  # List of ICD codes (diagnoses + procedures) per visit
+        all_icd_times = []  # Time from first admission per visit
+        all_lab_values = []  # List of 10D lab vectors
+        all_lab_times = []  # Time from admission start per measurement
 
-            # Get mortality label from current admission
-            try:
-                mortality = int(admission.hospital_expire_flag)
-            except (ValueError, TypeError, AttributeError):
-                # Skip if mortality label not available
-                continue
+        # Get first admission timestamp as reference
+        first_admission_time = admissions[0].timestamp
 
+        # Track if patient had any mortality event
+        final_mortality = 0
+
+        # Process each admission
+        for i, admission in enumerate(admissions):
             # Parse admission and discharge times
             try:
                 admission_time = admission.timestamp
@@ -107,46 +129,50 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
                 # Skip if timestamps invalid
                 continue
 
-            # Calculate time interval from previous visit (in hours)
-            if i == 0:
-                # First visit: time interval is 0
-                time_interval = 0.0
-            else:
-                prev_admission = admissions[i - 1]
-                try:
-                    prev_dischtime = datetime.strptime(
-                        prev_admission.dischtime, "%Y-%m-%d %H:%M:%S"
-                    )
-                    time_diff = admission_time - prev_dischtime
-                    time_interval = time_diff.total_seconds() / 3600.0
-                except (ValueError, AttributeError):
-                    time_interval = 0.0
+            # Calculate time from first admission (in hours)
+            time_from_first = (
+                admission_time - first_admission_time
+            ).total_seconds() / 3600.0
 
-            # Get diagnosis codes (conditions)
+            # Update mortality label if this admission had mortality
+            try:
+                if int(admission.hospital_expire_flag) == 1:
+                    final_mortality = 1
+            except (ValueError, TypeError, AttributeError):
+                pass
+
+            # Get diagnosis codes for this admission
             diagnoses_icd = patient.get_events(
                 event_type="diagnoses_icd",
                 start=admission_time,
                 end=admission_dischtime,
             )
-            conditions = [
+            visit_diagnoses = [
                 event.icd_code
                 for event in diagnoses_icd
                 if hasattr(event, "icd_code") and event.icd_code
             ]
 
-            # Get procedure codes
+            # Get procedure codes for this admission
             procedures_icd = patient.get_events(
                 event_type="procedures_icd",
                 start=admission_time,
                 end=admission_dischtime,
             )
-            procedures_list = [
+            visit_procedures = [
                 event.icd_code
                 for event in procedures_icd
                 if hasattr(event, "icd_code") and event.icd_code
             ]
 
-            # Get lab events
+            # Combine diagnoses and procedures into single ICD code list
+            visit_icd_codes = visit_diagnoses + visit_procedures
+
+            if visit_icd_codes:
+                all_icd_codes.append(visit_icd_codes)
+                all_icd_times.append(time_from_first)
+
+            # Get lab events for this admission
             labevents_df = patient.get_events(
                 event_type="labevents",
                 start=admission_time,
@@ -170,79 +196,74 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
                     pl.col("labevents/storetime") <= admission_dischtime
                 )
 
-            # Skip if no clinical data
-            if (
-                len(conditions) == 0
-                and len(procedures_list) == 0
-                and labevents_df.height == 0
-            ):
-                continue
+                if labevents_df.height > 0:
+                    # Select relevant columns
+                    labevents_df = labevents_df.select(
+                        pl.col("timestamp"),
+                        pl.col("labevents/itemid"),
+                        pl.col("labevents/valuenum").cast(pl.Float64),
+                    )
 
-            # Process lab events into time series format
-            lab_timestamps = []
-            lab_values = []
+                    # Group by timestamp and aggregate into 10D vectors
+                    # For each timestamp, create vector of lab categories
+                    unique_timestamps = sorted(
+                        labevents_df["timestamp"].unique().to_list()
+                    )
 
-            if labevents_df.height > 0:
-                labevents_df = labevents_df.select(
-                    pl.col("timestamp"),
-                    pl.col("labevents/itemid"),
-                    pl.col("labevents/valuenum").cast(pl.Float64),
-                )
-                labevents_df = labevents_df.pivot(
-                    index="timestamp",
-                    columns="labevents/itemid",
-                    values="labevents/valuenum",
-                    aggregate_function="first",
-                )
-                labevents_df = labevents_df.sort("timestamp")
+                    for lab_ts in unique_timestamps:
+                        # Get all lab events at this timestamp
+                        ts_labs = labevents_df.filter(pl.col("timestamp") == lab_ts)
 
-                # Add missing columns with NaN values
-                existing_cols = set(labevents_df.columns) - {"timestamp"}
-                missing_cols = [
-                    item for item in self.LABITEMS if item not in existing_cols
-                ]
-                for col in missing_cols:
-                    labevents_df = labevents_df.with_columns(pl.lit(None).alias(col))
+                        # Create 10-dimensional vector (one per category)
+                        lab_vector = []
+                        for category_name in self.LAB_CATEGORY_NAMES:
+                            category_itemids = self.LAB_CATEGORIES[category_name]
 
-                # Reorder columns by LABITEMS
-                labevents_df = labevents_df.select("timestamp", *self.LABITEMS)
+                            # Find first matching value for this category
+                            category_value = None
+                            for itemid in category_itemids:
+                                matching = ts_labs.filter(
+                                    pl.col("labevents/itemid") == itemid
+                                )
+                                if matching.height > 0:
+                                    category_value = matching["labevents/valuenum"][0]
+                                    break
 
-                lab_timestamps = labevents_df["timestamp"].to_list()
-                lab_values = labevents_df.drop("timestamp").to_numpy().tolist()
+                            lab_vector.append(category_value)
 
-            # Format conditions for StageNet (with time intervals)
-            conditions_data = {
-                "value": conditions if conditions else [],
-                "time": [time_interval] if conditions else [],
-            }
+                        # Calculate time from admission start (hours)
+                        time_from_admission = (
+                            lab_ts - admission_time
+                        ).total_seconds() / 3600.0
 
-            # Format procedures for StageNet (with time intervals)
-            procedures_data = {
-                "value": procedures_list if procedures_list else [],
-                "time": [time_interval] if procedures_list else [],
-            }
+                        all_lab_values.append(lab_vector)
+                        all_lab_times.append(time_from_admission)
 
-            # Format labs for StageNet (time from admission start)
-            if lab_values:
-                # Calculate time differences from admission start
-                lab_time_intervals = [
-                    (ts - admission_time).total_seconds() / 3600.0
-                    for ts in lab_timestamps
-                ]
-                labs_data = {"value": lab_values, "time": lab_time_intervals}
-            else:
-                labs_data = {"value": [], "time": None}
+        # Skip if no lab events (required for this task)
+        if len(all_lab_values) == 0:
+            return []
 
-            # Create sample
-            sample = {
-                "patient_id": patient.patient_id,
-                "visit_id": admission.hadm_id,
-                "conditions": conditions_data,
-                "procedures": procedures_data,
-                "labs": labs_data,
-                "mortality": mortality,
-            }
+        # Also skip if no ICD codes across all admissions
+        if len(all_icd_codes) == 0:
+            return []
 
-            samples.append(sample)
+        # Format ICD codes for StageNet (nested list with times)
+        icd_codes_data = {
+            "value": all_icd_codes,
+            "time": all_icd_times,
+        }
 
-        return samples
+        # Format labs for StageNet (list of 10D vectors with times)
+        labs_data = {
+            "value": all_lab_values,
+            "time": all_lab_times,
+        }
+
+        # Create single patient-level sample
+        sample = {
+            "patient_id": patient.patient_id,
+            "icd_codes": icd_codes_data,
+            "labs": labs_data,
+            "mortality": final_mortality,
+        }
+        return [sample]

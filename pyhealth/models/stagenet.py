@@ -394,8 +394,28 @@ class StageNet(BaseModel):
             if isinstance(feature, StageNetFeature):
                 x = feature.value  # [batch, seq_len] or [batch, seq_len, dim]
                 time = feature.time  # [batch, seq_len] or None
+
+                # Warn if time information is missing
+                if time is None:
+                    import warnings
+
+                    warnings.warn(
+                        f"Feature '{feature_key}' does not have time intervals. "
+                        f"StageNet's temporal modeling capabilities will be limited. "
+                        f"Consider using StageNet format with time intervals for better performance.",
+                        UserWarning,
+                    )
             else:
                 # Fallback for backward compatibility
+                import warnings
+
+                warnings.warn(
+                    f"Feature '{feature_key}' is not a StageNetFeature object. "
+                    f"Using fallback mode without time intervals. "
+                    f"The model may not learn temporal patterns properly. "
+                    f"Please use 'stagenet' or 'stagenet_tensor' processors in your input schema.",
+                    UserWarning,
+                )
                 x = feature
                 time = None
 

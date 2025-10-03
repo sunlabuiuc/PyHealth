@@ -170,27 +170,39 @@ def collate_fn_dict_with_padding(batch: List[dict]) -> dict:
         if isinstance(values[0], StageNetFeature):
             # Handle StageNetFeature: collate value and time separately
             value_tensors = [v.value for v in values]
-            time_tensors = [v.time for v in values if v.time is not None]
 
             # Collate values
             if value_tensors[0].dim() == 0:
+                # Scalars
                 collated_values = torch.stack(value_tensors)
             elif all(v.shape == value_tensors[0].shape for v in value_tensors):
+                # All same shape
                 collated_values = torch.stack(value_tensors)
             else:
+                # Variable shapes, use pad_sequence
                 collated_values = pad_sequence(
                     value_tensors, batch_first=True, padding_value=0
                 )
 
             # Collate times (if present)
             collated_times = None
-            if time_tensors:
-                if all(t.shape == time_tensors[0].shape for t in time_tensors):
-                    collated_times = torch.stack(time_tensors)
+            # Check if ALL samples have time (not just some)
+            if all(v.time is not None for v in values):
+                time_tensors_all = [v.time for v in values]
+                if all(t.shape == time_tensors_all[0].shape for t in time_tensors_all):
+                    collated_times = torch.stack(time_tensors_all)
                 else:
                     collated_times = pad_sequence(
-                        time_tensors, batch_first=True, padding_value=0
+                        time_tensors_all, batch_first=True, padding_value=0
                     )
+
+            # Debug: Print batch-level statistics
+            print(
+                f"Batch '{key}': value {collated_values.shape}, time {collated_times.shape if collated_times is not None else None}"
+            )
+            print(
+                f"  Value range: [{collated_values.min().item()}, {collated_values.max().item()}]"
+            )
 
             collated[key] = StageNetFeature(value=collated_values, time=collated_times)
 

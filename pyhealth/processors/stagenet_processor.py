@@ -65,6 +65,7 @@ class StageNetProcessor(FeatureProcessor):
         self.code_vocab: Dict[Any, int] = {"<unk>": -1, "<pad>": 0}
         self._next_index = 1
         self._is_nested = None  # Will be determined during fit
+        self._max_nested_len = None  # Max inner sequence length for nested codes
 
     def fit(self, samples: List[Dict], key: str) -> None:
         """Build vocabulary and determine input structure.
@@ -91,7 +92,8 @@ class StageNetProcessor(FeatureProcessor):
                             self._is_nested = True
                 break
 
-        # Build vocabulary for codes
+        # Build vocabulary for codes and find max nested length
+        max_inner_len = 0
         for sample in samples:
             if key in sample and sample[key] is not None:
                 value_data = sample[key]["value"]
@@ -99,6 +101,8 @@ class StageNetProcessor(FeatureProcessor):
                 if self._is_nested:
                     # Nested codes
                     for inner_list in value_data:
+                        # Track max inner length
+                        max_inner_len = max(max_inner_len, len(inner_list))
                         for code in inner_list:
                             if code is not None and code not in self.code_vocab:
                                 self.code_vocab[code] = self._next_index
@@ -109,6 +113,10 @@ class StageNetProcessor(FeatureProcessor):
                         if code is not None and code not in self.code_vocab:
                             self.code_vocab[code] = self._next_index
                             self._next_index += 1
+
+        # Store max nested length (at least 1 for empty sequences)
+        if self._is_nested:
+            self._max_nested_len = max(1, max_inner_len)
 
     def process(self, value: Dict[str, Any]) -> StageNetFeature:
         """Process StageNet format data into tensors.
@@ -132,7 +140,7 @@ class StageNetProcessor(FeatureProcessor):
 
         # Process time if present
         time_tensor = None
-        if time_data is not None:
+        if time_data is not None and len(time_data) > 0:
             # Handle both [0.0, 1.5] and [[0.0], [1.5]] formats
             if isinstance(time_data[0], list):
                 # Flatten [[0.0], [1.5]] -> [0.0, 1.5]
@@ -143,6 +151,10 @@ class StageNetProcessor(FeatureProcessor):
 
     def _encode_codes(self, codes: List[str]) -> torch.Tensor:
         """Encode flat code list to indices."""
+        # Handle empty code list - return single padding token
+        if len(codes) == 0:
+            return torch.tensor([self.code_vocab["<pad>"]], dtype=torch.long)
+
         indices = []
         for code in codes:
             if code is None or code not in self.code_vocab:
@@ -152,9 +164,19 @@ class StageNetProcessor(FeatureProcessor):
         return torch.tensor(indices, dtype=torch.long)
 
     def _encode_nested_codes(self, nested_codes: List[List[str]]) -> torch.Tensor:
-        """Encode nested code lists to padded 2D tensor."""
+        """Encode nested code lists to padded 2D tensor.
+
+        Pads all inner sequences to self._max_nested_len (global max).
+        """
+        # Handle empty nested codes (no visits/events)
+        # Return single padding token with shape (1, max_len)
+        if len(nested_codes) == 0:
+            pad_token = self.code_vocab["<pad>"]
+            return torch.tensor([[pad_token] * self._max_nested_len], dtype=torch.long)
+
         encoded_sequences = []
-        max_len = max(len(inner) for inner in nested_codes)
+        # Use global max length determined during fit
+        max_len = self._max_nested_len
 
         for inner_codes in nested_codes:
             indices = []
@@ -163,7 +185,7 @@ class StageNetProcessor(FeatureProcessor):
                     indices.append(self.code_vocab["<unk>"])
                 else:
                     indices.append(self.code_vocab[code])
-            # Pad to max_len
+            # Pad to GLOBAL max_len
             while len(indices) < max_len:
                 indices.append(self.code_vocab["<pad>"])
             encoded_sequences.append(indices)
@@ -175,10 +197,17 @@ class StageNetProcessor(FeatureProcessor):
         return len(self.code_vocab)
 
     def __repr__(self):
-        return (
-            f"StageNetProcessor(is_nested={self._is_nested}, "
-            f"vocab_size={len(self.code_vocab)})"
-        )
+        if self._is_nested:
+            return (
+                f"StageNetProcessor(is_nested={self._is_nested}, "
+                f"vocab_size={len(self.code_vocab)}, "
+                f"max_nested_len={self._max_nested_len})"
+            )
+        else:
+            return (
+                f"StageNetProcessor(is_nested={self._is_nested}, "
+                f"vocab_size={len(self.code_vocab)})"
+            )
 
 
 @register_processor("stagenet_tensor")
@@ -186,7 +215,8 @@ class StageNetTensorProcessor(FeatureProcessor):
     """
     Feature processor for StageNet NUMERIC inputs with coupled value/time data.
 
-    This processor handles numeric feature sequences (flat or nested).
+    This processor handles numeric feature sequences (flat or nested) and applies
+    forward-fill imputation to handle missing values (NaN/None).
     For categorical codes, use StageNetProcessor instead.
 
     Format:
@@ -199,14 +229,22 @@ class StageNetTensorProcessor(FeatureProcessor):
     - List of numbers -> flat numeric sequences
     - List of lists of numbers -> nested numeric sequences (feature vectors)
 
+    Imputation Strategy:
+    - Forward-fill: Missing values (NaN/None) are filled with the last observed
+      value for that feature dimension. If no prior value exists, 0.0 is used.
+    - Applied per feature dimension independently
+
     Examples:
-        >>> # Case 1: Feature vectors without time
+        >>> # Case 1: Feature vectors with missing values
         >>> processor = StageNetTensorProcessor()
-        >>> data = {"value": [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], "time": None}
+        >>> data = {
+        ...     "value": [[1.0, None, 3.0], [None, 5.0, 6.0], [7.0, 8.0, None]],
+        ...     "time": [0.0, 1.5, 3.0]
+        ... }
         >>> result = processor.process(data)
-        >>> result.value.shape  # (2, 3)
+        >>> result.value  # [[1.0, 0.0, 3.0], [1.0, 5.0, 6.0], [7.0, 8.0, 6.0]]
         >>> result.value.dtype  # torch.float32
-        >>> result.time         # None
+        >>> result.time.shape   # (3,)
     """
 
     def __init__(self):
@@ -244,21 +282,50 @@ class StageNetTensorProcessor(FeatureProcessor):
     def process(self, value: Dict[str, Any]) -> StageNetFeature:
         """Process StageNet format numeric data into tensors.
 
+        Applies forward-fill imputation to handle NaN/None values in the data.
+        For each feature dimension, missing values are filled with the last
+        observed value (or 0.0 if no prior value exists).
+
         Args:
             value: Dictionary with "value" and optional "time" keys
 
         Returns:
-            StageNetFeature with value and time tensors
+            StageNetFeature with value and time tensors (imputed)
         """
         value_data = value["value"]
         time_data = value.get("time", None)
 
+        # Convert to numpy for easier imputation handling
+        import numpy as np
+
+        value_array = np.array(value_data, dtype=float)
+
+        # Apply forward-fill imputation
+        if value_array.ndim == 1:
+            # Flat numeric: [1.5, 2.0, nan, 3.0, ...]
+            last_value = 0.0
+            for i in range(len(value_array)):
+                if not np.isnan(value_array[i]):
+                    last_value = value_array[i]
+                else:
+                    value_array[i] = last_value
+        elif value_array.ndim == 2:
+            # Feature vectors: [[1.0, nan, 3.0], [nan, 5.0, 6.0], ...]
+            num_features = value_array.shape[1]
+            for f in range(num_features):
+                last_value = 0.0
+                for t in range(value_array.shape[0]):
+                    if not np.isnan(value_array[t, f]):
+                        last_value = value_array[t, f]
+                    else:
+                        value_array[t, f] = last_value
+
         # Convert to float tensor
-        value_tensor = torch.tensor(value_data, dtype=torch.float)
+        value_tensor = torch.tensor(value_array, dtype=torch.float)
 
         # Process time if present
         time_tensor = None
-        if time_data is not None:
+        if time_data is not None and len(time_data) > 0:
             # Handle both [0.0, 1.5] and [[0.0], [1.5]] formats
             if isinstance(time_data[0], list):
                 # Flatten [[0.0], [1.5]] -> [0.0, 1.5]
