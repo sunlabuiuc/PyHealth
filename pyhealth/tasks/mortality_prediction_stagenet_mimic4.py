@@ -15,7 +15,8 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
     from the patient's first admission timestamp.
 
     Time Calculation:
-        - ICD codes: Hours from first admission (visit intervals)
+        - ICD codes: Hours from previous admission (0 for first visit,
+          then time intervals between consecutive visits)
         - Labs: Hours from admission start (within-visit measurements)
 
     Lab Processing:
@@ -26,7 +27,8 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
     Attributes:
         task_name (str): The name of the task.
         input_schema (Dict[str, str]): The schema for input data:
-            - icd_codes: Combined diagnosis + procedure ICD codes (stagenet format, nested by visit)
+            - icd_codes: Combined diagnosis + procedure ICD codes
+              (stagenet format, nested by visit)
             - labs: Lab results (stagenet_tensor, 10D vectors per timestamp)
         output_schema (Dict[str, str]): The schema for output data:
             - mortality: Binary indicator (1 if any admission had mortality)
@@ -77,7 +79,7 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
         """Process a patient to create mortality prediction samples.
 
         Creates ONE sample per patient with all admissions aggregated.
-        Time intervals are calculated from the first admission timestamp.
+        Time intervals are calculated between consecutive admissions.
 
         Args:
             patient: Patient object with get_events method
@@ -106,13 +108,14 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
             return []
 
         # Initialize aggregated data structures
-        all_icd_codes = []  # List of ICD codes (diagnoses + procedures) per visit
-        all_icd_times = []  # Time from first admission per visit
+        # List of ICD codes (diagnoses + procedures) per visit
+        all_icd_codes = []
+        all_icd_times = []  # Time from previous admission per visit
         all_lab_values = []  # List of 10D lab vectors
         all_lab_times = []  # Time from admission start per measurement
 
-        # Get first admission timestamp as reference
-        first_admission_time = admissions[0].timestamp
+        # Track previous admission timestamp for interval calculation
+        previous_admission_time = None
 
         # Track if patient had any mortality event
         final_mortality = 0
@@ -129,10 +132,21 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
                 # Skip if timestamps invalid
                 continue
 
-            # Calculate time from first admission (in hours)
-            time_from_first = (
-                admission_time - first_admission_time
-            ).total_seconds() / 3600.0
+            # Skip if discharge is before admission (data quality issue)
+            if admission_dischtime < admission_time:
+                continue
+
+            # Calculate time from previous admission (in hours)
+            # First admission will have time = 0
+            if previous_admission_time is None:
+                time_from_previous = 0.0
+            else:
+                time_from_previous = (
+                    admission_time - previous_admission_time
+                ).total_seconds() / 3600.0
+
+            # Update previous admission time for next iteration
+            previous_admission_time = admission_time
 
             # Update mortality label if this admission had mortality
             try:
@@ -141,11 +155,10 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
             except (ValueError, TypeError, AttributeError):
                 pass
 
-            # Get diagnosis codes for this admission
+            # Get diagnosis codes for this admission using hadm_id
             diagnoses_icd = patient.get_events(
                 event_type="diagnoses_icd",
-                start=admission_time,
-                end=admission_dischtime,
+                filters=[("hadm_id", "==", admission.hadm_id)],
             )
             visit_diagnoses = [
                 event.icd_code
@@ -153,11 +166,10 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
                 if hasattr(event, "icd_code") and event.icd_code
             ]
 
-            # Get procedure codes for this admission
+            # Get procedure codes for this admission using hadm_id
             procedures_icd = patient.get_events(
                 event_type="procedures_icd",
-                start=admission_time,
-                end=admission_dischtime,
+                filters=[("hadm_id", "==", admission.hadm_id)],
             )
             visit_procedures = [
                 event.icd_code
@@ -170,7 +182,7 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
 
             if visit_icd_codes:
                 all_icd_codes.append(visit_icd_codes)
-                all_icd_times.append(time_from_first)
+                all_icd_times.append(time_from_previous)
 
             # Get lab events for this admission
             labevents_df = patient.get_events(
