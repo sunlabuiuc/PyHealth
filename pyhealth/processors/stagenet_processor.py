@@ -1,23 +1,9 @@
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 
 from . import register_processor
 from .base_processor import FeatureProcessor
-
-
-@dataclass
-class StageNetFeature:
-    """Container for StageNet feature with values and optional time intervals.
-
-    Attributes:
-        value: The feature tensor (1D for sequences, 2D for nested sequences, 3D for feature vectors)
-        time: Optional time interval tensor (1D, matching the sequence length of value)
-    """
-
-    value: torch.Tensor
-    time: Optional[torch.Tensor] = None
 
 
 @register_processor("stagenet")
@@ -28,37 +14,37 @@ class StageNetProcessor(FeatureProcessor):
     This processor handles categorical code sequences (flat or nested).
     For numeric features, use StageNetTensorProcessor instead.
 
-    Format:
-    {
-        "value": ["code1", "code2"] or [["A", "B"], ["C"]],
-        "time": [0.0, 2.0, 1.3] or None
-    }
+    Input Format (tuple):
+        (time, values) where:
+        - time: List of scalars [0.0, 2.0, 1.3] or None
+        - values: ["code1", "code2"] or [["A", "B"], ["C"]]
 
     The processor automatically detects:
     - List of strings -> flat code sequences
     - List of lists of strings -> nested code sequences
 
-    Time intervals should be simple lists of scalars, one per sequence position.
+    Returns:
+        Tuple of (time_tensor, value_tensor) where time_tensor can be None
 
     Examples:
         >>> # Case 1: Code sequence with time
         >>> processor = StageNetProcessor()
-        >>> data = {"value": ["code1", "code2", "code3"], "time": [0.0, 1.5, 2.3]}
-        >>> result = processor.process(data)
-        >>> result.value.shape  # (3,) - sequence of code indices
-        >>> result.time.shape   # (3,) - time intervals
+        >>> data = ([0.0, 1.5, 2.3], ["code1", "code2", "code3"])
+        >>> time, values = processor.process(data)
+        >>> values.shape  # (3,) - sequence of code indices
+        >>> time.shape    # (3,) - time intervals
 
         >>> # Case 2: Nested codes with time
-        >>> data = {"value": [["A", "B"], ["C"]], "time": [0.0, 1.5]}
-        >>> result = processor.process(data)
-        >>> result.value.shape  # (2, max_inner_len) - padded nested sequences
-        >>> result.time.shape   # (2,)
+        >>> data = ([0.0, 1.5], [["A", "B"], ["C"]])
+        >>> time, values = processor.process(data)
+        >>> values.shape  # (2, max_inner_len) - padded nested sequences
+        >>> time.shape    # (2,)
 
-        >>> # Case 3: Feature vectors without time
-        >>> data = {"value": [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], "time": None}
-        >>> result = processor.process(data)
-        >>> result.value.shape  # (2, 3)
-        >>> result.time         # None
+        >>> # Case 3: Codes without time
+        >>> data = (None, ["code1", "code2"])
+        >>> time, values = processor.process(data)
+        >>> values.shape  # (2,)
+        >>> time          # None
     """
 
     def __init__(self):
@@ -72,12 +58,13 @@ class StageNetProcessor(FeatureProcessor):
 
         Args:
             samples: List of sample dictionaries
-            key: The key in samples that contains StageNet format data
+            key: The key in samples that contains tuple (time, values)
         """
         # Examine first non-None sample to determine structure
         for sample in samples:
             if key in sample and sample[key] is not None:
-                value_data = sample[key]["value"]
+                # Unpack tuple: (time, values)
+                time_data, value_data = sample[key]
 
                 # Determine nesting level for codes
                 if isinstance(value_data, list) and len(value_data) > 0:
@@ -96,7 +83,8 @@ class StageNetProcessor(FeatureProcessor):
         max_inner_len = 0
         for sample in samples:
             if key in sample and sample[key] is not None:
-                value_data = sample[key]["value"]
+                # Unpack tuple: (time, values)
+                time_data, value_data = sample[key]
 
                 if self._is_nested:
                     # Nested codes
@@ -118,17 +106,19 @@ class StageNetProcessor(FeatureProcessor):
         if self._is_nested:
             self._max_nested_len = max(1, max_inner_len)
 
-    def process(self, value: Dict[str, Any]) -> StageNetFeature:
-        """Process StageNet format data into tensors.
+    def process(
+        self, value: Tuple[Optional[List], List]
+    ) -> Tuple[Optional[torch.Tensor], torch.Tensor]:
+        """Process tuple format data into tensors.
 
         Args:
-            value: Dictionary with "value" and optional "time" keys
+            value: Tuple of (time, values) where values are codes
 
         Returns:
-            StageNetFeature with value and time tensors
+            Tuple of (time_tensor, value_tensor), time can be None
         """
-        value_data = value["value"]
-        time_data = value.get("time", None)
+        # Unpack tuple: (time, values)
+        time_data, value_data = value
 
         # Encode codes to indices
         if self._is_nested:
@@ -147,7 +137,7 @@ class StageNetProcessor(FeatureProcessor):
                 time_data = [t[0] if isinstance(t, list) else t for t in time_data]
             time_tensor = torch.tensor(time_data, dtype=torch.float)
 
-        return StageNetFeature(value=value_tensor, time=time_tensor)
+        return (time_tensor, value_tensor)
 
     def _encode_codes(self, codes: List[str]) -> torch.Tensor:
         """Encode flat code list to indices."""
@@ -234,6 +224,9 @@ class StageNetTensorProcessor(FeatureProcessor):
       value for that feature dimension. If no prior value exists, 0.0 is used.
     - Applied per feature dimension independently
 
+    Returns:
+        Tuple of (time_tensor, value_tensor) where time_tensor can be None
+
     Examples:
         >>> # Case 1: Feature vectors with missing values
         >>> processor = StageNetTensorProcessor()
@@ -241,10 +234,10 @@ class StageNetTensorProcessor(FeatureProcessor):
         ...     "value": [[1.0, None, 3.0], [None, 5.0, 6.0], [7.0, 8.0, None]],
         ...     "time": [0.0, 1.5, 3.0]
         ... }
-        >>> result = processor.process(data)
-        >>> result.value  # [[1.0, 0.0, 3.0], [1.0, 5.0, 6.0], [7.0, 8.0, 6.0]]
-        >>> result.value.dtype  # torch.float32
-        >>> result.time.shape   # (3,)
+        >>> time, values = processor.process(data)
+        >>> values  # [[1.0, 0.0, 3.0], [1.0, 5.0, 6.0], [7.0, 8.0, 6.0]]
+        >>> values.dtype  # torch.float32
+        >>> time.shape    # (3,)
     """
 
     def __init__(self):
@@ -256,12 +249,13 @@ class StageNetTensorProcessor(FeatureProcessor):
 
         Args:
             samples: List of sample dictionaries
-            key: The key in samples that contains StageNet format data
+            key: The key in samples that contains tuple (time, values)
         """
         # Examine first non-None sample to determine structure
         for sample in samples:
             if key in sample and sample[key] is not None:
-                value_data = sample[key]["value"]
+                # Unpack tuple: (time, values)
+                time_data, value_data = sample[key]
 
                 # Determine nesting level for numerics
                 if isinstance(value_data, list) and len(value_data) > 0:
@@ -279,21 +273,23 @@ class StageNetTensorProcessor(FeatureProcessor):
                                 self._size = len(first_elem)
                 break
 
-    def process(self, value: Dict[str, Any]) -> StageNetFeature:
-        """Process StageNet format numeric data into tensors.
+    def process(
+        self, value: Tuple[Optional[List], List]
+    ) -> Tuple[Optional[torch.Tensor], torch.Tensor]:
+        """Process tuple format numeric data into tensors.
 
-        Applies forward-fill imputation to handle NaN/None values in the data.
-        For each feature dimension, missing values are filled with the last
-        observed value (or 0.0 if no prior value exists).
+        Applies forward-fill imputation to handle NaN/None values.
+        For each feature dimension, missing values are filled with the
+        last observed value (or 0.0 if no prior value exists).
 
         Args:
-            value: Dictionary with "value" and optional "time" keys
+            value: Tuple of (time, values) where values are numerics
 
         Returns:
-            StageNetFeature with value and time tensors (imputed)
+            Tuple of (time_tensor, value_tensor), time can be None
         """
-        value_data = value["value"]
-        time_data = value.get("time", None)
+        # Unpack tuple: (time, values)
+        time_data, value_data = value
 
         # Convert to numpy for easier imputation handling
         import numpy as np
@@ -310,7 +306,7 @@ class StageNetTensorProcessor(FeatureProcessor):
                 else:
                     value_array[i] = last_value
         elif value_array.ndim == 2:
-            # Feature vectors: [[1.0, nan, 3.0], [nan, 5.0, 6.0], ...]
+            # Feature vectors: [[1.0, nan, 3.0], [nan, 5.0, 6.0]]
             num_features = value_array.shape[1]
             for f in range(num_features):
                 last_value = 0.0
@@ -332,7 +328,7 @@ class StageNetTensorProcessor(FeatureProcessor):
                 time_data = [t[0] if isinstance(t, list) else t for t in time_data]
             time_tensor = torch.tensor(time_data, dtype=torch.float)
 
-        return StageNetFeature(value=value_tensor, time=time_tensor)
+        return (time_tensor, value_tensor)
 
     @property
     def size(self):

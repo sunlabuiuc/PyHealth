@@ -158,18 +158,19 @@ def collate_fn_dict_with_padding(batch: List[dict]) -> dict:
     Returns:
         A dictionary where each key corresponds to a list of values from the batch.
         Tensor values are padded to the same shape.
+        Tuples of (time, values) from temporal processors are collated separately.
     """
-    from ..processors import StageNetFeature
-
     collated = {}
     keys = batch[0].keys()
 
     for key in keys:
         values = [sample[key] for sample in batch]
 
-        if isinstance(values[0], StageNetFeature):
-            # Handle StageNetFeature: collate value and time separately
-            value_tensors = [v.value for v in values]
+        # Check if this is a temporal feature tuple (time, values)
+        if isinstance(values[0], tuple) and len(values[0]) == 2:
+            # Handle (time, values) tuples from processors
+            time_tensors = [v[0] for v in values]
+            value_tensors = [v[1] for v in values]
 
             # Collate values
             if value_tensors[0].dim() == 0:
@@ -187,8 +188,8 @@ def collate_fn_dict_with_padding(batch: List[dict]) -> dict:
             # Collate times (if present)
             collated_times = None
             # Check if ALL samples have time (not just some)
-            if all(v.time is not None for v in values):
-                time_tensors_all = [v.time for v in values]
+            if all(t is not None for t in time_tensors):
+                time_tensors_all = [t for t in time_tensors if t is not None]
                 if all(t.shape == time_tensors_all[0].shape for t in time_tensors_all):
                     collated_times = torch.stack(time_tensors_all)
                 else:
@@ -196,7 +197,8 @@ def collate_fn_dict_with_padding(batch: List[dict]) -> dict:
                         time_tensors_all, batch_first=True, padding_value=0
                     )
 
-            collated[key] = StageNetFeature(value=collated_values, time=collated_times)
+            # Return as tuple (time, values)
+            collated[key] = (collated_times, collated_values)
 
         elif isinstance(values[0], torch.Tensor):
             # Check if shapes are the same

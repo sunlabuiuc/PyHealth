@@ -32,7 +32,6 @@ from .signal_processor import SignalProcessor
 from .stagenet_processor import (
     StageNetProcessor,
     StageNetTensorProcessor,
-    StageNetFeature,
 )
 from .tensor_processor import TensorProcessor
 from .text_processor import TextProcessor
@@ -45,7 +44,6 @@ __all__ = [
     "SequenceProcessor",
     "StageNetProcessor",
     "StageNetTensorProcessor",
-    "StageNetFeature",
     "TensorProcessor",
     "TimeseriesProcessor",
     "SignalProcessor",

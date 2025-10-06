@@ -6,7 +6,6 @@ import torch.nn as nn
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.utils import get_last_visit
-from pyhealth.processors import StageNetFeature
 
 from .embedding import EmbeddingModel
 
@@ -373,36 +372,38 @@ class StageNet(BaseModel):
         Args:
             **kwargs: keyword arguments for the model. The keys must contain
                 all the feature keys and the label key. Feature keys should
-                contain StageNetFeature objects with .value and .time
-                attributes.
+                contain tuples of (time, values) from temporal processors.
 
         Returns:
             A dictionary with the following keys:
                 loss: a scalar tensor representing the final loss.
-                distance: list of tensors representing the stage variation.
-                y_prob: a tensor representing the predicted probabilities.
+                distance: list of tensors of stage variation.
+                y_prob: a tensor of predicted probabilities.
                 y_true: a tensor representing the true labels.
         """
         patient_emb = []
         distance = []
 
         for feature_key in self.feature_keys:
-            # Extract StageNetFeature object
+            # Extract (time, values) tuple
             feature = kwargs[feature_key]
 
-            # Get value and time tensors
-            if isinstance(feature, StageNetFeature):
-                x = feature.value  # [batch, seq_len] or [batch, seq_len, dim]
-                time = feature.time  # [batch, seq_len] or None
+            # Get value and time tensors from tuple
+            if isinstance(feature, tuple) and len(feature) == 2:
+                time, x = feature  # Unpack (time, values)
+                # x: [batch, seq_len] or [batch, seq_len, dim]
+                # time: [batch, seq_len] or None
 
                 # Warn if time information is missing
                 if time is None:
                     import warnings
 
                     warnings.warn(
-                        f"Feature '{feature_key}' does not have time intervals. "
-                        f"StageNet's temporal modeling capabilities will be limited. "
-                        f"Consider using StageNet format with time intervals for better performance.",
+                        f"Feature '{feature_key}' does not have time "
+                        f"intervals. StageNet's temporal modeling "
+                        f"capabilities will be limited. Consider using "
+                        f"StageNet format with time intervals for "
+                        f"better performance.",
                         UserWarning,
                     )
             else:
@@ -410,10 +411,11 @@ class StageNet(BaseModel):
                 import warnings
 
                 warnings.warn(
-                    f"Feature '{feature_key}' is not a StageNetFeature object. "
+                    f"Feature '{feature_key}' is not a temporal tuple. "
                     f"Using fallback mode without time intervals. "
                     f"The model may not learn temporal patterns properly. "
-                    f"Please use 'stagenet' or 'stagenet_tensor' processors in your input schema.",
+                    f"Please use 'stagenet' or 'stagenet_tensor' "
+                    f"processors in your input schema.",
                     UserWarning,
                 )
                 x = feature
@@ -474,33 +476,33 @@ if __name__ == "__main__":
         {
             "patient_id": "patient-0",
             "visit_id": "visit-0",
-            "codes": {
-                "value": ["505800458", "50580045810", "50580045811"],
-                "time": [0.0, 2.0, 1.3],
-            },
-            "procedures": {
-                "value": [["A05B", "A05C", "A06A"], ["A11D", "A11E"]],
-                "time": [0.0, 1.5],
-            },
+            "codes": (
+                [0.0, 2.0, 1.3],
+                ["505800458", "50580045810", "50580045811"],
+            ),
+            "procedures": (
+                [0.0, 1.5],
+                [["A05B", "A05C", "A06A"], ["A11D", "A11E"]],
+            ),
             "label": 1,
         },
         {
             "patient_id": "patient-0",
             "visit_id": "visit-1",
-            "codes": {
-                "value": [
+            "codes": (
+                [0.0, 2.0, 1.3, 1.0, 2.0],
+                [
                     "55154191800",
                     "551541928",
                     "55154192800",
                     "705182798",
                     "70518279800",
                 ],
-                "time": [0.0, 2.0, 1.3, 1.0, 2.0],
-            },
-            "procedures": {
-                "value": [["A04A", "B035", "C129"]],
-                "time": [0.0],
-            },
+            ),
+            "procedures": (
+                [0.0],
+                [["A04A", "B035", "C129"]],
+            ),
             "label": 0,
         },
     ]

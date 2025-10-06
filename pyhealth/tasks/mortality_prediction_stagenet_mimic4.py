@@ -259,17 +259,12 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
         if len(all_icd_codes) == 0:
             return []
 
-        # Format ICD codes for StageNet (nested list with times)
-        icd_codes_data = {
-            "value": all_icd_codes,
-            "time": all_icd_times,
-        }
+        # Format as tuples: (time, values)
+        # ICD codes: nested list with times
+        icd_codes_data = (all_icd_times, all_icd_codes)
 
-        # Format labs for StageNet (list of 10D vectors with times)
-        labs_data = {
-            "value": all_lab_values,
-            "time": all_lab_times,
-        }
+        # Labs: list of 10D vectors with times
+        labs_data = (all_lab_times, all_lab_values)
 
         # Create single patient-level sample
         sample = {
