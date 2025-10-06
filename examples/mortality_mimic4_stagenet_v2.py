@@ -55,9 +55,9 @@ train_dataset, val_dataset, test_dataset = split_by_patient(
 )
 
 # Create dataloaders
-train_loader = get_dataloader(train_dataset, batch_size=32, shuffle=True)
-val_loader = get_dataloader(val_dataset, batch_size=32, shuffle=False)
-test_loader = get_dataloader(test_dataset, batch_size=32, shuffle=False)
+train_loader = get_dataloader(train_dataset, batch_size=256, shuffle=True)
+val_loader = get_dataloader(val_dataset, batch_size=256, shuffle=False)
+test_loader = get_dataloader(test_dataset, batch_size=256, shuffle=False)
 
 # STEP 4: Initialize StageNet model
 model = StageNet(
@@ -65,7 +65,7 @@ model = StageNet(
     embedding_dim=128,
     chunk_size=128,
     levels=3,
-    dropout=0.5,
+    dropout=0.3,
 )
 
 num_params = sum(p.numel() for p in model.parameters())
@@ -74,7 +74,7 @@ print(f"\nModel initialized with {num_params} parameters")
 # STEP 5: Train the model
 trainer = Trainer(
     model=model,
-    device="cuda:0",  # or "cpu"
+    device="cuda:2",  # or "cpu"
     metrics=["pr_auc", "roc_auc", "accuracy", "f1"],
 )
 
@@ -83,6 +83,7 @@ trainer.train(
     val_dataloader=val_loader,
     epochs=50,
     monitor="roc_auc",
+    optimizer_params={"lr": 1e-5},
 )
 
 # STEP 6: Evaluate on test set
