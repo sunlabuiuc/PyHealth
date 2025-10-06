@@ -46,7 +46,7 @@ sample = sample_dataset.samples[0]
 print("\nSample structure:")
 print(f"  Patient ID: {sample['patient_id']}")
 print(f"ICD Codes: {sample['icd_codes']}")
-print(f"  Labs shape: {len(sample['labs'].value)} timesteps")
+print(f"  Labs shape: {len(sample['labs'][0])} timesteps")
 print(f"  Mortality: {sample['mortality']}")
 
 # STEP 3: Split dataset
