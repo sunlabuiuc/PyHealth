@@ -3,7 +3,6 @@ import torch
 
 from pyhealth.datasets import SampleDataset, get_dataloader
 from pyhealth.models import StageNet
-from pyhealth.processors import StageNetFeature
 
 
 class TestStageNet(unittest.TestCase):
@@ -17,47 +16,38 @@ class TestStageNet(unittest.TestCase):
                 "patient_id": "patient-0",
                 "visit_id": "visit-0",
                 # Case 1: Flat code sequence with time intervals
-                "codes": {
-                    "value": ["505800458", "50580045810", "50580045811"],
-                    "time": [0.0, 2.0, 1.3],
-                },
+                "codes": ([0.0, 2.0, 1.3], ["505800458", "50580045810", "50580045811"]),
                 # Case 2: Nested code sequence with time intervals
-                "procedures": {
-                    "value": [["A05B", "A05C", "A06A"], ["A11D", "A11E"]],
-                    "time": [0.0, 1.5],
-                },
+                "procedures": (
+                    [0.0, 1.5],
+                    [["A05B", "A05C", "A06A"], ["A11D", "A11E"]],
+                ),
                 # Case 3: Numeric feature vectors without time
-                "lab_values": {
-                    "value": [[1.0, 2.55, 3.4], [4.1, 5.5, 6.0]],
-                    "time": None,
-                },
+                "lab_values": (None, [[1.0, 2.55, 3.4], [4.1, 5.5, 6.0]]),
                 "label": 1,
             },
             {
                 "patient_id": "patient-0",
                 "visit_id": "visit-1",
-                "codes": {
-                    "value": [
+                "codes": (
+                    [0.0, 2.0, 1.3, 1.0, 2.0],
+                    [
                         "55154191800",
                         "551541928",
                         "55154192800",
                         "705182798",
                         "70518279800",
                     ],
-                    "time": [0.0, 2.0, 1.3, 1.0, 2.0],
-                },
-                "procedures": {
-                    "value": [["A04A", "B035", "C129"]],
-                    "time": [0.0],
-                },
-                "lab_values": {
-                    "value": [
+                ),
+                "procedures": ([0.0], [["A04A", "B035", "C129"]]),
+                "lab_values": (
+                    None,
+                    [
                         [1.4, 3.2, 3.5],
                         [4.1, 5.9, 1.7],
                         [4.5, 5.9, 1.7],
                     ],
-                    "time": None,
-                },
+                ),
                 "label": 0,
             },
         ]
@@ -94,19 +84,23 @@ class TestStageNet(unittest.TestCase):
         self.assertEqual(self.model.label_key, "label")
 
     def test_processor_output_format(self):
-        """Test that StageNetProcessor produces StageNetFeature objects."""
+        """Test that processors produce (time, values) tuples."""
         # Get a sample from the dataset
         sample = self.dataset[0]
 
-        # Check that each feature is a StageNetFeature
+        # Check that each feature is a tuple with time and values
         for key in ["codes", "procedures", "lab_values"]:
-            self.assertIsInstance(sample[key], StageNetFeature)
-            self.assertIsInstance(sample[key].value, torch.Tensor)
-            if sample[key].time is not None:
-                self.assertIsInstance(sample[key].time, torch.Tensor)
+            self.assertIsInstance(sample[key], tuple)
+            self.assertEqual(len(sample[key]), 2)
+            time, values = sample[key]
+            # Values should always be a tensor
+            self.assertIsInstance(values, torch.Tensor)
+            # Time can be None or a tensor
+            if time is not None:
+                self.assertIsInstance(time, torch.Tensor)
 
     def test_dataloader_batching(self):
-        """Test dataloader batching of StageNetFeature objects."""
+        """Test dataloader batching of temporal tuples."""
         train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=False)
         data_batch = next(iter(train_loader))
 
@@ -116,17 +110,19 @@ class TestStageNet(unittest.TestCase):
         self.assertIn("lab_values", data_batch)
         self.assertIn("label", data_batch)
 
-        # Check that batched features are still StageNetFeature objects
+        # Check that batched features are still tuples
         for key in ["codes", "procedures", "lab_values"]:
             feature = data_batch[key]
-            self.assertIsInstance(feature, StageNetFeature)
-            self.assertIsInstance(feature.value, torch.Tensor)
-            self.assertEqual(feature.value.shape[0], 2)  # batch size
+            self.assertIsInstance(feature, tuple)
+            self.assertEqual(len(feature), 2)
+            time, values = feature
+            self.assertIsInstance(values, torch.Tensor)
+            self.assertEqual(values.shape[0], 2)  # batch size
 
             # Check time tensor
-            if feature.time is not None:
-                self.assertIsInstance(feature.time, torch.Tensor)
-                self.assertEqual(feature.time.shape[0], 2)  # batch size
+            if time is not None:
+                self.assertIsInstance(time, torch.Tensor)
+                self.assertEqual(time.shape[0], 2)  # batch size
 
     def test_tensor_shapes(self):
         """Test that tensor shapes are correct after batching."""
@@ -134,27 +130,27 @@ class TestStageNet(unittest.TestCase):
         data_batch = next(iter(train_loader))
 
         # Flat codes: [batch, seq_len]
-        codes_feature = data_batch["codes"]
-        self.assertEqual(len(codes_feature.value.shape), 2)
-        self.assertEqual(codes_feature.value.shape[0], 2)  # batch size
-        self.assertEqual(codes_feature.time.shape[0], 2)  # batch size
-        self.assertEqual(len(codes_feature.time.shape), 2)  # [batch, seq_len]
+        time, codes_values = data_batch["codes"]
+        self.assertEqual(len(codes_values.shape), 2)
+        self.assertEqual(codes_values.shape[0], 2)  # batch size
+        self.assertEqual(time.shape[0], 2)  # batch size
+        self.assertEqual(len(time.shape), 2)  # [batch, seq_len]
 
         # Nested codes (procedures): [batch, seq_len, max_inner_len]
-        procedures_feature = data_batch["procedures"]
-        self.assertEqual(len(procedures_feature.value.shape), 3)
-        self.assertEqual(procedures_feature.value.shape[0], 2)  # batch size
-        self.assertEqual(procedures_feature.time.shape[0], 2)  # batch size
+        time, procedures_values = data_batch["procedures"]
+        self.assertEqual(len(procedures_values.shape), 3)
+        self.assertEqual(procedures_values.shape[0], 2)  # batch size
+        self.assertEqual(time.shape[0], 2)  # batch size
 
         # Nested numerics (lab_values): [batch, seq_len, feature_dim]
-        lab_feature = data_batch["lab_values"]
-        self.assertEqual(len(lab_feature.value.shape), 3)
-        self.assertEqual(lab_feature.value.shape[0], 2)  # batch size
-        self.assertEqual(lab_feature.value.shape[2], 3)  # feature_dim
-        self.assertIsNone(lab_feature.time)  # No time for lab_values
+        time, lab_values = data_batch["lab_values"]
+        self.assertEqual(len(lab_values.shape), 3)
+        self.assertEqual(lab_values.shape[0], 2)  # batch size
+        self.assertEqual(lab_values.shape[2], 3)  # feature_dim
+        self.assertIsNone(time)  # No time for lab_values
 
     def test_model_forward(self):
-        """Test that the StageNet model forward pass works correctly."""
+        """Test that the StageNet model forward pass works."""
         train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=False)
         data_batch = next(iter(train_loader))
 
@@ -162,13 +158,13 @@ class TestStageNet(unittest.TestCase):
         print("\n=== Debug: test_model_forward ===")
         for key in ["codes", "procedures", "lab_values"]:
             if key in data_batch:
-                feature = data_batch[key]
+                time, values = data_batch[key]
                 print(f"{key}:")
-                print(f"  value dtype: {feature.value.dtype}")
-                print(f"  value shape: {feature.value.shape}")
-                if feature.time is not None:
-                    print(f"  time dtype: {feature.time.dtype}")
-                    print(f"  time shape: {feature.time.shape}")
+                print(f"  value dtype: {values.dtype}")
+                print(f"  value shape: {values.shape}")
+                if time is not None:
+                    print(f"  time dtype: {time.dtype}")
+                    print(f"  time shape: {time.shape}")
 
         # Forward pass
         with torch.no_grad():
@@ -216,19 +212,13 @@ class TestStageNet(unittest.TestCase):
             {
                 "patient_id": "patient-0",
                 "visit_id": "visit-0",
-                "codes": {
-                    "value": ["code1", "code2", "code3"],
-                    "time": None,
-                },
+                "codes": (None, ["code1", "code2", "code3"]),
                 "label": 1,
             },
             {
                 "patient_id": "patient-1",
                 "visit_id": "visit-1",
-                "codes": {
-                    "value": ["code4", "code5"],
-                    "time": None,
-                },
+                "codes": (None, ["code4", "code5"]),
                 "label": 0,
             },
         ]
@@ -246,8 +236,9 @@ class TestStageNet(unittest.TestCase):
         train_loader = get_dataloader(dataset_no_time, batch_size=2, shuffle=False)
         data_batch = next(iter(train_loader))
 
-        # Verify time is None
-        self.assertIsNone(data_batch["codes"].time)
+        # Verify time is None (first element of tuple)
+        time, values = data_batch["codes"]
+        self.assertIsNone(time)
 
         # Forward pass should work
         with torch.no_grad():
@@ -261,8 +252,7 @@ class TestStageNet(unittest.TestCase):
         train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=False)
         data_batch = next(iter(train_loader))
 
-        procedures_feature = data_batch["procedures"]
-        value_tensor = procedures_feature.value
+        time, value_tensor = data_batch["procedures"]
 
         # Shape should be [batch=2, seq_len, max_inner_len]
         self.assertEqual(len(value_tensor.shape), 3)
@@ -309,19 +299,13 @@ class TestStageNet(unittest.TestCase):
             {
                 "patient_id": "patient-0",
                 "visit_id": "visit-0",
-                "codes": {
-                    "value": ["code1", "code2"],
-                    "time": [0.0, 1.0],
-                },
+                "codes": ([0.0, 1.0], ["code1", "code2"]),
                 "label": 1,
             },
             {
                 "patient_id": "patient-1",
                 "visit_id": "visit-1",
-                "codes": {
-                    "value": ["code3", "code4", "code5"],
-                    "time": [0.0, 0.5, 1.5],
-                },
+                "codes": ([0.0, 0.5, 1.5], ["code3", "code4", "code5"]),
                 "label": 0,
             },
         ]
