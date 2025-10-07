@@ -2,7 +2,7 @@ import hashlib
 import os
 import pickle
 from datetime import datetime
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 from dateutil.parser import parse as dateutil_parse
@@ -135,6 +135,100 @@ def is_homo_list(l: List) -> bool:
     # if the value vector is a mix of float and int, convert all to float
     l = [float(i) if type(i) == int else i for i in l]
     return all(isinstance(i, type(l[0])) for i in l)
+
+
+def _is_time_value_tuple(
+    value: Any,
+    allow_additional_components: bool = True,
+) -> bool:
+    """Detects StageNet-style temporal tuples.
+
+    Args:
+        value: Candidate value to inspect.
+        allow_additional_components: Whether tuples with >2 elements should be
+            considered valid. This accommodates future extensions where extra
+            metadata (e.g., feature types) may be appended.
+
+    Returns:
+        bool: True if the value looks like a temporal tuple, False otherwise.
+    """
+
+    if not isinstance(value, tuple) or len(value) < 2:
+        return False
+
+    time_component, value_component = value[0], value[1]
+    time_ok = time_component is None or isinstance(time_component, list)
+    values_ok = isinstance(value_component, list)
+
+    if not (time_ok and values_ok):
+        return False
+
+    if not allow_additional_components and len(value) > 2:
+        return False
+
+    return True
+
+
+def _convert_for_cache(sample: Dict[str, Any]) -> Dict[str, Any]:
+    """Serializes temporal tuples for parquet/pickle friendly caching.
+
+    The conversion stays backwards compatible with older cache structures while
+    capturing any extra tuple components that may be introduced later on.
+
+    Args:
+        sample: Dictionary representing a single data sample.
+
+    Returns:
+        Dict[str, Any]: A new dictionary with temporal tuples replaced by
+            cache-friendly dictionaries containing metadata and raw components.
+    """
+
+    converted: Dict[str, Any] = {}
+    for key, value in sample.items():
+        if _is_time_value_tuple(value):
+            tuple_components = list(value)
+
+            cached_representation: Dict[str, Any] = {
+                "__stagenet_cache__": True,
+                "time": tuple_components[0],
+                "values": tuple_components[1],
+            }
+
+            extras = tuple_components[2:]
+            if extras:
+                cached_representation["extras"] = list(extras)
+            cached_representation["components"] = tuple_components
+
+            converted[key] = cached_representation
+        else:
+            converted[key] = value
+
+    return converted
+
+
+def _restore_from_cache(sample: Dict[str, Any]) -> Dict[str, Any]:
+    """Restore temporal tuples previously serialized for caching."""
+
+    restored: Dict[str, Any] = {}
+    for key, value in sample.items():
+        if isinstance(value, dict) and value.get("__stagenet_cache__"):
+            if "components" in value and isinstance(value["components"], list):
+                components = list(value["components"])
+            elif "components" in value and isinstance(value["components"], tuple):
+                components = list(value["components"])
+            else:
+                components = [value.get("time"), value.get("values")]
+                extras = value.get("extras")
+                if isinstance(extras, list):
+                    components.extend(extras)
+                elif extras is not None:
+                    components.append(extras)
+
+            restored[key] = tuple(components)
+        else:
+            restored[key] = value
+
+    return restored
 
 
 def collate_fn_dict(batch: List[dict]) -> dict:

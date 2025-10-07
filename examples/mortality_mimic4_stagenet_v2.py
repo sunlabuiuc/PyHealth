@@ -74,7 +74,7 @@ print(f"\nModel initialized with {num_params} parameters")
 # STEP 5: Train the model
 trainer = Trainer(
     model=model,
-    device="cuda:2",  # or "cpu"
+    device="cuda:5",  # or "cpu"
     metrics=["pr_auc", "roc_auc", "accuracy", "f1"],
 )
 
