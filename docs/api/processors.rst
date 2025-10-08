@@ -22,3 +22,5 @@ We implement the following processors for supporting data preprocessing and toke
     processors/pyhealth.processors.RegressionLabelProcessor
     processors/pyhealth.processors.RawProcessor
     processors/pyhealth.processors.TextProcessor
+    processors/pyhealth.processors.StageNetProcessor
+    processors/pyhealth.processors.StageNetTensorProcessor
