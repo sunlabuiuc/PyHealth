@@ -17,6 +17,7 @@ Notes:
     - Normal (non-alpha) releases always write three-part versions: X.Y.Z.
     - Attempts to detect existing releases on PyPI to choose the next patch
         version for --minor; if the network check fails, falls back to X.Y.0.
+    - Normalizes versions using PEP 440 rules before checking PyPI.
 """
 import argparse
 import os
@@ -24,6 +25,15 @@ import re
 import sys
 import json
 import urllib.request
+
+try:
+    from packaging.version import Version
+except ImportError:
+    print(
+        "Error: packaging library required. " "Install with: pip install packaging",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 ROOT = os.path.dirname(os.path.dirname(__file__))
 PYPROJECT = os.path.join(ROOT, "pyproject.toml")
@@ -90,36 +100,67 @@ def fmt_version(
     return base
 
 
-def bump_alpha_minor(v: str) -> str:
+def bump_alpha_minor(v: str, *, project: str = "pyhealth") -> str:
+    """
+    Bump to next alpha minor version, checking PyPI for existing versions.
+    X.Y[.Z]aN -> X.Y[.Z]a(N+1), skipping versions that exist on PyPI.
+    """
     major, minor, patch, pre_l, pre_n = parse_version(v)
     if pre_l not in ("a", None):
         # convert to alpha if not already
         pre_l, pre_n = "a", 0
     if pre_n is None:
         pre_n = 0
-    pre_n += 1
-    return fmt_version(major, minor, patch, pre_l, pre_n)
+
+    existing = _get_pypi_versions(project)
+    while True:
+        pre_n += 1
+        candidate = fmt_version(major, minor, patch, pre_l, pre_n)
+        if not _version_exists_on_pypi(candidate, existing):
+            return candidate
 
 
-def bump_alpha_major(v: str) -> str:
+def bump_alpha_major(v: str, *, project: str = "pyhealth") -> str:
+    """
+    Bump to next alpha major version (next tens bucket), checking PyPI.
+    X.Y[.Z]aN -> X.Y[.Z]a((N//10 + 1)*10), skipping existing versions.
+    """
     major, minor, patch, pre_l, pre_n = parse_version(v)
     if pre_l not in ("a", None):
         pre_l, pre_n = "a", 0
     if pre_n is None:
         pre_n = 0
-    # next tens bucket (e.g., 4 -> 10, 14 -> 20)
+
+    existing = _get_pypi_versions(project)
+    # Start at next tens bucket
     pre_n = ((pre_n // 10) + 1) * 10
-    return fmt_version(major, minor, patch, pre_l, pre_n)
+    while True:
+        candidate = fmt_version(major, minor, patch, pre_l, pre_n)
+        if not _version_exists_on_pypi(candidate, existing):
+            return candidate
+        pre_n += 1
 
 
 def _get_pypi_versions(project: str = "pyhealth") -> set[str]:
+    """Get all versions from PyPI, normalized according to PEP 440."""
     url = f"https://pypi.org/pypi/{project}/json"
     try:
         with urllib.request.urlopen(url, timeout=5) as resp:  # nosec B310
             data = json.load(resp)
-        return set(data.get("releases", {}).keys())
+        # Normalize all versions from PyPI
+        return set(str(Version(v)) for v in data.get("releases", {}).keys())
     except Exception:
         return set()
+
+
+def _version_exists_on_pypi(version_str: str, existing: set[str]) -> bool:
+    """Check if a version exists on PyPI, using PEP 440 normalization."""
+    try:
+        normalized = str(Version(version_str))
+        return normalized in existing
+    except Exception:
+        # If normalization fails, fall back to string comparison
+        return version_str in existing
 
 
 def bump_minor(v: str, *, project: str = "pyhealth") -> str:
@@ -135,19 +176,26 @@ def bump_minor(v: str, *, project: str = "pyhealth") -> str:
     patch = 0 if pre_l else (cur_patch if cur_patch is not None else 0)
     while True:
         candidate = fmt_version(major, minor, patch, None, None, force_patch=True)
-        if candidate not in existing:
+        if not _version_exists_on_pypi(candidate, existing):
             return candidate
         patch += 1
 
 
-def bump_major(v: str) -> str:
+def bump_major(v: str, *, project: str = "pyhealth") -> str:
     """
     Next minor line release: X.Y.Z -> X.(Y+1).0 (drop any pre-release).
+    Checks PyPI to ensure the version doesn't already exist.
     """
     major, minor, _patch, _pre_l, _pre_n = parse_version(v)
     minor += 1
     patch = 0
-    return fmt_version(major, minor, patch, None, None, force_patch=True)
+
+    existing = _get_pypi_versions(project)
+    while True:
+        candidate = fmt_version(major, minor, patch, None, None, force_patch=True)
+        if not _version_exists_on_pypi(candidate, existing):
+            return candidate
+        patch += 1
 
 
 def main():
