@@ -75,7 +75,7 @@ toggleprompt_offset_right = 35
 ogp_site_url = "https://pyhealth.readthedocs.io/en/latest/"
 ogp_image = (
     "https://pyhealth.readthedocs.io/en/latest/pyhealth_logos/_static/"
-    "pyhealth-logo.png"
+    "PyHealth2Logo.png"
 )
 
 # Add any paths that contain templates here, relative to this directory.
@@ -161,7 +161,7 @@ pygments_dark_style = "native"
 # a list of builtin themes.
 #
 html_theme = "furo"
-html_logo = "_static/pyhealth_logos/pyhealth-logo.png"
+html_logo = "_static/pyhealth_logos/PyHealth2Logo.png"
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
