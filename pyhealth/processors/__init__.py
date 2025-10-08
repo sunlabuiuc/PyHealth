@@ -29,6 +29,10 @@ from .multi_hot_processor import MultiHotProcessor
 from .raw_processor import RawProcessor
 from .sequence_processor import SequenceProcessor
 from .signal_processor import SignalProcessor
+from .stagenet_processor import (
+    StageNetProcessor,
+    StageNetTensorProcessor,
+)
 from .tensor_processor import TensorProcessor
 from .text_processor import TextProcessor
 from .timeseries_processor import TimeseriesProcessor
@@ -38,6 +42,8 @@ __all__ = [
     "get_processor",
     "ImageProcessor",
     "SequenceProcessor",
+    "StageNetProcessor",
+    "StageNetTensorProcessor",
     "TensorProcessor",
     "TimeseriesProcessor",
     "SignalProcessor",

@@ -48,6 +48,7 @@ tables:
           - "dischtime"
     timestamp: "dischtime"
     attributes:
+      - "hadm_id"
       - "icd_code"
       - "icd_version"
       - "seq_num"
@@ -63,6 +64,7 @@ tables:
           - "dischtime"
     timestamp: "dischtime"
     attributes:
+      - "hadm_id"
       - "icd_code"
       - "icd_version"
       - "seq_num"
@@ -72,6 +74,7 @@ tables:
     patient_id: "subject_id"
     timestamp: "starttime"
     attributes:
+      - "hadm_id"
       - "drug"
       - "ndc"
       - "prod_strength"

@@ -15,10 +15,11 @@ class InHospitalMortalityMIMIC4(BaseTask):
     Attributes:
         task_name (str): The name of the task.
         input_schema (Dict[str, str]): The schema for input data, which includes:
-            - labs: A timeseries of lab results.    
+            - labs: A timeseries of lab results.
         output_schema (Dict[str, str]): The schema for output data, which includes:
             - mortality: A binary indicator of mortality.
     """
+
     task_name: str = "InHospitalMortalityMIMIC4"
     input_schema: Dict[str, str] = {"labs": "timeseries"}
     output_schema: Dict[str, str] = {"mortality": "binary"}
@@ -41,8 +42,9 @@ class InHospitalMortalityMIMIC4(BaseTask):
 
     # Create flat list of all lab items for use in the function
     LABITEMS: ClassVar[List[str]] = [
-        item for category in LAB_CATEGORIES.values() 
-        for subcategory in category.values() 
+        item
+        for category in LAB_CATEGORIES.values()
+        for subcategory in category.values()
         for item in subcategory
     ]
 
@@ -53,14 +55,18 @@ class InHospitalMortalityMIMIC4(BaseTask):
         demographics = patient.get_events(event_type="patients")
         assert len(demographics) == 1
         demographics = demographics[0]
-        anchor_age = int(demographics.anchor_age)        
+        anchor_age = int(demographics.anchor_age)
         if anchor_age < 18:
             return []
 
         admissions = patient.get_events(event_type="admissions")
         for admission in admissions:
-            admission_dischtime = datetime.strptime(admission.dischtime, "%Y-%m-%d %H:%M:%S")
-            duration_hour = (admission_dischtime - admission.timestamp).total_seconds() / 3600
+            admission_dischtime = datetime.strptime(
+                admission.dischtime, "%Y-%m-%d %H:%M:%S"
+            )
+            duration_hour = (
+                admission_dischtime - admission.timestamp
+            ).total_seconds() / 3600
             if duration_hour <= input_window_hours:
                 continue
             predict_time = admission.timestamp + timedelta(hours=input_window_hours)
@@ -69,13 +75,15 @@ class InHospitalMortalityMIMIC4(BaseTask):
                 event_type="labevents",
                 start=admission.timestamp,
                 end=predict_time,
-                return_df=True
+                return_df=True,
             )
             labevents_df = labevents_df.filter(
                 pl.col("labevents/itemid").is_in(self.LABITEMS)
             )
             labevents_df = labevents_df.with_columns(
-                pl.col("labevents/storetime").str.strptime(pl.Datetime, "%Y-%m-%d %H:%M:%S")
+                pl.col("labevents/storetime").str.strptime(
+                    pl.Datetime, "%Y-%m-%d %H:%M:%S"
+                )
             )
             labevents_df = labevents_df.filter(
                 (pl.col("labevents/storetime") <= predict_time)
@@ -86,7 +94,7 @@ class InHospitalMortalityMIMIC4(BaseTask):
             labevents_df = labevents_df.select(
                 pl.col("timestamp"),
                 pl.col("labevents/itemid"),
-                pl.col("labevents/valuenum").cast(pl.Float64)
+                pl.col("labevents/valuenum").cast(pl.Float64),
             )
             labevents_df = labevents_df.pivot(
                 index="timestamp",
@@ -104,10 +112,7 @@ class InHospitalMortalityMIMIC4(BaseTask):
                 labevents_df = labevents_df.with_columns(pl.lit(None).alias(col))
 
             # Reorder columns by LABITEMS
-            labevents_df = labevents_df.select(
-                "timestamp",
-                *self.LABITEMS
-            )
+            labevents_df = labevents_df.select("timestamp", *self.LABITEMS)
 
             timestamps = labevents_df["timestamp"].to_list()
             lab_values = labevents_df.drop("timestamp").to_numpy()
