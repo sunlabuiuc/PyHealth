@@ -68,7 +68,10 @@ class SampleDataset(Dataset):
                 self.patient_to_index[patient_id].append(i)
 
             # Create record_to_index mapping (optional)
-            record_id = sample.get("record_id", sample.get("visit_id"))
+            # Check for record_id first, then visit_id for legacy compatibility
+            record_id = sample.get("record_id")
+            if record_id is None:
+                record_id = sample.get("visit_id")
             if record_id is not None:
                 if record_id not in self.record_to_index:
                     self.record_to_index[record_id] = []
