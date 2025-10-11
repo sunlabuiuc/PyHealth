@@ -1,0 +1,11 @@
+version: "1.0"
+tables:
+  dsa:
+    file_path: "daily-sports-activities.csv"
+    patient_id: null
+    timestamp: null
+    attributes:
+    - "person"
+    - "segment_num"
+    - "sensor_data"
+    - "activity"
