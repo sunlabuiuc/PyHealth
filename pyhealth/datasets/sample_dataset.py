@@ -28,6 +28,8 @@ class SampleDataset(Dataset):
         output_schema: Dict[str, Union[str, Type[FeatureProcessor]]],
         dataset_name: Optional[str] = None,
         task_name: Optional[str] = None,
+        input_processors: Optional[Dict[str, FeatureProcessor]] = None,
+        output_processors: Optional[Dict[str, FeatureProcessor]] = None,
     ) -> None:
         """Initializes the SampleDataset with samples and schemas.
 
@@ -43,6 +45,14 @@ class SampleDataset(Dataset):
                 Defaults to None.
             task_name (Optional[str], optional): Name of the task.
                 Defaults to None.
+            input_processors (Optional[Dict[str, FeatureProcessor]],
+                optional): Pre-fitted input processors. If provided, these
+                will be used instead of creating new ones from input_schema.
+                Defaults to None.
+            output_processors (Optional[Dict[str, FeatureProcessor]],
+                optional): Pre-fitted output processors. If provided, these
+                will be used instead of creating new ones from output_schema.
+                Defaults to None.
         """
         if dataset_name is None:
             dataset_name = ""
@@ -51,8 +61,10 @@ class SampleDataset(Dataset):
         self.samples = samples
         self.input_schema = input_schema
         self.output_schema = output_schema
-        self.input_processors = {}
-        self.output_processors = {}
+        self.input_processors = input_processors if input_processors is not None else {}
+        self.output_processors = (
+            output_processors if output_processors is not None else {}
+        )
         self.dataset_name = dataset_name
         self.task_name = task_name
         # Create patient_to_index and record_to_index mappings
@@ -113,12 +125,16 @@ class SampleDataset(Dataset):
 
     def build(self) -> None:
         """Builds the processors for input and output data based on schemas."""
-        for k, v in self.input_schema.items():
-            self.input_processors[k] = self._get_processor_instance(v)
-            self.input_processors[k].fit(self.samples, k)
-        for k, v in self.output_schema.items():
-            self.output_processors[k] = self._get_processor_instance(v)
-            self.output_processors[k].fit(self.samples, k)
+        # Only fit if processors weren't provided
+        if not self.input_processors:
+            for k, v in self.input_schema.items():
+                self.input_processors[k] = self._get_processor_instance(v)
+                self.input_processors[k].fit(self.samples, k)
+        if not self.output_processors:
+            for k, v in self.output_schema.items():
+                self.output_processors[k] = self._get_processor_instance(v)
+                self.output_processors[k].fit(self.samples, k)
+        # Always process samples with the (fitted) processors
         for sample in tqdm(self.samples, desc="Processing samples"):
             for k, v in sample.items():
                 if k in self.input_processors:
