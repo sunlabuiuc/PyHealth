@@ -264,9 +264,18 @@ class TestProcessorTransfer(unittest.TestCase):
 
     def test_cross_validation_scenario(self):
         """Test processor transfer in a cross-validation scenario."""
+        import copy
+
         # Simulate 3-fold CV with all samples having both labels
-        fold1 = [self.train_samples[0], self.train_samples[1]]  # has 0 and 1
-        fold2 = [self.train_samples[1], self.train_samples[2]]  # has 1 and 0
+        # Use deep copies to avoid mutating shared samples
+        fold1 = [
+            copy.deepcopy(self.train_samples[0]),
+            copy.deepcopy(self.train_samples[1]),
+        ]  # has 0 and 1
+        fold2 = [
+            copy.deepcopy(self.train_samples[1]),
+            copy.deepcopy(self.train_samples[2]),
+        ]  # has 1 and 0
 
         # Fold 1 as train
         train_dataset = SampleDataset(
