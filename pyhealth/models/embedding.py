@@ -6,6 +6,8 @@ import torch.nn as nn
 from ..datasets import SampleDataset
 from ..processors import (
     MultiHotProcessor,
+    NestedFloatsProcessor,
+    NestedSequenceProcessor,
     SequenceProcessor,
     StageNetProcessor,
     StageNetTensorProcessor,
@@ -60,7 +62,14 @@ class EmbeddingModel(BaseModel):
         self.embedding_dim = embedding_dim
         self.embedding_layers = nn.ModuleDict()
         for field_name, processor in self.dataset.input_processors.items():
-            if isinstance(processor, (SequenceProcessor, StageNetProcessor)):
+            if isinstance(
+                processor,
+                (
+                    SequenceProcessor,
+                    StageNetProcessor,
+                    NestedSequenceProcessor,
+                ),
+            ):
                 # Categorical codes -> use nn.Embedding
                 vocab_size = len(processor.code_vocab)
                 self.embedding_layers[field_name] = nn.Embedding(
@@ -68,7 +77,14 @@ class EmbeddingModel(BaseModel):
                     embedding_dim=embedding_dim,
                     padding_idx=0,
                 )
-            elif isinstance(processor, (TimeseriesProcessor, StageNetTensorProcessor)):
+            elif isinstance(
+                processor,
+                (
+                    TimeseriesProcessor,
+                    StageNetTensorProcessor,
+                    NestedFloatsProcessor,
+                ),
+            ):
                 # Numeric features -> use nn.Linear
                 # Both processors have .size attribute
                 self.embedding_layers[field_name] = nn.Linear(
