@@ -1,8 +1,4 @@
 ﻿pyhealth.tasks.EEG_events
 =======================================
 
-
-.. automodule:: pyhealth.tasks.EEG_events
-    :members:
-    :undoc-members:
-    :show-inheritance:
+.. autofunction:: pyhealth.tasks.EEG_events.EEG_events_fn
