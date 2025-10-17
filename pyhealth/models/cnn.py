@@ -1,12 +1,12 @@
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 
 import torch
 import torch.nn as nn
 
-from pyhealth.datasets import SampleEHRDataset
+from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 
-VALID_OPERATION_LEVEL = ["visit", "event"]
+from .embedding import EmbeddingModel
 
 
 class CNNBlock(nn.Module):
@@ -102,7 +102,7 @@ class CNNLayer(nn.Module):
             self.cnn[f"CNN-{i}"] = CNNBlock(in_channels, out_channels)
         self.pooling = nn.AdaptiveAvgPool1d(1)
 
-    def forward(self, x: torch.tensor) -> Tuple[torch.tensor, torch.tensor]:
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """Forward propagation.
 
         Args:
@@ -125,245 +125,132 @@ class CNNLayer(nn.Module):
 
 
 class CNN(BaseModel):
-    """Convolutional neural network model.
+    """Convolutional neural network model for PyHealth 2.0 datasets.
 
-    This model applies a separate CNN layer for each feature, and then concatenates
-    the final hidden states of each CNN layer. The concatenated hidden states are
-    then fed into a fully connected layer to make predictions.
-
-    Note:
-        We use separate CNN layers for different feature_keys.
-        Currentluy, we automatically support different input formats:
-            - code based input (need to use the embedding table later)
-            - float/int based value input
-        We follow the current convention for the CNN model:
-            - case 1. [code1, code2, code3, ...]
-                - we will assume the code follows the order; our model will encode
-                each code into a vector and apply CNN on the code level
-            - case 2. [[code1, code2]] or [[code1, code2], [code3, code4, code5], ...]
-                - we will assume the inner bracket follows the order; our model first
-                use the embedding table to encode each code into a vector and then use
-                average/mean pooling to get one vector for one inner bracket; then use
-                CNN one the braket level
-            - case 3. [[1.5, 2.0, 0.0]] or [[1.5, 2.0, 0.0], [8, 1.2, 4.5], ...]
-                - this case only makes sense when each inner bracket has the same length;
-                we assume each dimension has the same meaning; we run CNN directly
-                on the inner bracket level, similar to case 1 after embedding table
-            - case 4. [[[1.5, 2.0, 0.0]]] or [[[1.5, 2.0, 0.0], [8, 1.2, 4.5]], ...]
-                - this case only makes sense when each inner bracket has the same length;
-                we assume each dimension has the same meaning; we run CNN directly
-                on the inner bracket level, similar to case 2 after embedding table
+    Each feature is embedded independently, processed by a dedicated
+    :class:`CNNLayer`, and the pooled representations are concatenated for the
+    final prediction head. The model works with sequence-style processors such as
+    ``SequenceProcessor``, ``TimeseriesProcessor``, ``TensorProcessor``, and
+    nested categorical inputs produced by ``StageNetProcessor``.
 
     Args:
-        dataset: the dataset to train the model. It is used to query certain
-            information such as the set of all tokens.
-        feature_keys:  list of keys in samples to use as features,
-            e.g. ["conditions", "procedures"].
-        label_key: key in samples to use as label (e.g., "drugs").
-        mode: one of "binary", "multiclass", or "multilabel".
-        embedding_dim: the embedding dimension. Default is 128.
-        hidden_dim: the hidden dimension. Default is 128.
-        **kwargs: other parameters for the CNN layer.
+        dataset (SampleDataset): Dataset with fitted input and output processors.
+        embedding_dim (int): Size of the intermediate embedding space.
+        hidden_dim (int): Number of channels produced by each CNN block.
+        num_layers (int): Number of convolutional blocks per feature.
+        **kwargs: Additional keyword arguments forwarded to :class:`CNNLayer`.
 
-    Examples:
-        >>> from pyhealth.datasets import SampleEHRDataset
+    Example:
+        >>> from pyhealth.datasets import SampleDataset
         >>> samples = [
-        ...         {
-        ...             "patient_id": "patient-0",
-        ...             "visit_id": "visit-0",
-        ...             "list_codes": ["505800458", "50580045810", "50580045811"],  # NDC
-        ...             "list_vectors": [[1.0, 2.55, 3.4], [4.1, 5.5, 6.0]],
-        ...             "list_list_codes": [["A05B", "A05C", "A06A"], ["A11D", "A11E"]],  # ATC-4
-        ...             "list_list_vectors": [
-        ...                 [[1.8, 2.25, 3.41], [4.50, 5.9, 6.0]],
-        ...                 [[7.7, 8.5, 9.4]],
-        ...             ],
-        ...             "label": 1,
-        ...         },
-        ...         {
-        ...             "patient_id": "patient-0",
-        ...             "visit_id": "visit-1",
-        ...             "list_codes": [
-        ...                 "55154191800",
-        ...                 "551541928",
-        ...                 "55154192800",
-        ...                 "705182798",
-        ...                 "70518279800",
-        ...             ],
-        ...             "list_vectors": [[1.4, 3.2, 3.5], [4.1, 5.9, 1.7]],
-        ...             "list_list_codes": [["A04A", "B035", "C129"], ["A07B", "A07C"]],
-        ...             "list_list_vectors": [
-        ...                 [[1.0, 2.8, 3.3], [4.9, 5.0, 6.6]],
-        ...                 [[7.7, 8.4, 1.3]],
-        ...             ],
-        ...             "label": 0,
-        ...         },
-        ...     ]
-        >>> dataset = SampleEHRDataset(samples=samples, dataset_name="test")
-        >>>
-        >>> from pyhealth.models import CNN
-        >>> model = CNN(
-        ...         dataset=dataset,
-        ...         feature_keys=[
-        ...             "list_codes",
-        ...             "list_vectors",
-        ...             "list_list_codes",
-        ...             "list_list_vectors",
-        ...         ],
-        ...         label_key="label",
-        ...         mode="binary",
-        ...     )
-        >>>
-        >>> from pyhealth.datasets import get_dataloader
-        >>> train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
-        >>> data_batch = next(iter(train_loader))
-        >>>
-        >>> ret = model(**data_batch)
-        >>> print(ret)
-        {
-            'loss': tensor(0.8872, grad_fn=<BinaryCrossEntropyWithLogitsBackward0>),
-            'y_prob': tensor([[0.5008], [0.6614]], grad_fn=<SigmoidBackward0>),
-            'y_true': tensor([[1.], [0.]]),
-            'logit': tensor([[0.0033], [0.6695]], grad_fn=<AddmmBackward0>)
-        }
-        >>>
+        ...     {
+        ...         "patient_id": "p0",
+        ...         "visit_id": "v0",
+        ...         "conditions": ["A05B", "A05C", "A06A"],
+        ...         "labs": [[1.0, 2.5], [3.0, 4.0]],
+        ...         "label": 1,
+        ...     },
+        ...     {
+        ...         "patient_id": "p0",
+        ...         "visit_id": "v1",
+        ...         "conditions": ["A05B"],
+        ...         "labs": [[0.5, 1.0]],
+        ...         "label": 0,
+        ...     },
+        ... ]
+        >>> dataset = SampleDataset(
+        ...     samples=samples,
+        ...     input_schema={"conditions": "sequence", "labs": "tensor"},
+        ...     output_schema={"label": "binary"},
+        ...     dataset_name="toy",
+        ... )
+        >>> model = CNN(dataset)
     """
 
     def __init__(
         self,
-        dataset: SampleEHRDataset,
-        feature_keys: List[str],
-        label_key: str,
-        mode: str,
+        dataset: SampleDataset,
         embedding_dim: int = 128,
         hidden_dim: int = 128,
+        num_layers: int = 1,
         **kwargs,
     ):
-        super(CNN, self).__init__(
-            dataset=dataset,
-            feature_keys=feature_keys,
-            label_key=label_key,
-            mode=mode,
-        )
+        super(CNN, self).__init__(dataset=dataset)
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
+        self.num_layers = num_layers
 
-        # validate kwargs for CNN layer
         if "input_size" in kwargs:
             raise ValueError("input_size is determined by embedding_dim")
         if "hidden_size" in kwargs:
             raise ValueError("hidden_size is determined by hidden_dim")
 
-        # the key of self.feat_tokenizers only contains the code based inputs
-        self.feat_tokenizers = {}
-        self.label_tokenizer = self.get_label_tokenizer()
-        # the key of self.embeddings only contains the code based inputs
-        self.embeddings = nn.ModuleDict()
-        # the key of self.linear_layers only contains the float/int based inputs
-        self.linear_layers = nn.ModuleDict()
+        assert len(self.label_keys) == 1, "Only one label key is supported"
+        self.label_key = self.label_keys[0]
 
-        # add feature CNN layers
-        for feature_key in self.feature_keys:
-            input_info = self.dataset.input_info[feature_key]
-            # sanity check
-            if input_info["type"] not in [str, float, int]:
-                raise ValueError(
-                    "CNN only supports str code, float and int as input types"
-                )
-            elif (input_info["type"] == str) and (input_info["dim"] not in [2, 3]):
-                raise ValueError(
-                    "CNN only supports 2-dim or 3-dim str code as input types"
-                )
-            elif (input_info["type"] in [float, int]) and (
-                input_info["dim"] not in [2, 3]
-            ):
-                raise ValueError(
-                    "CNN only supports 2-dim or 3-dim float and int as input types"
-                )
-            # for code based input, we need Type
-            # for float/int based input, we need Type, input_dim
-            self.add_feature_transform_layer(feature_key, input_info)
+        self.embedding_model = EmbeddingModel(dataset, embedding_dim)
 
         self.cnn = nn.ModuleDict()
-        for feature_key in feature_keys:
+        for feature_key in self.feature_keys:
             self.cnn[feature_key] = CNNLayer(
-                input_size=embedding_dim, hidden_size=hidden_dim, **kwargs
+                input_size=embedding_dim,
+                hidden_size=hidden_dim,
+                num_layers=num_layers,
+                **kwargs,
             )
-        output_size = self.get_output_size(self.label_tokenizer)
+
+        output_size = self.get_output_size()
         self.fc = nn.Linear(len(self.feature_keys) * self.hidden_dim, output_size)
 
+    @staticmethod
+    def _extract_feature_tensor(feature):
+        if isinstance(feature, tuple) and len(feature) == 2:
+            return feature[1]
+        return feature
+
+    def _reshape_for_convolution(
+        self, tensor: torch.Tensor, feature_key: str
+    ) -> torch.Tensor:
+        if tensor.dim() == 4:
+            tensor = tensor.sum(dim=2)
+        elif tensor.dim() == 2:
+            tensor = tensor.unsqueeze(1)
+        elif tensor.dim() == 1:
+            tensor = tensor.unsqueeze(1).unsqueeze(-1)
+        if tensor.dim() != 3:
+            raise ValueError(
+                f"Unsupported tensor shape for feature {feature_key}: {tensor.shape}"
+            )
+        return tensor
+
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
-        """Forward propagation.
-
-        The label `kwargs[self.label_key]` is a list of labels for each patient.
-
-        Args:
-            **kwargs: keyword arguments for the model. The keys must contain
-                all the feature keys and the label key.
-
-        Returns:
-            A dictionary with the following keys:
-                loss: a scalar tensor representing the loss.
-                y_prob: a tensor representing the predicted probabilities.
-                y_true: a tensor representing the true labels.
-        """
+        """Forward propagation."""
         patient_emb = []
+
+        embed_inputs = {
+            feature_key: self._extract_feature_tensor(kwargs[feature_key])
+            for feature_key in self.feature_keys
+        }
+        embedded = self.embedding_model(embed_inputs)
+
         for feature_key in self.feature_keys:
-            input_info = self.dataset.input_info[feature_key]
-            dim_, type_ = input_info["dim"], input_info["type"]
-
-            # for case 1: [code1, code2, code3, ...]
-            if (dim_ == 2) and (type_ == str):
-                x = self.feat_tokenizers[feature_key].batch_encode_2d(
-                    kwargs[feature_key]
-                )
-                # (patient, event)
-                x = torch.tensor(x, dtype=torch.long, device=self.device)
-                # (patient, event, embedding_dim)
-                x = self.embeddings[feature_key](x)
-
-            # for case 2: [[code1, code2], [code3, ...], ...]
-            elif (dim_ == 3) and (type_ == str):
-                x = self.feat_tokenizers[feature_key].batch_encode_3d(
-                    kwargs[feature_key]
-                )
-                # (patient, visit, event)
-                x = torch.tensor(x, dtype=torch.long, device=self.device)
-                # (patient, visit, event, embedding_dim)
-                x = self.embeddings[feature_key](x)
-                # (patient, visit, embedding_dim)
-                x = torch.sum(x, dim=2)
-
-            # for case 3: [[1.5, 2.0, 0.0], ...]
-            elif (dim_ == 2) and (type_ in [float, int]):
-                x, _ = self.padding2d(kwargs[feature_key])
-                # (patient, event, values)
-                x = torch.tensor(x, dtype=torch.float, device=self.device)
-                # (patient, event, embedding_dim)
-                x = self.linear_layers[feature_key](x)
-
-            # for case 4: [[[1.5, 2.0, 0.0], [1.8, 2.4, 6.0]], ...]
-            elif (dim_ == 3) and (type_ in [float, int]):
-                x, _ = self.padding3d(kwargs[feature_key])
-                # (patient, visit, event, values)
-                x = torch.tensor(x, dtype=torch.float, device=self.device)
-                # (patient, visit, embedding_dim)
-                x = torch.sum(x, dim=2)
-                x = self.linear_layers[feature_key](x)
-
+            x = embedded[feature_key]
+            if not isinstance(x, torch.Tensor):
+                x = torch.tensor(x, device=self.device)
             else:
-                raise NotImplementedError
+                x = x.to(self.device)
 
-            _, x = self.cnn[feature_key](x)
-            patient_emb.append(x)
+            x = self._reshape_for_convolution(x, feature_key).float()
+            _, pooled = self.cnn[feature_key](x)
+            patient_emb.append(pooled)
 
         patient_emb = torch.cat(patient_emb, dim=1)
-        # (patient, label_size)
         logits = self.fc(patient_emb)
-        # obtain y_true, loss, y_prob
-        y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
+
+        y_true = kwargs[self.label_key].to(self.device)
         loss = self.get_loss_function()(logits, y_true)
         y_prob = self.prepare_y_prob(logits)
+
         results = {
             "loss": loss,
             "y_prob": y_prob,
@@ -376,70 +263,42 @@ class CNN(BaseModel):
 
 
 if __name__ == "__main__":
-    from pyhealth.datasets import SampleEHRDataset
+    from pyhealth.datasets import SampleDataset
+    from pyhealth.datasets import get_dataloader
 
     samples = [
         {
             "patient_id": "patient-0",
             "visit_id": "visit-0",
-            # "single_vector": [1, 2, 3],
-            "list_codes": ["505800458", "50580045810", "50580045811"],  # NDC
-            "list_vectors": [[1.0, 2.55, 3.4], [4.1, 5.5, 6.0]],
-            "list_list_codes": [["A05B", "A05C", "A06A"], ["A11D", "A11E"]],  # ATC-4
-            "list_list_vectors": [
-                [[1.8, 2.25, 3.41], [4.50, 5.9, 6.0]],
-                [[7.7, 8.5, 9.4]],
-            ],
+            "conditions": ["A05B", "A05C", "A06A"],
+            "labs": [[1.0, 2.5], [3.0, 4.0]],
             "label": 1,
         },
         {
             "patient_id": "patient-0",
             "visit_id": "visit-1",
-            # "single_vector": [1, 5, 8],
-            "list_codes": [
-                "55154191800",
-                "551541928",
-                "55154192800",
-                "705182798",
-                "70518279800",
-            ],
-            "list_vectors": [[1.4, 3.2, 3.5], [4.1, 5.9, 1.7], [4.5, 5.9, 1.7]],
-            "list_list_codes": [["A04A", "B035", "C129"]],
-            "list_list_vectors": [
-                [[1.0, 2.8, 3.3], [4.9, 5.0, 6.6], [7.7, 8.4, 1.3], [7.7, 8.4, 1.3]],
-            ],
+            "conditions": ["A05B"],
+            "labs": [[0.5, 1.0]],
             "label": 0,
         },
     ]
 
-    # dataset
-    dataset = SampleEHRDataset(samples=samples, dataset_name="test")
-    print(dataset.input_info)
-
-    # data loader
-    from pyhealth.datasets import get_dataloader
+    input_schema = {"conditions": "sequence", "labs": "tensor"}
+    output_schema = {"label": "binary"}
+    dataset = SampleDataset(
+        samples=samples,
+        input_schema=input_schema,
+        output_schema=output_schema,
+        dataset_name="test",
+    )
 
     train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
 
-    # model
-    model = CNN(
-        dataset=dataset,
-        feature_keys=[
-            "list_codes",
-            "list_vectors",
-            "list_list_codes",
-            "list_list_vectors",
-        ],
-        label_key="label",
-        mode="binary",
-    )
+    model = CNN(dataset=dataset)
 
-    # data batch
     data_batch = next(iter(train_loader))
 
-    # try the model
     ret = model(**data_batch)
     print(ret)
 
-    # try loss backward
     ret["loss"].backward()
