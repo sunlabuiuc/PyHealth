@@ -72,11 +72,20 @@ class EmbeddingModel(BaseModel):
             ):
                 # Categorical codes -> use nn.Embedding
                 vocab_size = len(processor.code_vocab)
-                self.embedding_layers[field_name] = nn.Embedding(
-                    num_embeddings=vocab_size,
-                    embedding_dim=embedding_dim,
-                    padding_idx=0,
-                )
+                # For NestedSequenceProcessor, don't use padding_idx
+                # because empty visits need non-zero embeddings
+                if isinstance(processor, NestedSequenceProcessor):
+                    self.embedding_layers[field_name] = nn.Embedding(
+                        num_embeddings=vocab_size,
+                        embedding_dim=embedding_dim,
+                        padding_idx=None,
+                    )
+                else:
+                    self.embedding_layers[field_name] = nn.Embedding(
+                        num_embeddings=vocab_size,
+                        embedding_dim=embedding_dim,
+                        padding_idx=0,
+                    )
             elif isinstance(
                 processor,
                 (

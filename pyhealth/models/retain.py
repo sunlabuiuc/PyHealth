@@ -201,10 +201,15 @@ class RETAIN(BaseModel):
         # Create RETAIN layers for each feature
         self.retain = nn.ModuleDict()
         for feature_key in self.feature_keys:
-            self.retain[feature_key] = RETAINLayer(feature_size=embedding_dim, **kwargs)
+            self.retain[feature_key] = RETAINLayer(
+                feature_size=embedding_dim, **kwargs
+            )
 
         output_size = self.get_output_size()
-        self.fc = nn.Linear(len(self.feature_keys) * self.embedding_dim, output_size)
+        num_features = len(self.feature_keys)
+        self.fc = nn.Linear(
+            num_features * self.embedding_dim, output_size
+        )
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation.
@@ -223,13 +228,31 @@ class RETAIN(BaseModel):
         """
         patient_emb = []
         embedded = self.embedding_model(kwargs)
+        
         for feature_key in self.feature_keys:
             x = embedded[feature_key]
-            # x shape: (batch_size, num_visits, embedding_dim)
-
-            # For nested sequences, we need to sum/pool across the inner
-            # dimension to get (batch_size, num_visits, embedding_dim)
-            # The embedding model already handles this
+            
+            # Handle different input dimensions
+            # Case 1: 4D tensor from NestedSequenceProcessor
+            # (batch, visits, events, embedding_dim)
+            # Need to sum across events to get (batch, visits, embedding_dim)
+            if len(x.shape) == 4:
+                x = torch.sum(x, dim=2)  # Sum across events within visit
+            
+            # Case 2: 3D tensor from SequenceProcessor or after summing
+            # (batch, seq_len, embedding_dim) - already correct format
+            elif len(x.shape) == 3:
+                pass  # Already correct format
+            
+            # Case 3: 2D tensor - shouldn't happen for RETAIN but handle it
+            elif len(x.shape) == 2:
+                x = x.unsqueeze(1)  # Add seq dim: (batch, 1, embedding_dim)
+            
+            else:
+                raise ValueError(
+                    f"Unexpected tensor shape {x.shape} for feature "
+                    f"{feature_key}"
+                )
 
             # Create mask: non-padding entries are valid
             # Check if all values in embedding dimension are zero (padding)
