@@ -48,9 +48,9 @@ testnlp:
 .PHONY:		testall
 testall:	test testnlp
 
-# build the wheel
+# build the wheel (clean first to ensure fresh build)
 .PHONY:		wheel
-wheel:		$(DIST_DIR)
+wheel:		clean $(DIST_DIR)
 		@PX_DIST_DIR=$(DIST_DIR) pixi run build-wheel
 
 .PHONY:		clean
@@ -85,20 +85,24 @@ bump-major-dry:
 	@python tools/bump_version.py --major --dry-run
 
 .PHONY: upload-test-alpha-minor
-upload-test-alpha-minor: bump-alpha-minor wheel
-	@PX_DIST_DIR=$(DIST_DIR) pixi run -e build-pypi upload-test
+upload-test-alpha-minor:
+	@$(MAKE) bump-alpha-minor
+	@$(MAKE) upload-test
 
 .PHONY: upload-test-alpha-major
-upload-test-alpha-major: bump-alpha-major wheel
-	@PX_DIST_DIR=$(DIST_DIR) pixi run -e build-pypi upload-test
+upload-test-alpha-major:
+	@$(MAKE) bump-alpha-major
+	@$(MAKE) upload-test
 
 .PHONY: upload-test-minor
-upload-test-minor: bump-minor wheel
-	@PX_DIST_DIR=$(DIST_DIR) pixi run -e build-pypi upload-test
+upload-test-minor:
+	@$(MAKE) bump-minor
+	@$(MAKE) upload-test
 
 .PHONY: upload-test-major
-upload-test-major: bump-major wheel
-	@PX_DIST_DIR=$(DIST_DIR) pixi run -e build-pypi upload-test
+upload-test-major:
+	@$(MAKE) bump-major
+	@$(MAKE) upload-test
 
 
 ## Smart bump + upload helpers
@@ -126,13 +130,21 @@ bump-major:
 	@python tools/bump_version.py --major
 
 .PHONY: upload-alpha-minor
-upload-alpha-minor: bump-alpha-minor upload
+upload-alpha-minor:
+	@$(MAKE) bump-alpha-minor
+	@$(MAKE) upload
 
 .PHONY: upload-alpha-major
-upload-alpha-major: bump-alpha-major upload
+upload-alpha-major:
+	@$(MAKE) bump-alpha-major
+	@$(MAKE) upload
 
 .PHONY: upload-minor
-upload-minor: bump-minor upload
+upload-minor:
+	@$(MAKE) bump-minor
+	@$(MAKE) upload
 
 .PHONY: upload-major
-upload-major: bump-major upload
+upload-major:
+	@$(MAKE) bump-major
+	@$(MAKE) upload
