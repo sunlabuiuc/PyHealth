@@ -6,7 +6,7 @@ import torch.nn as nn
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 
-from .embedding import EmbeddingModel
+from pyhealth.models.embedding import EmbeddingModel
 
 
 class CNNBlock(nn.Module):
