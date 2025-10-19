@@ -1,3 +1,7 @@
+# Author: Yongda Fan
+# NetID: yongdaf2
+# Description: Transformer model implementation for PyHealth 2.0
+
 import math
 from typing import Dict, Optional, Tuple, Union
 
