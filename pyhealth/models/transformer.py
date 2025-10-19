@@ -3,7 +3,7 @@
 # Description: Transformer model implementation for PyHealth 2.0
 
 import math
-from typing import Dict, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
 
 import torch
 from torch import nn
@@ -25,8 +25,36 @@ from pyhealth.models.embedding import EmbeddingModel
 
 
 class Attention(nn.Module):
-    def forward(self, query, key, value, mask=None, dropout=None):
-        scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(query.size(-1))
+    """Scaled dot-product attention helper."""
+
+    def forward(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        mask: Optional[torch.Tensor] = None,
+        dropout: Optional[nn.Module] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Compute attention outputs.
+
+        Args:
+            query: Query tensor ``[batch, heads, len_q, dim]``.
+            key: Key tensor ``[batch, heads, len_k, dim]``.
+            value: Value tensor ``[batch, heads, len_v, dim]``.
+            mask: Optional boolean mask aligned to key/value lengths.
+            dropout: Optional dropout module applied to attention weights.
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]: Attention-applied values and the
+            attention weight matrix.
+
+        Example:
+            Called inside :class:`MultiHeadedAttention` for each head.
+        """
+
+        scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(
+            query.size(-1)
+        )
         if mask is not None:
             scores = scores.masked_fill(mask == 0, -1e9)
         p_attn = torch.softmax(scores, dim=-1)
@@ -34,19 +62,29 @@ class Attention(nn.Module):
             p_attn = p_attn.masked_fill(mask == 0, 0)
         if dropout is not None:
             p_attn = dropout(p_attn)
- 
+
         return torch.matmul(p_attn, value), p_attn
 
 
 class MultiHeadedAttention(nn.Module):
-    def __init__(self, h, d_model, dropout=0.1):
+    """Multi-head attention wrapper used by the Transformer block."""
+
+    def __init__(self, h: int, d_model: int, dropout: float = 0.1):
+        """Initialize the attention module.
+
+        Args:
+            h: Number of attention heads.
+            d_model: Dimensionality of the model embedding.
+            dropout: Dropout probability applied to attention weights.
+        """
+
         super(MultiHeadedAttention, self).__init__()
         assert d_model % h == 0
 
         # We assume d_v always equals d_k
         self.d_k = d_model // h
         self.h = h
-    
+
         self.linear_layers = nn.ModuleList(
             [nn.Linear(d_model, d_model, bias=False) for _ in range(3)]
         )
@@ -58,18 +96,49 @@ class MultiHeadedAttention(nn.Module):
         self.attn_gradients = None
         self.attn_map = None
 
+    def __repr__(self) -> str:
+        return (
+            f"MultiHeadedAttention(heads={self.h}, d_model={self.h * self.d_k}, "
+            f"dropout={self.dropout.p})"
+        )
+
     # helper functions for interpretability
-    def get_attn_map(self):
-        return self.attn_map 
-    
-    def get_attn_grad(self):
+    def get_attn_map(self) -> Optional[torch.Tensor]:
+        """Return the last computed attention weights."""
+
+        return self.attn_map
+
+    def get_attn_grad(self) -> Optional[torch.Tensor]:
+        """Return gradients captured from attention weights."""
+
         return self.attn_gradients
 
-    def save_attn_grad(self, attn_grad):
-        self.attn_gradients = attn_grad 
+    def save_attn_grad(self, attn_grad: torch.Tensor) -> None:
+        """Hook callback that stores attention gradients."""
 
-    # register_hook option allows us to save the gradients in backwarding
-    def forward(self, query, key, value, mask=None, register_hook = False):
+        self.attn_gradients = attn_grad
+
+    def forward(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        mask: Optional[torch.Tensor] = None,
+        register_hook: bool = False,
+    ) -> torch.Tensor:
+        """Run multi-head attention with optional gradient capture.
+
+        Args:
+            query: Query tensor ``[batch, len_q, hidden]`` or similar.
+            key: Key tensor aligned with ``query``.
+            value: Value tensor aligned with ``query``.
+            mask: Optional boolean mask ``[batch, len_q, len_k]``.
+            register_hook: True to attach a backward hook saving gradients.
+
+        Returns:
+            torch.Tensor: Attention mixed representation ``[batch, len_q, hidden]``.
+        """
+
         batch_size = query.size(0)
 
         # 1) Do all the linear projections in batch from d_model => h x d_k
@@ -77,13 +146,13 @@ class MultiHeadedAttention(nn.Module):
             l(x).view(batch_size, -1, self.h, self.d_k).transpose(1, 2)
             for l, x in zip(self.linear_layers, (query, key, value))
         ]
-        
+
         # 2) Apply attention on all the projected vectors in batch.
         if mask is not None:
             mask = mask.unsqueeze(1)
         x, attn = self.attention(query, key, value, mask=mask, dropout=self.dropout)
-        
-        self.attn_map = attn # save the attention map
+
+        self.attn_map = attn  # save the attention map
         if register_hook:
             attn.register_hook(self.save_attn_grad)
         # 3) "Concat" using a view and apply a final linear.
@@ -93,14 +162,28 @@ class MultiHeadedAttention(nn.Module):
 
 
 class PositionwiseFeedForward(nn.Module):
-    def __init__(self, d_model, d_ff, dropout=0.1):
+    def __init__(self, d_model: int, d_ff: int, dropout: float = 0.1):
+        """Construct the two-layer feed-forward sub-network.
+
+        Args:
+            d_model: Input and output dimensionality.
+            d_ff: Hidden dimensionality of the intermediate linear layer.
+            dropout: Dropout rate between the linear layers.
+        """
+
         super(PositionwiseFeedForward, self).__init__()
         self.w_1 = nn.Linear(d_model, d_ff)
         self.w_2 = nn.Linear(d_ff, d_model)
         self.dropout = nn.Dropout(dropout)
         self.activation = nn.GELU()
 
-    def forward(self, x, mask=None):
+    def forward(
+        self,
+        x: torch.Tensor,
+        mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """Apply feed-forward transformation and optional masking."""
+
         x = self.w_2(self.dropout(self.activation(self.w_1(x))))
         if mask is not None:
             mask = mask.sum(dim=-1) > 0
@@ -109,12 +192,25 @@ class PositionwiseFeedForward(nn.Module):
 
 
 class SublayerConnection(nn.Module):
-    def __init__(self, size, dropout):
+    def __init__(self, size: int, dropout: float):
+        """Set up the pre-norm residual connection.
+
+        Args:
+            size: Feature dimensionality for layer normalization.
+            dropout: Dropout probability applied to the sublayer output.
+        """
+
         super(SublayerConnection, self).__init__()
         self.norm = nn.LayerNorm(size)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x, sublayer):
+    def forward(
+        self,
+        x: torch.Tensor,
+        sublayer,
+    ) -> torch.Tensor:
+        """Apply pre-norm residual connection around a sublayer."""
+
         return x + self.dropout(sublayer(self.norm(x)))
 
 
@@ -298,11 +394,43 @@ class Transformer(BaseModel):
 
     @staticmethod
     def _split_temporal(feature):
+        """Separate temporal metadata from a feature payload.
+
+        Args:
+            feature: Either a tuple ``(time, value)`` produced by temporal
+                processors or a tensor-like payload for non-temporal features.
+
+        Returns:
+            Tuple[Optional[torch.Tensor], Any]: A tuple of ``(time_tensor,
+            value)`` where ``time_tensor`` is ``None`` if no temporal
+            information exists.
+
+        Example:
+            The StageNet processor returns ``(time, values)`` tuples. This
+            helper ensures downstream embedding logic receives a consistent
+            signature.
+        """
+
         if isinstance(feature, tuple) and len(feature) == 2:
             return feature
         return None, feature
 
     def _ensure_tensor(self, feature_key: str, value) -> torch.Tensor:
+        """Convert raw feature payloads into tensors on demand.
+
+        Args:
+            feature_key: Name of the feature in the dataset schema.
+            value: Raw payload from the dataloader (tensor, list of codes, etc.).
+
+        Returns:
+            torch.Tensor: Tensor representation suitable for the embedding model.
+
+        Example:
+            For sequence-coded features the processor yields integer indices;
+            for numeric tensors we upcast to ``float``. This keeps notebook
+            examples concise by re-using processor outputs directly.
+        """
+
         if isinstance(value, torch.Tensor):
             return value
         processor = self.feature_processors[feature_key]
@@ -311,6 +439,21 @@ class Transformer(BaseModel):
         return torch.tensor(value, dtype=torch.float)
 
     def _create_mask(self, feature_key: str, value: torch.Tensor) -> torch.Tensor:
+        """Create a boolean mask indicating valid sequence positions.
+
+        Args:
+            feature_key: Name of the feature in the dataset schema.
+            value: Tensor produced by :meth:`_ensure_tensor`.
+
+        Returns:
+            torch.Tensor: Boolean tensor of shape ``[batch, seq_len]`` marking
+            valid timesteps.
+
+        Example:
+            The mask is consumed by :class:`TransformerLayer` to zero-out padded
+            positions before attention is applied.
+        """
+
         processor = self.feature_processors[feature_key]
         if isinstance(processor, SequenceProcessor):
             mask = value != 0
@@ -325,14 +468,29 @@ class Transformer(BaseModel):
             elif value.dim() == 2:
                 mask = torch.any(torch.abs(value) > 0, dim=-1, keepdim=True)
             else:
-                mask = torch.ones(value.size(0), 1, dtype=torch.bool, device=value.device)
+                mask = torch.ones(
+                    value.size(0),
+                    1,
+                    dtype=torch.bool,
+                    device=value.device,
+                )
         elif isinstance(processor, (TensorProcessor, MultiHotProcessor)):
-            mask = torch.ones(value.size(0), 1, dtype=torch.bool, device=value.device)
+            mask = torch.ones(
+                value.size(0),
+                1,
+                dtype=torch.bool,
+                device=value.device,
+            )
         else:
             if value.dim() >= 2:
                 mask = torch.any(value != 0, dim=-1)
             else:
-                mask = torch.ones(value.size(0), 1, dtype=torch.bool, device=value.device)
+                mask = torch.ones(
+                    value.size(0),
+                    1,
+                    dtype=torch.bool,
+                    device=value.device,
+                )
 
         if mask.dim() == 1:
             mask = mask.unsqueeze(1)
@@ -345,6 +503,20 @@ class Transformer(BaseModel):
 
     @staticmethod
     def _pool_embedding(x: torch.Tensor) -> torch.Tensor:
+        """Pool nested embeddings to ``[batch, seq_len, hidden]`` format.
+
+        Args:
+            x: Tensor emitted by the embedding model.
+
+        Returns:
+            torch.Tensor: Sequence-aligned embedding tensor ready for attention.
+
+        Example:
+            StageNet categorical inputs may have shape
+            ``[batch, seq_len, inner_len, emb]``. We sum over ``inner_len`` to
+            obtain per-event representations.
+        """
+
         if x.dim() == 4:
             x = x.sum(dim=2)
         if x.dim() == 2:
@@ -352,7 +524,21 @@ class Transformer(BaseModel):
         return x
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
-        """Forward propagation with PyHealth 2.0 inputs."""
+        """Forward propagation with PyHealth 2.0 inputs.
+
+        Args:
+            **kwargs: Keyword arguments that include every feature key defined in
+                the dataset schema plus the label key.
+
+        Returns:
+            Dict[str, torch.Tensor]: Prediction dictionary containing the loss,
+            probabilities, logits, labels, and (optionally) embeddings.
+
+        Example:
+            This method is invoked by :class:`pyhealth.trainer.Trainer`, which
+            supplies batches from :func:`pyhealth.datasets.get_dataloader`.
+        """
+
         register_hook = bool(kwargs.get("register_hook", False))
         patient_emb = []
         embedding_inputs: Dict[str, torch.Tensor] = {}
