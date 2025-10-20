@@ -114,6 +114,26 @@ class TestNestedSequenceProcessor(unittest.TestCase):
         self.assertEqual(result[0, 1].item(), processor.code_vocab["B"])
         self.assertEqual(result[0, 2].item(), processor.code_vocab["<pad>"])
 
+    def test_all_empty_visits(self):
+        """Test when ALL visits are empty (drug recommendation first sample)."""
+        processor = NestedSequenceProcessor()
+        samples = [{"codes": [["A", "B"], ["C"]]}]
+        processor.fit(samples, "codes")
+
+        # Process with all visits being empty (like drugs_hist first sample)
+        result = processor.process([[], [], []])
+
+        # All visits should be padded
+        self.assertEqual(result.shape, (3, 2))  # 3 visits, max_len=2
+        # All positions should be <pad>
+        for i in range(3):
+            for j in range(2):
+                self.assertEqual(
+                    result[i, j].item(),
+                    processor.code_vocab["<pad>"],
+                    f"Position [{i}, {j}] should be <pad>",
+                )
+
 
 class TestNestedSequenceFloatsProcessor(unittest.TestCase):
     """Tests for NestedFloatsProcessor (numerical values)."""
