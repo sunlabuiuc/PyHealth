@@ -149,7 +149,7 @@ class NestedFloatsProcessor(FeatureProcessor):
     Args:
         forward_fill: If True, applies forward fill for NaN values across
             time steps and empty visits. If False, sets null values to 0.
-            Default is False.
+            Default is True.
 
     Examples:
         >>> processor = NestedFloatsProcessor()
@@ -164,7 +164,7 @@ class NestedFloatsProcessor(FeatureProcessor):
         >>> result.shape  # (2, 3) - 2 visits, padded to max length 3
     """
 
-    def __init__(self, forward_fill: bool = False):
+    def __init__(self, forward_fill: bool = True):
         self._max_inner_len = 1  # Maximum length of inner sequences
         self.forward_fill = forward_fill
 
@@ -262,14 +262,33 @@ class NestedFloatsProcessor(FeatureProcessor):
         values_array = np.array(encoded_sequences, dtype=float)
 
         # Apply forward fill for NaN values if enabled
+        # Forward fill happens in two passes:
+        # 1. Across visits (column-wise): missing values get previous visit
+        # 2. Within each visit (row-wise): pad positions get last valid value
         if self.forward_fill:
+            # First: forward fill across visits (column-wise)
+            # For each feature dimension, fill NaN with previous visit's value
             for feature_idx in range(values_array.shape[1]):
-                last_value = 0.0
+                last_value = None
                 for visit_idx in range(values_array.shape[0]):
                     if not np.isnan(values_array[visit_idx, feature_idx]):
                         last_value = values_array[visit_idx, feature_idx]
-                    else:
+                    elif last_value is not None:
                         values_array[visit_idx, feature_idx] = last_value
+
+            # Second: forward fill within each visit (row-wise)
+            # For padding positions, fill with last valid value in that visit
+            for visit_idx in range(values_array.shape[0]):
+                last_value = None
+                for feature_idx in range(values_array.shape[1]):
+                    if not np.isnan(values_array[visit_idx, feature_idx]):
+                        last_value = values_array[visit_idx, feature_idx]
+                    elif last_value is not None:
+                        values_array[visit_idx, feature_idx] = last_value
+
+            # Third: any remaining NaN values (first visit with no prior)
+            # are set to 0.0
+            values_array = np.nan_to_num(values_array, nan=0.0)
 
         return torch.tensor(values_array, dtype=torch.float)
 
