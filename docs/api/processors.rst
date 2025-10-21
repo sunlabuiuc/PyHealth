@@ -13,6 +13,8 @@ We implement the following processors for supporting data preprocessing and toke
     processors/pyhealth.processors.DatasetProcessor
     processors/pyhealth.processors.ImageProcessor
     processors/pyhealth.processors.SequenceProcessor
+    processors/pyhealth.processors.NestedSequenceProcessor
+    processors/pyhealth.processors.NestedFloatsProcessor
     processors/pyhealth.processors.TensorProcessor
     processors/pyhealth.processors.TimeseriesProcessor
     processors/pyhealth.processors.SignalProcessor

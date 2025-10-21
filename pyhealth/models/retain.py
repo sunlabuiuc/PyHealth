@@ -1,13 +1,13 @@
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
 import torch.nn.utils.rnn as rnn_utils
 
-from pyhealth.datasets import SampleEHRDataset
+from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 
-# VALID_OPERATION_LEVEL = ["visit", "event"]
+from .embedding import EmbeddingModel
 
 
 class RETAINLayer(nn.Module):
@@ -115,123 +115,75 @@ class RETAIN(BaseModel):
     Paper: Edward Choi et al. RETAIN: An Interpretable Predictive Model for
     Healthcare using Reverse Time Attention Mechanism. NIPS 2016.
 
-    Note:
-        We use separate Retain layers for different feature_keys.
-        Currentluy, we automatically support different input formats:
-            - code based input (need to use the embedding table later)
-            - float/int based value input
-        We follow the current convention for the Retain model:
-            - case 1. [code1, code2, code3, ...]
-                - we will assume the code follows the order; our model will encode
-                each code into a vector and apply Retain on the code level
-            - case 2. [[code1, code2]] or [[code1, code2], [code3, code4, code5], ...]
-                - we will assume the inner bracket follows the order; our model first
-                use the embedding table to encode each code into a vector and then use
-                average/mean pooling to get one vector for one inner bracket; then use
-                Retain one the braket level
-            - case 3. [[1.5, 2.0, 0.0]] or [[1.5, 2.0, 0.0], [8, 1.2, 4.5], ...]
-                - this case only makes sense when each inner bracket has the same length;
-                we assume each dimension has the same meaning; we run Retain directly
-                on the inner bracket level, similar to case 1 after embedding table
-            - case 4. [[[1.5, 2.0, 0.0]]] or [[[1.5, 2.0, 0.0], [8, 1.2, 4.5]], ...]
-                - this case only makes sense when each inner bracket has the same length;
-                we assume each dimension has the same meaning; we run Retain directly
-                on the inner bracket level, similar to case 2 after embedding table
+    This model uses separate RETAIN layers for different features and applies
+    reverse time attention to capture temporal dependencies. It now uses the
+    unified EmbeddingModel for handling various input types.
+
+    The model supports various input types through processors:
+        - SequenceProcessor: Code sequences (e.g., diagnosis codes)
+        - NestedSequenceProcessor: Nested code sequences (visit histories)
+        - TimeseriesProcessor: Time series features
+        - NestedSequenceFloatsProcessor: Nested numerical sequences
 
     Args:
         dataset: the dataset to train the model. It is used to query certain
             information such as the set of all tokens.
-        feature_keys:  list of keys in samples to use as features,
-            e.g. ["conditions", "procedures"].
-        label_key: key in samples to use as label (e.g., "drugs").
-        mode: one of "binary", "multiclass", or "multilabel".
         embedding_dim: the embedding dimension. Default is 128.
         **kwargs: other parameters for the RETAIN layer.
 
-
     Examples:
-        >>> from pyhealth.datasets import SampleEHRDataset
+        >>> from pyhealth.datasets import SampleDataset
         >>> samples = [
-        ...         {
-        ...             "patient_id": "patient-0",
-        ...             "visit_id": "visit-0",
-        ...             "list_codes": ["505800458", "50580045810", "50580045811"],  # NDC
-        ...             "list_vectors": [[1.0, 2.55, 3.4], [4.1, 5.5, 6.0]],
-        ...             "list_list_codes": [["A05B", "A05C", "A06A"], ["A11D", "A11E"]],  # ATC-4
-        ...             "list_list_vectors": [
-        ...                 [[1.8, 2.25, 3.41], [4.50, 5.9, 6.0]],
-        ...                 [[7.7, 8.5, 9.4]],
-        ...             ],
-        ...             "label": 1,
-        ...         },
-        ...         {
-        ...             "patient_id": "patient-0",
-        ...             "visit_id": "visit-1",
-        ...             "list_codes": [
-        ...                 "55154191800",
-        ...                 "551541928",
-        ...                 "55154192800",
-        ...                 "705182798",
-        ...                 "70518279800",
-        ...             ],
-        ...             "list_vectors": [[1.4, 3.2, 3.5], [4.1, 5.9, 1.7], [4.5, 5.9, 1.7]],
-        ...             "list_list_codes": [["A04A", "B035", "C129"]],
-        ...             "list_list_vectors": [
-        ...                 [[1.0, 2.8, 3.3], [4.9, 5.0, 6.6], [7.7, 8.4, 1.3], [7.7, 8.4, 1.3]],
-        ...             ],
-        ...             "label": 0,
-        ...         },
-        ...     ]
-        >>> dataset = SampleEHRDataset(samples=samples, dataset_name="test")
-        >>>
-        >>> from pyhealth.models import RETAIN
-        >>> model = RETAIN(
-        ...         dataset=dataset,
-        ...         feature_keys=[
-        ...             "list_codes",
-        ...             "list_vectors",
-        ...             "list_list_codes",
-        ...             "list_list_vectors",
-        ...         ],
-        ...         label_key="label",
-        ...         mode="binary",
-        ...     )
+        ...     {
+        ...         "patient_id": "patient-0",
+        ...         "visit_id": "visit-0",
+        ...         "conditions": [["A", "B"], ["C"]],
+        ...         "procedures": [["P1"], ["P2", "P3"]],
+        ...         "label": 1,
+        ...     },
+        ...     {
+        ...         "patient_id": "patient-0",
+        ...         "visit_id": "visit-1",
+        ...         "conditions": [["D"], ["E", "F"]],
+        ...         "procedures": [["P4"]],
+        ...         "label": 0,
+        ...     },
+        ... ]
+        >>> dataset = SampleDataset(
+        ...     samples=samples,
+        ...     input_schema={
+        ...         "conditions": "nested_sequence",
+        ...         "procedures": "nested_sequence",
+        ...     },
+        ...     output_schema={"label": "binary"},
+        ...     dataset_name="test"
+        ... )
         >>>
         >>> from pyhealth.datasets import get_dataloader
         >>> train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
+        >>>
+        >>> model = RETAIN(dataset=dataset)
+        >>>
         >>> data_batch = next(iter(train_loader))
         >>>
         >>> ret = model(**data_batch)
         >>> print(ret)
         {
-            'loss': tensor(0.5640, grad_fn=<BinaryCrossEntropyWithLogitsBackward0>),
-            'y_prob': tensor([[0.5325],
-                            [0.3922]], grad_fn=<SigmoidBackward0>),
-            'y_true': tensor([[1.],
-                            [0.]]),
-            'logit': tensor([[ 0.1303],
-                            [-0.4382]], grad_fn=<AddmmBackward0>)
+            'loss': tensor(...),
+            'y_prob': tensor(...),
+            'y_true': tensor(...),
+            'logit': tensor(...)
         }
-        >>>
-
     """
 
     def __init__(
         self,
-        dataset: SampleEHRDataset,
-        feature_keys: List[str],
-        label_key: str,
-        mode: str,
-        pretrained_emb: str = None,
+        dataset: SampleDataset,
         embedding_dim: int = 128,
         **kwargs,
     ):
         super(RETAIN, self).__init__(
             dataset=dataset,
-            feature_keys=feature_keys,
-            label_key=label_key,
-            mode=mode,
-            pretrained_emb=pretrained_emb,
         )
         self.embedding_dim = embedding_dim
 
@@ -239,117 +191,73 @@ class RETAIN(BaseModel):
         if "feature_size" in kwargs:
             raise ValueError("feature_size is determined by embedding_dim")
 
-        # the key of self.feat_tokenizers only contains the code based inputs
-        self.feat_tokenizers = {}
-        self.label_tokenizer = self.get_label_tokenizer()
-        # the key of self.embeddings only contains the code based inputs
-        self.embeddings = nn.ModuleDict()
-        # the key of self.linear_layers only contains the float/int based inputs
-        self.linear_layers = nn.ModuleDict()
+        assert len(self.label_keys) == 1, "Only one label key is supported"
+        self.label_key = self.label_keys[0]
+        self.mode = self.dataset.output_schema[self.label_key]
 
-        # add feature RETAIN layers
-        for feature_key in self.feature_keys:
-            input_info = self.dataset.input_info[feature_key]
-            # sanity check
-            if input_info["type"] not in [str, float, int]:
-                raise ValueError(
-                    "RETAIN only supports str code, float and int as input types"
-                )
-            elif (input_info["type"] == str) and (input_info["dim"] not in [2, 3]):
-                raise ValueError(
-                    "RETAIN only supports 2-dim or 3-dim str code as input types"
-                )
-            elif (input_info["type"] in [float, int]) and (
-                input_info["dim"] not in [2, 3]
-            ):
-                raise ValueError(
-                    "RETAIN only supports 2-dim or 3-dim float and int as input types"
-                )
-            # for code based input, we need Type
-            # for float/int based input, we need Type, input_dim
-            self.add_feature_transform_layer(feature_key, input_info)
+        # Use EmbeddingModel for unified embedding handling
+        self.embedding_model = EmbeddingModel(dataset, embedding_dim)
 
+        # Create RETAIN layers for each feature
         self.retain = nn.ModuleDict()
-        for feature_key in feature_keys:
-            self.retain[feature_key] = RETAINLayer(feature_size=embedding_dim, **kwargs)
+        for feature_key in self.feature_keys:
+            self.retain[feature_key] = RETAINLayer(
+                feature_size=embedding_dim, **kwargs
+            )
 
-        output_size = self.get_output_size(self.label_tokenizer)
-        self.fc = nn.Linear(len(self.feature_keys) * self.embedding_dim, output_size)
+        output_size = self.get_output_size()
+        num_features = len(self.feature_keys)
+        self.fc = nn.Linear(
+            num_features * self.embedding_dim, output_size
+        )
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation.
-
-        The label `kwargs[self.label_key]` is a list of labels for each patient.
 
         Args:
             **kwargs: keyword arguments for the model. The keys must contain
                 all the feature keys and the label key.
 
         Returns:
-            A dictionary with the following keys:
-                loss: a scalar tensor representing the loss.
-                y_prob: a tensor representing the predicted probabilities.
-                y_true: a tensor representing the true labels.
+            Dict[str, torch.Tensor]: A dictionary with the following keys:
+                - loss: a scalar tensor representing the loss.
+                - y_prob: a tensor representing the predicted probabilities.
+                - y_true: a tensor representing the true labels.
+                - logit: a tensor representing the logits.
+                - embed (optional): patient embeddings if requested.
         """
         patient_emb = []
+        embedded = self.embedding_model(kwargs)
+        
         for feature_key in self.feature_keys:
-            input_info = self.dataset.input_info[feature_key]
-            dim_, type_ = input_info["dim"], input_info["type"]
-
-            # for case 1: [code1, code2, code3, ...]
-            if (dim_ == 2) and (type_ == str):
-                x = self.feat_tokenizers[feature_key].batch_encode_2d(
-                    kwargs[feature_key]
-                )
-                # (patient, event)
-                x = torch.tensor(x, dtype=torch.long, device=self.device)
-                # (patient, event, embedding_dim)
-                x = self.embeddings[feature_key](x)
-                # (patient, event)
-                mask = torch.sum(x, dim=2) != 0
-
-            # for case 2: [[code1, code2], [code3, ...], ...]
-            elif (dim_ == 3) and (type_ == str):
-                x = self.feat_tokenizers[feature_key].batch_encode_3d(
-                    kwargs[feature_key]
-                )
-                # (patient, visit, event)
-                x = torch.tensor(x, dtype=torch.long, device=self.device)
-                # (patient, visit, event, embedding_dim)
-                x = self.embeddings[feature_key](x)
-                # (patient, visit, embedding_dim)
-                x = torch.sum(x, dim=2)
-                # (patient, visit)
-                mask = torch.sum(x, dim=2) != 0
-
-            # for case 3: [[1.5, 2.0, 0.0], ...]
-            elif (dim_ == 2) and (type_ in [float, int]):
-                x, mask = self.padding2d(kwargs[feature_key])
-                # (patient, event, values)
-                x = torch.tensor(x, dtype=torch.float, device=self.device)
-                # (patient, event, embedding_dim)
-                x = self.linear_layers[feature_key](x)
-                # (patient, event)
-                mask = mask.bool().to(self.device)
-
-            # for case 4: [[[1.5, 2.0, 0.0], [1.8, 2.4, 6.0]], ...]
-            elif (dim_ == 3) and (type_ in [float, int]):
-                x, mask = self.padding3d(kwargs[feature_key])
-                # (patient, visit, event, values)
-                x = torch.tensor(x, dtype=torch.float, device=self.device)
-                # (patient, visit, embedding_dim)
-                x = torch.sum(x, dim=2)
-                x = self.linear_layers[feature_key](x)
-                # (patient, event)
-                mask = mask[:, :, 0]
-                mask = mask.bool().to(self.device)
-
+            x = embedded[feature_key]
+            
+            # Handle different input dimensions
+            # Case 1: 4D tensor from NestedSequenceProcessor
+            # (batch, visits, events, embedding_dim)
+            # Need to sum across events to get (batch, visits, embedding_dim)
+            if len(x.shape) == 4:
+                x = torch.sum(x, dim=2)  # Sum across events within visit
+            
+            # Case 2: 3D tensor from SequenceProcessor or after summing
+            # (batch, seq_len, embedding_dim) - already correct format
+            elif len(x.shape) == 3:
+                pass  # Already correct format
+            
+            # Case 3: 2D tensor - shouldn't happen for RETAIN but handle it
+            elif len(x.shape) == 2:
+                x = x.unsqueeze(1)  # Add seq dim: (batch, 1, embedding_dim)
+            
             else:
-                raise NotImplementedError
+                raise ValueError(
+                    f"Unexpected tensor shape {x.shape} for feature "
+                    f"{feature_key}"
+                )
 
-            # transform x to (patient, event, embedding_dim)
-            if self.pretrained_emb != None:
-                x = self.linear_layers[feature_key](x)
+            # Create mask: non-padding entries are valid
+            # Check if all values in embedding dimension are zero (padding)
+            # (batch_size, num_visits)
+            mask = (x.abs().sum(dim=-1) > 0).float()
 
             x = self.retain[feature_key](x, mask)
             patient_emb.append(x)
@@ -358,7 +266,7 @@ class RETAIN(BaseModel):
         # (patient, label_size)
         logits = self.fc(patient_emb)
         # obtain y_true, loss, y_prob
-        y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
+        y_true = kwargs[self.label_key].to(self.device)
         loss = self.get_loss_function()(logits, y_true)
         y_prob = self.prepare_y_prob(logits)
         results = {
@@ -373,44 +281,38 @@ class RETAIN(BaseModel):
 
 
 if __name__ == "__main__":
-    from pyhealth.datasets import SampleEHRDataset
+    from pyhealth.datasets import SampleDataset
 
     samples = [
         {
             "patient_id": "patient-0",
             "visit_id": "visit-0",
-            # "single_vector": [1, 2, 3],
-            "list_codes": ["505800458", "50580045810", "50580045811"],  # NDC
-            "list_vectors": [[1.0, 2.55, 3.4], [4.1, 5.5, 6.0]],
-            "list_list_codes": [["A05B", "A05C", "A06A"], ["A11D", "A11E"]],  # ATC-4
-            "list_list_vectors": [
-                [[1.8, 2.25, 3.41], [4.50, 5.9, 6.0]],
-                [[7.7, 8.5, 9.4]],
-            ],
+            "conditions": [["A", "B"], ["C", "D", "E"]],
+            "procedures": [["P1"], ["P2", "P3"]],
+            "drugs_hist": [[], ["D1", "D2"]],
             "label": 1,
         },
         {
             "patient_id": "patient-0",
             "visit_id": "visit-1",
-            # "single_vector": [1, 5, 8],
-            "list_codes": [
-                "55154191800",
-                "551541928",
-                "55154192800",
-                "705182798",
-                "70518279800",
-            ],
-            "list_vectors": [[1.4, 3.2, 3.5], [4.1, 5.9, 1.7], [4.5, 5.9, 1.7]],
-            "list_list_codes": [["A04A", "B035", "C129"]],
-            "list_list_vectors": [
-                [[1.0, 2.8, 3.3], [4.9, 5.0, 6.6], [7.7, 8.4, 1.3], [7.7, 8.4, 1.3]],
-            ],
+            "conditions": [["F"], ["G", "H"]],
+            "procedures": [["P4", "P5"], ["P6"]],
+            "drugs_hist": [["D3"], ["D4", "D5"]],
             "label": 0,
         },
     ]
 
     # dataset
-    dataset = SampleEHRDataset(samples=samples, dataset_name="test")
+    dataset = SampleDataset(
+        samples=samples,
+        input_schema={
+            "conditions": "nested_sequence",
+            "procedures": "nested_sequence",
+            "drugs_hist": "nested_sequence",
+        },
+        output_schema={"label": "binary"},
+        dataset_name="test",
+    )
 
     # data loader
     from pyhealth.datasets import get_dataloader
@@ -418,17 +320,7 @@ if __name__ == "__main__":
     train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
 
     # model
-    model = RETAIN(
-        dataset=dataset,
-        feature_keys=[
-            "list_codes",
-            "list_vectors",
-            "list_list_codes",
-            # "list_list_vectors",
-        ],
-        label_key="label",
-        mode="binary",
-    )
+    model = RETAIN(dataset=dataset)
 
     # data batch
     data_batch = next(iter(train_loader))

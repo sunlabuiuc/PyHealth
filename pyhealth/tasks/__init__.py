@@ -9,6 +9,8 @@ from .cardiology_detect import (
 )
 from .covid19_cxr_classification import COVID19CXRClassification
 from .drug_recommendation import (
+    DrugRecommendationMIMIC3,
+    DrugRecommendationMIMIC4,
     drug_recommendation_eicu_fn,
     drug_recommendation_mimic3_fn,
     drug_recommendation_mimic4_fn,

@@ -1,4 +1,279 @@
+from typing import Any, Dict, List
+
+import polars as pl
+
 from pyhealth.data import Patient, Visit
+from .base_task import BaseTask
+
+
+class DrugRecommendationMIMIC3(BaseTask):
+    """Task for drug recommendation using MIMIC-III dataset.
+
+    Drug recommendation aims at recommending a set of drugs given the
+    patient health history (e.g., conditions and procedures). This task
+    creates samples with cumulative history, where each visit includes
+    all previous visit information.
+
+    Attributes:
+        task_name (str): The name of the task.
+        input_schema (Dict[str, str]): The schema for input data:
+            - conditions: Nested list of diagnosis codes (history +
+              current)
+            - procedures: Nested list of procedure codes (history +
+              current)
+            - drugs_hist: Nested list of drug codes from history (current
+              visit excluded)
+        output_schema (Dict[str, str]): The schema for output data:
+            - drugs: List of drugs to predict for current visit
+    """
+
+    task_name: str = "DrugRecommendationMIMIC3"
+    input_schema: Dict[str, str] = {
+        "conditions": "nested_sequence",
+        "procedures": "nested_sequence",
+        "drugs_hist": "nested_sequence",
+    }
+    output_schema: Dict[str, str] = {"drugs": "multilabel"}
+
+    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+        """Process a patient to create drug recommendation samples.
+
+        Creates one sample per visit (after first visit) with cumulative history.
+        Each sample includes all previous visits' conditions, procedures, and drugs.
+
+        Args:
+            patient: Patient object with get_events method
+
+        Returns:
+            List of samples, each with patient_id, visit_id, conditions history,
+            procedures history, drugs history, and target drugs
+        """
+        samples = []
+
+        # Get all admissions
+        admissions = patient.get_events(event_type="admissions")
+        if len(admissions) < 2:
+            # Need at least 2 visits for history-based prediction
+            return []
+
+        # Process each admission
+        for i, admission in enumerate(admissions):
+            # Get diagnosis codes using hadm_id
+            diagnoses_icd = patient.get_events(
+                event_type="DIAGNOSES_ICD",
+                filters=[("hadm_id", "==", admission.hadm_id)],
+                return_df=True,
+            )
+            conditions = (
+                diagnoses_icd.select(pl.col("DIAGNOSES_ICD/icd9_code"))
+                .to_series()
+                .to_list()
+            )
+
+            # Get procedure codes using hadm_id
+            procedures_icd = patient.get_events(
+                event_type="PROCEDURES_ICD",
+                filters=[("hadm_id", "==", admission.hadm_id)],
+                return_df=True,
+            )
+            procedures = (
+                procedures_icd.select(pl.col("PROCEDURES_ICD/icd9_code"))
+                .to_series()
+                .to_list()
+            )
+
+            # Get prescriptions using hadm_id
+            prescriptions = patient.get_events(
+                event_type="PRESCRIPTIONS",
+                filters=[("hadm_id", "==", admission.hadm_id)],
+                return_df=True,
+            )
+            drugs = (
+                prescriptions.select(pl.col("PRESCRIPTIONS/drug")).to_series().to_list()
+            )
+
+            # ATC 3 level (first 4 characters)
+            drugs = [drug[:4] for drug in drugs if drug]
+
+            # Exclude visits without condition, procedure, or drug code
+            if len(conditions) * len(procedures) * len(drugs) == 0:
+                continue
+
+            samples.append(
+                {
+                    "visit_id": admission.hadm_id,
+                    "patient_id": patient.patient_id,
+                    "conditions": conditions,
+                    "procedures": procedures,
+                    "drugs": drugs,
+                    "drugs_hist": drugs,
+                }
+            )
+
+        # Exclude patients with less than 2 valid visits
+        if len(samples) < 2:
+            return []
+
+        # Add cumulative history for first sample
+        samples[0]["conditions"] = [samples[0]["conditions"]]
+        samples[0]["procedures"] = [samples[0]["procedures"]]
+        samples[0]["drugs_hist"] = [samples[0]["drugs_hist"]]
+
+        # Add cumulative history for subsequent samples
+        for i in range(1, len(samples)):
+            samples[i]["conditions"] = samples[i - 1]["conditions"] + [
+                samples[i]["conditions"]
+            ]
+            samples[i]["procedures"] = samples[i - 1]["procedures"] + [
+                samples[i]["procedures"]
+            ]
+            samples[i]["drugs_hist"] = samples[i - 1]["drugs_hist"] + [
+                samples[i]["drugs_hist"]
+            ]
+
+        # Remove target drug from history (set current visit drugs_hist to empty)
+        for i in range(len(samples)):
+            samples[i]["drugs_hist"][i] = []
+
+        return samples
+
+
+class DrugRecommendationMIMIC4(BaseTask):
+    """Task for drug recommendation using MIMIC-IV dataset.
+
+    Drug recommendation aims at recommending a set of drugs given the patient health
+    history (e.g., conditions and procedures). This task creates samples with
+    cumulative history, where each visit includes all previous visit information.
+
+    Attributes:
+        task_name (str): The name of the task.
+        input_schema (Dict[str, str]): The schema for input data:
+            - conditions: Nested list of diagnosis codes (history + current)
+            - procedures: Nested list of procedure codes (history + current)
+            - drugs_hist: Nested list of drug codes from history (current visit excluded)
+        output_schema (Dict[str, str]): The schema for output data:
+            - drugs: List of drugs to predict for current visit
+    """
+
+    task_name: str = "DrugRecommendationMIMIC4"
+    input_schema: Dict[str, str] = {
+        "conditions": "nested_sequence",
+        "procedures": "nested_sequence",
+        "drugs_hist": "nested_sequence",
+    }
+    output_schema: Dict[str, str] = {"drugs": "multilabel"}
+
+    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+        """Process a patient to create drug recommendation samples.
+
+        Creates one sample per visit (after first visit) with cumulative history.
+        Each sample includes all previous visits' conditions, procedures, and drugs.
+
+        Args:
+            patient: Patient object with get_events method
+
+        Returns:
+            List of samples, each with patient_id, visit_id, conditions history,
+            procedures history, drugs history, and target drugs
+        """
+        samples = []
+
+        # Get all admissions
+        admissions = patient.get_events(event_type="admissions")
+        if len(admissions) < 2:
+            # Need at least 2 visits for history-based prediction
+            return []
+
+        # Process each admission
+        for i, admission in enumerate(admissions):
+            # Get diagnosis codes using hadm_id
+            diagnoses_icd = patient.get_events(
+                event_type="diagnoses_icd",
+                filters=[("hadm_id", "==", admission.hadm_id)],
+                return_df=True,
+            )
+            conditions = (
+                diagnoses_icd.select(
+                    pl.concat_str(
+                        ["diagnoses_icd/icd_version", "diagnoses_icd/icd_code"],
+                        separator="_",
+                    )
+                )
+                .to_series()
+                .to_list()
+            )
+
+            # Get procedure codes using hadm_id
+            procedures_icd = patient.get_events(
+                event_type="procedures_icd",
+                filters=[("hadm_id", "==", admission.hadm_id)],
+                return_df=True,
+            )
+            procedures = (
+                procedures_icd.select(
+                    pl.concat_str(
+                        ["procedures_icd/icd_version", "procedures_icd/icd_code"],
+                        separator="_",
+                    )
+                )
+                .to_series()
+                .to_list()
+            )
+
+            # Get prescriptions using hadm_id
+            prescriptions = patient.get_events(
+                event_type="prescriptions",
+                filters=[("hadm_id", "==", admission.hadm_id)],
+                return_df=True,
+            )
+            drugs = (
+                prescriptions.select(pl.col("prescriptions/ndc")).to_series().to_list()
+            )
+
+            # ATC 3 level (first 4 characters)
+            drugs = [drug[:4] for drug in drugs if drug]
+
+            # Exclude visits without condition, procedure, or drug code
+            if len(conditions) * len(procedures) * len(drugs) == 0:
+                continue
+
+            samples.append(
+                {
+                    "visit_id": admission.hadm_id,
+                    "patient_id": patient.patient_id,
+                    "conditions": conditions,
+                    "procedures": procedures,
+                    "drugs": drugs,
+                    "drugs_hist": drugs,
+                }
+            )
+
+        # Exclude patients with less than 2 valid visits
+        if len(samples) < 2:
+            return []
+
+        # Add cumulative history for first sample
+        samples[0]["conditions"] = [samples[0]["conditions"]]
+        samples[0]["procedures"] = [samples[0]["procedures"]]
+        samples[0]["drugs_hist"] = [samples[0]["drugs_hist"]]
+
+        # Add cumulative history for subsequent samples
+        for i in range(1, len(samples)):
+            samples[i]["conditions"] = samples[i - 1]["conditions"] + [
+                samples[i]["conditions"]
+            ]
+            samples[i]["procedures"] = samples[i - 1]["procedures"] + [
+                samples[i]["procedures"]
+            ]
+            samples[i]["drugs_hist"] = samples[i - 1]["drugs_hist"] + [
+                samples[i]["drugs_hist"]
+            ]
+
+        # Remove target drug from history (set current visit drugs_hist to empty)
+        for i in range(len(samples)):
+            samples[i]["drugs_hist"][i] = []
+
+        return samples
 
 
 def drug_recommendation_mimic3_fn(patient: Patient):

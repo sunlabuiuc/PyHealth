@@ -26,6 +26,10 @@ from .label_processor import (
     RegressionLabelProcessor,
 )
 from .multi_hot_processor import MultiHotProcessor
+from .nested_sequence_processor import (
+    NestedFloatsProcessor,
+    NestedSequenceProcessor,
+)
 from .raw_processor import RawProcessor
 from .sequence_processor import SequenceProcessor
 from .signal_processor import SignalProcessor
@@ -39,19 +43,18 @@ from .timeseries_processor import TimeseriesProcessor
 
 # Expose public API
 __all__ = [
-    "get_processor",
+    "FeatureProcessor",
     "ImageProcessor",
+    "LabelProcessor",
+    "MultiHotProcessor",
+    "NestedFloatsProcessor",
+    "NestedSequenceProcessor",
+    "RawProcessor",
     "SequenceProcessor",
+    "SignalProcessor",
     "StageNetProcessor",
     "StageNetTensorProcessor",
     "TensorProcessor",
-    "TimeseriesProcessor",
-    "SignalProcessor",
-    "MultiHotProcessor",
-    "BinaryLabelProcessor",
-    "MultiClassLabelProcessor",
-    "MultiLabelProcessor",
-    "RegressionLabelProcessor",
-    "RawProcessor",
     "TextProcessor",
+    "TimeseriesProcessor",
 ]
