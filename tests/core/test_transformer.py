@@ -6,6 +6,7 @@ import torch
 from pyhealth.datasets import SampleDataset, get_dataloader
 from pyhealth.models import Transformer
 from pyhealth.processors.base_processor import FeatureProcessor
+from pyhealth.interpret.methods import CheferRelevance
 
 
 class TestTransformer(unittest.TestCase):
@@ -133,6 +134,49 @@ class TestTransformer(unittest.TestCase):
 
         self.assertIn("loss", ret)
         self.assertIn("y_prob", ret)
+
+    def test_chefer_relevance(self):
+        """Test CheferRelevance interpretability method with Transformer."""
+        # Use a model with multiple heads for better attention testing
+        model = Transformer(
+            dataset=self.dataset,
+            embedding_dim=64,
+            heads=2,
+            dropout=0.1,
+            num_layers=2,
+        )
+        
+        # Create a dataloader with batch size 1 for interpretability
+        train_loader = get_dataloader(self.dataset, batch_size=1, shuffle=False)
+        data_batch = next(iter(train_loader))
+        
+        # Initialize CheferRelevance
+        relevance = CheferRelevance(model)
+        
+        # Test with explicitly specified class index
+        data_batch["class_index"] = 0
+        scores = relevance.get_relevance_matrix(**data_batch)
+        
+        # Verify that scores are returned for all feature keys
+        self.assertIsInstance(scores, dict)
+        for feature_key in model.feature_keys:
+            self.assertIn(feature_key, scores)
+            self.assertIsInstance(scores[feature_key], torch.Tensor)
+            # Verify batch dimension matches
+            self.assertEqual(scores[feature_key].shape[0], 1)
+            # Verify scores are non-negative (due to clamping in relevance computation)
+            self.assertTrue(torch.all(scores[feature_key] >= 0))
+        
+        # Test without specifying class_index (should use predicted class)
+        data_batch_no_idx = {k: v for k, v in data_batch.items() if k != "class_index"}
+        scores_auto = relevance.get_relevance_matrix(**data_batch_no_idx)
+        
+        # Verify that scores are returned
+        self.assertIsInstance(scores_auto, dict)
+        for feature_key in model.feature_keys:
+            self.assertIn(feature_key, scores_auto)
+            self.assertIsInstance(scores_auto[feature_key], torch.Tensor)
+            self.assertEqual(scores_auto[feature_key].shape[0], 1)
 
 
 if __name__ == "__main__":
