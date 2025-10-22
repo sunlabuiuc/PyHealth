@@ -2,7 +2,7 @@
 # NetID: yongdaf2
 # Description: CNN model implementation for PyHealth 2.0
 
-from typing import Dict, Tuple
+from typing import Any, Dict, Tuple
 
 import torch
 import torch.nn as nn
@@ -11,6 +11,15 @@ from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 
 from pyhealth.models.embedding import EmbeddingModel
+from pyhealth.processors import (
+    ImageProcessor,
+    MultiHotProcessor,
+    SequenceProcessor,
+    StageNetProcessor,
+    StageNetTensorProcessor,
+    TensorProcessor,
+    TimeseriesProcessor,
+)
 
 
 class CNNBlock(nn.Module):
@@ -24,25 +33,31 @@ class CNNBlock(nn.Module):
         out_channels: number of output channels.
     """
 
-    def __init__(self, in_channels: int, out_channels: int):
+    def __init__(self, in_channels: int, out_channels: int, spatial_dim: int):
         super(CNNBlock, self).__init__()
+        if spatial_dim not in (1, 2, 3):
+            raise ValueError(f"Unsupported spatial dimension: {spatial_dim}")
+
+        conv_cls = {1: nn.Conv1d, 2: nn.Conv2d, 3: nn.Conv3d}[spatial_dim]
+        bn_cls = {1: nn.BatchNorm1d, 2: nn.BatchNorm2d, 3: nn.BatchNorm3d}[spatial_dim]
+
         self.conv1 = nn.Sequential(
             # stride=1 by default
-            nn.Conv1d(in_channels, out_channels, kernel_size=3, padding=1),
-            nn.BatchNorm1d(out_channels),
+            conv_cls(in_channels, out_channels, kernel_size=3, padding=1),
+            bn_cls(out_channels),
             nn.ReLU(),
         )
         self.conv2 = nn.Sequential(
             # stride=1 by default
-            nn.Conv1d(out_channels, out_channels, kernel_size=3, padding=1),
-            nn.BatchNorm1d(out_channels),
+            conv_cls(out_channels, out_channels, kernel_size=3, padding=1),
+            bn_cls(out_channels),
         )
         self.downsample = None
         if in_channels != out_channels:
             self.downsample = nn.Sequential(
                 # stride=1, padding=0 by default
-                nn.Conv1d(in_channels, out_channels, kernel_size=1),
-                nn.BatchNorm1d(out_channels),
+                conv_cls(in_channels, out_channels, kernel_size=1),
+                bn_cls(out_channels),
             )
         self.relu = nn.ReLU()
 
@@ -69,23 +84,13 @@ class CNNLayer(nn.Module):
     """Convolutional neural network layer.
 
     This layer stacks multiple CNN blocks and applies adaptive average pooling
-    at the end. It is used in the CNN model. But it can also be used as a
-    standalone layer.
+    at the end. It expects the input tensor to be in channels-first format.
 
     Args:
-        input_size: input feature size.
+        input_size: number of input channels.
         hidden_size: hidden feature size.
         num_layers: number of convolutional layers. Default is 1.
-
-    Examples:
-        >>> from pyhealth.models import CNNLayer
-        >>> input = torch.randn(3, 128, 5)  # [batch size, sequence len, input_size]
-        >>> layer = CNNLayer(5, 64)
-        >>> outputs, last_outputs = layer(input)
-        >>> outputs.shape
-        torch.Size([3, 128, 64])
-        >>> last_outputs.shape
-        torch.Size([3, 64])
+        spatial_dim: spatial dimensionality (1, 2, or 3).
     """
 
     def __init__(
@@ -93,38 +98,47 @@ class CNNLayer(nn.Module):
         input_size: int,
         hidden_size: int,
         num_layers: int = 1,
+        spatial_dim: int = 1,
     ):
         super(CNNLayer, self).__init__()
+        if spatial_dim not in (1, 2, 3):
+            raise ValueError(f"Unsupported spatial dimension: {spatial_dim}")
+
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.num_layers = num_layers
+        self.spatial_dim = spatial_dim
 
-        self.cnn = nn.ModuleDict()
-        for i in range(num_layers):
-            in_channels = input_size if i == 0 else hidden_size
-            out_channels = hidden_size
-            self.cnn[f"CNN-{i}"] = CNNBlock(in_channels, out_channels)
-        self.pooling = nn.AdaptiveAvgPool1d(1)
+        self.cnn = nn.ModuleList()
+        in_channels = input_size
+        for _ in range(num_layers):
+            self.cnn.append(CNNBlock(in_channels, hidden_size, spatial_dim))
+            in_channels = hidden_size
+
+        pool_cls = {
+            1: nn.AdaptiveAvgPool1d,
+            2: nn.AdaptiveAvgPool2d,
+            3: nn.AdaptiveAvgPool3d,
+        }[spatial_dim]
+        self.pooling = pool_cls(1)
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """Forward propagation.
 
         Args:
-            x: a tensor of shape [batch size, sequence len, input size].
+            x: a tensor of shape [batch size, input channels, *spatial_dims].
 
         Returns:
-            outputs: a tensor of shape [batch size, sequence len, hidden size],
-                containing the output features for each time step.
+            outputs: a tensor of shape [batch size, hidden size, *spatial_dims].
             pooled_outputs: a tensor of shape [batch size, hidden size], containing
                 the pooled output features.
         """
-        # [batch size, input size, sequence len]
-        x = x.permute(0, 2, 1)
-        for idx in range(len(self.cnn)):
-            x = self.cnn[f"CNN-{idx}"](x)
-        outputs = x.permute(0, 2, 1)
-        # pooling
-        pooled_outputs = self.pooling(x).squeeze(-1)
+        for block in self.cnn:
+            x = block(x)
+
+        pooled_outputs = self.pooling(x).reshape(x.size(0), -1)
+
+        outputs = x
         return outputs, pooled_outputs
 
 
@@ -194,12 +208,18 @@ class CNN(BaseModel):
 
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
 
+        self.feature_conv_dims = {}
         self.cnn = nn.ModuleDict()
         for feature_key in self.feature_keys:
+            processor = self.dataset.input_processors.get(feature_key)
+            spatial_dim = self._determine_spatial_dim(processor)
+            self.feature_conv_dims[feature_key] = spatial_dim
+            input_channels = self._determine_input_channels(feature_key, spatial_dim)
             self.cnn[feature_key] = CNNLayer(
-                input_size=embedding_dim,
+                input_size=input_channels,
                 hidden_size=hidden_dim,
                 num_layers=num_layers,
+                spatial_dim=spatial_dim,
                 **kwargs,
             )
 
@@ -212,20 +232,50 @@ class CNN(BaseModel):
             return feature[1]
         return feature
 
-    def _reshape_for_convolution(
-        self, tensor: torch.Tensor, feature_key: str
-    ) -> torch.Tensor:
-        if tensor.dim() == 4:
-            tensor = tensor.sum(dim=2)
-        elif tensor.dim() == 2:
-            tensor = tensor.unsqueeze(1)
-        elif tensor.dim() == 1:
-            tensor = tensor.unsqueeze(1).unsqueeze(-1)
-        if tensor.dim() != 3:
-            raise ValueError(
-                f"Unsupported tensor shape for feature {feature_key}: {tensor.shape}"
-            )
-        return tensor
+    @staticmethod
+    def _ensure_tensor(value: Any) -> torch.Tensor:
+        if isinstance(value, torch.Tensor):
+            return value
+        return torch.as_tensor(value)
+
+    def _determine_spatial_dim(self, processor) -> int:
+        if isinstance(
+            processor,
+            (
+                SequenceProcessor,
+                StageNetProcessor,
+                StageNetTensorProcessor,
+                TensorProcessor,
+                TimeseriesProcessor,
+                MultiHotProcessor,
+            ),
+        ):
+            return 1
+        if isinstance(processor, ImageProcessor):
+            return 2
+        raise ValueError(
+            f"Unsupported processor type for feature convolution: {type(processor).__name__}"
+        )
+
+    def _determine_input_channels(self, feature_key: str, spatial_dim: int) -> int:
+        if spatial_dim == 1:
+            return self.embedding_dim
+
+        min_dim = spatial_dim + 1
+        for sample in self.dataset.samples:
+            if feature_key not in sample:
+                continue
+            feature = self._extract_feature_tensor(sample[feature_key])
+            if feature is None:
+                continue
+            tensor = self._ensure_tensor(feature)
+            if tensor.dim() < min_dim:
+                continue
+            return tensor.shape[0]
+
+        raise ValueError(
+            f"Unable to infer input channels for feature '{feature_key}' with spatial dimension {spatial_dim}."
+        )
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation."""
@@ -244,7 +294,16 @@ class CNN(BaseModel):
             else:
                 x = x.to(self.device)
 
-            x = self._reshape_for_convolution(x, feature_key).float()
+            spatial_dim = self.feature_conv_dims[feature_key]
+            expected_dims = {1: 3, 2: 4, 3: 5}[spatial_dim]
+            if x.dim() != expected_dims:
+                raise ValueError(
+                    f"Expected {expected_dims}-D tensor for feature {feature_key}, got shape {x.shape}"
+                )
+            if spatial_dim == 1:
+                x = x.permute(0, 2, 1)
+
+            x = x.float()
             _, pooled = self.cnn[feature_key](x)
             patient_emb.append(pooled)
 
@@ -291,8 +350,8 @@ if __name__ == "__main__":
     output_schema = {"label": "binary"}
     dataset = SampleDataset(
         samples=samples,
-        input_schema=input_schema,
-        output_schema=output_schema,
+        input_schema=input_schema,  # type: ignore[arg-type]
+        output_schema=output_schema,  # type: ignore[arg-type]
         dataset_name="test",
     )
 
