@@ -1,9 +1,14 @@
 import logging
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
 import pandas as pd
+
+from pyhealth.datasets.sample_dataset import SampleDataset
+from pyhealth.processors.base_processor import FeatureProcessor
+from pyhealth.processors.image_processor import ImageProcessor
+from pyhealth.tasks.base_task import BaseTask
 
 from ..tasks import COVID19CXRClassification
 from .base_dataset import BaseDataset
@@ -86,9 +91,7 @@ class COVID19CXRDataset(BaseDataset):
     ) -> None:
         if config_path is None:
             logger.info("No config path provided, using default config")
-            config_path = (
-                Path(__file__).parent / "configs" / "covid19_cxr.yaml"
-            )
+            config_path = Path(__file__).parent / "configs" / "covid19_cxr.yaml"
         if not os.path.exists(os.path.join(root, "covid19_cxr-metadata-pyhealth.csv")):
             self.prepare_metadata(root)
         default_tables = ["covid19_cxr"]
@@ -113,26 +116,18 @@ class COVID19CXRDataset(BaseDataset):
         4. Saves the processed metadata to a CSV file
         """
         # process and merge raw xlsx files from the dataset
-        covid = pd.DataFrame(
-            pd.read_excel(f"{root}/COVID.metadata.xlsx")
-        )
+        covid = pd.DataFrame(pd.read_excel(f"{root}/COVID.metadata.xlsx"))
         covid["FILE NAME"] = covid["FILE NAME"].apply(
             lambda x: f"{root}/COVID/images/{x}.png"
         )
         covid["label"] = "COVID"
-        lung_opacity = pd.DataFrame(
-            pd.read_excel(f"{root}/Lung_Opacity.metadata.xlsx")
-        )
+        lung_opacity = pd.DataFrame(pd.read_excel(f"{root}/Lung_Opacity.metadata.xlsx"))
         lung_opacity["FILE NAME"] = lung_opacity["FILE NAME"].apply(
             lambda x: f"{root}/Lung_Opacity/images/{x}.png"
         )
         lung_opacity["label"] = "Lung Opacity"
-        normal = pd.DataFrame(
-            pd.read_excel(f"{root}/Normal.metadata.xlsx")
-        )
-        normal["FILE NAME"] = normal["FILE NAME"].apply(
-            lambda x: x.capitalize()
-        )
+        normal = pd.DataFrame(pd.read_excel(f"{root}/Normal.metadata.xlsx"))
+        normal["FILE NAME"] = normal["FILE NAME"].apply(lambda x: x.capitalize())
         normal["FILE NAME"] = normal["FILE NAME"].apply(
             lambda x: f"{root}/Normal/images/{x}.png"
         )
@@ -145,19 +140,41 @@ class COVID19CXRDataset(BaseDataset):
         )
         viral_pneumonia["label"] = "Viral Pneumonia"
         df = pd.concat(
-            [covid, lung_opacity, normal, viral_pneumonia],
-            axis=0,
-            ignore_index=True
+            [covid, lung_opacity, normal, viral_pneumonia], axis=0, ignore_index=True
         )
         df = df.drop(columns=["FORMAT", "SIZE"])
         df.columns = ["path", "url", "label"]
         for path in df.path:
             assert os.path.isfile(path), f"File {path} does not exist"
-        df.to_csv(
-            os.path.join(root, "covid19_cxr-metadata-pyhealth.csv"),
-            index=False
-        )
+        df.to_csv(os.path.join(root, "covid19_cxr-metadata-pyhealth.csv"), index=False)
         return
+
+    def set_task(
+        self,
+        task: BaseTask | None = None,
+        num_workers: int = 1,
+        cache_dir: str | None = None,
+        cache_format: str = "parquet",
+        input_processors: Dict[str, FeatureProcessor] | None = None,
+        output_processors: Dict[str, FeatureProcessor] | None = None,
+    ) -> SampleDataset:
+        if input_processors is None or "image" not in input_processors:
+            image_processor = ImageProcessor(
+                image_size=299,  # The image size for COVID-19 CXR dataset
+                mode="L",  # Grayscale images
+            )
+            if input_processors is None:
+                input_processors = {}
+            input_processors["image"] = image_processor
+
+        return super().set_task(
+            task,
+            num_workers,
+            cache_dir,
+            cache_format,
+            input_processors,
+            output_processors,
+        )
 
     @property
     def default_task(self) -> COVID19CXRClassification:
