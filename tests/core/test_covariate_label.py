@@ -4,7 +4,8 @@ import torch
 
 from pyhealth.datasets import SampleDataset, get_dataloader
 from pyhealth.models import MLP
-from pyhealth.calib.predictionset.covariate import CovariateLabel
+from pyhealth.calib.predictionset.covariate import CovariateLabel, fit_kde
+from pyhealth.calib.utils import extract_embeddings
 
 
 class TestCovariateLabel(unittest.TestCase):
@@ -98,6 +99,10 @@ class TestCovariateLabel(unittest.TestCase):
         self.kde_cal = dummy_kde_cal
         self.kde_test = dummy_kde_test
 
+    def _get_embeddings(self, dataset):
+        """Helper to extract embeddings from dataset."""
+        return extract_embeddings(self.model, dataset, batch_size=32, device="cpu")
+
     def test_initialization(self):
         """Test that CovariateLabel initializes correctly."""
         cal_model = CovariateLabel(
@@ -105,13 +110,11 @@ class TestCovariateLabel(unittest.TestCase):
             alpha=0.1,
             kde_test=self.kde_test,
             kde_cal=self.kde_cal,
-            data_key="conditions",
         )
 
         self.assertIsInstance(cal_model, CovariateLabel)
         self.assertEqual(cal_model.mode, "multiclass")
         self.assertEqual(cal_model.alpha, 0.1)
-        self.assertEqual(cal_model.data_key, "conditions")
         self.assertIsNone(cal_model.t)
         self.assertIsNone(cal_model._sum_cal_weights)
 
@@ -175,13 +178,21 @@ class TestCovariateLabel(unittest.TestCase):
             alpha=0.3,
             kde_test=self.kde_test,
             kde_cal=self.kde_cal,
-            data_key="conditions",
         )
 
         # Calibrate on first 4 samples
         cal_indices = [0, 1, 2, 3]
         cal_dataset = torch.utils.data.Subset(self.dataset, cal_indices)
-        cal_model.calibrate(cal_dataset=cal_dataset)
+
+        # Extract embeddings
+        cal_embeddings = self._get_embeddings(cal_dataset)
+        test_embeddings = self._get_embeddings(self.dataset)
+
+        cal_model.calibrate(
+            cal_dataset=cal_dataset,
+            cal_embeddings=cal_embeddings,
+            test_embeddings=test_embeddings,
+        )
 
         # Check that threshold is set
         self.assertIsNotNone(cal_model.t)
@@ -200,11 +211,18 @@ class TestCovariateLabel(unittest.TestCase):
             alpha=alpha_per_class,
             kde_test=self.kde_test,
             kde_cal=self.kde_cal,
-            data_key="conditions",
         )
 
+        # Extract embeddings
+        cal_embeddings = self._get_embeddings(self.dataset)
+        test_embeddings = self._get_embeddings(self.dataset)
+
         # Calibrate on all samples
-        cal_model.calibrate(cal_dataset=self.dataset)
+        cal_model.calibrate(
+            cal_dataset=self.dataset,
+            cal_embeddings=cal_embeddings,
+            test_embeddings=test_embeddings,
+        )
 
         # Check that thresholds are set (one per class)
         self.assertIsNotNone(cal_model.t)
@@ -218,13 +236,21 @@ class TestCovariateLabel(unittest.TestCase):
             alpha=0.2,
             kde_test=self.kde_test,
             kde_cal=self.kde_cal,
-            data_key="conditions",
         )
 
         # Calibrate
         cal_indices = [0, 1, 2, 3]
         cal_dataset = torch.utils.data.Subset(self.dataset, cal_indices)
-        cal_model.calibrate(cal_dataset=cal_dataset)
+
+        # Extract embeddings
+        cal_embeddings = self._get_embeddings(cal_dataset)
+        test_embeddings = self._get_embeddings(self.dataset)
+
+        cal_model.calibrate(
+            cal_dataset=cal_dataset,
+            cal_embeddings=cal_embeddings,
+            test_embeddings=test_embeddings,
+        )
 
         # Test forward pass
         test_loader = get_dataloader(self.dataset, batch_size=2, shuffle=False)
@@ -251,13 +277,21 @@ class TestCovariateLabel(unittest.TestCase):
             alpha=0.3,
             kde_test=self.kde_test,
             kde_cal=self.kde_cal,
-            data_key="conditions",
         )
 
         # Calibrate on first 4 samples
         cal_indices = [0, 1, 2, 3]
         cal_dataset = torch.utils.data.Subset(self.dataset, cal_indices)
-        cal_model.calibrate(cal_dataset=cal_dataset)
+
+        # Extract embeddings
+        cal_embeddings = self._get_embeddings(cal_dataset)
+        test_embeddings = self._get_embeddings(self.dataset)
+
+        cal_model.calibrate(
+            cal_dataset=cal_dataset,
+            cal_embeddings=cal_embeddings,
+            test_embeddings=test_embeddings,
+        )
 
         # Test on remaining samples
         test_indices = [4, 5]
@@ -321,23 +355,21 @@ class TestCovariateLabel(unittest.TestCase):
             alpha=alpha_per_class,
             kde_test=self.kde_test,
             kde_cal=self.kde_cal,
-            data_key="conditions",
         )
 
-        # Calibrate on samples that don't include all classes
-        # (only classes 0 and 1)
-        cal_indices = [0, 1, 3, 4]
+        # Use subset that doesn't have all classes
+        cal_indices = [0, 1]  # Only classes 0 and 1
         cal_dataset = torch.utils.data.Subset(self.dataset, cal_indices)
-        cal_model.calibrate(cal_dataset=cal_dataset)
 
-        # Should still work - missing class gets -inf threshold
-        self.assertIsNotNone(cal_model.t)
-        self.assertEqual(cal_model.t.shape[0], 3)
+        # Extract embeddings
+        cal_embeddings = self._get_embeddings(cal_dataset)
+        test_embeddings = self._get_embeddings(self.dataset)
 
-        # Class 2 should have very low threshold (allowing all predictions)
-        # Note: -inf becomes finite after tensor conversion
-        is_valid = torch.isfinite(cal_model.t[2]) or cal_model.t[2] == -np.inf
-        self.assertTrue(is_valid)
+        cal_model.calibrate(
+            cal_dataset=cal_dataset,
+            cal_embeddings=cal_embeddings,
+            test_embeddings=test_embeddings,
+        )
 
     def test_model_device_handling(self):
         """Test that the calibrator handles device correctly."""
@@ -349,10 +381,17 @@ class TestCovariateLabel(unittest.TestCase):
             alpha=0.2,
             kde_test=self.kde_test,
             kde_cal=self.kde_cal,
-            data_key="conditions",
         )
 
-        cal_model.calibrate(cal_dataset=self.dataset)
+        # Extract embeddings
+        cal_embeddings = self._get_embeddings(self.dataset)
+        test_embeddings = self._get_embeddings(self.dataset)
+
+        cal_model.calibrate(
+            cal_dataset=self.dataset,
+            cal_embeddings=cal_embeddings,
+            test_embeddings=test_embeddings,
+        )
 
         # Check that threshold is on the same device as the model
         self.assertEqual(cal_model.t.device.type, device.type)

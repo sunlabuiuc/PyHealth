@@ -10,17 +10,122 @@ Paper:
     Advances in neural information processing systems 32 (2019).
 """
 
-from typing import Callable, Dict, Union
+from typing import Callable, Dict, Optional, Union
 
 import numpy as np
 import torch
 from torch.utils.data import Subset
 
 from pyhealth.calib.base_classes import SetPredictor
+from pyhealth.calib.calibration.kcal.kde import RBFKernelMean
 from pyhealth.calib.utils import prepare_numpy_dataset
+from pyhealth.datasets import get_dataloader
 from pyhealth.models import BaseModel
 
-__all__ = ["CovariateLabel"]
+__all__ = ["CovariateLabel", "fit_kde"]
+
+
+def fit_kde(
+    cal_embeddings: np.ndarray,
+    test_embeddings: np.ndarray,
+    bandwidth: Optional[Union[float, str]] = "scott",
+    kernel: str = "rbf",
+) -> tuple[Callable, Callable]:
+    """Fit KDEs on calibration and test embeddings using PyHealth's KDE.
+
+    This uses the PyHealth torch-based RBF kernel density estimator
+    which is more efficient than sklearn for GPU computation.
+
+    Args:
+        cal_embeddings: Calibration embeddings as numpy array of shape
+            (n_cal_samples, embedding_dim)
+        test_embeddings: Test embeddings as numpy array of shape
+            (n_test_samples, embedding_dim)
+        bandwidth: Bandwidth for KDE. Can be:
+            - "scott": Use Scott's rule (default)
+            - float: Use specified bandwidth
+        kernel: Kernel type. Currently only "rbf" is supported.
+
+    Returns:
+        Tuple of (kde_cal, kde_test) where each is a callable that takes
+        embeddings and returns density estimates.
+
+    Examples:
+        >>> import numpy as np
+        >>> from pyhealth.calib.predictionset.covariate import fit_kde
+        >>>
+        >>> # Extract embeddings from your model
+        >>> cal_embeddings = np.random.randn(100, 64)
+        >>> test_embeddings = np.random.randn(50, 64)
+        >>>
+        >>> # Fit KDEs
+        >>> kde_cal, kde_test = fit_kde(cal_embeddings, test_embeddings)
+        >>>
+        >>> # Use in CovariateLabel
+        >>> from pyhealth.calib.predictionset.covariate import (
+        ...     CovariateLabel)
+        >>> predictor = CovariateLabel(
+        ...     model=model,
+        ...     alpha=0.1,
+        ...     kde_cal=kde_cal,
+        ...     kde_test=kde_test
+        ... )
+    """
+    if kernel != "rbf":
+        raise ValueError(f"Only 'rbf' kernel supported, got {kernel}")
+
+    # Calculate bandwidth if needed
+    def get_bandwidth(embeddings, bw):
+        if isinstance(bw, str):
+            n_samples, n_features = embeddings.shape
+            if bw == "scott":
+                return n_samples ** (-1.0 / (n_features + 4))
+            else:
+                raise ValueError(f"Unknown bandwidth method: {bw}")
+        return bw
+
+    # Convert to torch tensors
+    cal_emb_torch = torch.from_numpy(cal_embeddings).float()
+    test_emb_torch = torch.from_numpy(test_embeddings).float()
+
+    # Fit KDE on calibration embeddings
+    cal_bw = get_bandwidth(cal_embeddings, bandwidth)
+    kern_cal = RBFKernelMean(h=cal_bw)
+
+    # Fit KDE on test embeddings
+    test_bw = get_bandwidth(test_embeddings, bandwidth)
+    kern_test = RBFKernelMean(h=test_bw)
+
+    # Create callable functions that compute density
+    def kde_cal(data):
+        """Compute density using calibration KDE."""
+        if not isinstance(data, torch.Tensor):
+            data = torch.from_numpy(np.array(data)).float()
+        if data.ndim == 1:
+            data = data.unsqueeze(0)
+
+        # Compute kernel values and average (density estimate)
+        with torch.no_grad():
+            K = kern_cal(data, cal_emb_torch)  # (n_query, n_cal)
+            density = K.mean(dim=1)  # Average over calibration points
+
+        return density.numpy()
+
+    def kde_test(data):
+        """Compute density using test KDE."""
+        if not isinstance(data, torch.Tensor):
+            data = torch.from_numpy(np.array(data)).float()
+        if data.ndim == 1:
+            data = data.unsqueeze(0)
+
+        # Compute kernel values and average (density estimate)
+        with torch.no_grad():
+            K = kern_test(data, test_emb_torch)  # (n_query, n_test)
+            density = K.mean(dim=1)  # Average over test points
+
+        return density.numpy()
+
+    return kde_cal, kde_test
 
 
 def _compute_likelihood_ratio(
@@ -92,12 +197,12 @@ class CovariateLabel(SetPredictor):
         alpha: Target mis-coverage rate(s). Can be:
             - float: marginal coverage P(Y not in C(X)) <= alpha
             - array: class-conditional P(Y not in C(X) | Y=k) <= alpha[k]
-        kde_test: Density estimator fitted on test distribution. Should
-            be a callable that takes data and returns density estimates.
-        kde_cal: Density estimator fitted on calibration distribution.
-            Should be a callable that takes data and returns estimates.
-        data_key: Key to extract input data for density estimation
-            (default: "signal")
+        kde_test: Optional density estimator fitted on test distribution.
+            Should be a callable that takes embeddings (numpy array) and
+            returns density estimates. Can be obtained via fit_kde().
+        kde_cal: Optional density estimator fitted on calibration
+            distribution. Should be a callable that takes embeddings
+            (numpy array) and returns density estimates.
         debug: Whether to use debug mode (processes fewer samples for
             faster iteration)
 
@@ -107,7 +212,8 @@ class CovariateLabel(SetPredictor):
         >>> from pyhealth.models import SparcNet
         >>> from pyhealth.tasks import sleep_staging_isruc_fn
         >>> from pyhealth.calib.predictionset.covariate import (
-        ...     CovariateLabel)
+        ...     CovariateLabel, fit_kde)
+        >>> import numpy as np
         >>>
         >>> # Prepare data
         >>> sleep_ds = ISRUCDataset("/data/ISRUC-I").set_task(
@@ -120,14 +226,28 @@ class CovariateLabel(SetPredictor):
         ...                  label_key="label", mode="multiclass")
         >>> # ... training code ...
         >>>
-        >>> # Fit density estimators (you need to provide these)
-        >>> # kde_cal = fit_kde(val_data)
-        >>> # kde_test = fit_kde(test_data)
+        >>> # Extract embeddings (example - adjust for your model)
+        >>> def extract_embeddings(model, dataset):
+        ...     loader = get_dataloader(dataset, batch_size=32,
+        ...         shuffle=False)
+        ...     all_embs = []
+        ...     for batch in loader:
+        ...         batch['embed'] = True
+        ...         output = model(**batch)
+        ...         all_embs.append(output['embed'].cpu().numpy())
+        ...     return np.concatenate(all_embs, axis=0)
+        >>>
+        >>> cal_embs = extract_embeddings(model, val_data)
+        >>> test_embs = extract_embeddings(model, test_data)
+        >>>
+        >>> # Fit KDEs
+        >>> kde_cal, kde_test = fit_kde(cal_embs, test_embs)
         >>>
         >>> # Create covariate-adaptive set predictor
         >>> cal_model = CovariateLabel(model, alpha=0.1,
         ...     kde_test=kde_test, kde_cal=kde_cal)
-        >>> cal_model.calibrate(cal_dataset=val_data)
+        >>> cal_model.calibrate(cal_dataset=val_data,
+        ...     cal_embeddings=cal_embs, test_embeddings=test_embs)
         >>>
         >>> # Evaluate
         >>> test_dl = get_dataloader(test_data, batch_size=32,
@@ -145,9 +265,8 @@ class CovariateLabel(SetPredictor):
         self,
         model: BaseModel,
         alpha: Union[float, np.ndarray],
-        kde_test: Callable,
-        kde_cal: Callable,
-        data_key: str = "signal",
+        kde_test: Optional[Callable] = None,
+        kde_cal: Optional[Callable] = None,
         debug: bool = False,
         **kwargs,
     ) -> None:
@@ -167,7 +286,6 @@ class CovariateLabel(SetPredictor):
 
         self.device = model.device
         self.debug = debug
-        self.data_key = data_key
 
         # Store alpha
         if not isinstance(alpha, float):
@@ -175,33 +293,80 @@ class CovariateLabel(SetPredictor):
         self.alpha = alpha
 
         # Store density estimators
-        self.kde_test = kde_test
-        self.kde_cal = kde_cal
+        if kde_test is not None and kde_cal is not None:
+            self.kde_test = kde_test
+            self.kde_cal = kde_cal
+        else:
+            self.kde_test = None
+            self.kde_cal = None
 
         # Will be set during calibration
         self.t = None
         self._sum_cal_weights = None
 
-    def calibrate(self, cal_dataset: Subset):
+    def calibrate(
+        self,
+        cal_dataset: Subset,
+        cal_embeddings: Optional[np.ndarray] = None,
+        test_embeddings: Optional[np.ndarray] = None,
+    ):
         """Calibrate the thresholds with covariate shift correction.
 
         Args:
             cal_dataset: Calibration set
+            cal_embeddings: Optional pre-computed calibration embeddings
+                of shape (n_cal, embedding_dim). If provided along with
+                test_embeddings and KDEs are not set, will be used to
+                compute likelihood ratios.
+            test_embeddings: Optional pre-computed test embeddings
+                of shape (n_test, embedding_dim). Used with cal_embeddings
+                for likelihood ratio computation.
+
+        Note:
+            You must either:
+            1. Provide kde_test and kde_cal during initialization, OR
+            2. Provide cal_embeddings and test_embeddings here
+
+            If you provide embeddings, likelihood ratios will be computed
+            by evaluating the KDEs on the calibration embeddings only.
         """
+        # Check if we have KDEs
+        if self.kde_test is None or self.kde_cal is None:
+            if cal_embeddings is None or test_embeddings is None:
+                raise ValueError(
+                    "Must provide either:\n"
+                    "  1. kde_test and kde_cal during __init__, OR\n"
+                    "  2. cal_embeddings and test_embeddings during "
+                    "calibrate()"
+                )
+
+            # Fit KDEs if embeddings provided
+            print("Fitting KDEs on provided embeddings...")
+            self.kde_cal, self.kde_test = fit_kde(cal_embeddings, test_embeddings)
+
         # Get predictions and true labels
         cal_dataset_dict = prepare_numpy_dataset(
             self.model,
             cal_dataset,
             ["y_prob", "y_true"],
-            incl_data_keys=[self.data_key],
             debug=self.debug,
         )
 
         y_prob = cal_dataset_dict["y_prob"]
         y_true = cal_dataset_dict["y_true"]
-        X = cal_dataset_dict[self.data_key]
-
         N, K = y_prob.shape
+
+        # Use provided embeddings or extract from calibration data
+        if cal_embeddings is not None:
+            X = cal_embeddings
+        else:
+            # KDEs should already be provided in this case
+            # We just need to get the embeddings for likelihood ratio
+            # This assumes the model outputs embeddings
+            raise NotImplementedError(
+                "Automatic embedding extraction not yet supported. "
+                "Please provide cal_embeddings and test_embeddings."
+            )
 
         # Compute likelihood ratios for covariate shift correction
         likelihood_ratios = _compute_likelihood_ratio(self.kde_test, self.kde_cal, X)
