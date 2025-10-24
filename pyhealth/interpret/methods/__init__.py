@@ -1,1 +1,2 @@
 from pyhealth.interpret.methods.chefer import CheferRelevance
+from pyhealth.interpret.methods.saliency import GradientSaliencyMapping
