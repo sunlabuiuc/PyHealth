@@ -31,7 +31,7 @@ To start contributing to PyHealth:
 
    .. code-block:: bash
 
-      pip install mne pandarallel rdkit transformers accelerate polars
+      pip install -e . 
 
 4. **Implement your code** with proper test cases
 5. **Push changes** to your forked repository
