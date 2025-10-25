@@ -677,10 +677,75 @@ class MortalityPredictionEICU2(BaseTask):
 
 
 class MortalityPredictionOMOP(BaseTask):
-    """Task for predicting mortality using OMOP dataset.
+    """Task for predicting mortality using OMOP CDM dataset.
 
-    This task aims to predict whether the patient will decease in the next hospital
-    visit based on clinical information from the current visit.
+    This task predicts whether a patient has a death record (binary
+    mortality prediction) based on clinical information from each visit.
+    Unlike visit-specific mortality tasks, this provides a patient-level
+    mortality indicator (whether the patient died at any point).
+
+    The task processes visits sequentially and extracts clinical codes
+    (conditions, procedures, drugs) for each visit. Clinical events are
+    linked to visits via visit_occurrence_id, following OMOP CDM
+    conventions.
+
+    Features:
+        - Uses OMOP CDM standard tables (condition_occurrence,
+          procedure_occurrence, drug_exposure)
+        - Links clinical events to visits via visit_occurrence_id
+        - Uses OMOP concept_ids as medical codes
+        - Binary mortality label (1 if patient has death record, 0
+          otherwise)
+
+    Task Schema:
+        Input:
+            - conditions: sequence of condition_concept_id codes
+            - procedures: sequence of procedure_concept_id codes
+            - drugs: sequence of drug_concept_id codes
+        Output:
+            - mortality: binary label (0: no death record, 1: death record)
+
+    Args:
+        patient (Patient): A Patient object containing OMOP CDM data.
+
+    Returns:
+        List[Dict[str, Any]]: A list of samples, where each sample
+            contains:
+            - visit_id: The visit_occurrence_id
+            - patient_id: The person_id
+            - conditions: List of condition_concept_id codes
+            - procedures: List of procedure_concept_id codes
+            - drugs: List of drug_concept_id codes
+            - mortality: Binary label (0 or 1)
+
+    Examples:
+        >>> from pyhealth.datasets import OMOPDataset
+        >>> from pyhealth.tasks import MortalityPredictionOMOP
+        >>>
+        >>> # Load OMOP dataset
+        >>> dataset = OMOPDataset(
+        ...     root="/path/to/omop/data",
+        ...     tables=["condition_occurrence", "procedure_occurrence",
+        ...             "drug_exposure"],
+        ... )
+        >>>
+        >>> # Create mortality prediction task
+        >>> task = MortalityPredictionOMOP()
+        >>> sample_dataset = dataset.set_task(task=task)
+        >>>
+        >>> # Access samples
+        >>> print(f"Generated {len(sample_dataset)} samples")
+        >>> sample = sample_dataset.samples[0]
+        >>> print(f"Conditions: {sample['conditions']}")
+        >>> print(f"Mortality: {sample['mortality']}")
+
+    Note:
+        - Visits without any clinical codes (conditions, procedures, or
+          drugs) are excluded
+        - The last visit is excluded as there is no "next visit" to
+          predict for
+        - Clinical events are filtered by visit_occurrence_id, not by
+          timestamp ranges, following OMOP best practices
     """
 
     task_name: str = "MortalityPredictionOMOP"
@@ -698,57 +763,102 @@ class MortalityPredictionOMOP(BaseTask):
             patient (Any): A Patient object containing patient data.
 
         Returns:
-            List[Dict[str, Any]]: A list of samples, each sample is a dict with
-                patient_id, visit_id, conditions, procedures, drugs and mortality.
+            List[Dict[str, Any]]: A list of samples, each sample is a
+                dict with patient_id, visit_id, conditions, procedures,
+                drugs and mortality.
         """
         samples = []
 
-        # Get visits
+        # Get visits and death events
         visits = patient.get_events(event_type="visit_occurrence")
+        death_events = patient.get_events(event_type="death")
+
         if len(visits) <= 1:
             return []
+
+        # Get death datetime if exists
+        death_datetime = None
+        if len(death_events) > 0:
+            death_datetime = death_events[0].timestamp
 
         for i in range(len(visits) - 1):
             visit = visits[i]
             next_visit = visits[i + 1]
 
-            # Check discharge status for mortality label
-            mortality_label = int(next_visit.discharge_status)
+            # Determine mortality label
+            # Check if patient has death record (died at some point)
+            # This is binary mortality prediction, not time-specific
+            mortality_label = 1 if death_datetime is not None else 0
 
-            # Get clinical codes
-            conditions = patient.get_events(
-                event_type="condition_occurrence",
-                start=visit.timestamp,
-                end=visit.discharge_time,
-            )
-            procedures = patient.get_events(
-                event_type="procedure_occurrence",
-                start=visit.timestamp,
-                end=visit.discharge_time,
-            )
-            drugs = patient.get_events(
-                event_type="drug_exposure",
-                start=visit.timestamp,
-                end=visit.discharge_time,
-            )
+            # Get visit end datetime for filtering events
+            visit_end_str = getattr(visit, "visit_end_datetime", None)
 
-            condition_codes = [event.code for event in conditions]
-            procedure_codes = [event.code for event in procedures]
-            drug_codes = [event.code for event in drugs]
+            # Parse visit_end_datetime if it's a string
+            visit_end = None
+            if visit_end_str is not None:
+                if isinstance(visit_end_str, str):
+                    try:
+                        visit_end = datetime.strptime(
+                            visit_end_str, "%Y-%m-%d %H:%M:%S"
+                        )
+                    except (ValueError, TypeError):
+                        visit_end = None
+                else:
+                    visit_end = visit_end_str
 
-            # Exclude visits without condition, procedure, or drug code
-            if len(condition_codes) * len(procedure_codes) * len(drug_codes) == 0:
+            # Fallback to next visit start if visit_end not available
+            if visit_end is None:
+                visit_end = next_visit.timestamp
+
+            # Get visit_occurrence_id for filtering
+            visit_occurrence_id = str(getattr(visit, "visit_occurrence_id", None))
+
+            # Get clinical codes within this visit using visit_occurrence_id
+            # In OMOP, clinical events are linked to visits by
+            # visit_occurrence_id
+            if visit_occurrence_id:
+                conditions = patient.get_events(
+                    event_type="condition_occurrence",
+                    filters=[("visit_occurrence_id", "==", visit_occurrence_id)],
+                )
+                procedures = patient.get_events(
+                    event_type="procedure_occurrence",
+                    filters=[("visit_occurrence_id", "==", visit_occurrence_id)],
+                )
+                drugs = patient.get_events(
+                    event_type="drug_exposure",
+                    filters=[("visit_occurrence_id", "==", visit_occurrence_id)],
+                )
+
+            # Extract concept IDs as codes
+            condition_codes = [
+                str(getattr(event, "condition_concept_id", ""))
+                for event in conditions
+                if getattr(event, "condition_concept_id", None) is not None
+            ]
+            procedure_codes = [
+                str(getattr(event, "procedure_concept_id", ""))
+                for event in procedures
+                if getattr(event, "procedure_concept_id", None) is not None
+            ]
+            drug_codes = [
+                str(getattr(event, "drug_concept_id", ""))
+                for event in drugs
+                if getattr(event, "drug_concept_id", None) is not None
+            ]
+
+            # Exclude visits without any clinical codes
+            total_codes = len(condition_codes) + len(procedure_codes) + len(drug_codes)
+            if total_codes == 0:
                 continue
-
-            # TODO: Exclude visits with age < 18
 
             samples.append(
                 {
-                    "visit_id": visit.visit_id,
+                    "visit_id": visit_occurrence_id,
                     "patient_id": patient.patient_id,
-                    "conditions": [condition_codes],
-                    "procedures": [procedure_codes],
-                    "drugs": [drug_codes],
+                    "conditions": condition_codes,
+                    "procedures": procedure_codes,
+                    "drugs": drug_codes,
                     "mortality": mortality_label,
                 }
             )

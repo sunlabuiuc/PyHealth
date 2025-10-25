@@ -4,7 +4,7 @@ import pickle
 from abc import ABC
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Iterator, List, Optional
+from typing import Dict, Iterator, List, Optional
 from urllib.parse import urlparse, urlunparse
 
 import polars as pl
@@ -13,8 +13,10 @@ from tqdm import tqdm
 
 from ..data import Patient
 from ..tasks import BaseTask
+from ..processors.base_processor import FeatureProcessor
 from .configs import load_yaml_config
 from .sample_dataset import SampleDataset
+from .utils import _convert_for_cache, _restore_from_cache
 
 logger = logging.getLogger(__name__)
 
@@ -360,6 +362,8 @@ class BaseDataset(ABC):
         num_workers: int = 1,
         cache_dir: Optional[str] = None,
         cache_format: str = "parquet",
+        input_processors: Optional[Dict[str, FeatureProcessor]] = None,
+        output_processors: Optional[Dict[str, FeatureProcessor]] = None,
     ) -> SampleDataset:
         """Processes the base dataset to generate the task-specific sample dataset.
 
@@ -372,6 +376,12 @@ class BaseDataset(ABC):
                 Default is None (no caching).
             cache_format (str): Format for caching ('parquet' or 'pickle').
                 Default is 'parquet'.
+            input_processors (Optional[Dict[str, FeatureProcessor]]):
+                Pre-fitted input processors. If provided, these will be used
+                instead of creating new ones from task's input_schema. Defaults to None.
+            output_processors (Optional[Dict[str, FeatureProcessor]]):
+                Pre-fitted output processors. If provided, these will be used
+                instead of creating new ones from task's output_schema. Defaults to None.
 
         Returns:
             SampleDataset: The generated sample dataset.
@@ -387,34 +397,39 @@ class BaseDataset(ABC):
             f"Setting task {task.task_name} for {self.dataset_name} base dataset..."
         )
 
-        filtered_global_event_df = task.pre_filter(self.collected_global_event_df)
-
         # Check for cached data if cache_dir is provided
         samples = None
         if cache_dir is not None:
-            cache_path = Path(cache_dir) / f"{task.task_name}.{cache_format}"
+            cache_filename = f"{task.task_name}.{cache_format}"
+            cache_path = Path(cache_dir) / cache_filename
             if cache_path.exists():
                 logger.info(f"Loading cached samples from {cache_path}")
                 try:
                     if cache_format == "parquet":
                         # Load samples from parquet file
                         cached_df = pl.read_parquet(cache_path)
-                        samples = cached_df.to_dicts()
+                        samples = [
+                            _restore_from_cache(row) for row in cached_df.to_dicts()
+                        ]
                     elif cache_format == "pickle":
                         # Load samples from pickle file
                         with open(cache_path, "rb") as f:
                             samples = pickle.load(f)
                     else:
-                        raise ValueError(f"Unsupported cache format: {cache_format}")
+                        msg = f"Unsupported cache format: {cache_format}"
+                        raise ValueError(msg)
                     logger.info(f"Loaded {len(samples)} cached samples")
                 except Exception as e:
-                    logger.warning(f"Failed to load cached data: {e}. Regenerating...")
+                    logger.warning(
+                        "Failed to load cached data: %s. Regenerating...",
+                        e,
+                    )
                     samples = None
 
         # Generate samples if not loaded from cache
         if samples is None:
             logger.info(f"Generating samples with {num_workers} worker(s)...")
-
+            filtered_global_event_df = task.pre_filter(self.collected_global_event_df)
             samples = []
 
             if num_workers == 1:
@@ -422,14 +437,15 @@ class BaseDataset(ABC):
                 for patient in tqdm(
                     self.iter_patients(filtered_global_event_df),
                     total=filtered_global_event_df["patient_id"].n_unique(),
-                    desc=f"Generating samples for {task.task_name} with 1 worker",
+                    desc=(f"Generating samples for {task.task_name} " "with 1 worker"),
                     smoothing=0,
                 ):
                     samples.extend(task(patient))
             else:
                 # multi-threading (not recommended)
                 logger.info(
-                    f"Generating samples for {task.task_name} with {num_workers} workers"
+                    f"Generating samples for {task.task_name} with "
+                    f"{num_workers} workers"
                 )
                 patients = list(self.iter_patients(filtered_global_event_df))
                 with ThreadPoolExecutor(max_workers=num_workers) as executor:
@@ -437,26 +453,33 @@ class BaseDataset(ABC):
                     for future in tqdm(
                         as_completed(futures),
                         total=len(futures),
-                        desc=f"Collecting samples for {task.task_name} from {num_workers} workers",
+                        desc=(
+                            f"Collecting samples for {task.task_name} "
+                            f"from {num_workers} workers"
+                        ),
                     ):
                         samples.extend(future.result())
 
             # Cache the samples if cache_dir is provided
             if cache_dir is not None:
-                cache_path = Path(cache_dir) / f"{task.task_name}.{cache_format}"
+                cache_path = Path(cache_dir) / cache_filename
                 cache_path.parent.mkdir(parents=True, exist_ok=True)
                 logger.info(f"Caching samples to {cache_path}")
                 try:
                     if cache_format == "parquet":
                         # Save samples as parquet file
-                        samples_df = pl.DataFrame(samples)
+                        samples_for_cache = [
+                            _convert_for_cache(sample) for sample in samples
+                        ]
+                        samples_df = pl.DataFrame(samples_for_cache)
                         samples_df.write_parquet(cache_path)
                     elif cache_format == "pickle":
                         # Save samples as pickle file
                         with open(cache_path, "wb") as f:
                             pickle.dump(samples, f)
                     else:
-                        raise ValueError(f"Unsupported cache format: {cache_format}")
+                        msg = f"Unsupported cache format: {cache_format}"
+                        raise ValueError(msg)
                     logger.info(f"Successfully cached {len(samples)} samples")
                 except Exception as e:
                     logger.warning(f"Failed to cache samples: {e}")
@@ -467,6 +490,8 @@ class BaseDataset(ABC):
             output_schema=task.output_schema,
             dataset_name=self.dataset_name,
             task_name=task,
+            input_processors=input_processors,
+            output_processors=output_processors,
         )
 
         logger.info(f"Generated {len(samples)} samples for task {task.task_name}")
