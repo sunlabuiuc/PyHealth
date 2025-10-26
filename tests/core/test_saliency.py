@@ -118,7 +118,7 @@ class TestSaliencyMethods(unittest.TestCase):
         # We don't test the actual plotting since it's visual output
         try:
             fig = plt.figure()  # Create figure but don't display
-            saliency.imshowSaliencyCompFromDict(
+            saliency.visualize_saliency_map(
                 plt, 0, 0, "Test", {0: "Class 0", 1: "Class 1"}
             )
             plt.close(fig)  # Clean up
