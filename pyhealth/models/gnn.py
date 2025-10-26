@@ -20,12 +20,37 @@ from pyhealth.models.embedding import EmbeddingModel
 torch.manual_seed(3) 
 np.random.seed(1)
 
+"""Graph Neural Network models for PyHealth.
+
+This module provides implementations of Graph Convolutional Network (GCN) and
+Graph Attention Network (GAT) models for healthcare data analysis. These models
+are designed to work with PyHealth 2.0 datasets and can be used for various
+prediction tasks in medical data.
+
+The module includes:
+- GraphConvolution: Basic GCN layer implementation.
+- GraphAttention: Basic GAT layer implementation.
+- GCN: Full GCN model for patient-level predictions.
+- GAT: Full GAT model for patient-level predictions.
+"""
+
 class GraphConvolution(Module):
-    """
-    Simple GCN layer, similar to https://arxiv.org/abs/1609.02907
+    """Simple GCN layer, similar to https://arxiv.org/abs/1609.02907.
+
+    This layer implements a basic graph convolutional operation that aggregates
+    node features from neighboring nodes using a learnable weight matrix.
     """
 
     def __init__(self, in_features, out_features, bias=True, init='xavier'):
+        """Initializes the GraphConvolution layer.
+
+        Args:
+            in_features: Number of input features.
+            out_features: Number of output features.
+            bias: Whether to include bias term. Defaults to True.
+            init: Initialization method ('uniform', 'xavier', 'kaiming').
+                Defaults to 'xavier'.
+        """
         super(GraphConvolution, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
@@ -47,22 +72,34 @@ class GraphConvolution(Module):
             raise NotImplementedError
 
     def reset_parameters_uniform(self):
+        """Resets parameters using uniform initialization."""
         stdv = 1. / math.sqrt(self.weight.size(1))
         self.weight.data.uniform_(-stdv, stdv)
         if self.bias is not None:
             self.bias.data.uniform_(-stdv, stdv)
 
     def reset_parameters_xavier(self):
+        """Resets parameters using Xavier initialization."""
         nn.init.xavier_normal_(self.weight.data, gain=0.02) # Implement Xavier Uniform
         if self.bias is not None:
             nn.init.constant_(self.bias.data, 0.0)
 
     def reset_parameters_kaiming(self):
+        """Resets parameters using Kaiming initialization."""
         nn.init.kaiming_normal_(self.weight.data, a=0, mode='fan_in')
         if self.bias is not None:
             nn.init.constant_(self.bias.data, 0.0)
 
     def forward(self, input, adj):
+        """Performs forward pass of the GraphConvolution layer.
+
+        Args:
+            input: Input features tensor.
+            adj: Adjacency matrix tensor.
+
+        Returns:
+            Output features tensor after convolution.
+        """
         support = torch.mm(input, self.weight)
         # print("adj", adj.dtype, "support", support.dtype)
         output = torch.spmm(adj, support)
@@ -72,17 +109,30 @@ class GraphConvolution(Module):
             return output
 
     def __repr__(self):
+        """Returns string representation of the layer."""
         return self.__class__.__name__ + ' (' \
                + str(self.in_features) + ' -> ' \
                + str(self.out_features) + ')'
 
 
 class GraphAttention(nn.Module):
-    """
-    Simple GAT layer, similar to https://arxiv.org/abs/1710.10903
+    """Simple GAT layer, similar to https://arxiv.org/abs/1710.10903.
+
+    This layer implements a basic graph attention mechanism that computes
+    attention coefficients between nodes and aggregates features using
+    learnable attention weights.
     """
 
     def __init__(self, in_features, out_features, dropout, alpha, concat=True):
+        """Initializes the GraphAttention layer.
+
+        Args:
+            in_features: Number of input features.
+            out_features: Number of output features.
+            dropout: Dropout rate for attention coefficients.
+            alpha: LeakyReLU negative slope for attention computation.
+            concat: Whether to concatenate attention heads. Defaults to True.
+        """
         super(GraphAttention, self).__init__()
         self.dropout = dropout
         self.in_features = in_features
@@ -97,6 +147,15 @@ class GraphAttention(nn.Module):
         self.leakyrelu = nn.LeakyReLU(self.alpha)
 
     def forward(self, input, adj):
+        """Performs forward pass of the GraphAttention layer.
+
+        Args:
+            input: Input features tensor.
+            adj: Adjacency matrix tensor.
+
+        Returns:
+            Output features tensor after attention aggregation.
+        """
         h = torch.mm(input, self.W)
         N = h.size()[0]
 
@@ -116,6 +175,7 @@ class GraphAttention(nn.Module):
             return h_prime
 
     def __repr__(self):
+        """Returns string representation of the layer."""
         return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
 
 device = 'cpu'
@@ -130,12 +190,12 @@ class GCN(BaseModel):
     of patients in the batch.
 
     Args:
-        dataset (SampleDataset): dataset providing processed inputs.
-        embedding_dim (int): shared embedding dimension.
-        nhid (int): hidden dimension for GCN layers.
-        dropout (float): dropout rate applied in GCN.
-        init (str): initialization method for GCN layers.
-        num_layers (int): number of GCN layers.
+        dataset: Dataset providing processed inputs.
+        embedding_dim: Shared embedding dimension. Defaults to 128.
+        nhid: Hidden dimension for GCN layers. Defaults to 64.
+        dropout: Dropout rate applied in GCN. Defaults to 0.5.
+        init: Initialization method for GCN layers. Defaults to 'xavier'.
+        num_layers: Number of GCN layers. Defaults to 2.
 
     Examples:
         >>> from pyhealth.datasets import SampleDataset, get_dataloader
@@ -181,11 +241,28 @@ class GCN(BaseModel):
         self.gcn_layers.append(GraphConvolution(nhid, self.get_output_size(), init=init))
 
     def _split_temporal(self, feature):
+        """Splits temporal features if present.
+
+        Args:
+            feature: Feature data, potentially containing temporal information.
+
+        Returns:
+            Tuple of (temporal_info, feature_data) or (None, feature_data).
+        """
         if isinstance(feature, tuple) and len(feature) == 2:
             return feature
         return None, feature
 
     def _ensure_tensor(self, feature_key: str, value) -> torch.Tensor:
+        """Ensures the value is a tensor with appropriate dtype.
+
+        Args:
+            feature_key: Key identifying the feature type.
+            value: Value to convert to tensor.
+
+        Returns:
+            Tensor representation of the value.
+        """
         if isinstance(value, torch.Tensor):
             return value
         processor = self.feature_processors[feature_key]
@@ -194,6 +271,14 @@ class GCN(BaseModel):
         return torch.tensor(value, dtype=torch.float)
 
     def _pool_embedding(self, x: torch.Tensor) -> torch.Tensor:
+        """Pools embedding tensor to reduce dimensions.
+
+        Args:
+            x: Input embedding tensor.
+
+        Returns:
+            Pooled embedding tensor.
+        """
         if x.dim() == 4:
             x = x.sum(dim=2)
         if x.dim() == 2:
@@ -201,6 +286,16 @@ class GCN(BaseModel):
         return x
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+        """Performs forward pass of the GCN model.
+
+        Args:
+            **kwargs: Input features and labels. Must include feature keys
+                and label key.
+
+        Returns:
+            Dictionary containing loss, predictions, true labels, logits,
+            and optionally embeddings.
+        """
         patient_embs = []
         embedding_inputs: Dict[str, torch.Tensor] = {}
 
@@ -247,12 +342,12 @@ class GAT(BaseModel):
     of patients in the batch.
 
     Args:
-        dataset (SampleDataset): dataset providing processed inputs.
-        embedding_dim (int): shared embedding dimension.
-        nhid (int): hidden dimension for GAT layers.
-        dropout (float): dropout rate applied in GAT.
-        nheads (int): number of attention heads.
-        num_layers (int): number of GAT layers.
+        dataset: Dataset providing processed inputs.
+        embedding_dim: Shared embedding dimension. Defaults to 128.
+        nhid: Hidden dimension for GAT layers. Defaults to 64.
+        dropout: Dropout rate applied in GAT. Defaults to 0.5.
+        nheads: Number of attention heads. Defaults to 1.
+        num_layers: Number of GAT layers. Defaults to 2.
 
     Examples:
         >>> from pyhealth.datasets import SampleDataset, get_dataloader
@@ -298,11 +393,28 @@ class GAT(BaseModel):
         self.gat_layers.append(GraphAttention(nhid, self.get_output_size(), dropout=dropout, alpha=0.2, concat=False))
 
     def _split_temporal(self, feature):
+        """Splits temporal features if present.
+
+        Args:
+            feature: Feature data, potentially containing temporal information.
+
+        Returns:
+            Tuple of (temporal_info, feature_data) or (None, feature_data).
+        """
         if isinstance(feature, tuple) and len(feature) == 2:
             return feature
         return None, feature
 
     def _ensure_tensor(self, feature_key: str, value) -> torch.Tensor:
+        """Ensures the value is a tensor with appropriate dtype.
+
+        Args:
+            feature_key: Key identifying the feature type.
+            value: Value to convert to tensor.
+
+        Returns:
+            Tensor representation of the value.
+        """
         if isinstance(value, torch.Tensor):
             return value
         processor = self.feature_processors[feature_key]
@@ -311,6 +423,14 @@ class GAT(BaseModel):
         return torch.tensor(value, dtype=torch.float)
 
     def _pool_embedding(self, x: torch.Tensor) -> torch.Tensor:
+        """Pools embedding tensor to reduce dimensions.
+
+        Args:
+            x: Input embedding tensor.
+
+        Returns:
+            Pooled embedding tensor.
+        """
         if x.dim() == 4:
             x = x.sum(dim=2)
         if x.dim() == 2:
@@ -318,6 +438,16 @@ class GAT(BaseModel):
         return x
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+        """Performs forward pass of the GAT model.
+
+        Args:
+            **kwargs: Input features and labels. Must include feature keys
+                and label key.
+
+        Returns:
+            Dictionary containing loss, predictions, true labels, logits,
+            and optionally embeddings.
+        """
         patient_embs = []
         embedding_inputs: Dict[str, torch.Tensor] = {}
 

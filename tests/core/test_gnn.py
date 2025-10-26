@@ -1,3 +1,5 @@
+"""Unit tests for GNN models (GCN and GAT)."""
+
 import unittest
 import torch
 
