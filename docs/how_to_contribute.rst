@@ -31,7 +31,7 @@ To start contributing to PyHealth:
 
    .. code-block:: bash
 
-      pip install mne pandarallel rdkit transformers accelerate polars
+      pip install -e . 
 
 4. **Implement your code** with proper test cases
 5. **Push changes** to your forked repository
@@ -161,6 +161,19 @@ Every contribution must include two types of test cases:
 **Note**: You can use frontier LLMs to help generate basic test cases, which we consider valid as long as they are reasonable and comprehensive.
 
 All unit tests should be placed in the `tests/` directory following the existing structure, with 'tests/core/' for core functionality tests.
+
+Writing Fast and Performant Tests
+---------------------------------
+
+Guidelines for authoring test cases:
+
+- Keep tests fast: avoid large data processing; prefer tiny, synthetic fixtures.
+- Place core unit tests in ``tests/core/`` and name files ``test_*.py``.
+- Avoid network access and external services; use local, in-memory data.
+- Use small configurations: minimal sample sizes, tiny models, small batch sizes, and ``epochs=1``.
+- Make tests deterministic: set random seeds and avoid time-based randomness.
+- Stub or monkeypatch heavy components (I/O, model training) when the logic under test allows.
+- Skip or gate any heavyweight tests behind explicit markers; by default, all tests must run quickly in CI.
 
 Pull Request Guidelines
 =======================

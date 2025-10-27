@@ -9,6 +9,8 @@ from .cardiology_detect import (
 )
 from .covid19_cxr_classification import COVID19CXRClassification
 from .drug_recommendation import (
+    DrugRecommendationMIMIC3,
+    DrugRecommendationMIMIC4,
     drug_recommendation_eicu_fn,
     drug_recommendation_mimic3_fn,
     drug_recommendation_mimic4_fn,
@@ -31,6 +33,9 @@ from .mortality_prediction import (
     MortalityPredictionMIMIC3,
     MortalityPredictionMIMIC4,
     MortalityPredictionOMOP,
+)
+from .mortality_prediction_stagenet_mimic4 import (
+    MortalityPredictionStageNetMIMIC4,
 )
 from .patient_linkage import patient_linkage_mimic3_fn
 from .readmission_30days_mimic4 import Readmission30DaysMIMIC4

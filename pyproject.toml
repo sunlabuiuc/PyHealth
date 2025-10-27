@@ -6,7 +6,7 @@
 [project]
 name = "pyhealth"
 # must be kept in sync with git tags; is not updated by any automation tools
-version = "2.0"
+version = "2.0a8"
 authors = [
   {name = "John Wu", email = "johnwu3@illinois.edu"},
   {name = "Chaoqi Yang"},
@@ -116,6 +116,7 @@ pip = "*"
 # dependencies for building the wheel
 [tool.pixi.feature.build-pypi.dependencies]
 hatchling = "==1.26.3"
+twine = "*"  # Add this
 
 [tool.pixi.feature.build-env.dependencies]
 # pip for environment extract
@@ -133,6 +134,9 @@ python = "~=3.13"
 # task to use hatchling to build the wheel
 [tool.pixi.feature.build-pypi.tasks]
 build-wheel = "python -m hatchling build -t wheel --dir $PX_DIST_DIR"
+upload-test = "twine upload --repository testpypi $PX_DIST_DIR/*"
+upload = "twine upload $PX_DIST_DIR/*"
+
 
 # use Python built-in unittest library for tests
 [tool.pixi.feature.test.tasks.test]
