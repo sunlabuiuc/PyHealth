@@ -192,6 +192,78 @@ class MLP(BaseModel):
         """
         return x.sum(dim=1)
 
+    def forward_from_embedding(
+        self,
+        feature_embeddings: Dict[str, torch.Tensor],
+        **kwargs,
+    ) -> Dict[str, torch.Tensor]:
+        """Forward pass starting from feature embeddings.
+
+        This method bypasses the embedding layers and processes
+        pre-embedded features. This is useful for interpretability
+        methods like Integrated Gradients that need to interpolate
+        in embedding space.
+
+        Args:
+            feature_embeddings: Dictionary mapping feature keys to their
+                embedded representations. Each tensor should have shape
+                [batch_size, seq_len, embedding_dim] or
+                [batch_size, embedding_dim].
+            **kwargs: Additional keyword arguments, must include the label
+                key for loss computation.
+
+        Returns:
+            Dict[str, torch.Tensor]: A dictionary with the following keys:
+                - loss: a scalar tensor representing the loss.
+                - y_prob: a tensor representing the predicted probabilities.
+                - y_true: a tensor representing the true labels.
+                - logit: a tensor representing the logits.
+                - embed (optional): a tensor representing the patient
+                    embeddings if requested.
+        """
+        patient_emb = []
+
+        for feature_key in self.feature_keys:
+            # Get embedded feature
+            x = feature_embeddings[feature_key].to(self.device)
+
+            # Handle different tensor dimensions for pooling
+            if x.dim() == 3:
+                # Case: (batch, seq_len, embedding_dim) - apply mean pooling
+                mask = (x.sum(dim=-1) != 0).float()
+                if mask.sum(dim=-1, keepdim=True).any():
+                    x = self.mean_pooling(x, mask)
+                else:
+                    x = x.mean(dim=1)
+            elif x.dim() == 2:
+                # Case: (batch, embedding_dim) - already pooled, use as is
+                pass
+            else:
+                raise ValueError(f"Unsupported tensor dimension: {x.dim()}")
+
+            # Apply MLP
+            x = self.mlp[feature_key](x)
+            patient_emb.append(x)
+
+        patient_emb = torch.cat(patient_emb, dim=1)
+
+        # (patient, label_size)
+        logits = self.fc(patient_emb)
+
+        # obtain y_true, loss, y_prob
+        y_true = kwargs[self.label_key].to(self.device)
+        loss = self.get_loss_function()(logits, y_true)
+        y_prob = self.prepare_y_prob(logits)
+        results = {
+            "loss": loss,
+            "y_prob": y_prob,
+            "y_true": y_true,
+            "logit": logits,
+        }
+        if kwargs.get("embed", False):
+            results["embed"] = patient_emb
+        return results
+
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation.
 
