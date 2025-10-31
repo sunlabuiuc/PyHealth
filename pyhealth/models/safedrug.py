@@ -172,6 +172,19 @@ class SafeDrugLayer(nn.Module):
         self.bipartite_output = nn.Linear(mask_H.shape[1], label_size)
 
         # global MPNN encoder (add fingerprints and adjacency matrix to parameter list)
+        if len(molecule_set) == 0:
+            # handle empty molecule_set - create dummy data
+            dummy_fingerprints = torch.LongTensor([0])
+            dummy_adjacency = torch.FloatTensor([[0.0]])
+            dummy_size = 1
+            molecule_set = [(dummy_fingerprints, dummy_adjacency, dummy_size)]
+            num_fingerprints = max(num_fingerprints, 1)
+            # update average_projection to be compatible
+            if average_projection.shape[1] == 0:
+                average_projection = torch.zeros((average_projection.shape[0], 1), dtype=torch.float32)
+                if average_projection.shape[0] > 0:
+                    average_projection[0, 0] = 1.0
+        
         mpnn_molecule_set = list(zip(*molecule_set))
 
         # process three parts of information
@@ -320,20 +333,43 @@ class SafeDrug(BaseModel):
         dropout: float = 0.5,
         **kwargs,
     ):
-        super(SafeDrug, self).__init__(
-            dataset=dataset,
-            feature_keys=["conditions", "procedures"],
-            label_key="drugs",
-            mode="multilabel",
-        )
+        super(SafeDrug, self).__init__(dataset=dataset)
+        expected_feature_keys = ["conditions", "procedures"]
+        expected_label_key = "drugs"
+        
+        # need to verify expected feature keys are present
+        for key in expected_feature_keys:
+            if key not in self.feature_keys:
+                raise ValueError(
+                    f"SafeDrug requires '{key}' in feature_keys, "
+                    f"but got {self.feature_keys}. "
+                    f"Make sure your dataset's input_schema includes '{key}'."
+                )
+        
+        # set label_key from label_keys (should be set by BaseModel from dataset.output_schema)
+        if not self.label_keys:
+            self.label_key = expected_label_key
+        elif len(self.label_keys) == 1:
+            self.label_key = self.label_keys[0]
+            if self.label_key != expected_label_key:
+                raise ValueError(f"SafeDrug requires label_key='drugs', but got '{self.label_key}'")
+        else:
+            raise ValueError(f"SafeDrug requires exactly one label key, but got {self.label_keys}")
+        
+        if not hasattr(self, 'mode') or not self.mode:
+            if self.label_key in self.dataset.output_schema:
+                self.mode = self._resolve_mode(self.dataset.output_schema[self.label_key])
+            else:
+                self.mode = "multilabel"
+        
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
         self.dropout = dropout
 
-        self.feat_tokenizers = self.get_feature_tokenizers()
-        self.label_tokenizer = self.get_label_tokenizer()
-        self.embeddings = self.get_embedding_layers(self.feat_tokenizers, embedding_dim)
+        self.feat_tokenizers = self._get_feature_tokenizers()
+        self.label_tokenizer = self._get_label_tokenizer()
+        self.embeddings = self._get_embedding_layers(self.feat_tokenizers, embedding_dim)
 
         # drug space size
         self.label_size = self.label_tokenizer.get_vocabulary_size()
@@ -405,8 +441,8 @@ class SafeDrug(BaseModel):
         ]
         for atc_i, atc_j in ddi_atc3:
             if atc_i in vocab_to_index and atc_j in vocab_to_index:
-                ddi_adj[vocab_to_index(atc_i), vocab_to_index(atc_j)] = 1
-                ddi_adj[vocab_to_index(atc_j), vocab_to_index(atc_i)] = 1
+                ddi_adj[vocab_to_index[atc_i], vocab_to_index[atc_j]] = 1
+                ddi_adj[vocab_to_index[atc_j], vocab_to_index[atc_i]] = 1
         ddi_adj = torch.FloatTensor(ddi_adj)
         return ddi_adj
 
@@ -553,21 +589,220 @@ class SafeDrug(BaseModel):
                 average_projection[i, col_counter : col_counter + item] = 1 / item
             col_counter += item
         average_projection = torch.FloatTensor(average_projection)
+        
+        # empty molecule_set case
+        if len(molecule_set) == 0:
+            # happens when no valid SMILES are found in the vocabulary
+            dummy_fingerprints = torch.LongTensor([0])
+            dummy_adjacency = torch.FloatTensor([[0.0]])
+            dummy_size = 1
+            molecule_set = [(dummy_fingerprints, dummy_adjacency, dummy_size)]
+            num_fingerprints = 1
+            n_row = len(self.all_smiles_list)
+            average_projection = torch.zeros((n_row, 1), dtype=torch.float32)
+            if n_row > 0:
+                average_projection[0, 0] = 1.0
+        
         return molecule_set, num_fingerprints, average_projection
+
+    def _get_feature_tokenizers(self):
+        """Create feature tokenizers using dataset processors (compatibility layer)."""
+        from pyhealth.processors import NestedSequenceProcessor
+        
+        tokenizers = {}
+        for key in self.feature_keys:
+            processor = self.dataset.input_processors[key]
+            if isinstance(processor, NestedSequenceProcessor):
+                
+                class CompatTokenizer:
+                    def __init__(self, processor):
+                        self.processor = processor
+                        
+                        vocab_dict = processor.code_vocab.copy()
+                        
+                        class VocabDict:
+                            def __getitem__(self, key):
+                                return vocab_dict.get(key, vocab_dict.get("<unk>", -1))
+                            def __contains__(self, key):
+                                return key in vocab_dict
+                            def get(self, key, default=None):
+                                return vocab_dict.get(key, default)
+                        self.vocabulary = VocabDict()
+                        
+                    def batch_encode_3d(self, nested_list):
+                        """Encode nested list [patient, visit, code] to indices.
+                        
+                        Args:
+                            nested_list: List of patients, each patient is a list of visits,
+                                each visit is a list of codes. Shape: [patient, visit, code]
+                        
+                        Returns:
+                            List of patients, each patient is a list of visits,
+                            each visit is a list of indices. Shape: [patient, visit, code_indices]
+                        """
+                        import torch
+                        result = []
+                        for patient in nested_list:
+                            cleaned_visits = []
+                            for visit in patient:
+                                if visit is None:
+                                    visit_codes = []
+                                elif isinstance(visit, torch.Tensor):
+                                    visit_codes = visit.tolist() if visit.numel() > 0 else []
+                                elif hasattr(visit, '__len__'):
+                                    try:
+                                        visit_codes = visit if len(visit) > 0 else []
+                                    except (TypeError, RuntimeError):
+                                        if isinstance(visit, (list, tuple)):
+                                            visit_codes = list(visit) if len(visit) > 0 else []
+                                        else:
+                                            visit_codes = []
+                                else:
+                                    visit_codes = []
+                                cleaned_visits.append(visit_codes)
+                            
+                            # List[List[Any]]
+                            if len(cleaned_visits) == 0:
+                                cleaned_visits = [[]]
+                            
+                            visit_tensor = self.processor.process(cleaned_visits)
+                            # visit_tensor is 2D: (num_visits, max_inner_len)
+                            patient_result = []
+                            for i in range(visit_tensor.shape[0]):
+                                visit_indices = visit_tensor[i].tolist()
+                                patient_result.append(visit_indices)
+                            result.append(patient_result)
+                        return result
+                
+                tokenizers[key] = CompatTokenizer(processor)
+            else:
+                raise ValueError(f"SafeDrug requires NestedSequenceProcessor for {key}, got {type(processor)}")
+        return tokenizers
+
+    def _get_label_tokenizer(self):
+        """Create label tokenizer using dataset output processor (compatibility layer)."""
+        from pyhealth.processors import MultiLabelProcessor
+        
+        processor = self.dataset.output_processors[self.label_key]
+        if isinstance(processor, MultiLabelProcessor):
+            class CompatLabelTokenizer:
+                def __init__(self, processor):
+                    self.processor = processor
+                    
+                    vocab_dict = processor.label_vocab.copy()
+                    class VocabDict:
+                        def __getitem__(self, key):
+                            return vocab_dict.get(key, vocab_dict.get("<unk>", -1))
+                        def __contains__(self, key):
+                            return key in vocab_dict
+                        def get(self, key, default=None):
+                            return vocab_dict.get(key, default)
+                    self.vocabulary = VocabDict()
+                    
+                def get_vocabulary_size(self):
+                    return len(self.processor.label_vocab)
+                    
+            return CompatLabelTokenizer(processor)
+        else:
+            raise ValueError(f"SafeDrug requires MultiLabelProcessor for labels, got {type(processor)}")
+
+    def _get_embedding_layers(self, feat_tokenizers, embedding_dim):
+        """Create embedding layers using dataset processors."""
+        from pyhealth.processors import NestedSequenceProcessor
+        import torch.nn as nn
+        
+        embeddings = nn.ModuleDict()
+        for key in self.feature_keys:
+            processor = self.dataset.input_processors[key]
+            if isinstance(processor, NestedSequenceProcessor):
+                # NestedSequenceProcessor uses:
+                # - <unk>: -1
+                # - <pad>: 0
+                # - codes: 1, 2, 3, ...
+                # The vocab includes <unk> and <pad>, but -1 is not a valid embedding index
+                # vocab_size = max_index + 1
+                vocab_dict = processor.code_vocab
+                max_index = max(v for v in vocab_dict.values() if v >= 0) 
+                vocab_size = max_index + 1
+                
+                embeddings[key] = nn.Embedding(
+                    num_embeddings=vocab_size,
+                    embedding_dim=embedding_dim,
+                    padding_idx=0,
+                )
+            else:
+                raise ValueError(f"SafeDrug requires NestedSequenceProcessor for {key}")
+        return embeddings
+
+    def prepare_labels(self, labels, label_tokenizer):
+        """Prepare labels for training (compatibility method)."""
+        # labels can be List[List[str]] (nested list [patient, drug]) or already processed
+        import torch
+        
+        if isinstance(labels, torch.Tensor):
+            return labels.to(self.device)
+        
+        batch_size = len(labels)
+        label_size = label_tokenizer.get_vocabulary_size()
+
+        result = []
+        for patient_labels in labels:
+            if not isinstance(patient_labels, list):
+                if isinstance(patient_labels, torch.Tensor):
+                    if patient_labels.dim() == 1:
+                        result.append(patient_labels)
+                        continue
+                    else:
+                        # multi-dimensional tensor- shouldn't happen
+                        patient_labels = patient_labels.cpu().numpy().tolist()
+                        if isinstance(patient_labels[0], list):
+                            patient_labels = patient_labels[0]
+                elif isinstance(patient_labels, (tuple, set)):
+                    patient_labels = list(patient_labels)
+                elif hasattr(patient_labels, '__iter__'):
+                    try:
+                        patient_labels = list(patient_labels)
+                    except (TypeError, ValueError):
+                        patient_labels = []
+                else:
+                    patient_labels = [patient_labels] if patient_labels is not None else []
+            if not isinstance(patient_labels, list):
+                patient_labels = []
+            
+            # convert to multi-hot
+            if len(patient_labels) == 0:
+                label_tensor = torch.zeros(label_size, dtype=torch.float32)
+            else:
+                try:
+                    label_tensor = self.dataset.output_processors[self.label_key].process(patient_labels)
+                except (ValueError, TypeError) as e:
+                    label_tensor = torch.zeros(label_size, dtype=torch.float32)
+            result.append(label_tensor)
+        
+        # batch tensor stack
+        if result:
+            return torch.stack(result).to(self.device)
+        else:
+            return torch.zeros((batch_size, label_size), dtype=torch.float32, device=self.device)
 
     def forward(
         self,
-        conditions: List[List[List[str]]],
-        procedures: List[List[List[str]]],
-        drugs: List[List[str]],
+        conditions: List[List[List[str]]] = None,
+        procedures: List[List[List[str]]] = None,
+        drugs: List[List[str]] = None,
         **kwargs,
     ) -> Dict[str, torch.Tensor]:
         """Forward propagation.
 
         Args:
             conditions: a nested list in three levels [patient, visit, condition].
+                Can also be passed via kwargs using the feature key name.
             procedures: a nested list in three levels [patient, visit, procedure].
+                Can also be passed via kwargs using the feature key name.
             drugs: a nested list in two levels [patient, drug].
+                Can also be passed via kwargs using the label key name.
+            **kwargs: Additional arguments. If conditions, procedures, or drugs are not
+                provided directly, they will be extracted from kwargs using the feature/label keys.
 
         Returns:
             A dictionary with the following keys:
@@ -577,21 +812,53 @@ class SafeDrug(BaseModel):
                 y_true: a tensor of shape [patient, visit, num_labels] representing
                     the ground truth of each drug.
         """
-        conditions = self.feat_tokenizers["conditions"].batch_encode_3d(conditions)
-        # (patient, visit, code)
-        conditions = torch.tensor(conditions, dtype=torch.long, device=self.device)
+        import torch
+        
+        # extract inputs from kwargs if not provided directly
+        if conditions is None:
+            conditions = kwargs.get(self.feature_keys[0], kwargs.get("conditions", None))
+        if procedures is None:
+            procedures = kwargs.get(self.feature_keys[1], kwargs.get("procedures", None))
+        if drugs is None:
+            drugs = kwargs.get(self.label_key, kwargs.get("drugs", None))
+        
+        # case where inputs might already be processed (tensors)
+        # convert tensors back to lists if needed for batch_encode_3d
+        if isinstance(conditions, torch.Tensor):
+            conditions_tensor = conditions.to(self.device)
+        else:
+            conditions = self.feat_tokenizers["conditions"].batch_encode_3d(conditions)
+            # (patient, visit, code)
+            conditions_tensor = torch.tensor(conditions, dtype=torch.long, device=self.device)
+        
+        # handle -1 (unk) from processor: map to 0
+        # processor uses -1 for <unk>, but embedding needs non-negative indices
+        vocab_size = self.embeddings["conditions"].num_embeddings
+        # map -1 (unk) to 0 (pad), and clamp all indices to valid range [0, vocab_size)
+        conditions_tensor = torch.where(conditions_tensor < 0, torch.zeros_like(conditions_tensor), conditions_tensor)
+        conditions_tensor = torch.clamp(conditions_tensor, min=0, max=vocab_size - 1)
         # (patient, visit, code, embedding_dim)
-        conditions = self.embeddings["conditions"](conditions)
+        conditions = self.embeddings["conditions"](conditions_tensor)
         # (patient, visit, embedding_dim)
         conditions = torch.sum(conditions, dim=2)
         # (batch, visit, hidden_size)
         conditions, _ = self.cond_rnn(conditions)
 
-        procedures = self.feat_tokenizers["procedures"].batch_encode_3d(procedures)
-        # (patient, visit, code)
-        procedures = torch.tensor(procedures, dtype=torch.long, device=self.device)
+        # case where inputs might already be processed (tensors)
+        if isinstance(procedures, torch.Tensor):
+            procedures_tensor = procedures.to(self.device)
+        else:
+            procedures = self.feat_tokenizers["procedures"].batch_encode_3d(procedures)
+            # (patient, visit, code)
+            procedures_tensor = torch.tensor(procedures, dtype=torch.long, device=self.device)
+        # handle -1 (unk) from processor: map to 0
+        # processor uses -1 for <unk>, but embedding needs non-negative indices
+        vocab_size = self.embeddings["procedures"].num_embeddings
+        # map -1 (unk) to 0 (pad), and clamp all indices to valid range [0, vocab_size)
+        procedures_tensor = torch.where(procedures_tensor < 0, torch.zeros_like(procedures_tensor), procedures_tensor)
+        procedures_tensor = torch.clamp(procedures_tensor, min=0, max=vocab_size - 1)
         # (patient, visit, code, embedding_dim)
-        procedures = self.embeddings["procedures"](procedures)
+        procedures = self.embeddings["procedures"](procedures_tensor)
         # (patient, visit, embedding_dim)
         procedures = torch.sum(procedures, dim=2)
         # (batch, visit, hidden_size)
@@ -603,7 +870,7 @@ class SafeDrug(BaseModel):
         patient_emb = self.query(patient_emb)
 
         # get mask
-        mask = torch.sum(conditions, dim=2) != 0
+        mask = torch.sum(conditions_tensor, dim=2) != 0
 
         drugs = self.prepare_labels(drugs, self.label_tokenizer)
 
