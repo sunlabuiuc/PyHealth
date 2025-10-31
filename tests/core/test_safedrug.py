@@ -14,7 +14,7 @@ class TestSafeDrug(unittest.TestCase):
         """Set up test data and model for all tests."""
         try:
             cls.base_dataset = MIMIC3Dataset(
-                root="/srv/local/data/physionet.org/files/mimiciii/1.4",
+                root="https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III",
                 tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
                 dev=True,
             )
@@ -130,9 +130,9 @@ class TestSafeDrug(unittest.TestCase):
         """Test that forward pass accepts correct input format.
 
         note:
-        - conditions: List[List[List[str]]] (patient, visit, codes)
-        - procedures: List[List[List[str]]] (patient, visit, codes)
-        - drugs: List[List[str]] (patient, ATC-3 codes)
+        - conditions: tensor of shape [batch, visits, codes_per_visit] (already processed)
+        - procedures: tensor of shape [batch, visits, codes_per_visit] (already processed)
+        - drugs: tensor of shape [batch, num_labels] (already processed)
         """
         train_loader = get_dataloader(
             self.dataset, batch_size=2, shuffle=True
@@ -147,16 +147,12 @@ class TestSafeDrug(unittest.TestCase):
         procedures = data_batch["procedures"]
         drugs = data_batch["drugs"]
 
-        self.assertIsInstance(conditions, list)
-        self.assertIsInstance(procedures, list)
-        self.assertIsInstance(drugs, list)
+        self.assertIsInstance(conditions, torch.Tensor)
+        self.assertIsInstance(procedures, torch.Tensor)
+        self.assertIsInstance(drugs, torch.Tensor)
 
         with torch.no_grad():
-            ret = self.model(
-                conditions=conditions,
-                procedures=procedures,
-                drugs=drugs,
-            )
+            ret = self.model(**data_batch)
 
         self.assertIn("loss", ret)
         self.assertIn("y_prob", ret)
