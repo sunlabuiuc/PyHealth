@@ -142,14 +142,14 @@ class IntegratedGradients:
         >>> data_batch = next(iter(test_loader))
         >>>
         >>> # Option 1: Use zero baseline (default)
-        >>> attributions = ig.attribute(**data_batch, steps=50)
+        >>> attributions = ig.attribute(**data_batch, steps=5)
         >>> print(attributions)
         {'conditions': tensor([[0.1234, 0.5678, 0.9012]], device='cuda:0'),
          'procedures': tensor([[0.2345, 0.6789, 0.0123, 0.4567]])}
         >>>
         >>> # Option 2: Specify target class explicitly
         >>> data_batch['target_class_idx'] = 1
-        >>> attributions = ig.attribute(**data_batch, steps=50)
+        >>> attributions = ig.attribute(**data_batch, steps=5)
         >>>
         >>> # Option 3: Use custom baseline
         >>> custom_baseline = {
@@ -157,7 +157,7 @@ class IntegratedGradients:
         ...     'procedures': torch.ones_like(data_batch['procedures']) * 0.5
         ... }
         >>> attributions = ig.attribute(
-        ...     **data_batch, baseline=custom_baseline, steps=50
+        ...     **data_batch, baseline=custom_baseline, steps=5
         ... )
     """
 
