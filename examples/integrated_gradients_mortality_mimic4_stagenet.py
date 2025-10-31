@@ -38,86 +38,10 @@ from pyhealth.models import StageNet
 from pyhealth.tasks import MortalityPredictionStageNetMIMIC4
 from pyhealth.trainer import Trainer
 
-# STEP 1: Load MIMIC-IV base dataset
-base_dataset = MIMIC4Dataset(
-    ehr_root="/srv/local/data/physionet.org/files/mimiciv/2.2/",
-    ehr_tables=[
-        "patients",
-        "admissions",
-        "diagnoses_icd",
-        "procedures_icd",
-        "labevents",
-    ],
-)
 
-# STEP 2: Apply StageNet mortality prediction task
-sample_dataset = base_dataset.set_task(
-    MortalityPredictionStageNetMIMIC4(),
-    num_workers=4,
-    cache_dir="../../mimic4_stagenet_cache",
-)
-
-print(f"Total samples: {len(sample_dataset)}")
-print(f"Input schema: {sample_dataset.input_schema}")
-print(f"Output schema: {sample_dataset.output_schema}")
-
-# Inspect a sample
-sample = sample_dataset.samples[0]
-print("\nSample structure:")
-print(f"  Patient ID: {sample['patient_id']}")
-print(f"ICD Codes: {sample['icd_codes']}")
-print(f"  Labs shape: {len(sample['labs'][0])} timesteps")
-print(f"  Mortality: {sample['mortality']}")
-
-# STEP 3: Split dataset
-train_dataset, val_dataset, test_dataset = split_by_patient(
-    sample_dataset, [0.8, 0.1, 0.1]
-)
-
-# Create dataloaders
-train_loader = get_dataloader(train_dataset, batch_size=256, shuffle=True)
-val_loader = get_dataloader(val_dataset, batch_size=256, shuffle=False)
-test_loader = get_dataloader(test_dataset, batch_size=256, shuffle=False)
-
-# STEP 4: Initialize StageNet model
-model = StageNet(
-    dataset=sample_dataset,
-    embedding_dim=128,
-    chunk_size=128,
-    levels=3,
-    dropout=0.3,
-)
-
-num_params = sum(p.numel() for p in model.parameters())
-print(f"\nModel initialized with {num_params} parameters")
-
-# STEP 5: Load pre-trained model checkpoint
-print(f"\n{'='*60}")
-print("LOADING PRE-TRAINED MODEL")
-print(f"{'='*60}")
-
-checkpoint_path = (
-    "/home/johnwu3/projects/PyHealth_Branch_Testing/PyHealth/output/"
-    "20251028-191219/best.ckpt"
-)
-
-print(f"✓ Loading checkpoint: {checkpoint_path}")
-
-# Initialize trainer
-trainer = Trainer(
-    model=model,
-    device="cpu",
-    metrics=["pr_auc", "roc_auc", "accuracy", "f1"],
-)
-
-# Load the checkpoint
-trainer.load_ckpt(checkpoint_path)
-print("✓ Checkpoint loaded successfully")
-
-# STEP 9: Interpretability with Integrated Gradients
-print(f"\n{'='*60}")
-print("INTEGRATED GRADIENTS INTERPRETABILITY")
-print(f"{'='*60}")
+# ============================================================================
+# HELPER FUNCTIONS FOR ATTRIBUTION VISUALIZATION
+# ============================================================================
 
 
 def decode_indices_to_tokens(
@@ -164,88 +88,6 @@ def decode_indices_to_tokens(
         return indices_list
 
 
-def print_attribution_results(
-    attributions, sample_batch, sample_dataset, target_name, top_k=10
-):
-    """Print attribution results in a clean, organized format.
-
-    Args:
-        attributions: Dict of attribution tensors
-        sample_batch: Input batch
-        sample_dataset: Dataset with processors
-        target_name: Name of target class (e.g., "Mortality=1")
-        top_k: Number of top elements to display (per direction)
-    """
-    print(f"\n{'='*70}")
-    print(f"Attribution Results for {target_name}")
-    print(f"{'='*70}")
-    print("NOTE: Attributions can be positive (increases prediction) or")
-    print("      negative (decreases prediction). They sum to f(x) - f(baseline).")
-    print(f"{'='*70}\n")
-
-    for feature_key in attributions:
-        attr = attributions[feature_key]
-        print(f"{feature_key}:")
-        print(f"  Shape: {attr.shape}")
-        print(f"  Mean: {attr.mean().item():.6f}, Std: {attr.std().item():.6f}")
-        print(f"  Range: [{attr.min().item():.6f}, {attr.max().item():.6f}]")
-        print(f"  Sum: {attr.sum().item():.6f}\n")
-
-        # Get processor and input tensor
-        processor = sample_dataset.input_processors.get(feature_key)
-        input_tensor = sample_batch[feature_key]
-        if isinstance(input_tensor, tuple):
-            input_tensor = input_tensor[1]
-
-        is_continuous = processor is None or not hasattr(processor, "code_vocab")
-
-        # Show top positive and top negative separately
-        if attr.numel() > 0:
-            flat_attr = attr.flatten()
-            top_k_actual = min(top_k, flat_attr.numel())
-
-            # Get top positive attributions
-            pos_mask = flat_attr > 0
-            if pos_mask.any():
-                pos_vals = flat_attr[pos_mask]
-                pos_indices_rel = torch.topk(
-                    pos_vals, k=min(top_k_actual, len(pos_vals))
-                ).indices
-                pos_indices = torch.where(pos_mask)[0][pos_indices_rel]
-
-                print(f"  Top {len(pos_indices)} POSITIVE (increases prediction):")
-                _print_attributions(
-                    pos_indices,
-                    flat_attr,
-                    attr,
-                    input_tensor,
-                    is_continuous,
-                    processor,
-                    feature_key,
-                )
-
-            # Get top negative attributions
-            neg_mask = flat_attr < 0
-            if neg_mask.any():
-                neg_vals = flat_attr[neg_mask]
-                neg_indices_rel = torch.topk(
-                    torch.abs(neg_vals), k=min(top_k_actual, len(neg_vals))
-                ).indices
-                neg_indices = torch.where(neg_mask)[0][neg_indices_rel]
-
-                print(f"  Top {len(neg_indices)} NEGATIVE (decreases prediction):")
-                _print_attributions(
-                    neg_indices,
-                    flat_attr,
-                    attr,
-                    input_tensor,
-                    is_continuous,
-                    processor,
-                    feature_key,
-                )
-        print()
-
-
 def _print_attributions(
     indices, flat_attr, attr, input_tensor, is_continuous, processor, feature_key
 ):
@@ -272,7 +114,7 @@ def _print_attributions(
             attr_val = flat_attr[flat_idx].item()
 
             if is_continuous:
-                # Continuous: show timestep, feature (with lab name if applicable), value
+                # Continuous: show timestep, feature (with lab name), value
                 if (
                     input_tensor.dim() == 3
                     and idx1 < input_tensor.shape[1]
@@ -334,70 +176,245 @@ def _print_attributions(
                     )
 
 
-# Create single-sample dataloader for interpretability
-single_sample_loader = get_dataloader(test_dataset, batch_size=1, shuffle=False)
+def print_attribution_results(
+    attributions, sample_batch, sample_dataset, target_name, top_k=10
+):
+    """Print attribution results in a clean, organized format.
 
-# Initialize Integrated Gradients
-ig = IntegratedGradients(model)
-print("✓ Integrated Gradients interpreter initialized")
+    Args:
+        attributions: Dict of attribution tensors
+        sample_batch: Input batch
+        sample_dataset: Dataset with processors
+        target_name: Name of target class (e.g., "Mortality=1")
+        top_k: Number of top elements to display (per direction)
+    """
+    print(f"\n{'='*70}")
+    print(f"Attribution Results for {target_name}")
+    print(f"{'='*70}")
+    print("NOTE: Attributions can be positive (increases prediction) or")
+    print("      negative (decreases prediction).")
+    print("      They sum to f(x) - f(baseline).")
+    print(f"{'='*70}\n")
 
-# Get a single test sample
-sample_batch = next(iter(single_sample_loader))
-print("\nAnalyzing sample:")
-print(f"  Patient ID: {sample_batch['patient_id'][0]}")
-print(f"  True label: {sample_batch['mortality'][0].item()}")
+    for feature_key in attributions:
+        attr = attributions[feature_key]
+        print(f"{feature_key}:")
+        print(f"  Shape: {attr.shape}")
+        print(f"  Mean: {attr.mean().item():.6f}, " f"Std: {attr.std().item():.6f}")
+        print(f"  Range: [{attr.min().item():.6f}, " f"{attr.max().item():.6f}]")
+        print(f"  Sum: {attr.sum().item():.6f}\n")
 
-# Get model prediction for this sample
-with torch.no_grad():
-    output = model(**sample_batch)
-    predicted_prob = output["y_prob"][0, 0].item()
-    predicted_class = int(predicted_prob > 0.5)
-print(f"  Predicted class: {predicted_class}")
-print(f"  Predicted probability: {predicted_prob:.4f}")
+        # Get processor and input tensor
+        processor = sample_dataset.input_processors.get(feature_key)
+        input_tensor = sample_batch[feature_key]
+        if isinstance(input_tensor, tuple):
+            input_tensor = input_tensor[1]
 
-# Compute attributions for both target classes to compare
-print("\nComputing attributions for both target classes...")
-print("(Helps understand what drives predictions in each direction)\n")
+        is_continuous = processor is None or not hasattr(processor, "code_vocab")
 
-attributions_mortality = ig.attribute(**sample_batch, target_class_idx=1, steps=5)
-attributions_survival = ig.attribute(**sample_batch, target_class_idx=0, steps=5)
+        # Show top positive and top negative separately
+        if attr.numel() > 0:
+            flat_attr = attr.flatten()
+            top_k_actual = min(top_k, flat_attr.numel())
 
-# Display results for mortality prediction (target=1)
-print_attribution_results(
-    attributions_mortality,
-    sample_batch,
-    sample_dataset,
-    "Target: Mortality = 1 (Death)",
-    top_k=10,
-)
+            # Get top positive attributions
+            pos_mask = flat_attr > 0
+            if pos_mask.any():
+                pos_vals = flat_attr[pos_mask]
+                pos_indices_rel = torch.topk(
+                    pos_vals, k=min(top_k_actual, len(pos_vals))
+                ).indices
+                pos_indices = torch.where(pos_mask)[0][pos_indices_rel]
 
-# Display results for survival prediction (target=0)
-print_attribution_results(
-    attributions_survival,
-    sample_batch,
-    sample_dataset,
-    "Target: Mortality = 0 (Survival)",
-    top_k=10,
-)
+                print(f"  Top {len(pos_indices)} POSITIVE " f"(increases prediction):")
+                _print_attributions(
+                    pos_indices,
+                    flat_attr,
+                    attr,
+                    input_tensor,
+                    is_continuous,
+                    processor,
+                    feature_key,
+                )
 
-# Summary comparison
-print(f"\n{'='*70}")
-print("SUMMARY: Comparing Attributions by Target Class")
-print(f"{'='*70}")
-print("Features that increase mortality risk (positive in target=1)")
-print("  vs. features that increase survival (positive in target=0)\n")
+            # Get top negative attributions
+            neg_mask = flat_attr < 0
+            if neg_mask.any():
+                neg_vals = flat_attr[neg_mask]
+                neg_indices_rel = torch.topk(
+                    torch.abs(neg_vals), k=min(top_k_actual, len(neg_vals))
+                ).indices
+                neg_indices = torch.where(neg_mask)[0][neg_indices_rel]
 
-for feature_key in attributions_mortality:
-    mort_sum = attributions_mortality[feature_key].sum().item()
-    surv_sum = attributions_survival[feature_key].sum().item()
-    print(f"{feature_key}:")
-    print(f"  Target=1 (mortality) sum: {mort_sum:+.6f}")
-    print(f"  Target=0 (survival) sum:  {surv_sum:+.6f}")
-    print(f"  Difference (should be ~0): {mort_sum + surv_sum:.6f}\n")
+                print(f"  Top {len(neg_indices)} NEGATIVE " f"(decreases prediction):")
+                _print_attributions(
+                    neg_indices,
+                    flat_attr,
+                    attr,
+                    input_tensor,
+                    is_continuous,
+                    processor,
+                    feature_key,
+                )
+        print()
 
-print("Interpretation Guide:")
-print("  • For target=1: positive = increases death risk")
-print("  •               negative = protective against death")
-print("  • For target=0: positive = increases survival chance")
-print("  •               negative = increases death risk")
-print("  • Attributions from both targets have roughly opposite signs")
+
+# ============================================================================
+# MAIN EXECUTION
+# ============================================================================
+
+
+def main():
+    """Main execution function for StageNet mortality prediction with IG."""
+    # STEP 1: Load MIMIC-IV base dataset
+    base_dataset = MIMIC4Dataset(
+        ehr_root="/srv/local/data/physionet.org/files/mimiciv/2.2/",
+        ehr_tables=[
+            "patients",
+            "admissions",
+            "diagnoses_icd",
+            "procedures_icd",
+            "labevents",
+        ],
+    )
+
+    # STEP 2: Apply StageNet mortality prediction task
+    sample_dataset = base_dataset.set_task(
+        MortalityPredictionStageNetMIMIC4(),
+        num_workers=4,
+        cache_dir="../../mimic4_stagenet_cache",
+    )
+
+    print(f"Total samples: {len(sample_dataset)}")
+    print(f"Input schema: {sample_dataset.input_schema}")
+    print(f"Output schema: {sample_dataset.output_schema}")
+
+    # Inspect a sample
+    sample = sample_dataset.samples[0]
+    print("\nSample structure:")
+    print(f"  Patient ID: {sample['patient_id']}")
+    print(f"ICD Codes: {sample['icd_codes']}")
+    print(f"  Labs shape: {len(sample['labs'][0])} timesteps")
+    print(f"  Mortality: {sample['mortality']}")
+
+    # STEP 3: Split dataset
+    train_dataset, val_dataset, test_dataset = split_by_patient(
+        sample_dataset, [0.8, 0.1, 0.1]
+    )
+
+    # Create dataloaders
+    train_loader = get_dataloader(train_dataset, batch_size=256, shuffle=True)
+    val_loader = get_dataloader(val_dataset, batch_size=256, shuffle=False)
+    test_loader = get_dataloader(test_dataset, batch_size=256, shuffle=False)
+
+    # STEP 4: Initialize StageNet model
+    model = StageNet(
+        dataset=sample_dataset,
+        embedding_dim=128,
+        chunk_size=128,
+        levels=3,
+        dropout=0.3,
+    )
+
+    num_params = sum(p.numel() for p in model.parameters())
+    print(f"\nModel initialized with {num_params} parameters")
+
+    # STEP 5: Load pre-trained model checkpoint
+    print(f"\n{'='*60}")
+    print("LOADING PRE-TRAINED MODEL")
+    print(f"{'='*60}")
+
+    checkpoint_path = (
+        "/home/johnwu3/projects/PyHealth_Branch_Testing/PyHealth/output/"
+        "20251028-191219/best.ckpt"
+    )
+
+    print(f"✓ Loading checkpoint: {checkpoint_path}")
+
+    # Initialize trainer
+    trainer = Trainer(
+        model=model,
+        device="cpu",
+        metrics=["pr_auc", "roc_auc", "accuracy", "f1"],
+    )
+
+    # Load the checkpoint
+    trainer.load_ckpt(checkpoint_path)
+    print("✓ Checkpoint loaded successfully")
+
+    # STEP 6: Interpretability with Integrated Gradients
+    print(f"\n{'='*60}")
+    print("INTEGRATED GRADIENTS INTERPRETABILITY")
+    print(f"{'='*60}")
+
+    # Create single-sample dataloader for interpretability
+    single_sample_loader = get_dataloader(test_dataset, batch_size=1, shuffle=False)
+
+    # Initialize Integrated Gradients
+    ig = IntegratedGradients(model)
+    print("✓ Integrated Gradients interpreter initialized")
+
+    # Get a single test sample
+    sample_batch = next(iter(single_sample_loader))
+    print("\nAnalyzing sample:")
+    print(f"  Patient ID: {sample_batch['patient_id'][0]}")
+    print(f"  True label: {sample_batch['mortality'][0].item()}")
+
+    # Get model prediction for this sample
+    with torch.no_grad():
+        output = model(**sample_batch)
+        predicted_prob = output["y_prob"][0, 0].item()
+        predicted_class = int(predicted_prob > 0.5)
+    print(f"  Predicted class: {predicted_class}")
+    print(f"  Predicted probability: {predicted_prob:.4f}")
+
+    # Compute attributions for both target classes to compare
+    print("\nComputing attributions for both target classes...")
+    print("(Helps understand what drives predictions in each direction)\n")
+
+    attributions_mortality = ig.attribute(**sample_batch, target_class_idx=1, steps=5)
+    attributions_survival = ig.attribute(**sample_batch, target_class_idx=0, steps=5)
+
+    # Display results for mortality prediction (target=1)
+    print_attribution_results(
+        attributions_mortality,
+        sample_batch,
+        sample_dataset,
+        "Target: Mortality = 1 (Death)",
+        top_k=10,
+    )
+
+    # Display results for survival prediction (target=0)
+    print_attribution_results(
+        attributions_survival,
+        sample_batch,
+        sample_dataset,
+        "Target: Mortality = 0 (Survival)",
+        top_k=10,
+    )
+
+    # Summary comparison
+    print(f"\n{'='*70}")
+    print("SUMMARY: Comparing Attributions by Target Class")
+    print(f"{'='*70}")
+    print("Features that increase mortality risk (positive in target=1)")
+    print("  vs. features that increase survival (positive in target=0)\n")
+
+    for feature_key in attributions_mortality:
+        mort_sum = attributions_mortality[feature_key].sum().item()
+        surv_sum = attributions_survival[feature_key].sum().item()
+        print(f"{feature_key}:")
+        print(f"  Target=1 (mortality) sum: {mort_sum:+.6f}")
+        print(f"  Target=0 (survival) sum:  {surv_sum:+.6f}")
+        print(f"  Difference (should be ~0): {mort_sum + surv_sum:.6f}\n")
+
+    print("Interpretation Guide:")
+    print("  • For target=1: positive = increases death risk")
+    print("  •               negative = protective against death")
+    print("  • For target=0: positive = increases survival chance")
+    print("  •               negative = increases death risk")
+    print("  • Attributions from both targets have roughly opposite signs")
+
+
+if __name__ == "__main__":
+    main()
