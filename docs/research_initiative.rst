@@ -109,9 +109,9 @@ Getting Involved
 
 Interested in participating in future PyHealth Research Initiatives? Here's how to get involved:
 
-1. **Stay Updated**: Watch the `PyHealth repository <https://github.com/sunlabuiuc/PyHealth>`_ for announcements
-2. **Join the Community**: Participate in PyHealth discussions and contribute to the codebase
-3. **Connect**: Reach out to the PyHealth team through GitHub Issues or email
+1. **Join Discord**: Join our `Discord server <https://discord.gg/mpb835EHaX>`_ - the best way to connect with the team and community
+2. **Stay Updated**: Watch the `PyHealth repository <https://github.com/sunlabuiuc/PyHealth>`_ for announcements
+3. **Participate**: Contribute to PyHealth discussions and the codebase
 4. **Prepare**: Familiarize yourself with the PyHealth library and explore the documentation
 
 Past Participants
@@ -120,9 +120,6 @@ Past Participants
 The PyHealth Research Initiative has hosted students from universities around the world, including:
 
 - University of Illinois Urbana-Champaign
-- Stanford University
-- MIT
-- Carnegie Mellon University
 - Georgia Tech
 - And many more...
 
@@ -132,11 +129,15 @@ healthcare AI at leading institutions and companies.
 Contact
 -------
 
-For more information about the PyHealth Research Initiative, please:
+For more information about the PyHealth Research Initiative:
 
-- Email: pyhealth-dev@illinois.edu
+**Best way to reach us:** Join our `Discord server <https://discord.gg/mpb835EHaX>`_ for the fastest response and community support!
+
+Additional resources:
+
 - GitHub: https://github.com/sunlabuiuc/PyHealth
 - Documentation: https://pyhealth.readthedocs.io
+- Email: johnwu3@illinois.edu
 
 Acknowledgments
 ---------------
