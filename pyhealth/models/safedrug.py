@@ -1,3 +1,7 @@
+# Author: Arjun Chatterjee
+# NetID: arjunc4
+# Description: SafeDrug model implementation.
+
 from collections import defaultdict
 from copy import deepcopy
 from typing import List, Tuple, Dict, Optional
