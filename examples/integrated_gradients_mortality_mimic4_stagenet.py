@@ -6,6 +6,24 @@ This example demonstrates:
 2. Applying the MortalityPredictionStageNetMIMIC4 task
 3. Creating a SampleDataset with StageNet processors
 4. Training a StageNet model
+5. Using Integrated Gradients for interpretability
+
+Lab Feature Mapping:
+    The MortalityPredictionStageNetMIMIC4 task creates 10-dimensional lab
+    vectors where each dimension corresponds to a lab category:
+
+    Dimension 0: Sodium
+    Dimension 1: Potassium
+    Dimension 2: Chloride
+    Dimension 3: Bicarbonate
+    Dimension 4: Glucose
+    Dimension 5: Calcium
+    Dimension 6: Magnesium
+    Dimension 7: Anion Gap
+    Dimension 8: Osmolality
+    Dimension 9: Phosphate
+
+    This mapping is used to decode attribution indices back to lab names.
 """
 
 import torch
@@ -232,6 +250,20 @@ def _print_attributions(
     indices, flat_attr, attr, input_tensor, is_continuous, processor, feature_key
 ):
     """Helper to print attribution details."""
+    # Define lab category names for dimension mapping
+    LAB_CATEGORY_NAMES = [
+        "Sodium",
+        "Potassium",
+        "Chloride",
+        "Bicarbonate",
+        "Glucose",
+        "Calcium",
+        "Magnesium",
+        "Anion Gap",
+        "Osmolality",
+        "Phosphate",
+    ]
+
     if attr.dim() == 3:
         dim2 = attr.shape[2]
         for rank, flat_idx in enumerate(indices.tolist(), 1):
@@ -240,7 +272,7 @@ def _print_attributions(
             attr_val = flat_attr[flat_idx].item()
 
             if is_continuous:
-                # Continuous: show timestep, feature, value
+                # Continuous: show timestep, feature (with lab name if applicable), value
                 if (
                     input_tensor.dim() == 3
                     and idx1 < input_tensor.shape[1]
@@ -248,10 +280,19 @@ def _print_attributions(
                 ):
                     actual_value = input_tensor[0, idx1, idx2].item()
                     sign = "+" if attr_val >= 0 else ""
-                    print(
-                        f"    {rank:2d}. T{idx1:3d} F{idx2} "
-                        f"val={actual_value:7.2f} → {sign}{attr_val:.6f}"
-                    )
+
+                    # Map dimension to lab name if this is labs feature
+                    if feature_key == "labs" and idx2 < len(LAB_CATEGORY_NAMES):
+                        lab_name = LAB_CATEGORY_NAMES[idx2]
+                        print(
+                            f"    {rank:2d}. T{idx1:3d} {lab_name:12s} "
+                            f"val={actual_value:7.2f} → {sign}{attr_val:.6f}"
+                        )
+                    else:
+                        print(
+                            f"    {rank:2d}. T{idx1:3d} F{idx2} "
+                            f"val={actual_value:7.2f} → {sign}{attr_val:.6f}"
+                        )
             else:
                 # Discrete: decode tokens with "Visit" prefix
                 decoded_tokens = decode_indices_to_tokens(
