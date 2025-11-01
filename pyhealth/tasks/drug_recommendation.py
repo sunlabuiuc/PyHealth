@@ -65,7 +65,7 @@ class DrugRecommendationMIMIC3(BaseTask):
                 return_df=True,
             )
             conditions = (
-                diagnoses_icd.select(pl.col("DIAGNOSES_ICD/icd9_code"))
+                diagnoses_icd.select(pl.col("diagnoses_icd/icd9_code"))
                 .to_series()
                 .to_list()
             )
@@ -77,7 +77,7 @@ class DrugRecommendationMIMIC3(BaseTask):
                 return_df=True,
             )
             procedures = (
-                procedures_icd.select(pl.col("PROCEDURES_ICD/icd9_code"))
+                procedures_icd.select(pl.col("procedures_icd/icd9_code"))
                 .to_series()
                 .to_list()
             )
