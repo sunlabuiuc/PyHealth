@@ -243,10 +243,9 @@ class MICRON(BaseModel):
             **kwargs
         )
 
-        # Optionally generate and save ddi_adj
-        # ddi_adj = self.generate_ddi_adj()
-        # os.makedirs(CACHE_PATH, exist_ok=True)
-        # np.save(os.path.join(CACHE_PATH, "ddi_adj.npy"), ddi_adj)
+        # save ddi adjacency matrix for later use
+        ddi_adj = self.generate_ddi_adj()
+        np.save(os.path.join(CACHE_PATH, "ddi_adj.npy"), ddi_adj)
 
     @staticmethod
     def _split_temporal(feature):
