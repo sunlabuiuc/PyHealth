@@ -208,8 +208,34 @@ class MICRON(BaseModel):
 
         # Get label processor and vocab size
         label_processor = self.dataset.output_processors[self.label_key]
-        num_drugs = label_processor.get_vocabulary_size() if hasattr(label_processor, "get_vocabulary_size") else label_processor.vocabulary_size
-
+        
+        # Try to get vocabulary size through the standard method
+        try:
+            num_drugs = label_processor.size()
+            if num_drugs == 0:
+                raise ValueError("Label processor returned 0 size")
+        except (AttributeError, ValueError):
+            # Then check internal mappings/vocabs
+            if hasattr(label_processor, "label_vocab") and len(label_processor.label_vocab) > 0:
+                num_drugs = len(label_processor.label_vocab)
+            elif hasattr(label_processor, "_label_mapping") and len(label_processor._label_mapping) > 0:
+                num_drugs = len(label_processor._label_mapping)
+            elif hasattr(label_processor, "_vocabulary") and len(label_processor._vocabulary) > 0:
+                if isinstance(label_processor._vocabulary, (dict, set)):
+                    num_drugs = len(label_processor._vocabulary)
+                elif isinstance(label_processor._vocabulary, list):
+                    num_drugs = max(label_processor._vocabulary) + 1 if label_processor._vocabulary else 0
+            elif isinstance(label_processor, MultiHotProcessor):
+                num_drugs = label_processor.label_vocab_size
+            elif hasattr(label_processor, "get_vocabulary_size"):
+                num_drugs = label_processor.get_vocabulary_size()
+            elif hasattr(label_processor, "vocabulary"):
+                num_drugs = len(label_processor.vocabulary)
+            else:
+                raise ValueError(
+                    "Could not determine vocabulary size from label processor. "
+                    "Please ensure the processor implements size() or has a vocabulary mapping."
+                )
         self.micron = MICRONLayer(
             input_size=embedding_dim * len(self.feature_keys),
             hidden_size=hidden_dim,
@@ -241,6 +267,10 @@ class MICRON(BaseModel):
             x = x.sum(dim=2)
         if x.dim() == 2:
             x = x.unsqueeze(1)
+        # Make sure temporal dimension (dim=1) matches the longest sequence
+        if x.size(1) == 1:
+            # Repeat to handle shorter sequences
+            x = x.repeat(1, 2, 1)
         return x
 
     def _create_mask(self, feature_key: str, value: torch.Tensor) -> torch.Tensor:
@@ -341,8 +371,8 @@ class MICRON(BaseModel):
         atc = ATC()
         ddi = atc.get_ddi(gamenet_ddi=True)
         label_processor = self.dataset.output_processors[self.label_key]
-        label_size = label_processor.get_vocabulary_size() if hasattr(label_processor, "get_vocabulary_size") else label_processor.vocabulary_size
-        vocab_to_index = label_processor.vocabulary
+        label_size = label_processor.size()
+        vocab_to_index = label_processor.label_vocab
         ddi_adj = np.zeros((label_size, label_size))
         ddi_atc3 = [
             [ATC.convert(l[0], level=3), ATC.convert(l[1], level=3)] for l in ddi
