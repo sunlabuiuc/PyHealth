@@ -42,12 +42,13 @@ import torch
 from pyhealth.datasets import (
     MIMIC4Dataset,
     get_dataloader,
+    load_processors,
+    save_processors,
     split_by_patient,
 )
 from pyhealth.interpret.methods import IntegratedGradients
 from pyhealth.models import StageNet
 from pyhealth.tasks import MortalityPredictionStageNetMIMIC4
-from pyhealth.tasks.utils import load_processors, save_processors
 from pyhealth.trainer import Trainer
 
 
