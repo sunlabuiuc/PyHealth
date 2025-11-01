@@ -1,38 +1,45 @@
 import unittest
 import torch
 
-from pyhealth.datasets import MIMIC3Dataset, split_by_patient, get_dataloader
+from pyhealth.datasets import SampleDataset, get_dataloader
 from pyhealth.models import SafeDrug
-from pyhealth.tasks import DrugRecommendationMIMIC3
 
 
 class TestSafeDrug(unittest.TestCase):
     """Test cases for the SafeDrug model."""
 
-    @classmethod
-    def setUpClass(cls):
-        """Set up test data and model for all tests."""
-        try:
-            cls.base_dataset = MIMIC3Dataset(
-                root="https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III",
-                tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
-                dev=True,
-            )
-            task = DrugRecommendationMIMIC3()
-            cls.dataset = cls.base_dataset.set_task(task)
-            
-            if len(cls.dataset.samples) == 0:
-                raise unittest.SkipTest(
-                    "No samples generated from MIMIC3 dataset"
-                )
-        except Exception as e:
-            raise unittest.SkipTest(
-                f"MIMIC3 dataset not available for testing: {e}. "
-                "Please ensure MIMIC3 dataset is accessible."
-            )
-
     def setUp(self):
-        """Set up model for each test."""
+        """Set up test data and model."""
+        self.samples = [
+            {
+                "patient_id": "patient-0",
+                "visit_id": "visit-0",
+                "conditions": [["cond-1", "cond-2"], ["cond-3", "cond-4"]],
+                "procedures": [["proc-1"], ["proc-2", "proc-3"]],
+                "drugs": ["drug-1", "drug-2", "drug-3"],
+            },
+            {
+                "patient_id": "patient-1",
+                "visit_id": "visit-1",
+                "conditions": [["cond-5", "cond-6"]],
+                "procedures": [["proc-4"]],
+                "drugs": ["drug-2", "drug-4"],
+            },
+        ]
+
+        self.input_schema = {
+            "conditions": "nested_sequence",
+            "procedures": "nested_sequence",
+        }
+        self.output_schema = {"drugs": "multilabel"}
+
+        self.dataset = SampleDataset(
+            samples=self.samples,
+            input_schema=self.input_schema,
+            output_schema=self.output_schema,
+            dataset_name="test",
+        )
+
         self.model = SafeDrug(dataset=self.dataset)
 
     def test_model_initialization(self):
