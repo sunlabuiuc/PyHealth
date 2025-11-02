@@ -2,7 +2,7 @@
 from pyhealth.datasets import MIMIC4EHRDataset
 
 dataset = MIMIC4EHRDataset(
-    root="/home/logic/physionet.org/files/mimiciv/3.1/",
+    root="/home/logic/physionet.org/files/mimic-iv-demo/2.2/",
     tables=[
         "patients",
         "admissions",
@@ -14,9 +14,17 @@ dataset = MIMIC4EHRDataset(
 
 # %% Setting StageNet Mortality Prediction Task
 from pyhealth.tasks import MortalityPredictionStageNetMIMIC4
+from pyhealth.datasets import get_dataloader, load_processors, save_processors, split_by_patient
 
-task = MortalityPredictionStageNetMIMIC4()
-sample_dataset = dataset.set_task(task, cache_dir="~/.cache/pyhealth/mimic4_stagenet_mortality")
+input_processors, output_processors = load_processors("../resources/")
+
+sample_dataset = dataset.set_task(
+    MortalityPredictionStageNetMIMIC4(), 
+    cache_dir="~/.cache/pyhealth/mimic4_stagenet_mortality",
+    input_processors=input_processors,
+    output_processors=output_processors,
+)
+print(f"Total samples: {len(sample_dataset)}")
 
 # %% Loading Pretrained StageNet Model
 import torch
@@ -29,4 +37,7 @@ model = StageNet(
     levels=3,
     dropout=0.3,
 )
-model.load_state_dict(torch.load('../ckpt/best.ckpt', map_location='cuda:0'))
+model.load_state_dict(torch.load('../resources/best.ckpt', map_location='cuda:0'))
+print(model)
+
+# %%
