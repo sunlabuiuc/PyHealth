@@ -1,3 +1,7 @@
+# Author: Arjun Chatterjee
+# NetID: arjunc4
+# Description: SafeDrug model implementation.
+
 from collections import defaultdict
 from copy import deepcopy
 from typing import List, Tuple, Dict, Optional
@@ -14,6 +18,7 @@ from pyhealth.medcode import ATC
 from pyhealth.metrics import ddi_rate_score
 from pyhealth.models import BaseModel
 from pyhealth.models.utils import get_last_visit
+from pyhealth.models.embedding import EmbeddingModel
 from pyhealth import BASE_CACHE_PATH as CACHE_PATH
 
 class MaskLinear(nn.Module):
@@ -172,6 +177,19 @@ class SafeDrugLayer(nn.Module):
         self.bipartite_output = nn.Linear(mask_H.shape[1], label_size)
 
         # global MPNN encoder (add fingerprints and adjacency matrix to parameter list)
+        if len(molecule_set) == 0:
+            # handle empty molecule_set - create dummy data
+            dummy_fingerprints = torch.LongTensor([0])
+            dummy_adjacency = torch.FloatTensor([[0.0]])
+            dummy_size = 1
+            molecule_set = [(dummy_fingerprints, dummy_adjacency, dummy_size)]
+            num_fingerprints = max(num_fingerprints, 1)
+            # update average_projection to be compatible
+            if average_projection.shape[1] == 0:
+                average_projection = torch.zeros((average_projection.shape[0], 1), dtype=torch.float32)
+                if average_projection.shape[0] > 0:
+                    average_projection[0, 0] = 1.0
+        
         mpnn_molecule_set = list(zip(*molecule_set))
 
         # process three parts of information
@@ -320,23 +338,45 @@ class SafeDrug(BaseModel):
         dropout: float = 0.5,
         **kwargs,
     ):
-        super(SafeDrug, self).__init__(
-            dataset=dataset,
-            feature_keys=["conditions", "procedures"],
-            label_key="drugs",
-            mode="multilabel",
-        )
+        super(SafeDrug, self).__init__(dataset=dataset)
+        expected_feature_keys = ["conditions", "procedures"]
+        expected_label_key = "drugs"
+        
+        # need to verify expected feature keys are present
+        for key in expected_feature_keys:
+            if key not in self.feature_keys:
+                raise ValueError(
+                    f"SafeDrug requires '{key}' in feature_keys, "
+                    f"but got {self.feature_keys}. "
+                    f"Make sure your dataset's input_schema includes '{key}'."
+                )
+        
+        # set label_key from label_keys (should be set by BaseModel from dataset.output_schema)
+        if not self.label_keys:
+            self.label_key = expected_label_key
+        elif len(self.label_keys) == 1:
+            self.label_key = self.label_keys[0]
+            if self.label_key != expected_label_key:
+                raise ValueError(f"SafeDrug requires label_key='drugs', but got '{self.label_key}'")
+        else:
+            raise ValueError(f"SafeDrug requires exactly one label key, but got {self.label_keys}")
+        
+        if not hasattr(self, 'mode') or not self.mode:
+            if self.label_key in self.dataset.output_schema:
+                self.mode = self._resolve_mode(self.dataset.output_schema[self.label_key])
+            else:
+                self.mode = "multilabel"
+        
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
         self.dropout = dropout
 
-        self.feat_tokenizers = self.get_feature_tokenizers()
-        self.label_tokenizer = self.get_label_tokenizer()
-        self.embeddings = self.get_embedding_layers(self.feat_tokenizers, embedding_dim)
+        # using EmbeddingModel here like RNN/Transformer
+        self.embedding_model = EmbeddingModel(dataset, embedding_dim)
 
-        # drug space size
-        self.label_size = self.label_tokenizer.get_vocabulary_size()
+        # drug space size - get from output processor
+        self.label_size = len(self.dataset.output_processors[self.label_key].label_vocab)
 
         self.all_smiles_list = self.generate_smiles_list()
         mask_H = self.generate_mask_H()
@@ -397,16 +437,16 @@ class SafeDrug(BaseModel):
         """Generates the DDI graph adjacency matrix."""
         atc = ATC()
         ddi = atc.get_ddi(gamenet_ddi=True)
-        label_size = self.label_tokenizer.get_vocabulary_size()
-        vocab_to_index = self.label_tokenizer.vocabulary
+        label_vocab = self.dataset.output_processors[self.label_key].label_vocab
+        label_size = len(label_vocab)
         ddi_adj = np.zeros((label_size, label_size))
         ddi_atc3 = [
             [ATC.convert(l[0], level=3), ATC.convert(l[1], level=3)] for l in ddi
         ]
         for atc_i, atc_j in ddi_atc3:
-            if atc_i in vocab_to_index and atc_j in vocab_to_index:
-                ddi_adj[vocab_to_index(atc_i), vocab_to_index(atc_j)] = 1
-                ddi_adj[vocab_to_index(atc_j), vocab_to_index(atc_i)] = 1
+            if atc_i in label_vocab and atc_j in label_vocab:
+                ddi_adj[label_vocab[atc_i], label_vocab[atc_j]] = 1
+                ddi_adj[label_vocab[atc_j], label_vocab[atc_i]] = 1
         ddi_adj = torch.FloatTensor(ddi_adj)
         return ddi_adj
 
@@ -425,10 +465,10 @@ class SafeDrug(BaseModel):
         # just take first one for computational efficiency
         atc3_to_smiles = {k: v[:1] for k, v in atc3_to_smiles.items()}
         all_smiles_list = [[] for _ in range(self.label_size)]
-        vocab_to_index = self.label_tokenizer.vocabulary
+        label_vocab = self.dataset.output_processors[self.label_key].label_vocab
         for atc3, smiles_list in atc3_to_smiles.items():
-            if atc3 in vocab_to_index:
-                index = vocab_to_index(atc3)
+            if atc3 in label_vocab:
+                index = label_vocab[atc3]
                 all_smiles_list[index] += smiles_list
         return all_smiles_list
 
@@ -553,64 +593,70 @@ class SafeDrug(BaseModel):
                 average_projection[i, col_counter : col_counter + item] = 1 / item
             col_counter += item
         average_projection = torch.FloatTensor(average_projection)
+        
+        # empty molecule_set case
+        if len(molecule_set) == 0:
+            # happens when no valid SMILES are found in the vocabulary
+            dummy_fingerprints = torch.LongTensor([0])
+            dummy_adjacency = torch.FloatTensor([[0.0]])
+            dummy_size = 1
+            molecule_set = [(dummy_fingerprints, dummy_adjacency, dummy_size)]
+            num_fingerprints = 1
+            n_row = len(self.all_smiles_list)
+            average_projection = torch.zeros((n_row, 1), dtype=torch.float32)
+            if n_row > 0:
+                average_projection[0, 0] = 1.0
+        
         return molecule_set, num_fingerprints, average_projection
 
-    def forward(
-        self,
-        conditions: List[List[List[str]]],
-        procedures: List[List[List[str]]],
-        drugs: List[List[str]],
-        **kwargs,
-    ) -> Dict[str, torch.Tensor]:
+
+    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation.
 
         Args:
-            conditions: a nested list in three levels [patient, visit, condition].
-            procedures: a nested list in three levels [patient, visit, procedure].
-            drugs: a nested list in two levels [patient, drug].
+            **kwargs: Keyword arguments that include feature keys and label key.
+                The dataloader provides already-processed tensors.
 
         Returns:
             A dictionary with the following keys:
                 loss: a scalar tensor representing the loss.
-                y_prob: a tensor of shape [patient, visit, num_labels] representing
+                y_prob: a tensor of shape [patient, num_labels] representing
                     the probability of each drug.
-                y_true: a tensor of shape [patient, visit, num_labels] representing
+                y_true: a tensor of shape [patient, num_labels] representing
                     the ground truth of each drug.
         """
-        conditions = self.feat_tokenizers["conditions"].batch_encode_3d(conditions)
-        # (patient, visit, code)
-        conditions = torch.tensor(conditions, dtype=torch.long, device=self.device)
-        # (patient, visit, code, embedding_dim)
-        conditions = self.embeddings["conditions"](conditions)
-        # (patient, visit, embedding_dim)
-        conditions = torch.sum(conditions, dim=2)
-        # (batch, visit, hidden_size)
+        import torch
+        
+        # dataloader has already processed inputs via NestedSequenceProcessor
+        # kwargs contains tensors of shape [batch, visits, codes_per_visit]
+        embedded = self.embedding_model(kwargs)
+        
+        # embedded["conditions"] shape: [batch, visits, codes_per_visit, embedding_dim]
+        # embedded["procedures"] shape: [batch, visits, codes_per_visit, embedding_dim]
+        conditions = embedded["conditions"]
+        procedures = embedded["procedures"]
+        
+        # [batch, visits, embedding_dim]
+        conditions = conditions.sum(dim=2)
+        procedures = procedures.sum(dim=2)
+        
+        # [batch, visits, hidden_dim]
         conditions, _ = self.cond_rnn(conditions)
-
-        procedures = self.feat_tokenizers["procedures"].batch_encode_3d(procedures)
-        # (patient, visit, code)
-        procedures = torch.tensor(procedures, dtype=torch.long, device=self.device)
-        # (patient, visit, code, embedding_dim)
-        procedures = self.embeddings["procedures"](procedures)
-        # (patient, visit, embedding_dim)
-        procedures = torch.sum(procedures, dim=2)
-        # (batch, visit, hidden_size)
         procedures, _ = self.proc_rnn(procedures)
 
-        # (batch, visit, 2 * hidden_size)
+        # [batch, visits, 2 * hidden_dim]
         patient_emb = torch.cat([conditions, procedures], dim=-1)
-        # (batch, visit, hidden_size)
+        # [batch, visits, hidden_dim]
         patient_emb = self.query(patient_emb)
+        
+        mask = (embedded["conditions"].sum(dim=-1) != 0).any(dim=-1)
+        
+        y_true = kwargs[self.label_key].to(self.device)
 
-        # get mask
-        mask = torch.sum(conditions, dim=2) != 0
-
-        drugs = self.prepare_labels(drugs, self.label_tokenizer)
-
-        loss, y_prob = self.safedrug(patient_emb, drugs, mask)
-
+        loss, y_prob = self.safedrug(patient_emb, y_true, mask)
+        
         return {
             "loss": loss,
             "y_prob": y_prob,
-            "y_true": drugs,
+            "y_true": y_true,
         }
