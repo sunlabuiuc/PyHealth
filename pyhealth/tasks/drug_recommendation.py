@@ -60,36 +60,36 @@ class DrugRecommendationMIMIC3(BaseTask):
         for i, admission in enumerate(admissions):
             # Get diagnosis codes using hadm_id
             diagnoses_icd = patient.get_events(
-                event_type="DIAGNOSES_ICD",
+                event_type="diagnoses_icd",
                 filters=[("hadm_id", "==", admission.hadm_id)],
                 return_df=True,
             )
             conditions = (
-                diagnoses_icd.select(pl.col("DIAGNOSES_ICD/icd9_code"))
+                diagnoses_icd.select(pl.col("diagnoses_icd/icd9_code"))
                 .to_series()
                 .to_list()
             )
 
             # Get procedure codes using hadm_id
             procedures_icd = patient.get_events(
-                event_type="PROCEDURES_ICD",
+                event_type="procedures_icd",
                 filters=[("hadm_id", "==", admission.hadm_id)],
                 return_df=True,
             )
             procedures = (
-                procedures_icd.select(pl.col("PROCEDURES_ICD/icd9_code"))
+                procedures_icd.select(pl.col("procedures_icd/icd9_code"))
                 .to_series()
                 .to_list()
             )
 
             # Get prescriptions using hadm_id
             prescriptions = patient.get_events(
-                event_type="PRESCRIPTIONS",
+                event_type="prescriptions",
                 filters=[("hadm_id", "==", admission.hadm_id)],
                 return_df=True,
             )
             drugs = (
-                prescriptions.select(pl.col("PRESCRIPTIONS/drug")).to_series().to_list()
+                prescriptions.select(pl.col("prescriptions/drug")).to_series().to_list()
             )
 
             # ATC 3 level (first 4 characters)

@@ -1,4 +1,6 @@
 .idea
+Dockerfile
+Dockerfile.local
 *DS_Store*
 *output*
 resource*
