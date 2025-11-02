@@ -3,10 +3,19 @@ Example of using StageNet for mortality prediction on MIMIC-IV.
 
 This example demonstrates:
 1. Loading MIMIC-IV data
-2. Applying the MortalityPredictionStageNetMIMIC4 task
-3. Creating a SampleDataset with StageNet processors
-4. Training a StageNet model
-5. Using Integrated Gradients for interpretability
+2. Checking for and loading existing processors (or creating new ones)
+3. Applying the MortalityPredictionStageNetMIMIC4 task with processors
+4. Saving newly created processors for future reuse
+5. Training a StageNet model
+6. Using Integrated Gradients for interpretability
+
+Processor Caching:
+    The script automatically checks if processors have been saved previously.
+    - If processors exist: loads and reuses them (faster, consistent encoding)
+    - If not: creates new processors and saves them for future runs
+
+    Processor location: ../../output/processors/stagenet_mortality_mimic4/
+    To force recreation: delete the processor files in the output directory
 
 Lab Feature Mapping:
     The MortalityPredictionStageNetMIMIC4 task creates 10-dimensional lab
@@ -26,11 +35,15 @@ Lab Feature Mapping:
     This mapping is used to decode attribution indices back to lab names.
 """
 
+from pathlib import Path
+
 import torch
 
 from pyhealth.datasets import (
     MIMIC4Dataset,
     get_dataloader,
+    load_processors,
+    save_processors,
     split_by_patient,
 )
 from pyhealth.interpret.methods import IntegratedGradients
@@ -278,16 +291,52 @@ def main():
         ],
     )
 
-    # STEP 2: Apply StageNet mortality prediction task
+    # STEP 2: Check for existing processors and load/create accordingly
+    processor_dir = "../output/processors/stagenet_mortality_mimic4"
+    processor_dir_path = Path(processor_dir)
+    input_procs_file = processor_dir_path / "input_processors.pkl"
+    output_procs_file = processor_dir_path / "output_processors.pkl"
+
+    input_processors = None
+    output_processors = None
+
+    if input_procs_file.exists() and output_procs_file.exists():
+        # Load existing processors
+        print(f"\n{'='*60}")
+        print("LOADING EXISTING PROCESSORS")
+        print(f"{'='*60}")
+        input_processors, output_processors = load_processors(processor_dir)
+        print(f"✓ Using pre-fitted processors from {processor_dir}")
+    else:
+        # Will create new processors
+        print(f"\n{'='*60}")
+        print("NO EXISTING PROCESSORS FOUND")
+        print(f"{'='*60}")
+        print(f"Will create and save new processors to {processor_dir}")
+
+    # Apply StageNet mortality prediction task
     sample_dataset = base_dataset.set_task(
         MortalityPredictionStageNetMIMIC4(),
         num_workers=4,
         cache_dir="../../mimic4_stagenet_cache",
+        input_processors=input_processors,
+        output_processors=output_processors,
     )
 
-    print(f"Total samples: {len(sample_dataset)}")
+    print(f"\nTotal samples: {len(sample_dataset)}")
     print(f"Input schema: {sample_dataset.input_schema}")
     print(f"Output schema: {sample_dataset.output_schema}")
+
+    # Save processors if they were newly created
+    if input_processors is None and output_processors is None:
+        print(f"\n{'='*60}")
+        print("SAVING NEWLY CREATED PROCESSORS")
+        print(f"{'='*60}")
+        save_processors(sample_dataset, processor_dir)
+        print(f"✓ Processors saved to {processor_dir}")
+
+    print(f"  - Input processors: {len(sample_dataset.input_processors)} keys")
+    print(f"  - Output processors: {len(sample_dataset.output_processors)} keys")
 
     # Inspect a sample
     sample = sample_dataset.samples[0]
