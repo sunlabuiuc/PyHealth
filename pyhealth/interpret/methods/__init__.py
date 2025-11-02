@@ -1,5 +1,5 @@
 from pyhealth.interpret.methods.chefer import CheferRelevance
-from pyhealth.interpret.methods.saliency import SaliencyMaps
+from pyhealth.interpret.methods.basic_gradient import BasicGradientSaliencyMaps
 from pyhealth.interpret.methods.integrated_gradients import IntegratedGradients
 
 __all__ = ["CheferRelevance", "IntegratedGradients"]
