@@ -1,4 +1,7 @@
 # %% Loading MIMIC-IV dataset
+from pathlib import Path
+
+import polars as pl
 import torch
 
 from pyhealth.datasets import (
@@ -34,6 +37,41 @@ sample_dataset = dataset.set_task(
 )
 print(f"Total samples: {len(sample_dataset)}")
 
+
+def load_icd_description_map(dataset_root: str) -> dict:
+    """Load ICD code → long title mappings from MIMIC-IV reference tables."""
+    mapping = {}
+    root_path = Path(dataset_root).expanduser()
+    diag_path = root_path / "hosp" / "d_icd_diagnoses.csv.gz"
+    proc_path = root_path / "hosp" / "d_icd_procedures.csv.gz"
+
+    icd_dtype = {"icd_code": pl.Utf8, "long_title": pl.Utf8}
+
+    if diag_path.exists():
+        diag_df = pl.read_csv(
+            diag_path,
+            columns=["icd_code", "long_title"],
+            dtypes=icd_dtype,
+        )
+        mapping.update(
+            zip(diag_df["icd_code"].to_list(), diag_df["long_title"].to_list())
+        )
+
+    if proc_path.exists():
+        proc_df = pl.read_csv(
+            proc_path,
+            columns=["icd_code", "long_title"],
+            dtypes=icd_dtype,
+        )
+        mapping.update(
+            zip(proc_df["icd_code"].to_list(), proc_df["long_title"].to_list())
+        )
+
+    return mapping
+
+
+ICD_CODE_TO_DESC = load_icd_description_map(dataset.root)
+
 # %% Loading Pretrained StageNet Model
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 model = StageNet(
@@ -67,25 +105,21 @@ def move_batch_to_device(batch, target_device):
     return moved
 
 
-LAB_CATEGORY_NAMES = [
-    "Sodium",
-    "Potassium",
-    "Chloride",
-    "Bicarbonate",
-    "Glucose",
-    "Calcium",
-    "Magnesium",
-    "Anion Gap",
-    "Osmolality",
-    "Phosphate",
-]
+LAB_CATEGORY_NAMES = MortalityPredictionStageNetMIMIC4.LAB_CATEGORY_NAMES
 
 
-def decode_token(idx: int, processor):
+def decode_token(idx: int, processor, feature_key: str):
     if processor is None or not hasattr(processor, "code_vocab"):
         return str(idx)
     reverse_vocab = {index: token for token, index in processor.code_vocab.items()}
-    return reverse_vocab.get(idx, f"<UNK:{idx}>")
+    token = reverse_vocab.get(idx, f"<UNK:{idx}>")
+
+    if feature_key == "icd_codes" and token not in {"<unk>", "<pad>"}:
+        desc = ICD_CODE_TO_DESC.get(token)
+        if desc:
+            return f"{token}: {desc}"
+
+    return token
 
 
 def unravel(flat_index: int, shape: torch.Size):
@@ -140,7 +174,7 @@ def print_top_attributions(
                 )
             else:
                 token_idx = int(feature_input[0][tuple(coords)].item())
-                token = decode_token(token_idx, processor)
+                token = decode_token(token_idx, processor, feature_key)
                 print(
                     f"  {rank:2d}. idx={coords} token='{token}' "
                     f"attr={attribution_value:+.6f}"
