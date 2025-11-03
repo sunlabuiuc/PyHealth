@@ -206,36 +206,20 @@ class MICRON(BaseModel):
         if "num_drugs" in kwargs:
             raise ValueError("num_drugs is determined by the dataset")
 
-        # Get label processor and vocab size
+        # Get label processor
         label_processor = self.dataset.output_processors[self.label_key]
         
-        # Try to get vocabulary size through the standard method
-        try:
-            num_drugs = label_processor.size()
-            if num_drugs == 0:
-                raise ValueError("Label processor returned 0 size")
-        except (AttributeError, ValueError):
-            # Then check internal mappings/vocabs
-            if hasattr(label_processor, "label_vocab") and len(label_processor.label_vocab) > 0:
-                num_drugs = len(label_processor.label_vocab)
-            elif hasattr(label_processor, "_label_mapping") and len(label_processor._label_mapping) > 0:
-                num_drugs = len(label_processor._label_mapping)
-            elif hasattr(label_processor, "_vocabulary") and len(label_processor._vocabulary) > 0:
-                if isinstance(label_processor._vocabulary, (dict, set)):
-                    num_drugs = len(label_processor._vocabulary)
-                elif isinstance(label_processor._vocabulary, list):
-                    num_drugs = max(label_processor._vocabulary) + 1 if label_processor._vocabulary else 0
-            elif isinstance(label_processor, MultiHotProcessor):
-                num_drugs = label_processor.label_vocab_size
-            elif hasattr(label_processor, "get_vocabulary_size"):
-                num_drugs = label_processor.get_vocabulary_size()
-            elif hasattr(label_processor, "vocabulary"):
-                num_drugs = len(label_processor.vocabulary)
-            else:
-                raise ValueError(
-                    "Could not determine vocabulary size from label processor. "
-                    "Please ensure the processor implements size() or has a vocabulary mapping."
-                )
+        # Get vocabulary size using the standard size() method
+        if not hasattr(label_processor, "size"):
+            raise ValueError(
+                "Label processor must implement size() method. "
+                "The processor type is: " + type(label_processor).__name__
+            )
+        
+        num_drugs = label_processor.size()
+        if num_drugs == 0:
+            raise ValueError("Label processor returned 0 size")
+        
         self.micron = MICRONLayer(
             input_size=embedding_dim * len(self.feature_keys),
             hidden_size=hidden_dim,
