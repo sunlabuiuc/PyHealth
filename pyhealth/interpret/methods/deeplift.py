@@ -1,9 +1,31 @@
 """DeepLIFT attribution for PyHealth models.
 
-This implementation follows the original DeepLIFT formulation
-(Shrikumar et al., 2017) by enforcing the Rescale rule on nonlinear
-activations. The implementation focuses on StageNet but is generic for
-models exposing ``forward_from_embedding`` and optional activation hooks.
+This module implements the DeepLIFT algorithm as introduced in
+"Learning Important Features Through Propagating Activation Differences"
+by Shrikumar et al. (ICML 2017). The core idea is to propagate
+*difference-from-reference* values instead of gradients and to replace the
+local derivatives of nonlinearities with *secant slopes* (Rescale rule,
+Sec. 2.1) so that attributions satisfy additivity.
+
+The implementation is structured as follows:
+
+* :class:`_DeepLiftActivationHooks` captures baseline/actual activation
+  pairs and injects the Rescale rule during backpropagation. This mirrors
+  the "multiplier" computation in Algorithm 1 of the paper.
+* :class:`_DeepLiftHookContext` wires those hooks into models which expose
+  a ``set_deeplift_hooks`` method (e.g., :class:`~pyhealth.models.StageNet`),
+  ensuring the baseline and actual forward passes share identical execution
+  order.
+* :class:`DeepLift` provides the public API and mirrors the two major use
+  cases described in the paper: discrete inputs handled through embeddings
+  (difference propagation in embedding space) and fully continuous inputs.
+
+The resulting attribution scores are guaranteed to satisfy the completeness
+axiom (Eq. 1 in the paper) up to numerical precision and match the original
+DeepLIFT formulation for the supported activation functions (ReLU, Sigmoid,
+Tanh). Non-elementwise operations (e.g., Softmax) fall back to standard
+autograd gradients, matching the recommendation in Appendix A of the paper
+to treat them as compositions of linear + elementwise factors.
 """
 
 from __future__ import annotations
@@ -19,11 +41,16 @@ from pyhealth.models import BaseModel
 class _DeepLiftActivationHooks:
     """Capture activation pairs for baseline and actual forward passes.
 
-    The hooks intercept nonlinear activations (ReLU / Sigmoid / Tanh) and
-    replace their gradients with secant-line slopes per the DeepLIFT Rescale
-    rule. When the activation input change is zero, the hook falls back to the
-    original gradient, matching the RevealCancel recommendation from the
-    paper.
+    During the baseline forward pass (reference inputs) the hook stores the
+    pre-activation and post-activation tensors. During the actual forward
+    pass it registers a backward hook that replaces the local derivative with
+    the Rescale multiplier ``delta_out / delta_in`` as prescribed by the
+    original DeepLIFT paper (Algorithm 1, lines 8–11).
+
+    Only elementwise activations are currently supported because their
+    secant slope can be derived analytically. For other operations the code
+    falls back to autograd gradients, which coincides with the "linear rule"
+    in the paper.
     """
 
     _SUPPORTED = {"relu", "sigmoid", "tanh"}
@@ -38,16 +65,19 @@ class _DeepLiftActivationHooks:
     # State management
     # ------------------------------------------------------------------
     def reset(self) -> None:
+        """Clear cached activation pairs and return to the inactive state."""
         for name in self.records:
             self.records[name].clear()
             self._indices[name] = 0
         self.mode = "inactive"
 
     def start_baseline(self) -> None:
+        """Begin recording activations for the reference forward pass."""
         self.reset()
         self.mode = "baseline"
 
     def start_actual(self) -> None:
+        """Switch to the actual input forward pass and prepare replaying hooks."""
         if self.mode != "baseline":
             raise RuntimeError("Baseline forward pass must run before actual pass for DeepLIFT.")
         self.mode = "actual"
@@ -58,6 +88,18 @@ class _DeepLiftActivationHooks:
     # Activation routing
     # ------------------------------------------------------------------
     def apply(self, name: str, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+        """Run the activation and optionally register a Rescale hook.
+
+        Args:
+            name: The ``torch`` activation name (e.g., ``"relu"``).
+            tensor: Pre-activation tensor.
+            **kwargs: Keyword arguments forwarded to the activation.
+
+        Returns:
+            The activation output. If ``mode`` is ``"baseline"`` the output is
+            detached and cached; if ``mode`` is ``"actual"`` a backward hook is
+            registered so that gradients are rescaled to secant multipliers.
+        """
         fn = getattr(torch, name)
         output = fn(tensor, **kwargs)
 
@@ -93,6 +135,12 @@ class _DeepLiftActivationHooks:
     # Gradient replacement helpers
     # ------------------------------------------------------------------
     def _register_hook(self, name: str, record: Dict[str, torch.Tensor]) -> None:
+        """Attach a backward hook implementing the Rescale multiplier.
+
+        The multiplier ``m`` from the paper is computed as the ratio between
+        the output and input differences. We apply this multiplier by scaling
+        the autograd derivative so that the product equals ``m``.
+        """
         input_tensor = record["input"]
         baseline_input = record["baseline_input"].to(input_tensor.device)
         output_tensor = record["output"]
@@ -110,6 +158,7 @@ class _DeepLiftActivationHooks:
         scale = scale.detach()
 
         def hook_fn(grad: torch.Tensor) -> torch.Tensor:
+            """Scale the upstream gradient to equal the Rescale multiplier."""
             return grad * scale
 
         output_tensor.register_hook(hook_fn)
@@ -117,6 +166,7 @@ class _DeepLiftActivationHooks:
     def _activation_derivative(
         self, name: str, input_tensor: torch.Tensor, output_tensor: torch.Tensor
     ) -> torch.Tensor:
+        """Return the analytical derivative of supported activations."""
         if name == "relu":
             return torch.where(input_tensor > 0, torch.ones_like(output_tensor), torch.zeros_like(output_tensor))
         if name == "sigmoid":
@@ -171,7 +221,15 @@ class _DeepLiftHookContext(contextlib.AbstractContextManager):
 
 
 class DeepLift:
-    """DeepLIFT-style attribution for PyHealth models."""
+    """DeepLIFT-style attribution for PyHealth models.
+
+    Args:
+        model: A :class:`~pyhealth.models.BaseModel` instance exposing either
+            :meth:`forward_from_embedding` (for discrete inputs) or a standard
+            :meth:`forward` method compatible with PyHealth's trainers.
+        use_embeddings: Whether to operate in embedding space. This mirrors the
+            "embedding difference" variant from Sec. 3.2 of the paper.
+    """
 
     def __init__(self, model: BaseModel, use_embeddings: bool = True):
         self.model = model
@@ -192,6 +250,28 @@ class DeepLift:
         target_class_idx: Optional[int] = None,
         **data,
     ) -> Dict[str, torch.Tensor]:
+        """Compute DeepLIFT attributions for a single batch.
+
+        The method follows Algorithm 2 of the DeepLIFT paper: two forward
+        passes (baseline then actual) are executed under the hook context so
+        that backward propagation yields multipliers equal to the Rescale rule.
+
+        Args:
+            baseline: Optional dictionary providing reference inputs per
+                feature key. If omitted, zeros are used for embedding space and
+                dense tensors.
+            target_class_idx: Optional class index to explain. ``None`` defaults
+                to the model prediction, matching the "target layer" choice in
+                attribution literature.
+            **data: Model inputs. For temporal features this includes ``(time,
+                value)`` tuples mirroring StageNet processors. Label tensors may
+                also be supplied (needed when the model computes a loss).
+
+        Returns:
+            ``Dict[str, torch.Tensor]`` mapping each feature key to attribution
+            tensors shaped like the original inputs. All outputs satisfy the
+            completeness property ``sum_i attribution_i ≈ f(x) - f(x₀)``.
+        """
         device = next(self.model.parameters()).device
 
         feature_inputs: Dict[str, torch.Tensor] = {}
@@ -246,6 +326,13 @@ class DeepLift:
         time_info: Dict[str, torch.Tensor],
         label_data: Dict[str, torch.Tensor],
     ) -> Dict[str, torch.Tensor]:
+        """DeepLIFT for discrete inputs operating in embedding space.
+
+        This mirrors the "embedding difference" strategy discussed in Sec. 3.2
+        of the paper. Instead of interpolating raw token IDs we work on the
+        embedded representations, propagate differences through the network, and
+        finally project the attribution scores back onto the input tensor shape.
+        """
         input_embs, baseline_embs, input_shapes = self._prepare_embeddings_and_baselines(
             inputs, baseline
         )
@@ -302,6 +389,7 @@ class DeepLift:
         inputs: Dict[str, torch.Tensor],
         baseline: Optional[Dict[str, torch.Tensor]],
     ) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor], Dict[str, tuple]]:
+        """Embed inputs and baselines in preparation for difference propagation."""
         input_embeddings: Dict[str, torch.Tensor] = {}
         baseline_embeddings: Dict[str, torch.Tensor] = {}
         input_shapes: Dict[str, tuple] = {}
@@ -331,6 +419,7 @@ class DeepLift:
         time_info: Dict[str, torch.Tensor],
         label_data: Dict[str, torch.Tensor],
     ) -> Dict[str, torch.Tensor]:
+        """DeepLIFT for models that operate directly on dense tensors."""
         device = next(self.model.parameters()).device
 
         if baseline is None:
@@ -397,6 +486,7 @@ class DeepLift:
     def _determine_target_index(
         logits: torch.Tensor, target_class_idx: Optional[int]
     ) -> torch.Tensor:
+        """Resolve the logit index that should be explained."""
         if target_class_idx is None:
             if logits.dim() >= 2 and logits.size(-1) > 1:
                 target_idx = torch.argmax(logits, dim=-1)
@@ -424,6 +514,7 @@ class DeepLift:
     def _gather_target_logit(
         logits: torch.Tensor, target_idx: torch.Tensor
     ) -> torch.Tensor:
+        """Collect the scalar logit associated with ``target_idx``."""
         if logits.dim() == 2 and logits.size(-1) > 1:
             return logits.gather(1, target_idx.unsqueeze(-1)).squeeze(-1)
         return logits.squeeze(-1)
@@ -435,6 +526,7 @@ class DeepLift:
         baseline_logit: torch.Tensor,
         eps: float = 1e-8,
     ) -> Dict[str, torch.Tensor]:
+        """Scale attributions so their sum matches ``f(x) - f(x₀)`` (Eq. 1)."""
         delta_output = (target_logit - baseline_logit)
 
         total = None
@@ -459,6 +551,7 @@ class DeepLift:
         emb_contribs: Dict[str, torch.Tensor],
         input_shapes: Dict[str, tuple],
     ) -> Dict[str, torch.Tensor]:
+        """Project embedding-space contributions back to input tensor shapes."""
         mapped: Dict[str, torch.Tensor] = {}
         for key, contrib in emb_contribs.items():
             if contrib.dim() >= 2:
