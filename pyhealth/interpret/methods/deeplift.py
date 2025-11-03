@@ -1,17 +1,177 @@
-import torch
+"""DeepLIFT attribution for PyHealth models.
+
+This implementation follows the original DeepLIFT formulation
+(Shrikumar et al., 2017) by enforcing the Rescale rule on nonlinear
+activations. The implementation focuses on StageNet but is generic for
+models exposing ``forward_from_embedding`` and optional activation hooks.
+"""
+
+from __future__ import annotations
+
+import contextlib
 from typing import Dict, Optional, Tuple
+
+import torch
 
 from pyhealth.models import BaseModel
 
 
-class DeepLift:
-    """DeepLIFT-style attribution for PyHealth models.
+class _DeepLiftActivationHooks:
+    """Capture activation pairs for baseline and actual forward passes.
 
-    This implementation provides difference-from-baseline attributions for
-    models with discrete inputs (via embeddings) or continuous inputs. It
-    mirrors the Integrated Gradients interface and focuses on StageNet and
-    similar models that expose ``forward_from_embedding``.
+    The hooks intercept nonlinear activations (ReLU / Sigmoid / Tanh) and
+    replace their gradients with secant-line slopes per the DeepLIFT Rescale
+    rule. When the activation input change is zero, the hook falls back to the
+    original gradient, matching the RevealCancel recommendation from the
+    paper.
     """
+
+    _SUPPORTED = {"relu", "sigmoid", "tanh"}
+
+    def __init__(self, eps: float = 1e-7):
+        self.eps = eps
+        self.mode: str = "inactive"
+        self.records: Dict[str, list] = {name: [] for name in self._SUPPORTED}
+        self._indices: Dict[str, int] = {name: 0 for name in self._SUPPORTED}
+
+    # ------------------------------------------------------------------
+    # State management
+    # ------------------------------------------------------------------
+    def reset(self) -> None:
+        for name in self.records:
+            self.records[name].clear()
+            self._indices[name] = 0
+        self.mode = "inactive"
+
+    def start_baseline(self) -> None:
+        self.reset()
+        self.mode = "baseline"
+
+    def start_actual(self) -> None:
+        if self.mode != "baseline":
+            raise RuntimeError("Baseline forward pass must run before actual pass for DeepLIFT.")
+        self.mode = "actual"
+        for name in self._indices:
+            self._indices[name] = 0
+
+    # ------------------------------------------------------------------
+    # Activation routing
+    # ------------------------------------------------------------------
+    def apply(self, name: str, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+        fn = getattr(torch, name)
+        output = fn(tensor, **kwargs)
+
+        if name not in self.records or self.mode == "inactive":
+            return output
+
+        if self.mode == "baseline":
+            self.records[name].append(
+                {
+                    "baseline_input": tensor.detach(),
+                    "baseline_output": output.detach(),
+                }
+            )
+        elif self.mode == "actual":
+            idx = self._indices[name]
+            if idx >= len(self.records[name]):
+                raise RuntimeError(
+                    f"DeepLIFT activation mismatch for '{name}'. Baseline and actual passes "
+                    "must trigger hooks in the same order."
+                )
+
+            record = self.records[name][idx]
+            record["input"] = tensor
+            record["output"] = output
+            self._indices[name] += 1
+
+            if output.requires_grad:
+                self._register_hook(name, record)
+
+        return output
+
+    # ------------------------------------------------------------------
+    # Gradient replacement helpers
+    # ------------------------------------------------------------------
+    def _register_hook(self, name: str, record: Dict[str, torch.Tensor]) -> None:
+        input_tensor = record["input"]
+        baseline_input = record["baseline_input"].to(input_tensor.device)
+        output_tensor = record["output"]
+        baseline_output = record["baseline_output"].to(output_tensor.device)
+
+        delta_in = input_tensor - baseline_input
+        delta_out = output_tensor - baseline_output
+
+        derivative = self._activation_derivative(name, input_tensor, output_tensor)
+        secant = self._safe_div(delta_out, delta_in, derivative)
+        scale = self._safe_div(secant, derivative, torch.ones_like(secant))
+
+        # Clamp to finite values to avoid propagating NaNs/Infs downstream
+        scale = torch.where(torch.isfinite(scale), scale, torch.ones_like(scale))
+        scale = scale.detach()
+
+        def hook_fn(grad: torch.Tensor) -> torch.Tensor:
+            return grad * scale
+
+        output_tensor.register_hook(hook_fn)
+
+    def _activation_derivative(
+        self, name: str, input_tensor: torch.Tensor, output_tensor: torch.Tensor
+    ) -> torch.Tensor:
+        if name == "relu":
+            return torch.where(input_tensor > 0, torch.ones_like(output_tensor), torch.zeros_like(output_tensor))
+        if name == "sigmoid":
+            return output_tensor * (1.0 - output_tensor)
+        if name == "tanh":
+            return 1.0 - output_tensor.pow(2)
+        # Default derivative for unsupported activations
+        return torch.ones_like(output_tensor)
+
+    def _safe_div(
+        self,
+        numerator: torch.Tensor,
+        denominator: torch.Tensor,
+        fallback: torch.Tensor,
+    ) -> torch.Tensor:
+        mask = denominator.abs() > self.eps
+        safe_denominator = torch.where(mask, denominator, torch.ones_like(denominator))
+        quotient = numerator / safe_denominator
+        return torch.where(mask, quotient, fallback)
+
+
+class _DeepLiftHookContext(contextlib.AbstractContextManager):
+    """Context manager wiring activation hooks onto a model if supported."""
+
+    def __init__(self, model: BaseModel):
+        self.model = model
+        self.hooks: Optional[_DeepLiftActivationHooks] = None
+        self._enabled = all(
+            hasattr(model, method) for method in ("set_deeplift_hooks", "clear_deeplift_hooks")
+        )
+
+    def __enter__(self) -> "_DeepLiftHookContext":
+        if self._enabled:
+            self.hooks = _DeepLiftActivationHooks()
+            self.model.set_deeplift_hooks(self.hooks)
+        return self
+
+    def start_baseline(self) -> None:
+        if self.hooks is not None:
+            self.hooks.start_baseline()
+
+    def start_actual(self) -> None:
+        if self.hooks is not None:
+            self.hooks.start_actual()
+
+    def __exit__(self, exc_type, exc, exc_tb) -> bool:
+        if self.hooks is not None:
+            self.hooks.reset()
+            self.model.clear_deeplift_hooks()
+            self.hooks = None
+        return False
+
+
+class DeepLift:
+    """DeepLIFT-style attribution for PyHealth models."""
 
     def __init__(self, model: BaseModel, use_embeddings: bool = True):
         self.model = model
@@ -23,13 +183,15 @@ class DeepLift:
                 model, "forward_from_embedding"
             ), f"Model {type(model).__name__} must implement forward_from_embedding()"
 
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
     def attribute(
         self,
         baseline: Optional[Dict[str, torch.Tensor]] = None,
         target_class_idx: Optional[int] = None,
         **data,
     ) -> Dict[str, torch.Tensor]:
-        """Compute DeepLIFT attributions for a single batch."""
         device = next(self.model.parameters()).device
 
         feature_inputs: Dict[str, torch.Tensor] = {}
@@ -39,7 +201,6 @@ class DeepLift:
         for key in self.model.feature_keys:
             if key not in data:
                 continue
-
             value = data[key]
             if isinstance(value, tuple):
                 time_tensor, feature_tensor = value
@@ -47,14 +208,14 @@ class DeepLift:
                 value = feature_tensor
 
             if not isinstance(value, torch.Tensor):
-                value = torch.tensor(value)
+                value = torch.as_tensor(value)
             feature_inputs[key] = value.to(device)
 
         for key in self.model.label_keys:
             if key in data:
                 label_val = data[key]
                 if not isinstance(label_val, torch.Tensor):
-                    label_val = torch.tensor(label_val)
+                    label_val = torch.as_tensor(label_val)
                 label_data[key] = label_val.to(device)
 
         if self.use_embeddings:
@@ -74,10 +235,9 @@ class DeepLift:
             label_data=label_data,
         )
 
-    # --------------------------------------------------------------------- #
-    # Embedding-based DeepLIFT (for discrete features)
-    # --------------------------------------------------------------------- #
-
+    # ------------------------------------------------------------------
+    # Embedding-based DeepLIFT (discrete features)
+    # ------------------------------------------------------------------
     def _deeplift_embeddings(
         self,
         inputs: Dict[str, torch.Tensor],
@@ -90,7 +250,6 @@ class DeepLift:
             inputs, baseline
         )
 
-        # Prepare delta variables with gradients
         delta_embeddings: Dict[str, torch.Tensor] = {}
         current_embeddings: Dict[str, torch.Tensor] = {}
         for key in input_embs:
@@ -100,29 +259,32 @@ class DeepLift:
             current_embeddings[key] = baseline_embs[key].detach() + delta
 
         forward_kwargs = {**label_data} if label_data else {}
-        current_output = self.model.forward_from_embedding(
-            feature_embeddings=current_embeddings,
-            time_info=time_info,
-            **forward_kwargs,
-        )
+
+        def forward_from_embeddings(feature_embeddings: Dict[str, torch.Tensor]):
+            return self.model.forward_from_embedding(
+                feature_embeddings=feature_embeddings,
+                time_info=time_info,
+                **forward_kwargs,
+            )
+
+        with _DeepLiftHookContext(self.model) as hook_ctx:
+            hook_ctx.start_baseline()
+            with torch.no_grad():
+                baseline_output = forward_from_embeddings(baseline_embs)
+
+            hook_ctx.start_actual()
+            current_output = forward_from_embeddings(current_embeddings)
+
         logits = current_output["logit"]
         target_idx = self._determine_target_index(logits, target_class_idx)
         target_logit = self._gather_target_logit(logits, target_idx)
 
-        with torch.no_grad():
-            baseline_output = self.model.forward_from_embedding(
-                feature_embeddings=baseline_embs,
-                time_info=time_info,
-                **forward_kwargs,
-            )
-            baseline_logit = self._gather_target_logit(
-                baseline_output["logit"], target_idx
-            )
+        baseline_logit = self._gather_target_logit(baseline_output["logit"], target_idx)
 
-        self.model.zero_grad()
+        self.model.zero_grad(set_to_none=True)
         target_logit.sum().backward()
 
-        emb_contribs = {}
+        emb_contribs: Dict[str, torch.Tensor] = {}
         for key, delta in delta_embeddings.items():
             grad = delta.grad
             if grad is None:
@@ -131,7 +293,7 @@ class DeepLift:
                 emb_contribs[key] = grad.detach() * delta.detach()
 
         emb_contribs = self._enforce_completeness(
-            emb_contribs, target_logit, baseline_logit
+            emb_contribs, target_logit.detach(), baseline_logit.detach()
         )
         return self._map_embeddings_to_inputs(emb_contribs, input_shapes)
 
@@ -158,10 +320,9 @@ class DeepLift:
 
         return input_embeddings, baseline_embeddings, input_shapes
 
-    # --------------------------------------------------------------------- #
-    # Continuous DeepLIFT fallback
-    # --------------------------------------------------------------------- #
-
+    # ------------------------------------------------------------------
+    # Continuous DeepLIFT fallback (for tensor inputs)
+    # ------------------------------------------------------------------
     def _deeplift_continuous(
         self,
         inputs: Dict[str, torch.Tensor],
@@ -191,27 +352,28 @@ class DeepLift:
                 current_inputs[key] = baseline[key].detach() + delta
 
         model_inputs = {**current_inputs, **label_data}
-        current_output = self.model(**model_inputs)
+
+        with _DeepLiftHookContext(self.model) as hook_ctx:
+            hook_ctx.start_baseline()
+            baseline_inputs = {
+                key: (time_info[key], baseline[key]) if key in time_info else baseline[key]
+                for key in inputs
+            }
+            with torch.no_grad():
+                baseline_output = self.model(**{**baseline_inputs, **label_data})
+
+            hook_ctx.start_actual()
+            current_output = self.model(**model_inputs)
+
         logits = current_output["logit"]
         target_idx = self._determine_target_index(logits, target_class_idx)
         target_logit = self._gather_target_logit(logits, target_idx)
+        baseline_logit = self._gather_target_logit(baseline_output["logit"], target_idx)
 
-        with torch.no_grad():
-            baseline_inputs = {
-                key: (time_info[key], baseline[key])
-                if key in time_info
-                else baseline[key]
-                for key in inputs
-            }
-            baseline_output = self.model(**{**baseline_inputs, **label_data})
-            baseline_logit = self._gather_target_logit(
-                baseline_output["logit"], target_idx
-            )
-
-        self.model.zero_grad()
+        self.model.zero_grad(set_to_none=True)
         target_logit.sum().backward()
 
-        contribs = {}
+        contribs: Dict[str, torch.Tensor] = {}
         for key, delta in delta_inputs.items():
             grad = delta.grad
             if grad is None:
@@ -219,22 +381,18 @@ class DeepLift:
             else:
                 contribs[key] = grad.detach() * delta.detach()
 
-        contribs = self._enforce_completeness(contribs, target_logit, baseline_logit)
+        contribs = self._enforce_completeness(
+            contribs, target_logit.detach(), baseline_logit.detach()
+        )
 
-        # Ensure outputs match original input structures
-        mapped = {}
+        mapped: Dict[str, torch.Tensor] = {}
         for key, contrib in contribs.items():
-            if key in time_info:
-                mapped[key] = contrib
-            else:
-                mapped[key] = contrib
-            mapped[key] = mapped[key].to(device)
+            mapped[key] = contrib.to(device)
         return mapped
 
-    # --------------------------------------------------------------------- #
+    # ------------------------------------------------------------------
     # Utility helpers
-    # --------------------------------------------------------------------- #
-
+    # ------------------------------------------------------------------
     @staticmethod
     def _determine_target_index(
         logits: torch.Tensor, target_class_idx: Optional[int]
@@ -243,7 +401,9 @@ class DeepLift:
             if logits.dim() >= 2 and logits.size(-1) > 1:
                 target_idx = torch.argmax(logits, dim=-1)
             else:
-                target_idx = torch.zeros(logits.size(0), dtype=torch.long, device=logits.device)
+                target_idx = torch.zeros(
+                    logits.size(0), dtype=torch.long, device=logits.device
+                )
         else:
             if isinstance(target_class_idx, int):
                 target_idx = torch.full(
@@ -275,18 +435,18 @@ class DeepLift:
         baseline_logit: torch.Tensor,
         eps: float = 1e-8,
     ) -> Dict[str, torch.Tensor]:
-        delta_output = (target_logit - baseline_logit).detach()
+        delta_output = (target_logit - baseline_logit)
 
         total = None
         for contrib in contributions.values():
-            flat_sum = contrib.view(contrib.size(0), -1).sum(dim=1)
+            flat_sum = contrib.reshape(contrib.size(0), -1).sum(dim=1)
             total = flat_sum if total is None else total + flat_sum
 
         scale = torch.ones_like(delta_output)
         if total is not None:
             denom = total.abs()
             mask = denom > eps
-            scale[mask] = delta_output[mask] / total[mask]
+            scale[mask] = delta_output[mask] / denom[mask]
 
         for key, contrib in contributions.items():
             reshape_dims = [contrib.size(0)] + [1] * (contrib.dim() - 1)
@@ -299,13 +459,9 @@ class DeepLift:
         emb_contribs: Dict[str, torch.Tensor],
         input_shapes: Dict[str, tuple],
     ) -> Dict[str, torch.Tensor]:
-        mapped = {}
+        mapped: Dict[str, torch.Tensor] = {}
         for key, contrib in emb_contribs.items():
-            if contrib.dim() == 4:
-                token_attr = contrib.sum(dim=-1)
-            elif contrib.dim() == 3:
-                token_attr = contrib.sum(dim=-1)
-            elif contrib.dim() == 2:
+            if contrib.dim() >= 2:
                 token_attr = contrib.sum(dim=-1)
             else:
                 token_attr = contrib
