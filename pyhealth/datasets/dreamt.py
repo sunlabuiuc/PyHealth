@@ -110,7 +110,7 @@ class DREAMTDataset(BaseDataset):
         """
         Prepares metadata csv file for the DREAMT dataset by performing the following:
         1. Obtain clinical data from participant_info.csv file
-        2. Process file paths based on patients found in clinicial data
+        2. Process file paths based on patients found in clinical data
         3. Organize all data into a single DataFrame
         4. Save the processed DataFrame to a CSV file
 
@@ -130,7 +130,7 @@ class DREAMTDataset(BaseDataset):
         file_path_64hz = "data_64Hz" if "data_64Hz" in all_folders else "data"
         file_path_100hz = "data_100Hz"
 
-        # Determine paths for 64Hz and 100Hzf files for each patient
+        # Determine paths for 64Hz and 100Hz files for each patient
         participant_info['file_64hz'] = participant_info['SID'].apply(
             lambda sid: self.get_patient_file(sid, root, file_path_64hz)
         )
