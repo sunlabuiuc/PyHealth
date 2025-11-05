@@ -35,6 +35,11 @@ class DREAMTDataset(BaseDataset):
     PhysioBank, PhysioToolkit, and PhysioNet: Components of a new research resource for complex 
     physiologic signals. Circulation [Online]. 101 (23), pp. e215–e220. RRID:SCR_007345.
 
+    Note: 
+    ---------
+    Dataset follows file and folder structure of dataset version, looks for participant_info.csv and data folders, 
+    so root path should be version downloaded, example: root = ".../dreamt/1.0.0/" or ".../dreamt/2.0.0/"
+
     Args:
         root: root directory containing the dataset files
         dataset_name: optional name of dataset, defaults to "dreamt_sleep"
@@ -45,14 +50,29 @@ class DREAMTDataset(BaseDataset):
         dataset_name: name of dataset
         config_path: path to configuration file
 
-    Example:
+    Examples:
         >>> from pyhealth.datasets import DREAMTDataset
-        >>> dataset = DREAMTDataset(root = ".../dreamt/2.0.0/")
+        >>> dataset = DREAMTDataset(root = "/path/to/dreamt/data/version")
         >>> dataset.stats()
-
-    Note: 
-    Dataset follows file and folder structure of dataset version, looks for participant_info.csv and data folders, 
-    so root path should be version downloaded, example: root = ".../dreamt/1.0.0/" or ".../dreamt/2.0.0/"
+        >>>
+        >>> # Get all patient ids
+        >>> unique_patients = dataset.unique_patient_ids
+        >>> print(f"There are {len(unique_patients)} patients")
+        >>>
+        >>> # Get single patient data
+        >>> patient = dataset.get_patient("S002")
+        >>> print(f"Patient has {len(patient.data_source)} event")
+        >>>
+        >>> # Get event
+        >>> event = patient.get_events(event_type="dreamt_sleep")
+        >>>
+        >>> # Get Apnea-Hypopnea Index (AHI)
+        >>> ahi = event[0].ahi
+        >>> print(f"AHI is {ahi}")
+        >>> 
+        >>> # Get 64Hz sleep file path
+        >>> file_path = event[0].file_64hz
+        >>> print(f"64Hz sleep file path: {file_path}") 
     """
 
     def __init__(
