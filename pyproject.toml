@@ -28,6 +28,7 @@ dependencies = [
   "peft",
   "accelerate",
   "rdkit",
+  "ogb>=1.3.5",
   "scikit-learn~=1.7.0",
   "networkx",
   "mne~=1.10.0",
