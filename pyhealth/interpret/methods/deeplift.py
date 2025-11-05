@@ -1,33 +1,3 @@
-"""DeepLIFT attribution for PyHealth models.
-
-This module implements the DeepLIFT algorithm as introduced in
-"Learning Important Features Through Propagating Activation Differences"
-by Shrikumar et al. (ICML 2017). The core idea is to propagate
-*difference-from-reference* values instead of gradients and to replace the
-local derivatives of nonlinearities with *secant slopes* (Rescale rule,
-Sec. 2.1) so that attributions satisfy additivity.
-
-The implementation is structured as follows:
-
-* :class:`_DeepLiftActivationHooks` captures baseline/actual activation
-  pairs and injects the Rescale rule during backpropagation. This mirrors
-  the "multiplier" computation in Algorithm 1 of the paper.
-* :class:`_DeepLiftHookContext` wires those hooks into models which expose
-  a ``set_deeplift_hooks`` method (e.g., :class:`~pyhealth.models.StageNet`),
-  ensuring the baseline and actual forward passes share identical execution
-  order.
-* :class:`DeepLift` provides the public API and mirrors the two major use
-  cases described in the paper: discrete inputs handled through embeddings
-  (difference propagation in embedding space) and fully continuous inputs.
-
-The resulting attribution scores are guaranteed to satisfy the completeness
-axiom (Eq. 1 in the paper) up to numerical precision and match the original
-DeepLIFT formulation for the supported activation functions (ReLU, Sigmoid,
-Tanh). Non-elementwise operations (e.g., Softmax) fall back to standard
-autograd gradients, matching the recommendation in Appendix A of the paper
-to treat them as compositions of linear + elementwise factors.
-"""
-
 from __future__ import annotations
 
 import contextlib
@@ -221,14 +191,111 @@ class _DeepLiftHookContext(contextlib.AbstractContextManager):
 
 
 class DeepLift:
-    """DeepLIFT-style attribution for PyHealth models.
+    """DeepLIFT attribution for PyHealth models.
+
+    Paper: Avanti Shrikumar, Peyton Greenside, and Anshul Kundaje. Learning
+    Important Features through Propagating Activation Differences. ICML 2017.
+
+    DeepLIFT propagates difference-from-baseline activations using Rescale
+    multipliers so that feature attributions sum to the change in model output.
+    When a model exposes ``set_deeplift_hooks``/``clear_deeplift_hooks`` the
+    implementation injects secant slopes for supported activations to mirror
+    the original algorithm while falling back to autograd gradients elsewhere.
+
+    This method is particularly useful for:
+        - EHR feature importance: highlight influential visits, codes, or labs
+          when auditing StageNet-style models.
+        - Contrastive explanations: compare predictions against a clinically
+          meaningful baseline patient trajectory.
+        - Mixed-input attribution: handle discrete embedding channels and
+          continuous features in a unified call.
+        - Model debugging: diagnose activation saturation and verify the
+          completeness axiom.
+
+    Key Features:
+        - Dual operating modes for embedding-based or continuous inputs.
+        - Automatic hook management for models with DeepLIFT instrumentation.
+        - Completeness enforcement ensuring ``sum(attribution) ~= f(x) - f(x0)``.
+        - Batch-friendly API accepting trainer-style dictionaries and optional
+          ``(time, value)`` tuples.
+        - Target control via ``target_class_idx`` to explain any desired logit.
+
+    Usage Notes:
+        1. Choose a baseline dictionary that reflects a neutral clinical state
+           when zeros are not meaningful.
+        2. Ensure the model exposes ``set_deeplift_hooks``/``clear_deeplift_hooks``;
+           unsupported activations fall back to standard gradients.
+        3. Move inputs, baselines, and the model to the same device before
+           calling ``attribute``.
+        4. Keep ``use_embeddings=True`` for token indices; set it to ``False``
+           to attribute continuous tensors directly.
+        5. Call ``model.eval()`` so stochastic layers remain deterministic
+           during paired forward passes.
 
     Args:
         model: A :class:`~pyhealth.models.BaseModel` instance exposing either
-            :meth:`forward_from_embedding` (for discrete inputs) or a standard
-            :meth:`forward` method compatible with PyHealth's trainers.
-        use_embeddings: Whether to operate in embedding space. This mirrors the
-            "embedding difference" variant from Sec. 3.2 of the paper.
+            :meth:`forward_from_embedding` (for discrete inputs) or the standard
+            :meth:`forward` used by PyHealth trainers. Models that implement
+            DeepLIFT hook registration yield the most faithful multipliers.
+        use_embeddings: Whether to operate in embedding space. Set to ``True``
+            (default) for tokenized inputs or ``False`` to attribute continuous
+            tensors directly.
+
+    Examples:
+        >>> import torch
+        >>> from pyhealth.datasets import get_dataloader
+        >>> from pyhealth.interpret.methods.deeplift import DeepLift
+        >>> from pyhealth.models import StageNet
+        >>>
+        >>> # Assume ``sample_dataset`` and trained StageNet weights are available.
+        >>> device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        >>> model = StageNet(dataset=sample_dataset, embedding_dim=128, chunk_size=128)
+        >>> model = model.to(device).eval()
+        >>> test_loader = get_dataloader(sample_dataset, batch_size=1, shuffle=False)
+        >>> deeplift = DeepLift(model, use_embeddings=True)
+        >>>
+        >>> batch = next(iter(test_loader))
+        >>> batch_device = {}
+        >>> for key, value in batch.items():
+        ...     if isinstance(value, torch.Tensor):
+        ...         batch_device[key] = value.to(device)
+        ...     elif isinstance(value, tuple):
+        ...         batch_device[key] = tuple(v.to(device) for v in value)
+        ...     else:
+        ...         batch_device[key] = value
+        >>>
+        >>> attributions = deeplift.attribute(**batch_device)
+        >>> print({k: v.shape for k, v in attributions.items()})
+        >>>
+        >>> baseline = {
+        ...     "icd_codes": torch.zeros_like(batch_device["icd_codes"][1]),
+        ...     "labs": torch.full_like(
+        ...         batch_device["labs"][1],
+        ...         batch_device["labs"][1].mean(),
+        ...     ),
+        ... }
+        >>> positive_attr = deeplift.attribute(
+        ...     baseline=baseline,
+        ...     target_class_idx=1,
+        ...     **batch_device,
+        ... )
+        >>> print(float(positive_attr["labs"].sum()))
+
+    Algorithm Details:
+        1. Run a baseline forward pass while caching activations for supported
+           nonlinearities.
+        2. Replay the actual inputs with Rescale hooks that substitute secant
+           slopes for local derivatives.
+        3. Backpropagate the target logit so gradients equal DeepLIFT
+           multipliers.
+        4. Multiply input differences by the propagated multipliers and enforce
+           completeness.
+
+    References:
+        [1] Avanti Shrikumar, Peyton Greenside, and Anshul Kundaje. Learning
+            Important Features through Propagating Activation Differences.
+            Proceedings of the 34th International Conference on Machine
+            Learning (ICML), 2017. https://proceedings.mlr.press/v70/shrikumar17a.html
     """
 
     def __init__(self, model: BaseModel, use_embeddings: bool = True):
