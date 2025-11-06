@@ -1,0 +1,17 @@
+version: "1.0"
+tables:
+  dreamt_sleep:
+    file_path: "dreamt-metadata.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "age"
+      - "gender"
+      - "bmi"
+      - "oahi"
+      - "ahi"
+      - "mean_sao2"
+      - "arousal_index"
+      - "medical_history"
+      - "file_64hz"
+      - "file_100hz"
