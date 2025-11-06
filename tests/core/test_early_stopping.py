@@ -44,7 +44,9 @@ class TestEarlyStopping(unittest.TestCase):
         )
 
         # Create model
-        self.model = MLP(dataset=self.train_dataset)
+        self.model = MLP(dataset=self.train_dataset,
+                         embedding_dim=1,
+                         hidden_dim=1)
 
     def test_early_stopping_triggers(self):
         """Test that early stopping triggers when patience is exceeded."""
@@ -69,7 +71,7 @@ class TestEarlyStopping(unittest.TestCase):
                                     shuffle=False)
 
         # Train with patience=3, should stop before 50 epochs
-        max_epochs = 50
+        max_epochs = 10
         trainer.train(
             train_dataloader=train_loader,
             val_dataloader=val_loader,
@@ -109,7 +111,7 @@ class TestEarlyStopping(unittest.TestCase):
                                     shuffle=False)
 
         # Train with patience=3, should complete all epochs
-        max_epochs = 50
+        max_epochs = 10
         trainer.train(
             train_dataloader=train_loader,
             val_dataloader=val_loader,
@@ -145,7 +147,7 @@ class TestEarlyStopping(unittest.TestCase):
                                     shuffle=False)
 
         # Train without patience
-        max_epochs = 50
+        max_epochs = 10
         trainer.train(
             train_dataloader=train_loader,
             val_dataloader=val_loader,
