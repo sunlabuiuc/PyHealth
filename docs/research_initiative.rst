@@ -15,7 +15,7 @@ The initiative provides students with hands-on experience in:
 - **Machine Learning Development**: Implementing and evaluating state-of-the-art deep learning models
 - **Open-Source Contribution**: Contributing to the PyHealth library and ecosystem
 - **Academic Publishing**: Co-authoring research papers and presenting findings
-- **Collaborative Research**: Working alongside faculty, postdocs, and industry partners
+- **Collaborative Research**: Working alongside researchers and industry partners
 
 Research Contributions
 ----------------------
@@ -25,77 +25,67 @@ over the years. These projects span various topics including clinical prediction
 drug recommendation, and healthcare AI infrastructure.
 
 .. list-table:: PyHealth Research Initiative Projects
-   :widths: 10 25 40 25
+   :widths: 10 25 35 15 15
    :header-rows: 1
    :class: research-table
 
    * - Year
      - Researcher(s)
      - Paper Title
+     - Venue
      - Links
    * - 2025
-     - Example Student
-     - PyHealth 2.0: A Modern Healthcare AI Library for Clinical Predictive Modeling
-     - `Paper <#>`_ | `Code <#>`_
-   * - 2024
-     - Example Student 2
-     - Interpretable Transformer Models for Clinical Risk Prediction
-     - `Paper <#>`_ | `Code <#>`_
-   * - 2024
-     - Example Student 3
-     - Multi-Modal Learning for Drug Recommendation Systems
+     - Zilal Eiz Al Din
+     - MIMIC-RD: Can LLMs differentially diagnose rare diseases in real-world clinical settings?
+     - ML4H 2025
      - *In Preparation*
-   * - 2023
-     - Example Student 4
-     - Federated Learning for Privacy-Preserving Healthcare Analytics
-     - `Paper <#>`_ | `Code <#>`_
-   * - 2023
-     - Example Student 5
-     - Temporal Modeling of Electronic Health Records
-     - `Paper <#>`_
+   * - 2025
+     - Abraham Francisco Arellano Tavara, Umesh Kumar
+     - Prostate-VarBench: A Benchmark with Interpretable TabNet Framework for Prostate Cancer Variant Classification
+     - ML4H 2025
+     - *In Preparation*
+   * - 2025
+     - Sharim Khan
+     - Social Determinants of Health Prediction for ICD-9 Code with Reasoning Models
+     - ML4H 2025
+     - *In Preparation*
 
 .. note::
    
-   This table is continuously updated as new research is published. If you participated in the 
-   PyHealth Research Initiative and would like to add your work, please submit a pull request 
-   or contact the PyHealth team.
+   This table is continuously updated as new research is published. 
 
 Program Information
 -------------------
 
-**Duration**: 10-12 weeks (Summer)
+**Duration**: Ongoing
 
-**Format**: Hybrid (remote and on-site options available)
+**Format**: Remote
 
-**Application**: Applications typically open in early spring. Check the 
-`PyHealth GitHub <https://github.com/sunlabuiuc/PyHealth>`_ for announcements.
+**Application**: Applications are evaluated based on contributions to PyHealth. To apply, submit a high-quality 
+pull request (PR) to the `PyHealth repository <https://github.com/sunlabuiuc/PyHealth>`_. Strong PRs that 
+demonstrate understanding of the codebase, good software engineering practices, and meaningful contributions 
+will be considered for the program. Check the GitHub repository for open issues and contribution opportunities.
 
 Research Areas
 --------------
 
-PyHealth Research Initiative projects typically fall into one or more of the following areas:
+PyHealth Research Initiative projects span a wide range of healthcare AI domains, including but not limited to:
 
-Clinical Prediction Tasks
-~~~~~~~~~~~~~~~~~~~~~~~~~
-- Mortality prediction
-- Readmission prediction  
-- Length of stay prediction
-- Diagnosis prediction
-- Drug recommendation
+Healthcare Data Modalities
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- Electronic health records (EHRs) and clinical notes
+- Medical imaging (X-rays, MRI, CT scans)
+- Physiological signals (EEG, ECG, biosensors)
+- Genomic and molecular data
+- Multi-modal healthcare data integration
 
 Model Development
 ~~~~~~~~~~~~~~~~~
-- Novel neural network architectures for healthcare
-- Attention mechanisms and interpretability
-- Multi-modal learning
-- Transfer learning and foundation models
-
-Healthcare AI Infrastructure
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-- Data processing pipelines
-- Model evaluation frameworks
-- Calibration and uncertainty quantification
-- Fairness and bias analysis
+- Novel deep learning architectures for healthcare
+- Foundation models and transfer learning
+- Interpretable and explainable AI methods
+- Uncertainty quantification and calibration
+- Survival analysis and time-to-event modeling
 
 Real-World Applications
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -103,6 +93,7 @@ Real-World Applications
 - Drug discovery and repurposing
 - Patient risk stratification
 - Healthcare resource optimization
+- Personalized treatment recommendations
 
 Getting Involved
 ----------------
@@ -146,7 +137,6 @@ The PyHealth Research Initiative is made possible through the support of:
 
 - SunLab at the University of Illinois Urbana-Champaign
 - National Science Foundation (NSF)
-- National Institutes of Health (NIH)
 - Industry partners and collaborators
 
 We are grateful to all mentors, participants, and collaborators who have contributed to the success 
