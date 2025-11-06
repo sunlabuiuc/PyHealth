@@ -14,7 +14,7 @@ from pyhealth.models.utils import batch_to_multihot
 from pyhealth.models.embedding import EmbeddingModel
 from pyhealth.metrics import ddi_rate_score
 from pyhealth.medcode import ATC
-from pyhealth.datasets import SampleEHRDataset
+from pyhealth.datasets import SampleDataset
 
 from pyhealth import BASE_CACHE_PATH as CACHE_PATH
 
@@ -471,17 +471,68 @@ class MoleRec(BaseModel):
     Args:
         dataset: the dataset to train the model. It is used to query certain
             information such as the set of all tokens.
-        embedding_dim: the embedding dimension. Default is 128.
-        hidden_dim: the hidden dimension. Default is 128.
+        embedding_dim: the embedding dimension. Default is 64.
+        hidden_dim: the hidden dimension. Default is 64.
         num_rnn_layers: the number of layers used in RNN. Default is 1.
         num_gnn_layers: the number of layers used in GNN. Default is 4.
-        dropout: the dropout rate. Default is 0.7.
+        dropout: the dropout rate. Default is 0.5.
         **kwargs: other parameters for the MoleRec layer.
+
+    Examples:
+        >>> from pyhealth.datasets import SampleDataset
+        >>> samples = [
+        ...     {
+        ...         "patient_id": "patient-0",
+        ...         "visit_id": "visit-0",
+        ...         "conditions": [["Z992", "Z948"], ["N390"]],
+        ...         "procedures": [["0C9"], ["0BB"]],
+        ...         "drugs": ["N02BE", "R03AC", "A06AB"],
+        ...     },
+        ...     {
+        ...         "patient_id": "patient-0",
+        ...         "visit_id": "visit-1",
+        ...         "conditions": [["Z992", "Z948", "N390"], ["E119"]],
+        ...         "procedures": [["0C9", "0BB"], ["5A02"]],
+        ...         "drugs": ["N02BE", "R03AC"],
+        ...     },
+        ... ]
+        >>>
+        >>> # dataset
+        >>> dataset = SampleDataset(
+        ...     samples=samples,
+        ...     input_schema={
+        ...         "conditions": "nested_sequence",
+        ...         "procedures": "nested_sequence",
+        ...     },
+        ...     output_schema={"drugs": "multilabel"},
+        ...     dataset_name="test"
+        ... )
+        >>>
+        >>> # data loader
+        >>> from pyhealth.datasets import get_dataloader
+        >>> train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
+        >>>
+        >>> # model
+        >>> model = MoleRec(dataset=dataset)
+        >>>
+        >>> # data batch
+        >>> data_batch = next(iter(train_loader))
+        >>>
+        >>> # try the model
+        >>> ret = model(**data_batch)
+        >>> print(ret)
+        {
+            'loss': tensor(...),
+            'y_prob': tensor(...),
+            'y_true': tensor(...)
+        }
+        >>>
+
     """
 
     def __init__(
         self,
-        dataset: SampleEHRDataset,
+        dataset: SampleDataset,
         embedding_dim: int = 64,
         hidden_dim: int = 64,
         num_rnn_layers: int = 1,
