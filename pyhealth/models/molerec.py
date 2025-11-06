@@ -765,11 +765,8 @@ class MoleRec(BaseModel):
         procedures = embedded["procedures"]
         
         # [batch, visits, embedding_dim]
-        conditions = conditions.sum(dim=2)
-        procedures = procedures.sum(dim=2)
-
-        conditions = self.dropout_fn(conditions)
-        procedures = self.dropout_fn(procedures)
+        conditions = torch.sum(self.dropout_fn(conditions), dim=2)
+        procedures = torch.sum(self.dropout_fn(procedures), dim=2)
         
         # [batch, visits, hidden_dim]
         condition_emb, _ = self.rnns["conditions"](conditions)
