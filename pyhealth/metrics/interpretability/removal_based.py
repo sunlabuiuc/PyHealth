@@ -311,11 +311,10 @@ class RemovalBasedMetric(ABC):
 
                     # Apply ablation to values part
                     if is_discrete:
-                        # For discrete features (codes), set ablated to 0
-                        # (assuming 0 is padding index)
-                        ablated_values = torch.where(
-                            mask.bool(), torch.zeros_like(x_values), x_values
-                        )
+                        # For discrete features (codes), multiply by (1-mask)
+                        # Where mask=1 (ablate): set to 0 (padding index)
+                        # Where mask=0 (keep): preserve original value
+                        ablated_values = x_values * (1 - mask).long()
 
                         # Safety: prevent complete ablation of discrete sequences
                         # Complete ablation (all zeros) causes issues in StageNet:

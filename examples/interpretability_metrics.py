@@ -79,8 +79,78 @@ def main():
     ig = IntegratedGradients(model, use_embeddings=True)
     print("✓ Integrated Gradients initialized")
 
+    # Simple forward pass on one batch with debug output
+    print("\n[4/6] Running single batch with debug output...")
+    print("-" * 70)
+
+    # Get one batch
+    test_batch = next(iter(test_loader))
+
+    # Move batch to device (handles both tensors and tuples)
+    test_batch_device = {}
+    for key, value in test_batch.items():
+        if isinstance(value, torch.Tensor):
+            test_batch_device[key] = value.to(device)
+        elif isinstance(value, tuple):
+            # StageNet format: (time, values) or similar tuples
+            test_batch_device[key] = tuple(
+                v.to(device) if isinstance(v, torch.Tensor) else v for v in value
+            )
+        else:
+            # Keep non-tensor values as-is (labels, metadata, etc.)
+            test_batch_device[key] = value
+
+    # Get batch size from first tensor found
+    batch_size_val = None
+    for value in test_batch_device.values():
+        if isinstance(value, torch.Tensor):
+            batch_size_val = value.shape[0]
+            break
+        elif isinstance(value, tuple):
+            for v in value:
+                if isinstance(v, torch.Tensor):
+                    batch_size_val = v.shape[0]
+                    break
+            if batch_size_val is not None:
+                break
+
+    print(f"Batch size: {batch_size_val}")
+
+    # Compute attributions for this batch
+    print("\nComputing attributions with Integrated Gradients...")
+    attributions = ig.attribute(**test_batch_device, steps=10)
+    print(f"✓ Attributions computed for {len(attributions)} feature types")
+
+    # Initialize evaluator
+    evaluator = Evaluator(model, percentages=[10, 20, 50])
+
+    # Compute metrics for single batch
+    print("\nComputing metrics on single batch...")
+    comp_metric = evaluator.metrics["comprehensiveness"]
+    comp_scores, comp_mask = comp_metric.compute(test_batch_device, attributions)
+
+    suff_metric = evaluator.metrics["sufficiency"]
+    suff_scores, suff_mask = suff_metric.compute(test_batch_device, attributions)
+
+    print("\n" + "=" * 70)
+    print("Single Batch Results Summary")
+    print("=" * 70)
+    if comp_mask.sum() > 0:
+        valid_comp = comp_scores[comp_mask]
+        print(f"Comprehensiveness (valid samples): {valid_comp.mean():.4f}")
+        print(f"  Valid samples: {comp_mask.sum()}/{len(comp_mask)}")
+    else:
+        print("Comprehensiveness: No valid samples")
+
+    if suff_mask.sum() > 0:
+        valid_suff = suff_scores[suff_mask]
+        print(f"Sufficiency (valid samples): {valid_suff.mean():.4f}")
+        print(f"  Valid samples: {suff_mask.sum()}/{len(suff_mask)}")
+    else:
+        print("Sufficiency: No valid samples")
+
     # Option 1: Functional API (simple one-off evaluation)
-    print("\n[4/6] Evaluating with Functional API...")
+    print("\n[5/6] Evaluating with Functional API on full dataset...")
     print("-" * 70)
     print("Using: evaluate_approach(model, dataloader, method, ...)")
 
@@ -89,7 +159,7 @@ def main():
         test_loader,
         ig,
         metrics=["comprehensiveness", "sufficiency"],
-        percentages=[10, 20, 50],
+        percentages=[25, 50, 99],
     )
 
     print("\n" + "=" * 70)
@@ -99,123 +169,6 @@ def main():
     suff = results_functional["sufficiency"]
     print(f"\nComprehensiveness: {comp:.4f}")
     print(f"Sufficiency:       {suff:.4f}")
-
-    # Option 2: Class-based API (for multiple evaluations or advanced use)
-    print("\n[5/6] Evaluating with Class-based API...")
-    print("-" * 70)
-    print("Using: Evaluator(model, ...).evaluate_approach(dataloader, method)")
-    print("(Recommended for comparing multiple methods)")
-
-    evaluator = Evaluator(model, percentages=[10, 20, 50], positive_threshold=0.2)
-    results_class = evaluator.evaluate_approach(
-        test_loader, ig, metrics=["comprehensiveness", "sufficiency"]
-    )
-
-    print("\n" + "=" * 70)
-    print("Dataset-Wide Results (Class-based API)")
-    print("=" * 70)
-    comp = results_class["comprehensiveness"]
-    suff = results_class["sufficiency"]
-    print(f"\nComprehensiveness: {comp:.4f}")
-    print(f"Sufficiency:       {suff:.4f}")
-    print("\nNote: Both APIs produce identical results!")
-
-    # Get a single batch for detailed analysis
-    print("\n[6/6] Detailed analysis on a single batch...")
-    print("-" * 70)
-    batch = next(iter(test_loader))
-
-    # Move batch to device
-    batch_on_device = {}
-    for key, value in batch.items():
-        if isinstance(value, torch.Tensor):
-            batch_on_device[key] = value.to(device)
-        elif isinstance(value, tuple) and len(value) >= 2:
-            # Handle (time, values) tuples
-            time_part = value[0]
-            if time_part is not None and isinstance(time_part, torch.Tensor):
-                time_part = time_part.to(device)
-
-            values_part = value[1]
-            if isinstance(values_part, torch.Tensor):
-                values_part = values_part.to(device)
-
-            batch_on_device[key] = (time_part, values_part) + value[2:]
-        else:
-            batch_on_device[key] = value
-
-    batch_size = len(batch_on_device["patient_id"])
-    print(f"Analyzing batch of {batch_size} samples...")
-
-    # Compute attributions
-    attributions = ig.attribute(**batch_on_device, steps=10)
-    print("✓ Computed attributions")
-
-    # Get detailed breakdown with debug info
-    print("\n*** COMPREHENSIVENESS DEBUG ***")
-    comp_detailed = evaluator.metrics["comprehensiveness"].compute_detailed(
-        batch_on_device, attributions, debug=True
-    )
-
-    print("\n*** SUFFICIENCY DEBUG ***")
-    suff_detailed = evaluator.metrics["sufficiency"].compute_detailed(
-        batch_on_device, attributions, debug=True
-    )
-
-    print("\n" + "=" * 70)
-    print("Summary by Percentage (Single Batch)")
-    print("=" * 70)
-
-    print("\nComprehensiveness by percentage:")
-    for pct in [10, 20, 50]:
-        scores = comp_detailed[pct]
-        valid_scores = scores[~torch.isnan(scores)]
-        if len(valid_scores) > 0:
-            print(
-                f"  {pct:3d}%: mean={valid_scores.mean():.4f}, "
-                f"std={valid_scores.std():.4f} "
-                f"(n={len(valid_scores)})"
-            )
-
-    print("\nSufficiency by percentage:")
-    for pct in [10, 20, 50]:
-        scores = suff_detailed[pct]
-        valid_scores = scores[~torch.isnan(scores)]
-        if len(valid_scores) > 0:
-            print(
-                f"  {pct:3d}%: mean={valid_scores.mean():.4f}, "
-                f"std={valid_scores.std():.4f} "
-                f"(n={len(valid_scores)})"
-            )
-
-    # Interpretation guide
-    print("\n" + "=" * 70)
-    print("Interpretation Guide")
-    print("=" * 70)
-    print(
-        """
-Comprehensiveness: Measures how much removing important features hurts
-                   the prediction. Higher scores = more faithful.
-                   Typical range: 0.3-0.5 for good attributions
-
-Sufficiency:       Measures how much keeping only important features
-                   hurts the prediction. Lower scores = more faithful.
-                   Typical range: 0.0-0.2 for good attributions
-
-Good attributions should have:
-  • High comprehensiveness (important features are necessary)
-  • Low sufficiency (important features are sufficient)
-
-Two API Options:
-  1. Functional API (simple, one-off evaluations):
-     results = evaluate_approach(model, dataloader, method, ...)
-     
-  2. Class-based API (efficient for multiple comparisons):
-     evaluator = Evaluator(model, percentages=[10, 20, 50])
-     ig_results = evaluator.evaluate_approach(dataloader, ig)
-     chefer_results = evaluator.evaluate_approach(dataloader, chefer)
-    """
-    )
 
 
 if __name__ == "__main__":
