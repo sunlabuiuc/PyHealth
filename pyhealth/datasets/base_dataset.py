@@ -113,6 +113,8 @@ class BaseDataset(ABC):
         dataset_name: Optional[str] = None,
         config_path: Optional[str] = None,
         dev: bool = False,
+        stream: bool = False,
+        cache_dir: Optional[str] = None,
     ):
         """Initializes the BaseDataset.
 
@@ -122,6 +124,11 @@ class BaseDataset(ABC):
             dataset_name (Optional[str]): Name of the dataset. Defaults to class name.
             config_path (Optional[str]): Path to the configuration YAML file.
             dev (bool): Whether to run in dev mode (limits to 1000 patients).
+            stream (bool): Whether to enable streaming mode for memory efficiency.
+                When True, data is loaded from disk on-demand rather than kept in memory.
+                Default is False for backward compatibility.
+            cache_dir (Optional[str]): Directory for streaming cache. If None, uses
+                {root}/.pyhealth_cache. Only used when stream=True.
         """
         if len(set(tables)) != len(tables):
             logger.warning("Duplicate table names in tables list. Removing duplicates.")
@@ -131,6 +138,17 @@ class BaseDataset(ABC):
         self.dataset_name = dataset_name or self.__class__.__name__
         self.config = load_yaml_config(config_path)
         self.dev = dev
+        self.stream = stream
+
+        # Setup cache directory
+        if cache_dir is None:
+            self.cache_dir = Path(root) / ".pyhealth_cache"
+        else:
+            self.cache_dir = Path(cache_dir)
+
+        if self.stream:
+            logger.info(f"Stream mode enabled - using disk cache at {self.cache_dir}")
+            self._setup_streaming_cache()
 
         logger.info(
             f"Initializing {self.dataset_name} dataset from {self.root} (dev mode: {self.dev})"
@@ -142,13 +160,123 @@ class BaseDataset(ABC):
         self._collected_global_event_df = None
         self._unique_patient_ids = None
 
+        # Streaming-specific attributes
+        if self.stream:
+            self._patient_cache_path = None
+            self._patient_index_path = None
+            self._patient_index = None
+
+    def _setup_streaming_cache(self) -> None:
+        """Setup disk-backed cache directory structure for streaming mode.
+
+        Creates cache directory and defines paths for patient cache and index.
+        Called during __init__ when stream=True.
+        """
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+
+        # Define cache file paths
+        self._patient_cache_path = (
+            self.cache_dir / f"{self.dataset_name}_patients.parquet"
+        )
+        self._patient_index_path = (
+            self.cache_dir / f"{self.dataset_name}_patient_index.parquet"
+        )
+
+        logger.info(f"Streaming cache directory: {self.cache_dir}")
+
+    def _build_patient_cache(
+        self,
+        filtered_df: Optional[pl.LazyFrame] = None,
+        force_rebuild: bool = False,
+    ) -> None:
+        """Build disk-backed patient cache with efficient indexing.
+
+        This method uses Polars' streaming execution via sink_parquet to process
+        the data without loading everything into memory. The data is sorted by
+        patient_id for efficient patient-level access.
+
+        Args:
+            filtered_df (Optional[pl.LazyFrame]): Pre-filtered LazyFrame (e.g., from
+                task.pre_filter()). If None, uses self.global_event_df.
+            force_rebuild (bool): If True, rebuild cache even if it exists.
+                Default is False.
+
+        Implementation Notes:
+            - Uses sink_parquet for streaming execution (never loads full data to memory)
+            - Sorts by patient_id for efficient patient-level reads
+            - Creates index for O(1) patient lookup
+            - Row group size tuned for typical patient size (~100 events)
+        """
+        if self._patient_cache_path.exists() and not force_rebuild:
+            logger.info(f"Using existing patient cache: {self._patient_cache_path}")
+            return
+
+        logger.info("Building patient cache for streaming mode...")
+
+        # Use filtered_df if provided, otherwise use global_event_df
+        df = filtered_df if filtered_df is not None else self.global_event_df
+
+        # Apply dev mode filtering at the LazyFrame level
+        if self.dev:
+            logger.info("Dev mode enabled: limiting to 1000 patients")
+            limited_patients = df.select(pl.col("patient_id")).unique().limit(1000)
+            df = df.join(limited_patients, on="patient_id", how="inner")
+
+        # CRITICAL: Sort by patient_id for efficient patient-level access
+        # This enables:
+        # 1. Efficient patient-level reads (via row group filtering)
+        # 2. Polars can use merge joins on subsequent operations
+        # 3. Better compression (similar data grouped together)
+        df = df.sort("patient_id", "timestamp")
+
+        # Use sink_parquet for memory-efficient writing
+        # This never loads the full dataset into memory
+        df.sink_parquet(
+            self._patient_cache_path,
+            # Row group size tuned for patient-level access
+            # Assuming ~100 events per patient, 10000 events ≈ 100 patients per row group
+            row_group_size=10000,
+            compression="zstd",  # Good balance of compression ratio and speed
+            statistics=True,  # Enable statistics for better predicate pushdown
+        )
+
+        # Build patient index for fast lookups
+        logger.info("Building patient index...")
+        patient_index = (
+            pl.scan_parquet(self._patient_cache_path)
+            .group_by("patient_id")
+            .agg([
+                pl.count().alias("event_count"),
+                pl.first("timestamp").alias("first_timestamp"),
+                pl.last("timestamp").alias("last_timestamp"),
+            ])
+            .sort("patient_id")
+        )
+        patient_index.sink_parquet(self._patient_index_path)
+
+        cache_size_mb = self._patient_cache_path.stat().st_size / 1e6
+        logger.info(f"Patient cache built: {cache_size_mb:.2f} MB")
+
     @property
     def collected_global_event_df(self) -> pl.DataFrame:
         """Collects and returns the global event data frame.
 
+        WARNING: This property is NOT available in stream mode as it would
+        load the entire dataset into memory, defeating the purpose of streaming.
+
         Returns:
             pl.DataFrame: The collected global event data frame.
+
+        Raises:
+            RuntimeError: If called in stream mode.
         """
+        if self.stream:
+            raise RuntimeError(
+                "collected_global_event_df is not available in stream mode "
+                "as it would load the entire dataset into memory. "
+                "Use iter_patients_streaming() for memory-efficient patient iteration."
+            )
+
         if self._collected_global_event_df is None:
             logger.info("Collecting global event dataframe...")
 
@@ -325,19 +453,138 @@ class BaseDataset(ABC):
         df = self.collected_global_event_df.filter(pl.col("patient_id") == patient_id)
         return Patient(patient_id=patient_id, data_source=df)
 
-    def iter_patients(self, df: Optional[pl.LazyFrame] = None) -> Iterator[Patient]:
+    def iter_patients(self, df: Optional[pl.DataFrame] = None) -> Iterator[Patient]:
         """Yields Patient objects for each unique patient in the dataset.
+
+        NOTE: This method loads the entire dataset into memory if df is None.
+        For streaming mode, use iter_patients_streaming() instead.
+
+        Args:
+            df (Optional[pl.DataFrame]): Optional pre-filtered DataFrame.
+                If None, uses collected_global_event_df (loads all data to memory).
 
         Yields:
             Iterator[Patient]: An iterator over Patient objects.
+
+        Raises:
+            RuntimeError: If called without df in stream mode.
         """
         if df is None:
+            if self.stream:
+                raise RuntimeError(
+                    "iter_patients() requires collected DataFrame which is not "
+                    "available in stream mode. Use iter_patients_streaming() instead."
+                )
             df = self.collected_global_event_df
         grouped = df.group_by("patient_id")
 
         for patient_id, patient_df in grouped:
             patient_id = patient_id[0]
             yield Patient(patient_id=patient_id, data_source=patient_df)
+
+    def iter_patients_streaming(
+        self,
+        patient_ids: Optional[List[str]] = None,
+        preload: int = 1,
+    ) -> Iterator[Patient]:
+        """Memory-efficient patient iterator using disk-backed cache.
+
+        This method loads patients one at a time from disk, keeping memory
+        usage constant regardless of dataset size. It is the recommended
+        way to iterate over patients in streaming mode.
+
+        Args:
+            patient_ids (Optional[List[str]]): Optional list of specific patient IDs
+                to iterate over. If None, iterates over all patients.
+            preload (int): Number of patients to preload ahead to hide disk latency.
+                - preload=1: No preloading (lowest memory, higher latency)
+                - preload=2-5: Good balance (recommended)
+                - preload>5: Diminishing returns
+                Default is 1.
+
+        Yields:
+            Patient: Patient objects loaded from disk cache
+
+        Raises:
+            RuntimeError: If called in non-stream mode.
+
+        Example:
+            >>> # Basic usage
+            >>> for patient in dataset.iter_patients_streaming():
+            ...     print(f"Processing {patient.patient_id}")
+
+            >>> # With specific patients
+            >>> patient_list = ["P001", "P002", "P003"]
+            >>> for patient in dataset.iter_patients_streaming(patient_ids=patient_list):
+            ...     process(patient)
+
+            >>> # With preloading for lower latency
+            >>> for patient in dataset.iter_patients_streaming(preload=3):
+            ...     train_model(patient)  # While training, next 3 load in background
+        """
+        if not self.stream:
+            raise RuntimeError(
+                "iter_patients_streaming() is only available in stream mode. "
+                "Set stream=True when initializing the dataset, or use iter_patients() instead."
+            )
+
+        # Ensure cache exists
+        if not self._patient_cache_path.exists():
+            self._build_patient_cache()
+
+        # Load patient index for efficient filtering
+        if self._patient_index is None:
+            self._patient_index = pl.read_parquet(self._patient_index_path)
+
+        patient_index_df = self._patient_index
+
+        # Filter to specific patients if requested
+        if patient_ids is not None:
+            patient_index_df = patient_index_df.filter(
+                pl.col("patient_id").is_in(patient_ids)
+            )
+
+        patient_list = patient_index_df["patient_id"].to_list()
+
+        def load_patient(patient_id: str) -> Patient:
+            """Load a single patient from disk cache."""
+            # Use Polars predicate pushdown for efficient filtering
+            # This reads only the row groups containing this patient
+            patient_df = (
+                pl.scan_parquet(self._patient_cache_path)
+                .filter(pl.col("patient_id") == patient_id)
+                .collect()
+            )
+            return Patient(patient_id=patient_id, data_source=patient_df)
+
+        if preload <= 1:
+            # No preloading - simple sequential iteration
+            for patient_id in patient_list:
+                yield load_patient(patient_id)
+        else:
+            # Preload patients in background using ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=min(preload, 4)) as executor:
+                # Submit initial batch of futures
+                futures = []
+                for i in range(min(preload, len(patient_list))):
+                    futures.append(executor.submit(load_patient, patient_list[i]))
+
+                # Main iteration loop
+                for i in range(len(patient_list)):
+                    # Wait for and yield the oldest future
+                    patient = futures.pop(0).result()
+                    yield patient
+
+                    # Submit next patient if available
+                    next_idx = i + preload
+                    if next_idx < len(patient_list):
+                        futures.append(
+                            executor.submit(load_patient, patient_list[next_idx])
+                        )
+
+                # Yield any remaining preloaded patients
+                for future in futures:
+                    yield future.result()
 
     def stats(self) -> None:
         """Prints statistics about the dataset."""
@@ -364,27 +611,26 @@ class BaseDataset(ABC):
         cache_format: str = "parquet",
         input_processors: Optional[Dict[str, FeatureProcessor]] = None,
         output_processors: Optional[Dict[str, FeatureProcessor]] = None,
-    ) -> SampleDataset:
+    ):
         """Processes the base dataset to generate the task-specific sample dataset.
 
         Args:
             task (Optional[BaseTask]): The task to set. Uses default task if None.
             num_workers (int): Number of workers for multi-threading. Default is 1.
-                This is because the task function is usually CPU-bound. And using
-                multi-threading may not speed up the task function.
+                Only used in non-streaming mode.
             cache_dir (Optional[str]): Directory to cache processed samples.
                 Default is None (no caching).
             cache_format (str): Format for caching ('parquet' or 'pickle').
                 Default is 'parquet'.
             input_processors (Optional[Dict[str, FeatureProcessor]]):
-                Pre-fitted input processors. If provided, these will be used
-                instead of creating new ones from task's input_schema. Defaults to None.
+                Pre-fitted input processors.
             output_processors (Optional[Dict[str, FeatureProcessor]]):
-                Pre-fitted output processors. If provided, these will be used
-                instead of creating new ones from task's output_schema. Defaults to None.
+                Pre-fitted output processors.
 
         Returns:
-            SampleDataset: The generated sample dataset.
+            Union[SampleDataset, IterableSampleDataset]: The generated sample dataset.
+                Returns SampleDataset in non-streaming mode.
+                Returns IterableSampleDataset in streaming mode.
 
         Raises:
             AssertionError: If no default task is found and task is None.
@@ -428,71 +674,140 @@ class BaseDataset(ABC):
 
         # Generate samples if not loaded from cache
         if samples is None:
-            logger.info(f"Generating samples with {num_workers} worker(s)...")
-            filtered_global_event_df = task.pre_filter(self.collected_global_event_df)
-            samples = []
+            if self.stream:
+                # ============================================================
+                # STREAMING MODE: Process patients iteratively
+                # ============================================================
+                from .sample_dataset import IterableSampleDataset
+                
+                logger.info("Generating samples in streaming mode...")
 
-            if num_workers == 1:
-                # single-threading (by default)
-                for patient in tqdm(
-                    self.iter_patients(filtered_global_event_df),
-                    total=filtered_global_event_df["patient_id"].n_unique(),
-                    desc=(f"Generating samples for {task.task_name} " "with 1 worker"),
-                    smoothing=0,
-                ):
-                    samples.extend(task(patient))
-            else:
-                # multi-threading (not recommended)
-                logger.info(
-                    f"Generating samples for {task.task_name} with "
-                    f"{num_workers} workers"
+                # Apply task's pre_filter on LazyFrame (no data loaded yet!)
+                filtered_lazy_df = task.pre_filter(self.global_event_df)
+
+                # Build patient cache if not exists (lazy execution with sink_parquet)
+                if not self._patient_cache_path.exists():
+                    self._build_patient_cache(filtered_lazy_df)
+
+                # Create streaming sample dataset
+                sample_dataset = IterableSampleDataset(
+                    input_schema=task.input_schema,
+                    output_schema=task.output_schema,
+                    dataset_name=self.dataset_name,
+                    task_name=task.task_name,
+                    input_processors=input_processors,
+                    output_processors=output_processors,
+                    cache_dir=cache_dir or str(self.cache_dir),
                 )
-                patients = list(self.iter_patients(filtered_global_event_df))
-                with ThreadPoolExecutor(max_workers=num_workers) as executor:
-                    futures = [executor.submit(task, patient) for patient in patients]
-                    for future in tqdm(
-                        as_completed(futures),
-                        total=len(futures),
-                        desc=(
-                            f"Collecting samples for {task.task_name} "
-                            f"from {num_workers} workers"
-                        ),
+
+                # Process patients iteratively and write samples to disk
+                batch_samples = []
+                batch_size = 100  # Write every 100 patients worth of samples
+
+                # Get total patient count for progress bar
+                patient_index = pl.read_parquet(self._patient_index_path)
+                total_patients = len(patient_index)
+
+                for patient in tqdm(
+                    self.iter_patients_streaming(preload=3),
+                    total=total_patients,
+                    desc=f"Generating samples for {task.task_name}",
+                ):
+                    # Call task function (SAME AS BEFORE!)
+                    patient_samples = task(patient)
+                    batch_samples.extend(patient_samples)
+
+                    # Write batch to disk when it gets large enough
+                    if len(batch_samples) >= batch_size:
+                        sample_dataset.add_samples_streaming(batch_samples)
+                        batch_samples = []
+
+                # Write remaining samples
+                if batch_samples:
+                    sample_dataset.add_samples_streaming(batch_samples)
+
+                # Finalize sample cache
+                sample_dataset.finalize_samples()
+
+                # Build processors (must happen after all samples written)
+                sample_dataset.build_streaming()
+
+                logger.info(f"Generated {len(sample_dataset)} samples in streaming mode")
+
+                return sample_dataset
+
+            else:
+                # ============================================================
+                # NORMAL MODE: Original implementation (UNCHANGED)
+                # ============================================================
+                logger.info(f"Generating samples with {num_workers} worker(s)...")
+                filtered_global_event_df = task.pre_filter(self.collected_global_event_df)
+                samples = []
+
+                if num_workers == 1:
+                    # single-threading (by default)
+                    for patient in tqdm(
+                        self.iter_patients(filtered_global_event_df),
+                        total=filtered_global_event_df["patient_id"].n_unique(),
+                        desc=(f"Generating samples for {task.task_name} " "with 1 worker"),
+                        smoothing=0,
                     ):
-                        samples.extend(future.result())
+                        samples.extend(task(patient))
+                else:
+                    # multi-threading (not recommended)
+                    logger.info(
+                        f"Generating samples for {task.task_name} with "
+                        f"{num_workers} workers"
+                    )
+                    patients = list(self.iter_patients(filtered_global_event_df))
+                    with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                        futures = [executor.submit(task, patient) for patient in patients]
+                        for future in tqdm(
+                            as_completed(futures),
+                            total=len(futures),
+                            desc=(
+                                f"Collecting samples for {task.task_name} "
+                                f"from {num_workers} workers"
+                            ),
+                        ):
+                            samples.extend(future.result())
 
-            # Cache the samples if cache_dir is provided
-            if cache_dir is not None:
-                cache_path = Path(cache_dir) / cache_filename
-                cache_path.parent.mkdir(parents=True, exist_ok=True)
-                logger.info(f"Caching samples to {cache_path}")
-                try:
-                    if cache_format == "parquet":
-                        # Save samples as parquet file
-                        samples_for_cache = [
-                            _convert_for_cache(sample) for sample in samples
-                        ]
-                        samples_df = pl.DataFrame(samples_for_cache)
-                        samples_df.write_parquet(cache_path)
-                    elif cache_format == "pickle":
-                        # Save samples as pickle file
-                        with open(cache_path, "wb") as f:
-                            pickle.dump(samples, f)
-                    else:
-                        msg = f"Unsupported cache format: {cache_format}"
-                        raise ValueError(msg)
-                    logger.info(f"Successfully cached {len(samples)} samples")
-                except Exception as e:
-                    logger.warning(f"Failed to cache samples: {e}")
+                # Cache the samples if cache_dir is provided
+                if cache_dir is not None:
+                    cache_path = Path(cache_dir) / cache_filename
+                    cache_path.parent.mkdir(parents=True, exist_ok=True)
+                    logger.info(f"Caching samples to {cache_path}")
+                    try:
+                        if cache_format == "parquet":
+                            # Save samples as parquet file
+                            samples_for_cache = [
+                                _convert_for_cache(sample) for sample in samples
+                            ]
+                            samples_df = pl.DataFrame(samples_for_cache)
+                            samples_df.write_parquet(cache_path)
+                        elif cache_format == "pickle":
+                            # Save samples as pickle file
+                            with open(cache_path, "wb") as f:
+                                pickle.dump(samples, f)
+                        else:
+                            msg = f"Unsupported cache format: {cache_format}"
+                            raise ValueError(msg)
+                        logger.info(f"Successfully cached {len(samples)} samples")
+                    except Exception as e:
+                        logger.warning(f"Failed to cache samples: {e}")
 
-        sample_dataset = SampleDataset(
-            samples,
-            input_schema=task.input_schema,
-            output_schema=task.output_schema,
-            dataset_name=self.dataset_name,
-            task_name=task,
-            input_processors=input_processors,
-            output_processors=output_processors,
-        )
+        # Create sample dataset from cached samples (normal mode only)
+        if samples is not None:
+            sample_dataset = SampleDataset(
+                samples,
+                input_schema=task.input_schema,
+                output_schema=task.output_schema,
+                dataset_name=self.dataset_name,
+                task_name=task,
+                input_processors=input_processors,
+                output_processors=output_processors,
+            )
 
-        logger.info(f"Generated {len(samples)} samples for task {task.task_name}")
+            logger.info(f"Generated {len(samples)} samples for task {task.task_name}")
+
         return sample_dataset
