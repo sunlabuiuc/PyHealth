@@ -48,10 +48,12 @@ class RemovalBasedMetric(ABC):
         model: nn.Module,
         percentages: List[float] = [1, 5, 10, 20, 50],
         ablation_strategy: str = "zero",
+        positive_threshold: float = 0.5,
     ):
         self.model = model
         self.percentages = percentages
         self.ablation_strategy = ablation_strategy
+        self._positive_threshold = positive_threshold
         self.model.eval()
 
         # Detect classifier type from model
@@ -117,8 +119,8 @@ class RemovalBasedMetric(ABC):
             self.classifier_type = "binary"
             self.num_classes = 2
             print("[RemovalBasedMetric] Detected BINARY classifier")
-            print("  - Output shape: [batch, 1]")
-            print("  - Will expand to [batch, 2] for metrics")
+            print("  - Output shape: [batch, 1] with P(class=1)")
+            print("  - Only evaluates positive predictions (>=threshold)")
         elif mode == "multiclass":
             self.classifier_type = "multiclass"
             # Get num_classes from processor
@@ -390,7 +392,7 @@ class RemovalBasedMetric(ABC):
         inputs: Dict[str, torch.Tensor],
         attributions: Dict[str, torch.Tensor],
         predicted_class: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute metric averaged over all percentages.
 
         Args:
@@ -399,13 +401,15 @@ class RemovalBasedMetric(ABC):
             predicted_class: Optional pre-computed predicted classes (batch)
 
         Returns:
-            Metric scores for each sample in batch, shape (batch_size,)
+            Tuple of (metric_scores, valid_mask):
+            - metric_scores: Raw scores for ALL samples, shape (batch_size,)
+            - valid_mask: Binary mask indicating which samples are valid
+              (1 for positive predictions in binary, 1 for all in multiclass)
 
         Note:
-            For binary classifiers, only positive class (class=1) samples
-            are evaluated. Negative class samples return NaN to indicate
-            they should be excluded from analysis, as ablation on the
-            negative/default class is often not meaningful.
+            For binary classifiers, the valid_mask indicates samples with
+            P(class=1) >= threshold (default 0.5). Use this mask to filter
+            scores during averaging or analysis.
         """
         # Get original predictions
         original_probs, pred_classes = self._get_model_predictions(inputs)
@@ -415,35 +419,25 @@ class RemovalBasedMetric(ABC):
 
         batch_size = original_probs.shape[0]
 
-        # For binary classification, only compute for positive class
+        # Initialize metric scores (will compute for all, filter later)
+        metric_scores = torch.zeros(batch_size, device=original_probs.device)
+
+        # Create validity mask based on classifier type
         if self.classifier_type == "binary":
-            # Create mask for positive class samples
-            positive_mask = pred_classes == 1
-
-            # Initialize with NaN for all samples
-            metric_scores = torch.full(
-                (batch_size,), float("nan"), device=original_probs.device
-            )
-
-            # If no positive samples, return all NaN
-            if not positive_mask.any():
-                return metric_scores
-
-            # Only compute for positive class samples
+            # For binary: valid = P(class=1) >= threshold
+            valid_mask = original_probs.squeeze(-1) >= self._positive_threshold
             original_class_probs = original_probs.squeeze(-1)
-
         else:
-            # For multiclass/multilabel: compute for all samples
-            positive_mask = torch.ones(
+            # For multiclass/multilabel: all samples are valid
+            valid_mask = torch.ones(
                 batch_size, dtype=torch.bool, device=original_probs.device
             )
-            metric_scores = torch.zeros(batch_size, device=original_probs.device)
-
             # Get probabilities for predicted classes
             original_class_probs = original_probs.gather(
                 1, pred_classes.unsqueeze(1)
             ).squeeze(1)
 
+        # Compute metrics across all percentages
         for percentage in self.percentages:
             # Compute masks for this percentage
             masks = self._compute_threshold_and_mask(attributions, percentage)
@@ -456,28 +450,22 @@ class RemovalBasedMetric(ABC):
 
             # Get probabilities for same predicted classes
             if self.classifier_type == "binary":
-                # For binary: only use P(class=1) for positive samples
                 ablated_class_probs = ablated_probs.squeeze(-1)
             else:
-                # For multiclass: gather from [batch, num_classes]
                 ablated_class_probs = ablated_probs.gather(
                     1, pred_classes.unsqueeze(1)
                 ).squeeze(1)
 
-            # Compute probability drop only for relevant samples
+            # Compute probability drop for ALL samples
             prob_drop = original_class_probs - ablated_class_probs
 
-            # Only accumulate for positive samples (or all for multiclass)
-            metric_scores[positive_mask] = (
-                metric_scores[positive_mask] + prob_drop[positive_mask]
-            )
+            # Accumulate for ALL samples (will filter during averaging)
+            metric_scores = metric_scores + prob_drop
 
-        # Average across percentages (only for computed samples)
-        metric_scores[positive_mask] = metric_scores[positive_mask] / len(
-            self.percentages
-        )
+        # Average across percentages for ALL samples
+        metric_scores = metric_scores / len(self.percentages)
 
-        return metric_scores
+        return metric_scores, valid_mask
 
     def compute_detailed(
         self,
@@ -570,13 +558,8 @@ class RemovalBasedMetric(ABC):
         results = {}
 
         for percentage in self.percentages:
-            # Initialize with NaN for all samples in binary case
-            if self.classifier_type == "binary":
-                prob_drop = torch.full(
-                    (batch_size,), float("nan"), device=original_probs.device
-                )
-            else:
-                prob_drop = torch.zeros(batch_size, device=original_probs.device)
+            # Initialize probability drops to 0
+            prob_drop = torch.zeros(batch_size, device=original_probs.device)
 
             # Compute masks for this percentage
             masks = self._compute_threshold_and_mask(attributions, percentage)
@@ -811,6 +794,9 @@ class Evaluator:
             - 'mean': Set ablated features to feature mean across batch
             - 'noise': Add Gaussian noise to ablated features
             Default: 'zero'.
+        positive_threshold: Threshold for positive class in binary
+            classification. Samples with P(class=1) >= threshold are
+            considered valid for evaluation. Default: 0.5.
 
     Examples:
         >>> from pyhealth.models import StageNet
@@ -822,9 +808,9 @@ class Evaluator:
         >>> # Evaluate on a single batch
         >>> inputs = {'conditions': torch.randn(32, 50)}
         >>> attributions = {'conditions': torch.randn(32, 50)}
-        >>> scores = evaluator.evaluate(inputs, attributions)
-        >>> print(scores)
-        {'comprehensiveness': tensor([...]), 'sufficiency': tensor([...])}
+        >>> batch_results = evaluator.evaluate(inputs, attributions)
+        >>> for metric, (scores, mask) in batch_results.items():
+        >>>     print(f"{metric}: {scores[mask].mean():.4f}")
         >>>
         >>> # Evaluate across entire dataset with an attribution method
         >>> from pyhealth.interpret.methods import IntegratedGradients
@@ -839,16 +825,24 @@ class Evaluator:
         model: nn.Module,
         percentages: List[float] = [1, 5, 10, 20, 50],
         ablation_strategy: str = "zero",
+        positive_threshold: float = 0.5,
     ):
         self.model = model
         self.percentages = percentages
         self.ablation_strategy = ablation_strategy
+        self.positive_threshold = positive_threshold
         self.metrics = {
             "comprehensiveness": ComprehensivenessMetric(
-                model, percentages=percentages, ablation_strategy=ablation_strategy
+                model,
+                percentages=percentages,
+                ablation_strategy=ablation_strategy,
+                positive_threshold=positive_threshold,
             ),
             "sufficiency": SufficiencyMetric(
-                model, percentages=percentages, ablation_strategy=ablation_strategy
+                model,
+                percentages=percentages,
+                ablation_strategy=ablation_strategy,
+                positive_threshold=positive_threshold,
             ),
         }
 
@@ -857,7 +851,7 @@ class Evaluator:
         inputs: Dict[str, torch.Tensor],
         attributions: Dict[str, torch.Tensor],
         metrics: List[str] = ["comprehensiveness", "sufficiency"],
-    ) -> Dict[str, torch.Tensor]:
+    ) -> Dict[str, tuple[torch.Tensor, torch.Tensor]]:
         """Evaluate multiple metrics at once.
 
         Args:
@@ -867,18 +861,21 @@ class Evaluator:
                 ["comprehensiveness", "sufficiency"]
 
         Returns:
-            Dictionary mapping metric name -> scores (batch_size,)
+            Dictionary mapping metric name -> (scores, valid_mask)
+            - scores: Raw metric scores for all samples
+            - valid_mask: Binary mask indicating valid samples to average
 
         Note:
-            For binary classifiers, only positive class samples are evaluated.
-            Negative class samples will have NaN values.
+            For binary classifiers, valid_mask indicates samples with
+            P(class=1) >= threshold. Use: scores[valid_mask].mean()
         """
         results = {}
         for metric_name in metrics:
             if metric_name in self.metrics:
-                results[metric_name] = self.metrics[metric_name].compute(
+                scores, valid_mask = self.metrics[metric_name].compute(
                     inputs, attributions
                 )
+                results[metric_name] = (scores, valid_mask)
         return results
 
     def evaluate_detailed(
@@ -977,14 +974,18 @@ class Evaluator:
             >>> print(f"  Chefer Comp: "
             ...       f"{chefer_results['comprehensiveness']:.4f}")
         """
-        # Accumulate scores across all batches
-        all_scores = {metric_name: [] for metric_name in metrics}
-
         # Get model device
         model_device = next(self.model.parameters()).device
 
+        # Tracking for statistics and debug output
+        batch_count = 0
+        total_samples = 0
+        total_valid = {metric_name: 0 for metric_name in metrics}
+        running_sum = {metric_name: 0.0 for metric_name in metrics}
+
         # Process each batch
         for batch in dataloader:
+            batch_count += 1
             # Move batch to model device
             batch_on_device = {}
             for key, value in batch.items():
@@ -1007,28 +1008,102 @@ class Evaluator:
             # Compute attributions for this batch
             attributions = method.attribute(**batch_on_device)
 
-            # Evaluate metrics on this batch
-            batch_scores = self.evaluate(batch_on_device, attributions, metrics=metrics)
+            # Evaluate metrics on this batch (returns scores and masks)
+            batch_results = self.evaluate(
+                batch_on_device, attributions, metrics=metrics
+            )
 
-            # Accumulate valid (non-NaN) scores
+            # Accumulate statistics incrementally (no tensor storage)
             for metric_name in metrics:
-                scores = batch_scores[metric_name]
-                # Filter out NaN values (negative class in binary)
-                valid_scores = scores[~torch.isnan(scores)]
-                if len(valid_scores) > 0:
-                    # Move to CPU for accumulation
-                    all_scores[metric_name].extend(valid_scores.cpu().tolist())
+                scores, valid_mask = batch_results[metric_name]
 
-        # Compute averages
+                # Track statistics efficiently
+                batch_size = len(scores)
+                num_valid = valid_mask.sum().item()
+                total_samples += batch_size
+                total_valid[metric_name] += num_valid
+
+                # Update running sum (valid scores only)
+                valid_scores_batch = (scores * valid_mask).sum().item()
+                running_sum[metric_name] += valid_scores_batch
+
+            # Debug output every 10 batches
+            if batch_count % 1 == 0:
+                print(f"\n[Batch {batch_count}] Progress update:")
+                print(f"  Total samples processed: {total_samples}")
+
+                # Compute running averages from accumulated statistics
+                for metric_name in metrics:
+                    num_valid_so_far = total_valid[metric_name]
+                    if num_valid_so_far > 0:
+                        running_avg = running_sum[metric_name] / num_valid_so_far
+                        print(
+                            f"  {metric_name}: {running_avg:.6f} "
+                            f"({num_valid_so_far}/{total_samples} valid)"
+                        )
+                    else:
+                        print(f"  {metric_name}: N/A " f"(no valid samples yet)")
+
+        # Compute final averages from accumulated statistics
         results = {}
         for metric_name in metrics:
-            if len(all_scores[metric_name]) > 0:
-                results[metric_name] = sum(all_scores[metric_name]) / len(
-                    all_scores[metric_name]
+            if total_valid[metric_name] > 0:
+                # Average = running_sum / total_valid
+                results[metric_name] = (
+                    running_sum[metric_name] / total_valid[metric_name]
                 )
             else:
-                # No valid samples (e.g., all negative class in binary)
+                # No valid samples
                 results[metric_name] = float("nan")
+
+        # Final summary
+        print(f"\n{'='*70}")
+        print("[FINAL] Dataset evaluation complete:")
+        print(f"  Total batches: {batch_count}")
+        print(f"  Total samples: {total_samples}")
+        for metric_name in metrics:
+            num_valid_final = total_valid[metric_name]
+            if metric_name in results:
+                score = results[metric_name]
+                if score == score:  # Not NaN
+                    print(
+                        f"  {metric_name}: {score:.6f} "
+                        f"({num_valid_final}/{total_samples} valid)"
+                    )
+                else:
+                    print(f"  {metric_name}: NaN " f"(no valid samples)")
+
+        # Sanity check warnings
+        if "comprehensiveness" in results and "sufficiency" in results:
+            comp = results["comprehensiveness"]
+            suff = results["sufficiency"]
+            if comp == comp and suff == suff:  # Both not NaN
+                if comp < 0:
+                    print("\n⚠ WARNING: Negative comprehensiveness detected!")
+                    print("  - Removing 'important' features INCREASED confidence")
+                    print("  - Possible causes:")
+                    print("    * Attribution scores may be inverted/wrong")
+                    print("    * Features with negative attributions")
+                    print("    * Model predictions unstable")
+
+                if suff > comp:
+                    print("\n⚠ WARNING: Sufficiency > Comprehensiveness!")
+                    print("  - Keeping top features worse than removing them")
+                    print("  - This suggests:")
+                    print("    * Attribution quality is poor")
+                    print("    * Important features not correctly identified")
+                    print("    * Consider checking attribution method")
+
+        valid_ratio = sum(total_valid.values()) / (len(metrics) * total_samples)
+        if valid_ratio < 0.1:
+            print(f"\n⚠ WARNING: Only {valid_ratio*100:.1f}% valid samples")
+            print("  - Most predictions are negative class")
+            print("  - Consider:")
+            print("    * Checking model predictions distribution")
+            print("    * Adjusting positive_threshold parameter")
+            print("    * Using balanced test set")
+
+        print(f"{'='*70}\n")
 
         return results
 
@@ -1041,6 +1116,7 @@ def evaluate_approach(
     metrics: List[str] = ["comprehensiveness", "sufficiency"],
     percentages: List[float] = [1, 5, 10, 20, 50],
     ablation_strategy: str = "zero",
+    positive_threshold: float = 0.5,
 ) -> Dict[str, float]:
     """Evaluate an attribution method across a dataset (functional API).
 
@@ -1064,17 +1140,21 @@ def evaluate_approach(
             - 'mean': Set ablated features to feature mean across batch
             - 'noise': Add Gaussian noise to ablated features
             Default: 'zero'.
+        positive_threshold: Threshold for positive class in binary
+            classification. Samples with P(class=1) >= threshold are
+            considered valid for evaluation. Default: 0.5.
 
     Returns:
         Dictionary mapping metric names to their average scores
-        across the entire dataset.
+        across the entire dataset. Averaging uses mask-based filtering
+        to include only valid samples (positive predictions for binary).
 
         Example: {'comprehensiveness': 0.345, 'sufficiency': 0.123}
 
     Note:
-        For binary classifiers, negative class (predicted class=0)
-        samples are excluded from the average, as ablation metrics
-        are not meaningful for the default/null class.
+        For binary classifiers, only samples with P(class=1) >= threshold
+        are included in the average, as ablation metrics are not
+        meaningful for negative predictions.
 
     Examples:
         >>> from pyhealth.interpret.methods import IntegratedGradients
@@ -1089,6 +1169,12 @@ def evaluate_approach(
         ... )
         >>> print(f"Comprehensiveness: {results['comprehensiveness']:.4f}")
         >>>
+        >>> # Custom threshold for binary classification
+        >>> results = evaluate_approach(
+        ...     model, test_loader, ig,
+        ...     positive_threshold=0.7  # Only evaluate high-confidence
+        ... )
+        >>>
         >>> # For comparing multiple methods efficiently, use Evaluator:
         >>> from pyhealth.metrics.interpretability import Evaluator
         >>> evaluator = Evaluator(model, percentages=[10, 20, 50])
@@ -1096,6 +1182,9 @@ def evaluate_approach(
         >>> chefer_results = evaluator.evaluate_approach(test_loader, chefer)
     """
     evaluator = Evaluator(
-        model, percentages=percentages, ablation_strategy=ablation_strategy
+        model,
+        percentages=percentages,
+        ablation_strategy=ablation_strategy,
+        positive_threshold=positive_threshold,
     )
     return evaluator.evaluate_approach(dataloader, method, metrics=metrics)

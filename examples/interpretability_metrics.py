@@ -50,7 +50,7 @@ def main():
 
     # Split dataset and get test loader
     _, _, test_dataset = split_by_patient(sample_dataset, [0.8, 0.1, 0.1])
-    test_loader = get_dataloader(test_dataset, batch_size=8, shuffle=False)
+    test_loader = get_dataloader(test_dataset, batch_size=128, shuffle=False)
     print(f"✓ Test set: {len(test_dataset)} samples")
 
     # Initialize and load pre-trained model
@@ -106,7 +106,7 @@ def main():
     print("Using: Evaluator(model, ...).evaluate_approach(dataloader, method)")
     print("(Recommended for comparing multiple methods)")
 
-    evaluator = Evaluator(model, percentages=[10, 20, 50])
+    evaluator = Evaluator(model, percentages=[10, 20, 50], positive_threshold=0.2)
     results_class = evaluator.evaluate_approach(
         test_loader, ig, metrics=["comprehensiveness", "sufficiency"]
     )
