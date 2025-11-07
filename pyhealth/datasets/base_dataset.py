@@ -191,9 +191,10 @@ class BaseDataset(ABC):
     ) -> None:
         """Build disk-backed patient cache with efficient indexing.
 
-        This method uses Polars' streaming execution via sink_parquet to process
-        the data without loading everything into memory. The data is sorted by
-        patient_id for efficient patient-level access.
+        This method uses Polars' native streaming execution via sink_parquet to process
+        the data without loading everything into memory. According to the Polars docs
+        (https://docs.pola.rs/user-guide/concepts/streaming/), sink_parquet automatically
+        uses the streaming engine to process data in batches.
 
         Args:
             filtered_df (Optional[pl.LazyFrame]): Pre-filtered LazyFrame (e.g., from
@@ -202,7 +203,7 @@ class BaseDataset(ABC):
                 Default is False.
 
         Implementation Notes:
-            - Uses sink_parquet for streaming execution (never loads full data to memory)
+            - Uses Polars' sink_parquet for automatic streaming execution
             - Sorts by patient_id for efficient patient-level reads
             - Creates index for O(1) patient lookup
             - Row group size tuned for typical patient size (~100 events)
@@ -211,7 +212,7 @@ class BaseDataset(ABC):
             logger.info(f"Using existing patient cache: {self._patient_cache_path}")
             return
 
-        logger.info("Building patient cache for streaming mode...")
+        logger.info("Building patient cache using Polars streaming engine...")
 
         # Use filtered_df if provided, otherwise use global_event_df
         df = filtered_df if filtered_df is not None else self.global_event_df
@@ -230,7 +231,9 @@ class BaseDataset(ABC):
         df = df.sort("patient_id", "timestamp")
 
         # Use sink_parquet for memory-efficient writing
-        # This never loads the full dataset into memory
+        # According to https://www.rhosignal.com/posts/streaming-in-polars/,
+        # sink_parquet automatically uses Polars' streaming engine and never
+        # loads the full dataset into memory
         df.sink_parquet(
             self._patient_cache_path,
             # Row group size tuned for patient-level access
@@ -240,8 +243,8 @@ class BaseDataset(ABC):
             statistics=True,  # Enable statistics for better predicate pushdown
         )
 
-        # Build patient index for fast lookups
-        logger.info("Building patient index...")
+        # Build patient index for fast lookups using streaming
+        logger.info("Building patient index with streaming...")
         patient_index = (
             pl.scan_parquet(self._patient_cache_path)
             .group_by("patient_id")
@@ -252,6 +255,7 @@ class BaseDataset(ABC):
             ])
             .sort("patient_id")
         )
+        # sink_parquet uses streaming automatically
         patient_index.sink_parquet(self._patient_index_path)
 
         cache_size_mb = self._patient_cache_path.stat().st_size / 1e6
@@ -274,7 +278,7 @@ class BaseDataset(ABC):
             raise RuntimeError(
                 "collected_global_event_df is not available in stream mode "
                 "as it would load the entire dataset into memory. "
-                "Use iter_patients_streaming() for memory-efficient patient iteration."
+                "Use iter_patients() or get_patient() for memory-efficient access."
             )
 
         if self._collected_global_event_df is None:
@@ -438,6 +442,9 @@ class BaseDataset(ABC):
     def get_patient(self, patient_id: str) -> Patient:
         """Retrieves a Patient object for the given patient ID.
 
+        In streaming mode, loads the patient from disk cache.
+        In normal mode, filters from the collected DataFrame.
+
         Args:
             patient_id (str): The ID of the patient to retrieve.
 
@@ -450,141 +457,153 @@ class BaseDataset(ABC):
         assert (
             patient_id in self.unique_patient_ids
         ), f"Patient {patient_id} not found in dataset"
-        df = self.collected_global_event_df.filter(pl.col("patient_id") == patient_id)
-        return Patient(patient_id=patient_id, data_source=df)
-
-    def iter_patients(self, df: Optional[pl.DataFrame] = None) -> Iterator[Patient]:
-        """Yields Patient objects for each unique patient in the dataset.
-
-        NOTE: This method loads the entire dataset into memory if df is None.
-        For streaming mode, use iter_patients_streaming() instead.
-
-        Args:
-            df (Optional[pl.DataFrame]): Optional pre-filtered DataFrame.
-                If None, uses collected_global_event_df (loads all data to memory).
-
-        Yields:
-            Iterator[Patient]: An iterator over Patient objects.
-
-        Raises:
-            RuntimeError: If called without df in stream mode.
-        """
-        if df is None:
-            if self.stream:
-                raise RuntimeError(
-                    "iter_patients() requires collected DataFrame which is not "
-                    "available in stream mode. Use iter_patients_streaming() instead."
-                )
-            df = self.collected_global_event_df
-        grouped = df.group_by("patient_id")
-
-        for patient_id, patient_df in grouped:
-            patient_id = patient_id[0]
-            yield Patient(patient_id=patient_id, data_source=patient_df)
-
-    def iter_patients_streaming(
-        self,
-        patient_ids: Optional[List[str]] = None,
-        preload: int = 1,
-    ) -> Iterator[Patient]:
-        """Memory-efficient patient iterator using disk-backed cache.
-
-        This method loads patients one at a time from disk, keeping memory
-        usage constant regardless of dataset size. It is the recommended
-        way to iterate over patients in streaming mode.
-
-        Args:
-            patient_ids (Optional[List[str]]): Optional list of specific patient IDs
-                to iterate over. If None, iterates over all patients.
-            preload (int): Number of patients to preload ahead to hide disk latency.
-                - preload=1: No preloading (lowest memory, higher latency)
-                - preload=2-5: Good balance (recommended)
-                - preload>5: Diminishing returns
-                Default is 1.
-
-        Yields:
-            Patient: Patient objects loaded from disk cache
-
-        Raises:
-            RuntimeError: If called in non-stream mode.
-
-        Example:
-            >>> # Basic usage
-            >>> for patient in dataset.iter_patients_streaming():
-            ...     print(f"Processing {patient.patient_id}")
-
-            >>> # With specific patients
-            >>> patient_list = ["P001", "P002", "P003"]
-            >>> for patient in dataset.iter_patients_streaming(patient_ids=patient_list):
-            ...     process(patient)
-
-            >>> # With preloading for lower latency
-            >>> for patient in dataset.iter_patients_streaming(preload=3):
-            ...     train_model(patient)  # While training, next 3 load in background
-        """
-        if not self.stream:
-            raise RuntimeError(
-                "iter_patients_streaming() is only available in stream mode. "
-                "Set stream=True when initializing the dataset, or use iter_patients() instead."
-            )
-
-        # Ensure cache exists
-        if not self._patient_cache_path.exists():
-            self._build_patient_cache()
-
-        # Load patient index for efficient filtering
-        if self._patient_index is None:
-            self._patient_index = pl.read_parquet(self._patient_index_path)
-
-        patient_index_df = self._patient_index
-
-        # Filter to specific patients if requested
-        if patient_ids is not None:
-            patient_index_df = patient_index_df.filter(
-                pl.col("patient_id").is_in(patient_ids)
-            )
-
-        patient_list = patient_index_df["patient_id"].to_list()
-
-        def load_patient(patient_id: str) -> Patient:
-            """Load a single patient from disk cache."""
-            # Use Polars predicate pushdown for efficient filtering
-            # This reads only the row groups containing this patient
+        
+        if self.stream:
+            # Streaming mode: Load patient from disk cache
+            if not self._patient_cache_path.exists():
+                self._build_patient_cache()
+            
             patient_df = (
                 pl.scan_parquet(self._patient_cache_path)
                 .filter(pl.col("patient_id") == patient_id)
                 .collect()
             )
             return Patient(patient_id=patient_id, data_source=patient_df)
-
-        if preload <= 1:
-            # No preloading - simple sequential iteration
-            for patient_id in patient_list:
-                yield load_patient(patient_id)
         else:
-            # Preload patients in background using ThreadPoolExecutor
-            with ThreadPoolExecutor(max_workers=min(preload, 4)) as executor:
-                # Submit initial batch of futures
-                futures = []
-                for i in range(min(preload, len(patient_list))):
-                    futures.append(executor.submit(load_patient, patient_list[i]))
+            # Normal mode: Filter from collected DataFrame
+            df = self.collected_global_event_df.filter(pl.col("patient_id") == patient_id)
+            return Patient(patient_id=patient_id, data_source=df)
 
-                # Main iteration loop
-                for i in range(len(patient_list)):
-                    # Wait for and yield the oldest future
-                    patient = futures.pop(0).result()
-                    yield patient
+    def iter_patients(
+        self, 
+        df: Optional[pl.DataFrame] = None,
+        patient_ids: Optional[List[str]] = None,
+        preload: int = 1,
+    ) -> Iterator[Patient]:
+        """Yields Patient objects for each unique patient in the dataset.
 
-                    # Submit next patient if available
-                    next_idx = i + preload
-                    if next_idx < len(patient_list):
-                        futures.append(
-                            executor.submit(load_patient, patient_list[next_idx])
-                        )
+        Automatically uses streaming iteration when stream=True and df is None.
+        In normal mode, loads data into memory and iterates.
 
-                # Yield any remaining preloaded patients
-                for future in futures:
-                    yield future.result()
+        Args:
+            df (Optional[pl.DataFrame]): Optional pre-filtered DataFrame.
+                If None, behavior depends on stream mode:
+                - stream=False: Uses collected_global_event_df (loads to memory)
+                - stream=True: Uses disk-backed streaming iteration
+            patient_ids (Optional[List[str]]): Optional list of specific patient IDs 
+                to iterate over. Only used in streaming mode when df is None.
+            preload (int): Number of patients to preload ahead in streaming mode.
+                Only used when stream=True and df is None. Default is 1.
+
+        Yields:
+            Iterator[Patient]: An iterator over Patient objects.
+        """
+        if df is None:
+            if self.stream:
+                # Streaming mode: Use disk-backed iteration
+                # Ensure cache exists
+                if not self._patient_cache_path.exists():
+                    self._build_patient_cache()
+
+                # Load patient index for efficient filtering
+                if self._patient_index is None:
+                    self._patient_index = pl.read_parquet(self._patient_index_path)
+
+                patient_index_df = self._patient_index
+
+                # Filter to specific patients if requested
+                if patient_ids is not None:
+                    patient_index_df = patient_index_df.filter(
+                        pl.col("patient_id").is_in(patient_ids)
+                    )
+
+                patient_list = patient_index_df["patient_id"].to_list()
+
+                def load_patient(patient_id: str) -> Patient:
+                    """Load a single patient from disk cache."""
+                    patient_df = (
+                        pl.scan_parquet(self._patient_cache_path)
+                        .filter(pl.col("patient_id") == patient_id)
+                        .collect()
+                    )
+                    return Patient(patient_id=patient_id, data_source=patient_df)
+
+                if preload <= 1:
+                    # No preloading - simple sequential iteration
+                    for patient_id in patient_list:
+                        yield load_patient(patient_id)
+                else:
+                    # Preload patients in background using ThreadPoolExecutor
+                    with ThreadPoolExecutor(max_workers=min(preload, 4)) as executor:
+                        # Submit initial batch of futures
+                        futures = []
+                        for i in range(min(preload, len(patient_list))):
+                            futures.append(executor.submit(load_patient, patient_list[i]))
+
+                        # Main iteration loop
+                        for i in range(len(patient_list)):
+                            # Wait for and yield the oldest future
+                            patient = futures.pop(0).result()
+                            yield patient
+
+                            # Submit next patient if available
+                            next_idx = i + preload
+                            if next_idx < len(patient_list):
+                                futures.append(
+                                    executor.submit(load_patient, patient_list[next_idx])
+                                )
+
+                        # Yield any remaining preloaded patients
+                        for future in futures:
+                            yield future.result()
+            else:
+                # Normal mode: Load all data to memory
+                df = self.collected_global_event_df
+                grouped = df.group_by("patient_id")
+                for patient_id, patient_df in grouped:
+                    patient_id = patient_id[0]
+                    yield Patient(patient_id=patient_id, data_source=patient_df)
+        else:
+            # DataFrame provided: Use it regardless of mode
+            grouped = df.group_by("patient_id")
+            for patient_id, patient_df in grouped:
+                patient_id = patient_id[0]
+                yield Patient(patient_id=patient_id, data_source=patient_df)
+
+    def iter_patients_streaming(
+        self,
+        patient_ids: Optional[List[str]] = None,
+        preload: int = 1,
+    ) -> Iterator[Patient]:
+        """[DEPRECATED] Use iter_patients() instead - it automatically handles streaming.
+
+        This method is kept for backward compatibility but now simply calls
+        iter_patients() with the same parameters.
+
+        Args:
+            patient_ids (Optional[List[str]]): Optional list of specific patient IDs.
+            preload (int): Number of patients to preload ahead. Default is 1.
+
+        Yields:
+            Patient: Patient objects
+
+        Example:
+            >>> # Old way (still works)
+            >>> for patient in dataset.iter_patients_streaming():
+            ...     process(patient)
+            
+            >>> # New way (recommended)
+            >>> for patient in dataset.iter_patients():
+            ...     process(patient)  # Automatically streams if stream=True
+        """
+        import warnings
+        warnings.warn(
+            "iter_patients_streaming() is deprecated. Use iter_patients() instead - "
+            "it automatically handles streaming when stream=True.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        return self.iter_patients(patient_ids=patient_ids, preload=preload)
 
     def stats(self) -> None:
         """Prints statistics about the dataset."""
@@ -709,7 +728,7 @@ class BaseDataset(ABC):
                 total_patients = len(patient_index)
 
                 for patient in tqdm(
-                    self.iter_patients_streaming(preload=3),
+                    self.iter_patients(preload=3),  # Now uses unified API!
                     total=total_patients,
                     desc=f"Generating samples for {task.task_name}",
                 ):
