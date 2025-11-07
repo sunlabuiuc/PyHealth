@@ -61,13 +61,13 @@ class BMDHSDiseaseClassification(BaseTask):
     }
     
     def __init__(self,
-                 sample_rate: Optional[int] = 16000,
-                 duration: Optional[float] = 20.0,   
+                 sample_rate: Optional[int] = 4000, # BMD-HS original sample rate
+                 duration: Optional[float] = 20.0, # maximum duration of recordings in BMD-HS
                  to_mono: bool = True,
                  normalize: bool = True,
                  mean: Optional[float] = None,
                  std: Optional[float] = None,
-                 n_mels: Optional[int] = 64,
+                 n_mels: Optional[int] = None,
                  n_fft: int = 400,
                  hop_length: Optional[int] = None,              
                  ) -> None:
