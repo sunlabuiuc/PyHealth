@@ -230,14 +230,15 @@ class TestInterpretabilityMetrics(unittest.TestCase):
             self.model, percentages=[10, 20, 50], ablation_strategy="zero"
         )
 
-        # Compute scores
-        scores = comp.compute(self.batch, attributions)
+        # Compute scores - now returns (scores, valid_mask) tuple
+        scores, valid_mask = comp.compute(self.batch, attributions)
 
         # Check output shape
         self.assertEqual(scores.shape[0], 2)  # batch size
+        self.assertEqual(valid_mask.shape[0], 2)  # same as batch size
 
-        # For binary classification, filter out NaN (negative class) scores
-        valid_scores = scores[~torch.isnan(scores)]
+        # For binary classification, use valid_mask to filter
+        valid_scores = scores[valid_mask.bool()]
 
         # With untrained model, might predict all class 0,
         # so valid_scores could be empty
@@ -259,14 +260,15 @@ class TestInterpretabilityMetrics(unittest.TestCase):
             self.model, percentages=[10, 20, 50], ablation_strategy="zero"
         )
 
-        # Compute scores
-        scores = suff.compute(self.batch, attributions)
+        # Compute scores - now returns (scores, valid_mask) tuple
+        scores, valid_mask = suff.compute(self.batch, attributions)
 
         # Check output shape
         self.assertEqual(scores.shape[0], 2)
+        self.assertEqual(valid_mask.shape[0], 2)
 
-        # For binary classification, filter out NaN (negative class) scores
-        valid_scores = scores[~torch.isnan(scores)]
+        # For binary classification, use valid_mask to filter
+        valid_scores = scores[valid_mask.bool()]
 
         # With untrained model, might not have positive predictions
         if len(valid_scores) > 0:
@@ -305,14 +307,16 @@ class TestInterpretabilityMetrics(unittest.TestCase):
             comp = ComprehensivenessMetric(
                 self.model, percentages=[10, 20], ablation_strategy=strategy
             )
-            scores = comp.compute(self.batch, attributions)
+            # Compute returns (scores, valid_mask) tuple
+            scores, valid_mask = comp.compute(self.batch, attributions)
 
             # Should produce valid scores for each strategy
             self.assertEqual(scores.shape[0], 2)
+            self.assertEqual(valid_mask.shape[0], 2)
 
-            # Filter out NaN for binary classification
+            # Use valid_mask to filter for binary classification
             # With untrained model, might not have positive predictions
-            valid_scores = scores[~torch.isnan(scores)]
+            valid_scores = scores[valid_mask.bool()]
             if len(valid_scores) > 0:
                 self.assertTrue(torch.all(torch.isfinite(valid_scores)))
 
@@ -323,18 +327,24 @@ class TestInterpretabilityMetrics(unittest.TestCase):
         # Initialize evaluator
         evaluator = Evaluator(self.model)
 
-        # Evaluate both metrics
+        # Evaluate both metrics - now returns dict of tuples
         results = evaluator.evaluate(
             self.batch,
             attributions,
             metrics=["comprehensiveness", "sufficiency"],
         )
 
-        # Check results
+        # Check results - each metric returns (scores, valid_mask) tuple
         self.assertIn("comprehensiveness", results)
         self.assertIn("sufficiency", results)
-        self.assertEqual(results["comprehensiveness"].shape[0], 2)
-        self.assertEqual(results["sufficiency"].shape[0], 2)
+
+        comp_scores, comp_mask = results["comprehensiveness"]
+        suff_scores, suff_mask = results["sufficiency"]
+
+        self.assertEqual(comp_scores.shape[0], 2)
+        self.assertEqual(comp_mask.shape[0], 2)
+        self.assertEqual(suff_scores.shape[0], 2)
+        self.assertEqual(suff_mask.shape[0], 2)
 
         # Test evaluate_detailed
         detailed_results = evaluator.evaluate_detailed(
@@ -366,35 +376,37 @@ class TestInterpretabilityMetrics(unittest.TestCase):
         evaluator = Evaluator(self.model)
         results = evaluator.evaluate(sample, attributions)
 
-        # Check results are valid
+        # Check results are valid - now returns (scores, valid_mask) tuples
         self.assertIn("comprehensiveness", results)
         self.assertIn("sufficiency", results)
-        self.assertEqual(results["comprehensiveness"].shape[0], 1)
-        self.assertEqual(results["sufficiency"].shape[0], 1)
 
-        # For binary classification, filter NaN values
-        comp_score_tensor = results["comprehensiveness"]
-        suff_score_tensor = results["sufficiency"]
+        comp_scores, comp_mask = results["comprehensiveness"]
+        suff_scores, suff_mask = results["sufficiency"]
 
-        # Check if we have valid (non-NaN) scores
-        if not torch.isnan(comp_score_tensor[0]):
+        self.assertEqual(comp_scores.shape[0], 1)
+        self.assertEqual(comp_mask.shape[0], 1)
+        self.assertEqual(suff_scores.shape[0], 1)
+        self.assertEqual(suff_mask.shape[0], 1)
+
+        # For binary classification, check if sample is valid
+        if comp_mask[0].item() == 1:
             # Comprehensiveness should typically be positive
             # (removing important features should hurt prediction)
-            comp_score = comp_score_tensor[0].item()
+            comp_score = comp_scores[0].item()
             self.assertTrue(
                 -1.0 <= comp_score <= 1.0,
                 f"Comprehensiveness score {comp_score} out of expected range",
             )
-        # else: Sample was negative class, metric correctly returns NaN
+        # else: Sample was negative class, score may not be meaningful
 
-        if not torch.isnan(suff_score_tensor[0]):
+        if suff_mask[0].item() == 1:
             # Sufficiency can be positive or negative
-            suff_score = suff_score_tensor[0].item()
+            suff_score = suff_scores[0].item()
             self.assertTrue(
                 -1.0 <= suff_score <= 1.0,
                 f"Sufficiency score {suff_score} out of expected range",
             )
-        # else: Sample was negative class, metric correctly returns NaN
+        # else: Sample was negative class, score may not be meaningful
 
     def test_percentage_sensitivity(self):
         """Test that scores vary with different percentages."""
