@@ -2,6 +2,9 @@ import logging
 from pathlib import Path
 from typing import Optional
 import polars as pl
+
+from pyhealth.tasks.base_task import BaseTask
+from pyhealth.tasks.bmd_hs_disease_classification import BMDHSDiseaseClassification
 from .base_dataset import BaseDataset
 
 logger = logging.getLogger(__name__)
@@ -97,3 +100,12 @@ class BMDHSDataset(BaseDataset):
                 )
 
         return df
+    
+    @property
+    def default_task(self) -> BMDHSDiseaseClassification:
+        """Returns the default task for the BMD-HS dataset: BMDHSDiseaseClassification.
+        
+        Returns:
+            BMDHSDiseaseClassification: The default task instance.
+        """
+        return BMDHSDiseaseClassification()

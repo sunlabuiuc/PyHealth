@@ -1,5 +1,6 @@
 from .base_task import BaseTask
 from .benchmark_ehrshot import BenchmarkEHRShot
+from .bmd_hs_disease_classification import BMDHSDiseaseClassification
 from .cardiology_detect import (
     cardiology_isAD_fn,
     cardiology_isAR_fn,
