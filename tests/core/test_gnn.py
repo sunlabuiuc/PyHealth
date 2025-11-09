@@ -82,6 +82,93 @@ class TestGCN(unittest.TestCase):
         # Check that loss is a scalar
         self.assertEqual(ret["loss"].dim(), 0)
 
+    def test_model_forward_visit_graph(self):
+        """Test that the GCN model works with a custom visit adjacency."""
+        train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=True)
+        data_batch = next(iter(train_loader))
+        batch_size = data_batch[self.model.label_key].shape[0]
+        visit_adj = torch.eye(batch_size)
+        inputs = dict(data_batch)
+        inputs["visit_adj"] = visit_adj
+
+        with torch.no_grad():
+            ret = self.model(**inputs)
+
+        self.assertIn("loss", ret)
+        self.assertEqual(ret["logit"].shape[0], batch_size)
+
+    def test_model_forward_feature_graph(self):
+        """Test that the GCN model works with a custom feature adjacency."""
+        train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=True)
+        data_batch = next(iter(train_loader))
+        num_features = len(self.model.feature_keys)
+        feature_adj = torch.ones(num_features, num_features)
+        inputs = dict(data_batch)
+        inputs["feature_adj"] = feature_adj
+
+        with torch.no_grad():
+            ret = self.model(**inputs)
+
+        self.assertIn("loss", ret)
+        self.assertEqual(ret["logit"].shape[0], data_batch[self.model.label_key].shape[0])
+
+    def test_model_forward_feature_graph_batch_specific(self):
+        """GCN should accept batch-specific feature adjacency tensors."""
+        train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=True)
+        data_batch = next(iter(train_loader))
+        num_features = len(self.model.feature_keys)
+        batch_size = data_batch[self.model.label_key].shape[0]
+        per_batch_adj = torch.stack(
+            [torch.eye(num_features) + i for i in range(batch_size)], dim=0
+        )
+        inputs = dict(data_batch)
+        inputs["feature_adj"] = per_batch_adj
+
+        with torch.no_grad():
+            ret = self.model(**inputs)
+
+        self.assertIn("logit", ret)
+        self.assertEqual(ret["logit"].shape[0], batch_size)
+
+    def test_model_forward_visit_graph_sparse(self):
+        """GCN should support sparse visit adjacency matrices."""
+        train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=True)
+        data_batch = next(iter(train_loader))
+        batch_size = data_batch[self.model.label_key].shape[0]
+        visit_adj = torch.eye(batch_size).to_sparse()
+        inputs = dict(data_batch)
+        inputs["visit_adj"] = visit_adj
+
+        with torch.no_grad():
+            ret = self.model(**inputs)
+
+        self.assertIn("loss", ret)
+        self.assertEqual(ret["logit"].shape[0], batch_size)
+
+    def test_feature_adj_invalid_shape_raises(self):
+        """Invalid feature adjacency shapes should raise ValueError."""
+        train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=True)
+        data_batch = next(iter(train_loader))
+        num_features = len(self.model.feature_keys)
+        feature_adj = torch.ones(num_features + 1, num_features)
+        inputs = dict(data_batch)
+        inputs["feature_adj"] = feature_adj
+
+        with self.assertRaises(ValueError):
+            self.model(**inputs)
+
+    def test_visit_adj_invalid_shape_raises(self):
+        """Invalid visit adjacency shapes should raise ValueError."""
+        train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=True)
+        data_batch = next(iter(train_loader))
+        batch_size = data_batch[self.model.label_key].shape[0]
+        visit_adj = torch.ones(batch_size + 1, batch_size)
+        inputs = dict(data_batch)
+        inputs["visit_adj"] = visit_adj
+
+        with self.assertRaises(ValueError):
+            self.model(**inputs)
+
     def test_model_backward(self):
         """Test that the GCN model backward pass works correctly."""
         # Create data loader
@@ -222,6 +309,79 @@ class TestGAT(unittest.TestCase):
 
         # Check that loss is a scalar
         self.assertEqual(ret["loss"].dim(), 0)
+
+    def test_model_forward_visit_graph(self):
+        """Test that the GAT model works with a custom visit adjacency."""
+        train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=True)
+        data_batch = next(iter(train_loader))
+        batch_size = data_batch[self.model.label_key].shape[0]
+        visit_adj = torch.eye(batch_size)
+        inputs = dict(data_batch)
+        inputs["visit_adj"] = visit_adj
+
+        with torch.no_grad():
+            ret = self.model(**inputs)
+
+        self.assertIn("loss", ret)
+        self.assertEqual(ret["logit"].shape[0], batch_size)
+
+    def test_model_forward_feature_graph(self):
+        """Test that the GAT model works with a custom feature adjacency."""
+        train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=True)
+        data_batch = next(iter(train_loader))
+        num_features = len(self.model.feature_keys)
+        batch_size = data_batch[self.model.label_key].shape[0]
+        feature_adj = torch.ones(num_features, num_features)
+        inputs = dict(data_batch)
+        inputs["feature_adj"] = feature_adj
+
+        with torch.no_grad():
+            ret = self.model(**inputs)
+
+        self.assertIn("loss", ret)
+        self.assertEqual(ret["logit"].shape[0], batch_size)
+
+    def test_model_forward_feature_graph_batch_specific(self):
+        """GAT should accept batch-specific feature adjacency tensors."""
+        train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=True)
+        data_batch = next(iter(train_loader))
+        num_features = len(self.model.feature_keys)
+        batch_size = data_batch[self.model.label_key].shape[0]
+        per_batch_adj = torch.stack(
+            [torch.eye(num_features) * (i + 1) for i in range(batch_size)], dim=0
+        )
+        inputs = dict(data_batch)
+        inputs["feature_adj"] = per_batch_adj
+
+        with torch.no_grad():
+            ret = self.model(**inputs)
+
+        self.assertIn("logit", ret)
+        self.assertEqual(ret["logit"].shape[0], batch_size)
+
+    def test_feature_adj_invalid_shape_raises(self):
+        """Invalid feature adjacency shapes should raise ValueError in GAT."""
+        train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=True)
+        data_batch = next(iter(train_loader))
+        num_features = len(self.model.feature_keys)
+        feature_adj = torch.ones(num_features, num_features + 1)
+        inputs = dict(data_batch)
+        inputs["feature_adj"] = feature_adj
+
+        with self.assertRaises(ValueError):
+            self.model(**inputs)
+
+    def test_visit_adj_invalid_shape_raises(self):
+        """Invalid visit adjacency shapes should raise ValueError in GAT."""
+        train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=True)
+        data_batch = next(iter(train_loader))
+        batch_size = data_batch[self.model.label_key].shape[0]
+        visit_adj = torch.ones(batch_size, batch_size + 1)
+        inputs = dict(data_batch)
+        inputs["visit_adj"] = visit_adj
+
+        with self.assertRaises(ValueError):
+            self.model(**inputs)
 
     def test_model_backward(self):
         """Test that the GAT model backward pass works correctly."""

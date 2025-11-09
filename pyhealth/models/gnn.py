@@ -34,6 +34,70 @@ The module includes:
 - GAT: Full GAT model for patient-level predictions.
 """
 
+def _to_tensor(
+    value,
+    *,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> torch.Tensor:
+    """Converts supported array-like values to tensors on the desired device/dtype."""
+    if isinstance(value, torch.Tensor):
+        return value.to(device=device, dtype=dtype)
+    return torch.tensor(value, device=device, dtype=dtype)
+
+
+def _prepare_feature_adj(
+    adj_value,
+    *,
+    batch_size: int,
+    num_features: int,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> Optional[torch.Tensor]:
+    """Normalizes feature-level adjacency to shape [batch_size, num_features, num_features]."""
+    if adj_value is None:
+        return None
+    adj = _to_tensor(adj_value, device=device, dtype=dtype)
+    if adj.dim() == 2:
+        if adj.shape[0] != num_features or adj.shape[1] != num_features:
+            raise ValueError(
+                f"feature_adj must be of shape [{num_features}, {num_features}] "
+                f"or [batch_size, {num_features}, {num_features}]"
+            )
+        adj = adj.unsqueeze(0).expand(batch_size, -1, -1)
+    elif adj.dim() == 3:
+        if (
+            adj.shape[0] != batch_size
+            or adj.shape[1] != num_features
+            or adj.shape[2] != num_features
+        ):
+            raise ValueError(
+                f"feature_adj with 3 dimensions must match "
+                f"[batch_size, {num_features}, {num_features}]"
+            )
+    else:
+        raise ValueError("feature_adj must be either 2D or 3D tensor")
+    return adj
+
+
+def _prepare_visit_adj(
+    adj_value,
+    *,
+    batch_size: int,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> Optional[torch.Tensor]:
+    """Normalizes visit-level adjacency to shape [batch_size, batch_size]."""
+    if adj_value is None:
+        return None
+    adj = _to_tensor(adj_value, device=device, dtype=dtype)
+    if adj.dim() != 2 or adj.shape[0] != batch_size or adj.shape[1] != batch_size:
+        raise ValueError(
+            f"visit_adj must be a 2D tensor of shape [{batch_size}, {batch_size}]"
+        )
+    return adj
+
+
 class GraphConvolution(Module):
     """Simple GCN layer, similar to https://arxiv.org/abs/1609.02907.
 
@@ -101,8 +165,11 @@ class GraphConvolution(Module):
             Output features tensor after convolution.
         """
         support = torch.mm(input, self.weight)
-        # print("adj", adj.dtype, "support", support.dtype)
-        output = torch.spmm(adj, support)
+        if adj.layout == torch.strided:
+            output = torch.mm(adj, support)
+        else:
+            sparse_adj = adj if adj.layout == torch.sparse_coo else adj.to_sparse()
+            output = torch.sparse.mm(sparse_adj, support)
         if self.bias is not None:
             return output + self.bias
         else:
@@ -290,7 +357,13 @@ class GCN(BaseModel):
 
         Args:
             **kwargs: Input features and labels. Must include feature keys
-                and label key.
+                and label key. Optionally supports:
+                - feature_adj: Tensor/array defining feature-feature adjacency.
+                  Shape can be [num_features, num_features] shared across the
+                  batch or [batch_size, num_features, num_features].
+                - visit_adj: Tensor/array defining visit/patient adjacency of
+                  shape [batch_size, batch_size]. If omitted, a fully connected
+                  graph is used.
 
         Returns:
             Dictionary containing loss, predictions, true labels, logits,
@@ -312,14 +385,33 @@ class GCN(BaseModel):
             x = x.mean(dim=1)
             patient_embs.append(x)
 
-        patient_emb = torch.cat(patient_embs, dim=1)
+        feature_tensor = torch.stack(patient_embs, dim=1)  # (batch, feature, dim)
+        batch_size, num_features, _ = feature_tensor.size()
 
-        batch_size = patient_emb.size(0)
-        adj = torch.ones(batch_size, batch_size, device=self.device)
+        feature_adj = _prepare_feature_adj(
+            kwargs.get("feature_adj"),
+            batch_size=batch_size,
+            num_features=num_features,
+            device=feature_tensor.device,
+            dtype=feature_tensor.dtype,
+        )
+        if feature_adj is not None:
+            feature_tensor = torch.matmul(feature_adj, feature_tensor)
+
+        patient_emb = feature_tensor.reshape(batch_size, -1)
+
+        visit_adj = _prepare_visit_adj(
+            kwargs.get("visit_adj"),
+            batch_size=batch_size,
+            device=patient_emb.device,
+            dtype=patient_emb.dtype,
+        )
+        if visit_adj is None:
+            visit_adj = patient_emb.new_ones((batch_size, batch_size))
 
         x = patient_emb
         for i, gcn_layer in enumerate(self.gcn_layers):
-            x = gcn_layer(x, adj)
+            x = gcn_layer(x, visit_adj)
             if i < len(self.gcn_layers) - 1:
                 x = F.relu(x)
                 x = F.dropout(x, self.dropout, training=self.training)
@@ -442,7 +534,13 @@ class GAT(BaseModel):
 
         Args:
             **kwargs: Input features and labels. Must include feature keys
-                and label key.
+                and label key. Optionally supports:
+                - feature_adj: Tensor/array defining feature-feature adjacency.
+                  Shape can be [num_features, num_features] shared across the
+                  batch or [batch_size, num_features, num_features].
+                - visit_adj: Tensor/array defining visit/patient adjacency of
+                  shape [batch_size, batch_size]. If omitted, a fully connected
+                  graph is used.
 
         Returns:
             Dictionary containing loss, predictions, true labels, logits,
@@ -464,14 +562,33 @@ class GAT(BaseModel):
             x = x.mean(dim=1)
             patient_embs.append(x)
 
-        patient_emb = torch.cat(patient_embs, dim=1)
+        feature_tensor = torch.stack(patient_embs, dim=1)
+        batch_size, num_features, _ = feature_tensor.size()
 
-        batch_size = patient_emb.size(0)
-        adj = torch.ones(batch_size, batch_size, device=self.device)
+        feature_adj = _prepare_feature_adj(
+            kwargs.get("feature_adj"),
+            batch_size=batch_size,
+            num_features=num_features,
+            device=feature_tensor.device,
+            dtype=feature_tensor.dtype,
+        )
+        if feature_adj is not None:
+            feature_tensor = torch.matmul(feature_adj, feature_tensor)
+
+        patient_emb = feature_tensor.reshape(batch_size, -1)
+
+        visit_adj = _prepare_visit_adj(
+            kwargs.get("visit_adj"),
+            batch_size=batch_size,
+            device=patient_emb.device,
+            dtype=patient_emb.dtype,
+        )
+        if visit_adj is None:
+            visit_adj = patient_emb.new_ones((batch_size, batch_size))
 
         x = F.dropout(patient_emb, self.dropout, training=self.training)
         for i, gat_layer in enumerate(self.gat_layers):
-            x = gat_layer(x, adj)
+            x = gat_layer(x, visit_adj)
             if i < len(self.gat_layers) - 1:
                 x = F.dropout(F.elu(x), self.dropout, training=self.training)
 
@@ -527,10 +644,6 @@ if __name__ == "__main__":
     print(result)
 
     result["loss"].backward()
-
-
-
-
 
 
 
