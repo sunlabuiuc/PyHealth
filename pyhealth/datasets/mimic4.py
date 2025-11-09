@@ -1,13 +1,14 @@
 import logging
 import os
 import warnings
-from typing import Dict, List, Optional
+from typing import Dict, Iterator, List, Optional
 
 import pandas as pd
 import polars as pl
 
 try:
     import psutil
+
     HAS_PSUTIL = True
 except ImportError:
     HAS_PSUTIL = False
@@ -39,7 +40,7 @@ class MIMIC4EHRDataset(BaseDataset):
         tables (List[str]): A list of tables to be included in the dataset.
         dataset_name (Optional[str]): The name of the dataset.
         config_path (Optional[str]): The path to the configuration file.
-     """
+    """
 
     def __init__(
         self,
@@ -47,10 +48,12 @@ class MIMIC4EHRDataset(BaseDataset):
         tables: List[str],
         dataset_name: str = "mimic4_ehr",
         config_path: Optional[str] = None,
-        **kwargs
+        **kwargs,
     ):
         if config_path is None:
-            config_path = os.path.join(os.path.dirname(__file__), "configs", "mimic4_ehr.yaml")
+            config_path = os.path.join(
+                os.path.dirname(__file__), "configs", "mimic4_ehr.yaml"
+            )
             logger.info(f"Using default EHR config: {config_path}")
 
         log_memory_usage(f"Before initializing {dataset_name}")
@@ -61,7 +64,7 @@ class MIMIC4EHRDataset(BaseDataset):
             tables=tables,
             dataset_name=dataset_name,
             config_path=config_path,
-            **kwargs
+            **kwargs,
         )
         log_memory_usage(f"After initializing {dataset_name}")
 
@@ -86,10 +89,12 @@ class MIMIC4NoteDataset(BaseDataset):
         tables: List[str],
         dataset_name: str = "mimic4_note",
         config_path: Optional[str] = None,
-        **kwargs
+        **kwargs,
     ):
         if config_path is None:
-            config_path = os.path.join(os.path.dirname(__file__), "configs", "mimic4_note.yaml")
+            config_path = os.path.join(
+                os.path.dirname(__file__), "configs", "mimic4_note.yaml"
+            )
             logger.info(f"Using default note config: {config_path}")
         if "discharge" in tables:
             warnings.warn(
@@ -109,7 +114,7 @@ class MIMIC4NoteDataset(BaseDataset):
             tables=tables,
             dataset_name=dataset_name,
             config_path=config_path,
-            **kwargs
+            **kwargs,
         )
         log_memory_usage(f"After initializing {dataset_name}")
 
@@ -134,10 +139,12 @@ class MIMIC4CXRDataset(BaseDataset):
         tables: List[str],
         dataset_name: str = "mimic4_cxr",
         config_path: Optional[str] = None,
-        **kwargs
+        **kwargs,
     ):
         if config_path is None:
-            config_path = os.path.join(os.path.dirname(__file__), "configs", "mimic4_cxr.yaml")
+            config_path = os.path.join(
+                os.path.dirname(__file__), "configs", "mimic4_cxr.yaml"
+            )
             logger.info(f"Using default CXR config: {config_path}")
         self.prepare_metadata(root)
         log_memory_usage(f"Before initializing {dataset_name}")
@@ -146,12 +153,14 @@ class MIMIC4CXRDataset(BaseDataset):
             tables=tables,
             dataset_name=dataset_name,
             config_path=config_path,
-            **kwargs
+            **kwargs,
         )
         log_memory_usage(f"After initializing {dataset_name}")
 
     def prepare_metadata(self, root: str) -> None:
-        metadata = pd.read_csv(os.path.join(root, "mimic-cxr-2.0.0-metadata.csv.gz"), dtype=str)
+        metadata = pd.read_csv(
+            os.path.join(root, "mimic-cxr-2.0.0-metadata.csv.gz"), dtype=str
+        )
 
         def process_studytime(x):
             # reformat studytime to be 6 digits (e.g. 123.002 -> 000123 which is 12:30:00)
@@ -160,6 +169,7 @@ class MIMIC4CXRDataset(BaseDataset):
                 return f"{int(x):06d}"
             except Exception:
                 return x
+
         metadata["StudyTime"] = metadata["StudyTime"].apply(process_studytime)
 
         def process_image_path(x):
@@ -168,10 +178,15 @@ class MIMIC4CXRDataset(BaseDataset):
             folder = subject_id[:3]
             study_id = "s" + x["study_id"]
             dicom_id = x["dicom_id"]
-            return os.path.join(root, "files", folder, subject_id, study_id, f"{dicom_id}.jpg")
+            return os.path.join(
+                root, "files", folder, subject_id, study_id, f"{dicom_id}.jpg"
+            )
+
         metadata["image_path"] = metadata.apply(process_image_path, axis=1)
 
-        metadata.to_csv(os.path.join(root, "mimic-cxr-2.0.0-metadata-pyhealth.csv"), index=False)
+        metadata.to_csv(
+            os.path.join(root, "mimic-cxr-2.0.0-metadata-pyhealth.csv"), index=False
+        )
         return
 
 
@@ -196,6 +211,8 @@ class MIMIC4Dataset(BaseDataset):
         cxr_config_path: Path to the CXR config file
         dataset_name: Name of the dataset
         dev: Whether to enable dev mode (limit to 1000 patients)
+        stream: Whether to enable streaming mode for memory efficiency
+        cache_dir: Directory for streaming cache
     """
 
     def __init__(
@@ -211,6 +228,8 @@ class MIMIC4Dataset(BaseDataset):
         cxr_config_path: Optional[str] = None,
         dataset_name: str = "mimic4",
         dev: bool = False,
+        stream: bool = False,
+        cache_dir: Optional[str] = None,
     ):
         log_memory_usage("Starting MIMIC4Dataset init")
 
@@ -223,6 +242,8 @@ class MIMIC4Dataset(BaseDataset):
         # Dev flag is only used in the MIMIC4Dataset class
         # to ensure the same set of patients are used for all sub-datasets.
         self.dev = dev
+        self.stream = stream
+        self.cache_dir = cache_dir
 
         # We need at least one root directory
         if not any([ehr_root, note_root, cxr_root]):
@@ -235,31 +256,49 @@ class MIMIC4Dataset(BaseDataset):
 
         # Initialize EHR dataset if root is provided
         if ehr_root:
-            logger.info(f"Initializing MIMIC4EHRDataset with tables: {ehr_tables} (dev mode: {dev})")
+            logger.info(
+                f"Initializing MIMIC4EHRDataset with tables: {ehr_tables} "
+                f"(dev mode: {dev})"
+            )
             self.sub_datasets["ehr"] = MIMIC4EHRDataset(
                 root=ehr_root,
                 tables=ehr_tables,
                 config_path=ehr_config_path,
+                dev=dev,
+                stream=stream,
+                cache_dir=cache_dir,
             )
             log_memory_usage("After EHR dataset initialization")
 
         # Initialize Notes dataset if root is provided
         if note_root is not None and note_tables:
-            logger.info(f"Initializing MIMIC4NoteDataset with tables: {note_tables} (dev mode: {dev})")
+            logger.info(
+                f"Initializing MIMIC4NoteDataset with tables: {note_tables} "
+                f"(dev mode: {dev})"
+            )
             self.sub_datasets["note"] = MIMIC4NoteDataset(
                 root=note_root,
                 tables=note_tables,
                 config_path=note_config_path,
+                dev=dev,
+                stream=stream,
+                cache_dir=cache_dir,
             )
             log_memory_usage("After Note dataset initialization")
 
         # Initialize CXR dataset if root is provided
         if cxr_root is not None:
-            logger.info(f"Initializing MIMIC4CXRDataset with tables: {cxr_tables} (dev mode: {dev})")
+            logger.info(
+                f"Initializing MIMIC4CXRDataset with tables: {cxr_tables} "
+                f"(dev mode: {dev})"
+            )
             self.sub_datasets["cxr"] = MIMIC4CXRDataset(
                 root=cxr_root,
                 tables=cxr_tables,
                 config_path=cxr_config_path,
+                dev=dev,
+                stream=stream,
+                cache_dir=cache_dir,
             )
             log_memory_usage("After CXR dataset initialization")
 
@@ -271,6 +310,27 @@ class MIMIC4Dataset(BaseDataset):
         # Cache attributes
         self._collected_global_event_df = None
         self._unique_patient_ids = None
+
+        # Streaming-specific attributes (matching BaseDataset)
+        if self.stream:
+            from pathlib import Path
+
+            if cache_dir is None:
+                # Use first available root as default cache location
+                first_root = ehr_root or note_root or cxr_root
+                self.cache_dir = Path(first_root) / ".pyhealth_cache"
+            else:
+                self.cache_dir = Path(cache_dir)
+
+            # Initialize streaming-specific attributes
+            self._patient_cache_path = None
+            self._patient_index_path = None
+            self._patient_index = None
+
+            logger.info(f"Stream mode enabled - using disk cache at {self.cache_dir}")
+
+            # Setup streaming cache (calls BaseDataset method)
+            self._setup_streaming_cache()
 
         log_memory_usage("Completed MIMIC4Dataset init")
 
@@ -294,3 +354,60 @@ class MIMIC4Dataset(BaseDataset):
             return frames[0]
         else:
             return pl.concat(frames, how="diagonal")
+
+    @property
+    def unique_patient_ids(self) -> List[str]:
+        """
+        Get the full list of unique patient IDs from the primary sub-dataset.
+
+        This overrides the base class implementation to delegate to the
+        appropriate sub-dataset (EHR, Note, or CXR) rather than using
+        the collected global event dataframe.
+
+        Returns:
+            List[str]: Complete list of unique patient IDs (ignores dev mode)
+        """
+        # Use EHR dataset as primary source for patient IDs
+        if "ehr" in self.sub_datasets:
+            return self.sub_datasets["ehr"].unique_patient_ids
+        elif "note" in self.sub_datasets:
+            return self.sub_datasets["note"].unique_patient_ids
+        elif "cxr" in self.sub_datasets:
+            return self.sub_datasets["cxr"].unique_patient_ids
+        else:
+            return []
+
+    def iter_patients(
+        self,
+        df: Optional[pl.DataFrame] = None,
+        patient_ids: Optional[List[str]] = None,
+        preload: int = 1,
+    ) -> Iterator:
+        """
+        Iterate over patients using the EHR dataset as primary source.
+
+        Delegates to the primary sub-dataset (EHR, Note, or CXR).
+        The sub-dataset will handle streaming mode internally.
+        """
+        # Use EHR dataset as primary source for patient iteration
+        if "ehr" in self.sub_datasets:
+            return self.sub_datasets["ehr"].iter_patients(
+                df=df,
+                patient_ids=patient_ids,
+                preload=preload,
+            )
+        elif "note" in self.sub_datasets:
+            return self.sub_datasets["note"].iter_patients(
+                df=df,
+                patient_ids=patient_ids,
+                preload=preload,
+            )
+        elif "cxr" in self.sub_datasets:
+            return self.sub_datasets["cxr"].iter_patients(
+                df=df,
+                patient_ids=patient_ids,
+                preload=preload,
+            )
+        else:
+            # No sub-datasets available, return empty iterator
+            return iter([])

@@ -161,25 +161,30 @@ class BaseDataset(ABC):
         self._unique_patient_ids = None
 
         # Streaming-specific attributes
+        # _patient_index must always be initialized for streaming mode
         if self.stream:
-            self._patient_cache_path = None
-            self._patient_index_path = None
-            self._patient_index = None
+            if not hasattr(self, "_patient_index"):
+                self._patient_index = None
 
     def _setup_streaming_cache(self) -> None:
         """Setup disk-backed cache directory structure for streaming mode.
 
         Creates cache directory and defines paths for patient cache and index.
         Called during __init__ when stream=True.
+        
+        Dev mode uses separate cache files to avoid conflicts with full dataset.
         """
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
+        # Add dev suffix to cache paths to separate dev and full caches
+        suffix = "_dev" if self.dev else ""
+        
         # Define cache file paths
         self._patient_cache_path = (
-            self.cache_dir / f"{self.dataset_name}_patients.parquet"
+            self.cache_dir / f"{self.dataset_name}_patients{suffix}.parquet"
         )
         self._patient_index_path = (
-            self.cache_dir / f"{self.dataset_name}_patient_index.parquet"
+            self.cache_dir / f"{self.dataset_name}_patient_index{suffix}.parquet"
         )
 
         logger.info(f"Streaming cache directory: {self.cache_dir}")
@@ -248,11 +253,13 @@ class BaseDataset(ABC):
         patient_index = (
             pl.scan_parquet(self._patient_cache_path)
             .group_by("patient_id")
-            .agg([
-                pl.count().alias("event_count"),
-                pl.first("timestamp").alias("first_timestamp"),
-                pl.last("timestamp").alias("last_timestamp"),
-            ])
+            .agg(
+                [
+                    pl.count().alias("event_count"),
+                    pl.first("timestamp").alias("first_timestamp"),
+                    pl.last("timestamp").alias("last_timestamp"),
+                ]
+            )
             .sort("patient_id")
         )
         # sink_parquet uses streaming automatically
@@ -423,11 +430,36 @@ class BaseDataset(ABC):
         return event_frame
 
     @property
-    def unique_patient_ids(self) -> List[str]:
-        """Returns a list of unique patient IDs.
+    def patient_ids(self) -> List[str]:
+        """Returns a list of patient IDs, limited to 1000 in dev mode.
+
+        This is the primary property for getting patient IDs. In dev mode,
+        it automatically limits to the first 1000 patients for faster testing.
 
         Returns:
-            List[str]: List of unique patient IDs.
+            List[str]: List of patient IDs (limited to 1000 if dev=True)
+        """
+        full_patient_ids = self.unique_patient_ids
+        
+        # Limit to 1000 patients in dev mode
+        if self.dev and len(full_patient_ids) > 1000:
+            logger.info(
+                f"Dev mode: limiting from {len(full_patient_ids)} "
+                f"to 1000 patients"
+            )
+            return full_patient_ids[:1000]
+        
+        return full_patient_ids
+
+    @property
+    def unique_patient_ids(self) -> List[str]:
+        """Returns the full list of unique patient IDs (ignores dev mode).
+
+        This property always returns ALL patient IDs regardless of dev mode.
+        For dev-mode-aware access, use the `patient_ids` property instead.
+
+        Returns:
+            List[str]: Complete list of unique patient IDs
         """
         if self._unique_patient_ids is None:
             self._unique_patient_ids = (
@@ -457,12 +489,12 @@ class BaseDataset(ABC):
         assert (
             patient_id in self.unique_patient_ids
         ), f"Patient {patient_id} not found in dataset"
-        
+
         if self.stream:
             # Streaming mode: Load patient from disk cache
             if not self._patient_cache_path.exists():
                 self._build_patient_cache()
-            
+
             patient_df = (
                 pl.scan_parquet(self._patient_cache_path)
                 .filter(pl.col("patient_id") == patient_id)
@@ -471,11 +503,13 @@ class BaseDataset(ABC):
             return Patient(patient_id=patient_id, data_source=patient_df)
         else:
             # Normal mode: Filter from collected DataFrame
-            df = self.collected_global_event_df.filter(pl.col("patient_id") == patient_id)
+            df = self.collected_global_event_df.filter(
+                pl.col("patient_id") == patient_id
+            )
             return Patient(patient_id=patient_id, data_source=df)
 
     def iter_patients(
-        self, 
+        self,
         df: Optional[pl.DataFrame] = None,
         patient_ids: Optional[List[str]] = None,
         preload: int = 1,
@@ -490,7 +524,7 @@ class BaseDataset(ABC):
                 If None, behavior depends on stream mode:
                 - stream=False: Uses collected_global_event_df (loads to memory)
                 - stream=True: Uses disk-backed streaming iteration
-            patient_ids (Optional[List[str]]): Optional list of specific patient IDs 
+            patient_ids (Optional[List[str]]): Optional list of specific patient IDs
                 to iterate over. Only used in streaming mode when df is None.
             preload (int): Number of patients to preload ahead in streaming mode.
                 Only used when stream=True and df is None. Default is 1.
@@ -538,7 +572,9 @@ class BaseDataset(ABC):
                         # Submit initial batch of futures
                         futures = []
                         for i in range(min(preload, len(patient_list))):
-                            futures.append(executor.submit(load_patient, patient_list[i]))
+                            futures.append(
+                                executor.submit(load_patient, patient_list[i])
+                            )
 
                         # Main iteration loop
                         for i in range(len(patient_list)):
@@ -550,7 +586,9 @@ class BaseDataset(ABC):
                             next_idx = i + preload
                             if next_idx < len(patient_list):
                                 futures.append(
-                                    executor.submit(load_patient, patient_list[next_idx])
+                                    executor.submit(
+                                        load_patient, patient_list[next_idx]
+                                    )
                                 )
 
                         # Yield any remaining preloaded patients
@@ -591,17 +629,18 @@ class BaseDataset(ABC):
             >>> # Old way (still works)
             >>> for patient in dataset.iter_patients_streaming():
             ...     process(patient)
-            
+
             >>> # New way (recommended)
             >>> for patient in dataset.iter_patients():
             ...     process(patient)  # Automatically streams if stream=True
         """
         import warnings
+
         warnings.warn(
             "iter_patients_streaming() is deprecated. Use iter_patients() instead - "
             "it automatically handles streaming when stream=True.",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
         return self.iter_patients(patient_ids=patient_ids, preload=preload)
 
@@ -698,7 +737,7 @@ class BaseDataset(ABC):
                 # STREAMING MODE: Process patients iteratively
                 # ============================================================
                 from .sample_dataset import IterableSampleDataset
-                
+
                 logger.info("Generating samples in streaming mode...")
 
                 # Apply task's pre_filter on LazyFrame (no data loaded yet!)
@@ -717,6 +756,7 @@ class BaseDataset(ABC):
                     input_processors=input_processors,
                     output_processors=output_processors,
                     cache_dir=cache_dir or str(self.cache_dir),
+                    dev=self.dev,
                 )
 
                 # Process patients iteratively and write samples to disk
@@ -751,7 +791,9 @@ class BaseDataset(ABC):
                 # Build processors (must happen after all samples written)
                 sample_dataset.build_streaming()
 
-                logger.info(f"Generated {len(sample_dataset)} samples in streaming mode")
+                logger.info(
+                    f"Generated {len(sample_dataset)} samples in streaming mode"
+                )
 
                 return sample_dataset
 
@@ -760,7 +802,9 @@ class BaseDataset(ABC):
                 # NORMAL MODE: Original implementation (UNCHANGED)
                 # ============================================================
                 logger.info(f"Generating samples with {num_workers} worker(s)...")
-                filtered_global_event_df = task.pre_filter(self.collected_global_event_df)
+                filtered_global_event_df = task.pre_filter(
+                    self.collected_global_event_df
+                )
                 samples = []
 
                 if num_workers == 1:
@@ -768,7 +812,9 @@ class BaseDataset(ABC):
                     for patient in tqdm(
                         self.iter_patients(filtered_global_event_df),
                         total=filtered_global_event_df["patient_id"].n_unique(),
-                        desc=(f"Generating samples for {task.task_name} " "with 1 worker"),
+                        desc=(
+                            f"Generating samples for {task.task_name} " "with 1 worker"
+                        ),
                         smoothing=0,
                     ):
                         samples.extend(task(patient))
@@ -780,7 +826,9 @@ class BaseDataset(ABC):
                     )
                     patients = list(self.iter_patients(filtered_global_event_df))
                     with ThreadPoolExecutor(max_workers=num_workers) as executor:
-                        futures = [executor.submit(task, patient) for patient in patients]
+                        futures = [
+                            executor.submit(task, patient) for patient in patients
+                        ]
                         for future in tqdm(
                             as_completed(futures),
                             total=len(futures),

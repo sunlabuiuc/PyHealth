@@ -1,5 +1,6 @@
 from typing import Dict, List, Optional, Union, Type, Iterator
 import inspect
+import json
 import logging
 from pathlib import Path
 
@@ -10,6 +11,7 @@ import polars as pl
 
 from ..processors import get_processor
 from ..processors.base_processor import FeatureProcessor
+from .utils import _convert_for_cache, deserialize_sample_from_parquet
 
 logger = logging.getLogger(__name__)
 
@@ -193,9 +195,9 @@ class IterableSampleDataset(IterableDataset):
     - Memory usage independent of dataset size
 
     Attributes:
-        input_schema (Dict[str, Union[str, Type[FeatureProcessor]]]): 
+        input_schema (Dict[str, Union[str, Type[FeatureProcessor]]]):
             Schema for input data.
-        output_schema (Dict[str, Union[str, Type[FeatureProcessor]]]): 
+        output_schema (Dict[str, Union[str, Type[FeatureProcessor]]]):
             Schema for output data.
         dataset_name (Optional[str]): Name of the dataset.
         task_name (Optional[str]): Name of the task.
@@ -211,6 +213,7 @@ class IterableSampleDataset(IterableDataset):
         input_processors: Optional[Dict[str, FeatureProcessor]] = None,
         output_processors: Optional[Dict[str, FeatureProcessor]] = None,
         cache_dir: Optional[str] = None,
+        dev: bool = False,
     ) -> None:
         """Initializes the IterableSampleDataset.
 
@@ -222,11 +225,13 @@ class IterableSampleDataset(IterableDataset):
             input_processors: Pre-fitted input processors.
             output_processors: Pre-fitted output processors.
             cache_dir: Directory for disk-backed cache.
+            dev: Whether dev mode is enabled (for separate caching).
         """
         self.input_schema = input_schema
         self.output_schema = output_schema
         self.dataset_name = dataset_name or ""
         self.task_name = task_name or ""
+        self.dev = dev
 
         # Processor dictionaries
         self.input_processors = input_processors or {}
@@ -240,8 +245,12 @@ class IterableSampleDataset(IterableDataset):
         """Setup disk-backed sample storage for streaming mode."""
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
+        # Add dev suffix to separate dev and full caches
+        suffix = "_dev" if self.dev else ""
+
         self._sample_cache_path = (
-            self.cache_dir / f"{self.dataset_name}_{self.task_name}_samples.parquet"
+            self.cache_dir
+            / f"{self.dataset_name}_{self.task_name}_samples{suffix}.parquet"
         )
 
         # Track number of samples for __len__
@@ -264,14 +273,49 @@ class IterableSampleDataset(IterableDataset):
         """
         if self._samples_finalized:
             raise RuntimeError(
-                "Cannot add more samples after finalize_samples() has been called"
+                "Cannot add more samples after finalize_samples() has been " "called"
             )
 
         if not samples:
             return  # Nothing to add
 
+        # Convert samples for cache-friendly storage
+        converted_samples = [_convert_for_cache(s) for s in samples]
+
+        # Serialize complex nested structures to JSON strings for Parquet storage
+        # This avoids Polars type inference issues with mixed nested types
+        serialized_samples = []
+        for sample in converted_samples:
+            serialized_sample = {}
+            for key, value in sample.items():
+                if isinstance(value, dict) and "__stagenet_cache__" in value:
+                    # Serialize StageNet cache dicts to JSON strings
+                    serialized_sample[key] = json.dumps(value)
+                else:
+                    serialized_sample[key] = value
+            serialized_samples.append(serialized_sample)
+
+        # DEBUG: Inspect first converted sample to understand structure
+        if self._num_samples == 0 and len(serialized_samples) > 0:
+            logger.info("DEBUG: Inspecting first serialized sample structure:")
+            first_sample = serialized_samples[0]
+            for key, value in first_sample.items():
+                value_type = type(value).__name__
+                if isinstance(value, str) and len(value) > 100:
+                    logger.info(f"  {key}: {value_type} (JSON, len={len(value)})")
+                else:
+                    logger.info(f"  {key}: {value_type} = {value}")
+
         # Convert samples to DataFrame
-        sample_df = pl.DataFrame(samples)
+        try:
+            sample_df = pl.DataFrame(serialized_samples)
+        except Exception as e:
+            logger.error(f"Failed to create DataFrame from samples: {e}")
+            logger.error("Sample structure causing issue:")
+            for key in serialized_samples[0].keys():
+                values = [s[key] for s in serialized_samples[:3]]
+                logger.error(f"  {key}: {[type(v).__name__ for v in values]}")
+            raise
 
         # Write to parquet (append mode)
         if self._num_samples == 0:
@@ -306,8 +350,8 @@ class IterableSampleDataset(IterableDataset):
         """Build processors in streaming mode.
 
         Strategy: Read samples in batches to fit processors without
-        loading everything to memory. Then process samples in batches
-        and write back to disk.
+        loading everything to memory. Samples remain in cache as raw data
+        and are processed on-the-fly during iteration.
 
         This method requires that samples have been finalized.
         """
@@ -337,41 +381,18 @@ class IterableSampleDataset(IterableDataset):
             for i in range(num_batches):
                 batch = lf.slice(i * batch_size, batch_size).collect()
                 batch_samples = batch.to_dicts()
+
+                # Deserialize samples using helper function
+                restored_samples = [
+                    deserialize_sample_from_parquet(s) for s in batch_samples
+                ]
+
                 # Use fit method with batch
-                processor.fit(batch_samples, key)
+                processor.fit(restored_samples, key)
 
-        # Step 3: Process samples and write back
-        logger.info("Processing samples with fitted processors...")
-        processed_cache_path = self._sample_cache_path.with_suffix('.processed.parquet')
-
-        num_batches = (self._num_samples + batch_size - 1) // batch_size
-        for i in tqdm(range(num_batches), desc="Processing samples"):
-            # Read batch
-            batch = lf.slice(i * batch_size, batch_size).collect()
-            batch_samples = batch.to_dicts()
-
-            # Process each sample
-            for sample in batch_samples:
-                for k, v in sample.items():
-                    if k in self.input_processors:
-                        sample[k] = self.input_processors[k].process(v)
-                    elif k in self.output_processors:
-                        sample[k] = self.output_processors[k].process(v)
-
-            # Write processed batch
-            processed_df = pl.DataFrame(batch_samples)
-            if i == 0:
-                processed_df.write_parquet(processed_cache_path)
-            else:
-                existing = pl.read_parquet(processed_cache_path)
-                combined = pl.concat([existing, processed_df])
-                combined.write_parquet(processed_cache_path)
-
-        # Replace original cache with processed version
-        self._sample_cache_path.unlink()
-        processed_cache_path.rename(self._sample_cache_path)
-
-        logger.info("Processors built and samples processed!")
+        logger.info(
+            "Processors fitted! Processing will happen on-the-fly during iteration."
+        )
 
     def _get_processor_instance(
         self, processor_spec: Union[str, Type[FeatureProcessor]]
@@ -400,10 +421,11 @@ class IterableSampleDataset(IterableDataset):
         """Iterate over samples efficiently.
 
         This is the main method for accessing samples in streaming mode.
-        Samples are read from disk in batches for efficiency.
+        Samples are read from disk in batches, deserialized, and processed
+        on-the-fly with fitted processors.
 
         Yields:
-            Sample dictionaries
+            Sample dictionaries with processed features (as tensors)
 
         Example:
             >>> for sample in dataset:
@@ -426,7 +448,17 @@ class IterableSampleDataset(IterableDataset):
                 length = min(batch_size, self._num_samples - offset)
                 batch = lf.slice(offset, length).collect()
                 for sample in batch.to_dicts():
-                    yield sample
+                    # Deserialize from parquet format
+                    restored_sample = deserialize_sample_from_parquet(sample)
+
+                    # Process with fitted processors
+                    for k, v in restored_sample.items():
+                        if k in self.input_processors:
+                            restored_sample[k] = self.input_processors[k].process(v)
+                        elif k in self.output_processors:
+                            restored_sample[k] = self.output_processors[k].process(v)
+
+                    yield restored_sample
         else:
             # Multiple workers - partition samples
             worker_id = worker_info.id
@@ -440,7 +472,19 @@ class IterableSampleDataset(IterableDataset):
                     length = min(batch_size, self._num_samples - offset)
                     batch = lf.slice(offset, length).collect()
                     for sample in batch.to_dicts():
-                        yield sample
+                        # Deserialize from parquet format
+                        restored_sample = deserialize_sample_from_parquet(sample)
+
+                        # Process with fitted processors
+                        for k, v in restored_sample.items():
+                            if k in self.input_processors:
+                                restored_sample[k] = self.input_processors[k].process(v)
+                            elif k in self.output_processors:
+                                restored_sample[k] = self.output_processors[k].process(
+                                    v
+                                )
+
+                        yield restored_sample
 
     def __len__(self) -> int:
         """Returns the number of samples in the dataset.
