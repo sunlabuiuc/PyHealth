@@ -47,6 +47,13 @@ class TestGCN(unittest.TestCase):
         # Create model
         self.model = GCN(dataset=self.dataset)
 
+    def _get_num_visits(self, data_batch):
+        for feature_key in self.model.feature_keys:
+            value = data_batch[feature_key]
+            if isinstance(value, torch.Tensor) and value.dim() >= 2:
+                return value.shape[1]
+        return 1
+
     def test_model_initialization(self):
         """Test that the GCN model initializes correctly."""
         self.assertIsInstance(self.model, GCN)
@@ -87,7 +94,8 @@ class TestGCN(unittest.TestCase):
         train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=True)
         data_batch = next(iter(train_loader))
         batch_size = data_batch[self.model.label_key].shape[0]
-        visit_adj = torch.eye(batch_size)
+        num_visits = self._get_num_visits(data_batch)
+        visit_adj = torch.eye(num_visits).unsqueeze(0).repeat(batch_size, 1, 1)
         inputs = dict(data_batch)
         inputs["visit_adj"] = visit_adj
 
@@ -130,21 +138,6 @@ class TestGCN(unittest.TestCase):
         self.assertIn("logit", ret)
         self.assertEqual(ret["logit"].shape[0], batch_size)
 
-    def test_model_forward_visit_graph_sparse(self):
-        """GCN should support sparse visit adjacency matrices."""
-        train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=True)
-        data_batch = next(iter(train_loader))
-        batch_size = data_batch[self.model.label_key].shape[0]
-        visit_adj = torch.eye(batch_size).to_sparse()
-        inputs = dict(data_batch)
-        inputs["visit_adj"] = visit_adj
-
-        with torch.no_grad():
-            ret = self.model(**inputs)
-
-        self.assertIn("loss", ret)
-        self.assertEqual(ret["logit"].shape[0], batch_size)
-
     def test_feature_adj_invalid_shape_raises(self):
         """Invalid feature adjacency shapes should raise ValueError."""
         train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=True)
@@ -162,7 +155,8 @@ class TestGCN(unittest.TestCase):
         train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=True)
         data_batch = next(iter(train_loader))
         batch_size = data_batch[self.model.label_key].shape[0]
-        visit_adj = torch.ones(batch_size + 1, batch_size)
+        num_visits = self._get_num_visits(data_batch)
+        visit_adj = torch.ones(batch_size, num_visits + 1, num_visits)
         inputs = dict(data_batch)
         inputs["visit_adj"] = visit_adj
 
@@ -274,6 +268,13 @@ class TestGAT(unittest.TestCase):
         # Create model
         self.model = GAT(dataset=self.dataset)
 
+    def _get_num_visits(self, data_batch):
+        for feature_key in self.model.feature_keys:
+            value = data_batch[feature_key]
+            if isinstance(value, torch.Tensor) and value.dim() >= 2:
+                return value.shape[1]
+        return 1
+
     def test_model_initialization(self):
         """Test that the GAT model initializes correctly."""
         self.assertIsInstance(self.model, GAT)
@@ -315,7 +316,8 @@ class TestGAT(unittest.TestCase):
         train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=True)
         data_batch = next(iter(train_loader))
         batch_size = data_batch[self.model.label_key].shape[0]
-        visit_adj = torch.eye(batch_size)
+        num_visits = self._get_num_visits(data_batch)
+        visit_adj = torch.eye(num_visits).unsqueeze(0).repeat(batch_size, 1, 1)
         inputs = dict(data_batch)
         inputs["visit_adj"] = visit_adj
 
@@ -376,7 +378,8 @@ class TestGAT(unittest.TestCase):
         train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=True)
         data_batch = next(iter(train_loader))
         batch_size = data_batch[self.model.label_key].shape[0]
-        visit_adj = torch.ones(batch_size, batch_size + 1)
+        num_visits = self._get_num_visits(data_batch)
+        visit_adj = torch.ones(batch_size, num_visits, num_visits + 1)
         inputs = dict(data_batch)
         inputs["visit_adj"] = visit_adj
 

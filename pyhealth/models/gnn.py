@@ -10,7 +10,7 @@ from tqdm import tqdm
 import numpy as np
 from torch.nn.parameter import Parameter
 from torch.nn.modules.module import Module
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
@@ -59,7 +59,7 @@ def _prepare_feature_adj(
         return None
     adj = _to_tensor(adj_value, device=device, dtype=dtype)
     if adj.dim() == 2:
-        if adj.shape[0] != num_features or adj.shape[1] != num_features:
+        if adj.shape != (num_features, num_features):
             raise ValueError(
                 f"feature_adj must be of shape [{num_features}, {num_features}] "
                 f"or [batch_size, {num_features}, {num_features}]"
@@ -84,18 +84,54 @@ def _prepare_visit_adj(
     adj_value,
     *,
     batch_size: int,
+    num_visits: int,
     device: torch.device,
     dtype: torch.dtype,
-) -> Optional[torch.Tensor]:
-    """Normalizes visit-level adjacency to shape [batch_size, batch_size]."""
+) -> torch.Tensor:
+    """Normalizes visit-level adjacency to shape [batch_size, num_visits, num_visits]."""
     if adj_value is None:
-        return None
+        return torch.ones(batch_size, num_visits, num_visits, device=device, dtype=dtype)
     adj = _to_tensor(adj_value, device=device, dtype=dtype)
-    if adj.dim() != 2 or adj.shape[0] != batch_size or adj.shape[1] != batch_size:
+    if adj.dim() != 3 or adj.shape[0] != batch_size:
         raise ValueError(
-            f"visit_adj must be a 2D tensor of shape [{batch_size}, {batch_size}]"
+            f"visit_adj must be a 3D tensor with shape "
+            f"[batch_size, num_visits, num_visits]. Received {tuple(adj.shape)}."
         )
-    return adj
+    cur_visits = adj.shape[1]
+    if adj.shape[1] != adj.shape[2]:
+        raise ValueError("visit_adj must be square along the last two dimensions.")
+    if cur_visits > num_visits:
+        raise ValueError(
+            f"visit_adj has more visits ({cur_visits}) than the model expects ({num_visits})."
+        )
+    if cur_visits == num_visits:
+        return adj
+    pad_size = num_visits - cur_visits
+    padded = adj.new_zeros(batch_size, num_visits, num_visits)
+    padded[:, :cur_visits, :cur_visits] = adj
+    return padded
+
+
+def _align_visit_embeddings(feature_embs: List[torch.Tensor]) -> tuple[List[torch.Tensor], int]:
+    """Aligns feature embeddings to share the same visit dimension.
+
+    Features with fewer visits are either broadcast (if static) or padded with zeros.
+    """
+    visit_lengths = [emb.size(1) for emb in feature_embs]
+    max_visits = max(visit_lengths)
+    aligned: List[torch.Tensor] = []
+    for emb in feature_embs:
+        visit_len = emb.size(1)
+        if visit_len == max_visits:
+            aligned.append(emb)
+            continue
+        if visit_len == 1:
+            aligned.append(emb.expand(-1, max_visits, -1).contiguous())
+            continue
+        pad_len = max_visits - visit_len
+        pad = emb.new_zeros(emb.size(0), pad_len, emb.size(2))
+        aligned.append(torch.cat([emb, pad], dim=1))
+    return aligned, max_visits
 
 
 class GraphConvolution(Module):
@@ -164,6 +200,14 @@ class GraphConvolution(Module):
         Returns:
             Output features tensor after convolution.
         """
+        if input.dim() == 3:
+            support = torch.matmul(input, self.weight)
+            if adj.dim() == 2:
+                adj = adj.unsqueeze(0).expand(input.size(0), -1, -1)
+            output = torch.bmm(adj, support)
+            if self.bias is not None:
+                return output + self.bias
+            return output
         support = torch.mm(input, self.weight)
         if adj.layout == torch.strided:
             output = torch.mm(adj, support)
@@ -223,14 +267,28 @@ class GraphAttention(nn.Module):
         Returns:
             Output features tensor after attention aggregation.
         """
-        h = torch.mm(input, self.W)
-        N = h.size()[0]
+        if input.dim() == 3:
+            h = torch.matmul(input, self.W)
+            if adj.dim() == 2:
+                adj = adj.unsqueeze(0).expand(input.size(0), -1, -1)
+            f_1 = torch.matmul(h, self.a1)
+            f_2 = torch.matmul(h, self.a2)
+            e = self.leakyrelu(f_1 + f_2.transpose(1, 2))
+            zero_vec = torch.full_like(e, -9e15)
+            attention = torch.where(adj > 0, e, zero_vec)
+            attention = F.softmax(attention, dim=-1)
+            attention = F.dropout(attention, self.dropout, training=self.training)
+            h_prime = torch.matmul(attention, h)
+            if self.concat:
+                return F.elu(h_prime)
+            return h_prime
 
+        h = torch.mm(input, self.W)
         f_1 = torch.matmul(h, self.a1)
         f_2 = torch.matmul(h, self.a2)
-        e = self.leakyrelu(f_1 + f_2.transpose(0,1))
+        e = self.leakyrelu(f_1 + f_2.transpose(0, 1))
 
-        zero_vec = -9e15*torch.ones_like(e)
+        zero_vec = -9e15 * torch.ones_like(e)
         attention = torch.where(adj > 0, e, zero_vec)
         attention = F.softmax(attention, dim=1)
         attention = F.dropout(attention, self.dropout, training=self.training)
@@ -252,9 +310,10 @@ device = 'cpu'
 class GCN(BaseModel):
     """GCN model for PyHealth 2.0 datasets.
 
-    This model embeds each feature stream, concatenates the embeddings,
-    then applies Graph Convolutional Network on a fully-connected graph
-    of patients in the batch.
+    This model embeds each feature stream, aligns the visit dimension,
+    applies optional feature-level mixing, and finally runs stacked GCN layers
+    over the visit graph of each patient before aggregating visit embeddings
+    into patient-level logits.
 
     Args:
         dataset: Dataset providing processed inputs.
@@ -360,10 +419,11 @@ class GCN(BaseModel):
                 and label key. Optionally supports:
                 - feature_adj: Tensor/array defining feature-feature adjacency.
                   Shape can be [num_features, num_features] shared across the
-                  batch or [batch_size, num_features, num_features].
-                - visit_adj: Tensor/array defining visit/patient adjacency of
-                  shape [batch_size, batch_size]. If omitted, a fully connected
-                  graph is used.
+                  batch or [batch_size, num_features, num_features] for
+                  patient-specific feature graphs.
+                - visit_adj: Tensor/array defining visit-level adjacency per
+                  patient. Shape must be [batch_size, num_visits, num_visits].
+                  If omitted, a fully connected visit graph is used.
 
         Returns:
             Dictionary containing loss, predictions, true labels, logits,
@@ -382,11 +442,12 @@ class GCN(BaseModel):
         for feature_key in self.feature_keys:
             x = embedded[feature_key]
             x = self._pool_embedding(x)
-            x = x.mean(dim=1)
             patient_embs.append(x)
 
-        feature_tensor = torch.stack(patient_embs, dim=1)  # (batch, feature, dim)
-        batch_size, num_features, _ = feature_tensor.size()
+        patient_embs, num_visits = _align_visit_embeddings(patient_embs)
+        batch_size = patient_embs[0].size(0)
+        feature_tensor = torch.stack(patient_embs, dim=2)  # (batch, visit, feature, dim)
+        _, _, num_features, _ = feature_tensor.size()
 
         feature_adj = _prepare_feature_adj(
             kwargs.get("feature_adj"),
@@ -396,42 +457,42 @@ class GCN(BaseModel):
             dtype=feature_tensor.dtype,
         )
         if feature_adj is not None:
-            feature_tensor = torch.matmul(feature_adj, feature_tensor)
+            feature_tensor = torch.einsum("bfc,bvce->bvfe", feature_adj, feature_tensor)
 
-        patient_emb = feature_tensor.reshape(batch_size, -1)
+        visit_emb = feature_tensor.reshape(batch_size, num_visits, -1)
 
         visit_adj = _prepare_visit_adj(
             kwargs.get("visit_adj"),
             batch_size=batch_size,
-            device=patient_emb.device,
-            dtype=patient_emb.dtype,
+            num_visits=num_visits,
+            device=visit_emb.device,
+            dtype=visit_emb.dtype,
         )
-        if visit_adj is None:
-            visit_adj = patient_emb.new_ones((batch_size, batch_size))
 
-        x = patient_emb
+        x = visit_emb
         for i, gcn_layer in enumerate(self.gcn_layers):
             x = gcn_layer(x, visit_adj)
             if i < len(self.gcn_layers) - 1:
                 x = F.relu(x)
                 x = F.dropout(x, self.dropout, training=self.training)
 
-        logits = x
+        logits = x.mean(dim=1)
         y_true = kwargs[self.label_key].to(self.device)
         loss = self.get_loss_function()(logits, y_true)
         y_prob = self.prepare_y_prob(logits)
         results = {"loss": loss, "y_prob": y_prob, "y_true": y_true, "logit": logits}
         if kwargs.get("embed", False):
-            results["embed"] = x
+            results["embed"] = logits
         return results
 
 
 class GAT(BaseModel):
     """GAT model for PyHealth 2.0 datasets.
 
-    This model embeds each feature stream, concatenates the embeddings,
-    then applies Graph Attention Network on a fully-connected graph
-    of patients in the batch.
+    This model embeds each feature stream, aligns visits, applies optional
+    feature-level mixing, and performs attention-based message passing over
+    the visit graph of each patient before pooling visit embeddings to obtain
+    patient-level logits.
 
     Args:
         dataset: Dataset providing processed inputs.
@@ -535,12 +596,12 @@ class GAT(BaseModel):
         Args:
             **kwargs: Input features and labels. Must include feature keys
                 and label key. Optionally supports:
-                - feature_adj: Tensor/array defining feature-feature adjacency.
-                  Shape can be [num_features, num_features] shared across the
-                  batch or [batch_size, num_features, num_features].
-                - visit_adj: Tensor/array defining visit/patient adjacency of
-                  shape [batch_size, batch_size]. If omitted, a fully connected
-                  graph is used.
+                - feature_adj: Tensor/array defining feature-feature adjacency
+                  at each visit. Shape can be [num_features, num_features] or
+                  [batch_size, num_features, num_features].
+                - visit_adj: Tensor/array defining per-patient visit adjacency
+                  with shape [batch_size, num_visits, num_visits]. Defaults to a fully
+                  connected visit graph.
 
         Returns:
             Dictionary containing loss, predictions, true labels, logits,
@@ -559,11 +620,12 @@ class GAT(BaseModel):
         for feature_key in self.feature_keys:
             x = embedded[feature_key]
             x = self._pool_embedding(x)
-            x = x.mean(dim=1)
             patient_embs.append(x)
 
-        feature_tensor = torch.stack(patient_embs, dim=1)
-        batch_size, num_features, _ = feature_tensor.size()
+        patient_embs, num_visits = _align_visit_embeddings(patient_embs)
+        batch_size = patient_embs[0].size(0)
+        feature_tensor = torch.stack(patient_embs, dim=2)
+        _, _, num_features, _ = feature_tensor.size()
 
         feature_adj = _prepare_feature_adj(
             kwargs.get("feature_adj"),
@@ -573,32 +635,31 @@ class GAT(BaseModel):
             dtype=feature_tensor.dtype,
         )
         if feature_adj is not None:
-            feature_tensor = torch.matmul(feature_adj, feature_tensor)
+            feature_tensor = torch.einsum("bfc,bvce->bvfe", feature_adj, feature_tensor)
 
-        patient_emb = feature_tensor.reshape(batch_size, -1)
+        visit_emb = feature_tensor.reshape(batch_size, num_visits, -1)
 
         visit_adj = _prepare_visit_adj(
             kwargs.get("visit_adj"),
             batch_size=batch_size,
-            device=patient_emb.device,
-            dtype=patient_emb.dtype,
+            num_visits=num_visits,
+            device=visit_emb.device,
+            dtype=visit_emb.dtype,
         )
-        if visit_adj is None:
-            visit_adj = patient_emb.new_ones((batch_size, batch_size))
 
-        x = F.dropout(patient_emb, self.dropout, training=self.training)
+        x = F.dropout(visit_emb, self.dropout, training=self.training)
         for i, gat_layer in enumerate(self.gat_layers):
             x = gat_layer(x, visit_adj)
             if i < len(self.gat_layers) - 1:
                 x = F.dropout(F.elu(x), self.dropout, training=self.training)
 
-        logits = x
+        logits = x.mean(dim=1)
         y_true = kwargs[self.label_key].to(self.device)
         loss = self.get_loss_function()(logits, y_true)
         y_prob = self.prepare_y_prob(logits)
         results = {"loss": loss, "y_prob": y_prob, "y_true": y_true, "logit": logits}
         if kwargs.get("embed", False):
-            results["embed"] = x
+            results["embed"] = logits
         return results
 
 
@@ -644,10 +705,3 @@ if __name__ == "__main__":
     print(result)
 
     result["loss"].backward()
-
-
-
-
-
-
-
