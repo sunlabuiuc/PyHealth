@@ -12,14 +12,14 @@ class AudioProcessor(FeatureProcessor):
 
     Args:
         sample_rate: Desired output sample rate. If None, keeps original sample rate.
-            Defaults to 16000.
+            Defaults to 4000.
         duration: Desired duration in seconds. If None, keeps original duration.
             If shorter than audio, truncates. If longer, pads with zeros.
-            Defaults to None.
+            Defaults to 20.0.
         to_mono: Whether to convert stereo audio to mono. Defaults to True.
         normalize: Whether to normalize audio values to [-1, 1]. Defaults to False.
-        mean: Precomputed mean for normalization.
-        std: Precomputed std for normalization.
+        mean: Precomputed mean for normalization. Defaults to None.
+        std: Precomputed std for normalization. Defaults to None.
         n_mels: Number of mel filterbanks. If provided, converts to mel spectrogram.
             Defaults to None (keeps waveform).
         n_fft: Size of FFT for spectrogram. Defaults to 400.
@@ -31,8 +31,8 @@ class AudioProcessor(FeatureProcessor):
 
     def __init__(
         self,
-        sample_rate: Optional[int] = 16000,
-        duration: Optional[float] = None,
+        sample_rate: Optional[int] = 4000,  # BMD-HS original sample rate
+        duration: Optional[float] = 20.0,  # maximum duration of recordings in BMD-HS
         to_mono: bool = True,
         normalize: bool = False,
         mean: Optional[float] = None,
@@ -48,8 +48,7 @@ class AudioProcessor(FeatureProcessor):
                 "AudioProcessor requires torchaudio. "
                 "Install it with: pip install torchaudio"
             )
-            
-        
+
         self.sample_rate = sample_rate
         self.duration = duration
         self.to_mono = to_mono
@@ -82,7 +81,7 @@ class AudioProcessor(FeatureProcessor):
         """
         import torchaudio
         import torchaudio.transforms as T
-        
+
         audio_path = Path(value)
         if not audio_path.exists():
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
@@ -106,7 +105,7 @@ class AudioProcessor(FeatureProcessor):
         if self.duration is not None:
             target_length = int(self.duration * current_sample_rate)
             current_length = waveform.shape[1]
-            
+
             if current_length > target_length:
                 # Truncate
                 waveform = waveform[:, :target_length]

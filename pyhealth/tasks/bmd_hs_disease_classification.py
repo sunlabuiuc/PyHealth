@@ -1,7 +1,6 @@
-from typing import Any, Dict, List, Optional
-
-from pyhealth.processors.audio_processor import AudioProcessor
+from typing import Any, Dict, List
 from .base_task import BaseTask
+
 
 class BMDHSDiseaseClassification(BaseTask):
     """Multi-label classification task for heart valve diseases.
@@ -26,51 +25,34 @@ class BMDHSDiseaseClassification(BaseTask):
         task_name (str): The name of the task, set to "BMDHSDiseaseClassification".
         input_schema (Dict[str, str]): The input schema specifying the required
             input format. Contains:
-            - "recording_1" through "recording_8": "tensor"
+            - "recording_1" through "recording_8": "audio"
             - "age": "float"
             - "gender": "categorical"
             - "smoker": "binary"
             - "lives": "binary"
-        output_schema (Dict[str, tensor]): The output schema specifying the output
+        output_schema (Dict[str, str]): The output schema specifying the output
             format. Contains:
             - "diagnosis": "multilabel"
     """
 
     task_name: str = "BMDHSDiseaseClassification"
-    
+
     input_schema: Dict[str, str] = {
         # 8 heart sound recordings
-        "recording_1": "tensor",
-        "recording_2": "tensor",
-        "recording_3": "tensor",
-        "recording_4": "tensor",
-        "recording_5": "tensor",
-        "recording_6": "tensor",
-        "recording_7": "tensor",
-        "recording_8": "tensor",
+        **{f"recording_{i}": "audio" for i in range(1, 9)},
         # Patient metadata
         "age": "regression",
         "gender": "binary",
         "smoker": "binary",
         "lives": "binary",
     }
-    
+
     output_schema: Dict[str, str] = {
         # Multi-label disease classification
         "diagnosis": "multilabel",
     }
-    
-    def __init__(self,
-                 sample_rate: Optional[int] = 4000, # BMD-HS original sample rate
-                 duration: Optional[float] = 20.0, # maximum duration of recordings in BMD-HS
-                 to_mono: bool = True,
-                 normalize: bool = True,
-                 mean: Optional[float] = None,
-                 std: Optional[float] = None,
-                 n_mels: Optional[int] = None,
-                 n_fft: int = 400,
-                 hop_length: Optional[int] = None,              
-                 ) -> None:
+
+    def __init__(self) -> None:
         try:
             import soundfile
         except ImportError:
@@ -79,17 +61,6 @@ class BMDHSDiseaseClassification(BaseTask):
                 "Install it with: pip install soundfile"
             )
         super().__init__()
-        self.audio_processor = AudioProcessor(
-            sample_rate=sample_rate,
-            duration=duration,
-            to_mono=to_mono,
-            normalize=normalize,
-            mean=mean,
-            std=std,
-            n_mels=n_mels,
-            n_fft=n_fft,
-            hop_length=hop_length,
-        )
 
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
         """Process a patient's data to extract features and labels.
@@ -109,14 +80,14 @@ class BMDHSDiseaseClassification(BaseTask):
         Raises:
             AssertionError: If the patient has more than one event.
         """
-        
+
+        pid = patient.patient_id
+
         # Extract recording filenames
-        rec_event = patient.get_events(event_type="recordings")[0]        
+        rec_event = patient.get_events(event_type="recordings")[0]
         recordings = {
-            f'recording_{i}': self.audio_processor.process(
-                rec_event[f'recording_{i}']
-            ) for i in range(1, 9)
-            }
+            f"recording_{i}": rec_event[f"recording_{i}"] for i in range(1, 9)
+        }
 
         # Extract metadata
         meta_event = patient.get_events(event_type="metadata")[0]
@@ -126,11 +97,15 @@ class BMDHSDiseaseClassification(BaseTask):
             "smoker": meta_event["Smoker"],
             "lives": meta_event["Lives"],
         }
-        
+
         # Extract disease labels (multi-label)
         diag_event = patient.get_events(event_type="diagnoses")[0]
-        labels = {"diagnosis": [dis for dis in ["AS", "AR", "MR", "MS"] if int(diag_event[dis])]}
+        labels = {
+            "diagnosis": [
+                dis for dis in ["AS", "AR", "MR", "MS"] if int(diag_event[dis])
+            ]
+        }
         # Combine all features and labels
-        sample = {**recordings, **metadata, **labels}
+        sample = {"patient_id": pid, **recordings, **metadata, **labels}
 
         return [sample]
