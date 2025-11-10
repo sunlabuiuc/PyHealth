@@ -125,6 +125,7 @@ class Trainer:
         monitor: Optional[str] = None,
         monitor_criterion: str = "max",
         load_best_model_at_last: bool = True,
+        patience=None,
     ):
         """Trains the model.
 
@@ -142,6 +143,8 @@ class Trainer:
             monitor_criterion: Criterion to monitor. Default is "max".
             load_best_model_at_last: Whether to load the best model at the last.
                 Default is True.
+            patience: Number of epochs to wait for improvement before early stopping.
+                Default is None, which means no early stopping.
         """
         if optimizer_params is None:
             optimizer_params = {"lr": 1e-3}
@@ -157,6 +160,7 @@ class Trainer:
         logger.info(f"Monitor: {monitor}")
         logger.info(f"Monitor criterion: {monitor_criterion}")
         logger.info(f"Epochs: {epochs}")
+        logger.info(f"Patience: {patience}")
 
         # set optimizer
         param = list(self.model.named_parameters())
@@ -176,9 +180,10 @@ class Trainer:
         # initialize
         data_iterator = iter(train_dataloader)
         best_score = -1 * float("inf") if monitor_criterion == "max" else float("inf")
-        if steps_per_epoch == None:
+        if steps_per_epoch is None:
             steps_per_epoch = len(train_dataloader)
         global_step = 0
+        patience_counter = 0
 
         # epoch training loop
         for epoch in range(epochs):
@@ -232,8 +237,17 @@ class Trainer:
                             f"at epoch-{epoch}, step-{global_step}"
                         )
                         best_score = score
+                        patience_counter = 0
                         if self.exp_path is not None:
                             self.save_ckpt(os.path.join(self.exp_path, "best.ckpt"))
+                    else:
+                        patience_counter += 1
+                        # early stopping
+                        if patience is not None and patience_counter >= patience:
+                            logger.info(
+                                f"Early stopping at epoch-{epoch}, step-{global_step}"
+                            )
+                            break
 
         # load best model
         if load_best_model_at_last and self.exp_path is not None and os.path.isfile(
@@ -244,7 +258,7 @@ class Trainer:
         # test
         if test_dataloader is not None:
             scores = self.evaluate(test_dataloader)
-            logger.info(f"--- Test ---")
+            logger.info("--- Test ---")
             for key in scores.keys():
                 logger.info("{}: {:.4f}".format(key, scores[key]))
 
