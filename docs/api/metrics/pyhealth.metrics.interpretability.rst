@@ -7,7 +7,7 @@ by measuring how model predictions change when important features are removed or
 Evaluator
 ---------
 
-.. currentmodule:: pyhealth.metrics.interpretability
+.. currentmodule:: pyhealth.metrics.interpretability.evaluator
 
 .. autoclass:: Evaluator
    :members:
@@ -17,6 +17,8 @@ Evaluator
 Functional API
 --------------
 
+.. currentmodule:: pyhealth.metrics.interpretability.evaluator
+
 .. autofunction:: evaluate_attribution
 
 Removal-Based Metrics
@@ -24,6 +26,8 @@ Removal-Based Metrics
 
 Base Class
 ^^^^^^^^^^
+
+.. currentmodule:: pyhealth.metrics.interpretability.base
 
 .. autoclass:: RemovalBasedMetric
    :members:
@@ -33,6 +37,8 @@ Base Class
 Comprehensiveness
 ^^^^^^^^^^^^^^^^^
 
+.. currentmodule:: pyhealth.metrics.interpretability.comprehensiveness
+
 .. autoclass:: ComprehensivenessMetric
    :members:
    :undoc-members:
@@ -40,6 +46,8 @@ Comprehensiveness
 
 Sufficiency
 ^^^^^^^^^^^
+
+.. currentmodule:: pyhealth.metrics.interpretability.sufficiency
 
 .. autoclass:: SufficiencyMetric
    :members:
@@ -49,7 +57,7 @@ Sufficiency
 Utility Functions
 -----------------
 
-.. currentmodule:: pyhealth.metrics.interpretability
+.. currentmodule:: pyhealth.metrics.interpretability.utils
 
 .. autofunction:: get_model_predictions
 
