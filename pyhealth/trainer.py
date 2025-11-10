@@ -160,6 +160,7 @@ class Trainer:
         logger.info(f"Monitor: {monitor}")
         logger.info(f"Monitor criterion: {monitor_criterion}")
         logger.info(f"Epochs: {epochs}")
+        logger.info(f"Patience: {patience}")
 
         # set optimizer
         param = list(self.model.named_parameters())
@@ -179,7 +180,7 @@ class Trainer:
         # initialize
         data_iterator = iter(train_dataloader)
         best_score = -1 * float("inf") if monitor_criterion == "max" else float("inf")
-        if steps_per_epoch == None:
+        if steps_per_epoch is None:
             steps_per_epoch = len(train_dataloader)
         global_step = 0
         patience_counter = 0
@@ -257,7 +258,7 @@ class Trainer:
         # test
         if test_dataloader is not None:
             scores = self.evaluate(test_dataloader)
-            logger.info(f"--- Test ---")
+            logger.info("--- Test ---")
             for key in scores.keys():
                 logger.info("{}: {:.4f}".format(key, scores[key]))
 
