@@ -2,10 +2,14 @@ import torch
 import torch.nn.functional as F
 from typing import Dict, Optional
 
+import torch
+
 from pyhealth.models import BaseModel
 
+from .base_interpreter import BaseInterpreter
 
-class IntegratedGradients:
+
+class IntegratedGradients(BaseInterpreter):
     """Integrated Gradients attribution method for PyHealth models.
 
     This class implements the Integrated Gradients method for computing
@@ -177,8 +181,7 @@ class IntegratedGradients:
             AssertionError: If use_embeddings=True but model does not
                 implement forward_from_embedding() method.
         """
-        self.model = model
-        self.model.eval()  # Set model to evaluation mode
+        super().__init__(model)
         self.use_embeddings = use_embeddings
 
         # Check model supports forward_from_embedding if needed
@@ -390,20 +393,34 @@ class IntegratedGradients:
         Returns:
             Scalar tensor representing the target output for backprop.
         """
+        # Determine task type from model's output schema
+        output_schema = self.model.dataset.output_schema
+        label_key = list(output_schema.keys())[0]
+        task_mode = output_schema[label_key]
+
+        # Check if binary classification
+        is_binary = task_mode == "binary" or (
+            hasattr(task_mode, "__name__")
+            and task_mode.__name__ == "BinaryLabelProcessor"
+        )
+
         # Determine target class
         if target_class_idx is None:
-            tc_idx = torch.argmax(logits, dim=-1)
+            if is_binary:
+                # Binary: if sigmoid(logit) > 0.5, class=1, else class=0
+                probs = torch.sigmoid(logits)
+                tc_idx = (probs > 0.5).long().squeeze(-1)
+            else:
+                # Multiclass: argmax over classes
+                tc_idx = torch.argmax(logits, dim=-1)
         elif not isinstance(target_class_idx, torch.Tensor):
             tc_idx = torch.tensor(target_class_idx, device=logits.device)
         else:
             tc_idx = target_class_idx
 
         # Create one-hot encoding for target class
-        if logits.dim() == 2 and logits.size(-1) > 1:
-            # Multi-class case
-            one_hot = F.one_hot(tc_idx, logits.size(-1)).float()
-        else:
-            # Binary classification case
+        if is_binary:
+            # Binary classification case with [batch, 1] logits
             if isinstance(tc_idx, torch.Tensor):
                 if tc_idx.numel() > 1:
                     one_hot = torch.where(
@@ -422,6 +439,9 @@ class IntegratedGradients:
                 one_hot = (
                     torch.ones_like(logits) if tc_idx == 1 else -torch.ones_like(logits)
                 )
+        else:
+            # Multi-class case
+            one_hot = F.one_hot(tc_idx, logits.size(-1)).float()
 
         # Compute target output (scalar for backprop)
         target_output = torch.sum(one_hot.to(logits.device) * logits)

@@ -411,10 +411,11 @@ class StageNet(BaseModel):
             # Get time information if available
             time = None
             if time_info is not None and feature_key in time_info:
-                time = time_info[feature_key].to(self.device)
-                # Ensure time is 2D [batch, seq_len]
-                if time.dim() == 1:
-                    time = time.unsqueeze(0)
+                if time_info[feature_key] is not None:
+                    time = time_info[feature_key].to(self.device)
+                    # Ensure time is 2D [batch, seq_len]
+                    if time.dim() == 1:
+                        time = time.unsqueeze(0)
 
             # Create mask from embedded values
             mask = (x.sum(dim=-1) != 0).int()  # [batch, seq_len]
@@ -517,8 +518,6 @@ class StageNet(BaseModel):
             # Need to pass as dict for EmbeddingModel
             embedded = self.embedding_model({feature_key: x})
             x = embedded[feature_key]  # [batch, seq_len, embedding_dim]
-            print("feature key:", feature_key)
-            print("embedded x shape:", x.shape)
             # Handle nested sequences (2D codes -> need pooling on inner dim)
             if x.dim() == 4:  # [batch, seq_len, inner_len, embedding_dim]
                 # Sum pool over inner dimension
@@ -544,8 +543,6 @@ class StageNet(BaseModel):
             distance.append(cur_dis)
 
         patient_emb = torch.cat(patient_emb, dim=1)
-        # we cannot use patient embeddings here for interpretability because this only tells us which feature key is important rather than the individual features inside themselves.
-        print("patient emb:", patient_emb.shape)
         # (patient, label_size)
         logits = self.fc(patient_emb)
 
