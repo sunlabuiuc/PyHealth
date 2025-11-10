@@ -11,7 +11,7 @@ import torch
 
 from pyhealth.datasets import MIMIC4Dataset, get_dataloader, split_by_patient
 from pyhealth.interpret.methods import IntegratedGradients
-from pyhealth.metrics.interpretability import Evaluator, evaluate_approach
+from pyhealth.metrics.interpretability import Evaluator, evaluate_attribution
 from pyhealth.models import StageNet
 from pyhealth.tasks import MortalityPredictionStageNetMIMIC4
 from pyhealth.trainer import Trainer
@@ -122,7 +122,7 @@ def main():
     print(f"✓ Attributions computed for {len(attributions)} feature types")
 
     # Initialize evaluator
-    evaluator = Evaluator(model, percentages=[10, 20, 50])
+    evaluator = Evaluator(model, percentages=[1, 99])
 
     # Compute metrics for single batch
     print("\nComputing metrics on single batch...")
@@ -152,9 +152,9 @@ def main():
     # Option 1: Functional API (simple one-off evaluation)
     print("\n[5/6] Evaluating with Functional API on full dataset...")
     print("-" * 70)
-    print("Using: evaluate_approach(model, dataloader, method, ...)")
+    print("Using: evaluate_attribution(model, dataloader, method, ...)")
 
-    results_functional = evaluate_approach(
+    results_functional = evaluate_attribution(
         model,
         test_loader,
         ig,

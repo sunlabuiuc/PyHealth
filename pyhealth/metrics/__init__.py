@@ -5,7 +5,7 @@ from .interpretability import (
     Evaluator,
     RemovalBasedMetric,
     SufficiencyMetric,
-    evaluate_approach,
+    evaluate_attribution,
 )
 from .multiclass import multiclass_metrics_fn
 from .multilabel import multilabel_metrics_fn
@@ -21,7 +21,7 @@ __all__ = [
     "SufficiencyMetric",
     "RemovalBasedMetric",
     "Evaluator",
-    "evaluate_approach",
+    "evaluate_attribution",
     "multiclass_metrics_fn",
     "multilabel_metrics_fn",
     "ranking_metrics_fn",

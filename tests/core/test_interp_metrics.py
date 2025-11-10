@@ -13,7 +13,7 @@ import torch
 
 from pyhealth.datasets import SampleDataset, get_dataloader
 from pyhealth.interpret.methods import IntegratedGradients
-from pyhealth.metrics.interpretability.removal_based import (
+from pyhealth.metrics.interpretability import (
     ComprehensivenessMetric,
     Evaluator,
     SufficiencyMetric,
@@ -284,8 +284,8 @@ class TestInterpretabilityMetrics(unittest.TestCase):
 
         comp = ComprehensivenessMetric(self.model, percentages=[10, 20, 50])
 
-        # Get detailed scores
-        detailed = comp.compute_detailed(self.batch, attributions)
+        # Get detailed scores using return_per_percentage=True
+        detailed = comp.compute(self.batch, attributions, return_per_percentage=True)
 
         # Check that we get results for each percentage
         self.assertEqual(len(detailed), 3)
@@ -346,11 +346,12 @@ class TestInterpretabilityMetrics(unittest.TestCase):
         self.assertEqual(suff_scores.shape[0], 2)
         self.assertEqual(suff_mask.shape[0], 2)
 
-        # Test evaluate_detailed
-        detailed_results = evaluator.evaluate_detailed(
+        # Test evaluate with return_per_percentage=True
+        detailed_results = evaluator.evaluate(
             self.batch,
             attributions,
             metrics=["comprehensiveness", "sufficiency"],
+            return_per_percentage=True,
         )
 
         # Check structure
@@ -416,7 +417,7 @@ class TestInterpretabilityMetrics(unittest.TestCase):
             self.model, percentages=[1, 10, 50], ablation_strategy="zero"
         )
 
-        detailed = comp.compute_detailed(self.batch, attributions)
+        detailed = comp.compute(self.batch, attributions, return_per_percentage=True)
 
         # Scores should generally increase as more features are ablated
         # (for comprehensiveness)
