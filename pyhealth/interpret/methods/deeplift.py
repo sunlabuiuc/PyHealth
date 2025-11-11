@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import inspect
 from typing import Dict, Optional, Tuple
 
 import torch
@@ -303,10 +304,15 @@ class DeepLift:
         self.model.eval()
         self.use_embeddings = use_embeddings
 
+        self._forward_from_embedding_accepts_time_info = False
+
         if use_embeddings:
             assert hasattr(
                 model, "forward_from_embedding"
             ), f"Model {type(model).__name__} must implement forward_from_embedding()"
+            self._forward_from_embedding_accepts_time_info = self._method_accepts_argument(
+                model.forward_from_embedding, "time_info"
+            )
 
     # ------------------------------------------------------------------
     # Public API
@@ -415,10 +421,12 @@ class DeepLift:
         forward_kwargs = {**label_data} if label_data else {}
 
         def forward_from_embeddings(feature_embeddings: Dict[str, torch.Tensor]):
+            call_kwargs = dict(forward_kwargs)
+            if time_info and self._forward_from_embedding_accepts_time_info:
+                call_kwargs["time_info"] = time_info
             return self.model.forward_from_embedding(
                 feature_embeddings=feature_embeddings,
-                time_info=time_info,
-                **forward_kwargs,
+                **call_kwargs,
             )
 
         with _DeepLiftHookContext(self.model) as hook_ctx:
@@ -636,3 +644,18 @@ class DeepLift:
 
             mapped[key] = token_attr.detach()
         return mapped
+
+    @staticmethod
+    def _method_accepts_argument(function, arg_name: str) -> bool:
+        """Return True if ``function`` declares ``arg_name`` or **kwargs."""
+        if function is None:
+            return False
+        try:
+            signature = inspect.signature(function)
+        except (ValueError, TypeError):
+            return False
+
+        for param in signature.parameters.values():
+            if param.kind == inspect.Parameter.VAR_KEYWORD:
+                return True
+        return arg_name in signature.parameters

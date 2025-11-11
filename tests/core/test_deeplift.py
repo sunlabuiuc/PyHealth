@@ -1,4 +1,5 @@
 import unittest
+from typing import Dict
 
 import torch
 import torch.nn as nn
@@ -160,6 +161,92 @@ class TestDeepLift(unittest.TestCase):
         )
 
         self.assertTrue(torch.allclose(attributions["x"], torch.zeros_like(inputs)))
+
+
+class _ToyEmbeddingModel(nn.Module):
+    """Simple embedding module mapping integer tokens to vectors."""
+
+    def __init__(self, vocab_size: int = 16, embedding_dim: int = 3):
+        super().__init__()
+        self.embedding = nn.Embedding(vocab_size, embedding_dim)
+
+    def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        return {key: self.embedding(value.long()) for key, value in inputs.items()}
+
+
+class _EmbeddingForwardModel(BaseModel):
+    """Toy model exposing forward_from_embedding without time_info argument."""
+
+    def __init__(self):
+        super().__init__(dataset=None)
+        self.feature_keys = ["seq"]
+        self.label_keys = ["label"]
+        self.mode = "binary"
+
+        self.embedding_model = _ToyEmbeddingModel()
+        self.linear = nn.Linear(3, 1, bias=True)
+
+    def forward_from_embedding(
+        self,
+        feature_embeddings: Dict[str, torch.Tensor],
+        label: torch.Tensor,
+    ) -> Dict[str, torch.Tensor]:
+        pooled = feature_embeddings["seq"].mean(dim=1)
+        logits = self.linear(pooled)
+        y_true = label.to(logits.device)
+        y_prob = torch.sigmoid(logits)
+        return {
+            "logit": logits,
+            "y_prob": y_prob,
+            "y_true": y_true,
+            "loss": torch.zeros((), device=logits.device),
+        }
+
+
+class TestDeepLiftEmbeddingCompatibility(unittest.TestCase):
+    """Ensure embedding-mode DeepLIFT handles models without time_info support."""
+
+    def setUp(self):
+        self.model = _EmbeddingForwardModel()
+        with torch.no_grad():
+            self.model.linear.weight.copy_(torch.tensor([[0.4, -0.3, 0.2]]))
+            self.model.linear.bias.copy_(torch.tensor([0.1]))
+        self.labels = torch.zeros((1, 1))
+        self.deeplift = DeepLift(self.model, use_embeddings=True)
+
+    def test_attribute_skips_missing_time_info_argument(self):
+        """Attribute call should succeed and satisfy completeness."""
+
+        time_tensor = torch.tensor([[0.0, 1.5]])
+        seq_tensor = torch.tensor([[1, 2]])
+
+        attributions = self.deeplift.attribute(
+            seq=(time_tensor, seq_tensor),
+            label=self.labels,
+        )
+
+        self.assertIn("seq", attributions)
+        self.assertEqual(attributions["seq"].shape, seq_tensor.shape)
+
+        emb_inputs = self.model.embedding_model({"seq": seq_tensor})["seq"]
+        zero_inputs = torch.zeros_like(emb_inputs)
+        with torch.no_grad():
+            baseline_out = self.model.forward_from_embedding(
+                {"seq": zero_inputs},
+                label=self.labels,
+            )
+            actual_out = self.model.forward_from_embedding(
+                {"seq": emb_inputs},
+                label=self.labels,
+            )
+
+        delta_logit = actual_out["logit"] - baseline_out["logit"]
+        torch.testing.assert_close(
+            attributions["seq"].sum(),
+            delta_logit.squeeze(),
+            atol=1e-5,
+            rtol=1e-5,
+        )
 
 
 if __name__ == "__main__":  # pragma: no cover
