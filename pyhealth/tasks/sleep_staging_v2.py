@@ -1,6 +1,6 @@
 import os
 from dataclasses import dataclass, field
-from typing import Dict
+from typing import Any, Dict
 
 import mne
 
@@ -10,11 +10,12 @@ from pyhealth.tasks import BaseTask
 @dataclass(frozen=True)
 class SleepStagingSleepEDF(BaseTask):
     task_name: str = "SleepStaging"
-    input_schema: Dict[str, str] = field(
-        default_factory=lambda: {"epoch_signal": "signal"})
-    output_schema: Dict[str, str] = field(default_factory=lambda: {"label": "label"})
+    input_schema: Dict[str, str] = field(default_factory=lambda: {"signal": "tensor"})
+    output_schema: Dict[str, str] = field(
+        default_factory=lambda: {"label": "multiclass"}
+    )
 
-    def __call__(self, patient, epoch_seconds=30):
+    def __call__(self, patient: Any, epoch_seconds: int = 30) -> list[dict[str, Any]]:
         """Processes a single patient for the sleep staging task on Sleep EDF.
 
         Sleep staging aims at predicting the sleep stages (Awake, REM, N1, N2, N3, N4) based on
@@ -49,75 +50,57 @@ class SleepStagingSleepEDF(BaseTask):
 
         SAMPLE_RATE = 100
 
-        root, psg_file, hypnogram_file = (
-            patient.attr_dict["load_from_path"],
-            patient.attr_dict["signal_file"],
-            patient.attr_dict["label_file"],
-        )
-        # get patient id
-        pid = psg_file[:6]
-
-        # load signal "X" part
-        data = mne.io.read_raw_edf(os.path.join(root, psg_file))
-
-        X = data.get_data()
-        # load label "Y" part
-        ann = mne.read_annotations(os.path.join(root, hypnogram_file))
-
-        labels = []
-        for dur, des in zip(ann.duration, ann.description):
-            """
-            all possible des:
-                - 'Sleep stage W'
-                - 'Sleep stage 1'
-                - 'Sleep stage 2'
-                - 'Sleep stage 3'
-                - 'Sleep stage 4'
-                - 'Sleep stage R'
-                - 'Sleep stage ?'
-                - 'Movement time'
-            """
-            for _ in range(int(dur) // 30):
-                labels.append(des)
+        pid = patient.patient_id
+        events = patient.get_events(event_type="recordings")
 
         samples = []
-        sample_length = SAMPLE_RATE * epoch_seconds
-        # slice the EEG signals into non-overlapping windows
-        # window size = sampling rate * second time = 100 * epoch_seconds
-        for slice_index in range(min(X.shape[1] // sample_length, len(labels))):
-            # ingore the no label epoch
-            if labels[slice_index] not in [
-                "Sleep stage W",
-                "Sleep stage 1",
-                "Sleep stage 2",
-                "Sleep stage 3",
-                "Sleep stage 4",
-                "Sleep stage R",
-            ]:
-                continue
+        for event in events:
+            data = mne.io.read_raw_edf(event.signal_file)
+            X = data.get_data()
+            ann = mne.read_annotations(event.label_file)
+            labels = []
+            for dur, des in zip(ann.duration, ann.description):
+                """
+                all possible des:
+                    - 'Sleep stage W'
+                    - 'Sleep stage 1'
+                    - 'Sleep stage 2'
+                    - 'Sleep stage 3'
+                    - 'Sleep stage 4'
+                    - 'Sleep stage R'
+                    - 'Sleep stage ?'
+                    - 'Movement time'
+                """
+                for _ in range(int(dur) // 30):
+                    labels.append(des)
 
-            epoch_signal = X[
-                           :, slice_index * sample_length: (
-                                                               slice_index + 1) * sample_length
-                           ]
-            epoch_label = labels[slice_index][-1]  # "W", "1", "2", "3", "R"
-            # save_file_path = os.path.join(save_path, f"{pid}-{slice_index}.pkl")
+            sample_length = SAMPLE_RATE * epoch_seconds
 
-            # pickle.dump(
-            #     {
-            #         "signal": epoch_signal,
-            #         "label": epoch_label,
-            #     },
-            #     open(save_file_path, "wb"),
-            # )
+            for slice_index in range(min(X.shape[1] // sample_length, len(labels))):
+                # ingore the no label epoch
+                if labels[slice_index] not in [
+                    "Sleep stage W",
+                    "Sleep stage 1",
+                    "Sleep stage 2",
+                    "Sleep stage 3",
+                    "Sleep stage 4",
+                    "Sleep stage R",
+                ]:
+                    continue
 
-            samples.append(
-                {
-                    "record_id": f"{pid}-{slice_index}",
-                    "patient_id": pid,
-                    # "epoch_path": save_file_path,
-                    "epoch_signal": epoch_signal,
-                    "label": epoch_label,  # use for counting the label tokens
-                }
-            )
+                epoch_signal = X[
+                    :, slice_index * sample_length : (slice_index + 1) * sample_length
+                ]
+                epoch_label = labels[slice_index][-1]  # "W", "1", "2", "3", "4", "R"
+                samples.append(
+                    {
+                        "patient_id": pid,
+                        "night": event.night,
+                        "patient_age": event.age,
+                        "patient_sex": event.sex,
+                        "signal": epoch_signal,
+                        "label": epoch_label,
+                    }
+                )
+
         return samples
