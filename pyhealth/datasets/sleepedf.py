@@ -63,7 +63,7 @@ class SleepEDFDataset(BaseDataset):
             )
         if not os.path.exists(os.path.join(root, "sleepedf-metadata-pyhealth.csv")):
             self.prepare_metadata(root)
-        default_tables = ["subjects"]
+        default_tables = ["recordings"]
         super().__init__(
             root=root,
             tables=default_tables,
