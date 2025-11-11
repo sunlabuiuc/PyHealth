@@ -7,11 +7,14 @@ classes in task schemas with real MIMIC-III data.
 import unittest
 import logging
 import polars as pl
-import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List
+import random
+import numpy as np
 
 from pyhealth.datasets import MIMIC3Dataset
-from pyhealth.processors import TextProcessor, MultiLabelProcessor
+from pyhealth.datasets.sample_dataset import SampleDataset
+from pyhealth.processors import TextProcessor, MultiLabelProcessor, TimeseriesProcessor
 from pyhealth.tasks.medical_coding import MIMIC3ICD9Coding
 from pyhealth.tasks.base_task import BaseTask
 from pyhealth.data.data import Patient
@@ -59,7 +62,6 @@ class MIMIC3ICD9CodingStringSchema(BaseTask):
         samples = []
         admissions = patient.get_events(event_type="admissions")
         for admission in admissions:
-
             text = ""
             icd_codes = set()
 
@@ -131,7 +133,6 @@ class MIMIC3ICD9CodingHybridSchema(BaseTask):
         samples = []
         admissions = patient.get_events(event_type="admissions")
         for admission in admissions:
-
             text = ""
             icd_codes = set()
 
@@ -273,6 +274,79 @@ class TestProcessorSchemas(unittest.TestCase):
         self.assertTrue(hasattr(sample["icd_codes"], "__len__"))
 
         logger.info(f"Direct classes test passed with {len(sample_dataset)} samples")
+
+
+class TestProcessorTupleKwargs(unittest.TestCase):
+    """Test tuple with kwargs for processor instantiation separately."""
+
+    def setUp(self):
+        # Generate synthetic timeseries data
+        self.timeseries_data_1 = (
+            [datetime.now() + timedelta(hours=i) for i in range(10)],
+            np.random.randn(10, 2),  # 10 time steps, 2 features
+        )
+        self.timeseries_data_2 = (
+            [datetime.now() + timedelta(hours=i) for i in range(15)],
+            np.random.randn(15, 2),  # 15 time steps, 2 features
+        )
+
+    def test_tuple_with_kwargs(self):
+        """Test using tuple with kwargs for processor instantiation."""
+        logger.info("Testing tuple with kwargs schema")
+
+        random_sampling_rate = timedelta(hours=random.randint(1, 5))
+        random_impute_strategy = random.choice(["forward_fill", "zero"])
+
+        samples = [
+            {"patient_id": "1", "timeseries": self.timeseries_data_1, "label": 1},
+            {"patient_id": "2", "timeseries": self.timeseries_data_2, "label": 0},
+        ]
+
+        class TestTimeseriesTask(BaseTask):
+            """Test task for timeseries processing with tuple kwargs."""
+
+            task_name: str = "test_timeseries_task"
+            input_schema = {
+                "timeseries": (
+                    "timeseries",
+                    {
+                        "sampling_rate": random_sampling_rate,
+                        "impute_strategy": random_impute_strategy,
+                    },
+                )
+            }
+            output_schema = {"label": "binary"}
+
+            def __call__(self, patient: Patient) -> List[Dict]:
+                """Process a patient (dummy implementation for testing)."""
+                return {
+                    "patient_id": patient.patient_id,
+                    "timeseries": None,
+                    "label": 0,
+                }
+
+        task = TestTimeseriesTask()
+        sample_dataset = SampleDataset(
+            samples=samples,
+            input_schema=task.input_schema,
+            output_schema=task.output_schema,
+            task_name=task.task_name,
+        )
+
+        # Verify processor was created with kwargs
+        self.assertIn("timeseries", sample_dataset.input_processors)
+        processor = sample_dataset.input_processors["timeseries"]
+        self.assertIsInstance(processor, TimeseriesProcessor)
+        self.assertEqual(processor.sampling_rate, random_sampling_rate)
+        self.assertEqual(processor.impute_strategy, random_impute_strategy)
+
+        sample = sample_dataset[0]
+        self.assertIn("timeseries", sample)
+        timeseries_tensor = sample["timeseries"]
+        # Shape depends on sampling; for simplicity, check it's a tensor with expected features
+        self.assertEqual(timeseries_tensor.shape[1], 2)  # 2 features
+
+        logger.info("Tuple with kwargs test passed")
 
 
 if __name__ == "__main__":
