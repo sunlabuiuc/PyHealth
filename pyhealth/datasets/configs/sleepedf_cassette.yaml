@@ -1,0 +1,13 @@
+version: "1.0.0"
+tables:
+  subjects:
+    file_path: "sleepedf-metadata-pyhealth.csv"
+    patient_id: "subject"
+    timestamp: null
+    attributes:
+    - "night"
+    - "age"
+    - "sex"
+    - "LightsOff"
+    - "signal_file"
+    - "label_file"
