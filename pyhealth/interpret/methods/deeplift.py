@@ -611,8 +611,9 @@ class DeepLift(BaseInterpreter):
 
         scale = torch.ones_like(delta_output)
         if total is not None:
-            denom = total.abs()
-            mask = denom > eps
+            # Preserve the sign of the raw contributions by dividing by the signed sum
+            denom = total
+            mask = denom.abs() > eps
             scale[mask] = delta_output[mask] / denom[mask]
 
         for key, contrib in contributions.items():
