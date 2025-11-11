@@ -7,6 +7,7 @@ from typing import Dict, Optional, Tuple
 import torch
 
 from pyhealth.models import BaseModel
+from .base_interpreter import BaseInterpreter
 
 
 class _DeepLiftActivationHooks:
@@ -191,7 +192,7 @@ class _DeepLiftHookContext(contextlib.AbstractContextManager):
         return False
 
 
-class DeepLift:
+class DeepLift(BaseInterpreter):
     """DeepLIFT attribution for PyHealth models.
 
     Paper: Avanti Shrikumar, Peyton Greenside, and Anshul Kundaje. Learning
@@ -300,8 +301,7 @@ class DeepLift:
     """
 
     def __init__(self, model: BaseModel, use_embeddings: bool = True):
-        self.model = model
-        self.model.eval()
+        super().__init__(model)
         self.use_embeddings = use_embeddings
 
         self._forward_from_embedding_accepts_time_info = False

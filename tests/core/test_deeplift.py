@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 
 from pyhealth.interpret.methods import DeepLift
+from pyhealth.interpret.methods.base_interpreter import BaseInterpreter
 from pyhealth.models import BaseModel
 
 
@@ -77,6 +78,7 @@ class TestDeepLift(unittest.TestCase):
         self.baseline = torch.tensor([[-0.5, 0.0]])
         self.labels = torch.zeros((1, 1))
         self.deeplift = DeepLift(self.model, use_embeddings=False)
+        self.assertIsInstance(self.deeplift, BaseInterpreter)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -161,6 +163,17 @@ class TestDeepLift(unittest.TestCase):
         )
 
         self.assertTrue(torch.allclose(attributions["x"], torch.zeros_like(inputs)))
+
+    def test_callable_interface_delegates_to_attribute(self):
+        """DeepLIFT instances should be callable via BaseInterpreter.__call__."""
+
+        inputs = torch.tensor([[0.3, -0.4]])
+        kwargs = {"baseline": {"x": self.baseline}, "x": inputs, "y": self.labels}
+
+        from_attribute = self.deeplift.attribute(**kwargs)
+        from_call = self.deeplift(**kwargs)
+
+        torch.testing.assert_close(from_call["x"], from_attribute["x"])
 
 
 class _ToyEmbeddingModel(nn.Module):
