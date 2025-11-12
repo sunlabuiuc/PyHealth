@@ -41,11 +41,6 @@ class ChestXray14Dataset(BaseDataset):
         dataset_name (str): Name of the dataset.
         config_path (str): Path to the configuration file.
         classes (List[str]): List of diseases that appear in the dataset.
-
-    Methods:
-        __len__(): Returns the number of entries in the dataset.
-        __getitem__(index: int): Retrieves a specific image and its metadata.
-        stats(): Prints statistics about the dataset's content.
     """
     classes: List[str] = ["atelectasis", "cardiomegaly", "consolidation",
                "edema", "effusion", "emphysema",
@@ -64,7 +59,7 @@ class ChestXray14Dataset(BaseDataset):
             root (str): Root directory of the raw data. Defaults to the working directory.
             config_path (Optional[str]): Path to the configuration file. Defaults to "../configs/chestxray14.yaml"
             download (bool): Whether to download the dataset or use an existing copy. Defaults to False.
-            partial (bool): Whether to download only a subset of the dataset. Defaults to False.
+            partial (bool): Whether to download only a subset of the dataset (specifically, the first two image archives). Defaults to False.
 
         Raises:
             ValueError: If the MD5 checksum check fails during the download.
@@ -77,16 +72,14 @@ class ChestXray14Dataset(BaseDataset):
         Example:
             >>> dataset = ChestXray14Dataset(root="./data")
         """
-        self._partial = partial
-
         self._label_path: str = os.path.join(root, "Data_Entry_2017_v2020.csv")
         self._image_path: str = os.path.join(root, "images")
 
         if download:
-            self._download(root)
+            self._download(root, partial)
 
         self._verify_data(root)
-        self._data: pd.DataFrame = self._index_data(root)
+        self._index_data(root)
 
         super().__init__(
             root=root,
@@ -94,58 +87,6 @@ class ChestXray14Dataset(BaseDataset):
             dataset_name="ChestX-ray14",
             config_path=config_path,
         )
-
-    def __len__(self) -> int:
-        """Returns the number of samples in the dataset.
-
-        Returns:
-            int: Total number of samples in the dataset.
-
-        Example:
-            >>> dataset = ChestXray14Dataset()
-            >>> print(len(dataset))
-        """
-        return len(self._data)
-
-    def __getitem__(self, index: int) -> pd.Series:
-        """Retrieves a single sample from the dataset at the specified index.
-
-        Args:
-            index (int): Index of the sample to retrieve.
-
-        Returns:
-            pd.Series: Requested row of the data table.
-
-        Raises:
-            IndexError: If the index is out of bounds.
-
-        Example:
-            >>> dataset = ChestXray14Dataset()
-            >>> print(dataset[0])
-        """
-        return self._data.iloc[index]
-
-    def stats(self) -> None:
-        """Prints information on the contents of the dataset
-
-        Example:
-            >>> dataset = ChestXray14Dataset()
-            >>> dataset.stats()
-        """
-        lines = list()
-        lines.append("")
-        lines.append(f"Statistics (partial={self._partial}):")
-        lines.append(f"\t- Dataset: {self.dataset_name}")
-        lines.append(f"\t- Number of images: {self.__len__()}")
-        lines.append(f"\t- Average number of findings per image: {self._data[self.classes].sum().sum() / self.__len__():.2f}")
-        lines.append(f"\t- Max number of findings in an image: {self._data[self.classes].sum(axis=1).max()}")
-        num_no_finding = (self._data[self.classes].sum(axis=1) == 0).sum()
-        lines.append(f"\t- Number with no finding: {num_no_finding} ({(num_no_finding / self.__len__()) * 100:.1f}%)")
-        for _class in self.classes:
-            num_finding = self._data[_class].sum()
-            lines.append(f"\t- Number with {_class}: {num_finding} ({(num_finding / self.__len__()) * 100:.1f}%)")
-        lines.append("")
-        print("\n".join(lines))
 
     @property
     def default_task(self) -> ChestXray14MultilabelClassification:
@@ -160,7 +101,7 @@ class ChestXray14Dataset(BaseDataset):
         """
         return ChestXray14MultilabelClassification()
 
-    def _download(self, root: str) -> None:
+    def _download(self, root: str, partial: bool) -> None:
         """Downloads and verifies the ChestX-ray14 dataset files.
 
         This method performs the following steps:
@@ -171,11 +112,9 @@ class ChestXray14Dataset(BaseDataset):
         5. Removes the original compressed files after successful extraction.
         6. Validates that the expected number of images are present in the image directory.
 
-        If `self._partial` is True, only a subset of the dataset is downloaded and verified
-        (specifically, the first two image archives).
-
         Args:
             root (str): Root directory of the raw data.
+            partial (bool): Whether to download only a subset of the dataset (specifically, the first two image archives).
 
         Raises:
             ValueError: If the MD5 checksum check fails during the download.
@@ -220,7 +159,7 @@ class ChestXray14Dataset(BaseDataset):
             'dc9fda1757c2de0032b63347a7d2895c'
         ]
 
-        if self._partial:
+        if partial:
             links = links[:2]
             md5_checksums = md5_checksums[:2]
 
@@ -259,7 +198,7 @@ class ChestXray14Dataset(BaseDataset):
             os.remove(fn)
 
         num_images = len([f for f in os.listdir(self._image_path) if os.path.isfile(os.path.join(self._image_path, f))])
-        num_images_expected = 14999 if self._partial else 112120
+        num_images_expected = 14999 if partial else 112120
         if num_images != num_images_expected:
             msg = f"Expected {num_images_expected} images but found {num_images}!"
             logger.error(msg)
@@ -331,24 +270,3 @@ class ChestXray14Dataset(BaseDataset):
         df.to_csv(os.path.join(root, "chestxray14-metadata-pyhealth.csv"), index=False)
 
         return df
-
-
-if __name__ == "__main__":
-    logger.setLevel(logging.INFO)
-    if not logger.handlers:
-        handler = logging.StreamHandler()
-        handler.setLevel(logging.INFO)
-        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str)
-    parser.add_argument("--download", action="store_true")
-    parser.add_argument("--partial", action="store_true")
-    args = parser.parse_args()
-
-    dataset = ChestXray14Dataset(config_path=args.config, download=args.download, partial=args.partial)
-
-    dataset.stats()
-    print(dataset[0])
