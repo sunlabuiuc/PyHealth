@@ -40,25 +40,22 @@ class ChestXray14MultilabelClassification(BaseTask):
 
     def __call__(self, patient: Patient) -> List[Dict]:
         """
-        Generates a multilabel classification data sample for a single patient.
+        Generates multilabel classification data samples for a single patient.
 
         Args:
             patient (Patient): A patient object containing at least one
                                'chestxray14' event.
 
         Returns:
-            List[Dict]: A list containing a single dictionary with:
+            List[Dict]: A list containing a dictionary for each patient visit with:
                 - 'image': path to the chest X-ray image.
                 - 'labels': a list of labels for diseases present in the image (strings from the list ChestXray14Dataset.classes).
-
-        Raises:
-            ValueError: If the number of chestxray14 events is not exactly one.
         """
         events: List[Event] = patient.get_events(event_type="chestxray14")
-        if len(events) != 1:
-            msg = f"Expected just 1 event but got {len(events)}!"
-            logger.error(msg)
-            raise ValueError(msg)
 
+        samples = []
         from ..datasets.chestxray14 import ChestXray14Dataset # Avoid circular import
-        return [{"image": events[0]["path"], "labels": [disease for disease in ChestXray14Dataset.classes if int(events[0][disease])]}]
+        for event in events:
+            samples.append({"image": event["path"], "labels": [disease for disease in ChestXray14Dataset.classes if int(event[disease])]})
+
+        return samples

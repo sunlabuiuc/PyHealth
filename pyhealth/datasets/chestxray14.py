@@ -264,8 +264,17 @@ class ChestXray14Dataset(BaseDataset):
         for _class in self.classes:
             df[_class] = df['Finding Labels'].str.contains(_class, case=False).astype(int)
 
-        df.drop(columns=["Finding Labels", "Follow-up #", "Patient ID", "View Position", "OriginalImage[Width", "Height]", "OriginalImagePixelSpacing[x", "y]"], inplace=True)
-        df.rename(columns={'Image Index': 'path', 'Patient Age': 'patient_age', 'Patient Sex': 'patient_sex'}, inplace=True)
+        df.drop(columns=["Finding Labels"], inplace=True)
+        df.rename(columns={'Image Index': 'path',
+                           'Follow-up #': 'visit_id',
+                           'Patient ID': 'patient_id',
+                           'Patient Age': 'patient_age',
+                           'Patient Sex': 'patient_sex',
+                           'View Position': 'view_position',
+                           'OriginalImage[Width': 'original_image_width',
+                           'Height]': 'original_image_height',
+                           'OriginalImagePixelSpacing[x': 'original_image_pixel_spacing_x',
+                           'y]': 'original_image_pixel_spacing_y'}, inplace=True)
         df['path'] = df['path'].apply(lambda p: os.path.join(self._image_path, p))
         df.to_csv(os.path.join(root, "chestxray14-metadata-pyhealth.csv"), index=False)
 

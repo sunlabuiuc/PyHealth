@@ -56,12 +56,66 @@ class TestChestXray14Dataset(unittest.TestCase):
     def test_stats(self):
         self.dataset.stats()
 
-    def test_len(self):
-        self.assertEqual(len(self.dataset.unique_patient_ids), 10)
+    def test_num_patients(self):
+        self.assertEqual(len(self.dataset.unique_patient_ids), 3)
 
-    def test_get_patient(self):
-        events = self.dataset.get_patient(self.dataset.unique_patient_ids[0]).get_events()
+    def test_get_patient_1(self):
+        events = self.dataset.get_patient('1').get_events()
+
+        self.assertEqual(len(events), 3)
+
+        self.assertEqual(events[0]['visit_id'], '0')
+        self.assertEqual(events[0]['patient_age'], '57')
+        self.assertEqual(events[0]['cardiomegaly'], '1')
+        self.assertEqual(events[0]['effusion'], '0')
+        self.assertEqual(events[0]['emphysema'], '0')
+
+        self.assertEqual(events[1]['visit_id'], '1')
+        self.assertEqual(events[1]['patient_age'], '58')
+        self.assertEqual(events[1]['cardiomegaly'], '1')
+        self.assertEqual(events[1]['effusion'], '0')
+        self.assertEqual(events[1]['emphysema'], '1')
+
+        self.assertEqual(events[2]['visit_id'], '2')
+        self.assertEqual(events[2]['patient_age'], '58')
+        self.assertEqual(events[2]['cardiomegaly'], '1')
+        self.assertEqual(events[2]['effusion'], '1')
+        self.assertEqual(events[2]['emphysema'], '0')
+
+    def test_get_patient_2(self):
+        events = self.dataset.get_patient('2').get_events()
+
         self.assertEqual(len(events), 1)
+
+        self.assertEqual(events[0]['visit_id'], '0')
+        self.assertEqual(events[0]['patient_age'], '80')
+        self.assertEqual(events[0]['patient_sex'], 'M')
+        self.assertEqual(events[0]['view_position'], 'PA')
+        self.assertEqual(events[0]['original_image_width'], '2500')
+        self.assertEqual(events[0]['original_image_height'], '2048')
+        self.assertEqual(events[0]['original_image_pixel_spacing_x'], '0.171')
+        self.assertEqual(events[0]['original_image_pixel_spacing_y'], '0.171')
+        self.assertEqual(events[0]['atelectasis'], '0')
+        self.assertEqual(events[0]['cardiomegaly'], '0')
+        self.assertEqual(events[0]['consolidation'], '0')
+        self.assertEqual(events[0]['edema'], '0')
+        self.assertEqual(events[0]['effusion'], '0')
+        self.assertEqual(events[0]['emphysema'], '0')
+        self.assertEqual(events[0]['fibrosis'], '0')
+        self.assertEqual(events[0]['hernia'], '0')
+        self.assertEqual(events[0]['infiltration'], '0')
+        self.assertEqual(events[0]['mass'], '0')
+        self.assertEqual(events[0]['nodule'], '0')
+        self.assertEqual(events[0]['pleural_thickening'], '0')
+        self.assertEqual(events[0]['pneumonia'], '0')
+        self.assertEqual(events[0]['pneumothorax'], '0')
+
+    def test_get_patient_3(self):
+        events = self.dataset.get_patient('3').get_events()
+
+        self.assertEqual(len(events), 6)
+
+        self.assertEqual(events[0]['patient_sex'], 'F')
 
     def test_default_task(self):
         self.assertIsInstance(self.dataset.default_task, ChestXray14MultilabelClassification)
