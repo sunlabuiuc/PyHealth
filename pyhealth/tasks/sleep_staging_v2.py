@@ -1,4 +1,3 @@
-import os
 from dataclasses import dataclass, field
 from typing import Any, Dict
 
@@ -9,6 +8,21 @@ from pyhealth.tasks import BaseTask
 
 @dataclass(frozen=True)
 class SleepStagingSleepEDF(BaseTask):
+    """Multi-class classification task for sleep staging on Sleep EDF dataset.
+
+    This task predicts sleep stages (Awake, REM, N1, N2, N3, N4) based on
+    multichannel EEG signals. The task is defined as a multi-class classification.
+
+    Attributes:
+        task_name (str): The name of the task, set to "SleepStaging".
+        input_schema (Dict[str, str]): The input schema specifying the required
+            input format. Contains:
+            - "signal": "tensor"
+        output_schema (Dict[str, str]): The output schema specifying the output
+            format. Contains:
+            - "label": "multiclass"
+    """
+
     task_name: str = "SleepStaging"
     input_schema: Dict[str, str] = field(default_factory=lambda: {"signal": "tensor"})
     output_schema: Dict[str, str] = field(
@@ -22,13 +36,12 @@ class SleepStagingSleepEDF(BaseTask):
         the multichannel EEG signals. The task is defined as a multi-class classification.
 
         Args:
-            patient: a list of (load_from_path, signal_file, label_file, save_to_path) tuples, where PSG is the signal files and the labels are
-            in label file
+            patient: A patient object containing SleepEDF data.
             epoch_seconds: how long will each epoch be (in seconds)
 
         Returns:
-            samples: a list of samples, each sample is a dict with patient_id, record_id,
-                and epoch_path (the path to the saved epoch {"X": signal, "Y": label} as key.
+            samples: a list of samples, each sample is a dict with patient_id, night,
+                patient_age, patient_sex, signal, and label.
 
         Note that we define the task as a multi-class classification task.
 
@@ -37,69 +50,71 @@ class SleepStagingSleepEDF(BaseTask):
             >>> sleepedf = SleepEDFDataset(
             ...         root="/srv/local/data/SLEEPEDF/sleep-edf-database-expanded-1.0.0/sleep-cassette",
             ...     )
-            >>> from pyhealth.tasks import sleep_staging_sleepedf_fn
-            >>> sleepstage_ds = sleepedf.set_task(sleep_staging_sleepedf_fn)
+            >>>
+            >>> sleepstage_ds = sleepedf.set_task()
             >>> sleepstage_ds.samples[0]
             {
-                'record_id': 'SC4001-0',
                 'patient_id': 'SC4001',
-                'epoch_path': '/home/chaoqiy2/.cache/pyhealth/datasets/70d6dbb28bd81bab27ae2f271b2cbb0f/SC4001-0.pkl',
-                'label': 'W'
+                'night': 0,
+                'patient_age': 58,
+                'patient_sex': 'M',
+                'signal': array(...),
+                'label': 0
             }
         """
-
-        SAMPLE_RATE = 100
 
         pid = patient.patient_id
         events = patient.get_events(event_type="recordings")
 
         samples = []
         for event in events:
-            data = mne.io.read_raw_edf(event.signal_file)
-            X = data.get_data()
+            data = mne.io.read_raw_edf(
+                event.signal_file,
+                stim_channel="Event marker",
+                infer_types=True,
+                preload=True,
+                verbose="error",
+            )
             ann = mne.read_annotations(event.label_file)
-            labels = []
-            for dur, des in zip(ann.duration, ann.description):
-                """
-                all possible des:
-                    - 'Sleep stage W'
-                    - 'Sleep stage 1'
-                    - 'Sleep stage 2'
-                    - 'Sleep stage 3'
-                    - 'Sleep stage 4'
-                    - 'Sleep stage R'
-                    - 'Sleep stage ?'
-                    - 'Movement time'
-                """
-                for _ in range(int(dur) // 30):
-                    labels.append(des)
+            data.set_annotations(ann, emit_warning=False)
+            event_id = {
+                "Sleep stage W": 0,
+                "Sleep stage 1": 1,
+                "Sleep stage 2": 2,
+                "Sleep stage 3": 3,
+                "Sleep stage 4": 4,
+                "Sleep stage R": 5,
+            }
 
-            sample_length = SAMPLE_RATE * epoch_seconds
+            ann_events, _ = mne.events_from_annotations(
+                data, event_id=event_id, chunk_duration=30.0
+            )
 
-            for slice_index in range(min(X.shape[1] // sample_length, len(labels))):
-                # ingore the no label epoch
-                if labels[slice_index] not in [
-                    "Sleep stage W",
-                    "Sleep stage 1",
-                    "Sleep stage 2",
-                    "Sleep stage 3",
-                    "Sleep stage 4",
-                    "Sleep stage R",
-                ]:
-                    continue
+            epochs_train = mne.Epochs(
+                data,
+                ann_events,
+                event_id,
+                tmin=0.0,
+                tmax=30.0 - 1.0 / data.info["sfreq"],
+                baseline=None,
+                preload=True,
+            )
 
-                epoch_signal = X[
-                    :, slice_index * sample_length : (slice_index + 1) * sample_length
-                ]
-                epoch_label = labels[slice_index][-1]  # "W", "1", "2", "3", "4", "R"
+            signals = epochs_train.get_data()
+            labels = epochs_train.events[:, 2]
+
+            for epoch in range(labels.shape[0]):
+                signal = signals[epoch, ...]
+                label = labels[epoch, ...]
+
                 samples.append(
                     {
                         "patient_id": pid,
                         "night": event.night,
                         "patient_age": event.age,
                         "patient_sex": event.sex,
-                        "signal": epoch_signal,
-                        "label": epoch_label,
+                        "signal": signal,
+                        "label": int(label),
                     }
                 )
 
