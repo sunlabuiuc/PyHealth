@@ -269,9 +269,10 @@ class ContraWR(BaseModel):
                 hop_length=self.n_fft // 4,
                 center=False,
                 onesided=True,
-                return_complex=False,
+                return_complex=True,
+                window=torch.hann_window(self.n_fft).to(X.device),
             )
-            signal.append(spectral)
+            signal.append(torch.view_as_real(spectral))
 
         signal1 = torch.stack(signal)[:, :, :, :, 0].permute(1, 0, 2, 3)
         signal2 = torch.stack(signal)[:, :, :, :, 1].permute(1, 0, 2, 3)

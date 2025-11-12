@@ -1,4 +1,3 @@
-from dataclasses import dataclass, field
 from typing import Any, Dict
 
 import mne
@@ -6,7 +5,6 @@ import mne
 from pyhealth.tasks import BaseTask
 
 
-@dataclass(frozen=True)
 class SleepStagingSleepEDF(BaseTask):
     """Multi-class classification task for sleep staging on Sleep EDF dataset.
 
@@ -24,12 +22,20 @@ class SleepStagingSleepEDF(BaseTask):
     """
 
     task_name: str = "SleepStaging"
-    input_schema: Dict[str, str] = field(default_factory=lambda: {"signal": "tensor"})
-    output_schema: Dict[str, str] = field(
-        default_factory=lambda: {"label": "multiclass"}
-    )
+    input_schema: Dict[str, str] = {"signal": "tensor"}
+    output_schema: Dict[str, str] = {"label": "multiclass"}
 
-    def __call__(self, patient: Any, epoch_seconds: int = 30) -> list[dict[str, Any]]:
+    def __init__(self, chunk_duration: float = 30.0):
+        """Initializes the SleepStagingSleepEDF task.
+
+        Args:
+            chunk_duration (float): Duration of each EEG signal chunk in seconds.
+                Default is 30.0 seconds.
+        """
+        self.chunk_duration = chunk_duration
+        super().__init__()
+
+    def __call__(self, patient: Any) -> list[dict[str, Any]]:
         """Processes a single patient for the sleep staging task on Sleep EDF.
 
         Sleep staging aims at predicting the sleep stages (Awake, REM, N1, N2, N3, N4) based on
@@ -37,7 +43,6 @@ class SleepStagingSleepEDF(BaseTask):
 
         Args:
             patient: A patient object containing SleepEDF data.
-            epoch_seconds: how long will each epoch be (in seconds)
 
         Returns:
             samples: a list of samples, each sample is a dict with patient_id, night,
@@ -87,7 +92,7 @@ class SleepStagingSleepEDF(BaseTask):
             }
 
             ann_events, _ = mne.events_from_annotations(
-                data, event_id=event_id, chunk_duration=30.0
+                data, event_id=event_id, chunk_duration=self.chunk_duration
             )
 
             epochs_train = mne.Epochs(
@@ -95,7 +100,7 @@ class SleepStagingSleepEDF(BaseTask):
                 ann_events,
                 event_id,
                 tmin=0.0,
-                tmax=30.0 - 1.0 / data.info["sfreq"],
+                tmax=self.chunk_duration - 1.0 / data.info["sfreq"],
                 baseline=None,
                 preload=True,
             )
