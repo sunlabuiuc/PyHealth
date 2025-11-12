@@ -127,7 +127,6 @@ def _manual_token_attribution(
     model: _ToyGIMModel,
     tokens: torch.Tensor,
     labels: torch.Tensor,
-    multiply_by_input: bool = True,
 ) -> torch.Tensor:
     """Reference implementation mimicking GIM without temperature scaling."""
 
@@ -145,8 +144,6 @@ def _manual_token_attribution(
     target.backward()
 
     grad = embeddings.grad.detach()
-    if multiply_by_input:
-        grad = grad * embeddings.detach()
     token_attr = grad.sum(dim=-1)
     return token_attr
 
@@ -160,7 +157,7 @@ class TestGIM(unittest.TestCase):
         self.labels = torch.zeros((1, 1))
 
     def test_matches_manual_gradient_when_temperature_one(self):
-        """Temperature=1 should collapse to plain gradient×input."""
+        """Temperature=1 should collapse to plain gradients."""
 
         model = _ToyGIMModel()
         gim = GIM(model, temperature=1.0)
@@ -204,17 +201,14 @@ class TestGIM(unittest.TestCase):
         self.assertEqual(model.gim_hook_calls, 1)
         self.assertEqual(model.deeplift_hook_calls, 0)
 
-    def test_disable_multiply_by_input_returns_raw_gradient(self):
-        """Setting multiply_by_input=False should return pure gradients."""
+    def test_attributions_match_input_shape(self):
+        """Collapsed gradients should align with the token tensor shape."""
 
         model = _ToyGIMModel()
-        gim = GIM(model, temperature=1.0, multiply_by_input=False)
+        gim = GIM(model, temperature=1.0)
 
-        attrs = gim.attribute(target_class_idx=0, codes=self.tokens, label=self.labels)["codes"]
-        manual_grad = _manual_token_attribution(
-            model, self.tokens, self.labels, multiply_by_input=False
-        )
-        torch.testing.assert_close(attrs, manual_grad, atol=1e-6, rtol=1e-5)
+        attrs = gim.attribute(target_class_idx=0, codes=self.tokens, label=self.labels)
+        self.assertEqual(tuple(attrs["codes"].shape), tuple(self.tokens.shape))
 
     def test_handles_temporal_tuple_inputs(self):
         """StageNet-style (time, value) tuples should be processed seamlessly."""
