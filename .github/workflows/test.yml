@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    paths-ignore:
+      - '**.md'
+      - 'doc/*'
+    branches:
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout reposistory
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - name: Install Python environment needed for the relpo command
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install pixi
+        run: 'curl -fsSL https://pixi.sh/install.sh | sh'
+
+      - name: Add pixi to path
+        run: 'echo "${HOME}/.pixi/bin" >> $GITHUB_PATH'
+
+      # we have to install the environment without --lock, as otherwise the
+      # pyproject.toml sha1 changes due to different whitespace in the build
+      # environment
+      - name: Create the enviornment, which updates the lock file
+        run: 'make init'
+
+      - name: Run tests
+        run: 'make testall'

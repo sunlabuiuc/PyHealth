@@ -7,6 +7,7 @@ def register_processor(name: str):
             raise ValueError(f"Processor '{name}' already registered.")
         PROCESSOR_REGISTRY[name] = cls
         return cls
+
     return decorator
 
 
@@ -24,23 +25,38 @@ from .label_processor import (
     MultiLabelProcessor,
     RegressionLabelProcessor,
 )
+from .multi_hot_processor import MultiHotProcessor
+from .nested_sequence_processor import (
+    NestedFloatsProcessor,
+    NestedSequenceProcessor,
+)
 from .raw_processor import RawProcessor
 from .sequence_processor import SequenceProcessor
 from .signal_processor import SignalProcessor
+from .stagenet_processor import (
+    StageNetProcessor,
+    StageNetTensorProcessor,
+)
+from .tensor_processor import TensorProcessor
 from .text_processor import TextProcessor
 from .timeseries_processor import TimeseriesProcessor
+from .audio_processor import AudioProcessor
 
 # Expose public API
 __all__ = [
-    "get_processor",
+    "FeatureProcessor",
     "ImageProcessor",
-    "SequenceProcessor",
-    "TimeseriesProcessor",
-    "SignalProcessor",
-    "BinaryLabelProcessor",
-    "MultiClassLabelProcessor",
-    "MultiLabelProcessor",
-    "RegressionLabelProcessor",
+    "LabelProcessor",
+    "MultiHotProcessor",
+    "NestedFloatsProcessor",
+    "NestedSequenceProcessor",
     "RawProcessor",
+    "SequenceProcessor",
+    "SignalProcessor",
+    "StageNetProcessor",
+    "StageNetTensorProcessor",
+    "TensorProcessor",
     "TextProcessor",
+    "TimeseriesProcessor",
+    "AudioProcessor",
 ]

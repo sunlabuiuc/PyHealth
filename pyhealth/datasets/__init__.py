@@ -1,34 +1,56 @@
 class BaseEHRDataset:
     """This class is deprecated and should not be used."""
+
     def __init__(self, *args, **kwargs):
         import warnings
-        warnings.warn("The BaseEHRDataset class is deprecated and will be removed in a future version.", DeprecationWarning)
+
+        warnings.warn(
+            "The BaseEHRDataset class is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+        )
+
 
 class BaseSignalDataset:
     """This class is deprecated and should not be used."""
+
     def __init__(self, *args, **kwargs):
         import warnings
-        warnings.warn("The BaseSignalDataset class is deprecated and will be removed in a future version.", DeprecationWarning)
+
+        warnings.warn(
+            "The BaseSignalDataset class is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+        )
 
 
 class SampleEHRDataset:
     """This class is deprecated and should not be used."""
+
     def __init__(self, *args, **kwargs):
         import warnings
-        warnings.warn("The SampleEHRDataset class is deprecated and will be removed in a future version.", DeprecationWarning)
+
+        warnings.warn(
+            "The SampleEHRDataset class is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+        )
 
 
 class SampleSignalDataset:
     """This class is deprecated and should not be used."""
+
     def __init__(self, *args, **kwargs):
         import warnings
-        warnings.warn("The SampleSignalDataset class is deprecated and will be removed in a future version.", DeprecationWarning)
+
+        warnings.warn(
+            "The SampleSignalDataset class is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+        )
 
 
 from .base_dataset import BaseDataset
 from .cardiology import CardiologyDataset
 from .chestxray14 import ChestXray14Dataset
 from .covid19_cxr import COVID19CXRDataset
+from .dreamt import DREAMTDataset
 from .ehrshot import EHRShotDataset
 from .eicu import eICUDataset
 from .isruc import ISRUCDataset
@@ -40,7 +62,21 @@ from .omop import OMOPDataset
 from .sample_dataset import SampleDataset
 from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset
-from .splitter import split_by_patient, split_by_sample, split_by_visit
+from .bmd_hs import BMDHSDataset
+from .splitter import (
+    split_by_patient,
+    split_by_patient_conformal,
+    split_by_sample,
+    split_by_sample_conformal,
+    split_by_visit,
+    split_by_visit_conformal,
+)
 from .tuab import TUABDataset
 from .tuev import TUEVDataset
-from .utils import collate_fn_dict, collate_fn_dict_with_padding, get_dataloader
+from .utils import (
+    collate_fn_dict,
+    collate_fn_dict_with_padding,
+    get_dataloader,
+    load_processors,
+    save_processors,
+)

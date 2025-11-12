@@ -56,14 +56,14 @@ class ChestXray14Dataset(BaseDataset):
     def __init__(self,
                  root: str = ".",
                  config_path: Optional[str] = str(Path(__file__).parent / "configs" / "chestxray14.yaml"),
-                 download: bool = True,
+                 download: bool = False,
                  partial: bool = False) -> None:
         """Initializes the ChestX-ray14 dataset.
 
         Args:
             root (str): Root directory of the raw data. Defaults to the working directory.
             config_path (Optional[str]): Path to the configuration file. Defaults to "../configs/chestxray14.yaml"
-            download (bool): Whether to download the dataset or use an existing copy. Defaults to True.
+            download (bool): Whether to download the dataset or use an existing copy. Defaults to False.
             partial (bool): Whether to download only a subset of the dataset. Defaults to False.
 
         Raises:

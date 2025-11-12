@@ -14,8 +14,11 @@ Datasets
     datasets/pyhealth.datasets.ISRUCDataset
     datasets/pyhealth.datasets.MIMICExtractDataset
     datasets/pyhealth.datasets.OMOPDataset
+    datasets/pyhealth.datasets.DREAMTDataset
     datasets/pyhealth.datasets.SHHSDataset
     datasets/pyhealth.datasets.SleepEDFDataset
+    datasets/pyhealth.datasets.EHRShotDataset
+    datasets/pyhealth.datasets.COVID19CXRDataset
     datasets/pyhealth.datasets.TUABDataset
     datasets/pyhealth.datasets.TUEVDataset
     datasets/pyhealth.datasets.splitter
