@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 from typing import Optional
 
 import pandas as pd
@@ -29,6 +30,7 @@ class SleepEDFDataset(BaseDataset):
         root: str, root directory of the raw data. *You can choose to use the path to Cassette portion or the Telemetry portion.*
         dataset_name: Optional[str], name of the dataset. Default is None.
         config_path: Optional[str], path to the config file. Default is None.
+        subset: Optional[str], subset of the SleepEDF dataset, either "cassette" or "telemetry". Default is "cassette".
 
     Attributes:
         task: Optional[str], name of the task (e.g., "sleep staging").
@@ -55,14 +57,35 @@ class SleepEDFDataset(BaseDataset):
         root: str,
         dataset_name: Optional[str] = None,
         config_path: Optional[str] = None,
+        subset: Optional[str] = "cassette",
     ) -> None:
+        subset = (subset or "cassette").lower()
+        if subset not in {"cassette", "telemetry"}:
+            raise ValueError(
+                f"Unsupported subset '{subset}'. Expected 'cassette' or 'telemetry'."
+            )
         if config_path is None:
             logger.info("No config path provided, using default config")
-            config_path = os.path.join(
-                os.path.dirname(__file__), "configs", "sleepedf_cassette.yaml"
+            default_config = (
+                "sleepedf_cassette.yaml"
+                if subset == "cassette"
+                else "sleepedf_telemetry.yaml"
             )
-        if not os.path.exists(os.path.join(root, "sleepedf-metadata-pyhealth.csv")):
-            self.prepare_metadata(root)
+            config_path = os.path.join(
+                os.path.dirname(__file__), "configs", default_config
+            )
+
+        metadata_filename = f"sleepedf-{subset}-pyhealth.csv"
+        metadata_path = os.path.join(root, metadata_filename)
+
+        if subset == "cassette":
+            if not os.path.exists(metadata_path):
+                self.prepare_metadata_cassette(root)
+        else:
+            if not os.path.exists(metadata_path):
+                self.prepare_metadata_telemetry(root)
+
+        self.subset = subset
         default_tables = ["recordings"]
         super().__init__(
             root=root,
@@ -71,17 +94,19 @@ class SleepEDFDataset(BaseDataset):
             config_path=config_path,
         )
 
-    def prepare_metadata(self, root: str) -> None:
-        """Prepare metadata for the SleepEDF dataset.
+    def prepare_metadata_cassette(self, root: str) -> None:
+        """Prepare metadata for the SleepEDF cassette subset.
         Args:
             root: Root directory containing the dataset files.
 
-        This method processes the raw metadata files and saves a processed CSV file.
+        This method processes the raw cassette metadata files and saves a processed CSV file.
         """
 
         sleep_edf_cassette = pd.read_excel(os.path.join(root, "SC-subjects.xls"))
 
-        sleep_edf_cassette = sleep_edf_cassette.rename(columns={"sex (F=1)": "sex"})
+        sleep_edf_cassette = sleep_edf_cassette.rename(
+            columns={"sex (F=1)": "sex", "LightsOff": "lights_off"}
+        )
 
         for files in os.listdir(os.path.join(root, "sleep-cassette")):
             if files.endswith("-PSG.edf"):
@@ -104,8 +129,110 @@ class SleepEDFDataset(BaseDataset):
                     ] = os.path.join(root, "sleep-cassette", files)
 
         sleep_edf_cassette.to_csv(
-            os.path.join(root, "sleepedf-metadata-pyhealth.csv"), index=False
+            os.path.join(root, "sleepedf-cassette-pyhealth.csv"), index=False
         )
+
+    def prepare_metadata_telemetry(self, root: str) -> None:
+        """Prepare metadata for the SleepEDF telemetry subset.
+
+        Args:
+            root: Root directory containing the dataset files.
+
+        This method processes the raw telemetry metadata files and saves a processed CSV file.
+        """
+        telemetry_path = os.path.join(root, "ST-subjects.xls")
+        telemetry_raw = pd.read_excel(telemetry_path, header=[0, 1])
+        telemetry_raw.columns = self._flatten_multilevel_columns(telemetry_raw.columns)
+        print(telemetry_raw.columns)
+        telemetry = telemetry_raw.rename(
+            columns={
+                "subject_age_sex_nr": "subject",
+                "subject_age_sex_age": "age",
+                "subject_age_sex_m1_f2": "sex",
+                "placebo_night_night_nr": "placebo_night",
+                "placebo_night_lights_off": "placebo_lights_off",
+                "temazepam_night_night_nr": "temazepam_night",
+                "temazepam_night_lights_off": "temazepam_lights_off",
+            }
+        ).copy()
+
+        telemetry["sex"] = (
+            telemetry["sex"].map({1: "M", 2: "F"}).fillna(telemetry["sex"])
+        )
+
+        records = []
+        for _, row in telemetry.iterrows():
+            subject_val = row.get("subject")
+            if pd.isna(subject_val):
+                continue
+            base = {
+                "subject": int(subject_val),
+                "age": row.get("age"),
+                "sex": row.get("sex"),
+            }
+            for condition in ("placebo", "temazepam"):
+                night_val = row.get(f"{condition}_night")
+                if pd.isna(night_val):
+                    continue
+                record = {
+                    **base,
+                    "condition": condition,
+                    "night": int(night_val),
+                    "lights_off": row.get(f"{condition}_lights_off"),
+                    "signal_file": None,
+                    "label_file": None,
+                }
+                records.append(record)
+
+        telemetry_records = pd.DataFrame(records)
+
+        telemetry_dir = os.path.join(root, "sleep-telemetry")
+        if os.path.isdir(telemetry_dir):
+            for filename in os.listdir(telemetry_dir):
+                filepath = os.path.join(telemetry_dir, filename)
+                if filename.endswith("-PSG.edf"):
+                    subject_id = int(filename[3:5])
+                    night = int(filename[5])
+                    mask = (telemetry_records["subject"] == subject_id) & (
+                        telemetry_records["night"] == night
+                    )
+                    telemetry_records.loc[mask, "signal_file"] = filepath
+                elif filename.endswith("-Hypnogram.edf"):
+                    subject_id = int(filename[3:5])
+                    night = int(filename[5])
+                    mask = (telemetry_records["subject"] == subject_id) & (
+                        telemetry_records["night"] == night
+                    )
+                    telemetry_records.loc[mask, "label_file"] = filepath
+        else:
+            logger.warning("Telemetry directory '%s' not found.", telemetry_dir)
+
+        telemetry_records.sort_values(["subject", "night", "condition"], inplace=True)
+        telemetry_records.reset_index(drop=True, inplace=True)
+        telemetry_records.to_csv(
+            os.path.join(root, "sleepedf-telemetry-pyhealth.csv"), index=False
+        )
+
+    @staticmethod
+    def _flatten_multilevel_columns(columns: pd.Index) -> list[str]:
+        """Normalize a MultiIndex column into flat snake_case names."""
+
+        def normalize(value: object) -> str:
+            if value is None:
+                return ""
+            cleaned = str(value).strip().lower()
+            cleaned = re.sub(r"[^\w]+", "_", cleaned)
+            return re.sub(r"_+", "_", cleaned).strip("_")
+
+        flattened: list[str] = []
+        for col in columns:
+            parts: list[str] = []
+            for part in col:
+                part_clean = normalize(part)
+                if part_clean:
+                    parts.append(part_clean)
+            flattened.append("_".join(parts))
+        return flattened
 
     @property
     def default_task(self) -> SleepStagingSleepEDF:
