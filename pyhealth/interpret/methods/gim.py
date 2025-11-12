@@ -11,7 +11,12 @@ from .base_interpreter import BaseInterpreter
 
 
 class _TemperatureSoftmax(torch.autograd.Function):
-    """Custom autograd op implementing temperature-adjusted softmax gradients."""
+    """Custom autograd op implementing temperature-adjusted softmax gradients.
+
+    Implements the Temperature-Scaled Gradients (TSG) rule from GIM Sec. 4.1 by
+    recomputing the backward Jacobian with a higher temperature while leaving
+    the forward softmax unchanged.
+    """
 
     @staticmethod
     def forward(
@@ -63,7 +68,12 @@ class _GIMActivationHooks:
 
 
 class _GIMHookContext(contextlib.AbstractContextManager):
-    """Context manager that wires GIM hooks if the model supports them."""
+    """Context manager that wires GIM hooks if the model supports them.
+
+    TSG needs to intercept every activation that calls ``torch.softmax``.
+    StageNet exposes DeepLIFT-style hook setters, so we reuse that surface
+    unless a dedicated ``set_gim_hooks`` is provided.
+    """
 
     def __init__(self, model: BaseModel, temperature: float):
         self.model = model
@@ -108,25 +118,24 @@ class GIM(BaseInterpreter):
        softmax redistribution.
     2. **LayerNorm freeze:** Layer normalization parameters are treated as
        constants during backpropagation. StageNet does not employ layer norm,
-       so this step is effectively a no-op but kept for API parity.
-    3. **Gradient normalization:** Gradients are reported as gradient-timesinput and collapsed onto the original token axes, ensuring consistent scale
-       across visits. This mirrors the normalization heuristic proposed in
-       the paper for multiplicative interactions.
+       so this rule becomes a mathematical no-op, matching the paper when
+       σ is constant.
+    3. **Gradient normalization:** When no multiplicative fan-in exists (as in
+       StageNet’s embedding → recurrent pipeline) the uniform division rule
+       effectively multiplies by 1, so propagating raw gradients remains
+       faithful to Section 4.2.
 
     Args:
         model: Trained PyHealth model supporting ``forward_from_embedding``
             (StageNet is currently supported).
         temperature: Softmax temperature used exclusively for the backward
             pass. A value of ``2.0`` matches the paper's best setting.
-        multiply_by_input: Whether to return gradient×input (default) or raw
-            gradients in embedding space.
     """
 
     def __init__(
         self,
         model: BaseModel,
         temperature: float = 2.0,
-        multiply_by_input: bool = True,
     ):
         super().__init__(model)
         if not hasattr(model, "forward_from_embedding"):
@@ -138,7 +147,6 @@ class GIM(BaseInterpreter):
                 "GIM requires access to the model's embedding_model."
             )
         self.temperature = max(float(temperature), 1.0)
-        self.multiply_by_input = multiply_by_input
 
     def attribute(
         self,
@@ -154,6 +162,8 @@ class GIM(BaseInterpreter):
         self.model.zero_grad(set_to_none=True)
 
         time_kwarg = time_info if time_info else None
+        # Step 1 (TSG): install the temperature-adjusted softmax hooks so all
+        # backward passes through StageNet's cumax operations use the higher τ.
         with _GIMHookContext(self.model, self.temperature):
             forward_kwargs = {**label_data} if label_data else {}
             output = self.model.forward_from_embedding(
@@ -165,6 +175,9 @@ class GIM(BaseInterpreter):
         logits = output["logit"]
         target = self._compute_target_output(logits, target_class_idx)
 
+        # Step 2 (LayerNorm freeze): StageNet does not contain layer norms, so
+        # there are no σ parameters to freeze; the reset below ensures any
+        # hypothetical normalization buffers would stay constant as in Sec. 4.2.
         self.model.zero_grad(set_to_none=True)
         for emb in embeddings.values():
             if emb.grad is not None:
@@ -177,10 +190,10 @@ class GIM(BaseInterpreter):
             grad = emb.grad
             if grad is None:
                 grad = torch.zeros_like(emb)
-            attr = grad
-            if self.multiply_by_input:
-                attr = attr * emb
-            token_attr = self._collapse_to_input_shape(attr, input_shapes[key])
+            # Step 3 (Gradient normalization): StageNet lacks the multi-input
+            # products targeted by the uniform rule, so dividing by 1 (identity)
+            # yields the same gradients the paper would propagate.
+            token_attr = self._collapse_to_input_shape(grad, input_shapes[key])
             attributions[key] = token_attr.detach()
 
         return attributions
