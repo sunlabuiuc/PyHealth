@@ -52,14 +52,26 @@ class StageNetProcessor(FeatureProcessor):
         self._next_index = 1
         self._is_nested = None  # Will be determined during fit
         self._max_nested_len = None  # Max inner sequence length for nested codes
+        # For streaming mode
+        self._stream_max_inner_len = 0
 
-    def fit(self, samples: List[Dict], key: str) -> None:
+    def fit(self, samples: List[Dict], key: str, stream: bool = False) -> None:
         """Build vocabulary and determine input structure.
 
         Args:
             samples: List of sample dictionaries
             key: The key in samples that contains tuple (time, values)
+            stream: If True, accumulate vocab across batches
         """
+        if not stream:
+            # Non-streaming mode: original behavior (backward compatible)
+            self._fit_non_streaming(samples, key)
+        else:
+            # Streaming mode: accumulate vocab across batches
+            self._fit_streaming_batch(samples, key)
+
+    def _fit_non_streaming(self, samples: List[Dict], key: str) -> None:
+        """Original fit logic (backward compatible)."""
         # Examine first non-None sample to determine structure
         for sample in samples:
             if key in sample and sample[key] is not None:
@@ -105,6 +117,48 @@ class StageNetProcessor(FeatureProcessor):
         # Store max nested length (at least 1 for empty sequences)
         if self._is_nested:
             self._max_nested_len = max(1, max_inner_len)
+
+    def _fit_streaming_batch(self, samples: List[Dict], key: str) -> None:
+        """Accumulate vocab from streaming batch."""
+        # Determine structure from first batch if not set
+        if self._is_nested is None:
+            for sample in samples:
+                if key in sample and sample[key] is not None:
+                    time_data, value_data = sample[key]
+                    if isinstance(value_data, list) and len(value_data) > 0:
+                        first_elem = value_data[0]
+                        if isinstance(first_elem, str):
+                            self._is_nested = False
+                        elif isinstance(first_elem, list):
+                            if len(first_elem) > 0 and isinstance(first_elem[0], str):
+                                self._is_nested = True
+                    break
+
+        # Accumulate vocab and track max lengths
+        for sample in samples:
+            if key in sample and sample[key] is not None:
+                time_data, value_data = sample[key]
+
+                if self._is_nested:
+                    for inner_list in value_data:
+                        self._stream_max_inner_len = max(
+                            self._stream_max_inner_len, len(inner_list)
+                        )
+                        for code in inner_list:
+                            if code is not None and code not in self.code_vocab:
+                                self.code_vocab[code] = self._next_index
+                                self._next_index += 1
+                else:
+                    for code in value_data:
+                        if code is not None and code not in self.code_vocab:
+                            self.code_vocab[code] = self._next_index
+                            self._next_index += 1
+
+    def finalize_fit(self) -> None:
+        """Finalize vocab after all streaming batches."""
+        if self._is_nested:
+            self._max_nested_len = max(1, self._stream_max_inner_len)
+        self._stream_max_inner_len = 0  # Clear temporary storage
 
     def process(
         self, value: Tuple[Optional[List], List]
@@ -244,13 +298,19 @@ class StageNetTensorProcessor(FeatureProcessor):
         self._size = None  # Feature dimension (set during fit)
         self._is_nested = None
 
-    def fit(self, samples: List[Dict], key: str) -> None:
+    def fit(self, samples: List[Dict], key: str, stream: bool = False) -> None:
         """Determine input structure.
 
         Args:
             samples: List of sample dictionaries
             key: The key in samples that contains tuple (time, values)
+            stream: If True, this is a streaming batch (no-op for this processor)
         """
+        # Structure detection doesn't need streaming mode
+        # because we only need to examine first sample
+        if self._is_nested is not None:
+            return  # Already determined in previous batch
+
         # Examine first non-None sample to determine structure
         for sample in samples:
             if key in sample and sample[key] is not None:
@@ -272,6 +332,10 @@ class StageNetTensorProcessor(FeatureProcessor):
                                 self._is_nested = True
                                 self._size = len(first_elem)
                 break
+
+    def finalize_fit(self) -> None:
+        """No-op for this processor (structure determined in first batch)."""
+        pass
 
     def process(
         self, value: Tuple[Optional[List], List]

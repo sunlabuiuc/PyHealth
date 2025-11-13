@@ -10,6 +10,117 @@ from .sample_dataset import SampleDataset
 # TODO: add more splitting methods
 
 
+def split_by_patient_stream(
+    patient_ids: List[str],
+    ratios: List[float],
+    seed: int = 42,
+) -> Tuple[List[str], ...]:
+    """Split patient IDs into train/val/test or other proportions.
+
+    This function provides deterministic patient-level splitting by operating
+    on patient ID lists rather than SampleDataset objects. This is ideal for:
+    - Streaming mode datasets where you filter patients before task application
+    - Pre-computing splits to save for reproducibility
+    - Creating custom patient-level cross-validation folds
+
+    Unlike `split_by_patient` which operates on `SampleDataset` objects and
+    returns `Subset` objects, this function operates on raw patient ID lists.
+
+    Args:
+        patient_ids: List of all patient IDs to split
+        ratios: List of floats that sum to 1.0 specifying split proportions.
+            Common patterns:
+            - [0.8, 0.2] for train/test
+            - [0.8, 0.1, 0.1] for train/val/test
+            - [0.7, 0.15, 0.15] for larger validation/test sets
+        seed: Random seed for reproducibility (default: 42)
+
+    Returns:
+        Tuple of patient ID lists, one per ratio specified.
+        Length matches len(ratios).
+
+    Raises:
+        AssertionError: If ratios don't sum to 1.0 (within 1e-6 tolerance)
+
+    Examples:
+        >>> # Standard train/val/test split
+        >>> from pyhealth.datasets import split_by_patient_stream
+        >>> patient_ids = ["patient-1", "patient-2", ..., "patient-100"]
+        >>> train, val, test = split_by_patient_stream(
+        ...     patient_ids, [0.8, 0.1, 0.1]
+        ... )
+        >>> len(train), len(val), len(test)
+        (80, 10, 10)
+
+        >>> # Use with streaming datasets
+        >>> base_dataset = MIMIC4Dataset(..., stream=True)
+        >>> all_ids = base_dataset.patient_ids
+        >>> train_ids, val_ids, test_ids = split_by_patient_stream(
+        ...     all_ids, [0.8, 0.1, 0.1]
+        ... )
+        >>> # Then filter when creating sample datasets
+        >>> train_samples = base_dataset.set_task(
+        ...     task, patient_ids=train_ids  # Filter to train patients
+        ... )
+
+    Note:
+        Patient-level splitting is essential in medical ML to prevent:
+        - Data leakage from multiple visits of same patient
+        - Optimistically biased performance estimates
+        - Models that memorize patient-specific patterns
+
+    See Also:
+        - `split_by_patient`: Splits SampleDataset objects into Subset objects
+        - `split_by_visit`: Splits by samples/visits
+    """
+    import random
+
+    # Validation
+    assert isinstance(patient_ids, list), "patient_ids must be a list"
+    assert isinstance(ratios, list), "ratios must be a list"
+    assert len(ratios) >= 2, "Must provide at least 2 ratios for splitting"
+    assert abs(sum(ratios) - 1.0) < 1e-6, f"Ratios must sum to 1.0, got {sum(ratios)}"
+    assert all(r > 0 for r in ratios), "All ratios must be positive"
+
+    # Shuffle patient IDs deterministically
+    random.seed(seed)
+    shuffled_ids = patient_ids.copy()
+    random.shuffle(shuffled_ids)
+
+    # Calculate split indices
+    n_total = len(shuffled_ids)
+    splits = []
+    start_idx = 0
+
+    for i, ratio in enumerate(ratios[:-1]):
+        # Calculate size for this split
+        split_size = int(n_total * ratio)
+        end_idx = start_idx + split_size
+
+        splits.append(shuffled_ids[start_idx:end_idx])
+        start_idx = end_idx
+
+    # Last split gets all remaining patients (handles rounding)
+    splits.append(shuffled_ids[start_idx:])
+
+    # Print summary
+    split_names = (
+        ["train", "val", "test"]
+        if len(splits) == 3
+        else (
+            ["train", "test"]
+            if len(splits) == 2
+            else [f"split_{i+1}" for i in range(len(splits))]
+        )
+    )
+    print(f"Split {n_total} patients by patient ID (seed={seed}):")
+    for name, split in zip(split_names, splits):
+        pct = len(split) / n_total * 100
+        print(f"  {name.capitalize():8s}: " f"{len(split):6d} patients ({pct:5.1f}%)")
+
+    return tuple(splits)
+
+
 def split_by_visit(
     dataset: SampleDataset,
     ratios: Union[Tuple[float, float, float], List[float]],

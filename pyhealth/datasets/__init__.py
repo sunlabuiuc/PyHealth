@@ -58,12 +58,14 @@ from .mimic3 import MIMIC3Dataset
 from .mimic4 import MIMIC4CXRDataset, MIMIC4Dataset, MIMIC4EHRDataset, MIMIC4NoteDataset
 from .mimicextract import MIMICExtractDataset
 from .omop import OMOPDataset
-from .sample_dataset import SampleDataset, IterableSampleDataset
+from .sample_dataset import SampleDataset
+from .iterable_sample_dataset import IterableSampleDataset
 from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset
 from .splitter import (
     split_by_patient,
     split_by_patient_conformal,
+    split_by_patient_stream,
     split_by_sample,
     split_by_sample_conformal,
     split_by_visit,

@@ -43,14 +43,26 @@ class NestedSequenceProcessor(FeatureProcessor):
         self.code_vocab: Dict[Any, int] = {"<unk>": -1, "<pad>": 0}
         self._next_index = 1
         self._max_inner_len = 1  # Maximum length of inner sequences
+        # For streaming mode
+        self._stream_max_inner_len = 0
 
-    def fit(self, samples: List[Dict[str, Any]], field: str) -> None:
+    def fit(
+        self, samples: List[Dict[str, Any]], field: str, stream: bool = False
+    ) -> None:
         """Build vocabulary and determine maximum inner sequence length.
 
         Args:
             samples: List of sample dictionaries.
             field: The field name containing nested sequences.
+            stream: If True, accumulate vocab across batches.
         """
+        if not stream:
+            self._fit_non_streaming(samples, field)
+        else:
+            self._fit_streaming_batch(samples, field)
+
+    def _fit_non_streaming(self, samples: List[Dict[str, Any]], field: str) -> None:
+        """Original fit logic (backward compatible)."""
         max_inner_len = 0
 
         for sample in samples:
@@ -72,6 +84,29 @@ class NestedSequenceProcessor(FeatureProcessor):
 
         # Store max inner length (at least 1 for empty sequences)
         self._max_inner_len = max(1, max_inner_len)
+
+    def _fit_streaming_batch(self, samples: List[Dict[str, Any]], field: str) -> None:
+        """Accumulate vocab from streaming batch."""
+        for sample in samples:
+            if field in sample and sample[field] is not None:
+                nested_seq = sample[field]
+
+                if isinstance(nested_seq, list):
+                    for inner_seq in nested_seq:
+                        if isinstance(inner_seq, list):
+                            self._stream_max_inner_len = max(
+                                self._stream_max_inner_len, len(inner_seq)
+                            )
+
+                            for code in inner_seq:
+                                if code is not None and code not in self.code_vocab:
+                                    self.code_vocab[code] = self._next_index
+                                    self._next_index += 1
+
+    def finalize_fit(self) -> None:
+        """Finalize vocab after all streaming batches."""
+        self._max_inner_len = max(1, self._stream_max_inner_len)
+        self._stream_max_inner_len = 0  # Clear temporary storage
 
     def process(self, value: List[List[Any]]) -> torch.Tensor:
         """Process nested sequence into padded 2D tensor.
@@ -167,14 +202,26 @@ class NestedFloatsProcessor(FeatureProcessor):
     def __init__(self, forward_fill: bool = True):
         self._max_inner_len = 1  # Maximum length of inner sequences
         self.forward_fill = forward_fill
+        # For streaming mode
+        self._stream_max_inner_len = 0
 
-    def fit(self, samples: List[Dict[str, Any]], field: str) -> None:
+    def fit(
+        self, samples: List[Dict[str, Any]], field: str, stream: bool = False
+    ) -> None:
         """Determine maximum inner sequence length.
 
         Args:
             samples: List of sample dictionaries.
             field: The field name containing nested sequences.
+            stream: If True, accumulate max length across batches.
         """
+        if not stream:
+            self._fit_non_streaming(samples, field)
+        else:
+            self._fit_streaming_batch(samples, field)
+
+    def _fit_non_streaming(self, samples: List[Dict[str, Any]], field: str) -> None:
+        """Original fit logic (backward compatible)."""
         max_inner_len = 0
 
         for sample in samples:
@@ -190,6 +237,24 @@ class NestedFloatsProcessor(FeatureProcessor):
 
         # Store max inner length (at least 1 for empty sequences)
         self._max_inner_len = max(1, max_inner_len)
+
+    def _fit_streaming_batch(self, samples: List[Dict[str, Any]], field: str) -> None:
+        """Accumulate max length from streaming batch."""
+        for sample in samples:
+            if field in sample and sample[field] is not None:
+                nested_seq = sample[field]
+
+                if isinstance(nested_seq, list):
+                    for inner_seq in nested_seq:
+                        if isinstance(inner_seq, list):
+                            self._stream_max_inner_len = max(
+                                self._stream_max_inner_len, len(inner_seq)
+                            )
+
+    def finalize_fit(self) -> None:
+        """Finalize max length after all streaming batches."""
+        self._max_inner_len = max(1, self._stream_max_inner_len)
+        self._stream_max_inner_len = 0  # Clear temporary storage
 
     def process(self, value: List[List[float]]) -> torch.Tensor:
         """Process nested numerical sequence with optional forward fill.

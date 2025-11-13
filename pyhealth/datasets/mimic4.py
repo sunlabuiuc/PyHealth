@@ -1,7 +1,7 @@
 import logging
 import os
 import warnings
-from typing import Dict, Iterator, List, Optional
+from typing import Dict, List, Optional
 
 import pandas as pd
 import polars as pl
@@ -210,7 +210,8 @@ class MIMIC4Dataset(BaseDataset):
         note_config_path: Path to the note config file
         cxr_config_path: Path to the CXR config file
         dataset_name: Name of the dataset
-        dev: Whether to enable dev mode (limit to 1000 patients)
+        dev: Whether to enable dev mode (limit patients)
+        dev_max_patients: Maximum number of patients in dev mode (default 1000)
         stream: Whether to enable streaming mode for memory efficiency
         cache_dir: Directory for streaming cache
     """
@@ -228,6 +229,7 @@ class MIMIC4Dataset(BaseDataset):
         cxr_config_path: Optional[str] = None,
         dataset_name: str = "mimic4",
         dev: bool = False,
+        dev_max_patients: int = 1000,
         stream: bool = False,
         cache_dir: Optional[str] = None,
     ):
@@ -242,6 +244,7 @@ class MIMIC4Dataset(BaseDataset):
         # Dev flag is only used in the MIMIC4Dataset class
         # to ensure the same set of patients are used for all sub-datasets.
         self.dev = dev
+        self.dev_max_patients = dev_max_patients
         self.stream = stream
         self.cache_dir = cache_dir
 
@@ -258,13 +261,14 @@ class MIMIC4Dataset(BaseDataset):
         if ehr_root:
             logger.info(
                 f"Initializing MIMIC4EHRDataset with tables: {ehr_tables} "
-                f"(dev mode: {dev})"
+                f"(dev mode: {dev}, max patients: {dev_max_patients})"
             )
             self.sub_datasets["ehr"] = MIMIC4EHRDataset(
                 root=ehr_root,
                 tables=ehr_tables,
                 config_path=ehr_config_path,
                 dev=dev,
+                dev_max_patients=dev_max_patients,
                 stream=stream,
                 cache_dir=cache_dir,
             )
@@ -274,13 +278,14 @@ class MIMIC4Dataset(BaseDataset):
         if note_root is not None and note_tables:
             logger.info(
                 f"Initializing MIMIC4NoteDataset with tables: {note_tables} "
-                f"(dev mode: {dev})"
+                f"(dev mode: {dev}, max patients: {dev_max_patients})"
             )
             self.sub_datasets["note"] = MIMIC4NoteDataset(
                 root=note_root,
                 tables=note_tables,
                 config_path=note_config_path,
                 dev=dev,
+                dev_max_patients=dev_max_patients,
                 stream=stream,
                 cache_dir=cache_dir,
             )
@@ -290,13 +295,14 @@ class MIMIC4Dataset(BaseDataset):
         if cxr_root is not None:
             logger.info(
                 f"Initializing MIMIC4CXRDataset with tables: {cxr_tables} "
-                f"(dev mode: {dev})"
+                f"(dev mode: {dev}, max patients: {dev_max_patients})"
             )
             self.sub_datasets["cxr"] = MIMIC4CXRDataset(
                 root=cxr_root,
                 tables=cxr_tables,
                 config_path=cxr_config_path,
                 dev=dev,
+                dev_max_patients=dev_max_patients,
                 stream=stream,
                 cache_dir=cache_dir,
             )
@@ -358,56 +364,17 @@ class MIMIC4Dataset(BaseDataset):
     @property
     def unique_patient_ids(self) -> List[str]:
         """
-        Get the full list of unique patient IDs from the primary sub-dataset.
+        Get the full list of unique patient IDs from the EHR dataset.
 
         This overrides the base class implementation to delegate to the
-        appropriate sub-dataset (EHR, Note, or CXR) rather than using
-        the collected global event dataframe.
+        EHR sub-dataset, which is the primary source connecting all data.
 
         Returns:
             List[str]: Complete list of unique patient IDs (ignores dev mode)
         """
-        # Use EHR dataset as primary source for patient IDs
+        # EHR dataset is the primary source that connects all sub-datasets
         if "ehr" in self.sub_datasets:
             return self.sub_datasets["ehr"].unique_patient_ids
-        elif "note" in self.sub_datasets:
-            return self.sub_datasets["note"].unique_patient_ids
-        elif "cxr" in self.sub_datasets:
-            return self.sub_datasets["cxr"].unique_patient_ids
         else:
-            return []
-
-    def iter_patients(
-        self,
-        df: Optional[pl.DataFrame] = None,
-        patient_ids: Optional[List[str]] = None,
-        preload: int = 1,
-    ) -> Iterator:
-        """
-        Iterate over patients using the EHR dataset as primary source.
-
-        Delegates to the primary sub-dataset (EHR, Note, or CXR).
-        The sub-dataset will handle streaming mode internally.
-        """
-        # Use EHR dataset as primary source for patient iteration
-        if "ehr" in self.sub_datasets:
-            return self.sub_datasets["ehr"].iter_patients(
-                df=df,
-                patient_ids=patient_ids,
-                preload=preload,
-            )
-        elif "note" in self.sub_datasets:
-            return self.sub_datasets["note"].iter_patients(
-                df=df,
-                patient_ids=patient_ids,
-                preload=preload,
-            )
-        elif "cxr" in self.sub_datasets:
-            return self.sub_datasets["cxr"].iter_patients(
-                df=df,
-                patient_ids=patient_ids,
-                preload=preload,
-            )
-        else:
-            # No sub-datasets available, return empty iterator
-            return iter([])
+            # Fallback to base class implementation if no EHR dataset
+            return super().unique_patient_ids
