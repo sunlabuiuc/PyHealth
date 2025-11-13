@@ -62,6 +62,7 @@ from .sample_dataset import SampleDataset
 from .iterable_sample_dataset import IterableSampleDataset
 from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset
+from .bmd_hs import BMDHSDataset
 from .splitter import (
     split_by_patient,
     split_by_patient_conformal,

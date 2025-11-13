@@ -16,10 +16,10 @@ class SampleDataset(Dataset):
 
     Attributes:
         samples (List[Dict]): List of data samples.
-        input_schema (Dict[str, Union[str, Type[FeatureProcessor]]]):
-            Schema for input data.
-        output_schema (Dict[str, Union[str, Type[FeatureProcessor]]]):
-            Schema for output data.
+        input_schema (Dict[str, Union[str, Type[FeatureProcessor], Tuple[Union[str, Type[FeatureProcessor]], Dict[str, Any]]]]):
+            Schema for input data. Values can be string aliases, processor classes, or tuples of (spec, kwargs_dict).
+        output_schema (Dict[str, Union[str, Type[FeatureProcessor], Tuple[Union[str, Type[FeatureProcessor]], Dict[str, Any]]]]):
+            Schema for output data. Values can be string aliases, processor classes, or tuples of (spec, kwargs_dict).
         dataset_name (Optional[str]): Name of the dataset.
         task_name (Optional[str]): Name of the task.
     """
@@ -38,12 +38,10 @@ class SampleDataset(Dataset):
 
         Args:
             samples (List[Dict]): List of data samples.
-            input_schema (Dict[str, Union[str, Type[FeatureProcessor]]]):
-                Schema for input data. Values can be string aliases or
-                processor classes.
-            output_schema (Dict[str, Union[str, Type[FeatureProcessor]]]):
-                Schema for output data. Values can be string aliases or
-                processor classes.
+            input_schema (Dict[str, Union[str, Type[FeatureProcessor], Tuple[Union[str, Type[FeatureProcessor]], Dict[str, Any]]]]):
+                Schema for input data. Values can be string aliases, processor classes, or tuples of (spec, kwargs_dict) for instantiation.
+            output_schema (Dict[str, Union[str, Type[FeatureProcessor], Tuple[Union[str, Type[FeatureProcessor]], Dict[str, Any]]]]):
+                Schema for output data. Values can be string aliases, processor classes, or tuples of (spec, kwargs_dict) for instantiation.
             dataset_name (Optional[str], optional): Name of the dataset.
                 Defaults to None.
             task_name (Optional[str], optional): Name of the task.
@@ -93,7 +91,7 @@ class SampleDataset(Dataset):
         self.build()
 
     def _get_processor_instance(self, processor_spec):
-        """Get processor instance from either string alias or class reference.
+        """Get processor instance from either string alias, class reference, or tuple with kwargs.
 
         Args:
             processor_spec: Either a string alias or a processor class
@@ -101,6 +99,17 @@ class SampleDataset(Dataset):
         Returns:
             Instance of the processor
         """
+        if isinstance(processor_spec, tuple):
+            spec, kwargs = processor_spec
+            if isinstance(spec, str):
+                return get_processor(spec)(**kwargs)
+            elif inspect.isclass(spec) and issubclass(spec, FeatureProcessor):
+                return spec(**kwargs)
+            else:
+                raise ValueError(
+                    f"Processor spec in tuple must be either a string alias or a "
+                    f"FeatureProcessor class, got {type(spec)}"
+                )
         if isinstance(processor_spec, str):
             # Use existing registry system for string aliases
             return get_processor(processor_spec)()
@@ -111,8 +120,8 @@ class SampleDataset(Dataset):
             return processor_spec()
         else:
             raise ValueError(
-                f"Processor spec must be either a string alias or a "
-                f"FeatureProcessor class, got {type(processor_spec)}"
+                f"Processor spec must be either a string alias, a "
+                f"FeatureProcessor class, or a tuple (spec, kwargs_dict), got {type(processor_spec)}"
             )
 
     def validate(self) -> None:
@@ -121,9 +130,9 @@ class SampleDataset(Dataset):
         output_keys = set(self.output_schema.keys())
         for s in self.samples:
             assert input_keys.issubset(s.keys()), "Input schema does not match samples."
-            assert output_keys.issubset(
-                s.keys()
-            ), "Output schema does not match samples."
+            assert output_keys.issubset(s.keys()), (
+                "Output schema does not match samples."
+            )
         return
 
     def build(self) -> None:
