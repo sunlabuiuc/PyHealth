@@ -58,7 +58,7 @@ class ChestXray14Dataset(BaseDataset):
             root (str): Root directory of the raw data. Defaults to the working directory.
             config_path (Optional[str]): Path to the configuration file. Defaults to "../configs/chestxray14.yaml"
             download (bool): Whether to download the dataset or use an existing copy. Defaults to False.
-            partial (bool): Whether to download only a subset of the dataset (specifically, the first two image archives). Defaults to False.
+            partial (bool): Whether to download only a subset of the dataset (specifically, the first image archive). Defaults to False.
 
         Raises:
             ValueError: If the MD5 checksum check fails during the download.
@@ -113,7 +113,7 @@ class ChestXray14Dataset(BaseDataset):
 
         Args:
             root (str): Root directory of the raw data.
-            partial (bool): Whether to download only a subset of the dataset (specifically, the first two image archives).
+            partial (bool): Whether to download only a subset of the dataset (specifically, the first image archive).
 
         Raises:
             ValueError: If the MD5 checksum check fails during the download.
@@ -159,8 +159,8 @@ class ChestXray14Dataset(BaseDataset):
         ]
 
         if partial:
-            links = links[:2]
-            md5_checksums = md5_checksums[:2]
+            links = links[:1]
+            md5_checksums = md5_checksums[:1]
 
         for idx, link in enumerate(links):
             fn = os.path.join(root, f"images_{idx+1:02d}.tar.gz")
@@ -197,7 +197,7 @@ class ChestXray14Dataset(BaseDataset):
             os.remove(fn)
 
         num_images = len([f for f in os.listdir(self._image_path) if os.path.isfile(os.path.join(self._image_path, f))])
-        num_images_expected = 14999 if partial else 112120
+        num_images_expected = 4999 if partial else 112120
         if num_images != num_images_expected:
             msg = f"Expected {num_images_expected} images but found {num_images}!"
             logger.error(msg)
