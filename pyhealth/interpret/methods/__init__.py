@@ -4,4 +4,4 @@ from pyhealth.interpret.methods.deeplift import DeepLift
 from pyhealth.interpret.methods.integrated_gradients import IntegratedGradients
 from pyhealth.interpret.methods.shap import ShapExplainer
 
-__all__ = ["CheferRelevance", "IntegratedGradients", "ShapExplainer"]
+__all__ = ["BaseInterpreter", "CheferRelevance", "DeepLift", "IntegratedGradients", "ShapExplainer"]

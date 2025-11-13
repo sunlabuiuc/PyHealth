@@ -1,19 +1,22 @@
-import torch
-import numpy as np
+from __future__ import annotations
+
 import math
-from typing import Dict, Optional, List, Union, Tuple
+from typing import Dict, Optional, Tuple
+
+import torch
 
 from pyhealth.models import BaseModel
+from .base_interpreter import BaseInterpreter
 
 
-class ShapExplainer:
+class ShapExplainer(BaseInterpreter):
     """SHAP (SHapley Additive exPlanations) attribution method for PyHealth models.
 
     This class implements the SHAP method for computing feature attributions in 
     neural networks. SHAP values represent each feature's contribution to the 
     prediction, based on coalitional game theory principles.
 
-    The method is based on the papers:
+    The method is based on the paper:
         A Unified Approach to Interpreting Model Predictions
         Scott Lundberg, Su-In Lee
         NeurIPS 2017
@@ -30,51 +33,40 @@ class ShapExplainer:
     
     Mathematical Foundation:
     The Shapley value for feature i is computed as:
-    φᵢ = Σ (|S|!(n-|S|-1)!/n!) * [fₓ(S ∪ {i}) - fₓ(S)]
+    φᵢ = Σ (|S|!(n-|S|-1)!/n!) * [f₀(S ∪ {i}) - f₀(S)]
     where:
     - S is a subset of features excluding i
     - n is the total number of features
-    - fₓ(S) is the model prediction with only features in S
+    - f₀(S) is the model prediction with only features in S
     
-    SHAP combines game theory with local explanations, providing several desirable properties:
+    SHAP provides several desirable properties:
     1. Local Accuracy: The sum of feature attributions equals the difference between 
        the model output and the expected output
     2. Missingness: Features with zero impact get zero attribution
     3. Consistency: Changing a model to increase a feature's impact increases its attribution
 
     Args:
-        model (BaseModel): A trained PyHealth model to interpret. Can be
-            any model that inherits from BaseModel (e.g., MLP, StageNet,
-            Transformer, RNN).
-        use_embeddings (bool): If True, compute SHAP values with respect to
+        model: A trained PyHealth model to interpret. Can be any model that
+            inherits from BaseModel (e.g., MLP, StageNet, Transformer, RNN).
+        use_embeddings: If True, compute SHAP values with respect to
             embeddings rather than discrete input tokens. This is crucial
             for models with discrete inputs (like ICD codes). The model
             must support returning embeddings via an 'embed' parameter.
             Default is True.
-        n_background_samples (int): Number of background samples to use for
+        n_background_samples: Number of background samples to use for
             estimating feature contributions. More samples give better
             estimates but increase computation time. Default is 100.
+        max_coalitions: Maximum number of feature coalitions to sample for
+            Kernel SHAP approximation. Default is 1000.
+        regularization: L2 regularization strength for the weighted least
+            squares problem. Default is 1e-6.
 
     Examples:
         >>> import torch
-        >>> from pyhealth.datasets import (
-        ...     SampleDataset, split_by_patient, get_dataloader
-        ... )
+        >>> from pyhealth.datasets import SampleDataset, get_dataloader
         >>> from pyhealth.models import MLP
         >>> from pyhealth.interpret.methods import ShapExplainer
         >>> from pyhealth.trainer import Trainer
-        >>>
-        >>> # Define sample data
-        >>> samples = [
-        ...     {
-        ...         "patient_id": "patient-0",
-        ...         "visit_id": "visit-0",
-        ...         "conditions": ["cond-33", "cond-86", "cond-80"],
-        ...         "procedures": [1.0, 2.0, 3.5, 4.0],
-        ...         "label": 1,
-        ...     },
-        ...     # ... more samples
-        ... ]
         >>>
         >>> # Create dataset and model 
         >>> dataset = SampleDataset(...)
@@ -83,90 +75,56 @@ class ShapExplainer:
         >>> trainer.train(...)
         >>> test_batch = next(iter(test_loader))
         >>>
-        >>> # Initialize SHAP explainer with different methods
-        >>> # 1. Auto method (uses exact for small feature sets, kernel for large)
-        >>> explainer_auto = ShapExplainer(model, method='auto')
-        >>> shap_auto = explainer_auto.attribute(**test_batch)
+        >>> # Initialize SHAP explainer
+        >>> explainer = ShapExplainer(model, use_embeddings=True)
+        >>> shap_values = explainer.attribute(**test_batch)
         >>>
-        >>> # 2. Exact computation (for small feature sets)
-        >>> explainer_exact = ShapExplainer(model, method='exact')
-        >>> shap_exact = explainer_exact.attribute(**test_batch)
+        >>> # With custom baseline
+        >>> baseline = {
+        ...     'conditions': torch.zeros_like(test_batch['conditions']),
+        ...     'procedures': torch.full_like(test_batch['procedures'], 
+        ...                                   test_batch['procedures'].mean())
+        ... }
+        >>> shap_values = explainer.attribute(baseline=baseline, **test_batch)
         >>>
-        >>> # 3. Kernel SHAP (efficient for high-dimensional features)
-        >>> explainer_kernel = ShapExplainer(model, method='kernel')
-        >>> shap_kernel = explainer_kernel.attribute(**test_batch)
-        >>>
-        >>> # 4. DeepSHAP (optimized for neural networks)
-        >>> explainer_deep = ShapExplainer(model, method='deep')
-        >>> shap_deep = explainer_deep.attribute(**test_batch)
-        >>>
-        >>> # All methods return the same format of SHAP values
-        >>> print(shap_auto)  # Same structure for all methods
+        >>> print(shap_values)
         {'conditions': tensor([[0.1234, 0.5678, 0.9012]], device='cuda:0'),
          'procedures': tensor([[0.2345, 0.6789, 0.0123, 0.4567]])}
     """
 
     def __init__(
-        self, 
-        model: BaseModel, 
-        method: str = 'kernel',
+        self,
+        model: BaseModel,
         use_embeddings: bool = True,
         n_background_samples: int = 100,
-        exact_threshold: int = 15
+        max_coalitions: int = 1000,
+        regularization: float = 1e-6,
+        random_seed: Optional[int] = None,
     ):
         """Initialize SHAP explainer.
 
-        This implementation supports three methods for computing SHAP values:
-        1. Classic Shapley (Exact): Used when feature count <= exact_threshold and method='exact'
-           - Computes exact Shapley values by evaluating all possible feature coalitions
-           - Provides exact results but computationally expensive for high dimensions
-        
-        2. Kernel SHAP (Approximate): Used when feature count > exact_threshold or method='kernel'
-           - Approximates Shapley values using weighted least squares regression
-           - More efficient for high-dimensional features but provides estimates
-           
-        3. DeepSHAP (Deep Learning): Used when method='deep'
-           - Combines DeepLIFT's backpropagation-based rules with Shapley values
-           - Specifically optimized for deep neural networks
-           - Provides fast approximation by exploiting network architecture
-           - Requires model to support gradient computation
-
         Args:
-            model: A trained PyHealth model to interpret. Can be any model that
-                inherits from BaseModel (e.g., MLP, StageNet, Transformer, RNN).
-            method: Method to use for SHAP computation. Options:
-                - 'auto': Automatically select based on feature count
-                - 'exact': Use classic Shapley (exact computation)
-                - 'kernel': Use Kernel SHAP (model-agnostic approximation)
-                - 'deep': Use DeepSHAP (neural network specific approximation)
-                Default is 'auto'.
+            model: A trained PyHealth model to interpret.
             use_embeddings: If True, compute SHAP values with respect to
-                embeddings rather than discrete input tokens. This is crucial
-                for models with discrete inputs (like ICD codes).
+                embeddings rather than discrete input tokens.
             n_background_samples: Number of background samples to use for
-                estimating feature contributions. More samples give better
-                estimates but increase computation time.
-            exact_threshold: Maximum number of features for using exact Shapley
-                computation in 'auto' mode. Above this, switches to Kernel SHAP
-                approximation. Default is 15 (2^15 = 32,768 possible coalitions).
+                estimating feature contributions.
+            max_coalitions: Maximum number of feature coalitions to sample.
+            regularization: L2 regularization strength for weighted least squares.
+            random_seed: Optional random seed for reproducibility. If provided,
+                this seed will be used to initialize the random number generator
+                before each attribution computation, ensuring deterministic results.
 
         Raises:
             AssertionError: If use_embeddings=True but model does not
-                implement forward_from_embedding() method, or if method='deep'
-                but model does not support gradient computation.
-            ValueError: If method is not one of ['auto', 'exact', 'kernel', 'deep'].
+                implement forward_from_embedding() method.
         """
-        self.model = model
-        self.model.eval()  # Set model to evaluation mode
+        super().__init__(model)
         self.use_embeddings = use_embeddings
         self.n_background_samples = n_background_samples
-        self.exact_threshold = exact_threshold
-        
-        # Validate and store computation method
-        valid_methods = ['auto', 'exact', 'kernel', 'deep']
-        if method not in valid_methods:
-            raise ValueError(f"method must be one of {valid_methods}")
-        self.method = method
+        self.max_coalitions = max_coalitions
+        self.regularization = regularization
+        self.random_seed = random_seed
 
         # Validate model requirements
         if use_embeddings:
@@ -174,470 +132,12 @@ class ShapExplainer:
                 f"Model {type(model).__name__} must implement "
                 "forward_from_embedding() method to support embedding-level "
                 "SHAP values. Set use_embeddings=False to use "
-                "input-level gradients (only for continuous features)."
+                "input-level attributions (only for continuous features)."
             )
-            
-        # Additional validation for DeepSHAP
-        if method == 'deep':
-            assert hasattr(model, "parameters") and next(model.parameters(), None) is not None, (
-                f"Model {type(model).__name__} must be a neural network with "
-                "parameters that support gradient computation to use DeepSHAP method."
-            )
-        
-    def _generate_background_samples(
-        self, 
-        inputs: Dict[str, torch.Tensor]
-    ) -> Dict[str, torch.Tensor]:
-        """Generate background samples for SHAP computation.
 
-        Creates reference samples to establish baseline predictions for SHAP value
-        computation. The sampling strategy adapts to the feature type:
-
-        For discrete features:
-        - Samples uniformly from the set of unique values observed in the input
-        - Preserves the discrete nature of categorical variables
-        - Maintains valid values from the training distribution
-
-        For continuous features:
-        - Samples uniformly from the range [min(x), max(x)]
-        - Captures the full span of possible values
-        - Ensures diverse background distribution
-
-        The number of samples is controlled by self.n_background_samples, with
-        more samples providing better estimates at the cost of computation time.
-
-        Args:
-            inputs: Dictionary mapping feature names to input tensors. Each tensor
-                   should have shape (batch_size, ..., feature_dim) where feature_dim
-                   is the dimensionality of each feature.
-
-        Returns:
-            Dictionary mapping feature names to background sample tensors. Each
-            tensor has shape (n_background_samples, ..., feature_dim) and matches
-            the device of the input tensor.
-
-        Note:
-            Background samples are crucial for SHAP value computation as they
-            establish the baseline against which feature contributions are measured.
-            Poor background sample selection can lead to misleading attributions.
-        """
-        background_samples = {}
-        
-        for key, x in inputs.items():
-            # Handle discrete vs continuous features
-            if x.dtype in [torch.int64, torch.int32, torch.long]:
-                # Discrete features: sample uniformly from observed values
-                unique_vals = torch.unique(x)
-                samples = unique_vals[torch.randint(
-                    len(unique_vals), 
-                    (self.n_background_samples,) + x.shape[1:]
-                )]
-            else:
-                # Continuous features: sample uniformly from range
-                min_val = torch.min(x)
-                max_val = torch.max(x)
-                samples = torch.rand(
-                    (self.n_background_samples,) + x.shape[1:],
-                    device=x.device
-                ) * (max_val - min_val) + min_val
-                
-            background_samples[key] = samples.to(x.device)
-            
-        return background_samples
-
-    def _compute_kernel_shap_matrix(
-        self,
-        key: str,
-        input_emb: Dict[str, torch.Tensor],
-        background_emb: Dict[str, torch.Tensor],
-        n_features: int,
-        target_class_idx: Optional[int] = None,
-        time_info: Optional[Dict[str, torch.Tensor]] = None,
-        label_data: Optional[Dict[str, torch.Tensor]] = None,
-    ) -> torch.Tensor:
-        """Compute SHAP values using the Kernel SHAP approximation method.
-
-        This implements the Kernel SHAP algorithm that approximates Shapley values 
-        through a weighted least squares regression. The key steps are:
-
-        1. Feature Coalitions:
-           - Generates random subsets of features
-           - Each coalition represents a possible combination of features
-           - Uses efficient sampling to cover the feature space
-
-        2. Model Evaluation:
-           - For each coalition, creates a mixed sample using background values
-           - Replaces subset of features with actual input values
-           - Computes model prediction for this mixed sample
-
-        3. Weighted Least Squares:
-           - Uses kernel weights based on coalition sizes
-           - Weights emphasize coalitions that help estimate Shapley values
-           - Solves regression to find feature contributions
-        
-        Args:
-            inputs: Dictionary of input tensors containing the feature values
-                   to explain.
-            background: Dictionary of background samples used to establish
-                       baseline predictions.
-            target_class_idx: Optional index of target class for multi-class
-                            models. If None, uses maximum prediction.
-            time_info: Optional temporal information for time-series data.
-            label_data: Optional label information for supervised models.
-
-        Returns:
-            torch.Tensor: Approximated SHAP values for each feature
-        """
-        n_coalitions = min(2 ** n_features, 1000)  # Cap number of coalitions
-        coalition_vectors = []
-        coalition_weights = []
-        coalition_preds = []
-
-        for _ in range(n_coalitions):
-            # Random coalition vector of 0/1 for features
-            coalition = torch.randint(2, (n_features,), device=input_emb[key].device)
-
-            # For each input sample in the original batch, create mixed copies
-            # of the background and replace features according to the coalition.
-            # This produces per-input predictions (we average over background
-            # samples for each input) so the final attributions are per-sample.
-            batch_size = input_emb[key].shape[0] if input_emb[key].dim() >= 2 else 1
-            per_input_preds = []
-            for b_idx in range(batch_size):
-                mixed = background_emb[key].clone()
-                for i, use_input in enumerate(coalition):
-                    if use_input:
-                        # handle various embedding shapes:
-                        # - 4D nested: (batch, seq_len, inner_len, emb)
-                        # - 3D sequence: (batch, seq_len, emb)
-                        # - 2D non-seq: (batch, n)
-                        dim = input_emb[key].dim()
-                        if dim == 4:
-                            # mixed: (n_bg, seq_len, inner_len, emb)
-                            mixed[:, i, :, :] = input_emb[key][b_idx, i, :, :]
-                        elif dim == 3:
-                            # mixed: (n_bg, seq_len, emb)
-                            mixed[:, i, :] = input_emb[key][b_idx, i, :]
-                        else:
-                            # 2D or other: assign directly to sequence position
-                            mixed[:, i] = input_emb[key][b_idx, i]
-
-                # Forward pass for this input's mixed set
-                if self.use_embeddings:
-                    # --- ensure all model feature embeddings exist ---
-                    feature_embeddings = {key: mixed}
-                    for fk in self.model.feature_keys:
-                        if fk not in feature_embeddings:
-                            # Prefer using the background embedding for this feature
-                            # so that masks and sequence lengths match natural data.
-                            if fk in background_emb:
-                                feature_embeddings[fk] = background_emb[fk].clone().to(self.model.device)
-                            else:
-                                # Fallback: create zero tensor shaped like the mixed embedding
-                                ref_tensor = next(iter(feature_embeddings.values()))
-                                feature_embeddings[fk] = torch.zeros_like(ref_tensor).to(self.model.device)
-                    # ---------------------------------------------------------------
-
-                    # When we evaluate mixed samples built from background embeddings
-                    # the batch dimension equals number of background samples (mixed.shape[0]).
-                    # Build a time_info mapping that matches the per-feature sequence
-                    # lengths present in `feature_embeddings` to avoid mismatched
-                    # time vs embedding sequence sizes (StageNet requires matching
-                    # time lengths per feature).
-                    n_bg = mixed.shape[0]
-                    time_info_bg = None
-                    if time_info is not None:
-                        time_info_bg = {}
-                        # Use the actual feature_embeddings we've constructed so we can
-                        # align time sequence lengths per-feature (some features may
-                        # have different seq_len originally, and we zero-filled others
-                        # to match the current feature's seq_len).
-                        for fk, emb in feature_embeddings.items():
-                            seq_len = emb.shape[1]
-                            if fk not in time_info or time_info[fk] is None:
-                                # omit keys with no time info so the model will use
-                                # its default behavior for missing time (uniform)
-                                continue
-
-                            t_orig = time_info[fk].to(self.model.device)
-                            # Normalize to 1D sequence vector
-                            if t_orig.dim() == 2 and t_orig.shape[0] > 1:
-                                # take first row as representative
-                                t_vec = t_orig[0].detach()
-                            elif t_orig.dim() == 2 and t_orig.shape[0] == 1:
-                                t_vec = t_orig[0].detach()
-                            elif t_orig.dim() == 1:
-                                t_vec = t_orig.detach()
-                            else:
-                                t_vec = t_orig.reshape(-1).detach()
-
-                            # Adjust length to match emb seq_len
-                            if t_vec.numel() == seq_len:
-                                t_adj = t_vec
-                            elif t_vec.numel() < seq_len:
-                                # pad by repeating last value
-                                if t_vec.numel() == 0:
-                                    t_adj = torch.zeros(seq_len, device=self.model.device)
-                                else:
-                                    pad_len = seq_len - t_vec.numel()
-                                    pad = t_vec[-1].unsqueeze(0).repeat(pad_len)
-                                    t_adj = torch.cat([t_vec, pad], dim=0)
-                            else:
-                                # truncate
-                                t_adj = t_vec[:seq_len]
-
-                            # Expand to background batch size
-                            time_info_bg[fk] = t_adj.unsqueeze(0).expand(n_bg, -1).to(self.model.device)
-
-                    with torch.no_grad():
-                        label_stub = torch.zeros((mixed.shape[0], 1), device=self.model.device)
-                        model_output = self.model.forward_from_embedding(
-                            feature_embeddings,
-                            time_info=time_info_bg,
-                            label=label_stub,
-                        )
-
-                    if isinstance(model_output, dict) and "logit" in model_output:
-                        logits = model_output["logit"]
-                    else:
-                        logits = model_output
-                else:
-                    model_inputs = {}
-                    for fk in self.model.feature_keys:
-                        if fk == key:
-                            model_inputs[fk] = mixed
-                        else:
-                            if fk in background_emb:
-                                model_inputs[fk] = background_emb[fk].clone()
-                            elif fk in input_emb:
-                                # use the b_idx'th input for this fk if available
-                                # expand to background shape when necessary
-                                val = input_emb[fk][b_idx]
-                                # If val has no background dim, leave as-is; else clone
-                                if val.dim() == mixed.dim():
-                                    model_inputs[fk] = val
-                                else:
-                                    model_inputs[fk] = background_emb[fk].clone()
-                            else:
-                                model_inputs[fk] = torch.zeros_like(mixed)
-
-                    label_key = self.model.label_keys[0] if len(self.model.label_keys) > 0 else None
-                    if label_key is not None:
-                        label_stub = torch.zeros((mixed.shape[0], 1), device=mixed.device)
-                        model_inputs[label_key] = label_stub
-
-                    output = self.model(**model_inputs)
-                    logits = output["logit"]
-
-                # Get target class prediction (per-sample for this mixed set)
-                if target_class_idx is None:
-                    pred_vec = torch.max(logits, dim=-1)[0]  # shape: (n_background,)
-                else:
-                    if logits.dim() > 1 and logits.shape[-1] > 1:
-                        pred_vec = logits[..., target_class_idx]
-                    else:
-                        sig = torch.sigmoid(logits.squeeze(-1))
-                        if target_class_idx == 1:
-                            pred_vec = sig
-                        else:
-                            pred_vec = 1.0 - sig
-
-                # Average over background to obtain scalar prediction for this input
-                per_input_preds.append(pred_vec.detach().mean())
-
-            coalition_vectors.append(coalition.float().to(input_emb[key].device))
-            # per_input_preds is length batch_size
-            coalition_preds.append(torch.stack(per_input_preds, dim=0))
-            coalition_size = torch.sum(coalition).item()
-
-            # Compute kernel SHAP weight
-            # The kernel SHAP weight is designed to approximate Shapley values efficiently.
-            # For a coalition of size |z| in a set of M features, the weight is:
-            # weight = (M-1) / (binom(M-1,|z|-1) * |z| * (M-|z|))
-            #
-            # Special cases:
-            # - Empty coalition (|z|=0) or full coalition (|z|=M): weight=1000.0
-            #   These edge cases are crucial for baseline and full feature effects
-            #
-            # The weights ensure:
-            # 1. Local accuracy: Sum of SHAP values equals model output difference
-            # 2. Consistency: Increased feature impact leads to higher attribution
-            # 3. Efficiency: Reduces computation from O(2^M) to O(M³)
-            if coalition_size == 0 or coalition_size == n_features:
-                weight = torch.tensor(1000.0)  # Large weight for edge cases
-            else:
-                comb_val = math.comb(n_features - 1, coalition_size - 1)
-                weight = (n_features - 1) / (
-                    coalition_size * (n_features - coalition_size) * comb_val
-                )
-                weight = torch.tensor(weight, dtype=torch.float32)
-            
-            coalition_weights.append(weight)
-
-        # Stack collected vectors
-        X = torch.stack(coalition_vectors, dim=0)  # (n_coalitions, n_features)
-        # Y is per-coalition per-sample: (n_coalitions, batch)
-        Y = torch.stack(coalition_preds, dim=0)    # (n_coalitions, batch)
-        W = torch.stack(coalition_weights, dim=0)  # (n_coalitions,)
-
-        # Weighted least squares using sqrt(W)-weighted augmentation and lstsq
-        # Build weighted design and targets: sqrt(W) * X, sqrt(W) * Y
-        device = input_emb[key].device
-        X = X.to(device)
-        Y = Y.to(device)
-        W = W.to(device)
-
-        # Apply sqrt weights
-        sqrtW = torch.sqrt(W).unsqueeze(1)  # (n_coalitions, 1)
-        Xw = sqrtW * X  # (n_coalitions, n_features)
-        # Y has shape (n_coalitions, batch) -> broadcasting works to (n_coalitions, batch)
-        Yw = sqrtW * Y  # (n_coalitions, batch)
-
-        # Tikhonov regularization (small). We apply by augmenting rows.
-        lambda_reg = 1e-6
-        reg_scale = torch.sqrt(torch.tensor(lambda_reg, device=device))
-        reg_mat = reg_scale * torch.eye(n_features, device=device)  # (n_features, n_features)
-
-        # Augment Xw and Yw so lstsq solves [Xw; reg_mat] phi = [Yw; 0]
-        Xw_aug = torch.cat([Xw, reg_mat], dim=0)  # (n_coalitions + n_features, n_features)
-        # Yw has shape (n_coalitions, batch) -> pad zeros of shape (n_features, batch)
-        Yw_aug = torch.cat([Yw, torch.zeros((n_features, Yw.shape[1]), device=device)], dim=0)  # (n_coalitions + n_features, batch)
-
-        # Solve with torch.linalg.lstsq for stability (supports batched RHS)
-        res = torch.linalg.lstsq(Xw_aug, Yw_aug)
-        # `res` may be a namedtuple with attribute `solution` or a tuple (solution, ...)
-        phi_sol = getattr(res, 'solution', res[0])  # (n_features, batch)
-
-        # Return per-sample attributions shape (batch, n_features)
-        return phi_sol.transpose(0, 1)
-
-    def _compute_shapley_values(
-        self,
-        inputs: Dict[str, torch.Tensor],
-        background: Dict[str, torch.Tensor],
-        target_class_idx: Optional[int] = None,
-        time_info: Optional[Dict[str, torch.Tensor]] = None,
-        label_data: Optional[Dict[str, torch.Tensor]] = None,
-    ) -> Dict[str, torch.Tensor]:
-        """Compute SHAP values using the selected attribution method.
-
-        This is the main orchestrator for SHAP value computation. It automatically
-        selects and applies the appropriate method based on feature count and
-        user settings:
-
-        1. Classic Shapley (method='exact' or auto with few features):
-           - Exact computation using all possible feature coalitions
-           - Provides true Shapley values
-           - Suitable for n_features ≤ exact_threshold
-
-        2. Kernel SHAP (method='kernel' or auto with many features):
-           - Efficient approximation using weighted least squares
-           - Model-agnostic approach
-           - Suitable for high-dimensional features
-
-        3. DeepSHAP (method='deep'):
-           - Neural network model specific implementation
-           - Uses backpropagation-based attribution
-           - Most efficient for deep learning models
-
-        Args:
-            inputs: Dictionary of input tensors to explain
-            background: Dictionary of background/baseline samples
-            target_class_idx: Specific class to explain (None for max class)
-            time_info: Optional temporal information for time-series models
-            label_data: Optional label information for supervised models
-
-        Returns:
-            Dictionary mapping feature names to their SHAP values. Values
-            represent each feature's contribution to the difference between
-            the model's prediction and the baseline prediction.
-        """
-
-        shap_values = {}
-        
-        # Convert inputs to embedding space if needed
-        if self.use_embeddings:
-            input_emb = self.model.embedding_model(inputs)
-            background_emb = self.model.embedding_model(background)
-        else:
-            input_emb = inputs
-            background_emb = background
-
-        # Compute SHAP values for each feature
-        for key in inputs:
-            # Determine number of features to explain
-            if self.use_embeddings:
-                # Prefer the original raw input length (e.g., sequence length or tensor dim)
-                if key in inputs and inputs[key].dim() >= 2:
-                    n_features = inputs[key].shape[1]
-                else:
-                    emb = input_emb[key]
-                    if emb.dim() == 3:
-                        # sequence embeddings: features are sequence positions
-                        n_features = emb.shape[1]
-                    elif emb.dim() == 2:
-                        # already pooled embedding per-sample: treat embedding dim as features
-                        n_features = emb.shape[1]
-                    else:
-                        n_features = emb.shape[-1]
-            else:
-                # For raw (non-embedding) inputs, prefer the original input
-                # second dimension as the number of features (e.g., [batch, seq_len]).
-                if key in inputs and inputs[key].dim() >= 2:
-                    n_features = inputs[key].shape[1]
-                else:
-                    # Fallback to the shape of input_emb
-                    if input_emb[key].dim() == 2:
-                        n_features = input_emb[key].shape[1]
-                    else:
-                        n_features = input_emb[key].shape[-1]
-            print(f"Computing SHAP for feature '{key}' with {n_features} dimensions.")
-            
-            # Choose computation method based on settings and feature count
-            computation_method = self.method
-            """
-            if computation_method == 'auto':
-                computation_method = 'exact' if n_features <= self.exact_threshold else 'kernel'
-
-            if computation_method == 'exact':
-                # Use classic Shapley for exact computation
-                shap_matrix = self._compute_classic_shapley(
-                    key=key,
-                    input_emb=input_emb,
-                    background_emb=background_emb,
-                    n_features=n_features,
-                    target_class_idx=target_class_idx,
-                    time_info=time_info,
-                    label_data=label_data
-                )
-            elif computation_method == 'deep':
-                # Use DeepSHAP for neural network specific computation
-                shap_matrix = self._compute_deep_shap(
-                    key=key,
-                    input_emb=input_emb,
-                    background_emb=background_emb,
-                    n_features=n_features,
-                    target_class_idx=target_class_idx,
-                    time_info=time_info,
-                    label_data=label_data
-                )
-            else:
-            """
-            # Use Kernel SHAP for approximate computation
-            shap_matrix = self._compute_kernel_shap_matrix(
-                    key=key,
-                    input_emb=input_emb,
-                    background_emb=background_emb,
-                    n_features=n_features,
-                    target_class_idx=target_class_idx,
-                    time_info=time_info,
-                    label_data=label_data
-                )
-            
-            shap_values[key] = shap_matrix
-
-        return shap_values
-
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
     def attribute(
         self,
         baseline: Optional[Dict[str, torch.Tensor]] = None,
@@ -649,12 +149,7 @@ class ShapExplainer:
         This is the main interface for computing feature attributions. It handles:
         1. Input preparation and validation
         2. Background sample generation or validation
-        3. Feature attribution computation using either exact or approximate methods
-        4. Device management and tensor type conversion
-
-        The method automatically chooses between:
-        - Classic Shapley (exact) for feature_count ≤ exact_threshold
-        - Kernel SHAP (approximate) for feature_count > exact_threshold
+        3. Feature attribution computation using Kernel SHAP
 
         Args:
             baseline: Optional dictionary mapping feature names to background 
@@ -677,7 +172,6 @@ class ShapExplainer:
             negative values indicate features that decreased it.
 
         Example:
-            >>> # Single sample attribution
             >>> shap_values = explainer.attribute(
             ...     x_continuous=torch.tensor([[1.0, 2.0, 3.0]]),
             ...     x_categorical=torch.tensor([[0, 1, 2]]),
@@ -685,49 +179,696 @@ class ShapExplainer:
             ... )
             >>> print(shap_values['x_continuous'])  # Shape: (1, 3)
         """
-        # Extract feature keys and prepare inputs
-        feature_keys = self.model.feature_keys
-        inputs = {}
-        time_info = {}
-        label_data = {}
+        # Set random seed for reproducibility if specified
+        if self.random_seed is not None:
+            torch.manual_seed(self.random_seed)
 
-        for key in feature_keys:
-            if key in data:
-                x = data[key]
-                if isinstance(x, tuple):
-                    time_info[key] = x[0]
-                    x = x[1]
+        device = next(self.model.parameters()).device
 
-                if not isinstance(x, torch.Tensor):
-                    x = torch.tensor(x)
+        # Extract and prepare inputs
+        feature_inputs: Dict[str, torch.Tensor] = {}
+        time_info: Dict[str, torch.Tensor] = {}
+        label_data: Dict[str, torch.Tensor] = {}
 
-                x = x.to(next(self.model.parameters()).device)
-                inputs[key] = x
+        for key in self.model.feature_keys:
+            if key not in data:
+                continue
+            value = data[key]
+            
+            # Handle (time, value) tuples for temporal data
+            if isinstance(value, tuple):
+                time_tensor, feature_tensor = value
+                if time_tensor is not None:
+                    time_info[key] = time_tensor.to(device)
+                value = feature_tensor
+
+            if not isinstance(value, torch.Tensor):
+                value = torch.as_tensor(value)
+            feature_inputs[key] = value.to(device)
 
         # Store label data
         for key in self.model.label_keys:
             if key in data:
                 label_val = data[key]
                 if not isinstance(label_val, torch.Tensor):
-                    label_val = torch.tensor(label_val)
-                label_val = label_val.to(next(self.model.parameters()).device)
-                label_data[key] = label_val
+                    label_val = torch.as_tensor(label_val)
+                label_data[key] = label_val.to(device)
 
-        # Generate or use provided background samples
+        # Generate or validate background samples
         if baseline is None:
-            background = self._generate_background_samples(inputs)
+            background = self._generate_background_samples(feature_inputs)
         else:
-            background = baseline
-        print("Background keys:", background.keys())
-        print("background shapes:", {k: v.shape for k, v in background.items()})
+            background = {k: v.to(device) for k, v in baseline.items()}
 
         # Compute SHAP values
-        attributions = self._compute_shapley_values(
-            inputs=inputs,
-            background=background,
-            target_class_idx=target_class_idx,
-            time_info=time_info,
-            label_data=label_data,
+        if self.use_embeddings:
+            return self._shap_embeddings(
+                feature_inputs,
+                background=background,
+                target_class_idx=target_class_idx,
+                time_info=time_info,
+                label_data=label_data,
+            )
+        else:
+            return self._shap_continuous(
+                feature_inputs,
+                background=background,
+                target_class_idx=target_class_idx,
+                time_info=time_info,
+                label_data=label_data,
+            )
+
+    # ------------------------------------------------------------------
+    # Embedding-based SHAP (discrete features)
+    # ------------------------------------------------------------------
+    def _shap_embeddings(
+        self,
+        inputs: Dict[str, torch.Tensor],
+        background: Dict[str, torch.Tensor],
+        target_class_idx: Optional[int],
+        time_info: Dict[str, torch.Tensor],
+        label_data: Dict[str, torch.Tensor],
+    ) -> Dict[str, torch.Tensor]:
+        """Compute SHAP values for discrete inputs in embedding space.
+
+        Args:
+            inputs: Dictionary of input tensors.
+            background: Dictionary of background samples.
+            target_class_idx: Target class index for attribution.
+            time_info: Temporal information for time-series models.
+            label_data: Label information for supervised models.
+
+        Returns:
+            Dictionary of SHAP values mapped back to input shapes.
+        """
+        # Embed inputs and background
+        input_embs = self.model.embedding_model(inputs)
+        background_embs = self.model.embedding_model(background)
+
+        # Store original input shapes for mapping back
+        input_shapes = {key: val.shape for key, val in inputs.items()}
+
+        # Compute SHAP values for each feature
+        shap_values = {}
+        for key in inputs:
+            n_features = self._determine_n_features(key, inputs, input_embs)
+            
+            shap_matrix = self._compute_kernel_shap(
+                key=key,
+                input_emb=input_embs,
+                background_emb=background_embs,
+                n_features=n_features,
+                target_class_idx=target_class_idx,
+                time_info=time_info,
+                label_data=label_data,
+            )
+            
+            shap_values[key] = shap_matrix
+
+        # Map embedding-space attributions back to input shapes
+        return self._map_to_input_shapes(shap_values, input_shapes)
+
+    # ------------------------------------------------------------------
+    # Continuous SHAP (for tensor inputs)
+    # ------------------------------------------------------------------
+    def _shap_continuous(
+        self,
+        inputs: Dict[str, torch.Tensor],
+        background: Dict[str, torch.Tensor],
+        target_class_idx: Optional[int],
+        time_info: Dict[str, torch.Tensor],
+        label_data: Dict[str, torch.Tensor],
+    ) -> Dict[str, torch.Tensor]:
+        """Compute SHAP values for continuous tensor inputs.
+
+        Args:
+            inputs: Dictionary of input tensors.
+            background: Dictionary of background samples.
+            target_class_idx: Target class index for attribution.
+            time_info: Temporal information for time-series models.
+            label_data: Label information for supervised models.
+
+        Returns:
+            Dictionary of SHAP values with same shapes as inputs.
+        """
+        shap_values = {}
+        
+        for key in inputs:
+            n_features = self._determine_n_features(key, inputs, inputs)
+            
+            shap_matrix = self._compute_kernel_shap(
+                key=key,
+                input_emb=inputs,
+                background_emb=background,
+                n_features=n_features,
+                target_class_idx=target_class_idx,
+                time_info=time_info,
+                label_data=label_data,
+            )
+            
+            shap_values[key] = shap_matrix
+
+        return shap_values
+
+    # ------------------------------------------------------------------
+    # Core Kernel SHAP computation
+    # ------------------------------------------------------------------
+    def _compute_kernel_shap(
+        self,
+        key: str,
+        input_emb: Dict[str, torch.Tensor],
+        background_emb: Dict[str, torch.Tensor],
+        n_features: int,
+        target_class_idx: Optional[int],
+        time_info: Optional[Dict[str, torch.Tensor]],
+        label_data: Optional[Dict[str, torch.Tensor]],
+    ) -> torch.Tensor:
+        """Compute SHAP values using the Kernel SHAP approximation method.
+
+        This implements the Kernel SHAP algorithm that approximates Shapley values 
+        through a weighted least squares regression. The key steps are:
+
+        1. Feature Coalitions: Generate random subsets of features
+        2. Model Evaluation: Evaluate mixed samples (background + coalition)
+        3. Weighted Least Squares: Solve for SHAP values using kernel weights
+
+        Args:
+            key: Feature key being explained.
+            input_emb: Dictionary of input embeddings/tensors.
+            background_emb: Dictionary of background embeddings/tensors.
+            n_features: Number of features to explain.
+            target_class_idx: Target class index for multi-class models.
+            time_info: Optional temporal information.
+            label_data: Optional label information.
+
+        Returns:
+            torch.Tensor: SHAP values with shape (batch_size, n_features).
+        """
+        device = input_emb[key].device
+        batch_size = input_emb[key].shape[0] if input_emb[key].dim() >= 2 else 1
+        n_coalitions = min(2 ** n_features, self.max_coalitions)
+
+        # Storage for coalition sampling
+        coalition_vectors = []
+        coalition_weights = []
+        coalition_preds = []
+
+        # Sample coalitions and evaluate model
+        for _ in range(n_coalitions):
+            coalition = torch.randint(2, (n_features,), device=device)
+            
+            # Evaluate model for each input sample with this coalition
+            per_input_preds = []
+            for b_idx in range(batch_size):
+                mixed_emb = self._create_mixed_sample(
+                    key, coalition, input_emb, background_emb, b_idx
+                )
+                
+                pred = self._evaluate_coalition(
+                    key, mixed_emb, background_emb, 
+                    target_class_idx, time_info, label_data
+                )
+                per_input_preds.append(pred)
+
+            # Store coalition information
+            coalition_vectors.append(coalition.float())
+            coalition_preds.append(torch.stack(per_input_preds, dim=0))
+            coalition_weights.append(
+                self._compute_kernel_weight(coalition.sum().item(), n_features)
+            )
+
+        # Solve weighted least squares
+        return self._solve_weighted_least_squares(
+            coalition_vectors, coalition_preds, coalition_weights, device
         )
 
-        return attributions
+    def _create_mixed_sample(
+        self,
+        key: str,
+        coalition: torch.Tensor,
+        input_emb: Dict[str, torch.Tensor],
+        background_emb: Dict[str, torch.Tensor],
+        batch_idx: int,
+    ) -> torch.Tensor:
+        """Create a mixed sample by combining background and input based on coalition.
+
+        Args:
+            key: Feature key.
+            coalition: Binary vector indicating which features to use from input.
+            input_emb: Input embeddings.
+            background_emb: Background embeddings.
+            batch_idx: Index of the sample in the batch.
+
+        Returns:
+            Mixed sample tensor.
+        """
+        mixed = background_emb[key].clone()
+        
+        for i, use_input in enumerate(coalition):
+            if not use_input:
+                continue
+                
+            # Handle various embedding shapes
+            dim = input_emb[key].dim()
+            if dim == 4:  # (batch, seq_len, inner_len, emb)
+                mixed[:, i, :, :] = input_emb[key][batch_idx, i, :, :]
+            elif dim == 3:  # (batch, seq_len, emb)
+                mixed[:, i, :] = input_emb[key][batch_idx, i, :]
+            else:  # 2D or other
+                mixed[:, i] = input_emb[key][batch_idx, i]
+
+        return mixed
+
+    def _evaluate_coalition(
+        self,
+        key: str,
+        mixed_emb: torch.Tensor,
+        background_emb: Dict[str, torch.Tensor],
+        target_class_idx: Optional[int],
+        time_info: Optional[Dict[str, torch.Tensor]],
+        label_data: Optional[Dict[str, torch.Tensor]],
+    ) -> torch.Tensor:
+        """Evaluate model prediction for a coalition.
+
+        Args:
+            key: Feature key being explained.
+            mixed_emb: Mixed embedding tensor.
+            background_emb: Background embeddings for other features.
+            target_class_idx: Target class index.
+            time_info: Optional temporal information.
+            label_data: Optional label information.
+
+        Returns:
+            Scalar prediction averaged over background samples.
+        """
+        if self.use_embeddings:
+            logits = self._forward_from_embeddings(
+                key, mixed_emb, background_emb, time_info, label_data
+            )
+        else:
+            logits = self._forward_from_inputs(
+                key, mixed_emb, background_emb, time_info, label_data
+            )
+
+        # Extract target class prediction
+        pred_vec = self._extract_target_prediction(logits, target_class_idx)
+        
+        # Average over background samples
+        return pred_vec.detach().mean()
+
+    def _forward_from_embeddings(
+        self,
+        key: str,
+        mixed_emb: torch.Tensor,
+        background_emb: Dict[str, torch.Tensor],
+        time_info: Optional[Dict[str, torch.Tensor]],
+        label_data: Optional[Dict[str, torch.Tensor]],
+    ) -> torch.Tensor:
+        """Forward pass using embeddings.
+
+        Args:
+            key: Feature key being explained.
+            mixed_emb: Mixed embedding tensor.
+            background_emb: Background embeddings.
+            time_info: Optional temporal information.
+            label_data: Optional label information.
+
+        Returns:
+            Model logits.
+        """
+        # Build feature embeddings dictionary
+        feature_embeddings = {key: mixed_emb}
+        for fk in self.model.feature_keys:
+            if fk not in feature_embeddings:
+                if fk in background_emb:
+                    feature_embeddings[fk] = background_emb[fk].clone()
+                else:
+                    # Zero fallback
+                    ref_tensor = next(iter(feature_embeddings.values()))
+                    feature_embeddings[fk] = torch.zeros_like(ref_tensor)
+
+        # Prepare time info matching background batch size
+        time_info_bg = self._prepare_time_info(
+            time_info, feature_embeddings, mixed_emb.shape[0]
+        )
+
+        # Forward pass
+        with torch.no_grad():
+            label_stub = torch.zeros(
+                (mixed_emb.shape[0], 1), device=self.model.device
+            )
+            model_output = self.model.forward_from_embedding(
+                feature_embeddings,
+                time_info=time_info_bg,
+                label=label_stub,
+            )
+
+        return self._extract_logits(model_output)
+
+    def _forward_from_inputs(
+        self,
+        key: str,
+        mixed_inputs: torch.Tensor,
+        background_inputs: Dict[str, torch.Tensor],
+        time_info: Optional[Dict[str, torch.Tensor]],
+        label_data: Optional[Dict[str, torch.Tensor]],
+    ) -> torch.Tensor:
+        """Forward pass using raw inputs (continuous features).
+
+        Args:
+            key: Feature key being explained.
+            mixed_inputs: Mixed input tensor.
+            background_inputs: Background inputs.
+            time_info: Optional temporal information.
+            label_data: Optional label information.
+
+        Returns:
+            Model logits.
+        """
+        model_inputs = {}
+        for fk in self.model.feature_keys:
+            if fk == key:
+                model_inputs[fk] = mixed_inputs
+            elif fk in background_inputs:
+                model_inputs[fk] = background_inputs[fk].clone()
+            else:
+                model_inputs[fk] = torch.zeros_like(mixed_inputs)
+
+        # Add label stub if needed
+        if len(self.model.label_keys) > 0:
+            label_key = self.model.label_keys[0]
+            model_inputs[label_key] = torch.zeros(
+                (mixed_inputs.shape[0], 1), device=mixed_inputs.device
+            )
+
+        output = self.model(**model_inputs)
+        return self._extract_logits(output)
+
+    def _prepare_time_info(
+        self,
+        time_info: Optional[Dict[str, torch.Tensor]],
+        feature_embeddings: Dict[str, torch.Tensor],
+        n_background: int,
+    ) -> Optional[Dict[str, torch.Tensor]]:
+        """Prepare time information to match background batch size.
+
+        Args:
+            time_info: Original time information.
+            feature_embeddings: Feature embeddings to match sequence lengths.
+            n_background: Number of background samples.
+
+        Returns:
+            Adjusted time information or None.
+        """
+        if time_info is None:
+            return None
+
+        time_info_bg = {}
+        for fk, emb in feature_embeddings.items():
+            if fk not in time_info or time_info[fk] is None:
+                continue
+
+            seq_len = emb.shape[1]
+            t_orig = time_info[fk].to(self.model.device)
+
+            # Normalize to 1D sequence
+            t_vec = self._normalize_time_vector(t_orig)
+
+            # Adjust length to match embedding sequence length
+            t_adj = self._adjust_time_length(t_vec, seq_len)
+
+            # Expand to background batch size
+            time_info_bg[fk] = t_adj.unsqueeze(0).expand(n_background, -1)
+
+        return time_info_bg if time_info_bg else None
+
+    # ------------------------------------------------------------------
+    # Weighted least squares solver
+    # ------------------------------------------------------------------
+    def _solve_weighted_least_squares(
+        self,
+        coalition_vectors: list,
+        coalition_preds: list,
+        coalition_weights: list,
+        device: torch.device,
+    ) -> torch.Tensor:
+        """Solve weighted least squares to estimate SHAP values.
+
+        Uses Tikhonov regularization for numerical stability.
+
+        Args:
+            coalition_vectors: List of coalition binary vectors.
+            coalition_preds: List of prediction tensors per coalition.
+            coalition_weights: List of kernel weights per coalition.
+            device: Device for computation.
+
+        Returns:
+            SHAP values with shape (batch_size, n_features).
+        """
+        # Stack collected data
+        X = torch.stack(coalition_vectors, dim=0).to(device)  # (n_coalitions, n_features)
+        Y = torch.stack(coalition_preds, dim=0).to(device)    # (n_coalitions, batch_size)
+        W = torch.stack(coalition_weights, dim=0).to(device)  # (n_coalitions,)
+
+        # Apply sqrt weights for weighted least squares
+        sqrtW = torch.sqrt(W).unsqueeze(1)  # (n_coalitions, 1)
+        Xw = sqrtW * X  # (n_coalitions, n_features)
+        Yw = sqrtW * Y  # (n_coalitions, batch_size)
+
+        # Add Tikhonov regularization
+        n_features = X.shape[1]
+        reg_scale = torch.sqrt(torch.tensor(self.regularization, device=device))
+        reg_mat = reg_scale * torch.eye(n_features, device=device)
+
+        # Augment for regularized least squares: [Xw; reg_mat] phi = [Yw; 0]
+        Xw_aug = torch.cat([Xw, reg_mat], dim=0)
+        Yw_aug = torch.cat(
+            [Yw, torch.zeros((n_features, Y.shape[1]), device=device)], dim=0
+        )
+
+        # Solve using torch.linalg.lstsq
+        res = torch.linalg.lstsq(Xw_aug, Yw_aug)
+        phi_sol = getattr(res, 'solution', res[0])  # (n_features, batch_size)
+
+        # Return per-sample attributions: (batch_size, n_features)
+        return phi_sol.transpose(0, 1)
+
+    # ------------------------------------------------------------------
+    # Background sample generation
+    # ------------------------------------------------------------------
+    def _generate_background_samples(
+        self, inputs: Dict[str, torch.Tensor]
+    ) -> Dict[str, torch.Tensor]:
+        """Generate background samples for SHAP computation.
+
+        Creates reference samples to establish baseline predictions. The sampling 
+        strategy adapts to the feature type:
+        - Discrete features: Sample uniformly from observed unique values
+        - Continuous features: Sample uniformly from the range [min, max]
+
+        Args:
+            inputs: Dictionary mapping feature names to input tensors.
+
+        Returns:
+            Dictionary mapping feature names to background sample tensors.
+        """
+        background_samples = {}
+
+        for key, x in inputs.items():
+            if x.dtype in [torch.int64, torch.int32, torch.long]:
+                # Discrete features: sample from unique values
+                unique_vals = torch.unique(x)
+                samples = unique_vals[
+                    torch.randint(
+                        len(unique_vals),
+                        (self.n_background_samples,) + x.shape[1:],
+                    )
+                ]
+            else:
+                # Continuous features: sample from range
+                min_val = torch.min(x)
+                max_val = torch.max(x)
+                samples = torch.rand(
+                    (self.n_background_samples,) + x.shape[1:], device=x.device
+                ) * (max_val - min_val) + min_val
+
+            background_samples[key] = samples.to(x.device)
+
+        return background_samples
+
+    # ------------------------------------------------------------------
+    # Utility helpers
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _determine_n_features(
+        key: str,
+        inputs: Dict[str, torch.Tensor],
+        embeddings: Dict[str, torch.Tensor],
+    ) -> int:
+        """Determine the number of features to explain for a given key.
+
+        Args:
+            key: Feature key.
+            inputs: Original input tensors.
+            embeddings: Embedding tensors.
+
+        Returns:
+            Number of features (typically sequence length or feature dimension).
+        """
+        # Prefer original input shape
+        if key in inputs and inputs[key].dim() >= 2:
+            return inputs[key].shape[1]
+
+        # Fallback to embedding shape
+        emb = embeddings[key]
+        if emb.dim() >= 2:
+            return emb.shape[1]
+        return emb.shape[-1]
+
+    @staticmethod
+    def _compute_kernel_weight(coalition_size: int, n_features: int) -> torch.Tensor:
+        """Compute kernel SHAP weight for a coalition.
+
+        The kernel weight is designed to approximate Shapley values efficiently:
+        weight = (M-1) / (binom(M,|z|) * |z| * (M-|z|))
+
+        Special cases (empty or full coalition) receive large weights as they
+        are crucial for baseline and full feature effects.
+
+        Args:
+            coalition_size: Number of features in the coalition.
+            n_features: Total number of features.
+
+        Returns:
+            Kernel weight as a scalar tensor.
+        """
+        if coalition_size == 0 or coalition_size == n_features:
+            return torch.tensor(1000.0)  # Large weight for edge cases
+
+        comb_val = math.comb(n_features - 1, coalition_size - 1)
+        weight = (n_features - 1) / (
+            coalition_size * (n_features - coalition_size) * comb_val
+        )
+        return torch.tensor(weight, dtype=torch.float32)
+
+    @staticmethod
+    def _extract_logits(model_output) -> torch.Tensor:
+        """Extract logits from model output.
+
+        Args:
+            model_output: Model output (dict or tensor).
+
+        Returns:
+            Logit tensor.
+        """
+        if isinstance(model_output, dict) and "logit" in model_output:
+            return model_output["logit"]
+        return model_output
+
+    @staticmethod
+    def _extract_target_prediction(
+        logits: torch.Tensor, target_class_idx: Optional[int]
+    ) -> torch.Tensor:
+        """Extract target class prediction from logits.
+
+        Args:
+            logits: Model logits.
+            target_class_idx: Target class index (None for max prediction).
+
+        Returns:
+            Target prediction tensor.
+        """
+        if target_class_idx is None:
+            return torch.max(logits, dim=-1)[0]
+
+        if logits.dim() > 1 and logits.shape[-1] > 1:
+            return logits[..., target_class_idx]
+        else:
+            # Binary classification with single logit
+            sig = torch.sigmoid(logits.squeeze(-1))
+            return sig if target_class_idx == 1 else 1.0 - sig
+
+    @staticmethod
+    def _normalize_time_vector(time_tensor: torch.Tensor) -> torch.Tensor:
+        """Normalize time tensor to 1D vector.
+
+        Args:
+            time_tensor: Time information tensor.
+
+        Returns:
+            1D time vector.
+        """
+        if time_tensor.dim() == 2 and time_tensor.shape[0] > 0:
+            return time_tensor[0].detach()
+        elif time_tensor.dim() == 1:
+            return time_tensor.detach()
+        else:
+            return time_tensor.reshape(-1).detach()
+
+    @staticmethod
+    def _adjust_time_length(time_vec: torch.Tensor, target_len: int) -> torch.Tensor:
+        """Adjust time vector length to match target length.
+
+        Args:
+            time_vec: 1D time vector.
+            target_len: Target sequence length.
+
+        Returns:
+            Adjusted time vector.
+        """
+        current_len = time_vec.numel()
+
+        if current_len == target_len:
+            return time_vec
+        elif current_len < target_len:
+            # Pad by repeating last value
+            if current_len == 0:
+                return torch.zeros(target_len, device=time_vec.device)
+            pad_len = target_len - current_len
+            pad = time_vec[-1].unsqueeze(0).repeat(pad_len)
+            return torch.cat([time_vec, pad], dim=0)
+        else:
+            # Truncate
+            return time_vec[:target_len]
+
+    @staticmethod
+    def _map_to_input_shapes(
+        shap_values: Dict[str, torch.Tensor],
+        input_shapes: Dict[str, tuple],
+    ) -> Dict[str, torch.Tensor]:
+        """Map SHAP values from embedding space back to input shapes.
+
+        For embedding-based attributions, this projects the attribution scores
+        from embedding dimensions back to the original input tensor shapes.
+
+        Args:
+            shap_values: Dictionary of SHAP values in embedding space.
+            input_shapes: Dictionary of original input shapes.
+
+        Returns:
+            Dictionary of SHAP values reshaped to match inputs.
+        """
+        mapped = {}
+        for key, values in shap_values.items():
+            if key not in input_shapes:
+                mapped[key] = values
+                continue
+
+            orig_shape = input_shapes[key]
+            
+            # If shapes already match, no adjustment needed
+            if values.shape == orig_shape:
+                mapped[key] = values
+                continue
+
+            # Reshape to match original input
+            reshaped = values
+            while len(reshaped.shape) < len(orig_shape):
+                reshaped = reshaped.unsqueeze(-1)
+            
+            if reshaped.shape != orig_shape:
+                reshaped = reshaped.expand(orig_shape)
+            
+            mapped[key] = reshaped
+
+        return mapped
