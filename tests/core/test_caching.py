@@ -104,7 +104,16 @@ class TestCachingFunctionality(BaseTestCase):
         sig = inspect.signature(BaseDataset.set_task)
         params = list(sig.parameters.keys())
 
-        expected_params = ["self", "task", "num_workers", "cache_dir", "cache_format", "input_processors", "output_processors"]
+        expected_params = [
+            "self",
+            "task",
+            "num_workers",
+            "cache_dir",
+            "cache_format",
+            "input_processors",
+            "output_processors",
+            "batch_size",
+        ]
         self.assertEqual(params, expected_params)
 
         # Check default values
@@ -113,6 +122,8 @@ class TestCachingFunctionality(BaseTestCase):
         self.assertEqual(sig.parameters["cache_dir"].default, None)
         self.assertEqual(sig.parameters["cache_format"].default, "parquet")
         self.assertEqual(sig.parameters["input_processors"].default, None)
+        self.assertEqual(sig.parameters["output_processors"].default, None)
+        self.assertEqual(sig.parameters["batch_size"].default, None)
         self.assertEqual(sig.parameters["output_processors"].default, None)
 
     def test_set_task_no_caching(self):

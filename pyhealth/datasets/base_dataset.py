@@ -584,7 +584,7 @@ class BaseDataset(ABC):
         cache_format: str = "parquet",
         input_processors: Optional[Dict[str, FeatureProcessor]] = None,
         output_processors: Optional[Dict[str, FeatureProcessor]] = None,
-        batch_size: int = 100,
+        batch_size: Optional[int] = None,
     ):
         """Processes the base dataset to generate the task-specific sample dataset.
 
@@ -600,9 +600,11 @@ class BaseDataset(ABC):
                 Pre-fitted input processors.
             output_processors (Optional[Dict[str, FeatureProcessor]]):
                 Pre-fitted output processors.
-            batch_size (int): Number of patients to process per batch in streaming
-                mode. Larger batches = better I/O efficiency but more memory.
-                Default is 100. Ignored in normal mode.
+            batch_size (Optional[int]): Number of patients to process per batch.
+                Required in streaming mode. Larger batches = better I/O efficiency
+                but more memory. Typical values: 50-500. Default is None.
+                - Streaming mode: Required, raises error if not provided.
+                - Normal mode: Ignored (not used).
 
         Returns:
             Union[SampleDataset, IterableSampleDataset]: The generated sample dataset.
@@ -611,6 +613,7 @@ class BaseDataset(ABC):
 
         Raises:
             AssertionError: If no default task is found and task is None.
+            ValueError: If streaming mode is enabled but batch_size is not provided.
         """
         if task is None:
             assert self.default_task is not None, "No default tasks found"
@@ -624,6 +627,12 @@ class BaseDataset(ABC):
         # Treat missing `stream` attribute as False for backward compatibility
         if getattr(self, "stream", False):
             # Streaming mode: memory-efficient disk-backed processing
+            if batch_size is None:
+                raise ValueError(
+                    "batch_size is required for streaming mode. "
+                    "Typical values: 50-500 patients per batch. "
+                    "Example: dataset.set_task(task, batch_size=100)"
+                )
             return set_task_streaming(
                 dataset=self,
                 task=task,
