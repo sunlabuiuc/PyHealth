@@ -16,7 +16,6 @@ Dataset paper link:
 Author:
     Eric Schrock (ejs9@illinois.edu)
 """
-import argparse
 import hashlib
 import logging
 import os
