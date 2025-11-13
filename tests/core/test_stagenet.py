@@ -260,15 +260,13 @@ class TestStageNet(unittest.TestCase):
 
         # First sample has [3 codes, 2 codes] -> observed_max = 3
         # Second sample has [3 codes]
-        # With default padding=20, max_inner_len = 3 + 20 = 23
-        self.assertEqual(max_inner_len, 23)
+        # With default padding=0, max_inner_len = 3 + 0 = 3
+        self.assertEqual(max_inner_len, 3)
 
         # Padding value should be 0 (after embedding lookup)
         # Check that shorter sequences are padded
-        # Second visit has 2 codes, position [0, 1, 2] and beyond should be padding
+        # Second visit has 2 codes, position [0, 1, 2] should have padding at position 2
         self.assertEqual(value_tensor[0, 1, 2].item(), 0)
-        # Also check a position well beyond observed max (e.g., position 15)
-        self.assertEqual(value_tensor[0, 1, 15].item(), 0)
 
     def test_custom_hyperparameters(self):
         """Test StageNet model with custom hyperparameters."""
@@ -334,12 +332,12 @@ class TestStageNet(unittest.TestCase):
         self.assertEqual(ret["y_prob"].shape[0], 2)
 
     def test_processor_padding_default(self):
-        """Test StageNetProcessor with default padding (20)."""
+        """Test StageNetProcessor with default padding (0)."""
         from pyhealth.processors import StageNetProcessor
 
         # Create processor with default padding
         processor = StageNetProcessor()
-        self.assertEqual(processor._padding, 20)
+        self.assertEqual(processor._padding, 0)
 
         # Fit on nested codes with max length 3
         samples = [
@@ -348,12 +346,12 @@ class TestStageNet(unittest.TestCase):
         ]
         processor.fit(samples, "procedures")
 
-        # Check that max_nested_len = observed_max (3) + padding (20) = 23
-        self.assertEqual(processor._max_nested_len, 23)
+        # Check that max_nested_len = observed_max (3) + padding (0) = 3
+        self.assertEqual(processor._max_nested_len, 3)
 
         # Process a sample
         time_tensor, value_tensor = processor.process((None, [["A", "B"], ["C"]]))
-        self.assertEqual(value_tensor.shape[1], 23)  # Padded to 23
+        self.assertEqual(value_tensor.shape[1], 3)  # Padded to 3
 
     def test_processor_padding_custom(self):
         """Test StageNetProcessor with custom padding."""
@@ -463,22 +461,22 @@ class TestStageNet(unittest.TestCase):
         # Get the processor from the dataset
         dataset_processor = dataset.input_processors["procedures"]
 
-        # Verify default padding is applied (default=20, observed_max=3, so 23)
-        self.assertEqual(dataset_processor._padding, 20)
-        self.assertEqual(dataset_processor._max_nested_len, 23)
+        # Verify default padding is applied (default=0, observed_max=3, so 3)
+        self.assertEqual(dataset_processor._padding, 0)
+        self.assertEqual(dataset_processor._max_nested_len, 3)
 
     def test_processor_padding_repr(self):
         """Test that processor __repr__ includes padding information."""
         from pyhealth.processors import StageNetProcessor
 
-        # Test with default padding
+        # Test with default padding (0)
         processor1 = StageNetProcessor()
         samples = [{"codes": (None, [["A", "B"], ["C"]])}]
         processor1.fit(samples, "codes")
 
         repr_str = repr(processor1)
-        self.assertIn("padding=20", repr_str)
-        self.assertIn("max_nested_len=22", repr_str)  # 2 + 20
+        self.assertIn("padding=0", repr_str)
+        self.assertIn("max_nested_len=2", repr_str)  # 2 + 0
 
         # Test with custom padding
         processor2 = StageNetProcessor(padding=5)

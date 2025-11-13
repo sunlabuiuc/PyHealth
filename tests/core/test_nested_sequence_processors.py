@@ -31,12 +31,12 @@ class TestNestedSequenceProcessor(unittest.TestCase):
         # Check vocabulary size (A, B, C, D, E, F + <unk>, <pad>)
         self.assertEqual(processor.vocab_size(), 8)
 
-        # Check max inner length (max is 3 from ["C", "D", "E"], with default padding=20, total=23)
-        self.assertEqual(processor._max_inner_len, 23)
+        # Check max inner length (max is 3 from ["C", "D", "E"], with default padding=0, total=3)
+        self.assertEqual(processor._max_inner_len, 3)
 
         # Test processing
         result = processor.process([["A", "B"], ["C"]])
-        self.assertEqual(result.shape, (2, 23))  # 2 visits, padded to length 23
+        self.assertEqual(result.shape, (2, 3))  # 2 visits, padded to length 3
         self.assertEqual(result.dtype, torch.long)
 
         # Check padding is applied (second visit should be padded)
@@ -147,12 +147,12 @@ class TestNestedSequenceFloatsProcessor(unittest.TestCase):
         ]
         processor.fit(samples, "values")
 
-        # Check max inner length (max is 3 from [3.0, 4.0, 5.0], with default padding=20, total=23)
-        self.assertEqual(processor._max_inner_len, 23)
+        # Check max inner length (max is 3 from [3.0, 4.0, 5.0], with default padding=0, total=3)
+        self.assertEqual(processor._max_inner_len, 3)
 
         # Test processing
         result = processor.process([[1.0, 2.0], [3.0]])
-        self.assertEqual(result.shape, (2, 23))  # 2 visits, padded to length 23
+        self.assertEqual(result.shape, (2, 3))  # 2 visits, padded to length 3
         self.assertEqual(result.dtype, torch.float)
 
         # Check values
@@ -297,9 +297,9 @@ class TestNestedSequencePaddingFeature(unittest.TestCase):
     """Tests for the padding parameter in NestedSequenceProcessor."""
 
     def test_nested_sequence_padding_default(self):
-        """Test NestedSequenceProcessor with default padding (20)."""
+        """Test NestedSequenceProcessor with default padding (0)."""
         processor = NestedSequenceProcessor()
-        self.assertEqual(processor._padding, 20)
+        self.assertEqual(processor._padding, 0)
 
         # Fit on nested codes with max length 3
         samples = [
@@ -308,12 +308,12 @@ class TestNestedSequencePaddingFeature(unittest.TestCase):
         ]
         processor.fit(samples, "codes")
 
-        # Check that max_inner_len = observed_max (3) + padding (20) = 23
-        self.assertEqual(processor._max_inner_len, 23)
+        # Check that max_inner_len = observed_max (3) + padding (0) = 3
+        self.assertEqual(processor._max_inner_len, 3)
 
         # Process a sample
         result = processor.process([["A", "B"], ["C"]])
-        self.assertEqual(result.shape[1], 23)  # Padded to 23
+        self.assertEqual(result.shape[1], 3)  # Padded to 3
 
     def test_nested_sequence_padding_custom(self):
         """Test NestedSequenceProcessor with custom padding."""
@@ -386,9 +386,9 @@ class TestNestedFloatsPaddingFeature(unittest.TestCase):
     """Tests for the padding parameter in NestedFloatsProcessor."""
 
     def test_nested_floats_padding_default(self):
-        """Test NestedFloatsProcessor with default padding (20)."""
+        """Test NestedFloatsProcessor with default padding (0)."""
         processor = NestedFloatsProcessor()
-        self.assertEqual(processor._padding, 20)
+        self.assertEqual(processor._padding, 0)
 
         # Fit on nested floats with max length 3
         samples = [
@@ -397,12 +397,12 @@ class TestNestedFloatsPaddingFeature(unittest.TestCase):
         ]
         processor.fit(samples, "values")
 
-        # Check that max_inner_len = observed_max (3) + padding (20) = 23
-        self.assertEqual(processor._max_inner_len, 23)
+        # Check that max_inner_len = observed_max (3) + padding (0) = 3
+        self.assertEqual(processor._max_inner_len, 3)
 
         # Process a sample
         result = processor.process([[1.0, 2.0], [3.0]])
-        self.assertEqual(result.shape[1], 23)  # Padded to 23
+        self.assertEqual(result.shape[1], 3)  # Padded to 3
 
     def test_nested_floats_padding_custom(self):
         """Test NestedFloatsProcessor with custom padding."""

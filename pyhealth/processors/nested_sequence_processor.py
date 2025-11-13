@@ -29,7 +29,7 @@ class NestedSequenceProcessor(FeatureProcessor):
         padding: Additional padding to add on top of the observed maximum inner
             sequence length. The actual padding length will be observed_max + padding.
             This ensures the processor can handle sequences longer than those in the
-            training data. Default: 20.
+            training data. Default: 0 (no extra padding).
 
     Examples:
         >>> processor = NestedSequenceProcessor()
@@ -39,12 +39,12 @@ class NestedSequenceProcessor(FeatureProcessor):
         ...     {"codes": [["F"]]}
         ... ]
         >>> processor.fit(samples, "codes")
-        >>> # Process nested sequence (observed_max=3, with padding=20, total=23)
+        >>> # Process nested sequence (observed_max=3, default padding=0, total=3)
         >>> result = processor.process([["A", "B"], ["C"]])
-        >>> result.shape  # (2, 23) - 2 visits, padded to observed_max + padding
+        >>> result.shape  # (2, 3) - 2 visits, padded to observed_max
     """
 
-    def __init__(self, padding: int = 20):
+    def __init__(self, padding: int = 0):
         # -1 for <unk> for ease of boolean arithmetic > 0, > -1, etc.
         self.code_vocab: Dict[Any, int] = {"<unk>": -1, "<pad>": 0}
         self._next_index = 1
@@ -163,7 +163,7 @@ class NestedFloatsProcessor(FeatureProcessor):
         padding: Additional padding to add on top of the observed maximum inner
             sequence length. The actual padding length will be observed_max + padding.
             This ensures the processor can handle sequences longer than those in the
-            training data. Default: 20.
+            training data. Default: 0 (no extra padding).
 
     Examples:
         >>> processor = NestedFloatsProcessor()
@@ -173,12 +173,12 @@ class NestedFloatsProcessor(FeatureProcessor):
         ...     {"values": [[6.0]]}
         ... ]
         >>> processor.fit(samples, "values")
-        >>> # Process nested sequence (observed_max=3, with padding=20, total=23)
+        >>> # Process nested sequence (observed_max=3, default padding=0, total=3)
         >>> result = processor.process([[1.0, 2.0], [3.0]])
-        >>> result.shape  # (2, 23) - 2 visits, padded to observed_max + padding
+        >>> result.shape  # (2, 3) - 2 visits, padded to observed_max
     """
 
-    def __init__(self, forward_fill: bool = True, padding: int = 20):
+    def __init__(self, forward_fill: bool = True, padding: int = 0):
         self._max_inner_len = 1  # Maximum length of inner sequences
         self.forward_fill = forward_fill
         self._padding = padding  # Additional padding beyond observed max
