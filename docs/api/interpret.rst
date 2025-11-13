@@ -9,6 +9,8 @@ Getting Started
 
 New to interpretability in PyHealth? Check out these complete examples:
 
+**Browse all examples online**: https://github.com/sunlabuiuc/PyHealth/tree/master/examples
+
 **DeepLift Example:**
 
 - ``examples/deeplift_stagenet_mimic4.py`` - Demonstrates DeepLift attributions on StageNet for mortality prediction with MIMIC-IV data. Shows how to:

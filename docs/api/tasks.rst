@@ -19,7 +19,8 @@ Getting Started
 New to PyHealth tasks? Start here:
 
 - **Tutorial**: `Introduction to pyhealth.tasks <https://colab.research.google.com/drive/1kKkkBVS_GclHoYTbnOtjyYnSee79hsyT?usp=sharing>`_ - Learn the basics of defining and using tasks
-- **Pipeline Examples**: Check out our :ref:`tutorials` page for complete end-to-end examples including:
+- **Code Examples**: Browse all examples online at https://github.com/sunlabuiuc/PyHealth/tree/master/examples
+- **Pipeline Examples**: Check out our :doc:`../tutorials` page for complete end-to-end examples including:
   
   - Mortality Prediction Pipeline
   - Readmission Prediction Pipeline  

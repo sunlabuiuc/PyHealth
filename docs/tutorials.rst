@@ -46,6 +46,8 @@ Additional Examples
 
 The ``examples/`` directory contains additional code examples demonstrating various tasks, models, and techniques. These examples show how to use PyHealth in real-world scenarios.
 
+**Browse all examples online**: https://github.com/sunlabuiuc/PyHealth/tree/master/examples
+
 Mortality Prediction
 --------------------
 
