@@ -1,0 +1,26 @@
+version: "1.0.0"
+tables:
+  cassette:
+    file_path: "sleepedf-cassette-pyhealth.csv"
+    patient_id: "subject"
+    timestamp: null
+    attributes:
+    - "night"
+    - "age"
+    - "sex"
+    - "lights_off"
+    - "signal_file"
+    - "label_file"
+  telemetry:
+    file_path: "sleepedf-telemetry-pyhealth.csv"
+    patient_id: "subject"
+    timestamp: null
+    attributes:
+    - "night"
+    - "age"
+    - "sex"
+    - "condition"
+    - "lights_off"
+    - "signal_file"
+    - "label_file"
+  
