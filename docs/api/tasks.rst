@@ -1,7 +1,7 @@
 Tasks
 ===============
 
-We support various real-world healthcare predictive tasks defined by **function calls**. The following example tasks are collected from top AI/Medical venues, such as: 
+We support various real-world healthcare predictive tasks defined by **function calls**. The following example tasks are collected from top AI/Medical venues, such as:
 
 (i) Drug Recommendation [Yang et al. IJCAI 2021a, Yang et al. IJCAI 2021b, Shang et al. AAAI 2020]
 
@@ -15,7 +15,7 @@ We support various real-world healthcare predictive tasks defined by **function 
 
 .. toctree::
     :maxdepth: 3
-    
+
     Base Task <tasks/pyhealth.tasks.BaseTask>
     Readmission (30 Days, MIMIC-IV) <tasks/pyhealth.tasks.Readmission30DaysMIMIC4>
     In-Hospital Mortality (MIMIC-IV) <tasks/pyhealth.tasks.InHospitalMortalityMIMIC4>
@@ -36,4 +36,5 @@ We support various real-world healthcare predictive tasks defined by **function 
     Temple University EEG Tasks <tasks/pyhealth.tasks.temple_university_EEG_tasks>
     Sleep Staging v2 <tasks/pyhealth.tasks.sleep_staging_v2>
     Benchmark EHRShot <tasks/pyhealth.tasks.benchmark_ehrshot>
-
+    ChestX-ray14 Binary Classification <tasks/pyhealth.tasks.ChestXray14BinaryClassification>
+    ChestX-ray14 Multilabel Classification <tasks/pyhealth.tasks.ChestXray14MultilabelClassification>
