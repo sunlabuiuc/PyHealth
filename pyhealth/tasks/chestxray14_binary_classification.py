@@ -19,8 +19,8 @@ Author:
 import logging
 from typing import Dict, List
 
-from ..data import Event, Patient
-from .base_task import BaseTask
+from pyhealth.data import Event, Patient
+from pyhealth.tasks import BaseTask
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ class ChestXray14BinaryClassification(BaseTask):
         Raises:
             ValueError: If the specified disease is not a valid class in the dataset.
         """
-        from ..datasets.chestxray14 import ChestXray14Dataset # Avoid circular import
+        from pyhealth.datasets import ChestXray14Dataset # Avoid circular import
         if disease not in ChestXray14Dataset.classes:
             msg = f"Invalid disease: '{disease}'! Must be one of {ChestXray14Dataset.classes}."
             logger.error(msg)

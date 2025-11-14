@@ -19,8 +19,8 @@ Author:
 import logging
 from typing import Dict, List
 
-from ..data import Event, Patient
-from .base_task import BaseTask
+from pyhealth.data import Event, Patient
+from pyhealth.tasks import BaseTask
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ class ChestXray14MultilabelClassification(BaseTask):
         events: List[Event] = patient.get_events(event_type="chestxray14")
 
         samples = []
-        from ..datasets.chestxray14 import ChestXray14Dataset # Avoid circular import
+        from pyhealth.datasets import ChestXray14Dataset # Avoid circular import
         for event in events:
             samples.append({"image": event["path"], "labels": [disease for disease in ChestXray14Dataset.classes if int(event[disease])]})
 

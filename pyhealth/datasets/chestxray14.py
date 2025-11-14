@@ -16,6 +16,7 @@ Dataset paper link:
 Author:
     Eric Schrock (ejs9@illinois.edu)
 """
+from functools import wraps
 import hashlib
 import logging
 import os
@@ -27,8 +28,9 @@ import urllib.request
 
 import pandas as pd
 
-from .base_dataset import BaseDataset
-from ..tasks.chestxray14_multilabel_classification import ChestXray14MultilabelClassification
+from pyhealth.datasets import BaseDataset
+from pyhealth.processors import ImageProcessor
+from pyhealth.tasks import ChestXray14MultilabelClassification
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +101,20 @@ class ChestXray14Dataset(BaseDataset):
             >>> task = dataset.default_task
         """
         return ChestXray14MultilabelClassification()
+
+    @wraps(BaseDataset.set_task)
+    def set_task(self, *args, **kwargs):
+        input_processors = kwargs.get("input_processors", None)
+
+        if input_processors is None:
+            input_processors = {}
+
+        if "image" not in input_processors:
+            input_processors["image"] = ImageProcessor(mode='L')
+
+        kwargs["input_processors"] = input_processors
+
+        return super().set_task(*args, **kwargs)
 
     def _download(self, root: str, partial: bool) -> None:
         """Downloads and verifies the ChestX-ray14 dataset files.
