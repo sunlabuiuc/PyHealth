@@ -23,6 +23,12 @@ class StageNetProcessor(FeatureProcessor):
     - List of strings -> flat code sequences
     - List of lists of strings -> nested code sequences
 
+    Args:
+        padding: Additional padding to add on top of the observed maximum nested 
+            sequence length. The actual padding length will be observed_max + padding.
+            This ensures the processor can handle sequences longer than those in the 
+            training data. Default: 0 (no extra padding). Only applies to nested sequences.
+
     Returns:
         Tuple of (time_tensor, value_tensor) where time_tensor can be None
 
@@ -34,10 +40,11 @@ class StageNetProcessor(FeatureProcessor):
         >>> values.shape  # (3,) - sequence of code indices
         >>> time.shape    # (3,) - time intervals
 
-        >>> # Case 2: Nested codes with time
+        >>> # Case 2: Nested codes with time (with custom padding for extra capacity)
+        >>> processor = StageNetProcessor(padding=20)
         >>> data = ([0.0, 1.5], [["A", "B"], ["C"]])
         >>> time, values = processor.process(data)
-        >>> values.shape  # (2, max_inner_len) - padded nested sequences
+        >>> values.shape  # (2, observed_max + 20) - padded nested sequences
         >>> time.shape    # (2,)
 
         >>> # Case 3: Codes without time
@@ -47,11 +54,12 @@ class StageNetProcessor(FeatureProcessor):
         >>> time          # None
     """
 
-    def __init__(self):
+    def __init__(self, padding: int = 0):
         self.code_vocab: Dict[Any, int] = {"<unk>": -1, "<pad>": 0}
         self._next_index = 1
         self._is_nested = None  # Will be determined during fit
         self._max_nested_len = None  # Max inner sequence length for nested codes
+        self._padding = padding  # Additional padding beyond observed max
 
     def fit(self, samples: List[Dict], key: str) -> None:
         """Build vocabulary and determine input structure.
@@ -102,9 +110,11 @@ class StageNetProcessor(FeatureProcessor):
                             self.code_vocab[code] = self._next_index
                             self._next_index += 1
 
-        # Store max nested length (at least 1 for empty sequences)
+        # Store max nested length: add user-specified padding to observed maximum
+        # This ensures the processor can handle sequences longer than those in training data
         if self._is_nested:
-            self._max_nested_len = max(1, max_inner_len)
+            observed_max = max(1, max_inner_len)
+            self._max_nested_len = observed_max + self._padding
 
     def process(
         self, value: Tuple[Optional[List], List]
@@ -191,12 +201,14 @@ class StageNetProcessor(FeatureProcessor):
             return (
                 f"StageNetProcessor(is_nested={self._is_nested}, "
                 f"vocab_size={len(self.code_vocab)}, "
-                f"max_nested_len={self._max_nested_len})"
+                f"max_nested_len={self._max_nested_len}, "
+                f"padding={self._padding})"
             )
         else:
             return (
                 f"StageNetProcessor(is_nested={self._is_nested}, "
-                f"vocab_size={len(self.code_vocab)})"
+                f"vocab_size={len(self.code_vocab)}, "
+                f"padding={self._padding})"
             )
 
 
