@@ -1,0 +1,31 @@
+# Author: Eric Schrock (ejs9@illinois.edu)
+version: "1.0"
+tables:
+  chestxray14:
+    file_path: "chestxray14-metadata-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "path"
+    - "visit_id"
+    - "patient_age"
+    - "patient_sex"
+    - "view_position"
+    - "original_image_width"
+    - "original_image_height"
+    - "original_image_pixel_spacing_x"
+    - "original_image_pixel_spacing_y"
+    - "atelectasis"
+    - "cardiomegaly"
+    - "consolidation"
+    - "edema"
+    - "effusion"
+    - "emphysema"
+    - "fibrosis"
+    - "hernia"
+    - "infiltration"
+    - "mass"
+    - "nodule"
+    - "pleural_thickening"
+    - "pneumonia"
+    - "pneumothorax"
