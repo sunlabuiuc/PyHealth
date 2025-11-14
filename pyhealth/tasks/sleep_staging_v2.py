@@ -69,7 +69,7 @@ class SleepStagingSleepEDF(BaseTask):
         """
 
         pid = patient.patient_id
-        events = patient.get_events(event_type="recordings")
+        events = patient.get_events()
 
         samples = []
         for event in events:

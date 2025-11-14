@@ -66,13 +66,8 @@ class SleepEDFDataset(BaseDataset):
             )
         if config_path is None:
             logger.info("No config path provided, using default config")
-            default_config = (
-                "sleepedf_cassette.yaml"
-                if subset == "cassette"
-                else "sleepedf_telemetry.yaml"
-            )
             config_path = os.path.join(
-                os.path.dirname(__file__), "configs", default_config
+                os.path.dirname(__file__), "configs", "sleepedf.yaml"
             )
 
         metadata_filename = f"sleepedf-{subset}-pyhealth.csv"
@@ -86,7 +81,7 @@ class SleepEDFDataset(BaseDataset):
                 self.prepare_metadata_telemetry(root)
 
         self.subset = subset
-        default_tables = ["recordings"]
+        default_tables = [subset]
         super().__init__(
             root=root,
             tables=default_tables,
