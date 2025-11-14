@@ -514,13 +514,20 @@ class ShapExplainer(BaseInterpreter):
 
         # Forward pass
         with torch.no_grad():
-            label_stub = torch.zeros(
-                (mixed_emb.shape[0], 1), device=self.model.device
-            )
+            # Create kwargs with proper label key
+            forward_kwargs = {
+                "time_info": time_info_bg,
+            }
+            # Add label with the correct key name
+            if len(self.model.label_keys) > 0:
+                label_key = self.model.label_keys[0]
+                forward_kwargs[label_key] = torch.zeros(
+                    (mixed_emb.shape[0], 1), device=self.model.device
+                )
+            
             model_output = self.model.forward_from_embedding(
                 feature_embeddings,
-                time_info=time_info_bg,
-                label=label_stub,
+                **forward_kwargs
             )
 
         return self._extract_logits(model_output)

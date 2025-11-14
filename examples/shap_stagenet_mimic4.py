@@ -16,7 +16,9 @@ from pyhealth.tasks import MortalityPredictionStageNetMIMIC4
 
 # Configure dataset location and load cached processors
 dataset = MIMIC4EHRDataset(
-    root="/home/logic/physionet.org/files/mimic-iv-demo/2.2/",
+    #root="/home/naveen-baskaran/physionet.org/files/mimic-iv-demo/2.2/",
+    #root="/Users/naveenbaskaran/data/physionet.org/files/mimic-iv-demo/2.2/",
+    root="~/data/physionet.org/files/mimic-iv-demo/2.2/",
     tables=[
         "patients",
         "admissions",
@@ -218,16 +220,26 @@ sample_batch_device = move_batch_to_device(sample_batch, device)
 with torch.no_grad():
     output = model(**sample_batch_device)
     probs = output["y_prob"]
-    preds = torch.argmax(probs, dim=-1)
     label_key = model.label_key
     true_label = sample_batch_device[label_key]
+    
+    # Handle binary classification (single probability output)
+    if probs.shape[-1] == 1:
+        prob_death = probs[0].item()
+        prob_survive = 1 - prob_death
+        preds = (probs > 0.5).long()
+    else:
+        # Multi-class classification
+        preds = torch.argmax(probs, dim=-1)
+        prob_survive = probs[0][0].item()
+        prob_death = probs[0][1].item()
 
     print("\n" + "="*80)
     print("Model Prediction for Sampled Patient")
     print("="*80)
     print(f"  True label: {int(true_label.item())} {'(Deceased)' if true_label.item() == 1 else '(Survived)'}")
     print(f"  Predicted class: {int(preds.item())} {'(Deceased)' if preds.item() == 1 else '(Survived)'}")
-    print(f"  Probabilities: [Survive={probs[0][0].item():.4f}, Death={probs[0][1].item():.4f}]")
+    print(f"  Probabilities: [Survive={prob_survive:.4f}, Death={prob_death:.4f}]")
 
 # Compute SHAP values
 print("\n" + "="*80)
@@ -251,30 +263,14 @@ print("Testing Different Baseline Strategies")
 print("="*80)
 
 # 1. Automatic baseline (default)
-print("\n1. Automatic baseline generation:")
+print("\n1. Automatic baseline generation (recommended):")
 attr_auto = shap_explainer.attribute(**sample_batch_device, target_class_idx=1)
 print(f"   Total attribution (icd_codes): {attr_auto['icd_codes'][0].sum().item():+.6f}")
+print(f"   Total attribution (labs): {attr_auto['labs'][0].sum().item():+.6f}")
 
-# 2. Custom zero baseline
-print("\n2. Custom zero baseline:")
-zero_baseline = {}
-for key in model.feature_keys:
-    if key in sample_batch_device:
-        feature_input = sample_batch_device[key]
-        if isinstance(feature_input, tuple):
-            feature_input = feature_input[1]
-        zero_baseline[key] = torch.zeros(
-            (shap_explainer.n_background_samples,) + feature_input.shape[1:],
-            device=device,
-            dtype=feature_input.dtype
-        )
-
-attr_zero = shap_explainer.attribute(
-    baseline=zero_baseline,
-    **sample_batch_device,
-    target_class_idx=1
-)
-print(f"   Total attribution (icd_codes): {attr_zero['icd_codes'][0].sum().item():+.6f}")
+# Note: Custom baselines for discrete features (like ICD codes) require careful
+# construction to avoid invalid sequences. The automatic baseline generation
+# handles this by sampling from the observed data distribution.
 
 # %% Test callable interface
 print("\n" + "="*80)
