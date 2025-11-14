@@ -18,20 +18,48 @@ class BinaryLabelProcessor(FeatureProcessor):
     def __init__(self):
         super().__init__()
         self.label_vocab: Dict[Any, int] = {}
+        self._all_labels = set()  # For streaming mode
 
-    def fit(self, samples: List[Dict[str, Any]], field: str) -> None:
-        all_labels = set([sample[field] for sample in samples])
-        if len(all_labels) != 2:
-            raise ValueError(f"Expected 2 unique labels, got {len(all_labels)}")
-        if all_labels == {0, 1}:
+    def fit(
+        self, samples: List[Dict[str, Any]], field: str, stream: bool = False
+    ) -> None:
+        if not stream:
+            # Non-streaming mode: original behavior (backward compatible)
+            all_labels = set([sample[field] for sample in samples])
+            if len(all_labels) != 2:
+                raise ValueError(f"Expected 2 unique labels, got {len(all_labels)}")
+            if all_labels == {0, 1}:
+                self.label_vocab = {0: 0, 1: 1}
+            elif all_labels == {False, True}:
+                self.label_vocab = {False: 0, True: 1}
+            else:
+                all_labels = list(all_labels)
+                all_labels.sort()
+                self.label_vocab = {label: i for i, label in enumerate(all_labels)}
+            logger.info(f"Label {field} vocab: {self.label_vocab}")
+        else:
+            # Streaming mode: accumulate labels across batches
+            for sample in samples:
+                label = sample[field]
+                # Convert tensor to Python value if needed
+                if hasattr(label, "item"):
+                    label = label.item()
+                self._all_labels.add(label)
+
+    def finalize_fit(self) -> None:
+        """Finalize vocab after all streaming batches."""
+        if len(self._all_labels) != 2:
+            raise ValueError(f"Expected 2 unique labels, got {len(self._all_labels)}")
+        if self._all_labels == {0, 1}:
             self.label_vocab = {0: 0, 1: 1}
-        elif all_labels == {False, True}:
+        elif self._all_labels == {False, True}:
             self.label_vocab = {False: 0, True: 1}
         else:
-            all_labels = list(all_labels)
+            all_labels = list(self._all_labels)
             all_labels.sort()
             self.label_vocab = {label: i for i, label in enumerate(all_labels)}
-        logger.info(f"Label {field} vocab: {self.label_vocab}")
+        logger.info(f"Label mortality vocab: {self.label_vocab}")
+        self._all_labels = set()  # Clear temporary storage
 
     def process(self, value: Any) -> torch.Tensor:
         index = self.label_vocab[value]
@@ -53,22 +81,47 @@ class MultiClassLabelProcessor(FeatureProcessor):
     def __init__(self):
         super().__init__()
         self.label_vocab: Dict[Any, int] = {}
+        self._all_labels = set()  # For streaming mode
 
-    def fit(self, samples: List[Dict[str, Any]], field: str) -> None:
-        all_labels = set([sample[field] for sample in samples])
-        num_classes = len(all_labels)
-        if all_labels == set(range(num_classes)):
+    def fit(
+        self, samples: List[Dict[str, Any]], field: str, stream: bool = False
+    ) -> None:
+        if not stream:
+            # Non-streaming mode: original behavior (backward compatible)
+            all_labels = set([sample[field] for sample in samples])
+            num_classes = len(all_labels)
+            if all_labels == set(range(num_classes)):
+                self.label_vocab = {i: i for i in range(num_classes)}
+            else:
+                all_labels = list(all_labels)
+                all_labels.sort()
+                self.label_vocab = {label: i for i, label in enumerate(all_labels)}
+            logger.info(f"Label {field} vocab: {self.label_vocab}")
+        else:
+            # Streaming mode: accumulate labels across batches
+            for sample in samples:
+                label = sample[field]
+                # Convert tensor to Python value if needed
+                if hasattr(label, "item"):
+                    label = label.item()
+                self._all_labels.add(label)
+
+    def finalize_fit(self) -> None:
+        """Finalize vocab after all streaming batches."""
+        num_classes = len(self._all_labels)
+        if self._all_labels == set(range(num_classes)):
             self.label_vocab = {i: i for i in range(num_classes)}
         else:
-            all_labels = list(all_labels)
+            all_labels = list(self._all_labels)
             all_labels.sort()
             self.label_vocab = {label: i for i, label in enumerate(all_labels)}
-        logger.info(f"Label {field} vocab: {self.label_vocab}")
+        logger.info(f"Label vocab: {self.label_vocab}")
+        self._all_labels = set()  # Clear temporary storage
 
     def process(self, value: Any) -> torch.Tensor:
         index = self.label_vocab[value]
         return torch.tensor(index, dtype=torch.long)
-    
+
     def size(self):
         return len(self.label_vocab)
 
@@ -88,20 +141,45 @@ class MultiLabelProcessor(FeatureProcessor):
     def __init__(self):
         super().__init__()
         self.label_vocab: Dict[Any, int] = {}
+        self._all_labels = set()  # For streaming mode
 
-    def fit(self, samples: List[Dict[str, Any]], field: str) -> None:
-        all_labels = set()
-        for sample in samples:
-            for label in sample[field]:
-                all_labels.add(label)
-        num_classes = len(all_labels)
-        if all_labels == set(range(num_classes)):
+    def fit(
+        self, samples: List[Dict[str, Any]], field: str, stream: bool = False
+    ) -> None:
+        if not stream:
+            # Non-streaming mode: original behavior (backward compatible)
+            all_labels = set()
+            for sample in samples:
+                for label in sample[field]:
+                    all_labels.add(label)
+            num_classes = len(all_labels)
+            if all_labels == set(range(num_classes)):
+                self.label_vocab = {i: i for i in range(num_classes)}
+            else:
+                all_labels = list(all_labels)
+                all_labels.sort()
+                self.label_vocab = {label: i for i, label in enumerate(all_labels)}
+            logger.info(f"Label {field} vocab: {self.label_vocab}")
+        else:
+            # Streaming mode: accumulate labels across batches
+            for sample in samples:
+                for label in sample[field]:
+                    # Convert tensor to Python value if needed
+                    if hasattr(label, "item"):
+                        label = label.item()
+                    self._all_labels.add(label)
+
+    def finalize_fit(self) -> None:
+        """Finalize vocab after all streaming batches."""
+        num_classes = len(self._all_labels)
+        if self._all_labels == set(range(num_classes)):
             self.label_vocab = {i: i for i in range(num_classes)}
         else:
-            all_labels = list(all_labels)
+            all_labels = list(self._all_labels)
             all_labels.sort()
             self.label_vocab = {label: i for i, label in enumerate(all_labels)}
-        logger.info(f"Label {field} vocab: {self.label_vocab}")
+        logger.info(f"Label vocab: {self.label_vocab}")
+        self._all_labels = set()  # Clear temporary storage
 
     def process(self, value: Any) -> torch.Tensor:
         if not isinstance(value, list):
@@ -127,7 +205,7 @@ class RegressionLabelProcessor(FeatureProcessor):
 
     def process(self, value: Any) -> torch.Tensor:
         return torch.tensor([float(value)], dtype=torch.float32)
-    
+
     def size(self):
         return 1
 

@@ -123,19 +123,44 @@ class Patient:
         event_type_partitions (Dict[str, pl.DataFrame]): Dictionary mapping event types to their respective DataFrame partitions.
     """
 
-    def __init__(self, patient_id: str, data_source: pl.DataFrame) -> None:
+    def __init__(
+        self, patient_id: str, data_source: pl.DataFrame, lazy_partition: bool = False
+    ) -> None:
         """
         Initialize a Patient instance.
 
         Args:
             patient_id (str): Unique patient identifier.
             data_source (pl.DataFrame): DataFrame containing all events.
+            lazy_partition (bool): If True, delay partitioning until needed (memory optimization for streaming).
+                Default is False to maintain backward compatibility.
         """
         self.patient_id = patient_id
         self.data_source = data_source.sort("timestamp")
-        self.event_type_partitions = self.data_source.partition_by("event_type", maintain_order=True, as_dict=True)
+        self._lazy_partition = lazy_partition
 
-    def _filter_by_time_range_regular(self, df: pl.DataFrame, start: Optional[datetime], end: Optional[datetime]) -> pl.DataFrame:
+        if lazy_partition:
+            # Streaming mode: delay partition_by to save memory
+            self._event_type_partitions = None
+        else:
+            # Normal mode: pre-compute partitions for fast access (original behavior)
+            self._event_type_partitions = self.data_source.partition_by(
+                "event_type", maintain_order=True, as_dict=True
+            )
+
+    @property
+    def event_type_partitions(self) -> Dict[tuple, pl.DataFrame]:
+        """Get event type partitions, computing lazily if needed."""
+        if self._event_type_partitions is None:
+            # Lazy computation for streaming mode
+            self._event_type_partitions = self.data_source.partition_by(
+                "event_type", maintain_order=True, as_dict=True
+            )
+        return self._event_type_partitions
+
+    def _filter_by_time_range_regular(
+        self, df: pl.DataFrame, start: Optional[datetime], end: Optional[datetime]
+    ) -> pl.DataFrame:
         """Regular filtering by time. Time complexity: O(n)."""
         if start is not None:
             df = df.filter(pl.col("timestamp") >= start)
@@ -143,7 +168,9 @@ class Patient:
             df = df.filter(pl.col("timestamp") <= end)
         return df
 
-    def _filter_by_time_range_fast(self, df: pl.DataFrame, start: Optional[datetime], end: Optional[datetime]) -> pl.DataFrame:
+    def _filter_by_time_range_fast(
+        self, df: pl.DataFrame, start: Optional[datetime], end: Optional[datetime]
+    ) -> pl.DataFrame:
         """Fast filtering by time using binary search on sorted timestamps. Time complexity: O(log n)."""
         if start is None and end is None:
             return df
@@ -157,13 +184,17 @@ class Patient:
             end_idx = np.searchsorted(ts_col, end, side="right")
         return df.slice(start_idx, end_idx - start_idx)
 
-    def _filter_by_event_type_regular(self, df: pl.DataFrame, event_type: Optional[str]) -> pl.DataFrame:
+    def _filter_by_event_type_regular(
+        self, df: pl.DataFrame, event_type: Optional[str]
+    ) -> pl.DataFrame:
         """Regular filtering by event type. Time complexity: O(n)."""
         if event_type:
             df = df.filter(pl.col("event_type") == event_type)
         return df
 
-    def _filter_by_event_type_fast(self, df: pl.DataFrame, event_type: Optional[str]) -> pl.DataFrame:
+    def _filter_by_event_type_fast(
+        self, df: pl.DataFrame, event_type: Optional[str]
+    ) -> pl.DataFrame:
         """Fast filtering by event type using pre-built event type index. Time complexity: O(1)."""
         if event_type:
             return self.event_type_partitions.get((event_type,), df[:0])
@@ -203,7 +234,9 @@ class Patient:
         # df = self._filter_by_time_range_regular(df, start, end)
 
         if filters:
-            assert event_type is not None, "event_type must be provided if filters are provided"
+            assert (
+                event_type is not None
+            ), "event_type must be provided if filters are provided"
         else:
             filters = []
         exprs = []
