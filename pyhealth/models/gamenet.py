@@ -5,11 +5,12 @@ import os
 import torch
 import torch.nn as nn
 import numpy as np
-from pyhealth.datasets import SampleEHRDataset
+from pyhealth.datasets import SampleDataset
 from pyhealth.medcode import ATC
 from pyhealth.models import BaseModel
 from pyhealth.models.utils import get_last_visit, batch_to_multihot
 from pyhealth import BASE_CACHE_PATH as CACHE_PATH
+from pyhealth.models.embedding import EmbeddingModel
 
 class GCNLayer(nn.Module):
     """GCN layer.
@@ -238,11 +239,54 @@ class GAMENet(BaseModel):
         num_layers: the number of layers used in RNN. Default is 1.
         dropout: the dropout rate. Default is 0.5.
         **kwargs: other parameters for the GAMENet layer.
+
+    Examples:
+        >>> from pyhealth.datasets import SampleDataset
+        >>> from pyhealth.tasks import drug_recommendation_mimic3_fn
+        >>> from pyhealth.models import GAMENet
+        >>> from pyhealth.datasets import split_by_patient, get_dataloader
+        >>> from pyhealth.trainer import Trainer
+        >>>
+        >>> # Load MIMIC-III dataset
+        >>> dataset = SampleDataset(
+        ...     samples=[
+        ...         {
+        ...             "patient_id": "patient-0",
+        ...             "visit_id": "visit-0",
+        ...             "conditions": [["cond-33", "cond-86"], ["cond-80"]],
+        ...             "procedures": [["proc-12", "proc-45"], ["proc-23"]],
+        ...             "drugs": ["drug-1", "drug-2", "drug-3"],
+        ...         }
+        ...     ],
+        ...     input_schema={
+        ...         "conditions": "nested_sequence",
+        ...         "procedures": "nested_sequence",
+        ...     },
+        ...     output_schema={"drugs": "multilabel"},
+        ...     dataset_name="test",
+        ... )
+        >>>
+        >>> # Initialize model
+        >>> model = GAMENet(
+        ...     dataset=dataset,
+        ...     embedding_dim=128,
+        ...     hidden_dim=128,
+        ... )
+        >>>
+        >>> # Create dataloaders
+        >>> train_loader = get_dataloader(dataset, batch_size=32, shuffle=True)
+        >>>
+        >>> # Train model
+        >>> trainer = Trainer(model=model, metrics=["jaccard_samples", "ddi"])
+        >>> trainer.train(
+        ...     train_dataloader=train_loader,
+        ...     epochs=10,
+        ... )
     """
 
     def __init__(
         self,
-        dataset: SampleEHRDataset,
+        dataset: SampleDataset,
         embedding_dim: int = 128,
         hidden_dim: int = 128,
         num_layers: int = 1,
@@ -251,19 +295,26 @@ class GAMENet(BaseModel):
     ):
         super(GAMENet, self).__init__(
             dataset=dataset,
-            feature_keys=["conditions", "procedures"],
-            label_key="drugs",
-            mode="multilabel",
         )
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
         self.dropout = dropout
 
-        self.feat_tokenizers = self.get_feature_tokenizers()
-        self.label_tokenizer = self.get_label_tokenizer()
-        self.embeddings = self.get_embedding_layers(self.feat_tokenizers, embedding_dim)
+        assert "conditions" in self.dataset.input_schema, "conditions must be in input_schema"
+        assert "procedures" in self.dataset.input_schema, "procedures must be in input_schema"
+        assert "drugs" in self.dataset.output_schema, "drugs must be in output_schema"
 
+        # feature_keys and label_key for GAMENet
+        self.feature_keys = ["conditions", "procedures"]
+        assert len(self.label_keys) == 1, "Only one label key is supported for GAMENet"
+        self.label_key = self.label_keys[0]
+        self.mode = self.dataset.output_schema[self.label_key]
+
+        self.embedding_model = EmbeddingModel(dataset, embedding_dim)
+        self.label_size = len(self.dataset.output_processors[self.label_key].label_vocab)
+
+        # adj matrix
         ehr_adj = self.generate_ehr_adj()
         ddi_adj = self.generate_ddi_adj()
 
@@ -302,32 +353,21 @@ class GAMENet(BaseModel):
         )
         
         # save ddi adj
-        ddi_adj = self.generate_ddi_adj()
-        np.save(os.path.join(CACHE_PATH, "ddi_adj.npy"), ddi_adj)
-        
-    def generate_ddi_adj():
-        """Generates the DDI graph adjacency matrix."""
-        atc = ATC()
-        ddi = atc.get_ddi(gamenet_ddi=True)
-        label_size = self.label_tokenizer.get_vocabulary_size()
-        vocab_to_index = self.label_tokenizer.vocabulary
-        ddi_adj = np.zeros((label_size, label_size))
-        ddi_atc3 = [
-            [ATC.convert(l[0], level=3), ATC.convert(l[1], level=3)] for l in ddi
-        ]
-        for atc_i, atc_j in ddi_atc3:
-            if atc_i in vocab_to_index and atc_j in vocab_to_index:
-                ddi_adj[vocab_to_index(atc_i), vocab_to_index(atc_j)] = 1
-                ddi_adj[vocab_to_index(atc_j), vocab_to_index(atc_i)] = 1
-        return ddi_adj
+        np.save(os.path.join(CACHE_PATH, "ddi_adj.npy"), ddi_adj.numpy())
 
     def generate_ehr_adj(self) -> torch.tensor:
         """Generates the EHR graph adjacency matrix."""
-        label_size = self.label_tokenizer.get_vocabulary_size()
+        label_vocab = self.dataset.output_processors[self.label_key].label_vocab
+        label_size = len(label_vocab)
         ehr_adj = torch.zeros((label_size, label_size))
-        for sample in self.dataset:
+        for sample in self.dataset.samples:
             curr_drugs = sample["drugs"]
-            encoded_drugs = self.label_tokenizer.convert_tokens_to_indices(curr_drugs)
+            if isinstance(curr_drugs, torch.Tensor):
+                continue
+            encoded_drugs = []
+            for drug in curr_drugs:
+                if drug in label_vocab:
+                    encoded_drugs.append(label_vocab[drug])
             for idx1, med1 in enumerate(encoded_drugs):
                 for idx2, med2 in enumerate(encoded_drugs):
                     if idx1 >= idx2:
@@ -340,90 +380,72 @@ class GAMENet(BaseModel):
         """Generates the DDI graph adjacency matrix."""
         atc = ATC()
         ddi = atc.get_ddi(gamenet_ddi=True)
-        label_size = self.label_tokenizer.get_vocabulary_size()
-        vocab_to_index = self.label_tokenizer.vocabulary
+        label_vocab = self.dataset.output_processors[self.label_key].label_vocab
+        label_size = len(label_vocab)
         ddi_adj = torch.zeros((label_size, label_size))
         ddi_atc3 = [
             [ATC.convert(l[0], level=3), ATC.convert(l[1], level=3)] for l in ddi
         ]
         for atc_i, atc_j in ddi_atc3:
-            if atc_i in vocab_to_index and atc_j in vocab_to_index:
-                ddi_adj[vocab_to_index(atc_i), vocab_to_index(atc_j)] = 1
-                ddi_adj[vocab_to_index(atc_j), vocab_to_index(atc_i)] = 1
+            if atc_i in label_vocab and atc_j in label_vocab:
+                ddi_adj[label_vocab[atc_i], label_vocab[atc_j]] = 1
+                ddi_adj[label_vocab[atc_j], label_vocab[atc_i]] = 1
         return ddi_adj
 
-    def forward(
-        self,
-        conditions: List[List[List[str]]],
-        procedures: List[List[List[str]]],
-        drugs_hist: List[List[List[str]]],
-        drugs: List[List[str]],
-        **kwargs
-    ) -> Dict[str, torch.Tensor]:
+    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation.
 
         Args:
-            conditions: a nested list in three levels [patient, visit, condition].
-            procedures: a nested list in three levels [patient, visit, procedure].
-            drugs_hist: a nested list in three levels [patient, visit, drug], up to visit (N-1)
-            drugs: a nested list in two levels [patient, drug], at visit N
+            **kwargs: Keyword arguments that include feature keys and label key.
+                The dataloader provides already-processed tensors.
+                Expected keys:
+                - conditions: tensor of shape [batch, visits, codes_per_visit]
+                - procedures: tensor of shape [batch, visits, codes_per_visit]
+                - drugs: tensor of shape [batch, num_drugs] (multilabel)
 
         Returns:
             A dictionary with the following keys:
                 loss: a scalar tensor representing the loss.
-                y_prob: a tensor of shape [patient, visit, num_labels] representing
+                y_prob: a tensor of shape [batch, num_labels] representing
                     the probability of each drug.
-                y_true: a tensor of shape [patient, visit, num_labels] representing
+                y_true: a tensor of shape [batch, num_labels] representing
                     the ground truth of each drug.
 
         """
-        conditions = self.feat_tokenizers["conditions"].batch_encode_3d(conditions)
-        # (patient, visit, code)
-        conditions = torch.tensor(conditions, dtype=torch.long, device=self.device)
-        # (patient, visit, code, embedding_dim)
-        conditions = self.embeddings["conditions"](conditions)
-        # (patient, visit, embedding_dim)
-        conditions = torch.sum(conditions, dim=2)
-        # (batch, visit, hidden_size)
-        conditions, _ = self.cond_rnn(conditions)
+        embedded = self.embedding_model(kwargs)
 
-        procedures = self.feat_tokenizers["procedures"].batch_encode_3d(procedures)
-        # (patient, visit, code)
-        procedures = torch.tensor(procedures, dtype=torch.long, device=self.device)
-        # (patient, visit, code, embedding_dim)
-        procedures = self.embeddings["procedures"](procedures)
-        # (patient, visit, embedding_dim)
-        procedures = torch.sum(procedures, dim=2)
-        # (batch, visit, hidden_size)
+        # embedded["conditions"] shape: [batch, visits, codes_per_visit, embedding_dim]
+        # embedded["procedures"] shape: [batch, visits, codes_per_visit, embedding_dim]
+        conditions = embedded["conditions"]
+        procedures = embedded["procedures"]
+
+        # [batch, visits, embedding_dim]
+        conditions = conditions.sum(dim=2)
+        procedures = procedures.sum(dim=2)
+
+        # [batch, visits, hidden_dim]
+        conditions, _ = self.cond_rnn(conditions)
         procedures, _ = self.proc_rnn(procedures)
 
-        # (batch, visit, 2 * hidden_size)
+        # [batch, visits, 2*hidden_dim] -> [batch, visits, hidden_dim]
         patient_representations = torch.cat([conditions, procedures], dim=-1)
-        # (batch, visit, hidden_size)
         queries = self.query(patient_representations)
 
-        label_size = self.label_tokenizer.get_vocabulary_size()
-        drugs_hist = self.label_tokenizer.batch_encode_3d(
-            drugs_hist, padding=(False, False), truncation=(True, False)
-        )
+        # get current drugs (labels): [batch, num_drugs]
+        y_true = kwargs[self.label_key].to(self.device)
 
-        curr_drugs = self.prepare_labels(drugs, self.label_tokenizer)
+        batch_size = queries.size(0)
+        num_visits = queries.size(1)
 
-        prev_drugs = drugs_hist
-        max_num_visit = max([len(p) for p in prev_drugs])
-        prev_drugs = [p + [[]] * (max_num_visit - len(p)) for p in prev_drugs]
-        prev_drugs = [batch_to_multihot(p, label_size) for p in prev_drugs]
-        prev_drugs = torch.stack(prev_drugs, dim=0)
-        prev_drugs = prev_drugs.to(self.device)
+        prev_drugs = torch.zeros(batch_size, num_visits, self.label_size, device=self.device)
 
-        # get mask
-        mask = torch.sum(conditions, dim=2) != 0
+        # [batch, visits]
+        mask = (embedded["conditions"].sum(dim=-1) != 0).any(dim=-1)
 
-        # process drugs
-        loss, y_prob = self.gamenet(queries, prev_drugs, curr_drugs, mask)
+        loss, y_prob = self.gamenet(queries, prev_drugs, y_true, mask)
 
         return {
             "loss": loss,
             "y_prob": y_prob,
-            "y_true": curr_drugs,
+            "y_true": y_true,
         }
