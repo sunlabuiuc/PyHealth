@@ -1,42 +1,55 @@
 version: "1.0"
 tables:
-  - iAFib:
-      description: "ECG waveform data for atrial fibrillation detection."
-      source_url: "https://physionet.org/static/published-projects/iafdb/intracardiac-atrial-fibrillation-database-1.0.0.zip"
-      columns:
-        - name: CS12
-          type: list
-          description: "Bipolar Signal"
-        - name: CS34
-          type: list
-          description: "Bipolar Signal"
-        - name: CS56
-          type: list
-          description: "Bipolar Signal"
-        - name: CS78
-          type: list
-          description: "Bipolar Signal"
-        - name: CS90
-          type: list
-          description: "Bipolar Signal"
-        - name: patient_id
-          type: str
-          description: "Unique identifier for each patient."
-        - name: region
-          type: str
-          description: "Region of the heart where the recording was taken."
-        - name: sampling_rate
-          type: int
-          description: "Sampling rate of the ECG signal."
-        - name: age
-          type: int
-          description: "Age of the patient."
-        - name: sex
-          type: str
-          description: "Sex of the patient."
-        - name: diagnosis
-          type: str
-          description: "Diagnosis information."
-        - name: medications
-          type: str
-          description: "Medications taken by the patient."
+  iAFib:
+    description: "ECG waveform data for atrial fibrillation detection."
+    file_path: "https://physionet.org/static/published-projects/iafdb/intracardiac-atrial-fibrillation-database-1.0.0.zip"
+    attributes:
+    - "CS12"
+    - "CS34"
+    - "CS56"
+    - "CS78"
+    - "CS90"
+    - "patient_id"
+    - "region"
+    - "sampling_rate"
+    - "age"
+    - "sex"
+    - "diagnosis"
+    - "medications"
+    schema:
+      - name: CS12
+        type: list
+        description: "Bipolar Signal"
+      - name: CS34
+        type: list
+        description: "Bipolar Signal"
+      - name: CS56
+        type: list
+        description: "Bipolar Signal"
+      - name: CS78
+        type: list
+        description: "Bipolar Signal"
+      - name: CS90
+        type: list
+        description: "Bipolar Signal"
+      - name: patient_id
+        type: str
+        description: "Unique identifier for each patient."
+      - name: region
+        type: str
+        description: "Region of the heart where the recording was taken."
+      - name: sampling_rate
+        type: int
+        description: "Sampling rate of the ECG signal."
+      - name: age
+        type: int
+        description: "Age of the patient."
+      - name: sex
+        type: str
+        description: "Sex of the patient."
+      - name: diagnosis
+        type: str
+        description: "Diagnosis information."
+      - name: medications
+        type: str
+        description: "Medications taken by the patient."

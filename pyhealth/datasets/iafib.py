@@ -119,7 +119,7 @@ class iAFibDataset(BaseDataset):
         """
         table_name = self.tables[0]
         table_cfg = self.config.tables[table_name]
-        url = table_cfg.source_url
+        url = table_cfg.file_path
 
         folder_name = _download_data_to_path(url, os.path.join(self.root, self.extract_subdir))
         path = os.path.join(self.root, self.extract_subdir, folder_name)
@@ -129,7 +129,8 @@ class iAFibDataset(BaseDataset):
         for i in os.listdir(path):
             if 'qrs' in i:
                 file_name = i.split('.')[0]
-                record = wfdb.rdrecord(f'./{path}/{file_name}')
+                path = Path(path).expanduser().resolve()
+                record = wfdb.rdrecord(f"{path}/{file_name}")
                 patient, region = record.record_name.split('_')
 
                 df = pl.DataFrame({

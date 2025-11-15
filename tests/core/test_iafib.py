@@ -176,7 +176,7 @@ class TestiAFibDataset:
                 dataset.root = tmp_dir
                 dataset.extract_subdir = "extracted"
                 dataset.config = Mock()
-                dataset.config.tables = {"iAFib": Mock(source_url="http://test.com")}
+                dataset.config.tables = {"iAFib": Mock(file_path="http://test.com")}
                 dataset.tables = ["iAFib"]
                 
                 result = dataset.load_data()
@@ -216,7 +216,7 @@ class TestiAFibDataset:
                 dataset.root = tmp_dir
                 dataset.extract_subdir = "extracted"
                 dataset.config = Mock()
-                dataset.config.tables = {"iAFib": Mock(source_url="http://test.com")}
+                dataset.config.tables = {"iAFib": Mock(file_path="http://test.com")}
                 dataset.tables = ["iAFib"]
                 
                 result = dataset.load_data()
@@ -236,7 +236,7 @@ class TestiAFibDataset:
                 dataset.root = tmp_dir
                 dataset.extract_subdir = "extracted"
                 dataset.config = Mock()
-                dataset.config.tables = {"iAFib": Mock(source_url="http://test.com")}
+                dataset.config.tables = {"iAFib": Mock(file_path="http://test.com")}
                 dataset.tables = ["iAFib"]
                 
                 result = dataset.load_data()
