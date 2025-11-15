@@ -1,7 +1,9 @@
 import torch
 import numpy as np
+from typing import Dict
+from pyhealth.interpret.methods.base_interpreter import BaseInterpreter
 
-class BasicGradientSaliencyMaps:
+class BasicGradientSaliencyMaps(BaseInterpreter):
     """Base class for computing and visualizing saliency maps.
     
     This class provides methods to generate pytorch gradient-based saliency maps for image
@@ -19,12 +21,58 @@ class BasicGradientSaliencyMaps:
         # Validate that input_batch is either a dictionary, list, or tensor
         if not isinstance(input_batch, (dict, list, torch.Tensor)):
             raise ValueError("input_batch must be a dictionary, list, or tensor")
-            
-        self.Model = model
+        
+        # Call parent constructor
+        super().__init__(model)
+        
+        # Store additional attributes specific to this class
+        self.Model = model  # Keep for backward compatibility
         self.Input_batch = input_batch
         self.Image_key = image_key
         self.Label_key = label_key
         self.Batch_saliency_maps = None
+    
+    def attribute(self, **data) -> Dict[str, torch.Tensor]:
+        """Compute attribution scores for input features.
+        
+        This method implements the BaseInterpreter interface by computing
+        gradient-based saliency maps for the input images.
+        
+        Args:
+            **data: Input data dictionary containing 'image' and optionally 'disease' keys
+        
+        Returns:
+            Dict[str, torch.Tensor]: Dictionary with 'saliency' key mapping to saliency map tensor
+        """
+        # Process the batch
+        if isinstance(data, (list, torch.Tensor)):
+            batch_dict = {
+                self.Image_key: data[0] if isinstance(data, list) else data,
+                self.Label_key: data[1] if isinstance(data, list) else None
+            }
+        else:
+            batch_dict = data
+        
+        # Prepare input tensors
+        imgs = batch_dict[self.Image_key]
+        batch_images = imgs.clone().detach().requires_grad_()
+        batch_labels = batch_dict.get(self.Label_key, None)
+        
+        # Get model predictions
+        output = self.model(image=batch_images, disease=batch_labels)
+        y_prob = output['y_prob']
+        target_class = y_prob.argmax(dim=1)
+        scores = y_prob.gather(1, target_class.unsqueeze(1)).squeeze()
+
+        # Compute gradients
+        self.model.zero_grad()
+        scores.sum().backward()
+
+        # Process gradients into saliency map
+        sal = batch_images.grad.abs()
+        sal, _ = torch.max(sal, dim=1)  # Max across channels
+        
+        return {self.Image_key: sal}
         
     def init_gradient_saliency_maps(self):
         """Init gradient saliency maps, generating them if needed."""

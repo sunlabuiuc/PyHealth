@@ -4,6 +4,4 @@ from pyhealth.interpret.methods.basic_gradient import BasicGradientSaliencyMaps
 from pyhealth.interpret.methods.deeplift import DeepLift
 from pyhealth.interpret.methods.integrated_gradients import IntegratedGradients
 
-__all__ = ["BaseInterpreter", "CheferRelevance", "DeepLift", "IntegratedGradients"]
-
-__all__ = ["BaseInterpreter", "CheferRelevance", "IntegratedGradients", "BasicGradientSaliencyMaps"]
+__all__ = ["BaseInterpreter", "BasicGradientSaliencyMaps", "CheferRelevance", "DeepLift", "IntegratedGradients"]

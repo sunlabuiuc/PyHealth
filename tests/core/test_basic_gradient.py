@@ -118,6 +118,53 @@ class TestBasicGradient(unittest.TestCase):
         batch_result = batch_maps[0]
         self.assertEqual(batch_result['saliency'].shape[0], 2)
 
+    def test_attribute_method(self):
+        """Test the attribute method from BaseInterpreter interface."""
+        batch = {
+            'image': torch.randn(2, 3, 32, 32),
+            'disease': torch.randint(0, 2, (2,))
+        }
+        
+        saliency = BasicGradientSaliencyMaps(self.model, input_batch=batch)
+        
+        # Test attribute method
+        attributions = saliency.attribute(**batch)
+        
+        # Check that attributions is a dictionary
+        self.assertIsInstance(attributions, dict)
+        
+        # Check that it contains the image key
+        self.assertIn('image', attributions)
+        
+        # Check the shape of attributions
+        attr_map = attributions['image']
+        self.assertEqual(attr_map.shape[0], 2)  # Batch size
+        self.assertEqual(len(attr_map.shape), 3)  # [batch_size, height, width]
+        self.assertEqual(attr_map.shape[1:], (32, 32))  # Height and width
+        
+        # Check that attribution values are non-negative
+        self.assertTrue(torch.all(attr_map >= 0))
+        
+        # Check that gradients were computed (non-zero attributions)
+        self.assertTrue(torch.any(attr_map > 0))
+
+    def test_attribute_method_callable(self):
+        """Test that the class can be called directly via __call__ method."""
+        batch = {
+            'image': torch.randn(2, 3, 32, 32),
+            'disease': torch.randint(0, 2, (2,))
+        }
+        
+        saliency = BasicGradientSaliencyMaps(self.model, input_batch=batch)
+        
+        # Test calling the object directly (should invoke attribute via __call__)
+        attributions = saliency(**batch)
+        
+        # Verify it returns proper attributions
+        self.assertIsInstance(attributions, dict)
+        self.assertIn('image', attributions)
+        self.assertEqual(attributions['image'].shape[0], 2)
+
     def test_visualization(self):
         """Test visualization method."""
         batch = {
