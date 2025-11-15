@@ -10,7 +10,7 @@ from pyhealth.interpret.methods import ShapExplainer
 from pyhealth.interpret.methods.base_interpreter import BaseInterpreter
 
 
-class _ToyShapModel(BaseModel):
+class _SimpleShapModel(BaseModel):
     """Minimal model for testing SHAP with continuous inputs."""
 
     def __init__(self):
@@ -35,7 +35,7 @@ class _ToyShapModel(BaseModel):
         }
 
 
-class _ToyEmbeddingModel(nn.Module):
+class _SimpleEmbeddingModel(nn.Module):
     """Simple embedding module mapping integer tokens to vectors."""
 
     def __init__(self, vocab_size: int = 20, embedding_dim: int = 4):
@@ -55,7 +55,7 @@ class _EmbeddingForwardModel(BaseModel):
         self.label_keys = ["label"]
         self.mode = "binary"
 
-        self.embedding_model = _ToyEmbeddingModel()
+        self.embedding_model = _SimpleEmbeddingModel()
         self.linear = nn.Linear(4, 1, bias=True)
 
     def forward_from_embedding(
@@ -108,7 +108,7 @@ class TestShapExplainerBasic(unittest.TestCase):
     """Basic tests for ShapExplainer functionality."""
 
     def setUp(self):
-        self.model = _ToyShapModel()
+        self.model = _SimpleShapModel()
         self.model.eval()
 
         # Set deterministic weights
@@ -381,7 +381,7 @@ class TestShapExplainerEmbedding(unittest.TestCase):
 
     def test_embedding_model_without_forward_from_embedding_fails(self):
         """Test that using embeddings without forward_from_embedding raises error."""
-        model_without_embed = _ToyShapModel()
+        model_without_embed = _SimpleShapModel()
         
         with self.assertRaises(AssertionError):
             ShapExplainer(model_without_embed, use_embeddings=True)
@@ -788,7 +788,7 @@ class TestShapExplainerEdgeCases(unittest.TestCase):
     """Test edge cases and error handling for ShapExplainer."""
 
     def setUp(self):
-        self.model = _ToyShapModel()
+        self.model = _SimpleShapModel()
         self.model.eval()
         self.labels = torch.zeros((1, 1))
 
@@ -1011,7 +1011,7 @@ class TestShapExplainerStateManagement(unittest.TestCase):
     """Test state management and repeated calls."""
 
     def setUp(self):
-        self.model = _ToyShapModel()
+        self.model = _SimpleShapModel()
         self.model.eval()
         self.labels = torch.zeros((1, 1))
         self.explainer = ShapExplainer(
@@ -1073,7 +1073,7 @@ class TestShapExplainerDeviceHandling(unittest.TestCase):
     """Test device handling (CPU/CUDA compatibility)."""
 
     def setUp(self):
-        self.model = _ToyShapModel()
+        self.model = _SimpleShapModel()
         self.model.eval()
         self.labels = torch.zeros((1, 1))
 
