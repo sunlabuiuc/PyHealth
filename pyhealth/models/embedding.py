@@ -138,10 +138,6 @@ class EmbeddingModel(BaseModel):
             if field_name not in self.embedding_layers:
                 # No embedding layer -> passthrough
                 embedded[field_name] = tensor
-
-                if output_mask:
-                    # Default: treat all positions as valid
-                    masks[field_name] = torch.ones_like(tensor, dtype=torch.bool)
                 continue
             
             tensor = tensor.to(self.device)            
