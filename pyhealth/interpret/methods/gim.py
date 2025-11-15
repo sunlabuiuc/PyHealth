@@ -130,6 +130,32 @@ class GIM(BaseInterpreter):
             (StageNet is currently supported).
         temperature: Softmax temperature used exclusively for the backward
             pass. A value of ``2.0`` matches the paper's best setting.
+
+    Examples:
+        >>> import torch
+        >>> from pyhealth.datasets import get_dataloader
+        >>> from pyhealth.interpret.methods.gim import GIM
+        >>> from pyhealth.models import StageNet
+        >>>
+        >>> # Assume ``sample_dataset`` and trained StageNet weights are available.
+        >>> device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        >>> model = StageNet(dataset=sample_dataset, mode="binary")
+        >>> model = model.to(device).eval()
+        >>> test_loader = get_dataloader(sample_dataset, batch_size=1, shuffle=False)
+        >>> gim = GIM(model, temperature=2.0)
+        >>>
+        >>> batch = next(iter(test_loader))
+        >>> batch_device = {}
+        >>> for key, value in batch.items():
+        ...     if isinstance(value, torch.Tensor):
+        ...         batch_device[key] = value.to(device)
+        ...     elif isinstance(value, tuple):
+        ...         batch_device[key] = tuple(v.to(device) for v in value)
+        ...     else:
+        ...         batch_device[key] = value
+        >>>
+        >>> attributions = gim.attribute(**batch_device)
+        >>> print({k: v.shape for k, v in attributions.items()})
     """
 
     def __init__(
