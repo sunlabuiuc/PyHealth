@@ -276,8 +276,8 @@ class TestProcessorSchemas(unittest.TestCase):
         logger.info(f"Direct classes test passed with {len(sample_dataset)} samples")
 
 
-class TestProcessorTupleKwargs(unittest.TestCase):
-    """Test tuple with kwargs for processor instantiation separately."""
+class TestProcessorKwargs(unittest.TestCase):
+    """Test processor kwargs for processor instantiation separately."""
 
     def setUp(self):
         # Generate synthetic timeseries data
@@ -347,6 +347,59 @@ class TestProcessorTupleKwargs(unittest.TestCase):
         self.assertEqual(timeseries_tensor.shape[1], 2)  # 2 features
 
         logger.info("Tuple with kwargs test passed")
+
+    def test_processor_instance(self):
+        """Test using a FeatureProcessor instance directly in schema."""
+        logger.info("Testing processor instance schema")
+
+        # Create a TimeseriesProcessor instance with specific parameters
+        processor_instance = TimeseriesProcessor(
+            sampling_rate=timedelta(hours=2),
+            impute_strategy="zero"
+        )
+
+        samples = [
+            {"patient_id": "1", "timeseries": self.timeseries_data_1, "label": 1},
+            {"patient_id": "2", "timeseries": self.timeseries_data_2, "label": 0},
+        ]
+
+        class TestTimeseriesTask(BaseTask):
+            """Test task for timeseries processing with processor instance."""
+
+            task_name: str = "test_timeseries_task_instance"
+            input_schema = {"timeseries": processor_instance}
+            output_schema = {"label": "binary"}
+
+            def __call__(self, patient: Patient) -> List[Dict]:
+                """Process a patient (dummy implementation for testing)."""
+                return {
+                    "patient_id": patient.patient_id,
+                    "timeseries": None,
+                    "label": 0,
+                }
+
+        task = TestTimeseriesTask()
+        sample_dataset = SampleDataset(
+            samples=samples,
+            input_schema=task.input_schema,
+            output_schema=task.output_schema,
+            task_name=task.task_name,
+        )
+
+        # Verify the processor instance was used directly
+        self.assertIn("timeseries", sample_dataset.input_processors)
+        processor = sample_dataset.input_processors["timeseries"]
+        self.assertIs(processor, processor_instance)  # Should be the same instance
+        self.assertEqual(processor.sampling_rate, timedelta(hours=2))
+        self.assertEqual(processor.impute_strategy, "zero")
+
+        sample = sample_dataset[0]
+        self.assertIn("timeseries", sample)
+        timeseries_tensor = sample["timeseries"]
+        # Shape depends on sampling; for simplicity, check it's a tensor with expected features
+        self.assertEqual(timeseries_tensor.shape[1], 2)  # 2 features
+
+        logger.info("Processor instance test passed")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Union, Type
+from typing import Any, Dict, List, Optional, Tuple, Union, Type
 import inspect
 
 from torch.utils.data import Dataset
@@ -13,10 +13,10 @@ class SampleDataset(Dataset):
 
     Attributes:
         samples (List[Dict]): List of data samples.
-        input_schema (Dict[str, Union[str, Type[FeatureProcessor], Tuple[Union[str, Type[FeatureProcessor]], Dict[str, Any]]]]):
-            Schema for input data. Values can be string aliases, processor classes, or tuples of (spec, kwargs_dict).
-        output_schema (Dict[str, Union[str, Type[FeatureProcessor], Tuple[Union[str, Type[FeatureProcessor]], Dict[str, Any]]]]):
-            Schema for output data. Values can be string aliases, processor classes, or tuples of (spec, kwargs_dict).
+        input_schema (Dict[str, Union[str, Type[FeatureProcessor], FeatureProcessor, Tuple[Union[str, Type[FeatureProcessor]], Dict[str, Any]]]]):
+            Schema for input data. Values can be string aliases, processor classes, processor instances, or tuples of (spec, kwargs_dict).
+        output_schema (Dict[str, Union[str, Type[FeatureProcessor], FeatureProcessor, Tuple[Union[str, Type[FeatureProcessor]], Dict[str, Any]]]]):
+            Schema for output data. Values can be string aliases, processor classes, processor instances, or tuples of (spec, kwargs_dict).
         dataset_name (Optional[str]): Name of the dataset.
         task_name (Optional[str]): Name of the task.
     """
@@ -24,8 +24,8 @@ class SampleDataset(Dataset):
     def __init__(
         self,
         samples: List[Dict],
-        input_schema: Dict[str, Union[str, Type[FeatureProcessor]]],
-        output_schema: Dict[str, Union[str, Type[FeatureProcessor]]],
+        input_schema: Dict[str, Union[str, Type[FeatureProcessor], FeatureProcessor, Tuple[Union[str, Type[FeatureProcessor]], Dict[str, Any]]]],
+        output_schema: Dict[str, Union[str, Type[FeatureProcessor], FeatureProcessor, Tuple[Union[str, Type[FeatureProcessor]], Dict[str, Any]]]],
         dataset_name: Optional[str] = None,
         task_name: Optional[str] = None,
         input_processors: Optional[Dict[str, FeatureProcessor]] = None,
@@ -35,10 +35,10 @@ class SampleDataset(Dataset):
 
         Args:
             samples (List[Dict]): List of data samples.
-            input_schema (Dict[str, Union[str, Type[FeatureProcessor], Tuple[Union[str, Type[FeatureProcessor]], Dict[str, Any]]]]):
-                Schema for input data. Values can be string aliases, processor classes, or tuples of (spec, kwargs_dict) for instantiation.
-            output_schema (Dict[str, Union[str, Type[FeatureProcessor], Tuple[Union[str, Type[FeatureProcessor]], Dict[str, Any]]]]):
-                Schema for output data. Values can be string aliases, processor classes, or tuples of (spec, kwargs_dict) for instantiation.
+            input_schema (Dict[str, Union[str, Type[FeatureProcessor], FeatureProcessor, Tuple[Union[str, Type[FeatureProcessor]], Dict[str, Any]]]]):
+                Schema for input data. Values can be string aliases, processor classes, processor instances, or tuples of (spec, kwargs_dict) for instantiation.
+            output_schema (Dict[str, Union[str, Type[FeatureProcessor], FeatureProcessor, Tuple[Union[str, Type[FeatureProcessor]], Dict[str, Any]]]]):
+                Schema for output data. Values can be string aliases, processor classes, processor instances, or tuples of (spec, kwargs_dict) for instantiation.
             dataset_name (Optional[str], optional): Name of the dataset.
                 Defaults to None.
             task_name (Optional[str], optional): Name of the task.
@@ -88,10 +88,10 @@ class SampleDataset(Dataset):
         self.build()
 
     def _get_processor_instance(self, processor_spec):
-        """Get processor instance from either string alias, class reference, or tuple with kwargs.
+        """Get processor instance from either string alias, class reference, processor instance, or tuple with kwargs.
 
         Args:
-            processor_spec: Either a string alias or a processor class
+            processor_spec: Either a string alias, a processor class, a processor instance, or a tuple (spec, kwargs_dict)
 
         Returns:
             Instance of the processor
@@ -115,6 +115,9 @@ class SampleDataset(Dataset):
         ):
             # Direct class reference
             return processor_spec()
+        elif isinstance(processor_spec, FeatureProcessor):
+            # Already an instance
+            return processor_spec
         else:
             raise ValueError(
                 f"Processor spec must be either a string alias, a "
