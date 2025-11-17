@@ -6,11 +6,12 @@ Processors in PyHealth handle data preprocessing and transformation for healthca
 Overview
 --------
 
-Processors are automatically applied based on the ``input_schema`` and ``output_schema`` defined in tasks. PyHealth supports three ways to customize processors:
+Processors are automatically applied based on the ``input_schema`` and ``output_schema`` defined in tasks. PyHealth supports four ways to customize processors:
 
 1. **String Dictionary Key Notation** (Recommended): Use string keys in your task schema (see Example 1)
 2. **Processor Class Notation**: Pass processor classes directly in the schema (see Example 2)
-3. **Kwargs Tuple Notation**: Use tuples with processor keys and kwargs for custom configurations (see Example 5)
+3. **Processor Instance Notation**: Pass pre-configured processor instances directly in the schema (see Example 6)
+4. **Kwargs Tuple Notation**: Use tuples with processor keys and kwargs for custom configurations (see Example 5)
 
 Available Processors
 --------------------
@@ -209,6 +210,43 @@ For advanced customization with parameters, use the kwargs tuple format ``(proce
             # - vitals: tuple of (timestamps, values_array) for time series
             # - chest_xray: path to chest X-ray image file
             # - outcome: binary label
+            samples = []
+            # ... process patient data ...
+            return samples
+
+**Example 6: Using Processor Instances Directly in Schema**
+
+For maximum control, you can pass pre-configured processor instances directly in the schema. This allows reusing fitted processors or applying specific configurations:
+
+.. code-block:: python
+
+    from pyhealth.tasks import BaseTask
+    from pyhealth.processors import TimeseriesProcessor, BinaryLabelProcessor
+    from datetime import timedelta
+    from typing import Dict, List, Any
+
+    class CustomTimeseriesTask(BaseTask):
+        """Task using pre-configured processor instances."""
+        
+        task_name: str = "CustomTimeseriesTask"
+        
+        # Create processor instances with specific parameters
+        timeseries_processor = TimeseriesProcessor(
+            sampling_rate=timedelta(hours=1),
+            impute_strategy="forward_fill"
+        )
+        
+        # Use instances directly in schema
+        input_schema: Dict[str, Any] = {
+            "vitals": timeseries_processor,        # Pre-configured instance
+            "conditions": "sequence",             # String key for comparison
+        }
+        output_schema: Dict[str, Any] = {
+            "outcome": BinaryLabelProcessor()      # Instance without custom params
+        }
+        
+        def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+            # Task implementation
             samples = []
             # ... process patient data ...
             return samples
