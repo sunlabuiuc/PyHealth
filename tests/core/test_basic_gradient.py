@@ -222,5 +222,65 @@ class TestBasicGradient(unittest.TestCase):
         with self.assertRaises((IndexError, ValueError)):
             saliency.visualize_saliency_map(plt, image_index=5)  # Out of range
     
+    def test_optional_input_batch(self):
+        """Test initialization without input_batch."""
+        # Should be able to create instance without input_batch
+        saliency = BasicGradientSaliencyMaps(self.model, input_batch=None)
+        
+        # Batch_saliency_maps should be empty
+        self.assertEqual(len(saliency.Batch_saliency_maps), 0)
+        
+        # Should be able to use attribute method
+        batch = {
+            'image': torch.randn(2, 3, 32, 32),
+            'disease': torch.randint(0, 2, (2,))
+        }
+        attributions = saliency.attribute(**batch)
+        
+        # Verify attributions returned
+        self.assertIsInstance(attributions, dict)
+        self.assertIn('image', attributions)
+        
+        # Batch_saliency_maps should still be empty (save_to_batch=False by default)
+        self.assertEqual(len(saliency.Batch_saliency_maps), 0)
+    
+    def test_attribute_with_save_to_batch(self):
+        """Test attribute method with save_to_batch=True."""
+        # Create instance without input_batch
+        saliency = BasicGradientSaliencyMaps(self.model, input_batch=None)
+        
+        batch = {
+            'image': torch.randn(2, 3, 32, 32),
+            'disease': torch.randint(0, 2, (2,))
+        }
+        
+        # Call attribute with save_to_batch=True
+        attributions = saliency.attribute(save_to_batch=True, **batch)
+        
+        # Verify attributions returned
+        self.assertIsInstance(attributions, dict)
+        self.assertIn('image', attributions)
+        
+        # Verify results saved to Batch_saliency_maps
+        self.assertEqual(len(saliency.Batch_saliency_maps), 1)
+        
+        batch_result = saliency.Batch_saliency_maps[0]
+        self.assertIn('saliency', batch_result)
+        self.assertIn('image', batch_result)
+        self.assertIn('label', batch_result)
+        
+        # Verify shapes match
+        self.assertEqual(batch_result['saliency'].shape[0], 2)
+        self.assertEqual(attributions['image'].shape, batch_result['saliency'].shape)
+    
+    def test_visualize_without_input_batch_raises_error(self):
+        """Test that visualize_saliency_map raises error when input_batch is None."""
+        saliency = BasicGradientSaliencyMaps(self.model, input_batch=None)
+        
+        with self.assertRaises(ValueError) as context:
+            saliency.visualize_saliency_map(plt, image_index=0)
+        
+        self.assertIn("no input_batch", str(context.exception))
+    
 if __name__ == "__main__":
     unittest.main()
