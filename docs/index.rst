@@ -148,16 +148,23 @@ Quick Navigation
        
        :doc:`Open Tutorials → <tutorials>`
 
-   * - Research Initiative
-       
-       Explore research contributions from our annual summer program
-       
-       :doc:`View Projects → <research_initiative>`
-     - Community
-       
-       Join our Discord server and contribute to PyHealth
-       
-       `Discord → <https://discord.gg/mpb835EHaX>`_ | :doc:`Contribute → <how_to_contribute>`
+  * - Research Initiative
+      
+      Explore research contributions from our annual summer program
+      
+      :doc:`View Projects → <research_initiative>`
+    - Newsletter
+      
+      Stay updated with the latest PyHealth developments and community news
+      
+      :doc:`Read Newsletter → <newsletter>`
+
+  * - Community
+      
+      Join our Discord server and contribute to PyHealth
+      
+      `Discord → <https://discord.gg/mpb835EHaX>`_ | :doc:`Contribute → <how_to_contribute>`
+    - 
 
 
 
@@ -225,6 +232,7 @@ Quick Navigation
 
    how_to_contribute
    research_initiative
+   newsletter
    live
    log
    about
