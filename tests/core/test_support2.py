@@ -6,29 +6,18 @@ import pandas as pd
 
 from pyhealth.datasets import Support2Dataset
 
-
 class TestSupport2Dataset(unittest.TestCase):
     """Test Support2Dataset with synthetic test data."""
 
     def setUp(self):
-        """Set up test data files and directory structure"""
-        # Use test-resources for actual test data
-        test_dir = Path(__file__).parent.parent.parent
-        self.test_data_path = test_dir / "test-resources" / "core" / "support2"
-        
-        # Check if test data exists, if not create synthetic data
-        if not self.test_data_path.exists() or not (self.test_data_path / "support2.csv").exists():
-            # Fallback: create temporary directory with synthetic data
-            self.temp_dir = tempfile.mkdtemp()
-            self.root = Path(self.temp_dir)
-            self.use_temp = True
-        else:
-            self.root = self.test_data_path
-            self.use_temp = False
+        """Set up test data files and directory structure with synthetic data."""
+        # Create temporary directory with synthetic data
+        self.temp_dir = tempfile.mkdtemp()
+        self.root = Path(self.temp_dir)
 
-        # Create minimal synthetic support2.csv with 3 patients (only if using temp)
-        if self.use_temp:
-            support2_data = {
+        # Create minimal synthetic support2.csv with 3 patients
+        # representing the structure of the SUPPORT2 dataset
+        support2_data = {
             'sno': ['1', '2', '3'],
             'age': [62.85, 60.34, 52.75],
             'death': [0, 1, 1],
@@ -77,18 +66,17 @@ class TestSupport2Dataset(unittest.TestCase):
             'totcst': [None, None, None],
             'totmcst': [None, None, None],
             'avtisst': [7.0, 29.0, 13.0]
-            }
+        }
 
-            support2_df = pd.DataFrame(support2_data)
-            support2_df.to_csv(self.root / "support2.csv", index=False)
+        support2_df = pd.DataFrame(support2_data)
+        support2_df.to_csv(self.root / "support2.csv", index=False)
 
     def tearDown(self):
-        """Clean up temporary files"""
-        if hasattr(self, 'use_temp') and self.use_temp:
-            shutil.rmtree(self.temp_dir)
+        """Clean up temporary files."""
+        shutil.rmtree(self.temp_dir)
 
     def test_dataset_initialization(self):
-        """Test Support2Dataset initialization"""
+        """Test Support2Dataset initialization."""
         dataset = Support2Dataset(
             root=str(self.root),
             tables=["support2"]
@@ -97,7 +85,7 @@ class TestSupport2Dataset(unittest.TestCase):
         self.assertEqual(dataset.dataset_name, "support2")
 
     def test_load_data(self):
-        """Test that data loads correctly"""
+        """Test that data loads correctly."""
         dataset = Support2Dataset(
             root=str(self.root),
             tables=["support2"]
@@ -105,17 +93,16 @@ class TestSupport2Dataset(unittest.TestCase):
         self.assertIsNotNone(dataset.global_event_df)
 
     def test_patient_count(self):
-        """Test that we have the expected number of patients"""
+        """Test that the dataset contains the expected number of patients."""
         dataset = Support2Dataset(
             root=str(self.root),
             tables=["support2"]
         )
         unique_patients = dataset.unique_patient_ids
-        # Should have patients (3 for synthetic, 9105 for real dataset)
-        self.assertGreater(len(unique_patients), 0)
+        self.assertEqual(len(unique_patients), 3)
 
     def test_get_patient(self):
-        """Test getting a single patient"""
+        """Test retrieving a single patient by ID."""
         dataset = Support2Dataset(
             root=str(self.root),
             tables=["support2"]
@@ -125,12 +112,11 @@ class TestSupport2Dataset(unittest.TestCase):
         self.assertEqual(patient.patient_id, "1")
 
     def test_stats(self):
-        """Test stats method"""
+        """Test that stats method executes without errors."""
         dataset = Support2Dataset(
             root=str(self.root),
             tables=["support2"]
         )
-        # Should not raise an error
         dataset.stats()
 
 
