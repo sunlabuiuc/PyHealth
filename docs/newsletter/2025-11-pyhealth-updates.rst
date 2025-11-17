@@ -86,12 +86,18 @@ The problem is that most existing interpretability tools weren't built with clin
 
    from pyhealth.datasets import MIMIC4Dataset
    from pyhealth.models import StageNet
+   from pyhealth.tasks import MortalityPredictionStageNetMIMIC4
    from pyhealth.interpret.methods import IntegratedGradients
    from pyhealth.metrics.interpretability import evaluate_attribution
    
-   # Load dataset and train model
-   dataset = MIMIC4Dataset(root="data/", tables=["diagnoses_icd", "labevents"])
-   samples = dataset.set_task(task_fn)
+   # Load dataset and apply mortality prediction task
+   dataset = MIMIC4Dataset(
+       root="data/", 
+       tables=["patients", "admissions", "diagnoses_icd", "procedures_icd", "labevents"]
+   )
+   samples = dataset.set_task(MortalityPredictionStageNetMIMIC4())
+   
+   # Train model
    model = StageNet(dataset=samples)
    # ... train model ...
    
