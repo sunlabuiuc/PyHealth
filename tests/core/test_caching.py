@@ -44,8 +44,10 @@ class MockDataset(BaseDataset):
         # Initialize without calling parent __init__ to avoid file dependencies
         self.dataset_name = "TestDataset"
         self.dev = False
+        self.stream = False  # Required by BaseDataset.set_task()
 
-        # Create realistic test data with patient_id, test_attribute, and test_label
+        # Create realistic test data with patient_id, test_attribute,
+        # and test_label
         self._collected_global_event_df = pl.DataFrame(
             {
                 "patient_id": ["1", "2", "1", "2"],
