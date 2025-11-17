@@ -9,18 +9,19 @@ class BasicGradientSaliencyMaps(BaseInterpreter):
     This class provides methods to generate pytorch gradient-based saliency maps for image
     classification models using direct batch inputs.
     """
-    def __init__(self, model, input_batch, image_key='image', label_key='disease'):
+    def __init__(self, model, input_batch=None, image_key='image', label_key='disease'):
         """Initialize the saliency map generator.
         
         Args:
             model: PyHealth model with forward method expecting image and disease kwargs
-            input_batch: Batch of data as dictionary, list, or tensor
+            input_batch: Optional batch of data as dictionary, list, or tensor. 
+                        If None, use attribute() method to compute saliency maps.
             image_key: Key for accessing images in samples (default: 'image')
             label_key: Key for accessing labels in samples (default: 'disease')
         """
-        # Validate that input_batch is either a dictionary, list, or tensor
-        if not isinstance(input_batch, (dict, list, torch.Tensor)):
-            raise ValueError("input_batch must be a dictionary, list, or tensor")
+        # Validate that input_batch is either a dictionary, list, tensor, or None
+        if input_batch is not None and not isinstance(input_batch, (dict, list, torch.Tensor)):
+            raise ValueError("input_batch must be a dictionary, list, tensor, or None")
         
         # Call parent constructor
         super().__init__(model)
@@ -30,15 +31,20 @@ class BasicGradientSaliencyMaps(BaseInterpreter):
         self.Input_batch = input_batch
         self.Image_key = image_key
         self.Label_key = label_key
-        self._compute_saliency_maps()
+        self.Batch_saliency_maps = []
+        
+        # Compute saliency maps if input_batch was provided
+        if input_batch is not None:
+            self._compute_saliency_maps()
     
-    def attribute(self, **data) -> Dict[str, torch.Tensor]:
+    def attribute(self, save_to_batch=False, **data) -> Dict[str, torch.Tensor]:
         """Compute attribution scores for input features.
         
         This method implements the BaseInterpreter interface by computing
         gradient-based saliency maps for the input images.
         
         Args:
+            save_to_batch: If True, save results to Batch_saliency_maps (default: False)
             **data: Input data dictionary containing 'image' and optionally 'disease' keys
         
         Returns:
@@ -72,15 +78,16 @@ class BasicGradientSaliencyMaps(BaseInterpreter):
         sal = batch_images.grad.abs()
         sal, _ = torch.max(sal, dim=1)  # Max across channels
         
-        return {self.Image_key: sal}
-    
-    def init_gradient_saliency_maps(self):
-        """Init gradient saliency maps (for backward compatibility).
+        # Save to Batch_saliency_maps if requested
+        if save_to_batch:
+            result = {
+                'saliency': sal,
+                'image': batch_images,
+                'label': batch_labels
+            }
+            self.Batch_saliency_maps.append(result)
         
-        Note: Saliency maps are now computed in __init__, so this is a no-op.
-        Kept for backward compatibility with existing code.
-        """
-        pass
+        return {self.Image_key: sal}
             
     def get_gradient_saliency_maps(self):
         """Retrieve gradient saliency maps.
@@ -92,8 +99,10 @@ class BasicGradientSaliencyMaps(BaseInterpreter):
     
     def _compute_saliency_maps(self):
         """Compute gradient saliency maps for input batch."""
+        if self.Input_batch is None:
+            return  # Nothing to compute
+            
         self.Model.eval()
-        self.Batch_saliency_maps = []
         
         if isinstance(self.Input_batch, (list, torch.Tensor)):
             # If input_batch is a list or tensor, wrap it in a dictionary
@@ -148,6 +157,10 @@ class BasicGradientSaliencyMaps(BaseInterpreter):
         """
         if plt is None:
             import matplotlib.pyplot as plt
+
+        # Check if input_batch is available
+        if self.Input_batch is None:
+            raise ValueError("Cannot visualize: no input_batch was provided during initialization")
 
         # Get image from input batch
         img_tensor = self.Input_batch[self.Image_key][image_index]
