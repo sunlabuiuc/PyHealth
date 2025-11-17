@@ -36,7 +36,6 @@ class TestBasicGradient(unittest.TestCase):
         }
         
         saliency = BasicGradientSaliencyMaps(self.model, input_batch=batch)
-        saliency.init_gradient_saliency_maps()
         
         # Get saliency maps
         batch_maps = saliency.get_gradient_saliency_maps()
@@ -72,7 +71,6 @@ class TestBasicGradient(unittest.TestCase):
         batch = [images, labels]
         
         saliency = BasicGradientSaliencyMaps(self.model, input_batch=batch)
-        saliency.init_gradient_saliency_maps()
         batch_maps = saliency.get_gradient_saliency_maps()
         
         self.assertIsNotNone(batch_maps)
@@ -87,7 +85,6 @@ class TestBasicGradient(unittest.TestCase):
         batch = torch.randn(2, 3, 32, 32)
         
         saliency = BasicGradientSaliencyMaps(self.model, input_batch=batch)
-        saliency.init_gradient_saliency_maps()
         batch_maps = saliency.get_gradient_saliency_maps()
         
         self.assertIsNotNone(batch_maps)
@@ -110,7 +107,6 @@ class TestBasicGradient(unittest.TestCase):
             image_key='x_ray', 
             label_key='condition'
         )
-        saliency.init_gradient_saliency_maps()
         batch_maps = saliency.get_gradient_saliency_maps()
         
         self.assertIsNotNone(batch_maps)
@@ -173,7 +169,6 @@ class TestBasicGradient(unittest.TestCase):
         }
         
         saliency = BasicGradientSaliencyMaps(self.model, input_batch=batch)
-        saliency.init_gradient_saliency_maps()
         
         # Test that the method can be called without errors
         try:
@@ -196,7 +191,6 @@ class TestBasicGradient(unittest.TestCase):
         }
         
         saliency = BasicGradientSaliencyMaps(self.model, input_batch=batch)
-        saliency.init_gradient_saliency_maps()
         
         # Test visualization of different images
         for idx in [0, 1, 2]:
