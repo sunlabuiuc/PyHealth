@@ -14,6 +14,7 @@ from .streaming import (
     iter_patients_streaming,
     set_task_streaming,
     setup_streaming_cache,
+    _create_patients_from_dataframe,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "setup_streaming_cache",
     "build_patient_cache",
     "iter_patients_streaming",
+    "_create_patients_from_dataframe",
 ]

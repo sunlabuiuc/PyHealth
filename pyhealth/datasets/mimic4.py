@@ -199,6 +199,39 @@ class MIMIC4Dataset(BaseDataset):
     - Clinical notes (discharge summaries, radiology reports)
     - Chest X-rays (images and metadata)
 
+    You can use any combination of data sources. Patient IDs are determined
+    by priority order:
+    1. EHR dataset (if ehr_root provided) - primary source
+    2. Note dataset (if note_root provided and no EHR)
+    3. CXR dataset (if cxr_root provided and no EHR/Note)
+
+    When using multiple data sources in streaming mode, all sub-datasets are
+    automatically synchronized to use the same patient cohort from the primary
+    source.
+
+    Examples:
+        # Use all three modalities (EHR determines patient cohort)
+        dataset = MIMIC4Dataset(
+            ehr_root="/path/to/ehr",
+            note_root="/path/to/notes",
+            cxr_root="/path/to/cxr",
+            stream=True
+        )
+
+        # Use only chest X-rays (CXR determines patient cohort)
+        dataset = MIMIC4Dataset(
+            cxr_root="/path/to/cxr",
+            cxr_tables=["metadata", "chexpert"],
+            stream=True
+        )
+
+        # Use only clinical notes (Note determines patient cohort)
+        dataset = MIMIC4Dataset(
+            note_root="/path/to/notes",
+            note_tables=["discharge"],
+            stream=True
+        )
+
     Args:
         ehr_root: Root directory for MIMIC-IV EHR data
         note_root: Root directory for MIMIC-IV notes data
@@ -235,22 +268,48 @@ class MIMIC4Dataset(BaseDataset):
     ):
         log_memory_usage("Starting MIMIC4Dataset init")
 
-        # Initialize child datasets
-        self.dataset_name = dataset_name
-        self.sub_datasets = {}
-        self.root = None
-        self.tables = None
-        self.config = None
-        # Dev flag is only used in the MIMIC4Dataset class
-        # to ensure the same set of patients are used for all sub-datasets.
-        self.dev = dev
-        self.dev_max_patients = dev_max_patients
-        self.stream = stream
-        self.cache_dir = cache_dir
-
         # We need at least one root directory
         if not any([ehr_root, note_root, cxr_root]):
             raise ValueError("At least one root directory must be provided")
+
+        # Initialize base class attributes for streaming mode
+        # MIMIC4Dataset doesn't follow the normal BaseDataset pattern
+        # (no single root/tables/config), so we initialize the attributes
+        # that BaseDataset would normally set
+        self.dataset_name = dataset_name
+        self.dev = dev
+        self.dev_max_patients = dev_max_patients
+        self.stream = stream
+
+        # Handle cache_dir (convert to Path if needed)
+        if cache_dir is None:
+            from pathlib import Path
+
+            cache_dir = Path.home() / ".cache" / "pyhealth" / dataset_name
+        elif isinstance(cache_dir, str):
+            from pathlib import Path
+
+            cache_dir = Path(cache_dir)
+        self.cache_dir = cache_dir
+
+        # Initialize streaming attributes (normally done in BaseDataset.__init__)
+        self._collected_global_event_df = None
+        self._unique_patient_ids = None
+        self._patient_cache_path = None
+        self._patient_index_path = None
+        self._patient_index = None
+
+        # Setup streaming cache if enabled
+        if self.stream:
+            from .processing.streaming import setup_streaming_cache
+
+            setup_streaming_cache(self)
+
+        # MIMIC4-specific attributes
+        self.sub_datasets = {}
+        self.root = None  # Composite dataset has no single root
+        self.tables = None  # No single tables list
+        self.config = None  # No single config
 
         # Initialize empty lists if None provided
         ehr_tables = ehr_tables or []
@@ -260,8 +319,7 @@ class MIMIC4Dataset(BaseDataset):
         # Initialize EHR dataset if root is provided
         if ehr_root:
             logger.info(
-                f"Initializing MIMIC4EHRDataset with tables: {ehr_tables} "
-                f"(dev mode: {dev}, max patients: {dev_max_patients})"
+                f"Initializing MIMIC4EHRDataset with tables: {ehr_tables} (dev mode: {dev})"
             )
             self.sub_datasets["ehr"] = MIMIC4EHRDataset(
                 root=ehr_root,
@@ -277,8 +335,7 @@ class MIMIC4Dataset(BaseDataset):
         # Initialize Notes dataset if root is provided
         if note_root is not None and note_tables:
             logger.info(
-                f"Initializing MIMIC4NoteDataset with tables: {note_tables} "
-                f"(dev mode: {dev}, max patients: {dev_max_patients})"
+                f"Initializing MIMIC4NoteDataset with tables: {note_tables} (dev mode: {dev})"
             )
             self.sub_datasets["note"] = MIMIC4NoteDataset(
                 root=note_root,
@@ -294,8 +351,7 @@ class MIMIC4Dataset(BaseDataset):
         # Initialize CXR dataset if root is provided
         if cxr_root is not None:
             logger.info(
-                f"Initializing MIMIC4CXRDataset with tables: {cxr_tables} "
-                f"(dev mode: {dev}, max patients: {dev_max_patients})"
+                f"Initializing MIMIC4CXRDataset with tables: {cxr_tables} (dev mode: {dev})"
             )
             self.sub_datasets["cxr"] = MIMIC4CXRDataset(
                 root=cxr_root,
@@ -313,30 +369,24 @@ class MIMIC4Dataset(BaseDataset):
         self.global_event_df = self._combine_data()
         log_memory_usage("After combining data")
 
-        # Cache attributes
-        self._collected_global_event_df = None
-        self._unique_patient_ids = None
-
-        # Streaming-specific attributes (matching BaseDataset)
+        # CRITICAL: Trigger patient synchronization befosre cache building
+        # This ensures sub-datasets have synchronized patient IDs from the parent
+        # BEFORE their patient caches are built in set_task_streaming().
+        # Without this, sub-dataset caches are built with ALL patients (unsynchronized),
+        # causing a mismatch with the parent's patient_ids.
+        #
+        # In streaming mode, we MUST trigger this early to ensure:
+        # 1. parent._unique_patient_ids is set
+        # 2. sub-dataset._unique_patient_ids is synchronized to parent
+        # 3. When set_task() calls build_patient_cache(), it uses the synchronized IDs
         if self.stream:
-            from pathlib import Path
-
-            if cache_dir is None:
-                # Use first available root as default cache location
-                first_root = ehr_root or note_root or cxr_root
-                self.cache_dir = Path(first_root) / ".pyhealth_cache"
-            else:
-                self.cache_dir = Path(cache_dir)
-
-            # Initialize streaming-specific attributes
-            self._patient_cache_path = None
-            self._patient_index_path = None
-            self._patient_index = None
-
-            logger.info(f"Stream mode enabled - using disk cache at {self.cache_dir}")
-
-            # Setup streaming cache (calls BaseDataset method)
-            self._setup_streaming_cache()
+            logger.info("Pre-computing patient IDs for streaming mode...")
+            # Access unique_patient_ids to trigger synchronization
+            _ = self.unique_patient_ids
+            logger.info(
+                f"Initialized with {len(self._unique_patient_ids)} patients "
+                f"from {len(self.sub_datasets)} sub-dataset(s)"
+            )
 
         log_memory_usage("Completed MIMIC4Dataset init")
 
@@ -364,17 +414,74 @@ class MIMIC4Dataset(BaseDataset):
     @property
     def unique_patient_ids(self) -> List[str]:
         """
-        Get the full list of unique patient IDs from the EHR dataset.
+        Get unique patient IDs from the dataset.
 
-        This overrides the base class implementation to delegate to the
-        EHR sub-dataset, which is the primary source connecting all data.
+        Patient ID determination logic:
+        1. If EHR is present: Use EHR patient IDs (EHR is the linking key)
+        2. If only Notes + CXR: Use intersection (only patients in both)
+        3. If single source: Use all patients from that source
+
+        When EHR is present, it takes precedence because it contains the
+        core patient demographics and links to all other modalities.
 
         Returns:
-            List[str]: Complete list of unique patient IDs (ignores dev mode)
+            List[str]: List of unique patient IDs
         """
-        # EHR dataset is the primary source that connects all sub-datasets
-        if "ehr" in self.sub_datasets:
-            return self.sub_datasets["ehr"].unique_patient_ids
-        else:
-            # Fallback to base class implementation if no EHR dataset
-            return super().unique_patient_ids
+        # Cache the patient IDs if not already computed
+        if self._unique_patient_ids is None:
+            if len(self.sub_datasets) == 0:
+                raise ValueError(
+                    "MIMIC4Dataset has no sub-datasets. At least one of "
+                    "ehr_root, note_root, or cxr_root must be provided."
+                )
+
+            # Get patient IDs from all sub-datasets
+            all_patient_id_sets = {}
+            for dataset_name, dataset in self.sub_datasets.items():
+                patient_ids = dataset.unique_patient_ids
+                all_patient_id_sets[dataset_name] = set(patient_ids)
+                logger.info(f"{dataset_name} dataset has {len(patient_ids)} patients")
+
+            # Strategy 1: EHR takes precedence (it's the linking key)
+            if "ehr" in self.sub_datasets:
+                self._unique_patient_ids = list(all_patient_id_sets["ehr"])
+                logger.info(
+                    f"Using {len(self._unique_patient_ids)} patients "
+                    f"from EHR dataset (EHR is primary source)"
+                )
+
+                # In streaming mode, sync other datasets to use EHR patients
+                # by directly setting their _unique_patient_ids
+                if self.stream and len(self.sub_datasets) > 1:
+                    logger.info("Synchronizing Notes/CXR to use EHR patient set")
+                    for dataset_name, dataset in self.sub_datasets.items():
+                        if dataset_name != "ehr":
+                            # Directly set patient IDs (no separate variable)
+                            dataset._unique_patient_ids = self._unique_patient_ids
+                            logger.debug(f"Synchronized {dataset_name} with EHR")
+
+            # Strategy 2: No EHR, single source - use all patients
+            elif len(self.sub_datasets) == 1:
+                self._unique_patient_ids = list(list(all_patient_id_sets.values())[0])
+                logger.info(
+                    f"Using all {len(self._unique_patient_ids)} patients "
+                    f"from single data source"
+                )
+
+            # Strategy 3: No EHR, multiple sources - use intersection
+            else:
+                common_patients = set.intersection(*all_patient_id_sets.values())
+                self._unique_patient_ids = sorted(list(common_patients))
+
+                logger.info(
+                    f"No EHR dataset - using intersection of "
+                    f"{len(self.sub_datasets)} sources: "
+                    f"{len(self._unique_patient_ids)} patients"
+                )
+
+                # In streaming mode, sync all datasets to common set
+                if self.stream:
+                    for dataset_name, dataset in self.sub_datasets.items():
+                        dataset._unique_patient_ids = self._unique_patient_ids
+
+        return self._unique_patient_ids

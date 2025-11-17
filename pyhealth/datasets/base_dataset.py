@@ -18,6 +18,7 @@ from .processing import (
     set_task_normal,
     set_task_streaming,
     setup_streaming_cache,
+    _create_patients_from_dataframe,
 )
 
 logger = logging.getLogger(__name__)
@@ -168,10 +169,10 @@ class BaseDataset(ABC):
         self._unique_patient_ids = None
 
         # Streaming-specific attributes
-        # _patient_index must always be initialized for streaming mode
-        if self.stream:
-            if not hasattr(self, "_patient_index"):
-                self._patient_index = None
+        # Initialize to None, will be set by setup_streaming_cache if needed
+        self._patient_cache_path = None
+        self._patient_index_path = None
+        self._patient_index = None
 
     def _setup_streaming_cache(self) -> None:
         """Setup disk-backed cache directory structure for streaming mode.
@@ -398,12 +399,31 @@ class BaseDataset(ABC):
             List[str]: Complete list of unique patient IDs
         """
         if self._unique_patient_ids is None:
-            self._unique_patient_ids = (
-                self.collected_global_event_df.select("patient_id")
-                .unique()
-                .to_series()
-                .to_list()
-            )
+            if self.stream:
+                # Streaming mode: Get patient IDs from patient index
+                # Ensure paths are set up (should be done in __init__)
+                if self._patient_cache_path is None:
+                    setup_streaming_cache(self)
+
+                # Build cache only if either file is missing
+                if not (
+                    self._patient_cache_path.exists()
+                    and self._patient_index_path.exists()
+                ):
+                    self._build_patient_cache()
+
+                patient_index = pl.scan_parquet(self._patient_index_path).collect(
+                    streaming=True
+                )
+                self._unique_patient_ids = patient_index["patient_id"].to_list()
+            else:
+                # Normal mode: Get from collected DataFrame
+                self._unique_patient_ids = (
+                    self.collected_global_event_df.select("patient_id")
+                    .unique()
+                    .to_series()
+                    .to_list()
+                )
             logger.info(f"Found {len(self._unique_patient_ids)} unique patient IDs")
         return self._unique_patient_ids
 
@@ -507,17 +527,8 @@ class BaseDataset(ABC):
 
                     batch_df = df.filter(pl.col("patient_id").is_in(batch_patient_ids))
 
-                    # Split into individual Patient objects
-                    batch_patients = []
-                    grouped = batch_df.group_by("patient_id")
-                    for patient_id, patient_df in grouped:
-                        patient_id = patient_id[0]
-                        batch_patients.append(
-                            Patient(
-                                patient_id=patient_id,
-                                data_source=patient_df,
-                            )
-                        )
+                    # Convert DataFrame to Patient objects
+                    batch_patients = _create_patients_from_dataframe(batch_df)
 
                     # Yield single patient or batch depending on batch_size
                     if batch_size is None:
@@ -539,16 +550,8 @@ class BaseDataset(ABC):
 
                 batch_df = df.filter(pl.col("patient_id").is_in(batch_patient_ids))
 
-                batch_patients = []
-                grouped = batch_df.group_by("patient_id")
-                for patient_id, patient_df in grouped:
-                    patient_id = patient_id[0]
-                    batch_patients.append(
-                        Patient(
-                            patient_id=patient_id,
-                            data_source=patient_df,
-                        )
-                    )
+                # Convert DataFrame to Patient objects
+                batch_patients = _create_patients_from_dataframe(batch_df)
 
                 # Yield single patient or batch depending on batch_size
                 if batch_size is None:
@@ -624,8 +627,7 @@ class BaseDataset(ABC):
         )
 
         # Delegate to appropriate processing mode
-        # Treat missing `stream` attribute as False for backward compatibility
-        if getattr(self, "stream", False):
+        if self.stream:
             # Streaming mode: memory-efficient disk-backed processing
             if batch_size is None:
                 raise ValueError(

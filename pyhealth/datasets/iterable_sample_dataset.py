@@ -49,6 +49,7 @@ class IterableSampleDataset(IterableDataset):
         cache_dir: Optional[str] = None,
         dev: bool = False,
         dev_max_patients: int = 1000,
+        patient_ids: Optional[List[str]] = None,
     ) -> None:
         """Initializes the IterableSampleDataset.
 
@@ -62,6 +63,11 @@ class IterableSampleDataset(IterableDataset):
             cache_dir: Directory for disk-backed cache.
             dev: Whether dev mode is enabled (for separate caching).
             dev_max_patients: Max patients for dev mode (used in cache naming).
+            patient_ids: Optional list of patient IDs to filter to.
+                If provided, only samples from these patients will be yielded.
+                If None, will be computed from cache after finalization.
+                Uses Polars predicate pushdown for efficient filtering.
+                Useful for train/val/test splits.
         """
         self.input_schema = input_schema
         self.output_schema = output_schema
@@ -69,6 +75,7 @@ class IterableSampleDataset(IterableDataset):
         self.task_name = task_name or ""
         self.dev = dev
         self.dev_max_patients = dev_max_patients
+        self.patient_ids = patient_ids  # Can be None initially
 
         # Processor dictionaries
         self.input_processors = input_processors or {}
@@ -363,12 +370,68 @@ class IterableSampleDataset(IterableDataset):
                 f"FeatureProcessor class, got {type(processor_spec)}"
             )
 
+    def filter_by_patients(self, patient_ids: List[str]) -> "IterableSampleDataset":
+        """Create a filtered view of this dataset for specific patients.
+
+        This creates a new IterableSampleDataset instance that shares the same
+        cache file but only yields samples from the specified patients.
+        Uses Polars predicate pushdown for efficient filtering.
+
+        Useful for creating train/val/test splits from a single cache.
+
+        Args:
+            patient_ids: List of patient IDs to include
+
+        Returns:
+            New IterableSampleDataset filtered to these patients
+
+        Example:
+            >>> # Generate samples once
+            >>> full_dataset = base_dataset.set_task(task)
+            >>>
+            >>> # Split patient IDs
+            >>> train_ids, val_ids, test_ids = split_by_patient_stream(
+            ...     full_dataset.patient_ids, [0.8, 0.1, 0.1]
+            ... )
+            >>>
+            >>> # Create filtered views (no regeneration needed!)
+            >>> train_ds = full_dataset.filter_by_patients(train_ids)
+            >>> val_ds = full_dataset.filter_by_patients(val_ids)
+            >>> test_ds = full_dataset.filter_by_patients(test_ids)
+        """
+        # Create new instance with same config but different patient_ids
+        filtered_ds = IterableSampleDataset(
+            input_schema=self.input_schema,
+            output_schema=self.output_schema,
+            dataset_name=self.dataset_name,
+            task_name=self.task_name,
+            input_processors=self.input_processors,
+            output_processors=self.output_processors,
+            cache_dir=str(self.cache_dir),
+            dev=self.dev,
+            dev_max_patients=self.dev_max_patients,
+            patient_ids=patient_ids,  # Set the filtered patient list
+        )
+
+        # Share cache paths (no need to regenerate)
+        filtered_ds._sample_cache_path = self._sample_cache_path
+        filtered_ds._sample_batch_dir = self._sample_batch_dir
+        filtered_ds._num_samples = None  # Will be computed lazily in __len__
+        filtered_ds._samples_finalized = self._samples_finalized
+        filtered_ds._batch_counter = self._batch_counter
+
+        return filtered_ds
+
     def __iter__(self) -> Iterator[Dict]:
         """Iterate over samples efficiently.
 
         This is the main method for accessing samples in streaming mode.
         Samples are read from disk in batches, deserialized, and processed
         on-the-fly with fitted processors.
+
+        If filter_patient_ids is set, only samples from those patients are
+        yielded. Polars' predicate pushdown optimizes this filtering at the
+        Parquet level for efficiency.
 
         Yields:
             Sample dictionaries with processed features (as tensors)
@@ -396,41 +459,69 @@ class IterableSampleDataset(IterableDataset):
 
         lf = pl.scan_parquet(self._sample_cache_path)
 
+        # Apply patient ID filter if specified
+        # Polars pushes this filter down to Parquet reader level
+        # Only reads row groups containing these patients!
+        if self.patient_ids is not None:
+            logger.debug(f"Filtering to {len(self.patient_ids)} patient IDs")
+            lf = lf.filter(pl.col("patient_id").is_in(self.patient_ids))
+
+            # Count filtered samples (need to collect to get accurate count)
+            # This is a small overhead but necessary for correct iteration
+            filtered_count = lf.select(pl.count()).collect(streaming=True).item()
+            logger.debug(
+                f"Found {filtered_count} samples for "
+                f"{len(self.patient_ids)} patients"
+            )
+            num_samples_to_iterate = filtered_count
+        else:
+            num_samples_to_iterate = self._num_samples
+
         if worker_info is None:
             # Single worker - iterate all samples
-            num_batches = (self._num_samples + batch_size - 1) // batch_size
-            for batch_idx in range(num_batches):
-                offset = batch_idx * batch_size
-                length = min(batch_size, self._num_samples - offset)
-                # Disable streaming for slice operations due to Polars bug:
-                # Large batches (>200) trigger race conditions in async
-                # parquet reader causing "range end index out of bounds" errors.
-                # Using streaming=False forces synchronous reads, avoiding bug.
-                batch = lf.slice(offset, length).collect(streaming=False)
-                for sample in batch.to_dicts():
-                    # Deserialize from parquet format
-                    restored_sample = deserialize_sample_from_parquet(sample)
+            if self.patient_ids is not None:
+                # With filtering, iterate based on actual filtered count
+                num_batches = (num_samples_to_iterate + batch_size - 1) // batch_size
+                logger.debug(
+                    f"Iterating {num_batches} batches "
+                    f"({num_samples_to_iterate} samples)"
+                )
+                for batch_idx in range(num_batches):
+                    offset = batch_idx * batch_size
+                    # Collect a batch using slice on the filtered LazyFrame
+                    batch = lf.slice(offset, batch_size).collect(streaming=False)
 
-                    # Process with fitted processors
-                    for k, v in restored_sample.items():
-                        if k in self.input_processors:
-                            restored_sample[k] = self.input_processors[k].process(v)
-                        elif k in self.output_processors:
-                            restored_sample[k] = self.output_processors[k].process(v)
+                    # If batch is empty, we've processed all filtered samples
+                    if len(batch) == 0:
+                        logger.warning(
+                            f"Empty batch at offset {offset}, stopping iteration"
+                        )
+                        break
 
-                    yield restored_sample
-        else:
-            # Multiple workers - partition samples
-            worker_id = worker_info.id
-            num_workers = worker_info.num_workers
+                    for sample in batch.to_dicts():
+                        # Deserialize from parquet format
+                        restored_sample = deserialize_sample_from_parquet(sample)
 
-            # Each worker processes every nth batch
-            num_batches = (self._num_samples + batch_size - 1) // batch_size
-            for batch_idx in range(num_batches):
-                if batch_idx % num_workers == worker_id:
+                        # Process with fitted processors
+                        for k, v in restored_sample.items():
+                            if k in self.input_processors:
+                                restored_sample[k] = self.input_processors[k].process(v)
+                            elif k in self.output_processors:
+                                restored_sample[k] = self.output_processors[k].process(
+                                    v
+                                )
+
+                        yield restored_sample
+            else:
+                # No filtering - use efficient offset-based iteration
+                num_batches = (self._num_samples + batch_size - 1) // batch_size
+                for batch_idx in range(num_batches):
                     offset = batch_idx * batch_size
                     length = min(batch_size, self._num_samples - offset)
-                    # Disable streaming for slice operations (see comment above)
+                    # Disable streaming for slice operations due to Polars bug:
+                    # Large batches (>200) trigger race conditions in async
+                    # parquet reader causing "range end index out of bounds" errors.
+                    # Using streaming=False forces synchronous reads, avoiding bug.
                     batch = lf.slice(offset, length).collect(streaming=False)
                     for sample in batch.to_dicts():
                         # Deserialize from parquet format
@@ -446,13 +537,136 @@ class IterableSampleDataset(IterableDataset):
                                 )
 
                         yield restored_sample
+        else:
+            # Multiple workers - partition samples
+            worker_id = worker_info.id
+            num_workers = worker_info.num_workers
+
+            if self.patient_ids is not None:
+                # With filtering, iterate in batches and partition
+                num_batches = (num_samples_to_iterate + batch_size - 1) // batch_size
+                for batch_idx in range(num_batches):
+                    if batch_idx % num_workers == worker_id:
+                        offset = batch_idx * batch_size
+                        batch = lf.slice(offset, batch_size).collect(streaming=False)
+
+                        # If batch is empty, we've processed all filtered samples
+                        if len(batch) == 0:
+                            break
+
+                        for sample in batch.to_dicts():
+                            # Deserialize from parquet format
+                            restored_sample = deserialize_sample_from_parquet(sample)
+
+                            # Process with fitted processors
+                            for k, v in restored_sample.items():
+                                if k in self.input_processors:
+                                    restored_sample[k] = self.input_processors[
+                                        k
+                                    ].process(v)
+                                elif k in self.output_processors:
+                                    restored_sample[k] = self.output_processors[
+                                        k
+                                    ].process(v)
+
+                            yield restored_sample
+            else:
+                # No filtering - each worker processes every nth batch
+                num_batches = (self._num_samples + batch_size - 1) // batch_size
+                for batch_idx in range(num_batches):
+                    if batch_idx % num_workers == worker_id:
+                        offset = batch_idx * batch_size
+                        length = min(batch_size, self._num_samples - offset)
+                        # Disable streaming for slice operations (see comment above)
+                        batch = lf.slice(offset, length).collect(streaming=False)
+                        for sample in batch.to_dicts():
+                            # Deserialize from parquet format
+                            restored_sample = deserialize_sample_from_parquet(sample)
+
+                            # Process with fitted processors
+                            for k, v in restored_sample.items():
+                                if k in self.input_processors:
+                                    restored_sample[k] = self.input_processors[
+                                        k
+                                    ].process(v)
+                                elif k in self.output_processors:
+                                    restored_sample[k] = self.output_processors[
+                                        k
+                                    ].process(v)
+
+                            yield restored_sample
+
+    def get_patient_ids(self) -> List[str]:
+        """Get unique patient IDs for this dataset.
+
+        For filtered datasets, returns the filtered patient list.
+        For unfiltered datasets, reads unique patient IDs from cache.
+
+        Returns:
+            List[str]: List of unique patient IDs
+
+        Example:
+            >>> # Get patients with samples for splitting
+            >>> all_patient_ids = sample_dataset.get_patient_ids()
+            >>> train_ids, val_ids, test_ids = split_by_patient_stream(
+            ...     all_patient_ids, ratios=[0.8, 0.1, 0.1]
+            ... )
+        """
+        # If already set (filtered dataset), return it
+        if self.patient_ids is not None:
+            return self.patient_ids
+
+        # Otherwise, read from cache
+        if not self._samples_finalized:
+            raise RuntimeError(
+                "Cannot get patient_ids before samples are finalized. "
+                "Call finalize_samples() first."
+            )
+
+        # Read unique patient IDs from cache using streaming
+        self.patient_ids = (
+            pl.scan_parquet(self._sample_cache_path)
+            .select("patient_id")
+            .unique()
+            .collect(streaming=True)["patient_id"]
+            .to_list()
+        )
+
+        return self.patient_ids
 
     def __len__(self) -> int:
         """Returns the number of samples in the dataset.
 
+        For filtered datasets, computes the actual filtered sample count.
+        The count is cached to avoid repeated expensive queries.
+
         Returns:
             int: The number of samples.
         """
+        # If we have a cached count, use it
+        if self._num_samples is not None:
+            return self._num_samples
+
+        # Need to compute the count
+        if self.patient_ids is not None:
+            # Filtered dataset - count samples for these patients
+            lf = pl.scan_parquet(self._sample_cache_path)
+            lf = lf.filter(pl.col("patient_id").is_in(self.patient_ids))
+            self._num_samples = lf.select(pl.len()).collect(streaming=True).item()
+            logger.info(
+                f"Filtered dataset has {self._num_samples} samples "
+                f"for {len(self.patient_ids)} patients"
+            )
+        else:
+            # Unfiltered dataset - should have been set during finalization
+            # This shouldn't happen, but fall back to counting
+            logger.warning(
+                "Computing sample count from cache "
+                "(should have been set during finalization)"
+            )
+            lf = pl.scan_parquet(self._sample_cache_path)
+            self._num_samples = lf.select(pl.len()).collect(streaming=True).item()
+
         return self._num_samples
 
     def __str__(self) -> str:

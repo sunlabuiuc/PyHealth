@@ -1,7 +1,9 @@
 """
-Example of using StageNet for mortality prediction on MIMIC-IV with STREAMING MODE.
+Example of using StageNet for mortality prediction on MIMIC-IV with
+STREAMING MODE.
 
-This example demonstrates the new streaming mode for memory-efficient training:
+This example demonstrates the new streaming mode for memory-efficient
+training:
 1. Loading MIMIC-IV data in streaming mode (stream=True)
 2. Applying the MortalityPredictionStageNetMIMIC4 task
 3. Creating an IterableSampleDataset with disk-backed storage
@@ -14,7 +16,8 @@ Key differences from non-streaming mode:
 - Much lower memory footprint
 - Ideal for large datasets (>100k samples)
 
-Note: IterableDataset is fully compatible with PyTorch DataLoader and Trainer!
+Note: IterableDataset is fully compatible with PyTorch DataLoader
+and Trainer!
 """
 
 from pyhealth.datasets import (
@@ -61,12 +64,12 @@ base_dataset = MIMIC4Dataset(
         "labevents",
     ],
     stream=True,  # ⭐ Enable streaming mode for memory efficiency
-    cache_dir="../../mimic4_streaming_cache",  # Disk-backed cache
-    dev=True,  # Set to True for quick testing with limited patients
-    dev_max_patients=1000,  # Only used if dev=True
+    cache_dir="../mimic4_streaming_cache",  # Disk-backed cache
+    # dev=True,  # Set to True for quick testing with limited patients
+    # dev_max_patients=10000,  # Only used if dev=True
 )
 
-print(f"Dataset mode: STREAMING (disk-backed)")
+print("Dataset mode: STREAMING (disk-backed)")
 print(f"Cache directory: {base_dataset.cache_dir}")
 print_memory_stats("After loading base dataset")
 
@@ -77,8 +80,8 @@ print("=" * 70)
 
 sample_dataset = base_dataset.set_task(
     MortalityPredictionStageNetMIMIC4(),
-    batch_size=256,  # ⭐ Process patients in batches for I/O efficiency
-    cache_dir="../../mimic4_stagenet_streaming_cache",
+    batch_size=1000,  # ⭐ Process patients in batches for I/O efficiency
+    cache_dir="../mimic4_stagenet_streaming_cache",
 )
 
 print(f"Dataset type: {type(sample_dataset).__name__}")
@@ -97,27 +100,59 @@ for i, sample in enumerate(sample_dataset):
     if i == 0:  # Only show first sample
         break
 
-# STEP 3: Create train/val/test splits
-# Note: For IterableDataset, we need to manually split the data
-# We'll use patient IDs to create separate dataset instances
+# STEP 3: Create train/val/test splits using patient ID filtering
 print("\n" + "=" * 70)
-print("Creating Train/Val/Test Splits")
+print("Creating Train/Val/Test Splits with Filtering")
 print("=" * 70)
 
-# For simplicity in this example, we'll use the full dataset for training
-# In production, you'd want to split patient IDs and filter accordingly
-# or use the split_by_patient function with appropriate modifications
+# ⭐ Use get_patient_ids() to get patients with samples!
+# This method reads from the cache and returns only patients that have
+# valid samples after task processing (e.g., excluding patients without
+# mortality outcomes).
+patients_with_samples = sample_dataset.get_patient_ids()
+
+# Optional: Show how many patients were excluded by task processing
+base_patient_count = len(base_dataset.patient_ids)
+sample_patient_count = len(patients_with_samples)
+if sample_patient_count < base_patient_count:
+    excluded_count = base_patient_count - sample_patient_count
+    print(
+        f"Note: {excluded_count} patients excluded by task processing "
+        f"(no valid outcomes)"
+    )
+
+# Split patient IDs into train/val/test sets
+train_patient_ids, val_patient_ids, test_patient_ids = split_by_patient_stream(
+    patients_with_samples,  # ← Use the property!
+    ratios=[0.8, 0.1, 0.1],  # 80% train, 10% val, 10% test
+    seed=42,
+)
+
+print(f"Total patients with samples: {len(patients_with_samples)}")
+print(f"Train patients: {len(train_patient_ids)}")
+print(f"Val patients:   {len(val_patient_ids)}")
+print(f"Test patients:  {len(test_patient_ids)}")
+
+# Create filtered views of the dataset using predicate pushdown
+# ⭐ No data regeneration - all views share the same cache!
+train_dataset = sample_dataset.filter_by_patients(train_patient_ids)
+val_dataset = sample_dataset.filter_by_patients(val_patient_ids)
+test_dataset = sample_dataset.filter_by_patients(test_patient_ids)
+
+print("\nFiltered datasets created using Polars predicate pushdown")
+print("✓ Single cache file shared across all splits")
+print("✓ Efficient filtering at Parquet row group level")
+print_memory_stats("After creating filtered datasets")
 
 # Create dataloaders
 # ⭐ Note: shuffle=False for IterableDataset (no random access)
-train_loader = get_dataloader(sample_dataset, batch_size=256, shuffle=False)
+train_loader = get_dataloader(train_dataset, batch_size=256, shuffle=False)
+val_loader = get_dataloader(val_dataset, batch_size=256, shuffle=False)
+test_loader = get_dataloader(test_dataset, batch_size=256, shuffle=False)
 
-print(f"Train loader created (batch_size=256)")
-print(f"Note: IterableDataset uses sequential iteration (no shuffling)")
-print_memory_stats("After creating dataloader")
-
-# For validation, we'd need a separate filtered dataset
-# For this demo, we'll skip validation and just show training
+print("\nDataLoaders created (batch_size=256)")
+print("Note: IterableDataset uses sequential iteration (no shuffling)")
+print_memory_stats("After creating dataloaders")
 
 # STEP 4: Initialize StageNet model
 print("\n" + "=" * 70)
@@ -151,8 +186,8 @@ trainer = Trainer(
 # PyTorch's DataLoader handles IterableDataset automatically
 trainer.train(
     train_dataloader=train_loader,
-    val_dataloader=None,  # Would need separate validation dataset
-    epochs=10,  # Fewer epochs for demo
+    val_dataloader=val_loader,  # Now we have validation!
+    epochs=4,  # Fewer epochs for demo
     monitor="roc_auc",
     optimizer_params={"lr": 1e-5},
 )
@@ -163,13 +198,23 @@ print("=" * 70)
 final_memory = print_memory_stats("After training")
 print(f"Total memory increase: {final_memory - initial_memory:.1f} MB")
 
-# STEP 6: Evaluate on test set (would need separate test dataset)
-print("\nFor full train/val/test workflow with streaming mode:")
+# STEP 6: Evaluate on test set
+print("\n" + "=" * 70)
+print("Evaluating on Test Set")
+print("=" * 70)
+
+test_results = trainer.evaluate(test_loader)
+print(f"Test Results: {test_results}")
+
+print("\n" + "=" * 70)
+print("Streaming Mode Workflow Complete!")
+print("=" * 70)
+print("Workflow summary:")
 print("1. Split patient IDs into train/val/test sets")
-print("2. Create 3 separate IterableSampleDataset instances")
-print("3. Filter each dataset to its respective patient IDs")
-print("4. Create DataLoaders for each split")
-print("5. Train with train_loader, validate with val_loader, test with test_loader")
+print("2. Create filtered views using filter_by_patients()")
+print("3. All splits share the same cache (no regeneration)")
+print("4. Polars predicate pushdown for efficient filtering")
+print("5. Train with validation and test evaluation")
 
 # STEP 7: Show memory benefits
 print("\n" + "=" * 70)
@@ -180,7 +225,7 @@ print("✓ Only active batch loaded in memory")
 print("✓ Memory usage independent of dataset size")
 print("✓ Ideal for datasets >100k samples")
 print("✓ Enables training on massive datasets with limited RAM")
-print(f"\nMemory Usage Summary:")
+print("\nMemory Usage Summary:")
 print(f"  Initial: {initial_memory:.1f} MB")
 print(f"  Final:   {final_memory:.1f} MB")
 print(f"  Increase: {final_memory - initial_memory:.1f} MB")

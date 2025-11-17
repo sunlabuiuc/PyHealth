@@ -27,6 +27,37 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
+# Helper Functions
+# ============================================================================
+
+
+def _create_patients_from_dataframe(
+    df: pl.DataFrame, lazy_partition: bool = False
+) -> List[Patient]:
+    """Convert a DataFrame with multiple patients into Patient objects.
+
+    Args:
+        df: DataFrame containing events for one or more patients
+        lazy_partition: Whether to enable lazy partitioning for streaming
+
+    Returns:
+        List of Patient objects
+    """
+    batch_patients = []
+    grouped = df.group_by("patient_id")
+    for patient_id, patient_df in grouped:
+        patient_id = patient_id[0]
+        batch_patients.append(
+            Patient(
+                patient_id=patient_id,
+                data_source=patient_df,
+                lazy_partition=lazy_partition,
+            )
+        )
+    return batch_patients
+
+
+# ============================================================================
 # Cache Setup and Management
 # ============================================================================
 
@@ -89,7 +120,11 @@ def build_patient_cache(
         - Creates index for O(1) patient lookup
         - Row group size tuned for typical patient size (~100 events)
     """
-    if dataset._patient_cache_path.exists() and not force_rebuild:
+    # Check if both cache and index exist
+    cache_exists = dataset._patient_cache_path.exists()
+    index_exists = dataset._patient_index_path.exists()
+
+    if cache_exists and index_exists and not force_rebuild:
         logger.info(f"Using existing patient cache: {dataset._patient_cache_path}")
         return
 
@@ -97,6 +132,20 @@ def build_patient_cache(
 
     # Use filtered_df if provided, otherwise use global_event_df
     df = filtered_df if filtered_df is not None else dataset.global_event_df
+
+    # Filter to synchronized patient IDs if set.
+    # This applies to:
+    # 1. Sub-datasets (Notes/CXR) - filtered to parent's patient set
+    # 2. Composite datasets (MIMIC4) - filtered to synchronized patient set
+    # 3. Any dataset with manually set _unique_patient_ids
+    if dataset._unique_patient_ids is not None:
+        logger.info(
+            f"Filtering to {len(dataset._unique_patient_ids)} " f"synchronized patients"
+        )
+        reference_patients = pl.DataFrame(
+            {"patient_id": dataset._unique_patient_ids}
+        ).lazy()
+        df = df.join(reference_patients, on="patient_id", how="inner")
 
     # Apply dev mode filtering at the LazyFrame level
     if dataset.dev:
@@ -221,18 +270,8 @@ def iter_patients_streaming(
             .collect(streaming=True)
         )
 
-        # Split into individual Patient objects
-        batch_patients = []
-        grouped = batch_df.group_by("patient_id")
-        for patient_id, patient_df in grouped:
-            patient_id = patient_id[0]
-            batch_patients.append(
-                Patient(
-                    patient_id=patient_id,
-                    data_source=patient_df,
-                    lazy_partition=True,  # Enable lazy partitioning for streaming
-                )
-            )
+        # Convert DataFrame to Patient objects
+        batch_patients = _create_patients_from_dataframe(batch_df, lazy_partition=True)
 
         # Yield batch or individual patient depending on batch_size
         if batch_size == 1:
@@ -245,7 +284,6 @@ def iter_patients_streaming(
 
         # Explicitly clear batch to help garbage collection
         del batch_df
-        del grouped
 
 
 # ============================================================================
