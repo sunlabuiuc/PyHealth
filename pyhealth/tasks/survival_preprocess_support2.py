@@ -52,21 +52,68 @@ class SurvivalPreprocessSupport2(BaseTask):
         >>> from pyhealth.datasets import Support2Dataset
         >>> from pyhealth.tasks import SurvivalPreprocessSupport2
         >>>
-        >>> # Load SUPPORT2 dataset
+        >>> # Step 1: Load SUPPORT2 dataset
+        >>> print("Step 1: Load SUPPORT2 Dataset")
+        >>> # For real usage, use your dataset path:
+        >>> # dataset = Support2Dataset(
+        >>> #     root="/path/to/support2/data",
+        >>> #     tables=["support2"]
+        >>> # )
+        >>> # For local testing with test data:
+        >>> from pathlib import Path
+        >>> test_data_path = Path("test-resources/core/support2")
         >>> dataset = Support2Dataset(
-        ...     root="/path/to/support2/data",
+        ...     root=str(test_data_path),
         ...     tables=["support2"]
         ... )
+        >>> print(f"Loaded dataset with {len(dataset.unique_patient_ids)} patients\n")
         >>>
-        >>> # Create survival preprocessing task (2 months)
+        >>> # Step 2: Apply preprocessing task to extract features and labels
+        >>> print("Step 2: Apply Survival Preprocessing Task")
         >>> task = SurvivalPreprocessSupport2(time_horizon="2m")
         >>> sample_dataset = dataset.set_task(task=task)
-        >>>
-        >>> # Access preprocessed samples (ready for model training)
         >>> print(f"Generated {len(sample_dataset)} samples")
+        >>> print(f"Input schema: {sample_dataset.input_schema}")
+        >>> print(f"Output schema: {sample_dataset.output_schema}\n")
+        >>>
+        >>> # Helper function to decode tensor indices to feature strings
+        >>> def decode_features(tensor, processor):
+        ...     if processor is None or not hasattr(processor, 'code_vocab'):
+        ...         return [str(idx.item()) for idx in tensor]
+        ...     reverse_vocab = {idx: token for token, idx in processor.code_vocab.items()}
+        ...     return [reverse_vocab.get(idx.item(), f"<unk:{idx.item()}>") for idx in tensor]
+        >>>
+        >>> # Step 3: Display features for one sample
+        >>> print("Step 3: Examine Preprocessed Samples")
         >>> sample = sample_dataset[0]
+        >>> print(f"Patient {sample['patient_id']}:")
         >>> print(f"Demographics tensor shape: {sample['demographics'].shape}")
-        >>> print(f"Ground truth label: {sample['survival_probability'].item():.4f}")
+        >>> print(f"Disease codes tensor shape: {sample['disease_codes'].shape}")
+        >>> print(f"Vitals tensor shape: {sample['vitals'].shape}")
+        >>> print(f"Labs tensor shape: {sample['labs'].shape}")
+        >>> print(f"Scores tensor shape: {sample['scores'].shape}")
+        >>> print(f"Comorbidities tensor shape: {sample['comorbidities'].shape}")
+        >>>
+        >>> # Decode and display features for this sample
+        >>> demographics_decoded = decode_features(
+        ...     sample['demographics'],
+        ...     sample_dataset.input_processors.get('demographics')
+        ... )
+        >>> print(f"  Demographics: {', '.join(demographics_decoded)}")
+        >>> disease_codes_decoded = decode_features(
+        ...     sample['disease_codes'],
+        ...     sample_dataset.input_processors.get('disease_codes')
+        ... )
+        >>> print(f"  Disease Codes: {', '.join(disease_codes_decoded)}")
+        >>> vitals_decoded = decode_features(
+        ...     sample['vitals'],
+        ...     sample_dataset.input_processors.get('vitals')
+        ... )
+        >>> print(f"  Vitals: {', '.join(vitals_decoded)}")
+        >>> print(f"  Survival Probability (2m): {sample['survival_probability'].item():.4f}")
+        >>>
+        >>> # For a complete working example displaying all feature groups for all samples,
+        >>> # see: examples/survival_preprocess_support2_demo.py
 
     Note:
         - Each patient produces exactly one sample (single-row-per-patient dataset)

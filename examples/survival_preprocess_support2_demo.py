@@ -87,7 +87,16 @@ print("=" * 70)
 # Sort samples by patient_id to ensure consistent order
 samples = sorted(sample_dataset, key=lambda x: int(x['patient_id']))
 for sample in samples:
-    # Decode features for this sample
+    # Display patient ID and tensor shapes first
+    print(f"\nPatient {sample['patient_id']}:")
+    print(f"  Demographics tensor shape: {sample['demographics'].shape}")
+    print(f"  Disease codes tensor shape: {sample['disease_codes'].shape}")
+    print(f"  Vitals tensor shape: {sample['vitals'].shape}")
+    print(f"  Labs tensor shape: {sample['labs'].shape}")
+    print(f"  Scores tensor shape: {sample['scores'].shape}")
+    print(f"  Comorbidities tensor shape: {sample['comorbidities'].shape}")
+    
+    # Decode and display features for this sample
     demographics = decode_features(
         sample['demographics'],
         sample_dataset.input_processors.get('demographics')
@@ -113,8 +122,7 @@ for sample in samples:
         sample_dataset.input_processors.get('comorbidities')
     )
     
-    # Display this patient's features
-    print(f"\nPatient {sample['patient_id']}:")
+    # Display decoded features
     print(f"  Demographics: {', '.join(demographics)}")
     print(f"  Disease Codes: {', '.join(disease_codes)}")
     print(f"  Vitals: {', '.join(vitals)}")
