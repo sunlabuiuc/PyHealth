@@ -18,10 +18,21 @@ Tutorials
 
 `Tutorial 6: Introduction to pyhealth.tokenizer <https://colab.research.google.com/drive/1bDOb0A5g0umBjtz8NIp4wqye7taJ03D0?usp=sharing>`_ `[Video] <https://www.youtube.com/watch?v=CeXJtf0lfs0&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=10>`_
 
-`Tutorial 7: Introduction to pyhealth.medcode <https://colab.research.google.com/drive/1xrp_ACM2_Hg5Wxzj0SKKKgZfMY0WwEj3?usp=sharing>`_ `[Video] <https://www.youtube.com/watch?v=MmmfU6_xkYg&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=9>`_ 
+`Tutorial 7: Introduction to pyhealth.medcode <https://colab.research.google.com/drive/1xrp_ACM2_Hg5Wxzj0SKKKgZfMY0WwEj3?usp=sharing>`_ `[Video] <https://www.youtube.com/watch?v=MmmfU6_xkYg&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=9>`_
 
 
- The following tutorials will help users build their own task pipelines. `[Video] <https://www.youtube.com/watch?v=GGP3Dhfyisc&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=12>`_ 
+Data Access Guide
+=======================
+
+For information on how to access and download the datasets supported by PyHealth, please refer to our `Datasets Overview Notebook <https://github.com/sunlabuiuc/PyHealth/blob/main/examples/datasets_overview.ipynb>`_.
+
+Additionally, for detailed tutorials on accessing PhysioNet and MIMIC datasets, see the `Getting MIMIC access` section of the `DL4H course instructions <https://docs.google.com/document/d/1NHgXzSPINafSg8Cd_whdfSauFXgh-ZflZIw5lu6k2T0/edit?tab=t.5pba851jxeg6>`_.
+
+
+Tutorials on Building Task Pipelines
+=========================================
+
+ The following tutorials will help users build their own task pipelines. `[Video] <https://www.youtube.com/watch?v=GGP3Dhfyisc&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=12>`_
 
 
 `Pipeline 1: Chest Xray Classification <https://colab.research.google.com/drive/18vK23gyI1LjWbTgkq4f99yDZA3A7Pxp9?usp=sharing>`_ 
