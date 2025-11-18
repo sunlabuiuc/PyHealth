@@ -49,6 +49,7 @@ Available Methods
 .. toctree::
     :maxdepth: 4
 
+    interpret/pyhealth.interpret.methods.gim
     interpret/pyhealth.interpret.methods.basic_gradient
     interpret/pyhealth.interpret.methods.chefer
     interpret/pyhealth.interpret.methods.deeplift
