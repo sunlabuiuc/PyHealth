@@ -1,0 +1,4 @@
+sno,age,death,sex,hospdead,slos,d.time,dzgroup,dzclass,num.co,edu,income,scoma,charges,totcst,totmcst,avtisst,race,sps,aps,surv2m,surv6m,hday,diabetes,dementia,ca,prg2m,prg6m,dnr,dnrday,meanbp,wblc,hrt,resp,temp,pafi,alb,bili,crea,sod,ph,glucose,bun,urine,adlp,adls,sfdm2,adlsc
+1,62.85,0,male,0,5,2029,Lung Cancer,Cancer,0,11,$11-$25k,0,9715.0,,,7.0,other,33.9,20,0.26,0.037,1,0,0,metastatic,0.5,0.25,no dnr,5,97.0,6.0,69.0,22,36.0,388.0,1.8,0.2,1.2,141,7.46,,,,7,7,,7.0
+2,60.34,1,female,1,4,4,Cirrhosis,COPD/CHF/Cirrhosis,2,12,$11-$25k,44,34496.0,,,29.0,white,52.7,74,0.001,0.0,3,0,0,no,0.0,0.0,,,43.0,17.1,112.0,34,34.6,98.0,,,5.5,132,7.25,,,,1,<2 mo. follow-up,1.0
+3,52.75,1,female,0,17,47,Cirrhosis,COPD/CHF/Cirrhosis,2,12,under $11k,0,41094.0,,,13.0,white,20.5,45,0.79,0.66,4,0,0,no,0.75,0.5,no dnr,17,70.0,8.5,88.0,28,37.4,231.7,,2.2,2.0,134,7.46,,,,1,0,<2 mo. follow-up,0.0

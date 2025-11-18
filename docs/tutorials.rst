@@ -99,6 +99,18 @@ Readmission Prediction
    * - ``readmission_mimic3_fairness.py``
      - Fairness-aware readmission prediction on MIMIC-III
 
+Survival Prediction
+-------------------
+
+.. list-table::
+   :widths: 50 50
+   :header-rows: 1
+
+   * - Example File
+     - Description
+   * - ``survival_preprocess_support2_demo.py``
+     - Survival probability prediction preprocessing with SUPPORT2 dataset. Demonstrates feature extraction (demographics, vitals, labs, scores, comorbidities) and ground truth survival probability labels for 2-month and 6-month horizons. Shows how to decode processed tensors back to human-readable features.
+
 Drug Recommendation
 -------------------
 

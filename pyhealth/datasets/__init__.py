@@ -63,6 +63,7 @@ from .sample_dataset import SampleDataset
 from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset
 from .bmd_hs import BMDHSDataset
+from .support2 import Support2Dataset
 from .splitter import (
     split_by_patient,
     split_by_patient_conformal,
