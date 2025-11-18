@@ -105,7 +105,7 @@ class _GIMHookContext(contextlib.AbstractContextManager):
 
 
 class GIM(BaseInterpreter):
-    """Gradient Interaction Modifications for StageNet-style models.
+    """Gradient Interaction Modifications for StageNet-style and Transformer models.
 
     This interpreter adapts the Gradient Interaction Modifications (GIM)
     technique (Edin et al., 2025) to PyHealth, focusing on StageNet where
@@ -187,14 +187,14 @@ class GIM(BaseInterpreter):
         # Clear stale gradients before the attribution pass.
         self.model.zero_grad(set_to_none=True)
 
-        time_kwarg = time_info if time_info else None
         # Step 1 (TSG): install the temperature-adjusted softmax hooks so all
         # backward passes through StageNet's cumax operations use the higher τ.
         with _GIMHookContext(self.model, self.temperature):
             forward_kwargs = {**label_data} if label_data else {}
+            if time_info:
+                forward_kwargs["time_info"] = time_info
             output = self.model.forward_from_embedding(
                 feature_embeddings=embeddings,
-                time_info=time_kwarg,
                 **forward_kwargs,
             )
 
