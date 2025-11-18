@@ -37,6 +37,7 @@ from .mortality_prediction import (
     MortalityPredictionMIMIC4,
     MortalityPredictionOMOP,
 )
+from .survival_preprocess_support2 import SurvivalPreprocessSupport2
 from .mortality_prediction_stagenet_mimic4 import (
     MortalityPredictionStageNetMIMIC4,
 )

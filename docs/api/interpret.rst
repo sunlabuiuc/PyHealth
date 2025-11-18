@@ -11,6 +11,14 @@ New to interpretability in PyHealth? Check out these complete examples:
 
 **Browse all examples online**: https://github.com/sunlabuiuc/PyHealth/tree/master/examples
 
+**Basic Gradient Example:**
+
+- ``examples/ChestXrayClassificationWithSaliency.ipynb`` - Interactive notebook demonstrating gradient-based saliency mapping for medical image classification. Shows how to:
+
+  - Load and classify chest X-ray images using PyHealth's TorchvisionModel
+  - Generate gradient saliency maps to visualize model attention
+  - Interpret which regions of X-ray images influence COVID-19 predictions by the model
+
 **DeepLift Example:**
 
 - ``examples/deeplift_stagenet_mimic4.py`` - Demonstrates DeepLift attributions on StageNet for mortality prediction with MIMIC-IV data. Shows how to:
@@ -39,9 +47,10 @@ Available Methods
 -----------------
     
 .. toctree::
-    :maxdepth: 3
+    :maxdepth: 4
 
     interpret/pyhealth.interpret.methods.gim
+    interpret/pyhealth.interpret.methods.basic_gradient
     interpret/pyhealth.interpret.methods.chefer
     interpret/pyhealth.interpret.methods.deeplift
     interpret/pyhealth.interpret.methods.integrated_gradients
