@@ -22,6 +22,7 @@ from ...data import Patient
 from ...processors.base_processor import FeatureProcessor
 from ...tasks import BaseTask
 from ..iterable_sample_dataset import IterableSampleDataset
+from ..utils import save_processors, load_processors
 
 logger = logging.getLogger(__name__)
 
@@ -305,6 +306,12 @@ def set_task_streaming(
     This mode processes patients in batches and writes samples to disk,
     enabling memory-efficient processing of large datasets (>100k samples).
 
+    Implements smart caching:
+    1. Checks if patient cache exists
+    2. Checks if sample cache exists
+    3. Checks if processors are cached
+    4. Only rebuilds what's missing
+
     Args:
         dataset: The BaseDataset instance
         task: The task to execute
@@ -316,16 +323,19 @@ def set_task_streaming(
     Returns:
         IterableSampleDataset with samples stored on disk
     """
-    logger.info("Generating samples in streaming mode...")
-
     # Apply task's pre_filter on LazyFrame (no data loaded yet!)
     filtered_lazy_df = task.pre_filter(dataset.global_event_df)
 
     # Build patient cache if not exists (lazy execution with sink_parquet)
     if not dataset._patient_cache_path.exists():
+        logger.info("Building patient cache...")
         build_patient_cache(dataset, filtered_lazy_df)
+    else:
+        logger.info(f"Using existing patient cache: {dataset._patient_cache_path}")
 
     # Create streaming sample dataset
+    # Use batch_size as io_batch_size for efficient I/O
+    # This makes disk reads align with sample generation batch size
     sample_dataset = IterableSampleDataset(
         input_schema=task.input_schema,
         output_schema=task.output_schema,
@@ -336,51 +346,110 @@ def set_task_streaming(
         cache_dir=cache_dir or str(dataset.cache_dir),
         dev=dataset.dev,
         dev_max_patients=dataset.dev_max_patients,
+        io_batch_size=max(batch_size, 128),  # At least 128 for efficient I/O
     )
 
-    # Process patients in batches and write samples to disk
-    write_batch_samples = []
-    write_batch_size = 500  # Write every 500 samples
+    # Check if sample cache already exists
+    sample_cache_exists = sample_dataset._sample_cache_path.exists()
 
-    # Get total patient count for progress bar
-    patient_index = pl.scan_parquet(dataset._patient_index_path).collect(streaming=True)
-    total_patients = len(patient_index)
+    # Check if processors are cached
+    processor_cache_dir = Path(cache_dir or dataset.cache_dir) / "processors"
+    processors_cached = (processor_cache_dir / "input_processors.pkl").exists() and (
+        processor_cache_dir / "output_processors.pkl"
+    ).exists()
 
-    logger.info(
-        f"Processing patients in batches of {batch_size} " f"for better I/O efficiency"
-    )
+    # Load cached processors if available and not provided
+    if processors_cached and input_processors is None and output_processors is None:
+        logger.info(f"Loading cached processors from {processor_cache_dir}")
+        try:
+            input_processors, output_processors = load_processors(
+                str(processor_cache_dir)
+            )
+            sample_dataset.input_processors = input_processors
+            sample_dataset.output_processors = output_processors
+        except Exception as e:
+            logger.warning(f"Failed to load cached processors: {e}. Will rebuild.")
+            processors_cached = False
 
-    # Use streaming batch iteration for better performance
-    for patient_batch in tqdm(
-        iter_patients_streaming(dataset, None, batch_size),
-        total=(total_patients + batch_size - 1) // batch_size,
-        desc=f"Generating samples for {task.task_name}",
-        unit="batch",
-    ):
-        # Process all patients in the batch
-        for patient in patient_batch:
-            patient_samples = task(patient)
-            write_batch_samples.extend(patient_samples)
+    if sample_cache_exists:
+        # Sample cache exists - just load it
+        logger.info(f"Using existing sample cache: {sample_dataset._sample_cache_path}")
 
-        # Write to disk when batch gets large enough
-        if len(write_batch_samples) >= write_batch_size:
+        # Mark as finalized and load sample count
+        sample_dataset._samples_finalized = True
+        sample_count_df = (
+            pl.scan_parquet(sample_dataset._sample_cache_path)
+            .select(pl.count().alias("count"))
+            .collect(streaming=True)
+        )
+        sample_dataset._num_samples = sample_count_df["count"][0]
+
+        # Build processors if not already provided/cached
+        if not processors_cached and (
+            input_processors is None or output_processors is None
+        ):
+            logger.info("Sample cache exists, but processors need to be built")
+            sample_dataset.build_streaming()
+
+            # Save processors for future use
+            logger.info(f"Saving processors to {processor_cache_dir}")
+            save_processors(sample_dataset, str(processor_cache_dir))
+        else:
+            logger.info("Using cached/provided processors")
+    else:
+        # Sample cache doesn't exist - generate samples
+        logger.info("Generating samples in streaming mode...")
+
+        # Process patients in batches and write samples to disk
+        write_batch_samples = []
+        write_batch_size = 500  # Write every 500 samples
+
+        # Get total patient count for progress bar
+        patient_index = pl.scan_parquet(dataset._patient_index_path).collect(
+            streaming=True
+        )
+        total_patients = len(patient_index)
+
+        logger.info(
+            f"Processing patients in batches of {batch_size} "
+            f"for better I/O efficiency"
+        )
+
+        # Use streaming batch iteration for better performance
+        for patient_batch in tqdm(
+            iter_patients_streaming(dataset, None, batch_size),
+            total=(total_patients + batch_size - 1) // batch_size,
+            desc=f"Generating samples for {task.task_name}",
+            unit="batch",
+        ):
+            # Process all patients in the batch
+            for patient in patient_batch:
+                patient_samples = task(patient)
+                write_batch_samples.extend(patient_samples)
+
+            # Write to disk when batch gets large enough
+            if len(write_batch_samples) >= write_batch_size:
+                sample_dataset.add_samples_streaming(write_batch_samples)
+                write_batch_samples = []
+
+            # Explicitly clear patient_batch to free memory immediately
+            # This helps garbage collector reclaim Patient DataFrames
+            del patient_batch
+
+        # Write remaining samples
+        if write_batch_samples:
             sample_dataset.add_samples_streaming(write_batch_samples)
-            write_batch_samples = []
 
-        # Explicitly clear patient_batch to free memory immediately
-        # This helps garbage collector reclaim Patient DataFrames
-        del patient_batch
+        # Finalize sample cache
+        sample_dataset.finalize_samples()
 
-    # Write remaining samples
-    if write_batch_samples:
-        sample_dataset.add_samples_streaming(write_batch_samples)
+        # Build processors (must happen after all samples written)
+        sample_dataset.build_streaming()
 
-    # Finalize sample cache
-    sample_dataset.finalize_samples()
+        # Save processors for future use
+        logger.info(f"Saving processors to {processor_cache_dir}")
+        save_processors(sample_dataset, str(processor_cache_dir))
 
-    # Build processors (must happen after all samples written)
-    sample_dataset.build_streaming()
-
-    logger.info(f"Generated {len(sample_dataset)} samples in streaming mode")
+    logger.info(f"Dataset ready with {len(sample_dataset)} samples")
 
     return sample_dataset

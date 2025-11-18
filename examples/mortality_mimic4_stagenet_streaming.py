@@ -134,14 +134,15 @@ print(f"Val patients:   {len(val_patient_ids)}")
 print(f"Test patients:  {len(test_patient_ids)}")
 
 # Create filtered views of the dataset using predicate pushdown
-# ⭐ No data regeneration - all views share the same cache!
-train_dataset = sample_dataset.filter_by_patients(train_patient_ids)
-val_dataset = sample_dataset.filter_by_patients(val_patient_ids)
-test_dataset = sample_dataset.filter_by_patients(test_patient_ids)
+# ⭐ Physical splits: Each split gets its own parquet file for memory efficiency!
+train_dataset = sample_dataset.filter_by_patients(train_patient_ids, split_name="train")
+val_dataset = sample_dataset.filter_by_patients(val_patient_ids, split_name="val")
+test_dataset = sample_dataset.filter_by_patients(test_patient_ids, split_name="test")
 
-print("\nFiltered datasets created using Polars predicate pushdown")
-print("✓ Single cache file shared across all splits")
-print("✓ Efficient filtering at Parquet row group level")
+print("\nPhysical splits created:")
+print("✓ Each split has its own parquet file")
+print("✓ No in-memory filtering needed during training")
+print("✓ Maximum memory efficiency for large datasets")
 print_memory_stats("After creating filtered datasets")
 
 # Create dataloaders
@@ -187,7 +188,7 @@ trainer = Trainer(
 trainer.train(
     train_dataloader=train_loader,
     val_dataloader=val_loader,  # Now we have validation!
-    epochs=4,  # Fewer epochs for demo
+    epochs=2,  # Fewer epochs for demo
     monitor="roc_auc",
     optimizer_params={"lr": 1e-5},
 )

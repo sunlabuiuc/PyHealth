@@ -50,6 +50,7 @@ class IterableSampleDataset(IterableDataset):
         dev: bool = False,
         dev_max_patients: int = 1000,
         patient_ids: Optional[List[str]] = None,
+        io_batch_size: int = 1000,
     ) -> None:
         """Initializes the IterableSampleDataset.
 
@@ -68,6 +69,9 @@ class IterableSampleDataset(IterableDataset):
                 If None, will be computed from cache after finalization.
                 Uses Polars predicate pushdown for efficient filtering.
                 Useful for train/val/test splits.
+            io_batch_size: Number of samples to read from disk per I/O operation.
+                Larger values = fewer I/O ops but more memory. Default 1000.
+                Recommended: 500-2000. Should be >= DataLoader batch_size.
         """
         self.input_schema = input_schema
         self.output_schema = output_schema
@@ -76,6 +80,7 @@ class IterableSampleDataset(IterableDataset):
         self.dev = dev
         self.dev_max_patients = dev_max_patients
         self.patient_ids = patient_ids  # Can be None initially
+        self.io_batch_size = io_batch_size  # I/O batch size for reading from disk
 
         # Processor dictionaries
         self.input_processors = input_processors or {}
@@ -370,36 +375,41 @@ class IterableSampleDataset(IterableDataset):
                 f"FeatureProcessor class, got {type(processor_spec)}"
             )
 
-    def filter_by_patients(self, patient_ids: List[str]) -> "IterableSampleDataset":
-        """Create a filtered view of this dataset for specific patients.
+    def filter_by_patients(
+        self,
+        patient_ids: List[str],
+        split_name: Optional[str] = None,
+    ) -> "IterableSampleDataset":
+        """Create a filtered dataset by physically splitting samples into a new cache file.
 
-        This creates a new IterableSampleDataset instance that shares the same
-        cache file but only yields samples from the specified patients.
-        Uses Polars predicate pushdown for efficient filtering.
-
-        Useful for creating train/val/test splits from a single cache.
+        This creates a separate parquet file containing only samples from the
+        specified patients. This is much more memory-efficient than in-memory
+        filtering for large datasets, as each split can be streamed independently
+        without loading the full dataset.
 
         Args:
-            patient_ids: List of patient IDs to include
+            patient_ids: List of patient IDs to include in this split
+            split_name: Optional name for this split (e.g., 'train', 'val', 'test').
+                Used for naming the cache file. If None, generates a hash-based name.
 
         Returns:
-            New IterableSampleDataset filtered to these patients
+            New IterableSampleDataset with its own cache file containing only
+            the filtered samples
 
         Example:
-            >>> # Generate samples once
-            >>> full_dataset = base_dataset.set_task(task)
-            >>>
             >>> # Split patient IDs
             >>> train_ids, val_ids, test_ids = split_by_patient_stream(
-            ...     full_dataset.patient_ids, [0.8, 0.1, 0.1]
+            ...     full_dataset.get_patient_ids(), [0.8, 0.1, 0.1]
             ... )
             >>>
-            >>> # Create filtered views (no regeneration needed!)
-            >>> train_ds = full_dataset.filter_by_patients(train_ids)
-            >>> val_ds = full_dataset.filter_by_patients(val_ids)
-            >>> test_ds = full_dataset.filter_by_patients(test_ids)
+            >>> # Create physical splits (each gets its own cache file)
+            >>> train_ds = full_dataset.filter_by_patients(train_ids, split_name='train')
+            >>> val_ds = full_dataset.filter_by_patients(val_ids, split_name='val')
+            >>> test_ds = full_dataset.filter_by_patients(test_ids, split_name='test')
+            >>>
+            >>> # Each dataset streams from its own file - maximum memory efficiency!
         """
-        # Create new instance with same config but different patient_ids
+        # Create new instance with same config
         filtered_ds = IterableSampleDataset(
             input_schema=self.input_schema,
             output_schema=self.output_schema,
@@ -410,17 +420,78 @@ class IterableSampleDataset(IterableDataset):
             cache_dir=str(self.cache_dir),
             dev=self.dev,
             dev_max_patients=self.dev_max_patients,
-            patient_ids=patient_ids,  # Set the filtered patient list
+            patient_ids=None,  # Physical split - no in-memory filtering
+            io_batch_size=self.io_batch_size,  # Inherit I/O batch size
         )
 
-        # Share cache paths (no need to regenerate)
-        filtered_ds._sample_cache_path = self._sample_cache_path
-        filtered_ds._sample_batch_dir = self._sample_batch_dir
-        filtered_ds._num_samples = None  # Will be computed lazily in __len__
-        filtered_ds._samples_finalized = self._samples_finalized
-        filtered_ds._batch_counter = self._batch_counter
+        # Create the physical split cache file
+        self._create_physical_split(filtered_ds, patient_ids, split_name)
 
         return filtered_ds
+
+    def _create_physical_split(
+        self,
+        filtered_ds: "IterableSampleDataset",
+        patient_ids: List[str],
+        split_name: Optional[str],
+    ) -> None:
+        """Create a physical split by writing filtered samples to a new parquet file.
+
+        This is much more memory-efficient than using is_in() filtering for large datasets.
+
+        Args:
+            filtered_ds: The new filtered dataset instance to configure
+            patient_ids: List of patient IDs to include in this split
+            split_name: Name for this split (e.g., 'train', 'val', 'test')
+        """
+        # Generate split cache path
+        if split_name:
+            split_suffix = f"_{split_name}"
+        else:
+            # Use hash of patient IDs if no name provided
+            import hashlib
+
+            id_hash = hashlib.md5("".join(sorted(patient_ids)).encode()).hexdigest()[:8]
+            split_suffix = f"_split_{id_hash}"
+
+        dev_suffix = f"_dev_{self.dev_max_patients}" if self.dev else ""
+        split_cache_path = (
+            self.cache_dir
+            / f"{self.dataset_name}_{self.task_name}_samples{split_suffix}{dev_suffix}.parquet"
+        )
+
+        # Check if split already exists
+        if split_cache_path.exists():
+            logger.info(f"Using existing split cache: {split_cache_path}")
+        else:
+            # Create the split by filtering and writing
+            logger.info(
+                f"Creating physical split with {len(patient_ids)} patients "
+                f"→ {split_cache_path}"
+            )
+
+            # Read from main cache, filter, and write to split cache
+            lf = pl.scan_parquet(self._sample_cache_path)
+            filtered_lf = lf.filter(pl.col("patient_id").is_in(patient_ids))
+
+            # Write the filtered data (this materializes it once)
+            filtered_lf.sink_parquet(split_cache_path, compression="zstd")
+
+            logger.info(f"Physical split created: {split_cache_path}")
+
+        # Configure the filtered dataset to use the split cache
+        filtered_ds._sample_cache_path = split_cache_path
+        filtered_ds._sample_batch_dir = self._sample_batch_dir  # Not used for splits
+        filtered_ds._samples_finalized = True
+        filtered_ds._batch_counter = 0
+
+        # Compute num_samples from the split cache
+        lf = pl.scan_parquet(split_cache_path)
+        filtered_ds._num_samples = lf.select(pl.len()).collect(streaming=True).item()
+
+        logger.info(
+            f"Split '{split_name or 'unnamed'}' has {filtered_ds._num_samples} samples"
+        )
 
     def __iter__(self) -> Iterator[Dict]:
         """Iterate over samples efficiently.
@@ -446,33 +517,32 @@ class IterableSampleDataset(IterableDataset):
         # Get worker info for distributed training
         worker_info = torch.utils.data.get_worker_info()
 
-        batch_size = 32  # Default batch size for reading
+        # Use configured I/O batch size for reading from disk
+        # This is the number of samples read per disk I/O operation
+        # The DataLoader will then batch these samples for training
+        batch_size = self.io_batch_size
 
         # Warn about large batch sizes that may trigger Polars streaming bugs
-        if batch_size > 200:
+        if batch_size > 2000:
             logger.warning(
-                f"batch_size={batch_size} may trigger Polars streaming bugs. "
-                f"Consider using batch_size <= 200 for better stability. "
-                f"Note: streaming is disabled for slice operations to avoid "
-                f"known Polars parquet reader race conditions."
+                f"io_batch_size={batch_size} is very large and may cause "
+                f"memory issues. Consider using io_batch_size <= 2000 for "
+                f"better stability."
             )
 
         lf = pl.scan_parquet(self._sample_cache_path)
 
-        # Apply patient ID filter if specified
-        # Polars pushes this filter down to Parquet reader level
-        # Only reads row groups containing these patients!
+        # Note: With physical splits, patient_ids should be None
+        # If somehow patient_ids is set, we still support in-memory filtering
+        # (but this is not recommended for large datasets)
         if self.patient_ids is not None:
-            logger.debug(f"Filtering to {len(self.patient_ids)} patient IDs")
-            lf = lf.filter(pl.col("patient_id").is_in(self.patient_ids))
-
-            # Count filtered samples (need to collect to get accurate count)
-            # This is a small overhead but necessary for correct iteration
-            filtered_count = lf.select(pl.count()).collect(streaming=True).item()
-            logger.debug(
-                f"Found {filtered_count} samples for "
-                f"{len(self.patient_ids)} patients"
+            logger.warning(
+                "In-memory patient ID filtering detected! "
+                "For better memory efficiency, use filter_by_patients() "
+                "to create physical splits instead."
             )
+            lf = lf.filter(pl.col("patient_id").is_in(self.patient_ids))
+            filtered_count = lf.select(pl.count()).collect(streaming=True).item()
             num_samples_to_iterate = filtered_count
         else:
             num_samples_to_iterate = self._num_samples

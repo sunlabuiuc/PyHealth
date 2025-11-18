@@ -18,7 +18,7 @@ from tqdm import tqdm
 from ...processors.base_processor import FeatureProcessor
 from ...tasks import BaseTask
 from ..sample_dataset import SampleDataset
-from ..utils import _convert_for_cache
+from ..utils import _convert_for_cache, save_processors, load_processors
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +93,17 @@ def generate_samples_normal(
         logger.info(
             f"Generating samples for {task.task_name} " f"with {num_workers} workers"
         )
-        patients = list(dataset.iter_patients(filtered_event_df))
+        # Load all patients first (with progress bar)
+        patients = list(
+            tqdm(
+                dataset.iter_patients(filtered_event_df),
+                total=filtered_event_df["patient_id"].n_unique(),
+                desc=f"Loading patients for {task.task_name}",
+                smoothing=0,
+            )
+        )
+
+        # Process patients in parallel (with progress bar)
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
             futures = [executor.submit(task, patient) for patient in patients]
             for future in tqdm(
@@ -174,6 +184,11 @@ def set_task_normal(
     This is the traditional PyHealth approach where all data is loaded into
     memory. Suitable for datasets that fit in memory (<100k samples typically).
 
+    Implements smart caching:
+    1. Checks if sample cache exists
+    2. Checks if processors are cached
+    3. Only regenerates what's missing
+
     Args:
         dataset: The BaseDataset instance
         task: The task to execute
@@ -198,6 +213,28 @@ def set_task_normal(
             cache_filename = f"{task.task_name}.{cache_format}"
         cache_path = Path(cache_dir) / cache_filename
 
+    # Check if processors are cached
+    processor_cache_dir = None
+    processors_cached = False
+    if cache_dir is not None:
+        processor_cache_dir = Path(cache_dir) / "processors"
+        processors_cached = (
+            processor_cache_dir / "input_processors.pkl"
+        ).exists() and (processor_cache_dir / "output_processors.pkl").exists()
+
+    # Load cached processors if available and not provided
+    if processors_cached and input_processors is None and output_processors is None:
+        logger.info(f"Loading cached processors from {processor_cache_dir}")
+        try:
+            input_processors, output_processors = load_processors(
+                str(processor_cache_dir)
+            )
+        except Exception as e:
+            logger.warning(f"Failed to load cached processors: {e}. Will rebuild.")
+            processors_cached = False
+            input_processors = None
+            output_processors = None
+
     # Try to load from cache
     samples = None
     if cache_path is not None:
@@ -205,11 +242,14 @@ def set_task_normal(
 
     # Generate samples if not cached
     if samples is None:
+        logger.info("No sample cache found. Generating samples...")
         samples = generate_samples_normal(dataset, task, num_workers)
 
         # Cache the generated samples
         if cache_path is not None:
             cache_samples_normal(samples, cache_path, cache_format)
+    else:
+        logger.info(f"Using {len(samples)} cached samples from {cache_path}")
 
     # Create and return SampleDataset
     sample_dataset = SampleDataset(
@@ -222,5 +262,14 @@ def set_task_normal(
         output_processors=output_processors,
     )
 
-    logger.info(f"Generated {len(samples)} samples for task {task.task_name}")
+    # Save processors if they were just built (and not loaded from cache)
+    if (
+        cache_dir is not None
+        and not processors_cached
+        and (input_processors is None or output_processors is None)
+    ):
+        logger.info(f"Saving processors to {processor_cache_dir}")
+        save_processors(sample_dataset, str(processor_cache_dir))
+
+    logger.info(f"Dataset ready with {len(samples)} samples")
     return sample_dataset
