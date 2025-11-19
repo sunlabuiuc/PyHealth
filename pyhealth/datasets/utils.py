@@ -231,6 +231,40 @@ def _restore_from_cache(sample: Dict[str, Any]) -> Dict[str, Any]:
     return restored
 
 
+def deserialize_sample_from_parquet(sample: Dict[str, Any]) -> Dict[str, Any]:
+    """Deserialize a sample loaded from Parquet cache.
+
+    This function handles both JSON deserialization (for fields that were
+    JSON-encoded to work around Parquet type limitations) and restoration
+    of temporal tuples from their cache representation.
+
+    Args:
+        sample: Dictionary representing a sample loaded from Parquet
+
+    Returns:
+        Dict[str, Any]: Deserialized sample with temporal tuples restored
+
+    Example:
+        >>> batch = pl.scan_parquet(cache_path).collect().to_dicts()
+        >>> restored = [deserialize_sample_from_parquet(s) for s in batch]
+    """
+    import json
+
+    # Step 1: Deserialize JSON-encoded fields back to dicts
+    for key, value in list(sample.items()):
+        if isinstance(value, str):
+            try:
+                decoded = json.loads(value)
+                if isinstance(decoded, dict) and "__stagenet_cache__" in decoded:
+                    sample[key] = decoded
+            except (json.JSONDecodeError, TypeError):
+                # Not JSON or not a cache dict, keep as is
+                pass
+
+    # Step 2: Restore temporal tuples from cache format
+    return _restore_from_cache(sample)
+
+
 def collate_fn_dict(batch: List[dict]) -> dict:
     """Collates a batch of data into a dictionary of lists.
 

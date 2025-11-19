@@ -33,11 +33,26 @@ class FeatureProcessor(Processor):
     Example: Tokenization, image loading, normalization.
     """
 
-    def fit(self, samples: List[Dict[str, Any]], field: str) -> None:
+    def fit(
+        self, samples: List[Dict[str, Any]], field: str, stream: bool = False
+    ) -> None:
         """Fit the processor to the samples.
 
         Args:
-            samples: List of sample dictionaries.
+            samples: List of sample dictionaries (all samples or a batch).
+            field: Field name to process.
+            stream: If True, accumulate statistics incrementally across
+                multiple fit() calls. If False (default), fit on complete
+                dataset in single call. Default maintains backward compatibility.
+        """
+        pass
+
+    def finalize_fit(self) -> None:
+        """Finalize fitting after all batches in streaming mode.
+
+        Called after all fit(stream=True) calls to perform validation
+        or compute final statistics that require complete dataset view.
+        Optional - only implement if needed.
         """
         pass
 

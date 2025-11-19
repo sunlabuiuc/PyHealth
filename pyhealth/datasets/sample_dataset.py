@@ -1,11 +1,14 @@
 from typing import Any, Dict, List, Optional, Tuple, Union, Type
 import inspect
+import logging
 
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
 from ..processors import get_processor
 from ..processors.base_processor import FeatureProcessor
+
+logger = logging.getLogger(__name__)
 
 
 class SampleDataset(Dataset):

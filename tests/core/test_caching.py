@@ -44,8 +44,10 @@ class MockDataset(BaseDataset):
         # Initialize without calling parent __init__ to avoid file dependencies
         self.dataset_name = "TestDataset"
         self.dev = False
+        self.stream = False  # Required by BaseDataset.set_task()
 
-        # Create realistic test data with patient_id, test_attribute, and test_label
+        # Create realistic test data with patient_id, test_attribute,
+        # and test_label
         self._collected_global_event_df = pl.DataFrame(
             {
                 "patient_id": ["1", "2", "1", "2"],
@@ -104,7 +106,16 @@ class TestCachingFunctionality(BaseTestCase):
         sig = inspect.signature(BaseDataset.set_task)
         params = list(sig.parameters.keys())
 
-        expected_params = ["self", "task", "num_workers", "cache_dir", "cache_format", "input_processors", "output_processors"]
+        expected_params = [
+            "self",
+            "task",
+            "num_workers",
+            "cache_dir",
+            "cache_format",
+            "input_processors",
+            "output_processors",
+            "batch_size",
+        ]
         self.assertEqual(params, expected_params)
 
         # Check default values
@@ -113,6 +124,8 @@ class TestCachingFunctionality(BaseTestCase):
         self.assertEqual(sig.parameters["cache_dir"].default, None)
         self.assertEqual(sig.parameters["cache_format"].default, "parquet")
         self.assertEqual(sig.parameters["input_processors"].default, None)
+        self.assertEqual(sig.parameters["output_processors"].default, None)
+        self.assertEqual(sig.parameters["batch_size"].default, None)
         self.assertEqual(sig.parameters["output_processors"].default, None)
 
     def test_set_task_no_caching(self):
