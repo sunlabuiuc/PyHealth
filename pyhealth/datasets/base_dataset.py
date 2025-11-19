@@ -281,7 +281,7 @@ class BaseDataset(ABC):
 
         # Flatten attribute columns with event_type prefix
         attribute_columns = [
-            pl.col(attr).alias(f"{table_name}/{attr}") for attr in attribute_cols
+            pl.col(attr.lower()).alias(f"{table_name}/{attr}") for attr in attribute_cols
         ]
 
         event_frame = df.select(base_columns + attribute_columns)
