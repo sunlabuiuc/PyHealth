@@ -39,6 +39,7 @@ dependencies = [
   "pandas~=2.3.1",
   "pandarallel~=1.6.5",
   "pydantic~=2.11.7",
+  "openpyxl~=3.1.0"
 ]
 license = "BSD-3-Clause"
 license-files = ["LICENSE.md"]
