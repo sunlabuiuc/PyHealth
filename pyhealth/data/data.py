@@ -148,13 +148,13 @@ class Patient:
         if start is None and end is None:
             return df
         df = df.filter(pl.col("timestamp").is_not_null())
-        ts_col = df["timestamp"].to_numpy()
+        ts_col = df["timestamp"].dt.epoch("s").to_numpy()
         start_idx = 0
         end_idx = len(ts_col)
         if start is not None:
-            start_idx = np.searchsorted(ts_col, start, side="left")
+            start_idx = np.searchsorted(ts_col, start.timestamp(), side="left")
         if end is not None:
-            end_idx = np.searchsorted(ts_col, end, side="right")
+            end_idx = np.searchsorted(ts_col, end.timestamp(), side="right")
         return df.slice(start_idx, end_idx - start_idx)
 
     def _filter_by_event_type_regular(self, df: pl.DataFrame, event_type: Optional[str]) -> pl.DataFrame:
