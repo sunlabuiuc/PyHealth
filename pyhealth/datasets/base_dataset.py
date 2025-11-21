@@ -10,6 +10,9 @@ import uuid
 import json
 
 import polars as pl
+import dask.dataframe as dd
+import pyarrow.csv as pv
+import pyarrow.parquet as pq
 import requests
 from tqdm import tqdm
 import platformdirs
@@ -58,6 +61,26 @@ def path_exists(path: str) -> bool:
     else:
         return Path(path).exists()
 
+def alt_path(path: str) -> str:
+    """
+    Get the alternative path by switching between .csv.gz, .csv, .tsv.gz, and .tsv extensions.
+
+    Args:
+        path (str): Original file path.
+
+    Returns:
+        str: Alternative file path.
+    """
+    if path.endswith(".csv.gz"):
+        return path[:-3]  # Remove .gz -> try .csv
+    elif path.endswith(".csv"):
+        return f"{path}.gz"  # Add .gz -> try .csv.gz
+    elif path.endswith(".tsv.gz"):
+        return path[:-3]  # Remove .gz -> try .tsv
+    elif path.endswith(".tsv"):
+        return f"{path}.gz"  # Add .gz -> try .tsv.gz
+    else:
+        raise ValueError(f"Path does not have expected extension: {path}")
 
 def scan_csv_gz_or_csv_tsv(path: str) -> pl.LazyFrame:
     """
@@ -147,7 +170,7 @@ class BaseDataset(ABC):
             logger.info(f"No cache_dir provided. Using default cache for PyHealth: {cache_dir}")
         cache_dir = Path(cache_dir)
         self.cache_dir = cache_dir / self.uuid()
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.setup_cache_dir()
         logger.info(f"Initializing {self.dataset_name} dataset cache directory to {self.cache_dir}")
 
         logger.info(
@@ -175,6 +198,14 @@ class BaseDataset(ABC):
         }, sort_keys=True)
         return str(uuid.uuid5(uuid.NAMESPACE_DNS, id_str))
 
+    def setup_cache_dir(self) -> None:
+        """Creates the cache directory structure.
+        """
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create tables subdirectory to store cached table files
+        (self.cache_dir / "tables").mkdir(parents=True, exist_ok=True)
+        
     @property
     def collected_global_event_df(self) -> pl.DataFrame:
         """Collects and returns the global event data frame.
@@ -252,6 +283,7 @@ class BaseDataset(ABC):
         csv_path = clean_path(csv_path)
 
         logger.info(f"Scanning table: {table_name} from {csv_path}")
+        _ = self.load_csv_or_tsv(table_name, csv_path)
         df = scan_csv_gz_or_csv_tsv(csv_path)
 
         # Convert column names to lowercase before calling preprocess_func
@@ -270,6 +302,7 @@ class BaseDataset(ABC):
             other_csv_path = f"{self.root}/{join_cfg.file_path}"
             other_csv_path = clean_path(other_csv_path)
             logger.info(f"Joining with table: {other_csv_path}")
+            _ = self.load_csv_or_tsv(table_name, csv_path)
             join_df = scan_csv_gz_or_csv_tsv(other_csv_path)
             join_df = join_df.rename(_to_lower)
             join_key = join_cfg.on
@@ -320,6 +353,41 @@ class BaseDataset(ABC):
         event_frame = df.select(base_columns + attribute_columns)
 
         return event_frame
+
+    def load_csv_or_tsv(self, table_name: str, path: str) -> dd.DataFrame:
+        """Loads a CSV.gz, CSV, TSV.gz, or TSV file into a Dask DataFrame.
+
+        Args:
+            table_name (str): The name of the table.
+            path (str): The URL or local path to the .csv, .csv.gz, .tsv, or .tsv.gz file.
+        Returns:
+            dd.DataFrame: The loaded Dask DataFrame.
+        """
+        parquet_path = self.cache_dir / "tables" / f"{table_name}.parquet"
+
+        if not path_exists(str(parquet_path)):
+            # convert .gz file to .parquet file since Dask cannot split on gz files directly
+            if not path_exists(path):
+                if not path_exists(alt_path(path)):
+                    raise FileNotFoundError(f"Neither path exists: {path} or {alt_path(path)}")
+                path = alt_path(path)
+            
+            delimiter = '\t' if path.endswith(".tsv") or path.endswith(".tsv.gz") else ','
+            csv_reader = pv.open_csv(
+                path, 
+                read_options=pv.ReadOptions(block_size=1 << 26), # 64 MB
+                parse_options=pv.ParseOptions(delimiter=delimiter)
+            )
+            with pq.ParquetWriter(parquet_path, csv_reader.schema) as writer:
+                for batch in csv_reader:
+                    writer.write_batch(batch)
+
+            pass
+        return dd.read_parquet(
+            self.cache_dir / "tables" / f"{table_name}.parquet",
+            split_row_groups=True, # type: ignore
+            blocksize="64MB",
+        )
 
     @property
     def unique_patient_ids(self) -> List[str]:
