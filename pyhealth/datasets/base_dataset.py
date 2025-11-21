@@ -1,15 +1,15 @@
 import logging
 import os
-import pickle
 from abc import ABC
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional
+from typing import Dict, Iterator, List, Optional, Any, Callable
 from urllib.parse import urlparse, urlunparse
 import uuid
 import json
 import functools
 import operator
+from collections import namedtuple
+import pickle
 
 import polars as pl
 import pandas as pd
@@ -18,7 +18,6 @@ import pyarrow as pa
 import pyarrow.csv as pv
 import pyarrow.parquet as pq
 import requests
-from tqdm import tqdm
 import platformdirs
 
 from ..data import Patient
@@ -26,7 +25,6 @@ from ..tasks import BaseTask
 from ..processors.base_processor import FeatureProcessor
 from .configs import load_yaml_config
 from .sample_dataset import SampleDataset
-from .utils import _convert_for_cache, _restore_from_cache
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +63,7 @@ def path_exists(path: str) -> bool:
     else:
         return Path(path).exists()
 
+
 def alt_path(path: str) -> str:
     """
     Get the alternative path by switching between .csv.gz, .csv, .tsv.gz, and .tsv extensions.
@@ -85,6 +84,7 @@ def alt_path(path: str) -> str:
         return f"{path}.gz"  # Add .gz -> try .tsv.gz
     else:
         raise ValueError(f"Path does not have expected extension: {path}")
+
 
 def scan_csv_gz_or_csv_tsv(path: str) -> pl.LazyFrame:
     """
@@ -122,6 +122,17 @@ def scan_csv_gz_or_csv_tsv(path: str) -> pl.LazyFrame:
         return scan_file(alt_path)
 
     raise FileNotFoundError(f"Neither path exists: {path} or {alt_path}")
+
+
+def _transform_fn(input: tuple[str, str, BaseTask]) -> Iterator[Dict[str, Any]]:
+    (patient_id, path, task) = input
+    patient = Patient(
+        patient_id=patient_id,
+        data_source=pl.read_parquet(path).filter(pl.col("patient_id") == patient_id),
+    )
+    for sample in task(patient):
+        sample = {k: pickle.dumps(v) for k,v in sample.items()}
+        yield sample
 
 
 class BaseDataset(ABC):
@@ -169,36 +180,42 @@ class BaseDataset(ABC):
         self.config = load_yaml_config(config_path)
         self.dev = dev
 
-        subfolder = self.cache_subfolder(self.root, self.tables, self.dataset_name, self.dev)
+        subfolder = self.cache_subfolder(
+            self.root, self.tables, self.dataset_name, self.dev
+        )
         self.setup_cache_dir(cache_dir=cache_dir, subfolder=subfolder)
 
         logger.info(
             f"Initializing {self.dataset_name} dataset from {self.root} (dev mode: {self.dev})"
         )
 
-        self.global_event_df = self.load_data()
-
         # Cached attributes
-        self._collected_global_event_df = None
         self._unique_patient_ids = None
 
     @staticmethod
-    def cache_subfolder(root: str, tables: List[str], dataset_name: str, dev: bool) -> str:
-        """Generates a unique identifier for the dataset instance. This is used for creating 
+    def cache_subfolder(
+        root: str, tables: List[str], dataset_name: str, dev: bool
+    ) -> str:
+        """Generates a unique identifier for the dataset instance. This is used for creating
         cache directories. The UUID is based on the root path, tables, dataset name, and dev mode.
 
         Returns:
             str: A unique identifier string.
         """
-        id_str = json.dumps({
-            "root": root,
-            "tables": sorted(tables),
-            "dataset_name": dataset_name,
-            "dev": dev,
-        }, sort_keys=True)
+        id_str = json.dumps(
+            {
+                "root": root,
+                "tables": sorted(tables),
+                "dataset_name": dataset_name,
+                "dev": dev,
+            },
+            sort_keys=True,
+        )
         return str(uuid.uuid5(uuid.NAMESPACE_DNS, id_str))
 
-    def setup_cache_dir(self, cache_dir: str | Path | None = None, subfolder: str = str(uuid.uuid4())) -> None:
+    def setup_cache_dir(
+        self, cache_dir: str | Path | None = None, subfolder: str = str(uuid.uuid4())
+    ) -> None:
         """Creates the cache directory structure.
 
         Args:
@@ -207,42 +224,63 @@ class BaseDataset(ABC):
             subfolder (str): Subfolder name for this dataset instance's cache.
         """
         if cache_dir is None:
-            cache_dir = platformdirs.user_cache_dir(appname='pyhealth')
-            logger.info(f"No cache_dir provided. Using default cache for PyHealth: {cache_dir}")
+            cache_dir = platformdirs.user_cache_dir(appname="pyhealth")
+            logger.info(
+                f"No cache_dir provided. Using default cache for PyHealth: {cache_dir}"
+            )
         cache_dir = Path(cache_dir)
         self.cache_dir = cache_dir / subfolder
+        logger.info(
+            f"Initializing {self.dataset_name} dataset cache directory to {self.cache_dir}"
+        )
 
-        self.cache_dir.mkdir(parents=True, exist_ok=True)        
-        # Create tables subdirectory to store cached table files
+    def _table_cache(self, table_name: str) -> str:
+        """Generates the cache path for a specific table.
+
+        Args:
+            table_name (str): The name of the table.
+
+        Returns:
+            str: The cache path for the table.
+        """
         (self.cache_dir / "tables").mkdir(parents=True, exist_ok=True)
-        # Create global_event_df subdirectory to store cached global event dataframe
-        (self.cache_dir / "global_event_df").mkdir(parents=True, exist_ok=True)
-        
-        logger.info(f"Initializing {self.dataset_name} dataset cache directory to {self.cache_dir}")
+        return str(self.cache_dir / "tables" / f"{table_name}.parquet")
+
+    def _dataset_cache(self) -> str:
+        """Generates the cache path for the global event dataframe.
+
+        Returns:
+            str: The cache path for the global event dataframe.
+        """
+        return str(self.cache_dir / "global_event_df.parquet")
+
+    def _task_cache(self, task_name: str) -> str:
+        """Generates the cache path for a specific task.
+
+        Args:
+            task_name (str): The name of the task.
+        Returns:
+            str: The cache path for the task.
+        """
+        return str(self.cache_dir / "tasks" / task_name)
 
     @property
-    def collected_global_event_df(self) -> dd.DataFrame:
+    def collected_global_event_df(self) -> pl.LazyFrame:
         """Collects and returns the global event data frame.
 
         Returns:
             dd.DataFrame: The collected global event data frame.
         """
-        path = self.cache_dir / "global_event_df" / "cached.parquet"
 
-        if not path_exists(str(path)):
+        if not path_exists(self._dataset_cache()):
+            global_event_df = self.load_data()
             if self.dev:
-                patients = self.global_event_df["patient_id"].unique().head(1000).tolist()
-                filter = self.global_event_df["patient_id"].isin(patients)
-                self.global_event_df[filter].to_parquet(path)
-            else:
-                self.global_event_df.to_parquet(path)
-
-        # This is imporant for fast fetch by patient_id
-        df = dd.read_parquet(str(path))
-        df["index"] = df["patient_id"]
-        df = df.set_index("index")
-
-        return df
+                patients = global_event_df["patient_id"].unique().head(1000).tolist()
+                filter = global_event_df["patient_id"].isin(patients)
+                global_event_df: dd.DataFrame = global_event_df[filter]
+            global_event_df = global_event_df.sort_values(by=["patient_id"])
+            global_event_df.to_parquet(self._dataset_cache())
+        return pl.scan_parquet(self._dataset_cache())
 
     def load_data(self) -> dd.DataFrame:
         """Loads data from the specified tables.
@@ -291,12 +329,16 @@ class BaseDataset(ABC):
             other_csv_path = f"{self.root}/{join_cfg.file_path}"
             other_csv_path = clean_path(other_csv_path)
             logger.info(f"Joining with table: {other_csv_path}")
-            join_df: dd.DataFrame = self.load_csv_or_tsv(f"{table_name}_join_{i}", other_csv_path)
+            join_df: dd.DataFrame = self.load_csv_or_tsv(
+                f"{table_name}_join_{i}", other_csv_path
+            )
             join_key = join_cfg.on
             columns = join_cfg.columns
             how = join_cfg.how
 
-            df: dd.DataFrame = df.merge(join_df[[join_key] + columns], on=join_key, how=how)
+            df: dd.DataFrame = df.merge(
+                join_df[[join_key] + columns], on=join_key, how=how
+            )
 
         patient_id_col = table_cfg.patient_id
         timestamp_col = table_cfg.timestamp
@@ -307,7 +349,9 @@ class BaseDataset(ABC):
         if timestamp_col:
             if isinstance(timestamp_col, list):
                 # Concatenate all timestamp parts in order with no separator
-                timestamp_series: dd.Series = functools.reduce(operator.add, (df[col].astype(str) for col in timestamp_col))
+                timestamp_series: dd.Series = functools.reduce(
+                    operator.add, (df[col].astype(str) for col in timestamp_col)
+                )
             else:
                 # Single timestamp column
                 timestamp_series: dd.Series = df[timestamp_col].astype(str)
@@ -316,7 +360,9 @@ class BaseDataset(ABC):
                 format=timestamp_format,
                 errors="raise",
             )
-            df: dd.DataFrame = df.assign(timestamp=timestamp_series.astype("datetime64[ms]"))
+            df: dd.DataFrame = df.assign(
+                timestamp=timestamp_series.astype("datetime64[ms]")
+            )
         else:
             df: dd.DataFrame = df.assign(timestamp=pd.NaT)
 
@@ -326,7 +372,7 @@ class BaseDataset(ABC):
         else:
             df: dd.DataFrame = df.reset_index(drop=True)
             df: dd.DataFrame = df.assign(patient_id=df.index.astype(str))
-        
+
         df: dd.DataFrame = df.assign(event_type=table_name)
 
         rename_attr = {attr: f"{table_name}/{attr}" for attr in attribute_cols}
@@ -347,38 +393,44 @@ class BaseDataset(ABC):
         Returns:
             dd.DataFrame: The loaded Dask DataFrame.
         """
-        parquet_path = self.cache_dir / "tables" / f"{table_name}.parquet"
-
-        if not path_exists(str(parquet_path)):
+        if not path_exists(self._table_cache(table_name)):
             # convert .gz file to .parquet file since Dask cannot split on gz files directly
             if not path_exists(path):
                 if not path_exists(alt_path(path)):
-                    raise FileNotFoundError(f"Neither path exists: {path} or {alt_path(path)}")
+                    raise FileNotFoundError(
+                        f"Neither path exists: {path} or {alt_path(path)}"
+                    )
                 path = alt_path(path)
-            
-            delimiter = '\t' if path.endswith(".tsv") or path.endswith(".tsv.gz") else ','
+
+            delimiter = (
+                "\t" if path.endswith(".tsv") or path.endswith(".tsv.gz") else ","
+            )
 
             # Always infer schema as string to avoid incorrect type inference
             schema_reader = pv.open_csv(
-                path, 
-                read_options=pv.ReadOptions(block_size=1 << 26), # 64 MB
-                parse_options=pv.ParseOptions(delimiter=delimiter)
+                path,
+                read_options=pv.ReadOptions(block_size=1 << 26),  # 64 MB
+                parse_options=pv.ParseOptions(delimiter=delimiter),
             )
-            schema = pa.schema([pa.field(name, pa.string()) for name in schema_reader.schema.names])
+            schema = pa.schema(
+                [pa.field(name, pa.string()) for name in schema_reader.schema.names]
+            )
             csv_reader = pv.open_csv(
-                path, 
-                read_options=pv.ReadOptions(block_size=1 << 26), # 64 MB
-                parse_options=pv.ParseOptions(delimiter=delimiter), 
-                convert_options=pv.ConvertOptions(column_types=schema)
+                path,
+                read_options=pv.ReadOptions(block_size=1 << 26),  # 64 MB
+                parse_options=pv.ParseOptions(delimiter=delimiter),
+                convert_options=pv.ConvertOptions(column_types=schema),
             )
-            with pq.ParquetWriter(parquet_path, csv_reader.schema) as writer:
+            with pq.ParquetWriter(
+                self._table_cache(table_name), csv_reader.schema
+            ) as writer:
                 for batch in csv_reader:
                     writer.write_batch(batch)
 
             pass
         return dd.read_parquet(
-            self.cache_dir / "tables" / f"{table_name}.parquet",
-            split_row_groups=True, # type: ignore
+            self._table_cache(table_name),
+            split_row_groups=True,  # type: ignore
             blocksize="64MB",
         )
 
@@ -391,10 +443,11 @@ class BaseDataset(ABC):
         """
         if self._unique_patient_ids is None:
             self._unique_patient_ids = (
-                self.collected_global_event_df.index
+                self.collected_global_event_df.select(pl.col("patient_id"))
                 .unique()
-                .compute()
-                .tolist()
+                .collect()
+                .to_series()
+                .to_list()
             )
             logger.info(f"Found {len(self._unique_patient_ids)} unique patient IDs")
         return self._unique_patient_ids
@@ -414,18 +467,13 @@ class BaseDataset(ABC):
         assert (
             patient_id in self.unique_patient_ids
         ), f"Patient {patient_id} not found in dataset"
-        df = self.collected_global_event_df
-        if not isinstance(df, dd.DataFrame):
-            raise TypeError("collected_global_event_df must be a Dask DataFrame")
-
-        patient_df: pl.DataFrame = pl.from_pandas(df.loc[patient_id].compute())
+        patient_df: pl.DataFrame = self.collected_global_event_df.filter(
+            pl.col("patient_id") == patient_id
+        ).collect()
         return Patient(patient_id=patient_id, data_source=patient_df)
 
-    def iter_patients(self, df: Optional[dd.DataFrame] = None) -> Iterator[Patient]:
-        """Yields Patient objects for each unique patient in the dataset. 
-        This method is inefficient, you should prefer to use 
-        `self.colllected_global_event_df.groupby(("patient_id", )).apply(...)` directly
-        if possible.
+    def iter_patients(self, df: Optional[pl.LazyFrame] = None) -> Iterator[Patient]:
+        """Yields Patient objects for each unique patient in the dataset.
 
         Yields:
             Iterator[Patient]: An iterator over Patient objects.
@@ -440,11 +488,27 @@ class BaseDataset(ABC):
         """Prints statistics about the dataset."""
         df = self.collected_global_event_df
         n_patients = len(self.unique_patient_ids)
-        n_events = df.shape[0].compute()
+        n_events = df.select(pl.count()).collect().item()
         print(f"Dataset: {self.dataset_name}")
         print(f"Dev mode: {self.dev}")
         print(f"Number of patients: {n_patients}")
         print(f"Number of events: {n_events}")
+
+    def transform_fn(self, task: BaseTask) -> Callable[[str], Iterator[Dict[str, Any]]]:
+        ctx = namedtuple("ctx", ["data", "task"])(
+            data=self._dataset_cache(),
+            task=task,
+        )
+
+        def f(patient_id: str) -> Iterator[Dict[str, Any]]:
+            patient_df: pl.DataFrame = pl.read_parquet(ctx.data).filter(
+                pl.col("patient_id") == patient_id
+            )
+            patient = Patient(patient_id=patient_id, data_source=patient_df)
+            for sample in ctx.task(patient):
+                yield sample
+
+        return f
 
     @property
     def default_task(self) -> Optional[BaseTask]:
@@ -459,7 +523,7 @@ class BaseDataset(ABC):
         self,
         task: Optional[BaseTask] = None,
         num_workers: int = 1,
-        cache_dir: Optional[str] = None,
+        cache_dir: str | Path | None = None,
         cache_format: str = "parquet",
         input_processors: Optional[Dict[str, FeatureProcessor]] = None,
         output_processors: Optional[Dict[str, FeatureProcessor]] = None,
@@ -496,107 +560,41 @@ class BaseDataset(ABC):
             f"Setting task {task.task_name} for {self.dataset_name} base dataset..."
         )
 
-        if cache_dir is not None:
-            logger.warning(f"This argument cache_dir is deprecated. Use dataset cache_dir instead.")
         if cache_format != "parquet":
-            logger.warning(f"Only 'parquet' cache_format is officially supported now.")
+            logger.warning(
+                f"This argument is no longer supported: cache_format={cache_format}"
+            )
+        if cache_dir is None:
+            cache_dir = self._task_cache(task.task_name)
+            logger.info(
+                "No cache_dir provided. Using default task cache dir: %s", cache_dir
+            )
 
-        # Check for cached data if cache_dir is provided
-        samples = None
-        if cache_dir is not None:
-            cache_filename = f"{task.task_name}.{cache_format}"
-            cache_path = Path(cache_dir) / cache_filename
-            if cache_path.exists():
-                logger.info(f"Loading cached samples from {cache_path}")
-                try:
-                    if cache_format == "parquet":
-                        # Load samples from parquet file
-                        cached_df = pl.read_parquet(cache_path)
-                        samples = [
-                            _restore_from_cache(row) for row in cached_df.to_dicts()
-                        ]
-                    elif cache_format == "pickle":
-                        # Load samples from pickle file
-                        with open(cache_path, "rb") as f:
-                            samples = pickle.load(f)
-                    else:
-                        msg = f"Unsupported cache format: {cache_format}"
-                        raise ValueError(msg)
-                    logger.info(f"Loaded {len(samples)} cached samples")
-                except Exception as e:
-                    logger.warning(
-                        "Failed to load cached data: %s. Regenerating...",
-                        e,
-                    )
-                    samples = None
+        if not path_exists(str(cache_dir)):
+            import litdata as ld
 
-        # Generate samples if not loaded from cache
-        if samples is None:
-            logger.info(f"Generating samples with {num_workers} worker(s)...")
-            filtered_global_event_df = task.pre_filter(self.collected_global_event_df)
-            samples = []
+            ld.optimize(
+                fn=_transform_fn,
+                inputs=[
+                    (patient_id, self._dataset_cache(), task)
+                    for patient_id in self.unique_patient_ids
+                ],
+                output_dir=str(cache_dir),
+                num_workers=num_workers,
+                chunk_bytes="64MB",
+            )
 
-            if num_workers == 1:
-                # single-threading (by default)
-                for patient in tqdm(
-                    self.iter_patients(filtered_global_event_df),
-                    total=filtered_global_event_df["patient_id"].n_unique(),
-                    desc=(f"Generating samples for {task.task_name} " "with 1 worker"),
-                    smoothing=0,
-                ):
-                    samples.extend(task(patient))
-            else:
-                # multi-threading (not recommended)
-                logger.info(
-                    f"Generating samples for {task.task_name} with "
-                    f"{num_workers} workers"
-                )
-                patients = list(self.iter_patients(filtered_global_event_df))
-                with ThreadPoolExecutor(max_workers=num_workers) as executor:
-                    futures = [executor.submit(task, patient) for patient in patients]
-                    for future in tqdm(
-                        as_completed(futures),
-                        total=len(futures),
-                        desc=(
-                            f"Collecting samples for {task.task_name} "
-                            f"from {num_workers} workers"
-                        ),
-                    ):
-                        samples.extend(future.result())
+        sample_dataset = None
 
-            # Cache the samples if cache_dir is provided
-            if cache_dir is not None:
-                cache_path = Path(cache_dir) / cache_filename
-                cache_path.parent.mkdir(parents=True, exist_ok=True)
-                logger.info(f"Caching samples to {cache_path}")
-                try:
-                    if cache_format == "parquet":
-                        # Save samples as parquet file
-                        samples_for_cache = [
-                            _convert_for_cache(sample) for sample in samples
-                        ]
-                        samples_df = pl.DataFrame(samples_for_cache)
-                        samples_df.write_parquet(cache_path)
-                    elif cache_format == "pickle":
-                        # Save samples as pickle file
-                        with open(cache_path, "wb") as f:
-                            pickle.dump(samples, f)
-                    else:
-                        msg = f"Unsupported cache format: {cache_format}"
-                        raise ValueError(msg)
-                    logger.info(f"Successfully cached {len(samples)} samples")
-                except Exception as e:
-                    logger.warning(f"Failed to cache samples: {e}")
+        # SampleDataset(
+        #     samples,
+        #     input_schema=task.input_schema,
+        #     output_schema=task.output_schema,
+        #     dataset_name=self.dataset_name,
+        #     task_name=task,
+        #     input_processors=input_processors,
+        #     output_processors=output_processors,
+        # )
 
-        sample_dataset = SampleDataset(
-            samples,
-            input_schema=task.input_schema,
-            output_schema=task.output_schema,
-            dataset_name=self.dataset_name,
-            task_name=task,
-            input_processors=input_processors,
-            output_processors=output_processors,
-        )
-
-        logger.info(f"Generated {len(samples)} samples for task {task.task_name}")
+        # logger.info(f"Generated {len(samples)} samples for task {task.task_name}")
         return sample_dataset
