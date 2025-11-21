@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Dict, List, Mapping, Optional, Union, Any, overload, Literal
 
 import dask.dataframe as dd
-import pandas as pd
+import numpy as np
 
 @dataclass(frozen=True)
 class Event:
@@ -132,9 +132,9 @@ class Patient:
     def _filter_by_time_range(self, df: dd.DataFrame, start: Optional[datetime], end: Optional[datetime]) -> dd.DataFrame:
         """Filter events by time range using lazy Dask operations."""
         if start is not None:
-            df = df[df["timestamp"] >= start]
+            df = df[df["timestamp"] >= np.datetime64(start)]
         if end is not None:
-            df = df[df["timestamp"] <= end]
+            df = df[df["timestamp"] <= np.datetime64(end)]
         return df
 
     def _filter_by_event_type(self, df: dd.DataFrame, event_type: Optional[str]) -> dd.DataFrame:
@@ -155,7 +155,7 @@ class Patient:
             ">": operator.gt,
             ">=": operator.ge,
         }
-        mask = None
+
         for filt in filters:
             if not (isinstance(filt, tuple) and len(filt) == 3):
                 raise ValueError(
@@ -167,11 +167,9 @@ class Patient:
             col_name = f"{event_type}/{attr}"
             if col_name not in df.columns:
                 raise KeyError(f"Column '{col_name}' not found in dataset")
-            col = df[col_name]
-            condition = op_map[op](col, val)
-            mask = condition if mask is None else mask & condition
-        if mask is not None:
-            df = df[mask]
+
+            df = df[op_map[op](df[col_name], val)]
+
         return df
 
     @overload

@@ -199,8 +199,12 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
 
             # Filter to relevant lab items
             labevents_dd: dd.DataFrame = labevents_dd[labevents_dd["labevents/itemid"].isin(self.LABITEMS)]
-            storetime_series: dd.Series = dd.to_datetime(labevents_dd["labevents/storetime"], format="%Y-%m-%d %H:%M:%S", errors="coerce")
-            labevents_dd: dd.DataFrame = labevents_dd[storetime_series <= np.datetime64(admission_dischtime)]
+            labevents_dd: dd.DataFrame = labevents_dd.assign(storetime_filter=dd.to_datetime(
+                labevents_dd["labevents/storetime"], 
+                format="%Y-%m-%d %H:%M:%S", 
+                errors="coerce"
+            ))
+            labevents_dd: dd.DataFrame = labevents_dd[labevents_dd["storetime_filter"] <= np.datetime64(admission_dischtime)]
             labevents_dd: dd.DataFrame = labevents_dd[["timestamp", "labevents/itemid", "labevents/valuenum"]].astype({"labevents/valuenum": "float64"})
             labevents_df: pd.DataFrame = labevents_dd.compute()
 
