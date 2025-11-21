@@ -1,9 +1,12 @@
 from datetime import datetime
-from typing import Any, ClassVar, Dict, List
+from typing import Any, ClassVar, Dict, List, Type
 
+import dask.dataframe as dd
+import pandas as pd
 import polars as pl
 
 from .base_task import BaseTask
+from ..data.data import Patient, Event
 
 
 class MortalityPredictionStageNetMIMIC4(BaseTask):
@@ -35,11 +38,11 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
     """
 
     task_name: str = "MortalityPredictionStageNetMIMIC4"
-    input_schema: Dict[str, str] = {
+    input_schema: Dict[str, str | Type] = {
         "icd_codes": "stagenet",
         "labs": "stagenet_tensor",
     }
-    output_schema: Dict[str, str] = {"mortality": "binary"}
+    output_schema: Dict[str, str | Type] = {"mortality": "binary"}
 
     # Organize lab items by category
     # Each category will map to ONE dimension in the output vector
@@ -75,7 +78,7 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
         item for itemids in LAB_CATEGORIES.values() for item in itemids
     ]
 
-    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+    def __call__(self, patient: Patient) -> List[Dict[str, Any]]:
         """Process a patient to create mortality prediction samples.
 
         Creates ONE sample per patient with all admissions aggregated.
@@ -89,13 +92,12 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
             procedures, labs across visits, and final mortality label
         """
         # Filter patients by age (>= 18)
-        demographics = patient.get_events(event_type="patients")
+        demographics: List[Event] = patient.get_events(event_type="patients", return_df=False)
         if not demographics:
             return []
 
-        demographics = demographics[0]
         try:
-            anchor_age = int(demographics.anchor_age)
+            anchor_age = int(demographics[0].anchor_age)
             if anchor_age < 18:
                 return []
         except (ValueError, TypeError, AttributeError):
@@ -103,7 +105,7 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
             return []
 
         # Get all admissions
-        admissions = patient.get_events(event_type="admissions")
+        admissions = patient.get_events(event_type="admissions", return_df=False)
         if len(admissions) < 1:
             return []
 
@@ -159,6 +161,7 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
             diagnoses_icd = patient.get_events(
                 event_type="diagnoses_icd",
                 filters=[("hadm_id", "==", admission.hadm_id)],
+                return_df=False,
             )
             visit_diagnoses = [
                 event.icd_code
@@ -170,6 +173,7 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
             procedures_icd = patient.get_events(
                 event_type="procedures_icd",
                 filters=[("hadm_id", "==", admission.hadm_id)],
+                return_df=False,
             )
             visit_procedures = [
                 event.icd_code
