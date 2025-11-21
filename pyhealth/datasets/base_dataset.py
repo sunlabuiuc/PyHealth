@@ -14,6 +14,7 @@ import operator
 import polars as pl
 import pandas as pd
 import dask.dataframe as dd
+import pyarrow as pa
 import pyarrow.csv as pv
 import pyarrow.parquet as pq
 import requests
@@ -351,12 +352,19 @@ class BaseDataset(ABC):
                 path = alt_path(path)
             
             delimiter = '\t' if path.endswith(".tsv") or path.endswith(".tsv.gz") else ','
-            # TODO: this may give incorrect type inference for some columns 
-            # if the first block is not representative
-            csv_reader = pv.open_csv(
+
+            # Always infer schema as string to avoid incorrect type inference
+            schema_reader = pv.open_csv(
                 path, 
                 read_options=pv.ReadOptions(block_size=1 << 26), # 64 MB
                 parse_options=pv.ParseOptions(delimiter=delimiter)
+            )
+            schema = pa.schema([pa.field(name, pa.string()) for name in schema_reader.schema.names])
+            csv_reader = pv.open_csv(
+                path, 
+                read_options=pv.ReadOptions(block_size=1 << 26), # 64 MB
+                parse_options=pv.ParseOptions(delimiter=delimiter), 
+                convert_options=pv.ConvertOptions(column_types=schema)
             )
             with pq.ParquetWriter(parquet_path, csv_reader.schema) as writer:
                 for batch in csv_reader:
