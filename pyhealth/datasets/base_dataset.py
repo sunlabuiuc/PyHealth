@@ -373,6 +373,8 @@ class BaseDataset(ABC):
                 path = alt_path(path)
             
             delimiter = '\t' if path.endswith(".tsv") or path.endswith(".tsv.gz") else ','
+            # TODO: this may give incorrect type inference for some columns 
+            # if the first block is not representative
             csv_reader = pv.open_csv(
                 path, 
                 read_options=pv.ReadOptions(block_size=1 << 26), # 64 MB
