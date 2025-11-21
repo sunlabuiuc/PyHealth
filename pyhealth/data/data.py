@@ -1,7 +1,7 @@
 import operator
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Mapping, Optional, Union, Any
+from typing import Dict, List, Mapping, Optional, Union, Any, overload, Literal
 
 import dask.dataframe as dd
 import pandas as pd
@@ -173,6 +173,28 @@ class Patient:
         if mask is not None:
             df = df[mask]
         return df
+
+    @overload
+    def get_events(
+        self, 
+        *, 
+        event_type: Optional[str] = None,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
+        filters: Optional[List[tuple]] = None, 
+        return_df: Literal[True]
+    ) -> dd.DataFrame: ...
+
+    @overload
+    def get_events(
+        self, 
+        *,
+        event_type: Optional[str] = None,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
+        filters: Optional[List[tuple]] = None, 
+        return_df: Literal[False]
+    ) -> List[Event]: ...
 
     def get_events(
         self,
