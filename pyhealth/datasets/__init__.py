@@ -47,6 +47,7 @@ class SampleSignalDataset:
 
 
 from .base_dataset import BaseDataset
+from .base_image_dataset import BaseImageDataset
 from .cardiology import CardiologyDataset
 from .chestxray14 import ChestXray14Dataset
 from .covid19_cxr import COVID19CXRDataset
