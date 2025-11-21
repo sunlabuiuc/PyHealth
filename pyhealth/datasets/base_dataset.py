@@ -378,10 +378,10 @@ class BaseDataset(ABC):
         """
         if self._unique_patient_ids is None:
             self._unique_patient_ids = (
-                self.collected_global_event_df.select("patient_id")
+                self.collected_global_event_df["patient_id"]
                 .unique()
-                .to_series()
-                .to_list()
+                .compute()
+                .tolist()
             )
             logger.info(f"Found {len(self._unique_patient_ids)} unique patient IDs")
         return self._unique_patient_ids
@@ -421,10 +421,12 @@ class BaseDataset(ABC):
     def stats(self) -> None:
         """Prints statistics about the dataset."""
         df = self.collected_global_event_df
+        n_patients = df["patient_id"].nunique().compute()
+        n_events = df.shape[0].compute()
         print(f"Dataset: {self.dataset_name}")
         print(f"Dev mode: {self.dev}")
-        print(f"Number of patients: {df['patient_id'].n_unique()}")
-        print(f"Number of events: {df.height}")
+        print(f"Number of patients: {n_patients}")
+        print(f"Number of events: {n_events}")
 
     @property
     def default_task(self) -> Optional[BaseTask]:
