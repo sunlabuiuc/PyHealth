@@ -8,8 +8,11 @@ from typing import Dict, Iterator, List, Optional
 from urllib.parse import urlparse, urlunparse
 import uuid
 import json
+import functools
+import operator
 
 import polars as pl
+import pandas as pd
 import dask.dataframe as dd
 import pyarrow.csv as pv
 import pyarrow.parquet as pq
@@ -247,23 +250,23 @@ class BaseDataset(ABC):
 
         return self._collected_global_event_df
 
-    def load_data(self) -> pl.LazyFrame:
+    def load_data(self) -> dd.DataFrame:
         """Loads data from the specified tables.
 
         Returns:
-            pl.LazyFrame: A concatenated lazy frame of all tables.
+            dd.DataFrame: A concatenated lazy frame of all tables.
         """
         frames = [self.load_table(table.lower()) for table in self.tables]
-        return pl.concat(frames, how="diagonal")
+        return dd.concat(frames, axis=0, join="outer")
 
-    def load_table(self, table_name: str) -> pl.LazyFrame:
+    def load_table(self, table_name: str) -> dd.DataFrame:
         """Loads a table and processes joins if specified.
 
         Args:
             table_name (str): The name of the table to load.
 
         Returns:
-            pl.LazyFrame: The processed lazy frame for the table.
+            dd.DataFrame: The processed lazy frame for the table.
 
         Raises:
             ValueError: If the table is not found in the config.
@@ -272,44 +275,34 @@ class BaseDataset(ABC):
         if table_name not in self.config.tables:
             raise ValueError(f"Table {table_name} not found in config")
 
-        def _to_lower(col_name: str) -> str:
-            lower_name = col_name.lower()
-            if lower_name != col_name:
-                logger.warning("Renaming column %s to lowercase %s", col_name, lower_name)
-            return lower_name
-
         table_cfg = self.config.tables[table_name]
         csv_path = f"{self.root}/{table_cfg.file_path}"
         csv_path = clean_path(csv_path)
 
         logger.info(f"Scanning table: {table_name} from {csv_path}")
-        _ = self.load_csv_or_tsv(table_name, csv_path)
-        df = scan_csv_gz_or_csv_tsv(csv_path)
-
-        # Convert column names to lowercase before calling preprocess_func
-        df = df.rename(_to_lower)
+        df: dd.DataFrame = self.load_csv_or_tsv(table_name, csv_path)
 
         # Check if there is a preprocessing function for this table
+        # TODO: we need to update the preprocess function to work with Dask DataFrame
+        #   for all datasets. Only care about MIMIC4 for now.
         preprocess_func = getattr(self, f"preprocess_{table_name}", None)
         if preprocess_func is not None:
             logger.info(
                 f"Preprocessing table: {table_name} with {preprocess_func.__name__}"
             )
-            df = preprocess_func(df)
+            df: dd.DataFrame = preprocess_func(df)
 
         # Handle joins
-        for join_cfg in table_cfg.join:
+        for i, join_cfg in enumerate(table_cfg.join):
             other_csv_path = f"{self.root}/{join_cfg.file_path}"
             other_csv_path = clean_path(other_csv_path)
             logger.info(f"Joining with table: {other_csv_path}")
-            _ = self.load_csv_or_tsv(table_name, csv_path)
-            join_df = scan_csv_gz_or_csv_tsv(other_csv_path)
-            join_df = join_df.rename(_to_lower)
+            join_df: dd.DataFrame = self.load_csv_or_tsv(f"{table_name}_join_{i}", other_csv_path)
             join_key = join_cfg.on
             columns = join_cfg.columns
             how = join_cfg.how
 
-            df = df.join(join_df.select([join_key] + columns), on=join_key, how=how)
+            df: dd.DataFrame = df.merge(join_df[[join_key] + columns], on=join_key, how=how)
 
         patient_id_col = table_cfg.patient_id
         timestamp_col = table_cfg.timestamp
@@ -320,37 +313,34 @@ class BaseDataset(ABC):
         if timestamp_col:
             if isinstance(timestamp_col, list):
                 # Concatenate all timestamp parts in order with no separator
-                combined_timestamp = pl.concat_str(
-                    [pl.col(col) for col in timestamp_col]
-                ).str.strptime(pl.Datetime, format=timestamp_format, strict=True)
-                timestamp_expr = combined_timestamp
+                timestamp_series: dd.Series = functools.reduce(operator.add, (df[col].astype(str) for col in timestamp_col))
             else:
                 # Single timestamp column
-                timestamp_expr = pl.col(timestamp_col).str.strptime(
-                    pl.Datetime, format=timestamp_format, strict=True
-                )
+                timestamp_series: dd.Series = df[timestamp_col].astype(str)
+            timestamp_series: dd.Series = dd.to_datetime(
+                timestamp_series,
+                format=timestamp_format,
+                errors="raise",
+            )
+            df: dd.DataFrame = df.assign(timestamp=timestamp_series.astype("datetime64[ms]"))
         else:
-            timestamp_expr = pl.lit(None, dtype=pl.Datetime)
+            df: dd.DataFrame = df.assign(timestamp=pd.NaT)
 
         # If patient_id_col is None, use row index as patient_id
-        patient_id_expr = (
-            pl.col(patient_id_col).cast(pl.Utf8)
-            if patient_id_col
-            else pl.int_range(0, pl.count()).cast(pl.Utf8)
-        )
-        base_columns = [
-            patient_id_expr.alias("patient_id"),
-            pl.lit(table_name).cast(pl.Utf8).alias("event_type"),
-            # ms should be sufficient for most cases
-            timestamp_expr.cast(pl.Datetime(time_unit="ms")).alias("timestamp"),
-        ]
+        if patient_id_col:
+            df: dd.DataFrame = df.assign(patient_id=df[patient_id_col].astype(str))
+        else:
+            df: dd.DataFrame = df.reset_index(drop=True)
+            df: dd.DataFrame = df.assign(patient_id=df.index.astype(str))
+        
+        df: dd.DataFrame = df.assign(event_type=table_name)
 
-        # Flatten attribute columns with event_type prefix
-        attribute_columns = [
-            pl.col(attr.lower()).alias(f"{table_name}/{attr}") for attr in attribute_cols
-        ]
+        rename_attr = {attr: f"{table_name}/{attr}" for attr in attribute_cols}
+        df: dd.DataFrame = df.rename(columns=rename_attr)
 
-        event_frame = df.select(base_columns + attribute_columns)
+        attr_cols = [rename_attr[attr] for attr in attribute_cols]
+        final_cols = ["patient_id", "event_type", "timestamp"] + attr_cols
+        event_frame = df[final_cols]
 
         return event_frame
 
