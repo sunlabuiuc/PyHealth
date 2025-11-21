@@ -89,9 +89,6 @@ class COVID19CXRDataset(BaseImageDataset):
         dataset_name: Optional[str] = None,
         config_path: Optional[str] = None,
     ) -> None:
-        # Expand user path (e.g., ~/Downloads -> /home/user/Downloads)
-        root = os.path.expanduser(root)
-
         if config_path is None:
             logger.info("No config path provided, using default config")
             config_path = Path(__file__).parent / "configs" / "covid19_cxr.yaml"

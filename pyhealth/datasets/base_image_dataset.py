@@ -33,6 +33,9 @@ class BaseImageDataset(BaseDataset):
         config_path: Optional[str] = None,
         **kwargs,
     ) -> None:
+        # Expand user path (e.g., ~/Downloads -> /home/user/Downloads)
+        root = os.path.expanduser(root)
+
         super().__init__(
             root=root,
             dataset_name=dataset_name or "base_image",
