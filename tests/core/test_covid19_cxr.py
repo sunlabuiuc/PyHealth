@@ -1,8 +1,12 @@
 """
 Unit tests for the COVID19CXRDataset class.
 
+The tests simply check that the dataset initialization works as expected,
+creating mock files and ensuring COVID19CXRDataset behaves correctly when
+raw data files are present or absent.
+
 Author:
-    Giovanni M. Dall'Olio, GMD Bioinformatics
+    Giovanni M. Dall'Olio
 """
 import os
 import shutil

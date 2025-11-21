@@ -2,7 +2,7 @@
 Unit tests for the BaseImageDataset class.
 
 Author:
-    Giovanni M. Dall'Olio, GMD Bioinformatics
+    Giovanni M. Dall'Olio
 """
 import unittest
 from unittest.mock import patch, MagicMock
