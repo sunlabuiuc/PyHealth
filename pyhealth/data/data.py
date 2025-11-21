@@ -1,10 +1,12 @@
 import operator
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Mapping, Optional, Union, Any, overload, Literal
+from functools import reduce
+from typing import Dict, List, Mapping, Optional, Union, Any
 
-import dask.dataframe as dd
 import numpy as np
+import polars as pl
+
 
 @dataclass(frozen=True)
 class Event:
@@ -52,7 +54,8 @@ class Event:
         """Create an Event instance from a dictionary.
 
         Args:
-            d (Dict[str, Any]): Dictionary containing event data.
+            d (Dict[str, any]): Dictionary containing event data.
+
         Returns:
             Event: An instance of the Event class.
         """
@@ -116,83 +119,56 @@ class Patient:
 
     Attributes:
         patient_id (str): Unique patient identifier.
-        data_source (dd.DataFrame): Dask DataFrame containing all events.
+        data_source (pl.DataFrame): DataFrame containing all events, sorted by timestamp.
+        event_type_partitions (Dict[str, pl.DataFrame]): Dictionary mapping event types to their respective DataFrame partitions.
     """
 
-    def __init__(self, patient_id: str, data_source: dd.DataFrame) -> None:
-        """Initialize a Patient instance.
+    def __init__(self, patient_id: str, data_source: pl.DataFrame) -> None:
+        """
+        Initialize a Patient instance.
 
         Args:
             patient_id (str): Unique patient identifier.
-            data_source (dd.DataFrame): DataFrame containing all events.
+            data_source (pl.DataFrame): DataFrame containing all events.
         """
         self.patient_id = patient_id
-        self.data_source = data_source
+        self.data_source = data_source.sort("timestamp")
+        self.event_type_partitions = self.data_source.partition_by("event_type", maintain_order=True, as_dict=True)
 
-    def _filter_by_time_range(self, df: dd.DataFrame, start: Optional[datetime], end: Optional[datetime]) -> dd.DataFrame:
-        """Filter events by time range using lazy Dask operations."""
+    def _filter_by_time_range_regular(self, df: pl.DataFrame, start: Optional[datetime], end: Optional[datetime]) -> pl.DataFrame:
+        """Regular filtering by time. Time complexity: O(n)."""
         if start is not None:
-            df = df[df["timestamp"] >= np.datetime64(start)]
+            df = df.filter(pl.col("timestamp") >= start)
         if end is not None:
-            df = df[df["timestamp"] <= np.datetime64(end)]
+            df = df.filter(pl.col("timestamp") <= end)
         return df
 
-    def _filter_by_event_type(self, df: dd.DataFrame, event_type: Optional[str]) -> dd.DataFrame:
-        """Filter by event type if provided."""
+    def _filter_by_time_range_fast(self, df: pl.DataFrame, start: Optional[datetime], end: Optional[datetime]) -> pl.DataFrame:
+        """Fast filtering by time using binary search on sorted timestamps. Time complexity: O(log n)."""
+        if start is None and end is None:
+            return df
+        df = df.filter(pl.col("timestamp").is_not_null())
+        ts_col = df["timestamp"].to_numpy()
+        start_idx = 0
+        end_idx = len(ts_col)
+        if start is not None:
+            start_idx = np.searchsorted(ts_col, start, side="left")
+        if end is not None:
+            end_idx = np.searchsorted(ts_col, end, side="right")
+        return df.slice(start_idx, end_idx - start_idx)
+
+    def _filter_by_event_type_regular(self, df: pl.DataFrame, event_type: Optional[str]) -> pl.DataFrame:
+        """Regular filtering by event type. Time complexity: O(n)."""
         if event_type:
-            df = df[df["event_type"] == event_type]
+            df = df.filter(pl.col("event_type") == event_type)
         return df
 
-    def _apply_attribute_filters(
-        self, df: dd.DataFrame, event_type: str, filters: List[tuple]
-    ) -> dd.DataFrame:
-        """Apply attribute-level filters to the DataFrame."""
-        op_map = {
-            "==": operator.eq,
-            "!=": operator.ne,
-            "<": operator.lt,
-            "<=": operator.le,
-            ">": operator.gt,
-            ">=": operator.ge,
-        }
-
-        for filt in filters:
-            if not (isinstance(filt, tuple) and len(filt) == 3):
-                raise ValueError(
-                    f"Invalid filter format: {filt} (must be tuple of (attr, op, value))"
-                )
-            attr, op, val = filt
-            if op not in op_map:
-                raise ValueError(f"Unsupported operator: {op} in filter {filt}")
-            col_name = f"{event_type}/{attr}"
-            if col_name not in df.columns:
-                raise KeyError(f"Column '{col_name}' not found in dataset")
-
-            df = df[op_map[op](df[col_name], val)]
-
-        return df
-
-    @overload
-    def get_events(
-        self, 
-        *, 
-        event_type: Optional[str] = None,
-        start: Optional[datetime] = None,
-        end: Optional[datetime] = None,
-        filters: Optional[List[tuple]] = None, 
-        return_df: Literal[True]
-    ) -> dd.DataFrame: ...
-
-    @overload
-    def get_events(
-        self, 
-        *,
-        event_type: Optional[str] = None,
-        start: Optional[datetime] = None,
-        end: Optional[datetime] = None,
-        filters: Optional[List[tuple]] = None, 
-        return_df: Literal[False]
-    ) -> List[Event]: ...
+    def _filter_by_event_type_fast(self, df: pl.DataFrame, event_type: Optional[str]) -> pl.DataFrame:
+        """Fast filtering by event type using pre-built event type index. Time complexity: O(1)."""
+        if event_type:
+            return self.event_type_partitions.get((event_type,), df[:0])
+        else:
+            return df
 
     def get_events(
         self,
@@ -201,33 +177,60 @@ class Patient:
         end: Optional[datetime] = None,
         filters: Optional[List[tuple]] = None,
         return_df: bool = False,
-    ) -> Union[dd.DataFrame, List[Event]]:
+    ) -> Union[pl.DataFrame, List[Event]]:
         """Get events with optional type and time filters.
 
         Args:
             event_type (Optional[str]): Type of events to filter.
             start (Optional[datetime]): Start time for filtering events.
             end (Optional[datetime]): End time for filtering events.
-            return_df (bool): Whether to return a pandas DataFrame or a list of
+            return_df (bool): Whether to return a DataFrame or a list of
                 Event objects.
             filters (Optional[List[tuple]]): Additional filters as [(attr, op, value), ...], e.g.:
                 [("attr1", "!=", "abnormal"), ("attr2", "!=", 1)]. Filters are applied after type
                 and time filters. The logic is "AND" between different filters.
 
         Returns:
-            Union[dd.DataFrame, List[Event]]: Filtered events as a Dask DataFrame
+            Union[pl.DataFrame, List[Event]]: Filtered events as a DataFrame
             or a list of Event objects.
         """
-        df = self._filter_by_event_type(self.data_source, event_type)
-        df = self._filter_by_time_range(df, start, end)
+        # faster filtering (by default)
+        df = self._filter_by_event_type_fast(self.data_source, event_type)
+        df = self._filter_by_time_range_fast(df, start, end)
 
-        active_filters = filters or []
-        if active_filters:
+        # regular filtering (commented out by default)
+        # df = self._filter_by_event_type_regular(self.data_source, event_type)
+        # df = self._filter_by_time_range_regular(df, start, end)
+
+        if filters:
             assert event_type is not None, "event_type must be provided if filters are provided"
-            df = self._apply_attribute_filters(df, event_type, active_filters)
-
+        else:
+            filters = []
+        exprs = []
+        for filt in filters:
+            if not (isinstance(filt, tuple) and len(filt) == 3):
+                raise ValueError(
+                    f"Invalid filter format: {filt} (must be tuple of (attr, op, value))"
+                )
+            attr, op, val = filt
+            col_expr = pl.col(f"{event_type}/{attr}")
+            # Build operator expression
+            if op == "==":
+                exprs.append(col_expr == val)
+            elif op == "!=":
+                exprs.append(col_expr != val)
+            elif op == "<":
+                exprs.append(col_expr < val)
+            elif op == "<=":
+                exprs.append(col_expr <= val)
+            elif op == ">":
+                exprs.append(col_expr > val)
+            elif op == ">=":
+                exprs.append(col_expr >= val)
+            else:
+                raise ValueError(f"Unsupported operator: {op} in filter {filt}")
+        if exprs:
+            df = df.filter(reduce(operator.and_, exprs))
         if return_df:
             return df
-        # Dask DataFrames do not expose .to_dict on lazy expressions; compute to pandas first.
-        records = df.compute().to_dict("records")
-        return [Event.from_dict(d) for d in records]
+        return [Event.from_dict(d) for d in df.to_dicts()]
