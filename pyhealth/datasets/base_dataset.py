@@ -408,19 +408,20 @@ class BaseDataset(ABC):
         patient_df = df[df["patient_id"] == patient_id]
         return Patient(patient_id=patient_id, data_source=patient_df)
 
-    def iter_patients(self, df: Optional[pl.LazyFrame] = None) -> Iterator[Patient]:
-        """Yields Patient objects for each unique patient in the dataset.
+    def iter_patients(self, df: Optional[dd.DataFrame] = None) -> Iterator[Patient]:
+        """Yields Patient objects for each unique patient in the dataset. 
+        This method is inefficient, you should prefer to use 
+        `self.colllected_global_event_df.groupby(("patient_id", )).apply(...)` directly
+        if possible.
 
         Yields:
             Iterator[Patient]: An iterator over Patient objects.
         """
         if df is None:
             df = self.collected_global_event_df
-        grouped = df.group_by("patient_id")
 
-        for patient_id, patient_df in grouped:
-            patient_id = patient_id[0]
-            yield Patient(patient_id=patient_id, data_source=patient_df)
+        for patitent_id in self.unique_patient_ids:
+            yield self.get_patient(patitent_id)
 
     def stats(self) -> None:
         """Prints statistics about the dataset."""
@@ -481,6 +482,11 @@ class BaseDataset(ABC):
         logger.info(
             f"Setting task {task.task_name} for {self.dataset_name} base dataset..."
         )
+
+        if cache_dir is not None:
+            logger.warning(f"This argument cache_dir is deprecated. Use dataset cache_dir instead.")
+        if cache_format != "parquet":
+            logger.warning(f"Only 'parquet' cache_format is officially supported now.")
 
         # Check for cached data if cache_dir is provided
         samples = None
