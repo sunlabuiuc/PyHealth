@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import Dict, Optional
 
 from pyhealth.datasets.base_dataset import BaseDataset
