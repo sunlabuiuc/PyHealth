@@ -401,8 +401,12 @@ class BaseDataset(ABC):
         assert (
             patient_id in self.unique_patient_ids
         ), f"Patient {patient_id} not found in dataset"
-        df = self.collected_global_event_df.filter(pl.col("patient_id") == patient_id)
-        return Patient(patient_id=patient_id, data_source=df)
+        df = self.collected_global_event_df
+        if not isinstance(df, dd.DataFrame):
+            raise TypeError("collected_global_event_df must be a Dask DataFrame")
+
+        patient_df = df[df["patient_id"] == patient_id]
+        return Patient(patient_id=patient_id, data_source=patient_df)
 
     def iter_patients(self, df: Optional[pl.LazyFrame] = None) -> Iterator[Patient]:
         """Yields Patient objects for each unique patient in the dataset.
