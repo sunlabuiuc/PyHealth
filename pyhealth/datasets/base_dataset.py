@@ -111,7 +111,7 @@ class BaseDataset(ABC):
 
     def __init__(
         self,
-        root: str | Path,
+        root: str,
         tables: List[str],
         dataset_name: str | None = None,
         config_path: str | None = None,
@@ -121,7 +121,7 @@ class BaseDataset(ABC):
         """Initializes the BaseDataset.
 
         Args:
-            root (str | Path): The root directory where dataset files are stored.
+            root (str): The root directory where dataset files are stored.
             tables (List[str]): List of table names to load.
             dataset_name (str | None): Name of the dataset. Defaults to class name.
             config_path (str | None): Path to the configuration YAML file.
@@ -168,7 +168,7 @@ class BaseDataset(ABC):
             str: A unique identifier string.
         """
         id_str = json.dumps({
-            "root": str(self.root),
+            "root": self.root,
             "tables": sorted(self.tables),
             "dataset_name": self.dataset_name,
             "dev": self.dev,
