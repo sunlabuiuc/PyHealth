@@ -237,7 +237,12 @@ class BaseDataset(ABC):
             else:
                 self.global_event_df.to_parquet(path)
 
-        return dd.read_parquet(str(path))
+        # This is imporant for fast fetch by patient_id
+        df = dd.read_parquet(str(path))
+        df["index"] = df["patient_id"]
+        df = df.set_index("index")
+
+        return df
 
     def load_data(self) -> dd.DataFrame:
         """Loads data from the specified tables.
@@ -386,7 +391,7 @@ class BaseDataset(ABC):
         """
         if self._unique_patient_ids is None:
             self._unique_patient_ids = (
-                self.collected_global_event_df["patient_id"]
+                self.collected_global_event_df.index
                 .unique()
                 .compute()
                 .tolist()
@@ -413,7 +418,7 @@ class BaseDataset(ABC):
         if not isinstance(df, dd.DataFrame):
             raise TypeError("collected_global_event_df must be a Dask DataFrame")
 
-        patient_df = df[df["patient_id"] == patient_id]
+        patient_df = df.loc[patient_id]
         return Patient(patient_id=patient_id, data_source=patient_df)
 
     def iter_patients(self, df: Optional[dd.DataFrame] = None) -> Iterator[Patient]:
@@ -434,7 +439,7 @@ class BaseDataset(ABC):
     def stats(self) -> None:
         """Prints statistics about the dataset."""
         df = self.collected_global_event_df
-        n_patients = df["patient_id"].nunique().compute()
+        n_patients = len(self.unique_patient_ids)
         n_events = df.shape[0].compute()
         print(f"Dataset: {self.dataset_name}")
         print(f"Dev mode: {self.dev}")

@@ -205,7 +205,10 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
                 errors="coerce"
             ))
             labevents_dd: dd.DataFrame = labevents_dd[labevents_dd["storetime_filter"] <= np.datetime64(admission_dischtime)]
-            labevents_dd: dd.DataFrame = labevents_dd[["timestamp", "labevents/itemid", "labevents/valuenum"]].astype({"labevents/valuenum": "float64"})
+            labevents_dd: dd.DataFrame = labevents_dd[["timestamp", "labevents/itemid", "labevents/valuenum"]]
+            labevents_dd["labevents/valuenum"] = dd.to_numeric(
+                labevents_dd["labevents/valuenum"], errors="coerce"
+            )
             labevents_df: pd.DataFrame = labevents_dd.compute()
 
             if not labevents_df.empty:
