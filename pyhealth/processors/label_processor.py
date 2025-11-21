@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterator, List
 
 import torch
 
@@ -19,7 +19,7 @@ class BinaryLabelProcessor(FeatureProcessor):
         super().__init__()
         self.label_vocab: Dict[Any, int] = {}
 
-    def fit(self, samples: List[Dict[str, Any]], field: str) -> None:
+    def fit(self, samples: Iterator[Dict[str, Any]], field: str) -> None:
         all_labels = set([sample[field] for sample in samples])
         if len(all_labels) != 2:
             raise ValueError(f"Expected 2 unique labels, got {len(all_labels)}")

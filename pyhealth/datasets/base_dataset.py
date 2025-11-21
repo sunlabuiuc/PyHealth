@@ -19,6 +19,7 @@ import pyarrow.csv as pv
 import pyarrow.parquet as pq
 import requests
 import platformdirs
+from litdata.streaming import StreamingDataset
 
 from ..data import Patient
 from ..tasks import BaseTask
@@ -123,6 +124,11 @@ def scan_csv_gz_or_csv_tsv(path: str) -> pl.LazyFrame:
 
     raise FileNotFoundError(f"Neither path exists: {path} or {alt_path}")
 
+def _pickle(datum: dict[str, Any]) -> dict[str, bytes]:
+    return {k: pickle.dumps(v) for k,v in datum.items()}
+
+def _unpickle(datum: dict[str, bytes]) -> dict[str, Any]:
+    return {k: pickle.loads(v) for k,v in datum.items()}
 
 def _transform_fn(input: tuple[str, str, BaseTask]) -> Iterator[Dict[str, Any]]:
     (patient_id, path, task) = input
@@ -131,9 +137,8 @@ def _transform_fn(input: tuple[str, str, BaseTask]) -> Iterator[Dict[str, Any]]:
         data_source=pl.read_parquet(path).filter(pl.col("patient_id") == patient_id),
     )
     for sample in task(patient):
-        sample = {k: pickle.dumps(v) for k,v in sample.items()}
-        yield sample
-
+        # Schema is too complex to be handled by LitData, so we pickle the sample here
+        yield _pickle(sample)
 
 class BaseDataset(ABC):
     """Abstract base class for all PyHealth datasets.
@@ -584,17 +589,17 @@ class BaseDataset(ABC):
                 chunk_bytes="64MB",
             )
 
-        sample_dataset = None
+        streaming_dataset = StreamingDataset(str(cache_dir), transform=_unpickle)
 
-        # SampleDataset(
-        #     samples,
-        #     input_schema=task.input_schema,
-        #     output_schema=task.output_schema,
-        #     dataset_name=self.dataset_name,
-        #     task_name=task,
-        #     input_processors=input_processors,
-        #     output_processors=output_processors,
-        # )
+        sample_dataset = SampleDataset(
+            streaming_dataset,
+            input_schema=task.input_schema, # type: ignore
+            output_schema=task.output_schema, # type: ignore
+            dataset_name=self.dataset_name,
+            task_name=task.task_name,
+            input_processors=input_processors,
+            output_processors=output_processors,
+        )
 
-        # logger.info(f"Generated {len(samples)} samples for task {task.task_name}")
+        logger.info(f"Generated {len(sample_dataset)} samples for task {task.task_name}")
         return sample_dataset

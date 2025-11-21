@@ -1,14 +1,15 @@
-from typing import Any, Dict, List, Optional, Tuple, Union, Type
+from typing import Any, Dict, Iterator, List, Optional, Tuple, Union, Type
 import inspect
 
-from torch.utils.data import Dataset
+from torch.utils.data import IterableDataset
+from litdata.streaming import StreamingDataset
 from tqdm import tqdm
 
 from ..processors import get_processor
 from ..processors.base_processor import FeatureProcessor
 
 
-class SampleDataset(Dataset):
+class SampleDataset(IterableDataset):
     """Sample dataset class for handling and processing data samples.
 
     Attributes:
@@ -23,7 +24,7 @@ class SampleDataset(Dataset):
 
     def __init__(
         self,
-        samples: List[Dict],
+        dataset: StreamingDataset,
         input_schema: Dict[str, Union[str, Type[FeatureProcessor], FeatureProcessor, Tuple[Union[str, Type[FeatureProcessor]], Dict[str, Any]]]],
         output_schema: Dict[str, Union[str, Type[FeatureProcessor], FeatureProcessor, Tuple[Union[str, Type[FeatureProcessor]], Dict[str, Any]]]],
         dataset_name: Optional[str] = None,
@@ -56,7 +57,7 @@ class SampleDataset(Dataset):
             dataset_name = ""
         if task_name is None:
             task_name = ""
-        self.samples = samples
+        self.dataset = dataset
         self.input_schema = input_schema
         self.output_schema = output_schema
         self.input_processors = input_processors if input_processors is not None else {}
@@ -69,7 +70,7 @@ class SampleDataset(Dataset):
         self.patient_to_index = {}
         self.record_to_index = {}
 
-        for i, sample in enumerate(samples):
+        for i, sample in enumerate(iter(self.dataset)):
             # Create patient_to_index mapping
             patient_id = sample.get("patient_id")
             if patient_id is not None:
@@ -128,7 +129,7 @@ class SampleDataset(Dataset):
         """Validates that the samples match the input and output schemas."""
         input_keys = set(self.input_schema.keys())
         output_keys = set(self.output_schema.keys())
-        for s in self.samples:
+        for s in iter(self.dataset):
             assert input_keys.issubset(s.keys()), "Input schema does not match samples."
             assert output_keys.issubset(s.keys()), (
                 "Output schema does not match samples."
@@ -141,19 +142,23 @@ class SampleDataset(Dataset):
         if not self.input_processors:
             for k, v in self.input_schema.items():
                 self.input_processors[k] = self._get_processor_instance(v)
-                self.input_processors[k].fit(self.samples, k)
+                self.input_processors[k].fit(iter(self.dataset), k)
         if not self.output_processors:
             for k, v in self.output_schema.items():
                 self.output_processors[k] = self._get_processor_instance(v)
-                self.output_processors[k].fit(self.samples, k)
+                self.output_processors[k].fit(iter(self.dataset), k)
         # Always process samples with the (fitted) processors
-        for sample in tqdm(self.samples, desc="Processing samples"):
+        for sample in tqdm(iter(self.dataset), desc="Processing samples"):
             for k, v in sample.items():
                 if k in self.input_processors:
                     sample[k] = self.input_processors[k].process(v)
                 elif k in self.output_processors:
                     sample[k] = self.output_processors[k].process(v)
         return
+
+    def __iter__(self) -> Iterator:
+        # TODO: transform samples on the fly
+        return self.dataset.__iter__()
 
     def __getitem__(self, index: int) -> Dict:
         """Returns a sample by index.
@@ -166,7 +171,7 @@ class SampleDataset(Dataset):
             task-specific attributes as key. Conversion to index/tensor
             will be done in the model.
         """
-        return self.samples[index]
+        return self.dataset.__getitem__(index)
 
     def __str__(self) -> str:
         """Returns a string representation of the dataset.
@@ -182,4 +187,4 @@ class SampleDataset(Dataset):
         Returns:
             int: The number of samples.
         """
-        return len(self.samples)
+        return self.dataset.__len__()
