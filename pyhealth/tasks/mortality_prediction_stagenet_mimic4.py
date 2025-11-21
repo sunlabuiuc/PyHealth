@@ -3,6 +3,7 @@ from typing import Any, ClassVar, Dict, List, Type
 
 import dask.dataframe as dd
 import pandas as pd
+import numpy as np
 import polars as pl
 
 from .base_task import BaseTask
@@ -189,7 +190,7 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
                 all_icd_times.append(time_from_previous)
 
             # Get lab events for this admission
-            labevents_df = patient.get_events(
+            labevents_dd: dd.DataFrame = patient.get_events(
                 event_type="labevents",
                 start=admission_time,
                 end=admission_dischtime,
@@ -197,63 +198,40 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
             )
 
             # Filter to relevant lab items
-            labevents_df = labevents_df.filter(
-                pl.col("labevents/itemid").is_in(self.LABITEMS)
-            )
+            labevents_dd: dd.DataFrame = labevents_dd[labevents_dd["labevents/itemid"].isin(self.LABITEMS)]
+            storetime_series: dd.Series = dd.to_datetime(labevents_dd["labevents/storetime"], format="%Y-%m-%d %H:%M:%S", errors="coerce")
+            labevents_dd: dd.DataFrame = labevents_dd[storetime_series <= np.datetime64(admission_dischtime)]
+            labevents_dd: dd.DataFrame = labevents_dd[["timestamp", "labevents/itemid", "labevents/valuenum"]].astype({"labevents/valuenum": "float64"})
+            labevents_df: pd.DataFrame = labevents_dd.compute()
 
-            # Parse storetime and filter
-            if labevents_df.height > 0:
-                labevents_df = labevents_df.with_columns(
-                    pl.col("labevents/storetime").str.strptime(
-                        pl.Datetime, "%Y-%m-%d %H:%M:%S"
-                    )
-                )
-                labevents_df = labevents_df.filter(
-                    pl.col("labevents/storetime") <= admission_dischtime
-                )
+            if not labevents_df.empty:
+                unique_timestamps = sorted(labevents_df["timestamp"].unique().tolist())
+                for lab_ts in unique_timestamps:
+                    # Get all lab events at this timestamp
+                    ts_labs: pd.DataFrame = labevents_df[labevents_df["timestamp"] == lab_ts]
 
-                if labevents_df.height > 0:
-                    # Select relevant columns
-                    labevents_df = labevents_df.select(
-                        pl.col("timestamp"),
-                        pl.col("labevents/itemid"),
-                        pl.col("labevents/valuenum").cast(pl.Float64),
-                    )
+                    # Create 10-dimensional vector (one per category)
+                    lab_vector = []
+                    for category_name in self.LAB_CATEGORY_NAMES:
+                        category_itemids = self.LAB_CATEGORIES[category_name]
 
-                    # Group by timestamp and aggregate into 10D vectors
-                    # For each timestamp, create vector of lab categories
-                    unique_timestamps = sorted(
-                        labevents_df["timestamp"].unique().to_list()
-                    )
+                        # Find first matching value for this category
+                        category_value = None
+                        for itemid in category_itemids:
+                            matching = ts_labs[ts_labs["labevents/itemid"] == itemid]
+                            if not matching.empty:
+                                category_value = matching["labevents/valuenum"].iloc[0]
+                                break
 
-                    for lab_ts in unique_timestamps:
-                        # Get all lab events at this timestamp
-                        ts_labs = labevents_df.filter(pl.col("timestamp") == lab_ts)
+                        lab_vector.append(category_value)
 
-                        # Create 10-dimensional vector (one per category)
-                        lab_vector = []
-                        for category_name in self.LAB_CATEGORY_NAMES:
-                            category_itemids = self.LAB_CATEGORIES[category_name]
+                    # Calculate time from admission start (hours)
+                    time_from_admission = (
+                        lab_ts - admission_time
+                    ).total_seconds() / 3600.0
 
-                            # Find first matching value for this category
-                            category_value = None
-                            for itemid in category_itemids:
-                                matching = ts_labs.filter(
-                                    pl.col("labevents/itemid") == itemid
-                                )
-                                if matching.height > 0:
-                                    category_value = matching["labevents/valuenum"][0]
-                                    break
-
-                            lab_vector.append(category_value)
-
-                        # Calculate time from admission start (hours)
-                        time_from_admission = (
-                            lab_ts - admission_time
-                        ).total_seconds() / 3600.0
-
-                        all_lab_values.append(lab_vector)
-                        all_lab_times.append(time_from_admission)
+                    all_lab_values.append(lab_vector)
+                    all_lab_times.append(time_from_admission)
 
         # Skip if no lab events (required for this task)
         if len(all_lab_values) == 0:
