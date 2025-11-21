@@ -213,7 +213,7 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
                     labevents_df = labevents_df.select(
                         pl.col("timestamp"),
                         pl.col("labevents/itemid"),
-                        pl.col("labevents/valuenum").cast(pl.Float64),
+                        pl.col("labevents/valuenum").str.strip_chars().replace("", None).cast(pl.Float64),
                     )
 
                     # Group by timestamp and aggregate into 10D vectors

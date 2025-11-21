@@ -276,18 +276,12 @@ class MIMIC4Dataset(BaseDataset):
         )
         self.setup_cache_dir(cache_dir=cache_dir, subfolder=subfolder)
 
-        # Combine data from all sub-datasets
-        log_memory_usage("Before combining data")
-        self.global_event_df = self._combine_data()
-        log_memory_usage("After combining data")
-
         # Cache attributes
-        self._collected_global_event_df = None
         self._unique_patient_ids = None
 
         log_memory_usage("Completed MIMIC4Dataset init")
 
-    def _combine_data(self) -> dd.DataFrame:
+    def load_data(self) -> dd.DataFrame:
         """
         Combines data from all initialized sub-datasets into a unified global event dataframe.
 
@@ -298,8 +292,10 @@ class MIMIC4Dataset(BaseDataset):
 
         # Collect global event dataframes from all sub-datasets
         for dataset_type, dataset in self.sub_datasets.items():
+            dataset_type: str
+            dataset: BaseDataset
             logger.info(f"Combining data from {dataset_type} dataset")
-            frames.append(dataset.global_event_df)
+            frames.append(dataset.load_data())
 
         # Concatenate all frames
         logger.info("Creating combined dataframe")
