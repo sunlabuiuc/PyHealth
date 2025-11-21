@@ -1,10 +1,10 @@
 import logging
 import os
 import warnings
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 import pandas as pd
-import polars as pl
+import dask.dataframe as dd
 
 try:
     import psutil
@@ -274,7 +274,7 @@ class MIMIC4Dataset(BaseDataset):
 
         log_memory_usage("Completed MIMIC4Dataset init")
 
-    def _combine_data(self) -> pl.LazyFrame:
+    def _combine_data(self) -> dd.DataFrame:
         """
         Combines data from all initialized sub-datasets into a unified global event dataframe.
 
@@ -293,4 +293,4 @@ class MIMIC4Dataset(BaseDataset):
         if len(frames) == 1:
             return frames[0]
         else:
-            return pl.concat(frames, how="diagonal")
+            return dd.concat(frames, axis=0, join="outer")
