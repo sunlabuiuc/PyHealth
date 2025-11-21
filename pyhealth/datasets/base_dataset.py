@@ -168,13 +168,8 @@ class BaseDataset(ABC):
         self.config = load_yaml_config(config_path)
         self.dev = dev
 
-        if cache_dir is None:
-            cache_dir = platformdirs.user_cache_dir(appname='pyhealth')
-            logger.info(f"No cache_dir provided. Using default cache for PyHealth: {cache_dir}")
-        cache_dir = Path(cache_dir)
-        self.cache_dir = cache_dir / self.uuid()
-        self.setup_cache_dir()
-        logger.info(f"Initializing {self.dataset_name} dataset cache directory to {self.cache_dir}")
+        subfolder = self.cache_subfolder(self.root, self.tables, self.dataset_name, self.dev)
+        self.setup_cache_dir(cache_dir=cache_dir, subfolder=subfolder)
 
         logger.info(
             f"Initializing {self.dataset_name} dataset from {self.root} (dev mode: {self.dev})"
@@ -186,7 +181,8 @@ class BaseDataset(ABC):
         self._collected_global_event_df = None
         self._unique_patient_ids = None
 
-    def uuid(self) -> str:
+    @staticmethod
+    def cache_subfolder(root: str, tables: List[str], dataset_name: str, dev: bool) -> str:
         """Generates a unique identifier for the dataset instance. This is used for creating 
         cache directories. The UUID is based on the root path, tables, dataset name, and dev mode.
 
@@ -194,61 +190,53 @@ class BaseDataset(ABC):
             str: A unique identifier string.
         """
         id_str = json.dumps({
-            "root": self.root,
-            "tables": sorted(self.tables),
-            "dataset_name": self.dataset_name,
-            "dev": self.dev,
+            "root": root,
+            "tables": sorted(tables),
+            "dataset_name": dataset_name,
+            "dev": dev,
         }, sort_keys=True)
         return str(uuid.uuid5(uuid.NAMESPACE_DNS, id_str))
 
-    def setup_cache_dir(self) -> None:
+    def setup_cache_dir(self, cache_dir: str | Path | None = None, subfolder: str = str(uuid.uuid4())) -> None:
         """Creates the cache directory structure.
+
+        Args:
+            cache_dir (str | Path | None): The base cache directory. If None, a default cache
+                directory will be created under the platform's cache directory.
+            subfolder (str): Subfolder name for this dataset instance's cache.
         """
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-        
+        if cache_dir is None:
+            cache_dir = platformdirs.user_cache_dir(appname='pyhealth')
+            logger.info(f"No cache_dir provided. Using default cache for PyHealth: {cache_dir}")
+        cache_dir = Path(cache_dir)
+        self.cache_dir = cache_dir / subfolder
+
+        self.cache_dir.mkdir(parents=True, exist_ok=True)        
         # Create tables subdirectory to store cached table files
         (self.cache_dir / "tables").mkdir(parents=True, exist_ok=True)
+        # Create global_event_df subdirectory to store cached global event dataframe
+        (self.cache_dir / "global_event_df").mkdir(parents=True, exist_ok=True)
         
+        logger.info(f"Initializing {self.dataset_name} dataset cache directory to {self.cache_dir}")
+
     @property
-    def collected_global_event_df(self) -> pl.DataFrame:
+    def collected_global_event_df(self) -> dd.DataFrame:
         """Collects and returns the global event data frame.
 
         Returns:
-            pl.DataFrame: The collected global event data frame.
+            dd.DataFrame: The collected global event data frame.
         """
-        if self._collected_global_event_df is None:
-            logger.info("Collecting global event dataframe...")
+        path = self.cache_dir / "global_event_df" / "cached.parquet"
 
-            # Collect the dataframe - with dev mode limiting if applicable
-            df = self.global_event_df
-            # TODO: dev doesn't seem to improve the speed / memory usage
+        if not path_exists(str(path)):
             if self.dev:
-                # Limit the number of patients in dev mode
-                logger.info("Dev mode enabled: limiting to 1000 patients")
-                limited_patients = df.select(pl.col("patient_id")).unique().limit(1000)
-                df = df.join(limited_patients, on="patient_id", how="inner")
+                patients = self.global_event_df["patient_id"].unique().head(1000).tolist()
+                filter = self.global_event_df["patient_id"].isin(patients)
+                self.global_event_df[filter].to_parquet(path)
+            else:
+                self.global_event_df.to_parquet(path)
 
-            self._collected_global_event_df = df.collect()
-
-            # Profile the Polars collect() operation (commented out by default)
-            # self._collected_global_event_df, profile = df.profile()
-            # profile = profile.with_columns([
-            #     (pl.col("end") - pl.col("start")).alias("duration"),
-            # ])
-            # profile = profile.with_columns([
-            #     (pl.col("duration") / profile["duration"].sum() * 100).alias("percentage")
-            # ])
-            # profile = profile.sort("duration", descending=True)
-            # with pl.Config() as cfg:
-            #     cfg.set_tbl_rows(-1)
-            #     cfg.set_fmt_str_lengths(200)
-            #     print(profile)
-
-            logger.info(
-                f"Collected dataframe with shape: {self._collected_global_event_df.shape}"
-            )
-
-        return self._collected_global_event_df
+        return dd.read_parquet(str(path))
 
     def load_data(self) -> dd.DataFrame:
         """Loads data from the specified tables.

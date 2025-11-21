@@ -2,6 +2,7 @@ import logging
 import os
 import warnings
 from typing import List, Optional
+from pathlib import Path
 
 import pandas as pd
 import dask.dataframe as dd
@@ -209,6 +210,7 @@ class MIMIC4Dataset(BaseDataset):
         ehr_config_path: Optional[str] = None,
         note_config_path: Optional[str] = None,
         cxr_config_path: Optional[str] = None,
+        cache_dir: str | Path | None = None,
         dataset_name: str = "mimic4",
         dev: bool = False,
     ):
@@ -240,6 +242,7 @@ class MIMIC4Dataset(BaseDataset):
                 root=ehr_root,
                 tables=ehr_tables,
                 config_path=ehr_config_path,
+                cache_dir=cache_dir,
             )
             log_memory_usage("After EHR dataset initialization")
 
@@ -250,6 +253,7 @@ class MIMIC4Dataset(BaseDataset):
                 root=note_root,
                 tables=note_tables,
                 config_path=note_config_path,
+                cache_dir=cache_dir,
             )
             log_memory_usage("After Note dataset initialization")
 
@@ -260,8 +264,17 @@ class MIMIC4Dataset(BaseDataset):
                 root=cxr_root,
                 tables=cxr_tables,
                 config_path=cxr_config_path,
+                cache_dir=cache_dir,
             )
             log_memory_usage("After CXR dataset initialization")
+
+        subfolder = BaseDataset.cache_subfolder(
+            str(ehr_root) + str(note_root) + str(cxr_root), 
+            ehr_tables + note_tables + cxr_tables,
+            self.dataset_name, 
+            self.dev
+        )
+        self.setup_cache_dir(cache_dir=cache_dir, subfolder=subfolder)
 
         # Combine data from all sub-datasets
         log_memory_usage("Before combining data")
