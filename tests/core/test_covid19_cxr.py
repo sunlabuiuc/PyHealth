@@ -2,7 +2,7 @@
 Unit tests for the COVID19CXRDataset class.
 
 Author:
-    Kilo Code
+    Giovanni M. Dall'Olio, GMD Bioinformatics
 """
 import os
 import shutil
@@ -11,7 +11,6 @@ import unittest
 from unittest.mock import patch
 
 from pyhealth.datasets import COVID19CXRDataset
-from pyhealth.tasks import COVID19CXRClassification
 
 
 class TestCOVID19CXRDataset(unittest.TestCase):
@@ -66,15 +65,19 @@ class TestCOVID19CXRDataset(unittest.TestCase):
         # Mock the metadata file as existing
         metadata_path = os.path.join(self.temp_dir, "covid19_cxr-metadata-pyhealth.csv")
         with open(metadata_path, 'w') as f:
-            f.write("path\nfake_path.png")
+            f.write("""path,url,label
+/home/ubuntu/Downloads/COVID-19_Radiography_Dataset//COVID/images/COVID-1.png,https://sirm.org/category/senza-categoria/covid-19/,COVID
+/home/ubuntu/Downloads/COVID-19_Radiography_Dataset//COVID/images/COVID-2.png,https://sirm.org/category/senza-categoria/covid-19/,COVID
+/home/ubuntu/Downloads/COVID-19_Radiography_Dataset//COVID/images/COVID-3.png,https://sirm.org/category/senza-categoria/covid-19/,COVID
+/home/ubuntu/Downloads/COVID-19_Radiography_Dataset//COVID/images/COVID-167.png,https://github.com/ml-workgroup/covid-19-image-repository/tree/master/png,COVID
+/home/ubuntu/Downloads/COVID-19_Radiography_Dataset//COVID/images/COVID-336.png,https://eurorad.org,COVID
+/home/ubuntu/Downloads/COVID-19_Radiography_Dataset//COVID/images/COVID-967.png,https://github.com/ieee8023/covid-chestxray-dataset,COVID"""
+        )
 
         dataset = COVID19CXRDataset(root=self.temp_dir)
 
         # Check that BaseDataset.__init__ was called
         mock_base_init.assert_called_once()
-
-    # Removed test_default_task as it requires instantiation
-
 
 if __name__ == "__main__":
     unittest.main()
