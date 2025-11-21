@@ -418,7 +418,7 @@ class BaseDataset(ABC):
         if not isinstance(df, dd.DataFrame):
             raise TypeError("collected_global_event_df must be a Dask DataFrame")
 
-        patient_df = df.loc[patient_id]
+        patient_df: pl.DataFrame = pl.from_pandas(df.loc[patient_id].compute())
         return Patient(patient_id=patient_id, data_source=patient_df)
 
     def iter_patients(self, df: Optional[dd.DataFrame] = None) -> Iterator[Patient]:
