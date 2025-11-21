@@ -208,4 +208,6 @@ class Patient:
 
         if return_df:
             return df
-        return [Event.from_dict(d) for d in df.to_dict("records")]
+        # Dask DataFrames do not expose .to_dict on lazy expressions; compute to pandas first.
+        records = df.compute().to_dict("records")
+        return [Event.from_dict(d) for d in records]
