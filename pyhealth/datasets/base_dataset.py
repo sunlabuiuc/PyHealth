@@ -6,10 +6,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional
 from urllib.parse import urlparse, urlunparse
+import uuid
+import json
 
 import polars as pl
 import requests
 from tqdm import tqdm
+import platformdirs
 
 from ..data import Patient
 from ..tasks import BaseTask
@@ -108,29 +111,44 @@ class BaseDataset(ABC):
 
     def __init__(
         self,
-        root: str,
+        root: str | Path,
         tables: List[str],
-        dataset_name: Optional[str] = None,
-        config_path: Optional[str] = None,
+        dataset_name: str | None = None,
+        config_path: str | None = None,
+        cache_dir: str | Path | None = None,
         dev: bool = False,
     ):
         """Initializes the BaseDataset.
 
         Args:
-            root (str): The root directory where dataset files are stored.
+            root (str | Path): The root directory where dataset files are stored.
             tables (List[str]): List of table names to load.
-            dataset_name (Optional[str]): Name of the dataset. Defaults to class name.
-            config_path (Optional[str]): Path to the configuration YAML file.
+            dataset_name (str | None): Name of the dataset. Defaults to class name.
+            config_path (str | None): Path to the configuration YAML file.
+            cache_dir (str | Path | None): Directory to cache processed data. If None, a default
+                cache directory will be created under the platform's cache directory.
             dev (bool): Whether to run in dev mode (limits to 1000 patients).
         """
+        if config_path is None:
+            raise ValueError("config_path must be provided")
+
         if len(set(tables)) != len(tables):
             logger.warning("Duplicate table names in tables list. Removing duplicates.")
             tables = list(set(tables))
+
         self.root = root
         self.tables = tables
         self.dataset_name = dataset_name or self.__class__.__name__
         self.config = load_yaml_config(config_path)
         self.dev = dev
+
+        if cache_dir is None:
+            cache_dir = platformdirs.user_cache_dir(appname='pyhealth')
+            logger.info(f"No cache_dir provided. Using default cache for PyHealth: {cache_dir}")
+        cache_dir = Path(cache_dir)
+        self.cache_dir = cache_dir / self.uuid()
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Initializing {self.dataset_name} dataset cache directory to {self.cache_dir}")
 
         logger.info(
             f"Initializing {self.dataset_name} dataset from {self.root} (dev mode: {self.dev})"
@@ -141,6 +159,21 @@ class BaseDataset(ABC):
         # Cached attributes
         self._collected_global_event_df = None
         self._unique_patient_ids = None
+
+    def uuid(self) -> str:
+        """Generates a unique identifier for the dataset instance. This is used for creating 
+        cache directories. The UUID is based on the root path, tables, dataset name, and dev mode.
+
+        Returns:
+            str: A unique identifier string.
+        """
+        id_str = json.dumps({
+            "root": str(self.root),
+            "tables": sorted(self.tables),
+            "dataset_name": self.dataset_name,
+            "dev": self.dev,
+        }, sort_keys=True)
+        return str(uuid.uuid5(uuid.NAMESPACE_DNS, id_str))
 
     @property
     def collected_global_event_df(self) -> pl.DataFrame:
