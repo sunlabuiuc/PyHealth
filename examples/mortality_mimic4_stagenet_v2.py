@@ -50,11 +50,16 @@ def generate_holdout_set(
 
     # Get max nested length from ICD processor
     max_icd_len = icd_processor._max_nested_len
-    padding = icd_processor._padding
+    # Handle both old and new processor versions
+    padding = getattr(icd_processor, "_padding", 0)
 
     print("\n=== Hold-out Set Generation ===")
+    print(f"Processor attributes: {dir(icd_processor)}")
+    print(f"Has _padding attribute: {hasattr(icd_processor, '_padding')}")
     print(f"ICD max nested length: {max_icd_len}")
-    print(f"Padding: {padding}")
+    print(f"Padding (via getattr): {padding}")
+    if hasattr(icd_processor, "_padding"):
+        print(f"Padding (direct access): {icd_processor._padding}")
     print(f"Observed max (without padding): {max_icd_len - padding}")
 
     synthetic_samples = []
@@ -142,6 +147,7 @@ base_dataset = MIMIC4Dataset(
         "procedures_icd",
         "labevents",
     ],
+    # dev=True,
 )
 
 # STEP 2: Apply StageNet mortality prediction task with padding
@@ -214,14 +220,14 @@ print(f"\nModel initialized with {num_params} parameters")
 # STEP 5: Train the model
 trainer = Trainer(
     model=model,
-    device="cuda:5",  # or "cpu"
+    device="cpu",  # or "cpu"
     metrics=["pr_auc", "roc_auc", "accuracy", "f1"],
 )
 
 trainer.train(
     train_dataloader=train_loader,
     val_dataloader=val_loader,
-    epochs=50,
+    epochs=1,
     monitor="roc_auc",
     optimizer_params={"lr": 1e-5},
 )
@@ -304,11 +310,11 @@ print("=" * 60)
 print(f"\nProcessors saved at: {processor_dir}")
 print("\nICD Codes Processor:")
 print(f"  {icd_processor}")
-print(f"  Vocabulary size: {icd_processor.vocab_size()}")
+print(f"  Vocabulary size: {icd_processor.size()}")
 print(f"  <unk> token index: {icd_processor.code_vocab['<unk>']}")
 print(f"  <pad> token index: {icd_processor.code_vocab['<pad>']}")
 print(f"  Max nested length: {icd_processor._max_nested_len}")
-print(f"  Padding capacity: {icd_processor._padding}")
+print(f"  Padding capacity: {getattr(icd_processor, '_padding', 0)}")
 
 labs_processor = sample_dataset.input_processors["labs"]
 print("\nLabs Processor:")

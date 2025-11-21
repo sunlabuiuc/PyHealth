@@ -118,9 +118,9 @@ class StageNetProcessor(FeatureProcessor):
             observed_max = max(1, max_inner_len)
             self._max_nested_len = observed_max + self._padding
 
-        # Set <unk> token to len(vocab) - 1 after building vocabulary
-        # (-1 because <unk> is already in vocab)
-        self.code_vocab["<unk>"] = len(self.code_vocab) - 1
+        # Set <unk> token to the next available index
+        # Since <unk> is already in the vocab dict, we use _next_index
+        self.code_vocab["<unk>"] = self._next_index
 
     def process(
         self, value: Tuple[Optional[List], List]
