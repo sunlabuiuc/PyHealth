@@ -10,6 +10,7 @@ from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 
 from pyhealth import BASE_CACHE_PATH
+from pyhealth.datasets.sample_dataset import SampleDataset
 from pyhealth.utils import create_directory
 
 MODULE_CACHE_PATH = os.path.join(BASE_CACHE_PATH, "datasets")
@@ -319,7 +320,7 @@ def collate_fn_dict_with_padding(batch: List[dict]) -> dict:
 
 
 def get_dataloader(
-    dataset: torch.utils.data.Dataset, batch_size: int, shuffle: bool = False
+    dataset: SampleDataset, batch_size: int, shuffle: bool = False
 ) -> DataLoader:
     """Creates a DataLoader for a given dataset.
 
@@ -331,10 +332,10 @@ def get_dataloader(
     Returns:
         A DataLoader instance for the dataset.
     """
+    dataset.set_shuffle(shuffle)
     dataloader = DataLoader(
         dataset,
         batch_size=batch_size,
-        shuffle=shuffle,
         collate_fn=collate_fn_dict_with_padding,
     )
 

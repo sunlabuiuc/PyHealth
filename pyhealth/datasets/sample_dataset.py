@@ -88,6 +88,19 @@ class SampleDataset(IterableDataset):
         self.validate()
         self.build()
 
+    def set_shuffle(self, shuffle: bool) -> None:
+        """Sets whether to shuffle the dataset.
+
+        Args:
+            shuffle (bool): Whether to shuffle the dataset.
+        """
+        if hasattr(self.dataset, "set_shuffle"):
+            self.dataset.set_shuffle(shuffle)
+        else:
+            raise NotImplementedError(
+                "Shuffle is not implemented for this dataset type."
+            )
+
     def _get_processor_instance(self, processor_spec):
         """Get processor instance from either string alias, class reference, processor instance, or tuple with kwargs.
 

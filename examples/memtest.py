@@ -1,7 +1,4 @@
 # %%
-import multiprocessing as mp
-mp.set_start_method("spawn", force=True)
-
 from pyhealth.datasets import (
     MIMIC4Dataset,
     get_dataloader,
@@ -16,32 +13,33 @@ from dask.distributed import Client, LocalCluster
 
 if __name__ == "__main__":
     dask.config.set({"temporary-directory": "/mnt/tmpfs/"})
-    cluster = LocalCluster(
-        n_workers=4,
+    with LocalCluster(
+        n_workers=16,
         threads_per_worker=1,
         memory_limit="8GB",
-    )
-    client = Client(cluster)
-    
-    # STEP 1: Load MIMIC-IV base dataset
-    base_dataset = MIMIC4Dataset(
-        ehr_root="/home/logic/physionet.org/files/mimiciv/3.1",
-        ehr_tables=[
-            "patients",
-            "admissions",
-            "diagnoses_icd",
-            "procedures_icd",
-            "labevents",
-        ],
-    )
+    ) as cluster:
+        with Client(cluster) as client:
+            # STEP 1: Load MIMIC-IV base dataset
+            base_dataset = MIMIC4Dataset(
+                ehr_root="/home/logic/physionet.org/files/mimiciv/3.1",
+                ehr_tables=[
+                    "patients",
+                    "admissions",
+                    "diagnoses_icd",
+                    "procedures_icd",
+                    "labevents",
+                ],
+                dev=True
+            )
+            base_dataset._merged_cache()
 
     print(f"Patients: {base_dataset.unique_patient_ids[:10]}, ...")
 
     # STEP 2: Apply StageNet mortality prediction task
     sample_dataset = base_dataset.set_task(
         MortalityPredictionStageNetMIMIC4(),
+        num_workers=4,
     )
-
     print(f"Total samples: {len(sample_dataset)}")
     print(f"Input schema: {sample_dataset.input_schema}")
     print(f"Output schema: {sample_dataset.output_schema}")
