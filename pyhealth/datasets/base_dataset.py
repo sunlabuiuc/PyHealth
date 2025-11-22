@@ -90,59 +90,27 @@ def alt_path(path: str) -> str:
         raise ValueError(f"Path does not have expected extension: {path}")
 
 
-def scan_csv_gz_or_csv_tsv(path: str) -> pl.LazyFrame:
-    """
-    Scan a CSV.gz, CSV, TSV.gz, or TSV file and returns a LazyFrame.
-    It will fall back to the other extension if not found.
-
-    Args:
-        path (str): URL or local path to a .csv, .csv.gz, .tsv, or .tsv.gz file
-
-    Returns:
-        pl.LazyFrame: The LazyFrame for the CSV.gz, CSV, TSV.gz, or TSV file.
-    """
-
-    def scan_file(file_path: str) -> pl.LazyFrame:
-        separator = "\t" if ".tsv" in file_path else ","
-        return pl.scan_csv(file_path, separator=separator, infer_schema=False)
-
-    if path_exists(path):
-        return scan_file(path)
-
-    # Try the alternative extension
-    if path.endswith(".csv.gz"):
-        alt_path = path[:-3]  # Remove .gz -> try .csv
-    elif path.endswith(".csv"):
-        alt_path = f"{path}.gz"  # Add .gz -> try .csv.gz
-    elif path.endswith(".tsv.gz"):
-        alt_path = path[:-3]  # Remove .gz -> try .tsv
-    elif path.endswith(".tsv"):
-        alt_path = f"{path}.gz"  # Add .gz -> try .tsv.gz
-    else:
-        raise FileNotFoundError(f"Path does not have expected extension: {path}")
-
-    if path_exists(alt_path):
-        logger.info(f"Original path does not exist. Using alternative: {alt_path}")
-        return scan_file(alt_path)
-
-    raise FileNotFoundError(f"Neither path exists: {path} or {alt_path}")
-
 def _pickle(datum: dict[str, Any]) -> dict[str, bytes]:
-    return {k: pickle.dumps(v) for k,v in datum.items()}
+    return {k: pickle.dumps(v) for k, v in datum.items()}
+
 
 def _unpickle(datum: dict[str, bytes]) -> dict[str, Any]:
-    return {k: pickle.loads(v) for k,v in datum.items()}
+    return {k: pickle.loads(v) for k, v in datum.items()}
 
-def _transform_fn(input: tuple[str, str, BaseTask]) -> Iterator[Dict[str, Any]]:
-    (patient_id, path, task) = input
-    with open(f"{path}/index.json", "rb") as f:
+def _get_patient(merged_cache: str, patient_id: str) -> Patient:
+    with open(merged_cache + "/index.json", "rb") as f:
         n_partitions = json.load(f)["n_partitions"]
     bucket = xxhash.xxh64_intdigest(patient_id) % n_partitions
-    path = f"{path}/bucket={bucket}"
+    path = f"{merged_cache}/bucket={bucket}"
     patient = Patient(
         patient_id=patient_id,
         data_source=pl.read_parquet(path).filter(pl.col("patient_id") == patient_id),
     )
+    return patient
+
+def _transform_fn(input: tuple[str, str, BaseTask]) -> Iterator[Dict[str, Any]]:
+    (patient_id, path, task) = input
+    patient = _get_patient(path, patient_id)
     for sample in task(patient):
         # Schema is too complex to be handled by LitData, so we pickle the sample here
         yield _pickle(sample)
@@ -201,9 +169,6 @@ class BaseDataset(ABC):
             f"Initializing {self.dataset_name} dataset from {self.root} (dev mode: {self.dev})"
         )
 
-        # Cached attributes
-        self._unique_patient_ids = None
-
     @staticmethod
     def cache_subfolder(
         root: str, tables: List[str], dataset_name: str, dev: bool
@@ -246,26 +211,6 @@ class BaseDataset(ABC):
             f"Initializing {self.dataset_name} dataset cache directory to {self.cache_dir}"
         )
 
-    def _table_cache(self, table_name: str) -> str:
-        """Generates the cache path for a specific table.
-
-        Args:
-            table_name (str): The name of the table.
-
-        Returns:
-            str: The cache path for the table.
-        """
-        (self.cache_dir / "tables").mkdir(parents=True, exist_ok=True)
-        return str(self.cache_dir / "tables" / f"{table_name}.parquet")
-
-    def _dataset_cache(self) -> str:
-        """Generates the cache path for the global event dataframe.
-
-        Returns:
-            str: The cache path for the global event dataframe.
-        """
-        return str(self.cache_dir / "global_event_df.parquet")
-
     def _task_cache(self, task_name: str) -> str:
         """Generates the cache path for a specific task.
 
@@ -276,43 +221,61 @@ class BaseDataset(ABC):
         """
         return str(self.cache_dir / "tasks" / task_name)
 
-    @property
-    def collected_global_event_df(self) -> pl.LazyFrame:
+    def _merged_cache(self) -> str:
         """Collects and returns the global event data frame.
 
         Returns:
             dd.DataFrame: The collected global event data frame.
         """
+        ret_path = str(self.cache_dir / "global_event_df.parquet")
 
-        if not path_exists(self._dataset_cache()):
+        if not path_exists(ret_path):
             global_event_df = self.load_data()
+            # In dev mode, limit to 1000 patients
             if self.dev:
                 patients = global_event_df["patient_id"].unique().head(1000).tolist()
                 filter = global_event_df["patient_id"].isin(patients)
                 global_event_df: dd.DataFrame = global_event_df[filter]
 
-            mem_usage = global_event_df.memory_usage(deep=False).compute().sum()
-            n_partitions = mem_usage // (256 * 1024 * 1024) + 1
-            bucket = global_event_df["patient_id"].apply(
-                xxhash.xxh64_intdigest, meta=("patient_id", "int")
-            ) % n_partitions
-            global_event_df = global_event_df.assign(bucket=bucket)
+            # Collect unique patient IDs
+            patients = global_event_df["patient_id"].unique().compute().tolist()
+            n_patients = len(patients)
+            n_events = global_event_df.shape[0].compute()
+            logger.info(f"Collected {n_events} events for {n_patients} patients.")
 
-            logger.info(f"Estimated full global event dataframe size {mem_usage / (1024**3):.2f} GB")
-            logger.info(f"Repartitioning global event dataframe into {n_partitions} partitions for caching.")
+            # Estimate memory usage and partitioning
+            mem_usage = global_event_df.memory_usage(deep=False).compute().sum()
+            n_partitions = mem_usage // (256 * 1024 * 1024) + 1 # 256 MB per partition
+            bucket = (
+                global_event_df["patient_id"].apply(
+                    xxhash.xxh64_intdigest, meta=("patient_id", "int")
+                )
+                % n_partitions
+            )
+            global_event_df = global_event_df.assign(bucket=bucket)
+            logger.info(
+                f"Estimated size {mem_usage / (1024**3):.2f} GB, write to {n_partitions} partitions."
+            )
 
             client = get_client()
             handle = global_event_df.to_parquet(
-                self._dataset_cache(),
+                ret_path,
                 partition_on=["bucket"],
                 write_index=False,
                 compute=False,
             )
             future = client.compute(handle)
             progress(future)
-            with open(self._dataset_cache() + "/index.json", "w") as future:
-                json.dump({"n_partitions": int(n_partitions)}, future)
-        return pl.scan_parquet(self._dataset_cache())
+            with open(ret_path + "/index.json", "w") as future:
+                json.dump({
+                    "n_partitions": int(n_partitions),
+                    "n_patients": int(n_patients),
+                    "n_events": int(n_events),
+                    "patients": patients,
+                    "algorithm": "xxhash64_modulo_partitioning",
+                }, future)
+        
+        return ret_path
 
     def load_data(self) -> dd.DataFrame:
         """Loads data from the specified tables.
@@ -344,7 +307,11 @@ class BaseDataset(ABC):
         csv_path = clean_path(csv_path)
 
         logger.info(f"Scanning table: {table_name} from {csv_path}")
-        df: dd.DataFrame = self.load_csv_or_tsv(table_name, csv_path)
+        df: dd.DataFrame = dd.read_parquet(
+            self._table_cache(table_name, source_path=csv_path),
+            split_row_groups=True,  # type: ignore
+            blocksize="64MB",
+        )
 
         # Check if there is a preprocessing function for this table
         # TODO: we need to update the preprocess function to work with Dask DataFrame
@@ -361,8 +328,10 @@ class BaseDataset(ABC):
             other_csv_path = f"{self.root}/{join_cfg.file_path}"
             other_csv_path = clean_path(other_csv_path)
             logger.info(f"Joining with table: {other_csv_path}")
-            join_df: dd.DataFrame = self.load_csv_or_tsv(
-                f"{table_name}_join_{i}", other_csv_path
+            join_df: dd.DataFrame = dd.read_parquet(
+                self._table_cache(f"{table_name}_join_{i}", other_csv_path),
+                split_row_groups=True,  # type: ignore
+                blocksize="64MB",
             )
             join_key = join_cfg.on
             columns = join_cfg.columns
@@ -416,55 +385,65 @@ class BaseDataset(ABC):
 
         return event_frame
 
-    def load_csv_or_tsv(self, table_name: str, path: str) -> dd.DataFrame:
-        """Loads a CSV.gz, CSV, TSV.gz, or TSV file into a Dask DataFrame.
+    def _table_cache(self, table_name: str, source_path: str | None = None) -> str:
+        """Generates the cache path for a specific table. If the cached Parquet file does not exist,
+        it will convert the source CSV/TSV file to Parquet and save it to the cache.
 
         Args:
             table_name (str): The name of the table.
-            path (str): The URL or local path to the .csv, .csv.gz, .tsv, or .tsv.gz file.
-        Returns:
-            dd.DataFrame: The loaded Dask DataFrame.
-        """
-        if not path_exists(self._table_cache(table_name)):
-            # convert .gz file to .parquet file since Dask cannot split on gz files directly
-            if not path_exists(path):
-                if not path_exists(alt_path(path)):
-                    raise FileNotFoundError(
-                        f"Neither path exists: {path} or {alt_path(path)}"
-                    )
-                path = alt_path(path)
+            source_path (str | None): The source CSV/TSV file path. If None, it assumes the
+                Parquet file already exists in the cache.
 
+        Returns:
+            str: The cache path for the table.
+        """
+        # Ensure the tables cache directory exists
+        (self.cache_dir / "tables").mkdir(parents=True, exist_ok=True)
+        ret_path = str(self.cache_dir / "tables" / f"{table_name}.parquet")
+
+        if not path_exists(ret_path):
+            if source_path is None:
+                raise FileNotFoundError(
+                    f"Table {table_name} not found in cache and no source_path provided."
+                )
+
+            # Check if source_path exists, else try alternative path
+            if not path_exists(source_path):
+                if not path_exists(alt_path(source_path)):
+                    raise FileNotFoundError(
+                        f"Neither path exists: {source_path} or {alt_path(source_path)}"
+                    )
+                source_path = alt_path(source_path)
+
+            # Determine delimiter based on file extension
             delimiter = (
-                "\t" if path.endswith(".tsv") or path.endswith(".tsv.gz") else ","
+                "\t"
+                if source_path.endswith(".tsv") or source_path.endswith(".tsv.gz")
+                else ","
             )
 
             # Always infer schema as string to avoid incorrect type inference
             schema_reader = pv.open_csv(
-                path,
+                source_path,
                 read_options=pv.ReadOptions(block_size=1 << 26),  # 64 MB
                 parse_options=pv.ParseOptions(delimiter=delimiter),
             )
             schema = pa.schema(
                 [pa.field(name, pa.string()) for name in schema_reader.schema.names]
             )
+
+            # Convert CSV/TSV to Parquet
             csv_reader = pv.open_csv(
-                path,
+                source_path,
                 read_options=pv.ReadOptions(block_size=1 << 26),  # 64 MB
                 parse_options=pv.ParseOptions(delimiter=delimiter),
                 convert_options=pv.ConvertOptions(column_types=schema),
             )
-            with pq.ParquetWriter(
-                self._table_cache(table_name), csv_reader.schema
-            ) as writer:
+            with pq.ParquetWriter(ret_path, csv_reader.schema) as writer:
                 for batch in csv_reader:
                     writer.write_batch(batch)
 
-            pass
-        return dd.read_parquet(
-            self._table_cache(table_name),
-            split_row_groups=True,  # type: ignore
-            blocksize="64MB",
-        )
+        return ret_path
 
     @property
     def unique_patient_ids(self) -> List[str]:
@@ -473,16 +452,9 @@ class BaseDataset(ABC):
         Returns:
             List[str]: List of unique patient IDs.
         """
-        if self._unique_patient_ids is None:
-            self._unique_patient_ids = (
-                self.collected_global_event_df.select(pl.col("patient_id"))
-                .unique()
-                .collect()
-                .to_series()
-                .to_list()
-            )
-            logger.info(f"Found {len(self._unique_patient_ids)} unique patient IDs")
-        return self._unique_patient_ids
+        with open(self._merged_cache() + "/index.json", "r") as f:
+            index_info = json.load(f)
+            return index_info["patients"]
 
     def get_patient(self, patient_id: str) -> Patient:
         """Retrieves a Patient object for the given patient ID.
@@ -499,10 +471,7 @@ class BaseDataset(ABC):
         assert (
             patient_id in self.unique_patient_ids
         ), f"Patient {patient_id} not found in dataset"
-        patient_df: pl.DataFrame = self.collected_global_event_df.filter(
-            pl.col("patient_id") == patient_id
-        ).collect()
-        return Patient(patient_id=patient_id, data_source=patient_df)
+        return _get_patient(self._merged_cache(), patient_id)
 
     def iter_patients(self, df: Optional[pl.LazyFrame] = None) -> Iterator[Patient]:
         """Yields Patient objects for each unique patient in the dataset.
@@ -510,17 +479,16 @@ class BaseDataset(ABC):
         Yields:
             Iterator[Patient]: An iterator over Patient objects.
         """
-        if df is None:
-            df = self.collected_global_event_df
-
         for patitent_id in self.unique_patient_ids:
             yield self.get_patient(patitent_id)
 
     def stats(self) -> None:
         """Prints statistics about the dataset."""
-        df = self.collected_global_event_df
-        n_patients = len(self.unique_patient_ids)
-        n_events = df.select(pl.count()).collect().item()
+        with open(self._merged_cache() + "/index.json", "r") as f:
+            index_info = json.load(f)
+        n_patients = index_info["n_patients"]
+        n_events = index_info["n_events"]
+
         print(f"Dataset: {self.dataset_name}")
         print(f"Dev mode: {self.dev}")
         print(f"Number of patients: {n_patients}")
@@ -592,7 +560,7 @@ class BaseDataset(ABC):
             ld.optimize(
                 fn=_transform_fn,
                 inputs=[
-                    (patient_id, self._dataset_cache(), task)
+                    (patient_id, self._merged_cache(), task)
                     for patient_id in self.unique_patient_ids
                 ],
                 output_dir=str(cache_dir),
@@ -604,13 +572,15 @@ class BaseDataset(ABC):
 
         sample_dataset = SampleDataset(
             streaming_dataset,
-            input_schema=task.input_schema, # type: ignore
-            output_schema=task.output_schema, # type: ignore
+            input_schema=task.input_schema,  # type: ignore
+            output_schema=task.output_schema,  # type: ignore
             dataset_name=self.dataset_name,
             task_name=task.task_name,
             input_processors=input_processors,
             output_processors=output_processors,
         )
 
-        logger.info(f"Generated {len(sample_dataset)} samples for task {task.task_name}")
+        logger.info(
+            f"Generated {len(sample_dataset)} samples for task {task.task_name}"
+        )
         return sample_dataset
