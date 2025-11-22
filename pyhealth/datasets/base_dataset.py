@@ -97,10 +97,16 @@ def _pickle(datum: dict[str, Any]) -> dict[str, bytes]:
 def _unpickle(datum: dict[str, bytes]) -> dict[str, Any]:
     return {k: pickle.loads(v) for k, v in datum.items()}
 
+
+def _patient_bucket(patient_id: str, n_partitions: int) -> int:
+    bucket = xxhash.xxh64_intdigest(patient_id) % n_partitions
+    return bucket
+
+
 def _get_patient(merged_cache: str, patient_id: str) -> Patient:
     with open(merged_cache + "/index.json", "rb") as f:
         n_partitions = json.load(f)["n_partitions"]
-    bucket = xxhash.xxh64_intdigest(patient_id) % n_partitions
+    bucket = _patient_bucket(patient_id, n_partitions)
     path = f"{merged_cache}/bucket={bucket}"
     patient = Patient(
         patient_id=patient_id,
@@ -108,12 +114,21 @@ def _get_patient(merged_cache: str, patient_id: str) -> Patient:
     )
     return patient
 
-def _transform_fn(input: tuple[str, str, BaseTask]) -> Iterator[Dict[str, Any]]:
-    (patient_id, path, task) = input
-    patient = _get_patient(path, patient_id)
-    for sample in task(patient):
-        # Schema is too complex to be handled by LitData, so we pickle the sample here
-        yield _pickle(sample)
+
+def _transform_fn(
+    input: tuple[int, str, BaseTask],
+) -> Iterator[Dict[str, Any]]:
+    (bucket_id, merged_cache, task) = input
+    path = f"{merged_cache}/bucket={bucket_id}"
+    # This is more efficient than reading patient by patient
+    grouped = pl.read_parquet(path).group_by("patient_id")
+
+    for patient_id, patient_df in grouped:
+        patient = Patient(patient_id=str(patient_id[0]), data_source=patient_df)
+        for sample in task(patient):
+            # Schema is too complex to be handled by LitData, so we pickle the sample here
+            yield _pickle(sample)
+
 
 class BaseDataset(ABC):
     """Abstract base class for all PyHealth datasets.
@@ -245,12 +260,10 @@ class BaseDataset(ABC):
 
             # Estimate memory usage and partitioning
             mem_usage = global_event_df.memory_usage(deep=False).compute().sum()
-            n_partitions = mem_usage // (256 * 1024 * 1024) + 1 # 256 MB per partition
-            bucket = (
-                global_event_df["patient_id"].apply(
-                    xxhash.xxh64_intdigest, meta=("patient_id", "int")
-                )
-                % n_partitions
+            n_partitions = mem_usage // (256 * 1024 * 1024) + 1  # 256 MB per partition
+            bucket = global_event_df["patient_id"].apply(
+                lambda pid: _patient_bucket(pid, n_partitions),
+                meta=("patient_id", "int"),
             )
             global_event_df = global_event_df.assign(bucket=bucket)
             logger.info(
@@ -267,14 +280,17 @@ class BaseDataset(ABC):
             future = client.compute(handle)
             progress(future)
             with open(ret_path + "/index.json", "w") as future:
-                json.dump({
-                    "n_partitions": int(n_partitions),
-                    "n_patients": int(n_patients),
-                    "n_events": int(n_events),
-                    "patients": patients,
-                    "algorithm": "xxhash64_modulo_partitioning",
-                }, future)
-        
+                json.dump(
+                    {
+                        "n_partitions": int(n_partitions),
+                        "n_patients": int(n_patients),
+                        "n_events": int(n_events),
+                        "patients": patients,
+                        "algorithm": "xxhash64_modulo_partitioning",
+                    },
+                    future,
+                )
+
         return ret_path
 
     def load_data(self) -> dd.DataFrame:
@@ -557,12 +573,14 @@ class BaseDataset(ABC):
         if not path_exists(str(cache_dir)):
             import litdata as ld
 
+            with open(self._merged_cache() + "/index.json", "r") as f:
+                index_info = json.load(f)
+                n_partitions = index_info["n_partitions"]
+                inputs = [(i, self._merged_cache(), task) for i in range(n_partitions)]
+
             ld.optimize(
                 fn=_transform_fn,
-                inputs=[
-                    (patient_id, self._merged_cache(), task)
-                    for patient_id in self.unique_patient_ids
-                ],
+                inputs=inputs,
                 output_dir=str(cache_dir),
                 num_workers=num_workers,
                 chunk_bytes="64MB",
