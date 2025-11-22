@@ -574,6 +574,8 @@ class BaseDataset(ABC):
         if not path_exists(str(cache_dir)):
             import litdata as ld
 
+            get_client().close() # Close existing client to avoid conflicts with LitData
+
             with open(self._merged_cache() + "/index.json", "r") as f:
                 index_info = json.load(f)
                 n_partitions = index_info["n_partitions"]
