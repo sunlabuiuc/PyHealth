@@ -291,9 +291,9 @@ class BaseDataset(ABC):
                     },
                     future,
                 )
-            
-            client.shutdown()
-
+        
+        # Ensure the Dask client is properly closed to avoid resource leaks
+        get_client().shutdown()
         return ret_path
 
     def load_data(self) -> dd.DataFrame:
