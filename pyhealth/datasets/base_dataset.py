@@ -99,7 +99,7 @@ def _unpickle(datum: dict[str, bytes]) -> dict[str, Any]:
 
 
 def _patient_bucket(patient_id: str, n_partitions: int) -> int:
-    bucket = xxhash.xxh64_intdigest(patient_id) % n_partitions
+    bucket = int(xxhash.xxh64_intdigest(patient_id) % n_partitions)
     return bucket
 
 
@@ -234,6 +234,7 @@ class BaseDataset(ABC):
         Returns:
             str: The cache path for the task.
         """
+        (self.cache_dir / "tasks").mkdir(parents=True, exist_ok=True)
         return str(self.cache_dir / "tasks" / task_name)
 
     def _merged_cache(self) -> str:
