@@ -39,8 +39,9 @@ dependencies = [
   "pandas~=2.3.1",
   "pandarallel~=1.6.5",
   "pydantic~=2.11.7",
-  "dask[dataframe,distributed]~=2025.11.0",
+  "dask[complete]~=2025.11.0",
   "litdata~=0.2.58",
+  "xxhash~=3.6.0",
 ]
 license = "BSD-3-Clause"
 license-files = ["LICENSE.md"]

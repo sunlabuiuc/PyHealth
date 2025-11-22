@@ -11,6 +11,7 @@ import operator
 from collections import namedtuple
 import pickle
 
+from distributed import get_client
 import polars as pl
 import pandas as pd
 import dask.dataframe as dd
@@ -20,6 +21,8 @@ import pyarrow.parquet as pq
 import requests
 import platformdirs
 from litdata.streaming import StreamingDataset
+from dask.distributed import progress
+import xxhash
 
 from ..data import Patient
 from ..tasks import BaseTask
@@ -132,6 +135,10 @@ def _unpickle(datum: dict[str, bytes]) -> dict[str, Any]:
 
 def _transform_fn(input: tuple[str, str, BaseTask]) -> Iterator[Dict[str, Any]]:
     (patient_id, path, task) = input
+    with open(f"{path}/index.json", "rb") as f:
+        n_partitions = json.load(f)["n_partitions"]
+    bucket = xxhash.xxh64_intdigest(patient_id) % n_partitions
+    path = f"{path}/bucket={bucket}"
     patient = Patient(
         patient_id=patient_id,
         data_source=pl.read_parquet(path).filter(pl.col("patient_id") == patient_id),
@@ -283,8 +290,28 @@ class BaseDataset(ABC):
                 patients = global_event_df["patient_id"].unique().head(1000).tolist()
                 filter = global_event_df["patient_id"].isin(patients)
                 global_event_df: dd.DataFrame = global_event_df[filter]
-            global_event_df = global_event_df.sort_values(by=["patient_id"])
-            global_event_df.to_parquet(self._dataset_cache())
+
+            mem_usage = global_event_df.memory_usage(deep=False).compute().sum()
+            n_partitions = mem_usage // (256 * 1024 * 1024) + 1
+            bucket = global_event_df["patient_id"].apply(
+                xxhash.xxh64_intdigest, meta=("patient_id", "int")
+            ) % n_partitions
+            global_event_df = global_event_df.assign(bucket=bucket)
+
+            logger.info(f"Estimated full global event dataframe size {mem_usage / (1024**3):.2f} GB")
+            logger.info(f"Repartitioning global event dataframe into {n_partitions} partitions for caching.")
+
+            client = get_client()
+            handle = global_event_df.to_parquet(
+                self._dataset_cache(),
+                partition_on=["bucket"],
+                write_index=False,
+                compute=False,
+            )
+            future = client.compute(handle)
+            progress(future)
+            with open(self._dataset_cache() + "/index.json", "w") as future:
+                json.dump({"n_partitions": int(n_partitions)}, future)
         return pl.scan_parquet(self._dataset_cache())
 
     def load_data(self) -> dd.DataFrame:
@@ -498,22 +525,6 @@ class BaseDataset(ABC):
         print(f"Dev mode: {self.dev}")
         print(f"Number of patients: {n_patients}")
         print(f"Number of events: {n_events}")
-
-    def transform_fn(self, task: BaseTask) -> Callable[[str], Iterator[Dict[str, Any]]]:
-        ctx = namedtuple("ctx", ["data", "task"])(
-            data=self._dataset_cache(),
-            task=task,
-        )
-
-        def f(patient_id: str) -> Iterator[Dict[str, Any]]:
-            patient_df: pl.DataFrame = pl.read_parquet(ctx.data).filter(
-                pl.col("patient_id") == patient_id
-            )
-            patient = Patient(patient_id=patient_id, data_source=patient_df)
-            for sample in ctx.task(patient):
-                yield sample
-
-        return f
 
     @property
     def default_task(self) -> Optional[BaseTask]:
