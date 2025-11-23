@@ -1,4 +1,5 @@
 # %%
+from pyhealth.data.data import Patient
 from pyhealth.datasets import (
     MIMIC4Dataset,
     get_dataloader,
@@ -7,9 +8,10 @@ from pyhealth.datasets import (
 from pyhealth.models import StageNet
 from pyhealth.tasks import MortalityPredictionStageNetMIMIC4
 from pyhealth.trainer import Trainer
-import torch
 import dask.config
-from dask.distributed import Client, LocalCluster
+
+import warnings
+warnings.filterwarnings("ignore", "pkg_resources is deprecated as an API")
 
 if __name__ == "__main__":
     dask.config.set({"temporary-directory": "/mnt/tmpfs/"})
@@ -23,56 +25,57 @@ if __name__ == "__main__":
             "procedures_icd",
             "labevents",
         ],
-        num_workers=8,
+        num_workers=2,
         mem_per_worker="8GB",
         dev=True
     )
 
-    # print(f"Patients: {base_dataset.unique_patient_ids[:10]}, ...")
+    print(f"Patients: {base_dataset.unique_patient_ids[:10]}, ...")
 
-    # # STEP 2: Apply StageNet mortality prediction task
-    # sample_dataset = base_dataset.set_task(
-    #     MortalityPredictionStageNetMIMIC4(),
-    #     num_workers=4,
-    # )
-    # print(f"Total samples: {len(sample_dataset)}")
-    # print(f"Input schema: {sample_dataset.input_schema}")
-    # print(f"Output schema: {sample_dataset.output_schema}")
+    # STEP 2: Apply StageNet mortality prediction task
+    sample_dataset = base_dataset.set_task(
+        MortalityPredictionStageNetMIMIC4(),
+        num_workers=2,
+    )
+    print(f"Total samples: {len(sample_dataset)}")
+    print(f"Input schema: {sample_dataset.input_schema}")
+    print(f"Output schema: {sample_dataset.output_schema}")
 
-    # # Inspect a sample
-    # sample = next(iter(sample_dataset))
-    # print("\nSample structure:")
-    # print(f"  Patient ID: {sample['patient_id']}")
-    # print(f"ICD Codes: {sample['icd_codes']}")
-    # print(f"  Labs shape: {len(sample['labs'][0])} timesteps")
-    # print(f"  Mortality: {sample['mortality']}")
+    # Inspect a sample
+    sample = next(iter(sample_dataset))
+    print("\nSample structure:")
+    print(f"  Patient ID: {sample['patient_id']}")
+    print(f"ICD Codes: {sample['icd_codes']}")
+    print(f"  Labs shape: {len(sample['labs'][0])} timesteps")
+    print(f"  Mortality: {sample['mortality']}")
 
-    # # Create dataloaders
-    # train_loader = get_dataloader(sample_dataset, batch_size=256, shuffle=True)
+    # Create dataloaders
+    train_loader = get_dataloader(sample_dataset, batch_size=256, shuffle=True)
 
-    # # STEP 4: Initialize StageNet model
-    # model = StageNet(
-    #     dataset=sample_dataset,
-    #     embedding_dim=128,
-    #     chunk_size=128,
-    #     levels=3,
-    #     dropout=0.3,
-    # )
+    # STEP 4: Initialize StageNet model
+    model = StageNet(
+        dataset=sample_dataset,
+        embedding_dim=128,
+        chunk_size=128,
+        levels=3,
+        dropout=0.3,
+    )
 
-    # num_params = sum(p.numel() for p in model.parameters())
-    # print(f"\nModel initialized with {num_params} parameters")
+    num_params = sum(p.numel() for p in model.parameters())
+    print(f"\nModel initialized with {num_params} parameters")
 
-    # # STEP 5: Train the model
-    # trainer = Trainer(
-    #     model=model,
-    #     device="cuda:5",  # or "cpu"
-    #     metrics=["pr_auc", "roc_auc", "accuracy", "f1"],
-    # )
+    # STEP 5: Train the model
+    trainer = Trainer(
+        model=model,
+        device="cpu",  # or "cpu"
+        metrics=["pr_auc", "roc_auc", "accuracy", "f1"],
+        enable_logging=False,
+    )
+    print("\nStarting training...")
 
-    # trainer.train(
-    #     train_dataloader=train_loader,
-    #     val_dataloader=train_loader,
-    #     epochs=50,
-    #     monitor="roc_auc",
-    #     optimizer_params={"lr": 1e-5},
-    # )
+    trainer.train(
+        train_dataloader=train_loader,
+        epochs=50,
+        monitor="roc_auc",
+        optimizer_params={"lr": 1e-5},
+    )

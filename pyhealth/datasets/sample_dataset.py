@@ -4,6 +4,7 @@ import inspect
 from torch.utils.data import IterableDataset
 from litdata.streaming import StreamingDataset
 from tqdm import tqdm
+import pickle
 
 from ..processors import get_processor
 from ..processors.base_processor import FeatureProcessor
@@ -88,6 +89,13 @@ class SampleDataset(IterableDataset):
         self.validate()
         self.build()
 
+        # Apply processors
+        self.dataset = StreamingDataset(
+            input_dir=self.dataset.input_dir,
+            cache_dir=self.dataset.cache_dir,
+            transform=self.transform,
+        )
+
     def set_shuffle(self, shuffle: bool) -> None:
         """Sets whether to shuffle the dataset.
 
@@ -160,30 +168,22 @@ class SampleDataset(IterableDataset):
             for k, v in self.output_schema.items():
                 self.output_processors[k] = self._get_processor_instance(v)
                 self.output_processors[k].fit(iter(self.dataset), k)
-        # Always process samples with the (fitted) processors
-        for sample in tqdm(iter(self.dataset), desc="Processing samples"):
-            for k, v in sample.items():
-                if k in self.input_processors:
-                    sample[k] = self.input_processors[k].process(v)
-                elif k in self.output_processors:
-                    sample[k] = self.output_processors[k].process(v)
         return
 
+    def transform(self, sample) -> Dict:
+        for k, v in sample.items():
+            if k in self.input_processors:
+                sample[k] = self.input_processors[k].process(pickle.loads(v))
+            elif k in self.output_processors:
+                sample[k] = self.output_processors[k].process(pickle.loads(v))
+            else:
+                sample[k] = pickle.loads(v)
+        return sample
+
     def __iter__(self) -> Iterator:
-        # TODO: transform samples on the fly
         return self.dataset.__iter__()
 
     def __getitem__(self, index: int) -> Dict:
-        """Returns a sample by index.
-
-        Args:
-            index (int): Index of the sample to retrieve.
-
-        Returns:
-            Dict: A dict with patient_id, visit_id/record_id, and other
-            task-specific attributes as key. Conversion to index/tensor
-            will be done in the model.
-        """
         return self.dataset.__getitem__(index)
 
     def __str__(self) -> str:
