@@ -107,28 +107,16 @@ def _patient_bucket(patient_id: str, n_partitions: int) -> int:
     return bucket
 
 
-def _get_patient(merged_cache: str, patient_id: str) -> Patient:
-    with open(merged_cache + "/index.json", "rb") as f:
-        n_partitions = json.load(f)["n_partitions"]
-    bucket = _patient_bucket(patient_id, n_partitions)
-    path = f"{merged_cache}/bucket={bucket}"
-    patient = Patient(
-        patient_id=patient_id,
-        data_source=pl.read_parquet(path).filter(pl.col("patient_id") == patient_id),
-    )
-    return patient
-
-
 def _transform_fn(
     input: tuple[int, str, BaseTask],
 ) -> Iterator[Dict[str, Any]]:
     (bucket_id, merged_cache, task) = input
     path = f"{merged_cache}/bucket={bucket_id}"
     # This is more efficient than reading patient by patient
-    grouped = pl.read_parquet(path).group_by("patient_id")
+    grouped = pd.read_parquet(path).groupby("patient_id")
 
     for patient_id, patient_df in grouped:
-        patient = Patient(patient_id=str(patient_id[0]), data_source=patient_df)
+        patient = Patient(patient_id=str(patient_id), data_source=patient_df)
         for sample in task(patient):
             # Schema is too complex to be handled by LitData, so we pickle the sample here
             yield _pickle(sample)
@@ -223,17 +211,6 @@ class BaseDataset(ABC):
 
         return cache_dir
 
-    def _task_cache(self, task_name: str) -> str:
-        """Generates the cache path for a specific task.
-
-        Args:
-            task_name (str): The name of the task.
-        Returns:
-            str: The cache path for the task.
-        """
-        (self.cache_dir / "tasks").mkdir(parents=True, exist_ok=True)
-        return str(self.cache_dir / "tasks" / task_name)
-
     def _table_cache(self, table_name: str, source_path: str | None = None) -> str:
         """Generates the cache path for a specific table. If the cached Parquet file does not exist,
         it will convert the source CSV/TSV file to Parquet and save it to the cache.
@@ -307,7 +284,6 @@ class BaseDataset(ABC):
                 n_workers=self.num_workers,
                 threads_per_worker=1,
                 memory_limit=self.mem_per_worker,
-                config={"distributed.nanny.terminate_timeout": "60s"},
             ) as cluster:
                 with Client(cluster) as client:
                     global_event_df = self.load_data()
@@ -506,7 +482,18 @@ class BaseDataset(ABC):
         assert (
             patient_id in self.unique_patient_ids
         ), f"Patient {patient_id} not found in dataset"
-        return _get_patient(self._joined_cache(), patient_id)
+
+        path = self._joined_cache()
+        with open(f"{path}/index.json", "rb") as f:
+            n_partitions = json.load(f)["n_partitions"]
+        bucket = _patient_bucket(patient_id, n_partitions)
+        path = f"{path}/bucket={bucket}"
+        df = pd.read_parquet(path)
+        patient = Patient(
+            patient_id=patient_id,
+            data_source=df[df["patient_id"] == patient_id],
+        )
+        return patient
 
     def iter_patients(self, df: Optional[pl.LazyFrame] = None) -> Iterator[Patient]:
         """Yields Patient objects for each unique patient in the dataset.
@@ -584,7 +571,7 @@ class BaseDataset(ABC):
                 f"This argument is no longer supported: cache_format={cache_format}"
             )
         if cache_dir is None:
-            cache_dir = self._task_cache(task.task_name)
+            cache_dir = str(self.cache_dir / "tasks" / task.task_name)
             logger.info(
                 "No cache_dir provided. Using default task cache dir: %s", cache_dir
             )
