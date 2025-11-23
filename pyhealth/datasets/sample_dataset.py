@@ -1,11 +1,11 @@
 from typing import Any, Dict, Iterator, List, Optional, Tuple, Union, Type
+from collections.abc import Sequence
 from bisect import bisect_right
 import inspect
 
 from torch.utils.data import IterableDataset
 from litdata.streaming import StreamingDataset
 from litdata.utilities.train_test_split import deepcopy_dataset
-from tqdm import tqdm
 import pickle
 
 from ..processors import get_processor
@@ -203,7 +203,7 @@ class SampleSubset(IterableDataset):
         indices (List[int]): List of indices to include in the subset.
     """
 
-    def __init__(self, dataset: SampleDataset, indices: List[int]) -> None:
+    def __init__(self, dataset: SampleDataset, indices: Sequence[int]) -> None:
         self.dataset_name = dataset.dataset_name
         self.task_name = dataset.task_name
 
@@ -214,7 +214,7 @@ class SampleSubset(IterableDataset):
         )
 
     def _build_subset_dataset(
-        self, base_dataset: StreamingDataset, indices: List[int]
+        self, base_dataset: StreamingDataset, indices: Sequence[int]
     ) -> Tuple[StreamingDataset, int]:
         """Create a StreamingDataset restricted to the provided indices."""
         if len(base_dataset.subsampled_files) != len(base_dataset.region_of_interest):
