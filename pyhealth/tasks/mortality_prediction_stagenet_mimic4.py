@@ -1,7 +1,9 @@
 from datetime import datetime
 from typing import Any, ClassVar, Dict, List, Type
 
-import polars as pl
+import pandas as pd
+
+from pyhealth.data.data import Patient
 
 from .base_task import BaseTask
 
@@ -75,7 +77,7 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
         item for itemids in LAB_CATEGORIES.values() for item in itemids
     ]
 
-    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+    def __call__(self, patient: Patient) -> List[Dict[str, Any]]:
         """Process a patient to create mortality prediction samples.
 
         Creates ONE sample per patient with all admissions aggregated.
@@ -89,7 +91,7 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
             procedures, labs across visits, and final mortality label
         """
         # Filter patients by age (>= 18)
-        demographics = patient.get_events(event_type="patients")
+        demographics = patient.get_events_py(event_type="patients")
         if not demographics:
             return []
 
@@ -103,7 +105,7 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
             return []
 
         # Get all admissions
-        admissions = patient.get_events(event_type="admissions")
+        admissions = patient.get_events_py(event_type="admissions")
         if len(admissions) < 1:
             return []
 
@@ -156,7 +158,7 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
                 pass
 
             # Get diagnosis codes for this admission using hadm_id
-            diagnoses_icd = patient.get_events(
+            diagnoses_icd = patient.get_events_py(
                 event_type="diagnoses_icd",
                 filters=[("hadm_id", "==", admission.hadm_id)],
             )
@@ -167,7 +169,7 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
             ]
 
             # Get procedure codes for this admission using hadm_id
-            procedures_icd = patient.get_events(
+            procedures_icd = patient.get_events_py(
                 event_type="procedures_icd",
                 filters=[("hadm_id", "==", admission.hadm_id)],
             )
@@ -185,46 +187,51 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
                 all_icd_times.append(time_from_previous)
 
             # Get lab events for this admission
-            labevents_df = patient.get_events(
+            labevents_df = patient.get_events_df(
                 event_type="labevents",
                 start=admission_time,
                 end=admission_dischtime,
-                return_df=True,
             )
 
             # Filter to relevant lab items
-            labevents_df = labevents_df.filter(
-                pl.col("labevents/itemid").is_in(self.LABITEMS)
-            )
+            labevents_df = labevents_df[
+                labevents_df["labevents/itemid"].isin(self.LABITEMS)
+            ]
 
             # Parse storetime and filter
-            if labevents_df.height > 0:
-                labevents_df = labevents_df.with_columns(
-                    pl.col("labevents/storetime").str.strptime(
-                        pl.Datetime, "%Y-%m-%d %H:%M:%S"
-                    )
+            if len(labevents_df) > 0:
+                labevents_df = labevents_df.copy()
+                labevents_df["labevents/storetime"] = pd.to_datetime(
+                    labevents_df["labevents/storetime"],
+                    format="%Y-%m-%d %H:%M:%S",
+                    errors="coerce",
                 )
-                labevents_df = labevents_df.filter(
-                    pl.col("labevents/storetime") <= admission_dischtime
-                )
+                labevents_df = labevents_df[
+                    labevents_df["labevents/storetime"] <= admission_dischtime
+                ]
 
-                if labevents_df.height > 0:
+                if len(labevents_df) > 0:
                     # Select relevant columns
-                    labevents_df = labevents_df.select(
-                        pl.col("timestamp"),
-                        pl.col("labevents/itemid"),
-                        pl.col("labevents/valuenum").str.strip_chars().replace("", None).cast(pl.Float64),
+                    labevents_df = labevents_df.loc[
+                        :, ["timestamp", "labevents/itemid", "labevents/valuenum"]
+                    ].copy()
+                    labevents_df["labevents/valuenum"] = pd.to_numeric(
+                        labevents_df["labevents/valuenum"]
+                            .astype(str)
+                            .str.strip()
+                            .replace("", pd.NA), # type: ignore
+                        errors="coerce",
                     )
 
                     # Group by timestamp and aggregate into 10D vectors
                     # For each timestamp, create vector of lab categories
                     unique_timestamps = sorted(
-                        labevents_df["timestamp"].unique().to_list()
+                        labevents_df["timestamp"].unique().tolist()
                     )
 
                     for lab_ts in unique_timestamps:
                         # Get all lab events at this timestamp
-                        ts_labs = labevents_df.filter(pl.col("timestamp") == lab_ts)
+                        ts_labs = labevents_df[labevents_df["timestamp"] == lab_ts]
 
                         # Create 10-dimensional vector (one per category)
                         lab_vector = []
@@ -234,11 +241,13 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
                             # Find first matching value for this category
                             category_value = None
                             for itemid in category_itemids:
-                                matching = ts_labs.filter(
-                                    pl.col("labevents/itemid") == itemid
-                                )
-                                if matching.height > 0:
-                                    category_value = matching["labevents/valuenum"][0]
+                                matching = ts_labs[
+                                    ts_labs["labevents/itemid"] == itemid
+                                ]
+                                if len(matching) > 0:
+                                    category_value = matching[
+                                        "labevents/valuenum"
+                                    ].iloc[0]
                                     break
 
                             lab_vector.append(category_value)
