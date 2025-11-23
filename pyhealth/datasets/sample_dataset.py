@@ -197,8 +197,16 @@ class SampleSubset(IterableDataset):
     def __init__(self, dataset: SampleDataset, indices: List[int]) -> None:
         self.dataset_name = dataset.dataset_name
         self.task_name = dataset.task_name
-        base_dataset = deepcopy_dataset(dataset.dataset)
 
+        base_dataset = deepcopy_dataset(dataset.dataset)
+        self.dataset, self._length = self._build_subset_dataset(
+            base_dataset, indices
+        )
+
+    def _build_subset_dataset(
+        self, base_dataset: StreamingDataset, indices: List[int]
+    ) -> Tuple[StreamingDataset, int]:
+        """Create a StreamingDataset restricted to the provided indices."""
         if len(base_dataset.subsampled_files) != len(base_dataset.region_of_interest):
             raise ValueError(
                 "The provided dataset has mismatched subsampled_files and region_of_interest lengths."
@@ -253,12 +261,13 @@ class SampleSubset(IterableDataset):
 
             prev_chunk_idx = chunk_idx
 
-        self.dataset: StreamingDataset = base_dataset
-        self.dataset.subsampled_files = new_subsampled_files
-        self.dataset.region_of_interest = new_roi
-        self.dataset.reset()
-        self._length = sum(end - start for start, end in new_roi)
+        base_dataset.subsampled_files = new_subsampled_files
+        base_dataset.region_of_interest = new_roi
+        base_dataset.reset()
+        subset_length = sum(end - start for start, end in new_roi)
 
+        return base_dataset, subset_length
+    
     def __iter__(self) -> Iterator:
         """Returns an iterator over the dataset samples."""
         return self.dataset.__iter__()
