@@ -236,4 +236,4 @@ class Patient:
             df = df.loc[reduce(operator.and_, exprs)]
         if return_df:
             return df
-        return [Event.from_dict(d) for d in df.to_dict(orient="records")]
+        return [Event.from_dict(d) for d in df.to_dict(orient="records")] # type: ignore
