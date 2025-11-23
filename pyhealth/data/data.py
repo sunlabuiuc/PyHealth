@@ -173,6 +173,14 @@ class Patient:
         else:
             return df
 
+    def get_events_py(self, **kawargs) -> List[Event]:
+        """Type-safe wrapper for get_events."""
+        return self.get_events(**kawargs, return_df=False) # type: ignore
+
+    def get_events_df(self, **kawargs) -> pd.DataFrame:
+        """DataFrame wrapper for get_events."""
+        return self.get_events(**kawargs, return_df=True) # type: ignore
+
     def get_events(
         self,
         event_type: Optional[str] = None,
