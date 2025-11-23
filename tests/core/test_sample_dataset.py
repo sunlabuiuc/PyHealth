@@ -87,11 +87,19 @@ class TestSampleDatasetAndSubset(unittest.TestCase):
         self.assertEqual(output_proc.fit_seen, [10, 20, 30])
 
     def test_sample_dataset_returns_processed_items(self) -> None:
+        # __getitem__ path
         item = self.sample_dataset[0]
         self.assertEqual(item["x"], "in-1")
         self.assertEqual(item["y"], "out-10")
         self.assertEqual(item["patient_id"], "p1")
         self.assertEqual(item["record_id"], "r1")
+
+        # __iter__ path
+        self.sample_dataset.dataset.reset()
+        items = list(iter(self.sample_dataset))
+        self.assertEqual([s["x"] for s in items], ["in-1", "in-2", "in-3"])
+        self.assertEqual([s["y"] for s in items], ["out-10", "out-20", "out-30"])
+        self.assertEqual([s["patient_id"] for s in items], ["p1", "p2", "p3"])
 
     def test_sample_subset_respects_indices_and_processing(self) -> None:
         subset_indices = [1, 2]
@@ -99,6 +107,7 @@ class TestSampleDatasetAndSubset(unittest.TestCase):
 
         self.assertEqual(len(subset), len(subset_indices))
 
+        # __getitem__ path
         second = subset[0]
         third = subset[1]
 
@@ -109,3 +118,11 @@ class TestSampleDatasetAndSubset(unittest.TestCase):
         self.assertEqual(third["x"], "in-3")
         self.assertEqual(third["y"], "out-30")
         self.assertEqual(third["patient_id"], "p3")
+
+        # __iter__ path
+        subset.dataset.reset()
+        iter_items = list(iter(subset))
+        self.assertEqual(len(iter_items), 2)
+        self.assertEqual([s["x"] for s in iter_items], ["in-2", "in-3"])
+        self.assertEqual([s["y"] for s in iter_items], ["out-20", "out-30"])
+        self.assertEqual([s["patient_id"] for s in iter_items], ["p2", "p3"])
