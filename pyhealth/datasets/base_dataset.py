@@ -211,7 +211,9 @@ class BaseDataset(ABC):
         def _to_lower(col_name: str) -> str:
             lower_name = col_name.lower()
             if lower_name != col_name:
-                logger.warning("Renaming column %s to lowercase %s", col_name, lower_name)
+                logger.warning(
+                    "Renaming column %s to lowercase %s", col_name, lower_name
+                )
             return lower_name
 
         table_cfg = self.config.tables[table_name]
@@ -281,7 +283,8 @@ class BaseDataset(ABC):
 
         # Flatten attribute columns with event_type prefix
         attribute_columns = [
-            pl.col(attr.lower()).alias(f"{table_name}/{attr}") for attr in attribute_cols
+            pl.col(attr.lower()).alias(f"{table_name}/{attr}")
+            for attr in attribute_cols
         ]
 
         event_frame = df.select(base_columns + attribute_columns)
