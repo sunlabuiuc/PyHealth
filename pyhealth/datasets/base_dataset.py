@@ -1,7 +1,6 @@
 import logging
 import os
 import pickle
-import time
 from abc import ABC
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -336,6 +335,7 @@ class BaseDataset(ABC):
         if df is None:
             df = self.collected_global_event_df
         grouped = df.group_by("patient_id")
+
         for patient_id, patient_df in grouped:
             patient_id = patient_id[0]
             yield Patient(patient_id=patient_id, data_source=patient_df)
@@ -443,58 +443,23 @@ class BaseDataset(ABC):
                 ):
                     samples.extend(task(patient))
             else:
-                # multi-threading with lazy iteration and bounded queue
+                # multi-threading (not recommended)
                 logger.info(
-                    "Generating samples for %s with %d workers",
-                    task.task_name,
-                    num_workers,
+                    f"Generating samples for {task.task_name} with "
+                    f"{num_workers} workers"
                 )
-
-                logger.info("Computing total patient count...")
-                start_time = time.time()
-                total_patients = filtered_global_event_df["patient_id"].n_unique()
-                elapsed = time.time() - start_time
-                logger.info(
-                    "n_unique() completed in %.2f seconds, found %d patients",
-                    elapsed,
-                    total_patients,
-                )
-
-                patients_iter = self.iter_patients(filtered_global_event_df)
-                max_in_flight = num_workers * 4
-
+                patients = list(self.iter_patients(filtered_global_event_df))
                 with ThreadPoolExecutor(max_workers=num_workers) as executor:
-                    in_flight = {}
-
-                    # Prime the in-flight queue
-                    try:
-                        for _ in range(max_in_flight):
-                            patient = next(patients_iter)
-                            fut = executor.submit(task, patient)
-                            in_flight[fut] = None
-                    except StopIteration:
-                        pass
-
-                    with tqdm(
-                        total=total_patients,
-                        desc=f"Processing {task.task_name}",
-                    ) as pbar:
-                        while in_flight:
-                            for fut in as_completed(list(in_flight.keys())):
-                                in_flight.pop(fut, None)
-                                result = fut.result()
-                                samples.extend(result)
-                                pbar.update(1)
-
-                                try:
-                                    next_patient = next(patients_iter)
-                                    new_fut = executor.submit(task, next_patient)
-                                    in_flight[new_fut] = None
-                                except StopIteration:
-                                    pass
-
-                                # Re-enter as_completed with updated future set
-                                break
+                    futures = [executor.submit(task, patient) for patient in patients]
+                    for future in tqdm(
+                        as_completed(futures),
+                        total=len(futures),
+                        desc=(
+                            f"Collecting samples for {task.task_name} "
+                            f"from {num_workers} workers"
+                        ),
+                    ):
+                        samples.extend(future.result())
 
             # Cache the samples if cache_dir is provided
             if cache_dir is not None:

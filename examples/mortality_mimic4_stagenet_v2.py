@@ -166,7 +166,7 @@ if os.path.exists(os.path.join(processor_dir, "input_processors.pkl")):
 
     sample_dataset = base_dataset.set_task(
         MortalityPredictionStageNetMIMIC4(padding=20),
-        num_workers=4,
+        num_workers=1,
         cache_dir=cache_dir,
         input_processors=input_processors,
         output_processors=output_processors,
@@ -175,7 +175,7 @@ else:
     print("\n=== Fitting New Processors ===")
     sample_dataset = base_dataset.set_task(
         MortalityPredictionStageNetMIMIC4(padding=20),
-        num_workers=4,
+        num_workers=1,
         cache_dir=cache_dir,
     )
 
@@ -227,7 +227,7 @@ trainer = Trainer(
 trainer.train(
     train_dataloader=train_loader,
     val_dataloader=val_loader,
-    epochs=1,
+    epochs=20,
     monitor="roc_auc",
     optimizer_params={"lr": 1e-5},
 )
