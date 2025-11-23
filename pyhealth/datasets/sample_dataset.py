@@ -1,8 +1,10 @@
 from typing import Any, Dict, Iterator, List, Optional, Tuple, Union, Type
+from bisect import bisect_right
 import inspect
 
 from torch.utils.data import IterableDataset
 from litdata.streaming import StreamingDataset
+from litdata.utilities.train_test_split import deepcopy_dataset
 from tqdm import tqdm
 import pickle
 
@@ -96,19 +98,6 @@ class SampleDataset(IterableDataset):
             transform=self.transform,
         )
 
-    def set_shuffle(self, shuffle: bool) -> None:
-        """Sets whether to shuffle the dataset.
-
-        Args:
-            shuffle (bool): Whether to shuffle the dataset.
-        """
-        if hasattr(self.dataset, "set_shuffle"):
-            self.dataset.set_shuffle(shuffle)
-        else:
-            raise NotImplementedError(
-                "Shuffle is not implemented for this dataset type."
-            )
-
     def _get_processor_instance(self, processor_spec):
         """Get processor instance from either string alias, class reference, processor instance, or tuple with kwargs.
 
@@ -171,6 +160,7 @@ class SampleDataset(IterableDataset):
         return
 
     def transform(self, sample) -> Dict:
+        """Applies the input and output processors to a sample."""
         for k, v in sample.items():
             if k in self.input_processors:
                 sample[k] = self.input_processors[k].process(pickle.loads(v))
@@ -181,23 +171,106 @@ class SampleDataset(IterableDataset):
         return sample
 
     def __iter__(self) -> Iterator:
+        """Returns an iterator over the dataset samples."""
         return self.dataset.__iter__()
 
     def __getitem__(self, index: int) -> Dict:
+        """Gets a sample by index. Try to use iterator for better performance."""
         return self.dataset.__getitem__(index)
 
     def __str__(self) -> str:
-        """Returns a string representation of the dataset.
-
-        Returns:
-            str: A string with the dataset and task names.
-        """
+        """String representation of the SampleDataset."""
         return f"Sample dataset {self.dataset_name} {self.task_name}"
 
     def __len__(self) -> int:
-        """Returns the number of samples in the dataset.
-
-        Returns:
-            int: The number of samples.
-        """
+        """Returns the number of samples in the dataset."""
         return self.dataset.__len__()
+
+class SampleSubset(IterableDataset):
+    """A subset of the SampleDataset.
+
+    Args:
+        sample_dataset (SampleDataset): The original SampleDataset.
+        indices (List[int]): List of indices to include in the subset.
+    """
+
+    def __init__(self, dataset: SampleDataset, indices: List[int]) -> None:
+        self.dataset_name = dataset.dataset_name
+        self.task_name = dataset.task_name
+        base_dataset = deepcopy_dataset(dataset.dataset)
+
+        if len(base_dataset.subsampled_files) != len(base_dataset.region_of_interest):
+            raise ValueError(
+                "The provided dataset has mismatched subsampled_files and region_of_interest lengths."
+            )
+
+        dataset_length = sum(
+            end - start for start, end in base_dataset.region_of_interest
+        )
+        if any(idx < 0 or idx >= dataset_length for idx in indices):
+            raise ValueError(
+                f"Subset indices must be in [0, {dataset_length - 1}] for the provided dataset."
+            )
+
+        # Build chunk boundaries so we can translate global indices into
+        # chunk-local (start, end) pairs that litdata understands.
+        chunk_starts: List[int] = []
+        chunk_boundaries: List[Tuple[str, int, int, int, int]] = []
+        cursor = 0
+        for filename, (roi_start, roi_end) in zip(
+            base_dataset.subsampled_files, base_dataset.region_of_interest
+        ):
+            chunk_len = roi_end - roi_start
+            if chunk_len <= 0:
+                continue
+            chunk_starts.append(cursor)
+            chunk_boundaries.append(
+                (filename, roi_start, roi_end, cursor, cursor + chunk_len)
+            )
+            cursor += chunk_len
+
+        new_subsampled_files: List[str] = []
+        new_roi: List[Tuple[int, int]] = []
+        prev_chunk_idx: Optional[int] = None
+
+        for idx in indices:
+            chunk_idx = bisect_right(chunk_starts, idx) - 1
+            if chunk_idx < 0 or idx >= chunk_boundaries[chunk_idx][4]:
+                raise ValueError(f"Index {idx} is out of bounds for the dataset.")
+
+            filename, roi_start, _, global_start, _ = chunk_boundaries[chunk_idx]
+            offset_in_chunk = roi_start + (idx - global_start)
+
+            if (
+                new_roi
+                and prev_chunk_idx == chunk_idx
+                and offset_in_chunk == new_roi[-1][1]
+            ):
+                new_roi[-1] = (new_roi[-1][0], new_roi[-1][1] + 1)
+            else:
+                new_subsampled_files.append(filename)
+                new_roi.append((offset_in_chunk, offset_in_chunk + 1))
+
+            prev_chunk_idx = chunk_idx
+
+        self.dataset: StreamingDataset = base_dataset
+        self.dataset.subsampled_files = new_subsampled_files
+        self.dataset.region_of_interest = new_roi
+        self.dataset.reset()
+        self._length = sum(end - start for start, end in new_roi)
+
+    def __iter__(self) -> Iterator:
+        """Returns an iterator over the dataset samples."""
+        return self.dataset.__iter__()
+
+    def __getitem__(self, index: int) -> Dict:
+        """Gets a sample by index. Try to use iterator for better performance."""
+        return self.dataset.__getitem__(index)
+
+    def __str__(self) -> str:
+        """String representation of the SampleDataset."""
+        return f"Sample dataset {self.dataset_name} {self.task_name} subset"
+
+    def __len__(self) -> int:
+        """Returns the number of samples in the dataset."""
+        return self._length
