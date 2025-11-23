@@ -1,4 +1,5 @@
 # %%
+import torch
 from pyhealth.data.data import Patient
 from pyhealth.datasets import (
     MIMIC4Dataset,
@@ -49,8 +50,15 @@ if __name__ == "__main__":
     print(f"  Labs shape: {len(sample['labs'][0])} timesteps")
     print(f"  Mortality: {sample['mortality']}")
 
+    # STEP 3: Split dataset
+    train_dataset, val_dataset, test_dataset = split_by_patient(
+        sample_dataset, [0.8, 0.1, 0.1]
+    )
+
     # Create dataloaders
-    train_loader = get_dataloader(sample_dataset, batch_size=256, shuffle=True)
+    train_loader = get_dataloader(train_dataset, batch_size=32, shuffle=True)
+    val_loader = get_dataloader(val_dataset, batch_size=32, shuffle=False)
+    test_loader = get_dataloader(test_dataset, batch_size=32, shuffle=False)
 
     # STEP 4: Initialize StageNet model
     model = StageNet(
@@ -75,7 +83,23 @@ if __name__ == "__main__":
 
     trainer.train(
         train_dataloader=train_loader,
-        epochs=50,
+        val_dataloader=val_loader,
+        epochs=5,
         monitor="roc_auc",
         optimizer_params={"lr": 1e-5},
     )
+
+    # STEP 6: Evaluate on test set
+    results = trainer.evaluate(test_loader)
+    print("\nTest Results:")
+    for metric, value in results.items():
+        print(f"  {metric}: {value:.4f}")
+
+    # STEP 7: Inspect model predictions
+    sample_batch = next(iter(test_loader))
+    with torch.no_grad():
+        output = model(**sample_batch)
+
+    print("\nSample predictions:")
+    print(f"  Predicted probabilities: {output['y_prob'][:5]}")
+    print(f"  True labels: {output['y_true'][:5]}")
