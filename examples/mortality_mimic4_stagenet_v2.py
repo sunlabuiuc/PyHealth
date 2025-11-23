@@ -166,7 +166,7 @@ if os.path.exists(os.path.join(processor_dir, "input_processors.pkl")):
 
     sample_dataset = base_dataset.set_task(
         MortalityPredictionStageNetMIMIC4(padding=20),
-        num_workers=1,
+        num_workers=4,
         cache_dir=cache_dir,
         input_processors=input_processors,
         output_processors=output_processors,
