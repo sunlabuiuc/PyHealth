@@ -11,7 +11,8 @@ import operator
 from collections import namedtuple
 import pickle
 
-from distributed import get_client
+from distributed import Client, LocalCluster, get_client
+from dask.utils import parse_bytes
 import polars as pl
 import pandas as pd
 import dask.dataframe as dd
@@ -30,6 +31,8 @@ from ..processors.base_processor import FeatureProcessor
 from .configs import load_yaml_config
 from .sample_dataset import SampleDataset
 
+# Set logging level for distributed to ERROR to reduce verbosity
+logging.getLogger("distributed").setLevel(logging.ERROR)
 logger = logging.getLogger(__name__)
 
 
@@ -99,6 +102,7 @@ def _unpickle(datum: dict[str, bytes]) -> dict[str, Any]:
 
 
 def _patient_bucket(patient_id: str, n_partitions: int) -> int:
+    """Hash patient_id to a bucket number."""
     bucket = int(xxhash.xxh64_intdigest(patient_id) % n_partitions)
     return bucket
 
@@ -149,6 +153,9 @@ class BaseDataset(ABC):
         dataset_name: str | None = None,
         config_path: str | None = None,
         cache_dir: str | Path | None = None,
+        num_workers: int = 1,
+        mem_per_worker: str | int = "8GB",
+        compute: bool = True,
         dev: bool = False,
     ):
         """Initializes the BaseDataset.
@@ -162,9 +169,6 @@ class BaseDataset(ABC):
                 cache directory will be created under the platform's cache directory.
             dev (bool): Whether to run in dev mode (limits to 1000 patients).
         """
-        if config_path is None:
-            raise ValueError("config_path must be provided")
-
         if len(set(tables)) != len(tables):
             logger.warning("Duplicate table names in tables list. Removing duplicates.")
             tables = list(set(tables))
@@ -172,59 +176,52 @@ class BaseDataset(ABC):
         self.root = root
         self.tables = tables
         self.dataset_name = dataset_name or self.__class__.__name__
-        self.config = load_yaml_config(config_path)
         self.dev = dev
+        if config_path is not None:
+            self.config = load_yaml_config(config_path)
 
-        subfolder = self.cache_subfolder(
-            self.root, self.tables, self.dataset_name, self.dev
-        )
-        self.setup_cache_dir(cache_dir=cache_dir, subfolder=subfolder)
+        # Resource allocation for table joining and processing
+        self.num_workers = num_workers
+        if isinstance(mem_per_worker, str):
+            self.mem_per_worker = parse_bytes(mem_per_worker)
+        else:
+            self.mem_per_worker = mem_per_worker
+
+        # Cached value for property
+        self._cache_dir = cache_dir
 
         logger.info(
             f"Initializing {self.dataset_name} dataset from {self.root} (dev mode: {self.dev})"
         )
+        if compute:
+            _ = self._joined_cache()
 
-    @staticmethod
-    def cache_subfolder(
-        root: str, tables: List[str], dataset_name: str, dev: bool
-    ) -> str:
-        """Generates a unique identifier for the dataset instance. This is used for creating
-        cache directories. The UUID is based on the root path, tables, dataset name, and dev mode.
+    @property
+    def cache_dir(self) -> Path:
+        """Returns the cache directory path.
 
         Returns:
-            str: A unique identifier string.
+            Path: The cache directory path.
         """
+        if self._cache_dir is not None:
+            return Path(self._cache_dir)
+
         id_str = json.dumps(
             {
-                "root": root,
-                "tables": sorted(tables),
-                "dataset_name": dataset_name,
-                "dev": dev,
+                "root": self.root,
+                "tables": sorted(self.tables),
+                "dataset_name": self.dataset_name,
+                "dev": self.dev,
             },
             sort_keys=True,
         )
-        return str(uuid.uuid5(uuid.NAMESPACE_DNS, id_str))
-
-    def setup_cache_dir(
-        self, cache_dir: str | Path | None = None, subfolder: str = str(uuid.uuid4())
-    ) -> None:
-        """Creates the cache directory structure.
-
-        Args:
-            cache_dir (str | Path | None): The base cache directory. If None, a default cache
-                directory will be created under the platform's cache directory.
-            subfolder (str): Subfolder name for this dataset instance's cache.
-        """
-        if cache_dir is None:
-            cache_dir = platformdirs.user_cache_dir(appname="pyhealth")
-            logger.info(
-                f"No cache_dir provided. Using default cache for PyHealth: {cache_dir}"
-            )
-        cache_dir = Path(cache_dir)
-        self.cache_dir = cache_dir / subfolder
-        logger.info(
-            f"Initializing {self.dataset_name} dataset cache directory to {self.cache_dir}"
+        cache_dir = Path(platformdirs.user_cache_dir(appname="pyhealth")) / str(
+            uuid.uuid5(uuid.NAMESPACE_DNS, id_str)
         )
+        print(f"No cache_dir provided. Using default cache dir: {cache_dir}")
+        self._cache_dir = cache_dir
+
+        return cache_dir
 
     def _task_cache(self, task_name: str) -> str:
         """Generates the cache path for a specific task.
@@ -237,7 +234,67 @@ class BaseDataset(ABC):
         (self.cache_dir / "tasks").mkdir(parents=True, exist_ok=True)
         return str(self.cache_dir / "tasks" / task_name)
 
-    def _merged_cache(self) -> str:
+    def _table_cache(self, table_name: str, source_path: str | None = None) -> str:
+        """Generates the cache path for a specific table. If the cached Parquet file does not exist,
+        it will convert the source CSV/TSV file to Parquet and save it to the cache.
+
+        Args:
+            table_name (str): The name of the table.
+            source_path (str | None): The source CSV/TSV file path. If None, it assumes the
+                Parquet file already exists in the cache.
+
+        Returns:
+            str: The cache path for the table.
+        """
+        # Ensure the tables cache directory exists
+        (self.cache_dir / "tables").mkdir(parents=True, exist_ok=True)
+        ret_path = str(self.cache_dir / "tables" / f"{table_name}.parquet")
+
+        if not path_exists(ret_path):
+            if source_path is None:
+                raise FileNotFoundError(
+                    f"Table {table_name} not found in cache and no source_path provided."
+                )
+
+            # Check if source_path exists, else try alternative path
+            if not path_exists(source_path):
+                if not path_exists(alt_path(source_path)):
+                    raise FileNotFoundError(
+                        f"Neither path exists: {source_path} or {alt_path(source_path)}"
+                    )
+                source_path = alt_path(source_path)
+
+            # Determine delimiter based on file extension
+            delimiter = (
+                "\t"
+                if source_path.endswith(".tsv") or source_path.endswith(".tsv.gz")
+                else ","
+            )
+
+            # Always infer schema as string to avoid incorrect type inference
+            schema_reader = pv.open_csv(
+                source_path,
+                read_options=pv.ReadOptions(block_size=1 << 26),  # 64 MB
+                parse_options=pv.ParseOptions(delimiter=delimiter),
+            )
+            schema = pa.schema(
+                [pa.field(name, pa.string()) for name in schema_reader.schema.names]
+            )
+
+            # Convert CSV/TSV to Parquet
+            csv_reader = pv.open_csv(
+                source_path,
+                read_options=pv.ReadOptions(block_size=1 << 26),  # 64 MB
+                parse_options=pv.ParseOptions(delimiter=delimiter),
+                convert_options=pv.ConvertOptions(column_types=schema),
+            )
+            with pq.ParquetWriter(ret_path, csv_reader.schema) as writer:
+                for batch in csv_reader:
+                    writer.write_batch(batch)
+
+        return ret_path
+
+    def _joined_cache(self) -> str:
         """Collects and returns the global event data frame.
 
         Returns:
@@ -246,40 +303,61 @@ class BaseDataset(ABC):
         ret_path = str(self.cache_dir / "global_event_df.parquet")
 
         if not path_exists(ret_path):
-            global_event_df = self.load_data()
-            # In dev mode, limit to 1000 patients
-            if self.dev:
-                patients = global_event_df["patient_id"].unique().head(1000).tolist()
-                filter = global_event_df["patient_id"].isin(patients)
-                global_event_df: dd.DataFrame = global_event_df[filter]
+            with LocalCluster(
+                n_workers=self.num_workers,
+                threads_per_worker=1,
+                memory_limit=self.mem_per_worker,
+                config={"distributed.nanny.terminate_timeout": "60s"},
+            ) as cluster:
+                with Client(cluster) as client:
+                    global_event_df = self.load_data()
+                    # In dev mode, limit to 1000 patients
+                    if self.dev:
+                        patients = (
+                            global_event_df["patient_id"].unique().head(1000).tolist()
+                        )
+                        filter = global_event_df["patient_id"].isin(patients)
+                        global_event_df: dd.DataFrame = global_event_df[filter]
 
-            # Collect unique patient IDs
-            patients = global_event_df["patient_id"].unique().compute().tolist()
-            n_patients = len(patients)
-            n_events = global_event_df.shape[0].compute()
-            logger.info(f"Collected {n_events} events for {n_patients} patients.")
+                    # Collect unique patient IDs
+                    patients = global_event_df["patient_id"].unique().compute().tolist()
+                    n_patients = len(patients)
+                    n_events = global_event_df.shape[0].compute()
+                    logger.info(
+                        f"Collected {n_events} events for {n_patients} patients."
+                    )
 
-            # Estimate memory usage and partitioning
-            mem_usage = global_event_df.memory_usage(deep=False).compute().sum()
-            n_partitions = mem_usage // (256 * 1024 * 1024) + 1  # 256 MB per partition
-            bucket = global_event_df["patient_id"].apply(
-                lambda pid: _patient_bucket(pid, n_partitions),
-                meta=("patient_id", "int"),
-            )
-            global_event_df = global_event_df.assign(bucket=bucket)
-            logger.info(
-                f"Estimated size {mem_usage / (1024**3):.2f} GB, write to {n_partitions} partitions."
-            )
+                    # Estimate memory usage and partitioning
+                    partition_size = (
+                        self.mem_per_worker // 16
+                    )  # Use 1/16 of worker memory for safety
+                    estimated_mem_usage = (
+                        global_event_df.memory_usage(deep=False).compute().sum()
+                    )
+                    n_partitions = (
+                        estimated_mem_usage // partition_size
+                    ) + 1  # Calculate number of partitions based on memory usage
+                    n_partitions = max(
+                        n_partitions, self.num_workers
+                    )  # At least num_workers partitions
 
-            client = get_client()
-            handle = global_event_df.to_parquet(
-                ret_path,
-                partition_on=["bucket"],
-                write_index=False,
-                compute=False,
-            )
-            future = client.compute(handle)
-            progress(future)
+                    bucket = global_event_df["patient_id"].apply(
+                        lambda pid: _patient_bucket(pid, n_partitions),
+                        meta=("patient_id", "int"),
+                    )
+                    global_event_df = global_event_df.assign(bucket=bucket)
+                    logger.info(
+                        f"Estimated size {estimated_mem_usage / (1024**3):.2f} GB, write to {n_partitions} partitions."
+                    )
+
+                    handle = global_event_df.to_parquet(
+                        ret_path,
+                        partition_on=["bucket"],
+                        write_index=False,
+                        compute=False,
+                    )
+                    future = client.compute(handle)
+                    progress(future)
             with open(ret_path + "/index.json", "w") as future:
                 json.dump(
                     {
@@ -402,66 +480,6 @@ class BaseDataset(ABC):
 
         return event_frame
 
-    def _table_cache(self, table_name: str, source_path: str | None = None) -> str:
-        """Generates the cache path for a specific table. If the cached Parquet file does not exist,
-        it will convert the source CSV/TSV file to Parquet and save it to the cache.
-
-        Args:
-            table_name (str): The name of the table.
-            source_path (str | None): The source CSV/TSV file path. If None, it assumes the
-                Parquet file already exists in the cache.
-
-        Returns:
-            str: The cache path for the table.
-        """
-        # Ensure the tables cache directory exists
-        (self.cache_dir / "tables").mkdir(parents=True, exist_ok=True)
-        ret_path = str(self.cache_dir / "tables" / f"{table_name}.parquet")
-
-        if not path_exists(ret_path):
-            if source_path is None:
-                raise FileNotFoundError(
-                    f"Table {table_name} not found in cache and no source_path provided."
-                )
-
-            # Check if source_path exists, else try alternative path
-            if not path_exists(source_path):
-                if not path_exists(alt_path(source_path)):
-                    raise FileNotFoundError(
-                        f"Neither path exists: {source_path} or {alt_path(source_path)}"
-                    )
-                source_path = alt_path(source_path)
-
-            # Determine delimiter based on file extension
-            delimiter = (
-                "\t"
-                if source_path.endswith(".tsv") or source_path.endswith(".tsv.gz")
-                else ","
-            )
-
-            # Always infer schema as string to avoid incorrect type inference
-            schema_reader = pv.open_csv(
-                source_path,
-                read_options=pv.ReadOptions(block_size=1 << 26),  # 64 MB
-                parse_options=pv.ParseOptions(delimiter=delimiter),
-            )
-            schema = pa.schema(
-                [pa.field(name, pa.string()) for name in schema_reader.schema.names]
-            )
-
-            # Convert CSV/TSV to Parquet
-            csv_reader = pv.open_csv(
-                source_path,
-                read_options=pv.ReadOptions(block_size=1 << 26),  # 64 MB
-                parse_options=pv.ParseOptions(delimiter=delimiter),
-                convert_options=pv.ConvertOptions(column_types=schema),
-            )
-            with pq.ParquetWriter(ret_path, csv_reader.schema) as writer:
-                for batch in csv_reader:
-                    writer.write_batch(batch)
-
-        return ret_path
-
     @property
     def unique_patient_ids(self) -> List[str]:
         """Returns a list of unique patient IDs.
@@ -469,7 +487,7 @@ class BaseDataset(ABC):
         Returns:
             List[str]: List of unique patient IDs.
         """
-        with open(self._merged_cache() + "/index.json", "r") as f:
+        with open(self._joined_cache() + "/index.json", "r") as f:
             index_info = json.load(f)
             return index_info["patients"]
 
@@ -488,7 +506,7 @@ class BaseDataset(ABC):
         assert (
             patient_id in self.unique_patient_ids
         ), f"Patient {patient_id} not found in dataset"
-        return _get_patient(self._merged_cache(), patient_id)
+        return _get_patient(self._joined_cache(), patient_id)
 
     def iter_patients(self, df: Optional[pl.LazyFrame] = None) -> Iterator[Patient]:
         """Yields Patient objects for each unique patient in the dataset.
@@ -501,7 +519,7 @@ class BaseDataset(ABC):
 
     def stats(self) -> None:
         """Prints statistics about the dataset."""
-        with open(self._merged_cache() + "/index.json", "r") as f:
+        with open(self._joined_cache() + "/index.json", "r") as f:
             index_info = json.load(f)
         n_patients = index_info["n_patients"]
         n_events = index_info["n_events"]
@@ -574,10 +592,10 @@ class BaseDataset(ABC):
         if not path_exists(str(cache_dir)):
             import litdata as ld
 
-            with open(self._merged_cache() + "/index.json", "r") as f:
+            with open(self._joined_cache() + "/index.json", "r") as f:
                 index_info = json.load(f)
                 n_partitions = index_info["n_partitions"]
-                inputs = [(i, self._merged_cache(), task) for i in range(n_partitions)]
+                inputs = [(i, self._joined_cache(), task) for i in range(n_partitions)]
 
             ld.optimize(
                 fn=_transform_fn,
