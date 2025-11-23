@@ -126,3 +126,36 @@ class TestSampleDatasetAndSubset(unittest.TestCase):
         self.assertEqual([s["x"] for s in iter_items], ["in-2", "in-3"])
         self.assertEqual([s["y"] for s in iter_items], ["out-20", "out-30"])
         self.assertEqual([s["patient_id"] for s in iter_items], ["p2", "p3"])
+
+    def test_shuffle_behavior_and_isolation(self) -> None:
+        # Baseline (no shuffle)
+        baseline = [s["patient_id"] for s in iter(self.sample_dataset)]
+        self.sample_dataset.dataset.reset()
+
+        # Shuffle affects iteration but not __getitem__
+        self.sample_dataset.set_shuffle(True)
+        shuffled_iter = [s["patient_id"] for s in iter(self.sample_dataset)]
+        self.assertCountEqual(shuffled_iter, baseline)
+        if len(baseline) > 1:
+            self.assertNotEqual(shuffled_iter, baseline)
+        self.sample_dataset.dataset.reset()
+        self.assertEqual(self.sample_dataset[0]["patient_id"], "p1")
+
+        # Subset created from shuffled dataset should disable shuffle during construction
+        subset = SampleSubset(self.sample_dataset, [0, 1])
+        self.assertFalse(subset.dataset.shuffle)
+        subset_items = [s["patient_id"] for s in iter(subset)]
+        self.assertEqual(subset_items, ["p1", "p2"])
+        subset.dataset.reset()
+        self.assertEqual(subset[0]["patient_id"], "p1")
+
+        # Shuffling one subset doesn't affect dataset or other subsets
+        subset2 = SampleSubset(self.sample_dataset, [1, 2])
+        subset.set_shuffle(True)
+        shuffled_subset_iter = [s["patient_id"] for s in iter(subset)]
+        self.assertCountEqual(shuffled_subset_iter, ["p1", "p2"])
+        if len(shuffled_subset_iter) > 1:
+            self.assertNotEqual(shuffled_subset_iter, ["p1", "p2"])
+        self.assertFalse(subset2.dataset.shuffle)
+        self.assertEqual(subset2[0]["patient_id"], "p2")
+        self.assertTrue(self.sample_dataset.dataset.shuffle)

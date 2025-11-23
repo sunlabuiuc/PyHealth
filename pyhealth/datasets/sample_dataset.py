@@ -170,6 +170,15 @@ class SampleDataset(IterableDataset):
                 sample[k] = pickle.loads(v)
         return sample
 
+    def set_shuffle(self, shuffle: bool) -> None:
+        """Sets whether to shuffle the dataset during iteration.
+
+        Args:
+            shuffle (bool): Whether to shuffle the dataset.
+        """
+        self.dataset.set_shuffle(shuffle)
+        return
+
     def __iter__(self) -> Iterator:
         """Returns an iterator over the dataset samples."""
         return self.dataset.__iter__()
@@ -198,7 +207,8 @@ class SampleSubset(IterableDataset):
         self.dataset_name = dataset.dataset_name
         self.task_name = dataset.task_name
 
-        base_dataset = deepcopy_dataset(dataset.dataset)
+        base_dataset: StreamingDataset = deepcopy_dataset(dataset.dataset)
+        base_dataset.set_shuffle(False) # Disable shuffling when creating subset
         self.dataset, self._length = self._build_subset_dataset(
             base_dataset, indices
         )
@@ -268,6 +278,15 @@ class SampleSubset(IterableDataset):
 
         return base_dataset, subset_length
     
+    def set_shuffle(self, shuffle: bool) -> None:
+        """Sets whether to shuffle the dataset during iteration.
+
+        Args:
+            shuffle (bool): Whether to shuffle the dataset.
+        """
+        self.dataset.set_shuffle(shuffle)
+        return
+
     def __iter__(self) -> Iterator:
         """Returns an iterator over the dataset samples."""
         return self.dataset.__iter__()
