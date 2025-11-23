@@ -175,7 +175,7 @@ else:
     print("\n=== Fitting New Processors ===")
     sample_dataset = base_dataset.set_task(
         MortalityPredictionStageNetMIMIC4(padding=20),
-        num_workers=1,
+        num_workers=4,
         cache_dir=cache_dir,
     )
 
@@ -220,7 +220,7 @@ print(f"\nModel initialized with {num_params} parameters")
 # STEP 5: Train the model
 trainer = Trainer(
     model=model,
-    device="cpu",  # or "cpu"
+    device="cuda:2",  # or "cpu"
     metrics=["pr_auc", "roc_auc", "accuracy", "f1"],
 )
 
