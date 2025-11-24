@@ -6,6 +6,37 @@ How to Contribute
 
 We welcome contributions to PyHealth! This guide will help you get started with contributing datasets, tasks, models, bug fixes, or other improvements to the project.
 
+Examples of Great Contributions
+================================
+
+Before diving into the details, here are some excellent pull requests that demonstrate what we're looking for. Use these as references when creating your own contributions:
+
+**Dataset & Task Contributions:**
+
+- **ChestX-ray14 Dataset with Classification Tasks** (`PR #392 <https://github.com/sunlabuiuc/PyHealth/pull/392/files>`_)
+  
+  This is an exemplary dataset contribution that includes:
+  
+  - Complete dataset implementation with proper documentation
+  - Both binary and multilabel classification tasks
+  - Comprehensive test cases with synthetic data
+  - API documentation files
+  - Example notebooks demonstrating usage
+  - Clear PR description with file guide
+
+**Model Updates & Revamps:**
+
+- **Model Compatibility Updates** (`PR #610 <https://github.com/sunlabuiuc/PyHealth/pull/610>`_)
+  
+  A great example of updating models to work with PyHealth 2.0:
+  
+  - Systematic updates across multiple models
+  - Maintained backward compatibility where possible
+  - Clear documentation of breaking changes
+  - Updated examples and test cases
+
+These contributions demonstrate the level of completeness and documentation we appreciate. Take some time to review them to understand our expectations!
+
 Getting Started
 ===============
 

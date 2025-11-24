@@ -8,6 +8,8 @@ from .cardiology_detect import (
     cardiology_isCD_fn,
     cardiology_isWA_fn,
 )
+from .chestxray14_binary_classification import ChestXray14BinaryClassification
+from .chestxray14_multilabel_classification import ChestXray14MultilabelClassification
 from .covid19_cxr_classification import COVID19CXRClassification
 from .drug_recommendation import (
     DrugRecommendationMIMIC3,
@@ -35,6 +37,7 @@ from .mortality_prediction import (
     MortalityPredictionMIMIC4,
     MortalityPredictionOMOP,
 )
+from .survival_preprocess_support2 import SurvivalPreprocessSupport2
 from .mortality_prediction_stagenet_mimic4 import (
     MortalityPredictionStageNetMIMIC4,
 )
