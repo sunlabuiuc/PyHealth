@@ -6,12 +6,12 @@ from pyhealth.interpret.methods.gim import GIM
 from pyhealth.interpret.methods.integrated_gradients import IntegratedGradients
 from pyhealth.interpret.methods.shap import ShapExplainer
 
-__all__ = ["BaseInterpreter", "CheferRelevance", "DeepLift", "IntegratedGradients", "ShapExplainer"]
 __all__ = [
     "BaseInterpreter",
     "CheferRelevance",
     "DeepLift",
     "GIM",
     "IntegratedGradients",
+    "BasicGradientSaliencyMaps",
+    "ShapExplainer"
 ]
-__all__ = ["BaseInterpreter", "BasicGradientSaliencyMaps", "CheferRelevance", "DeepLift", "IntegratedGradients"]
