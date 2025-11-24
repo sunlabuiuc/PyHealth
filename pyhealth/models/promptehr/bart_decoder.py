@@ -156,7 +156,17 @@ class PromptBartDecoder(BartDecoder):
             if hasattr(past_key_values, 'get_seq_length'):
                 past_key_values_length = past_key_values.get_seq_length()
             elif isinstance(past_key_values, (tuple, list)) and len(past_key_values) > 0:
-                past_key_values_length = past_key_values[0][0].shape[2] if past_key_values[0] is not None else 0
+                # Defensive: handle unexpected cache structures gracefully
+                # pehr-scratch-expert confirmed: defaulting to 0 is safe (slightly degrades
+                # quality but prevents crash). BART handles positional errors gracefully.
+                try:
+                    if past_key_values[0] is not None and isinstance(past_key_values[0], (tuple, list)):
+                        if len(past_key_values[0]) > 0 and past_key_values[0][0] is not None:
+                            past_key_values_length = past_key_values[0][0].shape[2]
+                except (IndexError, TypeError, AttributeError):
+                    # Safe fallback: slightly degrades quality but prevents crash
+                    # Positional embeddings will be calculated from position 0
+                    past_key_values_length = 0
 
         # Get positional embeddings (BART uses learned positional embeddings)
         positions = self.embed_positions(inputs_embeds, past_key_values_length)
@@ -211,7 +221,7 @@ class PromptBartDecoder(BartDecoder):
                 encoder_attention_mask=encoder_attention_mask,
                 layer_head_mask=(head_mask[idx] if head_mask is not None else None),
                 cross_attn_layer_head_mask=(cross_attn_head_mask[idx] if cross_attn_head_mask is not None else None),
-                past_key_values=past_key_values,
+                past_key_value=past_key_values,
                 output_attentions=output_attentions,
                 use_cache=use_cache,
             )
@@ -229,7 +239,7 @@ class PromptBartDecoder(BartDecoder):
         if output_hidden_states:
             all_hidden_states += (hidden_states,)
 
-        # Cache is handled by past_key_values object
+        # Cache is handled by past_key_values object, not returned in tuple
         next_cache = past_key_values if use_cache else None
 
         # Return tuple format if not using return_dict

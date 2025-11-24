@@ -107,25 +107,23 @@ class PromptBartEncoder(BartEncoder):
             # Extend attention mask to account for prepended prompts
             batch_size, n_prompts = inputs_prompt_embeds.shape[:2]
 
-            # Create attention mask for prompts (all 1s - always attend to prompts)
-            prompt_attention_mask = torch.ones(
-                batch_size, n_prompts,
-                dtype=attention_mask.dtype,
-                device=attention_mask.device
-            )
-
             if attention_mask is not None:
+                # Create attention mask for prompts matching existing mask dtype/device
+                prompt_attention_mask = torch.ones(
+                    batch_size, n_prompts,
+                    dtype=attention_mask.dtype,
+                    device=attention_mask.device
+                )
                 # Concatenate prompt mask with original mask
                 attention_mask = torch.cat([prompt_attention_mask, attention_mask], dim=1)
             else:
-                # Create full attention mask if none provided
-                seq_len = inputs_embeds.shape[1] - n_prompts
-                seq_attention_mask = torch.ones(
+                # Create full attention mask for prompts + sequence
+                seq_len = inputs_embeds.shape[1]  # Total length including prompts already prepended
+                attention_mask = torch.ones(
                     batch_size, seq_len,
-                    dtype=prompt_attention_mask.dtype,
-                    device=prompt_attention_mask.device
+                    dtype=torch.long,
+                    device=inputs_embeds.device
                 )
-                attention_mask = torch.cat([prompt_attention_mask, seq_attention_mask], dim=1)
 
         # Get positional embeddings (BART uses learned positional embeddings)
         embed_pos = self.embed_positions(inputs_embeds)
