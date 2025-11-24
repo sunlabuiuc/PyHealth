@@ -551,12 +551,7 @@ class TestShapExplainerMLP(unittest.TestCase):
 
     def test_shap_mlp_with_target_class(self):
         """Test SHAP attribution with specific target class."""
-        explainer = ShapExplainer(
-            self.model,
-            use_embeddings=True,
-            n_background_samples=20,
-            max_coalitions=50,
-        )
+        explainer = ShapExplainer(self.model )
         data_batch = next(iter(self.test_loader))
 
         # Compute attributions for class 0

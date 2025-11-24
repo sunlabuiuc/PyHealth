@@ -197,14 +197,8 @@ print("\n" + "="*80)
 print("Initializing SHAP Explainer")
 print("="*80)
 
-# Initialize SHAP explainer with custom parameters
-shap_explainer = ShapExplainer(
-    model,
-    use_embeddings=True,  # Use embeddings for discrete features
-    n_background_samples=50,  # Number of background samples
-    max_coalitions=200,  # Number of feature coalitions to sample
-    random_seed=42,  # For reproducibility
-)
+# Initialize SHAP explainer (Kernel SHAP))
+shap_explainer = ShapExplainer(model)
 
 print("\nSHAP Configuration:")
 print(f"  Use embeddings: {shap_explainer.use_embeddings}")

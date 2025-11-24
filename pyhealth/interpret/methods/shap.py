@@ -99,7 +99,7 @@ class ShapExplainer(BaseInterpreter):
         n_background_samples: int = 100,
         max_coalitions: int = 1000,
         regularization: float = 1e-6,
-        random_seed: Optional[int] = None,
+        random_seed: Optional[int] = 42,
     ):
         """Initialize SHAP explainer.
 
@@ -373,8 +373,35 @@ class ShapExplainer(BaseInterpreter):
         coalition_weights = []
         coalition_preds = []
 
-        # Sample coalitions and evaluate model
-        for _ in range(n_coalitions):
+        # Add edge case coalitions explicitly (empty and full)
+        # These are crucial for the local accuracy property of SHAP
+        edge_coalitions = [
+            torch.zeros(n_features, device=device),  # Empty coalition (baseline)
+            torch.ones(n_features, device=device),   # Full coalition (actual input)
+        ]
+        
+        for coalition in edge_coalitions:
+            per_input_preds = []
+            for b_idx in range(batch_size):
+                mixed_emb = self._create_mixed_sample(
+                    key, coalition, input_emb, background_emb, b_idx
+                )
+                
+                pred = self._evaluate_coalition(
+                    key, mixed_emb, background_emb, 
+                    target_class_idx, time_info, label_data
+                )
+                per_input_preds.append(pred)
+
+            coalition_vectors.append(coalition.float())
+            coalition_preds.append(torch.stack(per_input_preds, dim=0))
+            coalition_weights.append(
+                self._compute_kernel_weight(coalition.sum().item(), n_features)
+            )
+
+        # Sample remaining coalitions randomly (excluding edge cases already added)
+        n_random_coalitions = max(0, n_coalitions - 2)
+        for _ in range(n_random_coalitions):
             coalition = torch.randint(2, (n_features,), device=device)
             
             # Evaluate model for each input sample with this coalition
@@ -733,29 +760,34 @@ class ShapExplainer(BaseInterpreter):
         return emb.shape[-1]
 
     @staticmethod
+    
     def _compute_kernel_weight(coalition_size: int, n_features: int) -> torch.Tensor:
-        """Compute kernel SHAP weight for a coalition.
+        """Compute Kernel SHAP weight for a coalition.
 
-        The kernel weight is designed to approximate Shapley values efficiently:
-        weight = (M-1) / (binom(M,|z|) * |z| * (M-|z|))
-
-        Special cases (empty or full coalition) receive large weights as they
-        are crucial for baseline and full feature effects.
+        Correct formula from Lundberg & Lee (2017):
+            weight = (M - 1) / (binom(M, |z|) * |z| * (M - |z|))
 
         Args:
-            coalition_size: Number of features in the coalition.
-            n_features: Total number of features.
+            coalition_size: Number of present features (|z|).
+            n_features: Total number of features (M).
 
         Returns:
-            Kernel weight as a scalar tensor.
+            Scalar tensor with the kernel weight.
         """
-        if coalition_size == 0 or coalition_size == n_features:
-            return torch.tensor(1000.0)  # Large weight for edge cases
+        M = n_features
+        z = coalition_size
 
-        comb_val = math.comb(n_features - 1, coalition_size - 1)
-        weight = (n_features - 1) / (
-            coalition_size * (n_features - coalition_size) * comb_val
-        )
+        # Edge cases (empty or full coalition)
+        if z == 0 or z == M:
+            # Assign infinite weight; we approximate with a large number.
+            return torch.tensor(1000, dtype=torch.float32)
+
+        # Compute binomial coefficient C(M, z)
+        comb_val = math.comb(M, z)
+
+        # SHAP kernel weight
+        weight = (M - 1) / (comb_val * z * (M - z))
+
         return torch.tensor(weight, dtype=torch.float32)
 
     @staticmethod
