@@ -125,7 +125,7 @@ def train_promptehr(
     logger.info("Creating Dataset")
     logger.info("=" * 80)
 
-    dataset = PromptEHRDataset(patient_records, tokenizer)
+    dataset = PromptEHRDataset(patient_records, tokenizer, logger)
     logger.info(f"Dataset size: {len(dataset)} patients")
 
     # Train/validation split
