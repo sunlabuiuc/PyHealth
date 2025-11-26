@@ -407,8 +407,11 @@ class PromptEHR(BaseModel):
             d_hidden: Reparameterization dimension (default: 128)
             prompt_length: Prompt vectors per feature (default: 1)
             bart_config_name: Pretrained BART model (default: "facebook/bart-base")
-            **kwargs: Additional BaseModel arguments
+            **kwargs: Additional BaseModel arguments (including _custom_vocab_size for checkpoint loading)
         """
+        # Extract custom vocab size if provided (used by load_from_checkpoint)
+        custom_vocab_size = kwargs.pop('_custom_vocab_size', None)
+
         super().__init__(dataset=dataset, **kwargs)
 
         # Set mode to None to skip discriminative evaluation (generative model)
@@ -420,6 +423,10 @@ class PromptEHR(BaseModel):
 
         # Initialize BART config from pretrained
         bart_config = BartConfig.from_pretrained(bart_config_name)
+
+        # Override vocab_size if loading from custom checkpoint
+        if custom_vocab_size is not None:
+            bart_config.vocab_size = custom_vocab_size
 
         # Apply dropout configuration (increased from BART default 0.1 to 0.3)
         bart_config.dropout = 0.3
@@ -473,3 +480,69 @@ class PromptEHR(BaseModel):
             Generated token IDs [batch, seq_len]
         """
         return self.bart_model.generate(**kwargs)
+
+    @classmethod
+    def load_from_checkpoint(cls, checkpoint_path, dataset=None, **model_kwargs):
+        """Load PromptEHR model from pehr_scratch checkpoint.
+
+        Args:
+            checkpoint_path: Path to checkpoint file (e.g., best_model.pt)
+            dataset: PyHealth dataset (optional, can be None for generative models)
+            **model_kwargs: Model initialization arguments (n_num_features, cat_cardinalities, etc.)
+
+        Returns:
+            Loaded PromptEHR model with checkpoint weights
+
+        Example:
+            >>> model = PromptEHR.load_from_checkpoint(
+            ...     "/scratch/jalenj4/promptehr_checkpoints/best_model.pt",
+            ...     n_num_features=1,
+            ...     cat_cardinalities=[2]
+            ... )
+        """
+        import torch
+
+        # Load checkpoint
+        checkpoint = torch.load(checkpoint_path, map_location='cpu')
+
+        # Extract model state dict (pehr_scratch format has extra keys)
+        if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+            state_dict = checkpoint['model_state_dict']
+            epoch = checkpoint.get('epoch', None)
+            val_loss = checkpoint.get('val_loss', None)
+        else:
+            # Direct state dict
+            state_dict = checkpoint
+            epoch = None
+            val_loss = None
+
+        # Auto-detect vocab_size from checkpoint
+        # pehr_scratch uses custom vocabulary (6992 tokens) vs BART default (50265)
+        if 'model.shared.weight' in state_dict:
+            checkpoint_vocab_size = state_dict['model.shared.weight'].shape[0]
+
+            # Override bart_config_name if vocab size differs from default
+            if 'bart_config_name' not in model_kwargs:
+                # Load default config to check vocab size
+                from transformers import BartConfig
+                default_config = BartConfig.from_pretrained("facebook/bart-base")
+
+                if checkpoint_vocab_size != default_config.vocab_size:
+                    # Create custom config with detected vocab size
+                    print(f"Detected custom vocab_size={checkpoint_vocab_size} in checkpoint "
+                          f"(BART default: {default_config.vocab_size})")
+
+                    # Store custom config by temporarily modifying the config
+                    model_kwargs['_custom_vocab_size'] = checkpoint_vocab_size
+
+        # Create model instance
+        model = cls(dataset=dataset, **model_kwargs)
+
+        # Load weights
+        model.bart_model.load_state_dict(state_dict, strict=True)
+
+        # Print checkpoint info
+        if epoch is not None:
+            print(f"Loaded checkpoint from epoch {epoch}, val_loss={val_loss:.4f}")
+
+        return model
