@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Dict, List, Union, Type
 
-import dask.dataframe as dd
+import pandas as pd
 
 
 class BaseTask(ABC):
@@ -9,7 +9,7 @@ class BaseTask(ABC):
     input_schema: Dict[str, Union[str, Type]]
     output_schema: Dict[str, Union[str, Type]]
 
-    def pre_filter(self, df: dd.DataFrame) -> dd.DataFrame:
+    def pre_filter(self, df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     @abstractmethod

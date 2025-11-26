@@ -112,11 +112,16 @@ def _transform_fn(
 ) -> Iterator[Dict[str, Any]]:
     (bucket_id, merged_cache, task) = input
     path = f"{merged_cache}/bucket={bucket_id}"
+    df = pd.read_parquet(path)
+    # TODO: Need to make sure pre_filter works with pandas DataFrame
+    df = task.pre_filter(df)
+
     # This is more efficient than reading patient by patient
-    grouped = pd.read_parquet(path).groupby("patient_id")
+    grouped = df.groupby("patient_id")
 
     for patient_id, patient_df in grouped:
         patient = Patient(patient_id=str(patient_id), data_source=patient_df)
+        # TODO: Need to make sure task(patient) works with pandas DataFrame
         for sample in task(patient):
             # Schema is too complex to be handled by LitData, so we pickle the sample here
             yield _pickle(sample)
