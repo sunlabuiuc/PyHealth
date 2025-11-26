@@ -137,7 +137,8 @@ def train_promptehr(
     # Create data collator
     collator = EHRDataCollator(
         tokenizer=tokenizer,
-        max_seq_length=512
+        max_seq_length=512,
+        logger=logger
     )
 
     # Create data loaders
