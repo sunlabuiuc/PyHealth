@@ -2,7 +2,7 @@
 
 Paper: Temporal Pointwise Convolutional Networks for Length of Stay Prediction
        in the Intensive Care Unit
-Paper Link: https://arxiv.org/abs/2101.10043 (CHIL 2021)
+Paper Link: https://arxiv.org/pdf/2007.09483
 Authors: Emma Rocheteau, Catherine Schwarz, Ari Ercole, Pietro Liò, Stephanie Hyland
 GitHub: https://github.com/EmmaRocheteau/TPC-LoS-prediction
 
