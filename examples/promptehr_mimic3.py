@@ -163,14 +163,13 @@ def train_promptehr(
     logger.info("=" * 80)
 
     model = PromptEHR(
-        vocab_size=vocab_size,
+        dataset=None,  # Generative model, no discriminative task
         n_num_features=1,  # Age
         cat_cardinalities=[2],  # Gender (M/F)
         d_hidden=128,
         prompt_length=1,
-        dropout=0.3,
-        attention_dropout=0.3,
-        activation_dropout=0.3
+        bart_config_name="facebook/bart-base",
+        _custom_vocab_size=vocab_size  # Custom vocab size for MIMIC-III
     )
 
     total_params = sum(p.numel() for p in model.parameters())
@@ -208,15 +207,17 @@ def train_promptehr(
     # Step 7: Save final model
     final_checkpoint = checkpoint_dir / "final_model.pt"
     torch.save({
-        'model_state_dict': model.state_dict(),
+        'model_state_dict': model.bart_model.state_dict(),  # Save BART model state
         'tokenizer': tokenizer,
         'diagnosis_codes': diagnosis_codes,
         'config': {
-            'vocab_size': vocab_size,
+            'dataset': None,
             'n_num_features': 1,
             'cat_cardinalities': [2],
             'd_hidden': 128,
-            'prompt_length': 1
+            'prompt_length': 1,
+            'bart_config_name': "facebook/bart-base",
+            '_custom_vocab_size': vocab_size
         }
     }, final_checkpoint)
     logger.info(f"\nFinal model saved to: {final_checkpoint}")
@@ -409,7 +410,7 @@ def main():
         tokenizer = checkpoint['tokenizer']
 
         model = PromptEHR(**checkpoint['config'])
-        model.load_state_dict(checkpoint['model_state_dict'])
+        model.bart_model.load_state_dict(checkpoint['model_state_dict'])
         model.to(args.device)
         model.eval()
 
