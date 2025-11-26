@@ -20,7 +20,8 @@ from typing import List, Dict
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, random_split
-from transformers import BartConfig, AdamW, get_linear_schedule_with_warmup
+from torch.optim import AdamW
+from transformers import BartConfig, get_linear_schedule_with_warmup
 
 # PyHealth imports
 from pyhealth.datasets import MIMIC3Dataset

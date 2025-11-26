@@ -52,15 +52,13 @@ mkdir -p promptehr_outputs
 mkdir -p promptehr_outputs/checkpoints
 
 # Activate virtual environment
-# Adjust this path to your PyHealth environment
-if [ -d "env/env" ]; then
-    source env/env/bin/activate
-    echo "Activated PyHealth environment: env/env"
-elif [ -d "venv" ]; then
-    source venv/bin/activate
-    echo "Activated environment: venv"
+VENV_PATH="/u/jalenj4/pehr_scratch/venv"
+if [ -d "$VENV_PATH" ]; then
+    source "$VENV_PATH/bin/activate"
+    echo "Activated environment: $VENV_PATH"
 else
-    echo "WARNING: No virtual environment found!"
+    echo "ERROR: Virtual environment not found at $VENV_PATH"
+    exit 1
 fi
 
 # Print Python and package versions
