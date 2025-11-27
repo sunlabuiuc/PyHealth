@@ -78,8 +78,8 @@ def scan_csv_gz_or_csv_tsv(path: str) -> pl.LazyFrame:
     def scan_file(file_path: str) -> pl.LazyFrame:
         separator = "\t" if ".tsv" in file_path else ","
         return pl.scan_csv(
-            file_path, 
-            separator=separator, 
+            file_path,
+            separator=separator,
             infer_schema=False,
             low_memory=True,
         )
@@ -117,7 +117,7 @@ class StreamingParquetWriter:
         writer.close()
     """
 
-    def __init__(self, path: Path, schema: pa.Schema, chunk_size: int = 50_000):
+    def __init__(self, path: Path | str, schema: pa.Schema, chunk_size: int = 8_192):
         """
         Args:
             path: output Parquet file path
@@ -129,7 +129,9 @@ class StreamingParquetWriter:
         self.chunk_size = chunk_size
 
         if self.schema is None:
-            raise ValueError("schema must be provided — no automatic inference allowed.")
+            raise ValueError(
+                "schema must be provided — no automatic inference allowed."
+            )
 
         self._writer: pq.ParquetWriter | None = None
         self._buffer: list[dict] = []
@@ -179,6 +181,7 @@ class StreamingParquetWriter:
 
     def __exit__(self, exc_type, exc, tb):
         self.close()
+
 
 class BaseDataset(ABC):
     """Abstract base class for all PyHealth datasets.
@@ -268,23 +271,27 @@ class BaseDataset(ABC):
                 df = self.load_data()
                 if self.dev:
                     logger.info("Dev mode enabled: limiting to 1000 patients")
-                    limited_patients = df.select(pl.col("patient_id")).unique().limit(1000)
+                    limited_patients = (
+                        df.select(pl.col("patient_id")).unique().limit(1000)
+                    )
                     df = df.join(limited_patients, on="patient_id", how="inner")
 
                 logger.info(f"Caching event dataframe to {path}...")
                 df.sort("patient_id").sink_parquet(
                     path,
-                    compression="lz4", # use lz4 compression for faster read/write
+                    compression="lz4",  # use lz4 compression for faster read/write
                     row_group_size=8_192,
-                    maintain_order=True, # Important for sorted writes
+                    maintain_order=True,  # Important for sorted writes
                 )
             self._event_df_path = path
 
         return pl.scan_parquet(
             self._event_df_path,
             low_memory=True,
-        ).set_sorted("patient_id") # Guarantee sorted read, see sink_parquet above
-        
+        ).set_sorted(
+            "patient_id"
+        )  # Guarantee sorted read, see sink_parquet above
+
     def load_data(self) -> pl.LazyFrame:
         """Loads data from the specified tables.
 
@@ -337,7 +344,7 @@ class BaseDataset(ABC):
             columns = join_cfg.columns
             how = join_cfg.how
 
-            df = df.join(join_df.select([join_key] + columns), on=join_key, how=how) # type: ignore
+            df = df.join(join_df.select([join_key] + columns), on=join_key, how=how)  # type: ignore
 
         patient_id_col = table_cfg.patient_id
         timestamp_col = table_cfg.timestamp
@@ -391,8 +398,7 @@ class BaseDataset(ABC):
         """
         if self._unique_patient_ids is None:
             self._unique_patient_ids = (
-                self.event_df
-                .select("patient_id")
+                self.event_df.select("patient_id")
                 .unique()
                 .collect(engine="streaming")
                 .to_series()
@@ -416,11 +422,9 @@ class BaseDataset(ABC):
         assert (
             patient_id in self.unique_patient_ids
         ), f"Patient {patient_id} not found in dataset"
-        
-        data_source = (
-            self.event_df
-            .filter(pl.col("patient_id") == patient_id)
-            .collect(engine="streaming")
+
+        data_source = self.event_df.filter(pl.col("patient_id") == patient_id).collect(
+            engine="streaming"
         )
         return Patient(patient_id=patient_id, data_source=data_source)
 
@@ -440,21 +444,17 @@ class BaseDataset(ABC):
         )
 
         for patient_id in patient_ids:
-            patient_df = (
-                df.filter(pl.col("patient_id") == patient_id)
-                .collect(engine="streaming")
+            patient_df = df.filter(pl.col("patient_id") == patient_id).collect(
+                engine="streaming"
             )
             yield Patient(patient_id=patient_id, data_source=patient_df)
 
     def stats(self) -> None:
         """Prints statistics about the dataset."""
-        stats = (
-            self.event_df.select(
-                pl.len().alias("n_events"),
-                pl.col("patient_id").n_unique().alias("n_patients"),
-            )
-            .collect(engine="streaming")
-        )
+        stats = self.event_df.select(
+            pl.len().alias("n_events"),
+            pl.col("patient_id").n_unique().alias("n_patients"),
+        ).collect(engine="streaming")
         print(f"Dataset: {self.dataset_name}")
         print(f"Dev mode: {self.dev}")
         print(f"Number of patients: {stats['n_patients'][0]}")
@@ -517,85 +517,30 @@ class BaseDataset(ABC):
             cache_dir.mkdir(parents=True, exist_ok=True)
 
         path = Path(cache_dir)
-        
-        # Check if index.json exists to verify cache integrity, this 
+
+        # Check if index.json exists to verify cache integrity, this
         # is the standard file for litdata.StreamingDataset
         if not (path / "index.json").exists():
             event_df = task.pre_filter(self.event_df)
+            schema = pa.schema({"sample", pa.binary()})
             with tempfile.TemporaryDirectory() as tmp_dir:
-                logger.info(f"Applying task transformations on data...")
-                patient_ids = (
-                    event_df.select("patient_id")
-                    .unique()
-                    .collect(engine="streaming")
-                    .to_series()
-                )
-                for patient_id in tqdm(patient_ids):
-                    patient_df = (
-                        event_df.filter(pl.col("patient_id") == patient_id)
+                with StreamingParquetWriter(f"{tmp_dir}/samples.parquet", schema) as writer:
+                    logger.info(f"Applying task transformations on data...")
+                    
+                    patient_ids = (
+                        event_df.select("patient_id")
+                        .unique()
                         .collect(engine="streaming")
+                        .to_series()
                     )
-                    patient = Patient(patient_id=patient_id, data_source=patient_df)
-                    # TODO: save this to temp cache
-                    sample = task(patient)  
-
-        # Generate samples if not loaded from cache
-        if samples is None:
-            logger.info(f"Generating samples with {num_workers} worker(s)...")
-            filtered_global_event_df = task.pre_filter(self.collected_global_event_df)
-            samples = []
-
-            if num_workers == 1:
-                # single-threading (by default)
-                for patient in tqdm(
-                    self.iter_patients(filtered_global_event_df),
-                    total=filtered_global_event_df["patient_id"].n_unique(),
-                    desc=(f"Generating samples for {task.task_name} " "with 1 worker"),
-                    smoothing=0,
-                ):
-                    samples.extend(task(patient))
-            else:
-                # multi-threading (not recommended)
-                logger.info(
-                    f"Generating samples for {task.task_name} with "
-                    f"{num_workers} workers"
-                )
-                patients = list(self.iter_patients(filtered_global_event_df))
-                with ThreadPoolExecutor(max_workers=num_workers) as executor:
-                    futures = [executor.submit(task, patient) for patient in patients]
-                    for future in tqdm(
-                        as_completed(futures),
-                        total=len(futures),
-                        desc=(
-                            f"Collecting samples for {task.task_name} "
-                            f"from {num_workers} workers"
-                        ),
-                    ):
-                        samples.extend(future.result())
-
-            # Cache the samples if cache_dir is provided
-            if cache_dir is not None:
-                cache_path = Path(cache_dir) / cache_filename
-                cache_path.parent.mkdir(parents=True, exist_ok=True)
-                logger.info(f"Caching samples to {cache_path}")
-                try:
-                    if cache_format == "parquet":
-                        # Save samples as parquet file
-                        samples_for_cache = [
-                            _convert_for_cache(sample) for sample in samples
-                        ]
-                        samples_df = pl.DataFrame(samples_for_cache)
-                        samples_df.write_parquet(cache_path)
-                    elif cache_format == "pickle":
-                        # Save samples as pickle file
-                        with open(cache_path, "wb") as f:
-                            pickle.dump(samples, f)
-                    else:
-                        msg = f"Unsupported cache format: {cache_format}"
-                        raise ValueError(msg)
-                    logger.info(f"Successfully cached {len(samples)} samples")
-                except Exception as e:
-                    logger.warning(f"Failed to cache samples: {e}")
+                    for patient_id in tqdm(patient_ids):
+                        patient_df = event_df.filter(
+                            pl.col("patient_id") == patient_id
+                        ).collect(engine="streaming")
+                        patient = Patient(patient_id=patient_id, data_source=patient_df)
+                        for sample in task(patient):
+                            writer.append({"sample": pickle.dumps(sample)})
+                litdata.index_parquet_dataset(tmp_dir)
 
         sample_dataset = SampleDataset(
             samples,
