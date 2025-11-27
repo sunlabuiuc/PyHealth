@@ -4,16 +4,17 @@ import pickle
 from abc import ABC
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional
+from typing import Dict, Iterator, List, Optional, Any
 from urllib.parse import urlparse, urlunparse
 import json
 import uuid
 import platformdirs
 import tempfile
+
 import litdata
+from litdata.streaming.item_loader import ParquetLoader
 import pyarrow as pa
 import pyarrow.parquet as pq
-
 import polars as pl
 import requests
 from tqdm import tqdm
@@ -22,7 +23,7 @@ from ..data import Patient
 from ..tasks import BaseTask
 from ..processors.base_processor import FeatureProcessor
 from .configs import load_yaml_config
-from .sample_dataset import SampleDataset
+from .sample_dataset import SampleDataset, SampleBuilder
 from .utils import _convert_for_cache, _restore_from_cache
 
 logger = logging.getLogger(__name__)
@@ -105,6 +106,8 @@ def scan_csv_gz_or_csv_tsv(path: str) -> pl.LazyFrame:
 
     raise FileNotFoundError(f"Neither path exists: {path} or {alt_path}")
 
+def unpickle_sample(sample_bytes: bytes) -> dict[str, Any]:
+    return pickle.loads(sample_bytes)
 
 class StreamingParquetWriter:
     """
@@ -226,12 +229,9 @@ class BaseDataset(ABC):
             f"Initializing {self.dataset_name} dataset from {self.root} (dev mode: {self.dev})"
         )
 
-        self.global_event_df = self.load_data()
-
         # Cached attributes
         self._cache_dir = cache_dir
         self._event_df_path = None
-        self._collected_global_event_df = None
         self._unique_patient_ids = None
 
     @property
@@ -524,6 +524,7 @@ class BaseDataset(ABC):
             event_df = task.pre_filter(self.event_df)
             schema = pa.schema({"sample", pa.binary()})
             with tempfile.TemporaryDirectory() as tmp_dir:
+                tmp_dir = "./test_task_cache" # For debugging purposes, keep the temp dir
                 with StreamingParquetWriter(f"{tmp_dir}/samples.parquet", schema) as writer:
                     logger.info(f"Applying task transformations on data...")
                     
@@ -541,16 +542,34 @@ class BaseDataset(ABC):
                         for sample in task(patient):
                             writer.append({"sample": pickle.dumps(sample)})
                 litdata.index_parquet_dataset(tmp_dir)
+                # dataset = litdata.StreamingDataset(
+                #     tmp_dir,
+                #     transform=unpickle_sample,
+                #     item_loader=ParquetLoader(),
+                # )
+                # builder = SampleBuilder(
+                #     input_schema=task.input_schema, # type: ignore
+                #     output_schema=task.output_schema, # type: ignore
+                #     input_processors=input_processors,
+                #     output_processors=output_processors,
+                # )
+                # builder.fit(iter(dataset))
+                # litdata.optimize(
+                #     fn=lambda x: builder.transform(x),
+                #     inputs=Streadataset,
 
-        sample_dataset = SampleDataset(
-            samples,
-            input_schema=task.input_schema,
-            output_schema=task.output_schema,
-            dataset_name=self.dataset_name,
-            task_name=task,
-            input_processors=input_processors,
-            output_processors=output_processors,
-        )
+                # )
 
-        logger.info(f"Generated {len(samples)} samples for task {task.task_name}")
-        return sample_dataset
+
+        # sample_dataset = SampleDataset(
+        #     samples,
+        #     input_schema=task.input_schema,
+        #     output_schema=task.output_schema,
+        #     dataset_name=self.dataset_name,
+        #     task_name=task,
+        #     input_processors=input_processors,
+        #     output_processors=output_processors,
+        # )
+
+        # logger.info(f"Generated {len(samples)} samples for task {task.task_name}")
+        # return sample_dataset

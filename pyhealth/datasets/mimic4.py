@@ -1,7 +1,7 @@
 import logging
 import os
 import warnings
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, override
 
 import pandas as pd
 import polars as pl
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 def log_memory_usage(tag=""):
     """Log current memory usage if psutil is available."""
     if HAS_PSUTIL:
-        process = psutil.Process(os.getpid())
+        process = psutil.Process(os.getpid())  # type: ignore
         mem_info = process.memory_info()
         logger.info(f"Memory usage {tag}: {mem_info.rss / (1024 * 1024):.1f} MB")
     else:
@@ -214,16 +214,6 @@ class MIMIC4Dataset(BaseDataset):
     ):
         log_memory_usage("Starting MIMIC4Dataset init")
 
-        # Initialize child datasets
-        self.dataset_name = dataset_name
-        self.sub_datasets = {}
-        self.root = None
-        self.tables = None
-        self.config = None
-        # Dev flag is only used in the MIMIC4Dataset class
-        # to ensure the same set of patients are used for all sub-datasets.
-        self.dev = dev
-
         # We need at least one root directory
         if not any([ehr_root, note_root, cxr_root]):
             raise ValueError("At least one root directory must be provided")
@@ -232,6 +222,17 @@ class MIMIC4Dataset(BaseDataset):
         ehr_tables = ehr_tables or []
         note_tables = note_tables or []
         cxr_tables = cxr_tables or []
+
+        super().__init__(
+            root=f"{ehr_root}|{note_root}|{cxr_root}",
+            tables=ehr_tables + note_tables + cxr_tables,
+            dataset_name=dataset_name,
+            config_path=None,
+            dev=dev,
+        )
+
+        # Initialize child datasets
+        self.sub_datasets: dict[str, BaseDataset] = {}
 
         # Initialize EHR dataset if root is provided
         if ehr_root:
@@ -263,18 +264,10 @@ class MIMIC4Dataset(BaseDataset):
             )
             log_memory_usage("After CXR dataset initialization")
 
-        # Combine data from all sub-datasets
-        log_memory_usage("Before combining data")
-        self.global_event_df = self._combine_data()
-        log_memory_usage("After combining data")
-
-        # Cache attributes
-        self._collected_global_event_df = None
-        self._unique_patient_ids = None
-
         log_memory_usage("Completed MIMIC4Dataset init")
 
-    def _combine_data(self) -> pl.LazyFrame:
+    @override
+    def load_data(self) -> pl.LazyFrame:
         """
         Combines data from all initialized sub-datasets into a unified global event dataframe.
 
@@ -286,7 +279,7 @@ class MIMIC4Dataset(BaseDataset):
         # Collect global event dataframes from all sub-datasets
         for dataset_type, dataset in self.sub_datasets.items():
             logger.info(f"Combining data from {dataset_type} dataset")
-            frames.append(dataset.global_event_df)
+            frames.append(dataset.load_data())
 
         # Concatenate all frames
         logger.info("Creating combined dataframe")
