@@ -238,21 +238,12 @@ class BaseDataset(ABC):
         if table_name not in self.config.tables:
             raise ValueError(f"Table {table_name} not found in config")
 
-        def _to_lower(col_name: str) -> str:
-            lower_name = col_name.lower()
-            if lower_name != col_name:
-                logger.warning("Renaming column %s to lowercase %s", col_name, lower_name)
-            return lower_name
-
         table_cfg = self.config.tables[table_name]
         csv_path = f"{self.root}/{table_cfg.file_path}"
         csv_path = clean_path(csv_path)
 
         logger.info(f"Scanning table: {table_name} from {csv_path}")
         df = scan_csv_gz_or_csv_tsv(csv_path)
-
-        # Convert column names to lowercase before calling preprocess_func
-        df = df.rename(_to_lower)
 
         # Check if there is a preprocessing function for this table
         preprocess_func = getattr(self, f"preprocess_{table_name}", None)
@@ -268,7 +259,6 @@ class BaseDataset(ABC):
             other_csv_path = clean_path(other_csv_path)
             logger.info(f"Joining with table: {other_csv_path}")
             join_df = scan_csv_gz_or_csv_tsv(other_csv_path)
-            join_df = join_df.rename(_to_lower)
             join_key = join_cfg.on
             columns = join_cfg.columns
             how = join_cfg.how
@@ -311,7 +301,7 @@ class BaseDataset(ABC):
 
         # Flatten attribute columns with event_type prefix
         attribute_columns = [
-            pl.col(attr.lower()).alias(f"{table_name}/{attr}") for attr in attribute_cols
+            pl.col(attr).alias(f"{table_name}/{attr}") for attr in attribute_cols
         ]
 
         event_frame = df.select(base_columns + attribute_columns)
