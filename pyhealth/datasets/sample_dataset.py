@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple, Union, Type
+from typing import Any, Dict, Iterator, List, Optional, Tuple, Union, Type
 import inspect
 
 from torch.utils.data import Dataset
@@ -6,6 +6,159 @@ from tqdm import tqdm
 
 from ..processors import get_processor
 from ..processors.base_processor import FeatureProcessor
+
+
+class SampleBuilder:
+    """Utility to fit processors and transform samples without materializing a Dataset."""
+
+    def __init__(
+        self,
+        input_schema: Dict[
+            str,
+            Union[
+                str,
+                Type[FeatureProcessor],
+                FeatureProcessor,
+                Tuple[Union[str, Type[FeatureProcessor]], Dict[str, Any]],
+            ],
+        ],
+        output_schema: Dict[
+            str,
+            Union[
+                str,
+                Type[FeatureProcessor],
+                FeatureProcessor,
+                Tuple[Union[str, Type[FeatureProcessor]], Dict[str, Any]],
+            ],
+        ],
+        input_processors: Optional[Dict[str, FeatureProcessor]] = None,
+        output_processors: Optional[Dict[str, FeatureProcessor]] = None,
+    ) -> None:
+        self.input_schema = input_schema
+        self.output_schema = output_schema
+        self._input_processors = (
+            input_processors if input_processors is not None else {}
+        )
+        self._output_processors = (
+            output_processors if output_processors is not None else {}
+        )
+        self._patient_to_index: Dict[str, List[int]] = {}
+        self._record_to_index: Dict[str, List[int]] = {}
+        self._fitted = False
+
+    @property
+    def input_processors(self) -> Dict[str, FeatureProcessor]:
+        if not self._fitted:
+            raise RuntimeError(
+                "SampleBuilder.fit must be called before accessing input_processors."
+            )
+        return self._input_processors
+
+    @property
+    def output_processors(self) -> Dict[str, FeatureProcessor]:
+        if not self._fitted:
+            raise RuntimeError(
+                "SampleBuilder.fit must be called before accessing output_processors."
+            )
+        return self._output_processors
+
+    @property
+    def patient_to_index(self) -> Dict[str, List[int]]:
+        if not self._fitted:
+            raise RuntimeError(
+                "SampleBuilder.fit must be called before accessing patient_to_index."
+            )
+        return self._patient_to_index
+
+    @property
+    def record_to_index(self) -> Dict[str, List[int]]:
+        if not self._fitted:
+            raise RuntimeError(
+                "SampleBuilder.fit must be called before accessing record_to_index."
+            )
+        return self._record_to_index
+
+    def _get_processor_instance(self, processor_spec):
+        """Instantiate a processor using the same resolution logic as SampleDataset."""
+        if isinstance(processor_spec, tuple):
+            spec, kwargs = processor_spec
+            if isinstance(spec, str):
+                return get_processor(spec)(**kwargs)
+            if inspect.isclass(spec) and issubclass(spec, FeatureProcessor):
+                return spec(**kwargs)
+            raise ValueError(
+                "Processor spec in tuple must be either a string alias or a "
+                f"FeatureProcessor class, got {type(spec)}"
+            )
+        if isinstance(processor_spec, str):
+            return get_processor(processor_spec)()
+        if inspect.isclass(processor_spec) and issubclass(
+            processor_spec, FeatureProcessor
+        ):
+            return processor_spec()
+        if isinstance(processor_spec, FeatureProcessor):
+            return processor_spec
+        raise ValueError(
+            "Processor spec must be either a string alias, a FeatureProcessor "
+            f"class, or a tuple (spec, kwargs_dict), got {type(processor_spec)}"
+        )
+
+    def _validate(self, samples: List[Dict[str, Any]]) -> None:
+        """Validate that provided samples contain the fields described in the schemas."""
+        input_keys = set(self.input_schema.keys())
+        output_keys = set(self.output_schema.keys())
+        for sample in samples:
+            assert input_keys.issubset(
+                sample.keys()
+            ), "Input schema does not match samples."
+            assert output_keys.issubset(
+                sample.keys()
+            ), "Output schema does not match samples."
+
+    def fit(self, samples: Iterator[Dict[str, Any]]) -> None:
+        """Fit processors and build index mappings from an iterator of samples."""
+        sample_list = list(samples)
+        self._validate(sample_list)
+
+        # Build index mappings
+        self._patient_to_index = {}
+        self._record_to_index = {}
+        for i, sample in enumerate(sample_list):
+            patient_id = sample.get("patient_id")
+            if patient_id is not None:
+                self._patient_to_index.setdefault(patient_id, []).append(i)
+            record_id = sample.get("record_id", sample.get("visit_id"))
+            if record_id is not None:
+                self._record_to_index.setdefault(record_id, []).append(i)
+
+        # Fit processors if they were not provided
+        if not self._input_processors:
+            for key, spec in self.input_schema.items():
+                processor = self._get_processor_instance(spec)
+                processor.fit(sample_list, key)
+                self._input_processors[key] = processor
+        if not self._output_processors:
+            for key, spec in self.output_schema.items():
+                processor = self._get_processor_instance(spec)
+                processor.fit(sample_list, key)
+                self._output_processors[key] = processor
+
+        self._fitted = True
+
+    def transform(self, sample: Dict[str, Any]) -> Dict[str, Any]:
+        """Transform a single sample dictionary using the fitted processors."""
+        if not self._fitted:
+            raise RuntimeError("SampleBuilder.fit must be called before transform().")
+
+        transformed: Dict[str, Any] = {}
+        for key, value in sample.items():
+            if key in self._input_processors:
+                transformed[key] = self._input_processors[key].process(value)
+            elif key in self._output_processors:
+                transformed[key] = self._output_processors[key].process(value)
+            else:
+                transformed[key] = value
+        return transformed
 
 
 class SampleDataset(Dataset):
@@ -24,8 +177,24 @@ class SampleDataset(Dataset):
     def __init__(
         self,
         samples: List[Dict],
-        input_schema: Dict[str, Union[str, Type[FeatureProcessor], FeatureProcessor, Tuple[Union[str, Type[FeatureProcessor]], Dict[str, Any]]]],
-        output_schema: Dict[str, Union[str, Type[FeatureProcessor], FeatureProcessor, Tuple[Union[str, Type[FeatureProcessor]], Dict[str, Any]]]],
+        input_schema: Dict[
+            str,
+            Union[
+                str,
+                Type[FeatureProcessor],
+                FeatureProcessor,
+                Tuple[Union[str, Type[FeatureProcessor]], Dict[str, Any]],
+            ],
+        ],
+        output_schema: Dict[
+            str,
+            Union[
+                str,
+                Type[FeatureProcessor],
+                FeatureProcessor,
+                Tuple[Union[str, Type[FeatureProcessor]], Dict[str, Any]],
+            ],
+        ],
         dataset_name: Optional[str] = None,
         task_name: Optional[str] = None,
         input_processors: Optional[Dict[str, FeatureProcessor]] = None,
@@ -130,9 +299,9 @@ class SampleDataset(Dataset):
         output_keys = set(self.output_schema.keys())
         for s in self.samples:
             assert input_keys.issubset(s.keys()), "Input schema does not match samples."
-            assert output_keys.issubset(s.keys()), (
-                "Output schema does not match samples."
-            )
+            assert output_keys.issubset(
+                s.keys()
+            ), "Output schema does not match samples."
         return
 
     def build(self) -> None:
