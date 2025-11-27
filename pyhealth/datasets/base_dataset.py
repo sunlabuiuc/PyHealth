@@ -73,7 +73,12 @@ def scan_csv_gz_or_csv_tsv(path: str) -> pl.LazyFrame:
 
     def scan_file(file_path: str) -> pl.LazyFrame:
         separator = "\t" if ".tsv" in file_path else ","
-        return pl.scan_csv(file_path, separator=separator, infer_schema=False)
+        return pl.scan_csv(
+            file_path, 
+            separator=separator, 
+            infer_schema=False,
+            low_memory=True,
+        )
 
     if path_exists(path):
         return scan_file(path)
@@ -144,6 +149,7 @@ class BaseDataset(ABC):
 
         # Cached attributes
         self._cache_dir = cache_dir
+        self._event_df_path = None
         self._collected_global_event_df = None
         self._unique_patient_ids = None
 
@@ -166,51 +172,41 @@ class BaseDataset(ABC):
             cache_dir = Path(platformdirs.user_cache_dir(appname="pyhealth")) / str(
                 uuid.uuid5(uuid.NAMESPACE_DNS, id_str)
             )
+            cache_dir.mkdir(parents=True, exist_ok=True)
             print(f"No cache_dir provided. Using default cache dir: {cache_dir}")
             self._cache_dir = cache_dir
         return Path(self._cache_dir)
 
     @property
-    def collected_global_event_df(self) -> pl.DataFrame:
-        """Collects and returns the global event data frame.
+    def event_df(self) -> pl.LazyFrame:
+        """Returns the path to the cached event dataframe.
 
         Returns:
-            pl.DataFrame: The collected global event data frame.
+            Path: The path to the cached event dataframe.
         """
-        if self._collected_global_event_df is None:
-            logger.info("Collecting global event dataframe...")
+        if self._event_df_path is None:
+            path = self.cache_dir / "event_df.parquet"
+            if not path.exists():
+                df = self.load_data()
+                if self.dev:
+                    logger.info("Dev mode enabled: limiting to 1000 patients")
+                    limited_patients = df.select(pl.col("patient_id")).unique().limit(1000)
+                    df = df.join(limited_patients, on="patient_id", how="inner")
 
-            # Collect the dataframe - with dev mode limiting if applicable
-            df = self.global_event_df
-            # TODO: dev doesn't seem to improve the speed / memory usage
-            if self.dev:
-                # Limit the number of patients in dev mode
-                logger.info("Dev mode enabled: limiting to 1000 patients")
-                limited_patients = df.select(pl.col("patient_id")).unique().limit(1000)
-                df = df.join(limited_patients, on="patient_id", how="inner")
+                logger.info(f"Caching event dataframe to {path}...")
+                df.sort("patient_id").sink_parquet(
+                    path,
+                    compression="lz4", # use lz4 compression for faster read/write
+                    row_group_size=8_192,
+                    maintain_order=True, # Important for sorted writes
+                )
+            self._event_df_path = path
 
-            self._collected_global_event_df = df.collect()
-
-            # Profile the Polars collect() operation (commented out by default)
-            # self._collected_global_event_df, profile = df.profile()
-            # profile = profile.with_columns([
-            #     (pl.col("end") - pl.col("start")).alias("duration"),
-            # ])
-            # profile = profile.with_columns([
-            #     (pl.col("duration") / profile["duration"].sum() * 100).alias("percentage")
-            # ])
-            # profile = profile.sort("duration", descending=True)
-            # with pl.Config() as cfg:
-            #     cfg.set_tbl_rows(-1)
-            #     cfg.set_fmt_str_lengths(200)
-            #     print(profile)
-
-            logger.info(
-                f"Collected dataframe with shape: {self._collected_global_event_df.shape}"
-            )
-
-        return self._collected_global_event_df
-
+        return pl.scan_parquet(
+            self._event_df_path,
+            low_memory=True,
+        ).set_sorted("patient_id") # Guarantee sorted read, see sink_parquet above
+        
     def load_data(self) -> pl.LazyFrame:
         """Loads data from the specified tables.
 
@@ -317,8 +313,10 @@ class BaseDataset(ABC):
         """
         if self._unique_patient_ids is None:
             self._unique_patient_ids = (
-                self.collected_global_event_df.select("patient_id")
+                self.event_df
+                .select("patient_id")
                 .unique()
+                .collect(engine="streaming")
                 .to_series()
                 .to_list()
             )
@@ -340,8 +338,13 @@ class BaseDataset(ABC):
         assert (
             patient_id in self.unique_patient_ids
         ), f"Patient {patient_id} not found in dataset"
-        df = self.collected_global_event_df.filter(pl.col("patient_id") == patient_id)
-        return Patient(patient_id=patient_id, data_source=df)
+        
+        data_source = (
+            self.event_df
+            .filter(pl.col("patient_id") == patient_id)
+            .collect(engine="streaming")
+        )
+        return Patient(patient_id=patient_id, data_source=data_source)
 
     def iter_patients(self, df: Optional[pl.LazyFrame] = None) -> Iterator[Patient]:
         """Yields Patient objects for each unique patient in the dataset.
@@ -350,20 +353,34 @@ class BaseDataset(ABC):
             Iterator[Patient]: An iterator over Patient objects.
         """
         if df is None:
-            df = self.collected_global_event_df
-        grouped = df.group_by("patient_id")
+            df = self.event_df
+        patient_ids = (
+            df.select("patient_id")
+            .unique(maintain_order=True)
+            .collect(engine="streaming")
+            .to_series()
+        )
 
-        for patient_id, patient_df in grouped:
-            patient_id = patient_id[0]
+        for patient_id in patient_ids:
+            patient_df = (
+                df.filter(pl.col("patient_id") == patient_id)
+                .collect(engine="streaming")
+            )
             yield Patient(patient_id=patient_id, data_source=patient_df)
 
     def stats(self) -> None:
         """Prints statistics about the dataset."""
-        df = self.collected_global_event_df
+        stats = (
+            self.event_df.select(
+                pl.len().alias("n_events"),
+                pl.col("patient_id").n_unique().alias("n_patients"),
+            )
+            .collect(engine="streaming")
+        )
         print(f"Dataset: {self.dataset_name}")
         print(f"Dev mode: {self.dev}")
-        print(f"Number of patients: {df['patient_id'].n_unique()}")
-        print(f"Number of events: {df.height}")
+        print(f"Number of patients: {stats['n_patients'][0]}")
+        print(f"Number of events: {stats['n_events'][0]}")
 
     @property
     def default_task(self) -> Optional[BaseTask]:
