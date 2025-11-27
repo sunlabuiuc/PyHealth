@@ -6,6 +6,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional
 from urllib.parse import urlparse, urlunparse
+import json
+import uuid
+import platformdirs
 
 import polars as pl
 import requests
@@ -112,6 +115,7 @@ class BaseDataset(ABC):
         tables: List[str],
         dataset_name: Optional[str] = None,
         config_path: Optional[str] = None,
+        cache_dir: str | Path | None = None,
         dev: bool = False,
     ):
         """Initializes the BaseDataset.
@@ -139,8 +143,32 @@ class BaseDataset(ABC):
         self.global_event_df = self.load_data()
 
         # Cached attributes
+        self._cache_dir = cache_dir
         self._collected_global_event_df = None
         self._unique_patient_ids = None
+
+    @property
+    def cache_dir(self) -> Path:
+        """Returns the cache directory path.
+        Returns:
+            Path: The cache directory path.
+        """
+        if self._cache_dir is None:
+            id_str = json.dumps(
+                {
+                    "root": self.root,
+                    "tables": sorted(self.tables),
+                    "dataset_name": self.dataset_name,
+                    "dev": self.dev,
+                },
+                sort_keys=True,
+            )
+            cache_dir = Path(platformdirs.user_cache_dir(appname="pyhealth")) / str(
+                uuid.uuid5(uuid.NAMESPACE_DNS, id_str)
+            )
+            print(f"No cache_dir provided. Using default cache dir: {cache_dir}")
+            self._cache_dir = cache_dir
+        return Path(self._cache_dir)
 
     @property
     def collected_global_event_df(self) -> pl.DataFrame:
