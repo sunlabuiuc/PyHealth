@@ -9,6 +9,10 @@ from urllib.parse import urlparse, urlunparse
 import json
 import uuid
 import platformdirs
+import tempfile
+import litdata
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 import polars as pl
 import requests
@@ -101,6 +105,80 @@ def scan_csv_gz_or_csv_tsv(path: str) -> pl.LazyFrame:
 
     raise FileNotFoundError(f"Neither path exists: {path} or {alt_path}")
 
+
+class StreamingParquetWriter:
+    """
+    Stream-write rows into a Parquet file in chunked (row-group) fashion.
+
+    Usage:
+        writer = StreamingParquetWriter(Path("out.parquet"), schema, chunk_size=10000)
+        writer.append({"id": 1, "val": 3.14})
+        writer.append({"id": 2, "val": 1.23})
+        writer.close()
+    """
+
+    def __init__(self, path: Path, schema: pa.Schema, chunk_size: int = 50_000):
+        """
+        Args:
+            path: output Parquet file path
+            schema: pyarrow.Schema (required)
+            chunk_size: flush buffer every N rows
+        """
+        self.path = Path(path)
+        self.schema = schema
+        self.chunk_size = chunk_size
+
+        if self.schema is None:
+            raise ValueError("schema must be provided — no automatic inference allowed.")
+
+        self._writer: pq.ParquetWriter | None = None
+        self._buffer: list[dict] = []
+        self._closed = False
+
+    # --------------------------------------------------------------
+    # Public API
+    # --------------------------------------------------------------
+    def append(self, row: dict) -> None:
+        """Append a single row (a Python dict)."""
+        if self._closed:
+            raise RuntimeError("Cannot append to a closed StreamingParquetWriter")
+
+        self._buffer.append(row)
+        if len(self._buffer) >= self.chunk_size:
+            self.flush()
+
+    def flush(self) -> None:
+        """Flush buffered rows into a Parquet row-group."""
+        if not self._buffer:
+            return
+
+        # Convert list[dict] → Arrow RecordBatch
+        batch = pa.RecordBatch.from_pylist(self._buffer, schema=self.schema)
+
+        # Lazy-initialize writer
+        if self._writer is None:
+            self._writer = pq.ParquetWriter(self.path, self.schema)
+
+        self._writer.write_batch(batch)
+        self._buffer.clear()
+
+    def close(self) -> None:
+        """Flush and close the Parquet writer."""
+        if self._closed:
+            return
+        self.flush()
+        if self._writer is not None:
+            self._writer.close()
+        self._closed = True
+
+    # --------------------------------------------------------------
+    # Context manager support
+    # --------------------------------------------------------------
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
 
 class BaseDataset(ABC):
     """Abstract base class for all PyHealth datasets.
@@ -395,7 +473,7 @@ class BaseDataset(ABC):
         self,
         task: Optional[BaseTask] = None,
         num_workers: int = 1,
-        cache_dir: Optional[str] = None,
+        cache_dir: str | Path | None = None,
         cache_format: str = "parquet",
         input_processors: Optional[Dict[str, FeatureProcessor]] = None,
         output_processors: Optional[Dict[str, FeatureProcessor]] = None,
@@ -409,8 +487,7 @@ class BaseDataset(ABC):
                 multi-threading may not speed up the task function.
             cache_dir (Optional[str]): Directory to cache processed samples.
                 Default is None (no caching).
-            cache_format (str): Format for caching ('parquet' or 'pickle').
-                Default is 'parquet'.
+            cache_format (str): Deprecated. Only "parquet" is supported now.
             input_processors (Optional[Dict[str, FeatureProcessor]]):
                 Pre-fitted input processors. If provided, these will be used
                 instead of creating new ones from task's input_schema. Defaults to None.
@@ -428,38 +505,39 @@ class BaseDataset(ABC):
             assert self.default_task is not None, "No default tasks found"
             task = self.default_task
 
+        if cache_format != "parquet":
+            logger.warning("Only 'parquet' cache_format is supported now. ")
+
         logger.info(
             f"Setting task {task.task_name} for {self.dataset_name} base dataset..."
         )
 
-        # Check for cached data if cache_dir is provided
-        samples = None
-        if cache_dir is not None:
-            cache_filename = f"{task.task_name}.{cache_format}"
-            cache_path = Path(cache_dir) / cache_filename
-            if cache_path.exists():
-                logger.info(f"Loading cached samples from {cache_path}")
-                try:
-                    if cache_format == "parquet":
-                        # Load samples from parquet file
-                        cached_df = pl.read_parquet(cache_path)
-                        samples = [
-                            _restore_from_cache(row) for row in cached_df.to_dicts()
-                        ]
-                    elif cache_format == "pickle":
-                        # Load samples from pickle file
-                        with open(cache_path, "rb") as f:
-                            samples = pickle.load(f)
-                    else:
-                        msg = f"Unsupported cache format: {cache_format}"
-                        raise ValueError(msg)
-                    logger.info(f"Loaded {len(samples)} cached samples")
-                except Exception as e:
-                    logger.warning(
-                        "Failed to load cached data: %s. Regenerating...",
-                        e,
+        if cache_dir is None:
+            cache_dir = self.cache_dir / "tasks" / task.task_name
+            cache_dir.mkdir(parents=True, exist_ok=True)
+
+        path = Path(cache_dir)
+        
+        # Check if index.json exists to verify cache integrity, this 
+        # is the standard file for litdata.StreamingDataset
+        if not (path / "index.json").exists():
+            event_df = task.pre_filter(self.event_df)
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                logger.info(f"Applying task transformations on data...")
+                patient_ids = (
+                    event_df.select("patient_id")
+                    .unique()
+                    .collect(engine="streaming")
+                    .to_series()
+                )
+                for patient_id in tqdm(patient_ids):
+                    patient_df = (
+                        event_df.filter(pl.col("patient_id") == patient_id)
+                        .collect(engine="streaming")
                     )
-                    samples = None
+                    patient = Patient(patient_id=patient_id, data_source=patient_df)
+                    # TODO: save this to temp cache
+                    sample = task(patient)  
 
         # Generate samples if not loaded from cache
         if samples is None:
