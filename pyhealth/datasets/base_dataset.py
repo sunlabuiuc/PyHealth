@@ -129,8 +129,8 @@ class BaseDataset(ABC):
         self.root = root
         self.tables = tables
         self.dataset_name = dataset_name or self.__class__.__name__
-        self.config = load_yaml_config(config_path)
         self.dev = dev
+        self.config = load_yaml_config(config_path) if config_path else None
 
         logger.info(
             f"Initializing {self.dataset_name} dataset from {self.root} (dev mode: {self.dev})"
@@ -205,6 +205,8 @@ class BaseDataset(ABC):
             ValueError: If the table is not found in the config.
             FileNotFoundError: If the CSV file for the table or join is not found.
         """
+        assert self.config is not None, "Config must be provided to load tables"
+
         if table_name not in self.config.tables:
             raise ValueError(f"Table {table_name} not found in config")
 
@@ -243,7 +245,7 @@ class BaseDataset(ABC):
             columns = join_cfg.columns
             how = join_cfg.how
 
-            df = df.join(join_df.select([join_key] + columns), on=join_key, how=how)
+            df = df.join(join_df.select([join_key] + columns), on=join_key, how=how) # type: ignore
 
         patient_id_col = table_cfg.patient_id
         timestamp_col = table_cfg.timestamp
