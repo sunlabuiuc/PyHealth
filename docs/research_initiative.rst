@@ -38,17 +38,17 @@ drug recommendation, and healthcare AI infrastructure.
      - Zilal Eiz Al Din
      - MIMIC-RD: Can LLMs differentially diagnose rare diseases in real-world clinical settings?
      - ML4H 2025
-     - *In Preparation*
+     - `Paper <https://openreview.net/forum?id=CrZyNUfWHp>`_
    * - 2025
-     - Abraham Francisco Arellano Tavara, Umesh Kumar
+     - Abraham Francisco, Arellano Tavara, Umesh Kumar
      - Prostate-VarBench: A Benchmark with Interpretable TabNet Framework for Prostate Cancer Variant Classification
      - ML4H 2025
-     - *In Preparation*
+     - `Paper <https://openreview.net/forum?id=zOUjZgKD2E>`_
    * - 2025
      - Sharim Khan
      - Social Determinants of Health Prediction for ICD-9 Code with Reasoning Models
      - ML4H 2025
-     - *In Preparation*
+     - `Paper <https://openreview.net/forum?id=gMpzlCnq66>`_
 
 .. note::
    
