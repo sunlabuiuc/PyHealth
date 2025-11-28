@@ -30,12 +30,12 @@ def _download_data_to_path(url: str, save_path: str) -> None:
     Returns:
         str: The path to the downloaded and extracted dataset.
     """
-    
+    logger.info("Downloading iAFib dataset from %s", url)
     path = save_path
     os.makedirs(path, exist_ok=True)
 
     try:
-        response = requests.get(url)
+        response = requests.get(url, stream=True)
         if response.status_code != 200:
             raise Exception(f"Failed to download data, status code: {response.status_code}")
 
@@ -46,11 +46,18 @@ def _download_data_to_path(url: str, save_path: str) -> None:
         else:
             filename = os.path.basename(url)
 
-        logging.info("Downloading data from %s to %s", url, os.path.join(save_path, filename))
+        logger.info("Downloading data from %s to %s", url, os.path.join(save_path, filename))
 
+        file_size = int(response.headers.get('Content-Length', 0))
+        downloaded = 0
+        next_report = 0.1 
         with open(os.path.join(save_path, filename), "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
+            for chunk in response.iter_content(chunk_size=1024 * 1024):
                 f.write(chunk)
+                downloaded += len(chunk)
+                if downloaded / file_size >= next_report:
+                    logger.info("Download progress: %.1f%%", (downloaded / file_size) * 100)
+                    next_report += 0.1
     except Exception as e:
         logger.error("Failed to download data from %s: %s", url, e)
         raise Exception("Failed to download data") from e
@@ -117,6 +124,7 @@ class iAFibDataset(BaseDataset):
         Returns:
             pl.LazyFrame: A concatenated lazy frame of all tables.
         """
+        logger.info("Start loading iAFib dataset...")
         table_name = self.tables[0]
         table_cfg = self.config.tables[table_name]
         url = table_cfg.file_path
