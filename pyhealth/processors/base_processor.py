@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Iterator
 
 
 class Processor(ABC):
@@ -33,7 +33,7 @@ class FeatureProcessor(Processor):
     Example: Tokenization, image loading, normalization.
     """
 
-    def fit(self, samples: List[Dict[str, Any]], field: str) -> None:
+    def fit(self, samples: Iterator[Dict[str, Any]], field: str) -> None:
         """Fit the processor to the samples.
 
         Args:
