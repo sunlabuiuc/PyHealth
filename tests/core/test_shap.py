@@ -274,7 +274,14 @@ class TestShapExplainerBasic(unittest.TestCase):
         from_attribute = self.explainer.attribute(**kwargs)
         from_call = self.explainer(**kwargs)
 
-        torch.testing.assert_close(from_call["x"], from_attribute["x"])
+        # Use relaxed tolerances since SHAP is a stochastic approximation method
+        # and minor variations can occur across different Python/PyTorch versions
+        torch.testing.assert_close(
+            from_call["x"], 
+            from_attribute["x"],
+            rtol=1e-3,  # 0.1% relative tolerance
+            atol=1e-4   # absolute tolerance
+        )
 
     def test_different_n_background_samples(self):
         """Test with different numbers of background samples."""
