@@ -1,0 +1,23 @@
+version: "1.0"
+tables:
+  mutations:
+    file_path: "tcga_prad_mutations-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "hugo_symbol"
+    - "variant_classification"
+    - "variant_type"
+    - "hgvsc"
+    - "hgvsp"
+    - "tumor_sample_barcode"
+  clinical:
+    file_path: "tcga_prad_clinical-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "age_at_diagnosis"
+    - "gleason_score"
+    - "vital_status"
+    - "days_to_death"
+    - "tumor_stage"

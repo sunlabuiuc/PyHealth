@@ -1,0 +1,6 @@
+patient_id,age_at_diagnosis,gleason_score,vital_status,days_to_death,tumor_stage
+TCGA-2A-A8VL,65,7,Dead,1250,Stage III
+TCGA-CH-5737,58,6,Alive,,Stage II
+TCGA-EJ-7783,72,9,Dead,890,Stage IV
+TCGA-G9-6348,61,7,Alive,,Stage II
+TCGA-HC-7740,55,6,Alive,,Stage I

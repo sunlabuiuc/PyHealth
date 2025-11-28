@@ -1,5 +1,6 @@
 from .base_task import BaseTask
 from .benchmark_ehrshot import BenchmarkEHRShot
+from .cancer_survival import CancerMutationBurden, CancerSurvivalPrediction
 from .bmd_hs_disease_classification import BMDHSDiseaseClassification
 from .cardiology_detect import (
     cardiology_isAD_fn,
@@ -57,3 +58,7 @@ from .sleep_staging import (
 )
 from .sleep_staging_v2 import SleepStagingSleepEDF
 from .temple_university_EEG_tasks import EEG_events_fn, EEG_isAbnormal_fn
+from .variant_classification import (
+    MutationPathogenicityPrediction,
+    VariantClassificationClinVar,
+)

@@ -1,0 +1,16 @@
+version: "1.0"
+tables:
+  variants:
+    file_path: "clinvar-pyhealth.csv"
+    patient_id: null
+    timestamp: null
+    attributes:
+    - "gene_symbol"
+    - "clinical_significance"
+    - "review_status"
+    - "chromosome"
+    - "position"
+    - "reference_allele"
+    - "alternate_allele"
+    - "variant_type"
+    - "assembly"
