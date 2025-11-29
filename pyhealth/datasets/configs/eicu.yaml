@@ -1,0 +1,580 @@
+version: "0.8"
+tables:
+  patient:
+    file_path: "patient.csv.gz"
+    patient_id: "uniquepid"
+    timestamp: "hospitaladmittime24"
+    timestamp_format: "%H:%M:%S"
+    attributes:
+      - "patientunitstayid"
+      - "patienthealthsystemstayid"
+      - "gender"
+      - "age"
+      - "ethnicity"
+      - "hospitalid"
+      - "wardid"
+      - "apacheadmissiondx"
+      - "admissionheight"
+      - "hospitaladmittime24"
+      - "hospitaladmitoffset"
+      - "hospitaladmitsource"
+      - "hospitaldischargeyear"
+      - "hospitaldischargetime24"
+      - "hospitaldischargeoffset"
+      - "hospitaldischargelocation"
+      - "hospitaldischargestatus"
+      - "unittype"
+      - "unitadmittime24"
+      - "unitadmitsource"
+      - "unitvisitnumber"
+      - "unitstaytype"
+      - "admissionweight"
+      - "dischargeweight"
+      - "unitdischargetime24"
+      - "unitdischargeoffset"
+      - "unitdischargelocation"
+      - "unitdischargestatus"
+      - "uniquepid"
+
+  hospital:
+    file_path: "hospital.csv.gz"
+    patient_id: null
+    timestamp: null
+    attributes:
+      - "hospitalid"
+      - "numbedscategory"
+      - "teachingstatus"
+      - "region"
+
+  admissiondx:
+    file_path: "admissionDx.csv.gz"
+    patient_id: "patientunitstayid"
+    timestamp: null
+    attributes:
+      - "admissiondxid"
+      - "patientunitstayid"
+      - "admitdxenteredoffset"
+      - "admitdxpath"
+      - "admitdxname"
+      - "admitdxtext"
+
+  diagnosis:
+    file_path: "diagnosis.csv.gz"
+    patient_id: "patientunitstayid"
+    timestamp: null
+    attributes:
+      - "diagnosisid"
+      - "patientunitstayid"
+      - "activeupondischarge"
+      - "diagnosisoffset"
+      - "diagnosisstring"
+      - "icd9code"
+      - "diagnosispriority"
+
+  medication:
+    file_path: "medication.csv.gz"
+    patient_id: "patientunitstayid"
+    timestamp: null
+    attributes:
+      - "medicationid"
+      - "patientunitstayid"
+      - "drugorderoffset"
+      - "drugstartoffset"
+      - "drugivadmixture"
+      - "drugordercancelled"
+      - "drugname"
+      - "drughiclseqno"
+      - "dosage"
+      - "routeadmin"
+      - "frequency"
+      - "loadingdose"
+      - "prn"
+      - "drugstopoffset"
+      - "gtc"
+
+  lab:
+    file_path: "lab.csv.gz"
+    patient_id: "patientunitstayid"
+    timestamp: null
+    attributes:
+      - "labid"
+      - "patientunitstayid"
+      - "labresultoffset"
+      - "labtypeid"
+      - "labname"
+      - "labresult"
+      - "labresulttext"
+      - "labmeasurenamesystem"
+      - "labmeasurenameinterface"
+      - "labresultrevisedoffset"
+
+  treatment:
+    file_path: "treatment.csv.gz"
+    patient_id: "patientunitstayid"
+    timestamp: null
+    attributes:
+      - "treatmentid"
+      - "patientunitstayid"
+      - "treatmentoffset"
+      - "treatmentstring"
+      - "activeupondischarge"
+
+  physicalexam:
+    file_path: "physicalexam.csv.gz"
+    patient_id: "patientunitstayid"
+    timestamp: null
+    attributes:
+      - "physicalexamid"
+      - "patientunitstayid"
+      - "physicalexamoffset"
+      - "physicalexampath"
+      - "physicalexamvalue"
+      - "physicalexamtext"
+
+  admissiondrug:
+    file_path: "admissionDrug.csv.gz"
+    patient_id: "patientunitstayid"
+    timestamp: null
+    attributes:
+      - "admissiondrugid"
+      - "patientunitstayid"
+      - "drugoffset"
+      - "drugenteredoffset"
+      - "drugnotetype"
+      - "specialtytype"
+      - "usertype" 
+      - "rxincluded"
+      - "writtenineicu"
+      - "drugname"
+      - "drugdosage"
+      - "drugunit"
+      - "drugadmitfrequency"
+      - "drughiclseqno"
+
+  allergy:
+    file_path: "allergy.csv.gz"
+    patient_id: "patientunitstayid"
+    timestamp: null
+    attributes:
+      - "allergyid"
+      - "patientunitstayid"
+      - "allergyoffset"
+      - "allergyenteredoffset"
+      - "allergynotetype"
+      - "specialtytype"
+      - "usertype"
+      - "rxincluded"
+      - "writtenineicu"
+      - "drugname"
+      - "allergytype"
+      - "allergyname"
+      - "drughiclseqno"
+
+  apacheapsvar:
+    file_path: "apacheApsVar.csv.gz"
+    patient_id: "patientunitstayid"
+    timestamp: null
+    attributes:
+      - "apacheapsvarid"
+      - "patientunitstayid"
+      - "intubated"
+      - "vent"
+      - "dialysis"
+      - "eyes"
+      - "motor"
+      - "verbal"
+      - "meds"
+      - "urine"
+      - "wbc"
+      - "temperature"
+      - "respiratoryrate"
+      - "sodium"
+      - "heartrate"
+      - "meanbp"
+      - "ph"
+      - "hematocrit"
+      - "creatinine"
+      - "albumin"
+      - "pao2"
+      - "pco2"
+      - "bun"
+      - "glucose"
+      - "bilirubin"
+      - "fio2"
+
+  apachepatientresult:
+    file_path: "apachePatientResult.csv.gz"
+    patient_id: "patientunitstayid"
+    timestamp: null
+    attributes:
+      - "apachepatientresultsid"
+      - "patientunitstayid"
+      - "physicianspeciality"
+      - "physicianinterventioncategory"
+      - "acutephysiologyscore"
+      - "apachescore"
+      - "apacheversion"
+      - "predictedicumortality"
+      - "actualicumortality"
+      - "predictediculos"
+      - "actualiculos"
+      - "predictedhospitalmortality"
+      - "actualhospitalmortality"
+      - "predictedhospitallos"
+      - "actualhospitallos"
+      - "preopmi"
+      - "preopcardiaccath"
+      - "ptcawithin24h"
+      - "unabridgedunitlos"
+      - "unabridgedhosplos"
+      - "actualventdays"
+      - "predventdays"
+      - "unabridgedactualventdays"
+
+  apachepredvar:
+    file_path: "apachePredVar.csv.gz"
+    patient_id: "patientunitstayid"
+    timestamp: null
+    attributes:
+      - "apachepredvarid"
+      - "patientunitstayid"
+      - "sicuday"
+      - "saps3day1"
+      - "saps3today"
+      - "saps3yesterday"
+      - "gender"
+      - "teachtype"
+      - "region"
+      - "bedcount"
+      - "admitsource"
+      - "graftcount"
+      - "meds"
+      - "verbal"
+      - "motor"
+      - "eyes"
+      - "age"
+      - "admitdiagnosis"
+      - "thrombolytics"
+      - "diedinhospital"
+      - "aids"
+      - "hepaticfailure"
+      - "lymphoma"
+      - "metastaticcancer"
+      - "leukemia"
+      - "immunosuppression"
+      - "cirrhosis"
+      - "electivesurgery"
+      - "activetx"
+      - "readmit"
+      - "ima"
+      - "midur"
+      - "ventday1"
+      - "oobventday1"
+      - "oobintubday1"
+      - "diabetes"
+      - "managementsystem"
+      - "var03hspxlos"
+      - "pao2"
+      - "fio2"
+      - "ejectfx"
+      - "creatinine"
+      - "dischargelocation"
+      - "visitnumber"
+      - "amilocation"
+      - "day1meds"
+      - "day1verbal"
+      - "day1motor"
+      - "day1eyes"
+      - "day1pao2"
+      - "day1fio2"
+
+  careplancareprovider:
+    file_path: "carePlanCareProvider.csv.gz"
+    patient_id: "patientunitstayid"
+    timestamp: null
+    attributes:
+      - "cplcareprovderid"
+      - "patientunitstayid"
+      - "careprovidersaveoffset"
+      - "providertype"
+      - "specialty"
+      - "interventioncategory"
+      - "managingphysician"
+      - "activeupondischarge"
+
+  careplaneol:
+    file_path: "carePlanEOL.csv.gz"
+    patient_id: "patientunitstayid"
+    timestamp: null
+    attributes:
+      - "cpleolid"
+      - "patientunitstayid"
+      - "cpleolsaveoffset"
+      - "cpleoldiscussionoffset"
+      - "activeupondischarge"
+
+  careplangeneral:
+    file_path: "carePlanGeneral.csv.gz"
+    patient_id: "patientunitstayid"
+    timestamp: null
+    attributes:
+      - "cplgeneralid"
+      - "patientunitstayid"
+      - "activeupondischarge"
+      - "cplitemoffset"
+      - "cplgroup"
+      - "cplitemvalue"
+
+
+  careplangoal:
+    file_path: "carePlanGoal.csv.gz"
+    patient_id: "patientunitstayid"
+    timestamp: null
+    attributes:
+      - "cplgoalid"
+      - "patientunitstayid"
+      - "cplgoaloffset"
+      - "cplgoalcategory"
+      - "cplgoalvalue"
+      - "cplgoalstatus"
+      - "activeupondischarge"
+
+  careplaninfectiousdisease:
+    file_path: "carePlanInfectiousDisease.csv.gz"
+    patient_id: "patientunitstayid"
+    timestamp: null
+    attributes:
+      - "cplinfectid"
+      - "patientunitstayid"
+      - "activeupondischarge"
+      - "cplinfectdiseaseoffset"
+      - "infectdiseasesite"
+      - "infectdiseaseassessment"
+      - "responsetotherapy"
+      - "treatment"
+
+  customlab:
+    file_path: "customLab.csv.gz"
+    patient_id: "patientunitstayid"
+    timestamp: null
+    attributes:
+      - "customlabid"
+      - "patientunitstayid"
+      - "labotheroffset"
+      - "labothertypeid"
+      - "labothername"
+      - "labotherresult"
+      - "labothervaluetext"
+
+  infusiondrug:
+    file_path: "infusiondrug.csv.gz"
+    patient_id: "patientunitstayid"
+    timestamp: null
+    attributes:
+      - "infusiondrugid"
+      - "patientunitstayid"
+      - "infusionoffset"
+      - "drugname"
+      - "drugrate"
+      - "infusionrate"
+      - "drugamount"
+      - "volumeoffluid"
+      - "patientweight"
+
+  intakeoutput:
+    file_path: "intakeOutput.csv.gz"
+    patient_id: "patientunitstayid"
+    timestamp: null
+    attributes:
+      - "intakeoutputid"
+      - "patientunitstayid"
+      - "intakeoutputoffset"
+      - "intaketotal"
+      - "outputtotal"
+      - "dialysistotal"
+      - "nettotal"
+      - "intakeoutputentryoffset"
+      - "cellpath"
+      - "celllabel"
+      - "cellvaluenumeric"
+      - "cellvaluetext"
+
+  microlab:
+    file_path: "microLab.csv.gz"
+    patient_id: "patientunitstayid"
+    timestamp: null
+    attributes:
+      - "microlabid"
+      - "patientunitstayid"
+      - "culturetakenoffset"
+      - "culturesite"
+      - "organism"
+      - "antibiotic"
+      - "sensitivitylevel"
+
+  note:
+    file_path: "note.csv.gz"
+    patient_id: "patientunitstayid"
+    timestamp: null
+    attributes:
+      - "noteid"
+      - "patientunitstayid"
+      - "noteoffset"
+      - "noteenteredoffset"
+      - "notetype"
+      - "notepath"
+      - "notevalue"
+      - "notetext"
+
+  nurseassessment:
+    file_path: "nurseAssessment.csv.gz"
+    patient_id: "patientunitstayid"
+    timestamp: null
+    attributes:
+      - "nurseassessid"
+      - "patientunitstayid"
+      - "nurseassessoffset"
+      - "nurseassessentryoffset"
+      - "cellattributepath"
+      - "celllabel"
+      - "cellattribute"
+      - "cellattributevalue"
+
+  nursecare:
+    file_path: "nurseCare.csv.gz"
+    patient_id: "patientunitstayid"
+    timestamp: null
+    attributes:
+      - "nursecareid"
+      - "patientunitstayid"
+      - "celllabel"
+      - "nursecareoffset"
+      - "nursecareentryoffset"
+      - "cellattributepath"
+      - "cellattribute"
+      - "cellattributevalue"
+
+  nursecharting:
+    file_path: "nurseCharting.csv.gz"
+    patient_id: "patientunitstayid"
+    timestamp: null
+    attributes:
+      - "nursingchartid"
+      - "patientunitstayid"
+      - "nursingchartoffset"
+      - "nursingchartentryoffset"
+      - "nursingchartcelltypecat"
+      - "nursingchartcelltypevallabel"
+      - "nursingchartcelltypevalname"
+      - "nursingchartvalue"
+
+  pasthistory:
+    file_path: "pastHistory.csv.gz"
+    patient_id: "patientunitstayid"
+    timestamp: null
+    attributes:
+      - "pasthistoryid"
+      - "patientunitstayid"
+      - "pasthistoryoffset"
+      - "pasthistoryenteredoffset"
+      - "pasthistorynotetype"
+      - "pasthistorypath"
+      - "pasthistoryvalue"
+      - "pasthistoryvaluetext"
+
+  respiratorycare:
+    file_path: "respiratoryCare.csv.gz"
+    patient_id: "patientunitstayid"
+    timestamp: null
+    attributes:
+      - "respcareid"
+      - "patientunitstayid"
+      - "respcarestatusoffset"
+      - "currenthistoryseqnum"
+      - "airwaytype"
+      - "airwaysize"
+      - "airwayposition"
+      - "cuffpressure"
+      - "ventstartoffset"
+      - "ventendoffset"
+      - "priorventstartoffset"
+      - "priorventendoffset"
+      - "apneaparams"
+      - "lowexhmvlimit"
+      - "hiexhmvlimit"
+      - "lowexhtvlimit"
+      - "hipeakpreslimit"
+      - "lowpeakpreslimit"
+      - "hirespratelimit"
+      - "lowrespratelimit"
+      - "sighpreslimit"
+      - "lowironoxlimit"
+      - "highironoxlimit"
+      - "meanairwaypreslimit"
+      - "peeplimit"
+      - "cpaplimit"
+      - "setapneainterval"
+      - "setapneatv"
+      - "setapneaippeephigh"
+      - "setapnearr"
+      - "setapneapeakflow"
+      - "setapneainsptime"
+      - "setapneaie"
+      - "setapneafio2"
+
+  respiratorycharting:
+    file_path: "respiratoryCharting.csv.gz"
+    patient_id: "patientunitstayid"
+    timestamp: null
+    attributes:
+      - "respchartid"
+      - "patientunitstayid"
+      - "respchartoffset"
+      - "respchartentryoffset"
+      - "respcharttypecat"
+      - "respchartvaluelabel"
+      - "respchartvalue"
+
+  vitalaperiodic:
+    file_path: "vitalAperiodic.csv.gz"
+    patient_id: "patientunitstayid"
+    timestamp: null
+    attributes:
+      - "vitalaperiodicid"
+      - "patientunitstayid"
+      - "observationoffset"
+      - "noninvasivesystolic"
+      - "noninvasivediastolic"
+      - "noninvasivemean"
+      - "paop"
+      - "cardiacoutput"
+      - "cardiacinput"
+      - "svr"
+      - "svri"
+      - "pvr"
+      - "pvri"
+
+  vitalperiodic:
+    file_path: "vitalPeriodic.csv.gz"
+    patient_id: "patientunitstayid"
+    timestamp: null
+    attributes:
+      - "vitalperiodicid"
+      - "patientunitstayid"
+      - "observationoffset"
+      - "temperature"
+      - "sao2"
+      - "heartrate"
+      - "respiration"
+      - "cvp"
+      - "etco2"
+      - "systemicsystolic"
+      - "systemicdiastolic"
+      - "systemicmean"
+      - "pasystolic"
+      - "padiastolic"
+      - "pamean"
+      - "st1"
+      - "st2"
+      - "st3"
+      - "icp"
