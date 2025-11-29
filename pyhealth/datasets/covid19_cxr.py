@@ -92,6 +92,14 @@ class COVID19CXRDataset(BaseDataset):
         if config_path is None:
             logger.info("No config path provided, using default config")
             config_path = Path(__file__).parent / "configs" / "covid19_cxr.yaml"
+        root = os.path.expanduser(root)
+        if not self._check_raw_data_exists(root):
+            raise ValueError(
+                f"Raw COVID-19 CXR dataset files not found in {root}. "
+                "Please download the dataset from "
+                "https://www.kaggle.com/api/v1/datasets/download/tawsifurrahman/covid19-radiography-database "
+                "and extract the contents to the specified root directory."
+            )
         if not os.path.exists(os.path.join(root, "covid19_cxr-metadata-pyhealth.csv")):
             self.prepare_metadata(root)
         default_tables = ["covid19_cxr"]
@@ -148,6 +156,40 @@ class COVID19CXRDataset(BaseDataset):
             assert os.path.isfile(path), f"File {path} does not exist"
         df.to_csv(os.path.join(root, "covid19_cxr-metadata-pyhealth.csv"), index=False)
         return
+
+    def _check_raw_data_exists(self, root: str) -> bool:
+        """Check if required raw data files exist.
+
+        Args:
+            root: Root directory containing the dataset files.
+
+        Returns:
+            bool: True if all required files exist, False otherwise.
+        """
+        required_files = [
+            "COVID.metadata.xlsx",
+            "Lung_Opacity.metadata.xlsx",
+            "Normal.metadata.xlsx",
+            "Viral Pneumonia.metadata.xlsx",
+        ]
+        return all(os.path.exists(os.path.join(root, f)) for f in required_files)
+
+    def _check_raw_data_exists(self, root: str) -> bool:
+        """Check if required raw data files exist.
+
+        Args:
+            root: Root directory containing the dataset files.
+
+        Returns:
+            bool: True if all required files exist, False otherwise.
+        """
+        required_files = [
+            "COVID.metadata.xlsx",
+            "Lung_Opacity.metadata.xlsx",
+            "Normal.metadata.xlsx",
+            "Viral Pneumonia.metadata.xlsx",
+        ]
+        return all(os.path.exists(os.path.join(root, f)) for f in required_files)
 
     def set_task(
         self,

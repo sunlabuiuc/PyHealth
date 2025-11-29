@@ -134,3 +134,9 @@ leaderboard/rtd_token.txt
 # locally pre-trained models
 pyhealth/medcode/pretrained_embeddings/kg_emb/examples/pretrained_model
 data/physionet.org/
+examples/chestxray_vae_synthetic.png
+examples/chestxray_vae_comparison.png
+examples/chestxray_vae_conditional.png
+examples/vae_model.pth
+uv.lock
+data/mimic-iv-clinical-database-demo-2.2/
