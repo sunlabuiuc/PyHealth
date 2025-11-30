@@ -1,0 +1,13 @@
+gene_symbol,clinical_significance,review_status,chromosome,position,reference_allele,alternate_allele,variant_type,assembly
+BRCA1,Pathogenic,reviewed by expert panel,17,43044295,G,A,single nucleotide variant,GRCh38
+BRCA2,Likely pathogenic,criteria provided multiple submitters,13,32316461,C,T,single nucleotide variant,GRCh38
+TP53,Pathogenic,reviewed by expert panel,17,7675088,G,C,single nucleotide variant,GRCh38
+EGFR,Benign,criteria provided single submitter,7,55181378,A,G,single nucleotide variant,GRCh38
+KRAS,Likely benign,criteria provided multiple submitters,12,25227342,G,A,single nucleotide variant,GRCh38
+PIK3CA,Uncertain significance,criteria provided single submitter,3,179203765,C,T,single nucleotide variant,GRCh38
+PTEN,Pathogenic,reviewed by expert panel,10,87933147,G,T,single nucleotide variant,GRCh38
+APC,Likely pathogenic,criteria provided multiple submitters,5,112839514,C,A,single nucleotide variant,GRCh38
+MLH1,Benign,criteria provided single submitter,3,37050340,A,C,single nucleotide variant,GRCh38
+MSH2,Uncertain significance,criteria provided conflicting,2,47656940,T,C,single nucleotide variant,GRCh38
+ATM,Pathogenic,criteria provided multiple submitters,11,108244035,G,A,single nucleotide variant,GRCh38
+CHEK2,Likely pathogenic,reviewed by expert panel,22,28695868,C,T,single nucleotide variant,GRCh38
