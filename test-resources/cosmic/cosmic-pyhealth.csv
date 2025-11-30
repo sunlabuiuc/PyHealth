@@ -1,0 +1,13 @@
+sample_id,gene_name,hgvsc,hgvsp,mutation_description,fathmm_prediction,primary_site,primary_histology,mutation_somatic_status
+TCGA-001,TP53,c.818G>A,p.R273H,Substitution - Missense,PATHOGENIC,prostate,adenocarcinoma,Confirmed somatic variant
+TCGA-001,PTEN,c.388C>T,p.R130*,Substitution - Nonsense,PATHOGENIC,prostate,adenocarcinoma,Confirmed somatic variant
+TCGA-002,SPOP,c.422G>A,p.W131*,Substitution - Missense,PATHOGENIC,prostate,adenocarcinoma,Confirmed somatic variant
+TCGA-002,FOXA1,c.629C>T,p.P210L,Substitution - Missense,NEUTRAL,prostate,adenocarcinoma,Confirmed somatic variant
+TCGA-003,ERG,c.1012A>G,p.K338E,Substitution - Missense,NEUTRAL,prostate,adenocarcinoma,Confirmed somatic variant
+TCGA-003,TMPRSS2,c.457G>A,p.E153K,Substitution - Missense,NEUTRAL,prostate,adenocarcinoma,Confirmed somatic variant
+TCGA-004,BRCA2,c.5946delT,p.S1982fs,Deletion - Frameshift,PATHOGENIC,prostate,adenocarcinoma,Confirmed somatic variant
+TCGA-004,ATM,c.2376G>A,p.W792*,Substitution - Nonsense,PATHOGENIC,prostate,adenocarcinoma,Confirmed somatic variant
+TCGA-005,CDK12,c.4723C>T,p.R1575*,Substitution - Nonsense,PATHOGENIC,prostate,adenocarcinoma,Confirmed somatic variant
+TCGA-005,APC,c.4348C>T,p.R1450*,Substitution - Nonsense,PATHOGENIC,prostate,adenocarcinoma,Confirmed somatic variant
+TCGA-006,PIK3CA,c.3140A>G,p.H1047R,Substitution - Missense,PATHOGENIC,prostate,adenocarcinoma,Confirmed somatic variant
+TCGA-006,KRAS,c.35G>T,p.G12V,Substitution - Missense,NEUTRAL,prostate,adenocarcinoma,Confirmed somatic variant
