@@ -4,6 +4,8 @@ import numpy as np
 
 from pyhealth.datasets import BaseSignalDataset
 
+from pyhealth.datasets.utils import read_edf_data, save_to_npz
+from tqdm import tqdm
 
 class SHHSDataset(BaseSignalDataset):
     """Base EEG dataset for Sleep Heart Health Study (SHHS)
@@ -112,6 +114,73 @@ class SHHSDataset(BaseSignalDataset):
                 )
         return patients
 
+def process_ECG_data(self, out_dir, target_fs=None, select_chs=["ECG"]):
+        """
+        Extract SHHS ECG signals + labels and save them as .npz files.
+
+        Args:
+            out_dir: Destination directory for generated .npz files.
+            target_fs: Optional int, target sampling rate (e.g., 100 Hz).
+            select_chs: list of channels to extract, default ECG.
+
+        Expected SHHS directory structure:
+            root/
+                edfs/shhs1/*.edf
+                edfs/shhs2/*.edf
+                annotations-events-profusion/shhs1/*.xml
+                annotations-events-profusion/shhs2/*.xml
+        """
+
+        shhs_dirs = [
+            os.path.join(self.root, "edfs", "shhs1"),
+            os.path.join(self.root, "edfs", "shhs2"),
+        ]
+
+        os.makedirs(out_dir, exist_ok=True)
+
+        for shhs_dir in shhs_dirs:
+            if not os.path.exists(shhs_dir):
+                print(f"Directory missing: {shhs_dir}")
+                continue
+
+            dir_label = os.path.basename(os.path.normpath(shhs_dir))
+            files = [f for f in os.listdir(shhs_dir) if f.endswith(".edf")]
+
+            print(f"Processing ECG for {dir_label}: {len(files)} EDF files found")
+
+            for file in tqdm(files):
+                sid = self.parse_patient_id(file)
+                data_path = os.path.join(shhs_dir, file)
+
+                # Label XML file
+                label_path = os.path.join(
+                    self.root,
+                    "annotations-events-profusion",
+                    dir_label,
+                    f"{file.split('.')[0]}-profusion.xml",
+                )
+
+                if not os.path.exists(label_path):
+                    print(f"Missing annotation for {sid}: {label_path}")
+                    continue
+
+                try:
+                    data, fs, stages = read_edf_data(
+                        data_path=data_path,
+                        label_path=label_path,
+                        dataset="SHHS",
+                        select_chs=select_chs,
+                        target_fs=target_fs,
+                    )
+
+                    outfile = os.path.join(out_dir, f"{dir_label}-{sid}.npz")
+                    save_to_npz(outfile, data, stages, fs)
+
+                except Exception as e:
+                    print(f"Error processing patient {sid}: {e}")
+
+        print("ECG extraction completed.")
+        return True
 
 if __name__ == "__main__":
     dataset = SHHSDataset(
