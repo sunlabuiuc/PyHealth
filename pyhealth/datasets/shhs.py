@@ -201,17 +201,39 @@ class SHHSDataset(BaseSignalDataset):
                         save_to_npz(outfile, data, stages, fs)
                         print(f"✓ Processed {sid} with annotations")
                     else:
-                        # Process without annotations (signals only)
-                        data, fs, _ = read_edf_data(
-                            data_path=data_path,
-                            label_path=None,
-                            dataset="SHHS",
-                            select_chs=select_chs,
-                            target_fs=target_fs,
-                        )
-                        outfile = os.path.join(out_dir, f"{dir_label}-{sid}_no_labels.npz")
-                        save_to_npz(outfile, data, None, fs)
-                        print(f"⚠ Processed {sid} without annotations (signals only)")
+                        # Process without annotations (signals only) - skip label_path entirely
+                        try:
+                            # Try to read EDF file directly without using read_edf_data for labels
+                            import mne
+                            raw = mne.io.read_raw_edf(data_path, preload=True, verbose=False)
+                            
+                            # Select channels
+                            if select_chs:
+                                available_chs = [ch for ch in select_chs if ch in raw.ch_names]
+                                if not available_chs:
+                                    print(f"⚠ No requested channels found in {sid}. Available: {raw.ch_names}")
+                                    skipped_count += 1
+                                    continue
+                                raw = raw.pick_channels(available_chs)
+                            
+                            # Get data and sampling frequency
+                            data = raw.get_data()
+                            fs = raw.info['sfreq']
+                            
+                            # Resample if needed
+                            if target_fs and target_fs != fs:
+                                raw = raw.resample(target_fs)
+                                data = raw.get_data()
+                                fs = target_fs
+                            
+                            outfile = os.path.join(out_dir, f"{dir_label}-{sid}_no_labels.npz")
+                            save_to_npz(outfile, data, None, fs)
+                            print(f"⚠ Processed {sid} without annotations (signals only)")
+                        
+                        except Exception as edf_error:
+                            print(f"❌ Error reading EDF file for {sid}: {edf_error}")
+                            skipped_count += 1
+                            continue
                     
                     processed_count += 1
 
