@@ -40,6 +40,15 @@ class SHHSDataset(BaseSignalDataset):
         >>> dataset.info()
     """
 
+    def __init__(self, root, dev=False, refresh_cache=False, **kwargs):
+        """Initialize SHHS Dataset"""
+        super().__init__()
+        self.root = root
+        self.dev = dev
+        self.refresh_cache = refresh_cache
+        self.filepath = os.path.join(os.path.expanduser("~"), ".cache", "pyhealth_shhs")
+        self.patients = self.process_EEG_data()
+
     def parse_patient_id(self, file_name):
         """
         Args:
