@@ -8,22 +8,24 @@ from pyhealth.datasets.utils import read_edf_data, save_to_npz
 from tqdm import tqdm
 
 class SHHSDataset(BaseSignalDataset):
-    """Base EEG dataset for Sleep Heart Health Study (SHHS)
+    """EEG and ECG dataset for Sleep Heart Health Study (SHHS)
 
     Dataset is available at https://sleepdata.org/datasets/shhs
 
     The Sleep Heart Health Study (SHHS) is a multi-center cohort study implemented by the National Heart Lung & Blood Institute to determine the cardiovascular and other consequences of sleep-disordered breathing. It tests whether sleep-related breathing is associated with an increased risk of coronary heart disease, stroke, all cause mortality, and hypertension.  In all, 6,441 men and women aged 40 years and older were enrolled between November 1, 1995 and January 31, 1998 to take part in SHHS Visit 1. During exam cycle 3 (January 2001- June 2003), a second polysomnogram (SHHS Visit 2) was obtained in 3,295 of the participants. CVD Outcomes data were monitored and adjudicated by parent cohorts between baseline and 2011. More than 130 manuscripts have been published investigating predictors and outcomes of sleep disorders.
 
+    This dataset supports both EEG and ECG signal processing.
+
     Args:
         dataset_name: name of the dataset.
-        root: root directory of the raw data (should contain many csv files).
+        root: root directory of the raw data (should contain EDF files and annotations).
         dev: whether to enable dev mode (only use a small subset of the data).
             Default is False.
         refresh_cache: whether to refresh the cache; if true, the dataset will
             be processed from scratch and the cache will be updated. Default is False.
 
     Attributes:
-        task: Optional[str], name of the task (e.g., "sleep staging").
+        task: Optional[str], name of the task (e.g., "sleep staging", "ecg analysis").
             Default is None.
         samples: Optional[List[Dict]], a list of samples, each sample is a dict with
             patient_id, record_id, and other task-specific attributes as key.
@@ -32,14 +34,15 @@ class SHHSDataset(BaseSignalDataset):
             a list of sample indices. Default is None.
         visit_to_index: Optional[Dict[str, List[int]]], a dict mapping visit_id to a
             list of sample indices. Default is None.
+        patients: Dict[str, List[Dict]], processed patient data with EEG/ECG file paths.
 
     Examples:
         >>> from pyhealth.datasets import SHHSDataset
         >>> dataset = SHHSDataset(
         ...         root="/srv/local/data/SHHS/",
         ...     )
-        >>> dataset.stat()
-        >>> dataset.info()
+        >>> # Process ECG data
+        >>> dataset.process_ECG_data(out_dir="./ecg_output")
     """
 
     def __init__(self, root, dev=False, refresh_cache=False, **kwargs):
@@ -114,7 +117,7 @@ class SHHSDataset(BaseSignalDataset):
                 )
         return patients
 
-def process_ECG_data(self, out_dir, target_fs=None, select_chs=["ECG"]):
+    def process_ECG_data(self, out_dir, target_fs=None, select_chs=["ECG"]):
         """
         Extract SHHS ECG signals + labels and save them as .npz files.
 
@@ -188,6 +191,8 @@ if __name__ == "__main__":
         dev=True,
         refresh_cache=True,
     )
-    dataset.stat()
-    dataset.info()
+    print(f"Dataset loaded with {len(dataset.patients)} patients")
     print(list(dataset.patients.items())[0])
+    
+    # Example ECG processing
+    # dataset.process_ECG_data(out_dir="./ecg_output")
