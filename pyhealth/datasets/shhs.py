@@ -117,7 +117,7 @@ class SHHSDataset(BaseSignalDataset):
                 )
         return patients
 
-    def process_ECG_data(self, out_dir, target_fs=None, select_chs=["ECG"]):
+    def process_ECG_data(self, out_dir, target_fs=None, select_chs=["ECG"], require_annotations=False):
         """
         Extract SHHS ECG signals + labels and save them as .npz files.
 
@@ -125,65 +125,105 @@ class SHHSDataset(BaseSignalDataset):
             out_dir: Destination directory for generated .npz files.
             target_fs: Optional int, target sampling rate (e.g., 100 Hz).
             select_chs: list of channels to extract, default ECG.
+            require_annotations: If True, skip files without annotations. If False, process signals without labels.
 
         Expected SHHS directory structure:
             root/
                 edfs/shhs1/*.edf
                 edfs/shhs2/*.edf
                 annotations-events-profusion/shhs1/*.xml
-                annotations-events-profusion/shhs2/*.xml
+                annotations-events-profusion/label/*.xml (for shhs2)
         """
 
-        shhs_dirs = [
-            os.path.join(self.root, "edfs", "shhs1"),
-            os.path.join(self.root, "edfs", "shhs2"),
+        shhs_configs = [
+            {
+                "data_dir": os.path.join(self.root, "edfs", "shhs1"),
+                "annotation_dir": os.path.join(self.root, "annotations-events-profusion", "shhs1"),
+                "label": "shhs1"
+            },
+            {
+                "data_dir": os.path.join(self.root, "edfs", "shhs2"),
+                "annotation_dir": os.path.join(self.root, "annotations-events-profusion", "label"),
+                "label": "shhs2"
+            }
         ]
 
         os.makedirs(out_dir, exist_ok=True)
+        processed_count = 0
+        skipped_count = 0
 
-        for shhs_dir in shhs_dirs:
-            if not os.path.exists(shhs_dir):
-                print(f"Directory missing: {shhs_dir}")
+        for config in shhs_configs:
+            data_dir = config["data_dir"]
+            annotation_dir = config["annotation_dir"]
+            dir_label = config["label"]
+
+            if not os.path.exists(data_dir):
+                print(f"Directory missing: {data_dir}")
                 continue
 
-            dir_label = os.path.basename(os.path.normpath(shhs_dir))
-            files = [f for f in os.listdir(shhs_dir) if f.endswith(".edf")]
-
+            files = [f for f in os.listdir(data_dir) if f.endswith(".edf")]
             print(f"Processing ECG for {dir_label}: {len(files)} EDF files found")
 
-            for file in tqdm(files):
+            if not files:
+                continue
+
+            for file in tqdm(files, desc=f"Processing {dir_label}"):
                 sid = self.parse_patient_id(file)
-                data_path = os.path.join(shhs_dir, file)
+                data_path = os.path.join(data_dir, file)
 
-                # Label XML file
-                label_path = os.path.join(
-                    self.root,
-                    "annotations-events-profusion",
-                    dir_label,
-                    f"{file.split('.')[0]}-profusion.xml",
-                )
+                # Determine annotation file path
+                if dir_label == "shhs1":
+                    annotation_filename = f"shhs1-{sid}-profusion.xml"
+                else:  # shhs2
+                    annotation_filename = f"shhs2-{sid}-profusion.xml"
+                
+                label_path = os.path.join(annotation_dir, annotation_filename)
 
-                if not os.path.exists(label_path):
-                    print(f"Missing annotation for {sid}: {label_path}")
+                # Check if annotation exists
+                has_annotation = os.path.exists(label_path)
+                
+                if require_annotations and not has_annotation:
+                    print(f"Skipping {sid}: missing annotation {label_path}")
+                    skipped_count += 1
                     continue
 
                 try:
-                    data, fs, stages = read_edf_data(
-                        data_path=data_path,
-                        label_path=label_path,
-                        dataset="SHHS",
-                        select_chs=select_chs,
-                        target_fs=target_fs,
-                    )
-
-                    outfile = os.path.join(out_dir, f"{dir_label}-{sid}.npz")
-                    save_to_npz(outfile, data, stages, fs)
+                    if has_annotation:
+                        # Process with annotations
+                        data, fs, stages = read_edf_data(
+                            data_path=data_path,
+                            label_path=label_path,
+                            dataset="SHHS",
+                            select_chs=select_chs,
+                            target_fs=target_fs,
+                        )
+                        outfile = os.path.join(out_dir, f"{dir_label}-{sid}.npz")
+                        save_to_npz(outfile, data, stages, fs)
+                        print(f"✓ Processed {sid} with annotations")
+                    else:
+                        # Process without annotations (signals only)
+                        data, fs, _ = read_edf_data(
+                            data_path=data_path,
+                            label_path=None,
+                            dataset="SHHS",
+                            select_chs=select_chs,
+                            target_fs=target_fs,
+                        )
+                        outfile = os.path.join(out_dir, f"{dir_label}-{sid}_no_labels.npz")
+                        save_to_npz(outfile, data, None, fs)
+                        print(f"⚠ Processed {sid} without annotations (signals only)")
+                    
+                    processed_count += 1
 
                 except Exception as e:
-                    print(f"Error processing patient {sid}: {e}")
+                    print(f"❌ Error processing patient {sid}: {e}")
+                    skipped_count += 1
 
-        print("ECG extraction completed.")
-        return True
+        print(f"\nECG extraction completed:")
+        print(f"  ✓ Successfully processed: {processed_count} files")
+        print(f"  ⚠ Skipped/failed: {skipped_count} files")
+        
+        return processed_count > 0
 
 if __name__ == "__main__":
     dataset = SHHSDataset(
