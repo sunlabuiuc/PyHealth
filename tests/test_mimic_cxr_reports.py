@@ -14,16 +14,13 @@ print("YAML path used:", yaml_path)
 with open(yaml_path, "r") as f:
     print(f.read())
 
-# Path to MIMIC-CXR reports extracted data
-root_path = "/Users/lokanathdas/Downloads/"  # <-- provide the path which contains the mimic-cxr-reports.zip file
+# Provide the path which contains the mimic-cxr-reports.zip file
+root_path = ""
 
-# Check contents of root_path for verification
-print("Contents of root_path:", list(Path(root_path).iterdir()))
-
-# Initialize dataset (minimal fix: remove tables argument)
+# Initialize dataset
 ds = MIMICCXRReportsDataset(
     root=root_path,
-    patients=None,  # test subset
+    patients=["p10"],  # train subset
     dev_mode=True,
     limit=10
 )
