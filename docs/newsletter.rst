@@ -8,6 +8,7 @@ Welcome to the PyHealth Newsletter! Here you'll find regular updates about new f
    :caption: Newsletter Archive
    :reversed:
 
+   newsletter/2025-12-research-initiative-call
    newsletter/2025-11-pyhealth-updates
 
 
