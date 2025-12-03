@@ -13,6 +13,47 @@ We're excited to continue making PyHealth more accessible and relevant to real-w
 ----
 
 
+Highlights from ML4H 2024
+-------------------------
+
+Here are some photos from our time at ML4H, including the poster sessions and team dinner!
+
+.. figure:: /_static/newsletter/dec_2025/Dinner.jpg
+   :width: 100%
+   :alt: PyHealth team at ML4H dinner
+
+   PyHealth team dinner at ML4H
+
+.. figure:: /_static/newsletter/dec_2025/PresentingAPoster.jpg
+   :width: 100%
+   :alt: PyHealth Research Initiative (Abraham Francisco Arellano Tavara & Umesh Kumar) Presenting Posters
+
+   Poster session at ML4H
+
+**Our Research Posters:**
+
+.. figure:: /_static/newsletter/dec_2025/sdoh_prediction_poster.png
+   :width: 100%
+   :alt: Social Determinants of Health Prediction poster
+
+   Social Determinants of Health Prediction
+
+.. figure:: /_static/newsletter/dec_2025/ML4H_RD_Diff2025_Poster.png
+   :width: 100%
+   :alt: Rare Disease Diffusion poster
+
+   Rare Disease Diferential Diagnosis poster
+
+.. figure:: /_static/newsletter/dec_2025/ProstateCancerBenchmark.jpg
+   :width: 100%
+   :alt: Prostate Cancer Genomics Benchmark poster
+
+   Prostate Cancer Genomics Benchmark
+
+
+----
+
+
 What is the PyHealth Research Initiative?
 -----------------------------------------
 
@@ -42,6 +83,23 @@ At the end of the program, you'll ideally have gained:
 1. A peer-reviewed paper published at a respectable venue, establishing you as a credible researcher in the field
 2. Direct, hands-on experience working on real healthcare AI problems
 3. Code merged into PyHealth that can be leveraged for other career goals
+
+
+----
+
+
+Timeline & Open Projects
+------------------------
+
+We're always looking for contributors to PyHealth and people to work on interesting healthcare problems—that doesn't change, and you can start early! However, our target venue for this cycle is `MLHC 2025 <https://www.mlforhc.org/paper-submission>`_ (Machine Learning for Healthcare), with the following key dates:
+
+- **Pre-submission intent deadline**: April 10, 2025
+- **Full submission deadline**: April 11, 2025
+- **Conference dates**: August 15–16, 2025
+
+We plan to run this research program over the spring, working toward the MLHC submission deadline.
+
+**Open Projects**: Browse our list of (not yet finalized) available research projects and find one that matches your interests: `Open Projects List <https://docs.google.com/spreadsheets/d/1DLDpjBi40esOqaDWUvHTvCEEEoixyORTDisemIOkMBo/edit?usp=sharing>`_
 
 
 ----
