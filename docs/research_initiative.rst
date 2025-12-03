@@ -42,7 +42,7 @@ drug recommendation, and healthcare AI infrastructure.
      - ML4H 2025
      - `Paper <https://openreview.net/forum?id=CrZyNUfWHp>`_
    * - 2025
-     - Abraham Francisco, Arellano Tavara, Umesh Kumar
+     - Abraham Francisco Arellano Tavara, Umesh Kumar
      - Prostate-VarBench: A Benchmark with Interpretable TabNet Framework for Prostate Cancer Variant Classification
      - ML4H 2025
      - `Paper <https://openreview.net/forum?id=zOUjZgKD2E>`_
