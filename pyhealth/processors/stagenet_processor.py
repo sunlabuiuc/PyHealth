@@ -348,7 +348,6 @@ class StageNetTensorProcessor(FeatureProcessor):
 
         return (time_tensor, value_tensor)
 
-    @property
     def size(self):
         """Return feature dimension."""
         return self._size

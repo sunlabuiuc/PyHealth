@@ -48,5 +48,8 @@ Available Datasets
     datasets/pyhealth.datasets.ChestXray14Dataset
     datasets/pyhealth.datasets.TUABDataset
     datasets/pyhealth.datasets.TUEVDataset
+    datasets/pyhealth.datasets.ClinVarDataset
+    datasets/pyhealth.datasets.COSMICDataset
+    datasets/pyhealth.datasets.TCGAPRADDataset
     datasets/pyhealth.datasets.splitter
     datasets/pyhealth.datasets.utils
