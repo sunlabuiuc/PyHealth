@@ -257,7 +257,7 @@ class TestStageNetTensorProcessor(unittest.TestCase):
 
         # Check structure detection
         self.assertFalse(processor._is_nested)
-        self.assertEqual(processor.size, 1)
+        self.assertEqual(processor.size(), 1)
 
         # Process data
         time, values = processor.process(([0.0, 1.5], [1.5, 2.5]))
@@ -281,7 +281,7 @@ class TestStageNetTensorProcessor(unittest.TestCase):
 
         # Check structure detection
         self.assertTrue(processor._is_nested)
-        self.assertEqual(processor.size, 3)  # 3 features
+        self.assertEqual(processor.size(), 3)  # 3 features
 
         # Process data
         time, values = processor.process(
