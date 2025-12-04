@@ -797,11 +797,21 @@ class CAMELOTModule(MIMIC4LightningModule, BaseModel):
                  *args,
                  **kwargs):
         # Initialize MIMIC4LightningModule (which will initialize the LightningModule chain)
+        # This will call MIMIC3LightningModule.__init__() which sets self.loss_fct1
         super().__init__(task=task, modeltype=modeltype, max_epochs=max_epochs,
                          img_learning_rate=img_learning_rate, ts_learning_rate=ts_learning_rate,
                          period_length=period_length, *args, **kwargs)
         # Explicitly initialize BaseModel to ensure it's properly initialized
         BaseModel.__init__(self, dataset=dataset)
+        
+        # Ensure loss function is set (should be set by MIMIC3LightningModule, but verify)
+        if not hasattr(self, 'loss_fct1'):
+            if self.task in ['ihm', 'readm']:
+                self.loss_fct1 = nn.CrossEntropyLoss()
+            elif self.task == 'pheno':
+                self.loss_fct1 = nn.BCEWithLogitsLoss()
+            else:
+                raise ValueError("Unknown task")
 
         self.input_size = orig_reg_d_ts
         self.n_layers = n_layers

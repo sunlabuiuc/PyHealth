@@ -19,12 +19,14 @@ class TestCAMELOT(unittest.TestCase):
                 "visit_id": "visit-0",
                 "conditions": [["cond-1", "cond-2"], ["cond-3", "cond-4"]],
                 "procedures": [["proc-1"], ["proc-2", "proc-3"]],
+                "label": 1,
             },
             {
                 "patient_id": "patient-1",
                 "visit_id": "visit-1",
                 "conditions": [["cond-5", "cond-6"]],
                 "procedures": [["proc-4"]],
+                "label": 0,
             },
         ]
 

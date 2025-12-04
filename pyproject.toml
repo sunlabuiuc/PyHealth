@@ -39,6 +39,7 @@ dependencies = [
   "pandas~=2.3.1",
   "pandarallel~=1.6.5",
   "pydantic~=2.11.7",
+  "lightning",
 ]
 license = "BSD-3-Clause"
 license-files = ["LICENSE.md"]
@@ -104,9 +105,11 @@ python = "~=3.13"
 # distributed package a 'distribution'
 [tool.pixi.feature.base.pypi-dependencies]
 pyhealth = { path = ".", editable = true }
+lightning = "*"
 
 [tool.pixi.feature.test.pypi-dependencies]
 pyhealth = { path = ".", editable = true }
+lightning = "*"
 
 [tool.pixi.feature.nlp.pypi-dependencies]
 pyhealth = { path = ".", editable = true }
