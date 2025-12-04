@@ -1,7 +1,9 @@
 December 2025: Join the PyHealth Research Initiative
 ====================================================
 
-*Published: December 3, 2025*
+*Published: December 3, 2025* | *Last Revised: December 4, 2025*
+
+----
 
 Hey everyone,
 
@@ -13,7 +15,25 @@ We're excited to continue making PyHealth more accessible and relevant to real-w
 ----
 
 
-Highlights from ML4H 2024
+How Do I Apply?
+---------------
+
+There are three steps to apply:
+
+1. **Join the PyHealth Discord**: `https://discord.gg/mpb835EHaX <https://discord.gg/mpb835EHaX>`_
+
+2. **Submit an application** (especially for those interested in industry collaborations): `Application Form <https://docs.google.com/forms/d/e/1FAIpQLSc96iNxjnQPaCWc8ml8eEsxFgZlIQI6XxkNslM9A8G9LILe_Q/viewform?usp=publish-editor>`_
+
+3. **Submit a high-quality pull request to PyHealth**
+
+   - For those without ideas on what to contribute, we have a bounty list here: `Bounty List <https://docs.google.com/spreadsheets/d/1ruzKu-sTUnGZ3i9JPXzvjVCvxRFn6QJv2YLtVdXsmuE/edit?usp=sharing>`_
+   - Contribution guide: `How to Contribute <https://pyhealth.readthedocs.io/en/latest/how_to_contribute.html>`_
+
+
+----
+
+
+Highlights from ML4H 2025
 -------------------------
 
 Here are some photos from our time at ML4H, including the poster sessions and team dinner!
@@ -100,24 +120,6 @@ We're always looking for contributors to PyHealth and people to work on interest
 We plan to run this research program over the spring, working toward the MLHC submission deadline.
 
 **Open Projects**: Browse our list of (not yet finalized) available research projects and find one that matches your interests: `Open Projects List <https://docs.google.com/spreadsheets/d/1DLDpjBi40esOqaDWUvHTvCEEEoixyORTDisemIOkMBo/edit?usp=sharing>`_
-
-
-----
-
-
-How Do I Apply?
----------------
-
-There are three steps to apply:
-
-1. **Join the PyHealth Discord**: `https://discord.gg/mpb835EHaX <https://discord.gg/mpb835EHaX>`_
-
-2. **Submit an application** (especially for those interested in industry collaborations): `Application Form <https://docs.google.com/forms/d/e/1FAIpQLSc96iNxjnQPaCWc8ml8eEsxFgZlIQI6XxkNslM9A8G9LILe_Q/viewform?usp=publish-editor>`_
-
-3. **Submit a high-quality pull request to PyHealth**
-
-   - For those without ideas on what to contribute, we have a bounty list here: `Bounty List <https://docs.google.com/spreadsheets/d/1ruzKu-sTUnGZ3i9JPXzvjVCvxRFn6QJv2YLtVdXsmuE/edit?usp=sharing>`_
-   - Contribution guide: `How to Contribute <https://pyhealth.readthedocs.io/en/latest/how_to_contribute.html>`_
 
 
 ----
