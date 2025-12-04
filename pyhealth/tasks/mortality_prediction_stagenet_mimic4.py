@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, ClassVar, Dict, List
+from typing import Any, ClassVar, Dict, List, Tuple
 
 import polars as pl
 
@@ -24,6 +24,10 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
         - Multiple itemids per category → take first observed value
         - Missing categories → None/NaN in vector
 
+    Args:
+        padding: Additional padding for StageNet processor to handle
+            sequences longer than observed during training. Default: 0.
+
     Attributes:
         task_name (str): The name of the task.
         input_schema (Dict[str, str]): The schema for input data:
@@ -35,11 +39,20 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
     """
 
     task_name: str = "MortalityPredictionStageNetMIMIC4"
-    input_schema: Dict[str, str] = {
-        "icd_codes": "stagenet",
-        "labs": "stagenet_tensor",
-    }
-    output_schema: Dict[str, str] = {"mortality": "binary"}
+
+    def __init__(self, padding: int = 0):
+        """Initialize task with optional padding parameter.
+
+        Args:
+            padding: Additional padding for nested sequences. Default: 0.
+        """
+        self.padding = padding
+        # Use tuple format to pass kwargs to processor
+        self.input_schema: Dict[str, Tuple[str, Dict[str, Any]]] = {
+            "icd_codes": ("stagenet", {"padding": padding}),
+            "labs": ("stagenet_tensor", {}),
+        }
+        self.output_schema: Dict[str, str] = {"mortality": "binary"}
 
     # Organize lab items by category
     # Each category will map to ONE dimension in the output vector
