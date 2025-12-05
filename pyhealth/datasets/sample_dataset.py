@@ -1,4 +1,4 @@
-from typing import Any, Dict, Iterator, List, Optional, Tuple, Union, Type
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple, Union, Type
 import inspect
 
 from torch.utils.data import Dataset
@@ -13,24 +13,8 @@ class SampleBuilder:
 
     def __init__(
         self,
-        input_schema: Dict[
-            str,
-            Union[
-                str,
-                Type[FeatureProcessor],
-                FeatureProcessor,
-                Tuple[Union[str, Type[FeatureProcessor]], Dict[str, Any]],
-            ],
-        ],
-        output_schema: Dict[
-            str,
-            Union[
-                str,
-                Type[FeatureProcessor],
-                FeatureProcessor,
-                Tuple[Union[str, Type[FeatureProcessor]], Dict[str, Any]],
-            ],
-        ],
+        input_schema: Dict[str, Any],
+        output_schema: Dict[str, Any],
         input_processors: Optional[Dict[str, FeatureProcessor]] = None,
         output_processors: Optional[Dict[str, FeatureProcessor]] = None,
     ) -> None:
@@ -103,8 +87,12 @@ class SampleBuilder:
             f"class, or a tuple (spec, kwargs_dict), got {type(processor_spec)}"
         )
 
-    def _validate(self, samples: List[Dict[str, Any]]) -> None:
-        """Validate that provided samples contain the fields described in the schemas."""
+    def fit(
+        self,
+        samples: Iterable[Dict[str, Any]],
+    ) -> None:
+        """Fit processors and build index mappings from an iterator of samples."""
+        # Validate the samples
         input_keys = set(self.input_schema.keys())
         output_keys = set(self.output_schema.keys())
         for sample in samples:
@@ -115,15 +103,10 @@ class SampleBuilder:
                 sample.keys()
             ), "Output schema does not match samples."
 
-    def fit(self, samples: Iterator[Dict[str, Any]]) -> None:
-        """Fit processors and build index mappings from an iterator of samples."""
-        sample_list = list(samples)
-        self._validate(sample_list)
-
         # Build index mappings
         self._patient_to_index = {}
         self._record_to_index = {}
-        for i, sample in enumerate(sample_list):
+        for i, sample in enumerate(samples):
             patient_id = sample.get("patient_id")
             if patient_id is not None:
                 self._patient_to_index.setdefault(patient_id, []).append(i)
@@ -135,12 +118,12 @@ class SampleBuilder:
         if not self._input_processors:
             for key, spec in self.input_schema.items():
                 processor = self._get_processor_instance(spec)
-                processor.fit(sample_list, key)
+                processor.fit(samples, key)
                 self._input_processors[key] = processor
         if not self._output_processors:
             for key, spec in self.output_schema.items():
                 processor = self._get_processor_instance(spec)
-                processor.fit(sample_list, key)
+                processor.fit(samples, key)
                 self._output_processors[key] = processor
 
         self._fitted = True
