@@ -294,8 +294,7 @@ def generate_synthetic_patients(
     Returns:
         List of generated patient dictionaries
     """
-    from pyhealth.datasets.promptehr_dataset import VisitStructureSampler
-    from pyhealth.models.promptehr import generate_patient_with_structure_constraints
+    from pyhealth.models.promptehr import VisitStructureSampler, generate_patient_with_structure_constraints
 
     logger.info("\n" + "=" * 80)
     logger.info(f"Generating {num_patients} Synthetic Patients")
