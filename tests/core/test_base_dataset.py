@@ -105,7 +105,7 @@ class TestBaseDataset(unittest.TestCase):
             )
 
             # Trigger caching of event_df.parquet
-            _ = dataset.event_df
+            _ = dataset.global_event_df
             cache_path = dataset.cache_dir / "event_df.parquet"
             self.assertTrue(cache_path.exists(), "event_df cache should be created")
 
