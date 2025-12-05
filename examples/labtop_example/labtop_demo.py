@@ -123,11 +123,31 @@ class DigitWiseTokenizer:
             idx += 1
 
     def number_to_tokens(self, value: float) -> List[str]:
+        """Convert a numeric value to a list of digit tokens.
+
+        Called during encoding of lab values.
+
+        Args:
+            value: The numeric lab value to tokenize.
+
+        Returns:
+            List of single-character strings representing digits.
+        """
         value = round(float(value), self.precision)
         formatted = f"{value:.{self.precision}f}"
         return list(formatted)
 
     def tokens_to_number(self, tokens: List[str]) -> Optional[float]:
+        """Convert digit tokens back to a numeric value.
+
+        Called during decoding of model predictions.
+
+        Args:
+            tokens: List of single-character digit strings.
+
+        Returns:
+            The reconstructed float, or None if parsing fails.
+        """
         try:
             return float("".join(tokens))
         except ValueError:
@@ -157,6 +177,17 @@ class LabTOPVocabulary:
         self.eos_id = self.vocab[tokenizer.special_tokens["EOS"]]
 
     def encode_demographics(self, age: int, gender: str) -> List[int]:
+        """Encode patient demographics into token IDs.
+
+        Called in process_data() to build input sequences.
+
+        Args:
+            age: Patient age in years.
+            gender: Patient gender, "M" or "F".
+
+        Returns:
+            List of token IDs representing the demographics.
+        """
         tokens = [self.tokenizer.special_tokens["AGE"]] + \
                  self.tokenizer.number_to_tokens(age)
         if gender == "M":
@@ -166,6 +197,17 @@ class LabTOPVocabulary:
         return [self.vocab[t] for t in tokens]
 
     def encode_lab_event(self, code: int, value: float) -> List[int]:
+        """Encode a single lab event into token IDs.
+
+        Called in process_data() to build input sequences.
+
+        Args:
+            code: Lab item ID (MIMIC-IV itemid).
+            value: The numeric lab measurement.
+
+        Returns:
+            List of token IDs representing the lab event.
+        """
         tokens = [
             self.tokenizer.special_tokens["LAB"],
             f"<|lab_{code}|>"
@@ -174,7 +216,16 @@ class LabTOPVocabulary:
         return [self.vocab[t] for t in tokens]
 
     def decode_ids_to_number(self, token_ids: List[int]) -> Optional[float]:
-        """Extracts the first valid number from a sequence of token IDs."""
+        """Extract a numeric value from generated token IDs.
+
+        Called in evaluate_mae() to decode model predictions.
+
+        Args:
+            token_ids: List of token IDs from model generation.
+
+        Returns:
+            The decoded float value, or None if invalid.
+        """
         tokens = [self.id_to_token.get(i, "") for i in token_ids]
         digits = []
         for t in tokens:
@@ -232,7 +283,14 @@ class LabTOP(BaseModel):
             n_head=n_heads,
         )
 
-    def build_vocabulary(self, lab_items: List[int]):
+    def build_vocabulary(self, lab_items: List[int]) -> None:
+        """Initialize vocabulary and GPT-2 model with lab item tokens.
+
+        Must be called before forward() or generate().
+
+        Args:
+            lab_items: List of lab item IDs to include in vocabulary.
+        """
         self.vocab = LabTOPVocabulary(lab_items, self.tokenizer)
         self.config.vocab_size = len(self.vocab)
         self.config.pad_token_id = self.vocab.pad_id
@@ -246,7 +304,18 @@ class LabTOP(BaseModel):
         labels: Optional[torch.Tensor] = None,
         **kwargs,
     ) -> Dict[str, torch.Tensor]:
-        
+        """Forward pass through the GPT-2 language model.
+
+        Called by PyHealth Trainer during training.
+
+        Args:
+            input_ids: Token IDs of shape [batch_size, seq_len].
+            attention_mask: Attention mask of shape [batch_size, seq_len].
+            labels: Target token IDs for loss computation.
+
+        Returns:
+            Dict with "logits" and optionally "loss".
+        """
         if self.gpt2 is None:
             raise RuntimeError("Model not initialized. Call build_vocabulary().")
 
@@ -263,8 +332,18 @@ class LabTOP(BaseModel):
         
         return result
 
-    def generate(self, input_ids, **kwargs):
-        """Generate tokens autoregressively."""
+    def generate(self, input_ids: torch.Tensor, **kwargs) -> torch.Tensor:
+        """Generate tokens autoregressively.
+
+        Called in evaluate_mae() to predict lab values.
+
+        Args:
+            input_ids: Prompt token IDs of shape [batch_size, seq_len].
+            **kwargs: Additional arguments passed to GPT-2 generate.
+
+        Returns:
+            Generated token IDs including the prompt.
+        """
         return self.gpt2.generate(
             input_ids=input_ids,
             pad_token_id=self.vocab.pad_id,
@@ -278,8 +357,17 @@ class LabTOP(BaseModel):
 # --------------------------------------------------------------------------- #
 
 
-def generate_synthetic_data(n_patients=100) -> pd.DataFrame:
-    """Generates synthetic creatinine trajectories."""
+def generate_synthetic_data(n_patients: int = 100) -> pd.DataFrame:
+    """Generate synthetic patient data with creatinine trajectories.
+
+    Creates fake ICU patient records for demonstration without MIMIC access.
+
+    Args:
+        n_patients: Number of synthetic patients to generate.
+
+    Returns:
+        DataFrame with columns: patient_id, age, gender, lab_history, target_value.
+    """
     random.seed(RANDOM_SEED)
     records = []
     for pid in range(n_patients):
@@ -310,6 +398,17 @@ def generate_synthetic_data(n_patients=100) -> pd.DataFrame:
 
 
 def process_data(df: pd.DataFrame, vocab: LabTOPVocabulary) -> SampleDataset:
+    """Convert patient DataFrame into PyHealth SampleDataset.
+
+    Tokenizes demographics and lab history for model input.
+
+    Args:
+        df: DataFrame from generate_synthetic_data().
+        vocab: Initialized LabTOPVocabulary instance.
+
+    Returns:
+        SampleDataset ready for PyHealth dataloaders.
+    """
     samples = []
     for _, row in df.iterrows():
         # Context tokens
@@ -359,8 +458,19 @@ def process_data(df: pd.DataFrame, vocab: LabTOPVocabulary) -> SampleDataset:
 # --------------------------------------------------------------------------- #
 
 
-def evaluate_mae(model: LabTOP, dataset: SampleDataset, device="cpu"):
-    """Manually calculate MAE since Trainer metrics don't support generation."""
+def evaluate_mae(model: LabTOP, dataset: SampleDataset, device: str = "cpu") -> float:
+    """Evaluate model using Mean Absolute Error on generated predictions.
+
+    Runs autoregressive generation and decodes digit tokens to floats.
+
+    Args:
+        model: Trained LabTOP model instance.
+        dataset: Test SampleDataset with ground truth values.
+        device: Device for inference ("cpu" or "cuda").
+
+    Returns:
+        Mean Absolute Error between predictions and ground truth.
+    """
     model.gpt2.to(device)
     model.gpt2.eval()
     
