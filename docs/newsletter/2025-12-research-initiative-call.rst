@@ -11,23 +11,9 @@ First off, I want to thank everyone who worked so hard to publish papers at ML4H
 
 We're excited to continue making PyHealth more accessible and relevant to real-world healthcare AI problems. **To that end, we're issuing an open call to join the PyHealth Research Initiative.**
 
-
-----
-
-
-How Do I Apply?
----------------
-
-There are three steps to apply:
-
-1. **Join the PyHealth Discord**: `https://discord.gg/mpb835EHaX <https://discord.gg/mpb835EHaX>`_
-
-2. **Submit an application** (especially for those interested in industry collaborations): `Application Form <https://docs.google.com/forms/d/e/1FAIpQLSc96iNxjnQPaCWc8ml8eEsxFgZlIQI6XxkNslM9A8G9LILe_Q/viewform?usp=publish-editor>`_
-
-3. **Submit a high-quality pull request to PyHealth**
-
-   - For those without ideas on what to contribute, we have a bounty list here: `Bounty List <https://docs.google.com/spreadsheets/d/1ruzKu-sTUnGZ3i9JPXzvjVCvxRFn6QJv2YLtVdXsmuE/edit?usp=sharing>`_
-   - Contribution guide: `How to Contribute <https://pyhealth.readthedocs.io/en/latest/how_to_contribute.html>`_
+.. contents:: Quick Links
+   :local:
+   :depth: 1
 
 
 ----
@@ -95,6 +81,24 @@ We're open to people from all kinds of backgrounds. We don't care if you're a st
 ----
 
 
+How Do I Apply?
+---------------
+
+There are three steps to apply:
+
+1. **Join the PyHealth Discord**: `https://discord.gg/mpb835EHaX <https://discord.gg/mpb835EHaX>`_
+
+2. **Submit an application** (especially for those interested in industry collaborations): `Application Form <https://docs.google.com/forms/d/e/1FAIpQLSc96iNxjnQPaCWc8ml8eEsxFgZlIQI6XxkNslM9A8G9LILe_Q/viewform?usp=publish-editor>`_
+
+3. **Submit a high-quality pull request to PyHealth**
+
+   - For those without ideas on what to contribute, we have a bounty list here: `Bounty List <https://docs.google.com/spreadsheets/d/1ruzKu-sTUnGZ3i9JPXzvjVCvxRFn6QJv2YLtVdXsmuE/edit?usp=sharing>`_
+   - Contribution guide: `How to Contribute <https://pyhealth.readthedocs.io/en/latest/how_to_contribute.html>`_
+
+
+----
+
+
 Get Involved
 ------------
 
@@ -105,4 +109,3 @@ We're always looking for feedback, feature requests, and contributions. Here's h
 - **Mailing List**: `Subscribe here <https://docs.google.com/forms/d/e/1FAIpQLSfpJB5tdkI7BccTCReoszV9cyyX2rF99SgznzwlOepi5v-xLw/viewform?usp=header>`_ — Get updates delivered to your inbox
 
 Thanks for being part of the community!
-
