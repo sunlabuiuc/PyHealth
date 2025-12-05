@@ -104,10 +104,10 @@ class TestBaseDataset(unittest.TestCase):
                 dev=False,
             )
 
-            # Trigger caching of event_df.parquet
+            # Trigger caching of global_event_df.parquet
             _ = dataset.global_event_df
-            cache_path = dataset.cache_dir / "event_df.parquet"
-            self.assertTrue(cache_path.exists(), "event_df cache should be created")
+            cache_path = dataset.cache_dir / "global_event_df.parquet"
+            self.assertTrue(cache_path.exists(), "global_event_df cache should be created")
 
             cached_df = pl.read_parquet(cache_path)
             cached_order = cached_df["patient_id"].to_list()
@@ -118,7 +118,7 @@ class TestBaseDataset(unittest.TestCase):
             self.assertEqual(
                 cached_order,
                 sorted(cached_order),
-                "cached event_df parquet must be sorted by patient_id",
+                "cached global_event_df parquet must be sorted by patient_id",
             )
 
 
