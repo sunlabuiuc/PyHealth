@@ -287,11 +287,3 @@ class SIIMISICDataset(BaseDataset):
 
         plt.tight_layout()
         plt.show()
-
-if __name__ == "__main__":
-    dataset = SIIMISICDataset(root=r"C:\Users\Andrew's PC\Desktop\School\University Of Illinois\AU25\task_word_explainability\data", image_dir="train")
-
-    im = dataset.process_dcm(dataset.get_image_file_ids("IP_2669371")[0])
-    np.savetxt("output.txt", im.reshape(-1, 3), fmt="%d")
-    #dcm_id = dataset.get_image_file_ids("IP_2669371")
-    #dataset.show_dicom_list(dcm_id)
