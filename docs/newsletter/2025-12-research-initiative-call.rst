@@ -57,7 +57,7 @@ At the end of the program, you'll ideally have gained:
 Timeline & Open Projects
 ------------------------
 
-We're always looking for contributors to PyHealth and people to work on interesting healthcare problems—that doesn't change, and you can start early! However, our target venue for this cycle is `MLHC 2025 <https://www.mlforhc.org/paper-submission>`_ (Machine Learning for Healthcare), with the following key dates:
+We're always looking for contributors to PyHealth and people to work on interesting healthcare problems—that doesn't change, and you can start early! However, our target venue for this cycle is `MLHC 2026 <https://www.mlforhc.org/paper-submission>`_ (Machine Learning for Healthcare), with the following key dates:
 
 **Time Commitment**: We expect participants to dedicate 10–20 hours per week to this program.
 
