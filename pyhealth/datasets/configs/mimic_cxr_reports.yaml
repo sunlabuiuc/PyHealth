@@ -1,0 +1,14 @@
+dataset_name: "MIMIC-CXR-Reports"
+version: "1.0"
+
+tables:
+  reports:
+    description: "Radiology report texts from MIMIC-CXR"
+    file_path: ""
+    attributes:
+      - patient_id
+      - study_id
+      - report_text
+      - findings
+      - impression
+      - path
