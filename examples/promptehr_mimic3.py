@@ -35,6 +35,44 @@ from pyhealth.datasets.promptehr_dataset import (
 from pyhealth.datasets.promptehr_collator import EHRDataCollator
 
 
+class DeviceAwareCollatorWrapper:
+    """Wrapper around EHRDataCollator that moves tensors to specified device.
+
+    This wrapper addresses PyHealth Trainer limitation where data is not automatically
+    moved to device before forward pass. The Trainer directly calls model(**data) at
+    line 206 without device transfer, requiring collator to handle device placement.
+
+    Args:
+        collator: Base EHRDataCollator instance
+        device: Target device ('cuda' or 'cpu')
+    """
+
+    def __init__(self, collator: EHRDataCollator, device: str):
+        """Initialize wrapper with base collator and target device."""
+        self.collator = collator
+        self.device = torch.device(device)
+
+    def __call__(self, batch: List[Dict]) -> Dict[str, torch.Tensor]:
+        """Collate batch and move all tensors to target device.
+
+        Args:
+            batch: List of sample dictionaries
+
+        Returns:
+            Dictionary with batched tensors on target device
+        """
+        # Get batched tensors from base collator (CPU tensors)
+        batched_data = self.collator(batch)
+
+        # Move all tensors to target device
+        device_data = {
+            key: value.to(self.device) if isinstance(value, torch.Tensor) else value
+            for key, value in batched_data.items()
+        }
+
+        return device_data
+
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -135,11 +173,17 @@ def train_promptehr(
     logger.info(f"Train size: {train_size}, Validation size: {val_size}")
 
     # Create data collator
-    collator = EHRDataCollator(
+    base_collator = EHRDataCollator(
         tokenizer=tokenizer,
         max_seq_length=512,
         logger=logger
     )
+
+    # Wrap collator to handle device placement
+    # PyHealth Trainer does not move data to device (line 206: model(**data))
+    # so we must handle device transfer in the collator
+    collator = DeviceAwareCollatorWrapper(base_collator, device)
+    logger.info(f"Using device-aware collator wrapper (target device: {device})")
 
     # Create data loaders
     train_loader = DataLoader(
