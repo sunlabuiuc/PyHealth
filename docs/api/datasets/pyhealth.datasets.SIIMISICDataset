@@ -4,7 +4,9 @@ pyhealth.datasets.SIIMISICDataset
 Overview
 --------
 
-The SIIM-ISIC (Society for Imaging Informatic in Medicine - International Skin Imagin Collaboration) contains 33,126 dermoscopic training images of unique benign and malignant skin lesions from over 2,000 patients. Each image is associated with one of these individuals using a unique patient identifier. All malignant diagnoses have been confirmed via histopathology, and benign diagnoses have been confirmed using either expert agreement, longitudinal follow-up, or histopathology. 
+The SIIM-ISIC (Society for Imaging Informatic in Medicine - International Skin Imagin Collaboration) contains 33,126 dermoscopic training images of unique benign and malignant skin lesions from over 2,000 patients. Each image is associated with one of these individuals using a unique patient identifier. All malignant diagnoses have been confirmed via histopathology, and benign diagnoses have been confirmed using either expert agreement, longitudinal follow-up, or histopathology.
+
+The dataset is broken into two parts, one csv containing meta data on each patient. In this table there is an image id that corresponds to an image assocaited with the patient.
 
 The dataset supports research on: melanoma detection, skin lesion classification and computer vision dermatology. 
 
