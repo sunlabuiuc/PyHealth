@@ -28,7 +28,7 @@ class TextExtractionMIMIC4(BaseTask):
         input_schema (Dict[str, str]): Schema defining input data structure.
             Contains "text" key with "text" type.
         output_schema (Dict[str, str]): Schema defining output data structure.
-            Contains "text" (extracted text) and "event_type" (metadata).
+            Contains "event_type" (metadata) as "raw" type.
         DEFAULT_TABLE_CONFIG (Dict[str, Dict[str, Any]]): Default configuration
             for table processing, including field extraction and filtering rules.
 
@@ -50,7 +50,6 @@ class TextExtractionMIMIC4(BaseTask):
         "text": "text",
     }
     output_schema: Dict[str, str] = {
-        "text": "text",
         # Use "raw" for metadata that doesn't need processing
         "event_type": "raw",
     }
