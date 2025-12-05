@@ -1,7 +1,7 @@
 December 2025: Join the PyHealth Research Initiative
 ====================================================
 
-*Published: December 3, 2025* | *Last Revised: December 4, 2025*
+*Published: December 3, 2025* | *Last Revised: December 5, 2025*
 
 ----
 
@@ -115,9 +115,9 @@ We're always looking for contributors to PyHealth and people to work on interest
 
 **Time Commitment**: We expect participants to dedicate 10–20 hours per week to this program.
 
-- **Pre-submission intent deadline**: April 10, 2025
-- **Full submission deadline**: April 11, 2025
-- **Conference dates**: August 15–16, 2025
+- **Pre-submission intent deadline**: April 10, 2026
+- **Full submission deadline**: April 11, 2026
+- **Conference dates**: August 15–16, 2026
 
 We plan to run this research program over the spring, working toward the MLHC submission deadline.
 
