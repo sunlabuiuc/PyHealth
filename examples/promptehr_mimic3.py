@@ -449,7 +449,8 @@ def main():
             raise ValueError("--checkpoint required when using --generate_only")
 
         logger.info(f"Loading model from checkpoint: {args.checkpoint}")
-        checkpoint = torch.load(args.checkpoint)
+        # PyTorch 2.6+ requires weights_only=False to load checkpoints with custom objects (tokenizer)
+        checkpoint = torch.load(args.checkpoint, weights_only=False)
         tokenizer = checkpoint['tokenizer']
 
         model = PromptEHR(**checkpoint['config'])
