@@ -106,8 +106,10 @@ def scan_csv_gz_or_csv_tsv(path: str) -> pl.LazyFrame:
 
     raise FileNotFoundError(f"Neither path exists: {path} or {alt_path}")
 
-def unpickle_sample(sample_bytes: bytes) -> dict[str, Any]:
-    return pickle.loads(sample_bytes)
+
+def unpickle_sample(sample_bytes: dict[str, bytes]) -> dict[str, Any]:
+    return pickle.loads(sample_bytes["sample"])
+
 
 class StreamingParquetWriter:
     """
@@ -259,7 +261,7 @@ class BaseDataset(ABC):
         return Path(self._cache_dir)
 
     @property
-    def event_df(self) -> pl.LazyFrame:
+    def global_event_df(self) -> pl.LazyFrame:
         """Returns the path to the cached event dataframe.
 
         Returns:
@@ -272,7 +274,9 @@ class BaseDataset(ABC):
                 if self.dev:
                     logger.info("Dev mode enabled: limiting to 1000 patients")
                     limited_patients = (
-                        df.select(pl.col("patient_id")).unique().limit(1000)
+                        df.select(pl.col("patient_id").shuffle(seed=0))
+                        .unique()
+                        .limit(1000)
                     )
                     df = df.join(limited_patients, on="patient_id", how="inner")
 
@@ -398,7 +402,7 @@ class BaseDataset(ABC):
         """
         if self._unique_patient_ids is None:
             self._unique_patient_ids = (
-                self.event_df.select("patient_id")
+                self.global_event_df.select("patient_id")
                 .unique()
                 .collect(engine="streaming")
                 .to_series()
@@ -423,9 +427,9 @@ class BaseDataset(ABC):
             patient_id in self.unique_patient_ids
         ), f"Patient {patient_id} not found in dataset"
 
-        data_source = self.event_df.filter(pl.col("patient_id") == patient_id).collect(
-            engine="streaming"
-        )
+        data_source = self.global_event_df.filter(
+            pl.col("patient_id") == patient_id
+        ).collect(engine="streaming")
         return Patient(patient_id=patient_id, data_source=data_source)
 
     def iter_patients(self, df: Optional[pl.LazyFrame] = None) -> Iterator[Patient]:
@@ -435,7 +439,7 @@ class BaseDataset(ABC):
             Iterator[Patient]: An iterator over Patient objects.
         """
         if df is None:
-            df = self.event_df
+            df = self.global_event_df
         patient_ids = (
             df.select("patient_id")
             .unique(maintain_order=True)
@@ -451,7 +455,7 @@ class BaseDataset(ABC):
 
     def stats(self) -> None:
         """Prints statistics about the dataset."""
-        stats = self.event_df.select(
+        stats = self.global_event_df.select(
             pl.len().alias("n_events"),
             pl.col("patient_id").n_unique().alias("n_patients"),
         ).collect(engine="streaming")
@@ -521,13 +525,17 @@ class BaseDataset(ABC):
         # Check if index.json exists to verify cache integrity, this
         # is the standard file for litdata.StreamingDataset
         if not (path / "index.json").exists():
-            event_df = task.pre_filter(self.event_df)
-            schema = pa.schema({"sample", pa.binary()})
+            event_df = task.pre_filter(self.global_event_df)
+            schema = pa.schema([("sample", pa.binary())])
             with tempfile.TemporaryDirectory() as tmp_dir:
-                tmp_dir = "./test_task_cache" # For debugging purposes, keep the temp dir
-                with StreamingParquetWriter(f"{tmp_dir}/samples.parquet", schema) as writer:
+                tmp_dir = (
+                    "./test_task_cache"  # For debugging purposes, keep the temp dir
+                )
+                with StreamingParquetWriter(
+                    f"{tmp_dir}/samples.parquet", schema
+                ) as writer:
                     logger.info(f"Applying task transformations on data...")
-                    
+
                     patient_ids = (
                         event_df.select("patient_id")
                         .unique()
@@ -542,24 +550,23 @@ class BaseDataset(ABC):
                         for sample in task(patient):
                             writer.append({"sample": pickle.dumps(sample)})
                 litdata.index_parquet_dataset(tmp_dir)
-                # dataset = litdata.StreamingDataset(
-                #     tmp_dir,
-                #     transform=unpickle_sample,
-                #     item_loader=ParquetLoader(),
-                # )
-                # builder = SampleBuilder(
-                #     input_schema=task.input_schema, # type: ignore
-                #     output_schema=task.output_schema, # type: ignore
-                #     input_processors=input_processors,
-                #     output_processors=output_processors,
-                # )
-                # builder.fit(iter(dataset))
+                dataset = litdata.StreamingDataset(
+                    tmp_dir,
+                    item_loader=ParquetLoader(),
+                )
+                builder = SampleBuilder(
+                    input_schema=task.input_schema,  # type: ignore
+                    output_schema=task.output_schema,  # type: ignore
+                    input_processors=input_processors,
+                    output_processors=output_processors,
+                )
+                builder.fit(map(unpickle_sample, iter(dataset)))
+                return dataset, builder
                 # litdata.optimize(
                 #     fn=lambda x: builder.transform(x),
                 #     inputs=Streadataset,
 
                 # )
-
 
         # sample_dataset = SampleDataset(
         #     samples,
