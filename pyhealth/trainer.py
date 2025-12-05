@@ -1,12 +1,13 @@
 import logging
 import os
 from datetime import datetime
-from typing import Callable, Dict, List, Optional, Type
+from typing import Callable, Dict, List, Optional, Type, Union
 
 import numpy as np
 import torch
 from torch import nn
 from torch.optim import Optimizer
+from torch.optim.lr_scheduler import LRScheduler
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from tqdm.autonotebook import trange
@@ -118,6 +119,8 @@ class Trainer:
         epochs: int = 5,
         optimizer_class: Type[Optimizer] = torch.optim.Adam,
         optimizer_params: Optional[Dict[str, object]] = None,
+        scheduler_class_or_fn: Union[Type[LRScheduler], Callable[[Optimizer, Dict[str, object]], LRScheduler]] = None,
+        scheduler_params: Optional[Dict[str, object]] = None,
         steps_per_epoch: int = None,
         evaluation_steps: int = 1,
         weight_decay: float = 0.0,
@@ -136,6 +139,8 @@ class Trainer:
             epochs: Number of epochs. Default is 5.
             optimizer_class: Optimizer class. Default is torch.optim.Adam.
             optimizer_params: Parameters for the optimizer. Default is {"lr": 1e-3}.
+            scheduler_class_or_fn: Scheduler class or function that will build the scheduler. Default is None.
+            scheduler_params: Parameters for the scheduler. Default is None.
             steps_per_epoch: Number of steps per epoch. Default is None.
             weight_decay: Weight decay. Default is 0.0.
             max_grad_norm: Maximum gradient norm. Default is None.
@@ -154,6 +159,8 @@ class Trainer:
         logger.info(f"Batch size: {train_dataloader.batch_size}")
         logger.info(f"Optimizer: {optimizer_class}")
         logger.info(f"Optimizer params: {optimizer_params}")
+        logger.info(f"Scheduler: {scheduler_class_or_fn}")
+        logger.info(f"Scheduler params: {scheduler_params}")
         logger.info(f"Weight decay: {weight_decay}")
         logger.info(f"Max grad norm: {max_grad_norm}")
         logger.info(f"Val dataloader: {val_dataloader}")
@@ -176,6 +183,16 @@ class Trainer:
             },
         ]
         optimizer = optimizer_class(optimizer_grouped_parameters, **optimizer_params)
+
+        # set scheduler
+        if scheduler_class_or_fn is not None:
+            if scheduler_params is None:
+                scheduler_params = {}
+            # If scheduler_class_or_fn is a function, it is assumed that it will
+            # build and return a scheduler object.
+            scheduler = scheduler_class_or_fn(optimizer, **scheduler_params)
+        else:
+            scheduler = None
 
         # initialize
         data_iterator = iter(train_dataloader)
@@ -213,6 +230,8 @@ class Trainer:
                     )
                 # update
                 optimizer.step()
+                if scheduler is not None:
+                    scheduler.step()
                 optimizer.zero_grad()
                 training_loss.append(loss.item())
                 global_step += 1
