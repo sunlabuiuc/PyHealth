@@ -233,7 +233,7 @@ class BaseDataset(ABC):
 
         # Cached attributes
         self._cache_dir = cache_dir
-        self._event_df_path = None
+        self._global_event_df = None
         self._unique_patient_ids = None
 
     @property
@@ -267,8 +267,8 @@ class BaseDataset(ABC):
         Returns:
             Path: The path to the cached event dataframe.
         """
-        if self._event_df_path is None:
-            path = self.cache_dir / "event_df.parquet"
+        if self._global_event_df is None:
+            path = self.cache_dir / "global_event_df.parquet"
             if not path.exists():
                 df = self.load_data()
                 if self.dev:
@@ -287,10 +287,10 @@ class BaseDataset(ABC):
                     row_group_size=8_192,
                     maintain_order=True,  # Important for sorted writes
                 )
-            self._event_df_path = path
+            self._global_event_df = path
 
         return pl.scan_parquet(
-            self._event_df_path,
+            self._global_event_df,
             low_memory=True,
         ).set_sorted(
             "patient_id"
