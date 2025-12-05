@@ -1,4 +1,4 @@
-Call to PyHealth Research Initiative (Spring)
+Call to PyHealth Research Initiative (Spring 2026)
 ============================================================
 
 *Published: December 3, 2025* | *Last Revised: December 5, 2025*
@@ -61,11 +61,12 @@ We're always looking for contributors to PyHealth and people to work on interest
 
 **Time Commitment**: We expect participants to dedicate 10–20 hours per week to this program.
 
+- **Official Research Initiative start date**: January 20, 2026 — We'll hold a kickoff meeting to go over program details. Meeting information will be announced via Discord closer to the date.
 - **Pre-submission intent deadline**: April 10, 2026
 - **Full submission deadline**: April 11, 2026
 - **Conference dates**: August 15–16, 2026
 
-We plan to run this research program over the spring, working toward the MLHC submission deadline.
+We plan to run this research program over the spring, working toward the MLHC submission deadline. All official announcements and communication will be done through our Discord server, so make sure to join!
 
 **Open Projects**: Browse our list of (not yet finalized) available research projects and find one that matches your interests: `Open Projects List <https://docs.google.com/spreadsheets/d/1DLDpjBi40esOqaDWUvHTvCEEEoixyORTDisemIOkMBo/edit?usp=sharing>`_
 
