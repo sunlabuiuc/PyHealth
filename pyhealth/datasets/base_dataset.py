@@ -107,10 +107,6 @@ def scan_csv_gz_or_csv_tsv(path: str) -> pl.LazyFrame:
     raise FileNotFoundError(f"Neither path exists: {path} or {alt_path}")
 
 
-def unpickle_sample(sample_bytes: dict[str, bytes]) -> dict[str, Any]:
-    return pickle.loads(sample_bytes["sample"])
-
-
 class StreamingParquetWriter:
     """
     Stream-write rows into a Parquet file in chunked (row-group) fashion.
@@ -525,34 +521,36 @@ class BaseDataset(ABC):
         # Check if index.json exists to verify cache integrity, this
         # is the standard file for litdata.StreamingDataset
         if not (path / "index.json").exists():
-            event_df = task.pre_filter(self.global_event_df)
+            global_event_df = task.pre_filter(self.global_event_df)
             schema = pa.schema([("sample", pa.binary())])
             with tempfile.TemporaryDirectory() as tmp_dir:
-                tmp_dir = (
-                    "./test_task_cache"  # For debugging purposes, keep the temp dir
-                )
+                # Create Parquet file with samples
+                logger.info(f"Applying task transformations on data...")
                 with StreamingParquetWriter(
                     f"{tmp_dir}/samples.parquet", schema
                 ) as writer:
-                    logger.info(f"Applying task transformations on data...")
-
+                    # TODO: this can be further optimized.
                     patient_ids = (
-                        event_df.select("patient_id")
+                        global_event_df.select("patient_id")
                         .unique()
                         .collect(engine="streaming")
                         .to_series()
                     )
                     for patient_id in tqdm(patient_ids):
-                        patient_df = event_df.filter(
+                        patient_df = global_event_df.filter(
                             pl.col("patient_id") == patient_id
                         ).collect(engine="streaming")
                         patient = Patient(patient_id=patient_id, data_source=patient_df)
                         for sample in task(patient):
                             writer.append({"sample": pickle.dumps(sample)})
                 litdata.index_parquet_dataset(tmp_dir)
+
+                # Build processors and fit on the dataset
+                logger.info(f"Fitting processors on the dataset...")
                 dataset = litdata.StreamingDataset(
                     tmp_dir,
                     item_loader=ParquetLoader(),
+                    transform=lambda x: pickle.loads(x["sample"]),
                 )
                 builder = SampleBuilder(
                     input_schema=task.input_schema,  # type: ignore
@@ -560,13 +558,23 @@ class BaseDataset(ABC):
                     input_processors=input_processors,
                     output_processors=output_processors,
                 )
-                builder.fit(map(unpickle_sample, iter(dataset)))
-                return dataset, builder
-                # litdata.optimize(
-                #     fn=lambda x: builder.transform(x),
-                #     inputs=Streadataset,
+                builder.fit(dataset)
 
-                # )
+                # Apply processors and save final samples to cache_dir
+                logger.info(f"Processing samples and saving to {path}...")
+                dataset = litdata.StreamingDataset(
+                    tmp_dir,
+                    item_loader=ParquetLoader(),
+                    transform=builder.transform,
+                )
+                litdata.optimize(
+                    fn=lambda x: x,
+                    inputs=litdata.StreamingDataLoader(dataset),
+                    output_dir=str(path),
+                    chunk_bytes="64MB",
+                    num_workers=num_workers,
+                )
+                logger.info(f"Cached processed samples to {path}")
 
         # sample_dataset = SampleDataset(
         #     samples,
