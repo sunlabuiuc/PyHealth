@@ -113,6 +113,8 @@ Timeline & Open Projects
 
 We're always looking for contributors to PyHealth and people to work on interesting healthcare problems—that doesn't change, and you can start early! However, our target venue for this cycle is `MLHC 2025 <https://www.mlforhc.org/paper-submission>`_ (Machine Learning for Healthcare), with the following key dates:
 
+**Time Commitment**: We expect participants to dedicate 10–20 hours per week to this program.
+
 - **Pre-submission intent deadline**: April 10, 2025
 - **Full submission deadline**: April 11, 2025
 - **Conference dates**: August 15–16, 2025
