@@ -2,9 +2,8 @@ version: "0.8"
 tables:
   patient:
     file_path: "patient.csv.gz"
-    patient_id: "uniquepid"
-    timestamp: "hospitaladmittime24"
-    timestamp_format: "%H:%M:%S"
+    patient_id: "patientunitstayid"
+    timestamp: null
     attributes:
       - "patientunitstayid"
       - "patienthealthsystemstayid"
