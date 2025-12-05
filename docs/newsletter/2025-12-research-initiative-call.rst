@@ -14,6 +14,7 @@ We're excited to continue making PyHealth more accessible and relevant to real-w
 .. contents:: Quick Links
    :local:
    :depth: 1
+   :class: this-will-duplicate-information-and-it-is-still-useful-here
 
 
 ----
