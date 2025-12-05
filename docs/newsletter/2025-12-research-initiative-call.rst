@@ -1,5 +1,5 @@
-December 2025: Join the PyHealth Research Initiative
-====================================================
+Call to PyHealth Research Initiative (Spring)
+============================================================
 
 *Published: December 3, 2025* | *Last Revised: December 5, 2025*
 
@@ -7,7 +7,7 @@ December 2025: Join the PyHealth Research Initiative
 
 Hey everyone,
 
-First off, I want to thank everyone who worked so hard to publish papers at ML4H this cycle—our first attempt at the PyHealth Research Initiative! It's been really exciting to connect with everyone and talk to different people at ML4H, especially as the topics we published on—rare diseases, social determinants of health, and prostate cancer genomics—are all at the forefront of healthcare and AI.
+First off, I want to thank everyone who worked so hard to publish papers at ML4H this cycle—our first attempt at the PyHealth Research Initiative! It's been really exciting to connect with everyone and talk to different people at ML4H, especially as the topics we published on—rare diseases, social determinants of health, and prostate cancer genomics—are all at the forefront of healthcare and AI. Check out the :doc:`highlights from this year's cohort <2025-12-ml4h-highlights>`!
 
 We're excited to continue making PyHealth more accessible and relevant to real-world healthcare AI problems. **To that end, we're issuing an open call to join the PyHealth Research Initiative.**
 
@@ -28,47 +28,6 @@ There are three steps to apply:
 
    - For those without ideas on what to contribute, we have a bounty list here: `Bounty List <https://docs.google.com/spreadsheets/d/1ruzKu-sTUnGZ3i9JPXzvjVCvxRFn6QJv2YLtVdXsmuE/edit?usp=sharing>`_
    - Contribution guide: `How to Contribute <https://pyhealth.readthedocs.io/en/latest/how_to_contribute.html>`_
-
-
-----
-
-
-Highlights from ML4H 2025
--------------------------
-
-Here are some photos from our time at ML4H, including the poster sessions and team dinner!
-
-.. figure:: /_static/newsletter/dec_2025/Dinner.jpg
-   :width: 100%
-   :alt: PyHealth team at ML4H dinner
-
-   PyHealth team dinner at ML4H
-
-.. figure:: /_static/newsletter/dec_2025/PresentingAPoster.jpg
-   :width: 100%
-   :alt: PyHealth Research Initiative (Abraham Francisco Arellano Tavara & Umesh Kumar) Presenting Posters
-
-   Poster session at ML4H
-
-**Our Research Posters:**
-
-.. figure:: /_static/newsletter/dec_2025/sdoh_prediction_poster.png
-   :width: 100%
-   :alt: Social Determinants of Health Prediction poster
-
-   Social Determinants of Health Prediction
-
-.. figure:: /_static/newsletter/dec_2025/ML4H_RD_Diff2025_Poster.png
-   :width: 100%
-   :alt: Rare Disease Diffusion poster
-
-   Rare Disease Diferential Diagnosis poster
-
-.. figure:: /_static/newsletter/dec_2025/ProstateCancerBenchmark.jpg
-   :width: 100%
-   :alt: Prostate Cancer Genomics Benchmark poster
-
-   Prostate Cancer Genomics Benchmark
 
 
 ----
