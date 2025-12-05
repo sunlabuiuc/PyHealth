@@ -7,23 +7,23 @@ Paper Link: https://arxiv.org/abs/2502.14259
 
 Description:
     This PyHealth example demonstrates the core ideas of the LabTOP architecture
-    proposed in the above paper. It uses a lightweight GPT-2 model (via
-    HuggingFace Transformers) with a small configuration (2 layers, 128 dim)
-    to illustrate the key innovations of LabTOP:
+    proposed in the above paper. It uses a lightweight GPT-2 model via
+    HuggingFace Transformers with a small configuration to illustrate the
+    key innovations of LabTOP:
 
     1. Digit-wise tokenization:
-        Continuous-valued lab measurements (creatinine = 1.23 mg/dL)
+        Continuous-valued lab measurements like creatinine = 1.23 mg/dL
         are encoded as sequences of digit characters ['1', '.', '2', '3'],
         enabling precise numerical modeling with an extremely small vocabulary.
 
     2. Lab-aware vocabulary:
         Special tokens are built for demographic fields and lab item
-        identifiers (<|lab_50912|> for creatinine), mirroring the
+        identifiers like <|lab_50912|> for creatinine, mirroring the
         structure of the original LabTOP model.
 
     3. Autoregressive forecasting:
         The GPT-2 decoder predicts the next lab value digit-by-digit from a
-        patient's tokenized history. Evaluation uses Mean Absolute Error (MAE)
+        patient's tokenized history. Evaluation uses Mean Absolute Error
         by decoding the generated digit sequence back into a float.
 
     4. Synthetic ICU dataset:
@@ -466,7 +466,7 @@ def evaluate_mae(model: LabTOP, dataset: SampleDataset, device: str = "cpu") -> 
     Args:
         model: Trained LabTOP model instance.
         dataset: Test SampleDataset with ground truth values.
-        device: Device for inference ("cpu" or "cuda").
+        device: Device for inference, cpu or cuda.
 
     Returns:
         Mean Absolute Error between predictions and ground truth.
@@ -478,7 +478,7 @@ def evaluate_mae(model: LabTOP, dataset: SampleDataset, device: str = "cpu") -> 
     print(f"Generating predictions for {len(dataset)} test samples...")
 
     for i, sample in enumerate(dataset):
-        # Prepare Input (Truncate to just the prompt part)
+        # Prepare input by truncating to prompt part
         prompt_len = sample["prompt_length"]
         input_ids = torch.tensor([sample["input_ids"][:prompt_len]]).to(device)
         ground_truth = sample["target_value_ground_truth"]
@@ -515,14 +515,14 @@ if __name__ == "__main__":
     
     # 2. Build Model & Vocab
     lab_ids = list(LAB_ITEMS.keys())
-    model = LabTOP(None, ["input_ids"], "label")  # Dataset placeholder
+    model = LabTOP(None, ["input_ids"], "label")
     model.build_vocabulary(lab_ids)
     
     # 3. Create Dataset
     full_ds = process_data(df, model.vocab)
     train_ds, _, test_ds = split_by_patient(full_ds, [0.8, 0.1, 0.1])
     
-    # 4. Train (Loss Only)
+    # 4. Train
     # Note: We set metrics=None because roc_auc fails on LM logits
     trainer = Trainer(model=model, metrics=None) 
     trainer.train(
@@ -535,4 +535,4 @@ if __name__ == "__main__":
     # 5. Custom Evaluation
     print("\n=== Evaluating Mean Absolute Error (MAE) ===")
     mae = evaluate_mae(model, test_ds)
-    print(f"\n✅ Final Test MAE: {mae:.4f}")
+    print(f"\nFinal Test MAE: {mae:.4f}")
