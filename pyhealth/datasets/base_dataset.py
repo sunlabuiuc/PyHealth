@@ -126,7 +126,7 @@ class BaseDataset(ABC):
         if len(set(tables)) != len(tables):
             logger.warning("Duplicate table names in tables list. Removing duplicates.")
             tables = list(set(tables))
-        self.root = root
+        self.root = os.path.expanduser(root)        
         self.tables = tables
         self.dataset_name = dataset_name or self.__class__.__name__
         self.config = load_yaml_config(config_path)
