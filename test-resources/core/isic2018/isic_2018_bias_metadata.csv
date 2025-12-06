@@ -1,0 +1,11 @@
+idx,sample_id,dark_corner,hair,gel_border,gel_bubble,ruler,ink,patches,label,label_string
+0,ISIC_1,0,0,0,1,0,0,0,1,malignant
+1,ISIC_2,1,1,1,1,0,0,0,0,benign
+2,ISIC_3,0,1,0,1,0,0,0,0,malignant
+3,ISIC_4,1,1,0,1,1,0,0,1,malignant
+4,ISIC_5,0,0,0,0,0,0,0,0,benign
+5,ISIC_6,1,0,0,0,1,1,0,0,benign
+6,ISIC_7,0,0,0,0,0,0,0,0,benign
+7,ISIC_8,0,1,0,0,0,0,1,0,malignant
+8,ISIC_9,1,1,0,0,0,0,0,0,benign
+9,ISIC_10,1,1,0,1,0,1,0,0,malignant

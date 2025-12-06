@@ -1,0 +1,17 @@
+version: "1.0"
+tables:
+  isic2018_artifacts:
+    file_path: "isic_2018_bias_metadata.csv"
+    sample_id: "sample_id"
+    timestamp: null
+    attributes:
+      - "dark_corner"
+      - "hair"
+      - "gel_border"
+      - "gel_bubble"
+      - "ruler"
+      - "ink"
+      - "patches"
+      - "label"
+      - "label_string"
+
