@@ -107,7 +107,11 @@ def scan_csv_gz_or_csv_tsv(path: str) -> pl.LazyFrame:
     raise FileNotFoundError(f"Neither path exists: {path} or {alt_path}")
 
 
-class StreamingParquetWriter:
+def _identity_fn(x):
+    return x
+
+
+class _ParquetWriter:
     """
     Stream-write rows into a Parquet file in chunked (row-group) fashion.
 
@@ -526,9 +530,7 @@ class BaseDataset(ABC):
             with tempfile.TemporaryDirectory() as tmp_dir:
                 # Create Parquet file with samples
                 logger.info(f"Applying task transformations on data...")
-                with StreamingParquetWriter(
-                    f"{tmp_dir}/samples.parquet", schema
-                ) as writer:
+                with _ParquetWriter(f"{tmp_dir}/samples.parquet", schema) as writer:
                     # TODO: this can be further optimized.
                     patient_ids = (
                         global_event_df.select("patient_id")
@@ -569,7 +571,7 @@ class BaseDataset(ABC):
                     transform=builder.transform,
                 )
                 litdata.optimize(
-                    fn=lambda x: x,
+                    fn=_identity_fn,
                     inputs=litdata.StreamingDataLoader(dataset),
                     output_dir=str(path),
                     chunk_bytes="64MB",

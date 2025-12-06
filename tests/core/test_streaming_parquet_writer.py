@@ -5,7 +5,7 @@ import unittest
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from pyhealth.datasets.base_dataset import StreamingParquetWriter
+from pyhealth.datasets.base_dataset import _ParquetWriter
 from tests.base import BaseTestCase
 
 
@@ -31,7 +31,7 @@ class TestStreamingParquetWriter(BaseTestCase):
             {"id": 4, "value": "d"},
         ]
 
-        with StreamingParquetWriter(
+        with _ParquetWriter(
             self.output_path, self.schema, chunk_size=2
         ) as writer:
             # First two appends trigger an automatic flush due to chunk_size=2.
