@@ -103,7 +103,7 @@ class EmbeddingModel(BaseModel):
                 # For tensor processor, we need to determine the input size
                 # from the first sample in the dataset
                 sample_tensor = None
-                for sample in dataset.samples:
+                for sample in dataset:
                     if field_name in sample:
                         sample_tensor = processor.process(sample[field_name])
                         break
