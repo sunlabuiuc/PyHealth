@@ -1,10 +1,11 @@
+from collections.abc import Sequence
 import pickle
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union, Type, override
 import inspect
 
-from torch.utils.data import Dataset
-from tqdm import tqdm
+from bisect import bisect_right
 from litdata import StreamingDataset
+from litdata.utilities.train_test_split import deepcopy_dataset
 
 from ..processors import get_processor
 from ..processors.base_processor import FeatureProcessor
@@ -226,3 +227,68 @@ class SampleDataset(StreamingDataset):
             str: A string with the dataset and task names.
         """
         return f"Sample dataset {self.dataset_name} {self.task_name}"
+
+    def subset(
+        self, indices: Sequence[int]
+    ) -> "SampleDataset":
+        """Create a StreamingDataset restricted to the provided indices."""
+
+        new_dataset = deepcopy_dataset(self)
+
+        if len(new_dataset.subsampled_files) != len(new_dataset.region_of_interest):
+            raise ValueError(
+                "The provided dataset has mismatched subsampled_files and region_of_interest lengths."
+            )
+
+        dataset_length = sum(end - start for start, end in new_dataset.region_of_interest)
+        if any(idx < 0 or idx >= dataset_length for idx in indices):
+            raise ValueError(
+                f"Subset indices must be in [0, {dataset_length - 1}] for the provided dataset."
+            )
+
+        # Build chunk boundaries so we can translate global indices into
+        # chunk-local (start, end) pairs that litdata understands.
+        chunk_starts: List[int] = []
+        chunk_boundaries: List[Tuple[str, int, int, int, int]] = []
+        cursor = 0
+        for filename, (roi_start, roi_end) in zip(
+            new_dataset.subsampled_files, new_dataset.region_of_interest
+        ):
+            chunk_len = roi_end - roi_start
+            if chunk_len <= 0:
+                continue
+            chunk_starts.append(cursor)
+            chunk_boundaries.append(
+                (filename, roi_start, roi_end, cursor, cursor + chunk_len)
+            )
+            cursor += chunk_len
+
+        new_subsampled_files: List[str] = []
+        new_roi: List[Tuple[int, int]] = []
+        prev_chunk_idx: Optional[int] = None
+
+        for idx in indices:
+            chunk_idx = bisect_right(chunk_starts, idx) - 1
+            if chunk_idx < 0 or idx >= chunk_boundaries[chunk_idx][4]:
+                raise ValueError(f"Index {idx} is out of bounds for the dataset.")
+
+            filename, roi_start, _, global_start, _ = chunk_boundaries[chunk_idx]
+            offset_in_chunk = roi_start + (idx - global_start)
+
+            if (
+                new_roi
+                and prev_chunk_idx == chunk_idx
+                and offset_in_chunk == new_roi[-1][1]
+            ):
+                new_roi[-1] = (new_roi[-1][0], new_roi[-1][1] + 1)
+            else:
+                new_subsampled_files.append(filename)
+                new_roi.append((offset_in_chunk, offset_in_chunk + 1))
+
+            prev_chunk_idx = chunk_idx
+
+        new_dataset.subsampled_files = new_subsampled_files
+        new_dataset.region_of_interest = new_roi
+        new_dataset.reset()
+
+        return new_dataset
