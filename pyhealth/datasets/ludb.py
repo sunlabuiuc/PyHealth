@@ -470,11 +470,7 @@ class LUDBDataset(BaseDataset):
         diagnoses_list = []
         
         for line in comment_lines:
-            # Handle both string lines and list items
-            if isinstance(line, str):
-                line = line.strip()
-            else:
-                line = str(line).strip()
+            line = str(line).strip()
             
             if not line:
                 continue
@@ -559,10 +555,7 @@ class LUDBDataset(BaseDataset):
                 }
         """
         # Lead names in lowercase (matching file suffix format)
-        lead_names = [
-            "i", "ii", "iii", "avr", "avl", "avf",
-            "v1", "v2", "v3", "v4", "v5", "v6"
-        ]
+        lead_names = [item.lower() for item in LUDBDataset.LEAD_NAMES]
         
         annotations = {}
         for lead_name in lead_names:
@@ -781,11 +774,10 @@ class LUDBDataset(BaseDataset):
 if __name__ == "__main__":
     # Example usage
     # Users need to download LUDB dataset from PhysioNet first.
-    # The dataset is available at: https://physionet.org/files/ludb/1.0.1/
-    #
-    # To download using wfdb tools:
-    #   pip install wfdb
-    #   wfdb download ludb
+    # Option 1: wget
+    #   wget -r -N -c -np https://physionet.org/files/ludb/1.0.1/
+    # Option 2: Manual download from
+    #   https://physionet.org/files/ludb/1.0.1/data/#files-panel
     #
     # Then provide the path to the downloaded directory containing .hea and .dat files
     dataset = LUDBDataset(
