@@ -19,7 +19,8 @@ class LUDBDataset(BaseDataset):
 
     Dataset is available at https://physionet.org/files/ludb/1.0.1/
 
-    The LUDB dataset includes 200 ECG recordings collected from 2017-2018. Each recording:
+    The LUDB dataset includes 200 ECG recordings collected from 2017-2018.
+    Each recording:
     - Is 10 seconds long, sampled at 500 Hz (5000 samples)
     - Contains 12 leads: I, II, III, aVR, aVL, aVF, V1, V2, V3, V4, V5, V6
     - Has manually annotated boundaries and peaks of P, T waves and QRS complexes
@@ -29,7 +30,8 @@ class LUDBDataset(BaseDataset):
     
     The dataset contains 16797 P waves, 21966 QRS complexes, and 19666 T waves across
     all recordings. Data is stored in WFDB-compatible format (.hea header files and .dat
-    signal files). Version 1.0.1 includes a ludb.csv file with aggregated patient metadata
+    signal files). Version 1.0.1 includes a ludb.csv file with aggregated
+    patient metadata
     (gender, age, rhythm type, electric axis, pacemaker presence, etc.).
 
     Args:
@@ -57,7 +59,8 @@ class LUDBDataset(BaseDataset):
         >>> # First, download LUDB dataset from PhysioNet:
         >>> # Option 1: wget
         >>> #   wget -r -N -c -np https://physionet.org/files/ludb/1.0.1/
-        >>> # Option 2: Manual download from https://physionet.org/files/ludb/1.0.1/data/#files-panel
+        >>> # Option 2: Manual download from
+        >>> #   https://physionet.org/files/ludb/1.0.1/data/#files-panel
         >>> #
         >>> # Then provide the path to the downloaded directory
         >>> dataset = LUDBDataset(
@@ -68,11 +71,13 @@ class LUDBDataset(BaseDataset):
 
     Note:
         The dataset expects files to be organized in WFDB-compatible format with:
-        - .hea files: Header files containing metadata, annotations, and diagnostic labels
+        - .hea files: Header files containing metadata, annotations, and
+          diagnostic labels
           (parsed using wfdb.rdheader)
         - .dat files: Signal data files in WFDB binary format
           (parsed using wfdb.rdsamp)
-        - ludb.csv (optional): Metadata file with patient information (gender, age, rhythm,
+        - ludb.csv (optional): Metadata file with patient information
+          (gender, age, rhythm,
           electric axis, pacemaker, etc.) - available in version 1.0.1+
 
         Each recording should have files named like: 1.hea, 1.dat
@@ -341,8 +346,14 @@ class LUDBDataset(BaseDataset):
                 # Extract other fields, cleaning up newlines and whitespace
                 field_mappings = {
                     'rhythm': ['Rhythms', 'rhythms', 'Rhythm', 'rhythm'],
-                    'electric_axis': ['Electric axis of the heart', 'electric axis of the heart'],
-                    'conduction_abnormalities': ['Conduction abnormalities', 'conduction abnormalities'],
+                    'electric_axis': [
+                        'Electric axis of the heart',
+                        'electric axis of the heart'
+                    ],
+                    'conduction_abnormalities': [
+                        'Conduction abnormalities',
+                        'conduction abnormalities'
+                    ],
                     'extrasystolies': ['Extrasystolies', 'extrasystolies'],
                     'hypertrophies': ['Hypertrophies', 'hypertrophies'],
                     'cardiac_pacing': ['Cardiac pacing', 'cardiac pacing'],
@@ -418,17 +429,21 @@ class LUDBDataset(BaseDataset):
                 - electric_axis: Electrical axis label (if available)
                 - diagnoses: List of all diagnostic labels
                 - annotations: Dictionary with annotations for each lead
-                  (Currently empty - P/QRS/T wave annotations are in separate binary files)
+                  (Currently empty - P/QRS/T wave annotations are in
+                  separate binary files)
                   
         Note:
-            P/QRS/T wave annotations are stored in separate binary annotation files
-            (one per lead: .i, .ii, .iii, .avr, .avl, .avf, .v1, .v2, .v3, .v4, .v5, .v6).
-            These need to be loaded separately using parse_annotation_file() or similar method.
+            P/QRS/T wave annotations are stored in separate binary
+            annotation files (one per lead: .i, .ii, .iii, .avr, .avl, .avf,
+            .v1, .v2, .v3, .v4, .v5, .v6).
+            These need to be loaded separately using parse_annotation_file()
+            or similar method.
         """
         annotations = {lead: {} for lead in LUDBDataset.LEAD_NAMES}
         metadata = {}
         
-        # Extract record name from path (wfdb.rdheader expects path without .hea extension)
+        # Extract record name from path (wfdb.rdheader expects path without
+        # .hea extension)
         directory, filename = LUDBDataset._split_path(hea_path)
         record_name = os.path.join(directory, os.path.splitext(filename)[0])
         
@@ -447,8 +462,10 @@ class LUDBDataset(BaseDataset):
         comment_lines = record.comments
         
         # Parse diagnostic metadata from comments
-        # Format: <age>: <value>, <sex>: <M/F>, <diagnoses>: followed by diagnostic labels
-        # Note: wfdb strips the '#' prefix, so comments come as '<age>: 51' not '#<age>: 51'
+        # Format: <age>: <value>, <sex>: <M/F>, <diagnoses>: followed by
+        # diagnostic labels
+        # Note: wfdb strips the '#' prefix, so comments come as '<age>: 51'
+        # not '#<age>: 51'
         in_diagnoses_section = False
         diagnoses_list = []
         
@@ -516,7 +533,9 @@ class LUDBDataset(BaseDataset):
         return metadata
 
     @staticmethod
-    def load_all_annotations(recording_base_path: str, recording_number: int) -> Dict[str, Dict]:
+    def load_all_annotations(
+        recording_base_path: str, recording_number: int
+    ) -> Dict[str, Dict]:
         """Load all annotation files for a single recording (all 12 leads).
         
         LUDB stores annotations in separate binary files, one per lead:
@@ -539,26 +558,18 @@ class LUDBDataset(BaseDataset):
                     ...
                 }
         """
-        # Map lead names to file suffixes
-        lead_to_suffix = {
-            "i": "i",
-            "ii": "ii",
-            "iii": "iii",
-            "avr": "avr",
-            "avl": "avl",
-            "avf": "avf",
-            "v1": "v1",
-            "v2": "v2",
-            "v3": "v3",
-            "v4": "v4",
-            "v5": "v5",
-            "v6": "v6",
-        }
+        # Lead names in lowercase (matching file suffix format)
+        lead_names = [
+            "i", "ii", "iii", "avr", "avl", "avf",
+            "v1", "v2", "v3", "v4", "v5", "v6"
+        ]
         
         annotations = {}
-        for lead_name, suffix in lead_to_suffix.items():
+        for lead_name in lead_names:
             # File naming format: number.suffix (e.g., 1.i, 1.v1)
-            annotation_path = os.path.join(recording_base_path, f"{recording_number}.{suffix}")
+            annotation_path = os.path.join(
+                recording_base_path, f"{recording_number}.{lead_name.upper()}"
+            )
             
             if os.path.exists(annotation_path):
                 annotations[lead_name] = (
@@ -677,7 +688,8 @@ class LUDBDataset(BaseDataset):
                     if current_p["offset"] is None:
                         current_p["offset"] = int(sample)
                         # Complete P wave
-                        if current_p["onset"] is not None and current_p["peak"] is not None:
+                        if (current_p["onset"] is not None and
+                                current_p["peak"] is not None):
                             p_waves.append({
                                 "onset": current_p["onset"],
                                 "peak": current_p["peak"],
@@ -695,7 +707,8 @@ class LUDBDataset(BaseDataset):
                     if current_qrs["offset"] is None:
                         current_qrs["offset"] = int(sample)
                         # Complete QRS complex
-                        if current_qrs["onset"] is not None and current_qrs["peak"] is not None:
+                        if (current_qrs["onset"] is not None and
+                                current_qrs["peak"] is not None):
                             qrs_complexes.append({
                                 "onset": current_qrs["onset"],
                                 "peak": current_qrs["peak"],
@@ -713,7 +726,8 @@ class LUDBDataset(BaseDataset):
                     if current_t["offset"] is None:
                         current_t["offset"] = int(sample)
                         # Complete T wave
-                        if current_t["onset"] is not None and current_t["peak"] is not None:
+                        if (current_t["onset"] is not None and
+                                current_t["peak"] is not None):
                             t_waves.append({
                                 "onset": current_t["onset"],
                                 "peak": current_t["peak"],
@@ -750,7 +764,8 @@ class LUDBDataset(BaseDataset):
                 format. Data is in physical units (mV) as converted by 
                 wfdb.rdsamp().
         """
-        # Extract record name from path (wfdb.rdsamp expects path without .dat extension)
+        # Extract record name from path (wfdb.rdsamp expects path without
+        # .dat extension)
         directory, filename = LUDBDataset._split_path(dat_path)
         record_name = os.path.join(directory, os.path.splitext(filename)[0])
         

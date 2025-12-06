@@ -2,12 +2,8 @@ import unittest
 import tempfile
 import shutil
 import numpy as np
+import wfdb
 from pathlib import Path
-
-try:
-    import wfdb
-except ImportError:
-    wfdb = None
 
 from pyhealth.datasets import LUDBDataset
 
@@ -19,9 +15,6 @@ class TestLUDBDataset(unittest.TestCase):
         """Set up mock WFDB files in temporary directory."""
         self.temp_dir = tempfile.mkdtemp()
         self.root = Path(self.temp_dir)
-        
-        if wfdb is None:
-            self.skipTest("wfdb library not available")
         
         self.num_recordings = 3
         self._create_mock_files()
@@ -78,7 +71,7 @@ class TestLUDBDataset(unittest.TestCase):
 
     def test_metadata_file_created(self):
         """Test ludb-pyhealth.csv created."""
-        dataset = LUDBDataset(root=str(self.root), dev=True)
+        _ = LUDBDataset(root=str(self.root), dev=True)
         metadata_file = self.root / "ludb-pyhealth.csv"
         self.assertTrue(metadata_file.exists())
 
