@@ -9,7 +9,7 @@ from .base_dataset import BaseDataset
 logger = logging.getLogger(__name__)
 
 class ISICBiasDataset(BaseDataset):
-    """Dataset for ISIC bias with artifcat annotations for ISIC 2018 - Task1/2
+    """Dataset for ISIC bias with artifact annotations for ISIC 2018 - Task1/2
 
     Dataset is available at: https://www.kaggle.com/datasets/tschandl/isic2018-challenge-task1-data-segmentation
 
