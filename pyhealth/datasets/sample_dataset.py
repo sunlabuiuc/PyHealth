@@ -150,6 +150,8 @@ class SampleBuilder:
         if not self._fitted:
             raise RuntimeError("SampleBuilder.fit must be called before save().")
         metadata = {
+            "input_schema": self.input_schema,
+            "output_schema": self.output_schema,
             "input_processors": self._input_processors,
             "output_processors": self._output_processors,
             "patient_to_index": self._patient_to_index,
@@ -175,10 +177,6 @@ class SampleDataset(StreamingDataset):
     def __init__(
         self,
         path: str,
-        input_schema: Dict[str, Any],
-        output_schema: Dict[str, Any],
-        input_processors: Optional[Dict[str, FeatureProcessor]] = None,
-        output_processors: Optional[Dict[str, FeatureProcessor]] = None,
         dataset_name: Optional[str] = None,
         task_name: Optional[str] = None,
         **kwargs,
@@ -205,21 +203,20 @@ class SampleDataset(StreamingDataset):
                 Defaults to None.
         """
         super().__init__(path, **kwargs)
-        if dataset_name is None:
-            dataset_name = ""
-        if task_name is None:
-            task_name = ""
 
         self.dataset_name = "" if dataset_name is None else dataset_name
         self.task_name = "" if task_name is None else task_name
 
-        self.input_schema = input_schema
-        self.output_schema = output_schema
-        self.input_processors = input_processors
-        self.output_processors = output_processors
+        with open(f"{path}/schema.pkl", "rb") as f:
+            metadata = pickle.load(f)
 
-        self.patient_to_index = {}
-        self.record_to_index = {}
+        self.input_schema = metadata["input_schema"]
+        self.output_schema = metadata["output_schema"]
+        self.input_processors = metadata["input_processors"]
+        self.output_processors = metadata["output_processors"]
+
+        self.patient_to_index = metadata["patient_to_index"]
+        self.record_to_index = metadata["record_to_index"]
 
     @override
     def __str__(self) -> str:

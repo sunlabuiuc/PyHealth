@@ -559,6 +559,7 @@ class BaseDataset(ABC):
                     output_processors=output_processors,
                 )
                 builder.fit(dataset)
+                builder.save(str(path / "schema.pkl"))
 
                 # Apply processors and save final samples to cache_dir
                 logger.info(f"Processing samples and saving to {path}...")
@@ -576,15 +577,8 @@ class BaseDataset(ABC):
                 )
                 logger.info(f"Cached processed samples to {path}")
 
-        # sample_dataset = SampleDataset(
-        #     samples,
-        #     input_schema=task.input_schema,
-        #     output_schema=task.output_schema,
-        #     dataset_name=self.dataset_name,
-        #     task_name=task,
-        #     input_processors=input_processors,
-        #     output_processors=output_processors,
-        # )
-
-        # logger.info(f"Generated {len(samples)} samples for task {task.task_name}")
-        # return sample_dataset
+        return SampleDataset(
+            path=str(path),
+            dataset_name=self.dataset_name,
+            task_name=task.task_name,
+        )
