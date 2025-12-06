@@ -1,0 +1,22 @@
+version: "1.0"
+tables:
+  ludb_ecg:
+    file_path: "ludb-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "recording_number"
+      - "signal_file"
+      - "label_file"
+      - "sex"
+      - "age"
+      - "rhythm"
+      - "electric_axis"
+      - "conduction_abnormalities"
+      - "extrasystolies"
+      - "hypertrophies"
+      - "cardiac_pacing"
+      - "ischemia"
+      - "non_specific_repolarization"
+      - "other_states"
+
