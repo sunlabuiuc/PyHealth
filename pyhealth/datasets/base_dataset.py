@@ -107,8 +107,8 @@ def scan_csv_gz_or_csv_tsv(path: str) -> pl.LazyFrame:
     raise FileNotFoundError(f"Neither path exists: {path} or {alt_path}")
 
 
-def _identity_fn(x):
-    return x
+def _uncollate(x: list[Any]) -> Any:
+    return x[0] if isinstance(x, list) and len(x) == 1 else x
 
 
 class _ParquetWriter:
@@ -568,11 +568,14 @@ class BaseDataset(ABC):
                 dataset = litdata.StreamingDataset(
                     tmp_dir,
                     item_loader=ParquetLoader(),
-                    transform=builder.transform,
                 )
                 litdata.optimize(
-                    fn=_identity_fn,
-                    inputs=litdata.StreamingDataLoader(dataset),
+                    fn=builder.transform,
+                    inputs=litdata.StreamingDataLoader(
+                        dataset,
+                        batch_size=1,
+                        collate_fn=_uncollate,
+                    ),
                     output_dir=str(path),
                     chunk_bytes="64MB",
                     num_workers=num_workers,
