@@ -56,6 +56,7 @@ from .dreamt import DREAMTDataset
 from .ehrshot import EHRShotDataset
 from .eicu import eICUDataset
 from .isruc import ISRUCDataset
+from .ludb import LUDBDataset
 from .medical_transcriptions import MedicalTranscriptionsDataset
 from .mimic3 import MIMIC3Dataset
 from .mimic4 import MIMIC4CXRDataset, MIMIC4Dataset, MIMIC4EHRDataset, MIMIC4NoteDataset
