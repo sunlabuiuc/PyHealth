@@ -91,6 +91,7 @@ def normalize_csv_delimiters(root_path: Path):
                 # Read with semicolon delimiter
                 df = pd.read_csv(csv_file, sep=";")
 
+
                 # Rewrite as comma CSV
                 df.to_csv(csv_file, index=False)
         except Exception as e:

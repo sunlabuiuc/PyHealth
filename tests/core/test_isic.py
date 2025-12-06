@@ -95,6 +95,3 @@ class TestISICBiasDataset(unittest.TestCase):
             self.assertEqual(events[0].__getitem__("label"), "0")
             self.assertEqual(events[0].__getitem__("label_string"), "malignant")
 
-
-
-
