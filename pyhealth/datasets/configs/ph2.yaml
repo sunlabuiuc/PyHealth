@@ -1,0 +1,17 @@
+version: "1.0"
+dataset_name: ph2
+
+tables:
+  ph2_data:
+    file_path: ph2_metadata_pyhealth.csv
+    type: csv
+    patient_id: image_id
+    visit_id: image_id
+    timestamp: null
+    timestamp_format: null
+    attributes:
+      - path
+      - diagnosis
+      - common_nevus
+      - atypical_nevus
+      - melanoma
