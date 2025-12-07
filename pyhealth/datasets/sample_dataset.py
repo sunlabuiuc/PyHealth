@@ -14,7 +14,24 @@ from ..processors.base_processor import FeatureProcessor
 
 
 class SampleBuilder:
-    """Utility to fit processors and transform samples without materializing a Dataset."""
+    """Fit feature processors and transform pickled samples without materializing a dataset.
+
+    SampleBuilder is a lightweight helper used to:
+        - Fit feature processors from provided `input_schema` and `output_schema` on an
+            iterable of raw Python sample dictionaries.
+        - Build mappings from patient IDs and record IDs to sample indices.
+        - Transform pickled sample records into processed feature dictionaries using
+            the fitted processors.
+
+    Typical usage:
+        builder = SampleBuilder(input_schema, output_schema)
+        builder.fit(samples)
+        builder.save(path)  # writes a schema.pkl metadata file
+
+    After saving the schema, `litdata.optimize` can be used with `builder.transform`
+    to serialize and chunk pickled sample items into a directory that can be
+    loaded via SampleDataset.
+    """
 
     def __init__(
         self,
@@ -96,7 +113,24 @@ class SampleBuilder:
         self,
         samples: Iterable[Dict[str, Any]],
     ) -> None:
-        """Fit processors and build index mappings from an iterator of samples."""
+        """Fit processors and build mapping indices from an iterator of samples.
+
+        Args:
+            samples: Iterable of sample dictionaries (e.g., python dicts). Each
+                sample should contain keys covering both the configured
+                `input_schema` and `output_schema`. These samples are not
+                required to be pickled; `fit` operates on in-memory dicts.
+
+        Behavior:
+            - Validates the samples contain all keys specified by the input
+              and output schemas.
+            - Builds `patient_to_index` and `record_to_index` mappings by
+              recording the sample indices associated with `patient_id` and
+              `record_id`/`visit_id` fields.
+            - Instantiates and fits input/output processors from the provided
+              schemas (unless pre-fitted processors were supplied to the
+              constructor).
+        """
         # Validate the samples
         input_keys = set(self.input_schema.keys())
         output_keys = set(self.output_schema.keys())
@@ -134,7 +168,21 @@ class SampleBuilder:
         self._fitted = True
 
     def transform(self, sample: dict[str, bytes]) -> Dict[str, Any]:
-        """Transform a pickled sample using the fitted processors."""
+        """Transform a single serialized (pickled) sample using fitted processors.
+
+        Args:
+            sample: A mapping with a single key `"sample"` whose value is a
+                pickled Python dictionary (produced by `pickle.dumps`). The
+                pickled dictionary should mirror the schema that was used to
+                fit this builder.
+
+        Returns:
+            A Python dictionary where each key is either an input or output
+            feature name. Values for keys present in the corresponding fitted
+            processors have been processed through their FeatureProcessor and
+            are returned as the output of that processor. Keys not covered by
+            the input/output processors are returned unchanged.
+        """
         if not self._fitted:
             raise RuntimeError("SampleBuilder.fit must be called before transform().")
 
@@ -149,7 +197,15 @@ class SampleBuilder:
         return transformed
 
     def save(self, path: str) -> None:
-        """Saves the fitted metadata to the specified path."""
+        """Save fitted metadata to the given path as a pickled file.
+
+        Args:
+            path: Location where the builder will write a pickled metadata file
+                (commonly named `schema.pkl`). The saved metadata contains
+                the fitted input/output schemas, processors, and index
+                mappings. This file is read by `SampleDataset` during
+                construction.
+        """
         if not self._fitted:
             raise RuntimeError("SampleBuilder.fit must be called before save().")
         metadata = {
@@ -165,16 +221,28 @@ class SampleBuilder:
 
 
 class SampleDataset(litdata.StreamingDataset):
-    """Sample dataset class for handling and processing data samples.
+    """A streaming dataset that loads sample metadata and processors from disk.
+
+    SampleDataset expects the `path` directory to contain a `schema.pkl`
+    file created by a `SampleBuilder.save(...)` call. The `schema.pkl` must
+    include the fitted `input_schema`, `output_schema`, `input_processors`,
+    `output_processors`, `patient_to_index` and `record_to_index` mappings.
 
     Attributes:
-        samples (List[Dict]): List of data samples.
-        input_schema (Dict[str, Union[str, Type[FeatureProcessor], FeatureProcessor, Tuple[Union[str, Type[FeatureProcessor]], Dict[str, Any]]]]):
-            Schema for input data. Values can be string aliases, processor classes, processor instances, or tuples of (spec, kwargs_dict).
-        output_schema (Dict[str, Union[str, Type[FeatureProcessor], FeatureProcessor, Tuple[Union[str, Type[FeatureProcessor]], Dict[str, Any]]]]):
-            Schema for output data. Values can be string aliases, processor classes, processor instances, or tuples of (spec, kwargs_dict).
-        dataset_name (Optional[str]): Name of the dataset.
-        task_name (Optional[str]): Name of the task.
+        input_schema: The configuration used to instantiate processors for
+            input features (string aliases or processor specs).
+        output_schema: The configuration used to instantiate processors for
+            output features.
+        input_processors: A mapping of input feature names to fitted
+            FeatureProcessor instances.
+        output_processors: A mapping of output feature names to fitted
+            FeatureProcessor instances.
+        patient_to_index: Dictionary mapping patient IDs to the list of
+            sample indices associated with that patient.
+        record_to_index: Dictionary mapping record/visit IDs to the list of
+            sample indices associated with that record.
+        dataset_name: Optional human friendly dataset name.
+        task_name: Optional human friendly task name.
     """
 
     def __init__(
@@ -184,26 +252,15 @@ class SampleDataset(litdata.StreamingDataset):
         task_name: Optional[str] = None,
         **kwargs,
     ) -> None:
-        """Initializes the SampleDataset with samples and schemas.
+        """Initialize a SampleDataset pointing at a directory created by SampleBuilder.
 
         Args:
-            samples (List[Dict]): List of data samples.
-            input_schema (Dict[str, Union[str, Type[FeatureProcessor], FeatureProcessor, Tuple[Union[str, Type[FeatureProcessor]], Dict[str, Any]]]]):
-                Schema for input data. Values can be string aliases, processor classes, processor instances, or tuples of (spec, kwargs_dict) for instantiation.
-            output_schema (Dict[str, Union[str, Type[FeatureProcessor], FeatureProcessor, Tuple[Union[str, Type[FeatureProcessor]], Dict[str, Any]]]]):
-                Schema for output data. Values can be string aliases, processor classes, processor instances, or tuples of (spec, kwargs_dict) for instantiation.
-            dataset_name (Optional[str], optional): Name of the dataset.
-                Defaults to None.
-            task_name (Optional[str], optional): Name of the task.
-                Defaults to None.
-            input_processors (Optional[Dict[str, FeatureProcessor]],
-                optional): Pre-fitted input processors. If provided, these
-                will be used instead of creating new ones from input_schema.
-                Defaults to None.
-            output_processors (Optional[Dict[str, FeatureProcessor]],
-                optional): Pre-fitted output processors. If provided, these
-                will be used instead of creating new ones from output_schema.
-                Defaults to None.
+            path: Path to a directory containing a `schema.pkl` produced by
+                `SampleBuilder.save` and associated pickled sample files.
+            dataset_name: Optional human-friendly dataset name.
+            task_name: Optional human-friendly task name.
+            **kwargs: Extra keyword arguments forwarded to
+                `litdata.StreamingDataset` (such as streaming options).
         """
         super().__init__(path, **kwargs)
 
@@ -304,6 +361,33 @@ def create_sample_dataset(
     input_processors: Optional[Dict[str, FeatureProcessor]] = None,
     output_processors: Optional[Dict[str, FeatureProcessor]] = None,
 ):
+    """Convenience helper to create an on-disk SampleDataset from in-memory samples.
+
+    This helper will:
+      - Create a temporary directory for the dataset output.
+      - Fit a `SampleBuilder` with the provided schemas and samples.
+      - Save the fitted `schema.pkl` to the temporary directory.
+      - Use `litdata.optimize` with `builder.transform` to write serialized
+        and chunked sample files into the directory.
+      - Return a `SampleDataset` instance pointed at the temporary directory.
+
+    Args:
+        samples: A list of Python dictionaries representing raw samples.
+        input_schema: Schema describing how input keys should be handled.
+        output_schema: Schema describing how output keys should be handled.
+        dataset_name: Optional dataset name to attach to the returned
+            SampleDataset instance.
+        task_name: Optional task name to attach to the returned SampleDataset
+            instance.
+        input_processors: Optional pre-fitted input processors to use instead
+            of creating new ones from the input_schema.
+        output_processors: Optional pre-fitted output processors to use
+            instead of creating new ones from the output_schema.
+
+    Returns:
+        An instance of `SampleDataset` loaded from the temporary directory
+        containing the optimized, chunked samples and `schema.pkl` metadata.
+    """
     path = Path(tempfile.mkdtemp())
 
     builder = SampleBuilder(
