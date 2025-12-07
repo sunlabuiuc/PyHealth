@@ -1,4 +1,12 @@
-from typing import Any, Dict, List, override
+from typing import Any, Dict, List
+try:
+    from typing import override  # py3.12+
+except ImportError:  # pragma: no cover - fallback for older Python
+    try:
+        from typing_extensions import override
+    except ImportError:
+        def override(func):  # type: ignore
+            return func
 
 import torch
 
