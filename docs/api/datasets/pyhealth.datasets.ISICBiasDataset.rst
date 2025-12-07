@@ -17,7 +17,7 @@ If you use this data, please refer to:
     Collaboration (ISIC)”, 2018; https://arxiv.org/abs/1902.03368
 
 Artifact annotations reference:
-[2] Alceu Bissoto, Eduardo Valle, "Sandra Avila Debiasing Skin Lesion Datasets and Models? Not So Fast", 2020;
+[2] Alceu Bissoto, Eduardo Valle, Sandra Avila "Debiasing Skin Lesion Datasets and Models? Not So Fast", 2020;
     https://doi.org/10.48550/arXiv.2004.11457
 
 .. autoclass:: pyhealth.datasets.ISICBiasDataset
