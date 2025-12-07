@@ -1,4 +1,7 @@
 """
+Names: Desi Nainar, Sayed Sarwary, Kelong Wu
+Net IDs: ds34, sarwary2, kwu18
+
 Dataset: UCI Heart Disease (Cleveland)
 Link: https://archive.ics.uci.edu/dataset/45/heart+disease
 

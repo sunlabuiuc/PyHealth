@@ -1,3 +1,9 @@
+"""
+Names: Desi Nainar, Sayed Sarwary, Kelong Wu
+Net IDs: ds34, sarwary2, kwu18
+
+"""
+
 from typing import Any, Dict, List
 import polars as pl
 
