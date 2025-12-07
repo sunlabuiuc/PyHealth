@@ -217,11 +217,27 @@ class DREAMTSleepWakeDataset(BaseDataset):
         info_dir = self.root / "dataset_sample/participant_info.csv"
         quality_df_dir = self.root / "results/quality_scores_per_subject.csv"
 
+        info_df = pd.read_csv(info_dir, index_col="SID")
+
+        # Rename columns to lowercase
+        info_df = info_df.rename(columns={"AGE": "age", "GENDER": "gender"})
+
         self.clean_df, self.new_features, self.good_quality_sids = self.data_preparation(
             threshold=self.threshold,
             quality_df_dir=str(quality_df_dir),
             features_dir=str(features_dir),
             info_dir=str(info_dir)
+        )
+
+        if 'sid' in self.clean_df.columns:
+            self.clean_df = self.clean_df.rename(columns={'sid': 'patient_id'})
+        if 'SID' in self.clean_df.columns:
+            self.clean_df = self.clean_df.rename(columns={'sid': 'patient_id'})
+        self.clean_df = self.clean_df.merge(
+            info_df[['age', 'gender']],
+            left_on='patient_id',
+            right_index=True,
+            how='left'
         )
 
         self.create_metadata_files()
@@ -238,6 +254,7 @@ class DREAMTSleepWakeDataset(BaseDataset):
             f"{len(self.new_features)} features, "
             f"{len(self.good_quality_sids)} good quality subjects."
         )
+
     def create_metadata_files(self):
         """Create CSV metadata files for full dataframe, feature-only dataframe, and subject IDs.
 
@@ -255,19 +272,16 @@ class DREAMTSleepWakeDataset(BaseDataset):
             self.clean_df = self.clean_df.rename(columns={"sid": "patient_id"})
         clean_df_file = self.root / "dreamt-metadata.csv"
         self.clean_df.to_csv(clean_df_file, index=False)
-        print(f"Saved full cleaned dataframe metadata to {clean_df_file}")
 
         # 2️⃣ Only feature columns + patient_id
         features_df = self.clean_df[self.new_features + ["patient_id"]]
         features_file = self.root / "features_metadata.csv"
         features_df.to_csv(features_file, index=False)
-        print(f"Saved features metadata to {features_file}")
 
         # 3️⃣ Only subject IDs (patient_id)
         subjects_df = pd.DataFrame({"patient_id": self.good_quality_sids})
         subjects_file = self.root / "subjects_metadata.csv"
         subjects_df.to_csv(subjects_file, index=False)
-        print(f"Saved subjects metadata to {subjects_file}")
 
     def build_samples(self) -> List[Dict[str, Any]]:
         """Convert clean_df to PyHealth samples.
@@ -297,6 +311,7 @@ class DREAMTSleepWakeDataset(BaseDataset):
             )
 
         return samples
+    
 
     def data_preparation(self, threshold, quality_df_dir, features_dir, info_dir):
         """
@@ -512,7 +527,7 @@ class DREAMTSleepWakeDataset(BaseDataset):
         df = df.loc[:, cleaned_feature_names + label_names + ["sid"]]
         # drop columns with nan
         df = df.dropna(how="any", axis=0)
-        # add BMI information
+
         df = pd.merge(df, info_df.loc[:, ["BMI"]], left_on="sid", right_index=True)
 
         map_stage_to_num = {"P": 1, "N": 0, "R": 0, "W": 1, "Missing": np.nan}
