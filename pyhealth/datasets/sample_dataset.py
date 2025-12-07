@@ -287,7 +287,7 @@ class SampleDataset(litdata.StreamingDataset):
         """
         return f"Sample dataset {self.dataset_name} {self.task_name}"
 
-    def subset(self, indices: Sequence[int]) -> "SampleDataset":
+    def subset(self, indices: Union[Sequence[int], slice]) -> "SampleDataset":
         """Create a StreamingDataset restricted to the provided indices."""
 
         new_dataset = deepcopy_dataset(self)
@@ -300,6 +300,10 @@ class SampleDataset(litdata.StreamingDataset):
         dataset_length = sum(
             end - start for start, end in new_dataset.region_of_interest
         )
+
+        if isinstance(indices, slice):
+            indices = range(*indices.indices(dataset_length))
+
         if any(idx < 0 or idx >= dataset_length for idx in indices):
             raise ValueError(
                 f"Subset indices must be in [0, {dataset_length - 1}] for the provided dataset."
@@ -444,9 +448,14 @@ class InMemorySampleDataset(SampleDataset):
         return iter(self._data)
 
     @override
-    def subset(self, indices: Sequence[int]) -> SampleDataset:
+    def subset(self, indices: Union[Sequence[int], slice]) -> SampleDataset:
+        if isinstance(indices, slice):
+            samples = self._data[indices]
+        else:
+            samples = [self._data[i] for i in indices]
+
         return InMemorySampleDataset(
-            samples=[self._data[i] for i in indices],
+            samples=samples,
             input_schema=self.input_schema,
             output_schema=self.output_schema,
             dataset_name=self.dataset_name,
@@ -464,6 +473,7 @@ def create_sample_dataset(
     task_name: Optional[str] = None,
     input_processors: Optional[Dict[str, FeatureProcessor]] = None,
     output_processors: Optional[Dict[str, FeatureProcessor]] = None,
+    in_memory: bool = True,
 ):
     """Convenience helper to create an on-disk SampleDataset from in-memory samples.
 
@@ -487,31 +497,44 @@ def create_sample_dataset(
             of creating new ones from the input_schema.
         output_processors: Optional pre-fitted output processors to use
             instead of creating new ones from the output_schema.
+        in_memory: If True, returns an InMemorySampleDataset instead of
+            a disk-backed SampleDataset.
 
     Returns:
         An instance of `SampleDataset` loaded from the temporary directory
         containing the optimized, chunked samples and `schema.pkl` metadata.
     """
-    path = Path(tempfile.mkdtemp())
+    if in_memory:
+        return InMemorySampleDataset(
+            samples=samples,
+            input_schema=input_schema,
+            output_schema=output_schema,
+            dataset_name=dataset_name,
+            task_name=task_name,
+            input_processors=input_processors,
+            output_processors=output_processors,
+        )
+    else:
+        path = Path(tempfile.mkdtemp())
 
-    builder = SampleBuilder(
-        input_schema=input_schema,  # type: ignore
-        output_schema=output_schema,  # type: ignore
-        input_processors=input_processors,
-        output_processors=output_processors,
-    )
-    builder.fit(samples)
-    builder.save(str(path / "schema.pkl"))
-    litdata.optimize(
-        fn=builder.transform,
-        inputs=[{"sample": pickle.dumps(x)} for x in samples],
-        output_dir=str(path),
-        chunk_bytes="64MB",
-        num_workers=0,
-    )
+        builder = SampleBuilder(
+            input_schema=input_schema,  # type: ignore
+            output_schema=output_schema,  # type: ignore
+            input_processors=input_processors,
+            output_processors=output_processors,
+        )
+        builder.fit(samples)
+        builder.save(str(path / "schema.pkl"))
+        litdata.optimize(
+            fn=builder.transform,
+            inputs=[{"sample": pickle.dumps(x)} for x in samples],
+            output_dir=str(path),
+            chunk_bytes="64MB",
+            num_workers=0,
+        )
 
-    return SampleDataset(
-        path=str(path),
-        dataset_name=dataset_name,
-        task_name=task_name,
-    )
+        return SampleDataset(
+            path=str(path),
+            dataset_name=dataset_name,
+            task_name=task_name,
+        )
