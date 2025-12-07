@@ -82,7 +82,7 @@ trainer = Trainer(
 trainer.train(
     train_dataloader=train_loader,
     val_dataloader=val_loader,
-    epochs=50,
+    epochs=5,
     monitor="roc_auc",
     optimizer_params={"lr": 1e-5},
 )
