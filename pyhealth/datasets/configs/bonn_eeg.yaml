@@ -1,0 +1,11 @@
+version: "1.0"
+tables:
+  index:
+    file_path: "index.csv"
+    type: "demographics"
+    patient_id: null
+    timestamp: null
+    attributes:
+      - filepath
+      - label_class
+      - label_desc
