@@ -50,7 +50,7 @@ from .base_dataset import BaseDataset
 from .cardiology import CardiologyDataset
 from .chestxray14 import ChestXray14Dataset
 from .covid19_cxr import COVID19CXRDataset
-from .dreamt import DREAMTDataset
+from .dreamt import DREAMTDataset, DREAMTSleepWakeDataset
 from .ehrshot import EHRShotDataset
 from .eicu import eICUDataset
 from .isruc import ISRUCDataset

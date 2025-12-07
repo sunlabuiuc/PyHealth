@@ -6,7 +6,7 @@ import pandas as pd
 from pathlib import Path
 
 from pyhealth.datasets import DREAMTDataset
-
+from pyhealth.datasets import DREAMTSleepWakeDataset
 class TestDREAMTDatasetNewerVersions(unittest.TestCase):
     """Test DREAMT dataset containing 64Hz and 100Hz folders with local test data."""
     
@@ -96,6 +96,133 @@ class TestDREAMTDatasetNewerVersions(unittest.TestCase):
         dataset = DREAMTDataset(root=str(self.root))
         with self.assertRaises(AssertionError):
             dataset.get_patient('S222')
+    
+class TestDREAMTSleepWakeDataset(unittest.TestCase):
+    """Test DREAMTSleepWakeDataset with minimal realistic sample data."""
+
+    def setUp(self):
+        """Set up temporary dataset_sample folder with participant info, features, and results."""
+        self.temp_dir = tempfile.mkdtemp()
+        self.root = Path(self.temp_dir)
+
+        # Create dataset_sample folder
+        self.dataset_sample_dir = self.root / "dataset_sample"
+        self.dataset_sample_dir.mkdir()
+
+        # Create features_df folder inside dataset_sample
+        self.features_dir = self.dataset_sample_dir / "features_df"
+        self.features_dir.mkdir()
+
+        # Create results folder 
+        self.results_dir = self.root / "results"
+        self.results_dir.mkdir()
+
+        # Number of patients for the test
+        self.num_patients = 2  # can be 2 for simplicity
+
+        # Create participant_info.csv inside dataset_sample
+        patient_data = {
+            'SID': [f"S{i:03d}" for i in range(1, self.num_patients + 1)],
+            'AGE': [30, 40],
+            'GENDER': ['M', 'F'],
+            'BMI': [25, 28],
+            'OAHI': [5, 10],
+            'AHI': [6, 12], 
+            'Mean_SaO2': [95, 97],
+            'Arousal Index': [15, 20],
+            'MEDICAL_HISTORY': ['None', 'None'],
+        }
+
+        patient_data_df = pd.DataFrame(patient_data)
+        patient_data_df.to_csv(self.dataset_sample_dir / "participant_info.csv", index=False)
+
+        # Create example feature files for each patient in features_df
+        feature_columns = [
+            'PPG_Rate_Mean','HRV_MeanNN','HRV_SDNN','HRV_RMSSD','HRV_SDSD','HRV_CVNN','HRV_CVSD','HRV_MedianNN',
+            'HRV_MadNN','HRV_MCVNN','HRV_IQRNN','HRV_SDRMSSD','HRV_Prc20NN','HRV_Prc80NN','HRV_pNN50','HRV_pNN20',
+            'HRV_MinNN','HRV_MaxNN','HRV_HTI','HRV_TINN','HRV_LF','HRV_HF','HRV_VHF','HRV_TP','HRV_LFHF','HRV_LFn',
+            'HRV_HFn','HRV_LnHF','HRV_SD1','HRV_SD2','HRV_SD1SD2','HRV_S','HRV_CSI','HRV_CVI','HRV_CSI_Modified',
+            'HRV_PIP','HRV_IALS','HRV_PSS','HRV_PAS','HRV_GI','HRV_SI','HRV_AI','HRV_PI','HRV_C1d','HRV_C1a','HRV_SD1d',
+            'HRV_SD1a','HRV_C2d','HRV_C2a','HRV_SD2d','HRV_SD2a','HRV_Cd','HRV_Ca','HRV_SDNNd','HRV_SDNNa','HRV_DFA_alpha1',
+            'HRV_MFDFA_alpha1_Width','HRV_MFDFA_alpha1_Peak','HRV_MFDFA_alpha1_Mean','HRV_MFDFA_alpha1_Max',
+            'HRV_MFDFA_alpha1_Delta','HRV_MFDFA_alpha1_Asymmetry','HRV_MFDFA_alpha1_Fluctuation','HRV_MFDFA_alpha1_Increment',
+            'HRV_ApEn','HRV_SampEn','HRV_ShanEn','HRV_FuzzyEn','HRV_MSEn','HRV_CMSEn','HRV_RCMSEn','HRV_CD','HRV_HFD',
+            'HRV_KFD','HRV_LZC','total_power','normalized_power','LF_frequency_power','HF_frequency_power','LF_frequency_peak',
+            'HF_frequency_peak','LF_normalized_power','HF_normalized_power','breathing_rate','HR_mean','HR_median','HR_max',
+            'HR_min','HR_range','HR_std','BVP_mean','BVP_median','BVP_max','BVP_min','BVP_range','BVP_std',
+            'ACC_X_trimmed_mean','ACC_X_trimmed_max','ACC_X_trimmed_IQR','ACC_Y_trimmed_mean','ACC_Y_trimmed_max',
+            'ACC_Y_trimmed_IQR','ACC_Z_trimmed_mean','ACC_Z_trimmed_max','ACC_Z_trimmed_IQR','ACC_X_MAD_trimmed_mean',
+            'ACC_X_MAD_trimmed_max','ACC_X_MAD_trimmed_IQR','ACC_Y_MAD_trimmed_mean','ACC_Y_MAD_trimmed_max',
+            'ACC_Y_MAD_trimmed_IQR','ACC_Z_MAD_trimmed_mean','ACC_Z_MAD_trimmed_max','ACC_Z_MAD_trimmed_IQR','ACC_INDEX',
+            'TEMP_mean','TEMP_median','TEMP_max','TEMP_min','TEMP_std','mean_SCR_Height','max_SCR_Height','mean_SCR_Amplitude',
+            'max_SCR_Amplitude','mean_SCR_RiseTime','max_SCR_RiseTime','mean_SCR_RecoveryTime','max_SCR_RecoveryTime',
+            'timestamp_start','circadian_cosine','circadian_decay','circadian_linear','Sleep_Stage','Obstructive_Apnea',
+            'Central_Apnea','Hypopnea','Multiple_Events','artifact','sid'
+        ]
+        num_rows_per_patient = 5  # <-- at least 2 for gradient computation
+
+        for sid in patient_data['SID']:
+            num_rows = 5  # multiple rows per patient
+            df = pd.DataFrame(np.random.rand(num_rows, len(feature_columns)), columns=feature_columns)
+            #df['patient_id'] = sid
+            df['Sleep_Stage'] = np.random.choice(['W','N1','N2','N3','R'], size=num_rows)
+            #df['age'] = np.random.randint(20, 60, size=num_rows)
+            #df['sex'] = np.random.choice(['M', 'F'], size=num_rows)
+            df.to_csv(self.features_dir / f"{sid}_domain_features_df.csv", index=False)
+
+        # Create example quality_scores_per_subject.csv in results folder
+        quality_data = {
+            'sid': [f"S{i:03d}" for i in range(1, self.num_patients + 1)],
+            'total_segments': [1000, 1000],
+            'num_excludes': [100, 50],
+            'percentage_excludes': [0.1, 0.05],
+        }
+        quality_df = pd.DataFrame(quality_data)
+        quality_df['sid'] = quality_df['sid'].astype(str)  # now works
+        pd.DataFrame(quality_data).to_csv(self.results_dir / "quality_scores_per_subject.csv", index=False)
+    
+    def tearDown(self):
+        """Remove temporary folder after test"""
+        shutil.rmtree(self.temp_dir)
+
+    def test_dataset_initialization(self):
+        """Test that the dataset initializes correctly and sets key attributes."""
+        dataset = DREAMTSleepWakeDataset(root=str(self.root))
+        self.assertIsNotNone(dataset)
+        self.assertTrue(hasattr(dataset, 'clean_df'))
+        self.assertTrue(hasattr(dataset, 'new_features'))
+        self.assertTrue(hasattr(dataset, 'good_quality_sids'))
+
+    def test_clean_df_metadata_created(self):
+        """Test that the clean dataframe metadata file is created."""
+        dataset = DREAMTSleepWakeDataset(root=str(self.root))
+        clean_df_file = self.root / "dreamt-metadata.csv"
+        self.assertTrue(clean_df_file.exists())
+
+    def test_patient_count(self):
+        """Test that all patients are included in good_quality_sids."""
+        dataset = DREAMTSleepWakeDataset(root=str(self.root))
+        self.assertEqual(len(dataset.good_quality_sids), 2)
+
+    def test_stats_method(self):
+        """Test that stats method runs without error."""
+        dataset = DREAMTSleepWakeDataset(root=str(self.root))
+        dataset.stats()
+
+    def test_get_patient_method(self):
+        """Test that get_patient returns a valid patient object."""
+        dataset = DREAMTSleepWakeDataset(root=str(self.root))
+        patient_id = dataset.good_quality_sids[0]
+        patient = dataset.get_patient(patient_id)
+        self.assertEqual(patient.patient_id, patient_id)
+
+    def test_get_patient_not_found(self):
+        """Test that get_patient raises an error for unknown patient."""
+        dataset = DREAMTSleepWakeDataset(root=str(self.root))
+        with self.assertRaises(AssertionError):
+            dataset.get_patient("S999")
 
 if __name__ == "__main__":
-    unittest.main()
+    #unittest.main()
+    # running only the new dataset, please change this when merging
+    unittest.TextTestRunner().run(unittest.TestLoader().loadTestsFromTestCase(TestDREAMTSleepWakeDataset))
