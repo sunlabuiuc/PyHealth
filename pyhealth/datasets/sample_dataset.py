@@ -4,7 +4,7 @@ import pickle
 import tempfile
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union, Type, override
 import inspect
-
+import random
 from bisect import bisect_right
 import litdata
 from litdata.utilities.train_test_split import deepcopy_dataset
@@ -417,6 +417,12 @@ class InMemorySampleDataset(SampleDataset):
 
         self._data = [builder.transform({"sample": pickle.dumps(s)}) for s in samples]
 
+        self._shuffle = False
+
+    @override
+    def set_shuffle(self, shuffle: bool) -> None:
+        self._shuffle = shuffle
+
     @override
     def __len__(self) -> int:
         """Returns the number of samples in the dataset.
@@ -445,7 +451,12 @@ class InMemorySampleDataset(SampleDataset):
         Returns:
             An iterator yielding processed sample dictionaries.
         """
-        return iter(self._data)
+        if self._shuffle:
+            shuffled_data = self._data[:]
+            random.shuffle(shuffled_data)
+            return iter(shuffled_data)
+        else:
+            return iter(self._data)
 
     @override
     def subset(self, indices: Union[Sequence[int], slice]) -> SampleDataset:
