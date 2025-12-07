@@ -56,42 +56,48 @@ def path_exists(path: str) -> bool:
         return Path(path).exists()
 
 
-def scan_csv_gz_or_csv_tsv(path: str) -> pl.LazyFrame:
+def scan_table_file(path: str) -> pl.LazyFrame:
     """
-    Scan a CSV.gz, CSV, TSV.gz, or TSV file and returns a LazyFrame.
-    It will fall back to the other extension if not found.
+    Scan a CSV/TSV/JSON (and gzipped variants) file and return a LazyFrame.
 
     Args:
-        path (str): URL or local path to a .csv, .csv.gz, .tsv, or .tsv.gz file
+        path (str): URL or local path to a supported file.
 
     Returns:
-        pl.LazyFrame: The LazyFrame for the CSV.gz, CSV, TSV.gz, or TSV file.
+        pl.LazyFrame: The LazyFrame for the given file.
     """
 
     def scan_file(file_path: str) -> pl.LazyFrame:
-        separator = "\t" if ".tsv" in file_path else ","
+        lower = file_path.lower()
+        if lower.endswith((".json", ".jsonl", ".ndjson")):
+            return pl.scan_ndjson(file_path)
+        separator = "\t" if ".tsv" in lower else ","
         return pl.scan_csv(file_path, separator=separator, infer_schema=False)
 
     if path_exists(path):
         return scan_file(path)
 
-    # Try the alternative extension
-    if path.endswith(".csv.gz"):
-        alt_path = path[:-3]  # Remove .gz -> try .csv
-    elif path.endswith(".csv"):
-        alt_path = f"{path}.gz"  # Add .gz -> try .csv.gz
-    elif path.endswith(".tsv.gz"):
-        alt_path = path[:-3]  # Remove .gz -> try .tsv
-    elif path.endswith(".tsv"):
-        alt_path = f"{path}.gz"  # Add .gz -> try .tsv.gz
-    else:
-        raise FileNotFoundError(f"Path does not have expected extension: {path}")
+    lower = path.lower()
+    alt_path = None
 
-    if path_exists(alt_path):
+    if lower.endswith(".csv.gz"):
+        alt_path = path[:-3]
+    elif lower.endswith(".csv"):
+        alt_path = f"{path}.gz"
+    elif lower.endswith(".tsv.gz"):
+        alt_path = path[:-3]
+    elif lower.endswith(".tsv"):
+        alt_path = f"{path}.gz"
+    elif lower.endswith(".jsonl") and path_exists(f"{path}.gz"):
+        alt_path = f"{path}.gz"
+    elif lower.endswith(".json") and path_exists(f"{path}l"):
+        alt_path = f"{path}l"
+
+    if alt_path and path_exists(alt_path):
         logger.info(f"Original path does not exist. Using alternative: {alt_path}")
         return scan_file(alt_path)
 
-    raise FileNotFoundError(f"Neither path exists: {path} or {alt_path}")
+    raise FileNotFoundError(f"Unable to locate table file: {path}")
 
 
 class BaseDataset(ABC):
@@ -221,7 +227,7 @@ class BaseDataset(ABC):
         csv_path = clean_path(csv_path)
 
         logger.info(f"Scanning table: {table_name} from {csv_path}")
-        df = scan_csv_gz_or_csv_tsv(csv_path)
+        df = scan_table_file(csv_path)
 
         # Convert column names to lowercase before calling preprocess_func
         df = df.rename(_to_lower)
@@ -239,7 +245,7 @@ class BaseDataset(ABC):
             other_csv_path = f"{self.root}/{join_cfg.file_path}"
             other_csv_path = clean_path(other_csv_path)
             logger.info(f"Joining with table: {other_csv_path}")
-            join_df = scan_csv_gz_or_csv_tsv(other_csv_path)
+            join_df = scan_table_file(other_csv_path)
             join_df = join_df.rename(_to_lower)
             join_key = join_cfg.on
             columns = join_cfg.columns

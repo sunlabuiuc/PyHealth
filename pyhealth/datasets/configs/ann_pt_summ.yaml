@@ -1,0 +1,162 @@
+version: "1.0"
+tables:
+  mimic_di_all:
+    file_path: "mimic-iv-note-ext-di/dataset/all.json"
+    patient_id: null
+    timestamp: null
+    attributes:
+      - "*"
+
+  mimic_di_train:
+    file_path: "mimic-iv-note-ext-di/dataset/train.json"
+    patient_id: null
+    timestamp: null
+    attributes:
+      - "*"
+
+  mimic_di_valid:
+    file_path: "mimic-iv-note-ext-di/dataset/valid.json"
+    patient_id: null
+    timestamp: null
+    attributes:
+      - "*"
+
+  mimic_di_test:
+    file_path: "mimic-iv-note-ext-di/dataset/test.json"
+    patient_id: null
+    timestamp: null
+    attributes:
+      - "*"
+
+  mimic_di_train_4000_600:
+    file_path: "mimic-iv-note-ext-di/dataset/train_4000_600_chars.json"
+    patient_id: null
+    timestamp: null
+    attributes:
+      - "*"
+
+  mimic_di_valid_4000_600:
+    file_path: "mimic-iv-note-ext-di/dataset/valid_4000_600_chars.json"
+    patient_id: null
+    timestamp: null
+    attributes:
+      - "*"
+
+  mimic_di_test_4000_600:
+    file_path: "mimic-iv-note-ext-di/dataset/test_4000_600_chars.json"
+    patient_id: null
+    timestamp: null
+    attributes:
+      - "*"
+
+  mimic_di_bhc_all:
+    file_path: "mimic-iv-note-ext-di-bhc/dataset/all.json"
+    patient_id: null
+    timestamp: null
+    attributes:
+      - "*"
+
+  mimic_di_bhc_train:
+    file_path: "mimic-iv-note-ext-di-bhc/dataset/train.json"
+    patient_id: null
+    timestamp: null
+    attributes:
+      - "*"
+
+  mimic_di_bhc_valid:
+    file_path: "mimic-iv-note-ext-di-bhc/dataset/valid.json"
+    patient_id: null
+    timestamp: null
+    attributes:
+      - "*"
+
+  mimic_di_bhc_test:
+    file_path: "mimic-iv-note-ext-di-bhc/dataset/test.json"
+    patient_id: null
+    timestamp: null
+    attributes:
+      - "*"
+
+  mimic_di_bhc_train_4000_600:
+    file_path: "mimic-iv-note-ext-di-bhc/dataset/train_4000_600_chars.json"
+    patient_id: null
+    timestamp: null
+    attributes:
+      - "*"
+
+  mimic_di_bhc_valid_4000_600:
+    file_path: "mimic-iv-note-ext-di-bhc/dataset/valid_4000_600_chars.json"
+    patient_id: null
+    timestamp: null
+    attributes:
+      - "*"
+
+  mimic_di_bhc_test_4000_600:
+    file_path: "mimic-iv-note-ext-di-bhc/dataset/test_4000_600_chars.json"
+    patient_id: null
+    timestamp: null
+    attributes:
+      - "*"
+
+  hallucinations_mimic_di:
+    file_path: "hallucination_datasets/hallucinations_mimic_di.jsonl"
+    patient_id: null
+    timestamp: null
+    attributes:
+      - "*"
+
+  hallucinations_mimic_di_validation:
+    file_path: "hallucination_datasets/hallucinations_mimic_di_validation.jsonl"
+    patient_id: null
+    timestamp: null
+    attributes:
+      - "*"
+
+  hallucinations_generated_di:
+    file_path: "hallucination_datasets/hallucinations_generated_di.jsonl"
+    patient_id: null
+    timestamp: null
+    attributes:
+      - "*"
+
+  derived_mimic_di_original:
+    file_path: "derived_datasets/hallucinations_mimic_di_original.json"
+    patient_id: null
+    timestamp: null
+    attributes:
+      - "*"
+
+  derived_mimic_di_cleaned:
+    file_path: "derived_datasets/hallucinations_mimic_di_cleaned.json"
+    patient_id: null
+    timestamp: null
+    attributes:
+      - "*"
+
+  derived_mimic_di_cleaned_improved:
+    file_path: "derived_datasets/hallucinations_mimic_di_cleaned_improved.json"
+    patient_id: null
+    timestamp: null
+    attributes:
+      - "*"
+
+  derived_mimic_di_validation_original:
+    file_path: "derived_datasets/hallucinations_mimic_di_validation_original.json"
+    patient_id: null
+    timestamp: null
+    attributes:
+      - "*"
+
+  derived_mimic_di_validation_cleaned:
+    file_path: "derived_datasets/hallucinations_mimic_di_validation_cleaned.json"
+    patient_id: null
+    timestamp: null
+    attributes:
+      - "*"
+
+  derived_mimic_di_validation_cleaned_improved:
+    file_path: "derived_datasets/hallucinations_mimic_di_validation_cleaned_improved.json"
+    patient_id: null
+    timestamp: null
+    attributes:
+      - "*"
