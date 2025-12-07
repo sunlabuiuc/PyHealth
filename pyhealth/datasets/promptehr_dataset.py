@@ -67,6 +67,22 @@ def create_promptehr_tokenizer(diagnosis_codes: List[str]) -> Tokenizer:
         special_tokens=special_tokens
     )
 
+    # Add convenience properties and methods for generation compatibility
+    # These mirror pehr_scratch's DiagnosisCodeTokenizer API
+    tokenizer.pad_token_id = tokenizer.vocabulary("<pad>")  # ID 0
+    tokenizer.bos_token_id = tokenizer.vocabulary("<s>")     # ID 1
+    tokenizer.eos_token_id = tokenizer.vocabulary("</s>")    # ID 2
+    tokenizer.code_offset = len(special_tokens)              # ID 7 (first diagnosis code)
+
+    # Add method alias: convert_tokens_to_ids → convert_tokens_to_indices
+    # pehr_scratch uses convert_tokens_to_ids(single_token) → int
+    # PyHealth uses convert_tokens_to_indices(token_list) → list
+    def convert_tokens_to_ids(token: str) -> int:
+        """Convert single token to ID (pehr_scratch compatibility)."""
+        return tokenizer.convert_tokens_to_indices([token])[0]
+
+    tokenizer.convert_tokens_to_ids = convert_tokens_to_ids
+
     return tokenizer
 
 
