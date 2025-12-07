@@ -8,7 +8,7 @@ and only supports SequenceProcessor embeddings (as this is only what has
 been tested)
 """
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 
 import torch
 from torch import nn
@@ -17,6 +17,7 @@ from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.embedding import EmbeddingModel
 from pyhealth.processors import SequenceProcessor
+from pyhealth.processors.base_processor import FeatureProcessor
 
 try:
     from mambapy.mamba import MambaConfig, ResidualBlock
@@ -83,7 +84,7 @@ class MambaLayers(nn.Module):
             emb: a tensor of shape ``[batch, sequence len, feature_size]``,
                 containing the output features for each time step.
             cls_emb: a tensor of shape ``[batch, feature_size]``, containing
-                the output features for the first time step.
+                the output features for the last valid time step.
         """
 
         for layer in self.layers:
@@ -92,7 +93,21 @@ class MambaLayers(nn.Module):
             x = self.dropout(x)
             x = self._apply_mask(x, mask)
         emb = x
-        cls_emb = x[:, 0, :]
+        if mask is None:
+            cls_emb = x[:, -1, :]
+        else: # Carefully find the last valid hidden state
+            seq_mask = mask
+            if seq_mask.dim() == 1:
+                seq_mask = seq_mask.unsqueeze(1)
+            if seq_mask.dim() > 2:
+                seq_mask = seq_mask.view(seq_mask.size(0), seq_mask.size(1), -1).any(
+                    dim=-1
+                )
+            lengths = torch.count_nonzero(seq_mask, dim=1).clamp(min=1)
+            last_idx = (lengths - 1).view(-1, 1, 1)
+            cls_emb = torch.take_along_dim(
+                x, last_idx.expand(-1, 1, x.size(-1)), dim=1
+            ).squeeze(1)
         return emb, cls_emb
 
 
@@ -317,3 +332,47 @@ class Mamba(BaseModel):
         if kwargs.get("embed", False):
             results["embed"] = patient_emb
         return results
+
+if __name__ == "__main__":
+    from pyhealth.datasets import SampleDataset, get_dataloader
+
+    samples = [
+        {
+            "patient_id": "patient-0",
+            "visit_id": "visit-0",
+            "diagnoses": ["A", "B", "C"],
+            "procedures": ["X", "Y"],
+            "label": 1,
+        },
+        {
+            "patient_id": "patient-1",
+            "visit_id": "visit-0",
+            "diagnoses": ["D", "E"],
+            "procedures": ["Z"],
+            "label": 0,
+        },
+    ]
+
+    input_schema: Dict[str, Union[str, type[FeatureProcessor]]] = {
+        "diagnoses": "sequence",
+        "procedures": "sequence",
+    }
+    output_schema: Dict[str, Union[str, type[FeatureProcessor]]] = {"label": "binary"}
+
+    dataset = SampleDataset(
+        samples=samples,
+        input_schema=input_schema,
+        output_schema=output_schema,
+        dataset_name="test",
+    )
+
+    train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
+
+    model = Mamba(dataset=dataset, embedding_dim=64, num_layers=2)
+
+    data_batch = next(iter(train_loader))
+
+    result = model(**data_batch)
+    print(result)
+
+    result["loss"].backward()

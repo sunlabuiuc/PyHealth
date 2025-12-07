@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 from .base_task import BaseTask
 
 
-class MortalityPredictionMIMIC4(BaseTask):
+class MortalityPrediction31DaysMIMIC4(BaseTask):
     """Task for predicting mortality within a month (i.e. less than 32 days)
     using MIMIC-IV EHR data only.
     
@@ -12,7 +12,7 @@ class MortalityPredictionMIMIC4(BaseTask):
     of label definition.
     """
 
-    task_name: str = "MortalityPredictionMIMIC4"
+    task_name: str = "MortalityPrediction31DaysMIMIC4"
     input_schema: Dict[str, str] = {
         "conditions": "sequence",
         "procedures": "sequence",
