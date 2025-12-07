@@ -63,7 +63,9 @@ class PendulumData(BaseDataset):
     """
 
     def __init__(self, **args):
-        self.env = gym.make(args.get("Pendulum-v1"), render_mode=args["render_mode"]).unwrapped
+        self.env = gym.make(
+            args.get("env", "Pendulum-v1"), render_mode=args["render_mode"]
+        ).unwrapped
         self.env.reset(seed=args.get("seed", 2))
         self.data = np.zeros(
             (args["data_size"], args["seq_len"], args["side"], args["side"])
