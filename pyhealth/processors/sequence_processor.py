@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, override
 
 import torch
 
@@ -17,9 +17,22 @@ class SequenceProcessor(FeatureProcessor):
 
     def __init__(self):
         # <unk> will be set to len(vocab) after fit
-        self.code_vocab: Dict[Any, int] = {"<unk>": None, "<pad>": 0}
+        self.code_vocab: Dict[Any, int] = {"<pad>": 0}
         self._next_index = 1
 
+    @override
+    def fit(self, samples: List[Dict[str, Any]], field: str) -> None:
+        for sample in samples:
+            for token in sample[field]:
+                if token is None:
+                    continue  # skip missing values
+                elif token not in self.code_vocab:
+                    self.code_vocab[token] = self._next_index
+                    self._next_index += 1
+
+        self.code_vocab["<unk>"] = len(self.code_vocab)
+
+    @override
     def process(self, value: Any) -> torch.Tensor:
         """Process token value(s) into tensor of indices.
 
@@ -31,16 +44,11 @@ class SequenceProcessor(FeatureProcessor):
         """
         indices = []
         for token in value:
-            if token is None:  # missing values
-                indices.append(self.code_vocab["<unk>"])
-            else:
-                if token not in self.code_vocab:
-                    self.code_vocab[token] = self._next_index
-                    self._next_index += 1
-                    # Update <unk> token to len(vocab) - 1
-                    # (-1 because <unk> is already in vocab)
-                    self.code_vocab["<unk>"] = len(self.code_vocab) - 1
+            if token in self.code_vocab:
                 indices.append(self.code_vocab[token])
+            else:
+                indices.append(self.code_vocab["<unk>"])
+
         return torch.tensor(indices, dtype=torch.long)
 
     def size(self):
