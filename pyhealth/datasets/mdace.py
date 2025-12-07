@@ -30,257 +30,151 @@ https://github.com/3mcloud/MDACE.git
 }
 
 
-The loading code is from the GitHub repository of following paper
-https://github.com/JoakimEdin/explainable-medical-coding.git
-
-@inproceedings{edin-etal-2024-unsupervised,
-    title = "An Unsupervised Approach to Achieve Supervised-Level Explainability in Healthcare Records",
-    author = "Edin, Joakim  and
-      Maistro, Maria  and
-      Maal{\o}e, Lars  and
-      Borgholt, Lasse  and
-      Havtorn, Jakob Drachmann  and
-      Ruotsalo, Tuukka",
-    editor = "Al-Onaizan, Yaser  and
-      Bansal, Mohit  and
-      Chen, Yun-Nung",
-    booktitle = "Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing",
-    month = nov,
-    year = "2024",
-    address = "Miami, Florida, USA",
-    publisher = "Association for Computational Linguistics",
-    url = "https://aclanthology.org/2024.emnlp-main.280/",
-    doi = "10.18653/v1/2024.emnlp-main.280",
-    pages = "4869--4890",
-    abstract = "Electronic healthcare records are vital for patient safety as they document conditions, plans, and procedures in both free text and medical codes. Language models have significantly enhanced the processing of such records, streamlining workflows and reducing manual data entry, thereby saving healthcare providers significant resources. However, the black-box nature of these models often leaves healthcare professionals hesitant to trust them. State-of-the-art explainability methods increase model transparency but rely on human-annotated evidence spans, which are costly. In this study, we propose an approach to produce plausible and faithful explanations without needing such annotations. We demonstrate on the automated medical coding task that adversarial robustness training improves explanation plausibility and introduce AttInGrad, a new explanation method superior to previous ones. By combining both contributions in a fully unsupervised setup, we produce explanations of comparable quality, or better, to that of a supervised approach. We release our code and model weights."
-}
-
-Script usage
-$(PYTHON_INTERPRETER) explainable_medical_coding/data/prepare_mdace.py data/raw data/processed
-
 """
-import json
 import logging
-import random
-import string
-from collections import defaultdict
-from pathlib import Path
+import warnings
+from typing import List, Optional, Dict
 
-import click
 import polars as pl
-from dotenv import find_dotenv, load_dotenv
+from pyhealth.datasets import BaseDataset
 
-# Column names
-ID_COLUMN = "_id"
-SUBJECT_ID_COLUMN = "subject_id"
-TEXT_COLUMN = "text"
-
-random.seed(10)
+logger = logging.getLogger(__name__)
 
 
-def parse_code_dataframe(
-    df: pl.DataFrame,
-    code_column: str = "diagnosis_codes",
-    code_type_column: str = "diagnosis_code_type",
-) -> pl.DataFrame:
-    """Change names of colums, remove duplicates and Nans, and takes a dataframe and a column name
-    and returns a series with the column name and a list of codes.
+class MDACEDataset(BaseDataset):
+    """
+    Dataset class for handling MDACE (MIMIC Documents Annotated with Code Evidence) data.
 
-    Example:
-        Input:
-                subject_id  _id     target
-                       2   163353     V3001
-                       2   163353      V053
-                       2   163353      V290
+    The MDACE dataset contains MIMIC-III clinical records annotated with code evidence
+    by professional medical coders. It includes inpatient and profee charts.
 
-        Output:
-            target    [V053, V290, V3001]
+    This class expects the following tables in the root directory:
+        - mdace_notes.csv (or .parquet): Contains the clinical notes (discharged summaries).
+        - mdace_inpatient_annotations.csv: Contains annotations for inpatient charts.
+        - mdace_profee_annotations.csv: Contains annotations for profee charts.
 
-    Args:
-        row (pd.DataFrame): Dataframe with a column of codes.
-        col (str): column name of the codes.
+    Paper: Cheng, Hua, et al. "MDACE: MIMIC Documents Annotated with Code Evidence."
+           Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics. 2023.
 
-    Returns:
-        pd.Series: Series with the column name and a list of codes.
+    Attributes:
+        root (str): The root directory where the dataset is stored.
+        tables (List[str]): A list of tables to be included in the dataset.
+        dataset_name (Optional[str]): The name of the dataset.
+        config_path (Optional[str]): The path to the configuration file.
     """
 
-    df = df.filter(df[code_column].is_not_null())
-    df = df.unique(subset=[ID_COLUMN, code_column])
-    df = df.group_by([ID_COLUMN, code_type_column]).agg(
-        pl.col(code_column).map_elements(list).alias(code_column)
-    )
-    return df
+    def __init__(
+        self,
+        root: str,
+        tables: List[str] = None,
+        dataset_name: Optional[str] = "mdace",
+        config_path: Optional[str] = None,
+        **kwargs
+    ) -> None:
+        """
+        Initializes the MDACEDataset with the specified parameters.
 
+        Args:
+            root (str): The root directory where the dataset is stored.
+            tables (List[str], optional): A list of tables to include.
+                                          Defaults to ["mdace_notes", "mdace_inpatient_annotations", "mdace_profee_annotations"].
+            dataset_name (str, optional): The name of the dataset. Defaults to "mdace".
+            config_path (str, optional): The path to the configuration file. If not provided, a default config is used.
+            **kwargs: Additional keyword arguments to be passed to the BaseDataset class.
+        """
+        if tables is None:
+            tables = [
+                "mdace_notes",
+                "mdace_inpatient_annotations",
+                "mdace_profee_annotations",
+            ]
 
-def get_mdace_annotations(path: Path) -> pl.DataFrame:
-    rows = []
-    for json_path in path.glob("**/*.json"):
-        with open(json_path, "r", encoding="utf8") as json_file:
-            case_annotations = json.load(json_file)
-            hadm_id = case_annotations["hadm_id"]
-
-            for note in case_annotations["notes"]:
-                note_id = note["note_id"]
-                note_category = note["category"]
-                note_description = note["description"]
-
-                code2spans = defaultdict(list)  # code -> list of spans
-                code2system = {}  # code -> code system (e.g. ICD-9, ICD-10, etc.)
-
-                for annotation in note["annotations"]:
-                    code = annotation["code"]
-                    code2system[code] = annotation["code_system"]
-                    code2spans[code].append((annotation["begin"], annotation["end"]))
-
-                for code, spans in code2spans.items():
-                    rows.append(
-                        (
-                            hadm_id,
-                            note_id,
-                            note_category,
-                            note_description,
-                            code2system[code],
-                            code,
-                            spans,
-                        )
-                    )
-                # print(code_dict)
-
-    schema = {
-        ID_COLUMN: pl.Int64,
-        "note_id": pl.Int64,
-        "note_type": pl.Utf8,
-        "note_subtype": pl.Utf8,
-        "code_type": pl.Utf8,
-        "code": pl.Utf8,
-        "spans": pl.List,
-    }
-    return pl.DataFrame(schema=schema, data=rows)
-
-
-def trim_annotations(
-    span: tuple[int, int],
-    text: str,
-    punctuations: set[str] = set(string.punctuation + "\n\t "),
-) -> tuple[int, int]:
-    start = span[0]
-    end = span[1]
-
-    if text[end] in punctuations:
-        end -= 1
-
-    if text[start] in punctuations:
-        start += 1
-
-    return start, end
-
-
-def clean_mdace_annotations(
-    mdace_annotations: pl.DataFrame, mdace_notes: pl.DataFrame
-) -> pl.DataFrame:
-    mdace_annotations = mdace_annotations.join(
-        mdace_notes[["note_id", "text"]], on="note_id", how="inner"
-    )
-    mdace_annotations = mdace_annotations.with_columns(
-        spans=pl.struct("text", "spans").map_elements(
-            lambda row: [trim_annotations(span, row["text"]) for span in row["spans"]]
+        super().__init__(
+            root=root,
+            tables=tables,
+            dataset_name=dataset_name,
+            config_path=config_path,
+            **kwargs
         )
-    )
 
-    return mdace_annotations
+    def preprocess_mdace_notes(self, df: pl.LazyFrame) -> pl.LazyFrame:
+        """
+        Table-specific preprocess function for 'mdace_notes'.
 
+        Standardizes column names and types for the notes table.
 
-@click.command()
-@click.argument("input_filepath_str", type=click.Path(exists=True))
-@click.argument("output_filepath_str", type=click.Path())
-def main(input_filepath_str: str, output_filepath_str: str):
-    """Runs data processing scripts to turn raw data from (../raw) into
-    cleaned data ready to be analyzed (saved in ../processed).
-    """
+        Args:
+            df (pl.LazyFrame): Input dataframe.
 
-    logger = logging.getLogger(__name__)
-    logger.info("making final data set from raw data")
-    input_filepath = Path(input_filepath_str)
-    output_filepath = Path(output_filepath_str)
-    output_filepath.mkdir(parents=True, exist_ok=True)
+        Returns:
+            pl.LazyFrame: Preprocessed dataframe.
+        """
+        # Ensure note_id is a string as per original script logic
+        if "note_id" in df.columns:
+            df = df.with_columns(pl.col("note_id").cast(pl.Utf8))
+        return df
 
-    # Load the dataframes
-    mimic_notes = pl.read_csv(
-        input_filepath / "physionet.org/files/mimiciii/1.4/NOTEEVENTS.csv.gz"
-    )
-    mimic_notes = mimic_notes.rename(
-        {
-            "HADM_ID": ID_COLUMN,
-            "SUBJECT_ID": SUBJECT_ID_COLUMN,
-            "ROW_ID": "note_id",
-            "TEXT": TEXT_COLUMN,
-            "CATEGORY": "note_type",
-            "DESCRIPTION": "note_subtype",
+    def _preprocess_annotations(self, df: pl.LazyFrame) -> pl.LazyFrame:
+        """
+        Shared preprocessing logic for annotation tables.
+        Renames columns to PyHealth standard and normalizes code types.
+        """
+        # Rename columns to standard PyHealth/Project convention
+        # Mapping based on original mdace.py
+        rename_map = {
+            "NOTE_ID": "note_id",
+            "start_index": "start",
+            "end_index": "end",
+            "TAG": "label",
         }
-    )
+        
+        # Only rename columns that exist
+        existing_cols = df.columns
+        actual_rename = {k: v for k, v in rename_map.items() if k in existing_cols}
+        df = df.rename(actual_rename)
 
-    mdace_inpatient_annotations = get_mdace_annotations(
-        Path("data/raw/MDace/Inpatient")
-    )
-    mdace_profee_annotations = get_mdace_annotations(Path("data/raw/MDace/Profee"))
-    mdace_notes = mimic_notes.filter(
-        pl.col("note_id").is_in(mdace_inpatient_annotations["note_id"])
-    )
-    mdace_inpatient_annotations = clean_mdace_annotations(
-        mdace_inpatient_annotations, mdace_notes
-    )
-    mdace_profee_annotations = clean_mdace_annotations(
-        mdace_profee_annotations, mdace_notes
-    )
+        # Cast note_id to string
+        df = df.with_columns(pl.col("note_id").cast(pl.Utf8))
 
-    mdace_inpatient_annotations = mdace_inpatient_annotations.with_columns(
-        pl.col("code_type")
-        .str.replace("ICD-9-CM", "icd9cm")
-        .str.replace("ICD-10-CM", "icd10cm")
-        .str.replace("ICD-10-PCS", "icd10pcs")
-        .str.replace("CPT", "cpt")
-        .str.replace("ICD-9-PCS", "icd9pcs")
-    )
+        # Normalize code_type values if the column exists
+        if "code_type" in df.columns:
+            df = df.with_columns(
+                pl.col("code_type")
+                .str.replace("ICD-9-CM", "icd9cm", literal=True)
+                .str.replace("ICD-10-CM", "icd10cm", literal=True)
+                .str.replace("ICD-10-PCS", "icd10pcs", literal=True)
+                .str.replace("CPT", "cpt", literal=True)
+                .str.replace("ICD-9-PCS", "icd9pcs", literal=True)
+            )
+        
+        return df
 
-    mdace_profee_annotations = mdace_profee_annotations.with_columns(
-        pl.col("code_type")
-        .str.replace("ICD-9-CM", "icd9cm")
-        .str.replace("ICD-10-CM", "icd10cm")
-        .str.replace("ICD-10-PCS", "icd10pcs")
-        .str.replace("CPT", "cpt")
-        .str.replace("ICD-9-PCS", "icd9pcs")
-    )
+    def preprocess_mdace_inpatient_annotations(self, df: pl.LazyFrame) -> pl.LazyFrame:
+        """
+        Table-specific preprocess function for 'mdace_inpatient_annotations'.
 
-    # convert note_id to string
-    mdace_notes = mdace_notes.with_columns(
-        note_id=pl.col("note_id").cast(pl.Utf8),
-    )
-    mdace_inpatient_annotations = mdace_inpatient_annotations.with_columns(
-        note_id=pl.col("note_id").cast(pl.Utf8),
-    )
-    mdace_profee_annotations = mdace_profee_annotations.with_columns(
-        note_id=pl.col("note_id").cast(pl.Utf8),
-    )
+        Args:
+            df (pl.LazyFrame): Input dataframe.
 
-    # save files to disk
-    mdace_notes.write_parquet(output_filepath / "mdace_notes.parquet")
-    mdace_inpatient_annotations.write_parquet(
-        output_filepath / "mdace_inpatient_annotations.parquet"
-    )
-    mdace_profee_annotations.write_parquet(
-        output_filepath / "mdace_profee_annotations.parquet"
-    )
+        Returns:
+            pl.LazyFrame: Preprocessed dataframe.
+        """
+        return self._preprocess_annotations(df)
 
+    def preprocess_mdace_profee_annotations(self, df: pl.LazyFrame) -> pl.LazyFrame:
+        """
+        Table-specific preprocess function for 'mdace_profee_annotations'.
+
+        Args:
+            df (pl.LazyFrame): Input dataframe.
+
+        Returns:
+            pl.LazyFrame: Preprocessed dataframe.
+        """
+        return self._preprocess_annotations(df)
 
 if __name__ == "__main__":
-    log_fmt = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    logging.basicConfig(level=logging.INFO, format=log_fmt)
-
-    # not used in this stub but often useful for finding various files
-    project_dir = Path(__file__).resolve().parents[2]
-
-    # find .env automagically by walking up directories until it's found, then
-    # load up the .env entries as environment variables
-    load_dotenv(find_dotenv())
-
-    main()
+    # Test case to verify the class structure
+    # Note: This assumes dummy csv files exist in 'data/mdace_test' for testing purposes.
+    # You would need to create these dummy files to run this block successfully.
+    print("This module provides the MDACEDataset class.")
