@@ -1,5 +1,5 @@
-# Author(s): Esteban Benitez
-# NetID(s): benitez5
+# Author(s): Esteban Benitez, Chloe Yang
+# NetID(s): benitez5, junkey2
 # Paper Title: Generative ODE Modeling with Known Unknowns
 # Paper Link: https://arxiv.org/abs/2003.10775
 # Description: 
