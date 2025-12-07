@@ -287,9 +287,7 @@ class SampleDataset(litdata.StreamingDataset):
         """
         return f"Sample dataset {self.dataset_name} {self.task_name}"
 
-    def subset(
-        self, indices: Sequence[int]
-    ) -> "SampleDataset":
+    def subset(self, indices: Sequence[int]) -> "SampleDataset":
         """Create a StreamingDataset restricted to the provided indices."""
 
         new_dataset = deepcopy_dataset(self)
@@ -299,7 +297,9 @@ class SampleDataset(litdata.StreamingDataset):
                 "The provided dataset has mismatched subsampled_files and region_of_interest lengths."
             )
 
-        dataset_length = sum(end - start for start, end in new_dataset.region_of_interest)
+        dataset_length = sum(
+            end - start for start, end in new_dataset.region_of_interest
+        )
         if any(idx < 0 or idx >= dataset_length for idx in indices):
             raise ValueError(
                 f"Subset indices must be in [0, {dataset_length - 1}] for the provided dataset."
@@ -351,7 +351,111 @@ class SampleDataset(litdata.StreamingDataset):
         new_dataset.reset()
 
         return new_dataset
-    
+
+
+class InMemorySampleDataset(SampleDataset):
+    """A SampleDataset that loads all samples into memory for fast access.
+
+    InMemorySampleDataset extends SampleDataset by eagerly loading and
+    transforming all samples into memory during initialization. This allows
+    for fast, repeated access to samples without disk I/O, at the cost of
+    higher memory usage.
+
+    Note:
+        This class is intended for testing and debugging purposes where
+        dataset sizes are small enough to fit into memory.
+    """
+
+    def __init__(
+        self,
+        samples: List[Dict[str, Any]],
+        input_schema: Dict[str, Any],
+        output_schema: Dict[str, Any],
+        dataset_name: Optional[str] = None,
+        task_name: Optional[str] = None,
+        input_processors: Optional[Dict[str, FeatureProcessor]] = None,
+        output_processors: Optional[Dict[str, FeatureProcessor]] = None,
+    ) -> None:
+        """Initialize an InMemorySampleDataset from in-memory samples.
+
+        This constructor fits a SampleBuilder on the provided samples,
+        transforms all samples into memory, and sets up the dataset attributes.
+
+        Args:
+            samples: A list of sample dictionaries (in-memory).
+            input_schema: Schema describing how input keys should be handled.
+            output_schema: Schema describing how output keys should be handled.
+            dataset_name: Optional human-friendly dataset name.
+            task_name: Optional human-friendly task name.
+            input_processors: Optional pre-fitted input processors to use instead
+                of creating new ones from the input_schema.
+            output_processors: Optional pre-fitted output processors to use
+                instead of creating new ones from the output_schema.
+        """
+        builder = SampleBuilder(
+            input_schema=input_schema,
+            output_schema=output_schema,
+            input_processors=input_processors,
+            output_processors=output_processors,
+        )
+        builder.fit(samples)
+
+        self.dataset_name = "" if dataset_name is None else dataset_name
+        self.task_name = "" if task_name is None else task_name
+
+        self.input_schema = builder.input_schema
+        self.output_schema = builder.output_schema
+        self.input_processors = builder.input_processors
+        self.output_processors = builder.output_processors
+
+        self.patient_to_index = builder.patient_to_index
+        self.record_to_index = builder.record_to_index
+
+        self._data = [builder.transform({"sample": pickle.dumps(s)}) for s in samples]
+
+    @override
+    def __len__(self) -> int:
+        """Returns the number of samples in the dataset.
+
+        Returns:
+            int: The total number of samples.
+        """
+        return len(self._data)
+
+    @override
+    def __getitem__(self, index: int) -> Dict[str, Any]:  # type: ignore
+        """Retrieve a processed sample by index.
+
+        Args:
+            index: The index of the sample to retrieve.
+
+        Returns:
+            A dictionary containing processed input and output features.
+        """
+        return self._data[index]
+
+    @override
+    def __iter__(self) -> Iterable[Dict[str, Any]]:  # type: ignore
+        """Returns an iterator over all samples in the dataset.
+
+        Returns:
+            An iterator yielding processed sample dictionaries.
+        """
+        return iter(self._data)
+
+    @override
+    def subset(self, indices: Sequence[int]) -> SampleDataset:
+        return InMemorySampleDataset(
+            samples=[self._data[i] for i in indices],
+            input_schema=self.input_schema,
+            output_schema=self.output_schema,
+            dataset_name=self.dataset_name,
+            task_name=self.task_name,
+            input_processors=self.input_processors,
+            output_processors=self.output_processors,
+        )
+
+
 def create_sample_dataset(
     samples: List[Dict[str, Any]],
     input_schema: Dict[str, Any],
