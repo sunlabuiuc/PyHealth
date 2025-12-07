@@ -360,7 +360,7 @@ class GAMENet(BaseModel):
         label_vocab = self.dataset.output_processors[self.label_key].label_vocab
         label_size = len(label_vocab)
         ehr_adj = torch.zeros((label_size, label_size))
-        for sample in self.dataset.samples:
+        for sample in self.dataset:
             curr_drugs = sample["drugs"]
             if isinstance(curr_drugs, torch.Tensor):
                 continue
