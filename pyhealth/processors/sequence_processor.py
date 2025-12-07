@@ -22,12 +22,13 @@ class SequenceProcessor(FeatureProcessor):
 
     @override
     def fit(self, samples: List[Dict[str, Any]], field: str) -> None:
-        for token in samples[field]:  # type: ignore
-            if token is None:
-                continue  # skip missing values
-            elif token not in self.code_vocab:
-                self.code_vocab[token] = self._next_index
-                self._next_index += 1
+        for sample in samples:
+            for token in sample[field]:
+                if token is None:
+                    continue  # skip missing values
+                elif token not in self.code_vocab:
+                    self.code_vocab[token] = self._next_index
+                    self._next_index += 1
 
         self.code_vocab["<unk>"] = len(self.code_vocab)
 
