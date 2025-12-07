@@ -262,7 +262,7 @@ class CNN(BaseModel):
             return self.embedding_dim
 
         min_dim = spatial_dim + 1
-        for sample in self.dataset.samples:
+        for sample in self.dataset:
             if feature_key not in sample:
                 continue
             feature = self._extract_feature_tensor(sample[feature_key])
