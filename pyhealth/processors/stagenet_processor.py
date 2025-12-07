@@ -24,9 +24,9 @@ class StageNetProcessor(FeatureProcessor):
     - List of lists of strings -> nested code sequences
 
     Args:
-        padding: Additional padding to add on top of the observed maximum nested 
+        padding: Additional padding to add on top of the observed maximum nested
             sequence length. The actual padding length will be observed_max + padding.
-            This ensures the processor can handle sequences longer than those in the 
+            This ensures the processor can handle sequences longer than those in the
             training data. Default: 0 (no extra padding). Only applies to nested sequences.
 
     Returns:
@@ -55,10 +55,12 @@ class StageNetProcessor(FeatureProcessor):
     """
 
     def __init__(self, padding: int = 0):
-        self.code_vocab: Dict[Any, int] = {"<unk>": -1, "<pad>": 0}
+        # <unk> will be set to len(vocab) after fit
+        self.code_vocab: Dict[Any, int] = {"<unk>": None, "<pad>": 0}
         self._next_index = 1
         self._is_nested = None  # Will be determined during fit
-        self._max_nested_len = None  # Max inner sequence length for nested codes
+        # Max inner sequence length for nested codes
+        self._max_nested_len = None
         self._padding = padding  # Additional padding beyond observed max
 
     def fit(self, samples: List[Dict], key: str) -> None:
@@ -115,6 +117,10 @@ class StageNetProcessor(FeatureProcessor):
         if self._is_nested:
             observed_max = max(1, max_inner_len)
             self._max_nested_len = observed_max + self._padding
+
+        # Set <unk> token to the next available index
+        # Since <unk> is already in the vocab dict, we use _next_index
+        self.code_vocab["<unk>"] = self._next_index
 
     def process(
         self, value: Tuple[Optional[List], List]
@@ -342,7 +348,6 @@ class StageNetTensorProcessor(FeatureProcessor):
 
         return (time_tensor, value_tensor)
 
-    @property
     def size(self):
         """Return feature dimension."""
         return self._size
