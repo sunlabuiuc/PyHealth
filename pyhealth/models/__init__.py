@@ -12,6 +12,7 @@ from .gan import GAN
 from .gnn import GAT, GCN
 from .graph_torchvision_model import Graph_TorchvisionModel
 from .grasp import GRASP, GRASPLayer
+from .mamba import Mamba
 from .medlink import MedLink
 from .micron import MICRON, MICRONLayer
 from .mlp import MLP

@@ -29,6 +29,10 @@ from .length_of_stay_prediction import (
     length_of_stay_prediction_mimic4_fn,
     length_of_stay_prediction_omop_fn,
 )
+from .length_of_stay_prediction_new import (
+    MultiClassLengthOfStayPredictionMIMIC4,
+    BinaryLengthOfStayPredictionMIMIC4,
+)
 from .medical_coding import MIMIC3ICD9Coding
 from .medical_transcriptions_classification import MedicalTranscriptionsClassification
 from .mortality_prediction import (
@@ -38,6 +42,7 @@ from .mortality_prediction import (
     MortalityPredictionMIMIC4,
     MortalityPredictionOMOP,
 )
+from .mortality_prediction_31days_mimic4 import MortalityPrediction31DaysMIMIC4
 from .survival_preprocess_support2 import SurvivalPreprocessSupport2
 from .mortality_prediction_stagenet_mimic4 import (
     MortalityPredictionStageNetMIMIC4,
