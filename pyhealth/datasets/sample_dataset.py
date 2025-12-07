@@ -1,10 +1,12 @@
 from collections.abc import Sequence
+from pathlib import Path
 import pickle
+import tempfile
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union, Type, override
 import inspect
 
 from bisect import bisect_right
-from litdata import StreamingDataset
+import litdata
 from litdata.utilities.train_test_split import deepcopy_dataset
 
 from ..processors import get_processor
@@ -162,7 +164,7 @@ class SampleBuilder:
             pickle.dump(metadata, f)
 
 
-class SampleDataset(StreamingDataset):
+class SampleDataset(litdata.StreamingDataset):
     """Sample dataset class for handling and processing data samples.
 
     Attributes:
@@ -292,3 +294,36 @@ class SampleDataset(StreamingDataset):
         new_dataset.reset()
 
         return new_dataset
+    
+def create_sample_dataset(
+    samples: List[Dict[str, Any]],
+    input_schema: Dict[str, Any],
+    output_schema: Dict[str, Any],
+    dataset_name: Optional[str] = None,
+    task_name: Optional[str] = None,
+    input_processors: Optional[Dict[str, FeatureProcessor]] = None,
+    output_processors: Optional[Dict[str, FeatureProcessor]] = None,
+):
+    path = Path(tempfile.mkdtemp())
+
+    builder = SampleBuilder(
+        input_schema=input_schema,  # type: ignore
+        output_schema=output_schema,  # type: ignore
+        input_processors=input_processors,
+        output_processors=output_processors,
+    )
+    builder.fit(samples)
+    builder.save(str(path / "schema.pkl"))
+    litdata.optimize(
+        fn=builder.transform,
+        inputs=[{"sample": pickle.dumps(x)} for x in samples],
+        output_dir=str(path),
+        chunk_bytes="64MB",
+        num_workers=0,
+    )
+
+    return SampleDataset(
+        path=str(path),
+        dataset_name=dataset_name,
+        task_name=task_name,
+    )
