@@ -84,3 +84,4 @@ from .utils import (
     load_processors,
     save_processors,
 )
+from .mimic_cxr_reports import MIMICCXRReportsDataset
