@@ -40,6 +40,7 @@ dependencies = [
   "pandarallel~=1.6.5",
   "pydantic~=2.11.7",
   "litdata~=0.2.58",
+  "pyarrow~=22.0.0",
 ]
 license = "BSD-3-Clause"
 license-files = ["LICENSE.md"]
