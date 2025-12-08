@@ -159,7 +159,7 @@ class CNN(BaseModel):
         **kwargs: Additional keyword arguments forwarded to :class:`CNNLayer`.
 
     Example:
-        >>> from pyhealth.datasets import SampleDataset
+        >>> from pyhealth.datasets import create_sample_dataset
         >>> samples = [
         ...     {
         ...         "patient_id": "p0",
@@ -176,7 +176,7 @@ class CNN(BaseModel):
         ...         "label": 0,
         ...     },
         ... ]
-        >>> dataset = SampleDataset(
+        >>> dataset = create_sample_dataset(
         ...     samples=samples,
         ...     input_schema={"conditions": "sequence", "labs": "tensor"},
         ...     output_schema={"label": "binary"},
@@ -326,7 +326,7 @@ class CNN(BaseModel):
 
 
 if __name__ == "__main__":
-    from pyhealth.datasets import SampleDataset
+    from pyhealth.datasets import create_sample_dataset
     from pyhealth.datasets import get_dataloader
 
     samples = [
@@ -348,7 +348,7 @@ if __name__ == "__main__":
 
     input_schema = {"conditions": "sequence", "labs": "tensor"}
     output_schema = {"label": "binary"}
-    dataset = SampleDataset(
+    dataset = create_sample_dataset(
         samples=samples,
         input_schema=input_schema,  # type: ignore[arg-type]
         output_schema=output_schema,  # type: ignore[arg-type]

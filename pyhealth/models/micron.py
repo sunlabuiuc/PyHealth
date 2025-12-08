@@ -159,7 +159,7 @@ class MICRON(BaseModel):
         - output_schema should include 'drugs' as a multilabel/multihot feature
 
     Example:
-        >>> from pyhealth.datasets import SampleDataset
+        >>> from pyhealth.datasets import create_sample_dataset
         >>> samples = [
         ...     {
         ...         "patient_id": "patient-0",
@@ -169,10 +169,11 @@ class MICRON(BaseModel):
         ...         "drugs": ["metformin", "lisinopril"]
         ...     }
         ... ]
-        >>> dataset = SampleDataset(
+        >>> dataset = create_sample_dataset(
         ...     samples=samples,
         ...     input_schema={"conditions": "sequence", "procedures": "sequence"},
-        ...     output_schema={"drugs": "multilabel"}
+        ...     output_schema={"drugs": "multilabel"},
+        ...     dataset_name="test",
         ... )
         >>> model = MICRON(dataset=dataset)
     """

@@ -241,14 +241,14 @@ class GAMENet(BaseModel):
         **kwargs: other parameters for the GAMENet layer.
 
     Examples:
-        >>> from pyhealth.datasets import SampleDataset
+        >>> from pyhealth.datasets import create_sample_dataset
         >>> from pyhealth.tasks import drug_recommendation_mimic3_fn
         >>> from pyhealth.models import GAMENet
         >>> from pyhealth.datasets import split_by_patient, get_dataloader
         >>> from pyhealth.trainer import Trainer
         >>>
         >>> # Load MIMIC-III dataset
-        >>> dataset = SampleDataset(
+        >>> dataset = create_sample_dataset(
         ...     samples=[
         ...         {
         ...             "patient_id": "patient-0",
