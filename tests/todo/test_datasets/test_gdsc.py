@@ -1,6 +1,7 @@
 import unittest
 
 from pyhealth.datasets import GDSCDataset
+import polars as pl
 import os
 import sys
 
