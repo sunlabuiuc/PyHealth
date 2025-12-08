@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, override
 
 import torch
 
@@ -16,11 +16,23 @@ class SequenceProcessor(FeatureProcessor):
     """
 
     def __init__(self):
-        # -1 for <unk> for ease of boolean arithmetic > 0, > -1, etc.
-        # TODO: this can be a problem if we pass -1 into nn.Embedding
-        self.code_vocab: Dict[Any, int] = {"<unk>": -1, "<pad>": 0}
+        # <unk> will be set to len(vocab) after fit
+        self.code_vocab: Dict[Any, int] = {"<pad>": 0}
         self._next_index = 1
 
+    @override
+    def fit(self, samples: List[Dict[str, Any]], field: str) -> None:
+        for sample in samples:
+            for token in sample[field]:
+                if token is None:
+                    continue  # skip missing values
+                elif token not in self.code_vocab:
+                    self.code_vocab[token] = self._next_index
+                    self._next_index += 1
+
+        self.code_vocab["<unk>"] = len(self.code_vocab)
+
+    @override
     def process(self, value: Any) -> torch.Tensor:
         """Process token value(s) into tensor of indices.
 
@@ -32,19 +44,15 @@ class SequenceProcessor(FeatureProcessor):
         """
         indices = []
         for token in value:
-            if token is None: # missing values
-                indices.append(self.code_vocab["<unk>"])
-            else:
-                if token not in self.code_vocab:
-                    self.code_vocab[token] = self._next_index
-                    self._next_index += 1
+            if token in self.code_vocab:
                 indices.append(self.code_vocab[token])
+            else:
+                indices.append(self.code_vocab["<unk>"])
+
         return torch.tensor(indices, dtype=torch.long)
-    
+
     def size(self):
         return len(self.code_vocab)
-    
+
     def __repr__(self):
-        return (
-            f"SequenceProcessor(code_vocab_size={len(self.code_vocab)})"
-        )
+        return f"SequenceProcessor(code_vocab_size={len(self.code_vocab)})"

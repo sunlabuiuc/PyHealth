@@ -132,12 +132,6 @@ class TestProcessorTransfer(unittest.TestCase):
         self.assertIn("cond-12", train_vocab)
         self.assertIn("cond-50", train_vocab)
 
-        # Note: cond-99 from test set WILL be added to vocabulary
-        # during processing because SequenceProcessor adds new codes
-        # on the fly in process(). The key is that the processor
-        # object itself is shared
-        self.assertIn("cond-99", train_vocab)
-
     def test_model_training_with_transferred_processors(self):
         """Test end-to-end training and inference with processor transfer."""
         # Create training dataset
@@ -379,9 +373,6 @@ class TestProcessorTransfer(unittest.TestCase):
         self.assertIn("m2", med_vocab)
         self.assertIn("m3", med_vocab)
         self.assertIn("m4", med_vocab)
-        # m5 from test will be added during processing since
-        # SequenceProcessor adds new codes on the fly
-        self.assertIn("m5", med_vocab)
 
     def test_backward_compatibility(self):
         """Test that existing code without processor transfer still works."""
