@@ -86,6 +86,38 @@ class SampleDataset(Dataset):
 
         self.validate()
         self.build()
+    def get_all_tokens(self, key: str) -> List[str]:
+        """
+        Collect all tokens under a given key across samples.
+
+        This is mainly used by MedLink to build its vocabulary.
+        It assumes that sample[key] is either:
+          - a sequence (list/tuple) of tokens, or
+          - a scalar token (str/int/etc.).
+        """
+        tokens: List[str] = []
+        seen = set()
+
+        for sample in self.samples:
+            if key not in sample:
+                continue
+            value = sample[key]
+
+            if isinstance(value, (list, tuple)):
+                values = value
+            else:
+                values = [value]
+
+            for v in values:
+                if v is None:
+                    continue
+                s = str(v)
+                if s in seen:
+                    continue
+                seen.add(s)
+                tokens.append(s)
+
+        return tokens
 
     def _get_processor_instance(self, processor_spec):
         """Get processor instance from either string alias, class reference, processor instance, or tuple with kwargs.

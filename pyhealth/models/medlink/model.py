@@ -103,12 +103,7 @@ class MedLink(BaseModel):
         **kwargs,
     ):
         assert len(feature_keys) == 1, "MedLink only supports one feature key"
-        super(MedLink, self).__init__(
-            dataset=dataset,
-            feature_keys=feature_keys,
-            label_key=None,
-            mode=None,
-        )
+        super(MedLink, self).__init__(dataset=dataset)
         self.feature_key = feature_keys[0]
         self.embedding_dim = embedding_dim
         self.alpha = alpha
@@ -121,13 +116,15 @@ class MedLink(BaseModel):
             special_tokens=["<pad>", "<unk>", "<cls>"],
         )
         self.fwd_adm_pred = AdmissionPrediction(tokenizer, embedding_dim, **kwargs)
+        self.forward_encoder = self.fwd_adm_pred.encoder
         self.bwd_adm_pred = AdmissionPrediction(tokenizer, embedding_dim, **kwargs)
+        self.backward_encoder = self.bwd_adm_pred.encoder
         self.criterion = nn.CrossEntropyLoss()
-        self.vocabs_size = tokenizer.get_vocabulary_size()
+        self.vocab_size = tokenizer.get_vocabulary_size()
         return
 
     def encode_queries(self, queries: List[str]):
-        all_vocab = torch.tensor(list(range(self.vocabs_size)), device=self.device)
+        all_vocab = torch.tensor(list(range(self.vocab_size)), device=self.device)
         bwd_vocab_emb = self.bwd_adm_pred.embedding(all_vocab)
         pred_corpus, queries_one_hot = self.bwd_adm_pred(
             queries, bwd_vocab_emb, device=self.device
@@ -137,7 +134,7 @@ class MedLink(BaseModel):
         return queries_emb
 
     def encode_corpus(self, corpus: List[str]):
-        all_vocab = torch.tensor(list(range(self.vocabs_size)), device=self.device)
+        all_vocab = torch.tensor(list(range(self.vocab_size)), device=self.device)
         fwd_vocab_emb = self.fwd_adm_pred.embedding(all_vocab)
         pred_queries, corpus_one_hot = self.fwd_adm_pred(
             corpus, fwd_vocab_emb, device=self.device
@@ -165,7 +162,7 @@ class MedLink(BaseModel):
     def forward(self, query_id, id_p, s_q, s_p, s_n=None) -> Dict[str, torch.Tensor]:
         corpus = s_p if s_n is None else s_p + s_n
         queries = s_q
-        all_vocab = torch.tensor(list(range(self.vocabs_size)), device=self.device)
+        all_vocab = torch.tensor(list(range(self.vocab_size)), device=self.device)
         fwd_vocab_emb = self.fwd_adm_pred.embedding(all_vocab)
         bwd_vocab_emb = self.bwd_adm_pred.embedding(all_vocab)
         pred_queries, corpus_one_hot = self.fwd_adm_pred(
