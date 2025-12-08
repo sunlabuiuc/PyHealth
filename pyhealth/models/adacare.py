@@ -289,7 +289,7 @@ class AdaCare(BaseModel):
 
 
     Examples:
-        >>> from pyhealth.datasets import SampleDataset
+        >>> from pyhealth.datasets import create_sample_dataset
         >>> samples = [
         ...         {
         ...             "patient_id": "patient-0",
@@ -321,7 +321,7 @@ class AdaCare(BaseModel):
         ...             "label": 0,
         ...         },
         ...     ]
-        >>> dataset = SampleDataset(samples=samples,
+        >>> dataset = create_sample_dataset(samples=samples,
         ...                         input_schema={
         ...                             'vector': 'nested_sequence_floats',
         ...                             'list_codes': 'sequence',
@@ -329,7 +329,8 @@ class AdaCare(BaseModel):
         ...                             'list_vectors': 'nested_sequence_floats',
         ...                             'list_list_vectors': 'deep_nested_sequence_floats'
         ...                             },
-        ...                         output_schema={'label': 'binary'}
+        ...                         output_schema={'label': 'binary'},
+        ...                         dataset_name='test'
         ...                         )
         >>>
         >>> from pyhealth.models import AdaCare

@@ -2,7 +2,7 @@ import unittest
 
 import torch
 
-from pyhealth.datasets import SampleDataset, get_dataloader
+from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import LogisticRegression
 
 
@@ -36,7 +36,7 @@ class TestLogisticRegression(unittest.TestCase):
         self.output_schema = {"label": "binary"}  # binary classification
 
         # Create dataset
-        self.dataset = SampleDataset(
+        self.dataset = create_sample_dataset(
             samples=self.samples,
             input_schema=self.input_schema,
             output_schema=self.output_schema,
@@ -164,7 +164,7 @@ class TestLogisticRegression(unittest.TestCase):
         }
         output_schema = {"score": "regression"}
 
-        regression_dataset = SampleDataset(
+        regression_dataset = create_sample_dataset(
             samples=regression_samples,
             input_schema=input_schema,
             output_schema=output_schema,

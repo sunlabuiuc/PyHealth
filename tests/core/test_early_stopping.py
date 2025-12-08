@@ -1,6 +1,6 @@
 import unittest
 
-from pyhealth.datasets import SampleDataset, get_dataloader
+from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import MLP
 from pyhealth.trainer import Trainer
 
@@ -29,14 +29,14 @@ class TestEarlyStopping(unittest.TestCase):
         self.output_schema = {"label": "binary"}
 
         # Split into train and val
-        self.train_dataset = SampleDataset(
+        self.train_dataset = create_sample_dataset(
             samples=self.samples[:80],
             input_schema=self.input_schema,
             output_schema=self.output_schema,
             dataset_name="train",
         )
 
-        self.val_dataset = SampleDataset(
+        self.val_dataset = create_sample_dataset(
             samples=self.samples[80:],
             input_schema=self.input_schema,
             output_schema=self.output_schema,

@@ -353,7 +353,7 @@ class Transformer(BaseModel):
         num_layers (int): number of transformer blocks per feature stream.
 
     Examples:
-        >>> from pyhealth.datasets import SampleDataset, get_dataloader
+        >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
         >>> samples = [
         ...     {
         ...         "patient_id": "patient-0",
@@ -372,7 +372,7 @@ class Transformer(BaseModel):
         ... ]
         >>> input_schema = {"diagnoses": "sequence", "procedures": "sequence"}
         >>> output_schema = {"label": "binary"}
-        >>> dataset = SampleDataset(
+        >>> dataset = create_sample_dataset(
         ...     samples,
         ...     input_schema,
         ...     output_schema,
@@ -661,7 +661,7 @@ class Transformer(BaseModel):
 
 
 if __name__ == "__main__":
-    from pyhealth.datasets import SampleDataset, get_dataloader
+    from pyhealth.datasets import create_sample_dataset, get_dataloader
 
     samples = [
         {
@@ -686,7 +686,7 @@ if __name__ == "__main__":
     }
     output_schema: Dict[str, Union[str, type[FeatureProcessor]]] = {"label": "binary"}
 
-    dataset = SampleDataset(
+    dataset = create_sample_dataset(
         samples=samples,
         input_schema=input_schema,
         output_schema=output_schema,

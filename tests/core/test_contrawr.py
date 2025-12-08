@@ -2,7 +2,7 @@ import unittest
 import numpy as np
 import torch
 
-from pyhealth.datasets import SampleDataset, get_dataloader
+from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import ContraWR
 
 
@@ -33,7 +33,7 @@ class TestContraWR(unittest.TestCase):
         self.input_schema = {"epoch_signal": "tensor"}
         self.output_schema = {"label": "multiclass"}
 
-        self.dataset = SampleDataset(
+        self.dataset = create_sample_dataset(
             samples=self.samples,
             input_schema=self.input_schema,
             output_schema=self.output_schema,

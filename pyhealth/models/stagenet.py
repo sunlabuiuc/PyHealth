@@ -285,7 +285,7 @@ class StageNet(BaseModel):
         **kwargs: other parameters for the StageNet layer.
 
     Examples:
-        >>> from pyhealth.datasets import SampleDataset
+        >>> from pyhealth.datasets import create_sample_dataset
         >>> samples = [
         ...     {
         ...         "patient_id": "patient-0",
@@ -316,7 +316,7 @@ class StageNet(BaseModel):
         ... ]
         >>>
         >>> # dataset
-        >>> dataset = SampleDataset(
+        >>> dataset = create_sample_dataset(
         ...     samples=samples,
         ...     input_schema={
         ...         "codes": "stagenet",
@@ -616,7 +616,7 @@ class StageNet(BaseModel):
 
 
 if __name__ == "__main__":
-    from pyhealth.datasets import SampleDataset
+    from pyhealth.datasets import create_sample_dataset
 
     samples = [
         {
@@ -654,7 +654,7 @@ if __name__ == "__main__":
     ]
 
     # dataset
-    dataset = SampleDataset(
+    dataset = create_sample_dataset(
         samples=samples,
         input_schema={
             "codes": "stagenet",

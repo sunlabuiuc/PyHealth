@@ -156,7 +156,7 @@ class TestTSVLoad(unittest.TestCase):
                 self.assertIsNotNone(dataset.config)
 
                 # Test that we can collect the dataframe
-                collected_df = dataset.collected_global_event_df
+                collected_df = dataset.global_event_df.collect()
                 self.assertIsInstance(collected_df, pl.DataFrame)
                 self.assertGreater(
                     collected_df.height, 0, "Dataset should have at least one row"
@@ -201,7 +201,7 @@ class TestTSVLoad(unittest.TestCase):
             dev=False,
         )
 
-        collected_df = dataset.collected_global_event_df
+        collected_df = dataset.global_event_df.collect()
 
         # Verify we have the expected number of patients
         self.assertEqual(collected_df["patient_id"].n_unique(), 5)
@@ -231,7 +231,7 @@ class TestTSVLoad(unittest.TestCase):
             dev=False,
         )
 
-        collected_df = dataset.collected_global_event_df
+        collected_df = dataset.global_event_df.collect()
 
         # Should have data from both tables
         self.assertGreater(collected_df.height, 5)  # More than just patients table
