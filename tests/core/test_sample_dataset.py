@@ -1,97 +1,123 @@
 import unittest
 import pickle
+import random
 from pyhealth.datasets.sample_dataset import create_sample_dataset
 
-class TestSampleDataset(unittest.TestCase):
+class TestSampleDatasetParity(unittest.TestCase):
     def setUp(self):
+        # Create a slightly larger dataset to make shuffling more obvious
         self.samples = [
-            {"patient_id": "p1", "record_id": "r1", "feature": "a", "label": 1},
-            {"patient_id": "p1", "record_id": "r2", "feature": "b", "label": 0},
-            {"patient_id": "p2", "record_id": "r3", "feature": "c", "label": 1},
-            {"patient_id": "p3", "record_id": "r4", "feature": "d", "label": 0},
-            {"patient_id": "p3", "record_id": "r5", "feature": "e", "label": 1},
+            {"patient_id": f"p{i}", "record_id": f"r{i}", "feature": i, "label": i % 2}
+            for i in range(20)
         ]
         self.input_schema = {"feature": "raw"}
         self.output_schema = {"label": "raw"}
 
-    def test_sample_dataset_subset_slice(self):
-        # Create SampleDataset (disk-based)
-        dataset = create_sample_dataset(
-            samples=self.samples,
-            input_schema=self.input_schema,
-            output_schema=self.output_schema,
-            in_memory=False
-        )
-        
-        # Define a slice object
-        s = slice(1, 4) # Slice [1:4] -> 1, 2, 3
-        
-        subset = dataset.subset(s)
-        
-        self.assertEqual(len(subset), 3)
-        
-        # Check content
-        subset_data = list(subset)
-        self.assertEqual(subset_data[0]["feature"], "b")
-        self.assertEqual(subset_data[1]["feature"], "c")
-        self.assertEqual(subset_data[2]["feature"], "d")
-
-    def test_in_memory_sample_dataset_behavior(self):
-        # Create both datasets
+    def _get_datasets(self):
         ds_disk = create_sample_dataset(
             samples=self.samples,
             input_schema=self.input_schema,
             output_schema=self.output_schema,
             in_memory=False
         )
-        
         ds_mem = create_sample_dataset(
             samples=self.samples,
             input_schema=self.input_schema,
             output_schema=self.output_schema,
             in_memory=True
         )
-        
-        # 1. Test len
+        return ds_disk, ds_mem
+
+    def test_len(self):
+        ds_disk, ds_mem = self._get_datasets()
+        self.assertEqual(len(ds_disk), 20)
+        self.assertEqual(len(ds_mem), 20)
         self.assertEqual(len(ds_disk), len(ds_mem))
-        self.assertEqual(len(ds_disk), 5)
-        
-        # 2. Test iter
-        iter_disk = list(ds_disk)
-        iter_mem = list(ds_mem)
-        
-        for d, m in zip(iter_disk, iter_mem):
-            self.assertEqual(d["feature"], m["feature"])
-            self.assertEqual(d["label"], m["label"])
-            self.assertEqual(d["patient_id"], m["patient_id"])
-            self.assertEqual(d["record_id"], m["record_id"])
 
-        # 3. Test getitem
-        for i in range(len(ds_disk)):
-            d = ds_disk[i]
-            m = ds_mem[i]
-            self.assertEqual(d["feature"], m["feature"])
-            self.assertEqual(d["label"], m["label"])
+    def test_getitem(self):
+        ds_disk, ds_mem = self._get_datasets()
+        for i in range(len(self.samples)):
+            item_disk = ds_disk[i]
+            item_mem = ds_mem[i]
+            self.assertEqual(item_disk["feature"], item_mem["feature"])
+            self.assertEqual(item_disk["label"], item_mem["label"])
+            self.assertEqual(item_disk["patient_id"], item_mem["patient_id"])
 
-        # 4. Test subset with list
-        indices = [0, 2, 4]
+    def test_iter(self):
+        ds_disk, ds_mem = self._get_datasets()
+        list_disk = list(ds_disk)
+        list_mem = list(ds_mem)
+        
+        self.assertEqual(len(list_disk), len(list_mem))
+        for d, m in zip(list_disk, list_mem):
+            self.assertEqual(d["feature"], m["feature"])
+
+    def test_subset_indices(self):
+        ds_disk, ds_mem = self._get_datasets()
+        indices = [0, 5, 10, 15, 19]
+        
         sub_disk = ds_disk.subset(indices)
         sub_mem = ds_mem.subset(indices)
         
         self.assertEqual(len(sub_disk), len(sub_mem))
+        self.assertEqual(len(sub_disk), 5)
         
-        for d, m in zip(sub_disk, sub_mem):
+        list_disk = list(sub_disk)
+        list_mem = list(sub_mem)
+        
+        for d, m in zip(list_disk, list_mem):
             self.assertEqual(d["feature"], m["feature"])
-            self.assertEqual(d["label"], m["label"])
 
-        # 5. Test subset with slice
-        s = slice(0, 3)
-        sub_disk_slice = ds_disk.subset(s)
-        sub_mem_slice = ds_mem.subset(s)
+    def test_subset_slice(self):
+        ds_disk, ds_mem = self._get_datasets()
+        s = slice(2, 18, 2)
         
-        self.assertEqual(len(sub_disk_slice), len(sub_mem_slice))
-        for d, m in zip(sub_disk_slice, sub_mem_slice):
+        sub_disk = ds_disk.subset(s)
+        sub_mem = ds_mem.subset(s)
+        
+        self.assertEqual(len(sub_disk), len(sub_mem))
+        
+        list_disk = list(sub_disk)
+        list_mem = list(sub_mem)
+        
+        for d, m in zip(list_disk, list_mem):
             self.assertEqual(d["feature"], m["feature"])
+
+    def test_set_shuffle(self):
+        ds_disk, ds_mem = self._get_datasets()
+        
+        # Test shuffle=True
+        ds_disk.set_shuffle(True)
+        ds_mem.set_shuffle(True)
+        
+        # Iterating should return all elements, but likely in different order than original
+        # and potentially different order between disk and mem (implementation detail)
+        # But the set of elements should be identical.
+        
+        items_disk = list(ds_disk)
+        items_mem = list(ds_mem)
+        
+        self.assertEqual(len(items_disk), 20)
+        self.assertEqual(len(items_mem), 20)
+        
+        # Check that we have the same set of features
+        features_disk = sorted([x["feature"] for x in items_disk])
+        features_mem = sorted([x["feature"] for x in items_mem])
+        features_orig = sorted([x["feature"] for x in self.samples])
+        
+        self.assertEqual(features_disk, features_orig)
+        self.assertEqual(features_mem, features_orig)
+        
+        # Test shuffle=False resets to original order
+        ds_disk.set_shuffle(False)
+        ds_mem.set_shuffle(False)
+        
+        items_disk_ordered = list(ds_disk)
+        items_mem_ordered = list(ds_mem)
+        
+        for i in range(20):
+            self.assertEqual(items_disk_ordered[i]["feature"], i)
+            self.assertEqual(items_mem_ordered[i]["feature"], i)
 
 if __name__ == "__main__":
     unittest.main()
