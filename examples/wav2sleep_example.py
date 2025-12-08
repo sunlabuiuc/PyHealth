@@ -1,102 +1,148 @@
 """
-Example usage of Wav2Sleep model for sleep stage classification
+Example usage of wav2sleep model for sleep stage classification.
+
+This script demonstrates how to use the wav2sleep model with different
+modality combinations and synthetic data for testing.
+
 Author: Meredith McClain (mmcclan2)
 """
 
 import torch
+from wav2sleep_pyhealth import Wav2Sleep
+
+def example_basic_usage():
+    """Basic example with all modalities."""
+    print("\n" + "="*50)
+    print("Example 1: Training with all modalities")
+    print("="*50)
+    
+    # Define modalities (signal name -> samples per epoch)
+    modalities = {
+        "ecg": 1024,  # 34 Hz * 30 seconds
+        "ppg": 1024,
+        "abd": 256,   # 8 Hz * 30 seconds
+        "thx": 256
+    }
+    
+    # Create model
+    model = Wav2Sleep(
+        modalities=modalities,
+        num_classes=5,
+        feature_dim=128,
+        dropout=0.1
+    )
+    
+    # Count parameters
+    num_params = sum(p.numel() for p in model.parameters())
+    print(f"Model created with {num_params:,} parameters")
+    
+    # Generate synthetic data for testing
+    # Simulate 10 hours of sleep (1200 epochs of 30 seconds each)
+    batch_size = 4
+    T = 1200  # number of epochs
+    
+    inputs = {
+        "ecg": torch.randn(batch_size, 1, T * 1024),
+        "ppg": torch.randn(batch_size, 1, T * 1024),
+        "abd": torch.randn(batch_size, 1, T * 256),
+        "thx": torch.randn(batch_size, 1, T * 256)
+    }
+    
+    # Generate random labels (0=Wake, 1=N1, 2=N2, 3=N3, 4=REM)
+    labels = torch.randint(0, 5, (batch_size, T))
+    
+    # Forward pass with all modalities
+    output = model(inputs, labels)
+    
+    print(f"\nLogits shape: {output['logits'].shape}")
+    print(f"Loss: {output['loss'].item():.4f}")
+    print(f"Predictions shape: {output['predictions'].shape}")
+    
+    return model
+
+
+def example_subset_modalities():
+    """Example with subset of modalities (ECG only)."""
+    print("\n" + "="*50)
+    print("Example 2: Inference with ECG only")
+    print("="*50)
+    
+    # Model with potential for multiple modalities
+    modalities = {
+        "ecg": 1024,
+        "ppg": 1024,
+        "thx": 256
+    }
+    
+    model = Wav2Sleep(modalities=modalities, num_classes=5)
+    
+    # Inference with only ECG (e.g., if PPG sensor fails)
+    batch_size = 4
+    T = 1200
+    
+    inputs_ecg_only = {
+        "ecg": torch.randn(batch_size, 1, T * 1024)
+    }
+    
+    # Get predictions without labels (inference mode)
+    probs = model.predict_proba(inputs_ecg_only)
+    
+    print(f"Probabilities shape: {probs.shape}")
+    print(f"Example probabilities for first epoch:")
+    print(probs[0, 0])
+    print(f"Sum of probabilities: {probs[0, 0].sum().item():.4f} (should be ~1.0)")
+    
+
+def example_variable_combinations():
+    """Example testing different modality combinations."""
+    print("\n" + "="*50)
+    print("Example 3: Testing variable modality combinations")
+    print("="*50)
+    
+    modalities = {
+        "ecg": 1024,
+        "ppg": 1024,
+        "abd": 256,
+        "thx": 256
+    }
+    
+    model = Wav2Sleep(modalities=modalities, num_classes=5)
+    
+    batch_size = 2
+    T = 100  # Shorter sequence for quick testing
+    
+    # Test different combinations
+    test_cases = [
+        {"ecg": torch.randn(batch_size, 1, T * 1024)},
+        {"ecg": torch.randn(batch_size, 1, T * 1024), 
+         "thx": torch.randn(batch_size, 1, T * 256)},
+        {"ppg": torch.randn(batch_size, 1, T * 1024), 
+         "abd": torch.randn(batch_size, 1, T * 256)},
+        {"ecg": torch.randn(batch_size, 1, T * 1024),
+         "ppg": torch.randn(batch_size, 1, T * 1024),
+         "abd": torch.randn(batch_size, 1, T * 256),
+         "thx": torch.randn(batch_size, 1, T * 256)}
+    ]
+    
+    for i, inputs in enumerate(test_cases, 1):
+        probs = model.predict_proba(inputs)
+        modality_names = ", ".join(inputs.keys())
+        print(f"Test {i} ({modality_names}): Output shape = {probs.shape} ✓")
+
 
 def main():
-    """Example: Use Wav2Sleep for multi-modal sleep staging"""
+    """Run all examples."""
+    print("\nWav2Sleep Model Example")
+    print("="*50)
     
-    print("=" * 60)
-    print("Wav2Sleep Example - Multi-Modal Sleep Stage Classification")
-    print("=" * 60)
+    # Run examples
+    model = example_basic_usage()
+    example_subset_modalities()
+    example_variable_combinations()
     
-    # Note: Import would normally be:
-    # from pyhealth.models.wav2sleep import Wav2Sleep
-    # For this standalone example, we assume the model is importable
-    
-    try:
-        from pyhealth.models.wav2sleep import Wav2Sleep
-        
-        # Define modalities and their sampling rates
-        modalities = {
-            "ecg": 1024,  # 34 Hz * 30 seconds per epoch
-            "ppg": 1024,  # 34 Hz * 30 seconds per epoch
-            "thx": 256    # 8 Hz * 30 seconds per epoch
-        }
-        
-        # Create model
-        model = Wav2Sleep(
-            modalities=modalities,
-            num_classes=5,  # Wake, N1, N2, N3, REM
-            feature_dim=128,
-            dropout=0.1
-        )
-        
-        print(f"\n✓ Model created successfully!")
-        print(f"  Total parameters: {sum(p.numel() for p in model.parameters()):,}")
-        
-        # Example data
-        batch_size = 2
-        T = 1200  # 10 hours = 1200 30-second epochs
-        
-        print(f"\n✓ Creating example data:")
-        print(f"  Batch size: {batch_size}")
-        print(f"  Sequence length: {T} epochs (10 hours)")
-        
-        # Scenario 1: All modalities available
-        print("\n--- Scenario 1: All modalities ---")
-        inputs_all = {
-            "ecg": torch.randn(batch_size, 1, T * 1024),
-            "ppg": torch.randn(batch_size, 1, T * 1024),
-            "thx": torch.randn(batch_size, 1, T * 256)
-        }
-        
-        probs_all = model.predict_proba(inputs_all)
-        print(f"  Input: ECG + PPG + THX")
-        print(f"  Output shape: {probs_all.shape}")
-        print(f"  ✓ Forward pass successful!")
-        
-        # Scenario 2: Only ECG available (e.g., sensor failure)
-        print("\n--- Scenario 2: ECG only ---")
-        inputs_ecg = {
-            "ecg": torch.randn(batch_size, 1, T * 1024)
-        }
-        
-        probs_ecg = model.predict_proba(inputs_ecg)
-        print(f"  Input: ECG only")
-        print(f"  Output shape: {probs_ecg.shape}")
-        print(f"  ✓ Forward pass successful!")
-        
-        # Scenario 3: Training with labels
-        print("\n--- Scenario 3: Training mode ---")
-        labels = torch.randint(0, 5, (batch_size, T))
-        
-        output = model(inputs_all, labels)
-        print(f"  Loss: {output['loss'].item():.4f}")
-        print(f"  Predictions shape: {output['predictions'].shape}")
-        print(f"  ✓ Training mode successful!")
-        
-        # Show example predictions
-        print("\n--- Example Predictions ---")
-        print(f"  First 10 predicted stages: {output['predictions'][0, :10].tolist()}")
-        print(f"  Stage distribution:")
-        for stage in range(5):
-            count = (output['predictions'][0] == stage).sum().item()
-            pct = 100 * count / T
-            stage_names = ['Wake', 'N1', 'N2', 'N3', 'REM']
-            print(f"    {stage_names[stage]}: {count} epochs ({pct:.1f}%)")
-        
-        print("\n" + "=" * 60)
-        print("✓ All examples completed successfully!")
-        print("=" * 60)
-        
-    except ImportError:
-        print("\n⚠ Wav2Sleep model not yet installed in PyHealth")
-        print("  This example will work once the PR is merged")
-        print("\n  Model structure validated ✓")
-        print("  Ready for PyHealth integration ✓")
+    print("\n" + "="*50)
+    print("Example completed successfully!")
+    print("="*50 + "\n")
 
 
 if __name__ == "__main__":
