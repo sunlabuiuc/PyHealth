@@ -19,7 +19,14 @@ class GDSCDataset(BaseDataset):
         **kwargs
     ) -> None:
         """
-        Initializes the GDSC Dataset with the specified parameters.
+        Initializes the GDSC (Genomics of Drug Sensitivity in Cancer) Dataset with the specified parameters.
+        The GDSC drug_info table is a drug-centric metadata table that describes compounds screened across
+          the Genomics of Drug Sensitivity in Cancer (GDSC) cell-line drug-sensitivity project.
+            Typical columns include unique drug identifiers, canonical names, alternate names/synonyms,
+              molecular or protein targets, higher-level pathways targeted, external chemical identifiers
+                (e.g., PubChem CID), and bookkeeping counts such as sample sizes or number of experiments.
+                  The broader GDSC resource pairs these drug metadata with measured drug response (e.g., IC50)
+                    across hundreds to thousands of cancer cell lines, enabling pharmacogenomic analyses.
 
         Args:
             root (str): The root directory where the dataset is stored.
