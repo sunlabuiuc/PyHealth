@@ -8,6 +8,7 @@ import random
 from bisect import bisect_right
 import litdata
 from litdata.utilities.train_test_split import deepcopy_dataset
+import copy
 
 from ..processors import get_processor
 from ..processors.base_processor import FeatureProcessor
@@ -464,16 +465,10 @@ class InMemorySampleDataset(SampleDataset):
             samples = self._data[indices]
         else:
             samples = [self._data[i] for i in indices]
-
-        return InMemorySampleDataset(
-            samples=samples,
-            input_schema=self.input_schema,
-            output_schema=self.output_schema,
-            dataset_name=self.dataset_name,
-            task_name=self.task_name,
-            input_processors=self.input_processors,
-            output_processors=self.output_processors,
-        )
+        
+        new_dataset = copy.deepcopy(self)
+        new_dataset._data = samples
+        return new_dataset
 
 
 def create_sample_dataset(
