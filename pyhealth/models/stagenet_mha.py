@@ -26,6 +26,9 @@ class StageNetLayer(nn.Module):
         dropconnect: the dropout rate for the dropconnect. Default is 0.3.
         dropout: the dropout rate for the dropout. Default is 0.3.
         dropres: the dropout rate for the residual connection. Default is 0.3.
+        num_heads: number of heads in the multi-head attention inserted between the SA-LSTM
+            and the stage-adaptive CNN. Default is 8.
+        attn_dropout: dropout rate applied to attention weights. Default is 0.1.
 
     Examples:
         >>> from pyhealth.models import StageNetLayer
@@ -45,6 +48,8 @@ class StageNetLayer(nn.Module):
         dropconnect: int = 0.3,
         dropout: int = 0.3,
         dropres: int = 0.3,
+        num_heads: int = 8,
+        attn_dropout: float = 0.1,
     ):
         super(StageNetLayer, self).__init__()
 
@@ -75,6 +80,17 @@ class StageNetLayer(nn.Module):
         self.nn_conv = nn.Conv1d(
             int(self.hidden_dim), int(self.conv_dim), int(conv_size), 1
         )
+        if self.hidden_dim % num_heads != 0:
+            raise ValueError(
+                f"hidden_dim ({self.hidden_dim}) must be divisible by num_heads ({num_heads})"
+            )
+        self.mha = nn.MultiheadAttention(
+            embed_dim=self.hidden_dim,
+            num_heads=num_heads,
+            dropout=attn_dropout,
+            batch_first=False,
+        )
+        self.attn_norm = nn.LayerNorm(self.hidden_dim)
         # self.nn_output = nn.Linear(int(self.conv_dim), int(output_dim))
 
         if self.dropconnect:
@@ -186,42 +202,45 @@ class StageNetLayer(nn.Module):
         batch_size, time_step, feature_dim = x.size()
         device = x.device
         if time == None:
-            time = torch.ones(batch_size, time_step)
+            time = torch.ones(batch_size, time_step, device=device)
         time = time.reshape(batch_size, time_step)
-        c_out = torch.zeros(batch_size, self.hidden_dim)
-        h_out = torch.zeros(batch_size, self.hidden_dim)
+        c_out = torch.zeros(batch_size, self.hidden_dim, device=device)
+        h_out = torch.zeros(batch_size, self.hidden_dim, device=device)
 
-        tmp_h = (
-            torch.zeros_like(h_out, dtype=torch.float32)
-            .view(-1)
-            .repeat(self.conv_size)
-            .view(self.conv_size, batch_size, self.hidden_dim)
-        )
-        tmp_dis = torch.zeros((self.conv_size, batch_size))
-        h = []
-        origin_h = []
+        hidden_states = []
         distance = []
         for t in range(time_step):
             out, c_out, h_out = self.step(x[:, t, :], c_out, h_out, time[:, t], device)
             cur_distance = 1 - torch.mean(
                 out[..., self.hidden_dim : self.hidden_dim + self.levels], -1
             )
-            origin_h.append(out[..., : self.hidden_dim])
-            tmp_h = torch.cat(
-                (
-                    tmp_h[1:].to(device=device),
-                    out[..., : self.hidden_dim].unsqueeze(0).to(device=device),
-                ),
-                0,
-            )
-            tmp_dis = torch.cat(
-                (
-                    tmp_dis[1:].to(device=device),
-                    cur_distance.unsqueeze(0).to(device=device),
-                ),
-                0,
-            )
+            hidden_states.append(out[..., : self.hidden_dim])
             distance.append(cur_distance)
+
+        # shape: [time, batch, hidden_dim]
+        hidden_seq = torch.stack(hidden_states)
+        distance = torch.stack(distance)
+
+        key_padding_mask = None
+        if mask is not None:
+            key_padding_mask = (mask == 0).to(device=device, dtype=torch.bool)
+
+        attn_output, _ = self.mha(
+            hidden_seq, hidden_seq, hidden_seq, key_padding_mask=key_padding_mask
+        )
+        attn_output = self.attn_norm(attn_output + hidden_seq)
+
+        tmp_h = torch.zeros(
+            (self.conv_size, batch_size, self.hidden_dim), device=device
+        )
+        tmp_dis = torch.zeros((self.conv_size, batch_size), device=device)
+        conv_outputs = []
+        for t in range(time_step):
+            cur_h = attn_output[t]
+            cur_distance = distance[t]
+
+            tmp_h = torch.cat((tmp_h[1:], cur_h.unsqueeze(0)), 0)
+            tmp_dis = torch.cat((tmp_dis[1:], cur_distance.unsqueeze(0)), 0)
 
             # Re-weighted convolution operation
             local_dis = tmp_dis.permute(1, 0)
@@ -232,17 +251,17 @@ class StageNetLayer(nn.Module):
 
             # Re-calibrate Progression patterns
             local_theme = torch.mean(local_h, dim=-1)
-            local_theme = self.nn_scale(local_theme).to(device)
+            local_theme = self.nn_scale(local_theme)
             local_theme = self._apply_activation("relu", local_theme)
-            local_theme = self.nn_rescale(local_theme).to(device)
+            local_theme = self.nn_rescale(local_theme)
             local_theme = self._apply_activation("sigmoid", local_theme)
 
             local_h = self.nn_conv(local_h).squeeze(-1)
             local_h = local_theme * local_h
-            h.append(local_h)
+            conv_outputs.append(local_h)
 
-        origin_h = torch.stack(origin_h).permute(1, 0, 2)
-        rnn_outputs = torch.stack(h).permute(1, 0, 2)
+        origin_h = attn_output.permute(1, 0, 2)
+        rnn_outputs = torch.stack(conv_outputs).permute(1, 0, 2)
         if self.dropres > 0.0:
             origin_h = self.nn_dropres(origin_h)
         rnn_outputs = rnn_outputs + origin_h
@@ -253,7 +272,7 @@ class StageNetLayer(nn.Module):
         output = rnn_outputs.contiguous().view(batch_size, time_step, self.hidden_dim)
         last_output = get_last_visit(output, mask)
 
-        return last_output, output, torch.stack(distance)
+        return last_output, output, distance
 
 
 class StageNet(BaseModel):
