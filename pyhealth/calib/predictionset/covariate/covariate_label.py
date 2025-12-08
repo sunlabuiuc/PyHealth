@@ -14,7 +14,7 @@ from typing import Callable, Dict, Optional, Union
 
 import numpy as np
 import torch
-from torch.utils.data import Subset
+from torch.utils.data import IterableDataset
 
 from pyhealth.calib.base_classes import SetPredictor
 from pyhealth.calib.calibration.kcal.kde import RBFKernelMean
@@ -306,7 +306,7 @@ class CovariateLabel(SetPredictor):
 
     def calibrate(
         self,
-        cal_dataset: Subset,
+        cal_dataset: IterableDataset,
         cal_embeddings: Optional[np.ndarray] = None,
         test_embeddings: Optional[np.ndarray] = None,
     ):
