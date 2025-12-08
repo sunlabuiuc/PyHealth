@@ -1,19 +1,20 @@
 """
 Wav2Sleep: Multi-Modal Sleep Stage Classification Model
 
-Author: Meredith McClain
-NetID: mmcclan2
+Author: Meredith McClain (mmcclan2)
 Paper: wav2sleep: A Unified Multi-Modal Approach to Sleep Stage Classification 
        from Physiological Signals
 Link: https://arxiv.org/abs/2411.04644
 Description: Unified model for sleep stage classification that operates on 
              variable sets of physiological signals (ECG, PPG, ABD, THX)
+
 """
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Dict, List, Optional
+import math
 
 
 class ResidualBlock(nn.Module):
