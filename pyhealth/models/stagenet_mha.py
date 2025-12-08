@@ -275,11 +275,12 @@ class StageNetLayer(nn.Module):
         return last_output, output, distance
 
 
-class StageNet(BaseModel):
+class StageAttentionNet(BaseModel):
     """StageNet model.
 
     Paper: Junyi Gao et al. Stagenet: Stage-aware neural networks for health
-    risk prediction. WWW 2020.
+    risk prediction. WWW 2020. But with Multi-Head Attention (MHA) between
+    the SA-LSTM and the SA-CNN.
 
     This model uses the StageNetProcessor which expects inputs in the format:
         {"value": [...], "time": [...]}
@@ -376,7 +377,7 @@ class StageNet(BaseModel):
         levels: int = 3,
         **kwargs,
     ):
-        super(StageNet, self).__init__(
+        super(StageAttentionNet, self).__init__(
             dataset=dataset,
         )
         self.embedding_dim = embedding_dim
@@ -689,7 +690,7 @@ if __name__ == "__main__":
     train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
 
     # model
-    model = StageNet(dataset=dataset)
+    model = StageAttentionNet(dataset=dataset)
 
     # data batch
     data_batch = next(iter(train_loader))

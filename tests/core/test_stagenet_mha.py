@@ -2,7 +2,7 @@ import unittest
 import torch
 
 from pyhealth.datasets import SampleDataset, get_dataloader
-from pyhealth.models.stagenet_mha import StageNet as StageNetMHA
+from pyhealth.models.stagenet_mha import StageAttentionNet as StageNetMHA
 
 
 class TestStageNetMHA(unittest.TestCase):
