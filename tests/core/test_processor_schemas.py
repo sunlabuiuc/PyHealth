@@ -13,7 +13,7 @@ import random
 import numpy as np
 
 from pyhealth.datasets import MIMIC3Dataset
-from pyhealth.datasets.sample_dataset import SampleDataset
+from pyhealth.datasets.sample_dataset import create_sample_dataset
 from pyhealth.processors import TextProcessor, MultiLabelProcessor, TimeseriesProcessor
 from pyhealth.tasks.medical_coding import MIMIC3ICD9Coding
 from pyhealth.tasks.base_task import BaseTask
@@ -116,6 +116,7 @@ class MIMIC3ICD9CodingHybridSchema(BaseTask):
                 df.filter(pl.col("event_type") == "noteevents")
                 .select("patient_id")
                 .unique()
+                .collect()
                 .to_series()
             )
         )
@@ -326,7 +327,7 @@ class TestProcessorKwargs(unittest.TestCase):
                 }
 
         task = TestTimeseriesTask()
-        sample_dataset = SampleDataset(
+        sample_dataset = create_sample_dataset(
             samples=samples,
             input_schema=task.input_schema,
             output_schema=task.output_schema,
@@ -379,7 +380,7 @@ class TestProcessorKwargs(unittest.TestCase):
                 }
 
         task = TestTimeseriesTask()
-        sample_dataset = SampleDataset(
+        sample_dataset = create_sample_dataset(
             samples=samples,
             input_schema=task.input_schema,
             output_schema=task.output_schema,

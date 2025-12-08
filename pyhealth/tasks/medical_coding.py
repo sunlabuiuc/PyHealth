@@ -37,6 +37,7 @@ class MIMIC3ICD9Coding(BaseTask):
                 df.filter(pl.col("event_type") == "noteevents")
                 .select("patient_id")
                 .unique()
+                .collect()
                 .to_series()
             )
         )
