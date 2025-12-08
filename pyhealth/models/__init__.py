@@ -1,6 +1,7 @@
 from .adacare import AdaCare, AdaCareLayer
 from .agent import Agent, AgentLayer
 from .base_model import BaseModel
+from .bulkrnabert import BulkRNABert, BulkRNABertLayer, BulkRNABertForSurvival, compute_c_index
 from .cnn import CNN, CNNLayer
 from .concare import ConCare, ConCareLayer
 from .contrawr import ContraWR, ResBlock2D
