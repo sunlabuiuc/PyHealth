@@ -1,7 +1,8 @@
 """
 Wav2Sleep: Multi-Modal Sleep Stage Classification Model
 
-Author: Meredith McClain (mmcclan2)
+Author: Meredith McClain
+NetID: mmcclan2
 Paper: wav2sleep: A Unified Multi-Modal Approach to Sleep Stage Classification 
        from Physiological Signals
 Link: https://arxiv.org/abs/2411.04644
