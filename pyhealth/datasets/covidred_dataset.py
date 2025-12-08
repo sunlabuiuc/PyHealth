@@ -26,39 +26,40 @@ class COVIDREDDataset(Dataset):
     ----------
     root : str
         Root directory containing the COVID-RED dataset files.
-        Expected files: 
-        - heart_rate.csv (daily heart rate measurements)
-        - steps.csv (daily step counts)
-        - sleep.csv (daily sleep duration)
-        - labels.csv (COVID-19 test results and symptom dates)
+        Expected files (from DataverseNL download):
+        - bc_20230515.csv (baseline characteristics)
+        - ct_20230515.csv (COVID-19 test results)
+        - cv_20230515.csv (COVID-19 vaccination)
+        - dm_20230515.csv (daily measurements - heart rate, steps, etc.)
+        - field_options.csv (field value mappings)
+        - ho_20230515.csv (hospitalization)
+        - hu_20230515.csv (healthcare utilization)
+        - ie_20230515.csv (illness episodes)
+        - mh_20230515.csv (medical history)
+        - ov_20230515.csv (overview/participant info)
+        - pcr_20230515.csv (PCR test results)
+        - sc_20230515.csv (symptom checklist)
+        - ser_20230515.csv (serology results)
+        - si_20230515.csv (symptom information)
+        - variable_descriptions.csv (data dictionary)
+        - wd_20230515.csv (wearable device data)
     
     split : Literal["train", "test", "all"], default="train"
         Which split of the data to use.
-        - "train": Training set (70% of participants)
-        - "test": Test set (30% of participants)
-        - "all": All data
     
     window_days : int, default=7
         Number of days to include in each sample window.
     
     task : Literal["detection", "prediction"], default="detection"
         Task type:
-        - "detection": Classify COVID-19 positive vs negative during illness period
-        - "prediction": Predict COVID-19 onset before symptom onset (early detection)
+        - "detection": Classify COVID-19 positive vs negative
+        - "prediction": Predict COVID-19 onset before symptom onset
     
     transform : Optional[Callable], default=None
         Optional transform to be applied on a sample.
     
     random_seed : int, default=42
         Random seed for train/test split reproducibility.
-    
-    Attributes
-    ----------
-    samples : list
-        List of sample dictionaries containing features and labels.
-    
-    feature_names : list
-        Names of features included in each sample.
     
     Examples
     --------
@@ -72,17 +73,10 @@ class COVIDREDDataset(Dataset):
     >>> print(f"Dataset size: {len(dataset)}")
     >>> sample = dataset[0]
     >>> print(f"Features shape: {sample['features'].shape}")
-    >>> print(f"Label: {sample['label']}")
     
     Notes
     -----
-    The dataset must be manually downloaded from:
-    https://dataverse.nl/dataset.xhtml?persistentId=doi:10.34894/FW9PO7
-    
-    Citation:
-    Olthof, A.W., Schut, A., van Beijnum, B.F. et al. (2021). 
-    Remote Early Detection of SARS-CoV-2 infections (COVID-RED).
-    DataverseNL. https://doi.org/10.34894/FW9PO7
+    Download from: https://dataverse.nl/dataset.xhtml?persistentId=doi:10.34894/FW9PO7
     """
     
     def __init__(
@@ -101,10 +95,10 @@ class COVIDREDDataset(Dataset):
         self.transform = transform
         self.random_seed = random_seed
         
-        # Feature names for each data type
+        # Feature names
         self.feature_names = [
             "resting_hr_mean",
-            "resting_hr_std",
+            "resting_hr_std", 
             "resting_hr_min",
             "resting_hr_max",
             "steps_total",
@@ -118,178 +112,243 @@ class COVIDREDDataset(Dataset):
         self._create_samples()
         
     def _load_data(self):
-        """Load CSV files from the dataset directory."""
+        """Load CSV files from the COVID-RED dataset directory."""
         # Check if required files exist
-        required_files = ["heart_rate.csv", "steps.csv", "sleep.csv", "labels.csv"]
-        for file in required_files:
-            file_path = os.path.join(self.root, file)
+        required_files = {
+            'daily_measurements': 'dm_20230515.csv',
+            'wearable_data': 'wd_20230515.csv',
+            'covid_tests': 'ct_20230515.csv',
+            'symptom_info': 'si_20230515.csv',
+            'illness_episodes': 'ie_20230515.csv',
+            'overview': 'ov_20230515.csv',
+        }
+        
+        missing_files = []
+        for name, filename in required_files.items():
+            file_path = os.path.join(self.root, filename)
             if not os.path.exists(file_path):
-                raise FileNotFoundError(
-                    f"Required file '{file}' not found in {self.root}. "
-                    f"Please download the COVID-RED dataset from: "
-                    f"https://dataverse.nl/dataset.xhtml?persistentId=doi:10.34894/FW9PO7"
-                )
+                missing_files.append(filename)
         
-        # Load data files
-        self.heart_rate_df = pd.read_csv(os.path.join(self.root, "heart_rate.csv"))
-        self.steps_df = pd.read_csv(os.path.join(self.root, "steps.csv"))
-        self.sleep_df = pd.read_csv(os.path.join(self.root, "sleep.csv"))
-        self.labels_df = pd.read_csv(os.path.join(self.root, "labels.csv"))
+        if missing_files:
+            raise FileNotFoundError(
+                f"Required files not found in {self.root}:\n"
+                f"{', '.join(missing_files)}\n\n"
+                f"Please download the COVID-RED dataset from:\n"
+                f"https://dataverse.nl/dataset.xhtml?persistentId=doi:10.34894/FW9PO7\n\n"
+                f"Expected files:\n" + 
+                "\n".join(f"  - {f}" for f in required_files.values())
+            )
         
-        # Convert date columns to datetime
-        for df in [self.heart_rate_df, self.steps_df, self.sleep_df, self.labels_df]:
-            if "date" in df.columns:
-                df["date"] = pd.to_datetime(df["date"])
+        # Load main data files
+        print(f"Loading COVID-RED dataset from {self.root}...")
         
+        self.daily_measurements = pd.read_csv(os.path.join(self.root, 'dm_20230515.csv'))
+        self.wearable_data = pd.read_csv(os.path.join(self.root, 'wd_20230515.csv'))
+        self.covid_tests = pd.read_csv(os.path.join(self.root, 'ct_20230515.csv'))
+        self.symptom_info = pd.read_csv(os.path.join(self.root, 'si_20230515.csv'))
+        self.illness_episodes = pd.read_csv(os.path.join(self.root, 'ie_20230515.csv'))
+        self.overview = pd.read_csv(os.path.join(self.root, 'ov_20230515.csv'))
+        
+        print(f"✓ Loaded {len(self.overview)} participants")
+        print(f"✓ Daily measurements: {len(self.daily_measurements)} records")
+        print(f"✓ Wearable data: {len(self.wearable_data)} records")
+        
+        # Convert date columns
+        self._convert_dates()
+        
+    def _convert_dates(self):
+        """Convert date columns to datetime format."""
+        date_columns_map = {
+            'daily_measurements': ['date', 'measurement_date'],
+            'wearable_data': ['date', 'wear_date'],
+            'covid_tests': ['test_date', 'result_date'],
+            'symptom_info': ['symptom_date', 'onset_date'],
+            'illness_episodes': ['start_date', 'end_date'],
+        }
+        
+        for df_name, possible_cols in date_columns_map.items():
+            df = getattr(self, df_name)
+            for col in possible_cols:
+                if col in df.columns:
+                    try:
+                        df[col] = pd.to_datetime(df[col], errors='coerce')
+                    except:
+                        pass
+    
     def _create_samples(self):
         """Create samples with sliding windows."""
         self.samples = []
         
         # Get unique participants
-        participants = self.labels_df["participant_id"].unique()
+        id_col = self._find_id_column(self.overview)
+        participants = self.overview[id_col].unique()
         
-        # Split participants into train/test
+        # Split participants
         import numpy as np
         np.random.seed(self.random_seed)
         n_train = int(len(participants) * 0.7)
-        shuffled_participants = np.random.permutation(participants)
-        train_participants = shuffled_participants[:n_train]
-        test_participants = shuffled_participants[n_train:]
+        shuffled = np.random.permutation(participants)
         
-        # Select participants based on split
         if self.split == "train":
-            selected_participants = train_participants
+            selected = shuffled[:n_train]
         elif self.split == "test":
-            selected_participants = test_participants
-        else:  # "all"
-            selected_participants = participants
+            selected = shuffled[n_train:]
+        else:
+            selected = participants
         
-        # Create samples for each participant
-        for participant_id in selected_participants:
+        print(f"\nCreating samples for {len(selected)} participants...")
+        
+        for participant_id in selected:
             self._create_participant_samples(participant_id)
+        
+        print(f"✓ Created {len(self.samples)} samples")
     
-    def _create_participant_samples(self, participant_id: int):
+    def _find_id_column(self, df):
+        """Find the participant ID column in a dataframe."""
+        for col in ['participant_id', 'subject_id', 'id', 'user_id']:
+            if col in df.columns:
+                return col
+        return df.columns[0]
+    
+    def _create_participant_samples(self, participant_id):
         """Create samples for a single participant."""
+        id_col = self._find_id_column(self.daily_measurements)
+        
         # Get participant data
-        hr_data = self.heart_rate_df[
-            self.heart_rate_df["participant_id"] == participant_id
-        ].sort_values("date")
+        data = self.daily_measurements[
+            self.daily_measurements[id_col] == participant_id
+        ].copy()
         
-        steps_data = self.steps_df[
-            self.steps_df["participant_id"] == participant_id
-        ].sort_values("date")
+        if len(data) == 0:
+            return
         
-        sleep_data = self.sleep_df[
-            self.sleep_df["participant_id"] == participant_id
-        ].sort_values("date")
+        # Find date column
+        date_col = None
+        for col in ['date', 'measurement_date', 'day', 'record_date']:
+            if col in data.columns:
+                date_col = col
+                break
         
-        label_info = self.labels_df[
-            self.labels_df["participant_id"] == participant_id
-        ].iloc[0]
+        if not date_col:
+            return
         
-        # Merge data on date
-        merged = hr_data.merge(
-            steps_data, on=["participant_id", "date"], how="outer"
-        ).merge(
-            sleep_data, on=["participant_id", "date"], how="outer"
-        ).sort_values("date")
+        data = data.sort_values(date_col)
         
-        # Fill missing values with forward fill then backward fill
-        merged = merged.fillna(method="ffill").fillna(method="bfill")
+        # Get COVID label
+        covid_positive, symptom_date = self._get_covid_label(participant_id)
         
-        # Create sliding windows
-        for i in range(len(merged) - self.window_days + 1):
-            window_data = merged.iloc[i:i + self.window_days]
+        # Create windows
+        for i in range(len(data) - self.window_days + 1):
+            window = data.iloc[i:i + self.window_days]
             
-            # Determine label based on task type
+            window_start = window[date_col].iloc[0]
+            window_end = window[date_col].iloc[-1]
+            
+            # Determine label
             if self.task == "detection":
-                # COVID-19 positive (1) or negative (0) during illness period
-                label = int(label_info["covid_positive"])
-            else:  # "prediction"
-                # Early detection: predict COVID-19 onset
-                # Check if window is before symptom onset
-                if pd.notna(label_info.get("symptom_onset_date")):
-                    symptom_date = pd.to_datetime(label_info["symptom_onset_date"])
-                    window_end = window_data["date"].iloc[-1]
-                    # Label as 1 if participant will develop COVID-19
-                    # and window is before symptom onset
-                    if label_info["covid_positive"] == 1:
+                label = covid_positive
+            else:  # prediction
+                label = 0
+                if covid_positive == 1 and symptom_date is not None:
+                    if pd.notna(symptom_date) and pd.notna(window_end):
                         days_to_onset = (symptom_date - window_end).days
-                        # Pre-symptomatic period (1-14 days before onset)
                         label = int(0 < days_to_onset <= 14)
-                    else:
-                        label = 0
-                else:
-                    label = 0
             
             # Extract features
-            features = self._extract_features(window_data)
+            features = self._extract_features(window)
             
-            # Create sample
-            sample = {
-                "participant_id": participant_id,
-                "window_start_date": window_data["date"].iloc[0],
-                "window_end_date": window_data["date"].iloc[-1],
-                "features": features,
-                "label": label,
-            }
-            
-            self.samples.append(sample)
+            if features is not None:
+                self.samples.append({
+                    "participant_id": participant_id,
+                    "window_start_date": window_start,
+                    "window_end_date": window_end,
+                    "features": features,
+                    "label": label,
+                })
     
-    def _extract_features(self, window_data: pd.DataFrame) -> torch.Tensor:
-        """
-        Extract features from a window of data.
+    def _get_covid_label(self, participant_id):
+        """Get COVID-19 label for a participant."""
+        id_col = self._find_id_column(self.covid_tests)
         
-        Parameters
-        ----------
-        window_data : pd.DataFrame
-            DataFrame containing window_days rows of measurements.
+        tests = self.covid_tests[self.covid_tests[id_col] == participant_id]
         
-        Returns
-        -------
-        torch.Tensor
-            Feature tensor of shape (window_days, n_features).
-        """
+        # Check for positive result
+        covid_positive = 0
+        for col in ['test_result', 'result', 'pcr_result', 'outcome', 'positive']:
+            if col in tests.columns and len(tests) > 0:
+                results = tests[col].astype(str).str.lower()
+                if any(r in ['positive', '1', 'true', 'pos'] for r in results):
+                    covid_positive = 1
+                    break
+        
+        # Get symptom onset
+        symptom_date = None
+        id_col_symptom = self._find_id_column(self.symptom_info)
+        symptoms = self.symptom_info[self.symptom_info[id_col_symptom] == participant_id]
+        
+        if len(symptoms) > 0:
+            for col in ['onset_date', 'symptom_date', 'start_date']:
+                if col in symptoms.columns:
+                    dates = symptoms[col].dropna()
+                    if len(dates) > 0:
+                        symptom_date = pd.to_datetime(dates.iloc[0])
+                        break
+        
+        return covid_positive, symptom_date
+    
+    def _extract_features(self, window_data):
+        """Extract features from a window."""
+        feature_mapping = {
+            'resting_hr_mean': ['hr_mean', 'heart_rate_mean', 'resting_hr', 'hr_avg'],
+            'resting_hr_std': ['hr_std', 'heart_rate_std', 'hr_sd'],
+            'resting_hr_min': ['hr_min', 'heart_rate_min'],
+            'resting_hr_max': ['hr_max', 'heart_rate_max'],
+            'steps_total': ['steps', 'step_count', 'daily_steps', 'total_steps'],
+            'steps_mean_hourly': ['steps_per_hour', 'hourly_steps'],
+            'sleep_duration_hours': ['sleep_hours', 'sleep_duration', 'total_sleep'],
+            'sleep_efficiency': ['sleep_eff', 'sleep_quality'],
+        }
+        
         features = []
         
         for _, row in window_data.iterrows():
-            day_features = [
-                row.get("resting_hr_mean", 0.0),
-                row.get("resting_hr_std", 0.0),
-                row.get("resting_hr_min", 0.0),
-                row.get("resting_hr_max", 0.0),
-                row.get("steps_total", 0.0),
-                row.get("steps_mean_hourly", 0.0),
-                row.get("sleep_duration_hours", 0.0),
-                row.get("sleep_efficiency", 0.0),
-            ]
+            day_features = []
+            
+            for feature_name in self.feature_names:
+                value = 0.0
+                possible_cols = feature_mapping.get(feature_name, [feature_name])
+                
+                for col in possible_cols:
+                    if col in row.index and pd.notna(row[col]):
+                        value = float(row[col])
+                        break
+                
+                # Calculate derived features
+                if feature_name == 'steps_mean_hourly' and value == 0.0:
+                    for col in feature_mapping['steps_total']:
+                        if col in row.index and pd.notna(row[col]):
+                            value = float(row[col]) / 24.0
+                            break
+                
+                day_features.append(value)
+            
             features.append(day_features)
         
-        return torch.tensor(features, dtype=torch.float32)
+        try:
+            tensor = torch.tensor(features, dtype=torch.float32)
+            if tensor.shape == (self.window_days, len(self.feature_names)):
+                return tensor
+        except:
+            pass
+        
+        return None
     
-    def __len__(self) -> int:
-        """Return the number of samples in the dataset."""
+    def __len__(self):
+        """Return the number of samples."""
         return len(self.samples)
     
-    def __getitem__(self, idx: int) -> dict:
-        """
-        Get a sample from the dataset.
-        
-        Parameters
-        ----------
-        idx : int
-            Index of the sample.
-        
-        Returns
-        -------
-        dict
-            Sample dictionary containing:
-            - participant_id: Participant identifier
-            - window_start_date: Start date of the window
-            - window_end_date: End date of the window
-            - features: Feature tensor of shape (window_days, n_features)
-            - label: Binary label (0 or 1)
-        """
+    def __getitem__(self, idx):
+        """Get a sample."""
         sample = self.samples[idx].copy()
         
         if self.transform:
@@ -297,13 +356,13 @@ class COVIDREDDataset(Dataset):
         
         return sample
     
-    def get_feature_names(self) -> list:
-        """Return the list of feature names."""
+    def get_feature_names(self):
+        """Return feature names."""
         return self.feature_names
     
-    def get_label_distribution(self) -> dict:
-        """Return the distribution of labels in the dataset."""
-        labels = [sample["label"] for sample in self.samples]
+    def get_label_distribution(self):
+        """Return label distribution."""
+        labels = [s["label"] for s in self.samples]
         return {
             "total_samples": len(labels),
             "positive_samples": sum(labels),
