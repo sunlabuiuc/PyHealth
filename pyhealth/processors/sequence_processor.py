@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, override
+from typing import Any, Dict, List
 
 import torch
 
@@ -20,7 +20,6 @@ class SequenceProcessor(FeatureProcessor):
         self.code_vocab: Dict[Any, int] = {"<pad>": 0}
         self._next_index = 1
 
-    @override
     def fit(self, samples: List[Dict[str, Any]], field: str) -> None:
         for sample in samples:
             for token in sample[field]:
@@ -32,7 +31,6 @@ class SequenceProcessor(FeatureProcessor):
 
         self.code_vocab["<unk>"] = len(self.code_vocab)
 
-    @override
     def process(self, value: Any) -> torch.Tensor:
         """Process token value(s) into tensor of indices.
 

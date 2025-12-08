@@ -2,7 +2,7 @@ from collections.abc import Sequence
 from pathlib import Path
 import pickle
 import tempfile
-from typing import Any, Dict, Iterable, List, Optional, Tuple, Union, Type, override
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Union, Type
 import inspect
 import random
 from bisect import bisect_right
@@ -279,7 +279,6 @@ class SampleDataset(litdata.StreamingDataset):
         self.patient_to_index = metadata["patient_to_index"]
         self.record_to_index = metadata["record_to_index"]
 
-    @override
     def __str__(self) -> str:
         """Returns a string representation of the dataset.
 
@@ -420,11 +419,9 @@ class InMemorySampleDataset(SampleDataset):
 
         self._shuffle = False
 
-    @override
     def set_shuffle(self, shuffle: bool) -> None:
         self._shuffle = shuffle
 
-    @override
     def __len__(self) -> int:
         """Returns the number of samples in the dataset.
 
@@ -433,7 +430,6 @@ class InMemorySampleDataset(SampleDataset):
         """
         return len(self._data)
 
-    @override
     def __getitem__(self, index: int) -> Dict[str, Any]:  # type: ignore
         """Retrieve a processed sample by index.
 
@@ -445,7 +441,6 @@ class InMemorySampleDataset(SampleDataset):
         """
         return self._data[index]
 
-    @override
     def __iter__(self) -> Iterable[Dict[str, Any]]:  # type: ignore
         """Returns an iterator over all samples in the dataset.
 
@@ -459,13 +454,12 @@ class InMemorySampleDataset(SampleDataset):
         else:
             return iter(self._data)
 
-    @override
     def subset(self, indices: Union[Sequence[int], slice]) -> SampleDataset:
         if isinstance(indices, slice):
             samples = self._data[indices]
         else:
             samples = [self._data[i] for i in indices]
-        
+
         new_dataset = copy.deepcopy(self)
         new_dataset._data = samples
         return new_dataset

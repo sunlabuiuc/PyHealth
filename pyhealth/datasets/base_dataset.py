@@ -258,6 +258,11 @@ class BaseDataset(ABC):
             cache_dir.mkdir(parents=True, exist_ok=True)
             print(f"No cache_dir provided. Using default cache dir: {cache_dir}")
             self._cache_dir = cache_dir
+        else:
+            # Ensure the explicitly provided cache_dir exists
+            cache_dir = Path(self._cache_dir)
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            self._cache_dir = cache_dir
         return Path(self._cache_dir)
 
     @property
@@ -390,7 +395,8 @@ class BaseDataset(ABC):
 
         # Flatten attribute columns with event_type prefix
         attribute_columns = [
-            pl.col(attr.lower()).alias(f"{table_name}/{attr}") for attr in attribute_cols
+            pl.col(attr.lower()).alias(f"{table_name}/{attr}")
+            for attr in attribute_cols
         ]
 
         event_frame = df.select(base_columns + attribute_columns)
@@ -522,6 +528,10 @@ class BaseDataset(ABC):
 
         if cache_dir is None:
             cache_dir = self.cache_dir / "tasks" / task.task_name
+            cache_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            # Ensure the explicitly provided cache_dir exists
+            cache_dir = Path(cache_dir)
             cache_dir.mkdir(parents=True, exist_ok=True)
 
         path = Path(cache_dir)
