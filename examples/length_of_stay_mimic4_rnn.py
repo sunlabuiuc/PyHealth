@@ -1,19 +1,19 @@
-from pyhealth.datasets import MIMIC3Dataset, get_dataloader, split_by_patient
+from pyhealth.datasets import MIMIC4EHRDataset, get_dataloader, split_by_patient
 from pyhealth.models import RNN
-from pyhealth.tasks import LengthOfStayPredictionMIMIC3
+from pyhealth.tasks import LengthOfStayPredictionMIMIC4
 from pyhealth.trainer import Trainer
 
 # STEP 1: load data
-base_dataset = MIMIC3Dataset(
-    root="/srv/local/data/physionet.org/files/mimiciii/1.4",
-    tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
-    code_mapping={"ICD9CM": "CCSCM", "ICD9PROC": "CCSPROC", "NDC": "ATC"},
+base_dataset = MIMIC4EHRDataset(
+    root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
+    tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
+    code_mapping={"NDC": "ATC"},
     dev=False,
 )
 base_dataset.stat()
 
 # STEP 2: set task
-sample_dataset = base_dataset.set_task(LengthOfStayPredictionMIMIC3())
+sample_dataset = base_dataset.set_task(LengthOfStayPredictionMIMIC4())
 sample_dataset.stat()
 
 train_dataset, val_dataset, test_dataset = split_by_patient(
