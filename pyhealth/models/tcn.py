@@ -36,8 +36,7 @@ class TemporalBlock(nn.Module):
                 stride=stride,
                 padding=padding,
                 dilation=dilation,
-            ),
-            dim=None,
+            )
         )
         self.chomp1 = Chomp1d(padding)
         self.relu1 = nn.ReLU()
@@ -51,8 +50,7 @@ class TemporalBlock(nn.Module):
                 stride=stride,
                 padding=padding,
                 dilation=dilation,
-            ),
-            dim=None,
+            )
         )
         self.chomp2 = Chomp1d(padding)
         self.relu2 = nn.ReLU()
@@ -123,54 +121,13 @@ class TCNLayer(nn.Module):
     ):
         super(TCNLayer, self).__init__()
 
-        # Validate kernel_size
-        if kernel_size < 2:
-            raise ValueError(
-                f"kernel_size must be >= 2 for TCN, got {kernel_size}. "
-                "kernel_size=1 would result in no temporal modeling."
-            )
-
         layers = []
 
         # We compute automatically the depth based on the desired seq_length.
         if isinstance(num_channels, int):
-            if not max_seq_length:
-                raise ValueError(
-                    "max_seq_length must be provided when num_channels is int"
-                )
-            # Validate max_seq_length
-            if max_seq_length <= 0:
-                raise ValueError(
-                    f"max_seq_length must be positive, got {max_seq_length}"
-                )
-            if max_seq_length < 2 * kernel_size:
-                raise ValueError(
-                    f"max_seq_length must be >= 2 * kernel_size ({2 * kernel_size}) "
-                    f"for automatic depth calculation, got {max_seq_length}. "
-                    f"Either increase max_seq_length or provide num_channels as a list."
-                )
-            # Validate num_channels value
-            if num_channels <= 0:
-                raise ValueError(
-                    f"num_channels must be positive, got {num_channels}"
-                )
             num_channels = [num_channels] * int(
                 np.ceil(np.log(max_seq_length / 2) / np.log(kernel_size))
             )
-        # num_channels is now always a list
-
-        # Validate num_channels list is not empty and all elements are positive
-        if not num_channels or len(num_channels) == 0:
-            raise ValueError(
-                "num_channels must be a non-empty list or a positive integer"
-            )
-        if isinstance(num_channels, list):
-            for i, nc in enumerate(num_channels):
-                if nc <= 0:
-                    raise ValueError(
-                        f"All num_channels values must be positive, "
-                        f"got {nc} at index {i}"
-                    )
 
         # Store the actual output dimension (last layer's output size)
         self.num_channels = num_channels[-1]
@@ -278,13 +235,6 @@ class TCN(BaseModel):
         assert len(self.label_keys) == 1, "Only one label key is supported if TCN is initialized"
         self.label_key = self.label_keys[0]
         self.mode = self.dataset.output_schema[self.label_key]
-
-        # Validate that we have at least one feature
-        if not self.feature_keys or len(self.feature_keys) == 0:
-            raise ValueError(
-                "TCN requires at least one feature key. "
-                "Please provide feature_keys in your dataset configuration."
-            )
 
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
 
