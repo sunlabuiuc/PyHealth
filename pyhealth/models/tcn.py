@@ -120,7 +120,6 @@ class TCNLayer(nn.Module):
         dropout: float = 0.5,
     ):
         super(TCNLayer, self).__init__()
-
         layers = []
 
         # We compute automatically the depth based on the desired seq_length.
