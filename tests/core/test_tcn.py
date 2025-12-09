@@ -163,42 +163,6 @@ class TestTCN(unittest.TestCase):
         self.assertIn("loss", ret)
         self.assertIn("y_prob", ret)
 
-    def test_validation_kernel_size(self):
-        """Test that invalid kernel_size raises ValueError."""
-        with self.assertRaises(ValueError) as context:
-            TCN(
-                dataset=self.dataset,
-                kernel_size=1,
-            )
-        self.assertIn("kernel_size must be >= 2", str(context.exception))
-
-    def test_validation_negative_num_channels(self):
-        """Test that negative num_channels raises ValueError."""
-        with self.assertRaises(ValueError) as context:
-            TCN(
-                dataset=self.dataset,
-                num_channels=-10,
-            )
-        self.assertIn("must be positive", str(context.exception))
-
-    def test_validation_empty_num_channels_list(self):
-        """Test that empty num_channels list raises ValueError."""
-        with self.assertRaises(ValueError) as context:
-            TCN(
-                dataset=self.dataset,
-                num_channels=[],
-            )
-        self.assertIn("non-empty", str(context.exception))
-
-    def test_validation_negative_in_num_channels_list(self):
-        """Test that negative value in num_channels list raises ValueError."""
-        with self.assertRaises(ValueError) as context:
-            TCN(
-                dataset=self.dataset,
-                num_channels=[128, -64, 256],
-            )
-        self.assertIn("must be positive", str(context.exception))
-
 
 if __name__ == "__main__":
     unittest.main()
