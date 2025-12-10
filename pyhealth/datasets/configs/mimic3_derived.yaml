@@ -1,0 +1,20 @@
+version: "3.1"
+tables:
+  vasopressor_durations:
+    file_path: "mimic3_vasopressor_durations.csv.gz"
+    patient_id: "icustay_id"
+    timestamp: "starttime"
+    attributes:
+      - "icustay_id"
+      - "vasonum"
+      - "endtime"
+      - "duration_hours"
+  ventilation_durations:
+    file_path: "mimic3_ventilation_duration.csv.gz"
+    patient_id: "stay_id"
+    timestamp: "starttime"
+    attributes:
+      - "icustay_id"
+      - "ventnum"
+      - "endtime"
+      - "duration_hours"
