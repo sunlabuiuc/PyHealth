@@ -36,6 +36,7 @@ Available Datasets
     datasets/pyhealth.datasets.CardiologyDataset
     datasets/pyhealth.datasets.eICUDataset
     datasets/pyhealth.datasets.ISRUCDataset
+    datasets/pyhealth.datasets.NoisyMRCICUMortalityDataset
     datasets/pyhealth.datasets.MIMICExtractDataset
     datasets/pyhealth.datasets.OMOPDataset
     datasets/pyhealth.datasets.DREAMTDataset

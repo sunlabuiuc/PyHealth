@@ -62,3 +62,4 @@ from .variant_classification import (
     MutationPathogenicityPrediction,
     VariantClassificationClinVar,
 )
+from .mrc_task import MRCICUMortalityTask
