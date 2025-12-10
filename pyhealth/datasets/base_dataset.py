@@ -4,7 +4,9 @@ import pickle
 from abc import ABC
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Any
+from typing import Dict, Iterator, List, Optional, Any, Callable
+import functools
+import operator
 from urllib.parse import urlparse, urlunparse
 import json
 import uuid
@@ -16,6 +18,7 @@ from litdata.streaming.item_loader import ParquetLoader
 import pyarrow as pa
 import pyarrow.csv as pv
 import pyarrow.parquet as pq
+import pandas as pd
 import polars as pl
 import requests
 from tqdm import tqdm
@@ -28,6 +31,8 @@ from .configs import load_yaml_config
 from .sample_dataset import SampleDataset, SampleBuilder
 from .utils import _convert_for_cache, _restore_from_cache
 
+# Set logging level for distributed to ERROR to reduce verbosity
+logging.getLogger("distributed").setLevel(logging.ERROR)
 logger = logging.getLogger(__name__)
 
 
@@ -371,14 +376,14 @@ class BaseDataset(ABC):
         frames = [self.load_table(table.lower()) for table in self.tables]
         return pl.concat(frames, how="diagonal")
 
-    def load_table(self, table_name: str) -> pl.LazyFrame:
+    def load_table(self, table_name: str) -> dd.DataFrame:
         """Loads a table and processes joins if specified.
 
         Args:
             table_name (str): The name of the table to load.
 
         Returns:
-            pl.LazyFrame: The processed lazy frame for the table.
+            dd.DataFrame: The processed Dask dataframe for the table.
 
         Raises:
             ValueError: If the table is not found in the config.
@@ -394,12 +399,13 @@ class BaseDataset(ABC):
         csv_path = clean_path(csv_path)
 
         logger.info(f"Scanning table: {table_name} from {csv_path}")
-        df = scan_csv_gz_or_csv_tsv(csv_path)
+        df = self._scan_csv_tsv_gz(table_name, csv_path)
 
         # Convert column names to lowercase before calling preprocess_func
-        df = df.rename(lambda col: col.lower())
+        df = df.rename(columns=str.lower)
 
         # Check if there is a preprocessing function for this table
+        preprocess_func: Optional[Callable[[dd.DataFrame], dd.DataFrame]]
         preprocess_func = getattr(self, f"preprocess_{table_name}", None)
         if preprocess_func is not None:
             logger.info(
@@ -412,13 +418,13 @@ class BaseDataset(ABC):
             other_csv_path = f"{self.root}/{join_cfg.file_path}"
             other_csv_path = clean_path(other_csv_path)
             logger.info(f"Joining with table: {other_csv_path}")
-            join_df = scan_csv_gz_or_csv_tsv(other_csv_path)
-            join_df = join_df.rename(lambda col: col.lower())
+            join_df = self._scan_csv_tsv_gz(table_name, other_csv_path)
+            join_df = join_df.rename(columns=str.lower)
             join_key = join_cfg.on
             columns = join_cfg.columns
             how = join_cfg.how
 
-            df = df.join(join_df.select([join_key] + columns), on=join_key, how=how)  # type: ignore
+            df: dd.DataFrame = df.merge(join_df[[join_key] + columns], on=join_key, how=how)
 
         patient_id_col = table_cfg.patient_id
         timestamp_col = table_cfg.timestamp
@@ -429,38 +435,40 @@ class BaseDataset(ABC):
         if timestamp_col:
             if isinstance(timestamp_col, list):
                 # Concatenate all timestamp parts in order with no separator
-                combined_timestamp = pl.concat_str(
-                    [pl.col(col) for col in timestamp_col]
-                ).str.strptime(pl.Datetime, format=timestamp_format, strict=True)
-                timestamp_expr = combined_timestamp
+                timestamp_series: dd.Series = functools.reduce(
+                    operator.add, (df[col].astype(str) for col in timestamp_col)
+                )
             else:
                 # Single timestamp column
-                timestamp_expr = pl.col(timestamp_col).str.strptime(
-                    pl.Datetime, format=timestamp_format, strict=True
-                )
+                timestamp_series: dd.Series = df[timestamp_col].astype(str)
+            timestamp_series: dd.Series = dd.to_datetime(
+                timestamp_series,
+                format=timestamp_format,
+                errors="raise",
+            )
+            df: dd.DataFrame = df.assign(
+                timestamp=timestamp_series.astype("datetime64[ms]")
+            )
         else:
-            timestamp_expr = pl.lit(None, dtype=pl.Datetime)
+            df: dd.DataFrame = df.assign(timestamp=pd.NaT)
+
 
         # If patient_id_col is None, use row index as patient_id
-        patient_id_expr = (
-            pl.col(patient_id_col).cast(pl.Utf8)
-            if patient_id_col
-            else pl.int_range(0, pl.count()).cast(pl.Utf8)
-        )
-        base_columns = [
-            patient_id_expr.alias("patient_id"),
-            pl.lit(table_name).cast(pl.Utf8).alias("event_type"),
-            # ms should be sufficient for most cases
-            timestamp_expr.cast(pl.Datetime(time_unit="ms")).alias("timestamp"),
-        ]
+        if patient_id_col:
+            df: dd.DataFrame = df.assign(patient_id=df[patient_id_col].astype(str))
+        else:
+            df: dd.DataFrame = df.reset_index(drop=True)
+            df: dd.DataFrame = df.assign(patient_id=df.index.astype(str))
 
-        # Flatten attribute columns with event_type prefix
-        attribute_columns = [
-            pl.col(attr.lower()).alias(f"{table_name}/{attr}")
-            for attr in attribute_cols
-        ]
 
-        event_frame = df.select(base_columns + attribute_columns)
+        df: dd.DataFrame = df.assign(event_type=table_name)
+
+        rename_attr = {attr.lower(): f"{table_name}/{attr}" for attr in attribute_cols}
+        df: dd.DataFrame = df.rename(columns=rename_attr)
+
+        attr_cols = [rename_attr[attr.lower()] for attr in attribute_cols]
+        final_cols = ["patient_id", "event_type", "timestamp"] + attr_cols
+        event_frame = df[final_cols]
 
         return event_frame
 
