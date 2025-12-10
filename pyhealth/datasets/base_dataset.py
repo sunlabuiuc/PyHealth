@@ -342,9 +342,9 @@ class BaseDataset(ABC):
             ret_path = self.cache_dir / "global_event_df.parquet"
             if not ret_path.exists():
                 with LocalCluster(
-                    n_workers=4, # TODO: make this configurable
+                    n_workers=4,
                     threads_per_worker=1,
-                    memory_limit="8GB", # TODO: make this configurable
+                    processes=False,
                 ) as cluster:
                     with Client(cluster) as client:
                         df: dd.DataFrame = self.load_data()
@@ -452,9 +452,7 @@ class BaseDataset(ABC):
                 format=timestamp_format,
                 errors="raise",
             )
-            df: dd.DataFrame = df.assign(
-                timestamp=timestamp_series.astype("datetime64[ms]")
-            )
+            df: dd.DataFrame = df.assign(timestamp=timestamp_series)
         else:
             df: dd.DataFrame = df.assign(timestamp=pd.NaT)
 
