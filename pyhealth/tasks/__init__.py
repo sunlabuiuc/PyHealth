@@ -62,3 +62,4 @@ from .variant_classification import (
     MutationPathogenicityPrediction,
     VariantClassificationClinVar,
 )
+from .ph2_task import PH2MelanomaClassification
