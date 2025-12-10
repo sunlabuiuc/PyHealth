@@ -369,9 +369,7 @@ class BaseDataset(ABC):
         return pl.scan_parquet(
             self._global_event_df,
             low_memory=True,
-        ).set_sorted(
-            "patient_id"
-        )  # Guarantee sorted read, see sink_parquet above
+        )
 
     def load_data(self) -> dd.DataFrame:
         """Loads data from the specified tables.
