@@ -420,11 +420,11 @@ class BaseDataset(ABC):
             df = preprocess_func(df)
 
         # Handle joins
-        for join_cfg in table_cfg.join:
+        for i, join_cfg in enumerate(table_cfg.join):
             other_csv_path = f"{self.root}/{join_cfg.file_path}"
             other_csv_path = clean_path(other_csv_path)
             logger.info(f"Joining with table: {other_csv_path}")
-            join_df = self._scan_csv_tsv_gz(table_name, other_csv_path)
+            join_df = self._scan_csv_tsv_gz(f"{table_name}_join_{i}", other_csv_path)
             join_df = join_df.rename(columns=str.lower)
             join_key = join_cfg.on
             columns = join_cfg.columns
