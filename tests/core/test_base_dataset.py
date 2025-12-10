@@ -3,30 +3,35 @@ import unittest
 from unittest.mock import patch
 
 import polars as pl
+import pandas as pd
+import dask.dataframe as dd
 
 from pyhealth.datasets.base_dataset import BaseDataset
 
 
-class InMemoryDataset(BaseDataset):
+class MockDataset(BaseDataset):
     """Dataset that bypasses file loading for tests."""
 
-    def __init__(self, data: pl.DataFrame, **kwargs):
+    def __init__(self, data: dd.DataFrame, **kwargs):
         self._data = data
         super().__init__(**kwargs)
 
-    def load_data(self) -> pl.LazyFrame:
-        return self._data.lazy()
+    def load_data(self) -> dd.DataFrame:
+        return self._data
 
 
 class TestBaseDataset(unittest.TestCase):
-    def _single_row_data(self) -> pl.DataFrame:
-        return pl.DataFrame(
-            {
-                "patient_id": ["1"],
-                "event_type": ["test"],
-                "timestamp": [None],
-                "test/value": [0],
-            }
+    def _single_row_data(self) -> dd.DataFrame:
+        return dd.from_pandas(
+            pd.DataFrame(
+                {
+                    "patient_id": ["1"],
+                    "event_type": ["test"],
+                    "timestamp": [None],
+                    "test/value": [0],
+                }
+            ),
+            npartitions=1,
         )
 
     def test_cache_dir_varies_with_core_identifiers(self):
@@ -41,31 +46,31 @@ class TestBaseDataset(unittest.TestCase):
             return_value=cache_root,
         ):
             datasets = [
-                InMemoryDataset(
+                MockDataset(
                     data=self._single_row_data(),
                     root="/data/root_a",
                     **base_kwargs,
                 ),
-                InMemoryDataset(
+                MockDataset(
                     data=self._single_row_data(),
                     root="/data/root_b",  # different root
                     **base_kwargs,
                 ),
-                InMemoryDataset(
+                MockDataset(
                     data=self._single_row_data(),
                     root="/data/root_a",
                     tables=["table_b"],  # different tables
                     dataset_name="CacheDataset",
                     dev=False,
                 ),
-                InMemoryDataset(
+                MockDataset(
                     data=self._single_row_data(),
                     root="/data/root_a",
                     tables=["table_a"],
                     dataset_name="OtherDataset",  # different dataset name
                     dev=False,
                 ),
-                InMemoryDataset(
+                MockDataset(
                     data=self._single_row_data(),
                     root="/data/root_a",
                     tables=["table_a"],
@@ -82,21 +87,24 @@ class TestBaseDataset(unittest.TestCase):
             )
 
     def test_event_df_cache_is_physically_sorted(self):
-        unsorted_data = pl.DataFrame(
-            {
-                "patient_id": ["3", "1", "2", "1"],
-                "event_type": ["test"] * 4,
-                "timestamp": [None] * 4,
-                "test/value": [10, 20, 30, 40],
-            }
+        unsorted_data = dd.from_pandas(
+            pd.DataFrame(
+                {
+                    "patient_id": ["3", "1", "2", "1"],
+                    "event_type": ["test"] * 4,
+                    "timestamp": [None] * 4,
+                    "test/value": [10, 20, 30, 40],
+                }
+            ),
+            npartitions=1,
         )
-        original_order = unsorted_data["patient_id"].to_list()
+        original_order = unsorted_data["patient_id"].compute().tolist()
 
         with tempfile.TemporaryDirectory() as cache_root, patch(
             "pyhealth.datasets.base_dataset.platformdirs.user_cache_dir",
             return_value=cache_root,
         ):
-            dataset = InMemoryDataset(
+            dataset = MockDataset(
                 data=unsorted_data,
                 root="/data/root_sort",
                 tables=["table_a"],
