@@ -23,13 +23,13 @@ import polars as pl
 import requests
 from tqdm import tqdm
 import dask.dataframe as dd
+from dask.distributed import Client, LocalCluster, progress
 
 from ..data import Patient
 from ..tasks import BaseTask
 from ..processors.base_processor import FeatureProcessor
 from .configs import load_yaml_config
 from .sample_dataset import SampleDataset, SampleBuilder
-from .utils import _convert_for_cache, _restore_from_cache
 
 # Set logging level for distributed to ERROR to reduce verbosity
 logging.getLogger("distributed").setLevel(logging.ERROR)
@@ -339,26 +339,32 @@ class BaseDataset(ABC):
             Path: The path to the cached event dataframe.
         """
         if self._global_event_df is None:
-            path = self.cache_dir / "global_event_df.parquet"
-            if not path.exists():
-                df = self.load_data()
-                if self.dev:
-                    logger.info("Dev mode enabled: limiting to 1000 patients")
-                    limited_patients = (
-                        df.select(pl.col("patient_id").shuffle(seed=0))
-                        .unique()
-                        .limit(1000)
-                    )
-                    df = df.join(limited_patients, on="patient_id", how="inner")
+            ret_path = self.cache_dir / "global_event_df.parquet"
+            if not ret_path.exists():
+                with LocalCluster(
+                    n_workers=4, # TODO: make this configurable
+                    threads_per_worker=1,
+                    memory_limit="8GB", # TODO: make this configurable
+                ) as cluster:
+                    with Client(cluster) as client:
+                        df: dd.DataFrame = self.load_data()
+                        if self.dev:
+                            logger.info("Dev mode enabled: limiting to 1000 patients")
+                            patients = (
+                                df["patient_id"].unique().head(1000).tolist()
+                            )
+                            filter = df["patient_id"].isin(patients)
+                            df = df[filter]
 
-                logger.info(f"Caching event dataframe to {path}...")
-                df.sort("patient_id").sink_parquet(
-                    path,
-                    compression="lz4",  # use lz4 compression for faster read/write
-                    row_group_size=8_192,
-                    maintain_order=True,  # Important for sorted writes
-                )
-            self._global_event_df = path
+                        logger.info(f"Caching event dataframe to {ret_path}...")
+                        collection = df.sort_values("patient_id").to_parquet(
+                            ret_path,
+                            write_index=False,
+                            compute=False,
+                        )
+                        handle = client.compute(collection)
+                        progress(handle)
+            self._global_event_df = ret_path
 
         return pl.scan_parquet(
             self._global_event_df,
