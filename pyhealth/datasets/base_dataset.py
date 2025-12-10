@@ -367,14 +367,14 @@ class BaseDataset(ABC):
             "patient_id"
         )  # Guarantee sorted read, see sink_parquet above
 
-    def load_data(self) -> pl.LazyFrame:
+    def load_data(self) -> dd.DataFrame:
         """Loads data from the specified tables.
 
         Returns:
-            pl.LazyFrame: A concatenated lazy frame of all tables.
+            dd.DataFrame: A concatenated lazy frame of all tables.
         """
         frames = [self.load_table(table.lower()) for table in self.tables]
-        return pl.concat(frames, how="diagonal")
+        return dd.concat(frames, axis=0, join="outer")
 
     def load_table(self, table_name: str) -> dd.DataFrame:
         """Loads a table and processes joins if specified.
