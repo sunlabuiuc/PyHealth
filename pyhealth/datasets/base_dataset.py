@@ -14,10 +14,12 @@ import tempfile
 import litdata
 from litdata.streaming.item_loader import ParquetLoader
 import pyarrow as pa
+import pyarrow.csv as pv
 import pyarrow.parquet as pq
 import polars as pl
 import requests
 from tqdm import tqdm
+import dask.dataframe as dd
 
 from ..data import Patient
 from ..tasks import BaseTask
@@ -63,32 +65,24 @@ def path_exists(path: str) -> bool:
     else:
         return Path(path).exists()
 
-
-def scan_csv_gz_or_csv_tsv(path: str) -> pl.LazyFrame:
+def _csv_tsv_gz_path(path: str) -> str:
     """
-    Scan a CSV.gz, CSV, TSV.gz, or TSV file and returns a LazyFrame.
-    It will fall back to the other extension if not found.
+    Get the path to the file, trying the original path first, then the alternative path
+    by switching between .csv.gz, .csv, .tsv.gz, and .tsv extensions.
 
     Args:
-        path (str): URL or local path to a .csv, .csv.gz, .tsv, or .tsv.gz file
+        path (str): Original file path.
 
     Returns:
-        pl.LazyFrame: The LazyFrame for the CSV.gz, CSV, TSV.gz, or TSV file.
+        str: The file path that exists.
+
+    Raises:
+        FileNotFoundError: If neither the original nor the alternative path exists.
+        ValueError: If the path does not have an expected extension.
     """
-
-    def scan_file(file_path: str) -> pl.LazyFrame:
-        separator = "\t" if ".tsv" in file_path else ","
-        return pl.scan_csv(
-            file_path,
-            separator=separator,
-            infer_schema=False,
-            low_memory=True,
-        )
-
     if path_exists(path):
-        return scan_file(path)
+        return path
 
-    # Try the alternative extension
     if path.endswith(".csv.gz"):
         alt_path = path[:-3]  # Remove .gz -> try .csv
     elif path.endswith(".csv"):
@@ -98,14 +92,12 @@ def scan_csv_gz_or_csv_tsv(path: str) -> pl.LazyFrame:
     elif path.endswith(".tsv"):
         alt_path = f"{path}.gz"  # Add .gz -> try .tsv.gz
     else:
-        raise FileNotFoundError(f"Path does not have expected extension: {path}")
-
+        raise ValueError(f"Path does not have expected extension: {path}")
+    
     if path_exists(alt_path):
-        logger.info(f"Original path does not exist. Using alternative: {alt_path}")
-        return scan_file(alt_path)
-
+        return alt_path
+    
     raise FileNotFoundError(f"Neither path exists: {path} or {alt_path}")
-
 
 def _uncollate(x: list[Any]) -> Any:
     return x[0] if isinstance(x, list) and len(x) == 1 else x
@@ -264,6 +256,75 @@ class BaseDataset(ABC):
             cache_dir.mkdir(parents=True, exist_ok=True)
             self._cache_dir = cache_dir
         return Path(self._cache_dir)
+    
+    @property
+    def temp_dir(self) -> Path:
+        return self.cache_dir / "temp"
+
+    def _scan_csv_tsv_gz(self, table_name: str, source_path: str | None = None) -> dd.DataFrame:
+        """Scans a CSV/TSV file (possibly gzipped) and returns a Dask DataFrame.
+
+        If the cached Parquet file does not exist, it converts the source CSV/TSV file
+        to Parquet and saves it to the cache.
+
+        Args:
+            table_name (str): The name of the table.
+            source_path (str | None): The source CSV/TSV file path. If None, assumes the
+                Parquet file already exists in the cache.
+
+        Returns:
+            dd.DataFrame: The Dask DataFrame loaded from the cached Parquet file.
+
+        Raises:
+            FileNotFoundError: If source_path is None and the cached Parquet file does not exist; 
+                or if neither the original nor the alternative path of source_path exists.
+            ValueError: If the path does not have an expected extension.
+        """
+        # Ensure the tables cache directory exists
+        (self.temp_dir / "tables").mkdir(parents=True, exist_ok=True)
+        ret_path = str(self.temp_dir / "tables" / f"{table_name}.parquet")
+
+        if not path_exists(ret_path):
+            if source_path is None:
+                raise FileNotFoundError(
+                    f"Table {table_name} not found in cache and no source_path provided."
+                )
+
+            source_path = _csv_tsv_gz_path(source_path)
+
+            # Determine delimiter based on file extension
+            delimiter = (
+                "\t"
+                if source_path.endswith(".tsv") or source_path.endswith(".tsv.gz")
+                else ","
+            )
+
+            # Always infer schema as string to avoid incorrect type inference
+            schema_reader = pv.open_csv(
+                source_path,
+                read_options=pv.ReadOptions(block_size=1 << 26),  # 64 MB
+                parse_options=pv.ParseOptions(delimiter=delimiter),
+            )
+            schema = pa.schema(
+                [pa.field(name, pa.string()) for name in schema_reader.schema.names]
+            )
+
+            # Convert CSV/TSV to Parquet
+            csv_reader = pv.open_csv(
+                source_path,
+                read_options=pv.ReadOptions(block_size=1 << 26),  # 64 MB
+                parse_options=pv.ParseOptions(delimiter=delimiter),
+                convert_options=pv.ConvertOptions(column_types=schema),
+            )
+            with pq.ParquetWriter(ret_path, csv_reader.schema) as writer:
+                for batch in csv_reader:
+                    writer.write_batch(batch)
+
+        return dd.read_parquet(
+            ret_path,
+            split_row_groups=True,  # type: ignore
+            blocksize="64MB",
+        )
 
     @property
     def global_event_df(self) -> pl.LazyFrame:
