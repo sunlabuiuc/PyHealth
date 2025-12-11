@@ -62,6 +62,8 @@ from .mimic4 import MIMIC4CXRDataset, MIMIC4Dataset, MIMIC4EHRDataset, MIMIC4Not
 from .mimicextract import MIMICExtractDataset
 from .omop import OMOPDataset
 from .sample_dataset import SampleDataset
+from .sleepqa_dpr_dataset import SleepQADPRDataset
+from .sleepqa_reader_dataset import SleepQAReaderDataset
 from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset
 from .bmd_hs import BMDHSDataset
