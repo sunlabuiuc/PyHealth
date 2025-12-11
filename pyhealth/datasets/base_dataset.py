@@ -341,6 +341,9 @@ class BaseDataset(ABC):
         if self._global_event_df is None:
             ret_path = self.cache_dir / "global_event_df.parquet"
             if not ret_path.exists():
+                # TODO: auto select processes=True/False based on if it's in jupyter notebook
+                #   The processes=True will crash in jupyter notebook.
+                # TODO: make the n_workers configurable
                 with LocalCluster(
                     n_workers=4,
                     threads_per_worker=1,
