@@ -272,7 +272,7 @@ class BaseDataset(ABC):
         patient_id_expr = (
             pl.col(patient_id_col).cast(pl.Utf8)
             if patient_id_col
-            else pl.int_range(0, pl.count()).cast(pl.Utf8)
+            else pl.int_range(0, pl.len()).cast(pl.Utf8)
         )
         base_columns = [
             patient_id_expr.alias("patient_id"),
