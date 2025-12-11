@@ -450,7 +450,7 @@ class BaseDataset(ABC):
                 format=timestamp_format,
                 errors="raise",
             )
-            df: dd.DataFrame = df.assign(timestamp=timestamp_series)
+            df: dd.DataFrame = df.assign(timestamp=timestamp_series.astype("datetime64[ms]"))
         else:
             df: dd.DataFrame = df.assign(timestamp=pd.NaT)
 
