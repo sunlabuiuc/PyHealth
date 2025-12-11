@@ -62,3 +62,6 @@ from .variant_classification import (
     MutationPathogenicityPrediction,
     VariantClassificationClinVar,
 )
+
+from .cxr_report_generation import CXRReportGenerationMIMIC4
+
