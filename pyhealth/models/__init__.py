@@ -27,3 +27,13 @@ from .transformer import Transformer, TransformerLayer
 from .transformers_model import TransformersModel
 from .vae import VAE
 from .sdoh import SdohClassifier
+from .bilm_ner import (
+    BiLM,
+    BiLSTMTagger,
+    build_synthetic_dataset,
+    build_vocab,
+    build_tag_vocab,
+    NerDataset,
+    ner_collate_fn,
+    build_unlabeled_dataloader,
+)
