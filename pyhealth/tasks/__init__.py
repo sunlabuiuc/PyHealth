@@ -24,6 +24,10 @@ from .EEG_abnormal import EEG_isAbnormal_fn
 from .EEG_events import EEG_events_fn
 from .in_hospital_mortality_mimic4 import InHospitalMortalityMIMIC4
 from .length_of_stay_prediction import (
+    LengthOfStayPredictioneICU,
+    LengthOfStayPredictionMIMIC3,
+    LengthOfStayPredictionMIMIC4,
+    LengthOfStayPredictionOMOP,
     length_of_stay_prediction_eicu_fn,
     length_of_stay_prediction_mimic3_fn,
     length_of_stay_prediction_mimic4_fn,
