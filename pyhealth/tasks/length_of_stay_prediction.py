@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Dict, List
 
-from pyhealth.data import Patient
+from pyhealth.data.data import Patient
 
 from .base_task import BaseTask
 
@@ -67,34 +67,63 @@ class LengthOfStayPredictionMIMIC3(BaseTask):
 
     task_name: str = "LengthOfStayPredictionMIMIC3"
     input_schema: Dict[str, str] = {
-        "conditions": "list",
-        "procedures": "list",
-        "drugs": "list",
+        "conditions": "sequence",
+        "procedures": "sequence",
+        "drugs": "sequence",
     }
     output_schema: Dict[str, str] = {"los": "multiclass"}
 
     def __call__(self, patient: Patient) -> List[Dict]:
         samples = []
 
-        for visit in patient:
-            conditions = visit.get_code_list(table="DIAGNOSES_ICD")
-            procedures = visit.get_code_list(table="PROCEDURES_ICD")
-            drugs = visit.get_code_list(table="PRESCRIPTIONS")
-            # exclude: visits without condition, procedure, or drug code
+        # Get all admissions
+        admissions = patient.get_events(event_type="admissions")
+        if len(admissions) == 0:
+            return []
+
+        # Process each admission
+        for admission in admissions:
+            # Get diagnosis codes using hadm_id
+            diagnoses_events = patient.get_events(
+                event_type="diagnoses_icd",
+                filters=[("hadm_id", "==", admission.hadm_id)],
+            )
+            conditions = [event.icd9_code for event in diagnoses_events]
+
+            # Get procedure codes using hadm_id
+            procedures_events = patient.get_events(
+                event_type="procedures_icd",
+                filters=[("hadm_id", "==", admission.hadm_id)],
+            )
+            procedures = [event.icd9_code for event in procedures_events]
+
+            # Get prescriptions using hadm_id
+            prescriptions_events = patient.get_events(
+                event_type="prescriptions",
+                filters=[("hadm_id", "==", admission.hadm_id)],
+            )
+            drugs = [event.ndc for event in prescriptions_events]
+
+            # Exclude visits without condition, procedure, or drug code
             if len(conditions) * len(procedures) * len(drugs) == 0:
                 continue
 
-            los_days = (visit.discharge_time - visit.encounter_time).days
+            # Calculate length of stay
+            # admission.timestamp is the admit time (from the timestamp column)
+            # admission.dischtime is the discharge time (from attributes)
+            admit_time = admission.timestamp
+            discharge_time = datetime.strptime(admission.dischtime, "%Y-%m-%d %H:%M:%S")
+            los_days = (discharge_time - admit_time).days
             los_category = categorize_los(los_days)
 
             # TODO: should also exclude visit with age < 18
             samples.append(
                 {
-                    "visit_id": visit.visit_id,
+                    "visit_id": admission.hadm_id,
                     "patient_id": patient.patient_id,
-                    "conditions": [conditions],
-                    "procedures": [procedures],
-                    "drugs": [drugs],
+                    "conditions": conditions,
+                    "procedures": procedures,
+                    "drugs": drugs,
                     "los": los_category,
                 }
             )
@@ -153,34 +182,68 @@ class LengthOfStayPredictionMIMIC4(BaseTask):
 
     task_name: str = "LengthOfStayPredictionMIMIC4"
     input_schema: Dict[str, str] = {
-        "conditions": "list",
-        "procedures": "list",
-        "drugs": "list",
+        "conditions": "sequence",
+        "procedures": "sequence",
+        "drugs": "sequence",
     }
     output_schema: Dict[str, str] = {"los": "multiclass"}
 
     def __call__(self, patient: Patient) -> List[Dict]:
         samples = []
 
-        for visit in patient:
-            conditions = visit.get_code_list(table="diagnoses_icd")
-            procedures = visit.get_code_list(table="procedures_icd")
-            drugs = visit.get_code_list(table="prescriptions")
-            # exclude: visits without condition, procedure, or drug code
+        # Get all admissions
+        admissions = patient.get_events(event_type="admissions")
+        if len(admissions) == 0:
+            return []
+
+        # Process each admission
+        for admission in admissions:
+            # Get diagnosis codes using hadm_id
+            diagnoses_events = patient.get_events(
+                event_type="diagnoses_icd",
+                filters=[("hadm_id", "==", admission.hadm_id)],
+            )
+            # Combine icd_version and icd_code (e.g., "9_4011" or "10_I10")
+            conditions = [
+                f"{event.icd_version}_{event.icd_code}" for event in diagnoses_events
+            ]
+
+            # Get procedure codes using hadm_id
+            procedures_events = patient.get_events(
+                event_type="procedures_icd",
+                filters=[("hadm_id", "==", admission.hadm_id)],
+            )
+            procedures = [
+                f"{event.icd_version}_{event.icd_code}" for event in procedures_events
+            ]
+
+            # Get prescriptions using hadm_id
+            prescriptions_events = patient.get_events(
+                event_type="prescriptions",
+                filters=[("hadm_id", "==", admission.hadm_id)],
+            )
+            drugs = [event.ndc for event in prescriptions_events]
+
+            # Exclude visits without condition, procedure, or drug code
             if len(conditions) * len(procedures) * len(drugs) == 0:
                 continue
 
-            los_days = (visit.discharge_time - visit.encounter_time).days
+            # Calculate length of stay
+            # admission.timestamp is the admit time (from the timestamp column)
+            # admission.dischtime is the discharge time (from attributes)
+            admit_time = admission.timestamp
+            discharge_time = datetime.strptime(admission.dischtime, "%Y-%m-%d %H:%M:%S")
+            los_days = (discharge_time - admit_time).days
             los_category = categorize_los(los_days)
 
             # TODO: should also exclude visit with age < 18
             samples.append(
                 {
-                    "visit_id": visit.visit_id,
+                    "visit_id": admission.hadm_id,
                     "patient_id": patient.patient_id,
-                    "conditions": [conditions],
-                    "procedures": [procedures],
-                    "drugs": [drugs],
+                    "conditions": conditions,
+                    "procedures": procedures,
+                    "drugs": drugs,
                     "los": los_category,
                 }
             )
@@ -240,34 +303,65 @@ class LengthOfStayPredictioneICU(BaseTask):
 
     task_name: str = "LengthOfStayPredictioneICU"
     input_schema: Dict[str, str] = {
-        "conditions": "list",
-        "procedures": "list",
-        "drugs": "list",
+        "conditions": "sequence",
+        "procedures": "sequence",
+        "drugs": "sequence",
     }
     output_schema: Dict[str, str] = {"los": "multiclass"}
 
     def __call__(self, patient: Patient) -> List[Dict]:
         samples = []
 
-        for visit in patient:
-            conditions = visit.get_code_list(table="diagnosis")
-            procedures = visit.get_code_list(table="physicalExam")
-            drugs = visit.get_code_list(table="medication")
-            # exclude: visits without condition, procedure, or drug code
+        # Get all patient stays
+        patient_stays = patient.get_events(event_type="patient")
+        if len(patient_stays) == 0:
+            return []
+
+        # Process each patient stay
+        for stay in patient_stays:
+            # Get diagnosis codes
+            diagnosis_events = patient.get_events(
+                event_type="diagnosis",
+                filters=[("patientunitstayid", "==", stay.patientunitstayid)],
+            )
+            conditions = [event.diagnosisstring for event in diagnosis_events]
+
+            # Get physical exam findings
+            physicalexam_events = patient.get_events(
+                event_type="physicalexam",
+                filters=[("patientunitstayid", "==", stay.patientunitstayid)],
+            )
+            procedures = [event.physicalexamtext for event in physicalexam_events]
+
+            # Get medications
+            medication_events = patient.get_events(
+                event_type="medication",
+                filters=[("patientunitstayid", "==", stay.patientunitstayid)],
+            )
+            drugs = [event.drugname for event in medication_events]
+
+            # Exclude visits without condition, procedure, or drug code
             if len(conditions) * len(procedures) * len(drugs) == 0:
                 continue
 
-            los_days = (visit.discharge_time - visit.encounter_time).days
+            # Calculate length of stay
+            admit_time = datetime.strptime(
+                stay.hospitaladmittime24, "%Y-%m-%d %H:%M:%S"
+            )
+            discharge_time = datetime.strptime(
+                stay.hospitaldischargetime24, "%Y-%m-%d %H:%M:%S"
+            )
+            los_days = (discharge_time - admit_time).days
             los_category = categorize_los(los_days)
 
             # TODO: should also exclude visit with age < 18
             samples.append(
                 {
-                    "visit_id": visit.visit_id,
+                    "visit_id": stay.patientunitstayid,
                     "patient_id": patient.patient_id,
-                    "conditions": [conditions],
-                    "procedures": [procedures],
-                    "drugs": [drugs],
+                    "conditions": conditions,
+                    "procedures": procedures,
+                    "drugs": drugs,
                     "los": los_category,
                 }
             )
@@ -326,34 +420,65 @@ class LengthOfStayPredictionOMOP(BaseTask):
 
     task_name: str = "LengthOfStayPredictionOMOP"
     input_schema: Dict[str, str] = {
-        "conditions": "list",
-        "procedures": "list",
-        "drugs": "list",
+        "conditions": "sequence",
+        "procedures": "sequence",
+        "drugs": "sequence",
     }
     output_schema: Dict[str, str] = {"los": "multiclass"}
 
     def __call__(self, patient: Patient) -> List[Dict]:
         samples = []
 
-        for visit in patient:
-            conditions = visit.get_code_list(table="condition_occurrence")
-            procedures = visit.get_code_list(table="procedure_occurrence")
-            drugs = visit.get_code_list(table="drug_exposure")
-            # exclude: visits without condition, procedure, or drug code
+        # Get all visit occurrences
+        visit_occurrences = patient.get_events(event_type="visit_occurrence")
+        if len(visit_occurrences) == 0:
+            return []
+
+        # Process each visit
+        for visit in visit_occurrences:
+            # Get condition codes
+            condition_events = patient.get_events(
+                event_type="condition_occurrence",
+                filters=[("visit_occurrence_id", "==", visit.visit_occurrence_id)],
+            )
+            conditions = [event.condition_concept_id for event in condition_events]
+
+            # Get procedure codes
+            procedure_events = patient.get_events(
+                event_type="procedure_occurrence",
+                filters=[("visit_occurrence_id", "==", visit.visit_occurrence_id)],
+            )
+            procedures = [event.procedure_concept_id for event in procedure_events]
+
+            # Get drug exposures
+            drug_events = patient.get_events(
+                event_type="drug_exposure",
+                filters=[("visit_occurrence_id", "==", visit.visit_occurrence_id)],
+            )
+            drugs = [event.drug_concept_id for event in drug_events]
+
+            # Exclude visits without condition, procedure, or drug code
             if len(conditions) * len(procedures) * len(drugs) == 0:
                 continue
 
-            los_days = (visit.discharge_time - visit.encounter_time).days
+            # Calculate length of stay
+            admit_time = datetime.strptime(
+                visit.visit_start_datetime, "%Y-%m-%d %H:%M:%S"
+            )
+            discharge_time = datetime.strptime(
+                visit.visit_end_datetime, "%Y-%m-%d %H:%M:%S"
+            )
+            los_days = (discharge_time - admit_time).days
             los_category = categorize_los(los_days)
 
             # TODO: should also exclude visit with age < 18
             samples.append(
                 {
-                    "visit_id": visit.visit_id,
+                    "visit_id": visit.visit_occurrence_id,
                     "patient_id": patient.patient_id,
-                    "conditions": [conditions],
-                    "procedures": [procedures],
-                    "drugs": [drugs],
+                    "conditions": conditions,
+                    "procedures": procedures,
+                    "drugs": drugs,
                     "los": los_category,
                 }
             )
@@ -385,13 +510,11 @@ if __name__ == "__main__":
         root="/srv/local/data/physionet.org/files/mimiciii/1.4",
         tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
         dev=True,
-        code_mapping={"ICD9CM": "CCSCM", "NDC": "ATC"},
-        refresh_cache=False,
     )
     task = LengthOfStayPredictionMIMIC3()
-    sample_dataset = base_dataset.set_task(task_fn=task)
-    sample_dataset.stat()
-    print(sample_dataset.available_keys)
+    sample_dataset = base_dataset.set_task(task)
+    sample_dataset.stats()
+    print(sample_dataset.samples[0] if sample_dataset.samples else "No samples")
 
     from pyhealth.datasets import MIMIC4Dataset
 
@@ -399,13 +522,11 @@ if __name__ == "__main__":
         root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
         tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
         dev=True,
-        code_mapping={"NDC": "ATC"},
-        refresh_cache=False,
     )
     task = LengthOfStayPredictionMIMIC4()
-    sample_dataset = base_dataset.set_task(task_fn=task)
-    sample_dataset.stat()
-    print(sample_dataset.available_keys)
+    sample_dataset = base_dataset.set_task(task)
+    sample_dataset.stats()
+    print(sample_dataset.samples[0] if sample_dataset.samples else "No samples")
 
     from pyhealth.datasets import eICUDataset
 
@@ -413,12 +534,11 @@ if __name__ == "__main__":
         root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
         tables=["diagnosis", "medication", "physicalExam"],
         dev=True,
-        refresh_cache=False,
     )
     task = LengthOfStayPredictioneICU()
-    sample_dataset = base_dataset.set_task(task_fn=task)
-    sample_dataset.stat()
-    print(sample_dataset.available_keys)
+    sample_dataset = base_dataset.set_task(task)
+    sample_dataset.stats()
+    print(sample_dataset.samples[0] if sample_dataset.samples else "No samples")
 
     from pyhealth.datasets import OMOPDataset
 
@@ -426,9 +546,8 @@ if __name__ == "__main__":
         root="/srv/local/data/zw12/pyhealth/raw_data/synpuf1k_omop_cdm_5.2.2",
         tables=["condition_occurrence", "procedure_occurrence", "drug_exposure"],
         dev=True,
-        refresh_cache=False,
     )
     task = LengthOfStayPredictionOMOP()
-    sample_dataset = base_dataset.set_task(task_fn=task)
-    sample_dataset.stat()
-    print(sample_dataset.available_keys)
+    sample_dataset = base_dataset.set_task(task)
+    sample_dataset.stats()
+    print(sample_dataset.samples[0] if sample_dataset.samples else "No samples")

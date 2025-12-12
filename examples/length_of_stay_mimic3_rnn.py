@@ -7,14 +7,12 @@ from pyhealth.trainer import Trainer
 base_dataset = MIMIC3Dataset(
     root="/srv/local/data/physionet.org/files/mimiciii/1.4",
     tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
-    code_mapping={"ICD9CM": "CCSCM", "ICD9PROC": "CCSPROC", "NDC": "ATC"},
     dev=False,
 )
-base_dataset.stat()
+base_dataset.stats()
 
 # STEP 2: set task
 sample_dataset = base_dataset.set_task(LengthOfStayPredictionMIMIC3())
-sample_dataset.stat()
 
 train_dataset, val_dataset, test_dataset = split_by_patient(
     sample_dataset, [0.8, 0.1, 0.1]

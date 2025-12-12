@@ -5,16 +5,14 @@ from pyhealth.trainer import Trainer
 
 # STEP 1: load data
 base_dataset = MIMIC4EHRDataset(
-    root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
+    root="/srv/local/data/physionet.org/files/mimiciv/2.2/",
     tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
-    code_mapping={"NDC": "ATC"},
-    dev=False,
+    dev=True,
 )
-base_dataset.stat()
+base_dataset.stats()
 
 # STEP 2: set task
 sample_dataset = base_dataset.set_task(LengthOfStayPredictionMIMIC4())
-sample_dataset.stat()
 
 train_dataset, val_dataset, test_dataset = split_by_patient(
     sample_dataset, [0.8, 0.1, 0.1]
