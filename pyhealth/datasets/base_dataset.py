@@ -326,11 +326,12 @@ class BaseDataset(ABC):
                 for batch in csv_reader:
                     writer.write_batch(batch)
 
-        return dd.read_parquet(
+        df: dd.DataFrame = dd.read_parquet(
             ret_path,
             split_row_groups=True,  # type: ignore
             blocksize="64MB",
         )
+        return df.replace("", pd.NA)  # Replace empty strings with NaN
 
     @property
     def global_event_df(self) -> pl.LazyFrame:
