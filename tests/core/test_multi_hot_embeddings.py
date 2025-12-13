@@ -2,7 +2,7 @@ import unittest
 
 import torch
 
-from pyhealth.datasets import SampleDataset, get_dataloader
+from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models.embedding import EmbeddingModel
 from pyhealth.models.mlp import MLP
 
@@ -39,7 +39,7 @@ class TestMultiHotEmbeddings(unittest.TestCase):
         self.input_schema = {"ethnicity": "multi_hot"}
         self.output_schema = {"label": "binary"}
 
-        self.dataset = SampleDataset(
+        self.dataset = create_sample_dataset(
             samples=self.samples,
             input_schema=self.input_schema,
             output_schema=self.output_schema,

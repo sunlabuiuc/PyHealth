@@ -35,10 +35,14 @@ dependencies = [
   "urllib3~=2.5.0",
   "numpy~=1.26.4",
   "tqdm",
-  "polars~=1.31.0",
+  "polars~=1.35.2",
   "pandas~=2.3.1",
   "pandarallel~=1.6.5",
   "pydantic~=2.11.7",
+  "dask[complete]~=2025.11.0",
+  "litdata~=0.2.58",
+  "pyarrow~=22.0.0",
+  "narwhals~=2.13.0",
 ]
 license = "BSD-3-Clause"
 license-files = ["LICENSE.md"]
