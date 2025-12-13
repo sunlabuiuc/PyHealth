@@ -12,6 +12,7 @@ import json
 import uuid
 import platformdirs
 import tempfile
+import multiprocessing
 
 import litdata
 from litdata.streaming.item_loader import ParquetLoader
@@ -338,6 +339,13 @@ class BaseDataset(ABC):
         Returns:
             Path: The path to the cached event dataframe.
         """
+        if not multiprocessing.current_process().name == "MainProcess":
+            logger.warning(
+                "global_event_df property accessed from a non-main process. This may lead to unexpected behavior.\n" + 
+                "Consider use __name__ == '__main__' guard when using multiprocessing."
+            )
+            return None  # type: ignore
+
         if self._global_event_df is None:
             ret_path = self.cache_dir / "global_event_df.parquet"
             if not ret_path.exists():
@@ -347,7 +355,7 @@ class BaseDataset(ABC):
                 with LocalCluster(
                     n_workers=4,
                     threads_per_worker=1,
-                    processes=False,
+                    # processes=False,
                 ) as cluster:
                     with Client(cluster) as client:
                         df: dd.DataFrame = self.load_data()
@@ -589,6 +597,13 @@ class BaseDataset(ABC):
         Raises:
             AssertionError: If no default task is found and task is None.
         """
+        if not multiprocessing.current_process().name == "MainProcess":
+            logger.warning(
+                "set_task method accessed from a non-main process. This may lead to unexpected behavior.\n" + 
+                "Consider use __name__ == '__main__' guard when using multiprocessing."
+            )
+            return None # type: ignore
+
         if task is None:
             assert self.default_task is not None, "No default tasks found"
             task = self.default_task
