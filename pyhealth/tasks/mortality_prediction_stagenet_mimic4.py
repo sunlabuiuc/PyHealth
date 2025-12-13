@@ -226,8 +226,7 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
                     labevents_df = labevents_df.select(
                         pl.col("timestamp"),
                         pl.col("labevents/itemid"),
-                        # There are potential empty strings in valuenum, which should be cast to nulls
-                        pl.col("labevents/valuenum").replace("", None).cast(pl.Float64),
+                        pl.col("labevents/valuenum").cast(pl.Float64),
                     )
 
                     # Group by timestamp and aggregate into 10D vectors
