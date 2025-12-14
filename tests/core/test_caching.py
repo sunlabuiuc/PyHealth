@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 from unittest.mock import patch
 import polars as pl
+import dask.dataframe as dd
 import torch
 
 from tests.base import BaseTestCase
@@ -51,20 +52,25 @@ class MockDataset(BaseDataset):
             dev=False,
         )
 
-    def load_data(self) -> pl.LazyFrame:
-        return pl.LazyFrame(
-            {
-                "patient_id": ["1", "2", "1", "2"],
-                "event_type": ["test", "test", "test", "test"],
-                "timestamp": [None, None, None, None],
-                "test/test_attribute": [
-                    "pat_1_attr_1",
-                    "pat_2_attr_1",
-                    "pat_1_attr_2",
-                    "pat_2_attr_2",
-                ],
-                "test/test_label": [0, 1, 1, 0],
-            }
+    def load_data(self) -> dd.DataFrame:
+        import pandas as pd
+
+        return dd.from_pandas(
+            pd.DataFrame(
+                {
+                    "patient_id": ["1", "2", "1", "2"],
+                    "event_type": ["test", "test", "test", "test"],
+                    "timestamp": [None, None, None, None],
+                    "test/test_attribute": [
+                        "pat_1_attr_1",
+                        "pat_2_attr_1",
+                        "pat_1_attr_2",
+                        "pat_2_attr_2",
+                    ],
+                    "test/test_label": [0, 1, 1, 0],
+                }
+            ),
+            npartitions=1,
         )
 
 
