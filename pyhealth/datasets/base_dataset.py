@@ -25,6 +25,7 @@ import requests
 from tqdm import tqdm
 import dask.dataframe as dd
 from dask.distributed import Client, LocalCluster, progress
+import narwhals as nw
 
 from ..data import Patient
 from ..tasks import BaseTask
@@ -421,13 +422,13 @@ class BaseDataset(ABC):
         df = df.rename(columns=str.lower)
 
         # Check if there is a preprocessing function for this table
-        preprocess_func: Optional[Callable[[dd.DataFrame], dd.DataFrame]]
+        preprocess_func: Optional[Callable[[nw.LazyFrame], nw.LazyFrame]]
         preprocess_func = getattr(self, f"preprocess_{table_name}", None)
         if preprocess_func is not None:
             logger.info(
                 f"Preprocessing table: {table_name} with {preprocess_func.__name__}"
             )
-            df = preprocess_func(df)
+            df = preprocess_func(nw.from_native(df)).to_native() # type: ignore
 
         # Handle joins
         for i, join_cfg in enumerate(table_cfg.join):
