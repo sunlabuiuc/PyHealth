@@ -110,6 +110,12 @@ def main():
     run_root = root / "runs" / task_name / model_name
     processor_dir = root / "processors" / task_name / model_name
     cache_dir = root / "cache" / task_name / model_name
+
+    # Use separate cache for dev mode
+    if args.dev:
+        cache_dir = root / "cache_dev" / task_name / model_name
+        processor_dir = root / "processors_dev" / task_name / model_name
+
     exp_name = datetime.now().strftime("%Y%m%d-%H%M%S")
 
     # Dev mode overrides for quick smoke testing
