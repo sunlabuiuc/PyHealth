@@ -16,12 +16,16 @@ Model: RNN (Recurrent Neural Network)
 Task: Mortality Prediction
     - Input: Patient visit history with conditions, procedures, and drugs
     - Output: Binary label indicating in-hospital mortality
-    - Schema: conditions, procedures, drugs (nested_sequence) -> mortality (binary)
+        - Schema: conditions, procedures, drugs (nested_sequence)
+            -> mortality (binary)
 """
 
 import argparse
+from datetime import datetime
+from pathlib import Path
 
 from pyhealth.datasets import MIMIC4Dataset, get_dataloader, split_by_patient
+from pyhealth.datasets.utils import load_processors, save_processors
 from pyhealth.models import RNN
 from pyhealth.tasks import MortalityPredictionMIMIC4
 from pyhealth.trainer import Trainer
@@ -40,20 +44,32 @@ def parse_args():
     parser.add_argument(
         "--batch_size",
         type=int,
-        default=32,
-        help="Batch size for training (default: 32)",
+        default=128,
+        help="Batch size for training (default: 128)",
     )
     parser.add_argument(
         "--epochs",
         type=int,
-        default=50,
-        help="Number of training epochs (default: 50)",
+        default=30,
+        help="Number of training epochs (default: 30)",
     )
     parser.add_argument(
         "--lr",
         type=float,
-        default=1e-3,
-        help="Learning rate (default: 1e-3)",
+        default=1e-5,
+        help="Learning rate (default: 1e-5)",
+    )
+    parser.add_argument(
+        "--patience",
+        type=int,
+        default=5,
+        help="Early stopping patience (default: 5)",
+    )
+    parser.add_argument(
+        "--root_output",
+        type=str,
+        default="/shared/eng/pyhealth_agent",
+        help="Root directory for runs/processors/cache",
     )
     parser.add_argument(
         "--embedding_dim",
@@ -67,11 +83,31 @@ def parse_args():
         default=128,
         help="Hidden dimension (default: 128)",
     )
+    parser.add_argument(
+        "--dev",
+        action="store_true",
+        default=False,
+        help="Dev mode: run quick smoke test (1 epoch, small subset, cpu)",
+    )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
+
+    task_name = "mp"
+    model_name = "rnn"
+    root = Path(args.root_output)
+    run_root = root / "runs" / task_name / model_name
+    processor_dir = root / "processors" / task_name / model_name
+    cache_dir = root / "cache" / task_name / model_name
+    exp_name = datetime.now().strftime("%Y%m%d-%H%M%S")
+
+    # Dev mode overrides for quick smoke testing
+    if args.dev:
+        print("[DEV MODE] Running quick smoke test...")
+        args.epochs = 1
+        args.device = "cpu"
 
     # STEP 1: Load MIMIC-IV base dataset
     print("Loading MIMIC-IV dataset...")
@@ -84,15 +120,32 @@ def main():
             "procedures_icd",
             "prescriptions",
         ],
+        dev=args.dev,
     )
 
     # STEP 2: Apply mortality prediction task
     print("Applying MortalityPredictionMIMIC4 task...")
+
+    input_processors = None
+    output_processors = None
+    if (processor_dir / "input_processors.pkl").exists() and (
+        processor_dir / "output_processors.pkl"
+    ).exists():
+        print(f"Loading cached processors from: {processor_dir}")
+        input_processors, output_processors = load_processors(str(processor_dir))
+    else:
+        print(f"No cached processors found; will save to: {processor_dir}")
+
     sample_dataset = base_dataset.set_task(
         MortalityPredictionMIMIC4(),
         num_workers=4,
-        cache_dir="../../../caches/mp_cache",
+        cache_dir=str(cache_dir),
+        input_processors=input_processors,
+        output_processors=output_processors,
     )
+
+    if input_processors is None and output_processors is None:
+        save_processors(sample_dataset, str(processor_dir))
 
     print(f"Total samples: {len(sample_dataset)}")
     print(f"Input schema: {sample_dataset.input_schema}")
@@ -144,7 +197,9 @@ def main():
     trainer = Trainer(
         model=model,
         device=args.device,
-        metrics=["pr_auc", "roc_auc", "accuracy", "f1"],
+        metrics=["roc_auc", "f1", "pr_auc", "accuracy"],
+        output_path=str(run_root),
+        exp_name=exp_name,
     )
 
     print(f"\nStarting training on {args.device}...")
@@ -152,7 +207,8 @@ def main():
         train_dataloader=train_loader,
         val_dataloader=val_loader,
         epochs=args.epochs,
-        monitor="pr_auc",
+        monitor="roc_auc",
+        patience=args.patience,
         optimizer_params={"lr": args.lr},
     )
 
