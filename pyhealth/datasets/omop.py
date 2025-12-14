@@ -157,13 +157,17 @@ class OMOPDataset(BaseDataset):
                 (
                     pl.col("year_of_birth").cast(pl.String)
                     + "-"
-                    + pl.when(pl.col("month_of_birth").is_null())
-                    .then(pl.lit("01"))
-                    .otherwise(pl.col("month_of_birth").cast(pl.String).str.zfill(2))
+                    + (
+                        pl.when(pl.col("month_of_birth").is_null())
+                        .then(pl.lit("01"))
+                        .otherwise(pl.col("month_of_birth").cast(pl.String).str.zfill(2))
+                    ).cast(pl.String)
                     + "-"
-                    + pl.when(pl.col("day_of_birth").is_null())
-                    .then(pl.lit("01"))
-                    .otherwise(pl.col("day_of_birth").cast(pl.String).str.zfill(2))
+                    + (
+                        pl.when(pl.col("day_of_birth").is_null())
+                        .then(pl.lit("01"))
+                        .otherwise(pl.col("day_of_birth").cast(pl.String).str.zfill(2))
+                    ).cast(pl.String)
                     + " 00:00:00"
                 ).alias("birth_datetime")
             ]
