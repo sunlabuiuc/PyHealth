@@ -1,0 +1,21 @@
+# Author: Elliott Huang (elliott500800@gmail.com)
+
+version: "1.0"
+
+tables:
+  kaggleern:
+    file_path: "kaggleern-metadata-pyhealth.csv"
+
+    # KaggleERN does not provide patient_id in the raw release.
+    # We treat each recording/session as a "patient" unit for PyHealth indexing.
+    patient_id: "subject_id"
+
+    # No timestamp is available by default.
+    timestamp: null
+
+    attributes:
+      - "path"        # absolute or root-relative path to a pickle/npz
+      - "split"       # train / val / test (optional but helpful)
+      - "label"       # 0/1
+      - "epoch_id"    # unique id for the window (e.g., 0001_FB003)
+      - "record_id"   # optional: source CSV id/prefix
