@@ -8,6 +8,7 @@ from typing import Dict, Iterator, List, Optional, Any, Callable
 import functools
 import operator
 from urllib.parse import urlparse, urlunparse
+from urllib.request import urlretrieve
 import json
 import uuid
 import platformdirs
@@ -298,6 +299,16 @@ class BaseDataset(ABC):
                 )
 
             source_path = _csv_tsv_gz_path(source_path)
+
+            if is_url(source_path):
+                local_filename = os.path.basename(source_path)
+                download_dir = self.temp_dir / "downloads"
+                download_dir.mkdir(parents=True, exist_ok=True)
+                local_path = download_dir / local_filename
+                if not local_path.exists():
+                    logger.info(f"Downloading {source_path} to {local_path}")
+                    urlretrieve(source_path, local_path)
+                source_path = str(local_path)
 
             # Determine delimiter based on file extension
             delimiter = (
