@@ -39,6 +39,7 @@ Available Datasets
     datasets/pyhealth.datasets.MIMICExtractDataset
     datasets/pyhealth.datasets.OMOPDataset
     datasets/pyhealth.datasets.DREAMTDataset
+    datasets/pyhealth.datasets.LUDBDataset
     datasets/pyhealth.datasets.SHHSDataset
     datasets/pyhealth.datasets.SleepEDFDataset
     datasets/pyhealth.datasets.EHRShotDataset
