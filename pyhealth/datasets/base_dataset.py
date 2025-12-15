@@ -366,9 +366,9 @@ class BaseDataset(ABC):
                 #   The processes=True will crash in jupyter notebook.
                 # TODO: make the n_workers configurable
                 with LocalCluster(
-                    n_workers=4,
+                    n_workers=1,
                     threads_per_worker=1,
-                    # processes=False,
+                    processes=False,
                 ) as cluster:
                     with Client(cluster) as client:
                         df: dd.DataFrame = self.load_data()
