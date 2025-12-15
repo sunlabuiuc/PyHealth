@@ -65,6 +65,7 @@ from .sample_dataset import SampleDataset
 from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset
 from .bmd_hs import BMDHSDataset
+from .siim_isic import SIIMISICDataset
 from .support2 import Support2Dataset
 from .tcga_prad import TCGAPRADDataset
 from .splitter import (
