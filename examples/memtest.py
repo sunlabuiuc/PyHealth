@@ -30,7 +30,7 @@ if __name__ == "__main__":
             "procedures_icd",
             "labevents",
         ],
-        dev=True,
+        dev=False,
     )
 
     # %% # STEP 2: Apply StageNet mortality prediction task
