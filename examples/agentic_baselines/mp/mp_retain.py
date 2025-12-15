@@ -27,6 +27,8 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
+
 from pyhealth.datasets import MIMIC4Dataset, get_dataloader, split_by_patient
 from pyhealth.datasets.utils import load_processors, save_processors
 from pyhealth.models import RETAIN
@@ -97,6 +99,12 @@ def parse_args():
         action="store_true",
         default=False,
         help="Dev mode: run quick smoke test (1 epoch, small subset, cpu)",
+    )
+    parser.add_argument(
+        "--n_runs",
+        type=int,
+        default=3,
+        help="Number of runs for computing mean and std (default: 3)",
     )
     return parser.parse_args()
 
@@ -193,45 +201,71 @@ def main():
         test_dataset, batch_size=args.batch_size, shuffle=False
     )
 
-    # STEP 4: Initialize RETAIN model
-    print("\nInitializing RETAIN model...")
-    model = RETAIN(
-        dataset=sample_dataset,
-        embedding_dim=args.embedding_dim,
-        dropout=args.dropout,
-    )
+    # STEP 4-6: Run training and evaluation multiple times
+    print(f"\nRunning {args.n_runs} independent training runs...")
+    all_results = []
 
-    num_params = sum(p.numel() for p in model.parameters())
-    print(f"Model initialized with {num_params:,} parameters")
-    print(f"Feature keys: {model.feature_keys}")
-    print(f"Label keys: {model.label_keys}")
+    for run_idx in range(args.n_runs):
+        print(f"\n{'='*60}")
+        print(f"Run {run_idx + 1}/{args.n_runs}")
+        print(f"{'='*60}")
 
-    # STEP 5: Train the model
-    trainer = Trainer(
-        model=model,
-        device=args.device,
-        metrics=["roc_auc", "f1", "pr_auc", "accuracy"],
-        output_path=str(run_root),
-        exp_name=exp_name,
-    )
+        run_exp_name = f"{exp_name}_run{run_idx + 1}"
 
-    print(f"\nStarting training on {args.device}...")
-    trainer.train(
-        train_dataloader=train_loader,
-        val_dataloader=val_loader,
-        epochs=args.epochs,
-        monitor="roc_auc",
-        patience=args.patience,
-        weight_decay=args.weight_decay,
-        optimizer_params={"lr": args.lr},
-    )
+        # Initialize model
+        print("\nInitializing RETAIN model...")
+        model = RETAIN(
+            dataset=sample_dataset,
+            embedding_dim=args.embedding_dim,
+            dropout=args.dropout,
+        )
 
-    # STEP 6: Evaluate on test set
-    print("\nEvaluating on test set...")
-    results = trainer.evaluate(test_loader)
-    print("\nTest Results:")
-    for metric, value in results.items():
-        print(f"  {metric}: {value:.4f}")
+        if run_idx == 0:
+            num_params = sum(p.numel() for p in model.parameters())
+            print(f"Model initialized with {num_params:,} parameters")
+            print(f"Feature keys: {model.feature_keys}")
+            print(f"Label keys: {model.label_keys}")
+
+        # Train the model
+        trainer = Trainer(
+            model=model,
+            device=args.device,
+            metrics=["roc_auc", "f1", "pr_auc", "accuracy"],
+            output_path=str(run_root),
+            exp_name=run_exp_name,
+        )
+
+        print(f"\nStarting training on {args.device}...")
+        trainer.train(
+            train_dataloader=train_loader,
+            val_dataloader=val_loader,
+            epochs=args.epochs,
+            monitor="roc_auc",
+            patience=args.patience,
+            weight_decay=args.weight_decay,
+            optimizer_params={"lr": args.lr},
+        )
+
+        # Evaluate on test set
+        print("\nEvaluating on test set...")
+        results = trainer.evaluate(test_loader)
+        all_results.append(results)
+
+        print(f"\nRun {run_idx + 1} Test Results:")
+        for metric, value in results.items():
+            print(f"  {metric}: {value:.4f}")
+
+    # Compute mean and std across runs
+    print(f"\n{'='*60}")
+    print(f"Summary across {args.n_runs} runs")
+    print(f"{'='*60}")
+
+    metric_names = list(all_results[0].keys())
+    for metric in metric_names:
+        values = [run_results[metric] for run_results in all_results]
+        mean_val = np.mean(values)
+        std_val = np.std(values)
+        print(f"{metric}: {mean_val:.4f} ± {std_val:.4f}")
 
 
 if __name__ == "__main__":
