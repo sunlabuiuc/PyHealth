@@ -363,7 +363,6 @@ class AdaCare(BaseModel):
     ):
         super().__init__(
             dataset=dataset,
-            **kwargs,
         )
 
         self.embedding_dim = embedding_dim
@@ -373,7 +372,7 @@ class AdaCare(BaseModel):
             raise ValueError("input_dim is automatically determined")
 
         assert len(self.label_keys) == 1, "Only one label key is supported"
-        
+
         # Use EmbeddingModel for unified embedding handling
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
         # AdaCare layers for each feature
@@ -428,19 +427,21 @@ class AdaCare(BaseModel):
         embedded, masks = self.embedding_model(kwargs, output_mask=True)
         feature_importance = []
         conv_feature_importance = []
-        
+
         for _, feature_key in enumerate(self.feature_keys):
             embeds = embedded[feature_key]
             mask = masks[feature_key]
             processor = self.dataset.input_processors[feature_key]
-            
+
             if embeds.dim() == 3:
                 if isinstance(processor, NestedFloatsProcessor):
                     mask = torch.any(mask, dim=2)
                 elif isinstance(processor, SequenceProcessor):
                     pass
                 else:
-                    raise ValueError(f"Expected NestedFloatsProcessor or SequenceProcessor for 3D input, got {type(processor)}")
+                    raise ValueError(
+                        f"Expected NestedFloatsProcessor or SequenceProcessor for 3D input, got {type(processor)}"
+                    )
             elif embeds.dim() == 4:
                 if isinstance(processor, NestedSequenceProcessor):
                     embeds = torch.sum(embeds, dim=2)
@@ -449,10 +450,14 @@ class AdaCare(BaseModel):
                     embeds = torch.sum(embeds, dim=2)
                     mask = torch.any(mask, dim=(2, 3))
                 else:
-                    raise ValueError(f"Expected NestedSequenceProcessor or DeepNestedFloatsProcessor for 4D input, got {type(processor)}")
+                    raise ValueError(
+                        f"Expected NestedSequenceProcessor or DeepNestedFloatsProcessor for 4D input, got {type(processor)}"
+                    )
             else:
-                raise NotImplementedError(f"Unsupported input dimension {feature_key}: {embeds.dim()} for AdaCare")
-            
+                raise NotImplementedError(
+                    f"Unsupported input dimension {feature_key}: {embeds.dim()} for AdaCare"
+                )
+
             embeds, _, inputatt, convatt = self.adacare[feature_key](embeds, mask)
             feature_importance.append(inputatt)
             conv_feature_importance.append(convatt)

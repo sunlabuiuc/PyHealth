@@ -109,13 +109,14 @@ def main():
     model_name = "retain"
     root = Path(args.root_output)
     run_root = root / "runs" / task_name / model_name
-    processor_dir = root / "processors" / task_name / model_name
-    cache_dir = root / "cache" / task_name / model_name
+    # Use task-level cache and processors (shared across all models for this task)
+    processor_dir = root / "processors" / task_name
+    cache_dir = root / "cache" / task_name
 
     # Use separate cache for dev mode
     if args.dev:
-        cache_dir = root / "cache_dev" / task_name / model_name
-        processor_dir = root / "processors_dev" / task_name / model_name
+        cache_dir = root / "cache_dev" / task_name
+        processor_dir = root / "processors_dev" / task_name
 
     exp_name = datetime.now().strftime("%Y%m%d-%H%M%S")
 
@@ -207,7 +208,7 @@ def main():
     num_params = sum(p.numel() for p in model.parameters())
     print(f"Model initialized with {num_params:,} parameters")
     print(f"Feature keys: {model.feature_keys}")
-    print(f"Label key: {model.label_key}")
+    print(f"Label keys: {model.label_keys}")
 
     # STEP 5: Train the model
     trainer = Trainer(
