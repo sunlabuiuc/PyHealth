@@ -1,5 +1,96 @@
-from pyhealth.data import Patient, Visit
+from datetime import datetime, timedelta
+from typing import Dict, List
 
+import polars as pl
+
+from pyhealth.data import Event, Patient
+from pyhealth.tasks import BaseTask
+
+class ReadmissionPredictionMIMIC3(BaseTask):
+    #todo: add unit tests (demo dataset? synthetic dataset? my own synthetic dataset?)
+    #todo: add doc strings
+    #todo: replace examples
+    #todo: update docs (replace all references to readmission_prediction_mimic3_fn)
+    #todo: deprecate readmission_prediction_mimic3_fn (make it a wrapper around this)
+    #todo: review other similar tasks for best practices and common patterns
+    task_name: str = "ReadmissionPredictionMIMIC3"
+    input_schema: Dict[str, str] = {"conditions": "sequence", "procedures": "sequence", "drugs": "sequence"}
+    output_schema: Dict[str, str] = {"label": "binary"}
+
+    def __init__(self, window: timedelta, min_admission_length: timedelta = timedelta(0)) -> None:
+        self.window = window
+        self.min_admission_len = min_admission_length
+
+    def __call__(self, patient: Patient) -> List[Dict]:
+        patients: List[Event] = patient.get_events(event_type="patients")
+        assert len(patients) == 1
+        if int(patients[0]["anchor_age"]) < 18:
+            return []
+
+        admissions: List[Event] = patient.get_events(event_type="admissions")
+        if len(admissions) < 2:
+            return []
+
+        samples = []
+        for i in range(len(admissions) - 1): # Skip the last admission since we need a "next" admission
+            #todo: Exclude visits where the patient is under 18
+            # if int(admissions[0].timestamp - patients[0]["dob"]) < 18:
+            #     continue
+
+            discharge_time = datetime.strptime(admissions[i].dischtime, "%Y-%m-%d %H:%M:%S")
+            if (discharge_time - admissions[i].timestamp) < self.min_admission_len:
+                continue
+
+            diagnoses_icd = patient.get_events(
+                event_type="diagnoses_icd",
+                start=admissions[i].timestamp,
+                end=discharge_time,
+                return_df=True
+            )
+            conditions = diagnoses_icd.select(
+                pl.concat_str(["diagnoses_icd/icd_version", "diagnoses_icd/icd_code"], separator="_")
+            ).to_series().to_list()
+            if len(conditions) == 0: #todo: move the short-circuit before the conversion (here and below)
+                continue
+
+            procedures_icd = patient.get_events(
+                event_type="procedures_icd",
+                start=admissions[i].timestamp,
+                end=discharge_time,
+                return_df=True
+            )
+            procedures = procedures_icd.select(
+                pl.concat_str(["procedures_icd/icd_version", "procedures_icd/icd_code"], separator="_")
+            ).to_series().to_list()
+            if len(procedures) == 0: #todo: confirm we want conditions AND procedures AND drugs (instead of OR)
+                continue
+
+            prescriptions = patient.get_events(
+                event_type="prescriptions",
+                start=admissions[i].timestamp,
+                end=discharge_time,
+                return_df=True
+            )
+            drugs = prescriptions.select(
+                pl.concat_str(["prescriptions/drug"], separator="_")
+            ).to_series().to_list()
+            if len(drugs) == 0:
+                continue
+
+            readmission = int((admissions[i + 1].timestamp - discharge_time) < self.window)
+
+            samples.append(
+                {
+                    "patient_id": patient.patient_id,
+                    "admission_id": admissions[0].hadm_id,
+                    "conditions": conditions,
+                    "procedures": procedures,
+                    "drugs": drugs,
+                    "readmission": readmission,
+                }
+            )
+
+        return samples
 
 # TODO: time_window cannot be passed in to base_dataset
 def readmission_prediction_mimic3_fn(patient: Patient, time_window=15):
