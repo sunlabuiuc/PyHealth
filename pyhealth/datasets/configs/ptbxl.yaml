@@ -1,0 +1,16 @@
+version: "1.0"
+tables:
+  ecg:
+    file_path: "ptbxl-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+      - "ecg_id"
+      - "age"
+      - "sex"
+      - "height"
+      - "weight"
+      - "scp_codes"
+      - "diagnostic_superclass"
+      - "strat_fold"
+      - "signal_file"
