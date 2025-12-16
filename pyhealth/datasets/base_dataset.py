@@ -388,6 +388,7 @@ class BaseDataset(ABC):
                         )
                         handle = client.compute(collection)
                         progress(handle)
+                        handle.result() # type: ignore
             self._global_event_df = ret_path
 
         return pl.scan_parquet(
