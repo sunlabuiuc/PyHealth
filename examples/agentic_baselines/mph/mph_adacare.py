@@ -1,26 +1,26 @@
 """
-Example of using RETAIN for mortality prediction on MIMIC-IV.
+Example of using AdaCare for in-hospital mortality prediction on MIMIC-IV.
 
 This example demonstrates:
 1. Loading MIMIC-IV data
-2. Applying the MortalityPredictionMIMIC4 task
-3. Creating a SampleDataset with nested sequence processors
-4. Training a RETAIN model for binary classification
+2. Applying the InHospitalMortalityMIMIC4 task (lab-based, timeseries)
+3. Creating a SampleDataset with timeseries processors
+4. Training an AdaCare model for binary classification
 5. Evaluating with PR-AUC, ROC-AUC, accuracy, and F1 metrics
 
-Model: RETAIN (REverse Time AttentIoN)
-    Paper: Edward Choi et al. RETAIN: An Interpretable Predictive Model for
-    Healthcare using Reverse Time Attention Mechanism. NIPS 2016.
+Model: AdaCare (Adaptive Feature Calibration for Healthcare)
+    Paper: Liantao Ma et al. AdaCare: Explainable Clinical Health Status
+    Representation Learning via Scale-Adaptive Feature Extraction and
+    Recalibration. AAAI 2020.
 
-    - Uses reverse time attention mechanism for interpretability
-    - Computes alpha (visit-level) and beta (code-level) attention weights
-    - Allows understanding which visits and codes contribute to predictions
+    - Uses dilated convolutions to capture multi-scale temporal patterns
+    - Applies squeeze-and-excitation blocks for feature recalibration
+    - Provides interpretable attention weights for clinical features
 
-Task: Mortality Prediction
-    - Input: Patient visit history with conditions, procedures, and drugs
+Task: In-Hospital Mortality Prediction (Lab-based)
+    - Input: Lab results timeseries over first 48 hours
     - Output: Binary label indicating in-hospital mortality
-        - Schema: conditions, procedures, drugs (nested_sequence)
-            -> mortality (binary)
+        - Schema: labs (timeseries) -> mortality (binary)
 """
 
 import argparse
@@ -31,14 +31,14 @@ import numpy as np
 
 from pyhealth.datasets import MIMIC4Dataset, get_dataloader, split_by_patient
 from pyhealth.datasets.utils import load_processors, save_processors
-from pyhealth.models import RETAIN
-from pyhealth.tasks import MortalityPredictionMIMIC4
+from pyhealth.models import AdaCare
+from pyhealth.tasks import InHospitalMortalityMIMIC4
 from pyhealth.trainer import Trainer
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="RETAIN for Mortality Prediction on MIMIC-IV"
+        description="AdaCare for In-Hospital Mortality Prediction on MIMIC-IV (Lab-based)"
     )
     parser.add_argument(
         "--device",
@@ -61,26 +61,32 @@ def parse_args():
     parser.add_argument(
         "--lr",
         type=float,
-        default=1e-5,
-        help="Learning rate (default: 1e-5)",
+        default=1e-3,
+        help="Learning rate (default: 1e-3)",
     )
     parser.add_argument(
-        "--embedding_dim",
+        "--hidden_dim",
         type=int,
         default=128,
-        help="Embedding dimension (default: 128)",
+        help="Hidden dimension (default: 128)",
     )
     parser.add_argument(
         "--dropout",
         type=float,
-        default=0.6,
-        help="Dropout rate (default: 0.6)",
+        default=0.5,
+        help="Dropout rate (default: 0.5)",
     )
     parser.add_argument(
-        "--weight_decay",
-        type=float,
-        default=1e-4,
-        help="Weight decay for L2 regularization (default: 1e-4)",
+        "--kernel_size",
+        type=int,
+        default=2,
+        help="AdaCare causal conv kernel size (default: 2)",
+    )
+    parser.add_argument(
+        "--compression_ratio",
+        type=int,
+        default=4,
+        help="AdaCare recalibration reduction ratio (default: 4)",
     )
     parser.add_argument(
         "--patience",
@@ -112,8 +118,8 @@ def parse_args():
 def main():
     args = parse_args()
 
-    task_name = "mp"
-    model_name = "retain"
+    task_name = "mph"
+    model_name = "adacare"
     root = Path(args.root_output)
     run_root = root / "runs" / task_name / model_name
     # Use task-level cache and processors (shared across all models for this task)
@@ -140,15 +146,13 @@ def main():
         ehr_tables=[
             "patients",
             "admissions",
-            "diagnoses_icd",
-            "procedures_icd",
-            "prescriptions",
+            "labevents",
         ],
         dev=args.dev,
     )
 
-    # STEP 2: Apply mortality prediction task
-    print("Applying MortalityPredictionMIMIC4 task...")
+    # STEP 2: Apply in-hospital mortality prediction task (lab-based)
+    print("Applying InHospitalMortalityMIMIC4 task...")
 
     input_processors = None
     output_processors = None
@@ -161,7 +165,7 @@ def main():
         print(f"No cached processors found; will save to: {processor_dir}")
 
     sample_dataset = base_dataset.set_task(
-        MortalityPredictionMIMIC4(),
+        InHospitalMortalityMIMIC4(),
         num_workers=4,
         cache_dir=str(cache_dir),
         input_processors=input_processors,
@@ -179,10 +183,12 @@ def main():
     sample = sample_dataset.samples[0]
     print("\nSample structure:")
     print(f"  Patient ID: {sample['patient_id']}")
-    print(f"  Visit ID: {sample['visit_id']}")
-    print(f"  Conditions: {len(sample['conditions'])} visits")
-    print(f"  Procedures: {len(sample['procedures'])} visits")
-    print(f"  Drugs: {len(sample['drugs'])} visits")
+    print(f"  Admission ID: {sample['admission_id']}")
+    if "labs" in sample:
+        timestamps, lab_values = sample["labs"]
+        print(
+            f"  Lab measurements: {len(timestamps)} timepoints, {lab_values.shape[1]} features"
+        )
     print(f"  Mortality label: {sample['mortality']}")
 
     # STEP 3: Split dataset
@@ -216,11 +222,14 @@ def main():
         run_exp_name = f"{exp_name}_run{run_idx + 1}"
 
         # Initialize model
-        print("\nInitializing RETAIN model...")
-        model = RETAIN(
+        print("\nInitializing AdaCare model...")
+        model = AdaCare(
             dataset=sample_dataset,
-            embedding_dim=args.embedding_dim,
+            hidden_dim=args.hidden_dim,
             dropout=args.dropout,
+            kernel_size=args.kernel_size,
+            r_v=args.compression_ratio,
+            r_c=args.compression_ratio,
         )
 
         if run_idx == 0:
@@ -245,7 +254,6 @@ def main():
             epochs=args.epochs,
             monitor="roc_auc",
             patience=args.patience,
-            weight_decay=args.weight_decay,
             optimizer_params={"lr": args.lr},
         )
 
