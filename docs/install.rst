@@ -77,7 +77,7 @@ For example, if you use NVIDIA RTX A6000 as your GPU for training, you should in
 
 **Windows Subsystem for Linux (WSL)**
 
-When using PyHealth on WSL, you **must** disable swap memory due to a bug in how Dask interacts with WSL's memory management. This prevents performance issues and potential crashes.
+When using PyHealth on WSL, you **may need to** disable swap memory due to a bug in how Dask interacts with WSL's memory management when memory runs out. This prevents performance issues and potential crashes.
 
 **Method 1: Using WSL Settings App (Windows 11)**
 
