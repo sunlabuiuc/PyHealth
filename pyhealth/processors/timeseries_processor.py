@@ -25,11 +25,15 @@ class TimeseriesProcessor(FeatureProcessor):
         - torch.Tensor of shape (S, F), where S is the number of sampled time steps.
     """
 
-    def __init__(self, sampling_rate: timedelta = timedelta(hours=1), impute_strategy: str = "forward_fill"):
+    def __init__(
+        self,
+        sampling_rate: timedelta = timedelta(hours=1),
+        impute_strategy: str = "forward_fill",
+    ):
         # Configurable sampling rate and imputation method
         self.sampling_rate = sampling_rate
         self.impute_strategy = impute_strategy
-        self.size = None
+        self.n_features = None
 
     def process(self, value: Tuple[List[datetime], np.ndarray]) -> torch.Tensor:
         timestamps, values = value
@@ -45,7 +49,9 @@ class TimeseriesProcessor(FeatureProcessor):
         end_time = timestamps[-1]
         total_steps = int((end_time - start_time) / self.sampling_rate) + 1
 
-        sampled_times = [start_time + i * self.sampling_rate for i in range(total_steps)]
+        sampled_times = [
+            start_time + i * self.sampling_rate for i in range(total_steps)
+        ]
         sampled_values = np.full((total_steps, num_features), np.nan)
 
         # Map original timestamps to indices in the sampled grid
@@ -67,15 +73,15 @@ class TimeseriesProcessor(FeatureProcessor):
             sampled_values = np.nan_to_num(sampled_values, nan=0.0)
         else:
             raise ValueError(f"Unsupported imputation strategy: {self.impute_strategy}")
-        
-        if self.size is None:
-            self.size = sampled_values.shape[1]
+
+        if self.n_features is None:
+            self.n_features = sampled_values.shape[1]
 
         return torch.tensor(sampled_values, dtype=torch.float)
 
     def size(self):
         # Size equals number of features, unknown until first process
-        return self.size
+        return self.n_features
 
     def __repr__(self):
         return (
