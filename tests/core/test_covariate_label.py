@@ -2,7 +2,7 @@ import unittest
 import numpy as np
 import torch
 
-from pyhealth.datasets import SampleDataset, get_dataloader
+from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import MLP
 from pyhealth.calib.predictionset.covariate import CovariateLabel, fit_kde
 from pyhealth.calib.utils import extract_embeddings
@@ -67,7 +67,7 @@ class TestCovariateLabel(unittest.TestCase):
         self.output_schema = {"label": "multiclass"}
 
         # Create dataset
-        self.dataset = SampleDataset(
+        self.dataset = create_sample_dataset(
             samples=self.samples,
             input_schema=self.input_schema,
             output_schema=self.output_schema,
@@ -150,7 +150,7 @@ class TestCovariateLabel(unittest.TestCase):
                 "label": 1,
             },
         ]
-        binary_dataset = SampleDataset(
+        binary_dataset = create_sample_dataset(
             samples=binary_samples,
             input_schema={"conditions": "sequence", "procedures": "tensor"},
             output_schema={"label": "binary"},
@@ -182,7 +182,7 @@ class TestCovariateLabel(unittest.TestCase):
 
         # Calibrate on first 4 samples
         cal_indices = [0, 1, 2, 3]
-        cal_dataset = torch.utils.data.Subset(self.dataset, cal_indices)
+        cal_dataset = self.dataset.subset(cal_indices)
 
         # Extract embeddings
         cal_embeddings = self._get_embeddings(cal_dataset)
@@ -240,7 +240,7 @@ class TestCovariateLabel(unittest.TestCase):
 
         # Calibrate
         cal_indices = [0, 1, 2, 3]
-        cal_dataset = torch.utils.data.Subset(self.dataset, cal_indices)
+        cal_dataset = self.dataset.subset(cal_indices)
 
         # Extract embeddings
         cal_embeddings = self._get_embeddings(cal_dataset)
@@ -281,7 +281,7 @@ class TestCovariateLabel(unittest.TestCase):
 
         # Calibrate on first 4 samples
         cal_indices = [0, 1, 2, 3]
-        cal_dataset = torch.utils.data.Subset(self.dataset, cal_indices)
+        cal_dataset = self.dataset.subset(cal_indices)
 
         # Extract embeddings
         cal_embeddings = self._get_embeddings(cal_dataset)
@@ -295,7 +295,7 @@ class TestCovariateLabel(unittest.TestCase):
 
         # Test on remaining samples
         test_indices = [4, 5]
-        test_dataset = torch.utils.data.Subset(self.dataset, test_indices)
+        test_dataset = self.dataset.subset(test_indices)
         test_loader = get_dataloader(test_dataset, batch_size=2, shuffle=False)
 
         with torch.no_grad():
@@ -359,7 +359,7 @@ class TestCovariateLabel(unittest.TestCase):
 
         # Use subset that doesn't have all classes
         cal_indices = [0, 1]  # Only classes 0 and 1
-        cal_dataset = torch.utils.data.Subset(self.dataset, cal_indices)
+        cal_dataset = self.dataset.subset(cal_indices)
 
         # Extract embeddings
         cal_embeddings = self._get_embeddings(cal_dataset)

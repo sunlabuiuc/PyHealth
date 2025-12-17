@@ -100,7 +100,7 @@ class EmbeddingModel(BaseModel):
             elif isinstance(processor, TensorProcessor):
                 # Infer size from first sample
                 sample_tensor = None
-                for sample in dataset.samples:
+                for sample in dataset:
                     if field_name in sample:
                         sample_tensor = processor.process(sample[field_name])
                         break
