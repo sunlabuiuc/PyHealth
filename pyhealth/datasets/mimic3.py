@@ -3,7 +3,7 @@ import warnings
 from pathlib import Path
 from typing import List, Optional
 
-import polars as pl
+import narwhals as pl
 
 from .base_dataset import BaseDataset
 

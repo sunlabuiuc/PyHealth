@@ -3,7 +3,7 @@
 import unittest
 import torch
 
-from pyhealth.datasets import SampleDataset, get_dataloader
+from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import GCN, GAT
 
 
@@ -37,7 +37,7 @@ class TestGCN(unittest.TestCase):
         self.output_schema = {"label": "binary"}  # binary classification
 
         # Create dataset
-        self.dataset = SampleDataset(
+        self.dataset = create_sample_dataset(
             samples=self.samples,
             input_schema=self.input_schema,
             output_schema=self.output_schema,
@@ -258,7 +258,7 @@ class TestGAT(unittest.TestCase):
         self.output_schema = {"label": "binary"}  # binary classification
 
         # Create dataset
-        self.dataset = SampleDataset(
+        self.dataset = create_sample_dataset(
             samples=self.samples,
             input_schema=self.input_schema,
             output_schema=self.output_schema,

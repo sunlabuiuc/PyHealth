@@ -137,13 +137,50 @@ class RNN(BaseModel):
     Args:
         dataset (SampleDataset): the dataset to train the model. It is used to query certain
             information such as the set of all tokens.
-        feature_keys (List[str]): list of keys in samples to use as features,
-            e.g. ["conditions", "procedures"].
-        label_key (str): key in samples to use as label (e.g., "drugs").
-        mode (str): one of "binary", "multiclass", or "multilabel".
         embedding_dim (int): the embedding dimension. Default is 128.
         hidden_dim (int): the hidden dimension. Default is 128.
-        **kwargs: other parameters for the RNN layer.
+        **kwargs: other parameters for the RNN layer (e.g., rnn_type, num_layers, dropout, bidirectional).
+
+    Examples:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> samples = [
+        ...     {
+        ...         "patient_id": "patient-0",
+        ...         "visit_id": "visit-0",
+        ...         "conditions": ["cond-33", "cond-86", "cond-80"],
+        ...         "procedures": ["proc-12", "proc-45"],
+        ...         "label": 1,
+        ...     },
+        ...     {
+        ...         "patient_id": "patient-1",
+        ...         "visit_id": "visit-1",
+        ...         "conditions": ["cond-12", "cond-52"],
+        ...         "procedures": ["proc-23"],
+        ...         "label": 0,
+        ...     },
+        ... ]
+        >>> dataset = create_sample_dataset(
+        ...     samples=samples,
+        ...     input_schema={"conditions": "sequence", "procedures": "sequence"},
+        ...     output_schema={"label": "binary"},
+        ...     dataset_name="test"
+        ... )
+        >>>
+        >>> from pyhealth.datasets import get_dataloader
+        >>> train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
+        >>>
+        >>> model = RNN(dataset=dataset, embedding_dim=128, hidden_dim=64)
+        >>>
+        >>> data_batch = next(iter(train_loader))
+        >>>
+        >>> ret = model(**data_batch)
+        >>> print(ret)
+        {
+            'loss': tensor(...),
+            'y_prob': tensor(...),
+            'y_true': tensor(...),
+            'logit': tensor(...)
+        }
     """
 
     def __init__(

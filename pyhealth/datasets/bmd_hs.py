@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 from typing import Optional
-import polars as pl
+import narwhals as pl
 
 from pyhealth.tasks.base_task import BaseTask
 from pyhealth.tasks.bmd_hs_disease_classification import BMDHSDiseaseClassification

@@ -1,3 +1,4 @@
+from functools import partial
 from pathlib import Path
 from typing import Any, List, Optional, Union
 
@@ -59,7 +60,9 @@ class ImageProcessor(FeatureProcessor):
     def _build_transform(self) -> transforms.Compose:
         transform_list = []
         if self.mode is not None:
-            transform_list.append(transforms.Lambda(lambda img: img.convert(self.mode)))
+            transform_list.append(
+                transforms.Lambda(partial(_convert_mode, mode=self.mode))
+            )
         if self.image_size is not None:
             transform_list.append(
                 transforms.Resize((self.image_size, self.image_size))
@@ -98,3 +101,8 @@ class ImageProcessor(FeatureProcessor):
             f"to_tensor={self.to_tensor}, normalize={self.normalize}, "
             f"mean={self.mean}, std={self.std}, mode={self.mode})"
         )
+
+
+def _convert_mode(img: Image.Image, mode: str) -> Image.Image:
+    """Convert a PIL image to the requested mode."""
+    return img.convert(mode)

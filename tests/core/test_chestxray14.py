@@ -7,6 +7,7 @@ Author:
 import os
 import shutil
 import unittest
+import tempfile
 
 import numpy as np
 from PIL import Image
@@ -124,19 +125,22 @@ class TestChestXray14Dataset(unittest.TestCase):
             _ = ChestXray14BinaryClassification(disease="toothache")
 
     def test_task_classify_cardiomegaly(self):
+        cache_dir = tempfile.mkdtemp()
         task = ChestXray14BinaryClassification(disease="cardiomegaly")
-        samples = self.dataset.set_task(task)
+        samples = self.dataset.set_task(task, cache_dir=cache_dir)
         self.assertEqual(len(samples), 10)
         self.assertEqual(sum(sample["label"] for sample in samples), 3)
 
     def test_task_classify_hernia(self):
+        cache_dir = tempfile.mkdtemp()
         task = ChestXray14BinaryClassification(disease="hernia")
-        samples = self.dataset.set_task(task)
+        samples = self.dataset.set_task(task, cache_dir=cache_dir)
         self.assertEqual(len(samples), 10)
         self.assertEqual(sum(sample["label"] for sample in samples), 6)
 
     def test_task_classify_all(self):
-        samples = self.dataset.set_task()
+        cache_dir = tempfile.mkdtemp()
+        samples = self.dataset.set_task(cache_dir=cache_dir)
         self.assertEqual(len(samples), 10)
 
         actual_labels = [sample["labels"].tolist() for sample in samples]

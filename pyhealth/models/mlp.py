@@ -55,7 +55,7 @@ class MLP(BaseModel):
         **kwargs: other parameters for the MLP layer.
 
     Examples:
-        >>> from pyhealth.datasets import SampleDataset
+        >>> from pyhealth.datasets import create_sample_dataset
         >>> samples = [
         ...         {
         ...             "patient_id": "patient-0",
@@ -75,7 +75,7 @@ class MLP(BaseModel):
         >>> input_schema = {"conditions": "sequence",
         ...                 "procedures": "timeseries"}
         >>> output_schema = {"label": "binary"}
-        >>> dataset = SampleDataset(samples=samples,
+        >>> dataset = create_sample_dataset(samples=samples,
         ...                        input_schema=input_schema,
         ...                        output_schema=output_schema,
         ...                        dataset_name="test")
@@ -364,7 +364,7 @@ class MLP(BaseModel):
 
 
 if __name__ == "__main__":
-    from pyhealth.datasets import SampleDataset
+    from pyhealth.datasets import create_sample_dataset
 
     samples = [
         {
@@ -391,7 +391,7 @@ if __name__ == "__main__":
     output_schema = {"label": "binary"}  # binary classification
 
     # dataset
-    dataset = SampleDataset(
+    dataset = create_sample_dataset(
         samples=samples,
         input_schema=input_schema,
         output_schema=output_schema,
