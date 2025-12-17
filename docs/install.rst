@@ -1,6 +1,10 @@
 Installation
 ============
 
+**Python Version Recommendation**
+
+We recommend using **Python 3.12** for optimal parallel processing and memory management performance. While PyHealth supports Python 3.8+, Python 3.12 provides significant improvements in these areas.
+
 **Recommended Installation (Alpha Version)**
 
 We recommend installing the latest alpha version from PyPi, which offers significant improvements in performance:
@@ -66,5 +70,41 @@ For example, if you use NVIDIA RTX A6000 as your GPU for training, you should in
 .. code-block:: bash
 
     conda install pytorch torchvision torchaudio cudatoolkit=11.3 -c pytorch.
+
+----
+
+**Platform-Specific Notes**
+
+**Windows Subsystem for Linux (WSL)**
+
+When using PyHealth on WSL, you **must** disable swap memory due to a bug in how Dask interacts with WSL's memory management. This prevents performance issues and potential crashes.
+
+**Method 1: Using WSL Settings App (Windows 11)**
+
+1. Open the WSL Settings app in Windows
+2. Navigate to Memory and Processor settings
+3. Set Swap size to 0 MB
+4. Apply changes and restart WSL
+
+**Method 2: Manual Configuration**
+
+1. Open PowerShell as Administrator
+2. Create or edit `%UserProfile%\.wslconfig` file
+3. Add the following configuration:
+
+.. code-block:: ini
+
+    [wsl2]
+    swap=0
+
+4. Restart WSL by running in PowerShell: ``wsl --shutdown``
+
+**Other Platforms**
+
+PyHealth should work without additional configuration on:
+
+- Linux (native)
+- macOS
+- Windows (with proper Python installation)
 
 ----
