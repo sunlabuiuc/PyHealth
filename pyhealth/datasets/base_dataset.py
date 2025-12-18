@@ -73,6 +73,7 @@ def path_exists(path: str) -> bool:
     else:
         return Path(path).exists()
 
+
 def _csv_tsv_gz_path(path: str) -> str:
     """
     Get the path to the file, trying the original path first, then the alternative path
@@ -101,11 +102,12 @@ def _csv_tsv_gz_path(path: str) -> str:
         alt_path = f"{path}.gz"  # Add .gz -> try .tsv.gz
     else:
         raise ValueError(f"Path does not have expected extension: {path}")
-    
+
     if path_exists(alt_path):
         return alt_path
-    
+
     raise FileNotFoundError(f"Neither path exists: {path} or {alt_path}")
+
 
 def _uncollate(x: list[Any]) -> Any:
     return x[0] if isinstance(x, list) and len(x) == 1 else x
@@ -264,12 +266,14 @@ class BaseDataset(ABC):
             cache_dir.mkdir(parents=True, exist_ok=True)
             self._cache_dir = cache_dir
         return Path(self._cache_dir)
-    
+
     @property
     def temp_dir(self) -> Path:
         return self.cache_dir / "temp"
 
-    def _scan_csv_tsv_gz(self, table_name: str, source_path: str | None = None) -> dd.DataFrame:
+    def _scan_csv_tsv_gz(
+        self, table_name: str, source_path: str | None = None
+    ) -> dd.DataFrame:
         """Scans a CSV/TSV file (possibly gzipped) and returns a Dask DataFrame.
 
         If the cached Parquet file does not exist, it converts the source CSV/TSV file
@@ -284,7 +288,7 @@ class BaseDataset(ABC):
             dd.DataFrame: The Dask DataFrame loaded from the cached Parquet file.
 
         Raises:
-            FileNotFoundError: If source_path is None and the cached Parquet file does not exist; 
+            FileNotFoundError: If source_path is None and the cached Parquet file does not exist;
                 or if neither the original nor the alternative path of source_path exists.
             ValueError: If the path does not have an expected extension.
         """
@@ -354,8 +358,8 @@ class BaseDataset(ABC):
         """
         if not multiprocessing.current_process().name == "MainProcess":
             logger.warning(
-                "global_event_df property accessed from a non-main process. This may lead to unexpected behavior.\n" + 
-                "Consider use __name__ == '__main__' guard when using multiprocessing."
+                "global_event_df property accessed from a non-main process. This may lead to unexpected behavior.\n"
+                + "Consider use __name__ == '__main__' guard when using multiprocessing."
             )
             return None  # type: ignore
 
@@ -365,18 +369,22 @@ class BaseDataset(ABC):
                 # TODO: auto select processes=True/False based on if it's in jupyter notebook
                 #   The processes=True will crash in jupyter notebook.
                 # TODO: make the n_workers configurable
+
+                # Use cache_dir for Dask's scratch space to avoid filling up /tmp or home directory
+                dask_scratch_dir = self.cache_dir / "dask_scratch"
+                dask_scratch_dir.mkdir(parents=True, exist_ok=True)
+
                 with LocalCluster(
                     n_workers=1,
                     threads_per_worker=1,
                     processes=False,
+                    local_directory=str(dask_scratch_dir),
                 ) as cluster:
                     with Client(cluster) as client:
                         df: dd.DataFrame = self.load_data()
                         if self.dev:
                             logger.info("Dev mode enabled: limiting to 1000 patients")
-                            patients = (
-                                df["patient_id"].unique().head(1000).tolist()
-                            )
+                            patients = df["patient_id"].unique().head(1000).tolist()
                             filter = df["patient_id"].isin(patients)
                             df = df[filter]
 
@@ -388,7 +396,7 @@ class BaseDataset(ABC):
                         )
                         handle = client.compute(collection)
                         progress(handle)
-                        handle.result() # type: ignore
+                        handle.result()  # type: ignore
             self._global_event_df = ret_path
 
         return pl.scan_parquet(
@@ -440,7 +448,7 @@ class BaseDataset(ABC):
             logger.info(
                 f"Preprocessing table: {table_name} with {preprocess_func.__name__}"
             )
-            df = preprocess_func(nw.from_native(df)).to_native() # type: ignore
+            df = preprocess_func(nw.from_native(df)).to_native()  # type: ignore
 
         # Handle joins
         for i, join_cfg in enumerate(table_cfg.join):
@@ -453,7 +461,9 @@ class BaseDataset(ABC):
             columns = join_cfg.columns
             how = join_cfg.how
 
-            df: dd.DataFrame = df.merge(join_df[[join_key] + columns], on=join_key, how=how)
+            df: dd.DataFrame = df.merge(
+                join_df[[join_key] + columns], on=join_key, how=how
+            )
 
         patient_id_col = table_cfg.patient_id
         timestamp_col = table_cfg.timestamp
@@ -468,17 +478,21 @@ class BaseDataset(ABC):
                     operator.add, (df[col].astype(str) for col in timestamp_col)
                 )
             else:
-                # Single timestamp column
-                timestamp_series: dd.Series = df[timestamp_col].astype(str)
+                # Single timestamp column - don't convert to string yet
+                timestamp_series: dd.Series = df[timestamp_col]
+
+            # Convert to datetime, coercing NA/invalid values to NaT
+            # This avoids the "<NA>" string literal issue when NA is cast to str
             timestamp_series: dd.Series = dd.to_datetime(
                 timestamp_series,
                 format=timestamp_format,
-                errors="raise",
+                errors="raise",  # Convert unparseable values to NaT instead of raising
             )
-            df: dd.DataFrame = df.assign(timestamp=timestamp_series.astype("datetime64[ms]"))
+            df: dd.DataFrame = df.assign(
+                timestamp=timestamp_series.astype("datetime64[ms]")
+            )
         else:
             df: dd.DataFrame = df.assign(timestamp=pd.NaT)
-
 
         # If patient_id_col is None, use row index as patient_id
         if patient_id_col:
@@ -486,7 +500,6 @@ class BaseDataset(ABC):
         else:
             df: dd.DataFrame = df.reset_index(drop=True)
             df: dd.DataFrame = df.assign(patient_id=df.index.astype(str))
-
 
         df: dd.DataFrame = df.assign(event_type=table_name)
 
@@ -613,10 +626,10 @@ class BaseDataset(ABC):
         """
         if not multiprocessing.current_process().name == "MainProcess":
             logger.warning(
-                "set_task method accessed from a non-main process. This may lead to unexpected behavior.\n" + 
-                "Consider use __name__ == '__main__' guard when using multiprocessing."
+                "set_task method accessed from a non-main process. This may lead to unexpected behavior.\n"
+                + "Consider use __name__ == '__main__' guard when using multiprocessing."
             )
-            return None # type: ignore
+            return None  # type: ignore
 
         if task is None:
             assert self.default_task is not None, "No default tasks found"

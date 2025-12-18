@@ -272,6 +272,170 @@ Common string keys for automatic processor selection:
 - ``"tensor"``: For pre-processed tensors
 - ``"raw"``: For raw/unprocessed data
 
+Writing Custom FeatureProcessors
+---------------------------------
+
+PyHealth's processor framework is highly flexible and allows you to create custom processors for your specific data transformation needs. This section explains how to write your own ``FeatureProcessor``.
+
+Core Concepts
+~~~~~~~~~~~~~
+
+When creating a custom ``FeatureProcessor``, you need to understand two key methods:
+
+1. **process()** - Required method that transforms individual feature values
+2. **fit()** - Optional method for learning global data statistics (e.g., vocabularies, normalization parameters)
+
+The ``process()`` Method
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+The ``process()`` method is called **once per sample during the caching phase** (in ``BaseDataset.set_task()``). It transforms a single raw feature value into the format that will be stored in the cache. This method can return:
+
+- Raw strings or primitives
+- PyTorch tensors
+- NumPy arrays
+- Any other data structure your model expects
+
+**Important:** ``process()`` should be **stateless**. Any mutations made to the processor during ``process()`` are not saved—the processor state is fixed after ``fit()`` completes. This is by design to ensure reproducibility and consistency across distributed workers.
+
+The ``fit()`` Method
+~~~~~~~~~~~~~~~~~~~~
+
+The ``fit()`` method is called **once during the caching phase** (in ``BaseDataset.set_task()``), before any ``process()`` calls. Use ``fit()`` when you need to:
+
+- Build vocabularies from the entire dataset
+- Calculate normalization statistics (mean, std, min, max)
+- Learn any global parameters from the data distribution
+- Store variables that need to be shared across all samples
+
+**Important:** Variables set in ``fit()`` are saved with the processor and reused when loading cached datasets.
+
+Example: SequenceProcessor
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Here's how the built-in ``SequenceProcessor`` implements both methods:
+
+.. code-block:: python
+
+    from typing import Any, Dict, List, Iterable
+    import torch
+    from pyhealth.processors import register_processor
+    from pyhealth.processors.base_processor import FeatureProcessor
+
+    @register_processor("sequence")
+    class SequenceProcessor(FeatureProcessor):
+        """
+        Processor for encoding categorical sequences (e.g., medical codes)
+        into numerical indices.
+        """
+
+        def __init__(self):
+            # Initialize vocabulary with padding token
+            self.code_vocab: Dict[Any, int] = {"<pad>": 0}
+            self._next_index = 1
+
+        def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
+            """Build vocabulary from all samples (called once during caching)."""
+            for sample in samples:
+                for token in sample[field]:
+                    if token is None:
+                        continue  # Skip missing values
+                    elif token not in self.code_vocab:
+                        # Add new token to vocabulary
+                        self.code_vocab[token] = self._next_index
+                        self._next_index += 1
+            
+            # Add unknown token at the end
+            self.code_vocab["<unk>"] = len(self.code_vocab)
+
+        def process(self, value: Any) -> torch.Tensor:
+            """Convert tokens to indices (called during data loading)."""
+            indices = []
+            for token in value:
+                if token in self.code_vocab:
+                    indices.append(self.code_vocab[token])
+                else:
+                    indices.append(self.code_vocab["<unk>"])
+            
+            return torch.tensor(indices, dtype=torch.long)
+
+        def size(self):
+            """Return vocabulary size."""
+            return len(self.code_vocab)
+
+Key Design Decisions
+~~~~~~~~~~~~~~~~~~~~
+
+**When to Use fit():**
+
+- Learning vocabularies (like ``SequenceProcessor``)
+- Computing normalization statistics (like ``TimeseriesProcessor``)
+- Determining feature dimensions (e.g., ``n_features`` in time series)
+- Any stateful transformation that depends on the entire dataset
+
+**When fit() is Optional:**
+
+- Stateless transformations (e.g., converting strings to lowercase)
+- Fixed transformations (e.g., resizing images to a fixed size)
+- Pass-through operations (e.g., ``RawProcessor``)
+
+Example: Simple Custom Processor
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Here's a minimal example of a custom processor that normalizes numerical values:
+
+.. code-block:: python
+
+    from pyhealth.processors import register_processor
+    from pyhealth.processors.base_processor import FeatureProcessor
+    import torch
+    import numpy as np
+
+    @register_processor("z_score")
+    class ZScoreProcessor(FeatureProcessor):
+        """Normalize numerical features using z-score normalization."""
+
+        def __init__(self):
+            self.mean = 0.0
+            self.std = 1.0
+
+        def fit(self, samples, field):
+            """Calculate mean and std from all samples."""
+            values = []
+            for sample in samples:
+                if field in sample and sample[field] is not None:
+                    values.extend(sample[field])
+            
+            self.mean = np.mean(values)
+            self.std = np.std(values)
+
+        def process(self, value):
+            """Apply z-score normalization."""
+            normalized = [(x - self.mean) / self.std for x in value]
+            return torch.tensor(normalized, dtype=torch.float32)
+
+Registering Your Processor
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use the ``@register_processor`` decorator to make your processor available via string keys:
+
+.. code-block:: python
+
+    @register_processor("my_custom_processor")
+    class MyCustomProcessor(FeatureProcessor):
+        # ... implementation ...
+        pass
+
+Then use it in your task schema:
+
+.. code-block:: python
+
+    input_schema = {
+        "my_field": "my_custom_processor",  # String key
+        # Or with kwargs:
+        "my_field": ("my_custom_processor", {"param1": value1}),
+    }
+
+
 API Reference
 -------------
 

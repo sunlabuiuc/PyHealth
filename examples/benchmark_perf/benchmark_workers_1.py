@@ -87,7 +87,7 @@ def format_size(size_bytes):
 def main():
     """Main benchmark function."""
     # Configuration
-    dev = True  # Set to True for development/testing
+    dev = False  # Set to True for development/testing
     enable_memory_limit = False  # Set to True to enforce memory limit
     max_memory_gb = 32  # Memory limit in GB (if enable_memory_limit=True)
 
