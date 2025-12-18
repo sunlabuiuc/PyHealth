@@ -35,6 +35,25 @@ class TimeseriesProcessor(FeatureProcessor):
         self.impute_strategy = impute_strategy
         self.n_features = None
 
+    def fit(self, samples: Any, field: str) -> None:
+        """Fit the processor by determining n_features from the first valid sample.
+
+        Args:
+            samples: Iterable of sample dictionaries.
+            field: The field name to extract from samples.
+        """
+        # Extract n_features from the first valid sample without full processing
+        for sample in samples:
+            if field in sample and sample[field] is not None:
+                _, values = sample[field]
+                values = np.asarray(values)
+                if values.ndim == 2:
+                    self.n_features = values.shape[1]
+                    break
+                elif values.ndim == 1:
+                    self.n_features = 1
+                    break
+
     def process(self, value: Tuple[List[datetime], np.ndarray]) -> torch.Tensor:
         timestamps, values = value
 
