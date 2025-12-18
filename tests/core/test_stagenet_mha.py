@@ -1,7 +1,7 @@
 import unittest
 import torch
 
-from pyhealth.datasets import SampleDataset, get_dataloader
+from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models.stagenet_mha import StageAttentionNet as StageNetMHA
 
 
@@ -33,7 +33,7 @@ class TestStageNetMHA(unittest.TestCase):
         self.input_schema = {"codes": "stagenet", "procedures": "stagenet"}
         self.output_schema = {"label": "binary"}
 
-        self.dataset = SampleDataset(
+        self.dataset = create_sample_dataset(
             samples=self.samples,
             input_schema=self.input_schema,
             output_schema=self.output_schema,
@@ -90,7 +90,7 @@ class TestStageNetMHA(unittest.TestCase):
                 "label": 0,
             },
         ]
-        dataset_no_time = SampleDataset(
+        dataset_no_time = create_sample_dataset(
             samples=samples_no_time,
             input_schema={"codes": "stagenet"},
             output_schema=self.output_schema,
