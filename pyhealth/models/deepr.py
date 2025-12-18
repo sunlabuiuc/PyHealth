@@ -16,14 +16,15 @@ class DeeprLayer(nn.Module):
 
     Args:
         feature_size: Input feature size (embedding_dim).
-        window: Sliding window radius d; kernel_size = 2*d + 1.
+        window: Sliding window radius d; the convolution uses kernel_size = 2*d + 1
+            and padding=d to maintain sequence length.
         hidden_size: Number of convolution filters.
     """
 
     def __init__(self, feature_size: int, window: int = 1, hidden_size: int = 128):
         super(DeeprLayer, self).__init__()
-        if window < 0:
-            raise ValueError("window must be non-negative")
+        if not isinstance(window, int) or window < 0:
+            raise ValueError("window must be a non-negative integer")
 
         kernel_size = 2 * window + 1
         self.conv = nn.Conv1d(
@@ -46,11 +47,11 @@ class DeeprLayer(nn.Module):
             Tensor of shape [batch size, hidden size].
         """
         if x.dim() != 3:
-            raise ValueError(f"Expected 3-D x [B, T, C], got {x.shape}")
+            raise ValueError(f"Expected 3-D input [B, T, C], got shape {x.shape}")
 
         if mask is not None:
             if mask.dim() != 2:
-                raise ValueError(f"Expected 2-D mask [B, T], got {mask.shape}")
+                raise ValueError(f"Expected 2-D mask [B, T], got shape {mask.shape}")
             mask = mask.to(device=x.device, dtype=x.dtype)
             x = x * mask.unsqueeze(-1)
 
@@ -63,15 +64,52 @@ class DeeprLayer(nn.Module):
 class Deepr(BaseModel):
     """Deepr model for PyHealth 2.0 datasets.
 
+    Paper: P. Nguyen, T. Tran, N. Wickramasinghe and S. Venkatesh,
+        "Deepr: A Convolutional Net for Medical Records," in IEEE Journal
+        of Biomedical and Health Informatics, vol. 21, no. 1, pp. 22-30,
+        Jan. 2017, doi: 10.1109/JBHI.2016.2633963.
+
     The model embeds each feature via EmbeddingModel and applies a DeeprLayer
     (Conv1d + max pooling) per feature. Feature representations are concatenated
     and fed into a linear head.
 
     Args:
         dataset: SampleDataset with fitted input and output processors.
-        embedding_dim: Size of the intermediate embedding space.
-        hidden_dim: Number of convolution filters produced by DeeprLayer.
-        window: Sliding window radius d (kernel_size = 2*d + 1).
+        embedding_dim: Size of the intermediate embedding space. Default is 128.
+        hidden_dim: Number of convolution filters produced by DeeprLayer. Default is 128.
+        window: Sliding window radius d (kernel_size = 2*d + 1). Default is 1.
+
+    Examples:
+        >>> from pyhealth.datasets import SampleDataset
+        >>> from pyhealth.models import Deepr
+        >>> samples = [
+        ...     {
+        ...         "patient_id": "patient-0",
+        ...         "visit_id": "visit-0",
+        ...         "conditions": ["cond-33", "cond-86", "cond-80"],
+        ...         "procedures": ["proc-1", "proc-2"],
+        ...         "label": 1,
+        ...     },
+        ...     {
+        ...         "patient_id": "patient-1",
+        ...         "visit_id": "visit-1",
+        ...         "conditions": ["cond-33", "cond-86"],
+        ...         "procedures": ["proc-2"],
+        ...         "label": 0,
+        ...     },
+        ... ]
+        >>> dataset = SampleDataset(
+        ...     samples=samples,
+        ...     input_schema={"conditions": "sequence", "procedures": "sequence"},
+        ...     output_schema={"label": "binary"},
+        ...     dataset_name="test",
+        ... )
+        >>> model = Deepr(dataset=dataset, embedding_dim=64, hidden_dim=64)
+        >>> from pyhealth.datasets import get_dataloader
+        >>> train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
+        >>> batch = next(iter(train_loader))
+        >>> output = model(**batch)
+        >>> output["loss"].backward()
     """
 
     def __init__(
@@ -116,16 +154,21 @@ class Deepr(BaseModel):
         if isinstance(value, torch.Tensor):
             return value
         return torch.as_tensor(value)
-
     def _flatten_nested_with_gap(
-        self, x: torch.Tensor
+        self, x: torch.Tensor, raw_indices: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Flattens [B, V, T, C] -> [B, L, C] and inserts a gap token between visits."""
+        """Flattens [B, V, T, C] -> [B, L, C] and inserts a gap token between visits.
+        
+        Args:
+            x: Embedded tensor of shape [B, V, T, C].
+            raw_indices: Raw input indices of shape [B, V, T] for mask computation.
+        """
         if x.dim() != 4:
-            raise ValueError(f"Expected 4-D x [B, V, T, C], got {x.shape}")
+            raise ValueError(f"Expected 4-D input [B, V, T, C], got shape {x.shape}")
 
         bsz, num_visits, num_events, emb = x.shape
-        valid_mask = (x.abs().sum(dim=-1) != 0)  # [B, V, T]
+        # Use raw indices for valid mask (0 = padding)
+        valid_mask = (raw_indices != 0)  # [B, V, T]
 
         gap = self.gap_embedding.to(device=x.device, dtype=x.dtype).view(1, emb)
 
@@ -160,25 +203,18 @@ class Deepr(BaseModel):
 
         return out, out_mask
 
-    def _prepare_sequence_and_mask(
-        self, x: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        if x.dim() == 3:
-            mask = (x.abs().sum(dim=-1) != 0).to(dtype=x.dtype)  # [B, T]
-            return x, mask
-        if x.dim() == 4:
-            return self._flatten_nested_with_gap(x)
-        raise ValueError(f"Deepr expects embedded features to be 3-D or 4-D, got {x.shape}")
-
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation."""
         patient_emb = []
 
-        embed_inputs = {
+        # Extract raw inputs for mask computation (before embedding)
+        raw_inputs = {
             feature_key: self._extract_feature_tensor(kwargs[feature_key])
             for feature_key in self.feature_keys
         }
-        embedded = self.embedding_model(embed_inputs)
+        
+        # Get embeddings
+        embedded = self.embedding_model(raw_inputs)
 
         for feature_key in self.feature_keys:
             x = embedded[feature_key]
@@ -186,9 +222,26 @@ class Deepr(BaseModel):
                 x = torch.tensor(x, device=self.device)
             else:
                 x = x.to(self.device)
-
             x = x.float()
-            x, mask = self._prepare_sequence_and_mask(x)
+
+            # Compute mask from raw indices (0 = padding)
+            raw = raw_inputs[feature_key]
+            if isinstance(raw, torch.Tensor):
+                raw = raw.to(self.device)
+            else:
+                raw = torch.tensor(raw, device=self.device)
+
+            if x.dim() == 3:
+                # [B, T, C] from SequenceProcessor
+                # Raw indices are [B, T], mask where index != 0
+                mask = (raw != 0).to(dtype=x.dtype)
+            elif x.dim() == 4:
+                # [B, V, T, C] from NestedSequenceProcessor
+                # Raw indices are [B, V, T], compute mask and flatten
+                x, mask = self._flatten_nested_with_gap(x, raw)
+            else:
+                raise ValueError(f"Deepr expects embedded features to be 3-D or 4-D, got shape {x.shape}")
+
             pooled = self.deepr[feature_key](x, mask)
             patient_emb.append(pooled)
 
@@ -208,3 +261,4 @@ class Deepr(BaseModel):
         if kwargs.get("embed", False):
             results["embed"] = patient_emb
         return results
+    

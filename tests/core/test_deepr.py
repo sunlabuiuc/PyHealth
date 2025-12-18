@@ -4,7 +4,8 @@ import unittest
 
 import torch
 
-from pyhealth.datasets import SampleDataset, get_dataloader
+from pyhealth.datasets import  get_dataloader
+from pyhealth.datasets import create_sample_dataset
 from pyhealth.models import Deepr
 
 
@@ -36,7 +37,7 @@ class TestDeepr(unittest.TestCase):
         }
         self.output_schema = {"label": "binary"}
 
-        self.dataset = SampleDataset(
+        self.dataset = create_sample_dataset(
             samples=self.samples,
             input_schema=self.input_schema,
             output_schema=self.output_schema,
@@ -123,7 +124,46 @@ class TestDeepr(unittest.TestCase):
 
         self.assertIn("loss", ret)
         self.assertIn("y_prob", ret)
+    def test_nested_sequence_input(self):
+        """Test Deepr model with nested sequence inputs (4D tensors)."""
+        samples = [
+            {
+                "patient_id": "patient-0",
+                "visit_id": "visit-0",
+                "conditions": [["cond-33", "cond-86"], ["cond-80", "cond-12"]],
+                "procedures": [["proc-1"], ["proc-2"]],
+                "label": 1,
+            },
+            {
+                "patient_id": "patient-1",
+                "visit_id": "visit-1",
+                "conditions": [["cond-33"], ["cond-86", "cond-80"]],
+                "procedures": [["proc-2"]],
+                "label": 0,
+            },
+        ]
 
+        dataset = create_sample_dataset(
+            samples=samples,
+            input_schema={
+                "conditions": "nested_sequence",
+                "procedures": "nested_sequence",
+            },
+            output_schema={"label": "binary"},
+            dataset_name="test_nested",
+        )
+
+        model = Deepr(dataset=dataset, embedding_dim=64, hidden_dim=64)
+
+        train_loader = get_dataloader(dataset, batch_size=2, shuffle=False)
+        data_batch = next(iter(train_loader))
+
+        with torch.no_grad():
+            ret = model(**data_batch)
+
+        self.assertIn("loss", ret)
+        self.assertIn("y_prob", ret)
+        self.assertEqual(ret["y_prob"].shape[0], 2)
 
 if __name__ == "__main__":
     unittest.main()
