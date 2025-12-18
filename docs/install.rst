@@ -11,7 +11,7 @@ We recommend installing the latest alpha version from PyPi, which offers signifi
 
 .. code-block:: bash
 
-   pip install pyhealth==2.0a10
+   pip install pyhealth==2.0a13
 
 This version includes optimized implementations and enhanced features compared to the legacy version.
 
