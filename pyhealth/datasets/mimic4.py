@@ -1,10 +1,10 @@
 import logging
 import os
 import warnings
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 import pandas as pd
-import polars as pl
+import dask.dataframe as dd
 
 try:
     import psutil
@@ -233,6 +233,7 @@ class MIMIC4Dataset(BaseDataset):
         dataset_name: str = "mimic4",
         dev: bool = False,
         cache_dir: Optional[str] = None,
+        num_workers: int = 1,
     ):
         log_memory_usage("Starting MIMIC4Dataset init")
 
@@ -252,6 +253,7 @@ class MIMIC4Dataset(BaseDataset):
             config_path=None,
             dev=dev,
             cache_dir=cache_dir,
+            num_workers=num_workers,
         )
 
         # Initialize child datasets
@@ -269,6 +271,7 @@ class MIMIC4Dataset(BaseDataset):
                 config_path=ehr_config_path,
                 cache_dir=ehr_cache_dir,
                 dev=dev,
+                num_workers=num_workers,
             )
             log_memory_usage("After EHR dataset initialization")
 
@@ -284,6 +287,7 @@ class MIMIC4Dataset(BaseDataset):
                 config_path=note_config_path,
                 cache_dir=note_cache_dir,
                 dev=dev,
+                num_workers=num_workers,
             )
             log_memory_usage("After Note dataset initialization")
 
@@ -299,12 +303,13 @@ class MIMIC4Dataset(BaseDataset):
                 config_path=cxr_config_path,
                 cache_dir=cxr_cache_dir,
                 dev=dev,
+                num_workers=num_workers,
             )
             log_memory_usage("After CXR dataset initialization")
 
         log_memory_usage("Completed MIMIC4Dataset init")
 
-    def load_data(self) -> pl.LazyFrame:
+    def load_data(self) -> dd.DataFrame:
         """
         Combines data from all initialized sub-datasets into a unified global event dataframe.
 
@@ -323,4 +328,4 @@ class MIMIC4Dataset(BaseDataset):
         if len(frames) == 1:
             return frames[0]
         else:
-            return pl.concat(frames, how="diagonal")
+            return dd.concat(frames, axis=0, join="outer")
