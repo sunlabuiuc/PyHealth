@@ -337,7 +337,7 @@ class Agent(BaseModel):
             n_units, dropout, lamda, cell).
 
     Example:
-        >>> from pyhealth.datasets import SampleDataset
+        >>> from pyhealth.datasets import create_sample_dataset
         >>> from pyhealth.models import Agent
         >>> samples = [
         ...     {
@@ -357,9 +357,9 @@ class Agent(BaseModel):
         ...         "label": 0,
         ...     },
         ... ]
-        >>> dataset = SampleDataset(
+        >>> dataset = create_sample_dataset(
         ...     samples=samples,
-        ...     input_schema={"conditions": "sequence", "procedures": "sequence"},
+        ...     input_schema={"conditions": "nested_sequence", "procedures": "nested_sequence"},
         ...     output_schema={"label": "binary"},
         ...     dataset_name="test",
         ... )
@@ -402,10 +402,13 @@ class Agent(BaseModel):
         # Determine static dimension
         self.static_dim = 0
         if self.static_key is not None:
-            for sample in self.dataset.samples:
-                if self.static_key in sample:
-                    self.static_dim = len(sample[self.static_key])
-                    break
+            first_sample=self.dataset[0]
+            if self.static_key in first_sample:
+                static_val=first_sample[self.static_key]
+                if isinstance(static_val, torch.Tensor):
+                     self.static_dim = static_val.shape[-1]
+                else:
+                     self.static_dim = len(static_val)
 
         # Sequence feature keys (exclude static)
         self.seq_feature_keys = [
@@ -429,7 +432,9 @@ class Agent(BaseModel):
         # Output layer
         output_size = self.get_output_size()
         self.fc = nn.Linear(len(self.seq_feature_keys) * hidden_dim, output_size)
-
+   
+    
+    
     def _compute_rl_loss(
         self,
         agent_layer: AgentLayer,
@@ -455,17 +460,17 @@ class Agent(BaseModel):
         # Compute rewards based on prediction accuracy
         if self.mode == "binary":
             pred_prob = torch.sigmoid(pred)
-            rewards = ((pred_prob - 0.5) * 2 * true).squeeze()
+            #reward=1-[true-pred_prob]
+            #High reward when prediction matches label for both classes
+            rewards=(1-torch.abs(true.float()- pred_prob)).squeeze()
         elif self.mode == "multiclass":
             pred_prob = torch.softmax(pred, dim=-1)
             y_onehot = torch.zeros_like(pred_prob).scatter(1, true.unsqueeze(1), 1)
             rewards = (pred_prob * y_onehot).sum(-1).squeeze()
         elif self.mode == "multilabel":
             pred_prob = torch.sigmoid(pred)
-            rewards = (
-                ((pred_prob - 0.5) * 2 * true).sum(dim=-1)
-                / (true.sum(dim=-1) + 1e-7)
-            ).squeeze()
+            #Reward based on how well predictions match all labels 
+            rewards = (1 - torch.abs(true.float() - pred_prob)).mean(dim=-1).squeeze()
         else:
             raise ValueError(f"Unsupported mode: {self.mode}")
 
@@ -586,14 +591,22 @@ class Agent(BaseModel):
 
         # Process each sequence feature through its agent
         for feature_key in self.seq_feature_keys:
-            x = embedded[feature_key]
-            if not isinstance(x, torch.Tensor):
-                x = torch.tensor(x, dtype=torch.float, device=self.device)
-            x = x.float().to(self.device)
-
-            # Compute mask from embeddings (non-zero entries are valid)
-            mask = x.sum(dim=-1) != 0
-            mask_dict[feature_key] = mask
+            x=embedded[feature_key]
+            #Handle NestedSequenceProcessor output(4D->3D)
+            #NestedSequenceProcessor returns [batch, visits, codes, embed_dim]
+            #AgentLayer expects [batch, seq_len, input_dim]
+            if x.dim()== 4:
+                #Sum across the codes dimension(like RETAIN, AdaCare, SafeDrug)
+                x=torch.sum(x, dim=2) #-> [batch, visits, embed_dim]
+            elif x.dim()!= 3:
+                raise ValueError(
+                    f"Expected 3D or 4D tensor for {feature_key}, got {x.dim()}D"
+                )
+                #Compute visit-level mask (non-zero entries are valid)
+            mask=x.abs().sum(dim=-1)> 0
+            mask_dict[feature_key]= mask
+            
+        
 
             # Forward through agent layer
             out, _ = self.agent[feature_key](x, static=static, mask=mask)
@@ -636,7 +649,7 @@ class Agent(BaseModel):
 
 
 if __name__ == "__main__":
-    from pyhealth.datasets import SampleDataset, get_dataloader
+    from pyhealth.datasets import create_sample_dataset, get_dataloader
 
     # Example usage with synthetic data
     samples = [
@@ -658,9 +671,9 @@ if __name__ == "__main__":
         },
     ]
 
-    dataset = SampleDataset(
+    dataset = create_sample_dataset(
         samples=samples,
-        input_schema={"conditions": "sequence", "procedures": "sequence"},
+        input_schema={"conditions": "nested_sequence", "procedures": "nested_sequence"},
         output_schema={"label": "binary"},
         dataset_name="test",
     )

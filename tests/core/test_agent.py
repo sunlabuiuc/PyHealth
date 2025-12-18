@@ -7,8 +7,9 @@ import unittest
 
 import torch
 
-from pyhealth.datasets import SampleDataset, get_dataloader
+from pyhealth.datasets import get_dataloader, create_sample_dataset
 from pyhealth.models.agent import Agent
+
 
 
 class TestAgent(unittest.TestCase):
@@ -20,28 +21,28 @@ class TestAgent(unittest.TestCase):
             {
                 "patient_id": "patient-0",
                 "visit_id": "visit-0",
-                "conditions": ["A05B", "A05C", "A06A", "A11D"],
-                "procedures": ["P1", "P2", "P3"],
+                "conditions": [["A05B", "A05C"], ["A06A"], ["A11D"]],  # 3 visits
+                "procedures": [["P1", "P2"], ["P3"], []],
                 "demographic": [65.0, 1.0, 25.5],
                 "label": 1,
             },
             {
                 "patient_id": "patient-1",
                 "visit_id": "visit-1",
-                "conditions": ["B01", "B02", "B03"],
-                "procedures": ["P4", "P5"],
+                "conditions": [["B01", "B02"], ["B03"]],  # 2 visits
+                "procedures": [["P4"], ["P5"]],
                 "demographic": [45.0, 0.0, 22.1],
                 "label": 0,
             },
         ]
 
         self.input_schema = {
-            "conditions": "sequence",
-            "procedures": "sequence",
+            "conditions": "nested_sequence",
+            "procedures": "nested_sequence",
         }
         self.output_schema = {"label": "binary"}
 
-        self.dataset = SampleDataset(
+        self.dataset = create_sample_dataset(
             samples=self.samples,
             input_schema=self.input_schema,
             output_schema=self.output_schema,
@@ -198,30 +199,29 @@ class TestAgent(unittest.TestCase):
             {
                 "patient_id": "p0",
                 "visit_id": "v0",
-                "conditions": ["A01", "A02"],
+                "conditions": [["A01", "A02"], ["A03"]],
                 "label": 0,
             },
             {
                 "patient_id": "p1",
                 "visit_id": "v1",
-                "conditions": ["B01"],
+                "conditions": [["B01"]],
                 "label": 1,
             },
             {
                 "patient_id": "p2",
                 "visit_id": "v2",
-                "conditions": ["C01", "C02"],
+                "conditions": [["C01", "C02"], ["C03"]],
                 "label": 2,
             },
         ]
 
-        dataset = SampleDataset(
+        dataset = create_sample_dataset(
             samples=samples,
-            input_schema={"conditions": "sequence"},
+            input_schema={"conditions": "nested_sequence"},
             output_schema={"label": "multiclass"},
             dataset_name="test_multiclass",
         )
-
         model = Agent(dataset=dataset, embedding_dim=32, hidden_dim=32)
 
         train_loader = get_dataloader(dataset, batch_size=3, shuffle=False)
@@ -231,7 +231,13 @@ class TestAgent(unittest.TestCase):
             ret = model(**data_batch)
 
         self.assertEqual(ret["y_prob"].shape, (3, 3))
+        self.assertEqual(ret["logit"].shape, (3, 3))
         self.assertIn("loss", ret)
+        
+        # Verify y_prob sums to 1 along class dimension (softmax property)
+        self.assertTrue(
+            torch.allclose(ret["y_prob"].sum(dim=1), torch.ones(3), atol=1e-5)
+        )
 
 
 class TestAgentLayer(unittest.TestCase):
