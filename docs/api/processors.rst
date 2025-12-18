@@ -288,19 +288,19 @@ When creating a custom ``FeatureProcessor``, you need to understand two key meth
 The ``process()`` Method
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
-The ``process()`` method is called **on-the-fly** during training or when accessing data from a ``StreamingDataset``. It transforms a single raw feature value into the format your model needs. This method can return:
+The ``process()`` method is called **once per sample during the caching phase** (in ``BaseDataset.set_task()``). It transforms a single raw feature value into the format that will be stored in the cache. This method can return:
 
 - Raw strings or primitives
 - PyTorch tensors
 - NumPy arrays
 - Any other data structure your model expects
 
-**Important:** ``process()`` is executed for each sample during data loading, so it should be efficient.
+**Important:** ``process()`` should be **stateless**. Any mutations made to the processor during ``process()`` are not saved—the processor state is fixed after ``fit()`` completes. This is by design to ensure reproducibility and consistency across distributed workers.
 
 The ``fit()`` Method
 ~~~~~~~~~~~~~~~~~~~~
 
-The ``fit()`` method is called **once during the caching phase** (in ``BaseDataset.set_task()``). Use ``fit()`` when you need to:
+The ``fit()`` method is called **once during the caching phase** (in ``BaseDataset.set_task()``), before any ``process()`` calls. Use ``fit()`` when you need to:
 
 - Build vocabularies from the entire dataset
 - Calculate normalization statistics (mean, std, min, max)

@@ -369,10 +369,16 @@ class BaseDataset(ABC):
                 # TODO: auto select processes=True/False based on if it's in jupyter notebook
                 #   The processes=True will crash in jupyter notebook.
                 # TODO: make the n_workers configurable
+
+                # Use cache_dir for Dask's scratch space to avoid filling up /tmp or home directory
+                dask_scratch_dir = self.cache_dir / "dask_scratch"
+                dask_scratch_dir.mkdir(parents=True, exist_ok=True)
+
                 with LocalCluster(
                     n_workers=1,
                     threads_per_worker=1,
                     processes=False,
+                    local_directory=str(dask_scratch_dir),
                 ) as cluster:
                     with Client(cluster) as client:
                         df: dd.DataFrame = self.load_data()
@@ -480,7 +486,7 @@ class BaseDataset(ABC):
             timestamp_series: dd.Series = dd.to_datetime(
                 timestamp_series,
                 format=timestamp_format,
-                errors="coerce",  # Convert unparseable values to NaT instead of raising
+                errors="raise",  # Convert unparseable values to NaT instead of raising
             )
             df: dd.DataFrame = df.assign(
                 timestamp=timestamp_series.astype("datetime64[ms]")
