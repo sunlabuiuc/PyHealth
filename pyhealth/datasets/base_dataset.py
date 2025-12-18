@@ -17,6 +17,7 @@ import multiprocessing
 
 import litdata
 from litdata.streaming.item_loader import ParquetLoader
+from litdata.processing.data_processor import in_notebook
 import pyarrow as pa
 import pyarrow.csv as pv
 import pyarrow.parquet as pq
@@ -364,12 +365,10 @@ class BaseDataset(ABC):
         if self._global_event_df is None:
             ret_path = self.cache_dir / "global_event_df.parquet"
             if not ret_path.exists():
-                # TODO: auto select processes=True/False based on if it's in jupyter notebook
-                #   The processes=True will crash in jupyter notebook.
                 with LocalCluster(
                     n_workers=self.num_workers,
                     threads_per_worker=1,
-                    processes=False,
+                    processes=not in_notebook(),
                 ) as cluster:
                     with Client(cluster) as client:
                         df: dd.DataFrame = self.load_data()
