@@ -207,6 +207,7 @@ class BaseDataset(ABC):
         dataset_name: Optional[str] = None,
         config_path: Optional[str] = None,
         cache_dir: str | Path | None = None,
+        num_workers: int = 1,
         dev: bool = False,
     ):
         """Initializes the BaseDataset.
@@ -224,6 +225,7 @@ class BaseDataset(ABC):
         self.root = root
         self.tables = tables
         self.dataset_name = dataset_name or self.__class__.__name__
+        self.num_workers = num_workers
         self.dev = dev
         self.config = load_yaml_config(config_path) if config_path else None
 
@@ -364,9 +366,8 @@ class BaseDataset(ABC):
             if not ret_path.exists():
                 # TODO: auto select processes=True/False based on if it's in jupyter notebook
                 #   The processes=True will crash in jupyter notebook.
-                # TODO: make the n_workers configurable
                 with LocalCluster(
-                    n_workers=1,
+                    n_workers=self.num_workers,
                     threads_per_worker=1,
                     processes=False,
                 ) as cluster:
@@ -582,7 +583,7 @@ class BaseDataset(ABC):
     def set_task(
         self,
         task: Optional[BaseTask] = None,
-        num_workers: int = 1,
+        num_workers: Optional[int] = None,
         cache_dir: str | Path | None = None,
         cache_format: str = "parquet",
         input_processors: Optional[Dict[str, FeatureProcessor]] = None,
@@ -621,6 +622,9 @@ class BaseDataset(ABC):
         if task is None:
             assert self.default_task is not None, "No default tasks found"
             task = self.default_task
+            
+        if num_workers is None:
+            num_workers = self.num_workers
 
         if cache_format != "parquet":
             logger.warning("Only 'parquet' cache_format is supported now. ")
