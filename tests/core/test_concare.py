@@ -11,8 +11,9 @@ Description:
 import unittest
 import torch
 
-from pyhealth.datasets import SampleDataset, get_dataloader
+from pyhealth.datasets import get_dataloader
 from pyhealth.models.concare import ConCare
+from pyhealth.datasets import create_sample_dataset
 
 
 class TestConCare(unittest.TestCase):
@@ -64,7 +65,7 @@ class TestConCare(unittest.TestCase):
         self.output_schema = {"label": "binary"}
 
         # Create dataset
-        self.dataset = SampleDataset(
+        self.dataset = create_sample_dataset(
             samples=self.samples,
             input_schema=self.input_schema,
             output_schema=self.output_schema,
@@ -216,7 +217,7 @@ class TestConCare(unittest.TestCase):
             },
         ]
 
-        dataset = SampleDataset(
+        dataset = create_sample_dataset(
             samples=samples,
             input_schema={"conditions": "sequence", "procedures": "sequence"},
             output_schema={"label": "multiclass"},
@@ -269,7 +270,7 @@ class TestConCare(unittest.TestCase):
             },
         ]
 
-        dataset = SampleDataset(
+        dataset = create_sample_dataset(
             samples=samples,
             input_schema={"conditions": "sequence"},
             output_schema={"label": "binary"},

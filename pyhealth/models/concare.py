@@ -21,11 +21,10 @@ Description:
 """
 
 import math
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
-import torch.nn.utils.rnn as rnn_utils
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
@@ -396,8 +395,11 @@ class SublayerConnection(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(
-        self, x: torch.Tensor, sublayer: callable
-    ) -> Tuple[torch.Tensor, any]:
+        self,
+        x: torch.Tensor, 
+        sublayer: Callable[[torch.Tensor], Tuple[torch.Tensor, any]],
+     ) -> Tuple[torch.Tensor, any]:
+        
         """Apply residual connection to sublayer with same size.
 
         Args:
@@ -718,7 +720,6 @@ class ConCareLayer(nn.Module):
             demo_main = self.tanh(self.demo_proj_main(static)).unsqueeze(1)
 
         batch_size = input.size(0)
-        time_step = input.size(1)
         feature_dim = input.size(2)
 
         if self.transformer_hidden % self.num_head != 0:
@@ -891,14 +892,13 @@ class ConCare(BaseModel):
             "Only one label key is supported for ConCare"
         )
         self.label_key = self.label_keys[0]
-        self.mode = self.dataset.output_schema[self.label_key]
 
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
 
         # Determine static dimension
         self.static_dim = 0
         if self.static_key is not None:
-            first_sample = dataset.samples[0]
+            first_sample = dataset[0]
             if self.static_key in first_sample:
                 static_val = first_sample[self.static_key]
                 if isinstance(static_val, torch.Tensor):
@@ -912,7 +912,7 @@ class ConCare(BaseModel):
 
         # Get dynamic feature keys (excluding static key)
         self.dynamic_feature_keys = [
-            k for k in self.dataset.input_processors.keys()
+            k for k in self.feature_keys
             if k != self.static_key
         ]
 
@@ -930,27 +930,25 @@ class ConCare(BaseModel):
         self.fc = nn.Linear(
             len(self.dynamic_feature_keys) * self.hidden_dim, output_size
         )
-
+    
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation.
 
         Args:
-            **kwargs: Keyword arguments for the model. The keys must contain
-                all the feature keys and the label key. Set "embed=True" to
-                return patient embeddings.
+            **kwargs: keyword arguments for the model. The keys must contain
+                all the feature keys and the label key.
 
         Returns:
-            Dict[str, torch.Tensor]: A dictionary containing:
-                - loss: Scalar tensor representing the final loss (task + decov).
-                - y_prob: Tensor of predicted probabilities.
-                - y_true: Tensor of true labels.
-                - logit: Tensor of raw logits.
-                - embed (optional): Patient embeddings if "embed=True" in kwargs.
-        """
+            Dict[str, torch.Tensor]: A dictionary with the following keys:
+                - loss: a scalar tensor representing the final loss.
+                - y_prob: a tensor representing the predicted probabilities.
+                - y_true: a tensor representing the true labels.
+                - logit: a tensor representing the logits.
+                """
         patient_emb = []
         decov_loss = 0
 
-        embedded = self.embedding_model(kwargs)
+        embedded, masks = self.embedding_model(kwargs, output_mask=True)
 
         # Get static features if available
         static = None
@@ -965,7 +963,7 @@ class ConCare(BaseModel):
 
         for feature_key in self.dynamic_feature_keys:
             x = embedded[feature_key]
-            mask = (x.sum(dim=-1) != 0).int()
+            mask = masks[feature_key]
 
             x, decov = self.concare[feature_key](x, static=static, mask=mask)
             patient_emb.append(x)
