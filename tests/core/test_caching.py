@@ -112,7 +112,7 @@ class TestCachingFunctionality(BaseTestCase):
 
         # Check default values
         self.assertEqual(sig.parameters["task"].default, None)
-        self.assertEqual(sig.parameters["num_workers"].default, 1)
+        self.assertEqual(sig.parameters["num_workers"].default, None)
         self.assertEqual(sig.parameters["cache_dir"].default, None)
         self.assertEqual(sig.parameters["cache_format"].default, "parquet")
         self.assertEqual(sig.parameters["input_processors"].default, None)

@@ -17,6 +17,7 @@ import multiprocessing
 
 import litdata
 from litdata.streaming.item_loader import ParquetLoader
+from litdata.processing.data_processor import in_notebook
 import pyarrow as pa
 import pyarrow.csv as pv
 import pyarrow.parquet as pq
@@ -209,6 +210,7 @@ class BaseDataset(ABC):
         dataset_name: Optional[str] = None,
         config_path: Optional[str] = None,
         cache_dir: str | Path | None = None,
+        num_workers: int = 1,
         dev: bool = False,
     ):
         """Initializes the BaseDataset.
@@ -226,6 +228,7 @@ class BaseDataset(ABC):
         self.root = root
         self.tables = tables
         self.dataset_name = dataset_name or self.__class__.__name__
+        self.num_workers = num_workers
         self.dev = dev
         self.config = load_yaml_config(config_path) if config_path else None
 
@@ -366,18 +369,14 @@ class BaseDataset(ABC):
         if self._global_event_df is None:
             ret_path = self.cache_dir / "global_event_df.parquet"
             if not ret_path.exists():
-                # TODO: auto select processes=True/False based on if it's in jupyter notebook
-                #   The processes=True will crash in jupyter notebook.
-                # TODO: make the n_workers configurable
-
                 # Use cache_dir for Dask's scratch space to avoid filling up /tmp or home directory
                 dask_scratch_dir = self.cache_dir / "dask_scratch"
                 dask_scratch_dir.mkdir(parents=True, exist_ok=True)
 
                 with LocalCluster(
-                    n_workers=1,
+                    n_workers=self.num_workers,
                     threads_per_worker=1,
-                    processes=False,
+                    processes=not in_notebook(),
                     local_directory=str(dask_scratch_dir),
                 ) as cluster:
                     with Client(cluster) as client:
@@ -471,22 +470,21 @@ class BaseDataset(ABC):
         attribute_cols = table_cfg.attributes
 
         # Timestamp expression
+        # .astype(str) will convert `pd.NA` to "<NA>", which will raise error in to_datetime
+        #   use .astype("string") instead, which keeps `pd.NA` as is.
         if timestamp_col:
             if isinstance(timestamp_col, list):
                 # Concatenate all timestamp parts in order with no separator
                 timestamp_series: dd.Series = functools.reduce(
-                    operator.add, (df[col].astype(str) for col in timestamp_col)
+                    operator.add, (df[col].astype("string") for col in timestamp_col)
                 )
             else:
-                # Single timestamp column - don't convert to string yet
-                timestamp_series: dd.Series = df[timestamp_col]
+                timestamp_series: dd.Series = df[timestamp_col].astype("string")
 
-            # Convert to datetime, coercing NA/invalid values to NaT
-            # This avoids the "<NA>" string literal issue when NA is cast to str
             timestamp_series: dd.Series = dd.to_datetime(
                 timestamp_series,
                 format=timestamp_format,
-                errors="raise",  # Convert unparseable values to NaT instead of raising
+                errors="raise",
             )
             df: dd.DataFrame = df.assign(
                 timestamp=timestamp_series.astype("datetime64[ms]")
@@ -496,10 +494,10 @@ class BaseDataset(ABC):
 
         # If patient_id_col is None, use row index as patient_id
         if patient_id_col:
-            df: dd.DataFrame = df.assign(patient_id=df[patient_id_col].astype(str))
+            df: dd.DataFrame = df.assign(patient_id=df[patient_id_col].astype("string"))
         else:
             df: dd.DataFrame = df.reset_index(drop=True)
-            df: dd.DataFrame = df.assign(patient_id=df.index.astype(str))
+            df: dd.DataFrame = df.assign(patient_id=df.index.astype("string"))
 
         df: dd.DataFrame = df.assign(event_type=table_name)
 
@@ -595,7 +593,7 @@ class BaseDataset(ABC):
     def set_task(
         self,
         task: Optional[BaseTask] = None,
-        num_workers: int = 1,
+        num_workers: Optional[int] = None,
         cache_dir: str | Path | None = None,
         cache_format: str = "parquet",
         input_processors: Optional[Dict[str, FeatureProcessor]] = None,
@@ -634,6 +632,9 @@ class BaseDataset(ABC):
         if task is None:
             assert self.default_task is not None, "No default tasks found"
             task = self.default_task
+            
+        if num_workers is None:
+            num_workers = self.num_workers
 
         if cache_format != "parquet":
             logger.warning("Only 'parquet' cache_format is supported now. ")
