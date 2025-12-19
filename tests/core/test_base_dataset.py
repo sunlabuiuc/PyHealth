@@ -217,6 +217,85 @@ class TestBaseDataset(unittest.TestCase):
             self.assertEqual(pdf.iloc[3]["timestamp"], pd.Timestamp("2020-01-03"))
             self.assertTrue(pd.isna(pdf.iloc[3]["table1/val"]))
 
+    def test_empty_string_handling_composite_timestamp(self):
+        import os
+        from dataclasses import dataclass
+        from typing import List
+
+        # Create a temporary directory and a CSV file
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            csv_path = os.path.join(tmp_dir, "data_composite.csv")
+            # Create CSV with empty strings in composite timestamp fields
+            # pid, year, month, day, val
+            # p1, 2020, 01, 01, v1 -> 2020-01-01
+            # p2, 2020, , 02, v2   -> missing month -> NaT
+            # p3, , 01, 03, v3     -> missing year -> NaT
+            with open(csv_path, "w") as f:
+                f.write("pid,year,month,day,val\n")
+                f.write("p1,2020,01,01,v1\n")
+                f.write("p2,2020,,02,v2\n")
+                f.write("p3,,01,03,v3\n")
+
+            @dataclass
+            class TableConfig:
+                file_path: str
+                patient_id: str
+                timestamp: List[str]
+                timestamp_format: str
+                attributes: List[str]
+                join: List = None
+
+                def __post_init__(self):
+                    if self.join is None:
+                        self.join = []
+
+            @dataclass
+            class Config:
+                tables: dict
+
+            config = Config(
+                tables={
+                    "table1": TableConfig(
+                        file_path="data_composite.csv",
+                        patient_id="pid",
+                        timestamp=["year", "month", "day"],
+                        timestamp_format="%Y%m%d",
+                        attributes=["val"]
+                    )
+                }
+            )
+            
+            class ConcreteDataset(BaseDataset):
+                pass
+
+            dataset = ConcreteDataset(
+                root=tmp_dir,
+                tables=["table1"],
+                dataset_name="TestDatasetComposite",
+                cache_dir=tmp_dir
+            )
+            dataset.config = config
+
+            # Load data
+            df = dataset.load_table("table1")
+            pdf = df.compute()
+
+            # Verify
+            # Row 0: p1, 2020-01-01
+            self.assertEqual(pdf.iloc[0]["patient_id"], "p1")
+            self.assertEqual(pdf.iloc[0]["timestamp"], pd.Timestamp("2020-01-01"))
+            self.assertEqual(pdf.iloc[0]["table1/val"], "v1")
+
+            # Row 1: p2, NaT
+            self.assertEqual(pdf.iloc[1]["patient_id"], "p2")
+            self.assertTrue(pd.isna(pdf.iloc[1]["timestamp"]))
+            self.assertEqual(pdf.iloc[1]["table1/val"], "v2")
+
+            # Row 2: p3, NaT
+            self.assertEqual(pdf.iloc[2]["patient_id"], "p3")
+            self.assertTrue(pd.isna(pdf.iloc[2]["timestamp"]))
+            self.assertEqual(pdf.iloc[2]["table1/val"], "v3")
+
 
 if __name__ == "__main__":
     unittest.main()
