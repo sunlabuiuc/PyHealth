@@ -471,22 +471,21 @@ class BaseDataset(ABC):
         attribute_cols = table_cfg.attributes
 
         # Timestamp expression
+        # .astype(str) will convert `pd.NA` to "<NA>", which will raise error in to_datetime
+        #   use .astype("string") instead, which keeps `pd.NA` as is.
         if timestamp_col:
             if isinstance(timestamp_col, list):
                 # Concatenate all timestamp parts in order with no separator
                 timestamp_series: dd.Series = functools.reduce(
-                    operator.add, (df[col].astype(str) for col in timestamp_col)
+                    operator.add, (df[col].astype("string") for col in timestamp_col)
                 )
             else:
-                # Single timestamp column - don't convert to string yet
-                timestamp_series: dd.Series = df[timestamp_col]
+                timestamp_series: dd.Series = df[timestamp_col].astype("string")
 
-            # Convert to datetime, coercing NA/invalid values to NaT
-            # This avoids the "<NA>" string literal issue when NA is cast to str
             timestamp_series: dd.Series = dd.to_datetime(
                 timestamp_series,
                 format=timestamp_format,
-                errors="raise",  # Convert unparseable values to NaT instead of raising
+                errors="raise",
             )
             df: dd.DataFrame = df.assign(
                 timestamp=timestamp_series.astype("datetime64[ms]")
@@ -496,10 +495,10 @@ class BaseDataset(ABC):
 
         # If patient_id_col is None, use row index as patient_id
         if patient_id_col:
-            df: dd.DataFrame = df.assign(patient_id=df[patient_id_col].astype(str))
+            df: dd.DataFrame = df.assign(patient_id=df[patient_id_col].astype("string"))
         else:
             df: dd.DataFrame = df.reset_index(drop=True)
-            df: dd.DataFrame = df.assign(patient_id=df.index.astype(str))
+            df: dd.DataFrame = df.assign(patient_id=df.index.astype("string"))
 
         df: dd.DataFrame = df.assign(event_type=table_name)
 
