@@ -14,7 +14,7 @@ Over the past month, we've been working hard to reduce PyHealth's memory footpri
 The Scale We're Dealing With
 ----------------------------
 
-To construct a multimodal task in MIMIC-IV, we parse and scan:
+To construct a multimodal mortality task in MIMIC-IV, we parse and scan:
 
 * 315,460 patients
 * 454,324 admissions
