@@ -211,9 +211,12 @@ def _task_transform_fn(args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, P
             output_dir (Path): The output directory to save results.
             queue (Queue | _FakeQueue): A multiprocessing queue for progress tracking.
     """
+    UPDATE_FREQUENCY = 128
+    
     logger.info(f"Worker {args[0]} started processing {len(list(args[2]))} patients.")
     
     worker_id, task, patient_ids, global_event_df, output_dir, queue = args
+    count = 0
     with _ParquetWriter(
         output_dir / f"chunk_{worker_id:03d}.parquet",
         pa.schema([("sample", pa.binary())]),
@@ -223,11 +226,17 @@ def _task_transform_fn(args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, P
                 engine="streaming"
             )
             patient = Patient(patient_id=patient_id, data_source=patient_df)
-            
             for sample in task(patient):
                 writer.append({"sample": pickle.dumps(sample)})
             
-            queue.put(1)
+            count += 1
+            if count >= UPDATE_FREQUENCY:
+                queue.put(count)
+                count = 0
+        
+        if count > 0:
+            queue.put(count)
+            count = 0
 
     logger.info(f"Worker {args[0]} finished processing patients.")
 
@@ -672,13 +681,11 @@ class BaseDataset(ABC):
                     with tqdm(total=len(patient_ids)) as progress:
                         while not result.ready():
                             while not queue.empty():
-                                queue.get()
-                                progress.update(1)
+                                progress.update(queue.get())
                                 
                         # remaining items
                         while not queue.empty():
-                            queue.get()
-                            progress.update(1)
+                            progress.update(queue.get())
 
             litdata.index_parquet_dataset(str(output_dir))
             logger.info(f"Task transformation completed and saved to {output_dir}")
