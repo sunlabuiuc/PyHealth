@@ -26,7 +26,7 @@ import polars as pl
 import requests
 from tqdm import tqdm
 import dask.dataframe as dd
-from dask.distributed import Client, LocalCluster, progress
+from dask.distributed import Client as DaskClient, LocalCluster as DaskCluster, progress as dask_progress
 import narwhals as nw
 
 from ..data import Patient
@@ -373,13 +373,13 @@ class BaseDataset(ABC):
                 dask_scratch_dir = self.cache_dir / "dask_scratch"
                 dask_scratch_dir.mkdir(parents=True, exist_ok=True)
 
-                with LocalCluster(
+                with DaskCluster(
                     n_workers=self.num_workers,
                     threads_per_worker=1,
                     processes=not in_notebook(),
                     local_directory=str(dask_scratch_dir),
                 ) as cluster:
-                    with Client(cluster) as client:
+                    with DaskClient(cluster) as client:
                         df: dd.DataFrame = self.load_data()
                         if self.dev:
                             logger.info("Dev mode enabled: limiting to 1000 patients")
@@ -394,7 +394,7 @@ class BaseDataset(ABC):
                             compute=False,
                         )
                         handle = client.compute(collection)
-                        progress(handle)
+                        dask_progress(handle)
                         handle.result()  # type: ignore
             self._global_event_df = ret_path
 
