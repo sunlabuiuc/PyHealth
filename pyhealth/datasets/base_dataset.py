@@ -659,6 +659,7 @@ class BaseDataset(ABC):
             if num_workers == 1:
                 logger.info("Single worker mode, processing sequentially")
                 _task_transform_fn((0, task, patient_ids, global_event_df, output_dir, _FakeQueue()))
+                litdata.index_parquet_dataset(str(output_dir))
                 return
             
             num_workers = min(num_workers, len(patient_ids)) # Avoid spawning empty workers
