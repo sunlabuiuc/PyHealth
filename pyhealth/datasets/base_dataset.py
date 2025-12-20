@@ -12,7 +12,8 @@ import json
 import uuid
 import platformdirs
 import tempfile
-from multiprocessing import current_process, Pool, Queue, Manager
+import multiprocessing
+import multiprocessing.queues
 import shutil
 
 import litdata
@@ -197,7 +198,7 @@ class _ParquetWriter:
         self.close()
 
 
-def _task_transform_fn(args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, Path, Queue | _FakeQueue]) -> None:
+def _task_transform_fn(args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, Path, multiprocessing.queues.Queue | _FakeQueue]) -> None:
     """
     Worker function to apply task transformation on a chunk of patients.
     
@@ -398,7 +399,7 @@ class BaseDataset(ABC):
         Returns:
             Path: The path to the cached event dataframe.
         """
-        if not current_process().name == "MainProcess":
+        if not multiprocessing.current_process().name == "MainProcess":
             logger.warning(
                 "global_event_df property accessed from a non-main process. This may lead to unexpected behavior.\n"
                 + "Consider use __name__ == '__main__' guard when using multiprocessing."
@@ -653,7 +654,7 @@ class BaseDataset(ABC):
             
             num_workers = min(num_workers, len(patient_ids)) # Avoid spawning empty workers
             batch_size = len(patient_ids) // num_workers + 1
-            with Manager() as manager:
+            with multiprocessing.Manager() as manager:
                 queue = manager.Queue()
                 args_list = [(
                     worker_id,
@@ -663,7 +664,7 @@ class BaseDataset(ABC):
                     output_dir,
                     queue
                 ) for worker_id, pids in enumerate(itertools.batched(patient_ids, batch_size))]
-                with Pool(processes=num_workers) as pool:
+                with multiprocessing.Pool(processes=num_workers) as pool:
                     result = pool.map_async(_task_transform_fn, args_list) # type: ignore
                     with tqdm(total=len(patient_ids)) as progress:
                         while not result.ready():
@@ -796,7 +797,7 @@ class BaseDataset(ABC):
     def _main_guard(self, func_name: str):
         """Warn if method is accessed from a non-main process."""
 
-        if not current_process().name == "MainProcess":
+        if not multiprocessing.current_process().name == "MainProcess":
             logger.warning(
                 f"{func_name} method accessed from a non-main process. This may lead to unexpected behavior.\n"
                 + "Consider use __name__ == '__main__' guard when using multiprocessing."
