@@ -2,9 +2,8 @@ import logging
 import os
 import pickle
 from abc import ABC
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Any, Callable
+from typing import Dict, Iterator, Iterable, List, Optional, Any, Callable
 import functools
 import operator
 from urllib.parse import urlparse, urlunparse
@@ -13,7 +12,8 @@ import json
 import uuid
 import platformdirs
 import tempfile
-import multiprocessing
+from multiprocessing import current_process, Pool, Queue, Manager
+import shutil
 
 import litdata
 from litdata.streaming.item_loader import ParquetLoader
@@ -28,6 +28,7 @@ from tqdm import tqdm
 import dask.dataframe as dd
 from dask.distributed import Client as DaskClient, LocalCluster as DaskCluster, progress as dask_progress
 import narwhals as nw
+import itertools
 
 from ..data import Patient
 from ..tasks import BaseTask
@@ -113,6 +114,11 @@ def _csv_tsv_gz_path(path: str) -> str:
 def _uncollate(x: list[Any]) -> Any:
     return x[0] if isinstance(x, list) and len(x) == 1 else x
 
+class _FakeQueue:
+    """A fake queue that does nothing. Used when multiprocessing is not needed."""
+
+    def put(self, item: Any) -> None:
+        pass
 
 class _ParquetWriter:
     """
@@ -190,6 +196,39 @@ class _ParquetWriter:
     def __exit__(self, exc_type, exc, tb):
         self.close()
 
+
+def _task_transform_fn(args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, Path, Queue | _FakeQueue]) -> None:
+    """
+    Worker function to apply task transformation on a chunk of patients.
+    
+    Args:
+        args (tuple): A tuple containing:
+            worker_id (int): The ID of the worker.
+            task (BaseTask): The task to apply.
+            patient_ids (Iterable[str]): The patient IDs to process.
+            global_event_df (pl.LazyFrame): The global event dataframe.
+            output_dir (Path): The output directory to save results.
+            queue (Queue | _FakeQueue): A multiprocessing queue for progress tracking.
+    """
+    logger.info(f"Worker {args[0]} started processing {len(list(args[2]))} patients.")
+    
+    worker_id, task, patient_ids, global_event_df, output_dir, queue = args
+    with _ParquetWriter(
+        output_dir / f"chunk_{worker_id:03d}.parquet",
+        pa.schema([("sample", pa.binary())]),
+    ) as writer:
+        for patient_id in patient_ids:
+            patient_df = global_event_df.filter(pl.col("patient_id") == patient_id).collect(
+                engine="streaming"
+            )
+            patient = Patient(patient_id=patient_id, data_source=patient_df)
+            
+            for sample in task(patient):
+                writer.append({"sample": pickle.dumps(sample)})
+            
+            queue.put(1)
+
+    logger.info(f"Worker {args[0]} finished processing patients.")
 
 class BaseDataset(ABC):
     """Abstract base class for all PyHealth datasets.
@@ -359,7 +398,7 @@ class BaseDataset(ABC):
         Returns:
             Path: The path to the cached event dataframe.
         """
-        if not multiprocessing.current_process().name == "MainProcess":
+        if not current_process().name == "MainProcess":
             logger.warning(
                 "global_event_df property accessed from a non-main process. This may lead to unexpected behavior.\n"
                 + "Consider use __name__ == '__main__' guard when using multiprocessing."
@@ -590,6 +629,61 @@ class BaseDataset(ABC):
         """
         return None
 
+    def _task_transform(self, task: BaseTask, output_dir: Path, num_workers: int) -> None:
+        self._main_guard(self._task_transform.__name__)
+        
+        try:
+            logger.info(f"Applying task transformations on data with {num_workers} workers...")
+            global_event_df = task.pre_filter(self.global_event_df)
+            patient_ids = (
+                global_event_df.select("patient_id")
+                .unique()
+                .collect(engine="streaming")
+                .to_series()
+            )
+            
+            if in_notebook():
+                logger.info("Detected Jupyter notebook environment, setting num_workers to 1")
+                num_workers = 1
+                
+            if num_workers == 1:
+                logger.info("Single worker mode, processing sequentially")
+                _task_transform_fn((0, task, patient_ids, global_event_df, output_dir, _FakeQueue()))
+                return
+            
+            num_workers = min(num_workers, len(patient_ids)) # Avoid spawning empty workers
+            batch_size = len(patient_ids) // num_workers + 1
+            with Manager() as manager:
+                queue = manager.Queue()
+                args_list = [(
+                    worker_id,
+                    task,
+                    pids,
+                    global_event_df,
+                    output_dir,
+                    queue
+                ) for worker_id, pids in enumerate(itertools.batched(patient_ids, batch_size))]
+                with Pool(processes=num_workers) as pool:
+                    result = pool.map_async(_task_transform_fn, args_list) # type: ignore
+                    with tqdm(total=len(patient_ids)) as progress:
+                        while not result.ready():
+                            while not queue.empty():
+                                queue.get()
+                                progress.update(1)
+                                
+                        # remaining items
+                        while not queue.empty():
+                            queue.get()
+                            progress.update(1)
+
+            litdata.index_parquet_dataset(str(output_dir))
+            logger.info(f"Task transformation completed and saved to {output_dir}")
+        except Exception as e:
+            logger.error(f"Error during task transformation, cleaning up output directory: {output_dir}")
+            shutil.rmtree(output_dir)
+            raise e
+        
+
     def set_task(
         self,
         task: Optional[BaseTask] = None,
@@ -622,12 +716,7 @@ class BaseDataset(ABC):
         Raises:
             AssertionError: If no default task is found and task is None.
         """
-        if not multiprocessing.current_process().name == "MainProcess":
-            logger.warning(
-                "set_task method accessed from a non-main process. This may lead to unexpected behavior.\n"
-                + "Consider use __name__ == '__main__' guard when using multiprocessing."
-            )
-            return None  # type: ignore
+        self._main_guard(self.set_task.__name__)
 
         if task is None:
             assert self.default_task is not None, "No default tasks found"
@@ -656,27 +745,12 @@ class BaseDataset(ABC):
         # Check if index.json exists to verify cache integrity, this
         # is the standard file for litdata.StreamingDataset
         if not (path / "index.json").exists():
-            global_event_df = task.pre_filter(self.global_event_df)
-            schema = pa.schema([("sample", pa.binary())])
             with tempfile.TemporaryDirectory() as tmp_dir:
-                # Create Parquet file with samples
-                logger.info(f"Applying task transformations on data...")
-                with _ParquetWriter(f"{tmp_dir}/samples.parquet", schema) as writer:
-                    # TODO: this can be further optimized.
-                    patient_ids = (
-                        global_event_df.select("patient_id")
-                        .unique()
-                        .collect(engine="streaming")
-                        .to_series()
-                    )
-                    for patient_id in tqdm(patient_ids):
-                        patient_df = global_event_df.filter(
-                            pl.col("patient_id") == patient_id
-                        ).collect(engine="streaming")
-                        patient = Patient(patient_id=patient_id, data_source=patient_df)
-                        for sample in task(patient):
-                            writer.append({"sample": pickle.dumps(sample)})
-                litdata.index_parquet_dataset(tmp_dir)
+                self._task_transform(
+                    task,
+                    Path(tmp_dir),
+                    num_workers,
+                )
 
                 # Build processors and fit on the dataset
                 logger.info(f"Fitting processors on the dataset...")
@@ -718,3 +792,13 @@ class BaseDataset(ABC):
             dataset_name=self.dataset_name,
             task_name=task.task_name,
         )
+
+    def _main_guard(self, func_name: str):
+        """Warn if method is accessed from a non-main process."""
+
+        if not current_process().name == "MainProcess":
+            logger.warning(
+                f"{func_name} method accessed from a non-main process. This may lead to unexpected behavior.\n"
+                + "Consider use __name__ == '__main__' guard when using multiprocessing."
+            )
+            exit(1)
