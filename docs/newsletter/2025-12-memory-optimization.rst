@@ -39,6 +39,8 @@ To construct a multimodal mortality task in MIMIC-IV, we parse and scan:
      - 2.25
      - 3.97
 
+\*Results benchmarked on an AMD EPYC 7513 32-Core Processor Workstation.
+
 
 ----
 
