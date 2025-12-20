@@ -654,7 +654,10 @@ class BaseDataset(ABC):
             
             num_workers = min(num_workers, len(patient_ids)) # Avoid spawning empty workers
             batch_size = len(patient_ids) // num_workers + 1
-            with multiprocessing.Manager() as manager:
+            
+            # spwan is required for polars in multiprocessing, see https://docs.pola.rs/user-guide/misc/multiprocessing/#summary
+            ctx = multiprocessing.get_context("spawn")
+            with ctx.Manager() as manager:
                 queue = manager.Queue()
                 args_list = [(
                     worker_id,
@@ -664,7 +667,7 @@ class BaseDataset(ABC):
                     output_dir,
                     queue
                 ) for worker_id, pids in enumerate(itertools.batched(patient_ids, batch_size))]
-                with multiprocessing.Pool(processes=num_workers) as pool:
+                with ctx.Pool(processes=num_workers) as pool:
                     result = pool.map_async(_task_transform_fn, args_list) # type: ignore
                     with tqdm(total=len(patient_ids)) as progress:
                         while not result.ready():
