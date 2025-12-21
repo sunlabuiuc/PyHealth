@@ -166,15 +166,6 @@ def main():
     print(f"  Validation: {len(val_dataset)} samples")
     print(f"  Test: {len(test_dataset)} samples")
 
-    # Create dataloaders
-    train_loader = get_dataloader(
-        train_dataset, batch_size=args.batch_size, shuffle=True
-    )
-    val_loader = get_dataloader(val_dataset, batch_size=args.batch_size, shuffle=False)
-    test_loader = get_dataloader(
-        test_dataset, batch_size=args.batch_size, shuffle=False
-    )
-
     # STEP 4-6: Run training and evaluation multiple times
     print(f"\nRunning {args.n_runs} independent training runs...")
     all_results = []
@@ -200,6 +191,11 @@ def main():
         print(f"  compression_ratio: {compression_ratio}")
         
         run_exp_name = f"{exp_name}_trial{trial.number + 1}"
+        
+        # Create dataloaders
+        train_loader = get_dataloader(train_dataset, batch_size=batch_size, shuffle=True)
+        val_loader = get_dataloader(val_dataset, batch_size=batch_size, shuffle=False)
+        test_loader = get_dataloader(test_dataset, batch_size=batch_size, shuffle=False)
         
         print("\nInitializing AdaCare model...")
         model = AdaCare(
