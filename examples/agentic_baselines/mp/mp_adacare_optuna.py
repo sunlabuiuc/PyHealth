@@ -242,7 +242,7 @@ def main():
             
         return float(results["loss"])
 
-    study = optuna.create_study(storage=str(run_root / "optuna.sqlite3"))
+    study = optuna.create_study(storage=f"sqlite:///{run_root}/optuna.sqlite3")
     study.optimize(objective, n_trials=30)
 
 if __name__ == "__main__":
