@@ -73,9 +73,9 @@ def parse_args():
         help="Dev mode: run quick smoke test (1 epoch, small subset, cpu)",
     )
     parser.add_argument(
-        "--n_runs",
+        "--n_trials",
         type=int,
-        default=3,
+        default=30,
         help="Number of runs for computing mean and std (default: 3)",
     )
     return parser.parse_args()
@@ -228,7 +228,7 @@ def main():
             epochs=args.epochs,
             monitor="roc_auc",
             patience=args.patience,
-            optimizer_params={"lr": args.lr},
+            optimizer_params={"lr": lr},
         )
 
         # Evaluate on test set
@@ -243,7 +243,7 @@ def main():
         return float(results["loss"])
 
     study = optuna.create_study(storage=f"sqlite:///{run_root}/optuna.sqlite3")
-    study.optimize(objective, n_trials=30)
+    study.optimize(objective, n_trials=args.n_trials)
 
 if __name__ == "__main__":
     main()
