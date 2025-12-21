@@ -3,7 +3,7 @@ from typing import Dict, Type, Union
 
 import torch
 
-from pyhealth.datasets import SampleDataset, get_dataloader
+from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import Transformer
 from pyhealth.processors.base_processor import FeatureProcessor
 from pyhealth.interpret.methods import CheferRelevance
@@ -42,7 +42,7 @@ class TestTransformer(unittest.TestCase):
             "label": "binary"
         }
 
-        self.dataset = SampleDataset(
+        self.dataset = create_sample_dataset(
             samples=self.samples,
             input_schema=self.input_schema,
             output_schema=self.output_schema,

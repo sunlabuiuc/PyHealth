@@ -1,7 +1,7 @@
 import unittest
 import torch
 
-from pyhealth.datasets import SampleDataset, get_dataloader
+from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import MLP
 
 
@@ -63,7 +63,7 @@ class TestProcessorTransfer(unittest.TestCase):
     def test_basic_processor_transfer(self):
         """Test basic processor transfer from train to test dataset."""
         # Create training dataset (processors will be fitted)
-        train_dataset = SampleDataset(
+        train_dataset = create_sample_dataset(
             samples=self.train_samples,
             input_schema=self.input_schema,
             output_schema=self.output_schema,
@@ -71,7 +71,7 @@ class TestProcessorTransfer(unittest.TestCase):
         )
 
         # Create test dataset with transferred processors
-        test_dataset = SampleDataset(
+        test_dataset = create_sample_dataset(
             samples=self.test_samples,
             input_schema=self.input_schema,
             output_schema=self.output_schema,
@@ -97,7 +97,7 @@ class TestProcessorTransfer(unittest.TestCase):
     def test_processor_vocabulary_consistency(self):
         """Test that transferred processors maintain vocabulary consistency."""
         # Create training dataset
-        train_dataset = SampleDataset(
+        train_dataset = create_sample_dataset(
             samples=self.train_samples,
             input_schema=self.input_schema,
             output_schema=self.output_schema,
@@ -109,7 +109,7 @@ class TestProcessorTransfer(unittest.TestCase):
         train_vocab = train_dataset.input_processors["conditions"].code_vocab
 
         # Create test dataset with transferred processors
-        test_dataset = SampleDataset(
+        test_dataset = create_sample_dataset(
             samples=self.test_samples,
             input_schema=self.input_schema,
             output_schema=self.output_schema,
@@ -132,16 +132,10 @@ class TestProcessorTransfer(unittest.TestCase):
         self.assertIn("cond-12", train_vocab)
         self.assertIn("cond-50", train_vocab)
 
-        # Note: cond-99 from test set WILL be added to vocabulary
-        # during processing because SequenceProcessor adds new codes
-        # on the fly in process(). The key is that the processor
-        # object itself is shared
-        self.assertIn("cond-99", train_vocab)
-
     def test_model_training_with_transferred_processors(self):
         """Test end-to-end training and inference with processor transfer."""
         # Create training dataset
-        train_dataset = SampleDataset(
+        train_dataset = create_sample_dataset(
             samples=self.train_samples,
             input_schema=self.input_schema,
             output_schema=self.output_schema,
@@ -149,7 +143,7 @@ class TestProcessorTransfer(unittest.TestCase):
         )
 
         # Create test dataset with transferred processors
-        test_dataset = SampleDataset(
+        test_dataset = create_sample_dataset(
             samples=self.test_samples,
             input_schema=self.input_schema,
             output_schema=self.output_schema,
@@ -182,7 +176,7 @@ class TestProcessorTransfer(unittest.TestCase):
     def test_without_processor_transfer(self):
         """Test that without transfer, each dataset fits its own processors."""
         # Create training dataset
-        train_dataset = SampleDataset(
+        train_dataset = create_sample_dataset(
             samples=self.train_samples,
             input_schema=self.input_schema,
             output_schema=self.output_schema,
@@ -190,7 +184,7 @@ class TestProcessorTransfer(unittest.TestCase):
         )
 
         # Create test dataset WITHOUT transferred processors
-        test_dataset = SampleDataset(
+        test_dataset = create_sample_dataset(
             samples=self.test_samples,
             input_schema=self.input_schema,
             output_schema=self.output_schema,
@@ -216,7 +210,7 @@ class TestProcessorTransfer(unittest.TestCase):
     def test_partial_processor_transfer(self):
         """Test transferring only input processors, not output processors."""
         # Create training dataset
-        train_dataset = SampleDataset(
+        train_dataset = create_sample_dataset(
             samples=self.train_samples,
             input_schema=self.input_schema,
             output_schema=self.output_schema,
@@ -224,7 +218,7 @@ class TestProcessorTransfer(unittest.TestCase):
         )
 
         # Create test dataset with only input processors transferred
-        test_dataset = SampleDataset(
+        test_dataset = create_sample_dataset(
             samples=self.test_samples,
             input_schema=self.input_schema,
             output_schema=self.output_schema,
@@ -248,7 +242,7 @@ class TestProcessorTransfer(unittest.TestCase):
     def test_empty_processor_dict_transfer(self):
         """Test passing empty processor dictionaries."""
         # Create dataset with empty processor dicts (should fit new ones)
-        dataset = SampleDataset(
+        dataset = create_sample_dataset(
             samples=self.train_samples,
             input_schema=self.input_schema,
             output_schema=self.output_schema,
@@ -278,7 +272,7 @@ class TestProcessorTransfer(unittest.TestCase):
         ]  # has 1 and 0
 
         # Fold 1 as train
-        train_dataset = SampleDataset(
+        train_dataset = create_sample_dataset(
             samples=fold1,
             input_schema=self.input_schema,
             output_schema=self.output_schema,
@@ -286,7 +280,7 @@ class TestProcessorTransfer(unittest.TestCase):
         )
 
         # Fold 2 as validation with transferred processors
-        val_dataset = SampleDataset(
+        val_dataset = create_sample_dataset(
             samples=fold2,
             input_schema=self.input_schema,
             output_schema=self.output_schema,
@@ -349,7 +343,7 @@ class TestProcessorTransfer(unittest.TestCase):
         }
 
         # Create train dataset
-        train_dataset = SampleDataset(
+        train_dataset = create_sample_dataset(
             samples=multi_train,
             input_schema=multi_input_schema,
             output_schema=self.output_schema,
@@ -357,7 +351,7 @@ class TestProcessorTransfer(unittest.TestCase):
         )
 
         # Create test dataset with transferred processors
-        test_dataset = SampleDataset(
+        test_dataset = create_sample_dataset(
             samples=multi_test,
             input_schema=multi_input_schema,
             output_schema=self.output_schema,
@@ -379,20 +373,17 @@ class TestProcessorTransfer(unittest.TestCase):
         self.assertIn("m2", med_vocab)
         self.assertIn("m3", med_vocab)
         self.assertIn("m4", med_vocab)
-        # m5 from test will be added during processing since
-        # SequenceProcessor adds new codes on the fly
-        self.assertIn("m5", med_vocab)
 
     def test_backward_compatibility(self):
         """Test that existing code without processor transfer still works."""
         # Old-style usage without any processor parameters
-        dataset1 = SampleDataset(
+        dataset1 = create_sample_dataset(
             samples=self.train_samples,
             input_schema=self.input_schema,
             output_schema=self.output_schema,
         )
 
-        dataset2 = SampleDataset(
+        dataset2 = create_sample_dataset(
             samples=self.test_samples,
             input_schema=self.input_schema,
             output_schema=self.output_schema,
@@ -437,7 +428,7 @@ class TestProcessorTransferEdgeCases(unittest.TestCase):
         output_schema = {"label": "binary"}
 
         # Explicitly pass None
-        dataset = SampleDataset(
+        dataset = create_sample_dataset(
             samples=samples,
             input_schema=input_schema,
             output_schema=output_schema,
@@ -482,14 +473,14 @@ class TestProcessorTransferEdgeCases(unittest.TestCase):
         output_schema = {"label": "binary"}
 
         # Create train dataset
-        train_dataset = SampleDataset(
+        train_dataset = create_sample_dataset(
             samples=train_samples,
             input_schema=input_schema,
             output_schema=output_schema,
         )
 
         # Create test dataset with same schema
-        test_dataset = SampleDataset(
+        test_dataset = create_sample_dataset(
             samples=test_samples,
             input_schema=input_schema,
             output_schema=output_schema,

@@ -30,6 +30,10 @@ from .nested_sequence_processor import (
     NestedFloatsProcessor,
     NestedSequenceProcessor,
 )
+from .deep_nested_sequence_processor import (
+    DeepNestedFloatsProcessor,
+    DeepNestedSequenceProcessor,
+)
 from .raw_processor import RawProcessor
 from .sequence_processor import SequenceProcessor
 from .signal_processor import SignalProcessor

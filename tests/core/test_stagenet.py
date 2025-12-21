@@ -1,7 +1,7 @@
 import unittest
 import torch
 
-from pyhealth.datasets import SampleDataset, get_dataloader
+from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import StageNet
 
 
@@ -61,7 +61,7 @@ class TestStageNet(unittest.TestCase):
         self.output_schema = {"label": "binary"}
 
         # Create dataset
-        self.dataset = SampleDataset(
+        self.dataset = create_sample_dataset(
             samples=self.samples,
             input_schema=self.input_schema,
             output_schema=self.output_schema,
@@ -223,7 +223,7 @@ class TestStageNet(unittest.TestCase):
             },
         ]
 
-        dataset_no_time = SampleDataset(
+        dataset_no_time = create_sample_dataset(
             samples=samples_no_time,
             input_schema={"codes": "stagenet"},
             output_schema={"label": "binary"},
@@ -311,7 +311,7 @@ class TestStageNet(unittest.TestCase):
             },
         ]
 
-        dataset_single = SampleDataset(
+        dataset_single = create_sample_dataset(
             samples=samples_single,
             input_schema={"codes": "stagenet"},
             output_schema={"label": "binary"},
@@ -451,7 +451,7 @@ class TestStageNet(unittest.TestCase):
 
         # Create dataset - it will use default processor, but we can verify padding works
         # by checking the processor's configuration
-        dataset = SampleDataset(
+        dataset = create_sample_dataset(
             samples=samples_padding,
             input_schema={"procedures": "stagenet"},
             output_schema={"label": "binary"},

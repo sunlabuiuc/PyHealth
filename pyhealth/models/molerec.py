@@ -498,7 +498,7 @@ class MoleRec(BaseModel):
         ... ]
         >>>
         >>> # dataset
-        >>> dataset = SampleDataset(
+        >>> dataset = create_sample_dataset(
         ...     samples=samples,
         ...     input_schema={
         ...         "conditions": "nested_sequence",

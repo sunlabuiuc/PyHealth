@@ -49,6 +49,8 @@ class SampleSignalDataset:
 from .base_dataset import BaseDataset
 from .cardiology import CardiologyDataset
 from .chestxray14 import ChestXray14Dataset
+from .clinvar import ClinVarDataset
+from .cosmic import COSMICDataset
 from .covid19_cxr import COVID19CXRDataset
 from .dreamt import DREAMTDataset
 from .ehrshot import EHRShotDataset
@@ -59,11 +61,12 @@ from .mimic3 import MIMIC3Dataset
 from .mimic4 import MIMIC4CXRDataset, MIMIC4Dataset, MIMIC4EHRDataset, MIMIC4NoteDataset
 from .mimicextract import MIMICExtractDataset
 from .omop import OMOPDataset
-from .sample_dataset import SampleDataset
+from .sample_dataset import SampleBuilder, SampleDataset, create_sample_dataset
 from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset
 from .bmd_hs import BMDHSDataset
 from .support2 import Support2Dataset
+from .tcga_prad import TCGAPRADDataset
 from .splitter import (
     split_by_patient,
     split_by_patient_conformal,

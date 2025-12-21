@@ -4,12 +4,14 @@ PyHealth Research Initiative
 Overview
 --------
 
-The PyHealth Research Initiative is an annual summer research program that brings together talented 
-students to conduct cutting-edge research in healthcare artificial intelligence. Through this program, 
+The PyHealth Research Initiative is a year-round, open research program that brings together talented 
+individuals from diverse backgrounds—including students, engineers, researchers, and healthcare professionals—to 
+conduct cutting-edge research in healthcare artificial intelligence. This inclusive program welcomes anyone passionate 
+about advancing computational healthcare, regardless of their career stage or institutional affiliation. Through this program, 
 participants work on innovative projects that advance the field of computational healthcare, contributing 
 to publications, open-source software, and the broader healthcare AI community.
 
-The initiative provides students with hands-on experience in:
+The initiative provides participants with hands-on experience in:
 
 - **Healthcare AI Research**: Working on real-world healthcare problems using electronic health records (EHRs) and clinical data
 - **Machine Learning Development**: Implementing and evaluating state-of-the-art deep learning models
@@ -38,17 +40,17 @@ drug recommendation, and healthcare AI infrastructure.
      - Zilal Eiz Al Din
      - MIMIC-RD: Can LLMs differentially diagnose rare diseases in real-world clinical settings?
      - ML4H 2025
-     - *In Preparation*
+     - `Paper <https://openreview.net/forum?id=CrZyNUfWHp>`_
    * - 2025
      - Abraham Francisco Arellano Tavara, Umesh Kumar
      - Prostate-VarBench: A Benchmark with Interpretable TabNet Framework for Prostate Cancer Variant Classification
      - ML4H 2025
-     - *In Preparation*
+     - `Paper <https://openreview.net/forum?id=zOUjZgKD2E>`_
    * - 2025
      - Sharim Khan
      - Social Determinants of Health Prediction for ICD-9 Code with Reasoning Models
      - ML4H 2025
-     - *In Preparation*
+     - `Paper <https://openreview.net/forum?id=gMpzlCnq66>`_
 
 .. note::
    
@@ -61,10 +63,11 @@ Program Information
 
 **Format**: Remote
 
-**Application**: Applications are evaluated based on contributions to PyHealth. To apply, submit a high-quality 
+**Application**: Open to anyone! Applications are evaluated based on contributions to PyHealth. To apply, submit a high-quality 
 pull request (PR) to the `PyHealth repository <https://github.com/sunlabuiuc/PyHealth>`_. Strong PRs that 
 demonstrate understanding of the codebase, good software engineering practices, and meaningful contributions 
-will be considered for the program. Check the GitHub repository for open issues and contribution opportunities.
+will be considered for the program. The program welcomes individuals from all backgrounds and career stages. 
+Check the GitHub repository for open issues and contribution opportunities.
 
 Research Areas
 --------------
@@ -98,7 +101,7 @@ Real-World Applications
 Getting Involved
 ----------------
 
-Interested in participating in future PyHealth Research Initiatives? Here's how to get involved:
+Interested in participating in the PyHealth Research Initiative? Here's how to get involved:
 
 1. **Join Discord**: Join our `Discord server <https://discord.gg/mpb835EHaX>`_ - the best way to connect with the team and community
 2. **Stay Updated**: Watch the `PyHealth repository <https://github.com/sunlabuiuc/PyHealth>`_ for announcements
@@ -108,13 +111,15 @@ Interested in participating in future PyHealth Research Initiatives? Here's how 
 Past Participants
 -----------------
 
-The PyHealth Research Initiative has hosted students from universities around the world, including:
+The PyHealth Research Initiative has brought together participants from diverse backgrounds and institutions 
+around the world, including:
 
 - University of Illinois Urbana-Champaign
 - Georgia Tech
+- Industry professionals and independent researchers
 - And many more...
 
-Alumni of the program have gone on to pursue graduate studies, research positions, and careers in 
+Participants and alumni of the program have gone on to pursue graduate studies, research positions, and careers in 
 healthcare AI at leading institutions and companies.
 
 Contact

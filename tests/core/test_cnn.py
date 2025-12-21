@@ -1,7 +1,7 @@
 import unittest
 import torch
 
-from pyhealth.datasets import SampleDataset, get_dataloader
+from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import CNN
 
 
@@ -33,7 +33,7 @@ class TestCNN(unittest.TestCase):
         }
         self.output_schema = {"label": "binary"}
 
-        self.dataset = SampleDataset(
+        self.dataset = create_sample_dataset(
             samples=self.samples,
             input_schema=self.input_schema,
             output_schema=self.output_schema,
@@ -147,7 +147,7 @@ class TestCNN(unittest.TestCase):
         input_schema = {"image": "image"}
         output_schema = {"label": "binary"}
 
-        dataset = SampleDataset(
+        dataset = create_sample_dataset(
             samples=samples,
             input_schema=input_schema,
             output_schema=output_schema,
@@ -209,7 +209,7 @@ class TestCNN(unittest.TestCase):
         }
         output_schema = {"label": "binary"}
 
-        dataset = SampleDataset(
+        dataset = create_sample_dataset(
             samples=samples,
             input_schema=input_schema,
             output_schema=output_schema,

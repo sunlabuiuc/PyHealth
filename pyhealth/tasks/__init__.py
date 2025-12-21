@@ -1,5 +1,6 @@
 from .base_task import BaseTask
 from .benchmark_ehrshot import BenchmarkEHRShot
+from .cancer_survival import CancerMutationBurden, CancerSurvivalPrediction
 from .bmd_hs_disease_classification import BMDHSDiseaseClassification
 from .cardiology_detect import (
     cardiology_isAD_fn,
@@ -23,6 +24,10 @@ from .EEG_abnormal import EEG_isAbnormal_fn
 from .EEG_events import EEG_events_fn
 from .in_hospital_mortality_mimic4 import InHospitalMortalityMIMIC4
 from .length_of_stay_prediction import (
+    LengthOfStayPredictioneICU,
+    LengthOfStayPredictionMIMIC3,
+    LengthOfStayPredictionMIMIC4,
+    LengthOfStayPredictionOMOP,
     length_of_stay_prediction_eicu_fn,
     length_of_stay_prediction_mimic3_fn,
     length_of_stay_prediction_mimic4_fn,
@@ -57,3 +62,7 @@ from .sleep_staging import (
 )
 from .sleep_staging_v2 import SleepStagingSleepEDF
 from .temple_university_EEG_tasks import EEG_events_fn, EEG_isAbnormal_fn
+from .variant_classification import (
+    MutationPathogenicityPrediction,
+    VariantClassificationClinVar,
+)
