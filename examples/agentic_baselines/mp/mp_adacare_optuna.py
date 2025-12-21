@@ -167,7 +167,7 @@ def main():
     print(f"  Test: {len(test_dataset)} samples")
 
     # STEP 4-6: Run training and evaluation multiple times
-    print(f"\nRunning {args.n_runs} independent training runs...")
+    print(f"\nRunning {args.n_trials} independent optuna trials...")
     all_results = []
     
     def objective(trial: optuna.Trial) -> float:
