@@ -171,14 +171,14 @@ def main():
     all_results = []
     
     def objective(trial: optuna.Trial) -> float:
-        batch_size = trial.suggest_categorical("batch_size", [64, 128, 256])
+        batch_size = trial.suggest_int("batch_size", 16, 1024)
         lr = trial.suggest_float("lr", 1e-4, 1e-2, log=True)
         
-        embedding_dim = trial.suggest_categorical("embedding_dim", [64, 128, 256])
-        hidden_dim = trial.suggest_categorical("hidden_dim", [64, 128, 256])
-        dropout = trial.suggest_float("dropout", 0.1, 0.5, step=0.1)
-        kernel_size = trial.suggest_categorical("kernel_size", [2, 3, 5])
-        compression_ratio = trial.suggest_categorical("compression_ratio", [2, 4, 8])
+        embedding_dim = trial.suggest_int("embedding_dim", 16, 1024)
+        hidden_dim = trial.suggest_int("hidden_dim", 16, 1024)
+        dropout = trial.suggest_float("dropout", 1e-3, 0.5, log=True)
+        kernel_size = trial.suggest_int("kernel_size", 2, 8)
+        compression_ratio = trial.suggest_int("compression_ratio", 2, 8)
         
         print("=" * 60)
         print(f"Trial {trial.number} hyperparameters:")
