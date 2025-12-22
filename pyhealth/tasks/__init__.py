@@ -54,6 +54,7 @@ from .readmission_prediction import (
     readmission_prediction_mimic3_fn,
     readmission_prediction_mimic4_fn,
     readmission_prediction_omop_fn,
+    ReadmissionPredictionMIMIC3,
 )
 from .sleep_staging import (
     sleep_staging_isruc_fn,

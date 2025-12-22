@@ -24,8 +24,6 @@ class ReadmissionPredictionMIMIC3(BaseTask):
     def __call__(self, patient: Patient) -> List[Dict]:
         patients: List[Event] = patient.get_events(event_type="patients")
         assert len(patients) == 1
-        if int(patients[0]["anchor_age"]) < 18:
-            return []
 
         admissions: List[Event] = patient.get_events(event_type="admissions")
         if len(admissions) < 2:
