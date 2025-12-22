@@ -49,6 +49,12 @@ def parse_args():
         help="Device to use for training (default: cuda:4)",
     )
     parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=128,
+        help="Batch size for training (default: 128)",
+    )
+    parser.add_argument(
         "--epochs",
         type=int,
         default=30,
@@ -171,18 +177,16 @@ def main():
     all_results = []
     
     def objective(trial: optuna.Trial) -> float:
-        batch_size = trial.suggest_int("batch_size", 64, 256)
         lr = trial.suggest_float("lr", 1e-4, 1e-2, log=True)
         
-        embedding_dim = trial.suggest_int("embedding_dim", 16, 512)
-        hidden_dim = trial.suggest_int("hidden_dim", 16, 512)
-        dropout = trial.suggest_float("dropout", 1e-3, 0.5, log=True)
+        embedding_dim = trial.suggest_categorical("embedding_dim", [32, 64, 128, 256])
+        hidden_dim = trial.suggest_categorical("hidden_dim", [32, 64, 128, 256])
+        dropout = trial.suggest_float("dropout", 1e-3, 0.9, log=True)
         kernel_size = trial.suggest_int("kernel_size", 2, 8)
         compression_ratio = trial.suggest_int("compression_ratio", 2, 8)
         
         print("=" * 60)
         print(f"Trial {trial.number} hyperparameters:")
-        print(f"  batch_size: {batch_size}")
         print(f"  lr: {lr}")
         print(f"  embedding_dim: {embedding_dim}")
         print(f"  hidden_dim: {hidden_dim}")
@@ -193,9 +197,9 @@ def main():
         run_exp_name = f"{exp_name}_trial{trial.number + 1}"
         
         # Create dataloaders
-        train_loader = get_dataloader(train_dataset, batch_size=batch_size, shuffle=True)
-        val_loader = get_dataloader(val_dataset, batch_size=batch_size, shuffle=False)
-        test_loader = get_dataloader(test_dataset, batch_size=batch_size, shuffle=False)
+        train_loader = get_dataloader(train_dataset, batch_size=args.batch_size, shuffle=True)
+        val_loader = get_dataloader(val_dataset, batch_size=args.batch_size, shuffle=False)
+        test_loader = get_dataloader(test_dataset, batch_size=args.batch_size, shuffle=False)
         
         print("\nInitializing AdaCare model...")
         model = AdaCare(
