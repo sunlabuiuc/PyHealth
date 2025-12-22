@@ -9,8 +9,9 @@ class TestMedLink(unittest.TestCase):
     """Basic tests for the MedLink model on pseudo data."""
 
     def setUp(self):
-        # Each "sample" here is a simple patient-record placeholder
-        # The dataset is only used to build the vocabulary via get_all_tokens.
+        # Each "sample" here is a simple patient-record placeholder.
+        # The dataset is used to fit SequenceProcessors (vocabularies), which
+        # MedLink reuses for processor-native indexing.
         self.samples = [
             {
                 "patient_id": "p0",

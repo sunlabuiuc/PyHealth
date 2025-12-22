@@ -1,182 +1,359 @@
-from typing import Dict, List
+from __future__ import annotations
+
+from typing import Dict, List, Any, Optional, Sequence, Tuple
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import tqdm
+from torch.nn.utils.rnn import pad_sequence
 
-from pyhealth.datasets import SampleEHRDataset
-from pyhealth.models import BaseModel
-from pyhealth.models.transformer import TransformerLayer
-from pyhealth.tokenizer import Tokenizer
+from ...datasets import SampleDataset
+from ..base_model import BaseModel
+from ..transformer import TransformerLayer
+from ...processors import SequenceProcessor
+
+from ..embedding import init_embedding_with_pretrained
 
 
-def batch_to_one_hot(label_batch, num_class):
-    """ convert to one hot label """
-    label_batch_onehot = []
-    for label in label_batch:
-        label_batch_onehot.append(F.one_hot(label, num_class).sum(dim=0))
-    label_batch_onehot = torch.stack(label_batch_onehot, dim=0)
-    label_batch_onehot[label_batch_onehot > 1] = 1
-    return label_batch_onehot
+def _build_shared_vocab(
+    q_processor: SequenceProcessor,
+    d_processor: SequenceProcessor,
+    pad_token: str = "<pad>",
+    unk_token: str = "<unk>",
+) -> Dict[str, int]:
+    """Build a shared token->index mapping from two fitted SequenceProcessors.
+
+    The returned vocabulary is deterministic (sorted token order) and always
+    includes `pad_token` and `unk_token`.
+    """
+
+    vocab: Dict[str, int] = {pad_token: 0, unk_token: 1}
+
+    tokens = set(str(t) for t in q_processor.code_vocab.keys()) | set(
+        str(t) for t in d_processor.code_vocab.keys()
+    )
+    tokens.discard(pad_token)
+    tokens.discard(unk_token)
+
+    for t in sorted(tokens):
+        if t not in vocab:
+            vocab[t] = len(vocab)
+    return vocab
+
+
+def _build_index_remap(
+    processor: SequenceProcessor,
+    shared_vocab: Dict[str, int],
+    unk_idx: int,
+) -> torch.Tensor:
+    """Build a dense remap tensor old_idx -> shared_idx."""
+
+    size = len(processor.code_vocab)
+    remap = torch.full((size,), unk_idx, dtype=torch.long)
+    for tok, old_idx in processor.code_vocab.items():
+        tok_s = str(tok)
+        remap[old_idx] = shared_vocab.get(tok_s, unk_idx)
+    return remap
+
+
+def _to_index_tensor(
+    seq: Any,
+    processor: SequenceProcessor,
+) -> torch.Tensor:
+    """Converts a single sequence to an index tensor using the fitted processor."""
+    if isinstance(seq, torch.Tensor):
+        return seq.long()
+    if isinstance(seq, (list, tuple)):
+        return processor.process(seq)
+    # single token
+    return processor.process([seq])
+
+
+def _pad_and_remap(
+    sequences: Sequence[Any],
+    processor: SequenceProcessor,
+    remap: torch.Tensor,
+    pad_value: int = 0,
+    device: Optional[torch.device] = None,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Pads a batch of sequences and remaps indices into the shared vocab.
+
+    Returns:
+        ids_shared: LongTensor [B, L]
+        mask: BoolTensor [B, L] where True indicates valid token positions.
+    """
+
+    ids = [_to_index_tensor(s, processor) for s in sequences]
+    ids_padded = pad_sequence(ids, batch_first=True, padding_value=pad_value)
+    if device is not None:
+        ids_padded = ids_padded.to(device)
+        remap = remap.to(device)
+    ids_shared = remap[ids_padded]
+    mask = ids_shared != 0
+    return ids_shared, mask
 
 
 class AdmissionPrediction(nn.Module):
-    def __init__(self, tokenizer, embedding_dim, heads=2, dropout=0.5, num_layers=1):
-        super(AdmissionPrediction, self).__init__()
-        self.tokenizer = tokenizer
-        self.vocabs_size = tokenizer.get_vocabulary_size()
-        self.embedding = nn.Embedding(
-            self.vocabs_size,
-            embedding_dim,
-            padding_idx=tokenizer.get_padding_index()
-        )
-        self.encoder = TransformerLayer(
-            feature_size=embedding_dim,
-            heads=heads,
-            dropout=dropout,
-            num_layers=num_layers
-        )
-        self.criterion = nn.BCEWithLogitsLoss()
+    """Admission prediction module used by MedLink.
 
-    def encode_one_hot(self, input: List[str], device):
-        input_batch = self.tokenizer.batch_encode_2d(input, padding=True)
-        input_batch = torch.tensor(input_batch, dtype=torch.long, device=device)
-        input_onehot = batch_to_one_hot(input_batch, self.vocabs_size)
-        input_onehot = input_onehot.float().to(device)
-        input_onehot[:, self.tokenizer.vocabulary("<pad>")] = 0
-        input_onehot[:, self.tokenizer.vocabulary("<cls>")] = 0
-        return input_onehot
-
-    def encode_dense(self, input: List[str], device):
-        input_batch = self.tokenizer.batch_encode_2d(input, padding=True)
-        input_batch = torch.tensor(input_batch, dtype=torch.long, device=device)
-        mask = input_batch != 0
-        input_embeddings = self.embedding(input_batch)
-        input_embeddings, _ = self.encoder(input_embeddings)
-        return input_embeddings, mask
-
-    def get_loss(self, logits, target_onehot):
-        true_batch_size = min(logits.shape[0], target_onehot.shape[0])
-        loss = self.criterion(logits[:true_batch_size], target_onehot[:true_batch_size])
-        return loss
-
-    def forward(self, input, vocab_emb, device):
-        input_dense, mask = self.encode_dense(input, device)
-        input_one_hot = self.encode_one_hot(input, device)
-        logits = torch.matmul(input_dense, vocab_emb.T)
-        logits[~mask] = -1e9
-        logits = logits.max(dim=1)[0]
-        return logits, input_one_hot
-
-
-class MedLink(BaseModel):
-    """MedLink model.
-
-    Paper: Zhenbang Wu et al. MedLink: De-Identified Patient Health
-    Record Linkage. KDD 2023.
-
-    IMPORTANT: This implementation differs from the original paper in order to
-    make it work with the PyHealth framework. Specifically, we do not use the
-    pre-trained GloVe embeddings. And we only monitor the loss on the validation
-    set instead of the ranking metrics. As a result, the performance of this model
-    is different from the original paper. To reproduce the results in the paper,
-    please use the official GitHub repo: https://github.com/zzachw/MedLink.
-
-    Args:
-        dataset: SampleEHRDataset.
-        feature_keys: List of feature keys. MedLink only supports one feature key.
-        embedding_dim: Dimension of embedding.
-        alpha: Weight of the forward prediction loss.
-        beta: Weight of the backward prediction loss.
-        gamma: Weight of the retrieval loss.
+    This is a lightly-adapted version of the original MedLink implementation,
+    refactored to work with PyHealth 2.0 processors (i.e., indexed tensors).
     """
 
     def __init__(
         self,
-        dataset: SampleEHRDataset,
+        code_vocab: Dict[str, int],
+        embedding_dim: int,
+        heads: int = 2,
+        dropout: float = 0.5,
+        num_layers: int = 1,
+        pretrained_emb_path: Optional[str] = None,
+        freeze_pretrained: bool = False,
+    ):
+        super().__init__()
+        self.code_vocab = code_vocab
+        self.vocab_size = len(code_vocab)
+        self.pad_idx = code_vocab.get("<pad>", 0)
+        self.cls_idx = code_vocab.get("<cls>")
+
+        self.embedding = nn.Embedding(
+            num_embeddings=self.vocab_size,
+            embedding_dim=embedding_dim,
+            padding_idx=self.pad_idx,
+        )
+        if pretrained_emb_path:
+            init_embedding_with_pretrained(
+                self.embedding,
+                code_vocab,
+                pretrained_emb_path,
+                embedding_dim=embedding_dim,
+                freeze=freeze_pretrained,
+            )
+
+        self.encoder = TransformerLayer(
+            feature_size=embedding_dim,
+            heads=heads,
+            dropout=dropout,
+            num_layers=num_layers,
+        )
+        self.criterion = nn.BCEWithLogitsLoss()
+
+    def _multi_hot(self, input_ids: torch.Tensor) -> torch.Tensor:
+        """Builds a multi-hot label vector per sample."""
+
+        # input_ids: [B, L]
+        bsz = input_ids.size(0)
+        out = torch.zeros(bsz, self.vocab_size, device=input_ids.device, dtype=torch.float)
+        src = torch.ones_like(input_ids, dtype=torch.float)
+        out.scatter_add_(1, input_ids, src)
+        out = (out > 0).float()
+        # Remove special tokens from labels.
+        if self.pad_idx is not None:
+            out[:, self.pad_idx] = 0
+        if self.cls_idx is not None:
+            out[:, self.cls_idx] = 0
+        return out
+
+    def get_loss(self, logits: torch.Tensor, target_multi_hot: torch.Tensor) -> torch.Tensor:
+        true_batch_size = min(logits.shape[0], target_multi_hot.shape[0])
+        return self.criterion(logits[:true_batch_size], target_multi_hot[:true_batch_size])
+
+    def forward(self, input_ids: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Compute vocabulary logits and target multi-hot labels.
+
+        Args:
+            input_ids: LongTensor [B, L] in shared vocabulary indices.
+
+        Returns:
+            logits: FloatTensor [B, V]
+            target: FloatTensor [B, V] multi-hot labels.
+        """
+
+        mask = input_ids != self.pad_idx
+        x = self.embedding(input_ids)
+        x, _ = self.encoder(x, mask=mask)
+
+        # Use embedding table as vocabulary embedding.
+        vocab_emb = self.embedding.weight  # [V, D]
+        logits = torch.matmul(x, vocab_emb.T)  # [B, L, V]
+        logits = logits.masked_fill(~mask.unsqueeze(-1), -1e9)
+        logits = logits.max(dim=1).values  # [B, V]
+
+        target = self._multi_hot(input_ids)
+        return logits, target
+
+
+class MedLink(BaseModel):
+    """MedLink model (KDD 2023).
+
+    Paper: Zhenbang Wu et al. MedLink: De-Identified Patient Health Record
+    Linkage. KDD 2023.
+
+    IMPORTANT: This implementation differs from the original paper to fit the
+    PyHealth 2.0 framework. By default, it uses randomly-initialized embeddings.
+    Optionally, you may initialize the embedding tables using a GloVe-style
+    text vector file.
+
+    Args:
+        dataset: SampleDataset.
+        feature_keys: List of feature keys. MedLink only supports one feature.
+        embedding_dim: embedding dimension.
+        alpha: weight for forward prediction loss.
+        beta: weight for backward prediction loss.
+        gamma: weight for retrieval loss.
+        pretrained_emb_path: optional path to a GloVe-style embedding file.
+        freeze_pretrained: if True, freezes embedding weights after init.
+    """
+
+    def __init__(
+        self,
+        dataset: SampleDataset,
         feature_keys: List[str],
         embedding_dim: int = 128,
         alpha: float = 0.5,
         beta: float = 0.5,
         gamma: float = 1.0,
+        pretrained_emb_path: Optional[str] = None,
+        freeze_pretrained: bool = False,
         **kwargs,
     ):
         assert len(feature_keys) == 1, "MedLink only supports one feature key"
-        super(MedLink, self).__init__(dataset=dataset)
+        super().__init__(dataset=dataset)
+
         self.feature_key = feature_keys[0]
         self.embedding_dim = embedding_dim
         self.alpha = alpha
         self.beta = beta
         self.gamma = gamma
-        q_tokens = self.dataset.get_all_tokens(key=self.feature_key)
-        d_tokens = self.dataset.get_all_tokens(key="d_" + self.feature_key)
-        tokenizer = Tokenizer(
-            tokens=q_tokens + d_tokens,
-            special_tokens=["<pad>", "<unk>", "<cls>"],
+
+        q_field = self.feature_key
+        d_field = "d_" + self.feature_key
+        if q_field not in self.dataset.input_processors or d_field not in self.dataset.input_processors:
+            raise KeyError(
+                f"MedLink expects both '{q_field}' and '{d_field}' in dataset.input_schema"
+            )
+
+        q_processor = self.dataset.input_processors[q_field]
+        d_processor = self.dataset.input_processors[d_field]
+        if not isinstance(q_processor, SequenceProcessor) or not isinstance(d_processor, SequenceProcessor):
+            raise TypeError(
+                "MedLink currently supports SequenceProcessor for both query and corpus fields"
+            )
+
+        self.q_processor = q_processor
+        self.d_processor = d_processor
+
+        # Shared vocabulary across query/corpus streams.
+        self.code_vocab = _build_shared_vocab(q_processor, d_processor)
+        self.vocab_size = len(self.code_vocab)
+        self.unk_idx = self.code_vocab.get("<unk>", 1)
+
+        # Remap tensors from per-field vocab -> shared vocab.
+        self.q_remap = _build_index_remap(q_processor, self.code_vocab, self.unk_idx)
+        self.d_remap = _build_index_remap(d_processor, self.code_vocab, self.unk_idx)
+
+        self.fwd_adm_pred = AdmissionPrediction(
+            code_vocab=self.code_vocab,
+            embedding_dim=embedding_dim,
+            pretrained_emb_path=pretrained_emb_path,
+            freeze_pretrained=freeze_pretrained,
+            **kwargs,
         )
-        self.fwd_adm_pred = AdmissionPrediction(tokenizer, embedding_dim, **kwargs)
         self.forward_encoder = self.fwd_adm_pred.encoder
-        self.bwd_adm_pred = AdmissionPrediction(tokenizer, embedding_dim, **kwargs)
+
+        self.bwd_adm_pred = AdmissionPrediction(
+            code_vocab=self.code_vocab,
+            embedding_dim=embedding_dim,
+            pretrained_emb_path=pretrained_emb_path,
+            freeze_pretrained=freeze_pretrained,
+            **kwargs,
+        )
         self.backward_encoder = self.bwd_adm_pred.encoder
+
         self.criterion = nn.CrossEntropyLoss()
-        self.vocab_size = tokenizer.get_vocabulary_size()
-        return
 
-    def encode_queries(self, queries: List[str]):
-        all_vocab = torch.tensor(list(range(self.vocab_size)), device=self.device)
-        bwd_vocab_emb = self.bwd_adm_pred.embedding(all_vocab)
-        pred_corpus, queries_one_hot = self.bwd_adm_pred(
-            queries, bwd_vocab_emb, device=self.device
+    # ------------------------------------------------------------------
+    # Encoding helpers
+    # ------------------------------------------------------------------
+
+    def _prepare_queries(self, queries: Sequence[Any]) -> Tuple[torch.Tensor, torch.Tensor]:
+        return _pad_and_remap(
+            queries,
+            processor=self.q_processor,
+            remap=self.q_remap,
+            pad_value=0,
+            device=self.device,
         )
-        pred_corpus = torch.log(1 + torch.relu(pred_corpus))
-        queries_emb = pred_corpus + queries_one_hot
-        return queries_emb
 
-    def encode_corpus(self, corpus: List[str]):
-        all_vocab = torch.tensor(list(range(self.vocab_size)), device=self.device)
-        fwd_vocab_emb = self.fwd_adm_pred.embedding(all_vocab)
-        pred_queries, corpus_one_hot = self.fwd_adm_pred(
-            corpus, fwd_vocab_emb, device=self.device
+    def _prepare_corpus(self, corpus: Sequence[Any]) -> Tuple[torch.Tensor, torch.Tensor]:
+        return _pad_and_remap(
+            corpus,
+            processor=self.d_processor,
+            remap=self.d_remap,
+            pad_value=0,
+            device=self.device,
         )
-        pred_queries = torch.log(1 + torch.relu(pred_queries))
-        corpus_emb = corpus_one_hot + pred_queries
-        return corpus_emb
 
-    def compute_scores(self, queries_emb, corpus_emb):
-        n = torch.tensor(corpus_emb.shape[0]).to(queries_emb.device)
-        df = (corpus_emb > 0).sum(dim=0)
-        idf = torch.log(1 + n) - torch.log(1 + df)
+    def encode_queries(self, queries: Sequence[Any]) -> torch.Tensor:
+        q_ids, _ = self._prepare_queries(queries)
+        pred_corpus, queries_one_hot = self.bwd_adm_pred(q_ids)
+        pred_corpus = torch.log1p(torch.relu(pred_corpus))
+        emb = pred_corpus + queries_one_hot
+        # Keep special tokens out of retrieval scoring.
+        emb[:, self.code_vocab.get("<pad>", 0)] = 0
+        if "<cls>" in self.code_vocab:
+            emb[:, self.code_vocab["<cls>"]] = 0
+        return emb
 
-        tf = torch.einsum('ac,bc->abc', queries_emb, corpus_emb)
+    def encode_corpus(self, corpus: Sequence[Any]) -> torch.Tensor:
+        c_ids, _ = self._prepare_corpus(corpus)
+        pred_queries, corpus_one_hot = self.fwd_adm_pred(c_ids)
+        pred_queries = torch.log1p(torch.relu(pred_queries))
+        emb = corpus_one_hot + pred_queries
+        emb[:, self.code_vocab.get("<pad>", 0)] = 0
+        if "<cls>" in self.code_vocab:
+            emb[:, self.code_vocab["<cls>"]] = 0
+        return emb
 
-        tf_idf = tf * idf
-        final_scores = tf_idf.sum(dim=-1)
-        return final_scores
+    # ------------------------------------------------------------------
+    # Scoring / losses
+    # ------------------------------------------------------------------
 
-    def get_loss(self, scores):
-        label = torch.tensor(list(range(scores.shape[0])), device=scores.device)
-        loss = self.criterion(scores, label)
-        return loss
+    def compute_scores(self, queries_emb: torch.Tensor, corpus_emb: torch.Tensor) -> torch.Tensor:
+        """TF-IDF-like score used by MedLink.
+
+        queries_emb: [Q, V]
+        corpus_emb: [C, V]
+        returns: [Q, C]
+        """
+
+        n = torch.tensor(float(corpus_emb.shape[0]), device=queries_emb.device)
+        df = (corpus_emb > 0).sum(dim=0).float()
+        idf = torch.log1p(n) - torch.log1p(df)
+        # Equivalent to sum_c q[c] * d[c] * idf[c]
+        return torch.matmul(queries_emb * idf, corpus_emb.T)
+
+    def get_loss(self, scores: torch.Tensor) -> torch.Tensor:
+        label = torch.arange(scores.shape[0], device=scores.device)
+        return self.criterion(scores, label)
 
     def forward(self, query_id, id_p, s_q, s_p, s_n=None) -> Dict[str, torch.Tensor]:
-        corpus = s_p if s_n is None else s_p + s_n
+        # corpus is positives optionally concatenated with negatives.
+        corpus = s_p if s_n is None else (s_p + s_n)
         queries = s_q
-        all_vocab = torch.tensor(list(range(self.vocab_size)), device=self.device)
-        fwd_vocab_emb = self.fwd_adm_pred.embedding(all_vocab)
-        bwd_vocab_emb = self.bwd_adm_pred.embedding(all_vocab)
-        pred_queries, corpus_one_hot = self.fwd_adm_pred(
-            corpus, fwd_vocab_emb, self.device
-        )
-        pred_corpus, queries_one_hot = self.bwd_adm_pred(
-            queries, bwd_vocab_emb, self.device
-        )
+
+        q_ids, _ = self._prepare_queries(queries)
+        c_ids, _ = self._prepare_corpus(corpus)
+
+        pred_queries, corpus_one_hot = self.fwd_adm_pred(c_ids)
+        pred_corpus, queries_one_hot = self.bwd_adm_pred(q_ids)
 
         fwd_cls_loss = self.fwd_adm_pred.get_loss(pred_queries, queries_one_hot)
         bwd_cls_loss = self.bwd_adm_pred.get_loss(pred_corpus, corpus_one_hot)
 
-        pred_queries = torch.log(1 + torch.relu(pred_queries))
-        pred_corpus = torch.log(1 + torch.relu(pred_corpus))
+        pred_queries = torch.log1p(torch.relu(pred_queries))
+        pred_corpus = torch.log1p(torch.relu(pred_corpus))
 
         corpus_emb = corpus_one_hot + pred_queries
         queries_emb = pred_corpus + queries_one_hot
@@ -184,10 +361,12 @@ class MedLink(BaseModel):
         scores = self.compute_scores(queries_emb, corpus_emb)
         ret_loss = self.get_loss(scores)
 
-        loss = self.alpha * fwd_cls_loss + \
-               self.beta * bwd_cls_loss + \
-               self.gamma * ret_loss
+        loss = self.alpha * fwd_cls_loss + self.beta * bwd_cls_loss + self.gamma * ret_loss
         return {"loss": loss}
+
+    # ------------------------------------------------------------------
+    # Retrieval API
+    # ------------------------------------------------------------------
 
     def search(self, queries_ids, queries_embeddings, corpus_ids, corpus_embeddings):
         scores = self.compute_scores(queries_embeddings, corpus_embeddings)
@@ -203,30 +382,29 @@ class MedLink(BaseModel):
         all_corpus_ids, all_corpus_embeddings = [], []
         all_queries_ids, all_queries_embeddings = [], []
         with torch.no_grad():
-            for i, batch in enumerate(tqdm.tqdm(corpus_dataloader)):
+            for batch in tqdm.tqdm(corpus_dataloader):
                 corpus_ids, corpus = batch["corpus_id"], batch["s"]
                 corpus_embeddings = self.encode_corpus(corpus)
                 all_corpus_ids.extend(corpus_ids)
                 all_corpus_embeddings.append(corpus_embeddings)
-            for i, batch in enumerate(tqdm.tqdm(queries_dataloader)):
+            for batch in tqdm.tqdm(queries_dataloader):
                 queries_ids, queries = batch["query_id"], batch["s"]
                 queries_embeddings = self.encode_queries(queries)
                 all_queries_ids.extend(queries_ids)
                 all_queries_embeddings.append(queries_embeddings)
-            all_corpus_embeddings = torch.cat(all_corpus_embeddings)
-            all_queries_embeddings = torch.cat(all_queries_embeddings)
-            results = self.search(
+            all_corpus_embeddings = torch.cat(all_corpus_embeddings, dim=0)
+            all_queries_embeddings = torch.cat(all_queries_embeddings, dim=0)
+            return self.search(
                 all_queries_ids,
                 all_queries_embeddings,
                 all_corpus_ids,
-                all_corpus_embeddings
+                all_corpus_embeddings,
             )
-        return results
 
 
 if __name__ == "__main__":
+    # Minimal smoke-test matching the public example script.
     from pyhealth.datasets import MIMIC3Dataset
-    from pyhealth.models import MedLink
     from pyhealth.models.medlink import (
         convert_to_ir_format,
         get_train_dataloader,
@@ -243,20 +421,10 @@ if __name__ == "__main__":
     )
 
     sample_dataset = base_dataset.set_task(patient_linkage_mimic3_fn)
-    corpus, queries, qrels = convert_to_ir_format(sample_dataset.samples)
-    tr_queries, va_queries, te_queries, tr_qrels, va_qrels, te_qrels = tvt_split(
-        queries, qrels
-    )
-    train_dataloader = get_train_dataloader(
-        corpus, tr_queries, tr_qrels, batch_size=32, shuffle=True
-    )
+    corpus, queries, qrels, *_ = convert_to_ir_format(sample_dataset.samples)
+    tr_queries, _, _, tr_qrels, _, _ = tvt_split(queries, qrels)
+    train_dataloader = get_train_dataloader(corpus, tr_queries, tr_qrels, batch_size=4)
     batch = next(iter(train_dataloader))
-    model = MedLink(
-        dataset=sample_dataset,
-        feature_keys=["conditions"],
-        embedding_dim=128,
-    )
-    with torch.autograd.detect_anomaly():
-        o = model(**batch)
-        print("loss:", o["loss"])
-        o["loss"].backward()
+    model = MedLink(dataset=sample_dataset, feature_keys=["conditions"], embedding_dim=32)
+    out = model(**batch)
+    print("loss:", out["loss"].item())

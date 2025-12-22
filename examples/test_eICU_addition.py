@@ -1,15 +1,17 @@
 from pyhealth.datasets import eICUDataset
-from pyhealth.tasks import mortality_prediction_eicu_fn, mortality_prediction_eicu_fn2
+from pyhealth.tasks import MortalityPredictionEICU, MortalityPredictionEICU2
 
-base_dataset = eICUDataset(
-    root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
-    tables=["diagnosis", "admissionDx", "treatment"],
-    dev=False,
-    refresh_cache=False,
-)
-sample_dataset = base_dataset.set_task(task_fn=mortality_prediction_eicu_fn2)
-sample_dataset.stat()
-print(sample_dataset.available_keys)
+if __name__ == "__main__":
+    base_dataset = eICUDataset(
+        root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
+        tables=["diagnosis", "admissionDx", "treatment"],
+        dev=False,
+        refresh_cache=False,
+    )
+    task = MortalityPredictionEICU2()
+    sample_dataset = base_dataset.set_task(task=task)
+    sample_dataset.stat()
+    print(sample_dataset.available_keys)
 
 # base_dataset = eICUDataset(
 #     root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
@@ -17,6 +19,7 @@ print(sample_dataset.available_keys)
 #     dev=True,
 #     refresh_cache=False,
 # )
-# sample_dataset = base_dataset.set_task(task_fn=mortality_prediction_eicu_fn2)
+# task = MortalityPredictionEICU2()
+# sample_dataset = base_dataset.set_task(task=task)
 # sample_dataset.stat()
 # print(sample_dataset.available_keys)

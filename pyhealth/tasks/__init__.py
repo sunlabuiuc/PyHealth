@@ -62,3 +62,4 @@ from .variant_classification import (
     MutationPathogenicityPrediction,
     VariantClassificationClinVar,
 )
+from .patient_linkage_mimic3 import PatientLinkageMIMIC3Task
