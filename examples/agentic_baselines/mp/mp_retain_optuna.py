@@ -178,7 +178,7 @@ def main():
     def objective(trial: optuna.Trial) -> tuple[float, float, float]:
         # Suggest hyperparameters
         lr = trial.suggest_float("lr", 1e-5, 1e-3, log=True)
-        embedding_dim = trial.suggest_categorical("embedding_dim", [64, 128, 256])
+        embedding_dim = trial.suggest_categorical("embedding_dim", [32, 64, 128, 256])
         dropout = trial.suggest_float("dropout", 0.0, 0.8)
         weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-3, log=True)
 
