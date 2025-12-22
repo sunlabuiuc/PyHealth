@@ -174,9 +174,8 @@ def main():
 
     # STEP 4-6: Run training and evaluation multiple times
     print(f"\nRunning {args.n_trials} independent optuna trials...")
-    all_results = []
     
-    def objective(trial: optuna.Trial) -> float:
+    def objective(trial: optuna.Trial) -> tuple[float, float, float]:
         lr = trial.suggest_float("lr", 1e-4, 1e-2, log=True)
         
         embedding_dim = trial.suggest_categorical("embedding_dim", [32, 64, 128, 256])
@@ -238,15 +237,21 @@ def main():
         # Evaluate on test set
         print("\nEvaluating on test set...")
         results = trainer.evaluate(test_loader)
-        all_results.append(results)
 
         print(f"\nTrial {trial.number} Test Results:")
         for metric, value in results.items():
             print(f"  {metric}: {value:.4f}")
+        
+        loss = results["loss"]
+        roc_auc = results["roc_auc"]
+        pr_auc = results["pr_auc"]
             
-        return float(results["loss"])
+        return float(loss), float(roc_auc), float(pr_auc)
 
-    study = optuna.create_study(storage=f"sqlite:///{run_root}/optuna.sqlite3")
+    study = optuna.create_study(
+        storage=f"sqlite:///{run_root}/optuna.sqlite3",
+        directions=["minimize", "maximize", "maximize"],
+    )
     study.optimize(objective, n_trials=args.n_trials)
 
 if __name__ == "__main__":
