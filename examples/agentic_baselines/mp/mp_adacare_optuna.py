@@ -171,11 +171,11 @@ def main():
     all_results = []
     
     def objective(trial: optuna.Trial) -> float:
-        batch_size = trial.suggest_int("batch_size", 16, 1024)
+        batch_size = trial.suggest_int("batch_size", 64, 256)
         lr = trial.suggest_float("lr", 1e-4, 1e-2, log=True)
         
-        embedding_dim = trial.suggest_int("embedding_dim", 16, 1024)
-        hidden_dim = trial.suggest_int("hidden_dim", 16, 1024)
+        embedding_dim = trial.suggest_int("embedding_dim", 16, 512)
+        hidden_dim = trial.suggest_int("hidden_dim", 16, 512)
         dropout = trial.suggest_float("dropout", 1e-3, 0.5, log=True)
         kernel_size = trial.suggest_int("kernel_size", 2, 8)
         compression_ratio = trial.suggest_int("compression_ratio", 2, 8)
