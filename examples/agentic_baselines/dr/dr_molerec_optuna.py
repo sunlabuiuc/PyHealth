@@ -191,7 +191,7 @@ def main():
         embedding_dim = trial.suggest_int("embedding_dim", 32, 256, step=32)
         hidden_dim = trial.suggest_int("hidden_dim", 32, 256, step=32)
         dropout = trial.suggest_float("dropout", 0.0, 0.8)
-        num_gnn_layers = trial.suggest_int("num_gnn_layers", 1, 6)
+        num_gnn_layers = trial.suggest_int("num_gnn_layers", 2, 6)
         target_ddi = trial.suggest_float("target_ddi", 0.01, 0.15)
 
         print("=" * 60)
