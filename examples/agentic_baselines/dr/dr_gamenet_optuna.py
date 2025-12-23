@@ -254,14 +254,14 @@ def main():
             print(f"  {metric}: {value:.4f}")
 
         loss = results["loss"]
-        f1_micro = results["f1_micro"]
-        ddi = results["ddi"]
-
-        return float(loss), float(f1_micro), float(ddi)
+        roc_auc = results["roc_auc"]
+        pr_auc = results["pr_auc"]
+            
+        return float(loss), float(roc_auc), float(pr_auc)
 
     study = optuna.create_study(
         storage=f"sqlite:///{run_root}/optuna.sqlite3",
-        directions=["minimize", "maximize", "minimize"],
+        directions=["minimize", "maximize", "maximize"],
     )
     study.optimize(objective, n_trials=args.n_trials)
 
