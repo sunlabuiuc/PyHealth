@@ -216,13 +216,16 @@ def _task_transform_fn(args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, P
             global_event_df (pl.LazyFrame): The global event dataframe.
             output_dir (Path): The output directory to save results.
     """
+    class _FakeQueue:
+        def put(self, x):
+            pass
+    
     UPDATE_FREQUENCY = 128
     
     logger.info(f"Worker {args[0]} started processing {len(list(args[2]))} patients.")
     
     worker_id, task, patient_ids, global_event_df, output_dir = args
-    queue = _task_transform_queue
-    assert queue is not None, "Queue not initialized in worker process."
+    queue = _task_transform_queue or _FakeQueue()
 
     count = 0
     with _ParquetWriter(
