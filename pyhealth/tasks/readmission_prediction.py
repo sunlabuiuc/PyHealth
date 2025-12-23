@@ -13,13 +13,13 @@ class ReadmissionPredictionMIMIC3(BaseTask):
     #todo: update docs (replace all references to readmission_prediction_mimic3_fn)
     #todo: deprecate readmission_prediction_mimic3_fn (make it a wrapper around this)
     #todo: review other similar tasks for best practices and common patterns
+    #todo: add short-circuits to loop and test sample generation speed difference
     task_name: str = "ReadmissionPredictionMIMIC3"
-    input_schema: Dict[str, str] = {"conditions": "sequence", "procedures": "sequence", "drugs": "sequence"}
-    output_schema: Dict[str, str] = {"label": "binary"}
+    input_schema: Dict[str, str] = {"diagnoses": "sequence", "prescriptions": "sequence", "procedures": "sequence"}
+    output_schema: Dict[str, str] = {"readmission": "binary"}
 
-    def __init__(self, window: timedelta, min_admission_length: timedelta = timedelta(0)) -> None:
+    def __init__(self, window: timedelta) -> None:
         self.window = window
-        self.min_admission_len = min_admission_length
 
     def __call__(self, patient: Patient) -> List[Dict]:
         patients: List[Event] = patient.get_events(event_type="patients")
@@ -36,43 +36,17 @@ class ReadmissionPredictionMIMIC3(BaseTask):
             #     continue
 
             discharge_time = datetime.strptime(admissions[i].dischtime, "%Y-%m-%d %H:%M:%S")
-            if (discharge_time - admissions[i].timestamp) < self.min_admission_len:
-                continue
 
-            diagnoses_icd = patient.get_events(
-                event_type="diagnoses_icd",
-                start=admissions[i].timestamp,
-                end=discharge_time,
-                return_df=True
-            )
-            conditions = diagnoses_icd.select(
-                pl.concat_str(["diagnoses_icd/icd_version", "diagnoses_icd/icd_code"], separator="_")
-            ).to_series().to_list()
-            if len(conditions) == 0: #todo: move the short-circuit before the conversion (here and below)
-                continue
+            filter = ("hadm_id", "==", admissions[i].hadm_id)
+            diagnoses = patient.get_events(event_type="diagnoses_icd", filters=[filter])
+            procedures = patient.get_events(event_type="procedures_icd", filters=[filter])
+            prescriptions = patient.get_events(event_type="prescriptions", filters=[filter])
 
-            procedures_icd = patient.get_events(
-                event_type="procedures_icd",
-                start=admissions[i].timestamp,
-                end=discharge_time,
-                return_df=True
-            )
-            procedures = procedures_icd.select(
-                pl.concat_str(["procedures_icd/icd_version", "procedures_icd/icd_code"], separator="_")
-            ).to_series().to_list()
-            if len(procedures) == 0: #todo: confirm we want conditions AND procedures AND drugs (instead of OR)
-                continue
+            diagnoses = [event.icd9_code for event in diagnoses]
+            procedures = [event.icd9_code for event in procedures]
+            prescriptions = [event.drug for event in prescriptions]
 
-            prescriptions = patient.get_events(
-                event_type="prescriptions",
-                start=admissions[i].timestamp,
-                end=discharge_time,
-                return_df=True
-            )
-            drugs = prescriptions.select(
-                pl.concat_str(["prescriptions/drug"], separator="_")
-            ).to_series().to_list()
-            if len(drugs) == 0:
+            if len(diagnoses) * len(procedures) * len(prescriptions) == 0:
                 continue
 
             readmission = int((admissions[i + 1].timestamp - discharge_time) < self.window)
@@ -80,10 +54,10 @@ class ReadmissionPredictionMIMIC3(BaseTask):
             samples.append(
                 {
                     "patient_id": patient.patient_id,
-                    "admission_id": admissions[0].hadm_id,
-                    "conditions": conditions,
+                    "admission_id": admissions[i].hadm_id,
+                    "diagnoses": diagnoses,
+                    "prescriptions": prescriptions,
                     "procedures": procedures,
-                    "drugs": drugs,
                     "readmission": readmission,
                 }
             )
