@@ -18,6 +18,9 @@ class TestReadmissionPredictionMIMIC3(unittest.TestCase):
             "1,1,,2000-01-01 00:00:00,,,,",
             "2,2,,2000-01-01 00:00:00,,,,",
             "3,3,,2000-01-01 00:00:00,,,,",
+            "4,4,,2000-01-01 00:00:00,,,,",
+            "5,5,,2000-01-01 00:00:00,,,,",
+            "6,6,,2000-01-01 00:00:00,,,,",
         ]
         with open("test/PATIENTS.csv", 'w') as f:
             f.write("\n".join(patients))
@@ -29,6 +32,16 @@ class TestReadmissionPredictionMIMIC3(unittest.TestCase):
             "3,2,3,2020-01-31 11:00:00,2020-01-31 12:00:00,,,,,,,,,,,,,,",
             "4,3,4,2020-01-01 00:00:00,2020-01-01 12:00:00,,,,,,,,,,,,,,",
             "5,3,5,2020-01-31 12:00:00,2020-01-31 13:00:00,,,,,,,,,,,,,,",
+            "6,4,6,2020-01-01 00:00:00,2020-01-01 12:00:00,,,,,,,,,,,,,,",
+            "7,4,7,2020-02-01 00:00:00,2020-02-01 12:00:00,,,,,,,,,,,,,,",
+            "8,4,8,2020-02-02 00:00:00,2020-02-02 12:00:00,,,,,,,,,,,,,,",
+            "9,5,9,2020-01-01 00:00:00,2020-01-01 12:00:00,,,,,,,,,,,,,,",
+            "10,5,10,2020-01-02 00:00:00,2020-01-02 12:00:00,,,,,,,,,,,,,,",
+            "11,5,11,2020-01-03 00:00:00,2020-01-03 12:00:00,,,,,,,,,,,,,,",
+            "12,5,12,2020-01-04 00:00:00,2020-01-04 12:00:00,,,,,,,,,,,,,,",
+            "13,6,13,2017-12-31 23:59:59,2018-01-01 00:00:00,,,,,,,,,,,,,,",
+            "14,6,14,2018-01-01 00:00:00,2018-01-01 12:00:00,,,,,,,,,,,,,,",
+            "15,6,15,2020-01-01 00:00:00,2020-01-01 12:00:00,,,,,,,,,,,,,,",
         ]
         with open("test/ADMISSIONS.csv", 'w') as f:
             f.write("\n".join(admissions))
@@ -46,6 +59,15 @@ class TestReadmissionPredictionMIMIC3(unittest.TestCase):
             "3,2,3,1,",
             "4,3,4,1,",
             "5,3,5,1,",
+            "6,4,6,1,",
+            "7,4,7,1,",
+            "8,4,8,1,",
+            "9,5,9,1,",
+            "10,5,10,1,",
+            "11,5,12,1,",
+            "12,6,13,1,",
+            "13,6,14,1,",
+            "14,6,15,1,",
         ]
         with open("test/DIAGNOSES_ICD.csv", 'w') as f:
             f.write("\n".join(diagnoses))
@@ -57,6 +79,15 @@ class TestReadmissionPredictionMIMIC3(unittest.TestCase):
             "3,2,3,,,,,,,,,,,,,,,,",
             "4,3,4,,,,,,,,,,,,,,,,",
             "5,3,5,,,,,,,,,,,,,,,,",
+            "6,4,6,,,,,,,,,,,,,,,,",
+            "7,4,7,,,,,,,,,,,,,,,,",
+            "8,4,8,,,,,,,,,,,,,,,,",
+            "9,5,9,,,,,,,,,,,,,,,,",
+            "10,5,11,,,,,,,,,,,,,,,,",
+            "11,5,12,,,,,,,,,,,,,,,,",
+            "12,6,13,,,,,,,,,,,,,,,,",
+            "13,6,14,,,,,,,,,,,,,,,,",
+            "14,6,15,,,,,,,,,,,,,,,,",
         ]
         with open("test/PRESCRIPTIONS.csv", 'w') as f:
             f.write("\n".join(prescriptions))
@@ -68,6 +99,15 @@ class TestReadmissionPredictionMIMIC3(unittest.TestCase):
             "3,2,3,1,",
             "4,3,4,1,",
             "5,3,5,1,",
+            "6,4,6,1,",
+            "7,4,7,1,",
+            "8,4,8,1,",
+            "9,5,10,1,",
+            "10,5,11,1,",
+            "11,5,12,1,",
+            "12,6,13,1,",
+            "13,6,14,1,",
+            "14,6,15,1,",
         ]
         with open("test/PROCEDURES_ICD.csv", 'w') as f:
             f.write("\n".join(procedures))
@@ -96,7 +136,7 @@ class TestReadmissionPredictionMIMIC3(unittest.TestCase):
             self.assertIn("readmission", sample)
 
     def test_expected_num_samples(self):
-        self.assertEqual(len(self.samples), 2)
+        self.assertEqual(len(self.samples), 5)
 
     def test_patient_with_only_one_visit_is_excluded(self):
         self.assertTrue(all(sample["patient_id"] != '1' for sample in self.samples))
@@ -113,25 +153,31 @@ class TestReadmissionPredictionMIMIC3(unittest.TestCase):
         self.assertEqual(samples[0]["readmission"], 0)
 
     def test_patient_with_positive_and_negative_samples(self):
-        pass
+        samples = [sample for sample in self.samples if sample["admission_id"] == '6']
+        self.assertEqual(len(samples), 1)
+        self.assertEqual(samples[0]["readmission"], 0)
+        samples = [sample for sample in self.samples if sample["admission_id"] == '7']
+        self.assertEqual(len(samples), 1)
+        self.assertEqual(samples[0]["readmission"], 1)
 
     def test_last_admission_is_excluded_since_no_readmission_data(self):
-        samples = [sample for sample in self.samples if sample["admission_id"] == '3']
-        self.assertEqual(len(samples), 0)
-        samples = [sample for sample in self.samples if sample["admission_id"] == '5']
+        samples = [sample for sample in self.samples if sample["admission_id"] in ('3', '5', '8', '12', '15')]
         self.assertEqual(len(samples), 0)
 
     def test_admissions_without_diagnoses_are_excluded(self):
-        pass
+        self.assertTrue(all(sample["admission_id"] != '11' for sample in self.samples))
 
     def test_admissions_without_prescriptions_are_excluded(self):
-        pass
+        self.assertTrue(all(sample["admission_id"] != '10' for sample in self.samples))
 
     def test_admissions_without_procedures_are_excluded(self):
-        pass
+        self.assertTrue(all(sample["admission_id"] != '9' for sample in self.samples))
 
     def test_admissions_of_minors_are_excluded(self):
-        pass
+        self.assertTrue(all(sample["admission_id"] != '13' for sample in self.samples))
+        samples = [sample for sample in self.samples if sample["admission_id"] == '14']
+        self.assertEqual(len(samples), 1)
+        self.assertEqual(samples[0]["readmission"], 0)
 
 if __name__ == "__main__":
     unittest.main()

@@ -7,7 +7,6 @@ from pyhealth.data import Event, Patient
 from pyhealth.tasks import BaseTask
 
 class ReadmissionPredictionMIMIC3(BaseTask):
-    #todo: add unit tests (demo dataset? synthetic dataset? my own synthetic dataset?)
     #todo: add doc strings
     #todo: replace examples
     #todo: update docs (replace all references to readmission_prediction_mimic3_fn)
@@ -24,6 +23,7 @@ class ReadmissionPredictionMIMIC3(BaseTask):
     def __call__(self, patient: Patient) -> List[Dict]:
         patients: List[Event] = patient.get_events(event_type="patients")
         assert len(patients) == 1
+        dob = datetime.strptime(patients[0].dob, "%Y-%m-%d %H:%M:%S")
 
         admissions: List[Event] = patient.get_events(event_type="admissions")
         if len(admissions) < 2:
@@ -31,11 +31,10 @@ class ReadmissionPredictionMIMIC3(BaseTask):
 
         samples = []
         for i in range(len(admissions) - 1): # Skip the last admission since we need a "next" admission
-            #todo: Exclude visits where the patient is under 18
-            # if int(admissions[0].timestamp - patients[0]["dob"]) < 18:
-            #     continue
-
-            discharge_time = datetime.strptime(admissions[i].dischtime, "%Y-%m-%d %H:%M:%S")
+            age = admissions[i].timestamp.year - dob.year
+            age = age-1 if ((admissions[i].timestamp.month, admissions[i].timestamp.day) < (dob.month, dob.day)) else age
+            if age < 18:
+                continue
 
             filter = ("hadm_id", "==", admissions[i].hadm_id)
             diagnoses = patient.get_events(event_type="diagnoses_icd", filters=[filter])
@@ -49,6 +48,7 @@ class ReadmissionPredictionMIMIC3(BaseTask):
             if len(diagnoses) * len(procedures) * len(prescriptions) == 0:
                 continue
 
+            discharge_time = datetime.strptime(admissions[i].dischtime, "%Y-%m-%d %H:%M:%S")
             readmission = int((admissions[i + 1].timestamp - discharge_time) < self.window)
 
             samples.append(
