@@ -1,10 +1,15 @@
 import unittest
 from typing import Dict
+import tempfile
+import pickle
+import shutil
 
 import torch
 import torch.nn as nn
+import litdata
 
 from pyhealth.datasets import SampleDataset, get_dataloader
+from pyhealth.datasets.sample_dataset import SampleBuilder
 from pyhealth.models import MLP, StageNet, BaseModel
 from pyhealth.interpret.methods import ShapExplainer
 from pyhealth.interpret.methods.base_interpreter import BaseInterpreter
@@ -507,11 +512,30 @@ class TestShapExplainerMLP(unittest.TestCase):
         }
         self.output_schema = {"label": "binary"}
 
+        # Create temporary directory for dataset
+        self.temp_dir = tempfile.mkdtemp()
+        
+        # Create dataset using SampleBuilder
+        builder = SampleBuilder(self.input_schema, self.output_schema)
+        builder.fit(self.samples)
+        builder.save(f"{self.temp_dir}/schema.pkl")
+        
+        # Optimize samples into dataset format
+        def sample_generator():
+            for sample in self.samples:
+                yield {"sample": pickle.dumps(sample)}
+        
+        litdata.optimize(
+            fn=builder.transform,
+            inputs=list(sample_generator()),
+            output_dir=self.temp_dir,
+            num_workers=1,
+            chunk_bytes="64MB",
+        )
+        
         # Create dataset
         self.dataset = SampleDataset(
-            samples=self.samples,
-            input_schema=self.input_schema,
-            output_schema=self.output_schema,
+            path=self.temp_dir,
             dataset_name="test_shap",
         )
 
@@ -526,6 +550,11 @@ class TestShapExplainerMLP(unittest.TestCase):
 
         # Create dataloader
         self.test_loader = get_dataloader(self.dataset, batch_size=1, shuffle=False)
+
+    def tearDown(self):
+        """Clean up temporary directory."""
+        if hasattr(self, 'temp_dir'):
+            shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_shap_mlp_basic_attribution(self):
         """Test basic SHAP attribution computation with MLP."""
@@ -689,11 +718,30 @@ class TestShapExplainerStageNet(unittest.TestCase):
         }
         self.output_schema = {"label": "binary"}
 
+        # Create temporary directory for dataset
+        self.temp_dir = tempfile.mkdtemp()
+        
+        # Create dataset using SampleBuilder
+        builder = SampleBuilder(self.input_schema, self.output_schema)
+        builder.fit(self.samples)
+        builder.save(f"{self.temp_dir}/schema.pkl")
+        
+        # Optimize samples into dataset format
+        def sample_generator():
+            for sample in self.samples:
+                yield {"sample": pickle.dumps(sample)}
+        
+        litdata.optimize(
+            fn=builder.transform,
+            inputs=list(sample_generator()),
+            output_dir=self.temp_dir,
+            num_workers=1,
+            chunk_bytes="64MB",
+        )
+        
         # Create dataset
         self.dataset = SampleDataset(
-            samples=self.samples,
-            input_schema=self.input_schema,
-            output_schema=self.output_schema,
+            path=self.temp_dir,
             dataset_name="test_stagenet_shap",
         )
 
@@ -708,6 +756,11 @@ class TestShapExplainerStageNet(unittest.TestCase):
 
         # Create dataloader
         self.test_loader = get_dataloader(self.dataset, batch_size=1, shuffle=False)
+
+    def tearDown(self):
+        """Clean up temporary directory."""
+        if hasattr(self, 'temp_dir'):
+            shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_shap_initialization_stagenet(self):
         """Test that ShapExplainer works with StageNet."""

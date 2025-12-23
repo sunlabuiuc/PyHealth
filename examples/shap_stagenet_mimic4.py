@@ -14,31 +14,6 @@ from pyhealth.interpret.methods import ShapExplainer
 from pyhealth.models import StageNet
 from pyhealth.tasks import MortalityPredictionStageNetMIMIC4
 
-# Configure dataset location and load cached processors
-dataset = MIMIC4EHRDataset(
-    #root="/home/naveen-baskaran/physionet.org/files/mimic-iv-demo/2.2/",
-    #root="/Users/naveenbaskaran/data/physionet.org/files/mimic-iv-demo/2.2/",
-    root="~/data/physionet.org/files/mimic-iv-demo/2.2/",
-    tables=[
-        "patients",
-        "admissions",
-        "diagnoses_icd",
-        "procedures_icd",
-        "labevents",
-    ],
-)
-
-# %% Setting StageNet Mortality Prediction Task
-input_processors, output_processors = load_processors("../resources/")
-
-sample_dataset = dataset.set_task(
-    MortalityPredictionStageNetMIMIC4(),
-    cache_dir="~/.cache/pyhealth/mimic4_stagenet_mortality",
-    input_processors=input_processors,
-    output_processors=output_processors,
-)
-print(f"Total samples: {len(sample_dataset)}")
-
 
 def load_icd_description_map(dataset_root: str) -> dict:
     """Load ICD code → long title mappings from MIMIC-IV reference tables."""
@@ -72,27 +47,7 @@ def load_icd_description_map(dataset_root: str) -> dict:
     return mapping
 
 
-ICD_CODE_TO_DESC = load_icd_description_map(dataset.root)
-
-# %% Loading Pretrained StageNet Model
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-model = StageNet(
-    dataset=sample_dataset,
-    embedding_dim=128,
-    chunk_size=128,
-    levels=3,
-    dropout=0.3,
-)
-
-state_dict = torch.load("../resources/best.ckpt", map_location=device)
-model.load_state_dict(state_dict)
-model = model.to(device)
-model.eval()
-print(model)
-
-# %% Preparing dataloaders
-_, _, test_data = split_by_patient(sample_dataset, [0.7, 0.1, 0.2], seed=42)
-test_loader = get_dataloader(test_data, batch_size=1, shuffle=False)
+LAB_CATEGORY_NAMES = MortalityPredictionStageNetMIMIC4.LAB_CATEGORY_NAMES
 
 
 def move_batch_to_device(batch, target_device):
@@ -108,10 +63,7 @@ def move_batch_to_device(batch, target_device):
     return moved
 
 
-LAB_CATEGORY_NAMES = MortalityPredictionStageNetMIMIC4.LAB_CATEGORY_NAMES
-
-
-def decode_token(idx: int, processor, feature_key: str):
+def decode_token(idx: int, processor, feature_key: str, icd_code_to_desc: dict):
     """Decode token index to human-readable string."""
     if processor is None or not hasattr(processor, "code_vocab"):
         return str(idx)
@@ -119,7 +71,7 @@ def decode_token(idx: int, processor, feature_key: str):
     token = reverse_vocab.get(idx, f"<UNK:{idx}>")
 
     if feature_key == "icd_codes" and token not in {"<unk>", "<pad>"}:
-        desc = ICD_CODE_TO_DESC.get(token)
+        desc = icd_code_to_desc.get(token)
         if desc:
             return f"{token}: {desc}"
 
@@ -141,8 +93,12 @@ def print_top_attributions(
     batch,
     processors,
     top_k: int = 10,
+    icd_code_to_desc: dict = None,
 ):
     """Print top-k most important features from SHAP attributions."""
+    if icd_code_to_desc is None:
+        icd_code_to_desc = {}
+        
     for feature_key, attr in attributions.items():
         attr_cpu = attr.detach().cpu()
         if attr_cpu.dim() == 0 or attr_cpu.size(0) == 0:
@@ -185,114 +141,168 @@ def print_top_attributions(
                 )
             else:
                 token_idx = int(feature_input[0][tuple(coords)].item())
-                token = decode_token(token_idx, processor, feature_key)
+                token = decode_token(token_idx, processor, feature_key, icd_code_to_desc)
                 print(
                     f"    {rank:2d}. idx={coords} token='{token}' "
                     f"SHAP={attribution_value:+.6f}"
                 )
 
 
+def main():
+    """Main function to run SHAP analysis on MIMIC-IV StageNet model."""
+    # Configure dataset location and load cached processors
+    dataset = MIMIC4EHRDataset(
+        #root="/home/naveen-baskaran/physionet.org/files/mimic-iv-demo/2.2/",
+        #root="/Users/naveenbaskaran/data/physionet.org/files/mimic-iv-demo/2.2/",
+        root="~/data/physionet.org/files/mimic-iv-demo/2.2/",
+        tables=[
+            "patients",
+            "admissions",
+            "diagnoses_icd",
+            "procedures_icd",
+            "labevents",
+        ],
+    )
+
+    # %% Setting StageNet Mortality Prediction Task
+    input_processors, output_processors = load_processors("../resources/")
+
+    sample_dataset = dataset.set_task(
+        MortalityPredictionStageNetMIMIC4(),
+        cache_dir="~/.cache/pyhealth/mimic4_stagenet_mortality",
+        input_processors=input_processors,
+        output_processors=output_processors,
+    )
+    print(f"Total samples: {len(sample_dataset)}")
+
+    ICD_CODE_TO_DESC = load_icd_description_map(dataset.root)
+
+    # %% Loading Pretrained StageNet Model
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    model = StageNet(
+        dataset=sample_dataset,
+        embedding_dim=128,
+        chunk_size=128,
+        levels=3,
+        dropout=0.3,
+    )
+
+    state_dict = torch.load("../resources/best.ckpt", map_location=device)
+    model.load_state_dict(state_dict)
+    model = model.to(device)
+    model.eval()
+    print(model)
+
+    # %% Preparing dataloaders
+    _, _, test_data = split_by_patient(sample_dataset, [0.7, 0.1, 0.2], seed=42)
+    test_loader = get_dataloader(test_data, batch_size=1, shuffle=False)
+
+
 # %% Run SHAP on a held-out sample
-print("\n" + "="*80)
-print("Initializing SHAP Explainer")
-print("="*80)
+    print("\n" + "="*80)
+    print("Initializing SHAP Explainer")
+    print("="*80)
 
-# Initialize SHAP explainer (Kernel SHAP))
-shap_explainer = ShapExplainer(model)
+    # Initialize SHAP explainer (Kernel SHAP))
+    shap_explainer = ShapExplainer(model)
 
-print("\nSHAP Configuration:")
-print(f"  Use embeddings: {shap_explainer.use_embeddings}")
-print(f"  Background samples: {shap_explainer.n_background_samples}")
-print(f"  Max coalitions: {shap_explainer.max_coalitions}")
-print(f"  Regularization: {shap_explainer.regularization}")
+    print("\nSHAP Configuration:")
+    print(f"  Use embeddings: {shap_explainer.use_embeddings}")
+    print(f"  Background samples: {shap_explainer.n_background_samples}")
+    print(f"  Max coalitions: {shap_explainer.max_coalitions}")
+    print(f"  Regularization: {shap_explainer.regularization}")
 
-# Get a sample from test set
-sample_batch = next(iter(test_loader))
-sample_batch_device = move_batch_to_device(sample_batch, device)
+    # Get a sample from test set
+    sample_batch = next(iter(test_loader))
+    sample_batch_device = move_batch_to_device(sample_batch, device)
 
-# Get model prediction
-with torch.no_grad():
-    output = model(**sample_batch_device)
-    probs = output["y_prob"]
-    label_key = model.label_key
-    true_label = sample_batch_device[label_key]
-    
-    # Handle binary classification (single probability output)
-    if probs.shape[-1] == 1:
-        prob_death = probs[0].item()
-        prob_survive = 1 - prob_death
-        preds = (probs > 0.5).long()
-    else:
-        # Multi-class classification
-        preds = torch.argmax(probs, dim=-1)
-        prob_survive = probs[0][0].item()
-        prob_death = probs[0][1].item()
+    # Get model prediction
+    with torch.no_grad():
+        output = model(**sample_batch_device)
+        probs = output["y_prob"]
+        label_key = model.label_key
+        true_label = sample_batch_device[label_key]
+        
+        # Handle binary classification (single probability output)
+        if probs.shape[-1] == 1:
+            prob_death = probs[0].item()
+            prob_survive = 1 - prob_death
+            preds = (probs > 0.5).long()
+        else:
+            # Multi-class classification
+            preds = torch.argmax(probs, dim=-1)
+            prob_survive = probs[0][0].item()
+            prob_death = probs[0][1].item()
+
+        print("\n" + "="*80)
+        print("Model Prediction for Sampled Patient")
+        print("="*80)
+        print(f"  True label: {int(true_label.item())} {'(Deceased)' if true_label.item() == 1 else '(Survived)'}")
+        print(f"  Predicted class: {int(preds.item())} {'(Deceased)' if preds.item() == 1 else '(Survived)'}")
+        print(f"  Probabilities: [Survive={prob_survive:.4f}, Death={prob_death:.4f}]")
+
+    # Compute SHAP values
+    print("\n" + "="*80)
+    print("Computing SHAP Attributions (this may take a minute...)")
+    print("="*80)
+
+    attributions = shap_explainer.attribute(**sample_batch_device, target_class_idx=1)
 
     print("\n" + "="*80)
-    print("Model Prediction for Sampled Patient")
+    print("SHAP Attribution Results")
     print("="*80)
-    print(f"  True label: {int(true_label.item())} {'(Deceased)' if true_label.item() == 1 else '(Survived)'}")
-    print(f"  Predicted class: {int(preds.item())} {'(Deceased)' if preds.item() == 1 else '(Survived)'}")
-    print(f"  Probabilities: [Survive={prob_survive:.4f}, Death={prob_death:.4f}]")
+    print("\nSHAP values explain the contribution of each feature to the model's")
+    print("prediction of MORTALITY (class 1). Positive values increase the")
+    print("mortality prediction, negative values decrease it.")
 
-# Compute SHAP values
-print("\n" + "="*80)
-print("Computing SHAP Attributions (this may take a minute...)")
-print("="*80)
+    print_top_attributions(attributions, sample_batch_device, input_processors, top_k=15, icd_code_to_desc=ICD_CODE_TO_DESC)
 
-attributions = shap_explainer.attribute(**sample_batch_device, target_class_idx=1)
+    # %% Compare different baseline strategies
+    print("\n\n" + "="*80)
+    print("Testing Different Baseline Strategies")
+    print("="*80)
 
-print("\n" + "="*80)
-print("SHAP Attribution Results")
-print("="*80)
-print("\nSHAP values explain the contribution of each feature to the model's")
-print("prediction of MORTALITY (class 1). Positive values increase the")
-print("mortality prediction, negative values decrease it.")
+    # 1. Automatic baseline (default)
+    print("\n1. Automatic baseline generation (recommended):")
+    attr_auto = shap_explainer.attribute(**sample_batch_device, target_class_idx=1)
+    print(f"   Total attribution (icd_codes): {attr_auto['icd_codes'][0].sum().item():+.6f}")
+    print(f"   Total attribution (labs): {attr_auto['labs'][0].sum().item():+.6f}")
 
-print_top_attributions(attributions, sample_batch_device, input_processors, top_k=15)
+    # Note: Custom baselines for discrete features (like ICD codes) require careful
+    # construction to avoid invalid sequences. The automatic baseline generation
+    # handles this by sampling from the observed data distribution.
 
-# %% Compare different baseline strategies
-print("\n\n" + "="*80)
-print("Testing Different Baseline Strategies")
-print("="*80)
+    # %% Test callable interface
+    print("\n" + "="*80)
+    print("Testing Callable Interface")
+    print("="*80)
 
-# 1. Automatic baseline (default)
-print("\n1. Automatic baseline generation (recommended):")
-attr_auto = shap_explainer.attribute(**sample_batch_device, target_class_idx=1)
-print(f"   Total attribution (icd_codes): {attr_auto['icd_codes'][0].sum().item():+.6f}")
-print(f"   Total attribution (labs): {attr_auto['labs'][0].sum().item():+.6f}")
+    # Both methods should produce identical results (due to random_seed)
+    attr_from_attribute = shap_explainer.attribute(**sample_batch_device, target_class_idx=1)
+    attr_from_call = shap_explainer(**sample_batch_device, target_class_idx=1)
 
-# Note: Custom baselines for discrete features (like ICD codes) require careful
-# construction to avoid invalid sequences. The automatic baseline generation
-# handles this by sampling from the observed data distribution.
+    print("\nVerifying that explainer(**data) and explainer.attribute(**data) produce")
+    print("identical results when random_seed is set...")
 
-# %% Test callable interface
-print("\n" + "="*80)
-print("Testing Callable Interface")
-print("="*80)
+    all_close = True
+    for key in attr_from_attribute.keys():
+        if not torch.allclose(attr_from_attribute[key], attr_from_call[key], atol=1e-6):
+            all_close = False
+            print(f"  ❌ {key}: Results differ!")
+        else:
+            print(f"  ✓ {key}: Results match")
 
-# Both methods should produce identical results (due to random_seed)
-attr_from_attribute = shap_explainer.attribute(**sample_batch_device, target_class_idx=1)
-attr_from_call = shap_explainer(**sample_batch_device, target_class_idx=1)
-
-print("\nVerifying that explainer(**data) and explainer.attribute(**data) produce")
-print("identical results when random_seed is set...")
-
-all_close = True
-for key in attr_from_attribute.keys():
-    if not torch.allclose(attr_from_attribute[key], attr_from_call[key], atol=1e-6):
-        all_close = False
-        print(f"  ❌ {key}: Results differ!")
+    if all_close:
+        print("\n✓ All attributions match! Callable interface works correctly.")
     else:
-        print(f"  ✓ {key}: Results match")
+        print("\n❌ Some attributions differ. Check random seed configuration.")
 
-if all_close:
-    print("\n✓ All attributions match! Callable interface works correctly.")
-else:
-    print("\n❌ Some attributions differ. Check random seed configuration.")
+    print("\n" + "="*80)
+    print("SHAP Analysis Complete")
+    print("="*80)
 
-print("\n" + "="*80)
-print("SHAP Analysis Complete")
-print("="*80)
+
+if __name__ == "__main__":
+    main()
 
 # %%
