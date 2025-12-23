@@ -253,15 +253,15 @@ def main():
         for metric, value in results.items():
             print(f"  {metric}: {value:.4f}")
 
-        loss = results["loss"]
-        roc_auc = results["roc_auc"]
-        pr_auc = results["pr_auc"]
+        f1_micro = results["f1_micro"]
+        pr_auc = results["pr_auc_samples"]
+        jaccard = results["jaccard_samples"]
             
-        return float(loss), float(roc_auc), float(pr_auc)
+        return float(f1_micro), float(pr_auc), float(jaccard)
 
     study = optuna.create_study(
         storage=f"sqlite:///{run_root}/optuna.sqlite3",
-        directions=["minimize", "maximize", "maximize"],
+        directions=["maximize", "maximize", "maximize"],
     )
     study.optimize(objective, n_trials=args.n_trials)
 
