@@ -667,26 +667,25 @@ class BaseDataset(ABC):
             
             # spwan is required for polars in multiprocessing, see https://docs.pola.rs/user-guide/misc/multiprocessing/#summary
             ctx = multiprocessing.get_context("spawn")
-            with ctx.Manager() as manager:
-                queue = manager.Queue()
-                args_list = [(
-                    worker_id,
-                    task,
-                    pids,
-                    global_event_df,
-                    output_dir,
-                    queue
-                ) for worker_id, pids in enumerate(itertools.batched(patient_ids, batch_size))]
-                with ctx.Pool(processes=num_workers) as pool:
-                    result = pool.map_async(_task_transform_fn, args_list) # type: ignore
-                    with tqdm(total=len(patient_ids)) as progress:
-                        while not result.ready():
-                            while not queue.empty():
-                                progress.update(queue.get())
-                                
-                        # remaining items
+            queue = ctx.Queue()
+            args_list = [(
+                worker_id,
+                task,
+                pids,
+                global_event_df,
+                output_dir,
+                queue
+            ) for worker_id, pids in enumerate(itertools.batched(patient_ids, batch_size))]
+            with ctx.Pool(processes=num_workers) as pool:
+                result = pool.map_async(_task_transform_fn, args_list) # type: ignore
+                with tqdm(total=len(patient_ids)) as progress:
+                    while not result.ready():
                         while not queue.empty():
                             progress.update(queue.get())
+                            
+                    # remaining items
+                    while not queue.empty():
+                        progress.update(queue.get())
 
             litdata.index_parquet_dataset(str(output_dir))
             logger.info(f"Task transformation completed and saved to {output_dir}")
