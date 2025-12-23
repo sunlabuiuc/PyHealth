@@ -115,11 +115,6 @@ def _csv_tsv_gz_path(path: str) -> str:
 def _uncollate(x: list[Any]) -> Any:
     return x[0] if isinstance(x, list) and len(x) == 1 else x
 
-class _FakeQueue:
-    """A fake queue that does nothing. Used when multiprocessing is not needed."""
-
-    def put(self, item: Any) -> None:
-        pass
 
 class _ParquetWriter:
     """
@@ -197,8 +192,19 @@ class _ParquetWriter:
     def __exit__(self, exc_type, exc, tb):
         self.close()
 
+_task_transform_queue: multiprocessing.queues.Queue | None = None
 
-def _task_transform_fn(args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, Path, multiprocessing.queues.Queue | _FakeQueue]) -> None:
+def _task_transform_init(queue: multiprocessing.queues.Queue) -> None:
+    """
+    Initializer for worker processes to set up a global queue.
+
+    Args:
+        queue (multiprocessing.queues.Queue): The queue for progress tracking.
+    """
+    global _task_transform_queue
+    _task_transform_queue = queue
+
+def _task_transform_fn(args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, Path]) -> None:
     """
     Worker function to apply task transformation on a chunk of patients.
     
@@ -209,13 +215,15 @@ def _task_transform_fn(args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, P
             patient_ids (Iterable[str]): The patient IDs to process.
             global_event_df (pl.LazyFrame): The global event dataframe.
             output_dir (Path): The output directory to save results.
-            queue (Queue | _FakeQueue): A multiprocessing queue for progress tracking.
     """
     UPDATE_FREQUENCY = 128
     
     logger.info(f"Worker {args[0]} started processing {len(list(args[2]))} patients.")
     
-    worker_id, task, patient_ids, global_event_df, output_dir, queue = args
+    worker_id, task, patient_ids, global_event_df, output_dir = args
+    queue = _task_transform_queue
+    assert queue is not None, "Queue not initialized in worker process."
+
     count = 0
     with _ParquetWriter(
         output_dir / f"chunk_{worker_id:03d}.parquet",
@@ -658,7 +666,7 @@ class BaseDataset(ABC):
                 
             if num_workers == 1:
                 logger.info("Single worker mode, processing sequentially")
-                _task_transform_fn((0, task, patient_ids, global_event_df, output_dir, _FakeQueue()))
+                _task_transform_fn((0, task, patient_ids, global_event_df, output_dir))
                 litdata.index_parquet_dataset(str(output_dir))
                 return
             
@@ -674,9 +682,8 @@ class BaseDataset(ABC):
                 pids,
                 global_event_df,
                 output_dir,
-                queue
             ) for worker_id, pids in enumerate(itertools.batched(patient_ids, batch_size))]
-            with ctx.Pool(processes=num_workers) as pool:
+            with ctx.Pool(processes=num_workers, initializer=_task_transform_init, initargs=(queue,)) as pool:
                 result = pool.map_async(_task_transform_fn, args_list) # type: ignore
                 with tqdm(total=len(patient_ids)) as progress:
                     while not result.ready():
@@ -686,6 +693,7 @@ class BaseDataset(ABC):
                     # remaining items
                     while not queue.empty():
                         progress.update(queue.get())
+            result.get() # ensure exceptions are raised
 
             litdata.index_parquet_dataset(str(output_dir))
             logger.info(f"Task transformation completed and saved to {output_dir}")
