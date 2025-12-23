@@ -1,133 +1,30 @@
 from datetime import timedelta
 import os
-import shutil
 import unittest
 
 from pyhealth.datasets import MIMIC3Dataset
 from pyhealth.tasks import ReadmissionPredictionMIMIC3
 
+
 class TestReadmissionPredictionMIMIC3(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        if os.path.exists("test"):
-            shutil.rmtree("test")
-        os.makedirs("test")
+    def setUp(self):
+        """Seed dataset with neg and pos 5 day readmission examples (min required for sample generation)"""
+        self.mock = MockMICIC3Dataset()
+        self.patient1 = self.mock.add_patient()
+        self.admission1 = self.mock.add_admission(self.patient1, "2020-01-01 00:00:00", "2020-01-01 12:00:00")
+        self.admission2 = self.mock.add_admission(self.patient1, "2020-01-06 12:00:00", "2020-01-06 12:00:01") # Exactly 5 days later
+        self.admission3 = self.mock.add_admission(self.patient1, "2020-01-11 12:00:00", "2020-01-11 12:00:01") # 5 days later less 1 second
 
-        patients = [
-            "row_id,subject_id,gender,dob,dod,dod_hosp,dod_ssn,expire_flag",
-            "1,1,,2000-01-01 00:00:00,,,,",
-            "2,2,,2000-01-01 00:00:00,,,,",
-            "3,3,,2000-01-01 00:00:00,,,,",
-            "4,4,,2000-01-01 00:00:00,,,,",
-            "5,5,,2000-01-01 00:00:00,,,,",
-            "6,6,,2000-01-01 00:00:00,,,,",
-        ]
-        with open("test/PATIENTS.csv", 'w') as f:
-            f.write("\n".join(patients))
+    def test_patient_with_pos_and_neg_samples(self):
+        dataset = self.mock.create()
 
-        admissions = [
-            "row_id,subject_id,hadm_id,admittime,dischtime,deathtime,admission_type,admission_location,discharge_location,insurance,language,religion,marital_status,ethnicity,edregtime,edouttime,diagnosis,hospital_expire_flag,has_chartevents_data",
-            "1,1,1,2020-01-01 00:00:00,2020-01-01 12:00:00,,,,,,,,,,,,,,",
-            "2,2,2,2020-01-01 00:00:00,2020-01-01 12:00:00,,,,,,,,,,,,,,",
-            "3,2,3,2020-01-31 11:00:00,2020-01-31 12:00:00,,,,,,,,,,,,,,",
-            "4,3,4,2020-01-01 00:00:00,2020-01-01 12:00:00,,,,,,,,,,,,,,",
-            "5,3,5,2020-01-31 12:00:00,2020-01-31 13:00:00,,,,,,,,,,,,,,",
-            "6,4,6,2020-01-01 00:00:00,2020-01-01 12:00:00,,,,,,,,,,,,,,",
-            "7,4,7,2020-02-01 00:00:00,2020-02-01 12:00:00,,,,,,,,,,,,,,",
-            "8,4,8,2020-02-02 00:00:00,2020-02-02 12:00:00,,,,,,,,,,,,,,",
-            "9,5,9,2020-01-01 00:00:00,2020-01-01 12:00:00,,,,,,,,,,,,,,",
-            "10,5,10,2020-01-02 00:00:00,2020-01-02 12:00:00,,,,,,,,,,,,,,",
-            "11,5,11,2020-01-03 00:00:00,2020-01-03 12:00:00,,,,,,,,,,,,,,",
-            "12,5,12,2020-01-04 00:00:00,2020-01-04 12:00:00,,,,,,,,,,,,,,",
-            "13,6,13,2017-12-31 23:59:59,2018-01-01 00:00:00,,,,,,,,,,,,,,",
-            "14,6,14,2018-01-01 00:00:00,2018-01-01 12:00:00,,,,,,,,,,,,,,",
-            "15,6,15,2020-01-01 00:00:00,2020-01-01 12:00:00,,,,,,,,,,,,,,",
-        ]
-        with open("test/ADMISSIONS.csv", 'w') as f:
-            f.write("\n".join(admissions))
+        samples = dataset.set_task(ReadmissionPredictionMIMIC3(timedelta(days=5)))
 
-        icu_stays = [
-            "subject_id,intime,icustay_id,first_careunit,dbsource,last_careunit,outtime",
-        ]
-        with open("test/ICUSTAYS.csv", 'w') as f:
-            f.write("\n".join(icu_stays))
-
-        diagnoses = [
-            "row_id,subject_id,hadm_id,seq_num,icd9_code",
-            "1,1,1,1,",
-            "2,2,2,1,",
-            "3,2,3,1,",
-            "4,3,4,1,",
-            "5,3,5,1,",
-            "6,4,6,1,",
-            "7,4,7,1,",
-            "8,4,8,1,",
-            "9,5,9,1,",
-            "10,5,10,1,",
-            "11,5,12,1,",
-            "12,6,13,1,",
-            "13,6,14,1,",
-            "14,6,15,1,",
-        ]
-        with open("test/DIAGNOSES_ICD.csv", 'w') as f:
-            f.write("\n".join(diagnoses))
-
-        prescriptions = [
-            "row_id,subject_id,hadm_id,icustay_id,startdate,enddate,drug_type,drug,drug_name_poe,drug_name_generic,formulary_drug_cd,gsn,ndc,prod_strength,dose_val_rx,dose_unit_rx,form_val_disp,form_unit_disp,route",
-            "1,1,1,,,,,,,,,,,,,,,,",
-            "2,2,2,,,,,,,,,,,,,,,,",
-            "3,2,3,,,,,,,,,,,,,,,,",
-            "4,3,4,,,,,,,,,,,,,,,,",
-            "5,3,5,,,,,,,,,,,,,,,,",
-            "6,4,6,,,,,,,,,,,,,,,,",
-            "7,4,7,,,,,,,,,,,,,,,,",
-            "8,4,8,,,,,,,,,,,,,,,,",
-            "9,5,9,,,,,,,,,,,,,,,,",
-            "10,5,11,,,,,,,,,,,,,,,,",
-            "11,5,12,,,,,,,,,,,,,,,,",
-            "12,6,13,,,,,,,,,,,,,,,,",
-            "13,6,14,,,,,,,,,,,,,,,,",
-            "14,6,15,,,,,,,,,,,,,,,,",
-        ]
-        with open("test/PRESCRIPTIONS.csv", 'w') as f:
-            f.write("\n".join(prescriptions))
-
-        procedures = [
-            "row_id,subject_id,hadm_id,seq_num,icd9_code",
-            "1,1,1,1,",
-            "2,2,2,1,",
-            "3,2,3,1,",
-            "4,3,4,1,",
-            "5,3,5,1,",
-            "6,4,6,1,",
-            "7,4,7,1,",
-            "8,4,8,1,",
-            "9,5,10,1,",
-            "10,5,11,1,",
-            "11,5,12,1,",
-            "12,6,13,1,",
-            "13,6,14,1,",
-            "14,6,15,1,",
-        ]
-        with open("test/PROCEDURES_ICD.csv", 'w') as f:
-            f.write("\n".join(procedures))
-
-        dataset = MIMIC3Dataset(root="./test", tables=["diagnoses_icd", "prescriptions", "procedures_icd"])
-
-        cls.samples = dataset.set_task(ReadmissionPredictionMIMIC3(timedelta(days=30)))
-
-    @classmethod
-    def tearDownClass(cls):
-        if os.path.exists("test"):
-            shutil.rmtree("test")
-
-    def test_task_schema(self):
         self.assertIn("task_name", vars(ReadmissionPredictionMIMIC3))
         self.assertIn("input_schema", vars(ReadmissionPredictionMIMIC3))
         self.assertIn("output_schema", vars(ReadmissionPredictionMIMIC3))
 
-    def test_sample_schema(self):
-        for sample in self.samples:
+        for sample in samples:
             self.assertIn("patient_id", sample)
             self.assertIn("admission_id", sample)
             self.assertIn("diagnoses", sample)
@@ -135,49 +32,177 @@ class TestReadmissionPredictionMIMIC3(unittest.TestCase):
             self.assertIn("procedures", sample)
             self.assertIn("readmission", sample)
 
-    def test_expected_num_samples(self):
-        self.assertEqual(len(self.samples), 5)
+        self.assertEqual(len(samples), 2)
+
+        neg_samples = [s for s in samples if s["readmission"] == 0]
+        pos_samples = [s for s in samples if s["readmission"] == 1]
+
+        self.assertEqual(len(neg_samples), 1)
+        self.assertEqual(len(pos_samples), 1)
+
+        self.assertEqual(neg_samples[0]["admission_id"], str(self.admission1))
+        self.assertEqual(pos_samples[0]["admission_id"], str(self.admission2))
+
+        self.assertTrue(all(s["admission_id"] != str(self.admission3) for s in samples)) # Patient's last admission not included
 
     def test_patient_with_only_one_visit_is_excluded(self):
-        self.assertTrue(all(sample["patient_id"] != '1' for sample in self.samples))
-        self.assertTrue(all(sample["admission_id"] != '1' for sample in self.samples))
+        patient = self.mock.add_patient()
+        admission = self.mock.add_admission(patient, "2020-01-01 00:00:00", "2020-01-01 12:00:00")
+        dataset = self.mock.create()
 
-    def test_positive_sample(self):
-        samples = [sample for sample in self.samples if sample["admission_id"] == '2']
-        self.assertEqual(len(samples), 1)
-        self.assertEqual(samples[0]["readmission"], 1)
+        samples = dataset.set_task(ReadmissionPredictionMIMIC3(timedelta(days=5)))
 
-    def test_negative_sample(self):
-        samples = [sample for sample in self.samples if sample["admission_id"] == '4']
-        self.assertEqual(len(samples), 1)
-        self.assertEqual(samples[0]["readmission"], 0)
-
-    def test_patient_with_positive_and_negative_samples(self):
-        samples = [sample for sample in self.samples if sample["admission_id"] == '6']
-        self.assertEqual(len(samples), 1)
-        self.assertEqual(samples[0]["readmission"], 0)
-        samples = [sample for sample in self.samples if sample["admission_id"] == '7']
-        self.assertEqual(len(samples), 1)
-        self.assertEqual(samples[0]["readmission"], 1)
-
-    def test_last_admission_is_excluded_since_no_readmission_data(self):
-        samples = [sample for sample in self.samples if sample["admission_id"] in ('3', '5', '8', '12', '15')]
-        self.assertEqual(len(samples), 0)
+        self.assertTrue(all(s["patient_id"] != str(patient) for s in samples))
+        self.assertTrue(all(s["admission_id"] != str(admission) for s in samples))
 
     def test_admissions_without_diagnoses_are_excluded(self):
-        self.assertTrue(all(sample["admission_id"] != '11' for sample in self.samples))
+        patient1 = self.mock.add_patient()
+        patient2 = self.mock.add_patient()
+        admission1 = self.mock.add_admission(patient1, "2020-01-01 00:00:00", "2020-01-01 12:00:00")
+        admission2 = self.mock.add_admission(patient1, "2020-01-01 00:00:00", "2020-01-01 12:00:00")
+        admission3 = self.mock.add_admission(patient2, "2020-01-01 00:00:00", "2020-01-01 12:00:00", add_diagnosis=False)
+        admission4 = self.mock.add_admission(patient2, "2020-01-01 00:00:00", "2020-01-01 12:00:00")
+        dataset = self.mock.create()
+
+        samples = dataset.set_task(ReadmissionPredictionMIMIC3(timedelta(days=5)))
+
+        admission_ids = [int(s["admission_id"]) for s in samples]
+
+        self.assertIn   (admission1, admission_ids)
+        self.assertNotIn(admission2, admission_ids) # Patient's last admission should not be included
+        self.assertNotIn(admission3, admission_ids)
+        self.assertNotIn(admission4, admission_ids) # Patient's last admission should not be included
 
     def test_admissions_without_prescriptions_are_excluded(self):
-        self.assertTrue(all(sample["admission_id"] != '10' for sample in self.samples))
+        patient1 = self.mock.add_patient()
+        patient2 = self.mock.add_patient()
+        admission1 = self.mock.add_admission(patient1, "2020-01-01 00:00:00", "2020-01-01 12:00:00")
+        admission2 = self.mock.add_admission(patient1, "2020-01-01 00:00:00", "2020-01-01 12:00:00")
+        admission3 = self.mock.add_admission(patient2, "2020-01-01 00:00:00", "2020-01-01 12:00:00", add_prescription=False)
+        admission4 = self.mock.add_admission(patient2, "2020-01-01 00:00:00", "2020-01-01 12:00:00")
+        dataset = self.mock.create()
+
+        samples = dataset.set_task(ReadmissionPredictionMIMIC3(timedelta(days=5)))
+
+        admission_ids = [int(s["admission_id"]) for s in samples]
+
+        self.assertIn   (admission1, admission_ids)
+        self.assertNotIn(admission2, admission_ids) # Patient's last admission should not be included
+        self.assertNotIn(admission3, admission_ids)
+        self.assertNotIn(admission4, admission_ids) # Patient's last admission should not be included
 
     def test_admissions_without_procedures_are_excluded(self):
-        self.assertTrue(all(sample["admission_id"] != '9' for sample in self.samples))
+        patient1 = self.mock.add_patient()
+        patient2 = self.mock.add_patient()
+        admission1 = self.mock.add_admission(patient1, "2020-01-01 00:00:00", "2020-01-01 12:00:00")
+        admission2 = self.mock.add_admission(patient1, "2020-01-01 00:00:00", "2020-01-01 12:00:00")
+        admission3 = self.mock.add_admission(patient2, "2020-01-01 00:00:00", "2020-01-01 12:00:00", add_procedure=False)
+        admission4 = self.mock.add_admission(patient2, "2020-01-01 00:00:00", "2020-01-01 12:00:00")
+        dataset = self.mock.create()
+
+        samples = dataset.set_task(ReadmissionPredictionMIMIC3(timedelta(days=5)))
+
+        admission_ids = [int(s["admission_id"]) for s in samples]
+
+        self.assertIn   (admission1, admission_ids)
+        self.assertNotIn(admission2, admission_ids) # Patient's last admission should not be included
+        self.assertNotIn(admission3, admission_ids)
+        self.assertNotIn(admission4, admission_ids) # Patient's last admission should not be included
 
     def test_admissions_of_minors_are_excluded(self):
-        self.assertTrue(all(sample["admission_id"] != '13' for sample in self.samples))
-        samples = [sample for sample in self.samples if sample["admission_id"] == '14']
-        self.assertEqual(len(samples), 1)
-        self.assertEqual(samples[0]["readmission"], 0)
+        patient = self.mock.add_patient(dob="2000-01-01 00:00:00")
+        admission1 = self.mock.add_admission(patient, admittime="2017-12-31 23:59:59", dischtime="2018-01-01 00:00:00") # Admitted 1 second before turning 18
+        admission2 = self.mock.add_admission(patient, admittime="2018-01-01 00:00:00", dischtime="2018-01-01 12:00:00") # Admitted at exactly 18
+        admission3 = self.mock.add_admission(patient, admittime="2020-01-01 00:00:00", dischtime="2020-01-01 12:00:00")
+        dataset = self.mock.create()
+
+        samples = dataset.set_task(ReadmissionPredictionMIMIC3(timedelta(days=5)))
+
+        admission_ids = [int(s["admission_id"]) for s in samples]
+
+        self.assertNotIn(admission1, admission_ids)
+        self.assertIn   (admission2, admission_ids)
+        self.assertNotIn(admission3, admission_ids) # Patient's last admission should not be included
+
+
+class MockMICIC3Dataset:
+    def __init__(self):
+        self.patients =      ["row_id,subject_id,gender,dob,dod,dod_hosp,dod_ssn,expire_flag"]
+        self.admissions =    ["row_id,subject_id,hadm_id,admittime,dischtime,deathtime,admission_type,admission_location,discharge_location,insurance,language,religion,marital_status,ethnicity,edregtime,edouttime,diagnosis,hospital_expire_flag,has_chartevents_data"]
+        self.icu_stays =     ["subject_id,intime,icustay_id,first_careunit,dbsource,last_careunit,outtime"]
+        self.diagnoses =     ["row_id,subject_id,hadm_id,seq_num,icd9_code"]
+        self.prescriptions = ["row_id,subject_id,hadm_id,icustay_id,startdate,enddate,drug_type,drug,drug_name_poe,drug_name_generic,formulary_drug_cd,gsn,ndc,prod_strength,dose_val_rx,dose_unit_rx,form_val_disp,form_unit_disp,route"]
+        self.procedures =    ["row_id,subject_id,hadm_id,seq_num,icd9_code"]
+
+        self.next_subject_id = 1
+        self.next_hadm_id = 1
+        self.next_diagnosis_id = 1
+        self.next_prescription_id = 1
+        self.next_procedure_id = 1
+
+    def add_patient(self,dob: str = "2000-01-01 00:00:00") -> int:
+        subject_id = self.next_subject_id
+        self.next_subject_id += 1
+        self.patients.append(f"{subject_id},{subject_id},,{dob},,,,")
+        return subject_id
+
+    def add_admission(self,
+                      subject_id: int,
+                      admittime: str,
+                      dischtime: str,
+                      add_diagnosis: bool = True,
+                      add_prescription: bool = True,
+                      add_procedure: bool = True
+                      ) -> int:
+        hadm_id = self.next_hadm_id
+        self.next_hadm_id += 1
+        self.admissions.append(f"{hadm_id},{subject_id},{hadm_id},{admittime},{dischtime},,,,,,,,,,,,,,")
+        if add_diagnosis: self.add_diagnosis(subject_id, hadm_id)
+        if add_prescription: self.add_prescription(subject_id, hadm_id)
+        if add_procedure: self.add_procedure(subject_id, hadm_id)
+        return hadm_id
+
+    def add_diagnosis(self, subject_id, hadm_id, seq_num: int=1, icd9_code: str="") -> int:
+        row_id = self.next_diagnosis_id
+        self.next_diagnosis_id += 1
+        self.diagnoses.append(f"{row_id},{subject_id},{hadm_id},{seq_num},{icd9_code}")
+        return row_id
+
+    def add_prescription(self, subject_id, hadm_id) -> int:
+        row_id = self.next_prescription_id
+        self.next_prescription_id += 1
+        self.prescriptions.append(f"{row_id},{subject_id},{hadm_id},,,,,,,,,,,,,,,,")
+        return row_id
+
+    def add_procedure(self, subject_id, hadm_id, seq_num: int=1, icd9_code: str="") -> int:
+        row_id = self.next_procedure_id
+        self.next_procedure_id += 1
+        self.procedures.append(f"{row_id},{subject_id},{hadm_id},{seq_num},{icd9_code}")
+        return row_id
+
+    def create(self, tables=["diagnoses_icd", "prescriptions", "procedures_icd"]):
+        files = {
+            "PATIENTS.csv":       "\n".join(self.patients),
+            "ADMISSIONS.csv":     "\n".join(self.admissions),
+            "ICUSTAYS.csv":       "\n".join(self.icu_stays),
+            "DIAGNOSES_ICD.csv":  "\n".join(self.diagnoses),
+            "PRESCRIPTIONS.csv":  "\n".join(self.prescriptions),
+            "PROCEDURES_ICD.csv": "\n".join(self.procedures),
+        }
+
+        for k, v in files.items():
+            with open(k, 'w') as f: f.write(v)
+
+        return MIMIC3Dataset(root=".", tables=tables)
+
+    def __del__(self):
+        if os.path.exists("PATIENTS.csv"):       os.remove("PATIENTS.csv")
+        if os.path.exists("ADMISSIONS.csv"):     os.remove("ADMISSIONS.csv")
+        if os.path.exists("ICUSTAYS.csv"):       os.remove("ICUSTAYS.csv")
+        if os.path.exists("DIAGNOSES_ICD.csv"):  os.remove("DIAGNOSES_ICD.csv")
+        if os.path.exists("PRESCRIPTIONS.csv"):  os.remove("PRESCRIPTIONS.csv")
+        if os.path.exists("PROCEDURES_ICD.csv"): os.remove("PROCEDURES_ICD.csv")
+
 
 if __name__ == "__main__":
     unittest.main()
