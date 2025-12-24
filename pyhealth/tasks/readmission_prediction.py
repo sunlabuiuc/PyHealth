@@ -7,16 +7,50 @@ from pyhealth.data import Event, Patient
 from pyhealth.tasks import BaseTask
 
 class ReadmissionPredictionMIMIC3(BaseTask):
-    #todo: add doc strings
+    """
+    Readmission prediction on the MIMIC3 dataset.
+
+    This task aims at predicting whether the patient will be readmitted into hospital within
+    a specified number of days based on clinical information from the current visit.
+
+    Attributes:
+        task_name (str): The name of the task.
+        input_schema (Dict[str, str]): The schema for the task input.
+        output_schema (Dict[str, str]): The schema for the task output.
+    """
     task_name: str = "ReadmissionPredictionMIMIC3"
     input_schema: Dict[str, str] = {"conditions": "sequence", "procedures": "sequence", "drugs": "sequence"}
     output_schema: Dict[str, str] = {"readmission": "binary"}
 
     def __init__(self, window: timedelta=timedelta(days=15), exclude_minors: bool=True) -> None:
+        """
+        Initializes the task object.
+
+        Args:
+            window (timedelta): If two admissions are closer than this window, it is considered a readmission. Defaults to 15 days.
+            exclude_minors (bool): Whether to exclude visits where the patient was under 18 years old. Defaults to True.
+        """
         self.window = window
         self.exclude_minors = exclude_minors
 
     def __call__(self, patient: Patient) -> List[Dict]:
+        """
+        Generates binary classification data samples for a single patient.
+
+        Visits with no conditions OR no procedures OR no drugs are excluded from the output but are still used to calculate readmission for prior visits.
+
+        Args:
+            patient (Patient): A patient object.
+
+        Returns:
+            List[Dict]: A list containing a dictionary for each patient visit with:
+                - 'visit_id': MIMIC3 hadm_id.
+                - 'patient_id': MIMIC3 subject_id.
+                - 'conditions': MIMIC3 diagnoses_icd table ICD-9 codes.
+                - 'procedures': MIMIC3 procedures_icd table ICD-9 codes.
+                - 'drugs': MIMIC3 prescriptions table drug column entries.
+                - 'readmission': binary label.
+        """
         patients: List[Event] = patient.get_events(event_type="patients")
         assert len(patients) == 1
 
@@ -75,22 +109,6 @@ class ReadmissionPredictionMIMIC3(BaseTask):
 
         return samples
 
-
-    """Processes a single patient for the readmission prediction task.
-
-    Readmission prediction aims at predicting whether the patient will be readmitted
-    into hospital within time_window days based on the clinical information from
-    current visit (e.g., conditions and procedures).
-
-    Args:
-        patient: a Patient object
-        time_window: the time window threshold (gap < time_window means label=1 for
-            the task)
-
-    Returns:
-        samples: a list of samples, each sample is a dict with patient_id, visit_id,
-            and other task-specific attributes as key
-    """
 
 def readmission_prediction_mimic4_fn(patient: Patient, time_window=15):
     """Processes a single patient for the readmission prediction task.
