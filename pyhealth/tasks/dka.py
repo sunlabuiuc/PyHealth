@@ -1,4 +1,4 @@
-# Description: DKA (Diabetic Ketoacidosis) prediction task for MIMIC-IV dataset
+# Description: DKA (Diabetic Ketoacidosis) prediction tasks for MIMIC-IV dataset
 
 import math
 from datetime import datetime, timedelta
@@ -10,12 +10,312 @@ from .base_task import BaseTask
 
 
 class DKAPredictionMIMIC4(BaseTask):
+    """Task for predicting Diabetic Ketoacidosis (DKA) in the general patient population.
+
+    This task creates PATIENT-LEVEL samples from ALL patients in the dataset,
+    predicting whether they have ever been diagnosed with DKA. This provides
+    a much larger patient pool with more negative samples compared to T1DM-specific
+    prediction.
+
+    Target Population:
+        - ALL patients in the dataset (no filtering)
+        - Large pool of negative samples (patients without DKA)
+
+    Label Definition:
+        - Positive (1): Patient has any DKA diagnosis code (ICD-9 or ICD-10)
+        - Negative (0): Patient has no DKA diagnosis codes
+
+    Features:
+        - icd_codes: Combined diagnosis + procedure ICD codes (stagenet format)
+        - labs: 10-dimensional vectors with lab categories
+
+    Args:
+        padding: Additional padding for StageNet processor. Default: 0.
+
+    Example:
+        >>> from pyhealth.datasets import MIMIC4Dataset
+        >>> from pyhealth.tasks import DKAPredictionMIMIC4
+        >>>
+        >>> dataset = MIMIC4Dataset(
+        ...     root="/path/to/mimic4",
+        ...     tables=["diagnoses_icd", "procedures_icd", "labevents", "admissions"],
+        ... )
+        >>> task = DKAPredictionMIMIC4()
+        >>> samples = dataset.set_task(task)
+    """
+
+    task_name: str = "DKAPredictionMIMIC4"
+
+    # ICD-9 codes for Diabetic Ketoacidosis
+    DKA_ICD9_CODES: ClassVar[Set[str]] = {"25010", "25011", "25012", "25013"}
+
+    # ICD-10 prefix for DKA (E10.1x, E11.1x, E13.1x codes cover T1D, T2D, other DKA)
+    DKA_ICD10_PREFIXES: ClassVar[List[str]] = ["E101", "E111", "E131"]
+
+    # Lab categories from mortality_prediction_stagenet_mimic4.py (verified item IDs)
+    LAB_CATEGORIES: ClassVar[Dict[str, List[str]]] = {
+        "Sodium": ["50824", "52455", "50983", "52623"],
+        "Potassium": ["50822", "52452", "50971", "52610"],
+        "Chloride": ["50806", "52434", "50902", "52535"],
+        "Bicarbonate": ["50803", "50804"],
+        "Glucose": ["50809", "52027", "50931", "52569"],
+        "Calcium": ["50808", "51624"],
+        "Magnesium": ["50960"],
+        "Anion Gap": ["50868", "52500"],
+        "Osmolality": ["52031", "50964", "51701"],
+        "Phosphate": ["50970"],
+    }
+
+    LAB_CATEGORY_ORDER: ClassVar[List[str]] = [
+        "Sodium", "Potassium", "Chloride", "Bicarbonate", "Glucose",
+        "Calcium", "Magnesium", "Anion Gap", "Osmolality", "Phosphate",
+    ]
+
+    ALL_LAB_ITEMIDS: ClassVar[List[str]] = sorted(
+        {item for items in LAB_CATEGORIES.values() for item in items}
+    )
+
+    def __init__(self, padding: int = 0):
+        """Initialize task with optional padding.
+
+        Args:
+            padding: Additional padding for nested sequences. Default: 0.
+        """
+        self.padding = padding
+        self.input_schema: Dict[str, Tuple[str, Dict[str, Any]]] = {
+            "icd_codes": ("stagenet", {"padding": padding}),
+            "labs": ("stagenet_tensor", {}),
+        }
+        self.output_schema: Dict[str, str] = {"label": "binary"}
+
+    @staticmethod
+    def _normalize_icd(code: Optional[str]) -> str:
+        """Normalize ICD code by removing dots and standardizing format."""
+        if code is None:
+            return ""
+        return code.replace(".", "").strip().upper()
+
+    def _is_dka_code(self, code: Optional[str], version: Optional[object]) -> bool:
+        """Check if an ICD code represents Diabetic Ketoacidosis."""
+        normalized = self._normalize_icd(code)
+        if not normalized:
+            return False
+
+        version_str = str(version) if version is not None else ""
+
+        if version_str == "10":
+            return any(normalized.startswith(prefix) for prefix in self.DKA_ICD10_PREFIXES)
+        if version_str == "9":
+            return normalized in self.DKA_ICD9_CODES
+
+        return False
+
+    @staticmethod
+    def _safe_parse_datetime(value: Optional[object]) -> Optional[datetime]:
+        """Safely parse a datetime value from various formats."""
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value
+        text = str(value)
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(text, fmt)
+            except ValueError:
+                continue
+        try:
+            return datetime.fromisoformat(text)
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _deduplicate_preserve_order(values: List[str]) -> List[str]:
+        """Remove duplicates from a list while preserving order."""
+        seen: Set[str] = set()
+        ordered: List[str] = []
+        for value in values:
+            if value not in seen:
+                seen.add(value)
+                ordered.append(value)
+        return ordered
+
+    def _build_lab_vector(self, lab_df: Optional[pl.DataFrame]) -> List[float]:
+        """Build a lab feature vector from lab events DataFrame."""
+        feature_dim = len(self.LAB_CATEGORY_ORDER)
+
+        if lab_df is None or lab_df.height == 0:
+            return [math.nan] * feature_dim
+
+        filtered = (
+            lab_df.with_columns([
+                pl.col("labevents/itemid").cast(pl.Utf8),
+                pl.col("labevents/valuenum").cast(pl.Float64),
+            ])
+            .filter(pl.col("labevents/itemid").is_in(self.ALL_LAB_ITEMIDS))
+            .filter(pl.col("labevents/valuenum").is_not_null())
+        )
+
+        if filtered.height == 0:
+            return [math.nan] * feature_dim
+
+        vector: List[float] = []
+        for category in self.LAB_CATEGORY_ORDER:
+            itemids = self.LAB_CATEGORIES[category]
+            cat_df = filtered.filter(pl.col("labevents/itemid").is_in(itemids))
+            if cat_df.height == 0:
+                vector.append(math.nan)
+            else:
+                values = cat_df["labevents/valuenum"].drop_nulls()
+                vector.append(float(values.mean()) if len(values) > 0 else math.nan)
+        return vector
+
+    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+        """Process a patient to create DKA prediction samples.
+
+        Creates ONE sample per patient. Labels based on whether the patient
+        has ANY DKA diagnosis code in their history.
+
+        Args:
+            patient: Patient object with get_events method.
+
+        Returns:
+            List with single sample containing patient_id, ICD codes, labs, and label.
+            Returns empty list if patient has no admissions.
+        """
+        # Get admissions
+        admissions = patient.get_events(event_type="admissions")
+        if not admissions:
+            return []
+
+        # Get diagnosis events and check for DKA
+        diagnosis_events = patient.get_events(event_type="diagnoses_icd")
+        has_dka = False
+
+        if diagnosis_events:
+            for event in diagnosis_events:
+                version = getattr(event, "icd_version", None)
+                code = getattr(event, "icd_code", None)
+                if self._is_dka_code(code, version):
+                    has_dka = True
+                    break
+
+        # Build admissions info
+        admissions_info: Dict[str, Dict[str, Optional[datetime]]] = {}
+        for admission in admissions:
+            hadm_id = getattr(admission, "hadm_id", None)
+            admit_time = self._safe_parse_datetime(getattr(admission, "timestamp", None))
+            discharge_time = self._safe_parse_datetime(getattr(admission, "dischtime", None))
+            if hadm_id is not None and admit_time is not None:
+                admissions_info[str(hadm_id)] = {
+                    "admit": admit_time,
+                    "discharge": discharge_time,
+                }
+
+        if not admissions_info:
+            return []
+
+        # Build ICD code sequences per admission
+        admission_codes: Dict[str, List[str]] = {
+            hadm_id: [] for hadm_id in admissions_info
+        }
+
+        # Add diagnosis codes
+        if diagnosis_events:
+            for event in diagnosis_events:
+                code = getattr(event, "icd_code", None)
+                normalized_code = self._normalize_icd(code)
+                if not normalized_code:
+                    continue
+                hadm_id = getattr(event, "hadm_id", None)
+                admission_key = (
+                    str(hadm_id) if hadm_id is not None
+                    else list(admissions_info.keys())[0]
+                )
+                if admission_key in admission_codes:
+                    admission_codes[admission_key].append(f"D_{normalized_code}")
+
+        # Add procedure codes
+        procedure_events = patient.get_events(event_type="procedures_icd")
+        if procedure_events:
+            for event in procedure_events:
+                code = getattr(event, "icd_code", None)
+                normalized_code = self._normalize_icd(code)
+                if not normalized_code:
+                    continue
+                hadm_id = getattr(event, "hadm_id", None)
+                admission_key = (
+                    str(hadm_id) if hadm_id is not None
+                    else list(admissions_info.keys())[0]
+                )
+                if admission_key in admission_codes:
+                    admission_codes[admission_key].append(f"P_{normalized_code}")
+
+        # Sort admissions chronologically
+        sorted_admissions = sorted(
+            admissions_info.items(),
+            key=lambda item: item[1]["admit"] or datetime.min,
+        )
+
+        # Build sequences
+        icd_sequences: List[List[str]] = []
+        icd_times: List[float] = []
+        lab_sequences: List[List[float]] = []
+        lab_times: List[float] = []
+        previous_admit: Optional[datetime] = None
+
+        for hadm_id, info in sorted_admissions:
+            admit_time = info["admit"] or datetime.now()
+
+            codes = self._deduplicate_preserve_order(admission_codes.get(hadm_id, []))
+            if not codes:
+                codes = ["UNKNOWN"]
+
+            time_gap = (
+                0.0 if previous_admit is None
+                else (admit_time - previous_admit).total_seconds() / 3600.0
+            )
+            previous_admit = admit_time
+
+            icd_sequences.append(codes)
+            icd_times.append(time_gap)
+
+            try:
+                lab_df = patient.get_events(
+                    event_type="labevents",
+                    start=admit_time,
+                    end=info.get("discharge"),
+                    return_df=True,
+                )
+            except Exception:
+                lab_df = None
+
+            lab_sequences.append(self._build_lab_vector(lab_df))
+            lab_times.append(time_gap)
+
+        if not icd_sequences:
+            icd_sequences = [["UNKNOWN"]]
+            icd_times = [0.0]
+            lab_sequences = [[math.nan] * len(self.LAB_CATEGORY_ORDER)]
+            lab_times = [0.0]
+
+        sample: Dict[str, Any] = {
+            "patient_id": patient.patient_id,
+            "record_id": patient.patient_id,
+            "icd_codes": (icd_times, icd_sequences),
+            "labs": (lab_times, lab_sequences),
+            "label": int(has_dka),
+        }
+
+        return [sample]
+
+
+class T1DDKAPredictionMIMIC4(BaseTask):
     """Task for predicting Diabetic Ketoacidosis (DKA) in Type 1 Diabetes patients.
 
     This task creates PATIENT-LEVEL samples by identifying patients with Type 1
     Diabetes Mellitus (T1DM) and predicting whether they will develop DKA within
-    a specified time window. The task uses diagnosis codes and lab results across
-    all admissions in StageNet format for temporal modeling.
+    a specified time window. The task uses diagnosis codes, procedure codes, and
+    lab results across all admissions in StageNet format for temporal modeling.
 
     Target Population:
         - Patients with Type 1 Diabetes (ICD-9 or ICD-10 codes)
@@ -26,12 +326,17 @@ class DKAPredictionMIMIC4(BaseTask):
         - Negative (0): Patient has T1DM but no DKA within the window
 
     Time Calculation:
-        - Diagnosis codes: Hours from previous admission (0 for first visit)
+        - ICD codes: Hours from previous admission (0 for first visit)
         - Labs: Hours from admission start (within-visit measurements)
 
+    Features:
+        - icd_codes: Combined diagnosis + procedure ICD codes (stagenet format)
+        - labs: 10-dimensional vectors with lab categories
+
     Lab Processing:
-        - 6-dimensional vectors (one per lab category relevant to DKA)
-        - Categories: glucose, bicarbonate, anion_gap, potassium, sodium, chloride
+        - 10-dimensional vectors (same as mortality prediction task)
+        - Categories: Sodium, Potassium, Chloride, Bicarbonate, Glucose,
+                      Calcium, Magnesium, Anion Gap, Osmolality, Phosphate
         - Multiple itemids per category → take mean of observed values
         - Missing categories → NaN in vector
 
@@ -43,24 +348,24 @@ class DKAPredictionMIMIC4(BaseTask):
     Attributes:
         task_name (str): The name of the task.
         input_schema (Dict[str, Tuple[str, Dict]]): The schema for input data:
-            - diagnoses: Diagnosis ICD codes (stagenet format, nested by visit)
-            - labs: Lab results (stagenet_tensor, 6D vectors per timestamp)
+            - icd_codes: Combined diagnosis + procedure ICD codes (stagenet format)
+            - labs: Lab results (stagenet_tensor, 10D vectors per timestamp)
         output_schema (Dict[str, str]): The schema for output data:
             - label: Binary indicator (1 if DKA within window, 0 otherwise)
 
     Example:
         >>> from pyhealth.datasets import MIMIC4Dataset
-        >>> from pyhealth.tasks import DKAPredictionMIMIC4
+        >>> from pyhealth.tasks import T1DDKAPredictionMIMIC4
         >>>
         >>> dataset = MIMIC4Dataset(
         ...     root="/path/to/mimic4",
-        ...     tables=["diagnoses_icd", "labevents", "admissions"],
+        ...     tables=["diagnoses_icd", "procedures_icd", "labevents", "admissions"],
         ... )
-        >>> task = DKAPredictionMIMIC4(dka_window_days=90)
+        >>> task = T1DDKAPredictionMIMIC4(dka_window_days=90)
         >>> samples = dataset.set_task(task)
     """
 
-    task_name: str = "DKAPredictionMIMIC4"
+    task_name: str = "T1DDKAPredictionMIMIC4"
 
     # ICD-10 prefix for Type 1 Diabetes Mellitus
     T1DM_ICD10_PREFIX: ClassVar[str] = "E10"
@@ -79,25 +384,33 @@ class DKAPredictionMIMIC4(BaseTask):
     # ICD-10 prefix for DKA (E10.1x codes)
     DKA_ICD10_PREFIX: ClassVar[str] = "E101"
 
-    # Lab categories relevant to DKA monitoring
-    # Each category maps to ONE dimension in the output vector
+    # Lab categories from mortality_prediction_stagenet_mimic4.py (verified item IDs)
+    # Each category maps to ONE dimension in the output vector (10 total)
     LAB_CATEGORIES: ClassVar[Dict[str, List[str]]] = {
-        "glucose": ["50809", "50931", "52027", "52569"],
-        "bicarbonate": ["50803", "50804", "51084"],
-        "anion_gap": ["50868"],
-        "potassium": ["50822", "50971", "52452", "52510"],
-        "sodium": ["50824", "50983", "52455"],
-        "chloride": ["50806", "50902", "52434"],
+        "Sodium": ["50824", "52455", "50983", "52623"],
+        "Potassium": ["50822", "52452", "50971", "52610"],
+        "Chloride": ["50806", "52434", "50902", "52535"],
+        "Bicarbonate": ["50803", "50804"],
+        "Glucose": ["50809", "52027", "50931", "52569"],
+        "Calcium": ["50808", "51624"],
+        "Magnesium": ["50960"],
+        "Anion Gap": ["50868", "52500"],
+        "Osmolality": ["52031", "50964", "51701"],
+        "Phosphate": ["50970"],
     }
 
     # Ordered list of category names (defines vector dimension order)
     LAB_CATEGORY_ORDER: ClassVar[List[str]] = [
-        "glucose",
-        "bicarbonate",
-        "anion_gap",
-        "potassium",
-        "sodium",
-        "chloride",
+        "Sodium",
+        "Potassium",
+        "Chloride",
+        "Bicarbonate",
+        "Glucose",
+        "Calcium",
+        "Magnesium",
+        "Anion Gap",
+        "Osmolality",
+        "Phosphate",
     ]
 
     # Flat list of all lab item IDs for filtering
@@ -118,7 +431,7 @@ class DKAPredictionMIMIC4(BaseTask):
 
         # Use tuple format to pass kwargs to processor
         self.input_schema: Dict[str, Tuple[str, Dict[str, Any]]] = {
-            "diagnoses": ("stagenet", {"padding": padding}),
+            "icd_codes": ("stagenet", {"padding": padding}),
             "labs": ("stagenet_tensor", {}),
         }
         self.output_schema: Dict[str, str] = {"label": "binary"}
@@ -326,9 +639,9 @@ class DKAPredictionMIMIC4(BaseTask):
             patient: Patient object with get_events method.
 
         Returns:
-            List with single sample containing patient_id, diagnosis sequences,
-            lab sequences, and DKA label. Returns empty list if patient does
-            not have T1DM or lacks required data.
+            List with single sample containing patient_id, combined ICD codes
+            (diagnoses + procedures), lab sequences, and DKA label.
+            Returns empty list if patient does not have T1DM or lacks required data.
         """
         # Get all diagnosis events
         diagnosis_events = patient.get_events(event_type="diagnoses_icd")
@@ -404,11 +717,12 @@ class DKAPredictionMIMIC4(BaseTask):
                 "discharge": None,
             }
 
-        # Build diagnosis code sequences per admission
+        # Build ICD code sequences per admission (diagnoses + procedures)
         admission_codes: Dict[str, List[str]] = {
             hadm_id: [] for hadm_id in admissions_info
         }
 
+        # Add diagnosis codes
         for event in diagnosis_events:
             code = getattr(event, "icd_code", None)
             normalized_code = self._normalize_icd(code)
@@ -423,7 +737,26 @@ class DKAPredictionMIMIC4(BaseTask):
             )
 
             if admission_key in admission_codes:
-                admission_codes[admission_key].append(normalized_code)
+                admission_codes[admission_key].append(f"D_{normalized_code}")
+
+        # Add procedure codes
+        procedure_events = patient.get_events(event_type="procedures_icd")
+        if procedure_events:
+            for event in procedure_events:
+                code = getattr(event, "icd_code", None)
+                normalized_code = self._normalize_icd(code)
+                if not normalized_code:
+                    continue
+
+                hadm_id = getattr(event, "hadm_id", None)
+                admission_key = (
+                    str(hadm_id)
+                    if hadm_id is not None
+                    else list(admissions_info.keys())[0]
+                )
+
+                if admission_key in admission_codes:
+                    admission_codes[admission_key].append(f"P_{normalized_code}")
 
         # Sort admissions chronologically
         sorted_admissions = sorted(
@@ -434,8 +767,8 @@ class DKAPredictionMIMIC4(BaseTask):
         )
 
         # Build sequences
-        diagnoses_sequences: List[List[str]] = []
-        diagnoses_times: List[float] = []
+        icd_sequences: List[List[str]] = []
+        icd_times: List[float] = []
         lab_sequences: List[List[float]] = []
         lab_times: List[float] = []
         previous_admit: Optional[datetime] = None
@@ -460,8 +793,8 @@ class DKAPredictionMIMIC4(BaseTask):
             )
             previous_admit = admit_time
 
-            diagnoses_sequences.append(codes)
-            diagnoses_times.append(time_gap)
+            icd_sequences.append(codes)
+            icd_times.append(time_gap)
 
             # Get lab data for this admission
             try:
@@ -478,9 +811,9 @@ class DKAPredictionMIMIC4(BaseTask):
             lab_times.append(time_gap)
 
         # Ensure we have at least one sequence entry
-        if not diagnoses_sequences:
-            diagnoses_sequences = [["UNKNOWN"]]
-            diagnoses_times = [0.0]
+        if not icd_sequences:
+            icd_sequences = [["UNKNOWN"]]
+            icd_times = [0.0]
             lab_sequences = [[math.nan] * len(self.LAB_CATEGORY_ORDER)]
             lab_times = [0.0]
 
@@ -488,7 +821,7 @@ class DKAPredictionMIMIC4(BaseTask):
         sample: Dict[str, Any] = {
             "patient_id": patient.patient_id,
             "record_id": patient.patient_id,
-            "diagnoses": (diagnoses_times, diagnoses_sequences),
+            "icd_codes": (icd_times, icd_sequences),
             "labs": (lab_times, lab_sequences),
             "label": int(has_dka_within_window),
         }

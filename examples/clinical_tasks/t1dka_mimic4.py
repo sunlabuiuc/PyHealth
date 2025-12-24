@@ -1,18 +1,16 @@
 """
-Example of using StageNet for DKA (Diabetic Ketoacidosis) prediction on MIMIC-IV.
+Example of using StageNet for T1D DKA (Diabetic Ketoacidosis) prediction on MIMIC-IV.
 
 This example demonstrates:
 1. Loading MIMIC-IV data with relevant tables for DKA prediction
-2. Applying the DKAPredictionMIMIC4 task (general population)
+2. Applying the T1DDKAPredictionMIMIC4 task
 3. Creating a SampleDataset with StageNet processors
 4. Training a StageNet model for DKA prediction
 
 Target Population:
-    - ALL patients in MIMIC-IV (no diabetes filtering)
-    - Much larger patient pool with more negative samples
-    - Label: 1 if patient has ANY DKA diagnosis, 0 otherwise
-
-Note: For T1DM-specific DKA prediction, see t1dka_mimic4.py
+    - Patients with Type 1 Diabetes Mellitus (T1DM) ONLY
+    - Predicts DKA occurrence within 90 days of T1DM diagnosis
+    - Smaller, focused patient cohort
 """
 
 import os
@@ -25,22 +23,22 @@ from pyhealth.datasets import (
 )
 from pyhealth.datasets.utils import save_processors, load_processors
 from pyhealth.models import StageNet
-from pyhealth.tasks import DKAPredictionMIMIC4
+from pyhealth.tasks import T1DDKAPredictionMIMIC4
 from pyhealth.trainer import Trainer
 
 
 def main():
-    """Main function to run DKA prediction pipeline on general population."""
+    """Main function to run T1D DKA prediction pipeline."""
     
     # Configuration
     MIMIC4_ROOT = "/srv/local/data/physionet.org/files/mimiciv/2.2/"
     DATASET_CACHE_DIR = "/shared/rsaas/pyhealth/cache/mimic4_dataset"
-    TASK_CACHE_DIR = "/shared/rsaas/pyhealth/cache/mimic4_dka_general_stagenet"
-    PROCESSOR_DIR = "/shared/rsaas/pyhealth/processors/stagenet_dka_general_mimic4"
+    TASK_CACHE_DIR = "/shared/rsaas/pyhealth/cache/mimic4_t1d_dka_stagenet_v2"
+    PROCESSOR_DIR = "/shared/rsaas/pyhealth/processors/stagenet_t1d_dka_mimic4_v2"
     DEVICE = "cuda:5" if torch.cuda.is_available() else "cpu"
     
     print("=" * 60)
-    print("DKA PREDICTION (GENERAL POPULATION) WITH STAGENET ON MIMIC-IV")
+    print("T1D DKA PREDICTION WITH STAGENET ON MIMIC-IV")
     print("=" * 60)
     
     # STEP 1: Load MIMIC-IV base dataset
@@ -59,17 +57,16 @@ def main():
     
     print("Dataset initialized, proceeding to task processing...")
     
-    # STEP 2: Apply DKA prediction task (general population)
-    print("\n=== Step 2: Applying DKA Prediction Task (General Population) ===")
+    # STEP 2: Apply T1D DKA prediction task
+    print("\n=== Step 2: Applying T1D DKA Prediction Task ===")
     
-    # Create task with padding for unseen sequences
-    # No T1DM filtering - includes ALL patients
-    dka_task = DKAPredictionMIMIC4(padding=10)
+    # Create task with 90-day DKA window and padding for unseen sequences
+    dka_task = T1DDKAPredictionMIMIC4(dka_window_days=90, padding=20)
     
     print(f"Task: {dka_task.task_name}")
+    print(f"DKA window: {dka_task.dka_window_days} days")
     print(f"Input schema: {list(dka_task.input_schema.keys())}")
     print(f"Output schema: {list(dka_task.output_schema.keys())}")
-    print("Note: This includes ALL patients (not just diabetics)")
     
     # Check for pre-fitted processors
     if os.path.exists(os.path.join(PROCESSOR_DIR, "input_processors.pkl")):
@@ -176,7 +173,7 @@ def main():
     print(f"True labels: {output['y_true'][:5]}")
     
     print("\n" + "=" * 60)
-    print("DKA PREDICTION (GENERAL POPULATION) TRAINING COMPLETED!")
+    print("T1D DKA PREDICTION TRAINING COMPLETED!")
     print("=" * 60)
     
     return results
@@ -184,3 +181,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
