@@ -215,6 +215,39 @@ class TCN(BaseModel):
             If int, depth is auto-computed from max_seq_length. If list, specifies
             channels for each layer. Default is 128.
         **kwargs: other parameters for the TCN layer (e.g., max_seq_length, kernel_size, dropout).
+
+    Examples:
+        >>> from pyhealth.datasets import SampleDataset
+        >>> from pyhealth.models import TCN
+        >>> from pyhealth.datasets import get_dataloader
+        >>> samples = [
+        ...     {
+        ...         "patient_id": "patient-0",
+        ...         "visit_id": "visit-0",
+        ...         "conditions": ["cond-33", "cond-86", "cond-80"],
+        ...         "procedures": ["proc-12", "proc-45"],
+        ...         "label": 1,
+        ...     },
+        ...     {
+        ...         "patient_id": "patient-1",
+        ...         "visit_id": "visit-1",
+        ...         "conditions": ["cond-12", "cond-52"],
+        ...         "procedures": ["proc-23"],
+        ...         "label": 0,
+        ...     },
+        ... ]
+        >>> dataset = SampleDataset(
+        ...     samples=samples,
+        ...     input_schema={"conditions": "sequence", "procedures": "sequence"},
+        ...     output_schema={"label": "binary"},
+        ...     dataset_name="test_tcn_dataset",
+        ... )
+        >>> train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
+        >>> model = TCN(dataset=dataset, embedding_dim=64, num_channels=64, max_seq_length=10)
+        >>> data_batch = next(iter(train_loader))
+        >>> ret = model(**data_batch)
+        >>> print(ret)
+
     """
 
     def __init__(
