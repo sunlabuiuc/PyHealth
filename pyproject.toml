@@ -43,6 +43,7 @@ dependencies = [
   "litdata~=0.2.58",
   "pyarrow~=22.0.0",
   "narwhals~=2.13.0",
+  "more-itertools~=10.8.0",
 ]
 license = "BSD-3-Clause"
 license-files = ["LICENSE.md"]

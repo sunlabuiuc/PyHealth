@@ -227,10 +227,7 @@ def _task_transform_fn(args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, P
     os.environ["DATA_OPTIMIZER_GLOBAL_RANK"] = str(worker_id) # For BinaryWriter to determine the rank.
     logger.info(f"Worker {args[0]} started processing {len(list(args[2]))} patients. (Polars threads: {pl.thread_pool_size()})")
         
-    writer = BinaryWriter(
-        cache_dir=str(output_dir),
-        chunk_size=67_108_864,  # 64 MB
-    )
+    writer = BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB")
     progress = _task_transform_queue or _FakeQueue()
 
     writer_index = 0
@@ -287,10 +284,7 @@ def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
     os.environ["DATA_OPTIMIZER_GLOBAL_RANK"] = str(worker_id) # For BinaryWriter to determine the rank.
     logger.info(f"Worker {args[0]} started processing {end_idx - start_idx} samples. ({start_idx} to {end_idx})")
     
-    writer = BinaryWriter(
-        cache_dir=str(output_dir),
-        chunk_size=67_108_864,  # 64 MB
-    )
+    writer = BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB")
     progress = _proc_transform_queue or _FakeQueue()
 
     dataset = litdata.StreamingDataset(str(task_df))
@@ -820,7 +814,7 @@ class BaseDataset(ABC):
             if num_workers == 1:
                 logger.info("Single worker mode, processing sequentially")
                 _proc_transform_fn((0, task_df, 0, num_samples, output_dir))
-                BinaryWriter(cache_dir=str(output_dir)).merge(num_workers)
+                BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB").merge(num_workers)
                 return
             
             ctx = multiprocessing.get_context("spawn")
@@ -844,7 +838,7 @@ class BaseDataset(ABC):
                     while not queue.empty():
                         progress.update(queue.get())
             result.get() # ensure exceptions are raised
-            BinaryWriter(cache_dir=str(output_dir)).merge(num_workers)
+            BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB").merge(num_workers)
 
             logger.info(f"Processor transformation completed and saved to {output_dir}")
         except Exception as e:
@@ -866,11 +860,11 @@ class BaseDataset(ABC):
         """Processes the base dataset to generate the task-specific sample dataset.
         The cache structure is as follows::
 
-            task_df.parquet/ # Intermediate task dataframe after task transformation
-            samples_{uuid}/  # Final processed samples after applying processors
-                schema.pkl   # Saved SampleBuilder schema
-                *.parquet    # Processed sample files
-            samples_{uuid}/
+            task_df.ld/ # Intermediate task dataframe after task transformation
+            samples_{uuid}.ld/  # Final processed samples after applying processors
+                schema.pkl      # Saved SampleBuilder schema
+                *.bin           # Processed sample files
+            samples_{uuid}.ld/
                 ...
 
         Args:
@@ -916,8 +910,8 @@ class BaseDataset(ABC):
             cache_dir = Path(cache_dir)
             cache_dir.mkdir(parents=True, exist_ok=True)
 
-        task_df_path = Path(cache_dir) / "task_df.parquet"
-        samples_path = Path(cache_dir) / f"samples_{uuid.uuid4()}"
+        task_df_path = Path(cache_dir) / "task_df.ld"
+        samples_path = Path(cache_dir) / f"samples_{uuid.uuid4()}.ld"
 
         # Check if index.json exists to verify cache integrity, this
         # is the standard file for litdata.StreamingDataset
