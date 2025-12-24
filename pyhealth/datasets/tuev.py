@@ -44,11 +44,16 @@ class TUEVDataset(BaseDataset):
 
     Examples:
         >>> from pyhealth.datasets import TUEVDataset
+        >>> from pyhealth.tasks import EEGEventsTUEV
         >>> dataset = TUEVDataset(
         ...         root="/srv/local/data/TUH/tuh_eeg_events/v2.0.0/edf/",
         ...     )
-        >>> dataset.stat()
-        >>> dataset.info()
+        >>> dataset.stats()
+        >>> sample_dataset = dataset.set_task(EEGEventsTUEV())
+        >>> sample = sample_dataset[0]
+        >>> print(sample['signal'].shape)  # (16, 1280)
+
+        For a complete example, see `examples/conformal_eeg/tuev_eeg_quickstart.ipynb`.
     """
     
     def __init__(

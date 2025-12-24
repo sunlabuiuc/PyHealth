@@ -28,6 +28,18 @@ class EEGEventsTUEV(BaseTask):
       - "signal": np.ndarray, shape (16, 256*5)
       - "offending_channel": int
       - "label": int
+
+    Examples:
+        >>> from pyhealth.datasets import TUEVDataset
+        >>> from pyhealth.tasks import EEGEventsTUEV
+        >>> dataset = TUEVDataset(
+        ...         root="/srv/local/data/TUH/tuh_eeg_events/v2.0.0/edf/",
+        ...     )
+        >>> sample_dataset = dataset.set_task(EEGEventsTUEV())
+        >>> sample = sample_dataset[0]
+        >>> print(sample['label'])
+
+        For a complete example, see `examples/conformal_eeg/tuev_eeg_quickstart.ipynb`.
     """
 
     task_name: str = "EEG_events"
