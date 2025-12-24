@@ -217,9 +217,8 @@ class TCN(BaseModel):
         **kwargs: other parameters for the TCN layer (e.g., max_seq_length, kernel_size, dropout).
 
     Examples:
-        >>> from pyhealth.datasets import SampleDataset
+        >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
         >>> from pyhealth.models import TCN
-        >>> from pyhealth.datasets import get_dataloader
         >>> samples = [
         ...     {
         ...         "patient_id": "patient-0",
@@ -236,7 +235,7 @@ class TCN(BaseModel):
         ...         "label": 0,
         ...     },
         ... ]
-        >>> dataset = SampleDataset(
+        >>> dataset = create_sample_dataset(
         ...     samples=samples,
         ...     input_schema={"conditions": "sequence", "procedures": "sequence"},
         ...     output_schema={"label": "binary"},
