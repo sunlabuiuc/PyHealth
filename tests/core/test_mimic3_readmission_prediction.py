@@ -8,21 +8,24 @@ from pyhealth.tasks import ReadmissionPredictionMIMIC3
 
 class TestReadmissionPredictionMIMIC3(unittest.TestCase):
     def setUp(self):
-        """Seed dataset with neg and pos 5 day readmission examples (min required for sample generation)"""
+        """Seed dataset with neg and pos 15 day readmission examples (min required for sample generation)"""
         self.mock = MockMICIC3Dataset()
-        self.patient1 = self.mock.add_patient()
-        self.admission1 = self.mock.add_admission(self.patient1, "2020-01-01 00:00:00", "2020-01-01 12:00:00")
-        self.admission2 = self.mock.add_admission(self.patient1, "2020-01-06 12:00:00", "2020-01-06 12:00:01") # Exactly 5 days later
-        self.admission3 = self.mock.add_admission(self.patient1, "2020-01-11 12:00:00", "2020-01-11 12:00:01") # 5 days later less 1 second
+        patient = self.mock.add_patient()
+        self.admission1 = self.mock.add_admission(patient, "2020-01-01 00:00:00", "2020-01-01 12:00:00")
+        self.admission2 = self.mock.add_admission(patient, "2020-01-16 12:00:00", "2020-01-16 12:00:01") # Exactly 15 days later
+        self.admission3 = self.mock.add_admission(patient, "2020-01-31 12:00:00", "2020-01-31 12:00:01") # 15 days later less 1 second
 
     def test_patient_with_pos_and_neg_samples(self):
         dataset = self.mock.create()
 
-        samples = dataset.set_task(ReadmissionPredictionMIMIC3(timedelta(days=5)))
+        task = ReadmissionPredictionMIMIC3()
+        samples = dataset.set_task(task)
 
         self.assertIn("task_name", vars(ReadmissionPredictionMIMIC3))
         self.assertIn("input_schema", vars(ReadmissionPredictionMIMIC3))
         self.assertIn("output_schema", vars(ReadmissionPredictionMIMIC3))
+
+        self.assertEqual(task.window, timedelta(days=15))
 
         for sample in samples:
             self.assertIn("visit_id", sample)
@@ -45,12 +48,32 @@ class TestReadmissionPredictionMIMIC3(unittest.TestCase):
 
         self.assertTrue(all(s["visit_id"] != str(self.admission3) for s in samples)) # Patient's last admission not included
 
+    def test_explicit_time_window(self):
+        patient = self.mock.add_patient()
+        admission1 = self.mock.add_admission(patient, "2020-01-01 00:00:00", "2020-01-01 12:00:00")
+        admission2 = self.mock.add_admission(patient, "2020-01-06 12:00:00", "2020-01-06 12:00:01") # Exactly 5 days later
+        admission3 = self.mock.add_admission(patient, "2020-01-11 12:00:00", "2020-01-11 12:00:01") # 5 days later less 1 second
+        dataset = self.mock.create()
+
+        samples = dataset.set_task(ReadmissionPredictionMIMIC3(timedelta(days=5)))
+
+        visit1 = [s for s in samples if s["visit_id"] == str(admission1)]
+        visit2 = [s for s in samples if s["visit_id"] == str(admission2)]
+
+        self.assertEqual(len(visit1), 1)
+        self.assertEqual(len(visit2), 1)
+
+        self.assertEqual(visit1[0]["readmission"], 0)
+        self.assertEqual(visit2[0]["readmission"], 1)
+
+        self.assertTrue(all(s["visit_id"] != str(admission3) for s in samples)) # Patient's last admission not included
+
     def test_patient_with_only_one_visit_is_excluded(self):
         patient = self.mock.add_patient()
         admission = self.mock.add_admission(patient, "2020-01-01 00:00:00", "2020-01-01 12:00:00")
         dataset = self.mock.create()
 
-        samples = dataset.set_task(ReadmissionPredictionMIMIC3(timedelta(days=5)))
+        samples = dataset.set_task(ReadmissionPredictionMIMIC3())
 
         self.assertTrue(all(s["patient_id"] != str(patient) for s in samples))
         self.assertTrue(all(s["visit_id"] != str(admission) for s in samples))
@@ -64,7 +87,7 @@ class TestReadmissionPredictionMIMIC3(unittest.TestCase):
         admission4 = self.mock.add_admission(patient2, "2020-01-01 00:00:00", "2020-01-01 12:00:00")
         dataset = self.mock.create()
 
-        samples = dataset.set_task(ReadmissionPredictionMIMIC3(timedelta(days=5)))
+        samples = dataset.set_task(ReadmissionPredictionMIMIC3())
 
         visit_ids = [int(s["visit_id"]) for s in samples]
 
@@ -82,7 +105,7 @@ class TestReadmissionPredictionMIMIC3(unittest.TestCase):
         admission4 = self.mock.add_admission(patient2, "2020-01-01 00:00:00", "2020-01-01 12:00:00")
         dataset = self.mock.create()
 
-        samples = dataset.set_task(ReadmissionPredictionMIMIC3(timedelta(days=5)))
+        samples = dataset.set_task(ReadmissionPredictionMIMIC3())
 
         visit_ids = [int(s["visit_id"]) for s in samples]
 
@@ -100,7 +123,7 @@ class TestReadmissionPredictionMIMIC3(unittest.TestCase):
         admission4 = self.mock.add_admission(patient2, "2020-01-01 00:00:00", "2020-01-01 12:00:00")
         dataset = self.mock.create()
 
-        samples = dataset.set_task(ReadmissionPredictionMIMIC3(timedelta(days=5)))
+        samples = dataset.set_task(ReadmissionPredictionMIMIC3())
 
         visit_ids = [int(s["visit_id"]) for s in samples]
 
@@ -116,11 +139,29 @@ class TestReadmissionPredictionMIMIC3(unittest.TestCase):
         admission3 = self.mock.add_admission(patient, admittime="2020-01-01 00:00:00", dischtime="2020-01-01 12:00:00")
         dataset = self.mock.create()
 
-        samples = dataset.set_task(ReadmissionPredictionMIMIC3(timedelta(days=5)))
+        task = ReadmissionPredictionMIMIC3()
+        samples = dataset.set_task(task)
+
+        self.assertTrue(task.exclude_minors)
 
         visit_ids = [int(s["visit_id"]) for s in samples]
 
         self.assertNotIn(admission1, visit_ids)
+        self.assertIn   (admission2, visit_ids)
+        self.assertNotIn(admission3, visit_ids) # Patient's last admission should not be included
+
+    def test_exclude_minors_flag(self):
+        patient = self.mock.add_patient(dob="2000-01-01 00:00:00")
+        admission1 = self.mock.add_admission(patient, admittime="2017-12-31 23:59:59", dischtime="2018-01-01 00:00:00") # Admitted 1 second before turning 18
+        admission2 = self.mock.add_admission(patient, admittime="2018-01-01 00:00:00", dischtime="2018-01-01 12:00:00") # Admitted at exactly 18
+        admission3 = self.mock.add_admission(patient, admittime="2020-01-01 00:00:00", dischtime="2020-01-01 12:00:00")
+        dataset = self.mock.create()
+
+        samples = dataset.set_task(ReadmissionPredictionMIMIC3(exclude_minors=False))
+
+        visit_ids = [int(s["visit_id"]) for s in samples]
+
+        self.assertIn   (admission1, visit_ids)
         self.assertIn   (admission2, visit_ids)
         self.assertNotIn(admission3, visit_ids) # Patient's last admission should not be included
 

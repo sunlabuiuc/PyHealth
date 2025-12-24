@@ -6,17 +6,13 @@ from pyhealth.trainer import Trainer
 
 # STEP 1: load data
 base_dataset = MIMIC3Dataset(
-    root="/srv/local/data/physionet.org/files/mimiciii/1.4",
+    root="https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III",
     tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
-    code_mapping={"ICD9CM": "CCSCM", "ICD9PROC": "CCSPROC", "NDC": "ATC"},
-    dev=False,
-    refresh_cache=True,
 )
-base_dataset.stat()
+base_dataset.stats()
 
 # STEP 2: set task
-sample_dataset = base_dataset.set_task(ReadmissionPredictionMIMIC3())
-sample_dataset.stat()
+sample_dataset = base_dataset.set_task(ReadmissionPredictionMIMIC3(exclude_minors=False)) # Must include minors to get any readmission samples on the synthetic dataset
 
 train_dataset, val_dataset, test_dataset = split_by_patient(
     sample_dataset, [0.8, 0.1, 0.1]
@@ -28,9 +24,6 @@ test_dataloader = get_dataloader(test_dataset, batch_size=32, shuffle=False)
 # STEP 3: define model
 model = RNN(
     dataset=sample_dataset,
-    feature_keys=["conditions", "procedures", "drugs"],
-    label_key="label",
-    mode="binary",
 )
 
 # STEP 4: define trainer
@@ -38,7 +31,7 @@ trainer = Trainer(model=model)
 trainer.train(
     train_dataloader=train_dataloader,
     val_dataloader=val_dataloader,
-    epochs=50,
+    epochs=1,
     monitor="roc_auc",
 )
 

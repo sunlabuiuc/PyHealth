@@ -8,21 +8,23 @@ from pyhealth.tasks import BaseTask
 
 class ReadmissionPredictionMIMIC3(BaseTask):
     #todo: add doc strings
-    #todo: replace examples
-    #todo: review other similar tasks for best practices and common patterns
-    #todo: add short-circuits to loop and test sample generation speed difference
-    #todo: review my chestxray14 PR to make sure I updated all the right places
     task_name: str = "ReadmissionPredictionMIMIC3"
     input_schema: Dict[str, str] = {"conditions": "sequence", "procedures": "sequence", "drugs": "sequence"}
     output_schema: Dict[str, str] = {"readmission": "binary"}
 
-    def __init__(self, window: timedelta=timedelta(days=15)) -> None:
+    def __init__(self, window: timedelta=timedelta(days=15), exclude_minors: bool=True) -> None:
         self.window = window
+        self.exclude_minors = exclude_minors
 
     def __call__(self, patient: Patient) -> List[Dict]:
         patients: List[Event] = patient.get_events(event_type="patients")
         assert len(patients) == 1
-        dob = datetime.strptime(patients[0].dob, "%Y-%m-%d %H:%M:%S")
+
+        if self.exclude_minors:
+            try:
+                dob = datetime.strptime(patients[0].dob, "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                dob = datetime.strptime(patients[0].dob, "%Y-%m-%d")
 
         admissions: List[Event] = patient.get_events(event_type="admissions")
         if len(admissions) < 2:
@@ -30,24 +32,34 @@ class ReadmissionPredictionMIMIC3(BaseTask):
 
         samples = []
         for i in range(len(admissions) - 1): # Skip the last admission since we need a "next" admission
-            age = admissions[i].timestamp.year - dob.year
-            age = age-1 if ((admissions[i].timestamp.month, admissions[i].timestamp.day) < (dob.month, dob.day)) else age
-            if age < 18:
-                continue
+            if self.exclude_minors:
+                age = admissions[i].timestamp.year - dob.year
+                age = age-1 if ((admissions[i].timestamp.month, admissions[i].timestamp.day) < (dob.month, dob.day)) else age
+                if age < 18:
+                    continue
 
             filter = ("hadm_id", "==", admissions[i].hadm_id)
+
             diagnoses = patient.get_events(event_type="diagnoses_icd", filters=[filter])
-            procedures = patient.get_events(event_type="procedures_icd", filters=[filter])
-            prescriptions = patient.get_events(event_type="prescriptions", filters=[filter])
-
             diagnoses = [event.icd9_code for event in diagnoses]
-            procedures = [event.icd9_code for event in procedures]
-            prescriptions = [event.drug for event in prescriptions]
-
-            if len(diagnoses) * len(procedures) * len(prescriptions) == 0:
+            if len(diagnoses) == 0:
                 continue
 
-            discharge_time = datetime.strptime(admissions[i].dischtime, "%Y-%m-%d %H:%M:%S")
+            procedures = patient.get_events(event_type="procedures_icd", filters=[filter])
+            procedures = [event.icd9_code for event in procedures]
+            if len(procedures) == 0:
+                continue
+
+            prescriptions = patient.get_events(event_type="prescriptions", filters=[filter])
+            prescriptions = [event.drug for event in prescriptions]
+            if len(prescriptions) == 0:
+                continue
+
+            try:
+                discharge_time = datetime.strptime(admissions[i].dischtime, "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                discharge_time = datetime.strptime(admissions[i].dischtime, "%Y-%m-%d")
+
             readmission = int((admissions[i + 1].timestamp - discharge_time) < self.window)
 
             samples.append(
