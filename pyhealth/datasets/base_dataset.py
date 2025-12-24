@@ -427,43 +427,43 @@ class BaseDataset(ABC):
         Returns:
             Path: The path to the cached event dataframe.
         """
-        if not multiprocessing.current_process().name == "MainProcess":
-            logger.warning(
-                "global_event_df property accessed from a non-main process. This may lead to unexpected behavior.\n"
-                + "Consider use __name__ == '__main__' guard when using multiprocessing."
-            )
-            return None  # type: ignore
+        self._main_guard(type(self).global_event_df.fget.__name__) # type: ignore
 
         if self._global_event_df is None:
             ret_path = self.cache_dir / "global_event_df.parquet"
             if not ret_path.exists():
-                # Use cache_dir for Dask's scratch space to avoid filling up /tmp or home directory
-                dask_scratch_dir = self.cache_dir / "dask_scratch"
-                dask_scratch_dir.mkdir(parents=True, exist_ok=True)
+                try:
+                    with DaskCluster(
+                        n_workers=self.num_workers,
+                        threads_per_worker=1,
+                        processes=not in_notebook(),
+                        # Use cache_dir for Dask's scratch space to avoid filling up /tmp or home directory
+                        local_directory=str(self.create_tmpdir()),
+                    ) as cluster:
+                        with DaskClient(cluster) as client:
+                            df: dd.DataFrame = self.load_data()
+                            if self.dev:
+                                logger.info("Dev mode enabled: limiting to 1000 patients")
+                                patients = df["patient_id"].unique().head(1000).tolist()
+                                filter = df["patient_id"].isin(patients)
+                                df = df[filter]
 
-                with DaskCluster(
-                    n_workers=self.num_workers,
-                    threads_per_worker=1,
-                    processes=not in_notebook(),
-                    local_directory=str(dask_scratch_dir),
-                ) as cluster:
-                    with DaskClient(cluster) as client:
-                        df: dd.DataFrame = self.load_data()
-                        if self.dev:
-                            logger.info("Dev mode enabled: limiting to 1000 patients")
-                            patients = df["patient_id"].unique().head(1000).tolist()
-                            filter = df["patient_id"].isin(patients)
-                            df = df[filter]
-
-                        logger.info(f"Caching event dataframe to {ret_path}...")
-                        collection = df.sort_values("patient_id").to_parquet(
-                            ret_path,
-                            write_index=False,
-                            compute=False,
-                        )
-                        handle = client.compute(collection)
-                        dask_progress(handle)
-                        handle.result()  # type: ignore
+                            logger.info(f"Caching event dataframe to {ret_path}...")
+                            collection = df.sort_values("patient_id").to_parquet(
+                                ret_path,
+                                write_index=False,
+                                compute=False,
+                            )
+                            handle = client.compute(collection)
+                            dask_progress(handle)
+                            handle.result()  # type: ignore
+                except Exception as e:
+                    if ret_path.exists():
+                        logger.error(f"Error during caching, removing incomplete file {ret_path}")
+                        ret_path.unlink()
+                    raise e
+                finally:
+                    self.clean_tmpdir()
             self._global_event_df = ret_path
 
         return pl.scan_parquet(
