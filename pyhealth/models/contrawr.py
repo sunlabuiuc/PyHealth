@@ -173,7 +173,7 @@ class ContraWR(BaseModel):
         self.fc = nn.Linear(emb_size, output_size)
 
     def _determine_input_channels_length(self) -> int:
-        for sample in self.dataset.samples:
+        for sample in self.dataset:
             if self.feature_keys[0] not in sample:
                 continue
 
