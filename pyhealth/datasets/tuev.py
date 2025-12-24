@@ -124,17 +124,11 @@ class TUEVDataset(BaseDataset):
 
                     if split == "train":
                         parts = stem.split("_")
-                        if len(parts) >= 2:
-                            train_index = parts[0]
-                            record_id = parts[-1]
-                        else:
-                            train_index = stem
-                            record_id = stem
+                        record_id = parts[-1]
 
                         train_rows.append(
                             {
                                 "patient_id": subject_dir.name,
-                                "train_index": train_index,
                                 "record_id": record_id,
                                 "signal_file": str(edf_path),
                             }
@@ -143,14 +137,12 @@ class TUEVDataset(BaseDataset):
                     else:
                         parts = stem.split("_")
                         label = parts[0]
-                        eval_index = parts[1]
                         segment_id = "_".join(parts[2:])
 
                         eval_rows.append(
                             {
                                 "patient_id": subject_dir.name,
                                 "label": label,
-                                "eval_index": eval_index,
                                 "segment_id": segment_id,
                                 "signal_file": str(edf_path),
                             }
@@ -162,7 +154,7 @@ class TUEVDataset(BaseDataset):
         if train_rows:
             train_df = pd.DataFrame(train_rows)
             train_df.sort_values(
-                ["patient_id", "train_index", "record_id"], inplace=True, na_position="last"
+                ["patient_id", "record_id"], inplace=True, na_position="last"
             )
             train_df.reset_index(drop=True, inplace=True)
             train_csv = root / "tuev-train-pyhealth.csv"
@@ -173,7 +165,7 @@ class TUEVDataset(BaseDataset):
         if eval_rows:
             eval_df = pd.DataFrame(eval_rows)
             eval_df.sort_values(
-                ["patient_id", "label", "eval_index", "segment_id"],
+                ["patient_id", "segment_id", "label"],
                 inplace=True,
                 na_position="last",
             )

@@ -5,7 +5,6 @@ tables:
     patient_id: "patient_id"
     timestamp: null
     attributes:
-    - "train_index"
     - "record_id"
     - "signal_file"
   eval:
@@ -13,7 +12,6 @@ tables:
     patient_id: "patient_id"
     timestamp: null
     attributes:
-    - "label"
-    - "eval_index"
     - "segment_id"
+    - "label"
     - "signal_file"
