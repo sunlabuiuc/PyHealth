@@ -1,7 +1,7 @@
 # Description: DKA (Diabetic Ketoacidosis) prediction tasks for MIMIC-IV dataset
 
 import math
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, ClassVar, Dict, List, Optional, Set, Tuple
 
 import polars as pl
@@ -13,9 +13,8 @@ class DKAPredictionMIMIC4(BaseTask):
     """Task for predicting Diabetic Ketoacidosis (DKA) in the general patient population.
 
     This task creates PATIENT-LEVEL samples from ALL patients in the dataset,
-    predicting whether they have ever been diagnosed with DKA. This provides
-    a much larger patient pool with more negative samples compared to T1DM-specific
-    prediction.
+    predicting whether they will develop DKA. Features are collected from
+    admissions BEFORE the first DKA event to prevent data leakage.
 
     Target Population:
         - ALL patients in the dataset (no filtering)
@@ -24,6 +23,13 @@ class DKAPredictionMIMIC4(BaseTask):
     Label Definition:
         - Positive (1): Patient has any DKA diagnosis code (ICD-9 or ICD-10)
         - Negative (0): Patient has no DKA diagnosis codes
+
+    Data Leakage Prevention:
+        - Admissions are sorted chronologically
+        - For DKA-positive patients: Only data from admissions BEFORE the
+          first DKA admission is included (no data from DKA admission or after)
+        - For DKA-negative patients: All admissions are included
+        - Patients whose first admission has DKA are excluded (no pre-DKA data)
 
     Features:
         - icd_codes: Combined diagnosis + procedure ICD codes (stagenet format)
@@ -71,9 +77,10 @@ class DKAPredictionMIMIC4(BaseTask):
         "Calcium", "Magnesium", "Anion Gap", "Osmolality", "Phosphate",
     ]
 
-    ALL_LAB_ITEMIDS: ClassVar[List[str]] = sorted(
-        {item for items in LAB_CATEGORIES.values() for item in items}
-    )
+    # Flat list of all lab item IDs for filtering
+    LABITEMS: ClassVar[List[str]] = [
+        item for items in LAB_CATEGORIES.values() for item in items
+    ]
 
     def __init__(self, padding: int = 0):
         """Initialize task with optional padding.
@@ -88,225 +95,180 @@ class DKAPredictionMIMIC4(BaseTask):
         }
         self.output_schema: Dict[str, str] = {"label": "binary"}
 
-    @staticmethod
-    def _normalize_icd(code: Optional[str]) -> str:
-        """Normalize ICD code by removing dots and standardizing format."""
-        if code is None:
-            return ""
-        return code.replace(".", "").strip().upper()
-
-    def _is_dka_code(self, code: Optional[str], version: Optional[object]) -> bool:
+    def _is_dka_code(self, code: str, version: Any) -> bool:
         """Check if an ICD code represents Diabetic Ketoacidosis."""
-        normalized = self._normalize_icd(code)
-        if not normalized:
+        if not code:
             return False
-
+        normalized = code.replace(".", "").strip().upper()
         version_str = str(version) if version is not None else ""
 
         if version_str == "10":
-            return any(normalized.startswith(prefix) for prefix in self.DKA_ICD10_PREFIXES)
+            return any(normalized.startswith(p) for p in self.DKA_ICD10_PREFIXES)
         if version_str == "9":
             return normalized in self.DKA_ICD9_CODES
-
         return False
 
-    @staticmethod
-    def _safe_parse_datetime(value: Optional[object]) -> Optional[datetime]:
-        """Safely parse a datetime value from various formats."""
-        if value is None:
-            return None
-        if isinstance(value, datetime):
-            return value
-        text = str(value)
-        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
-            try:
-                return datetime.strptime(text, fmt)
-            except ValueError:
-                continue
-        try:
-            return datetime.fromisoformat(text)
-        except ValueError:
-            return None
+    def _build_lab_vector(self, lab_df: pl.DataFrame) -> List[float]:
+        """Build a 10D lab feature vector from lab events DataFrame."""
+        if lab_df.height == 0:
+            return [math.nan] * len(self.LAB_CATEGORY_ORDER)
 
-    @staticmethod
-    def _deduplicate_preserve_order(values: List[str]) -> List[str]:
-        """Remove duplicates from a list while preserving order."""
-        seen: Set[str] = set()
-        ordered: List[str] = []
-        for value in values:
-            if value not in seen:
-                seen.add(value)
-                ordered.append(value)
-        return ordered
-
-    def _build_lab_vector(self, lab_df: Optional[pl.DataFrame]) -> List[float]:
-        """Build a lab feature vector from lab events DataFrame."""
-        feature_dim = len(self.LAB_CATEGORY_ORDER)
-
-        if lab_df is None or lab_df.height == 0:
-            return [math.nan] * feature_dim
-
+        # Filter to relevant lab items and cast
         filtered = (
             lab_df.with_columns([
                 pl.col("labevents/itemid").cast(pl.Utf8),
                 pl.col("labevents/valuenum").cast(pl.Float64),
             ])
-            .filter(pl.col("labevents/itemid").is_in(self.ALL_LAB_ITEMIDS))
+            .filter(pl.col("labevents/itemid").is_in(self.LABITEMS))
             .filter(pl.col("labevents/valuenum").is_not_null())
         )
 
         if filtered.height == 0:
-            return [math.nan] * feature_dim
+            return [math.nan] * len(self.LAB_CATEGORY_ORDER)
 
+        # Build vector with one value per category (mean of observed values)
         vector: List[float] = []
         for category in self.LAB_CATEGORY_ORDER:
             itemids = self.LAB_CATEGORIES[category]
             cat_df = filtered.filter(pl.col("labevents/itemid").is_in(itemids))
-            if cat_df.height == 0:
-                vector.append(math.nan)
-            else:
+            if cat_df.height > 0:
                 values = cat_df["labevents/valuenum"].drop_nulls()
                 vector.append(float(values.mean()) if len(values) > 0 else math.nan)
+            else:
+                vector.append(math.nan)
         return vector
 
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
         """Process a patient to create DKA prediction samples.
 
-        Creates ONE sample per patient. Labels based on whether the patient
-        has ANY DKA diagnosis code in their history.
+        Iterates through sorted admissions, collecting features until DKA is found.
+        Label is based on whether DKA occurs in any future admission.
 
         Args:
             patient: Patient object with get_events method.
 
         Returns:
-            List with single sample containing patient_id, ICD codes, labs, and label.
-            Returns empty list if patient has no admissions.
+            List with single sample, or empty list if insufficient data.
         """
-        # Get admissions
+        # Get admissions and sort by timestamp
         admissions = patient.get_events(event_type="admissions")
         if not admissions:
             return []
 
-        # Get diagnosis events and check for DKA
-        diagnosis_events = patient.get_events(event_type="diagnoses_icd")
+        # Sort admissions chronologically by timestamp
+        admissions = sorted(admissions, key=lambda x: x.timestamp)
+
+        # Initialize aggregated data structures
+        all_icd_codes: List[List[str]] = []
+        all_icd_times: List[float] = []
+        all_lab_values: List[List[float]] = []
+        all_lab_times: List[float] = []
+
+        previous_admission_time: Optional[datetime] = None
         has_dka = False
 
-        if diagnosis_events:
-            for event in diagnosis_events:
-                version = getattr(event, "icd_version", None)
-                code = getattr(event, "icd_code", None)
+        # Iterate through admissions in chronological order
+        for admission in admissions:
+            # Parse admission times
+            try:
+                admission_time = admission.timestamp
+                dischtime_str = getattr(admission, "dischtime", None)
+                if dischtime_str:
+                    admission_dischtime = datetime.strptime(
+                        dischtime_str, "%Y-%m-%d %H:%M:%S"
+                    )
+                else:
+                    admission_dischtime = None
+            except (ValueError, AttributeError):
+                continue
+
+            # Get diagnoses for this admission
+            diagnoses = patient.get_events(
+                event_type="diagnoses_icd",
+                filters=[("hadm_id", "==", admission.hadm_id)],
+            )
+
+            # Iterate through diagnoses - check for DKA and collect codes
+            visit_codes: List[str] = []
+            seen: Set[str] = set()
+
+            for diag in diagnoses:
+                code = getattr(diag, "icd_code", None)
+                version = getattr(diag, "icd_version", None)
+                if not code:
+                    continue
+
+                # Check for DKA - if found, stop everything
                 if self._is_dka_code(code, version):
                     has_dka = True
                     break
 
-        # Build admissions info
-        admissions_info: Dict[str, Dict[str, Optional[datetime]]] = {}
-        for admission in admissions:
-            hadm_id = getattr(admission, "hadm_id", None)
-            admit_time = self._safe_parse_datetime(getattr(admission, "timestamp", None))
-            discharge_time = self._safe_parse_datetime(getattr(admission, "dischtime", None))
-            if hadm_id is not None and admit_time is not None:
-                admissions_info[str(hadm_id)] = {
-                    "admit": admit_time,
-                    "discharge": discharge_time,
-                }
+                # Add diagnosis code if not seen
+                normalized = f"D_{code.replace('.', '').upper()}"
+                if normalized not in seen:
+                    seen.add(normalized)
+                    visit_codes.append(normalized)
 
-        if not admissions_info:
+            # If DKA found, don't append this visit's data and stop
+            if has_dka:
+                break
+
+            # Get procedures for this admission
+            procedures = patient.get_events(
+                event_type="procedures_icd",
+                filters=[("hadm_id", "==", admission.hadm_id)],
+            )
+
+            for proc in procedures:
+                code = getattr(proc, "icd_code", None)
+                if not code:
+                    continue
+                normalized = f"P_{code.replace('.', '').upper()}"
+                if normalized not in seen:
+                    seen.add(normalized)
+                    visit_codes.append(normalized)
+
+            # Calculate time from previous admission (hours)
+            if previous_admission_time is None:
+                time_from_previous = 0.0
+            else:
+                time_from_previous = (
+                    admission_time - previous_admission_time
+                ).total_seconds() / 3600.0
+            previous_admission_time = admission_time
+
+            # Append this visit's codes
+            if visit_codes:
+                all_icd_codes.append(visit_codes)
+                all_icd_times.append(time_from_previous)
+
+            # Get lab events for this admission using hadm_id
+            lab_df = patient.get_events(
+                event_type="labevents",
+                filters=[("hadm_id", "==", admission.hadm_id)],
+                return_df=True,
+            )
+
+            if lab_df.height > 0:
+                all_lab_values.append(self._build_lab_vector(lab_df))
+                all_lab_times.append(time_from_previous)
+
+        # Skip if no pre-DKA data (DKA on first visit or no valid admissions)
+        if not all_icd_codes:
             return []
 
-        # Build ICD code sequences per admission
-        admission_codes: Dict[str, List[str]] = {
-            hadm_id: [] for hadm_id in admissions_info
-        }
+        # Ensure we have lab data (use NaN vector if missing)
+        if not all_lab_values:
+            all_lab_values = [[math.nan] * len(self.LAB_CATEGORY_ORDER)]
+            all_lab_times = [0.0]
 
-        # Add diagnosis codes
-        if diagnosis_events:
-            for event in diagnosis_events:
-                code = getattr(event, "icd_code", None)
-                normalized_code = self._normalize_icd(code)
-                if not normalized_code:
-                    continue
-                hadm_id = getattr(event, "hadm_id", None)
-                admission_key = (
-                    str(hadm_id) if hadm_id is not None
-                    else list(admissions_info.keys())[0]
-                )
-                if admission_key in admission_codes:
-                    admission_codes[admission_key].append(f"D_{normalized_code}")
-
-        # Add procedure codes
-        procedure_events = patient.get_events(event_type="procedures_icd")
-        if procedure_events:
-            for event in procedure_events:
-                code = getattr(event, "icd_code", None)
-                normalized_code = self._normalize_icd(code)
-                if not normalized_code:
-                    continue
-                hadm_id = getattr(event, "hadm_id", None)
-                admission_key = (
-                    str(hadm_id) if hadm_id is not None
-                    else list(admissions_info.keys())[0]
-                )
-                if admission_key in admission_codes:
-                    admission_codes[admission_key].append(f"P_{normalized_code}")
-
-        # Sort admissions chronologically
-        sorted_admissions = sorted(
-            admissions_info.items(),
-            key=lambda item: item[1]["admit"] or datetime.min,
-        )
-
-        # Build sequences
-        icd_sequences: List[List[str]] = []
-        icd_times: List[float] = []
-        lab_sequences: List[List[float]] = []
-        lab_times: List[float] = []
-        previous_admit: Optional[datetime] = None
-
-        for hadm_id, info in sorted_admissions:
-            admit_time = info["admit"] or datetime.now()
-
-            codes = self._deduplicate_preserve_order(admission_codes.get(hadm_id, []))
-            if not codes:
-                codes = ["UNKNOWN"]
-
-            time_gap = (
-                0.0 if previous_admit is None
-                else (admit_time - previous_admit).total_seconds() / 3600.0
-            )
-            previous_admit = admit_time
-
-            icd_sequences.append(codes)
-            icd_times.append(time_gap)
-
-            try:
-                lab_df = patient.get_events(
-                    event_type="labevents",
-                    start=admit_time,
-                    end=info.get("discharge"),
-                    return_df=True,
-                )
-            except Exception:
-                lab_df = None
-
-            lab_sequences.append(self._build_lab_vector(lab_df))
-            lab_times.append(time_gap)
-
-        if not icd_sequences:
-            icd_sequences = [["UNKNOWN"]]
-            icd_times = [0.0]
-            lab_sequences = [[math.nan] * len(self.LAB_CATEGORY_ORDER)]
-            lab_times = [0.0]
-
-        sample: Dict[str, Any] = {
+        return [{
             "patient_id": patient.patient_id,
             "record_id": patient.patient_id,
-            "icd_codes": (icd_times, icd_sequences),
-            "labs": (lab_times, lab_sequences),
+            "icd_codes": (all_icd_times, all_icd_codes),
+            "labs": (all_lab_times, all_lab_values),
             "label": int(has_dka),
-        }
-
-        return [sample]
+        }]
 
 
 class T1DDKAPredictionMIMIC4(BaseTask):
@@ -314,8 +276,8 @@ class T1DDKAPredictionMIMIC4(BaseTask):
 
     This task creates PATIENT-LEVEL samples by identifying patients with Type 1
     Diabetes Mellitus (T1DM) and predicting whether they will develop DKA within
-    a specified time window. The task uses diagnosis codes, procedure codes, and
-    lab results across all admissions in StageNet format for temporal modeling.
+    a specified time window. Features are collected from admissions BEFORE the
+    first DKA event to prevent data leakage.
 
     Target Population:
         - Patients with Type 1 Diabetes (ICD-9 or ICD-10 codes)
@@ -325,33 +287,21 @@ class T1DDKAPredictionMIMIC4(BaseTask):
         - Positive (1): Patient has DKA code within 90 days of T1DM diagnosis
         - Negative (0): Patient has T1DM but no DKA within the window
 
-    Time Calculation:
-        - ICD codes: Hours from previous admission (0 for first visit)
-        - Labs: Hours from admission start (within-visit measurements)
+    Data Leakage Prevention:
+        - Admissions are sorted chronologically
+        - For DKA-positive patients: Only data from admissions BEFORE the
+          first DKA admission is included (no data from DKA admission or after)
+        - For DKA-negative patients: All admissions are included
+        - Patients whose first admission has DKA are excluded (no pre-DKA data)
 
     Features:
         - icd_codes: Combined diagnosis + procedure ICD codes (stagenet format)
         - labs: 10-dimensional vectors with lab categories
 
-    Lab Processing:
-        - 10-dimensional vectors (same as mortality prediction task)
-        - Categories: Sodium, Potassium, Chloride, Bicarbonate, Glucose,
-                      Calcium, Magnesium, Anion Gap, Osmolality, Phosphate
-        - Multiple itemids per category → take mean of observed values
-        - Missing categories → NaN in vector
-
     Args:
         dka_window_days: Number of days to consider for DKA occurrence after
             T1DM diagnosis. Default: 90.
         padding: Additional padding for StageNet processor. Default: 0.
-
-    Attributes:
-        task_name (str): The name of the task.
-        input_schema (Dict[str, Tuple[str, Dict]]): The schema for input data:
-            - icd_codes: Combined diagnosis + procedure ICD codes (stagenet format)
-            - labs: Lab results (stagenet_tensor, 10D vectors per timestamp)
-        output_schema (Dict[str, str]): The schema for output data:
-            - label: Binary indicator (1 if DKA within window, 0 otherwise)
 
     Example:
         >>> from pyhealth.datasets import MIMIC4Dataset
@@ -384,8 +334,7 @@ class T1DDKAPredictionMIMIC4(BaseTask):
     # ICD-10 prefix for DKA (E10.1x codes)
     DKA_ICD10_PREFIX: ClassVar[str] = "E101"
 
-    # Lab categories from mortality_prediction_stagenet_mimic4.py (verified item IDs)
-    # Each category maps to ONE dimension in the output vector (10 total)
+    # Lab categories from mortality_prediction_stagenet_mimic4.py
     LAB_CATEGORIES: ClassVar[Dict[str, List[str]]] = {
         "Sodium": ["50824", "52455", "50983", "52623"],
         "Potassium": ["50822", "52452", "50971", "52610"],
@@ -399,432 +348,258 @@ class T1DDKAPredictionMIMIC4(BaseTask):
         "Phosphate": ["50970"],
     }
 
-    # Ordered list of category names (defines vector dimension order)
     LAB_CATEGORY_ORDER: ClassVar[List[str]] = [
-        "Sodium",
-        "Potassium",
-        "Chloride",
-        "Bicarbonate",
-        "Glucose",
-        "Calcium",
-        "Magnesium",
-        "Anion Gap",
-        "Osmolality",
-        "Phosphate",
+        "Sodium", "Potassium", "Chloride", "Bicarbonate", "Glucose",
+        "Calcium", "Magnesium", "Anion Gap", "Osmolality", "Phosphate",
     ]
 
-    # Flat list of all lab item IDs for filtering
-    ALL_LAB_ITEMIDS: ClassVar[List[str]] = sorted(
-        {item for items in LAB_CATEGORIES.values() for item in items}
-    )
+    LABITEMS: ClassVar[List[str]] = [
+        item for items in LAB_CATEGORIES.values() for item in items
+    ]
 
     def __init__(self, dka_window_days: int = 90, padding: int = 0):
-        """Initialize task with configurable DKA window and padding.
-
-        Args:
-            dka_window_days: Days after T1DM diagnosis to check for DKA. Default: 90.
-            padding: Additional padding for nested sequences. Default: 0.
-        """
+        """Initialize task with configurable DKA window and padding."""
         self.dka_window_days = dka_window_days
-        self.dka_window = timedelta(days=dka_window_days)
         self.padding = padding
-
-        # Use tuple format to pass kwargs to processor
         self.input_schema: Dict[str, Tuple[str, Dict[str, Any]]] = {
             "icd_codes": ("stagenet", {"padding": padding}),
             "labs": ("stagenet_tensor", {}),
         }
         self.output_schema: Dict[str, str] = {"label": "binary"}
 
-    @staticmethod
-    def _normalize_icd(code: Optional[str]) -> str:
-        """Normalize ICD code by removing dots and standardizing format.
-
-        Args:
-            code: Raw ICD code string, may contain dots and varying case.
-
-        Returns:
-            Normalized uppercase code without dots, or empty string if None.
-        """
-        if code is None:
-            return ""
-        return code.replace(".", "").strip().upper()
-
-    def _is_t1dm_code(self, code: Optional[str], version: Optional[object]) -> bool:
-        """Check if an ICD code represents Type 1 Diabetes Mellitus.
-
-        Args:
-            code: ICD diagnosis code.
-            version: ICD version (9 or 10).
-
-        Returns:
-            True if code represents T1DM, False otherwise.
-        """
-        normalized = self._normalize_icd(code)
-        if not normalized:
+    def _is_t1dm_code(self, code: str, version: Any) -> bool:
+        """Check if an ICD code represents Type 1 Diabetes Mellitus."""
+        if not code:
             return False
-
+        normalized = code.replace(".", "").strip().upper()
         version_str = str(version) if version is not None else ""
 
         if version_str == "10":
             return normalized.startswith(self.T1DM_ICD10_PREFIX)
         if version_str == "9":
             return normalized in self.T1DM_ICD9_CODES
-
         return False
 
-    def _is_dka_code(self, code: Optional[str], version: Optional[object]) -> bool:
-        """Check if an ICD code represents Diabetic Ketoacidosis.
-
-        Args:
-            code: ICD diagnosis code.
-            version: ICD version (9 or 10).
-
-        Returns:
-            True if code represents DKA, False otherwise.
-        """
-        normalized = self._normalize_icd(code)
-        if not normalized:
+    def _is_dka_code(self, code: str, version: Any) -> bool:
+        """Check if an ICD code represents Diabetic Ketoacidosis."""
+        if not code:
             return False
-
+        normalized = code.replace(".", "").strip().upper()
         version_str = str(version) if version is not None else ""
 
         if version_str == "10":
             return normalized.startswith(self.DKA_ICD10_PREFIX)
         if version_str == "9":
             return normalized in self.DKA_ICD9_CODES
-
         return False
 
-    @staticmethod
-    def _safe_parse_datetime(value: Optional[object]) -> Optional[datetime]:
-        """Safely parse a datetime value from various formats.
+    def _build_lab_vector(self, lab_df: pl.DataFrame) -> List[float]:
+        """Build a 10D lab feature vector from lab events DataFrame."""
+        if lab_df.height == 0:
+            return [math.nan] * len(self.LAB_CATEGORY_ORDER)
 
-        Args:
-            value: Datetime string or datetime object.
+        filtered = (
+            lab_df.with_columns([
+                pl.col("labevents/itemid").cast(pl.Utf8),
+                pl.col("labevents/valuenum").cast(pl.Float64),
+            ])
+            .filter(pl.col("labevents/itemid").is_in(self.LABITEMS))
+            .filter(pl.col("labevents/valuenum").is_not_null())
+        )
 
-        Returns:
-            Parsed datetime object, or None if parsing fails.
-        """
-        if value is None:
-            return None
-        if isinstance(value, datetime):
-            return value
+        if filtered.height == 0:
+            return [math.nan] * len(self.LAB_CATEGORY_ORDER)
 
-        text = str(value)
-        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
-            try:
-                return datetime.strptime(text, fmt)
-            except ValueError:
-                continue
-        try:
-            return datetime.fromisoformat(text)
-        except ValueError:
-            return None
-
-    @staticmethod
-    def _deduplicate_preserve_order(values: List[str]) -> List[str]:
-        """Remove duplicates from a list while preserving order.
-
-        Args:
-            values: List of strings with potential duplicates.
-
-        Returns:
-            Deduplicated list maintaining original order.
-        """
-        seen: Set[str] = set()
-        ordered: List[str] = []
-        for value in values:
-            if value not in seen:
-                seen.add(value)
-                ordered.append(value)
-        return ordered
+        vector: List[float] = []
+        for category in self.LAB_CATEGORY_ORDER:
+            itemids = self.LAB_CATEGORIES[category]
+            cat_df = filtered.filter(pl.col("labevents/itemid").is_in(itemids))
+            if cat_df.height > 0:
+                values = cat_df["labevents/valuenum"].drop_nulls()
+                vector.append(float(values.mean()) if len(values) > 0 else math.nan)
+            else:
+                vector.append(math.nan)
+        return vector
 
     def pre_filter(self, df: pl.LazyFrame) -> pl.LazyFrame:
-        """Filter to keep only patients with Type 1 Diabetes codes.
-
-        This pre-filter reduces the dataset to patients who have at least
-        one T1DM diagnosis code (ICD-9 or ICD-10), improving processing
-        efficiency for the downstream task.
-
-        Args:
-            df: LazyFrame containing patient data with diagnosis codes.
-
-        Returns:
-            Filtered LazyFrame with only T1DM patients.
-        """
-        # Check if we have the diagnosis code column
+        """Filter to keep only patients with Type 1 Diabetes codes."""
         if "diagnoses_icd/icd_code" not in df.collect_schema().names():
-            # Column not present, return unfiltered
             return df
 
-        # Collect to DataFrame for filtering
         collected_df = df.collect()
-
-        # Create masks for T1DM codes
         mask_icd10 = collected_df["diagnoses_icd/icd_code"].str.starts_with(
             self.T1DM_ICD10_PREFIX
         )
         mask_icd9 = collected_df["diagnoses_icd/icd_code"].is_in(
             list(self.T1DM_ICD9_CODES)
         )
-
-        # Get patient IDs with T1DM codes
-        t1dm_mask = mask_icd10 | mask_icd9
-        t1dm_patients = collected_df.filter(t1dm_mask)["patient_id"].unique()
-
-        # Keep only patients with T1DM codes
-        filtered_df = collected_df.filter(
-            collected_df["patient_id"].is_in(t1dm_patients)
-        )
-
-        return filtered_df.lazy()
-
-    def _build_lab_vector(self, lab_df: Optional[pl.DataFrame]) -> List[float]:
-        """Build a lab feature vector from lab events DataFrame.
-
-        Creates a fixed-dimension vector with one value per lab category.
-        Uses mean aggregation when multiple values exist for a category.
-
-        Args:
-            lab_df: DataFrame containing lab events with itemid and valuenum columns.
-
-        Returns:
-            List of floats with length equal to number of lab categories.
-            Missing categories are represented as NaN.
-        """
-        feature_dim = len(self.LAB_CATEGORY_ORDER)
-
-        if lab_df is None or lab_df.height == 0:
-            return [math.nan] * feature_dim
-
-        # Filter and cast columns
-        filtered = (
-            lab_df.with_columns([
-                pl.col("labevents/itemid").cast(pl.Utf8),
-                pl.col("labevents/valuenum").cast(pl.Float64),
-            ])
-            .filter(pl.col("labevents/itemid").is_in(self.ALL_LAB_ITEMIDS))
-            .filter(pl.col("labevents/valuenum").is_not_null())
-        )
-
-        if filtered.height == 0:
-            return [math.nan] * feature_dim
-
-        # Build vector with one value per category
-        vector: List[float] = []
-        for category in self.LAB_CATEGORY_ORDER:
-            itemids = self.LAB_CATEGORIES[category]
-            cat_df = filtered.filter(pl.col("labevents/itemid").is_in(itemids))
-
-            if cat_df.height == 0:
-                vector.append(math.nan)
-            else:
-                values = cat_df["labevents/valuenum"].drop_nulls()
-                if len(values) > 0:
-                    vector.append(float(values.mean()))
-                else:
-                    vector.append(math.nan)
-
-        return vector
+        t1dm_patients = collected_df.filter(mask_icd10 | mask_icd9)["patient_id"].unique()
+        return collected_df.filter(collected_df["patient_id"].is_in(t1dm_patients)).lazy()
 
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
         """Process a patient to create DKA prediction samples.
 
-        Creates ONE sample per patient with T1DM diagnosis. Aggregates all
-        admissions and calculates whether DKA occurred within the specified
-        time window of T1DM diagnosis.
+        First checks if patient has T1DM before processing admissions.
+        Iterates through sorted admissions, collecting features until DKA is found.
+        Label is based on whether DKA occurs within the time window of T1DM diagnosis.
 
         Args:
             patient: Patient object with get_events method.
 
         Returns:
-            List with single sample containing patient_id, combined ICD codes
-            (diagnoses + procedures), lab sequences, and DKA label.
-            Returns empty list if patient does not have T1DM or lacks required data.
+            List with single sample, or empty list if patient lacks T1DM or pre-DKA data.
         """
-        # Get all diagnosis events
-        diagnosis_events = patient.get_events(event_type="diagnoses_icd")
-        if not diagnosis_events:
+        # First check: does this patient have T1DM? (quick scan before expensive ops)
+        all_diagnoses = patient.get_events(event_type="diagnoses_icd")
+        if not all_diagnoses:
             return []
 
-        # Identify T1DM and DKA occurrences with timestamps
         has_t1dm = False
         t1dm_times: List[datetime] = []
-        dka_times: List[datetime] = []
 
-        for event in diagnosis_events:
-            version = getattr(event, "icd_version", None)
-            code = getattr(event, "icd_code", None)
-            event_time = self._safe_parse_datetime(getattr(event, "timestamp", None))
-
+        for diag in all_diagnoses:
+            code = getattr(diag, "icd_code", None)
+            version = getattr(diag, "icd_version", None)
             if self._is_t1dm_code(code, version):
                 has_t1dm = True
-                if event_time is not None:
-                    t1dm_times.append(event_time)
+                diag_time = getattr(diag, "timestamp", None)
+                if diag_time:
+                    t1dm_times.append(diag_time)
 
-            if self._is_dka_code(code, version):
-                if event_time is not None:
-                    dka_times.append(event_time)
-
-        # Skip patients without T1DM diagnosis
+        # Skip patients without T1DM diagnosis (early exit before sorting)
         if not has_t1dm:
             return []
 
-        # Determine DKA label based on temporal relationship
-        has_dka_within_window = False
-
-        if dka_times and t1dm_times:
-            for diagnosis_time in t1dm_times:
-                for dka_time in dka_times:
-                    if diagnosis_time is None or dka_time is None:
-                        continue
-                    delta = abs((dka_time - diagnosis_time).days)
-                    if delta <= self.dka_window_days:
-                        has_dka_within_window = True
-                        break
-                if has_dka_within_window:
-                    break
-
-        # Fallback: if no temporal info, check if patient has any DKA codes
-        if not has_dka_within_window and not t1dm_times:
-            has_dka_within_window = len(dka_times) > 0
-
-        # Get admission information
+        # Get admissions and sort by timestamp
         admissions = patient.get_events(event_type="admissions")
-        admissions_info: Dict[str, Dict[str, Optional[datetime]]] = {}
+        if not admissions:
+            return []
 
-        if admissions:
-            for admission in admissions:
-                hadm_id = getattr(admission, "hadm_id", None)
-                admit_time = self._safe_parse_datetime(
-                    getattr(admission, "timestamp", None)
-                )
-                discharge_time = self._safe_parse_datetime(
-                    getattr(admission, "dischtime", None)
-                )
-                if hadm_id is not None and admit_time is not None:
-                    admissions_info[str(hadm_id)] = {
-                        "admit": admit_time,
-                        "discharge": discharge_time,
-                    }
+        # Sort admissions chronologically by timestamp
+        admissions = sorted(admissions, key=lambda x: x.timestamp)
 
-        # Create dummy admission if none exist
-        if not admissions_info:
-            dummy_hadm_id = f"dummy_{patient.patient_id}"
-            admissions_info[dummy_hadm_id] = {
-                "admit": datetime.now(),
-                "discharge": None,
-            }
+        # Initialize tracking variables
+        all_icd_codes: List[List[str]] = []
+        all_icd_times: List[float] = []
+        all_lab_values: List[List[float]] = []
+        all_lab_times: List[float] = []
 
-        # Build ICD code sequences per admission (diagnoses + procedures)
-        admission_codes: Dict[str, List[str]] = {
-            hadm_id: [] for hadm_id in admissions_info
-        }
+        previous_admission_time: Optional[datetime] = None
+        has_dka = False
+        dka_time: Optional[datetime] = None
 
-        # Add diagnosis codes
-        for event in diagnosis_events:
-            code = getattr(event, "icd_code", None)
-            normalized_code = self._normalize_icd(code)
-            if not normalized_code:
+        # Iterate through admissions in chronological order
+        for admission in admissions:
+            # Parse admission times
+            try:
+                admission_time = admission.timestamp
+                dischtime_str = getattr(admission, "dischtime", None)
+                if dischtime_str:
+                    admission_dischtime = datetime.strptime(
+                        dischtime_str, "%Y-%m-%d %H:%M:%S"
+                    )
+                else:
+                    admission_dischtime = None
+            except (ValueError, AttributeError):
                 continue
 
-            hadm_id = getattr(event, "hadm_id", None)
-            admission_key = (
-                str(hadm_id)
-                if hadm_id is not None
-                else list(admissions_info.keys())[0]
+            # Get diagnoses for this admission
+            diagnoses = patient.get_events(
+                event_type="diagnoses_icd",
+                filters=[("hadm_id", "==", admission.hadm_id)],
             )
 
-            if admission_key in admission_codes:
-                admission_codes[admission_key].append(f"D_{normalized_code}")
+            # Iterate through diagnoses - check for DKA and collect codes
+            visit_codes: List[str] = []
+            seen: Set[str] = set()
 
-        # Add procedure codes
-        procedure_events = patient.get_events(event_type="procedures_icd")
-        if procedure_events:
-            for event in procedure_events:
-                code = getattr(event, "icd_code", None)
-                normalized_code = self._normalize_icd(code)
-                if not normalized_code:
+            for diag in diagnoses:
+                code = getattr(diag, "icd_code", None)
+                version = getattr(diag, "icd_version", None)
+                if not code:
                     continue
 
-                hadm_id = getattr(event, "hadm_id", None)
-                admission_key = (
-                    str(hadm_id)
-                    if hadm_id is not None
-                    else list(admissions_info.keys())[0]
-                )
+                # Check for DKA - if found, record time and stop
+                if self._is_dka_code(code, version):
+                    has_dka = True
+                    dka_time = getattr(diag, "timestamp", admission_time)
+                    break
 
-                if admission_key in admission_codes:
-                    admission_codes[admission_key].append(f"P_{normalized_code}")
+                # Add diagnosis code if not seen
+                normalized = f"D_{code.replace('.', '').upper()}"
+                if normalized not in seen:
+                    seen.add(normalized)
+                    visit_codes.append(normalized)
 
-        # Sort admissions chronologically
-        sorted_admissions = sorted(
-            admissions_info.items(),
-            key=lambda item: item[1]["admit"]
-            if item[1]["admit"] is not None
-            else datetime.min,
-        )
+            # If DKA found, don't append this visit's data and stop
+            if has_dka:
+                break
 
-        # Build sequences
-        icd_sequences: List[List[str]] = []
-        icd_times: List[float] = []
-        lab_sequences: List[List[float]] = []
-        lab_times: List[float] = []
-        previous_admit: Optional[datetime] = None
-
-        for hadm_id, info in sorted_admissions:
-            admit_time = info["admit"]
-            if admit_time is None:
-                admit_time = datetime.now()
-
-            # Get deduplicated codes for this admission
-            codes = self._deduplicate_preserve_order(
-                admission_codes.get(hadm_id, [])
+            # Get procedures for this admission
+            procedures = patient.get_events(
+                event_type="procedures_icd",
+                filters=[("hadm_id", "==", admission.hadm_id)],
             )
-            if not codes:
-                codes = ["UNKNOWN"]
 
-            # Calculate time gap from previous admission (hours)
-            time_gap = (
-                0.0
-                if previous_admit is None
-                else (admit_time - previous_admit).total_seconds() / 3600.0
+            for proc in procedures:
+                code = getattr(proc, "icd_code", None)
+                if not code:
+                    continue
+                normalized = f"P_{code.replace('.', '').upper()}"
+                if normalized not in seen:
+                    seen.add(normalized)
+                    visit_codes.append(normalized)
+
+            # Calculate time from previous admission (hours)
+            if previous_admission_time is None:
+                time_from_previous = 0.0
+            else:
+                time_from_previous = (
+                    admission_time - previous_admission_time
+                ).total_seconds() / 3600.0
+            previous_admission_time = admission_time
+
+            # Append this visit's codes
+            if visit_codes:
+                all_icd_codes.append(visit_codes)
+                all_icd_times.append(time_from_previous)
+
+            # Get lab events for this admission using hadm_id
+            lab_df = patient.get_events(
+                event_type="labevents",
+                filters=[("hadm_id", "==", admission.hadm_id)],
+                return_df=True,
             )
-            previous_admit = admit_time
 
-            icd_sequences.append(codes)
-            icd_times.append(time_gap)
+            if lab_df.height > 0:
+                all_lab_values.append(self._build_lab_vector(lab_df))
+                all_lab_times.append(time_from_previous)
 
-            # Get lab data for this admission
-            try:
-                lab_df = patient.get_events(
-                    event_type="labevents",
-                    start=admit_time,
-                    end=info.get("discharge"),
-                    return_df=True,
-                )
-            except Exception:
-                lab_df = None
+        # Skip if no pre-DKA data
+        if not all_icd_codes:
+            return []
 
-            lab_sequences.append(self._build_lab_vector(lab_df))
-            lab_times.append(time_gap)
+        # Determine label based on temporal relationship
+        has_dka_within_window = False
+        if has_dka and t1dm_times and dka_time:
+            for t1dm_time in t1dm_times:
+                delta = abs((dka_time - t1dm_time).days)
+                if delta <= self.dka_window_days:
+                    has_dka_within_window = True
+                    break
+        elif has_dka and not t1dm_times:
+            # Fallback: if no temporal info, use has_dka
+            has_dka_within_window = True
 
-        # Ensure we have at least one sequence entry
-        if not icd_sequences:
-            icd_sequences = [["UNKNOWN"]]
-            icd_times = [0.0]
-            lab_sequences = [[math.nan] * len(self.LAB_CATEGORY_ORDER)]
-            lab_times = [0.0]
+        # Ensure we have lab data
+        if not all_lab_values:
+            all_lab_values = [[math.nan] * len(self.LAB_CATEGORY_ORDER)]
+            all_lab_times = [0.0]
 
-        # Create sample in StageNet format
-        sample: Dict[str, Any] = {
+        return [{
             "patient_id": patient.patient_id,
             "record_id": patient.patient_id,
-            "icd_codes": (icd_times, icd_sequences),
-            "labs": (lab_times, lab_sequences),
+            "icd_codes": (all_icd_times, all_icd_codes),
+            "labs": (all_lab_times, all_lab_values),
             "label": int(has_dka_within_window),
-        }
-
-        return [sample]
-
+        }]
