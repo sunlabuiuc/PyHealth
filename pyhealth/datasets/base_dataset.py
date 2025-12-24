@@ -914,6 +914,9 @@ class BaseDataset(ABC):
 
         task_df_path = Path(cache_dir) / "task_df.ld"
         samples_path = Path(cache_dir) / f"samples_{uuid.uuid4()}.ld"
+        
+        task_df_path.mkdir(parents=True, exist_ok=True)
+        samples_path.mkdir(parents=True, exist_ok=True)
 
         # Check if index.json exists to verify cache integrity, this
         # is the standard file for litdata.StreamingDataset
