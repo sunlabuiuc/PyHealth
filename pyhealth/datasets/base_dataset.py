@@ -245,13 +245,12 @@ def _task_transform_fn(args: tuple[int, int, BaseTask, Iterable[str], pl.LazyFra
             patient = Patient(patient_id=patient_id, data_source=patient_df)
             for sample in task(patient):
                 writer.add_item(write_index, {"sample": pickle.dumps(sample)})
-                logger.error(f"Worker {args[0]}, {writer._min_index}, {writer._max_index}, {writer._chunk_index}, {writer._per_sample_num_bytes}, {writer._per_sample_num_items}, {len(writer._serialized_items)}")
                 write_index += 1
             complete += 1
         progress.put(complete)
     writer.done()
 
-    logger.info(f"Worker {args[0]} finished processing patients.")
+    logger.info(f"Worker {worker_id} finished processing patients.")
     
 _proc_transform_queue: multiprocessing.queues.Queue | None = None
 
@@ -319,6 +318,8 @@ def _proc_transform_fn(args: tuple[int, int,Path, int, int, Path]) -> None:
     if complete > 0:
         progress.put(complete)
     writer.done()
+    
+    logger.info(f"Worker {worker_id} finished processing samples.")
 
 
 class BaseDataset(ABC):
@@ -397,7 +398,7 @@ class BaseDataset(ABC):
                 uuid.uuid5(uuid.NAMESPACE_DNS, id_str)
             )
             cache_dir.mkdir(parents=True, exist_ok=True)
-            print(f"No cache_dir provided. Using default cache dir: {cache_dir}")
+            logger.info(f"No cache_dir provided. Using default cache dir: {cache_dir}")
             self._cache_dir = cache_dir
         else:
             # Ensure the explicitly provided cache_dir exists
