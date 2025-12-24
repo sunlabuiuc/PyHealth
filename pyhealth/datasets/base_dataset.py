@@ -306,9 +306,9 @@ class BaseDataset(ABC):
         """Returns the cache directory path.
         The cache structure is as follows::
 
-            tmp/ # Temporary files during processing
+            tmp/                     # Temporary files during processing
             global_event_df.parquet/ # Cached global event dataframe
-            tasks/ # Cached task-specific data, please see set_task method
+            tasks/                   # Cached task-specific data, please see set_task method
 
         Returns:
             Path: The cache directory path.
@@ -737,14 +737,20 @@ class BaseDataset(ABC):
         output_processors: Optional[Dict[str, FeatureProcessor]] = None,
     ) -> SampleDataset:
         """Processes the base dataset to generate the task-specific sample dataset.
+        The cache structure is as follows::
+
+            task_df.parquet/ # Intermediate task dataframe after task transformation
+            samples_{uuid}/  # Final processed samples after applying processors
+                schema.pkl   # Saved SampleBuilder schema
+                *.parquet    # Processed sample files
+            samples_{uuid}/
+                ...
 
         Args:
             task (Optional[BaseTask]): The task to set. Uses default task if None.
-            num_workers (int): Number of workers for multi-threading. Default is 1.
-                This is because the task function is usually CPU-bound. And using
-                multi-threading may not speed up the task function.
-            cache_dir (Optional[str]): Directory to cache processed samples.
-                Default is None (no caching).
+            num_workers (int): Number of workers for multi-threading. Default is `self.num_workers`.
+            cache_dir (Optional[str]): Directory to cache samples after task transformation, 
+                but without applying processors. Default is {self.cache_dir}/tasks/{task_name}.
             cache_format (str): Deprecated. Only "parquet" is supported now.
             input_processors (Optional[Dict[str, FeatureProcessor]]):
                 Pre-fitted input processors. If provided, these will be used
@@ -783,22 +789,23 @@ class BaseDataset(ABC):
             cache_dir = Path(cache_dir)
             cache_dir.mkdir(parents=True, exist_ok=True)
 
-        path = Path(cache_dir)
+        task_df_path = Path(cache_dir) / "task_df.parquet"
+        samples_path = Path(cache_dir) / f"samples_{uuid.uuid4()}"
 
         # Check if index.json exists to verify cache integrity, this
         # is the standard file for litdata.StreamingDataset
-        if not (path / "index.json").exists():
-            with tempfile.TemporaryDirectory() as tmp_dir:
+        if not (task_df_path / "index.json").exists():
+            try:    
                 self._task_transform(
                     task,
-                    Path(tmp_dir),
+                    task_df_path,
                     num_workers,
                 )
 
                 # Build processors and fit on the dataset
                 logger.info(f"Fitting processors on the dataset...")
                 dataset = litdata.StreamingDataset(
-                    tmp_dir,
+                    str(task_df_path),
                     item_loader=ParquetLoader(),
                     transform=lambda x: pickle.loads(x["sample"]),
                 )
@@ -809,12 +816,12 @@ class BaseDataset(ABC):
                     output_processors=output_processors,
                 )
                 builder.fit(dataset)
-                builder.save(str(path / "schema.pkl"))
+                builder.save(str(samples_path / "schema.pkl"))
 
                 # Apply processors and save final samples to cache_dir
-                logger.info(f"Processing samples and saving to {path}...")
+                logger.info(f"Processing samples and saving to {samples_path}...")
                 dataset = litdata.StreamingDataset(
-                    tmp_dir,
+                    str(task_df_path),
                     item_loader=ParquetLoader(),
                 )
                 litdata.optimize(
@@ -824,14 +831,20 @@ class BaseDataset(ABC):
                         batch_size=1,
                         collate_fn=_uncollate,
                     ),
-                    output_dir=str(path),
+                    output_dir=str(samples_path),
                     chunk_bytes="64MB",
                     num_workers=num_workers,
                 )
-                logger.info(f"Cached processed samples to {path}")
+                logger.info(f"Cached processed samples to {samples_path}")
+            except Exception as e:
+                logger.error(f"Error during set_task, cleaning up cache directory: {cache_dir}")
+                shutil.rmtree(cache_dir)
+                raise e
+            finally:
+                self.clean_tmpdir()
 
         return SampleDataset(
-            path=str(path),
+            path=str(samples_path),
             dataset_name=self.dataset_name,
             task_name=task.task_name,
         )
