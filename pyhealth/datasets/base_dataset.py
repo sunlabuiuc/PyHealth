@@ -804,48 +804,48 @@ class BaseDataset(ABC):
                     task_df_path,
                     num_workers,
                 )
-
-                # Build processors and fit on the dataset
-                logger.info(f"Fitting processors on the dataset...")
-                dataset = litdata.StreamingDataset(
-                    str(task_df_path),
-                    item_loader=ParquetLoader(),
-                    transform=lambda x: pickle.loads(x["sample"]),
-                )
-                builder = SampleBuilder(
-                    input_schema=task.input_schema,  # type: ignore
-                    output_schema=task.output_schema,  # type: ignore
-                    input_processors=input_processors,
-                    output_processors=output_processors,
-                )
-                builder.fit(dataset)
-                builder.save(str(samples_path / "schema.pkl"))
-
-                # Apply processors and save final samples to cache_dir
-                logger.info(f"Processing samples and saving to {samples_path}...")
-                dataset = litdata.StreamingDataset(
-                    str(task_df_path),
-                    item_loader=ParquetLoader(),
-                )
-                # TODO: use our own implementation to have more control over the processing
-                litdata.optimize(
-                    fn=builder.transform,
-                    inputs=litdata.StreamingDataLoader(
-                        dataset,
-                        batch_size=1,
-                        collate_fn=_uncollate,
-                    ),
-                    output_dir=str(samples_path),
-                    chunk_bytes="64MB",
-                    num_workers=num_workers,
-                )
-                logger.info(f"Cached processed samples to {samples_path}")
             except Exception as e:
                 logger.error(f"Error during set_task, cleaning up cache directory: {cache_dir}")
                 shutil.rmtree(cache_dir)
                 raise e
             finally:
                 self.clean_tmpdir()
+
+        # Build processors and fit on the dataset
+        logger.info(f"Fitting processors on the dataset...")
+        dataset = litdata.StreamingDataset(
+            str(task_df_path),
+            item_loader=ParquetLoader(),
+            transform=lambda x: pickle.loads(x["sample"]),
+        )
+        builder = SampleBuilder(
+            input_schema=task.input_schema,  # type: ignore
+            output_schema=task.output_schema,  # type: ignore
+            input_processors=input_processors,
+            output_processors=output_processors,
+        )
+        builder.fit(dataset)
+        builder.save(str(samples_path / "schema.pkl"))
+
+        # Apply processors and save final samples to cache_dir
+        logger.info(f"Processing samples and saving to {samples_path}...")
+        dataset = litdata.StreamingDataset(
+            str(task_df_path),
+            item_loader=ParquetLoader(),
+        )
+        # TODO: use our own implementation to have more control over the processing
+        litdata.optimize(
+            fn=builder.transform,
+            inputs=litdata.StreamingDataLoader(
+                dataset,
+                batch_size=1,
+                collate_fn=_uncollate,
+            ),
+            output_dir=str(samples_path),
+            chunk_bytes="64MB",
+            num_workers=num_workers,
+        )
+        logger.info(f"Cached processed samples to {samples_path}")
 
         return SampleDataset(
             path=str(samples_path),
