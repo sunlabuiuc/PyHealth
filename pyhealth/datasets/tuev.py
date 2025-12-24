@@ -5,6 +5,7 @@ from pathlib import Path
 
 from typing import Optional
 from .base_dataset import BaseDataset
+from pyhealth.tasks import EEGEventsTUEV
 
 logger = logging.getLogger(__name__)
 
@@ -180,3 +181,11 @@ class TUEVDataset(BaseDataset):
             eval_csv = root / "tuev-eval-pyhealth.csv"
             eval_df.to_csv(eval_csv, index=False)
     
+    @property
+    def default_task(self) -> EEGEventsTUEV:
+        """Returns the default task for the BMD-HS dataset: BMDHSDiseaseClassification.
+        
+        Returns:
+            BMDHSDiseaseClassification: The default task instance.
+        """
+        return EEGEventsTUEV()
