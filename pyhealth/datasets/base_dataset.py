@@ -784,7 +784,7 @@ class BaseDataset(ABC):
                     while not queue.empty():
                         progress.update(queue.get())
             result.get() # ensure exceptions are raised
-            BinaryWriter(cache_dir=str(output_dir)).merge(num_workers)
+            BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB").merge(num_workers)
 
             logger.info(f"Task transformation completed and saved to {output_dir}")
         except Exception as e:
