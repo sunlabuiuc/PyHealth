@@ -206,7 +206,7 @@ def _task_transform_init(queue: multiprocessing.queues.Queue) -> None:
     global _task_transform_queue
     _task_transform_queue = queue
 
-def _task_transform_fn(args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, Path]) -> None:
+def _task_transform_fn(args: tuple[int, int, BaseTask, Iterable[str], pl.LazyFrame, Path]) -> None:
     """
     Worker function to apply task transformation on a chunk of patients.
     
@@ -223,9 +223,10 @@ def _task_transform_fn(args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, P
             pass
 
     BATCH_SIZE = 128 # Use a batch size 128 can reduce runtime by 30%.
-    worker_id, task, patient_ids, global_event_df, output_dir = args
+    worker_id, num_workers, task, patient_ids, global_event_df, output_dir = args
     os.environ["DATA_OPTIMIZER_GLOBAL_RANK"] = str(worker_id) # For BinaryWriter to determine the rank.
-    logger.info(f"Worker {args[0]} started processing {len(list(args[2]))} patients. (Polars threads: {pl.thread_pool_size()})")
+    os.environ["DATA_OPTIMIZER_NUM_WORKERS"] = str(num_workers)
+    logger.info(f"Worker {worker_id} started processing {len(list(patient_ids))} patients. (Polars threads: {pl.thread_pool_size()})")
         
     writer = BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB")
     progress = _task_transform_queue or _FakeQueue()
@@ -244,6 +245,7 @@ def _task_transform_fn(args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, P
             patient = Patient(patient_id=patient_id, data_source=patient_df)
             for sample in task(patient):
                 writer.add_item(write_index, {"sample": pickle.dumps(sample)})
+                logger.error(f"Worker {args[0]}, {writer._min_index}, {writer._max_index}, {writer._chunk_index}, {writer._per_sample_num_bytes}, {writer._per_sample_num_items}, {len(writer._serialized_items)}")
                 write_index += 1
             complete += 1
         progress.put(complete)
@@ -756,7 +758,7 @@ class BaseDataset(ABC):
             
             if num_workers == 1:
                 logger.info("Single worker mode, processing sequentially")
-                _task_transform_fn((0, task, patient_ids, global_event_df, output_dir))
+                _task_transform_fn((0, num_workers,task, patient_ids, global_event_df, output_dir))
                 litdata.index_parquet_dataset(str(output_dir))
                 return
 
@@ -767,6 +769,7 @@ class BaseDataset(ABC):
             queue = ctx.Queue()
             args_list = [(
                 worker_id,
+                num_workers,
                 task,
                 pids,
                 global_event_df,
