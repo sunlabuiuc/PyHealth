@@ -137,11 +137,10 @@ class TestSupport2Dataset(unittest.TestCase):
         
         sample_dataset = dataset.set_task(task)
         self.assertIsNotNone(sample_dataset)
-        self.assertTrue(hasattr(sample_dataset, "samples"))
-        self.assertEqual(len(sample_dataset.samples), 3)
+        self.assertEqual(len(sample_dataset), 3)
         
         # Check first sample structure
-        sample = sample_dataset.samples[0]
+        sample = next(iter(sample_dataset))
         required_keys = [
             "patient_id",
             "demographics",
@@ -156,7 +155,7 @@ class TestSupport2Dataset(unittest.TestCase):
             self.assertIn(key, sample, f"Sample should contain key: {key}")
         
         # Verify survival probabilities are in valid range [0, 1]
-        for s in sample_dataset.samples:
+        for s in sample_dataset:
             survival_prob = s["survival_probability"]
             self.assertIsInstance(survival_prob, torch.Tensor)
             prob_value = survival_prob.item()
@@ -186,10 +185,10 @@ class TestSupport2Dataset(unittest.TestCase):
         
         sample_dataset = dataset.set_task(task)
         self.assertIsNotNone(sample_dataset)
-        self.assertEqual(len(sample_dataset.samples), 3)
+        self.assertEqual(len(sample_dataset), 3)
         
         # Verify all samples have valid survival probabilities
-        for s in sample_dataset.samples:
+        for s in sample_dataset:
             survival_prob = s["survival_probability"]
             self.assertIsInstance(survival_prob, torch.Tensor)
             prob_value = survival_prob.item()

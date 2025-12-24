@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Iterable
 
 import torch
 
@@ -51,7 +51,7 @@ class NestedSequenceProcessor(FeatureProcessor):
         self._max_inner_len = 1  # Maximum length of inner sequences
         self._padding = padding  # Additional padding beyond observed max
 
-    def fit(self, samples: List[Dict[str, Any]], field: str) -> None:
+    def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
         """Build vocabulary and determine maximum inner sequence length.
 
         Args:
@@ -187,7 +187,7 @@ class NestedFloatsProcessor(FeatureProcessor):
         self.forward_fill = forward_fill
         self._padding = padding  # Additional padding beyond observed max
 
-    def fit(self, samples: List[Dict[str, Any]], field: str) -> None:
+    def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
         """Determine maximum inner sequence length.
 
         Args:
