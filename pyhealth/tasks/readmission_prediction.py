@@ -1,8 +1,6 @@
 from datetime import datetime, timedelta
 from typing import Dict, List
 
-import polars as pl
-
 from pyhealth.data import Event, Patient
 from pyhealth.tasks import BaseTask
 
