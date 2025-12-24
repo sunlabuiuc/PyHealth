@@ -304,6 +304,12 @@ class BaseDataset(ABC):
     @property
     def cache_dir(self) -> Path:
         """Returns the cache directory path.
+        The cache structure is as follows::
+
+            tmp/ # Temporary files during processing
+            global_event_df.parquet/ # Cached global event dataframe
+            tasks/ # Cached task-specific data, please see set_task method
+
         Returns:
             Path: The cache directory path.
         """
@@ -330,12 +336,24 @@ class BaseDataset(ABC):
             self._cache_dir = cache_dir
         return Path(self._cache_dir)
 
-    @property
-    def temp_dir(self) -> Path:
-        return self.cache_dir / "temp"
+    def create_tmpdir(self) -> Path:
+        """Creates and returns a new temporary directory within the cache.
+
+        Returns:
+            Path: The path to the new temporary directory.
+        """
+        tmp_dir = self.cache_dir / "tmp" / str(uuid.uuid4())
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        return tmp_dir
+
+    def clean_tmpdir(self) -> None:
+        """Cleans up the temporary directory within the cache."""
+        tmp_dir = self.cache_dir / "tmp"
+        if tmp_dir.exists():
+            shutil.rmtree(tmp_dir)
 
     def _scan_csv_tsv_gz(
-        self, table_name: str, source_path: str | None = None
+        self, source_path: str
     ) -> dd.DataFrame:
         """Scans a CSV/TSV file (possibly gzipped) and returns a Dask DataFrame.
 
@@ -343,9 +361,7 @@ class BaseDataset(ABC):
         to Parquet and saves it to the cache.
 
         Args:
-            table_name (str): The name of the table.
-            source_path (str | None): The source CSV/TSV file path. If None, assumes the
-                Parquet file already exists in the cache.
+            source_path (str): The source CSV/TSV file path.
 
         Returns:
             dd.DataFrame: The Dask DataFrame loaded from the cached Parquet file.
@@ -356,22 +372,14 @@ class BaseDataset(ABC):
             ValueError: If the path does not have an expected extension.
         """
         # Ensure the tables cache directory exists
-        (self.temp_dir / "tables").mkdir(parents=True, exist_ok=True)
-        ret_path = str(self.temp_dir / "tables" / f"{table_name}.parquet")
+        ret_path = self.create_tmpdir() / "table.parquet"
 
-        if not path_exists(ret_path):
-            if source_path is None:
-                raise FileNotFoundError(
-                    f"Table {table_name} not found in cache and no source_path provided."
-                )
-
+        if not ret_path.exists():
             source_path = _csv_tsv_gz_path(source_path)
 
             if is_url(source_path):
                 local_filename = os.path.basename(source_path)
-                download_dir = self.temp_dir / "downloads"
-                download_dir.mkdir(parents=True, exist_ok=True)
-                local_path = download_dir / local_filename
+                local_path = self.create_tmpdir() / local_filename
                 if not local_path.exists():
                     logger.info(f"Downloading {source_path} to {local_path}")
                     urlretrieve(source_path, local_path)
@@ -495,7 +503,7 @@ class BaseDataset(ABC):
         csv_path = clean_path(csv_path)
 
         logger.info(f"Scanning table: {table_name} from {csv_path}")
-        df = self._scan_csv_tsv_gz(table_name, csv_path)
+        df = self._scan_csv_tsv_gz(csv_path)
 
         # Convert column names to lowercase before calling preprocess_func
         df = df.rename(columns=str.lower)
@@ -510,11 +518,11 @@ class BaseDataset(ABC):
             df = preprocess_func(nw.from_native(df)).to_native()  # type: ignore
 
         # Handle joins
-        for i, join_cfg in enumerate(table_cfg.join):
+        for join_cfg in table_cfg.join:
             other_csv_path = f"{self.root}/{join_cfg.file_path}"
             other_csv_path = clean_path(other_csv_path)
             logger.info(f"Joining with table: {other_csv_path}")
-            join_df = self._scan_csv_tsv_gz(f"{table_name}_join_{i}", other_csv_path)
+            join_df = self._scan_csv_tsv_gz(other_csv_path)
             join_df = join_df.rename(columns=str.lower)
             join_key = join_cfg.on
             columns = join_cfg.columns
