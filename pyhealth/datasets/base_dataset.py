@@ -230,7 +230,7 @@ def _task_transform_fn(args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, P
     writer = BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB")
     progress = _task_transform_queue or _FakeQueue()
 
-    writer_index = 0
+    write_index = 0
     batches = itertools.batched(patient_ids, BATCH_SIZE)
     for batch in batches:
         complete = 0
@@ -243,8 +243,8 @@ def _task_transform_fn(args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, P
             patient_id = patient_id[0]  # Extract string from single-element list
             patient = Patient(patient_id=patient_id, data_source=patient_df)
             for sample in task(patient):
-                writer.add_item(writer_index, {"sample": pickle.dumps(sample)})
-                writer_index += 1
+                writer.add_item(write_index, {"sample": pickle.dumps(sample)})
+                write_index += 1
             complete += 1
         progress.put(complete)
     writer.done()
@@ -295,8 +295,7 @@ def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
         input_processors = metadata["input_processors"]
         output_processors = metadata["output_processors"]
         
-        writer_index = 0
-
+        write_index = 0
         for i in range(start_idx, end_idx):
             transformed: Dict[str, Any] = {}
             for key, value in pickle.loads(dataset[i]["sample"]).items():
@@ -306,8 +305,8 @@ def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
                     transformed[key] = output_processors[key].process(value)
                 else:
                     transformed[key] = value
-            writer.add_item(writer_index, transformed)
-            writer_index += 1
+            writer.add_item(write_index, transformed)
+            write_index += 1
             complete += 1
            
             if complete >= BATCH_SIZE:
