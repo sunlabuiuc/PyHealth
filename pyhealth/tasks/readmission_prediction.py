@@ -9,15 +9,14 @@ from pyhealth.tasks import BaseTask
 class ReadmissionPredictionMIMIC3(BaseTask):
     #todo: add doc strings
     #todo: replace examples
-    #todo: update docs (replace all references to readmission_prediction_mimic3_fn)
-    #todo: deprecate readmission_prediction_mimic3_fn (make it a wrapper around this)
     #todo: review other similar tasks for best practices and common patterns
     #todo: add short-circuits to loop and test sample generation speed difference
+    #todo: review my chestxray14 PR to make sure I updated all the right places
     task_name: str = "ReadmissionPredictionMIMIC3"
-    input_schema: Dict[str, str] = {"diagnoses": "sequence", "prescriptions": "sequence", "procedures": "sequence"}
+    input_schema: Dict[str, str] = {"conditions": "sequence", "procedures": "sequence", "drugs": "sequence"}
     output_schema: Dict[str, str] = {"readmission": "binary"}
 
-    def __init__(self, window: timedelta) -> None:
+    def __init__(self, window: timedelta=timedelta(days=15)) -> None:
         self.window = window
 
     def __call__(self, patient: Patient) -> List[Dict]:
@@ -53,19 +52,18 @@ class ReadmissionPredictionMIMIC3(BaseTask):
 
             samples.append(
                 {
+                    "visit_id": admissions[i].hadm_id,
                     "patient_id": patient.patient_id,
-                    "admission_id": admissions[i].hadm_id,
-                    "diagnoses": diagnoses,
-                    "prescriptions": prescriptions,
+                    "conditions": diagnoses,
                     "procedures": procedures,
+                    "drugs": prescriptions,
                     "readmission": readmission,
                 }
             )
 
         return samples
 
-# TODO: time_window cannot be passed in to base_dataset
-def readmission_prediction_mimic3_fn(patient: Patient, time_window=15):
+
     """Processes a single patient for the readmission prediction task.
 
     Readmission prediction aims at predicting whether the patient will be readmitted
@@ -80,52 +78,7 @@ def readmission_prediction_mimic3_fn(patient: Patient, time_window=15):
     Returns:
         samples: a list of samples, each sample is a dict with patient_id, visit_id,
             and other task-specific attributes as key
-
-    Note that we define the task as a binary classification task.
-
-    Examples:
-        >>> from pyhealth.datasets import MIMIC3Dataset
-        >>> mimic3_base = MIMIC3Dataset(
-        ...    root="/srv/local/data/physionet.org/files/mimiciii/1.4",
-        ...    tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
-        ...    code_mapping={"ICD9CM": "CCSCM"},
-        ... )
-        >>> from pyhealth.tasks import readmission_prediction_mimic3_fn
-        >>> mimic3_sample = mimic3_base.set_task(readmission_prediction_mimic3_fn)
-        >>> mimic3_sample.samples[0]
-        [{'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '19', '122', '98', '663', '58', '51']], 'procedures': [['1']], 'label': 1}]
     """
-    samples = []
-
-    # we will drop the last visit
-    for i in range(len(patient) - 1):
-        visit: Visit = patient[i]
-        next_visit: Visit = patient[i + 1]
-
-        # get time difference between current visit and next visit
-        time_diff = (next_visit.encounter_time - visit.encounter_time).days
-        readmission_label = 1 if time_diff < time_window else 0
-
-        conditions = visit.get_code_list(table="DIAGNOSES_ICD")
-        procedures = visit.get_code_list(table="PROCEDURES_ICD")
-        drugs = visit.get_code_list(table="PRESCRIPTIONS")
-        # exclude: visits without condition, procedure, or drug code
-        if len(conditions) * len(procedures) * len(drugs) == 0:
-            continue
-        # TODO: should also exclude visit with age < 18
-        samples.append(
-            {
-                "visit_id": visit.visit_id,
-                "patient_id": patient.patient_id,
-                "conditions": [conditions],
-                "procedures": [procedures],
-                "drugs": [drugs],
-                "label": readmission_label,
-            }
-        )
-    # no cohort selection
-    return samples
-
 
 def readmission_prediction_mimic4_fn(patient: Patient, time_window=15):
     """Processes a single patient for the readmission prediction task.
@@ -391,19 +344,6 @@ def readmission_prediction_omop_fn(patient: Patient, time_window=15):
 
 
 if __name__ == "__main__":
-    from pyhealth.datasets import MIMIC3Dataset
-
-    base_dataset = MIMIC3Dataset(
-        root="/srv/local/data/physionet.org/files/mimiciii/1.4",
-        tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
-        dev=True,
-        code_mapping={"ICD9CM": "CCSCM", "NDC": "ATC"},
-        refresh_cache=False,
-    )
-    sample_dataset = base_dataset.set_task(task_fn=readmission_prediction_mimic3_fn)
-    sample_dataset.stat()
-    print(sample_dataset.available_keys)
-
     from pyhealth.datasets import MIMIC4Dataset
 
     base_dataset = MIMIC4Dataset(

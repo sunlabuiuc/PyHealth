@@ -1,7 +1,7 @@
 from pyhealth.datasets import MIMIC3Dataset
 from pyhealth.datasets import split_by_patient, get_dataloader
 from pyhealth.models import RNN
-from pyhealth.tasks import readmission_prediction_mimic3_fn
+from pyhealth.tasks import ReadmissionPredictionMIMIC3
 from pyhealth.trainer import Trainer
 
 # STEP 1: load data
@@ -15,7 +15,7 @@ base_dataset = MIMIC3Dataset(
 base_dataset.stat()
 
 # STEP 2: set task
-sample_dataset = base_dataset.set_task(readmission_prediction_mimic3_fn)
+sample_dataset = base_dataset.set_task(ReadmissionPredictionMIMIC3())
 sample_dataset.stat()
 
 train_dataset, val_dataset, test_dataset = split_by_patient(

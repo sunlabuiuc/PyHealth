@@ -49,12 +49,11 @@ from .mortality_prediction_stagenet_mimic4 import (
 from .patient_linkage import patient_linkage_mimic3_fn
 from .readmission_30days_mimic4 import Readmission30DaysMIMIC4
 from .readmission_prediction import (
+    ReadmissionPredictionMIMIC3,
     readmission_prediction_eicu_fn,
     readmission_prediction_eicu_fn2,
-    readmission_prediction_mimic3_fn,
     readmission_prediction_mimic4_fn,
     readmission_prediction_omop_fn,
-    ReadmissionPredictionMIMIC3,
 )
 from .sleep_staging import (
     sleep_staging_isruc_fn,

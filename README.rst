@@ -13,7 +13,7 @@ Welcome to PyHealth!
 .. image:: https://readthedocs.org/projects/pyhealth/badge/?version=latest
    :target: https://pyhealth.readthedocs.io/en/latest/
    :alt: Documentation status
-   
+
 
 .. image:: https://img.shields.io/github/stars/sunlabuiuc/pyhealth.svg
    :target: https://github.com/sunlabuiuc/pyhealth/stargazers
@@ -121,7 +121,7 @@ PyHealth is a comprehensive deep learning toolkit for supporting clinical predic
 You can use the following functions independently:
 
 - **Dataset**: ``MIMIC-III``, ``MIMIC-IV``, ``eICU``, ``OMOP-CDM``, ``customized EHR datasets``, etc.
-- **Tasks**: ``diagnosis-based drug recommendation``, ``patient hospitalization and mortality prediction``, ``length stay forecasting``, etc. 
+- **Tasks**: ``diagnosis-based drug recommendation``, ``patient hospitalization and mortality prediction``, ``length stay forecasting``, etc.
 - **ML models**: ``CNN``, ``LSTM``, ``GRU``, ``LSTM``, ``RETAIN``, ``SafeDrug``, ``Deepr``, etc.
 
 *Building a healthcare AI pipeline can be as short as 10 lines of code in PyHealth*.
@@ -130,7 +130,7 @@ You can use the following functions independently:
 3. Build ML Pipelines :trophy:
 ---------------------------------
 
-All healthcare tasks in our package follow a **five-stage pipeline**: 
+All healthcare tasks in our package follow a **five-stage pipeline**:
 
 .. image:: figure/five-stage-pipeline.png
    :width: 640
@@ -150,7 +150,7 @@ Module 1: <pyhealth.datasets>
 
     mimic3base = MIMIC3Dataset(
         # root directory of the dataset
-        root="https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III/", 
+        root="https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III/",
         # raw CSV table name
         tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
         # map all NDC codes to CCS codes in these tables
@@ -169,9 +169,9 @@ Module 2: <pyhealth.tasks>
 
 .. code-block:: python
 
-    from pyhealth.tasks import readmission_prediction_mimic3_fn
+    from pyhealth.tasks import ReadmissionPredictionMIMIC3
 
-    mimic3sample = mimic3base.set_task(task_fn=readmission_prediction_mimic3_fn) # use default task
+    mimic3sample = mimic3base.set_task(ReadmissionPredictionMIMIC3())
     mimic3sample.samples[0] # show the information of the first sample
     """
     {
@@ -180,7 +180,7 @@ Module 2: <pyhealth.tasks>
         'conditions': ['5990', '4280', '2851', '4240', '2749', '9982', 'E8499', '42831', '34600'],
         'procedures': ['0040', '3931', '7769'],
         'drugs': ['N06DA02', 'V06DC01', 'B01AB01', 'A06AA02', 'R03AC02', 'H03AA01', 'J01FA09'],
-        'label': 0
+        'readmission': 0
     }
     """
 
@@ -213,7 +213,7 @@ Module 4: <pyhealth.trainer>
 ``pyhealth.trainer`` can specify training arguments, such as epochs, optimizer, learning rate, etc. The trainer will automatically save the best model and output the path in the end.
 
 .. code-block:: python
-    
+
     from pyhealth.trainer import Trainer
 
     trainer = Trainer(model=model)
@@ -233,19 +233,19 @@ Module 5: <pyhealth.metrics>
 
     # method 1
     trainer.evaluate(test_loader)
-    
+
     # method 2
     from pyhealth.metrics.binary import binary_metrics_fn
 
     y_true, y_prob, loss = trainer.inference(test_loader)
     binary_metrics_fn(y_true, y_prob, metrics=["pr_auc", "roc_auc"])
 
-4. Medical Code Map :hospital: 
+4. Medical Code Map :hospital:
 ---------------------------------
 
 ``pyhealth.codemap`` provides two core functionalities. **This module can be used independently.**
 
-* For code ontology lookup within one medical coding system (e.g., name, category, sub-concept); 
+* For code ontology lookup within one medical coding system (e.g., name, category, sub-concept);
 
 .. code-block:: python
 
@@ -256,7 +256,7 @@ Module 5: <pyhealth.metrics>
     # `Congestive heart failure, unspecified`
     icd9cm.get_ancestors("428.0")
     # ['428', '420-429.99', '390-459.99', '001-999.99']
-    
+
     atc = InnerMap.load("ATC")
     atc.lookup("M01AE51")
     # `ibuprofen, combinations`
@@ -267,7 +267,7 @@ Module 5: <pyhealth.metrics>
     atc.lookup("M01AE51", "indication")
     # Ibuprofen is the most commonly used and prescribed NSAID. It is very common over the ...
 
-* For code mapping between two coding systems (e.g., ICD9CM to CCSCM). 
+* For code mapping between two coding systems (e.g., ICD9CM to CCSCM).
 
 .. code-block:: python
 
@@ -300,12 +300,12 @@ Module 5: <pyhealth.metrics>
             'A12B', 'A12C', 'A13A', 'A14A', 'A14B', 'A16A']
     tokenizer = Tokenizer(tokens=token_space, special_tokens=["<pad>", "<unk>"])
 
-    # 2d encode 
+    # 2d encode
     tokens = [['A03C', 'A03D', 'A03E', 'A03F'], ['A04A', 'B035', 'C129']]
-    indices = tokenizer.batch_encode_2d(tokens) 
+    indices = tokenizer.batch_encode_2d(tokens)
     # [[8, 9, 10, 11], [12, 1, 1, 0]]
 
-    # 2d decode 
+    # 2d decode
     indices = [[8, 9, 10, 11], [12, 1, 1, 0]]
     tokens = tokenizer.batch_decode_2d(indices)
     # [['A03C', 'A03D', 'A03E', 'A03F'], ['A04A', '<unk>', '<unk>']]
@@ -331,69 +331,69 @@ Module 5: <pyhealth.metrics>
 
 ..
 
- We provide the following tutorials to help users get started with our pyhealth. 
+ We provide the following tutorials to help users get started with our pyhealth.
 
-`Tutorial 0: Introduction to pyhealth.data <https://colab.research.google.com/drive/1y9PawgSbyMbSSMw1dpfwtooH7qzOEYdN?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=Nk1itBoLOX8&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=2>`__  
+`Tutorial 0: Introduction to pyhealth.data <https://colab.research.google.com/drive/1y9PawgSbyMbSSMw1dpfwtooH7qzOEYdN?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=Nk1itBoLOX8&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=2>`__
 
-`Tutorial 1: Introduction to pyhealth.datasets <https://colab.research.google.com/drive/18kbzEQAj1FMs_J9rTGX8eCoxnWdx4Ltn?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=c1InKqFJbsI&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=3>`__  
+`Tutorial 1: Introduction to pyhealth.datasets <https://colab.research.google.com/drive/18kbzEQAj1FMs_J9rTGX8eCoxnWdx4Ltn?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=c1InKqFJbsI&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=3>`__
 
-`Tutorial 2: Introduction to pyhealth.tasks <https://colab.research.google.com/drive/1r7MYQR_5yCJGpK_9I9-A10HmpupZuIN-?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=CxESe1gYWU4&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=4>`__  
+`Tutorial 2: Introduction to pyhealth.tasks <https://colab.research.google.com/drive/1r7MYQR_5yCJGpK_9I9-A10HmpupZuIN-?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=CxESe1gYWU4&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=4>`__
 
-`Tutorial 3: Introduction to pyhealth.models <https://colab.research.google.com/drive/1LcXZlu7ZUuqepf269X3FhXuhHeRvaJX5?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=fRc0ncbTgZA&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=6>`__  
+`Tutorial 3: Introduction to pyhealth.models <https://colab.research.google.com/drive/1LcXZlu7ZUuqepf269X3FhXuhHeRvaJX5?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=fRc0ncbTgZA&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=6>`__
 
-`Tutorial 4: Introduction to pyhealth.trainer <https://colab.research.google.com/drive/1L1Nz76cRNB7wTp5Pz_4Vp4N2eRZ9R6xl?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=5Hyw3of5pO4&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=7>`__  
+`Tutorial 4: Introduction to pyhealth.trainer <https://colab.research.google.com/drive/1L1Nz76cRNB7wTp5Pz_4Vp4N2eRZ9R6xl?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=5Hyw3of5pO4&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=7>`__
 
-`Tutorial 5: Introduction to pyhealth.metrics <https://colab.research.google.com/drive/1Mrs77EJ92HwMgDaElJ_CBXbi4iABZBeo?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=d-Kx_xCwre4&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=8>`__ 
-
-
-`Tutorial 6: Introduction to pyhealth.tokenizer <https://colab.research.google.com/drive/1bDOb0A5g0umBjtz8NIp4wqye7taJ03D0?usp=sharing>`_ `[Video] <https://www.youtube.com/watch?v=CeXJtf0lfs0&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=10>`__ 
+`Tutorial 5: Introduction to pyhealth.metrics <https://colab.research.google.com/drive/1Mrs77EJ92HwMgDaElJ_CBXbi4iABZBeo?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=d-Kx_xCwre4&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=8>`__
 
 
-`Tutorial 7: Introduction to pyhealth.medcode <https://colab.research.google.com/drive/1xrp_ACM2_Hg5Wxzj0SKKKgZfMY0WwEj3?usp=sharing>`_ `[Video] <https://www.youtube.com/watch?v=MmmfU6_xkYg&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=9>`__  
+`Tutorial 6: Introduction to pyhealth.tokenizer <https://colab.research.google.com/drive/1bDOb0A5g0umBjtz8NIp4wqye7taJ03D0?usp=sharing>`_ `[Video] <https://www.youtube.com/watch?v=CeXJtf0lfs0&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=10>`__
+
+
+`Tutorial 7: Introduction to pyhealth.medcode <https://colab.research.google.com/drive/1xrp_ACM2_Hg5Wxzj0SKKKgZfMY0WwEj3?usp=sharing>`_ `[Video] <https://www.youtube.com/watch?v=MmmfU6_xkYg&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=9>`__
 
 
  The following tutorials will help users build their own task pipelines.
 
 `Pipeline 1: Drug Recommendation <https://colab.research.google.com/drive/10CSb4F4llYJvv42yTUiRmvSZdoEsbmFF?usp=sharing>`_ `[Video] <https://
-www.youtube.com/watch?v=GGP3Dhfyisc&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=12>`__  
+www.youtube.com/watch?v=GGP3Dhfyisc&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=12>`__
 
 `Pipeline 2: Length of Stay Prediction <https://colab.research.google.com/drive/1JoPpXqqB1_lGF1XscBOsDHMLtgvlOYI1?usp=sharing>`_ `[Video] <https://
-www.youtube.com/watch?v=GGP3Dhfyisc&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=12>`__  
+www.youtube.com/watch?v=GGP3Dhfyisc&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=12>`__
 
 `Pipeline 3: Readmission Prediction <https://colab.research.google.com/drive/1bhCwbXce1YFtVaQLsOt4FcyZJ1_my7Cs?usp=sharing>`_ `[Video] <https://
-www.youtube.com/watch?v=GGP3Dhfyisc&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=12>`__  
+www.youtube.com/watch?v=GGP3Dhfyisc&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=12>`__
 
 `Pipeline 4: Mortality Prediction <https://colab.research.google.com/drive/1Qblpcv4NWjrnADT66TjBcNwOe8x6wU4c?usp=sharing>`_ `[Video] <https://
-www.youtube.com/watch?v=GGP3Dhfyisc&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=12>`__ 
+www.youtube.com/watch?v=GGP3Dhfyisc&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=12>`__
 
-`Pipeline 5: Sleep Staging <https://colab.research.google.com/drive/1mpSeNCAthXG3cqROkdUcUdozIPIMTCuo?usp=sharing>`_ `[Video] <https://www.youtube.com/watch?v=ySAIU-rO6so&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=16>`__  
+`Pipeline 5: Sleep Staging <https://colab.research.google.com/drive/1mpSeNCAthXG3cqROkdUcUdozIPIMTCuo?usp=sharing>`_ `[Video] <https://www.youtube.com/watch?v=ySAIU-rO6so&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=16>`__
 
 
- We provided the advanced tutorials for supporting various needs. 
+ We provided the advanced tutorials for supporting various needs.
 
-`Advanced Tutorial 1: Fit your dataset into our pipeline <https://colab.research.google.com/drive/1UurxwAAov1bL_5OO3gQJ4gAa_paeJwJp?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=xw2hGLEQ4Y0&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=13>`__ 
+`Advanced Tutorial 1: Fit your dataset into our pipeline <https://colab.research.google.com/drive/1UurxwAAov1bL_5OO3gQJ4gAa_paeJwJp?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=xw2hGLEQ4Y0&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=13>`__
 
-`Advanced Tutorial 2: Define your own healthcare task <https://colab.research.google.com/drive/1gK6zPXvfFGBM1uNaLP32BOKrnnJdqRq2?usp=sharing>`_ 
+`Advanced Tutorial 2: Define your own healthcare task <https://colab.research.google.com/drive/1gK6zPXvfFGBM1uNaLP32BOKrnnJdqRq2?usp=sharing>`_
 
-`Advanced Tutorial 3: Adopt customized model into pyhealth <https://colab.research.google.com/drive/1F_NJ90GC8_Eq-vKTf7Tyziew4gWjjKoH?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=lADFlcmLtdE&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=14>`__ 
+`Advanced Tutorial 3: Adopt customized model into pyhealth <https://colab.research.google.com/drive/1F_NJ90GC8_Eq-vKTf7Tyziew4gWjjKoH?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=lADFlcmLtdE&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=14>`__
 
-`Advanced Tutorial 4: Load your own processed data into pyhealth and try out our ML models <https://colab.research.google.com/drive/1ZRnKch2EyJLrI3G5AvDXVpeE2wwgBWfw?usp=sharing>`_ `[Video] <https://www.youtube.com/watch?v=xw2hGLEQ4Y0&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=13>`__ 
+`Advanced Tutorial 4: Load your own processed data into pyhealth and try out our ML models <https://colab.research.google.com/drive/1ZRnKch2EyJLrI3G5AvDXVpeE2wwgBWfw?usp=sharing>`_ `[Video] <https://www.youtube.com/watch?v=xw2hGLEQ4Y0&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=13>`__
 
 
 7. Datasets :mountain_snow:
 -----------------------------
 We provide the processing files for the following open EHR datasets:
 
-===================  =======================================  ========================================  ======================================================================================================== 
-Dataset              Module                                   Year                                      Information                                                             
 ===================  =======================================  ========================================  ========================================================================================================
-MIMIC-III            ``pyhealth.datasets.MIMIC3Dataset``      2016                                      `MIMIC-III Clinical Database <https://physionet.org/content/mimiciii/1.4//>`_    
-MIMIC-IV             ``pyhealth.datasets.MIMIC4Dataset``      2020                                      `MIMIC-IV Clinical Database <https://physionet.org/content/mimiciv/0.4/>`_  
-eICU                 ``pyhealth.datasets.eICUDataset``        2018                                      `eICU Collaborative Research Database <https://eicu-crd.mit.edu//>`_                 
-OMOP                 ``pyhealth.datasets.OMOPDataset``                                                  `OMOP-CDM schema based dataset <https://www.ohdsi.org/data-standardization/the-common-data-model/>`_    
+Dataset              Module                                   Year                                      Information
+===================  =======================================  ========================================  ========================================================================================================
+MIMIC-III            ``pyhealth.datasets.MIMIC3Dataset``      2016                                      `MIMIC-III Clinical Database <https://physionet.org/content/mimiciii/1.4//>`_
+MIMIC-IV             ``pyhealth.datasets.MIMIC4Dataset``      2020                                      `MIMIC-IV Clinical Database <https://physionet.org/content/mimiciv/0.4/>`_
+eICU                 ``pyhealth.datasets.eICUDataset``        2018                                      `eICU Collaborative Research Database <https://eicu-crd.mit.edu//>`_
+OMOP                 ``pyhealth.datasets.OMOPDataset``                                                  `OMOP-CDM schema based dataset <https://www.ohdsi.org/data-standardization/the-common-data-model/>`_
 SleepEDF             ``pyhealth.datasets.SleepEDFDataset``    2018                                      `Sleep-EDF dataset <https://physionet.org/content/sleep-edfx/1.0.0/>`_
-SHHS                 ``pyhealth.datasets.SHHSDataset``        2016                                      `Sleep Heart Health Study dataset <https://sleepdata.org/datasets/shhs>`_   
-ISRUC                ``pyhealth.datasets.ISRUCDataset``       2016                                      `ISRUC-SLEEP dataset <https://sleeptight.isr.uc.pt/?page_id=48>`_                               
+SHHS                 ``pyhealth.datasets.SHHSDataset``        2016                                      `Sleep Heart Health Study dataset <https://sleepdata.org/datasets/shhs>`_
+ISRUC                ``pyhealth.datasets.ISRUCDataset``       2016                                      `ISRUC-SLEEP dataset <https://sleeptight.isr.uc.pt/?page_id=48>`_
 ===================  =======================================  ========================================  ========================================================================================================
 
 

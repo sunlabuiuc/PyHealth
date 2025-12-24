@@ -25,11 +25,11 @@ class TestReadmissionPredictionMIMIC3(unittest.TestCase):
         self.assertIn("output_schema", vars(ReadmissionPredictionMIMIC3))
 
         for sample in samples:
+            self.assertIn("visit_id", sample)
             self.assertIn("patient_id", sample)
-            self.assertIn("admission_id", sample)
-            self.assertIn("diagnoses", sample)
-            self.assertIn("prescriptions", sample)
+            self.assertIn("conditions", sample)
             self.assertIn("procedures", sample)
+            self.assertIn("drugs", sample)
             self.assertIn("readmission", sample)
 
         self.assertEqual(len(samples), 2)
@@ -40,10 +40,10 @@ class TestReadmissionPredictionMIMIC3(unittest.TestCase):
         self.assertEqual(len(neg_samples), 1)
         self.assertEqual(len(pos_samples), 1)
 
-        self.assertEqual(neg_samples[0]["admission_id"], str(self.admission1))
-        self.assertEqual(pos_samples[0]["admission_id"], str(self.admission2))
+        self.assertEqual(neg_samples[0]["visit_id"], str(self.admission1))
+        self.assertEqual(pos_samples[0]["visit_id"], str(self.admission2))
 
-        self.assertTrue(all(s["admission_id"] != str(self.admission3) for s in samples)) # Patient's last admission not included
+        self.assertTrue(all(s["visit_id"] != str(self.admission3) for s in samples)) # Patient's last admission not included
 
     def test_patient_with_only_one_visit_is_excluded(self):
         patient = self.mock.add_patient()
@@ -53,7 +53,7 @@ class TestReadmissionPredictionMIMIC3(unittest.TestCase):
         samples = dataset.set_task(ReadmissionPredictionMIMIC3(timedelta(days=5)))
 
         self.assertTrue(all(s["patient_id"] != str(patient) for s in samples))
-        self.assertTrue(all(s["admission_id"] != str(admission) for s in samples))
+        self.assertTrue(all(s["visit_id"] != str(admission) for s in samples))
 
     def test_admissions_without_diagnoses_are_excluded(self):
         patient1 = self.mock.add_patient()
@@ -66,12 +66,12 @@ class TestReadmissionPredictionMIMIC3(unittest.TestCase):
 
         samples = dataset.set_task(ReadmissionPredictionMIMIC3(timedelta(days=5)))
 
-        admission_ids = [int(s["admission_id"]) for s in samples]
+        visit_ids = [int(s["visit_id"]) for s in samples]
 
-        self.assertIn   (admission1, admission_ids)
-        self.assertNotIn(admission2, admission_ids) # Patient's last admission should not be included
-        self.assertNotIn(admission3, admission_ids)
-        self.assertNotIn(admission4, admission_ids) # Patient's last admission should not be included
+        self.assertIn   (admission1, visit_ids)
+        self.assertNotIn(admission2, visit_ids) # Patient's last admission should not be included
+        self.assertNotIn(admission3, visit_ids)
+        self.assertNotIn(admission4, visit_ids) # Patient's last admission should not be included
 
     def test_admissions_without_prescriptions_are_excluded(self):
         patient1 = self.mock.add_patient()
@@ -84,12 +84,12 @@ class TestReadmissionPredictionMIMIC3(unittest.TestCase):
 
         samples = dataset.set_task(ReadmissionPredictionMIMIC3(timedelta(days=5)))
 
-        admission_ids = [int(s["admission_id"]) for s in samples]
+        visit_ids = [int(s["visit_id"]) for s in samples]
 
-        self.assertIn   (admission1, admission_ids)
-        self.assertNotIn(admission2, admission_ids) # Patient's last admission should not be included
-        self.assertNotIn(admission3, admission_ids)
-        self.assertNotIn(admission4, admission_ids) # Patient's last admission should not be included
+        self.assertIn   (admission1, visit_ids)
+        self.assertNotIn(admission2, visit_ids) # Patient's last admission should not be included
+        self.assertNotIn(admission3, visit_ids)
+        self.assertNotIn(admission4, visit_ids) # Patient's last admission should not be included
 
     def test_admissions_without_procedures_are_excluded(self):
         patient1 = self.mock.add_patient()
@@ -102,12 +102,12 @@ class TestReadmissionPredictionMIMIC3(unittest.TestCase):
 
         samples = dataset.set_task(ReadmissionPredictionMIMIC3(timedelta(days=5)))
 
-        admission_ids = [int(s["admission_id"]) for s in samples]
+        visit_ids = [int(s["visit_id"]) for s in samples]
 
-        self.assertIn   (admission1, admission_ids)
-        self.assertNotIn(admission2, admission_ids) # Patient's last admission should not be included
-        self.assertNotIn(admission3, admission_ids)
-        self.assertNotIn(admission4, admission_ids) # Patient's last admission should not be included
+        self.assertIn   (admission1, visit_ids)
+        self.assertNotIn(admission2, visit_ids) # Patient's last admission should not be included
+        self.assertNotIn(admission3, visit_ids)
+        self.assertNotIn(admission4, visit_ids) # Patient's last admission should not be included
 
     def test_admissions_of_minors_are_excluded(self):
         patient = self.mock.add_patient(dob="2000-01-01 00:00:00")
@@ -118,11 +118,11 @@ class TestReadmissionPredictionMIMIC3(unittest.TestCase):
 
         samples = dataset.set_task(ReadmissionPredictionMIMIC3(timedelta(days=5)))
 
-        admission_ids = [int(s["admission_id"]) for s in samples]
+        visit_ids = [int(s["visit_id"]) for s in samples]
 
-        self.assertNotIn(admission1, admission_ids)
-        self.assertIn   (admission2, admission_ids)
-        self.assertNotIn(admission3, admission_ids) # Patient's last admission should not be included
+        self.assertNotIn(admission1, visit_ids)
+        self.assertIn   (admission2, visit_ids)
+        self.assertNotIn(admission3, visit_ids) # Patient's last admission should not be included
 
 
 class MockMICIC3Dataset:
@@ -140,7 +140,7 @@ class MockMICIC3Dataset:
         self.next_prescription_id = 1
         self.next_procedure_id = 1
 
-    def add_patient(self,dob: str = "2000-01-01 00:00:00") -> int:
+    def add_patient(self,dob: str="2000-01-01 00:00:00") -> int:
         subject_id = self.next_subject_id
         self.next_subject_id += 1
         self.patients.append(f"{subject_id},{subject_id},,{dob},,,,")
@@ -150,9 +150,9 @@ class MockMICIC3Dataset:
                       subject_id: int,
                       admittime: str,
                       dischtime: str,
-                      add_diagnosis: bool = True,
-                      add_prescription: bool = True,
-                      add_procedure: bool = True
+                      add_diagnosis: bool=True,
+                      add_prescription: bool=True,
+                      add_procedure: bool=True
                       ) -> int:
         hadm_id = self.next_hadm_id
         self.next_hadm_id += 1
@@ -162,25 +162,25 @@ class MockMICIC3Dataset:
         if add_procedure: self.add_procedure(subject_id, hadm_id)
         return hadm_id
 
-    def add_diagnosis(self, subject_id, hadm_id, seq_num: int=1, icd9_code: str="") -> int:
+    def add_diagnosis(self, subject_id: int, hadm_id: int, seq_num: int=1, icd9_code: str="") -> int:
         row_id = self.next_diagnosis_id
         self.next_diagnosis_id += 1
         self.diagnoses.append(f"{row_id},{subject_id},{hadm_id},{seq_num},{icd9_code}")
         return row_id
 
-    def add_prescription(self, subject_id, hadm_id) -> int:
+    def add_prescription(self, subject_id: int, hadm_id: int) -> int:
         row_id = self.next_prescription_id
         self.next_prescription_id += 1
         self.prescriptions.append(f"{row_id},{subject_id},{hadm_id},,,,,,,,,,,,,,,,")
         return row_id
 
-    def add_procedure(self, subject_id, hadm_id, seq_num: int=1, icd9_code: str="") -> int:
+    def add_procedure(self, subject_id: int, hadm_id: int, seq_num: int=1, icd9_code: str="") -> int:
         row_id = self.next_procedure_id
         self.next_procedure_id += 1
         self.procedures.append(f"{row_id},{subject_id},{hadm_id},{seq_num},{icd9_code}")
         return row_id
 
-    def create(self, tables=["diagnoses_icd", "prescriptions", "procedures_icd"]):
+    def create(self, tables: list=["diagnoses_icd", "prescriptions", "procedures_icd"]):
         files = {
             "PATIENTS.csv":       "\n".join(self.patients),
             "ADMISSIONS.csv":     "\n".join(self.admissions),
