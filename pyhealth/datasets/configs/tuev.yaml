@@ -1,0 +1,19 @@
+version: "2.0.1"
+tables:
+  train:
+    file_path: "tuev-train-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "train_index"
+    - "record_id"
+    - "signal_file"
+  eval:
+    file_path: "tuev-eval-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "label"
+    - "eval_index"
+    - "segment_id"
+    - "signal_file"
