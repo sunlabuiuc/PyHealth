@@ -220,34 +220,33 @@ def _task_transform_fn(args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, P
         def put(self, x):
             pass
     
-    UPDATE_FREQUENCY = 128
+    BATCH_SIZE = 128
     
     logger.info(f"Worker {args[0]} started processing {len(list(args[2]))} patients.")
     
     worker_id, task, patient_ids, global_event_df, output_dir = args
     queue = _task_transform_queue or _FakeQueue()
 
-    count = 0
     with _ParquetWriter(
         output_dir / f"chunk_{worker_id:03d}.parquet",
         pa.schema([("sample", pa.binary())]),
     ) as writer:
-        for patient_id in patient_ids:
-            patient_df = global_event_df.filter(pl.col("patient_id") == patient_id).collect(
-                engine="streaming"
-            )
-            patient = Patient(patient_id=patient_id, data_source=patient_df)
-            for sample in task(patient):
-                writer.append({"sample": pickle.dumps(sample)})
-            
-            count += 1
-            if count >= UPDATE_FREQUENCY:
-                queue.put(count)
-                count = 0
-        
-        if count > 0:
-            queue.put(count)
+        batches = itertools.batched(patient_ids, BATCH_SIZE)
+    
+        for batch in batches:
             count = 0
+            patients = (
+                global_event_df.filter(pl.col("patient_id").is_in(batch))
+                    .collect(engine="streaming")
+                    .partition_by("patient_id", as_dict=True)
+            )
+            for patient_id, patient_df in patients.items():
+                patient_id = patient_id[0]  # Extract string from single-element list
+                patient = Patient(patient_id=patient_id, data_source=patient_df)
+                for sample in task(patient):
+                    writer.append({"sample": pickle.dumps(sample)})
+                count += 1
+            queue.put(count)
 
     logger.info(f"Worker {args[0]} finished processing patients.")
 
