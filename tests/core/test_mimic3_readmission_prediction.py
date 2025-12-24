@@ -15,6 +15,9 @@ class TestReadmissionPredictionMIMIC3(unittest.TestCase):
         self.admission2 = self.mock.add_admission(patient, "2020-01-16 12:00:00", "2020-01-16 12:00:01") # Exactly 15 days later
         self.admission3 = self.mock.add_admission(patient, "2020-01-31 12:00:00", "2020-01-31 12:00:01") # 15 days later less 1 second
 
+    def tearDown(self):
+        self.mock.destroy()
+
     def test_patient_with_pos_and_neg_samples(self):
         dataset = self.mock.create()
 
@@ -236,7 +239,7 @@ class MockMICIC3Dataset:
 
         return MIMIC3Dataset(root=".", tables=tables)
 
-    def __del__(self):
+    def destroy(self):
         if os.path.exists("PATIENTS.csv"):       os.remove("PATIENTS.csv")
         if os.path.exists("ADMISSIONS.csv"):     os.remove("ADMISSIONS.csv")
         if os.path.exists("ICUSTAYS.csv"):       os.remove("ICUSTAYS.csv")
