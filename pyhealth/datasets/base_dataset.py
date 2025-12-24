@@ -224,7 +224,7 @@ def _task_transform_fn(args: tuple[int, int, BaseTask, Iterable[str], pl.LazyFra
 
     BATCH_SIZE = 128 # Use a batch size 128 can reduce runtime by 30%.
     worker_id, num_workers, task, patient_ids, global_event_df, output_dir = args
-    os.environ["DATA_OPTIMIZER_GLOBAL_RANK"] = str(worker_id) # For BinaryWriter to determine the rank.
+    os.environ["DATA_OPTIMIZER_GLOBAL_RANK"] = str(worker_id)
     os.environ["DATA_OPTIMIZER_NUM_WORKERS"] = str(num_workers)
     logger.info(f"Worker {worker_id} started processing {len(list(patient_ids))} patients. (Polars threads: {pl.thread_pool_size()})")
         
@@ -265,7 +265,7 @@ def _proc_transform_init(queue: multiprocessing.queues.Queue) -> None:
     global _proc_transform_queue
     _proc_transform_queue = queue
     
-def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
+def _proc_transform_fn(args: tuple[int, int,Path, int, int, Path]) -> None:
     """
     Worker function to apply processors on a chunk of samples.
     
@@ -282,9 +282,10 @@ def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
             pass
         
     BATCH_SIZE = 128
-    worker_id, task_df, start_idx, end_idx, output_dir = args
-    os.environ["DATA_OPTIMIZER_GLOBAL_RANK"] = str(worker_id) # For BinaryWriter to determine the rank.
-    logger.info(f"Worker {args[0]} started processing {end_idx - start_idx} samples. ({start_idx} to {end_idx})")
+    worker_id, num_workers, task_df, start_idx, end_idx, output_dir = args
+    os.environ["DATA_OPTIMIZER_GLOBAL_RANK"] = str(worker_id)
+    os.environ["DATA_OPTIMIZER_NUM_WORKERS"] = str(num_workers)
+    logger.info(f"Worker {worker_id} started processing {end_idx - start_idx} samples. ({start_idx} to {end_idx})")
     
     writer = BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB")
     progress = _proc_transform_queue or _FakeQueue()
@@ -803,10 +804,7 @@ class BaseDataset(ABC):
         self._main_guard(self._proc_transform.__name__)
         try:
             logger.info(f"Applying processors on data with {num_workers} workers...")
-            num_samples = len(litdata.StreamingDataset(
-                str(task_df),
-                item_loader=ParquetLoader(),
-            ))
+            num_samples = len(litdata.StreamingDataset(str(task_df)))
             
             if in_notebook():
                 logger.info("Detected Jupyter notebook environment, setting num_workers to 1")
@@ -815,7 +813,7 @@ class BaseDataset(ABC):
             num_workers = min(num_workers, num_samples) # Avoid spawning empty workers
             if num_workers == 1:
                 logger.info("Single worker mode, processing sequentially")
-                _proc_transform_fn((0, task_df, 0, num_samples, output_dir))
+                _proc_transform_fn((0, num_workers, task_df, 0, num_samples, output_dir))
                 BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB").merge(num_workers)
                 return
             
@@ -824,6 +822,7 @@ class BaseDataset(ABC):
             linspace = more_itertools.sliding_window(np.linspace(0, num_samples, num_workers + 1, dtype=int), 2)
             args_list = [(
                 worker_id,
+                num_workers,
                 task_df,
                 start,
                 end,
