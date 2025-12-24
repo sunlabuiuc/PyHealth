@@ -11,7 +11,6 @@ from urllib.request import urlretrieve
 import json
 import uuid
 import platformdirs
-import tempfile
 import multiprocessing
 import multiprocessing.queues
 import shutil
@@ -19,6 +18,7 @@ import shutil
 import litdata
 from litdata.streaming.item_loader import ParquetLoader
 from litdata.processing.data_processor import in_notebook
+from litdata.streaming.writer import BinaryWriter
 import pyarrow as pa
 import pyarrow.csv as pv
 import pyarrow.parquet as pq
@@ -30,6 +30,8 @@ import dask.dataframe as dd
 from dask.distributed import Client as DaskClient, LocalCluster as DaskCluster, progress as dask_progress
 import narwhals as nw
 import itertools
+import numpy as np
+import more_itertools
 
 from ..data import Patient
 from ..tasks import BaseTask
@@ -219,37 +221,109 @@ def _task_transform_fn(args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, P
     class _FakeQueue:
         def put(self, x):
             pass
-    
-    # Use a batch size 128 can reduce runtime by 30%.
-    BATCH_SIZE = 128
-    
-    logger.info(f"Worker {args[0]} started processing {len(list(args[2]))} patients. (Polars threads: {pl.thread_pool_size()})")
-    
-    worker_id, task, patient_ids, global_event_df, output_dir = args
-    queue = _task_transform_queue or _FakeQueue()
 
-    with _ParquetWriter(
-        output_dir / f"chunk_{worker_id:03d}.parquet",
-        pa.schema([("sample", pa.binary())]),
-    ) as writer:
-        batches = itertools.batched(patient_ids, BATCH_SIZE)
-    
-        for batch in batches:
-            count = 0
-            patients = (
-                global_event_df.filter(pl.col("patient_id").is_in(batch))
-                    .collect(engine="streaming")
-                    .partition_by("patient_id", as_dict=True)
-            )
-            for patient_id, patient_df in patients.items():
-                patient_id = patient_id[0]  # Extract string from single-element list
-                patient = Patient(patient_id=patient_id, data_source=patient_df)
-                for sample in task(patient):
-                    writer.append({"sample": pickle.dumps(sample)})
-                count += 1
-            queue.put(count)
+    BATCH_SIZE = 128 # Use a batch size 128 can reduce runtime by 30%.
+    worker_id, task, patient_ids, global_event_df, output_dir = args
+    os.environ["DATA_OPTIMIZER_GLOBAL_RANK"] = str(worker_id) # For BinaryWriter to determine the rank.
+    logger.info(f"Worker {args[0]} started processing {len(list(args[2]))} patients. (Polars threads: {pl.thread_pool_size()})")
+        
+    writer = BinaryWriter(
+        cache_dir=str(output_dir),
+        chunk_size=67_108_864,  # 64 MB
+    )
+    progress = _task_transform_queue or _FakeQueue()
+
+    writer_index = 0
+    batches = itertools.batched(patient_ids, BATCH_SIZE)
+    for batch in batches:
+        complete = 0
+        patients = (
+            global_event_df.filter(pl.col("patient_id").is_in(batch))
+                .collect(engine="streaming")
+                .partition_by("patient_id", as_dict=True)
+        )
+        for patient_id, patient_df in patients.items():
+            patient_id = patient_id[0]  # Extract string from single-element list
+            patient = Patient(patient_id=patient_id, data_source=patient_df)
+            for sample in task(patient):
+                writer.add_item(writer_index, {"sample": pickle.dumps(sample)})
+                writer_index += 1
+            complete += 1
+        progress.put(complete)
+    writer.done()
 
     logger.info(f"Worker {args[0]} finished processing patients.")
+    
+_proc_transform_queue: multiprocessing.queues.Queue | None = None
+
+def _proc_transform_init(queue: multiprocessing.queues.Queue) -> None:
+    """
+    Initializer for worker processes to set up a global queue.
+
+    Args:
+        queue (multiprocessing.queues.Queue): The queue for progress tracking.
+    """
+    global _proc_transform_queue
+    _proc_transform_queue = queue
+    
+def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
+    """
+    Worker function to apply processors on a chunk of samples.
+    
+    Args:
+        args (tuple): A tuple containing:
+            worker_id (int): The ID of the worker.
+            task_df (Path): The path to the task dataframe.
+            start_idx (int): The start index of samples to process.
+            end_idx (int): The end index of samples to process.
+            output_dir (Path): The output directory to save results.
+    """
+    class _FakeQueue:
+        def put(self, x):
+            pass
+        
+    BATCH_SIZE = 128
+    worker_id, task_df, start_idx, end_idx, output_dir = args
+    os.environ["DATA_OPTIMIZER_GLOBAL_RANK"] = str(worker_id) # For BinaryWriter to determine the rank.
+    logger.info(f"Worker {args[0]} started processing {end_idx - start_idx} samples. ({start_idx} to {end_idx})")
+    
+    writer = BinaryWriter(
+        cache_dir=str(output_dir),
+        chunk_size=67_108_864,  # 64 MB
+    )
+    progress = _proc_transform_queue or _FakeQueue()
+
+    dataset = litdata.StreamingDataset(str(task_df))
+    complete = 0
+    with open(f"{output_dir}/schema.pkl", "rb") as f:
+        metadata = pickle.load(f)
+
+        input_processors = metadata["input_processors"]
+        output_processors = metadata["output_processors"]
+        
+        writer_index = 0
+
+        for i in range(start_idx, end_idx):
+            transformed: Dict[str, Any] = {}
+            for key, value in pickle.loads(dataset[i]["sample"]).items():
+                if key in input_processors:
+                    transformed[key] = input_processors[key].process(value)
+                elif key in output_processors:
+                    transformed[key] = output_processors[key].process(value)
+                else:
+                    transformed[key] = value
+            writer.add_item(writer_index, transformed)
+            writer_index += 1
+            complete += 1
+           
+            if complete >= BATCH_SIZE:
+                progress.put(complete)
+                complete = 0
+
+    if complete > 0:
+        progress.put(complete)
+    writer.done()
+
 
 class BaseDataset(ABC):
     """Abstract base class for all PyHealth datasets.
@@ -685,14 +759,14 @@ class BaseDataset(ABC):
             if in_notebook():
                 logger.info("Detected Jupyter notebook environment, setting num_workers to 1")
                 num_workers = 1
-                
+            num_workers = min(num_workers, len(patient_ids)) # Avoid spawning empty workers
+            
             if num_workers == 1:
                 logger.info("Single worker mode, processing sequentially")
                 _task_transform_fn((0, task, patient_ids, global_event_df, output_dir))
                 litdata.index_parquet_dataset(str(output_dir))
                 return
-            
-            num_workers = min(num_workers, len(patient_ids)) # Avoid spawning empty workers
+
             batch_size = len(patient_ids) // num_workers + 1
             
             # spwan is required for polars in multiprocessing, see https://docs.pola.rs/user-guide/misc/multiprocessing/#summary
@@ -716,8 +790,8 @@ class BaseDataset(ABC):
                     while not queue.empty():
                         progress.update(queue.get())
             result.get() # ensure exceptions are raised
+            BinaryWriter(cache_dir=str(output_dir)).merge(num_workers)
 
-            litdata.index_parquet_dataset(str(output_dir))
             logger.info(f"Task transformation completed and saved to {output_dir}")
         except Exception as e:
             logger.error(f"Error during task transformation, cleaning up output directory: {output_dir}")
@@ -728,7 +802,57 @@ class BaseDataset(ABC):
                 os.environ["POLARS_MAX_THREADS"] = old_polars_max_threads
             else:
                 os.environ.pop("POLARS_MAX_THREADS", None)
-        
+                
+    def _proc_transform(self, task_df: Path, output_dir: Path, num_workers: int) -> None:
+        self._main_guard(self._proc_transform.__name__)
+        try:
+            logger.info(f"Applying processors on data with {num_workers} workers...")
+            num_samples = len(litdata.StreamingDataset(
+                str(task_df),
+                item_loader=ParquetLoader(),
+            ))
+            
+            if in_notebook():
+                logger.info("Detected Jupyter notebook environment, setting num_workers to 1")
+                num_workers = 1
+            
+            num_workers = min(num_workers, num_samples) # Avoid spawning empty workers
+            if num_workers == 1:
+                logger.info("Single worker mode, processing sequentially")
+                _proc_transform_fn((0, task_df, 0, num_samples, output_dir))
+                BinaryWriter(cache_dir=str(output_dir)).merge(num_workers)
+                return
+            
+            ctx = multiprocessing.get_context("spawn")
+            queue = ctx.Queue()
+            linspace = more_itertools.sliding_window(np.linspace(0, num_samples, num_workers + 1, dtype=int), 2)
+            args_list = [(
+                worker_id,
+                task_df,
+                start,
+                end,
+                output_dir,
+            ) for worker_id, (start, end) in enumerate(linspace)]
+            with ctx.Pool(processes=num_workers, initializer=_proc_transform_init, initargs=(queue,)) as pool:
+                result = pool.map_async(_proc_transform_fn, args_list) # type: ignore
+                with tqdm(total=num_samples) as progress:
+                    while not result.ready():
+                        while not queue.empty():
+                            progress.update(queue.get())
+                            
+                    # remaining items
+                    while not queue.empty():
+                        progress.update(queue.get())
+            result.get() # ensure exceptions are raised
+            BinaryWriter(cache_dir=str(output_dir)).merge(num_workers)
+
+            logger.info(f"Processor transformation completed and saved to {output_dir}")
+        except Exception as e:
+            logger.error(f"Error during processor transformation.")
+            shutil.rmtree(output_dir)
+            raise e
+        finally:
+            self.clean_tmpdir()
 
     def set_task(
         self,
@@ -798,24 +922,16 @@ class BaseDataset(ABC):
         # Check if index.json exists to verify cache integrity, this
         # is the standard file for litdata.StreamingDataset
         if not (task_df_path / "index.json").exists():
-            try:    
-                self._task_transform(
-                    task,
-                    task_df_path,
-                    num_workers,
-                )
-            except Exception as e:
-                logger.error(f"Error during set_task, cleaning up cache directory: {cache_dir}")
-                shutil.rmtree(cache_dir)
-                raise e
-            finally:
-                self.clean_tmpdir()
+            self._task_transform(
+                task,
+                task_df_path,
+                num_workers,
+            )
 
         # Build processors and fit on the dataset
         logger.info(f"Fitting processors on the dataset...")
         dataset = litdata.StreamingDataset(
             str(task_df_path),
-            item_loader=ParquetLoader(),
             transform=lambda x: pickle.loads(x["sample"]),
         )
         builder = SampleBuilder(
@@ -829,21 +945,10 @@ class BaseDataset(ABC):
 
         # Apply processors and save final samples to cache_dir
         logger.info(f"Processing samples and saving to {samples_path}...")
-        dataset = litdata.StreamingDataset(
-            str(task_df_path),
-            item_loader=ParquetLoader(),
-        )
-        # TODO: use our own implementation to have more control over the processing
-        litdata.optimize(
-            fn=builder.transform,
-            inputs=litdata.StreamingDataLoader(
-                dataset,
-                batch_size=1,
-                collate_fn=_uncollate,
-            ),
-            output_dir=str(samples_path),
-            chunk_bytes="64MB",
-            num_workers=num_workers,
+        self._proc_transform(
+            task_df_path,
+            samples_path,
+            num_workers,
         )
         logger.info(f"Cached processed samples to {samples_path}")
 
