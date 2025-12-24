@@ -420,6 +420,40 @@ class BaseDataset(ABC):
         )
         return df.replace("", pd.NA)  # Replace empty strings with NaN
 
+    def _event_transform(self, df: dd.DataFrame, output_dir: Path) -> None:
+        try:
+            with DaskCluster(
+                n_workers=self.num_workers,
+                threads_per_worker=1,
+                processes=not in_notebook(),
+                # Use cache_dir for Dask's scratch space to avoid filling up /tmp or home directory
+                local_directory=str(self.create_tmpdir()),
+            ) as cluster:
+                with DaskClient(cluster) as client:
+                    if self.dev:
+                        logger.info("Dev mode enabled: limiting to 1000 patients")
+                        patients = df["patient_id"].unique().head(1000).tolist()
+                        filter = df["patient_id"].isin(patients)
+                        df = df[filter]
+
+                    logger.info(f"Caching event dataframe to {output_dir}...")
+                    collection = df.sort_values("patient_id").to_parquet(
+                        output_dir,
+                        write_index=False,
+                        compute=False,
+                    )
+                    handle = client.compute(collection)
+                    dask_progress(handle)
+                    handle.result()  # type: ignore
+        except Exception as e:
+            if output_dir.exists():
+                logger.error(f"Error during caching, removing incomplete file {output_dir}")
+                shutil.rmtree(output_dir)
+            raise e
+        finally:
+            self.clean_tmpdir()
+        pass
+
     @property
     def global_event_df(self) -> pl.LazyFrame:
         """Returns the path to the cached event dataframe.
@@ -432,38 +466,7 @@ class BaseDataset(ABC):
         if self._global_event_df is None:
             ret_path = self.cache_dir / "global_event_df.parquet"
             if not ret_path.exists():
-                try:
-                    with DaskCluster(
-                        n_workers=self.num_workers,
-                        threads_per_worker=1,
-                        processes=not in_notebook(),
-                        # Use cache_dir for Dask's scratch space to avoid filling up /tmp or home directory
-                        local_directory=str(self.create_tmpdir()),
-                    ) as cluster:
-                        with DaskClient(cluster) as client:
-                            df: dd.DataFrame = self.load_data()
-                            if self.dev:
-                                logger.info("Dev mode enabled: limiting to 1000 patients")
-                                patients = df["patient_id"].unique().head(1000).tolist()
-                                filter = df["patient_id"].isin(patients)
-                                df = df[filter]
-
-                            logger.info(f"Caching event dataframe to {ret_path}...")
-                            collection = df.sort_values("patient_id").to_parquet(
-                                ret_path,
-                                write_index=False,
-                                compute=False,
-                            )
-                            handle = client.compute(collection)
-                            dask_progress(handle)
-                            handle.result()  # type: ignore
-                except Exception as e:
-                    if ret_path.exists():
-                        logger.error(f"Error during caching, removing incomplete file {ret_path}")
-                        ret_path.unlink()
-                    raise e
-                finally:
-                    self.clean_tmpdir()
+                self._event_transform(self.load_data(), ret_path)
             self._global_event_df = ret_path
 
         return pl.scan_parquet(
@@ -824,6 +827,7 @@ class BaseDataset(ABC):
                     str(task_df_path),
                     item_loader=ParquetLoader(),
                 )
+                # TODO: use our own implementation to have more control over the processing
                 litdata.optimize(
                     fn=builder.transform,
                     inputs=litdata.StreamingDataLoader(
