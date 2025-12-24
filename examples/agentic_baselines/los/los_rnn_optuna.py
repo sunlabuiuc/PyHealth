@@ -78,8 +78,8 @@ def parse_args():
     parser.add_argument(
         "--n_trials",
         type=int,
-        default=20,
-        help="Number of optuna trials (default: 20)",
+        default=30,
+        help="Number of optuna trials (default: 30)",
     )
     return parser.parse_args()
 
