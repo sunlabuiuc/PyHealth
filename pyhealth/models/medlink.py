@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import tqdm
 
-from pyhealth.datasets import SampleEHRDataset
+from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.transformer import TransformerLayer
 from pyhealth.tokenizer import Tokenizer
@@ -149,19 +149,43 @@ class MedLink(BaseModel):
     """
     MedLink: de-identified patient record linkage model (KDD 2023).
 
-    This implementation is adapted to the PyHealth framework:
-      * no pre-trained GloVe; embeddings are learned from scratch
-      * training monitored via loss instead of ranking metrics
+    This model links de-identified patient records using admission sequences
+    and a transformer-based architecture. It is designed to operate on PyHealth's `SampleDataset`.
 
-    It implements three losses:
-      - forward admission prediction (corpus -> queries)
-      - backward admission prediction (queries -> corpus)
-      - retrieval loss via TF-IDF-style matching
+    Inputs:
+        - dataset (SampleDataset): The dataset containing patient admission sequences.
+        - feature_keys (List[str]): List with the key for patient admission codes (only the first is used).
+        - embedding_dim (int, default=128): Embedding dimension for learned token embeddings.
+        - alpha, beta, gamma (float): Loss weights for model's multi-loss objective.
+        - heads (int): Number of transformer heads.
+        - dropout (float): Dropout rate for transformer encoders.
+        - num_layers (int): Number of layers in transformer encoders.
+
+    Outputs:
+        - The model primarily outputs a dictionary {"loss": loss_tensor} during training (see forward method).
+        - For retrieval/evaluation, the model provides embeddings and search utilities to score record similarity.
+
+    Example:
+        >>> from pyhealth.datasets import SampleDataset
+        >>> from pyhealth.models import MedLink
+        >>> samples = [{"patient_id": "1", "admissions": ["ICD9_430", "ICD9_401"]}, ...]
+        >>> input_schema = {"admissions": "code"}
+        >>> output_schema = {"label": "binary"}
+        >>> dataset = SampleDataset(samples, input_schema, output_schema)
+        >>> model = MedLink(dataset=dataset, feature_keys=["admissions"])
+        >>> batch = {"query_id": [...], "id_p": [...], "s_q": [["ICD9_430", "ICD9_401"]], "s_p": [[...]], "s_n": None}
+        >>> out = model(**batch)
+        >>> print(out["loss"])
+
+    Notes:
+        - Only works with a single feature_key (list of length 1).
+        - Specialized for code sequence/text-based features (e.g., admissions).
+        - Retrieval is performed via TF-IDF-style similarity on learned multi-hot embeddings.
     """
 
     def __init__(
         self,
-        dataset: SampleEHRDataset,
+        dataset: SampleDataset,
         feature_keys: List[str],
         embedding_dim: int = 128,
         alpha: float = 0.5,
