@@ -782,7 +782,7 @@ class BaseDataset(ABC):
                         # remaining items
                         while not queue.empty():
                             progress.update(queue.get())
-                result.get() # ensure exceptions are raised
+                    result.get() # ensure exceptions are raised
                 BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB").merge(num_workers)
 
                 logger.info(f"Task transformation completed and saved to {output_dir}")
@@ -830,7 +830,7 @@ class BaseDataset(ABC):
                         # remaining items
                         while not queue.empty():
                             progress.update(queue.get())
-                result.get() # ensure exceptions are raised
+                    result.get() # ensure exceptions are raised
                 BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB").merge(num_workers)
 
                 logger.info(f"Processor transformation completed and saved to {output_dir}")
