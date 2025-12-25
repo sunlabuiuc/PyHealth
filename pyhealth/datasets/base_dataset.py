@@ -282,42 +282,42 @@ def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
         
     BATCH_SIZE = 128
     worker_id, task_df, start_idx, end_idx, output_dir = args
-    os.environ["DATA_OPTIMIZER_GLOBAL_RANK"] = str(worker_id)
     logger.info(f"Worker {worker_id} started processing {end_idx - start_idx} samples. ({start_idx} to {end_idx})")
     
-    writer = BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB")
-    progress = _proc_transform_queue or _FakeQueue()
+    with set_env(DATA_OPTIMIZER_GLOBAL_RANK=str(worker_id)):
+        writer = BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB")
+        progress = _proc_transform_queue or _FakeQueue()
 
-    dataset = litdata.StreamingDataset(str(task_df))
-    complete = 0
-    with open(f"{output_dir}/schema.pkl", "rb") as f:
-        metadata = pickle.load(f)
+        dataset = litdata.StreamingDataset(str(task_df))
+        complete = 0
+        with open(f"{output_dir}/schema.pkl", "rb") as f:
+            metadata = pickle.load(f)
 
-        input_processors = metadata["input_processors"]
-        output_processors = metadata["output_processors"]
-        
-        write_index = 0
-        for i in range(start_idx, end_idx):
-            transformed: Dict[str, Any] = {}
-            for key, value in pickle.loads(dataset[i]["sample"]).items():
-                if key in input_processors:
-                    transformed[key] = input_processors[key].process(value)
-                elif key in output_processors:
-                    transformed[key] = output_processors[key].process(value)
-                else:
-                    transformed[key] = value
-            writer.add_item(write_index, transformed)
-            write_index += 1
-            complete += 1
-           
-            if complete >= BATCH_SIZE:
-                progress.put(complete)
-                complete = 0
+            input_processors = metadata["input_processors"]
+            output_processors = metadata["output_processors"]
+            
+            write_index = 0
+            for i in range(start_idx, end_idx):
+                transformed: Dict[str, Any] = {}
+                for key, value in pickle.loads(dataset[i]["sample"]).items():
+                    if key in input_processors:
+                        transformed[key] = input_processors[key].process(value)
+                    elif key in output_processors:
+                        transformed[key] = output_processors[key].process(value)
+                    else:
+                        transformed[key] = value
+                writer.add_item(write_index, transformed)
+                write_index += 1
+                complete += 1
+            
+                if complete >= BATCH_SIZE:
+                    progress.put(complete)
+                    complete = 0
 
-    if complete > 0:
-        progress.put(complete)
-    writer.done()
-    
+        if complete > 0:
+            progress.put(complete)
+        writer.done()
+
     logger.info(f"Worker {worker_id} finished processing samples.")
 
 
@@ -803,7 +803,7 @@ class BaseDataset(ABC):
         
         num_workers = min(num_workers, num_samples) # Avoid spawning empty workers
         try:
-            with set_env(POLARS_MAX_THREADS=str(num_workers)):
+            with set_env(DATA_OPTIMIZER_NUM_WORKERS=str(num_workers)):
                 if num_workers == 1:
                     logger.info("Single worker mode, processing sequentially")
                     _proc_transform_fn((0, task_df, 0, num_samples, output_dir))
