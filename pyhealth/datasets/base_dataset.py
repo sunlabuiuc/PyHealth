@@ -206,7 +206,7 @@ def _task_transform_init(queue: multiprocessing.queues.Queue) -> None:
     global _task_transform_queue
     _task_transform_queue = queue
 
-def _task_transform_fn(args: tuple[int, int, BaseTask, Iterable[str], pl.LazyFrame, Path]) -> None:
+def _task_transform_fn(args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, Path]) -> None:
     """
     Worker function to apply task transformation on a chunk of patients.
     
@@ -223,9 +223,8 @@ def _task_transform_fn(args: tuple[int, int, BaseTask, Iterable[str], pl.LazyFra
             pass
 
     BATCH_SIZE = 128 # Use a batch size 128 can reduce runtime by 30%.
-    worker_id, num_workers, task, patient_ids, global_event_df, output_dir = args
+    worker_id, task, patient_ids, global_event_df, output_dir = args
     os.environ["DATA_OPTIMIZER_GLOBAL_RANK"] = str(worker_id)
-    os.environ["DATA_OPTIMIZER_NUM_WORKERS"] = str(num_workers)
     logger.info(f"Worker {worker_id} started processing {len(list(patient_ids))} patients. (Polars threads: {pl.thread_pool_size()})")
         
     writer = BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB")
@@ -264,7 +263,7 @@ def _proc_transform_init(queue: multiprocessing.queues.Queue) -> None:
     global _proc_transform_queue
     _proc_transform_queue = queue
     
-def _proc_transform_fn(args: tuple[int, int,Path, int, int, Path]) -> None:
+def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
     """
     Worker function to apply processors on a chunk of samples.
     
@@ -281,9 +280,8 @@ def _proc_transform_fn(args: tuple[int, int,Path, int, int, Path]) -> None:
             pass
         
     BATCH_SIZE = 128
-    worker_id, num_workers, task_df, start_idx, end_idx, output_dir = args
+    worker_id, task_df, start_idx, end_idx, output_dir = args
     os.environ["DATA_OPTIMIZER_GLOBAL_RANK"] = str(worker_id)
-    os.environ["DATA_OPTIMIZER_NUM_WORKERS"] = str(num_workers)
     logger.info(f"Worker {worker_id} started processing {end_idx - start_idx} samples. ({start_idx} to {end_idx})")
     
     writer = BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB")
@@ -757,10 +755,11 @@ class BaseDataset(ABC):
                 logger.info("Detected Jupyter notebook environment, setting num_workers to 1")
                 num_workers = 1
             num_workers = min(num_workers, len(patient_ids)) # Avoid spawning empty workers
-            
+
+            os.environ["DATA_OPTIMIZER_NUM_WORKERS"] = str(num_workers)
             if num_workers == 1:
                 logger.info("Single worker mode, processing sequentially")
-                _task_transform_fn((0, num_workers,task, patient_ids, global_event_df, output_dir))
+                _task_transform_fn((0, task, patient_ids, global_event_df, output_dir))
                 BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB").merge(num_workers)
                 return
 
@@ -771,7 +770,6 @@ class BaseDataset(ABC):
             queue = ctx.Queue()
             args_list = [(
                 worker_id,
-                num_workers,
                 task,
                 pids,
                 global_event_df,
@@ -796,6 +794,7 @@ class BaseDataset(ABC):
             shutil.rmtree(output_dir)
             raise e
         finally:
+            os.environ.pop("DATA_OPTIMIZER_NUM_WORKERS", None)
             if old_polars_max_threads is not None:
                 os.environ["POLARS_MAX_THREADS"] = old_polars_max_threads
             else:
@@ -812,9 +811,11 @@ class BaseDataset(ABC):
                 num_workers = 1
             
             num_workers = min(num_workers, num_samples) # Avoid spawning empty workers
+            
+            os.environ["DATA_OPTIMIZER_NUM_WORKERS"] = str(num_workers)
             if num_workers == 1:
                 logger.info("Single worker mode, processing sequentially")
-                _proc_transform_fn((0, num_workers, task_df, 0, num_samples, output_dir))
+                _proc_transform_fn((0, task_df, 0, num_samples, output_dir))
                 BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB").merge(num_workers)
                 return
             
@@ -823,7 +824,6 @@ class BaseDataset(ABC):
             linspace = more_itertools.sliding_window(np.linspace(0, num_samples, num_workers + 1, dtype=int), 2)
             args_list = [(
                 worker_id,
-                num_workers,
                 task_df,
                 start,
                 end,
@@ -848,6 +848,7 @@ class BaseDataset(ABC):
             shutil.rmtree(output_dir)
             raise e
         finally:
+            os.environ.pop("DATA_OPTIMIZER_NUM_WORKERS", None)
             self.clean_tmpdir()
 
     def set_task(
