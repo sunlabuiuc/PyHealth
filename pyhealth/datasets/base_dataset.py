@@ -43,7 +43,8 @@ from ..utils import set_env
 # Set logging level for distributed to ERROR to reduce verbosity
 logging.getLogger("distributed").setLevel(logging.ERROR)
 logger = logging.getLogger(__name__)
-
+# Remove LitData version check to avoid unnecessary warnings
+os.environ["LITDATA_DISABLE_VERSION_CHECK"] = "1"
 
 def is_url(path: str) -> bool:
     """URL detection."""
