@@ -38,6 +38,7 @@ from ..tasks import BaseTask
 from ..processors.base_processor import FeatureProcessor
 from .configs import load_yaml_config
 from .sample_dataset import SampleDataset, SampleBuilder
+from ..utils import set_env
 
 # Set logging level for distributed to ERROR to reduce verbosity
 logging.getLogger("distributed").setLevel(logging.ERROR)
@@ -224,30 +225,30 @@ def _task_transform_fn(args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, P
 
     BATCH_SIZE = 128 # Use a batch size 128 can reduce runtime by 30%.
     worker_id, task, patient_ids, global_event_df, output_dir = args
-    os.environ["DATA_OPTIMIZER_GLOBAL_RANK"] = str(worker_id)
     logger.info(f"Worker {worker_id} started processing {len(list(patient_ids))} patients. (Polars threads: {pl.thread_pool_size()})")
         
-    writer = BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB")
-    progress = _task_transform_queue or _FakeQueue()
+    with set_env(DATA_OPTIMIZER_GLOBAL_RANK=str(worker_id)):
+        writer = BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB")
+        progress = _task_transform_queue or _FakeQueue()
 
-    write_index = 0
-    batches = itertools.batched(patient_ids, BATCH_SIZE)
-    for batch in batches:
-        complete = 0
-        patients = (
-            global_event_df.filter(pl.col("patient_id").is_in(batch))
-                .collect(engine="streaming")
-                .partition_by("patient_id", as_dict=True)
-        )
-        for patient_id, patient_df in patients.items():
-            patient_id = patient_id[0]  # Extract string from single-element list
-            patient = Patient(patient_id=patient_id, data_source=patient_df)
-            for sample in task(patient):
-                writer.add_item(write_index, {"sample": pickle.dumps(sample)})
-                write_index += 1
-            complete += 1
-        progress.put(complete)
-    writer.done()
+        write_index = 0
+        batches = itertools.batched(patient_ids, BATCH_SIZE)
+        for batch in batches:
+            complete = 0
+            patients = (
+                global_event_df.filter(pl.col("patient_id").is_in(batch))
+                    .collect(engine="streaming")
+                    .partition_by("patient_id", as_dict=True)
+            )
+            for patient_id, patient_df in patients.items():
+                patient_id = patient_id[0]  # Extract string from single-element list
+                patient = Patient(patient_id=patient_id, data_source=patient_df)
+                for sample in task(patient):
+                    writer.add_item(write_index, {"sample": pickle.dumps(sample)})
+                    write_index += 1
+                complete += 1
+            progress.put(complete)
+        writer.done()
 
     logger.info(f"Worker {worker_id} finished processing patients.")
     
@@ -733,122 +734,111 @@ class BaseDataset(ABC):
     def _task_transform(self, task: BaseTask, output_dir: Path, num_workers: int) -> None:
         self._main_guard(self._task_transform.__name__)
         
+        logger.info(f"Applying task transformations on data with {num_workers} workers...")
+        global_event_df = task.pre_filter(self.global_event_df)
+        patient_ids = (
+            global_event_df.select("patient_id")
+            .unique()
+            .collect(engine="streaming")
+            .to_series()
+            # .sort can reduce runtime by 5%.
+            .sort()
+        )
+        
+        if in_notebook():
+            logger.info("Detected Jupyter notebook environment, setting num_workers to 1")
+            num_workers = 1
+        num_workers = min(num_workers, len(patient_ids)) # Avoid spawning empty workers
+        
         # This ensures worker's polars threads are limited to avoid oversubscription,
         # which can lead to additional 75% speedup when num_workers is large.
-        old_polars_max_threads = os.environ.get("POLARS_MAX_THREADS")
         threads_per_worker = max(1, (os.cpu_count() or 1) // num_workers)
-        os.environ["POLARS_MAX_THREADS"] = str(threads_per_worker)
         
         try:
-            logger.info(f"Applying task transformations on data with {num_workers} workers...")
-            global_event_df = task.pre_filter(self.global_event_df)
-            patient_ids = (
-                global_event_df.select("patient_id")
-                .unique()
-                .collect(engine="streaming")
-                .to_series()
-                # .sort can reduce runtime by 5%.
-                .sort()
-            )
-            
-            if in_notebook():
-                logger.info("Detected Jupyter notebook environment, setting num_workers to 1")
-                num_workers = 1
-            num_workers = min(num_workers, len(patient_ids)) # Avoid spawning empty workers
+            with set_env(POLARS_MAX_THREADS=str(threads_per_worker), DATA_OPTIMIZER_NUM_WORKERS=str(num_workers)):
+                if num_workers == 1:
+                    logger.info("Single worker mode, processing sequentially")
+                    _task_transform_fn((0, task, patient_ids, global_event_df, output_dir))
+                    BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB").merge(num_workers)
+                    return
 
-            os.environ["DATA_OPTIMIZER_NUM_WORKERS"] = str(num_workers)
-            if num_workers == 1:
-                logger.info("Single worker mode, processing sequentially")
-                _task_transform_fn((0, task, patient_ids, global_event_df, output_dir))
-                BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB").merge(num_workers)
-                return
-
-            batch_size = len(patient_ids) // num_workers + 1
-            
-            # spwan is required for polars in multiprocessing, see https://docs.pola.rs/user-guide/misc/multiprocessing/#summary
-            ctx = multiprocessing.get_context("spawn")
-            queue = ctx.Queue()
-            args_list = [(
-                worker_id,
-                task,
-                pids,
-                global_event_df,
-                output_dir,
-            ) for worker_id, pids in enumerate(itertools.batched(patient_ids, batch_size))]
-            with ctx.Pool(processes=num_workers, initializer=_task_transform_init, initargs=(queue,)) as pool:
-                result = pool.map_async(_task_transform_fn, args_list) # type: ignore
-                with tqdm(total=len(patient_ids)) as progress:
-                    while not result.ready():
+                # spwan is required for polars in multiprocessing, see https://docs.pola.rs/user-guide/misc/multiprocessing/#summary
+                ctx = multiprocessing.get_context("spawn")
+                queue = ctx.Queue()
+                args_list = [(
+                    worker_id,
+                    task,
+                    pids,
+                    global_event_df,
+                    output_dir,
+                ) for worker_id, pids in enumerate(itertools.batched(patient_ids, len(patient_ids) // num_workers + 1))]
+                with ctx.Pool(processes=num_workers, initializer=_task_transform_init, initargs=(queue,)) as pool:
+                    result = pool.map_async(_task_transform_fn, args_list) # type: ignore
+                    with tqdm(total=len(patient_ids)) as progress:
+                        while not result.ready():
+                            while not queue.empty():
+                                progress.update(queue.get())
+                                
+                        # remaining items
                         while not queue.empty():
                             progress.update(queue.get())
-                            
-                    # remaining items
-                    while not queue.empty():
-                        progress.update(queue.get())
-            result.get() # ensure exceptions are raised
-            BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB").merge(num_workers)
+                result.get() # ensure exceptions are raised
+                BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB").merge(num_workers)
 
-            logger.info(f"Task transformation completed and saved to {output_dir}")
+                logger.info(f"Task transformation completed and saved to {output_dir}")
         except Exception as e:
             logger.error(f"Error during task transformation, cleaning up output directory: {output_dir}")
             shutil.rmtree(output_dir)
             raise e
-        finally:
-            os.environ.pop("DATA_OPTIMIZER_NUM_WORKERS", None)
-            if old_polars_max_threads is not None:
-                os.environ["POLARS_MAX_THREADS"] = old_polars_max_threads
-            else:
-                os.environ.pop("POLARS_MAX_THREADS", None)
                 
     def _proc_transform(self, task_df: Path, output_dir: Path, num_workers: int) -> None:
         self._main_guard(self._proc_transform.__name__)
+        
+        logger.info(f"Applying processors on data with {num_workers} workers...")
+        num_samples = len(litdata.StreamingDataset(str(task_df)))
+            
+        if in_notebook():
+            logger.info("Detected Jupyter notebook environment, setting num_workers to 1")
+            num_workers = 1
+        
+        num_workers = min(num_workers, num_samples) # Avoid spawning empty workers
         try:
-            logger.info(f"Applying processors on data with {num_workers} workers...")
-            num_samples = len(litdata.StreamingDataset(str(task_df)))
-            
-            if in_notebook():
-                logger.info("Detected Jupyter notebook environment, setting num_workers to 1")
-                num_workers = 1
-            
-            num_workers = min(num_workers, num_samples) # Avoid spawning empty workers
-            
-            os.environ["DATA_OPTIMIZER_NUM_WORKERS"] = str(num_workers)
-            if num_workers == 1:
-                logger.info("Single worker mode, processing sequentially")
-                _proc_transform_fn((0, task_df, 0, num_samples, output_dir))
-                BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB").merge(num_workers)
-                return
-            
-            ctx = multiprocessing.get_context("spawn")
-            queue = ctx.Queue()
-            linspace = more_itertools.sliding_window(np.linspace(0, num_samples, num_workers + 1, dtype=int), 2)
-            args_list = [(
-                worker_id,
-                task_df,
-                start,
-                end,
-                output_dir,
-            ) for worker_id, (start, end) in enumerate(linspace)]
-            with ctx.Pool(processes=num_workers, initializer=_proc_transform_init, initargs=(queue,)) as pool:
-                result = pool.map_async(_proc_transform_fn, args_list) # type: ignore
-                with tqdm(total=num_samples) as progress:
-                    while not result.ready():
+            with set_env(POLARS_MAX_THREADS=str(num_workers)):
+                if num_workers == 1:
+                    logger.info("Single worker mode, processing sequentially")
+                    _proc_transform_fn((0, task_df, 0, num_samples, output_dir))
+                    BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB").merge(num_workers)
+                    return
+                
+                ctx = multiprocessing.get_context("spawn")
+                queue = ctx.Queue()
+                linspace = more_itertools.sliding_window(np.linspace(0, num_samples, num_workers + 1, dtype=int), 2)
+                args_list = [(
+                    worker_id,
+                    task_df,
+                    start,
+                    end,
+                    output_dir,
+                ) for worker_id, (start, end) in enumerate(linspace)]
+                with ctx.Pool(processes=num_workers, initializer=_proc_transform_init, initargs=(queue,)) as pool:
+                    result = pool.map_async(_proc_transform_fn, args_list) # type: ignore
+                    with tqdm(total=num_samples) as progress:
+                        while not result.ready():
+                            while not queue.empty():
+                                progress.update(queue.get())
+                                
+                        # remaining items
                         while not queue.empty():
                             progress.update(queue.get())
-                            
-                    # remaining items
-                    while not queue.empty():
-                        progress.update(queue.get())
-            result.get() # ensure exceptions are raised
-            BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB").merge(num_workers)
+                result.get() # ensure exceptions are raised
+                BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB").merge(num_workers)
 
-            logger.info(f"Processor transformation completed and saved to {output_dir}")
+                logger.info(f"Processor transformation completed and saved to {output_dir}")
         except Exception as e:
             logger.error(f"Error during processor transformation.")
             shutil.rmtree(output_dir)
             raise e
         finally:
-            os.environ.pop("DATA_OPTIMIZER_NUM_WORKERS", None)
             self.clean_tmpdir()
 
     def set_task(
