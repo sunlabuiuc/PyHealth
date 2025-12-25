@@ -115,6 +115,24 @@ def _csv_tsv_gz_path(path: str) -> str:
 
     raise FileNotFoundError(f"Neither path exists: {path} or {alt_path}")
 
+class _TqdmQueue:
+    def __init__(self, total: int, **kwargs) -> None:
+        self.total = total
+        self.kwargs = kwargs
+        self.progress = None
+        
+    def __enter__(self):
+        self.progress = tqdm(total=self.total, **self.kwargs)
+        return self
+    
+    def __exit__(self, *args, **kwargs):
+        if self.progress:
+            self.progress.close()
+    
+    def put(self, n: int) -> None:
+        if self.progress:
+            self.progress.update(n)
+
 _task_transform_progress: multiprocessing.queues.Queue | None = None
 
 def _task_transform_init(queue: multiprocessing.queues.Queue) -> None:
@@ -139,17 +157,14 @@ def _task_transform_fn(args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, P
             global_event_df (pl.LazyFrame): The global event dataframe.
             output_dir (Path): The output directory to save results.
     """
-    class _FakeQueue:
-        def put(self, x):
-            pass
-
     BATCH_SIZE = 128 # Use a batch size 128 can reduce runtime by 30%.
     worker_id, task, patient_ids, global_event_df, output_dir = args
-    logger.info(f"Worker {worker_id} started processing {len(list(patient_ids))} patients. (Polars threads: {pl.thread_pool_size()})")
+    total_patients = len(list(patient_ids))
+    logger.info(f"Worker {worker_id} started processing {total_patients} patients. (Polars threads: {pl.thread_pool_size()})")
         
     with set_env(DATA_OPTIMIZER_GLOBAL_RANK=str(worker_id)):
         writer = BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB")
-        progress = _task_transform_progress or _FakeQueue()
+        progress = _task_transform_progress or _TqdmQueue(total=total_patients)
 
         write_index = 0
         batches = itertools.batched(patient_ids, BATCH_SIZE)
@@ -171,7 +186,7 @@ def _task_transform_fn(args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, P
         writer.done()
 
     logger.info(f"Worker {worker_id} finished processing patients.")
-    
+
 _proc_transform_progress: multiprocessing.queues.Queue | None = None
 
 def _proc_transform_init(queue: multiprocessing.queues.Queue) -> None:
@@ -196,17 +211,15 @@ def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
             end_idx (int): The end index of samples to process.
             output_dir (Path): The output directory to save results.
     """
-    class _FakeQueue:
-        def put(self, x):
-            pass
-        
     BATCH_SIZE = 128
     worker_id, task_df, start_idx, end_idx, output_dir = args
-    logger.info(f"Worker {worker_id} started processing {end_idx - start_idx} samples. ({start_idx} to {end_idx})")
+    total_samples = end_idx - start_idx
+    logger.info(f"Worker {worker_id} started processing {total_samples} samples. ({start_idx} to {end_idx})")
     
     with set_env(DATA_OPTIMIZER_GLOBAL_RANK=str(worker_id)):
         writer = BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB")
-        progress = _proc_transform_progress or _FakeQueue()
+        # Use TqdmQueue for single worker to show progress bar
+        progress = _proc_transform_progress or _TqdmQueue(total=total_samples)
 
         dataset = litdata.StreamingDataset(str(task_df))
         complete = 0
