@@ -761,6 +761,7 @@ class BaseDataset(ABC):
             if num_workers == 1:
                 logger.info("Single worker mode, processing sequentially")
                 _task_transform_fn((0, num_workers,task, patient_ids, global_event_df, output_dir))
+                BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB").merge(num_workers)
                 return
 
             batch_size = len(patient_ids) // num_workers + 1
