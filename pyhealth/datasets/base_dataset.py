@@ -115,23 +115,33 @@ def _csv_tsv_gz_path(path: str) -> str:
 
     raise FileNotFoundError(f"Neither path exists: {path} or {alt_path}")
 
-class _TqdmQueue:
-    def __init__(self, total: int, **kwargs) -> None:
+class _ProgressContext:
+    def __init__(self, queue: multiprocessing.queues.Queue | None, total: int, **kwargs):
+        """
+        :param queue: An existing queue (e.g., from multiprocessing). If provided, 
+                      this class acts as a passthrough.
+        :param total: Total items for the progress bar (only used if queue is None).
+        :param kwargs: Extra arguments for tqdm (e.g., desc="Processing").
+        """
+        self.queue = queue
         self.total = total
         self.kwargs = kwargs
         self.progress = None
-        
-    def __enter__(self):
-        self.progress = tqdm(total=self.total, **self.kwargs)
-        return self
-    
-    def __exit__(self, *args, **kwargs):
-        if self.progress:
-            self.progress.close()
-    
-    def put(self, n: int) -> None:
+
+    def put(self, n):
         if self.progress:
             self.progress.update(n)
+
+    def __enter__(self):
+        if self.queue:
+            return self.queue
+        
+        self.progress = tqdm(total=self.total, **self.kwargs)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.progress:
+            self.progress.close()
 
 _task_transform_progress: multiprocessing.queues.Queue | None = None
 
@@ -161,11 +171,13 @@ def _task_transform_fn(args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, P
     worker_id, task, patient_ids, global_event_df, output_dir = args
     total_patients = len(list(patient_ids))
     logger.info(f"Worker {worker_id} started processing {total_patients} patients. (Polars threads: {pl.thread_pool_size()})")
-        
-    with set_env(DATA_OPTIMIZER_GLOBAL_RANK=str(worker_id)):
+    
+    with (
+        set_env(DATA_OPTIMIZER_GLOBAL_RANK=str(worker_id)), 
+        _ProgressContext(_task_transform_progress, total=total_patients) as progress
+    ):
         writer = BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB")
-        progress = _task_transform_progress or _TqdmQueue(total=total_patients)
-
+            
         write_index = 0
         batches = itertools.batched(patient_ids, BATCH_SIZE)
         for batch in batches:
@@ -215,12 +227,13 @@ def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
     worker_id, task_df, start_idx, end_idx, output_dir = args
     total_samples = end_idx - start_idx
     logger.info(f"Worker {worker_id} started processing {total_samples} samples. ({start_idx} to {end_idx})")
-    
-    with set_env(DATA_OPTIMIZER_GLOBAL_RANK=str(worker_id)):
-        writer = BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB")
-        # Use TqdmQueue for single worker to show progress bar
-        progress = _proc_transform_progress or _TqdmQueue(total=total_samples)
 
+    with (
+        set_env(DATA_OPTIMIZER_GLOBAL_RANK=str(worker_id)),
+        _ProgressContext(_proc_transform_progress, total=total_samples) as progress
+    ):
+        writer = BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB")
+    
         dataset = litdata.StreamingDataset(str(task_df))
         complete = 0
         with open(f"{output_dir}/schema.pkl", "rb") as f:
