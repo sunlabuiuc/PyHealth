@@ -761,7 +761,6 @@ class BaseDataset(ABC):
             if num_workers == 1:
                 logger.info("Single worker mode, processing sequentially")
                 _task_transform_fn((0, num_workers,task, patient_ids, global_event_df, output_dir))
-                litdata.index_parquet_dataset(str(output_dir))
                 return
 
             batch_size = len(patient_ids) // num_workers + 1
