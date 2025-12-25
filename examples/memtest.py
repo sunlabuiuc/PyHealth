@@ -8,7 +8,6 @@ This example demonstrates:
 4. Training a StageNet model
 """
 
-# %%
 if __name__ == "__main__":
     from pyhealth.datasets import (
         MIMIC4Dataset,
@@ -20,7 +19,6 @@ if __name__ == "__main__":
     from pyhealth.trainer import Trainer
     import torch
 
-    # %% STEP 1: Load MIMIC-IV base dataset
     base_dataset = MIMIC4Dataset(
         ehr_root="/home/logic/physionet.org/files/mimiciv/3.1/",
         ehr_tables=[
@@ -33,74 +31,63 @@ if __name__ == "__main__":
         dev=False,
     )
 
-    # %% # STEP 2: Apply StageNet mortality prediction task
-    sample_dataset = base_dataset.set_task(
+    with base_dataset.set_task(
         MortalityPredictionStageNetMIMIC4(),
         num_workers=4,
-    )
+    ) as sample_dataset:
+        print(f"Total samples: {len(sample_dataset)}")
+        print(f"Input schema: {sample_dataset.input_schema}")
+        print(f"Output schema: {sample_dataset.output_schema}")
 
-    print(f"Total samples: {len(sample_dataset)}")
-    print(f"Input schema: {sample_dataset.input_schema}")
-    print(f"Output schema: {sample_dataset.output_schema}")
+        sample = next(iter(sample_dataset))
+        print("\nSample structure:")
+        print(f"  Patient ID: {sample['patient_id']}")
+        print(f"ICD Codes: {sample['icd_codes']}")
+        print(f"  Labs shape: {len(sample['labs'][0])} timesteps")
+        print(f"  Mortality: {sample['mortality']}")
 
-    # %% Inspect a sample
-    sample = next(iter(sample_dataset))
-    print("\nSample structure:")
-    print(f"  Patient ID: {sample['patient_id']}")
-    print(f"ICD Codes: {sample['icd_codes']}")
-    print(f"  Labs shape: {len(sample['labs'][0])} timesteps")
-    print(f"  Mortality: {sample['mortality']}")
+        train_dataset, val_dataset, test_dataset = split_by_patient(
+            sample_dataset, [0.8, 0.1, 0.1]
+        )
 
-    # %% STEP 3: Split dataset
-    train_dataset, val_dataset, test_dataset = split_by_patient(
-        sample_dataset, [0.8, 0.1, 0.1]
-    )
+        train_loader = get_dataloader(train_dataset, batch_size=256, shuffle=True)
+        val_loader = get_dataloader(val_dataset, batch_size=256, shuffle=False)
+        test_loader = get_dataloader(test_dataset, batch_size=256, shuffle=False)
 
-    # Create dataloaders
-    train_loader = get_dataloader(train_dataset, batch_size=256, shuffle=True)
-    val_loader = get_dataloader(val_dataset, batch_size=256, shuffle=False)
-    test_loader = get_dataloader(test_dataset, batch_size=256, shuffle=False)
+        model = StageNet(
+            dataset=sample_dataset,
+            embedding_dim=128,
+            chunk_size=128,
+            levels=3,
+            dropout=0.3,
+        )
 
-    # %% STEP 4: Initialize StageNet model
-    model = StageNet(
-        dataset=sample_dataset,
-        embedding_dim=128,
-        chunk_size=128,
-        levels=3,
-        dropout=0.3,
-    )
+        num_params = sum(p.numel() for p in model.parameters())
+        print(f"\nModel initialized with {num_params} parameters")
 
-    num_params = sum(p.numel() for p in model.parameters())
-    print(f"\nModel initialized with {num_params} parameters")
+        trainer = Trainer(
+            model=model,
+            device="cuda:0",  # or "cpu"
+            metrics=["pr_auc", "roc_auc", "accuracy", "f1"],
+        )
 
-    # %% STEP 5: Train the model
-    trainer = Trainer(
-        model=model,
-        device="cpu",  # or "cpu"
-        metrics=["pr_auc", "roc_auc", "accuracy", "f1"],
-    )
+        trainer.train(
+            train_dataloader=train_loader,
+            val_dataloader=val_loader,
+            epochs=5,
+            monitor="roc_auc",
+            optimizer_params={"lr": 1e-5},
+        )
 
-    trainer.train(
-        train_dataloader=train_loader,
-        val_dataloader=val_loader,
-        epochs=5,
-        monitor="roc_auc",
-        optimizer_params={"lr": 1e-5},
-    )
+        results = trainer.evaluate(test_loader)
+        print("\nTest Results:")
+        for metric, value in results.items():
+            print(f"  {metric}: {value:.4f}")
 
-    # %% STEP 6: Evaluate on test set
-    results = trainer.evaluate(test_loader)
-    print("\nTest Results:")
-    for metric, value in results.items():
-        print(f"  {metric}: {value:.4f}")
+        sample_batch = next(iter(test_loader))
+        with torch.no_grad():
+            output = model(**sample_batch)
 
-    # %% STEP 7: Inspect model predictions
-    sample_batch = next(iter(test_loader))
-    with torch.no_grad():
-        output = model(**sample_batch)
-
-    print("\nSample predictions:")
-    print(f"  Predicted probabilities: {output['y_prob'][:5]}")
-    print(f"  True labels: {output['y_true'][:5]}")
-
-    # %%
+        print("\nSample predictions:")
+        print(f"  Predicted probabilities: {output['y_prob'][:5]}")
+        print(f"  True labels: {output['y_true'][:5]}")
