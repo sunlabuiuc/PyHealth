@@ -132,8 +132,8 @@ class TestCachingFunctionality(BaseTestCase):
         self.assertEqual(self.task.call_count, 2)
 
         # Cache artifacts should be present for StreamingDataset
-        self.assertTrue((cache_dir / "index.json").exists())
-        self.assertTrue((cache_dir / "schema.pkl").exists())
+        self.assertTrue((cache_dir / "task_df.ld" / "index.json").exists())
+        self.assertTrue((cache_dir / "task_df.ld" / "schema.pkl").exists())
 
         # Check processed sample structure and metadata persisted
         sample = sample_dataset[0]
@@ -155,7 +155,7 @@ class TestCachingFunctionality(BaseTestCase):
         sample_dataset = self.dataset.set_task(self.task)
 
         self.assertTrue(task_cache.exists())
-        self.assertTrue((task_cache / "index.json").exists())
+        self.assertTrue((task_cache / "task_df.ld" / "index.json").exists())
         self.assertTrue((self.dataset.cache_dir / "global_event_df.parquet").exists())
         self.assertEqual(len(sample_dataset), 4)
 
