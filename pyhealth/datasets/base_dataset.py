@@ -777,6 +777,7 @@ class BaseDataset(ABC):
                 with ctx.Pool(processes=num_workers, initializer=_task_transform_init, initargs=(queue,)) as pool:
                     result = pool.map_async(_task_transform_fn, args_list) # type: ignore
                     with tqdm(total=len(patient_ids)) as progress:
+                        # TODO: this is busy-waiting, can we do better?
                         while not result.ready():
                             while not queue.empty():
                                 progress.update(queue.get())
