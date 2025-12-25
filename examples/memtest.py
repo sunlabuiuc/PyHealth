@@ -29,11 +29,11 @@ if __name__ == "__main__":
             "labevents",
         ],
         dev=False,
+        num_workers=8,
     )
 
     with base_dataset.set_task(
         MortalityPredictionStageNetMIMIC4(),
-        num_workers=4,
     ) as sample_dataset:
         print(f"Total samples: {len(sample_dataset)}")
         print(f"Input schema: {sample_dataset.input_schema}")
