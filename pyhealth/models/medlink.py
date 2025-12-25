@@ -171,7 +171,7 @@ class MedLink(BaseModel):
         >>> samples = [{"patient_id": "1", "admissions": ["ICD9_430", "ICD9_401"]}, ...]
         >>> input_schema = {"admissions": "code"}
         >>> output_schema = {"label": "binary"}
-        >>> dataset = SampleDataset(samples, input_schema, output_schema)
+        >>> dataset = SampleDataset(path="/some/path", samples=samples, input_schema=input_schema, output_schema=output_schema)
         >>> model = MedLink(dataset=dataset, feature_keys=["admissions"])
         >>> batch = {"query_id": [...], "id_p": [...], "s_q": [["ICD9_430", "ICD9_401"]], "s_p": [[...]], "s_n": None}
         >>> out = model(**batch)

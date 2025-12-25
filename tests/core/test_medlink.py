@@ -38,6 +38,7 @@ class TestMedLink(unittest.TestCase):
         self.output_schema = {}
 
         self.dataset = SampleDataset(
+            path="dummy_path",
             samples=self.samples,
             input_schema=self.input_schema,
             output_schema=self.output_schema,
