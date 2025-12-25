@@ -491,8 +491,9 @@ class BaseDataset(ABC):
         )
         return df.replace("", pd.NA)  # Replace empty strings with NaN
 
-    def _event_transform(self, df: dd.DataFrame, output_dir: Path) -> None:
+    def _event_transform(self, output_dir: Path) -> None:
         try:
+            df = self.load_data()
             with DaskCluster(
                 n_workers=self.num_workers,
                 threads_per_worker=1,
@@ -537,7 +538,7 @@ class BaseDataset(ABC):
         if self._global_event_df is None:
             ret_path = self.cache_dir / "global_event_df.parquet"
             if not ret_path.exists():
-                self._event_transform(self.load_data(), ret_path)
+                self._event_transform(ret_path)
             self._global_event_df = ret_path
 
         return pl.scan_parquet(
