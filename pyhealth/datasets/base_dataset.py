@@ -115,7 +115,7 @@ def _csv_tsv_gz_path(path: str) -> str:
 
     raise FileNotFoundError(f"Neither path exists: {path} or {alt_path}")
 
-_task_transform_queue: multiprocessing.queues.Queue | None = None
+_task_transform_progress: multiprocessing.queues.Queue | None = None
 
 def _task_transform_init(queue: multiprocessing.queues.Queue) -> None:
     """
@@ -124,8 +124,8 @@ def _task_transform_init(queue: multiprocessing.queues.Queue) -> None:
     Args:
         queue (multiprocessing.queues.Queue): The queue for progress tracking.
     """
-    global _task_transform_queue
-    _task_transform_queue = queue
+    global _task_transform_progress
+    _task_transform_progress = queue
 
 def _task_transform_fn(args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, Path]) -> None:
     """
@@ -149,7 +149,7 @@ def _task_transform_fn(args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, P
         
     with set_env(DATA_OPTIMIZER_GLOBAL_RANK=str(worker_id)):
         writer = BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB")
-        progress = _task_transform_queue or _FakeQueue()
+        progress = _task_transform_progress or _FakeQueue()
 
         write_index = 0
         batches = itertools.batched(patient_ids, BATCH_SIZE)
@@ -172,7 +172,7 @@ def _task_transform_fn(args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, P
 
     logger.info(f"Worker {worker_id} finished processing patients.")
     
-_proc_transform_queue: multiprocessing.queues.Queue | None = None
+_proc_transform_progress: multiprocessing.queues.Queue | None = None
 
 def _proc_transform_init(queue: multiprocessing.queues.Queue) -> None:
     """
@@ -181,8 +181,8 @@ def _proc_transform_init(queue: multiprocessing.queues.Queue) -> None:
     Args:
         queue (multiprocessing.queues.Queue): The queue for progress tracking.
     """
-    global _proc_transform_queue
-    _proc_transform_queue = queue
+    global _proc_transform_progress
+    _proc_transform_progress = queue
     
 def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
     """
@@ -206,7 +206,7 @@ def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
     
     with set_env(DATA_OPTIMIZER_GLOBAL_RANK=str(worker_id)):
         writer = BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB")
-        progress = _proc_transform_queue or _FakeQueue()
+        progress = _proc_transform_progress or _FakeQueue()
 
         dataset = litdata.StreamingDataset(str(task_df))
         complete = 0
