@@ -67,7 +67,7 @@ if __name__ == "__main__":
 
         trainer = Trainer(
             model=model,
-            device="cuda:0",  # or "cpu"
+            device="cpu",  # or "cpu"
             metrics=["pr_auc", "roc_auc", "accuracy", "f1"],
         )
 
