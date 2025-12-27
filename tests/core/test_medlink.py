@@ -1,7 +1,7 @@
 import unittest
 import torch
 
-from pyhealth.datasets import SampleDataset
+from pyhealth.datasets import create_sample_dataset
 from pyhealth.models import MedLink
 
 
@@ -37,12 +37,12 @@ class TestMedLink(unittest.TestCase):
         # No labels are needed; MedLink is self-supervised
         self.output_schema = {}
 
-        self.dataset = SampleDataset(
-            path="dummy_path",
+        self.dataset = create_sample_dataset(
             samples=self.samples,
             input_schema=self.input_schema,
             output_schema=self.output_schema,
             dataset_name="medlink_test",
+            in_memory=True,
         )
 
         self.model = MedLink(

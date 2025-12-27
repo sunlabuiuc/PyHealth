@@ -175,7 +175,7 @@ class MedLink(BaseModel):
         >>> model = MedLink(dataset=dataset, feature_keys=["admissions"])
         >>> batch = {"query_id": [...], "id_p": [...], "s_q": [["ICD9_430", "ICD9_401"]], "s_p": [[...]], "s_n": None}
         >>> out = model(**batch)
-        >>> print(out["loss"])
+        >>> print(out["loss"])is
 
     Notes:
         - Only works with a single feature_key (list of length 1).
