@@ -66,3 +66,4 @@ from .variant_classification import (
     MutationPathogenicityPrediction,
     VariantClassificationClinVar,
 )
+from .labtop_next_token import LabTOPNextTokenTask
