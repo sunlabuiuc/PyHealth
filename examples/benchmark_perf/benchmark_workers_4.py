@@ -87,8 +87,8 @@ def format_size(size_bytes):
 def main():
     """Main benchmark function."""
     # Configuration
-    dev = True  # Set to True for development/testing
-    enable_memory_limit = True  # Set to True to enforce memory limit
+    dev = False  # Set to True for development/testing
+    enable_memory_limit = False  # Set to True to enforce memory limit
     max_memory_gb = 32  # Memory limit in GB (if enable_memory_limit=True)
 
     # Apply memory limit if enabled
@@ -127,7 +127,7 @@ def main():
             "labevents",
         ],
         dev=dev,
-        cache_dir=f"{cache_root}/base_dataset",
+        # cache_dir=f"{cache_root}/base_dataset",
     )
 
     dataset_time = time.time() - dataset_start
@@ -140,7 +140,7 @@ def main():
     sample_dataset = base_dataset.set_task(
         MortalityPredictionStageNetMIMIC4(),
         num_workers=4,
-        cache_dir=f"{cache_root}/task_samples",
+        cache_dir=f"{cache_root}/task_samples_old",
     )
 
     task_time = time.time() - task_start

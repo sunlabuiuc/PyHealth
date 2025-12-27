@@ -6,7 +6,7 @@
 [project]
 name = "pyhealth"
 # must be kept in sync with git tags; is not updated by any automation tools
-version = "2.0a11"
+version = "2.0a13"
 authors = [
   {name = "John Wu", email = "johnwu3@illinois.edu"},
   {name = "Chaoqi Yang"},
@@ -40,9 +40,10 @@ dependencies = [
   "pandarallel~=1.6.5",
   "pydantic~=2.11.7",
   "dask[complete]~=2025.11.0",
-  "litdata~=0.2.58",
+  "litdata~=0.2.59",
   "pyarrow~=22.0.0",
   "narwhals~=2.13.0",
+  "more-itertools~=10.8.0",
 ]
 license = "BSD-3-Clause"
 license-files = ["LICENSE.md"]
