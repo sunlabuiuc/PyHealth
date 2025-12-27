@@ -121,33 +121,43 @@ class TestCachingFunctionality(BaseTestCase):
     def test_set_task_writes_cache_and_metadata(self):
         """Ensure set_task materializes cache files and schema metadata."""
         cache_dir = self._task_cache_dir()
-        sample_dataset = self.dataset.set_task(
+        with self.dataset.set_task(
             self.task, cache_dir=cache_dir, cache_format="parquet"
-        )
+        ) as sample_dataset:
+            self.assertIsInstance(sample_dataset, SampleDataset)
+            self.assertEqual(sample_dataset.dataset_name, "TestDataset")
+            self.assertEqual(sample_dataset.task_name, self.task.task_name)
+            self.assertEqual(len(sample_dataset), 4)
+            self.assertEqual(self.task.call_count, 2)
 
-        self.assertIsInstance(sample_dataset, SampleDataset)
-        self.assertEqual(sample_dataset.dataset_name, "TestDataset")
-        self.assertEqual(sample_dataset.task_name, self.task.task_name)
-        self.assertEqual(len(sample_dataset), 4)
-        self.assertEqual(self.task.call_count, 2)
+            # Ensure intermediate cache files are created
+            self.assertTrue((cache_dir / "task_df.ld" / "index.json").exists())
 
-        # Cache artifacts should be present for StreamingDataset
-        self.assertTrue((cache_dir / "index.json").exists())
-        self.assertTrue((cache_dir / "schema.pkl").exists())
+            # Cache artifacts should be present for StreamingDataset
+            assert sample_dataset.input_dir.path is not None
+            sample_dir = Path(sample_dataset.input_dir.path)
+            self.assertTrue((sample_dir / "index.json").exists())
+            self.assertTrue((sample_dir / "schema.pkl").exists())
 
-        # Check processed sample structure and metadata persisted
-        sample = sample_dataset[0]
-        self.assertIn("test_attribute", sample)
-        self.assertIn("test_label", sample)
-        self.assertIn("patient_id", sample)
-        self.assertIsInstance(sample["test_label"], torch.Tensor)
-        self.assertIn("test_attribute", sample_dataset.input_processors)
-        self.assertIn("test_label", sample_dataset.output_processors)
-        self.assertEqual(set(sample_dataset.patient_to_index), {"1", "2"})
-        self.assertTrue(
-            all(len(indexes) == 2 for indexes in sample_dataset.patient_to_index.values())
-        )
-        self.assertEqual(sample_dataset.record_to_index, {})
+            # Check processed sample structure and metadata persisted
+            sample = sample_dataset[0]
+            self.assertIn("test_attribute", sample)
+            self.assertIn("test_label", sample)
+            self.assertIn("patient_id", sample)
+            self.assertIsInstance(sample["test_label"], torch.Tensor)
+            self.assertIn("test_attribute", sample_dataset.input_processors)
+            self.assertIn("test_label", sample_dataset.output_processors)
+            self.assertEqual(set(sample_dataset.patient_to_index), {"1", "2"})
+            self.assertTrue(
+                all(len(indexes) == 2 for indexes in sample_dataset.patient_to_index.values())
+            )
+            self.assertEqual(sample_dataset.record_to_index, {})
+        # Ensure directory is cleaned up after context exit
+        self.assertFalse((sample_dir / "index.json").exists())
+        self.assertFalse((sample_dir / "schema.pkl").exists())
+        # Ensure intermediate cache files are still present
+        self.assertTrue((cache_dir / "task_df.ld" / "index.json").exists())
+
 
     def test_default_cache_dir_is_used(self):
         """When cache_dir is omitted, default cache dir should be used."""
@@ -155,7 +165,7 @@ class TestCachingFunctionality(BaseTestCase):
         sample_dataset = self.dataset.set_task(self.task)
 
         self.assertTrue(task_cache.exists())
-        self.assertTrue((task_cache / "index.json").exists())
+        self.assertTrue((task_cache / "task_df.ld" / "index.json").exists())
         self.assertTrue((self.dataset.cache_dir / "global_event_df.parquet").exists())
         self.assertEqual(len(sample_dataset), 4)
 
