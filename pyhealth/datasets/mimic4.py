@@ -264,12 +264,11 @@ class MIMIC4Dataset(BaseDataset):
             logger.info(
                 f"Initializing MIMIC4EHRDataset with tables: {ehr_tables} (dev mode: {dev})"
             )
-            ehr_cache_dir = None if cache_dir is None else f"{cache_dir}/ehr"
             self.sub_datasets["ehr"] = MIMIC4EHRDataset(
                 root=ehr_root,
                 tables=ehr_tables,
                 config_path=ehr_config_path,
-                cache_dir=ehr_cache_dir,
+                cache_dir=str(self.cache_dir),
                 dev=dev,
                 num_workers=num_workers,
             )
@@ -280,12 +279,11 @@ class MIMIC4Dataset(BaseDataset):
             logger.info(
                 f"Initializing MIMIC4NoteDataset with tables: {note_tables} (dev mode: {dev})"
             )
-            note_cache_dir = None if cache_dir is None else f"{cache_dir}/note"
             self.sub_datasets["note"] = MIMIC4NoteDataset(
                 root=note_root,
                 tables=note_tables,
                 config_path=note_config_path,
-                cache_dir=note_cache_dir,
+                cache_dir=str(self.cache_dir),
                 dev=dev,
                 num_workers=num_workers,
             )
@@ -296,12 +294,11 @@ class MIMIC4Dataset(BaseDataset):
             logger.info(
                 f"Initializing MIMIC4CXRDataset with tables: {cxr_tables} (dev mode: {dev})"
             )
-            cxr_cache_dir = None if cache_dir is None else f"{cache_dir}/cxr"
             self.sub_datasets["cxr"] = MIMIC4CXRDataset(
                 root=cxr_root,
                 tables=cxr_tables,
                 config_path=cxr_config_path,
-                cache_dir=cxr_cache_dir,
+                cache_dir=str(self.cache_dir),
                 dev=dev,
                 num_workers=num_workers,
             )

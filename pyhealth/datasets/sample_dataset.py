@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 from pathlib import Path
 import pickle
+import shutil
 import tempfile
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union, Type
 import inspect
@@ -355,6 +356,20 @@ class SampleDataset(litdata.StreamingDataset):
         new_dataset.reset()
 
         return new_dataset
+    
+    def close(self) -> None:
+        """Cleans up any temporary directories used by the dataset."""
+        if self.input_dir.path is not None and Path(self.input_dir.path).exists():
+            shutil.rmtree(self.input_dir.path)
+    
+    # --------------------------------------------------------------
+    # Context manager support
+    # --------------------------------------------------------------
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
 
 
 class InMemorySampleDataset(SampleDataset):
@@ -464,6 +479,8 @@ class InMemorySampleDataset(SampleDataset):
         new_dataset._data = samples
         return new_dataset
 
+    def close(self) -> None:
+        pass  # No temporary directories to clean up for in-memory dataset
 
 def create_sample_dataset(
     samples: List[Dict[str, Any]],
