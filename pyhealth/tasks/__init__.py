@@ -61,7 +61,7 @@ from .sleep_staging import (
     sleep_staging_sleepedf_fn,
 )
 from .sleep_staging_v2 import SleepStagingSleepEDF
-from .temple_university_EEG_tasks import EEG_events_fn, EEG_isAbnormal_fn
+from .temple_university_EEG_tasks import EEGEventsTUEV
 from .variant_classification import (
     MutationPathogenicityPrediction,
     VariantClassificationClinVar,
