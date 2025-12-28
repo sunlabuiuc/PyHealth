@@ -17,7 +17,7 @@ class TestMIMIC3LengthOfStayPrediction(unittest.TestCase):
     def _setup_dataset_path(self):
         """Get path to local MIMIC-III demo dataset in test resources."""
         # Get the path to the test-resources/core/mimic3demo directory
-        test_dir = Path(__file__).parent.parent
+        test_dir = Path(__file__).parent.parent.parent
         self.demo_dataset_path = str(
             test_dir / "test-resources" / "core" / "mimic3demo"
         )
@@ -25,12 +25,6 @@ class TestMIMIC3LengthOfStayPrediction(unittest.TestCase):
         print(f"\n{'='*60}")
         print(f"Setting up MIMIC-III demo dataset for length of stay prediction")
         print(f"Dataset path: {self.demo_dataset_path}")
-
-        # Verify the dataset exists
-        if not os.path.exists(self.demo_dataset_path):
-            raise unittest.SkipTest(
-                f"MIMIC-III demo dataset not found at {self.demo_dataset_path}"
-            )
 
         # List files in the dataset directory
         files = os.listdir(self.demo_dataset_path)
@@ -47,7 +41,6 @@ class TestMIMIC3LengthOfStayPrediction(unittest.TestCase):
         print(f"Loading MIMIC3Dataset with tables: {tables}")
         self.dataset = MIMIC3Dataset(root=self.demo_dataset_path, tables=tables)
         print(f"✓ Dataset loaded successfully")
-        print(f"  Total patients: {len(self.dataset.patients)}")
         print()
 
     def test_dataset_stats(self):
@@ -87,19 +80,16 @@ class TestMIMIC3LengthOfStayPrediction(unittest.TestCase):
             print("\nCalling dataset.set_task()...")
             sample_dataset = self.dataset.set_task(task)
             self.assertIsNotNone(sample_dataset, "set_task should return a dataset")
-            self.assertTrue(
-                hasattr(sample_dataset, "samples"), "Sample dataset should have samples"
-            )
             print(f"✓ set_task() completed")
 
             # Verify we got some samples
-            num_samples = len(sample_dataset.samples)
+            num_samples = len(sample_dataset)
             self.assertGreater(num_samples, 0, "Should generate at least one sample")
             print(f"✓ Generated {num_samples} length of stay prediction samples")
 
             # Test sample structure
             if num_samples > 0:
-                sample = sample_dataset.samples[0]
+                sample = sample_dataset[0]
                 required_keys = [
                     "visit_id",
                     "patient_id",
@@ -128,8 +118,8 @@ class TestMIMIC3LengthOfStayPrediction(unittest.TestCase):
 
                 # Count LOS distribution
                 los_counts = {i: 0 for i in range(10)}
-                for s in sample_dataset.samples:
-                    los_counts[s["los"]] += 1
+                for s in sample_dataset:
+                    los_counts[int(s["los"].item())] += 1
 
                 print(f"\nLength of stay category distribution:")
                 category_labels = [
