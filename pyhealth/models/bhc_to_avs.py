@@ -2,7 +2,6 @@
 # NetID: charanw2
 # Description: Converts clinical brief hospital course (BHC) data to after visit summaries using a fine-tuned Mistral 7B model.
 
-from typing import Dict, Any
 from dataclasses import dataclass, field
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
