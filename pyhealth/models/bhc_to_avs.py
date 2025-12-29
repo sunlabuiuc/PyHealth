@@ -2,7 +2,6 @@
 # NetID: charanw2
 # Description: Converts clinical brief hospital course (BHC) data to after visit summaries using a fine-tuned Mistral 7B model.
 
-from typing import Dict, Any
 from dataclasses import dataclass, field
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
@@ -54,7 +53,6 @@ class BHCToAVS(BaseModel):
                 "text-generation",
                 model=model,
                 tokenizer=tokenizer,
-                device_map="auto",
                 model_kwargs={"torch_dtype": torch.bfloat16}
             )
 
@@ -75,6 +73,13 @@ class BHCToAVS(BaseModel):
             Patient-friendly summary.
         """
 
+        # Validate input to provide clear error messages and avoid unexpected failures.
+        if bhc_text is None:
+            raise ValueError("bhc_text must not be None.")
+        if not isinstance(bhc_text, str):
+            raise TypeError(f"bhc_text must be a string, got {type(bhc_text).__name__}.")
+        if not bhc_text.strip():
+            raise ValueError("bhc_text must be a non-empty string.")
         prompt = _SYSTEM_PROMPT + _PROMPT.format(bhc=bhc_text)
 
         pipe = self._get_pipeline()
@@ -84,6 +89,7 @@ class BHCToAVS(BaseModel):
             temperature=0.0,
             eos_token_id=[pipe.tokenizer.eos_token_id],
             pad_token_id=pipe.tokenizer.eos_token_id,
+            return_full_text=False,
         )
 
         # Output is a single text string
