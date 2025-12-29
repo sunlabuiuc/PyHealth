@@ -1,5 +1,5 @@
 from datetime import timedelta
-import os
+import tempfile
 import unittest
 
 from pyhealth.datasets import MIMIC3Dataset
@@ -225,6 +225,8 @@ class MockMICIC3Dataset:
         return row_id
 
     def create(self, tables: list=["diagnoses_icd", "prescriptions", "procedures_icd"]):
+        self._dir = tempfile.TemporaryDirectory()
+
         files = {
             "PATIENTS.csv":       "\n".join(self.patients),
             "ADMISSIONS.csv":     "\n".join(self.admissions),
@@ -235,17 +237,12 @@ class MockMICIC3Dataset:
         }
 
         for k, v in files.items():
-            with open(k, 'w') as f: f.write(v)
+            with open(f"{self._dir.name}/{k}", 'w') as f: f.write(v)
 
-        return MIMIC3Dataset(root=".", tables=tables)
+        return MIMIC3Dataset(root=self._dir.name, tables=tables)
 
     def destroy(self):
-        if os.path.exists("PATIENTS.csv"):       os.remove("PATIENTS.csv")
-        if os.path.exists("ADMISSIONS.csv"):     os.remove("ADMISSIONS.csv")
-        if os.path.exists("ICUSTAYS.csv"):       os.remove("ICUSTAYS.csv")
-        if os.path.exists("DIAGNOSES_ICD.csv"):  os.remove("DIAGNOSES_ICD.csv")
-        if os.path.exists("PRESCRIPTIONS.csv"):  os.remove("PRESCRIPTIONS.csv")
-        if os.path.exists("PROCEDURES_ICD.csv"): os.remove("PROCEDURES_ICD.csv")
+        self._dir.cleanup()
 
 
 if __name__ == "__main__":
