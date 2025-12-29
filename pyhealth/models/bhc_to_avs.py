@@ -62,7 +62,6 @@ class BHCToAVS(BaseModel):
                 "text-generation",
                 model=model,
                 tokenizer=tokenizer,
-                device_map="auto",
                 model_kwargs={"torch_dtype": torch.bfloat16}
             )
 
