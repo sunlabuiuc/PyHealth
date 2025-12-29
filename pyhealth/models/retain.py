@@ -132,7 +132,7 @@ class RETAIN(BaseModel):
         **kwargs: other parameters for the RETAIN layer.
 
     Examples:
-        >>> from pyhealth.datasets import SampleDataset
+        >>> from pyhealth.datasets import create_sample_dataset
         >>> samples = [
         ...     {
         ...         "patient_id": "patient-0",
@@ -149,7 +149,7 @@ class RETAIN(BaseModel):
         ...         "label": 0,
         ...     },
         ... ]
-        >>> dataset = SampleDataset(
+        >>> dataset = create_sample_dataset(
         ...     samples=samples,
         ...     input_schema={
         ...         "conditions": "nested_sequence",
@@ -281,7 +281,7 @@ class RETAIN(BaseModel):
 
 
 if __name__ == "__main__":
-    from pyhealth.datasets import SampleDataset
+    from pyhealth.datasets import create_sample_dataset
 
     samples = [
         {
@@ -303,7 +303,7 @@ if __name__ == "__main__":
     ]
 
     # dataset
-    dataset = SampleDataset(
+    dataset = create_sample_dataset(
         samples=samples,
         input_schema={
             "conditions": "nested_sequence",

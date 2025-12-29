@@ -1,0 +1,36 @@
+version: "1.0"
+tables:
+  diagnoses:
+    file_path: "train.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "AS"
+    - "AR"
+    - "MR"
+    - "MS"
+    - "N"
+
+  recordings:
+    file_path: "train.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "recording_1"
+    - "recording_2"
+    - "recording_3"
+    - "recording_4"
+    - "recording_5"
+    - "recording_6"
+    - "recording_7"
+    - "recording_8"
+  
+  metadata:
+    file_path: "additional_metadata.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "Age"
+    - "Gender"
+    - "Smoker"
+    - "Lives"

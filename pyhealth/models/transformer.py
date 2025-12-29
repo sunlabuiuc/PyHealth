@@ -27,6 +27,21 @@ from pyhealth.models.embedding import EmbeddingModel
 class Attention(nn.Module):
     """Scaled dot-product attention helper."""
 
+    def __init__(self):
+        super().__init__()
+        self._activation_hooks = None
+
+    def set_activation_hooks(self, hooks) -> None:
+        """Inject activation hooks for interpretability methods."""
+
+        self._activation_hooks = hooks
+
+    def _apply_activation(self, name: str, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+        if self._activation_hooks is not None and hasattr(self._activation_hooks, "apply"):
+            return self._activation_hooks.apply(name, tensor, **kwargs)
+        fn = getattr(torch, name)
+        return fn(tensor, **kwargs)
+
     def forward(
         self,
         query: torch.Tensor,
@@ -52,12 +67,10 @@ class Attention(nn.Module):
             Called inside :class:`MultiHeadedAttention` for each head.
         """
 
-        scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(
-            query.size(-1)
-        )
+        scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(query.size(-1))
         if mask is not None:
             scores = scores.masked_fill(mask == 0, -1e9)
-        p_attn = torch.softmax(scores, dim=-1)
+        p_attn = self._apply_activation("softmax", scores, dim=-1)
         if mask is not None:
             p_attn = p_attn.masked_fill(mask == 0, 0)
         if dropout is not None:
@@ -101,6 +114,12 @@ class MultiHeadedAttention(nn.Module):
             f"MultiHeadedAttention(heads={self.h}, d_model={self.h * self.d_k}, "
             f"dropout={self.dropout.p})"
         )
+
+    def set_activation_hooks(self, hooks) -> None:
+        """Propagate activation hooks to the underlying Attention module."""
+
+        if hasattr(self.attention, "set_activation_hooks"):
+            self.attention.set_activation_hooks(hooks)
 
     # helper functions for interpretability
     def get_attn_map(self) -> Optional[torch.Tensor]:
@@ -235,6 +254,12 @@ class TransformerBlock(nn.Module):
         self.output_sublayer = SublayerConnection(size=hidden, dropout=dropout)
         self.dropout = nn.Dropout(p=dropout)
 
+    def set_activation_hooks(self, hooks) -> None:
+        """Forward activation hooks to the multi-head attention block."""
+
+        if hasattr(self.attention, "set_activation_hooks"):
+            self.attention.set_activation_hooks(hooks)
+
     def forward(self, x, mask=None, register_hook = False):
         """Forward propagation.
 
@@ -281,6 +306,13 @@ class TransformerLayer(nn.Module):
             [TransformerBlock(feature_size, heads, dropout) for _ in range(num_layers)]
         )
 
+    def set_activation_hooks(self, hooks) -> None:
+        """Attach activation hooks to every TransformerBlock in the layer."""
+
+        for transformer in self.transformer:
+            if hasattr(transformer, "set_activation_hooks"):
+                transformer.set_activation_hooks(hooks)
+
     def forward(
         self, x: torch.Tensor, mask: Optional[torch.Tensor] = None, register_hook: bool = False
     ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -321,7 +353,7 @@ class Transformer(BaseModel):
         num_layers (int): number of transformer blocks per feature stream.
 
     Examples:
-        >>> from pyhealth.datasets import SampleDataset, get_dataloader
+        >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
         >>> samples = [
         ...     {
         ...         "patient_id": "patient-0",
@@ -340,7 +372,7 @@ class Transformer(BaseModel):
         ... ]
         >>> input_schema = {"diagnoses": "sequence", "procedures": "sequence"}
         >>> output_schema = {"label": "binary"}
-        >>> dataset = SampleDataset(
+        >>> dataset = create_sample_dataset(
         ...     samples,
         ...     input_schema,
         ...     output_schema,
@@ -391,6 +423,23 @@ class Transformer(BaseModel):
 
         output_size = self.get_output_size()
         self.fc = nn.Linear(len(self.feature_keys) * embedding_dim, output_size)
+        self._activation_hooks = None
+
+    def set_deeplift_hooks(self, hooks) -> None:
+        """Attach activation hooks for interpretability algorithms."""
+
+        self._activation_hooks = hooks
+        for layer in self.transformer.values():
+            if hasattr(layer, "set_activation_hooks"):
+                layer.set_activation_hooks(hooks)
+
+    def clear_deeplift_hooks(self) -> None:
+        """Remove previously registered interpretability hooks."""
+
+        self._activation_hooks = None
+        for layer in self.transformer.values():
+            if hasattr(layer, "set_activation_hooks"):
+                layer.set_activation_hooks(None)
 
     @staticmethod
     def _split_temporal(feature):
@@ -523,6 +572,47 @@ class Transformer(BaseModel):
             x = x.unsqueeze(1)
         return x
 
+    @staticmethod
+    def _mask_from_embeddings(x: torch.Tensor) -> torch.Tensor:
+        """Infer a boolean mask directly from embedded representations."""
+
+        mask = torch.any(torch.abs(x) > 0, dim=-1)
+        if mask.dim() == 1:
+            mask = mask.unsqueeze(1)
+        invalid_rows = ~mask.any(dim=1)
+        if invalid_rows.any():
+            mask[invalid_rows, 0] = True
+        return mask.bool()
+
+    def forward_from_embedding(
+        self,
+        feature_embeddings: Dict[str, torch.Tensor],
+        time_info: Optional[Dict[str, torch.Tensor]] = None,
+        **kwargs,
+    ) -> Dict[str, torch.Tensor]:
+        """Forward pass that consumes pre-computed embeddings."""
+
+        register_hook = bool(kwargs.get("register_hook", False))
+        patient_emb = []
+
+        for feature_key in self.feature_keys:
+            x = feature_embeddings[feature_key].to(self.device)
+            x = self._pool_embedding(x)
+            mask = self._mask_from_embeddings(x).to(self.device)
+            _, cls_emb = self.transformer[feature_key](x, mask, register_hook)
+            patient_emb.append(cls_emb)
+
+        patient_emb = torch.cat(patient_emb, dim=1)
+        logits = self.fc(patient_emb)
+
+        y_true = kwargs[self.label_key].to(self.device)
+        loss = self.get_loss_function()(logits, y_true)
+        y_prob = self.prepare_y_prob(logits)
+        results = {"loss": loss, "y_prob": y_prob, "y_true": y_true, "logit": logits}
+        if kwargs.get("embed", False):
+            results["embed"] = patient_emb
+        return results
+
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation with PyHealth 2.0 inputs.
 
@@ -571,7 +661,7 @@ class Transformer(BaseModel):
 
 
 if __name__ == "__main__":
-    from pyhealth.datasets import SampleDataset, get_dataloader
+    from pyhealth.datasets import create_sample_dataset, get_dataloader
 
     samples = [
         {
@@ -596,7 +686,7 @@ if __name__ == "__main__":
     }
     output_schema: Dict[str, Union[str, type[FeatureProcessor]]] = {"label": "binary"}
 
-    dataset = SampleDataset(
+    dataset = create_sample_dataset(
         samples=samples,
         input_schema=input_schema,
         output_schema=output_schema,

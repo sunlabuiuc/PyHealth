@@ -84,14 +84,35 @@ class StageNetLayer(nn.Module):
             self.nn_dropout = nn.Dropout(p=dropout)
             self.nn_dropres = nn.Dropout(p=dropres)
 
+        # Hooks for interpretability (e.g., DeepLIFT) default to None
+        self._activation_hooks = None
+
+    def set_activation_hooks(self, hooks) -> None:
+        """Registers activation hooks for interpretability methods.
+
+        Args:
+            hooks: Object exposing ``apply(name, tensor, **kwargs)``. When
+                provided, activation functions inside the layer will be
+                routed through ``hooks`` instead of raw torch.ops. Passing
+                ``None`` disables the hooks.
+        """
+
+        self._activation_hooks = hooks
+
+    def _apply_activation(self, name: str, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
+        if self._activation_hooks is not None and hasattr(self._activation_hooks, "apply"):
+            return self._activation_hooks.apply(name, tensor, **kwargs)
+        fn = getattr(torch, name)
+        return fn(tensor, **kwargs)
+
     def cumax(self, x, mode="l2r"):
         if mode == "l2r":
-            x = torch.softmax(x, dim=-1)
+            x = self._apply_activation("softmax", x, dim=-1)
             x = torch.cumsum(x, dim=-1)
             return x
         elif mode == "r2l":
             x = torch.flip(x, [-1])
-            x = torch.softmax(x, dim=-1)
+            x = self._apply_activation("softmax", x, dim=-1)
             x = torch.cumsum(x, dim=-1)
             return torch.flip(x, [-1])
         else:
@@ -117,12 +138,18 @@ class StageNetLayer(nn.Module):
         i_master_gate = i_master_gate.unsqueeze(2)
         x_out = x_out[:, self.levels * 2 :]
         x_out = x_out.reshape(-1, self.levels * 4, self.chunk_size)
-        f_gate = torch.sigmoid(x_out[:, : self.levels]).to(device=device)
-        i_gate = torch.sigmoid(x_out[:, self.levels : self.levels * 2]).to(
+        f_gate = self._apply_activation("sigmoid", x_out[:, : self.levels]).to(
             device=device
         )
-        o_gate = torch.sigmoid(x_out[:, self.levels * 2 : self.levels * 3])
-        c_in = torch.tanh(x_out[:, self.levels * 3 :]).to(device=device)
+        i_gate = self._apply_activation(
+            "sigmoid", x_out[:, self.levels : self.levels * 2]
+        ).to(device=device)
+        o_gate = self._apply_activation(
+            "sigmoid", x_out[:, self.levels * 2 : self.levels * 3]
+        )
+        c_in = self._apply_activation("tanh", x_out[:, self.levels * 3 :]).to(
+            device=device
+        )
         c_last = c_last.reshape(-1, self.levels, self.chunk_size).to(device=device)
         overlap = (f_master_gate * i_master_gate).to(device=device)
         c_out = (
@@ -130,7 +157,7 @@ class StageNetLayer(nn.Module):
             + (f_master_gate - overlap) * c_last
             + (i_master_gate - overlap) * c_in
         )
-        h_out = o_gate * torch.tanh(c_out)
+        h_out = o_gate * self._apply_activation("tanh", c_out)
         c_out = c_out.reshape(-1, self.hidden_dim)
         h_out = h_out.reshape(-1, self.hidden_dim)
         out = torch.cat([h_out, f_master_gate[..., 0], i_master_gate[..., 0]], 1)
@@ -199,16 +226,16 @@ class StageNetLayer(nn.Module):
             # Re-weighted convolution operation
             local_dis = tmp_dis.permute(1, 0)
             local_dis = torch.cumsum(local_dis, dim=1)
-            local_dis = torch.softmax(local_dis, dim=1)
+            local_dis = self._apply_activation("softmax", local_dis, dim=1)
             local_h = tmp_h.permute(1, 2, 0)
             local_h = local_h * local_dis.unsqueeze(1)
 
             # Re-calibrate Progression patterns
             local_theme = torch.mean(local_h, dim=-1)
             local_theme = self.nn_scale(local_theme).to(device)
-            local_theme = torch.relu(local_theme)
+            local_theme = self._apply_activation("relu", local_theme)
             local_theme = self.nn_rescale(local_theme).to(device)
-            local_theme = torch.sigmoid(local_theme)
+            local_theme = self._apply_activation("sigmoid", local_theme)
 
             local_h = self.nn_conv(local_h).squeeze(-1)
             local_h = local_theme * local_h
@@ -258,7 +285,7 @@ class StageNet(BaseModel):
         **kwargs: other parameters for the StageNet layer.
 
     Examples:
-        >>> from pyhealth.datasets import SampleDataset
+        >>> from pyhealth.datasets import create_sample_dataset
         >>> samples = [
         ...     {
         ...         "patient_id": "patient-0",
@@ -289,7 +316,7 @@ class StageNet(BaseModel):
         ... ]
         >>>
         >>> # dataset
-        >>> dataset = SampleDataset(
+        >>> dataset = create_sample_dataset(
         ...     samples=samples,
         ...     input_schema={
         ...         "codes": "stagenet",
@@ -363,6 +390,125 @@ class StageNet(BaseModel):
             len(self.feature_keys) * self.chunk_size * self.levels, output_size
         )
 
+        self._deeplift_hooks = None
+
+    # ------------------------------------------------------------------
+    # Interpretability support (e.g., DeepLIFT)
+    # ------------------------------------------------------------------
+    def set_deeplift_hooks(self, hooks) -> None:
+        """Attach activation hooks for interpretability algorithms.
+
+        Args:
+            hooks: Object exposing ``apply(name, tensor, **kwargs)`` which
+                will be invoked for activation calls within StageNet layers.
+        """
+
+        self._deeplift_hooks = hooks
+        for layer in self.stagenet.values():
+            if hasattr(layer, "set_activation_hooks"):
+                layer.set_activation_hooks(hooks)
+
+    def clear_deeplift_hooks(self) -> None:
+        """Remove previously registered interpretability hooks."""
+
+        self._deeplift_hooks = None
+        for layer in self.stagenet.values():
+            if hasattr(layer, "set_activation_hooks"):
+                layer.set_activation_hooks(None)
+
+    def forward_from_embedding(
+        self,
+        feature_embeddings: Dict[str, torch.Tensor],
+        time_info: Optional[Dict[str, torch.Tensor]] = None,
+        **kwargs,
+    ) -> Dict[str, torch.Tensor]:
+        """Forward pass starting from feature embeddings.
+
+        This method bypasses the embedding layers but still performs
+        temporal processing through StageNet layers. This is useful for
+        interpretability methods like Integrated Gradients that need to
+        interpolate in embedding space.
+
+        Args:
+            feature_embeddings: Dictionary mapping feature keys to their
+                embedded representations. Each tensor should have shape
+                [batch_size, seq_len, embedding_dim].
+            time_info: Optional dictionary mapping feature keys to their
+                time information tensors of shape [batch_size, seq_len].
+                If None, uniform time intervals are assumed.
+            **kwargs: Additional keyword arguments, must include the label
+                key for loss computation.
+
+        Returns:
+            A dictionary with the following keys:
+                loss: a scalar tensor representing the final loss.
+                y_prob: a tensor of predicted probabilities.
+                y_true: a tensor representing the true labels.
+                logit: the raw logits before activation.
+                embed: (if embed=True in kwargs) the patient embedding.
+        """
+        patient_emb = []
+        distance = []
+
+        for feature_key in self.feature_keys:
+            # Get embedded feature
+            x = feature_embeddings[feature_key].to(self.device)
+            # x: [batch, seq_len, embedding_dim] or 4D nested
+
+            # Handle nested sequences (4D) by pooling over inner dim
+            # This matches forward() processing for consistency
+            if x.dim() == 4:  # [batch, seq_len, inner_len, embedding_dim]
+                # Sum pool over inner dimension
+                x = x.sum(dim=2)  # [batch, seq_len, embedding_dim]
+
+            # Get time information if available
+            time = None
+            if time_info is not None and feature_key in time_info:
+                if time_info[feature_key] is not None:
+                    time = time_info[feature_key].to(self.device)
+                    # Ensure time is 2D [batch, seq_len]
+                    if time.dim() == 1:
+                        time = time.unsqueeze(0)
+
+            # Create mask from embedded values
+            mask = (x.sum(dim=-1) != 0).int()  # [batch, seq_len]
+
+            # Pass through StageNet layer with embedded features
+            last_output, _, cur_dis = self.stagenet[feature_key](
+                x, time=time, mask=mask
+            )
+
+            patient_emb.append(last_output)
+            distance.append(cur_dis)
+
+        # Concatenate all feature embeddings
+        patient_emb = torch.cat(patient_emb, dim=1)
+
+        # Register hook if needed for gradient tracking
+        if patient_emb.requires_grad:
+            patient_emb.register_hook(lambda grad: grad)
+
+        # Pass through final classification layer
+        logits = self.fc(patient_emb)
+
+        # Obtain y_true, loss, y_prob
+        y_true = kwargs[self.label_key].to(self.device)
+        loss = self.get_loss_function()(logits, y_true)
+
+        y_prob = self.prepare_y_prob(logits)
+        results = {
+            "loss": loss,
+            "y_prob": y_prob,
+            "y_true": y_true,
+            "logit": logits,
+        }
+
+        # Optionally return embeddings
+        if kwargs.get("embed", False):
+            results["embed"] = patient_emb
+
+        return results
+
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation.
 
@@ -425,7 +571,6 @@ class StageNet(BaseModel):
             # Need to pass as dict for EmbeddingModel
             embedded = self.embedding_model({feature_key: x})
             x = embedded[feature_key]  # [batch, seq_len, embedding_dim]
-
             # Handle nested sequences (2D codes -> need pooling on inner dim)
             if x.dim() == 4:  # [batch, seq_len, inner_len, embedding_dim]
                 # Sum pool over inner dimension
@@ -447,6 +592,7 @@ class StageNet(BaseModel):
             )
 
             patient_emb.append(last_output)
+
             distance.append(cur_dis)
 
         patient_emb = torch.cat(patient_emb, dim=1)
@@ -470,7 +616,7 @@ class StageNet(BaseModel):
 
 
 if __name__ == "__main__":
-    from pyhealth.datasets import SampleDataset
+    from pyhealth.datasets import create_sample_dataset
 
     samples = [
         {
@@ -508,7 +654,7 @@ if __name__ == "__main__":
     ]
 
     # dataset
-    dataset = SampleDataset(
+    dataset = create_sample_dataset(
         samples=samples,
         input_schema={
             "codes": "stagenet",

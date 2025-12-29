@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
+import litdata
 from dateutil.parser import parse as dateutil_parse
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
@@ -319,7 +320,7 @@ def collate_fn_dict_with_padding(batch: List[dict]) -> dict:
 
 
 def get_dataloader(
-    dataset: torch.utils.data.Dataset, batch_size: int, shuffle: bool = False
+    dataset: litdata.StreamingDataset, batch_size: int, shuffle: bool = False
 ) -> DataLoader:
     """Creates a DataLoader for a given dataset.
 
@@ -331,14 +332,110 @@ def get_dataloader(
     Returns:
         A DataLoader instance for the dataset.
     """
+    dataset.set_shuffle(shuffle)
     dataloader = DataLoader(
         dataset,
         batch_size=batch_size,
-        shuffle=shuffle,
         collate_fn=collate_fn_dict_with_padding,
     )
 
     return dataloader
+
+
+def save_processors(sample_dataset, output_dir: str) -> Dict[str, str]:
+    """Save input and output processors to pickle files.
+
+    This function saves the fitted processors from a SampleDataset to disk,
+    allowing them to be reused in future runs for consistent feature encoding.
+
+    Args:
+        sample_dataset: SampleDataset with fitted processors
+        output_dir (str): Directory to save processor files
+
+    Returns:
+        Dict[str, str]: Paths where processors were saved with keys
+            'input_processors' and 'output_processors'
+
+    Example:
+        >>> from pyhealth.datasets import save_processors
+        >>> sample_dataset = base_dataset.set_task(task)
+        >>> paths = save_processors(sample_dataset, "./output/processors")
+        >>> print(paths["input_processors"])
+        ./output/processors/input_processors.pkl
+    """
+    from pathlib import Path
+
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    paths = {}
+
+    # Save input processors
+    input_processors_path = output_path / "input_processors.pkl"
+    with open(input_processors_path, "wb") as f:
+        pickle.dump(sample_dataset.input_processors, f)
+    paths["input_processors"] = str(input_processors_path)
+    print(f"✓ Saved input processors to {input_processors_path}")
+
+    # Save output processors
+    output_processors_path = output_path / "output_processors.pkl"
+    with open(output_processors_path, "wb") as f:
+        pickle.dump(sample_dataset.output_processors, f)
+    paths["output_processors"] = str(output_processors_path)
+    print(f"✓ Saved output processors to {output_processors_path}")
+
+    return paths
+
+
+def load_processors(processor_dir: str) -> Tuple[Dict, Dict]:
+    """Load input and output processors from pickle files.
+
+    This function loads previously saved processors from disk, allowing
+    consistent feature encoding across different runs without refitting.
+
+    Args:
+        processor_dir (str): Directory containing processor pickle files
+
+    Returns:
+        Tuple[Dict, Dict]: (input_processors, output_processors)
+
+    Raises:
+        FileNotFoundError: If processor files are not found
+
+    Example:
+        >>> from pyhealth.datasets import load_processors
+        >>> input_procs, output_procs = load_processors("./output/processors")
+        >>> sample_dataset = base_dataset.set_task(
+        ...     task,
+        ...     input_processors=input_procs,
+        ...     output_processors=output_procs
+        ... )
+    """
+    from pathlib import Path
+
+    processor_path = Path(processor_dir)
+
+    input_processors_path = processor_path / "input_processors.pkl"
+    output_processors_path = processor_path / "output_processors.pkl"
+
+    if not input_processors_path.exists():
+        raise FileNotFoundError(
+            f"Input processors not found at {input_processors_path}"
+        )
+    if not output_processors_path.exists():
+        raise FileNotFoundError(
+            f"Output processors not found at {output_processors_path}"
+        )
+
+    with open(input_processors_path, "rb") as f:
+        input_processors = pickle.load(f)
+    print(f"✓ Loaded input processors from {input_processors_path}")
+
+    with open(output_processors_path, "rb") as f:
+        output_processors = pickle.load(f)
+    print(f"✓ Loaded output processors from {output_processors_path}")
+
+    return input_processors, output_processors
 
 
 if __name__ == "__main__":

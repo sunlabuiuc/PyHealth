@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Iterable
 
 import torch
 
@@ -23,6 +23,12 @@ class StageNetProcessor(FeatureProcessor):
     - List of strings -> flat code sequences
     - List of lists of strings -> nested code sequences
 
+    Args:
+        padding: Additional padding to add on top of the observed maximum nested
+            sequence length. The actual padding length will be observed_max + padding.
+            This ensures the processor can handle sequences longer than those in the
+            training data. Default: 0 (no extra padding). Only applies to nested sequences.
+
     Returns:
         Tuple of (time_tensor, value_tensor) where time_tensor can be None
 
@@ -34,10 +40,11 @@ class StageNetProcessor(FeatureProcessor):
         >>> values.shape  # (3,) - sequence of code indices
         >>> time.shape    # (3,) - time intervals
 
-        >>> # Case 2: Nested codes with time
+        >>> # Case 2: Nested codes with time (with custom padding for extra capacity)
+        >>> processor = StageNetProcessor(padding=20)
         >>> data = ([0.0, 1.5], [["A", "B"], ["C"]])
         >>> time, values = processor.process(data)
-        >>> values.shape  # (2, max_inner_len) - padded nested sequences
+        >>> values.shape  # (2, observed_max + 20) - padded nested sequences
         >>> time.shape    # (2,)
 
         >>> # Case 3: Codes without time
@@ -47,13 +54,16 @@ class StageNetProcessor(FeatureProcessor):
         >>> time          # None
     """
 
-    def __init__(self):
-        self.code_vocab: Dict[Any, int] = {"<unk>": -1, "<pad>": 0}
+    def __init__(self, padding: int = 0):
+        # <unk> will be set to len(vocab) after fit
+        self.code_vocab: Dict[Any, int] = {"<unk>": None, "<pad>": 0}
         self._next_index = 1
         self._is_nested = None  # Will be determined during fit
-        self._max_nested_len = None  # Max inner sequence length for nested codes
+        # Max inner sequence length for nested codes
+        self._max_nested_len = None
+        self._padding = padding  # Additional padding beyond observed max
 
-    def fit(self, samples: List[Dict], key: str) -> None:
+    def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
         """Build vocabulary and determine input structure.
 
         Args:
@@ -62,9 +72,9 @@ class StageNetProcessor(FeatureProcessor):
         """
         # Examine first non-None sample to determine structure
         for sample in samples:
-            if key in sample and sample[key] is not None:
+            if field in sample and sample[field] is not None:
                 # Unpack tuple: (time, values)
-                time_data, value_data = sample[key]
+                time_data, value_data = sample[field]
 
                 # Determine nesting level for codes
                 if isinstance(value_data, list) and len(value_data) > 0:
@@ -82,9 +92,9 @@ class StageNetProcessor(FeatureProcessor):
         # Build vocabulary for codes and find max nested length
         max_inner_len = 0
         for sample in samples:
-            if key in sample and sample[key] is not None:
+            if field in sample and sample[field] is not None:
                 # Unpack tuple: (time, values)
-                time_data, value_data = sample[key]
+                time_data, value_data = sample[field]
 
                 if self._is_nested:
                     # Nested codes
@@ -102,9 +112,15 @@ class StageNetProcessor(FeatureProcessor):
                             self.code_vocab[code] = self._next_index
                             self._next_index += 1
 
-        # Store max nested length (at least 1 for empty sequences)
+        # Store max nested length: add user-specified padding to observed maximum
+        # This ensures the processor can handle sequences longer than those in training data
         if self._is_nested:
-            self._max_nested_len = max(1, max_inner_len)
+            observed_max = max(1, max_inner_len)
+            self._max_nested_len = observed_max + self._padding
+
+        # Set <unk> token to the next available index
+        # Since <unk> is already in the vocab dict, we use _next_index
+        self.code_vocab["<unk>"] = self._next_index
 
     def process(
         self, value: Tuple[Optional[List], List]
@@ -191,12 +207,14 @@ class StageNetProcessor(FeatureProcessor):
             return (
                 f"StageNetProcessor(is_nested={self._is_nested}, "
                 f"vocab_size={len(self.code_vocab)}, "
-                f"max_nested_len={self._max_nested_len})"
+                f"max_nested_len={self._max_nested_len}, "
+                f"padding={self._padding})"
             )
         else:
             return (
                 f"StageNetProcessor(is_nested={self._is_nested}, "
-                f"vocab_size={len(self.code_vocab)})"
+                f"vocab_size={len(self.code_vocab)}, "
+                f"padding={self._padding})"
             )
 
 
@@ -244,7 +262,7 @@ class StageNetTensorProcessor(FeatureProcessor):
         self._size = None  # Feature dimension (set during fit)
         self._is_nested = None
 
-    def fit(self, samples: List[Dict], key: str) -> None:
+    def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
         """Determine input structure.
 
         Args:
@@ -253,9 +271,9 @@ class StageNetTensorProcessor(FeatureProcessor):
         """
         # Examine first non-None sample to determine structure
         for sample in samples:
-            if key in sample and sample[key] is not None:
+            if field in sample and sample[field] is not None:
                 # Unpack tuple: (time, values)
-                time_data, value_data = sample[key]
+                time_data, value_data = sample[field]
 
                 # Determine nesting level for numerics
                 if isinstance(value_data, list) and len(value_data) > 0:
@@ -330,7 +348,6 @@ class StageNetTensorProcessor(FeatureProcessor):
 
         return (time_tensor, value_tensor)
 
-    @property
     def size(self):
         """Return feature dimension."""
         return self._size

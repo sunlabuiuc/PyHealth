@@ -59,6 +59,15 @@ Build, test, and deploy healthcare machine learning models with ease. PyHealth i
    :alt: YouTube
 
 
+----------
+
+ **[News!]** Join us for **PyHealth Casual Chats** – informal sessions where you can ask questions, discuss research ideas, or talk about PyHealth developments! Everyone is welcome. `Join Zoom → <https://illinois.zoom.us/j/83607767000?pwd=xXKdKKs2YBH8d0UMWeUiYNEl0lhDoU.1>`_ | `Add to Calendar → <https://calendar.google.com/calendar/event?action=TEMPLATE&tmeid=NGY5NXM1ZnF1MWQ1cnFpdmxxMzNodTNlM2pfMjAyNTEyMTJUMTgwMDAwWiBqb2hud3UzQGlsbGlub2lzLmVkdQ&tmsrc=johnwu3%40illinois.edu&scp=ALL>`_
+
+ **[News!]** We are continuously implementing good papers and benchmarks into PyHealth, checkout the `[Planned List] <https://docs.google.com/spreadsheets/d/1PNMgDe-llOm1SM5ZyGLkmPysjC4wwaVblPLAHLxejTw/edit#gid=159213380>`_. Welcome to pick one from the list and send us a PR or add more influential and new papers into the plan list.
+
+----------
+
+
 .. -----
 
 
@@ -139,23 +148,23 @@ Quick Navigation
        
        :doc:`Open Tutorials → <tutorials>`
 
-   * - Research Initiative
-       
-       Explore research contributions from our annual summer program
-       
-       :doc:`View Projects → <research_initiative>`
-     - Community
-       
-       Join our Discord server and contribute to PyHealth
-       
-       `Discord → <https://discord.gg/mpb835EHaX>`_ | :doc:`Contribute → <how_to_contribute>`
+  * - Research Initiative
+      
+      Explore research contributions from our annual summer program
+      
+      :doc:`View Projects → <research_initiative>`
+    - Newsletter
+      
+      Stay updated with the latest PyHealth developments and community news
+      
+      :doc:`Read Newsletter → <newsletter>`
 
-
-----------
-
- **[News!]** We are continuously implementing good papers and benchmarks into PyHealth, checkout the `[Planned List] <https://docs.google.com/spreadsheets/d/1PNMgDe-llOm1SM5ZyGLkmPysjC4wwaVblPLAHLxejTw/edit#gid=159213380>`_. Welcome to pick one from the list and send us a PR or add more influential and new papers into the plan list.
-
-
+  * - Community
+      
+      Join our Discord server and contribute to PyHealth
+      
+      `Discord → <https://discord.gg/mpb835EHaX>`_ | :doc:`Contribute → <how_to_contribute>`
+    - 
 
 
 
@@ -223,6 +232,7 @@ Quick Navigation
 
    how_to_contribute
    research_initiative
+   newsletter
    live
    log
    about

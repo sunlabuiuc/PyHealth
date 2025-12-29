@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Iterable
 
 import torch
 
@@ -25,6 +25,12 @@ class NestedSequenceProcessor(FeatureProcessor):
         - <unk>: -1 for unknown codes
         - <pad>: 0 for padding
 
+    Args:
+        padding: Additional padding to add on top of the observed maximum inner
+            sequence length. The actual padding length will be observed_max + padding.
+            This ensures the processor can handle sequences longer than those in the
+            training data. Default: 0 (no extra padding).
+
     Examples:
         >>> processor = NestedSequenceProcessor()
         >>> # During fit, determines max inner sequence length
@@ -33,18 +39,19 @@ class NestedSequenceProcessor(FeatureProcessor):
         ...     {"codes": [["F"]]}
         ... ]
         >>> processor.fit(samples, "codes")
-        >>> # Process nested sequence
+        >>> # Process nested sequence (observed_max=3, default padding=0, total=3)
         >>> result = processor.process([["A", "B"], ["C"]])
-        >>> result.shape  # (2, 3) - 2 visits, padded to max length 3
+        >>> result.shape  # (2, 3) - 2 visits, padded to observed_max
     """
 
-    def __init__(self):
-        # -1 for <unk> for ease of boolean arithmetic > 0, > -1, etc.
-        self.code_vocab: Dict[Any, int] = {"<unk>": -1, "<pad>": 0}
+    def __init__(self, padding: int = 0):
+        # <unk> will be set to len(vocab) after fit
+        self.code_vocab: Dict[Any, int] = {"<unk>": None, "<pad>": 0}
         self._next_index = 1
         self._max_inner_len = 1  # Maximum length of inner sequences
+        self._padding = padding  # Additional padding beyond observed max
 
-    def fit(self, samples: List[Dict[str, Any]], field: str) -> None:
+    def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
         """Build vocabulary and determine maximum inner sequence length.
 
         Args:
@@ -70,8 +77,14 @@ class NestedSequenceProcessor(FeatureProcessor):
                                     self.code_vocab[code] = self._next_index
                                     self._next_index += 1
 
-        # Store max inner length (at least 1 for empty sequences)
-        self._max_inner_len = max(1, max_inner_len)
+        # Store max inner length: add user-specified padding to observed maximum
+        # This ensures the processor can handle sequences longer than those in training data
+        observed_max = max(1, max_inner_len)
+        self._max_inner_len = observed_max + self._padding
+
+        # Set <unk> token to len(vocab) - 1 after building vocabulary
+        # (-1 because <unk> is already in vocab)
+        self.code_vocab["<unk>"] = len(self.code_vocab) - 1
 
     def process(self, value: List[List[Any]]) -> torch.Tensor:
         """Process nested sequence into padded 2D tensor.
@@ -128,7 +141,8 @@ class NestedSequenceProcessor(FeatureProcessor):
         return (
             f"NestedSequenceProcessor("
             f"vocab_size={len(self.code_vocab)}, "
-            f"max_inner_len={self._max_inner_len})"
+            f"max_inner_len={self._max_inner_len}, "
+            f"padding={self._padding})"
         )
 
 
@@ -150,6 +164,10 @@ class NestedFloatsProcessor(FeatureProcessor):
         forward_fill: If True, applies forward fill for NaN values across
             time steps and empty visits. If False, sets null values to 0.
             Default is True.
+        padding: Additional padding to add on top of the observed maximum inner
+            sequence length. The actual padding length will be observed_max + padding.
+            This ensures the processor can handle sequences longer than those in the
+            training data. Default: 0 (no extra padding).
 
     Examples:
         >>> processor = NestedFloatsProcessor()
@@ -159,16 +177,17 @@ class NestedFloatsProcessor(FeatureProcessor):
         ...     {"values": [[6.0]]}
         ... ]
         >>> processor.fit(samples, "values")
-        >>> # Process nested sequence
+        >>> # Process nested sequence (observed_max=3, default padding=0, total=3)
         >>> result = processor.process([[1.0, 2.0], [3.0]])
-        >>> result.shape  # (2, 3) - 2 visits, padded to max length 3
+        >>> result.shape  # (2, 3) - 2 visits, padded to observed_max
     """
 
-    def __init__(self, forward_fill: bool = True):
+    def __init__(self, forward_fill: bool = True, padding: int = 0):
         self._max_inner_len = 1  # Maximum length of inner sequences
         self.forward_fill = forward_fill
+        self._padding = padding  # Additional padding beyond observed max
 
-    def fit(self, samples: List[Dict[str, Any]], field: str) -> None:
+    def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
         """Determine maximum inner sequence length.
 
         Args:
@@ -188,8 +207,10 @@ class NestedFloatsProcessor(FeatureProcessor):
                             # Track max inner length
                             max_inner_len = max(max_inner_len, len(inner_seq))
 
-        # Store max inner length (at least 1 for empty sequences)
-        self._max_inner_len = max(1, max_inner_len)
+        # Store max inner length: add user-specified padding to observed maximum
+        # This ensures the processor can handle sequences longer than those in training data
+        observed_max = max(1, max_inner_len)
+        self._max_inner_len = observed_max + self._padding
 
     def process(self, value: List[List[float]]) -> torch.Tensor:
         """Process nested numerical sequence with optional forward fill.
@@ -300,5 +321,6 @@ class NestedFloatsProcessor(FeatureProcessor):
         return (
             f"NestedFloatsProcessor("
             f"max_inner_len={self._max_inner_len}, "
-            f"forward_fill={self.forward_fill})"
+            f"forward_fill={self.forward_fill}, "
+            f"padding={self._padding})"
         )
