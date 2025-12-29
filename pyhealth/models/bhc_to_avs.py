@@ -132,8 +132,6 @@ class BHCToAVS(BaseModel):
         """
 
         # Validate input to provide clear error messages and avoid unexpected failures.
-        if bhc_text is None:
-            raise ValueError("bhc_text must not be None.")
         if not isinstance(bhc_text, str):
             raise TypeError(
                 f"bhc_text must be a string, got {type(bhc_text).__name__}."
