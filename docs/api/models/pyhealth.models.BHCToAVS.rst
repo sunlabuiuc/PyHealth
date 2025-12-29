@@ -1,5 +1,5 @@
-pyhealth.models.bhc_to_avs
-==========================
+pyhealth.models.BHCToAVS
+========================
 
 BHCToAVS
 ------------------------------
