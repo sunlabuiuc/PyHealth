@@ -119,6 +119,15 @@ class TestMedLink(unittest.TestCase):
         scores = self.model.compute_scores(q_emb, c_emb)
         self.assertEqual(scores.shape, (len(queries), len(corpus)))
 
+    def test_feature_key_inference(self):
+        """Model should infer feature_keys if not provided."""
+        model = MedLink(
+            dataset=self.dataset,
+            # feature_keys omitted
+            embedding_dim=32,
+        )
+        self.assertEqual(model.feature_key, "conditions")
+
 
 if __name__ == "__main__":
     unittest.main()

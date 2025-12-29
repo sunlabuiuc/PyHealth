@@ -19,7 +19,14 @@ class PatientLinkageMIMIC3Task(BaseTask):
     """
 
     task_name = "patient_linkage_mimic3"
-    input_schema = {"conditions": "sequence", "d_conditions": "sequence"}
+    input_schema = {
+        "conditions": "sequence",
+        "age": "integer",
+        "identifiers": "string",
+        "d_conditions": "sequence",
+        "d_age": "integer",
+        "d_identifiers": "string",
+    }
     output_schema = {}
 
     def __call__(self, patient):

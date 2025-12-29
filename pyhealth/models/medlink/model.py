@@ -198,18 +198,31 @@ class MedLink(BaseModel):
     Args:
         dataset: SampleDataset.
         feature_keys: List of feature keys. MedLink only supports one feature.
+            If not provided, the model tries to infer it from the dataset.
         embedding_dim: embedding dimension.
         alpha: weight for forward prediction loss.
         beta: weight for backward prediction loss.
         gamma: weight for retrieval loss.
         pretrained_emb_path: optional path to a GloVe-style embedding file.
         freeze_pretrained: if True, freezes embedding weights after init.
+
+    Example:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> from pyhealth.models import MedLink
+        >>> samples = [{"patient_id": "1", "admissions": ["ICD9_430", "ICD9_401"]}, ...]
+        >>> input_schema = {"admissions": "code"}
+        >>> output_schema = {"label": "binary"}
+        >>> dataset = create_sample_dataset(samples=samples, input_schema=input_schema, output_schema=output_schema)
+        >>> model = MedLink(dataset=dataset, feature_keys=["admissions"])
+        >>> batch = {"query_id": [...], "id_p": [...], "s_q": [["ICD9_430", "ICD9_401"]], "s_p": [[...]], "s_n": None}
+        >>> out = model(**batch)
+        >>> print(out["loss"])
     """
 
     def __init__(
         self,
         dataset: SampleDataset,
-        feature_keys: List[str],
+        feature_keys: Optional[List[str]] = None,
         embedding_dim: int = 128,
         alpha: float = 0.5,
         beta: float = 0.5,
@@ -218,9 +231,38 @@ class MedLink(BaseModel):
         freeze_pretrained: bool = False,
         **kwargs,
     ):
-        assert len(feature_keys) == 1, "MedLink only supports one feature key"
         super().__init__(dataset=dataset)
 
+        # Infer feature_keys if not provided
+        if feature_keys is None:
+            # Try to find a valid pair (x, d_x) in input_processors where both are SequenceProcessors
+            candidates = []
+            for k in dataset.input_processors:
+                if not k.startswith("d_"):
+                    # potential q field
+                    d_k = "d_" + k
+                    if d_k in dataset.input_processors:
+                        # check types
+                        qp = dataset.input_processors[k]
+                        dp = dataset.input_processors[d_k]
+                        if isinstance(qp, SequenceProcessor) and isinstance(dp, SequenceProcessor):
+                            candidates.append(k)
+            
+            if len(candidates) == 0:
+                raise ValueError("Could not infer a valid feature key pair (x, d_x) from dataset.")
+            elif len(candidates) == 1:
+                feature_keys = [candidates[0]]
+            else:
+                # Ambiguous, prioritize "conditions" or "admissions" if present
+                if "conditions" in candidates:
+                    feature_keys = ["conditions"]
+                elif "admissions" in candidates:
+                    feature_keys = ["admissions"]
+                else:
+                    feature_keys = [candidates[0]] # Just pick the first one
+
+        assert len(feature_keys) == 1, "MedLink only supports one feature key"
+        self.feature_keys = feature_keys
         self.feature_key = feature_keys[0]
         self.embedding_dim = embedding_dim
         self.alpha = alpha
