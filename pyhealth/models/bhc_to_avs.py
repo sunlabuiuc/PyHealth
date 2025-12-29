@@ -97,6 +97,7 @@ class BHCToAVS(BaseModel):
             temperature=0.0,
             eos_token_id=[pipe.tokenizer.eos_token_id],
             pad_token_id=pipe.tokenizer.eos_token_id,
+            return_full_text=False,
         )
 
         # Output is a single text string
