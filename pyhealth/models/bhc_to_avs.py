@@ -9,14 +9,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 from peft import PeftModelForCausalLM
 from pyhealth.models.base_model import BaseModel
 
-_PROMPT = """Summarize for the patient what happened during the hospital stay:
-
-### Brief Hospital Course:
-{bhc}
-
-### Patient Summary:
-"""
-
 # System prompt used during inference
 _SYSTEM_PROMPT = (
     "You are a clinical summarization model. Produce accurate, patient-friendly summaries "
