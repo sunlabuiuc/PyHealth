@@ -47,21 +47,18 @@ class BHCToAVS(BaseModel):
     BHCToAVS is a model class designed to generate After-Visit Summaries (AVS) from
     Brief Hospital Course (BHC) notes using a pre-trained base model and a LoRA adapter.
 
-    Attributes
-    base_model_id : str
-        The HuggingFace repository identifier for the base Mistral 7B model.
-    adapter_model_id : str
-        The HuggingFace repository identifier for the LoRA adapter weights.
-    hf_token : str | None
-        HuggingFace access token for gated repositories.
+    Attributes:
+        base_model_id (str): The HuggingFace repository identifier for the base
+            Mistral 7B model.
+        adapter_model_id (str): The HuggingFace repository identifier for the LoRA
+            adapter weights.
+        hf_token (str | None): HuggingFace access token for gated repositories.
 
-    Methods
-    _get_pipeline():
-        Creates and caches a HuggingFace text-generation pipeline using the base model
-        and LoRA adapter.
-    predict(bhc_text: str) -> str:
-        Generates a patient-friendly After-Visit Summary (AVS) from a given Brief
-        Hospital Course (BHC) note.
+    Methods:
+        _get_pipeline(): Creates and caches a HuggingFace text-generation pipeline
+            using the base model and LoRA adapter.
+        predict(bhc_text: str) -> str: Generates a patient-friendly After-Visit
+            Summary (AVS) from a given Brief Hospital Course (BHC) note.
     """
 
     base_model_id: str = field(default="mistralai/Mistral-7B-Instruct-v0.3")
