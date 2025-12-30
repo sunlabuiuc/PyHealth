@@ -138,7 +138,7 @@ If you are contributing to PyHealth or need the latest development features, ins
 You can use the following functions independently:
 
 - **Dataset**: ``MIMIC-III``, ``MIMIC-IV``, ``eICU``, ``OMOP-CDM``, ``EHRShot``, ``COVID19-CXR``, ``SleepEDF``, ``SHHS``, ``ISRUC``, ``customized EHR datasets``, etc.
-- **Tasks**: ``diagnosis-based drug recommendation``, ``patient hospitalization and mortality prediction``, ``readmission prediction``, ``length of stay forecasting``, ``sleep staging``, etc. 
+- **Tasks**: ``diagnosis-based drug recommendation``, ``patient hospitalization and mortality prediction``, ``readmission prediction``, ``length of stay forecasting``, ``sleep staging``, etc.
 - **ML models**: ``RNN``, ``LSTM``, ``GRU``, ``Transformer``, ``RETAIN``, ``SafeDrug``, ``GAMENet``, ``MoleRec``, ``AdaCare``, ``ConCare``, ``StageNet``, ``GRASP``, ``SparcNet``, ``ContraWR``, ``Deepr``, ``TCN``, ``Dr. Agent``, etc.
 
 *Building a healthcare AI pipeline can be as short as 10 lines of code in PyHealth*.
@@ -147,7 +147,7 @@ You can use the following functions independently:
 3. Build ML Pipelines :trophy:
 ---------------------------------
 
-All healthcare tasks in our package follow a **five-stage pipeline**: 
+All healthcare tasks in our package follow a **five-stage pipeline**:
 
 .. image:: figure/five-stage-pipeline.png
    :width: 640
@@ -167,7 +167,7 @@ Module 1: <pyhealth.datasets>
 
     mimic3base = MIMIC3Dataset(
         # root directory of the dataset
-        root="https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III/", 
+        root="https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III/",
         # raw CSV table name
         tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
         # map all NDC codes to CCS codes in these tables
@@ -186,11 +186,10 @@ Module 2: <pyhealth.tasks>
 
 .. code-block:: python
 
-    from pyhealth.tasks.mortality_prediction import MortalityPredictionMIMIC3
+    from pyhealth.tasks import ReadmissionPredictionMIMIC3
 
-    mimic3_mortality = MortalityPredictionMIMIC3()
-    mimic3sample = mimic3base.set_task(task_fn=mimic3_mortality)
-    mimic3sample.samples[0] # show the information of the first sample
+    mimic3sample = mimic3base.set_task(ReadmissionPredictionMIMIC3())
+    mimic3sample[0] # show the information of the first sample
 
     from pyhealth.datasets import split_by_patient, get_dataloader
 
@@ -218,7 +217,7 @@ Module 4: <pyhealth.trainer>
 ``pyhealth.trainer`` can specify training arguments, such as epochs, optimizer, learning rate, etc. The trainer will automatically save the best model and output the path in the end.
 
 .. code-block:: python
-    
+
     from pyhealth.trainer import Trainer
 
     trainer = Trainer(model=model)
@@ -238,19 +237,19 @@ Module 5: <pyhealth.metrics>
 
     # method 1
     trainer.evaluate(test_loader)
-    
+
     # method 2
     from pyhealth.metrics.binary import binary_metrics_fn
 
     y_true, y_prob, loss = trainer.inference(test_loader)
     binary_metrics_fn(y_true, y_prob, metrics=["pr_auc", "roc_auc"])
 
-4. Medical Code Map :hospital: 
+4. Medical Code Map :hospital:
 ---------------------------------
 
 ``pyhealth.codemap`` provides two core functionalities. **This module can be used independently.**
 
-* For code ontology lookup within one medical coding system (e.g., name, category, sub-concept); 
+* For code ontology lookup within one medical coding system (e.g., name, category, sub-concept);
 
 .. code-block:: python
 
@@ -261,7 +260,7 @@ Module 5: <pyhealth.metrics>
     # `Congestive heart failure, unspecified`
     icd9cm.get_ancestors("428.0")
     # ['428', '420-429.99', '390-459.99', '001-999.99']
-    
+
     atc = InnerMap.load("ATC")
     atc.lookup("M01AE51")
     # `ibuprofen, combinations`
@@ -272,7 +271,7 @@ Module 5: <pyhealth.metrics>
     atc.lookup("M01AE51", "indication")
     # Ibuprofen is the most commonly used and prescribed NSAID. It is very common over the ...
 
-* For code mapping between two coding systems (e.g., ICD9CM to CCSCM). 
+* For code mapping between two coding systems (e.g., ICD9CM to CCSCM).
 
 .. code-block:: python
 
@@ -305,12 +304,12 @@ Module 5: <pyhealth.metrics>
             'A12B', 'A12C', 'A13A', 'A14A', 'A14B', 'A16A']
     tokenizer = Tokenizer(tokens=token_space, special_tokens=["<pad>", "<unk>"])
 
-    # 2d encode 
+    # 2d encode
     tokens = [['A03C', 'A03D', 'A03E', 'A03F'], ['A04A', 'B035', 'C129']]
-    indices = tokenizer.batch_encode_2d(tokens) 
+    indices = tokenizer.batch_encode_2d(tokens)
     # [[8, 9, 10, 11], [12, 1, 1, 0]]
 
-    # 2d decode 
+    # 2d decode
     indices = [[8, 9, 10, 11], [12, 1, 1, 0]]
     tokens = tokenizer.batch_decode_2d(indices)
     # [['A03C', 'A03D', 'A03E', 'A03F'], ['A04A', '<unk>', '<unk>']]
@@ -338,28 +337,28 @@ Module 5: <pyhealth.metrics>
 
  We provide the following tutorials to help users get started with our pyhealth. Please bear with us as we update the documentation on how to use PyHealth 2.0.
 
-`Tutorial 0: Introduction to pyhealth.data <https://colab.research.google.com/drive/1y9PawgSbyMbSSMw1dpfwtooH7qzOEYdN?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=Nk1itBoLOX8&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=2>`__  
+`Tutorial 0: Introduction to pyhealth.data <https://colab.research.google.com/drive/1y9PawgSbyMbSSMw1dpfwtooH7qzOEYdN?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=Nk1itBoLOX8&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=2>`__
 
-`Tutorial 1: Introduction to pyhealth.datasets <https://colab.research.google.com/drive/1voSx7wEfzXfEf2sIfW6b-8p1KqMyuWxK?usp=sharing>`_  `[Video (PyHealth 1.6)] <https://www.youtube.com/watch?v=c1InKqFJbsI&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=3>`__  
+`Tutorial 1: Introduction to pyhealth.datasets <https://colab.research.google.com/drive/1voSx7wEfzXfEf2sIfW6b-8p1KqMyuWxK?usp=sharing>`_  `[Video (PyHealth 1.6)] <https://www.youtube.com/watch?v=c1InKqFJbsI&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=3>`__
 
-`Tutorial 2: Introduction to pyhealth.tasks <https://colab.research.google.com/drive/1kKkkBVS_GclHoYTbnOtjyYnSee79hsyT?usp=sharing>`_  `[Video (PyHealth 1.6)] <https://www.youtube.com/watch?v=CxESe1gYWU4&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=4>`__  
+`Tutorial 2: Introduction to pyhealth.tasks <https://colab.research.google.com/drive/1kKkkBVS_GclHoYTbnOtjyYnSee79hsyT?usp=sharing>`_  `[Video (PyHealth 1.6)] <https://www.youtube.com/watch?v=CxESe1gYWU4&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=4>`__
 
-`Tutorial 3: Introduction to pyhealth.models <https://colab.research.google.com/drive/1LcXZlu7ZUuqepf269X3FhXuhHeRvaJX5?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=fRc0ncbTgZA&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=6>`__  
+`Tutorial 3: Introduction to pyhealth.models <https://colab.research.google.com/drive/1LcXZlu7ZUuqepf269X3FhXuhHeRvaJX5?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=fRc0ncbTgZA&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=6>`__
 
-`Tutorial 4: Introduction to pyhealth.trainer <https://colab.research.google.com/drive/1L1Nz76cRNB7wTp5Pz_4Vp4N2eRZ9R6xl?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=5Hyw3of5pO4&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=7>`__  
+`Tutorial 4: Introduction to pyhealth.trainer <https://colab.research.google.com/drive/1L1Nz76cRNB7wTp5Pz_4Vp4N2eRZ9R6xl?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=5Hyw3of5pO4&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=7>`__
 
-`Tutorial 5: Introduction to pyhealth.metrics <https://colab.research.google.com/drive/1Mrs77EJ92HwMgDaElJ_CBXbi4iABZBeo?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=d-Kx_xCwre4&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=8>`__ 
-
-
-`Tutorial 6: Introduction to pyhealth.tokenizer <https://colab.research.google.com/drive/1bDOb0A5g0umBjtz8NIp4wqye7taJ03D0?usp=sharing>`_ `[Video] <https://www.youtube.com/watch?v=CeXJtf0lfs0&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=10>`__ 
+`Tutorial 5: Introduction to pyhealth.metrics <https://colab.research.google.com/drive/1Mrs77EJ92HwMgDaElJ_CBXbi4iABZBeo?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=d-Kx_xCwre4&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=8>`__
 
 
-`Tutorial 7: Introduction to pyhealth.medcode <https://colab.research.google.com/drive/1xrp_ACM2_Hg5Wxzj0SKKKgZfMY0WwEj3?usp=sharing>`_ `[Video] <https://www.youtube.com/watch?v=MmmfU6_xkYg&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=9>`__  
+`Tutorial 6: Introduction to pyhealth.tokenizer <https://colab.research.google.com/drive/1bDOb0A5g0umBjtz8NIp4wqye7taJ03D0?usp=sharing>`_ `[Video] <https://www.youtube.com/watch?v=CeXJtf0lfs0&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=10>`__
+
+
+`Tutorial 7: Introduction to pyhealth.medcode <https://colab.research.google.com/drive/1xrp_ACM2_Hg5Wxzj0SKKKgZfMY0WwEj3?usp=sharing>`_ `[Video] <https://www.youtube.com/watch?v=MmmfU6_xkYg&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=9>`__
 
 
  The following tutorials will help users build their own task pipelines.
 
-`Pipeline 1: Chest Xray Classification <https://colab.research.google.com/drive/18vK23gyI1LjWbTgkq4f99yDZA3A7Pxp9?usp=sharing>`_ `[Video] <https://www.youtube.com/watch?v=GGP3Dhfyisc&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=12>`__  
+`Pipeline 1: Chest Xray Classification <https://colab.research.google.com/drive/18vK23gyI1LjWbTgkq4f99yDZA3A7Pxp9?usp=sharing>`_ `[Video] <https://www.youtube.com/watch?v=GGP3Dhfyisc&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=12>`__
 
 `Pipeline 2: Medical Coding <https://colab.research.google.com/drive/1ThYP_5ng5xPQwscv5XztefkkoTruhjeK?usp=sharing>`_
 
@@ -370,33 +369,31 @@ Module 5: <pyhealth.metrics>
 `Pipeline 5: Readmission Prediction <https://colab.research.google.com/drive/1h0pAymUlPQfkLFryI9QI37-HAW1tRxGZ?usp=sharing>`_
 
 
- We provide advanced tutorials for supporting various needs. 
+ We provide advanced tutorials for supporting various needs.
 
-`Advanced Tutorial 1: Fit your dataset into our pipeline <https://colab.research.google.com/drive/1UurxwAAov1bL_5OO3gQJ4gAa_paeJwJp?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=xw2hGLEQ4Y0&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=13>`__ 
+`Advanced Tutorial 1: Fit your dataset into our pipeline <https://colab.research.google.com/drive/1UurxwAAov1bL_5OO3gQJ4gAa_paeJwJp?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=xw2hGLEQ4Y0&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=13>`__
 
-`Advanced Tutorial 2: Define your own healthcare task <https://colab.research.google.com/drive/1gK6zPXvfFGBM1uNaLP32BOKrnnJdqRq2?usp=sharing>`_ 
+`Advanced Tutorial 2: Define your own healthcare task <https://colab.research.google.com/drive/1gK6zPXvfFGBM1uNaLP32BOKrnnJdqRq2?usp=sharing>`_
 
-`Advanced Tutorial 3: Adopt customized model into pyhealth <https://colab.research.google.com/drive/1F_NJ90GC8_Eq-vKTf7Tyziew4gWjjKoH?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=lADFlcmLtdE&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=14>`__ 
+`Advanced Tutorial 3: Adopt customized model into pyhealth <https://colab.research.google.com/drive/1F_NJ90GC8_Eq-vKTf7Tyziew4gWjjKoH?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=lADFlcmLtdE&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=14>`__
 
-`Advanced Tutorial 4: Load your own processed data into pyhealth and try out our ML models <https://colab.research.google.com/drive/1ZRnKch2EyJLrI3G5AvDXVpeE2wwgBWfw?usp=sharing>`_ `[Video] <https://www.youtube.com/watch?v=xw2hGLEQ4Y0&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=13>`__ 
+`Advanced Tutorial 4: Load your own processed data into pyhealth and try out our ML models <https://colab.research.google.com/drive/1ZRnKch2EyJLrI3G5AvDXVpeE2wwgBWfw?usp=sharing>`_ `[Video] <https://www.youtube.com/watch?v=xw2hGLEQ4Y0&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=13>`__
 
 
 7. Datasets :mountain_snow:
 -----------------------------
 We provide the processing files for the following open EHR datasets:
 
-===================  =======================================  ========================================  ======================================================================================================== 
-Dataset              Module                                   Year                                      Information                                                             
 ===================  =======================================  ========================================  ========================================================================================================
-MIMIC-III            ``pyhealth.datasets.MIMIC3Dataset``      2016                                      `MIMIC-III Clinical Database <https://physionet.org/content/mimiciii/1.4//>`_    
-MIMIC-IV             ``pyhealth.datasets.MIMIC4Dataset``      2020                                      `MIMIC-IV Clinical Database <https://physionet.org/content/mimiciv/0.4/>`_  
-eICU                 ``pyhealth.datasets.eICUDataset``        2018                                      `eICU Collaborative Research Database <https://eicu-crd.mit.edu//>`_                 
-OMOP                 ``pyhealth.datasets.OMOPDataset``                                                  `OMOP-CDM schema based dataset <https://www.ohdsi.org/data-standardization/the-common-data-model/>`_    
+MIMIC-III            ``pyhealth.datasets.MIMIC3Dataset``      2016                                      `MIMIC-III Clinical Database <https://physionet.org/content/mimiciii/1.4//>`_
+MIMIC-IV             ``pyhealth.datasets.MIMIC4Dataset``      2020                                      `MIMIC-IV Clinical Database <https://physionet.org/content/mimiciv/0.4/>`_
+eICU                 ``pyhealth.datasets.eICUDataset``        2018                                      `eICU Collaborative Research Database <https://eicu-crd.mit.edu//>`_
+OMOP                 ``pyhealth.datasets.OMOPDataset``                                                  `OMOP-CDM schema based dataset <https://www.ohdsi.org/data-standardization/the-common-data-model/>`_
 EHRShot              ``pyhealth.datasets.EHRShotDataset``     2023                                      `Few-shot EHR benchmarking dataset <https://github.com/som-shahlab/ehrshot-benchmark>`_
 COVID19-CXR          ``pyhealth.datasets.COVID19CXRDataset``  2020                                      `COVID-19 chest X-ray image dataset`
 SleepEDF             ``pyhealth.datasets.SleepEDFDataset``    2018                                      `Sleep-EDF dataset <https://physionet.org/content/sleep-edfx/1.0.0/>`_
-SHHS                 ``pyhealth.datasets.SHHSDataset``        2016                                      `Sleep Heart Health Study dataset <https://sleepdata.org/datasets/shhs>`_   
-ISRUC                ``pyhealth.datasets.ISRUCDataset``       2016                                      `ISRUC-SLEEP dataset <https://sleeptight.isr.uc.pt/?page_id=48>`_                               
+SHHS                 ``pyhealth.datasets.SHHSDataset``        2016                                      `Sleep Heart Health Study dataset <https://sleepdata.org/datasets/shhs>`_
+ISRUC                ``pyhealth.datasets.ISRUCDataset``       2016                                      `ISRUC-SLEEP dataset <https://sleeptight.isr.uc.pt/?page_id=48>`_
 ===================  =======================================  ========================================  ========================================================================================================
 
 
@@ -405,42 +402,42 @@ ISRUC                ``pyhealth.datasets.ISRUCDataset``       2016              
 
 **Deep Learning Models**
 
-==================================    ======  ============================================================================================================  
-Model                                 Year    Key Innovation                                                                                                
-==================================    ======  ============================================================================================================  
-**RETAIN**                            2016    Interpretable attention for clinical decisions                                                                
-**GAMENet**                           2019    Memory networks for drug recommendation                                                                       
-**SafeDrug**                          2021    Molecular graphs for safe drug combinations                                                                   
-**MoleRec**                           2023    Substructure-aware drug recommendation                                                                        
-**AdaCare**                           2020    Scale-adaptive feature extraction                                                                             
-**ConCare**                           2020    Transformer-based patient modeling                                                                            
-**StageNet**                          2020    Disease progression stage modeling                                                                            
-**GRASP**                             2021    Graph neural networks for patient clustering                                                                  
-**MICRON**                            2021    Medication change prediction with recurrent residual networks                                                 
-==================================    ======  ============================================================================================================  
+==================================    ======  ============================================================================================================
+Model                                 Year    Key Innovation
+==================================    ======  ============================================================================================================
+**RETAIN**                            2016    Interpretable attention for clinical decisions
+**GAMENet**                           2019    Memory networks for drug recommendation
+**SafeDrug**                          2021    Molecular graphs for safe drug combinations
+**MoleRec**                           2023    Substructure-aware drug recommendation
+**AdaCare**                           2020    Scale-adaptive feature extraction
+**ConCare**                           2020    Transformer-based patient modeling
+**StageNet**                          2020    Disease progression stage modeling
+**GRASP**                             2021    Graph neural networks for patient clustering
+**MICRON**                            2021    Medication change prediction with recurrent residual networks
+==================================    ======  ============================================================================================================
 
 **Foundation Models**
 
-==================================    ======  ============================================================================================================  
-Model                                 Year    Description                                                                                                   
-==================================    ======  ============================================================================================================  
-**Transformer**                       2017    Attention-based sequence modeling                                                                             
-**RNN/LSTM/GRU**                      2011    Recurrent neural networks for sequences                                                                       
-**CNN**                               1989    Convolutional networks for structured data                                                                    
-**TCN**                               2018    Temporal convolutional networks                                                                               
-**MLP**                               1986    Multi-layer perceptrons for tabular data                                                                      
-==================================    ======  ============================================================================================================  
+==================================    ======  ============================================================================================================
+Model                                 Year    Description
+==================================    ======  ============================================================================================================
+**Transformer**                       2017    Attention-based sequence modeling
+**RNN/LSTM/GRU**                      2011    Recurrent neural networks for sequences
+**CNN**                               1989    Convolutional networks for structured data
+**TCN**                               2018    Temporal convolutional networks
+**MLP**                               1986    Multi-layer perceptrons for tabular data
+==================================    ======  ============================================================================================================
 
 **Specialized Models**
 
-==================================    ======  ============================================================================================================  
-Model                                 Year    Specialization                                                                                                
-==================================    ======  ============================================================================================================  
-**ContraWR**                          2021    Biosignal analysis (EEG, ECG)                                                                                 
-**SparcNet**                          2023    Seizure detection and sleep staging                                                                           
-**Deepr**                             2017    Electronic health records                                                                                     
-**Dr. Agent**                         2020    Reinforcement learning for clinical decisions                                                                 
-==================================    ======  ============================================================================================================  
+==================================    ======  ============================================================================================================
+Model                                 Year    Specialization
+==================================    ======  ============================================================================================================
+**ContraWR**                          2021    Biosignal analysis (EEG, ECG)
+**SparcNet**                          2023    Seizure detection and sleep staging
+**Deepr**                             2017    Electronic health records
+**Dr. Agent**                         2020    Reinforcement learning for clinical decisions
+==================================    ======  ============================================================================================================
 
 * Check the `interactive map on benchmark EHR predictive tasks <https://pyhealth.readthedocs.io/en/latest/index.html#benchmark-on-healthcare-tasks>`_.
 
