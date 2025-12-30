@@ -48,6 +48,9 @@ class ReadmissionPredictionMIMIC3(BaseTask):
                 - 'procedures': MIMIC3 procedures_icd table ICD-9 codes.
                 - 'drugs': MIMIC3 prescriptions table drug column entries.
                 - 'readmission': binary label.
+
+        Raises:
+            ValueError: If any `str` to `datetime` conversions fail.
         """
         patients: List[Event] = patient.get_events(event_type="patients")
         assert len(patients) == 1

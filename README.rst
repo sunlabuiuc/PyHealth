@@ -189,7 +189,7 @@ Module 2: <pyhealth.tasks>
     from pyhealth.tasks import ReadmissionPredictionMIMIC3
 
     mimic3sample = mimic3base.set_task(ReadmissionPredictionMIMIC3())
-    mimic3sample.samples[0] # show the information of the first sample
+    mimic3sample[0] # show the information of the first sample
 
     from pyhealth.datasets import split_by_patient, get_dataloader
 
