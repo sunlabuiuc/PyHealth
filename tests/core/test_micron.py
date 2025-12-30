@@ -4,7 +4,7 @@ from typing import Dict, Type, Union
 import torch
 import numpy as np
 
-from pyhealth.datasets import SampleDataset, get_dataloader
+from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import MICRON
 from pyhealth.processors.base_processor import FeatureProcessor
 
@@ -47,7 +47,7 @@ class TestMICRON(unittest.TestCase):
             "drugs": "multilabel"
         }
 
-        self.dataset = SampleDataset(
+        self.dataset = create_sample_dataset(
             samples=self.samples,
             input_schema=self.input_schema,
             output_schema=self.output_schema,

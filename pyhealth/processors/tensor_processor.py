@@ -41,6 +41,11 @@ class TensorProcessor(FeatureProcessor):
         Returns:
             torch.Tensor: Processed tensor
         """
+        # Prefer to avoid constructing a new tensor from an existing tensor
+        # which can trigger a UserWarning. If value is already a tensor,
+        # return a detached clone cast to the requested dtype.
+        if isinstance(value, torch.Tensor):
+            return value.detach().clone().to(dtype=self.dtype)
         return torch.tensor(value, dtype=self.dtype)
 
     def size(self) -> None:

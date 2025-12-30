@@ -41,6 +41,15 @@ New to interpretability in PyHealth? Check out these complete examples:
   - **Sufficiency**: Measures how much prediction is retained when keeping only important features
   - Both functional API (``evaluate_attribution``) and class-based API (``Evaluator``)
 
+**SHAP Example:**
+
+- ``examples/shap_stagenet_mimic4.py`` - Demonstrates SHAP (SHapley Additive exPlanations) for StageNet mortality prediction. Shows how to:
+
+  - Compute Kernel SHAP attributions for healthcare models with discrete and continuous features
+  - Interpret Shapley values to understand feature contributions based on game theory
+  - Compare different baseline strategies for background sample generation
+  - Decode attributions to human-readable medical codes and lab measurements
+
 These examples provide end-to-end workflows from loading data to interpreting and evaluating attributions.
 
 Available Methods
@@ -54,3 +63,5 @@ Available Methods
     interpret/pyhealth.interpret.methods.chefer
     interpret/pyhealth.interpret.methods.deeplift
     interpret/pyhealth.interpret.methods.integrated_gradients
+    interpret/pyhealth.interpret.methods.shap
+ 

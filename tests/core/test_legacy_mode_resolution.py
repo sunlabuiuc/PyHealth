@@ -2,7 +2,7 @@ import unittest
 import torch
 import torch.nn as nn
 
-from pyhealth.datasets.sample_dataset import SampleDataset
+from pyhealth.datasets.sample_dataset import create_sample_dataset
 from pyhealth.models.base_model import BaseModel
 from pyhealth.processors import (
     BinaryLabelProcessor,
@@ -38,7 +38,7 @@ class TestLegacyModeResolution(unittest.TestCase):
         ]
         input_schema = {"text": "raw"}
         output_schema = {key: output_processor}
-        return SampleDataset(samples, input_schema, output_schema)
+        return create_sample_dataset(samples, input_schema, output_schema)
 
     def test_string_schema_sets_mode(self):
         ds = self._build_dataset("binary")
@@ -66,7 +66,7 @@ class TestLegacyModeResolution(unittest.TestCase):
 
     def test_multiclass_loss_selection(self):
         samples = [{"label": i % 3, "text": f"row{i}"} for i in range(6)]
-        ds = SampleDataset(
+        ds = create_sample_dataset(
             samples, {"text": "raw"}, {"label": MultiClassLabelProcessor}
         )
         model = BaseModel(dataset=ds)
@@ -78,7 +78,7 @@ class TestLegacyModeResolution(unittest.TestCase):
             {"label": [0, 2], "text": "row0"},
             {"label": [1], "text": "row1"},
         ]
-        ds = SampleDataset(samples, {"text": "raw"}, {"label": MultiLabelProcessor})
+        ds = create_sample_dataset(samples, {"text": "raw"}, {"label": MultiLabelProcessor})
         model = BaseModel(dataset=ds)
         self.assertEqual(model.mode, "multilabel")
         self.assertEqual(
@@ -90,7 +90,7 @@ class TestLegacyModeResolution(unittest.TestCase):
             {"label": 0.5, "text": "r0"},
             {"label": 1.2, "text": "r1"},
         ]
-        ds = SampleDataset(
+        ds = create_sample_dataset(
             samples, {"text": "raw"}, {"label": RegressionLabelProcessor}
         )
         model = BaseModel(dataset=ds)
