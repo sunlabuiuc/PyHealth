@@ -228,12 +228,12 @@ class MockMICIC3Dataset:
         self._dir = tempfile.TemporaryDirectory()
 
         files = {
-            "PATIENTS.csv":       "\n".join(self.patients),
-            "ADMISSIONS.csv":     "\n".join(self.admissions),
-            "ICUSTAYS.csv":       "\n".join(self.icu_stays),
-            "DIAGNOSES_ICD.csv":  "\n".join(self.diagnoses),
-            "PRESCRIPTIONS.csv":  "\n".join(self.prescriptions),
-            "PROCEDURES_ICD.csv": "\n".join(self.procedures),
+            "PATIENTS.csv":       "\n".join(self.patients) + "\n",
+            "ADMISSIONS.csv":     "\n".join(self.admissions) + "\n",
+            "ICUSTAYS.csv":       "\n".join(self.icu_stays) + "\n",
+            "DIAGNOSES_ICD.csv":  "\n".join(self.diagnoses) + "\n",
+            "PRESCRIPTIONS.csv":  "\n".join(self.prescriptions) + "\n",
+            "PROCEDURES_ICD.csv": "\n".join(self.procedures) + "\n",
         }
 
         for k, v in files.items():
