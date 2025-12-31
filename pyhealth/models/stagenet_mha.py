@@ -10,7 +10,7 @@ from pyhealth.models.utils import get_last_visit
 from .embedding import EmbeddingModel
 
 
-class StageNetLayer(nn.Module):
+class StageNetAttentionLayer(nn.Module):
     """StageNet layer.
 
     Paper: Stagenet: Stage-aware neural networks for health risk prediction. WWW 2020.
@@ -51,7 +51,7 @@ class StageNetLayer(nn.Module):
         num_heads: int = 8,
         attn_dropout: float = 0.1,
     ):
-        super(StageNetLayer, self).__init__()
+        super(StageNetAttentionLayer, self).__init__()
 
         self.dropout = dropout
         self.dropconnect = dropconnect
@@ -398,7 +398,7 @@ class StageAttentionNet(BaseModel):
         # Create StageNet layers for each feature
         self.stagenet = nn.ModuleDict()
         for feature_key in self.feature_keys:
-            self.stagenet[feature_key] = StageNetLayer(
+            self.stagenet[feature_key] = StageNetAttentionLayer(
                 input_dim=embedding_dim,
                 chunk_size=self.chunk_size,
                 levels=self.levels,
