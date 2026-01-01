@@ -42,17 +42,6 @@ class TestReadmissionPredictionMIMIC3(unittest.TestCase):
         cls.samples5days.close()
         cls.sampleswithminors.close()
 
-        cls.cache_dir1.cleanup()
-        cls.cache_dir2.cleanup()
-        cls.cache_dir3.cleanup()
-
-        # Deleting the dataset cache tmp dir causes ResourceWarnings
-        # These are caused by unclosed files due to lazy loading and can be safely ignored in tests
-        import warnings
-        warnings.filterwarnings("ignore", category=ResourceWarning)
-
-        cls.cache_dir0.cleanup()
-
     def test_task_schema(self):
         self.assertIn("task_name", vars(ReadmissionPredictionMIMIC3))
         self.assertIn("input_schema", vars(ReadmissionPredictionMIMIC3))
