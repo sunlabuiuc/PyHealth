@@ -1,29 +1,34 @@
 Installation
 ============
 
-**Python Version Recommendation**
+**Python Version Requirement**
 
-We recommend using **Python 3.12** for optimal parallel processing and memory management performance. While PyHealth supports Python 3.8+, Python 3.12 provides significant improvements in these areas.
-
-**Recommended Installation (Alpha Version)**
-
-We recommend installing the latest alpha version from PyPi, which offers significant improvements in performance:
+PyHealth 2.0 requires **Python 3.12 or higher** (up to Python 3.13). This is a hard requirement due to dependencies on modern Python features for parallel processing and memory management.
 
 .. code-block:: bash
 
-   pip install pyhealth==2.0a13
+   # Verify your Python version
+   python --version  # Should be 3.12.x or 3.13.x
+
+**Recommended Installation (Alpha Version)**
+
+We recommend installing the latest alpha version from PyPI, which offers significant improvements in performance:
+
+.. code-block:: bash
+
+   pip install pyhealth==2.0a14
 
 This version includes optimized implementations and enhanced features compared to the legacy version.
 
 **Legacy Version**
 
-The older stable version is still available for backward compatibility, though it may have performance limitations:
+The older stable version (1.16) is still available for backward compatibility and supports Python 3.9+:
 
 .. code-block:: bash
 
     pip install pyhealth
 
-**Note:** The legacy version (1.x) should still work for most use cases, but we recommend upgrading to 2.0a10 for better performance.
+**Note:** The legacy version (1.16) should still work for most use cases, but we recommend upgrading to 2.0a14 for better performance and new features.
 
 **For Contributors and Developers**
 
