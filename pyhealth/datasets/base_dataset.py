@@ -815,8 +815,7 @@ class BaseDataset(ABC):
             task (Optional[BaseTask]): The task to set. Uses default task if None.
             num_workers (int): Number of workers for multi-threading. Default is `self.num_workers`.
             cache_dir (Optional[str]): Directory to cache samples after task transformation,
-                but without applying processors. Default is
-                {self.cache_dir}/tasks/{task_name}_{task_param1_name}={task_param1_value}_..._{task_paramn_name}={task_paramn_value}.
+                but without applying processors. Default is {self.cache_dir}/tasks/{task_name}_{uuid5(vars(task))}.
             cache_format (str): Deprecated. Only "parquet" is supported now.
             input_processors (Optional[Dict[str, FeatureProcessor]]):
                 Pre-fitted input processors. If provided, these will be used
