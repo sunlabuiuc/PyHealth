@@ -14,7 +14,6 @@ import platformdirs
 import multiprocessing
 import multiprocessing.queues
 import shutil
-import re
 
 import litdata
 from litdata.streaming.item_loader import ParquetLoader
@@ -848,12 +847,14 @@ class BaseDataset(ABC):
             f"Setting task {task.task_name} for {self.dataset_name} base dataset..."
         )
 
-        task_cache_dir = task.task_name
-        for k, v in vars(task).items():
-            task_cache_dir += re.sub(r"[^A-Za-z0-9._=-]+", "-", f"_{k}={v}")
+        task_params = json.dumps(
+            vars(task),
+            sort_keys=True,
+            default=str
+        )
 
         if cache_dir is None:
-            cache_dir = self.cache_dir / "tasks" / task_cache_dir
+            cache_dir = self.cache_dir / "tasks" / f"{task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params)}"
             cache_dir.mkdir(parents=True, exist_ok=True)
         else:
             # Ensure the explicitly provided cache_dir exists

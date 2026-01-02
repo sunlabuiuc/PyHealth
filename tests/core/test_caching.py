@@ -5,6 +5,8 @@ from pathlib import Path
 from unittest.mock import patch
 import dask.dataframe as dd
 import torch
+import json
+import uuid
 
 from tests.base import BaseTestCase
 from pyhealth.datasets.base_dataset import BaseDataset
@@ -159,7 +161,13 @@ class TestCachingFunctionality(BaseTestCase):
 
     def test_default_cache_dir_is_used(self):
         """When cache_dir is omitted, default cache dir should be used."""
-        task_cache = self.dataset.cache_dir / "tasks" / f"{self.task.task_name}_call_count=0"
+        task_params = json.dumps(
+            {"call_count": 0},
+            sort_keys=True,
+            default=str
+        )
+
+        task_cache = self.dataset.cache_dir / "tasks" / f"{self.task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params)}"
         sample_dataset = self.dataset.set_task(self.task)
 
         self.assertTrue(task_cache.exists())
@@ -187,12 +195,24 @@ class TestCachingFunctionality(BaseTestCase):
         sample_dataset.close()
         cached_dataset.close()
 
-    def test_tasks_with_diff_param_values_get_different_caches(self):
+    def test_tasks_with_diff_param_values_get_diff_caches(self):
         sample_dataset1 = self.dataset.set_task(MockTask(param=1))
         sample_dataset2 = self.dataset.set_task(MockTask(param=2))
 
-        task_cache1 = self.dataset.cache_dir / "tasks" / f"{self.task.task_name}_call_count=0_param=1"
-        task_cache2 = self.dataset.cache_dir / "tasks" / f"{self.task.task_name}_call_count=0_param=2"
+        task_params1 = json.dumps(
+            {"call_count": 0, "param": 2},
+            sort_keys=True,
+            default=str
+        )
+
+        task_params2 = json.dumps(
+            {"call_count": 0, "param": 2},
+            sort_keys=True,
+            default=str
+        )
+
+        task_cache1 = self.dataset.cache_dir / "tasks" / f"{self.task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params1)}"
+        task_cache2 = self.dataset.cache_dir / "tasks" / f"{self.task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params2)}"
 
         self.assertTrue(task_cache1.exists())
         self.assertTrue(task_cache2.exists())
