@@ -2,7 +2,7 @@ import datetime
 import unittest
 
 from pyhealth.datasets import MIMIC4Dataset
-from pyhealth.unittests.test_datasets.utils import EHRDatasetStatAssertion
+from tests.todo.test_datasets.utils import EHRDatasetStatAssertion
 
 import os, sys
 
@@ -25,17 +25,14 @@ class TestMimic4Dataset(unittest.TestCase):
     DEV = True  # not needed when using demo set since its 100 patients large
     REFRESH_CACHE = True
 
-    dataset = MIMIC4Dataset(
-        dataset_name=DATASET_NAME,
-        root=ROOT,
-        tables=TABLES,
-        code_mapping=CODE_MAPPING,
-        dev=DEV,
-        refresh_cache=REFRESH_CACHE,
-    )
-
     def setUp(self):
-        pass
+        # Initialize dataset in setUp to avoid loading during test collection
+        self.dataset = MIMIC4Dataset(
+            dataset_name=self.DATASET_NAME,
+            ehr_root=self.ROOT,
+            ehr_tables=self.TABLES,
+            dev=self.DEV,
+        )
 
     # test the dataset integrity based on a single sample.
     def test_patient(self):

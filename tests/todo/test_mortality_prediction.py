@@ -53,7 +53,7 @@ def test_mortality_prediction_mimic4():
     # Enable dev mode to limit memory usage
     dataset = MIMIC4Dataset(
         ehr_root=mimic_iv_root,
-        notes_root=mimic_note_root,
+        note_root=mimic_note_root,
         ehr_tables=[
             "patients",           # Demographics
             "admissions",         # Admission/discharge info
@@ -152,7 +152,7 @@ def test_multimodal_mortality_prediction_mimic4():
     # Initialize dataset with comprehensive tables
     dataset = MIMIC4Dataset(
         ehr_root=mimic_iv_root,
-        notes_root=mimic_note_root,
+        note_root=mimic_note_root,
         cxr_root=mimic_cxr_root,
         ehr_tables=[
             "patients",           # Demographics
@@ -274,7 +274,7 @@ def test_multimodal_mortality_prediction_with_images():
     # Initialize the dataset with all required tables
     dataset = MIMIC4Dataset(
         ehr_root=mimic_iv_root,
-        notes_root=mimic_note_root,
+        note_root=mimic_note_root,
         cxr_root=mimic_cxr_root,
         ehr_tables=[
             "patients",

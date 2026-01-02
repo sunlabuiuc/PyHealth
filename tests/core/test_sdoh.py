@@ -1,5 +1,5 @@
 from typing import Set
-from base import BaseTestCase
+from tests.base import BaseTestCase
 from pyhealth.models.sdoh import SdohClassifier
 
 
