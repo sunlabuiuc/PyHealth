@@ -10,43 +10,23 @@ from pyhealth.tasks import ReadmissionPredictionMIMIC3
 class TestReadmissionPredictionMIMIC3(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.cache_dir0 = tempfile.TemporaryDirectory()
-        cls.cache_dir1 = tempfile.TemporaryDirectory()
-        cls.cache_dir2 = tempfile.TemporaryDirectory()
-        cls.cache_dir3 = tempfile.TemporaryDirectory()
+        cls.cache_dir = tempfile.TemporaryDirectory()
 
         dataset = MIMIC3Dataset(
             root=str(Path(__file__).parent.parent.parent / "test-resources" / "core" / "mimic3demo"),
             tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
-            cache_dir=cls.cache_dir0.name
+            cache_dir=cls.cache_dir.name,
         )
 
-        cls.samples15days = dataset.set_task(
-            task=ReadmissionPredictionMIMIC3(window=timedelta(days=15)),
-            cache_dir=cls.cache_dir1.name
-        )
-
-        cls.samples5days = dataset.set_task(
-            task=ReadmissionPredictionMIMIC3(window=timedelta(days=5)),
-            cache_dir=cls.cache_dir2.name
-        )
-
-        cls.sampleswithminors = dataset.set_task(
-            task=ReadmissionPredictionMIMIC3(exclude_minors=False),
-            cache_dir=cls.cache_dir3.name
-        )
+        cls.samples15days = dataset.set_task(ReadmissionPredictionMIMIC3(window=timedelta(days=15)))
+        cls.samples5days = dataset.set_task(ReadmissionPredictionMIMIC3(window=timedelta(days=5)))
+        cls.sampleswithminors = dataset.set_task(ReadmissionPredictionMIMIC3(exclude_minors=False))
 
     @classmethod
     def tearDownClass(cls):
-        # Deleting the dataset cache tmp dir causes ResourceWarnings
-        # These are caused by unclosed files due to lazy loading and can be safely ignored in tests
-        import warnings
-        warnings.filterwarnings("ignore", category=ResourceWarning)
-
-        cls.cache_dir0.cleanup()
-        cls.cache_dir1.cleanup()
-        cls.cache_dir2.cleanup()
-        cls.cache_dir3.cleanup()
+        cls.samples15days.close()
+        cls.samples5days.close()
+        cls.sampleswithminors.close()
 
     def test_task_schema(self):
         self.assertIn("task_name", vars(ReadmissionPredictionMIMIC3))
