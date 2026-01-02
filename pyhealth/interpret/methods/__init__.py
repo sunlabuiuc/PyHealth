@@ -5,6 +5,7 @@ from pyhealth.interpret.methods.deeplift import DeepLift
 from pyhealth.interpret.methods.gim import GIM
 from pyhealth.interpret.methods.integrated_gradients import IntegratedGradients
 from pyhealth.interpret.methods.shap import ShapExplainer
+from pyhealth.interpret.methods.lime import LimeExplainer
 
 __all__ = [
     "BaseInterpreter",
@@ -13,5 +14,6 @@ __all__ = [
     "GIM",
     "IntegratedGradients",
     "BasicGradientSaliencyMaps",
-    "ShapExplainer"
+    "ShapExplainer",
+    "LimeExplainer"
 ]
