@@ -6,8 +6,8 @@ Author:
 """
 import os
 import shutil
-import unittest
 import tempfile
+import unittest
 
 import numpy as np
 from PIL import Image
@@ -17,7 +17,8 @@ from pyhealth.tasks import ChestXray14BinaryClassification
 from pyhealth.tasks import ChestXray14MultilabelClassification
 
 class TestChestXray14Dataset(unittest.TestCase):
-    def setUp(self):
+    @classmethod
+    def setUpClass(cls):
         if os.path.exists("test"):
             shutil.rmtree("test")
         os.makedirs("test/images")
@@ -47,9 +48,20 @@ class TestChestXray14Dataset(unittest.TestCase):
         with open("test/Data_Entry_2017_v2020.csv", 'w') as f:
             f.write("\n".join(lines))
 
-        self.dataset = ChestXray14Dataset(root="./test")
+        cls.cache_dir = tempfile.TemporaryDirectory()
 
-    def tearDown(self):
+        cls.dataset = ChestXray14Dataset(root="./test", cache_dir=cls.cache_dir.name)
+
+        cls.samples_cardiomegaly = cls.dataset.set_task(ChestXray14BinaryClassification(disease="cardiomegaly"))
+        cls.samples_hernia = cls.dataset.set_task(ChestXray14BinaryClassification(disease="hernia"))
+        cls.samples_multilabel = cls.dataset.set_task()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.samples_cardiomegaly.close()
+        cls.samples_hernia.close()
+        cls.samples_multilabel.close()
+
         if os.path.exists("test"):
             shutil.rmtree("test")
 
@@ -125,25 +137,17 @@ class TestChestXray14Dataset(unittest.TestCase):
             _ = ChestXray14BinaryClassification(disease="toothache")
 
     def test_task_classify_cardiomegaly(self):
-        cache_dir = tempfile.mkdtemp()
-        task = ChestXray14BinaryClassification(disease="cardiomegaly")
-        samples = self.dataset.set_task(task, cache_dir=cache_dir)
-        self.assertEqual(len(samples), 10)
-        self.assertEqual(sum(sample["label"] for sample in samples), 3)
+        self.assertEqual(len(self.samples_cardiomegaly), 10)
+        self.assertEqual(sum(sample["label"] for sample in self.samples_cardiomegaly), 3)
 
     def test_task_classify_hernia(self):
-        cache_dir = tempfile.mkdtemp()
-        task = ChestXray14BinaryClassification(disease="hernia")
-        samples = self.dataset.set_task(task, cache_dir=cache_dir)
-        self.assertEqual(len(samples), 10)
-        self.assertEqual(sum(sample["label"] for sample in samples), 6)
+        self.assertEqual(len(self.samples_hernia), 10)
+        self.assertEqual(sum(sample["label"] for sample in self.samples_hernia), 6)
 
     def test_task_classify_all(self):
-        cache_dir = tempfile.mkdtemp()
-        samples = self.dataset.set_task(cache_dir=cache_dir)
-        self.assertEqual(len(samples), 10)
+        self.assertEqual(len(self.samples_multilabel), 10)
 
-        actual_labels = [sample["labels"].tolist() for sample in samples]
+        actual_labels = [sample["labels"].tolist() for sample in self.samples_multilabel]
 
         expected_labels = [
             [1.0, 0.0, 0.0, 0.0, 0.0],

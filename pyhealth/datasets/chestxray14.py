@@ -53,7 +53,8 @@ class ChestXray14Dataset(BaseDataset):
                  root: str = ".",
                  config_path: Optional[str] = str(Path(__file__).parent / "configs" / "chestxray14.yaml"),
                  download: bool = False,
-                 partial: bool = False) -> None:
+                 partial: bool = False,
+                 **kwargs) -> None:
         """Initializes the ChestX-ray14 dataset.
 
         Args:
@@ -87,6 +88,7 @@ class ChestXray14Dataset(BaseDataset):
             tables=["chestxray14"],
             dataset_name="ChestX-ray14",
             config_path=config_path,
+            **kwargs
         )
 
     @property
