@@ -79,7 +79,7 @@ packages = ["pyhealth"]
 ### Pixi
 #
 # specifies properties for the whole workspace
-[tool.pixi.project]
+[tool.pixi.workspace]
 channels = ["conda-forge"]
 platforms = ["osx-arm64", "linux-64", "linux-aarch64", "win-64"]
 preview = ["pixi-build"]
@@ -94,8 +94,9 @@ build-pypi = { features = ["pyverbase", "build-pypi"], solve-group = "default" }
 build-env = { features = ["pyverbase", "build-env"], solve-group = "default" }
 
 # specify where to download the build backend that builds conda files
-[tool.pixi.package.build]
-backend = { name = "pixi-build-python", version = "0.1.*" }
+[tool.pixi.package.build.backend]
+name = "pixi-build-python"
+version = "0.1.*"
 channels = [
   "https://prefix.dev/pixi-build-backends",
   "https://prefix.dev/conda-forge",
