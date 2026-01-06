@@ -225,6 +225,100 @@ class TestCachingFunctionality(BaseTestCase):
         sample_dataset1.close()
         sample_dataset2.close()
 
+    def test_clear_cache_removes_all_caches(self):
+        """Test that clear_cache removes entire dataset cache."""
+        # Create cache by accessing global_event_df
+        _ = self.dataset.global_event_df
+        cache_path = self.dataset.cache_dir
+
+        # Verify cache exists
+        self.assertTrue(cache_path.exists())
+        self.assertTrue((cache_path / "global_event_df.parquet").exists())
+
+        # Create a task cache
+        sample_dataset = self.dataset.set_task(self.task)
+        task_cache_dir = self.dataset._get_task_cache_dir(self.task)
+        self.assertTrue(task_cache_dir.exists())
+
+        # Clear entire cache
+        self.dataset.clear_cache()
+
+        # Verify everything is removed
+        self.assertFalse(cache_path.exists())
+
+        # Verify cached attributes are reset
+        self.assertIsNone(self.dataset._cache_dir)
+        self.assertIsNone(self.dataset._global_event_df)
+        self.assertIsNone(self.dataset._unique_patient_ids)
+
+        sample_dataset.close()
+
+    def test_clear_cache_handles_nonexistent_cache(self):
+        """Test that clear_cache handles the case when no cache exists."""
+        # Create a fresh dataset without any cache
+        fresh_dataset = MockDataset(cache_dir=self.cache_dir / "fresh")
+
+        # This should not raise an error
+        fresh_dataset.clear_cache()
+
+    def test_clear_task_cache_removes_only_specified_task(self):
+        """Test that clear_task_cache removes only the specified task cache."""
+        # Create two different tasks
+        task1 = MockTask(param=1)
+        task2 = MockTask(param=2)
+
+        # Set both tasks to create their caches
+        sample_dataset1 = self.dataset.set_task(task1)
+        sample_dataset2 = self.dataset.set_task(task2)
+
+        # Get cache directories
+        task1_cache_dir = self.dataset._get_task_cache_dir(task1)
+        task2_cache_dir = self.dataset._get_task_cache_dir(task2)
+        global_cache = self.dataset.cache_dir / "global_event_df.parquet"
+
+        # Verify all caches exist
+        self.assertTrue(task1_cache_dir.exists())
+        self.assertTrue(task2_cache_dir.exists())
+        self.assertTrue(global_cache.exists())
+
+        # Clear only task1 cache
+        self.dataset.clear_task_cache(task1)
+
+        # Verify task1 cache is removed but others remain
+        self.assertFalse(task1_cache_dir.exists())
+        self.assertTrue(task2_cache_dir.exists())
+        self.assertTrue(global_cache.exists())
+
+        sample_dataset1.close()
+        sample_dataset2.close()
+
+    def test_clear_task_cache_handles_nonexistent_cache(self):
+        """Test that clear_task_cache handles the case when task cache doesn't exist."""
+        task = MockTask(param=999)
+
+        # This should not raise an error even though cache doesn't exist
+        self.dataset.clear_task_cache(task)
+
+    def test_get_task_cache_dir_consistency(self):
+        """Test that _get_task_cache_dir produces consistent paths."""
+        task = MockTask(param=42)
+
+        # Get path multiple times
+        path1 = self.dataset._get_task_cache_dir(task)
+        path2 = self.dataset._get_task_cache_dir(task)
+
+        # Should be identical
+        self.assertEqual(path1, path2)
+
+        # Should match the pattern used in set_task
+        task_params = json.dumps(
+            vars(task),
+            sort_keys=True,
+            default=str
+        )
+        expected_path = self.dataset.cache_dir / "tasks" / f"{task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params)}"
+        self.assertEqual(path1, expected_path)
+
 
 if __name__ == "__main__":
     unittest.main()

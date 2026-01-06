@@ -792,6 +792,22 @@ class BaseDataset(ABC):
         finally:
             self.clean_tmpdir()
 
+    def _get_task_cache_dir(self, task: BaseTask) -> Path:
+        """Generate the default cache directory path for a task.
+
+        Args:
+            task (BaseTask): The task for which to generate the cache directory path.
+
+        Returns:
+            Path: The default cache directory path for the task.
+        """
+        task_params = json.dumps(
+            vars(task),
+            sort_keys=True,
+            default=str
+        )
+        return self.cache_dir / "tasks" / f"{task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params)}"
+
     def set_task(
         self,
         task: Optional[BaseTask] = None,
@@ -846,14 +862,8 @@ class BaseDataset(ABC):
             f"Setting task {task.task_name} for {self.dataset_name} base dataset..."
         )
 
-        task_params = json.dumps(
-            vars(task),
-            sort_keys=True,
-            default=str
-        )
-
         if cache_dir is None:
-            cache_dir = self.cache_dir / "tasks" / f"{task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params)}"
+            cache_dir = self._get_task_cache_dir(task)
             cache_dir.mkdir(parents=True, exist_ok=True)
         else:
             # Ensure the explicitly provided cache_dir exists
@@ -938,13 +948,17 @@ class BaseDataset(ABC):
             logger.info(f"No cache found at {cache_path}, nothing to clear")
 
     def clear_task_cache(self, task: Optional[BaseTask] = None) -> None:
-        """Clears the cache for a specific task.
+        """Clears the default cache directory for a specific task.
 
-        This method removes only the task-specific cache directory for the given task,
+        This method removes only the default task-specific cache directory for the given task,
         preserving the global event dataframe cache and other task caches.
 
+        Note that if set_task was called with a custom cache_dir parameter, that cache
+        will not be cleared by this method. This only clears the default cache location
+        at {self.cache_dir}/tasks/{task_name}_{uuid5(vars(task))}.
+
         Args:
-            task (Optional[BaseTask]): The task whose cache should be cleared.
+            task (Optional[BaseTask]): The task whose default cache should be cleared.
                 If None, uses the default task.
 
         Raises:
@@ -958,13 +972,8 @@ class BaseDataset(ABC):
             assert self.default_task is not None, "No default task found"
             task = self.default_task
 
-        # Generate the same task cache directory name as in set_task
-        task_params = json.dumps(
-            vars(task),
-            sort_keys=True,
-            default=str
-        )
-        task_cache_dir = self.cache_dir / "tasks" / f"{task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params)}"
+        # Use the same helper method as set_task to ensure consistency
+        task_cache_dir = self._get_task_cache_dir(task)
 
         if task_cache_dir.exists():
             logger.info(f"Clearing task cache for '{task.task_name}' at {task_cache_dir}")
