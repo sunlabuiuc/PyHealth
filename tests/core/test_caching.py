@@ -240,11 +240,15 @@ class TestCachingFunctionality(BaseTestCase):
         task_cache_dir = self.dataset._get_task_cache_dir(self.task)
         self.assertTrue(task_cache_dir.exists())
 
+        # Store the cache path before clearing
+        cache_path_str = str(cache_path)
+
         # Clear entire cache
         self.dataset.clear_cache()
 
-        # Verify everything is removed
-        self.assertFalse(cache_path.exists())
+        # Verify cache directory is removed (use stored path to avoid recreation)
+        from pathlib import Path
+        self.assertFalse(Path(cache_path_str).exists())
 
         # Verify cached attributes are reset
         self.assertIsNone(self.dataset._cache_dir)
@@ -271,10 +275,14 @@ class TestCachingFunctionality(BaseTestCase):
         sample_dataset1 = self.dataset.set_task(task1)
         sample_dataset2 = self.dataset.set_task(task2)
 
-        # Get cache directories
+        # Get cache directories and store paths as strings
         task1_cache_dir = self.dataset._get_task_cache_dir(task1)
         task2_cache_dir = self.dataset._get_task_cache_dir(task2)
         global_cache = self.dataset.cache_dir / "global_event_df.parquet"
+
+        task1_cache_str = str(task1_cache_dir)
+        task2_cache_str = str(task2_cache_dir)
+        global_cache_str = str(global_cache)
 
         # Verify all caches exist
         self.assertTrue(task1_cache_dir.exists())
@@ -284,10 +292,11 @@ class TestCachingFunctionality(BaseTestCase):
         # Clear only task1 cache
         self.dataset.clear_task_cache(task1)
 
-        # Verify task1 cache is removed but others remain
-        self.assertFalse(task1_cache_dir.exists())
-        self.assertTrue(task2_cache_dir.exists())
-        self.assertTrue(global_cache.exists())
+        # Verify task1 cache is removed but others remain (use stored paths)
+        from pathlib import Path
+        self.assertFalse(Path(task1_cache_str).exists())
+        self.assertTrue(Path(task2_cache_str).exists())
+        self.assertTrue(Path(global_cache_str).exists())
 
         sample_dataset1.close()
         sample_dataset2.close()
