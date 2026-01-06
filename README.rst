@@ -93,9 +93,9 @@ PyHealth is a comprehensive deep learning toolkit for supporting clinical predic
 1. Installation :rocket:
 ----------------------------
 
-**Python Version Recommendation**
+**Python Version Requirement**
 
-We recommend using **Python 3.12** for optimal parallel processing and memory management performance. While PyHealth supports Python 3.8+, Python 3.12 provides significant improvements in these areas.
+PyHealth requires **Python 3.12 or 3.13** (``>=3.12,<3.14``). This version requirement enables optimal parallel processing, memory management, and compatibility with our modern dependencies.
 
 **Recommended Installation (Alpha Version)**
 
@@ -103,7 +103,7 @@ We recommend installing the latest alpha version from PyPi, which offers signifi
 
 .. code-block:: sh
 
-    pip install pyhealth==2.0a13
+    pip install pyhealth==2.0a14
 
 This version includes optimized implementations and enhanced features compared to the legacy version.
 
@@ -125,7 +125,7 @@ If you are contributing to PyHealth or need the latest development features, ins
     cd PyHealth
     pip install -e .
 
-**Note:** PyHealth has multiple neural network based models implemented in PyTorch. However, PyHealth does **NOT** install these DL libraries for you. If you want to use neural-net based models, please make sure PyTorch is installed.
+**Note:** PyHealth 2.0 automatically installs PyTorch and other deep learning dependencies. The alpha version includes all required libraries for neural network-based models.
 
 
 2. Introduction :book:
