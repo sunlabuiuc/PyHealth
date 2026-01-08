@@ -20,7 +20,7 @@ python app_rag.py
 
 ### Launch in Docker
 
-1. Modfiy environment variables (OPENAI_API_KEY, server address...)in `Dockerfile`.
+1. Modify environment variables (OPENAI_API_KEY, server address...)in `Dockerfile`.
 2. Build image by `docker build -t chat-pyhealth .`.
 3. Debug a container by `docker run -p 0.0.0.0:7861:7861 --name chat-pyhealth-c -v ./logs/:/app/logs/ chat-pyhealth`.
 4. Run a container by `docker run -d -p 0.0.0.0:7861:7861 --name chat-pyhealth-c -v ./logs/:/app/logs/ chat-pyhealth`.
@@ -47,5 +47,39 @@ docker rmi chat-pyhealth # image
 docker cp [local file in host] chat-pyhealth-c:[container path]
 ```
 
+## Using a Local Model 
+You can also run an instance of a chat assistant that doesn't use an external LLM. There is a simple chat interface (source code is in [chat.py](/chat-assistant/chat.py)). This chat interface uses Streamlit, and the model is served using Ollama, so please install those too. 
+
+You can find the documentation for Ollama [here](https://ollama.com). Follow the installation steps listed there.
+
+To install Streamlit, run:
+
+```{python}
+pip install streamlit
+```
+
+### Steps to Run
+Please follow the steps (in order!) to get started.
+
+1. Navigate into the `chat-assistant` directory
+2. Generate the documents needed for embeddings:
+```{python}
+python generate_context.py
+```
+3. Start Ollama with 
+```
+ollama serve
+```
+
+By default, it will start on port 11434, but you can have it start on a port of your choosing by setting the `OLLAMA_HOST` environment variable before you run the above command. Example:
+```
+$env:OLLAMA_HOST="127.0.0.1:11500"
+ollama serve
+
+```
+4. Start the app (make sure `model_base_url` in [chat.py](/chat-assistant/chat.py) is set correctly):
+```{python}
+streamlit run chat.py
+```
 
 **Let me know if you want to join and help us improve the current interface.**
