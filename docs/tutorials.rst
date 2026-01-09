@@ -159,8 +159,10 @@ EEG and Sleep Analysis
    * - ``cardiology_detection_isAR_SparcNet.py``
      - SparcNet for cardiology arrhythmia detection
 
-Image Analysis
---------------
+Image Analysis (Chest X-Ray)
+----------------------------
+
+These examples are located in ``examples/cxr/``.
 
 .. list-table::
    :widths: 50 50
@@ -168,21 +170,21 @@ Image Analysis
 
    * - Example File
      - Description
-   * - ``covid19cxr_tutorial.py``
+   * - ``cxr/covid19cxr_tutorial.py``
      - ViT training, conformal prediction & interpretability for COVID-19 CXR
-   * - ``covid19cxr_conformal.py``
+   * - ``cxr/covid19cxr_conformal.py``
      - Conformal prediction for COVID-19 CXR classification
-   * - ``cnn_cxr.ipynb``
+   * - ``cxr/cnn_cxr.ipynb``
      - CNN for chest X-ray classification (notebook)
-   * - ``chestxray14_binary_classification.ipynb``
+   * - ``cxr/chestxray14_binary_classification.ipynb``
      - Binary classification on ChestX-ray14 dataset (notebook)
-   * - ``chestxray14_multilabel_classification.ipynb``
+   * - ``cxr/chestxray14_multilabel_classification.ipynb``
      - Multi-label classification on ChestX-ray14 dataset (notebook)
-   * - ``ChestXrayClassificationWithSaliency.ipynb``
+   * - ``cxr/ChestXrayClassificationWithSaliency.ipynb``
      - Chest X-ray classification with saliency maps (notebook)
-   * - ``chextXray_image_generation_VAE.py``
+   * - ``cxr/chextXray_image_generation_VAE.py``
      - VAE for chest X-ray image generation
-   * - ``ChestXray-image-generation-GAN.ipynb``
+   * - ``cxr/ChestXray-image-generation-GAN.ipynb``
      - GAN for chest X-ray image generation (notebook)
 
 Interpretability

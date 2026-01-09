@@ -59,18 +59,15 @@ if __name__ == "__main__":
     )
     device = "cuda:4" if torch.cuda.is_available() else "cpu"
 
-    # Load or train model
+    # Train model
     trainer = Trainer(model=model, device=device, enable_logging=False)
-    if os.path.exists(CKPT):
-        trainer.load_ckpt(CKPT)
-    else:
-        trainer.train(
-            train_dataloader=train_loader,
-            val_dataloader=val_loader,
-            epochs=20,
-            monitor="accuracy",
-        )
-        trainer.save_ckpt(CKPT)
+    trainer.train(
+        train_dataloader=train_loader,
+        val_dataloader=val_loader,
+        epochs=20,
+        monitor="accuracy",
+    )
+    trainer.save_ckpt(CKPT)
 
     # Evaluate test performance
     test_metrics = trainer.evaluate(test_loader)
