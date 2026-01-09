@@ -168,11 +168,19 @@ Image Analysis
 
    * - Example File
      - Description
+   * - ``covid19cxr_tutorial.py``
+     - ViT training, conformal prediction & interpretability for COVID-19 CXR
    * - ``covid19cxr_conformal.py``
      - Conformal prediction for COVID-19 CXR classification
    * - ``cnn_cxr.ipynb``
      - CNN for chest X-ray classification (notebook)
-   * - ``chestXray_image_generation_VAE.py``
+   * - ``chestxray14_binary_classification.ipynb``
+     - Binary classification on ChestX-ray14 dataset (notebook)
+   * - ``chestxray14_multilabel_classification.ipynb``
+     - Multi-label classification on ChestX-ray14 dataset (notebook)
+   * - ``ChestXrayClassificationWithSaliency.ipynb``
+     - Chest X-ray classification with saliency maps (notebook)
+   * - ``chextXray_image_generation_VAE.py``
      - VAE for chest X-ray image generation
    * - ``ChestXray-image-generation-GAN.ipynb``
      - GAN for chest X-ray image generation (notebook)
