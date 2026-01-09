@@ -112,6 +112,26 @@ class TestStageNetMHA(unittest.TestCase):
         self.assertIn("y_prob", ret)
         self.assertEqual(ret["y_prob"].shape[0], 2)
 
+    def test_attention_hook_records_map_and_grad(self):
+        """Attention hook exposes maps and gradients for each feature."""
+        loader = get_dataloader(self.dataset, batch_size=2, shuffle=False)
+        batch = next(iter(loader))
+
+        ret = self.model(register_attn_hook=True, **batch)
+        ret["loss"].backward()
+
+        for feature_key, layer in self.model.stagenet.items():
+            attn_map = layer.get_attn_map()
+            self.assertIsNotNone(attn_map, f"{feature_key} attn_map missing")
+            self.assertEqual(attn_map.dim(), 4)
+            self.assertEqual(attn_map.shape[1], layer.mha.h)
+            self.assertEqual(attn_map.shape[-2], attn_map.shape[-1])
+
+            attn_grad = layer.get_attn_grad()
+            self.assertIsNotNone(attn_grad, f"{feature_key} attn_grad missing")
+            self.assertEqual(attn_grad.shape, attn_map.shape)
+            self.assertFalse(torch.isnan(attn_grad).any())
+
 
 if __name__ == "__main__":
     unittest.main()

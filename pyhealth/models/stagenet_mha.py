@@ -6,6 +6,7 @@ import torch.nn as nn
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.utils import get_last_visit
+from .transformer import MultiHeadedAttention
 
 from .embedding import EmbeddingModel
 
@@ -84,13 +85,13 @@ class StageNetAttentionLayer(nn.Module):
             raise ValueError(
                 f"hidden_dim ({self.hidden_dim}) must be divisible by num_heads ({num_heads})"
             )
-        self.mha = nn.MultiheadAttention(
-            embed_dim=self.hidden_dim,
-            num_heads=num_heads,
-            dropout=attn_dropout,
-            batch_first=False,
+        # Use the Transformer-style attention to capture per-head maps + grads
+        self.mha = MultiHeadedAttention(
+            h=num_heads, d_model=self.hidden_dim, dropout=attn_dropout
         )
         self.attn_norm = nn.LayerNorm(self.hidden_dim)
+        self.attn_gradients = None
+        self.attn_map = None
         # self.nn_output = nn.Linear(int(self.conv_dim), int(output_dim))
 
         if self.dropconnect:
@@ -120,6 +121,25 @@ class StageNetAttentionLayer(nn.Module):
             return self._activation_hooks.apply(name, tensor, **kwargs)
         fn = getattr(torch, name)
         return fn(tensor, **kwargs)
+
+    def get_attn_map(self) -> Optional[torch.Tensor]:
+        """Return the last attention weight map from the MHA block."""
+
+        if hasattr(self.mha, "get_attn_map"):
+            return self.mha.get_attn_map()
+        return self.attn_map
+
+    def get_attn_grad(self) -> Optional[torch.Tensor]:
+        """Return gradients captured from the attention weights."""
+
+        if hasattr(self.mha, "get_attn_grad"):
+            return self.mha.get_attn_grad()
+        return self.attn_gradients
+
+    def save_attn_grad(self, attn_grad: torch.Tensor) -> None:
+        """Hook callback that stores attention gradients."""
+
+        self.attn_gradients = attn_grad
 
     def cumax(self, x, mode="l2r"):
         if mode == "l2r":
@@ -184,6 +204,7 @@ class StageNetAttentionLayer(nn.Module):
         x: torch.tensor,
         time: Optional[torch.tensor] = None,
         mask: Optional[torch.tensor] = None,
+        register_hook: bool = False,
     ) -> Tuple[torch.tensor]:
         """Forward propagation.
 
@@ -192,6 +213,8 @@ class StageNetAttentionLayer(nn.Module):
             static: a tensor of shape [batch size, static_dim].
             mask: an optional tensor of shape [batch size, sequence len], where
                 1 indicates valid and 0 indicates invalid.
+            register_hook: whether to register a backward hook on attention
+                weights for gradient inspection.
 
         Returns:
             last_output: a tensor of shape [batch size, chunk_size*levels] representing the
@@ -225,9 +248,21 @@ class StageNetAttentionLayer(nn.Module):
         if mask is not None:
             key_padding_mask = (mask == 0).to(device=device, dtype=torch.bool)
 
-        attn_output, _ = self.mha(
-            hidden_seq, hidden_seq, hidden_seq, key_padding_mask=key_padding_mask
+        # Capture per-head attention weights for interpretability
+        # Prepare mask for Transformer-style attention: 1=keep, 0=mask
+        attn_mask = None
+        if key_padding_mask is not None:
+            valid = (~key_padding_mask).float()  # [batch, time]
+            attn_mask = valid.unsqueeze(1) * valid.unsqueeze(2)  # [batch, time, time]
+
+        seq_for_mha = hidden_seq.permute(1, 0, 2)  # [batch, time, hidden]
+        attn_output = self.mha(
+            seq_for_mha, seq_for_mha, seq_for_mha, mask=attn_mask, register_hook=register_hook
         )
+        self.attn_map = self.get_attn_map()
+        self.attn_gradients = None  # will be populated after backward if hooked
+
+        attn_output = attn_output.transpose(0, 1)  # back to [time, batch, hidden]
         attn_output = self.attn_norm(attn_output + hidden_seq)
 
         tmp_h = torch.zeros(
@@ -467,6 +502,7 @@ class StageAttentionNet(BaseModel):
                 logit: the raw logits before activation.
                 embed: (if embed=True in kwargs) the patient embedding.
         """
+        register_attn_hook = kwargs.pop("register_attn_hook", False)
         patient_emb = []
         distance = []
 
@@ -495,7 +531,7 @@ class StageAttentionNet(BaseModel):
 
             # Pass through StageNet layer with embedded features
             last_output, _, cur_dis = self.stagenet[feature_key](
-                x, time=time, mask=mask
+                x, time=time, mask=mask, register_hook=register_attn_hook
             )
 
             patient_emb.append(last_output)
@@ -547,6 +583,7 @@ class StageAttentionNet(BaseModel):
                 y_prob: a tensor of predicted probabilities.
                 y_true: a tensor representing the true labels.
         """
+        register_attn_hook = kwargs.pop("register_attn_hook", False)
         patient_emb = []
         distance = []
 
@@ -608,7 +645,7 @@ class StageAttentionNet(BaseModel):
 
             # Pass through StageNet layer
             last_output, _, cur_dis = self.stagenet[feature_key](
-                x, time=time, mask=mask
+                x, time=time, mask=mask, register_hook=register_attn_hook
             )
 
             patient_emb.append(last_output)
