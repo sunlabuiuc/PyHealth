@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List, Iterable
+from typing import Any, Dict, Iterable
 
 import torch
 
@@ -68,7 +68,7 @@ class MultiClassLabelProcessor(FeatureProcessor):
     def process(self, value: Any) -> torch.Tensor:
         index = self.label_vocab[value]
         return torch.tensor(index, dtype=torch.long)
-    
+
     def size(self):
         return len(self.label_vocab)
 

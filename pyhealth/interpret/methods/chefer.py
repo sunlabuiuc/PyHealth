@@ -1,310 +1,241 @@
+from typing import Dict
+
 import torch
 import torch.nn.functional as F
 
 from pyhealth.models import Transformer
+from pyhealth.models.base_model import BaseModel
 
 from .base_interpreter import BaseInterpreter
+
+# Import TorchvisionModel conditionally to avoid circular imports
+try:
+    from pyhealth.models import TorchvisionModel
+    HAS_TORCHVISION_MODEL = True
+except ImportError:
+    HAS_TORCHVISION_MODEL = False
+    TorchvisionModel = None
 
 
 def apply_self_attention_rules(R_ss, cam_ss):
     """Apply Chefer's self-attention rules for relevance propagation.
 
-    This function propagates relevance scores through an attention layer by
-    multiplying the current relevance matrix with the attention weights.
-
     Args:
-        R_ss (torch.Tensor): Relevance matrix of shape ``[batch, seq_len, seq_len]``
-            representing token-to-token relevance from previous layers.
-        cam_ss (torch.Tensor): Attention weight matrix of shape ``[batch, seq_len, seq_len]``
-            representing the current layer's attention scores.
+        R_ss: Relevance matrix [batch, seq_len, seq_len].
+        cam_ss: Attention weight matrix [batch, seq_len, seq_len].
 
     Returns:
-        torch.Tensor: Updated relevance matrix of shape ``[batch, seq_len, seq_len]``
-            after propagating through the attention layer.
+        Updated relevance matrix after propagating through attention layer.
     """
     return torch.matmul(cam_ss, R_ss)
 
 
 def avg_heads(cam, grad):
-    """Average attention scores weighted by their gradients across multiple heads.
-
-    This function computes gradient-weighted attention scores and averages them
-    across attention heads. The gradients indicate how much each attention weight
-    contributed to the final prediction, providing a measure of importance.
+    """Average attention scores weighted by gradients across heads.
 
     Args:
-        cam (torch.Tensor): Attention weights. Shape ``[batch, heads, seq_len, seq_len]``
-            for multi-head attention or ``[batch, seq_len, seq_len]`` for single-head.
-        grad (torch.Tensor): Gradients of the loss with respect to attention weights.
-            Same shape as ``cam``.
+        cam: Attention weights [batch, heads, seq_len, seq_len] or [batch, seq_len, seq_len].
+        grad: Gradients w.r.t. attention weights. Same shape as cam.
 
     Returns:
-        torch.Tensor: Gradient-weighted attention scores, averaged across heads.
-            Shape ``[batch, seq_len, seq_len]``. Negative values are clamped to zero.
-
-    Note:
-        If input tensors have fewer than 4 dimensions (single-head case), no
-        averaging is performed and the element-wise product is returned directly.
+        Gradient-weighted attention [batch, seq_len, seq_len].
     """
-    # force shapes of cam and grad to be the same order
-    if (
-        len(cam.size()) < 4 and len(grad.size()) < 4
-    ):  # check if no averaging needed. i.e single head
+    if len(cam.size()) < 4 and len(grad.size()) < 4:
         return (grad * cam).clamp(min=0)
-    cam = grad * cam  # elementwise mult
-    cam = cam.clamp(min=0).mean(dim=1)  # average across heads
+    cam = grad * cam
+    cam = cam.clamp(min=0).mean(dim=1)
     return cam.clone()
 
 
 class CheferRelevance(BaseInterpreter):
-    """Transformer Self Attention Token Relevance Computation using Chefer's Method.
+    """Chefer's gradient-weighted attention method for transformer interpretability.
 
-    This class computes the relevance of each token in the input sequence for a given
-    class prediction. The relevance is computed using Chefer's Self Attention Rules,
-    which provide interpretability for transformer models by propagating relevance
-    scores through attention layers.
+    This class implements the relevance propagation method from Chefer et al. for
+    explaining transformer model predictions. It computes relevance scores for each
+    input token (for text/EHR transformers) or patch (for Vision Transformers) by
+    combining attention weights with their gradients.
 
-    The method is based on the paper:
-        Generic Attention-model Explainability for Interpreting Bi-Modal and
-        Encoder-Decoder Transformers
-        Hila Chefer, Shir Gur, Lior Wolf
-        https://arxiv.org/abs/2103.15679
-        Implementation based on https://github.com/hila-chefer/Transformer-Explainability
+    The method works by:
+    1. Performing a forward pass to capture attention maps from each layer
+    2. Computing gradients of the target class w.r.t. attention weights
+    3. Combining attention and gradients using element-wise multiplication
+    4. Propagating relevance through layers using attention rollout rules
+
+    This approach provides more faithful explanations than raw attention weights
+    alone, as it accounts for how attention contributes to the final prediction.
+
+    Paper:
+        Chefer, Hila, Shir Gur, and Lior Wolf.
+        "Generic Attention-model Explainability for Interpreting Bi-Modal and
+        Encoder-Decoder Transformers."
+        Proceedings of the IEEE/CVF International Conference on Computer Vision
+        (ICCV), 2021.
+
+    Supported Models:
+        - PyHealth Transformer: For sequential/EHR data with multiple feature keys
+        - TorchvisionModel (ViT variants): vit_b_16, vit_b_32, vit_l_16, vit_l_32, vit_h_14
 
     Args:
-        model (Transformer): A trained PyHealth Transformer model to interpret.
+        model (BaseModel): A trained PyHealth model to interpret. Must be either:
+            - A ``Transformer`` model for sequential/EHR data
+            - A ``TorchvisionModel`` with a ViT architecture for image data
 
-    Examples:
-        >>> import torch
-        >>> from pyhealth.datasets import SampleDataset, split_by_patient, get_dataloader
+    Example:
+        >>> # Example 1: PyHealth Transformer for EHR data
+        >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
         >>> from pyhealth.models import Transformer
         >>> from pyhealth.interpret.methods import CheferRelevance
-        >>> from pyhealth.trainer import Trainer
         >>>
-        >>> # Define sample data
         >>> samples = [
         ...     {
-        ...         "patient_id": "patient-0",
-        ...         "visit_id": "visit-0",
-        ...         "conditions": ["D001", "D002", "D003"],
-        ...         "procedures": ["P001", "P002"],
-        ...         "drugs": ["M001", "M002"],
+        ...         "patient_id": "p0",
+        ...         "visit_id": "v0",
+        ...         "conditions": ["A05B", "A05C", "A06A"],
+        ...         "procedures": ["P01", "P02"],
         ...         "label": 1,
         ...     },
         ...     {
-        ...         "patient_id": "patient-1",
-        ...         "visit_id": "visit-1",
-        ...         "conditions": ["D004", "D005"],
-        ...         "procedures": ["P003"],
-        ...         "drugs": ["M003"],
+        ...         "patient_id": "p0",
+        ...         "visit_id": "v1",
+        ...         "conditions": ["A05B"],
+        ...         "procedures": ["P01"],
         ...         "label": 0,
         ...     },
-        ...     # ... more samples
         ... ]
-        >>>
-        >>> # Create dataset with schema
-        >>> input_schema = {
-        ...     "conditions": "sequence",
-        ...     "procedures": "sequence",
-        ...     "drugs": "sequence"
-        ... }
-        >>> output_schema = {"label": "binary"}
-        >>>
-        >>> dataset = SampleDataset(
+        >>> dataset = create_sample_dataset(
         ...     samples=samples,
-        ...     input_schema=input_schema,
-        ...     output_schema=output_schema,
-        ...     dataset_name="example"
+        ...     input_schema={"conditions": "sequence", "procedures": "sequence"},
+        ...     output_schema={"label": "binary"},
+        ...     dataset_name="ehr_example",
         ... )
+        >>> model = Transformer(dataset=dataset)
+        >>> # ... train the model ...
         >>>
-        >>> # Initialize Transformer model
-        >>> model = Transformer(
-        ...     dataset=dataset,
-        ...     embedding_dim=128,
-        ...     heads=2,
-        ...     dropout=0.3,
-        ...     num_layers=2
+        >>> # Create interpreter and compute attribution
+        >>> interpreter = CheferRelevance(model)
+        >>> batch = next(iter(get_dataloader(dataset, batch_size=2)))
+        >>>
+        >>> # Default: attribute to predicted class
+        >>> attributions = interpreter.attribute(**batch)
+        >>> # Returns dict: {"conditions": tensor, "procedures": tensor}
+        >>> print(attributions["conditions"].shape)  # [batch, num_tokens]
+        >>>
+        >>> # Optional: attribute to a specific class (e.g., class 1)
+        >>> attributions = interpreter.attribute(class_index=1, **batch)
+        >>>
+        >>> # Example 2: TorchvisionModel ViT for image data
+        >>> from pyhealth.datasets import COVID19CXRDataset
+        >>> from pyhealth.models import TorchvisionModel
+        >>> from pyhealth.interpret.utils import visualize_image_attr
+        >>>
+        >>> base_dataset = COVID19CXRDataset(root="/path/to/data")
+        >>> sample_dataset = base_dataset.set_task()
+        >>> model = TorchvisionModel(
+        ...     dataset=sample_dataset,
+        ...     model_name="vit_b_16",
+        ...     model_config={"weights": "DEFAULT"},
         ... )
+        >>> # ... train the model ...
         >>>
-        >>> # Split data and create dataloaders
-        >>> train_data, val_data, test_data = split_by_patient(dataset, [0.7, 0.15, 0.15])
-        >>> train_loader = get_dataloader(train_data, batch_size=32, shuffle=True)
-        >>> val_loader = get_dataloader(val_data, batch_size=32, shuffle=False)
-        >>> test_loader = get_dataloader(test_data, batch_size=1, shuffle=False)
+        >>> # Create interpreter and compute attribution
+        >>> # Task schema: input_schema={"image": "image"}, so feature_key="image"
+        >>> interpreter = CheferRelevance(model)
         >>>
-        >>> # Train model
-        >>> trainer = Trainer(model=model, device="cuda:0")
-        >>> trainer.train(
-        ...     train_dataloader=train_loader,
-        ...     val_dataloader=val_loader,
-        ...     epochs=10,
-        ...     monitor="roc_auc"
-        ... )
+        >>> # Default: attribute to predicted class
+        >>> result = interpreter.attribute(**batch)
+        >>> # Returns dict keyed by feature_key: {"image": tensor}
+        >>> attr_map = result["image"]  # Shape: [batch, 1, H, W]
         >>>
-        >>> # Compute relevance scores for test samples
-        >>> relevance = CheferRelevance(model)
-        >>> data_batch = next(iter(test_loader))
+        >>> # Optional: attribute to a specific class (e.g., predicted class)
+        >>> pred_class = model(**batch)["y_prob"].argmax().item()
+        >>> result = interpreter.attribute(class_index=pred_class, **batch)
         >>>
-        >>> # Option 1: Specify target class explicitly
-        >>> data_batch['class_index'] = 0
-        >>> scores = relevance.get_relevance_matrix(**data_batch)
-        >>> print(scores)
-        {'conditions': tensor([[1.2210]], device='cuda:0'),
-         'procedures': tensor([[1.0865]], device='cuda:0'),
-         'drugs': tensor([[1.0000]], device='cuda:0')}
-        >>>
-        >>> # Option 2: Use predicted class (omit class_index)
-        >>> scores = relevance.get_relevance_matrix(
-        ...     conditions=data_batch['conditions'],
-        ...     procedures=data_batch['procedures'],
-        ...     drugs=data_batch['drugs'],
-        ...     label=data_batch['label']
+        >>> # Visualize
+        >>> img, attr, overlay = visualize_image_attr(
+        ...     image=batch["image"][0],
+        ...     attribution=result["image"][0, 0],
         ... )
     """
 
-    def __init__(self, model: Transformer):
-        """Initialize Chefer relevance interpreter.
-
-        Args:
-            model: A trained PyHealth Transformer model to interpret.
-                Must be an instance of pyhealth.models.Transformer.
-
-        Raises:
-            AssertionError: If model is not a Transformer instance.
-        """
+    def __init__(self, model: BaseModel):
         super().__init__(model)
-        assert isinstance(model, Transformer), (
-            f"CheferRelevance only works with Transformer models, "
-            f"got {type(model).__name__}"
-        )
+        
+        # Determine model type
+        self._is_transformer = isinstance(model, Transformer)
+        self._is_vit = False
+        
+        if HAS_TORCHVISION_MODEL and TorchvisionModel is not None:
+            if isinstance(model, TorchvisionModel):
+                self._is_vit = model.is_vit_model()
+        
+        if not self._is_transformer and not self._is_vit:
+            raise ValueError(
+                f"CheferRelevance requires a Transformer or TorchvisionModel (ViT), "
+                f"got {type(model).__name__}. For TorchvisionModel, only ViT variants "
+                f"(vit_b_16, vit_b_32, etc.) are supported."
+            )
 
-    def attribute(self, **data):
-        """Compute relevance scores for each token in the input features.
+    def attribute(
+        self,
+        interpolate: bool = True,
+        class_index: int = None,
+        **data,
+    ) -> Dict[str, torch.Tensor]:
+        """Compute relevance scores for each token/patch.
 
-        This method performs a forward pass through the model and computes
-        gradient-based relevance scores for each input token across all feature
-        modalities (e.g., conditions, procedures, drugs). The relevance scores
-        indicate the importance of each token for the predicted class. Higher
-        relevance scores suggest that the token contributed more to the model's
-        prediction.
-
-        Args:
-            **data: Input data dictionary from a dataloader batch containing:
-                - Feature keys (e.g., 'conditions', 'procedures', 'drugs'):
-                  Input tensors or sequences for each modality
-                - 'label': Ground truth label tensor
-                - 'class_index' (optional): Integer specifying target class for
-                  relevance computation. If not provided, uses the predicted
-                  class (argmax of model output).
-
-        Returns:
-            Dict[str, torch.Tensor]: Dictionary mapping each feature key to its
-                relevance score tensor. Each tensor has shape ``[batch_size,
-                num_tokens]`` where higher values indicate greater relevance for
-                the prediction. Scores are non-negative due to the clamping
-                operation in the relevance propagation algorithm.
-
-        Note:
-            - This method requires gradients, so it should not be called within
-              a ``torch.no_grad()`` context.
-            - The method modifies model state temporarily (registers hooks) but
-              restores it after computation.
-            - For batch processing, it's recommended to use batch_size=1 to get
-              per-sample interpretability.
-
-        Examples:
-            >>> from pyhealth.interpret.methods import CheferRelevance
-            >>>
-            >>> # Assuming you have a trained transformer model and test data
-            >>> relevance = CheferRelevance(trained_model)
-            >>> test_batch = next(iter(test_loader))
-            >>>
-            >>> # Compute relevance for predicted class
-            >>> scores = relevance.attribute(**test_batch)
-            >>> print(f"Feature relevance: {scores.keys()}")
-            >>> print(f"Condition relevance shape: {scores['conditions'].shape}")
-            >>>
-            >>> # Compute relevance for specific class (e.g., positive class)
-            >>> test_batch['class_index'] = 1
-            >>> scores_positive = relevance.attribute(**test_batch)
-            >>>
-            >>> # Analyze which tokens are most relevant
-            >>> condition_scores = scores['conditions'][0]  # First sample
-            >>> top_k_indices = torch.topk(condition_scores, k=5).indices
-            >>> print(f"Most relevant condition tokens: {top_k_indices}")
-        """
-        return self.get_relevance_matrix(**data)
-
-    def get_relevance_matrix(self, **data):
-        """Compute relevance scores for each token in the input features.
-
-        This method performs a forward pass through the model and computes gradient-based
-        relevance scores for each input token across all feature modalities (e.g.,
-        conditions, procedures, drugs). The relevance scores indicate the importance
-        of each token for the predicted class. Higher relevance scores suggest that
-        the token contributed more to the model's prediction.
+        This is the primary method for computing attributions. Returns a
+        dictionary keyed by the model's feature keys (from the task schema).
 
         Args:
-            **data: Input data dictionary from a dataloader batch containing:
-                - Feature keys (e.g., 'conditions', 'procedures', 'drugs'):
-                  Input tensors or sequences for each modality
-                - 'label': Ground truth label tensor
-                - 'class_index' (optional): Integer specifying target class for
-                  relevance computation. If not provided, uses the predicted class
-                  (argmax of model output).
+            interpolate: For ViT models, if True interpolate attribution to image size.
+            class_index: Target class index to compute attribution for. If None
+                (default), uses the model's predicted class. This is useful when
+                you want to explain why a specific class was predicted or to
+                compare attributions across different classes.
+            **data: Input data from dataloader batch containing:
+                - For Transformer: feature keys (conditions, procedures, etc.) + label
+                - For ViT: image feature key (e.g., "image") + label
 
         Returns:
-            dict: Dictionary mapping each feature key to its relevance score tensor.
-                Each tensor has shape ``[batch_size, num_tokens]`` where higher values
-                indicate greater relevance for the prediction. Scores are non-negative
-                due to the clamping operation in the relevance propagation algorithm.
+            Dict[str, torch.Tensor]: Dictionary keyed by feature keys from the task schema.
 
-        Note:
-            - This method requires gradients, so it should not be called within a
-              ``torch.no_grad()`` context.
-            - The method modifies model state temporarily (registers hooks) but
-              restores it after computation.
-            - For batch processing, it's recommended to use batch_size=1 to get
-              per-sample interpretability.
-
-        Examples:
-            >>> from pyhealth.interpret.methods import CheferRelevance
-            >>>
-            >>> # Assuming you have a trained transformer model and test data
-            >>> relevance = CheferRelevance(trained_model)
-            >>> test_batch = next(iter(test_loader))
-            >>>
-            >>> # Compute relevance for predicted class
-            >>> scores = relevance.get_relevance_matrix(**test_batch)
-            >>> print(f"Feature relevance: {scores.keys()}")
-            >>> print(f"Condition relevance shape: {scores['conditions'].shape}")
-            >>>
-            >>> # Compute relevance for specific class (e.g., positive class in binary)
-            >>> test_batch['class_index'] = 1
-            >>> scores_positive = relevance.get_relevance_matrix(**test_batch)
-            >>>
-            >>> # Analyze which tokens are most relevant
-            >>> condition_scores = scores['conditions'][0]  # First sample
-            >>> top_k_indices = torch.topk(condition_scores, k=5).indices
-            >>> print(f"Most relevant condition tokens: {top_k_indices}")
+            - For Transformer: ``{"conditions": tensor, "procedures": tensor, ...}``
+              where each tensor has shape ``[batch, num_tokens]``.
+            - For ViT: ``{"image": tensor}`` (or whatever the task's image key is)
+              where tensor has shape ``[batch, 1, H, W]``.
         """
-        input = data
-        input["register_hook"] = True
-        index = data.get("class_index")
+        if self._is_vit:
+            return self._attribute_vit(
+                interpolate=interpolate,
+                class_index=class_index,
+                **data
+            )
+        return self._attribute_transformer(class_index=class_index, **data)
 
-        logits = self.model(**input)["logit"]
-        if index == None:
-            index = torch.argmax(logits, dim=-1)
+    def _attribute_transformer(
+        self,
+        class_index: int = None,
+        **data
+    ) -> Dict[str, torch.Tensor]:
+        """Compute relevance for PyHealth Transformer models.
+        
+        Args:
+            class_index: Target class for attribution. If None, uses predicted class.
+            **data: Input data from dataloader batch.
+        """
+        data["register_hook"] = True
 
-        # create one_hot matrix of n x c, one_hot vecs, for graph computation
-        one_hot = F.one_hot(torch.tensor(index), logits.size()[1]).float()
+        logits = self.model(**data)["logit"]
+        if class_index is None:
+            class_index = torch.argmax(logits, dim=-1)
+
+        one_hot = F.one_hot(torch.tensor(class_index), logits.size()[1]).float()
         one_hot = one_hot.requires_grad_(True)
         one_hot = torch.sum(one_hot.to(logits.device) * logits)
         self.model.zero_grad()
         one_hot.backward(retain_graph=True)
-        feature_keys = self.model.feature_keys
 
-        # get how many tokens we see per modality
+        feature_keys = self.model.feature_keys
         num_tokens = {}
         for key in feature_keys:
             feature_transformer = self.model.transformer[key].transformer
@@ -316,16 +247,121 @@ class CheferRelevance(BaseInterpreter):
             R = (
                 torch.eye(num_tokens[key])
                 .unsqueeze(0)
-                .repeat(len(input[key]), 1, 1)
+                .repeat(len(data[key]), 1, 1)
                 .to(logits.device)
-            )  # initialize identity matrix, but batched
+            )
             for blk in self.model.transformer[key].transformer:
                 grad = blk.attention.get_attn_grad()
                 cam = blk.attention.get_attn_map()
                 cam = avg_heads(cam, grad)
                 R += apply_self_attention_rules(R, cam).detach()
+            attn[key] = R[:, 0]
 
-            attn[key] = R[:, 0]  # get CLS Token
+        return attn
 
-        # return Rs for each feature_key
-        return attn  # Assume CLS token is first row of attention score matrix
+    def _attribute_vit(
+        self,
+        interpolate: bool = True,
+        class_index: int = None,
+        **data,
+    ) -> Dict[str, torch.Tensor]:
+        """Compute ViT attribution and return spatial attribution map.
+        
+        Args:
+            interpolate: If True, interpolate to full image size.
+            class_index: Target class for attribution. If None, uses predicted class.
+            **data: Must contain the image feature key.
+            
+        Returns:
+            Dict keyed by the model's feature_key (e.g., "image") with spatial
+            attribution map of shape [batch, 1, H, W].
+        """
+        # Get the feature key (first element of feature_keys list)
+        feature_key = self.model.feature_keys[0]
+        x = data.get(feature_key)
+        if x is None:
+            raise ValueError(
+                f"Expected feature key '{feature_key}' in data. "
+                f"Available keys: {list(data.keys())}"
+            )
+        
+        x = x.to(self.model.device)
+        
+        # Infer input size from image dimensions (assumes square images)
+        input_size = x.shape[-1]
+        
+        # Forward pass with attention capture
+        self.model.zero_grad()
+        logits, attention_maps = self.model.forward_with_attention(x, register_hook=True)
+        
+        # Use predicted class if not specified
+        target_class = class_index
+        if target_class is None:
+            target_class = logits.argmax(dim=-1)
+        
+        # Backward pass
+        one_hot = torch.zeros_like(logits)
+        if isinstance(target_class, int):
+            one_hot[:, target_class] = 1
+        else:
+            if target_class.dim() == 0:
+                target_class = target_class.unsqueeze(0)
+            one_hot.scatter_(1, target_class.unsqueeze(1), 1)
+        
+        one_hot = one_hot.requires_grad_(True)
+        (logits * one_hot).sum().backward(retain_graph=True)
+        
+        # Compute gradient-weighted attention
+        attention_gradients = self.model.get_attention_gradients()
+        batch_size = attention_maps[0].shape[0]
+        num_tokens = attention_maps[0].shape[-1]
+        device = attention_maps[0].device
+        
+        R = torch.eye(num_tokens, device=device)
+        R = R.unsqueeze(0).expand(batch_size, -1, -1).clone()
+        
+        for attn, grad in zip(attention_maps, attention_gradients):
+            cam = avg_heads(attn, grad)
+            R = R + apply_self_attention_rules(R.detach(), cam.detach())
+        
+        # CLS token's relevance to patches (excluding CLS itself)
+        patches_attr = R[:, 0, 1:]
+        
+        # Reshape to spatial layout
+        h_patches, w_patches = self.model.get_num_patches(input_size)
+        attr_map = patches_attr.reshape(batch_size, 1, h_patches, w_patches)
+        
+        if interpolate:
+            attr_map = F.interpolate(
+                attr_map,
+                size=(input_size, input_size),
+                mode="bilinear",
+                align_corners=False,
+            )
+        
+        # Return keyed by the model's feature key (e.g., "image")
+        return {feature_key: attr_map}
+
+    # Backwards compatibility aliases
+    def get_relevance_matrix(self, **data):
+        """Alias for _attribute_transformer. Use attribute() instead."""
+        return self._attribute_transformer(**data)
+
+    def get_vit_attribution_map(
+        self,
+        interpolate: bool = True,
+        class_index: int = None,
+        **data
+    ):
+        """Alias for attribute() for ViT. Use attribute() instead.
+        
+        Returns the attribution tensor directly (not wrapped in a dict).
+        """
+        result = self._attribute_vit(
+            interpolate=interpolate,
+            class_index=class_index,
+            **data
+        )
+        # Return the attribution tensor directly (get the first/only value)
+        feature_key = self.model.feature_keys[0]
+        return result[feature_key]

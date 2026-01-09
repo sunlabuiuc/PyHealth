@@ -50,10 +50,18 @@ New to interpretability in PyHealth? Check out these complete examples:
   - Compare different baseline strategies for background sample generation
   - Decode attributions to human-readable medical codes and lab measurements
 
+**ViT/Chefer Attribution Example:**
+
+- ``examples/covid19_cxr_tutorial.py`` - Demonstrates Chefer's attention-based attribution for Vision Transformers:
+
+  - Train a ViT model on COVID-19 chest X-ray classification
+  - Use CheferRelevance for gradient-weighted attention attribution
+  - Visualize which image patches contribute to predictions
+
 These examples provide end-to-end workflows from loading data to interpreting and evaluating attributions.
 
-Available Methods
------------------
+Attribution Methods
+-------------------
     
 .. toctree::
     :maxdepth: 4
@@ -64,4 +72,15 @@ Available Methods
     interpret/pyhealth.interpret.methods.deeplift
     interpret/pyhealth.interpret.methods.integrated_gradients
     interpret/pyhealth.interpret.methods.shap
- 
+
+Visualization Utilities
+-----------------------
+
+The ``pyhealth.interpret.utils`` module provides visualization functions for 
+creating attribution overlays, heatmaps, and publication-ready figures.
+Includes specialized support for Vision Transformer (ViT) attribution visualization.
+
+.. toctree::
+    :maxdepth: 4
+
+    interpret/pyhealth.interpret.utils
