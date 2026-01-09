@@ -1,7 +1,11 @@
 ﻿pyhealth.tasks.readmission_prediction
 =======================================
 
-.. autofunction:: pyhealth.tasks.readmission_prediction.readmission_prediction_mimic3_fn
+.. autoclass:: pyhealth.tasks.readmission_prediction.ReadmissionPredictionMIMIC3
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 .. autofunction:: pyhealth.tasks.readmission_prediction.readmission_prediction_mimic4_fn
 .. autofunction:: pyhealth.tasks.readmission_prediction.readmission_prediction_eicu_fn
 .. autofunction:: pyhealth.tasks.readmission_prediction.readmission_prediction_eicu_fn2
