@@ -313,19 +313,19 @@ class SampleDataset(litdata.StreamingDataset):
 
     def _remove_ignored_processors(self):
         """Remove any processors that are IgnoreProcessor instances."""
-        for key in (
+        for key in [
             key
             for key, proc in self.input_processors.items()
             if isinstance(proc, IgnoreProcessor)
-        ):
+        ]:
             del self.input_processors[key]
             del self.input_schema[key]
 
-        for key in (
+        for key in [
             key
             for key, proc in self.output_processors.items()
             if isinstance(proc, IgnoreProcessor)
-        ):
+        ]:
             del self.output_processors[key]
             del self.output_schema[key]
 
