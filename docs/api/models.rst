@@ -8,6 +8,7 @@ We implement the following models for supporting multiple healthcare predictive 
     :maxdepth: 3
 
     models/pyhealth.models.BaseModel
+    models/pyhealth.models.BHCToAVS
     models/pyhealth.models.LogisticRegression
     models/pyhealth.models.MLP
     models/pyhealth.models.CNN
