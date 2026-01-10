@@ -4,8 +4,7 @@ Unit tests for the ChestXray14Dataset, ChestXray14BinaryClassification, and Ches
 Author:
     Eric Schrock (ejs9@illinois.edu)
 """
-import os
-import shutil
+from pathlib import Path
 import tempfile
 import unittest
 
@@ -19,38 +18,10 @@ from pyhealth.tasks import ChestXray14MultilabelClassification
 class TestChestXray14Dataset(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        if os.path.exists("test"):
-            shutil.rmtree("test")
-        os.makedirs("test/images")
-
-        # Source: https://nihcc.app.box.com/v/ChestXray-NIHCC/file/219760887468
-        lines = [
-            "Image Index,Finding Labels,Follow-up #,Patient ID,Patient Age,Patient Sex,View Position,OriginalImage[Width,Height],OriginalImagePixelSpacing[x,y],",
-            "00000001_000.png,Cardiomegaly,0,1,57,M,PA,2682,2749,0.14300000000000002,0.14300000000000002,",
-            "00000001_001.png,Cardiomegaly|Emphysema,1,1,58,M,PA,2894,2729,0.14300000000000002,0.14300000000000002,",
-            "00000001_002.png,Cardiomegaly|Effusion,2,1,58,M,PA,2500,2048,0.168,0.168,",
-            "00000002_000.png,No Finding,0,2,80,M,PA,2500,2048,0.171,0.171,",
-            "00000003_001.png,Hernia,0,3,74,F,PA,2500,2048,0.168,0.168,",
-            "00000003_002.png,Hernia,1,3,75,F,PA,2048,2500,0.168,0.168,",
-            "00000003_003.png,Hernia|Infiltration,2,3,76,F,PA,2698,2991,0.14300000000000002,0.14300000000000002,",
-            "00000003_004.png,Hernia,3,3,77,F,PA,2500,2048,0.168,0.168,",
-            "00000003_005.png,Hernia,4,3,78,F,PA,2686,2991,0.14300000000000002,0.14300000000000002,",
-            "00000003_006.png,Hernia,5,3,79,F,PA,2992,2991,0.14300000000000002,0.14300000000000002,",
-        ]
-
-        # Create mock images to test image loading
-        for line in lines[1:]: # Skip header row
-            name = line.split(',')[0]
-            img = Image.fromarray(np.random.randint(0, 256, (224, 224, 4), dtype=np.uint8), mode="RGBA")
-            img.save(os.path.join("test/images", name))
-
-        # Save image labels to file
-        with open("test/Data_Entry_2017_v2020.csv", 'w') as f:
-            f.write("\n".join(lines))
-
+        cls.root = Path(__file__).parent.parent.parent / "test-resources" / "core" / "chestxray14"
+        cls.generate_fake_images()
         cls.cache_dir = tempfile.TemporaryDirectory()
-
-        cls.dataset = ChestXray14Dataset(root="./test", cache_dir=cls.cache_dir.name)
+        cls.dataset = ChestXray14Dataset(cls.root, cache_dir=cls.cache_dir.name)
 
         cls.samples_cardiomegaly = cls.dataset.set_task(ChestXray14BinaryClassification(disease="cardiomegaly"))
         cls.samples_hernia = cls.dataset.set_task(ChestXray14BinaryClassification(disease="hernia"))
@@ -62,8 +33,23 @@ class TestChestXray14Dataset(unittest.TestCase):
         cls.samples_hernia.close()
         cls.samples_multilabel.close()
 
-        if os.path.exists("test"):
-            shutil.rmtree("test")
+        Path(cls.dataset.root / "chestxray14-metadata-pyhealth.csv").unlink()
+        cls.delete_fake_images()
+
+    @classmethod
+    def generate_fake_images(cls):
+        with open(Path(cls.root / "Data_Entry_2017_v2020.csv"), 'r') as f:
+            lines = f.readlines()
+
+        for line in lines[1:]: # Skip header row
+            name = line.split(',')[0]
+            img = Image.fromarray(np.random.randint(0, 256, (224, 224, 4), dtype=np.uint8), mode="RGBA")
+            img.save(Path(cls.root / "images" / name))
+
+    @classmethod
+    def delete_fake_images(cls):
+        for png in Path(cls.root / "images").glob("*.png"):
+            png.unlink()
 
     def test_stats(self):
         self.dataset.stats()
