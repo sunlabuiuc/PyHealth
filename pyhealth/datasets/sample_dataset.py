@@ -13,7 +13,6 @@ import copy
 
 from ..processors import get_processor
 from ..processors.base_processor import FeatureProcessor
-from ..processors.ignore_processor import IgnoreProcessor
 
 
 class SampleBuilder:
@@ -43,15 +42,13 @@ class SampleBuilder:
         input_processors: Optional[Dict[str, FeatureProcessor]] = None,
         output_processors: Optional[Dict[str, FeatureProcessor]] = None,
     ) -> None:
-        self.input_schema = { key : value for key, value in input_schema.items() if value != "ignore" }
-        self.output_schema = { key : value for key, value in output_schema.items() if value != "ignore" }
+        self.input_schema = input_schema
+        self.output_schema = output_schema
         self._input_processors = (
-            { key : value for key, value in input_processors.items() if not isinstance(value, IgnoreProcessor) } 
-            if input_processors is not None else {}
+            input_processors if input_processors is not None else {}
         )
         self._output_processors = (
-            { key : value for key, value in output_processors.items() if not isinstance(value, IgnoreProcessor) } 
-            if output_processors is not None else {}
+            output_processors if output_processors is not None else {}
         )
         self._patient_to_index: Dict[str, List[int]] = {}
         self._record_to_index: Dict[str, List[int]] = {}
