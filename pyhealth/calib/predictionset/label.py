@@ -130,7 +130,6 @@ class LABEL(SetPredictor):
         pred["y_predset"] = pred["y_prob"] > self.t
         return pred
 
-
 if __name__ == "__main__":
 
     from pyhealth.datasets import ISRUCDataset, split_by_patient, get_dataloader
@@ -168,3 +167,4 @@ if __name__ == "__main__":
             y_predset=extra_output["y_predset"],
         )
     )
+
