@@ -220,6 +220,30 @@ class SampleBuilder:
         }
         with open(path, "wb") as f:
             pickle.dump(metadata, f)
+    
+    @staticmethod
+    def load(path: str) -> "SampleBuilder":
+        """Load a SampleBuilder from a pickled metadata file.
+
+        Args:
+            path: Location of the pickled metadata file (commonly named `schema.pkl`).
+        
+        Returns:
+            A SampleBuilder instance with loaded metadata.
+        """
+        with open(path, "rb") as f:
+            metadata = pickle.load(f)
+
+        builder = SampleBuilder(
+            input_schema=metadata["input_schema"],
+            output_schema=metadata["output_schema"],
+        )
+        builder._input_processors = metadata["input_processors"]
+        builder._output_processors = metadata["output_processors"]
+        builder._patient_to_index = metadata["patient_to_index"]
+        builder._record_to_index = metadata["record_to_index"]
+        builder._fitted = True
+        return builder
 
 
 class SampleDataset(litdata.StreamingDataset):
