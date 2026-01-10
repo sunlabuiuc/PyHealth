@@ -92,3 +92,20 @@ class DatasetProcessor(Processor):
             List of processed sample dictionaries.
         """
         pass
+
+class VocabMixin(ABC):
+    """
+    Base class for feature processors that build a vocabulary.
+
+    Provides a common interface for accessing vocabulary-related information.
+    """
+
+    @abstractmethod
+    def remove(self, vocabularies: set[str]):
+        """Remove specified vocabularies from the processor."""
+        pass
+    
+    @abstractmethod
+    def retain(self, vocabularies: set[str]):
+        """Retain only the specified vocabularies in the processor."""
+        pass

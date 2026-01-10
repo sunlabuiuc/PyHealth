@@ -48,6 +48,18 @@ class SequenceProcessor(FeatureProcessor):
                 indices.append(self.code_vocab["<unk>"])
 
         return torch.tensor(indices, dtype=torch.long)
+    
+    def remove(self, vocabularies: set[str]):
+        """Remove specified vocabularies from the processor."""
+        vocab = list(set(self.code_vocab.keys()) - vocabularies - {"<pad>", "<unk>"})
+        vocab = ["<pad>"] + vocab + ["<unk>"]
+        self.code_vocab = {v: i for i, v in enumerate(vocab)}
+
+    def retain(self, vocabularies: set[str]):
+        """Retain only the specified vocabularies in the processor."""
+        vocab = list(set(self.code_vocab.keys()) & vocabularies)
+        vocab = ["<pad>"] + vocab + ["<unk>"]
+        self.code_vocab = {v: i for i, v in enumerate(vocab)}
 
     def size(self):
         return len(self.code_vocab)

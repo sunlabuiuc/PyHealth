@@ -3,11 +3,11 @@ from typing import Any, Dict, List, Optional, Tuple, Iterable
 import torch
 
 from . import register_processor
-from .base_processor import FeatureProcessor
+from .base_processor import FeatureProcessor, VocabMixin
 
 
 @register_processor("stagenet")
-class StageNetProcessor(FeatureProcessor):
+class StageNetProcessor(FeatureProcessor, VocabMixin):
     """
     Feature processor for StageNet CODE inputs with coupled value/time data.
 
@@ -121,6 +121,18 @@ class StageNetProcessor(FeatureProcessor):
         # Set <unk> token to the next available index
         # Since <unk> is already in the vocab dict, we use _next_index
         self.code_vocab["<unk>"] = self._next_index
+
+    def remove(self, vocabularies: set[str]):
+        """Remove specified vocabularies from the processor."""
+        vocab = list(set(self.code_vocab.keys()) - vocabularies - {"<pad>", "<unk>"})
+        vocab = ["<pad>"] + vocab + ["<unk>"]
+        self.code_vocab = {v: i for i, v in enumerate(vocab)}
+
+    def retain(self, vocabularies: set[str]):
+        """Retain only the specified vocabularies in the processor."""
+        vocab = list(set(self.code_vocab.keys()) & vocabularies)
+        vocab = ["<pad>"] + vocab + ["<unk>"]
+        self.code_vocab = {v: i for i, v in enumerate(vocab)}
 
     def process(
         self, value: Tuple[Optional[List], List]
