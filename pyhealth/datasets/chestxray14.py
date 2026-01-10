@@ -71,7 +71,7 @@ class ChestXray14Dataset(BaseDataset):
             FileNotFoundError: If the dataset path does not contain the 'images' directory.
             ValueError: If the dataset 'images' directory does not contain any PNG files.
 
-        Example:
+        Example::
             >>> dataset = ChestXray14Dataset(root="./data")
         """
         self._label_path: str = os.path.join(root, "Data_Entry_2017_v2020.csv")
@@ -98,7 +98,7 @@ class ChestXray14Dataset(BaseDataset):
         Returns:
             ChestXray14MultilabelClassification: The default classification task.
 
-        Example:
+        Example::
             >>> dataset = ChestXray14Dataset()
             >>> task = dataset.default_task
         """
@@ -117,6 +117,14 @@ class ChestXray14Dataset(BaseDataset):
         kwargs["input_processors"] = input_processors
 
         return super().set_task(*args, **kwargs)
+
+    set_task.__doc__ = (
+        f"{set_task.__doc__}\n"
+        "        Note:\n"
+        "            If no image processor is provided, a default grayscale `ImageProcessor(mode='L')` is injected. "
+        "This is needed because the ChestX-ray14 dataset images do not all have the same number of channels, "
+        "causing the default PyHealth image processor to fail."
+    )
 
     def _download(self, root: str, partial: bool) -> None:
         """Downloads and verifies the ChestX-ray14 dataset files.
