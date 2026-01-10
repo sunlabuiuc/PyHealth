@@ -62,41 +62,47 @@ The ``examples/`` directory contains additional code examples demonstrating vari
 Mortality Prediction
 --------------------
 
+These examples are located in ``examples/mortality_prediction/``.
+
 .. list-table::
    :widths: 50 50
    :header-rows: 1
 
    * - Example File
      - Description
-   * - ``mortality_mimic3_rnn.py``
+   * - ``mortality_prediction/mortality_mimic3_rnn.py``
      - RNN for mortality prediction on MIMIC-III
-   * - ``mortality_mimic3_stagenet.py``
+   * - ``mortality_prediction/mortality_mimic3_stagenet.py``
      - StageNet for mortality prediction on MIMIC-III
-   * - ``mortality_mimic3_adacare.py``
-     - AdaCare for mortality prediction on MIMIC-III
-   * - ``mortality_mimic3_agent.py``
+   * - ``mortality_prediction/mortality_mimic3_adacare.ipynb``
+     - AdaCare for mortality prediction on MIMIC-III (notebook)
+   * - ``mortality_prediction/mortality_mimic3_agent.py``
      - Agent model for mortality prediction on MIMIC-III
-   * - ``mortality_mimic3_concare.py``
+   * - ``mortality_prediction/mortality_mimic3_concare.py``
      - ConCare for mortality prediction on MIMIC-III
-   * - ``mortality_mimic3_grasp.py``
+   * - ``mortality_prediction/mortality_mimic3_grasp.py``
      - GRASP for mortality prediction on MIMIC-III
-   * - ``mortality_mimic3_tcn.py``
+   * - ``mortality_prediction/mortality_mimic3_tcn.py``
      - Temporal Convolutional Network for mortality prediction
-   * - ``mortality_mimic4_stagenet_v2.py``
+   * - ``mortality_prediction/mortality_mimic4_stagenet_v2.py``
      - StageNet for mortality prediction on MIMIC-IV (v2)
+   * - ``mortality_prediction/timeseries_mimic4.py``
+     - Time series analysis on MIMIC-IV
 
 Readmission Prediction
 ----------------------
 
+These examples are located in ``examples/readmission/``.
+
 .. list-table::
    :widths: 50 50
    :header-rows: 1
 
    * - Example File
      - Description
-   * - ``readmission_mimic3_rnn.py``
+   * - ``readmission/readmission_mimic3_rnn.py``
      - RNN for readmission prediction on MIMIC-III
-   * - ``readmission_mimic3_fairness.py``
+   * - ``readmission/readmission_mimic3_fairness.py``
      - Fairness-aware readmission prediction on MIMIC-III
 
 Survival Prediction
@@ -114,27 +120,29 @@ Survival Prediction
 Drug Recommendation
 -------------------
 
+These examples are located in ``examples/drug_recommendation/``.
+
 .. list-table::
    :widths: 50 50
    :header-rows: 1
 
    * - Example File
      - Description
-   * - ``drug_recommendation_mimic3_safedrug.py``
+   * - ``drug_recommendation/drug_recommendation_mimic3_safedrug.py``
      - SafeDrug for drug recommendation on MIMIC-III
-   * - ``drug_recommendation_mimic3_molerec.py``
+   * - ``drug_recommendation/drug_recommendation_mimic3_molerec.py``
      - MoleRec for drug recommendation on MIMIC-III
-   * - ``drug_recommendation_mimic3_gamenet.py``
+   * - ``drug_recommendation/drug_recommendation_mimic3_gamenet.py``
      - GAMENet for drug recommendation on MIMIC-III
-   * - ``drug_recommendation_mimic3_transformer.py``
+   * - ``drug_recommendation/drug_recommendation_mimic3_transformer.py``
      - Transformer for drug recommendation on MIMIC-III
-   * - ``drug_recommendation_mimic3_micron.py``
+   * - ``drug_recommendation/drug_recommendation_mimic3_micron.py``
      - MICRON for drug recommendation on MIMIC-III
-   * - ``drug_recommendation_mimic4_gamenet.py``
+   * - ``drug_recommendation/drug_recommendation_mimic4_gamenet.py``
      - GAMENet for drug recommendation on MIMIC-IV
-   * - ``drug_recommendation_mimic4_retain.py``
+   * - ``drug_recommendation/drug_recommendation_mimic4_retain.py``
      - RETAIN for drug recommendation on MIMIC-IV
-   * - ``drug_recommendation_eICU_transformer.py``
+   * - ``drug_recommendation/drug_recommendation_eICU_transformer.py``
      - Transformer for drug recommendation on eICU
 
 EEG and Sleep Analysis
@@ -190,6 +198,8 @@ These examples are located in ``examples/cxr/``.
 Interpretability
 ----------------
 
+These examples are located in ``examples/interpretability/``.
+
 .. list-table::
    :widths: 50 50
    :header-rows: 1
@@ -198,12 +208,20 @@ Interpretability
      - Description
    * - ``integrated_gradients_mortality_mimic4_stagenet.py``
      - Integrated Gradients for StageNet interpretability
-   * - ``deeplift_stagenet_mimic4.py``
+   * - ``interpretability/deeplift_stagenet_mimic4.py``
      - DeepLift attributions for StageNet on MIMIC-IV
-   * - ``interpretability_metrics.py``
+   * - ``interpretability/gim_stagenet_mimic4.py``
+     - GIM attributions for StageNet on MIMIC-IV
+   * - ``interpretability/gim_transformer_mimic4.py``
+     - GIM attributions for Transformer on MIMIC-IV
+   * - ``interpretability/shap_stagenet_mimic4.py``
+     - SHAP attributions for StageNet on MIMIC-IV
+   * - ``interpretability/interpretability_metrics.py``
      - Evaluating attribution methods with metrics
-   * - ``interpret_demo.ipynb``
+   * - ``interpretability/interpret_demo.ipynb``
      - Interactive interpretability demonstrations (notebook)
+   * - ``interpretability/shap_stagenet_mimic4.ipynb``
+     - SHAP attributions for StageNet (notebook)
 
 Patient Linkage
 ---------------
@@ -217,6 +235,22 @@ Patient Linkage
    * - ``patient_linkage_mimic3_medlink.py``
      - MedLink for patient record linkage on MIMIC-III
 
+Length of Stay
+--------------
+
+These examples are located in ``examples/length_of_stay/``.
+
+.. list-table::
+   :widths: 50 50
+   :header-rows: 1
+
+   * - Example File
+     - Description
+   * - ``length_of_stay/length_of_stay_mimic3_rnn.py``
+     - RNN for length of stay prediction on MIMIC-III
+   * - ``length_of_stay/length_of_stay_mimic4_rnn.py``
+     - RNN for length of stay prediction on MIMIC-IV
+
 Advanced Topics
 ---------------
 
@@ -226,13 +260,11 @@ Advanced Topics
 
    * - Example File
      - Description
-   * - ``length_of_stay_mimic3_rnn.py``
-     - RNN for length of stay prediction
    * - ``omop_dataset_demo.py``
      - Working with OMOP Common Data Model
    * - ``medcode.py``
      - Medical code vocabulary and mappings
-   * - ``benchmark_ehrshot.ipynb``
+   * - ``benchmark_ehrshot_xgboost.ipynb``
      - EHRShot benchmark with XGBoost (notebook)
 
 Notebooks (Interactive)
@@ -248,7 +280,7 @@ Notebooks (Interactive)
      - Comprehensive StageNet tutorial
    * - ``mimic3_mortality_prediction_cached.ipynb``
      - Cached mortality prediction workflow
-   * - ``timeseries_mimic4.ipynb``
+   * - ``mortality_prediction/timeseries_mimic4.ipynb``
      - Time series analysis on MIMIC-IV
    * - ``transformer_mimic4.ipynb``
      - Transformer models on MIMIC-IV
@@ -262,7 +294,7 @@ Notebooks (Interactive)
      - SafeDrug interactive notebook
    * - ``molerec_mimic3.ipynb``
      - MoleRec interactive notebook
-   * - ``drug_recommendation_mimic3_micron.ipynb``
+   * - ``drug_recommendation/drug_recommendation_mimic3_micron.ipynb``
      - MICRON interactive notebook
    * - ``kg_embedding.ipynb``
      - Knowledge graph embeddings
