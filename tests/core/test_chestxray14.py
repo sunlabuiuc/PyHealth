@@ -43,7 +43,7 @@ class TestChestXray14Dataset(unittest.TestCase):
 
         for line in lines[1:]: # Skip header row
             name = line.split(',')[0]
-            img = Image.fromarray(np.random.randint(0, 256, (224, 224, 4), dtype=np.uint8), mode="RGBA")
+            img = Image.fromarray(np.random.randint(0, 256, (224, 224, 4), dtype=np.uint8))
             img.save(Path(cls.root / "images" / name))
 
     @classmethod
