@@ -11,7 +11,7 @@ import litdata
 from litdata.utilities.train_test_split import deepcopy_dataset
 import copy
 
-from ..processors import get_processor
+from ..processors import get_processor, IgnoreProcessor
 from ..processors.base_processor import FeatureProcessor
 
 
@@ -191,8 +191,14 @@ class SampleBuilder:
         transformed: Dict[str, Any] = {}
         for key, value in pickle.loads(sample["sample"]).items():
             if key in self._input_processors:
+                # Skip ignored features
+                if isinstance(self._input_processors[key], IgnoreProcessor):
+                    continue
                 transformed[key] = self._input_processors[key].process(value)
             elif key in self._output_processors:
+                # Skip ignored features
+                if isinstance(self._output_processors[key], IgnoreProcessor):
+                    continue
                 transformed[key] = self._output_processors[key].process(value)
             else:
                 transformed[key] = value
@@ -220,14 +226,14 @@ class SampleBuilder:
         }
         with open(path, "wb") as f:
             pickle.dump(metadata, f)
-    
+
     @staticmethod
     def load(path: str) -> "SampleBuilder":
         """Load a SampleBuilder from a pickled metadata file.
 
         Args:
             path: Location of the pickled metadata file (commonly named `schema.pkl`).
-        
+
         Returns:
             A SampleBuilder instance with loaded metadata.
         """
@@ -300,9 +306,28 @@ class SampleDataset(litdata.StreamingDataset):
         self.output_schema = metadata["output_schema"]
         self.input_processors = metadata["input_processors"]
         self.output_processors = metadata["output_processors"]
+        self._remove_ignored_processors()
 
         self.patient_to_index = metadata["patient_to_index"]
         self.record_to_index = metadata["record_to_index"]
+
+    def _remove_ignored_processors(self):
+        """Remove any processors that are IgnoreProcessor instances."""
+        for key in (
+            key
+            for key, proc in self.input_processors.items()
+            if isinstance(proc, IgnoreProcessor)
+        ):
+            del self.input_processors[key]
+            del self.input_schema[key]
+
+        for key in (
+            key
+            for key, proc in self.output_processors.items()
+            if isinstance(proc, IgnoreProcessor)
+        ):
+            del self.output_processors[key]
+            del self.output_schema[key]
 
     def __str__(self) -> str:
         """Returns a string representation of the dataset.
@@ -380,12 +405,12 @@ class SampleDataset(litdata.StreamingDataset):
         new_dataset.reset()
 
         return new_dataset
-    
+
     def close(self) -> None:
         """Cleans up any temporary directories used by the dataset."""
         if self.input_dir.path is not None and Path(self.input_dir.path).exists():
             shutil.rmtree(self.input_dir.path)
-    
+
     # --------------------------------------------------------------
     # Context manager support
     # --------------------------------------------------------------
@@ -450,6 +475,7 @@ class InMemorySampleDataset(SampleDataset):
         self.output_schema = builder.output_schema
         self.input_processors = builder.input_processors
         self.output_processors = builder.output_processors
+        self._remove_ignored_processors()
 
         self.patient_to_index = builder.patient_to_index
         self.record_to_index = builder.record_to_index
@@ -505,6 +531,7 @@ class InMemorySampleDataset(SampleDataset):
 
     def close(self) -> None:
         pass  # No temporary directories to clean up for in-memory dataset
+
 
 def create_sample_dataset(
     samples: List[Dict[str, Any]],
