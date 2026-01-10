@@ -239,19 +239,9 @@ def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
         with open(f"{output_dir}/schema.pkl", "rb") as f:
             metadata = pickle.load(f)
 
-            input_processors = metadata["input_processors"]
-            output_processors = metadata["output_processors"]
-
             write_index = 0
             for i in range(start_idx, end_idx):
-                transformed: Dict[str, Any] = {}
-                for key, value in pickle.loads(dataset[i]["sample"]).items():
-                    if key in input_processors:
-                        transformed[key] = input_processors[key].process(value)
-                    elif key in output_processors:
-                        transformed[key] = output_processors[key].process(value)
-                    else:
-                        transformed[key] = value
+                transformed = SampleBuilder.transform(metadata, dataset[i])
                 writer.add_item(write_index, transformed)
                 write_index += 1
                 complete += 1
