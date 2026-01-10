@@ -1,0 +1,4 @@
+Hugo_Symbol,Variant_Classification,Variant_Type,HGVSc,HGVSp_Short,Tumor_Sample_Barcode
+KRAS,Missense_Mutation,SNP,c.35G>T,p.G12V,TCGA-AB-1234-01A-01D-1234-08
+TP53,Nonsense_Mutation,SNP,c.743G>A,p.R248Q,TCGA-AB-5678-01A-01D-1234-08
+SMAD4,Frame_Shift_Del,DEL,c.123_124del,p.L41fs,TCGA-AB-9012-01A-01D-1234-08
