@@ -240,7 +240,7 @@ def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
         complete = 0
         write_index = 0
         for i in range(start_idx, end_idx):
-            transformed: Dict[str, Any] = builder.transform(pickle.loads(dataset[i]))
+            transformed: Dict[str, Any] = builder.transform(dataset[i])
             writer.add_item(write_index, transformed)
             write_index += 1
             complete += 1
