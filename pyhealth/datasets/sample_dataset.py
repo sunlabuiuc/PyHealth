@@ -10,10 +10,10 @@ from bisect import bisect_right
 import litdata
 from litdata.utilities.train_test_split import deepcopy_dataset
 import copy
+from functools import partial
 
 from ..processors import get_processor
 from ..processors.base_processor import FeatureProcessor
-
 
 class SampleBuilder:
     """Fit feature processors and transform pickled samples without materializing a dataset.
@@ -169,14 +169,17 @@ class SampleBuilder:
 
         self._fitted = True
 
-    def transform(self, sample: dict[str, bytes]) -> Dict[str, Any]:
-        """Transform a single serialized (pickled) sample using fitted processors.
+    @staticmethod
+    def transform(metadata: dict[str, Any], sample: dict[str, bytes]) -> Dict[str, Any]:
+        """Transform a single serialized (pickled) sample using provided processors.
 
         Args:
+            metadata: A dictionary containing 'input_processors' and
+                'output_processors' mappings.
             sample: A mapping with a single key `"sample"` whose value is a
                 pickled Python dictionary (produced by `pickle.dumps`). The
                 pickled dictionary should mirror the schema that was used to
-                fit this builder.
+                fit the processors.
 
         Returns:
             A Python dictionary where each key is either an input or output
@@ -185,18 +188,42 @@ class SampleBuilder:
             are returned as the output of that processor. Keys not covered by
             the input/output processors are returned unchanged.
         """
-        if not self._fitted:
-            raise RuntimeError("SampleBuilder.fit must be called before transform().")
-
         transformed: Dict[str, Any] = {}
+        input_processors: Dict[str, FeatureProcessor] = metadata.get(
+            "input_processors", {}
+        )
+        output_processors: Dict[str, FeatureProcessor] = metadata.get(
+            "output_processors", {}
+        )
+
         for key, value in pickle.loads(sample["sample"]).items():
-            if key in self._input_processors:
-                transformed[key] = self._input_processors[key].process(value)
-            elif key in self._output_processors:
-                transformed[key] = self._output_processors[key].process(value)
+            if key in input_processors:
+                transformed[key] = input_processors[key].process(value)
+            elif key in output_processors:
+                transformed[key] = output_processors[key].process(value)
             else:
                 transformed[key] = value
         return transformed
+    
+    def metadata(self) -> dict[str, Any]:
+        """Serialize the builder's fitted metadata into a dictionary.
+
+        Returns:
+            A dictionary containing the fitted `input_schema`, `output_schema`,
+            `input_processors`, `output_processors`, `patient_to_index`, and
+            `record_to_index` mappings.
+        """
+        if not self._fitted:
+            raise RuntimeError("SampleBuilder.fit must be called before serialize().")
+        metadata = {
+            "input_schema": self.input_schema,
+            "output_schema": self.output_schema,
+            "input_processors": self._input_processors,
+            "output_processors": self._output_processors,
+            "patient_to_index": self._patient_to_index,
+            "record_to_index": self._record_to_index,
+        }
+        return metadata
 
     def save(self, path: str) -> None:
         """Save fitted metadata to the given path as a pickled file.
@@ -208,18 +235,8 @@ class SampleBuilder:
                 mappings. This file is read by `SampleDataset` during
                 construction.
         """
-        if not self._fitted:
-            raise RuntimeError("SampleBuilder.fit must be called before save().")
-        metadata = {
-            "input_schema": self.input_schema,
-            "output_schema": self.output_schema,
-            "input_processors": self._input_processors,
-            "output_processors": self._output_processors,
-            "patient_to_index": self._patient_to_index,
-            "record_to_index": self._record_to_index,
-        }
         with open(path, "wb") as f:
-            pickle.dump(metadata, f)
+            pickle.dump(self.metadata(), f)
 
 
 class SampleDataset(litdata.StreamingDataset):
@@ -430,7 +447,7 @@ class InMemorySampleDataset(SampleDataset):
         self.patient_to_index = builder.patient_to_index
         self.record_to_index = builder.record_to_index
 
-        self._data = [builder.transform({"sample": pickle.dumps(s)}) for s in samples]
+        self._data = [builder.transform(builder.metadata(), {"sample": pickle.dumps(s)}) for s in samples]
 
         self._shuffle = False
 
@@ -543,7 +560,7 @@ def create_sample_dataset(
         builder.fit(samples)
         builder.save(str(path / "schema.pkl"))
         litdata.optimize(
-            fn=builder.transform,
+            fn=partial(builder.transform, metadata=builder.metadata()),
             inputs=[{"sample": pickle.dumps(x)} for x in samples],
             output_dir=str(path),
             chunk_bytes="64MB",

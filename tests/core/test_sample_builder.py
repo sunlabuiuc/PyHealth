@@ -32,7 +32,7 @@ class TestSampleBuilder(unittest.TestCase):
         self.assertEqual(builder.patient_to_index["p1"], [0, 1])
         self.assertEqual(builder.record_to_index["r3"], [2])
 
-        transformed = builder.transform({"sample": pickle.dumps(self.samples[0])})
+        transformed = builder.transform(builder.metadata(), {"sample": pickle.dumps(self.samples[0])})
         self.assertEqual(transformed["feature"], "a")
         self.assertEqual(transformed["label"], 1)
         self.assertEqual(transformed["patient_id"], "p1")
@@ -42,7 +42,7 @@ class TestSampleBuilder(unittest.TestCase):
             input_schema=self.input_schema, output_schema=self.output_schema
         )
         with self.assertRaises(RuntimeError):
-            builder.transform({"sample": pickle.dumps(self.samples[0])})
+            builder.transform(builder.metadata(), {"sample": pickle.dumps(self.samples[0])})
 
     def test_index_mappings(self):
         builder = SampleBuilder(

@@ -3,6 +3,7 @@ from typing import Dict
 import tempfile
 import pickle
 import shutil
+from functools import partial
 
 import torch
 import torch.nn as nn
@@ -526,7 +527,7 @@ class TestShapExplainerMLP(unittest.TestCase):
                 yield {"sample": pickle.dumps(sample)}
         
         litdata.optimize(
-            fn=builder.transform,
+            fn=partial(builder.transform, metadata=builder.metadata()),
             inputs=list(sample_generator()),
             output_dir=self.temp_dir,
             num_workers=1,
@@ -732,7 +733,7 @@ class TestShapExplainerStageNet(unittest.TestCase):
                 yield {"sample": pickle.dumps(sample)}
         
         litdata.optimize(
-            fn=builder.transform,
+            fn=partial(builder.transform, metadata=builder.metadata()),
             inputs=list(sample_generator()),
             output_dir=self.temp_dir,
             num_workers=1,
