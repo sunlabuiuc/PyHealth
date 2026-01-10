@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Iterable
 
 import torch
 
@@ -51,7 +51,7 @@ class DeepNestedSequenceProcessor(FeatureProcessor):
         self._max_middle_len = 1  # Maximum length of middle sequences (e.g. visits)
         self._max_inner_len = 1   # Maximum length of inner sequences (e.g. codes per visit)
 
-    def fit(self, samples: List[Dict[str, Any]], field: str) -> None:
+    def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
         """Build vocabulary and determine maximum sequence lengths.
 
         Args:
@@ -85,6 +85,20 @@ class DeepNestedSequenceProcessor(FeatureProcessor):
 
         self._max_middle_len = max(1, max_middle_len)
         self._max_inner_len = max(1, max_inner_len)
+
+    def remove(self, vocabularies: set[str]):
+        """Remove specified vocabularies from the processor."""
+        vocab = list(set(self.code_vocab.keys()) - vocabularies - {"<pad>", "<unk>"})
+        self.code_vocab = {"<pad>": 0, "<unk>": -1}
+        for i, v in enumerate(vocab):
+            self.code_vocab[v] = i + 1
+
+    def retain(self, vocabularies: set[str]):
+        """Retain only the specified vocabularies in the processor."""
+        vocab = list(set(self.code_vocab.keys()) & vocabularies)
+        self.code_vocab = {"<pad>": 0, "<unk>": -1}
+        for i, v in enumerate(vocab):
+            self.code_vocab[v] = i + 1
 
     def process(self, value: List[List[List[Any]]]) -> torch.Tensor:
         """Process deep nested sequence into padded 3D tensor.
@@ -209,7 +223,7 @@ class DeepNestedFloatsProcessor(FeatureProcessor):
         self._max_inner_len = 1   # Maximum length of inner sequences (values per visit)
         self.forward_fill = forward_fill
 
-    def fit(self, samples: List[Dict[str, Any]], field: str) -> None:
+    def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
         """Determine maximum sequence lengths.
 
         Args:
