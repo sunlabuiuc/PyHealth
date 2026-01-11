@@ -31,6 +31,7 @@ Typical usage:
 from __future__ import annotations
 
 import argparse
+import collections
 import csv
 import os
 import shutil
@@ -39,10 +40,11 @@ import threading
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Iterable, Iterator
+from typing import Any, Dict, Iterable, Iterator, List
 
 import psutil
 import torch
+from torch.utils.data import Dataset
 
 try:
     import meds_reader
@@ -51,6 +53,77 @@ except ImportError:
         "meds_reader not found. Install with: pip install meds_reader\n"
         "Or from source: pip install -e /path/to/meds_reader"
     )
+
+
+# =============================================================================
+# PyTorch Dataset Wrapper
+# =============================================================================
+
+class MedsReaderSampleDataset(Dataset):
+    """PyTorch Dataset wrapper for meds_reader samples.
+    
+    This provides a standard PyTorch Dataset interface for the processed samples,
+    making them compatible with PyTorch DataLoader for model training.
+    
+    Attributes:
+        samples: List of processed sample dictionaries
+        input_schema: Schema describing input features
+        output_schema: Schema describing output features
+        input_processors: Fitted processors for input features
+        output_processors: Fitted processors for output features
+    """
+    
+    def __init__(
+        self,
+        samples: List[Dict[str, Any]],
+        input_schema: Dict[str, str],
+        output_schema: Dict[str, str],
+        input_processors: Dict[str, Any],
+        output_processors: Dict[str, Any],
+        dataset_name: str = "",
+        task_name: str = "",
+    ):
+        self.samples = samples
+        self.input_schema = input_schema
+        self.output_schema = output_schema
+        self.input_processors = input_processors
+        self.output_processors = output_processors
+        self.dataset_name = dataset_name
+        self.task_name = task_name
+        
+        # Build patient and record indices for train/val/test splitting
+        self.patient_to_index: Dict[Any, List[int]] = collections.defaultdict(list)
+        self.record_to_index: Dict[Any, List[int]] = collections.defaultdict(list)
+        
+        for idx, sample in enumerate(samples):
+            if "patient_id" in sample:
+                self.patient_to_index[sample["patient_id"]].append(idx)
+            if "visit_id" in sample:
+                self.record_to_index[sample["visit_id"]].append(idx)
+    
+    def __len__(self) -> int:
+        return len(self.samples)
+    
+    def __getitem__(self, index: int) -> Dict[str, Any]:
+        return self.samples[index]
+    
+    def __repr__(self) -> str:
+        return (
+            f"MedsReaderSampleDataset(dataset={self.dataset_name}, "
+            f"task={self.task_name}, n_samples={len(self)})"
+        )
+    
+    def get_all_tokens(self, key: str) -> set:
+        """Get all unique tokens for a given key across all samples."""
+        tokens = set()
+        for sample in self.samples:
+            if key in sample:
+                val = sample[key]
+                if isinstance(val, torch.Tensor):
+                    tokens.update(val.tolist())
+                elif isinstance(val, list):
+                    tokens.update(val)
+        return tokens
 
 
 # =============================================================================
@@ -89,6 +162,28 @@ class SequenceProcessor:
     
     def size(self):
         return len(self.code_vocab)
+
+
+class MulticlassLabelProcessor:
+    """Processor for multiclass labels (matching PyHealth's MultiClassLabelProcessor)."""
+    
+    def __init__(self):
+        self.label_vocab = {}
+    
+    def fit(self, samples, field):
+        """Build vocabulary from all label values."""
+        for sample in samples:
+            if field in sample:
+                val = sample[field]
+                if val not in self.label_vocab:
+                    self.label_vocab[val] = len(self.label_vocab)
+    
+    def process(self, value):
+        """Convert label to tensor."""
+        return torch.tensor(self.label_vocab.get(value, 0), dtype=torch.long)
+    
+    def size(self):
+        return len(self.label_vocab)
 
 
 try:
@@ -494,8 +589,8 @@ def main() -> None:
         help="Path to MIMIC-IV root directory (containing 2.2/ subdirectory)",
     )
     parser.add_argument(
-        "--cache-dir", type=str, default="datasets",
-        help="Directory for MEDS cache (default: datasets)",
+        "--cache-dir", type=str, default="/srv/local/data/johnwu3/meds_reader",
+        help="Directory for MEDS cache",
     )
     parser.add_argument(
         "--num-shards", type=int, default=100,
@@ -599,10 +694,12 @@ def main() -> None:
             conditions_processor = SequenceProcessor()
             procedures_processor = SequenceProcessor()
             drugs_processor = SequenceProcessor()
+            label_processor = MulticlassLabelProcessor()
             
             conditions_processor.fit(samples, "conditions")
             procedures_processor.fit(samples, "procedures")
             drugs_processor.fit(samples, "drugs")
+            label_processor.fit(samples, "label")
             
             # Step 3: Tokenize samples (matching PyHealth's processor.process())
             processed_samples = []
@@ -613,15 +710,34 @@ def main() -> None:
                     "conditions": conditions_processor.process(sample["conditions"]),
                     "procedures": procedures_processor.process(sample["procedures"]),
                     "drugs": drugs_processor.process(sample["drugs"]),
-                    "label": torch.tensor(sample["label"], dtype=torch.long),
+                    "label": label_processor.process(sample["label"]),
                     "los_days": sample["los_days"],
                 }
                 processed_samples.append(processed_sample)
+            
+            # Step 4: Wrap in PyTorch Dataset for model training compatibility
+            dataset = MedsReaderSampleDataset(
+                samples=processed_samples,
+                input_schema={
+                    "conditions": "sequence",
+                    "procedures": "sequence",
+                    "drugs": "sequence",
+                },
+                output_schema={"label": "multiclass"},
+                input_processors={
+                    "conditions": conditions_processor,
+                    "procedures": procedures_processor,
+                    "drugs": drugs_processor,
+                },
+                output_processors={"label": label_processor},
+                dataset_name="MIMIC-IV",
+                task_name="LengthOfStayPrediction",
+            )
 
             task_process_s = time.time() - task_start
             total_s = time.time() - run_start
             peak_rss_bytes = tracker.peak_bytes()
-            num_samples = len(processed_samples)
+            num_samples = len(dataset)
 
             results.append(
                 RunResult(
