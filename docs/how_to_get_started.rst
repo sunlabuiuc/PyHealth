@@ -120,7 +120,7 @@ Example:
        train_dataloader=train_loader,
        val_dataloader=val_loader,
        epochs=50,
-       monitor="pr_auc_samples",
+       monitor="pr_auc",
    )
 
 Stage 5: Evaluating Model Performance
