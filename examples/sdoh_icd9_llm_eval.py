@@ -2,13 +2,14 @@ import argparse
 import json
 import os
 from datetime import datetime
-from typing import Iterable, List, Sequence, Set
+from typing import List, Set
 
 import numpy as np
 from pyhealth.datasets import MIMIC3NotesDataset
 from pyhealth.metrics import multilabel_metrics_fn
 from pyhealth.models.sdoh_icd9_llm import SDOHICD9LLM
 from pyhealth.tasks.sdoh_icd9_detection import TARGET_CODES
+from pyhealth.tasks.sdoh_utils import codes_to_multihot
 
 
 def parse_args():
@@ -26,15 +27,6 @@ def parse_args():
     parser.add_argument("--output-dir", default=".", help="Directory to save outputs.")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
-
-
-def codes_to_multihot(codes_list: Iterable[Set[str]], target_codes: Sequence[str]) -> np.ndarray:
-    target_set = [code.upper() for code in target_codes]
-    rows: List[List[int]] = []
-    for codes in codes_list:
-        code_set = {code.upper() for code in codes}
-        rows.append([1 if code in code_set else 0 for code in target_set])
-    return np.array(rows, dtype=np.float32)
 
 
 def main():
@@ -81,9 +73,18 @@ def main():
             }
         )
 
-    y_pred = codes_to_multihot(predicted_codes_all, target_codes)
-    y_manual = codes_to_multihot(manual_codes_all, target_codes)
-    y_true = codes_to_multihot(true_codes_all, target_codes)
+    y_pred = np.stack(
+        [codes_to_multihot(codes, target_codes).numpy() for codes in predicted_codes_all],
+        axis=0,
+    )
+    y_manual = np.stack(
+        [codes_to_multihot(codes, target_codes).numpy() for codes in manual_codes_all],
+        axis=0,
+    )
+    y_true = np.stack(
+        [codes_to_multihot(codes, target_codes).numpy() for codes in true_codes_all],
+        axis=0,
+    )
 
     metrics_list = [
         "accuracy",

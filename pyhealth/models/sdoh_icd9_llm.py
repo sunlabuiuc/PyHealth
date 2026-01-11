@@ -182,16 +182,14 @@ class SDOHICD9LLM(nn.Module):
             categories_batch = note_categories or [None] * len(notes_batch)
             dates_batch = chartdates or [None] * len(notes_batch)
 
-        batch_probs: List[List[int]] = []
+        batch_probs: List[torch.Tensor] = []
         for note_list, cats, dates in zip(
             notes_batch, categories_batch, dates_batch
         ):
             predicted, _ = self._predict_admission(note_list, cats, dates)
-            batch_probs.append(
-                codes_to_multihot(predicted, self.target_codes)
-            )
+            batch_probs.append(codes_to_multihot(predicted, self.target_codes))
 
-        y_prob = torch.tensor(batch_probs, dtype=torch.float32)
+        y_prob = torch.stack(batch_probs, dim=0)
         if label is not None and isinstance(label, torch.Tensor):
             y_prob = y_prob.to(label.device)
             y_true = label

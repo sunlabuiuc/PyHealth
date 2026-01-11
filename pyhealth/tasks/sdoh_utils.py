@@ -1,9 +1,10 @@
 """Utilities for SDOH ICD-9 V-code detection tasks."""
 
 import logging
-from typing import Iterable, List, Sequence, Set
+from typing import Iterable, Sequence, Set
 
 import pandas as pd
+import torch
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,7 @@ def parse_codes(codes_str: object, target_codes: Sequence[str]) -> Set[str]:
     return {code for code in parsed if code in target_set}
 
 
-def codes_to_multihot(codes: Iterable[str], target_codes: Sequence[str]) -> List[int]:
+def codes_to_multihot(codes: Iterable[str], target_codes: Sequence[str]) -> torch.Tensor:
     """Convert code set to multi-hot encoding.
 
     Args:
@@ -66,7 +67,10 @@ def codes_to_multihot(codes: Iterable[str], target_codes: Sequence[str]) -> List
         target_codes: Ordered list of target codes
 
     Returns:
-        Multi-hot binary list aligned with target_codes
+        Multi-hot tensor aligned with target_codes
     """
     code_set = {code.upper() for code in codes}
-    return [1 if code in code_set else 0 for code in target_codes]
+    return torch.tensor(
+        [1.0 if code in code_set else 0.0 for code in target_codes],
+        dtype=torch.float32,
+    )
