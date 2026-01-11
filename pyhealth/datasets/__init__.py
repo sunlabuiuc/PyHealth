@@ -58,6 +58,7 @@ from .eicu import eICUDataset
 from .isruc import ISRUCDataset
 from .medical_transcriptions import MedicalTranscriptionsDataset
 from .mimic3 import MIMIC3Dataset
+from .mimic3_notes import MIMIC3NotesDataset
 from .mimic4 import MIMIC4CXRDataset, MIMIC4Dataset, MIMIC4EHRDataset, MIMIC4NoteDataset
 from .mimicextract import MIMICExtractDataset
 from .omop import OMOPDataset
@@ -66,6 +67,7 @@ from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset
 from .bmd_hs import BMDHSDataset
 from .support2 import Support2Dataset
+from .sdoh_icd9 import SDOHICD9NotesDataset
 from .tcga_prad import TCGAPRADDataset
 from .splitter import (
     split_by_patient,
