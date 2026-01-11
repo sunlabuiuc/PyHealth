@@ -1,9 +1,15 @@
 """Benchmark script for MIMIC-IV drug recommendation using meds_reader.
 
 This benchmark measures performance across multiple thread counts:
-1. Time to process the task
-2. Peak memory usage (RSS, includes child processes)
-3. Number of samples generated
+1. Time for MEDS ETL conversion (MIMIC-IV -> MEDS format)
+2. Time for meds_reader database conversion (MEDS -> meds_reader format)
+3. Time to process the task
+4. Peak memory usage (RSS, includes child processes)
+5. Number of samples generated
+
+IMPORTANT: For fair comparison with PyHealth, conversion time MUST be included.
+PyHealth's dataset loading includes parsing raw MIMIC-IV CSVs, so we must
+account for the equivalent preprocessing time in meds_reader.
 
 This script uses meds_etl for data conversion:
 - Converts MIMIC-IV directly to MEDS format via meds_etl_mimic
@@ -14,10 +20,12 @@ Typical usage:
   # First install dependencies:
   pip install meds_etl meds_reader
   
-  # Run benchmark:
+  # Run benchmark (includes conversion time by default):
   python benchmark_meds_reader_drug_rec.py
   python benchmark_meds_reader_drug_rec.py --threads 1,4,8,12,16 --repeats 3
-  python benchmark_meds_reader_drug_rec.py --force-reconvert  # Force fresh conversion
+  
+  # Skip conversion (only for debugging, not fair benchmarking):
+  python benchmark_meds_reader_drug_rec.py --skip-conversion
 """
 
 from __future__ import annotations
@@ -188,7 +196,16 @@ def run_meds_reader_convert(input_dir: str, output_dir: str, num_threads: int = 
         raise
 
 
-def ensure_meds_database(
+@dataclass
+class ConversionResult:
+    """Holds timing information for the MEDS conversion process."""
+    meds_etl_s: float
+    meds_reader_convert_s: float
+    total_conversion_s: float
+    was_cached: bool  # True if conversion was skipped due to existing cache
+
+
+def run_meds_conversion(
     mimic_root: str,
     meds_dir: str,
     meds_reader_dir: str,
@@ -196,28 +213,73 @@ def ensure_meds_database(
     num_proc: int,
     backend: str,
     force_reconvert: bool,
-) -> bool:
-    """Ensure MEDS database exists, converting if necessary."""
+    skip_conversion: bool,
+) -> ConversionResult:
+    """Run MEDS conversion and return timing information.
     
-    # Check if final meds_reader database exists
+    Args:
+        mimic_root: Path to MIMIC-IV root directory
+        meds_dir: Path for intermediate MEDS output
+        meds_reader_dir: Path for final meds_reader database
+        num_shards: Number of shards for meds_etl
+        num_proc: Number of processes for meds_etl
+        backend: Backend for meds_etl (polars or cpp)
+        force_reconvert: If True, always reconvert even if cache exists
+        skip_conversion: If True, skip conversion (for debugging only)
+    
+    Returns:
+        ConversionResult with timing information
+    """
+    # Check if we should skip conversion
+    if skip_conversion:
+        if not Path(meds_reader_dir).exists():
+            raise SystemExit(
+                f"Cannot skip conversion: MEDS database does not exist at {meds_reader_dir}\n"
+                "Run without --skip-conversion first."
+            )
+        print(f"✓ Skipping conversion (using cached MEDS database: {meds_reader_dir})")
+        print("  WARNING: For fair benchmarking, conversion time should be included!")
+        return ConversionResult(
+            meds_etl_s=0.0,
+            meds_reader_convert_s=0.0,
+            total_conversion_s=0.0,
+            was_cached=True,
+        )
+    
+    # Check if we can reuse existing cache
     if Path(meds_reader_dir).exists() and not force_reconvert:
         print(f"✓ MEDS database exists: {meds_reader_dir}")
-        return True
+        print("  NOTE: Using cached data. Use --force-reconvert for fresh timing.")
+        return ConversionResult(
+            meds_etl_s=0.0,
+            meds_reader_convert_s=0.0,
+            total_conversion_s=0.0,
+            was_cached=True,
+        )
     
     print(f"\n{'='*60}")
-    print(f"MEDS database not found or reconvert requested")
+    print(f"Converting MIMIC-IV to MEDS format")
     print(f"{'='*60}")
+    
+    # Clear existing cache directories to avoid interference
+    if Path(meds_dir).exists():
+        print(f"  Clearing existing MEDS cache: {meds_dir}")
+        shutil.rmtree(meds_dir)
+    if Path(meds_reader_dir).exists():
+        print(f"  Clearing existing meds_reader cache: {meds_reader_dir}")
+        shutil.rmtree(meds_reader_dir)
     
     # Verify MIMIC-IV structure
     mimic_version_path = os.path.join(mimic_root, "2.2")
     if not os.path.exists(mimic_version_path):
-        print(f"\nERROR: Expected MIMIC-IV version directory not found: {mimic_version_path}")
-        print("meds_etl_mimic expects the MIMIC-IV data to be in {mimic_root}/2.2/")
-        return False
+        raise SystemExit(
+            f"ERROR: Expected MIMIC-IV version directory not found: {mimic_version_path}\n"
+            f"meds_etl_mimic expects the MIMIC-IV data to be in {{mimic_root}}/2.2/"
+        )
     
     # Step 1: Convert MIMIC-IV -> MEDS using meds_etl
     print(f"\n[Step 1/2] Converting MIMIC-IV to MEDS format using meds_etl...")
-    run_meds_etl_mimic(
+    meds_etl_s = run_meds_etl_mimic(
         src_mimic=mimic_root,
         output_dir=meds_dir,
         num_shards=num_shards,
@@ -227,10 +289,20 @@ def ensure_meds_database(
     
     # Step 2: Run meds_reader_convert
     print(f"\n[Step 2/2] Running meds_reader_convert...")
-    run_meds_reader_convert(meds_dir, meds_reader_dir, num_threads=num_proc)
+    meds_reader_convert_s = run_meds_reader_convert(
+        meds_dir, meds_reader_dir, num_threads=num_proc
+    )
     
+    total_conversion_s = meds_etl_s + meds_reader_convert_s
     print(f"\n✓ MEDS database ready: {meds_reader_dir}")
-    return True
+    print(f"  Total conversion time: {total_conversion_s:.2f}s")
+    
+    return ConversionResult(
+        meds_etl_s=meds_etl_s,
+        meds_reader_convert_s=meds_reader_convert_s,
+        total_conversion_s=total_conversion_s,
+        was_cached=False,
+    )
 
 
 # =============================================================================
@@ -335,9 +407,13 @@ def get_drug_rec_samples(subjects: Iterator[meds_reader.Subject]):
 class RunResult:
     num_threads: int
     repeat_index: int
-    task_process_s: float
+    meds_etl_s: float  # Time for MIMIC-IV -> MEDS conversion
+    meds_reader_convert_s: float  # Time for MEDS -> meds_reader conversion
+    task_process_s: float  # Time to run the ML task
+    total_s: float  # Total time (conversion + task)
     peak_rss_bytes: int
     num_samples: int
+    conversion_cached: bool  # True if conversion was skipped
 
 
 def format_size(size_bytes: int) -> str:
@@ -463,7 +539,11 @@ def main() -> None:
     )
     parser.add_argument(
         "--force-reconvert", action="store_true",
-        help="Force reconversion even if MEDS database exists",
+        help="Force reconversion even if MEDS database exists (recommended for benchmarking)",
+    )
+    parser.add_argument(
+        "--skip-conversion", action="store_true",
+        help="Skip conversion entirely (for debugging only - NOT fair benchmarking)",
     )
     parser.add_argument(
         "--enable-memory-limit", action="store_true",
@@ -491,27 +571,19 @@ def main() -> None:
         set_memory_limit(args.max_memory_gb)
 
     # MEDS paths
-    meds_dir = f"{args.cache_dir}/mimic4_meds"
-    meds_reader_dir = f"{args.cache_dir}/mimic4_meds_reader"
+    # Use task-specific cache directories to avoid interference between tasks
+    meds_dir = f"{args.cache_dir}/mimic4_meds_drug_rec"
+    meds_reader_dir = f"{args.cache_dir}/mimic4_meds_reader_drug_rec"
 
     print("=" * 80)
     print("BENCHMARK: meds_reader - Drug Recommendation (Thread Sweep)")
     print(f"threads={args.threads} repeats={args.repeats}")
     print(f"mimic_root: {args.mimic_root}")
     print(f"backend: {args.backend}, num_proc: {args.num_proc}, num_shards: {args.num_shards}")
+    if args.skip_conversion:
+        print("WARNING: --skip-conversion is set. Conversion time will NOT be included.")
+        print("         This is NOT a fair comparison with PyHealth!")
     print("=" * 80)
-
-    # Ensure MEDS database exists
-    if not ensure_meds_database(
-        mimic_root=args.mimic_root,
-        meds_dir=meds_dir,
-        meds_reader_dir=meds_reader_dir,
-        num_shards=args.num_shards,
-        num_proc=args.num_proc,
-        backend=args.backend,
-        force_reconvert=args.force_reconvert,
-    ):
-        raise SystemExit("Failed to prepare MEDS database")
 
     tracker = PeakMemoryTracker(poll_interval_s=0.1)
     tracker.start()
@@ -526,8 +598,23 @@ def main() -> None:
     for t in args.threads:
         for r in range(args.repeats):
             tracker.reset()
+            run_start = time.time()
             
-            print(f"\n  threads={t} repeat={r + 1}/{args.repeats}: Processing...")
+            # Step 0: Convert MIMIC-IV to MEDS format (part of total time)
+            # For fair comparison with PyHealth, we must include this conversion time
+            # since PyHealth's dataset loading includes parsing raw MIMIC-IV CSVs.
+            conversion = run_meds_conversion(
+                mimic_root=args.mimic_root,
+                meds_dir=meds_dir,
+                meds_reader_dir=meds_reader_dir,
+                num_shards=args.num_shards,
+                num_proc=args.num_proc,
+                backend=args.backend,
+                force_reconvert=args.force_reconvert and r == 0,  # Only reconvert on first repeat
+                skip_conversion=args.skip_conversion or r > 0,  # Reuse on subsequent repeats
+            )
+            
+            print(f"\n  threads={t} repeat={r + 1}/{args.repeats}: Processing task...")
             task_start = time.time()
 
             # Step 1: Extract samples using meds_reader (parallel)
@@ -560,6 +647,7 @@ def main() -> None:
                 processed_samples.append(processed_sample)
 
             task_process_s = time.time() - task_start
+            total_s = time.time() - run_start
             peak_rss_bytes = tracker.peak_bytes()
             num_samples = len(processed_samples)
 
@@ -567,16 +655,29 @@ def main() -> None:
                 RunResult(
                     num_threads=t,
                     repeat_index=r,
+                    meds_etl_s=conversion.meds_etl_s,
+                    meds_reader_convert_s=conversion.meds_reader_convert_s,
                     task_process_s=task_process_s,
+                    total_s=total_s,
                     peak_rss_bytes=peak_rss_bytes,
                     num_samples=num_samples,
+                    conversion_cached=conversion.was_cached,
                 )
             )
 
+            # Build output message
+            timing_str = f"task={task_process_s:.2f}s"
+            if not conversion.was_cached:
+                timing_str = (
+                    f"meds_etl={conversion.meds_etl_s:.2f}s "
+                    f"convert={conversion.meds_reader_convert_s:.2f}s "
+                    + timing_str + f" total={total_s:.2f}s"
+                )
+            
             print(
                 f"  ✓ threads={t:>2} repeat={r + 1:>2}/{args.repeats} "
                 f"samples={num_samples} "
-                f"task={task_process_s:.2f}s "
+                f"{timing_str} "
                 f"peak_rss={format_size(peak_rss_bytes)} "
                 f"vocab_sizes=({conditions_processor.size()},{procedures_processor.size()},{drugs_processor.size()})"
             )
@@ -596,22 +697,53 @@ def main() -> None:
     print("\n" + "=" * 80)
     print("SUMMARY (median across repeats)")
     print("=" * 80)
+    
+    # Check if any results have conversion times
+    has_conversion = any(not rr.conversion_cached for rr in results)
+    
+    if has_conversion:
+        print("\n  NOTE: Conversion time included for fair comparison with PyHealth.")
+        print("        PyHealth's dataset_load_s ≈ meds_etl_s + meds_reader_convert_s")
+    else:
+        print("\n  WARNING: Conversion was cached. For fair benchmarking, use --force-reconvert")
 
+    print()
     for t in args.threads:
         trs = [rr for rr in results if rr.num_threads == t]
         med_task = median([rr.task_process_s for rr in trs])
+        med_total = median([rr.total_s for rr in trs])
         med_peak = median([float(rr.peak_rss_bytes) for rr in trs])
-        print(
-            f"threads={t:>2}  "
-            f"task_med={med_task:>8.2f}s  "
-            f"peak_rss_med={format_size(int(med_peak)):>10}"
-        )
+        
+        # Get conversion times (from first repeat which has them if --force-reconvert)
+        first_run = [rr for rr in trs if rr.repeat_index == 0][0]
+        
+        if not first_run.conversion_cached:
+            print(
+                f"threads={t:>2}  "
+                f"meds_etl={first_run.meds_etl_s:>7.2f}s  "
+                f"convert={first_run.meds_reader_convert_s:>7.2f}s  "
+                f"task_med={med_task:>7.2f}s  "
+                f"total={med_total:>7.2f}s  "
+                f"peak_rss={format_size(int(med_peak)):>10}"
+            )
+        else:
+            print(
+                f"threads={t:>2}  "
+                f"task_med={med_task:>8.2f}s  "
+                f"(conversion cached)  "
+                f"peak_rss_med={format_size(int(med_peak)):>10}"
+            )
 
     print("\nArtifacts:")
     print(f"  - CSV: {out_csv}")
     print(f"  - MEDS database: {meds_reader_dir}")
     print("\nTotals:")
     print(f"  - Sweep wall time: {total_sweep_s:.2f}s")
+    
+    # Print comparison note
+    print("\nFor comparison with PyHealth:")
+    print("  PyHealth total_s = dataset_load_s + task_process_s")
+    print("  meds_reader total_s = meds_etl_s + meds_reader_convert_s + task_process_s")
     print("=" * 80)
 
 
