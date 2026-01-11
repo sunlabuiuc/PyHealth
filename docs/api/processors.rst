@@ -44,6 +44,7 @@ Available Processors
 - ``StageNetProcessor``: For StageNet model with lab measurements
 - ``StageNetTensorProcessor``: Tensor processing for StageNet
 - ``MultiHotProcessor``: For multi-hot encoding
+- ``IgnoreProcessor``: A special feature processor that marks a feature to be ignored.
 
 Usage Examples
 --------------
@@ -460,6 +461,7 @@ API Reference
     processors/pyhealth.processors.TimeseriesProcessor
     processors/pyhealth.processors.TensorProcessor
     processors/pyhealth.processors.RawProcessor
+    processors/pyhealth.processors.IgnoreProcessor
     processors/pyhealth.processors.MultiHotProcessor
     processors/pyhealth.processors.StageNetProcessor
     processors/pyhealth.processors.StageNetTensorProcessor
