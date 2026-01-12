@@ -45,6 +45,7 @@ from .tensor_processor import TensorProcessor
 from .text_processor import TextProcessor
 from .timeseries_processor import TimeseriesProcessor
 from .audio_processor import AudioProcessor
+from .ignore_processor import IgnoreProcessor
 
 # Expose public API
 __all__ = [
