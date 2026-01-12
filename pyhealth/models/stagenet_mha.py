@@ -12,11 +12,11 @@ from .embedding import EmbeddingModel
 
 
 class StageNetAttentionLayer(nn.Module):
-    """StageNet layer.
+    """StageNetAttention layer.
 
     Paper: Stagenet: Stage-aware neural networks for health risk prediction. WWW 2020.
 
-    This layer is used in the StageNet model. But it can also be used as a
+    This layer is used in the StageAttentionNet model. But it can also be used as a
     standalone layer.
 
     Args:
@@ -32,9 +32,9 @@ class StageNetAttentionLayer(nn.Module):
         attn_dropout: dropout rate applied to attention weights. Default is 0.1.
 
     Examples:
-        >>> from pyhealth.models import StageNetLayer
+        >>> from pyhealth.models import StageNetAttentionLayer
         >>> input = torch.randn(3, 128, 64)  # [batch size, sequence len, feature_size]
-        >>> layer = StageNetLayer(64)
+        >>> layer = StageNetAttentionLayer(64)
         >>> c, _, _ = layer(input)
         >>> c.shape
         torch.Size([3, 384])
@@ -311,13 +311,13 @@ class StageNetAttentionLayer(nn.Module):
 
 
 class StageAttentionNet(BaseModel):
-    """StageNet model.
+    """StageAttentionNet model.
 
     Paper: Junyi Gao et al. Stagenet: Stage-aware neural networks for health
     risk prediction. WWW 2020. But with Multi-Head Attention (MHA) between
     the SA-LSTM and the SA-CNN.
 
-    This model uses the StageNetProcessor which expects inputs in the format:
+    This model applies to the dataset which expects inputs in the format:
         {"value": [...], "time": [...]}
 
     The processor handles various input types:
@@ -332,12 +332,12 @@ class StageAttentionNet(BaseModel):
         dataset: the dataset to train the model. It is used to query certain
             information such as the set of all tokens.
         embedding_dim: the embedding dimension. Default is 128.
-        chunk_size: the chunk size for the StageNet layer. Default is 128.
-        levels: the number of levels for the StageNet layer.
+        chunk_size: the chunk size for the StageNetAttentionLayer. Default is 128.
+        levels: the number of levels for the StageNetAttentionLayer.
             levels * chunk_size = hidden_dim in the RNN. Smaller chunk_size
             and more levels can capture more detailed patient status
             variations. Default is 3.
-        **kwargs: other parameters for the StageNet layer.
+        **kwargs: other parameters for the StageNetAttentionLayer.
 
     Examples:
         >>> from pyhealth.datasets import SampleDataset
@@ -386,7 +386,7 @@ class StageAttentionNet(BaseModel):
         >>> train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
         >>>
         >>> # model
-        >>> model = StageNet(dataset=dataset)
+        >>> model = StageAttentionNet(dataset=dataset)
         >>>
         >>> # data batch
         >>> data_batch = next(iter(train_loader))
