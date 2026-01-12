@@ -409,10 +409,13 @@ class BaseDataset(ABC):
             )
 
             # Always infer schema as string to avoid incorrect type inference
+            # Enable newlines_in_values for clinical notes with multi-line text
             schema_reader = pv.open_csv(
                 source_path,
                 read_options=pv.ReadOptions(block_size=1 << 26),  # 64 MB
-                parse_options=pv.ParseOptions(delimiter=delimiter),
+                parse_options=pv.ParseOptions(
+                    delimiter=delimiter, newlines_in_values=True
+                ),
             )
             schema = pa.schema(
                 [pa.field(name, pa.string()) for name in schema_reader.schema.names]
@@ -422,7 +425,9 @@ class BaseDataset(ABC):
             csv_reader = pv.open_csv(
                 source_path,
                 read_options=pv.ReadOptions(block_size=1 << 26),  # 64 MB
-                parse_options=pv.ParseOptions(delimiter=delimiter),
+                parse_options=pv.ParseOptions(
+                    delimiter=delimiter, newlines_in_values=True
+                ),
                 convert_options=pv.ConvertOptions(column_types=schema),
             )
             with pq.ParquetWriter(ret_path, csv_reader.schema) as writer:

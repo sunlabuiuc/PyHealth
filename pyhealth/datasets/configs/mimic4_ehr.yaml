@@ -96,6 +96,7 @@ tables:
           - "category"
     timestamp: "charttime"
     attributes:
+      - "hadm_id"
       - "itemid"
       - "label"
       - "fluid"

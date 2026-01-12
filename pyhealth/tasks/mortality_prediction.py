@@ -268,19 +268,83 @@ class MortalityPredictionMIMIC4(BaseTask):
 
 
 class MultimodalMortalityPredictionMIMIC4(BaseTask):
-    """Task for predicting mortality using MIMIC-IV multimodal data including chest X-rays."""
+    """Task for predicting mortality using MIMIC-IV multimodal data.
+
+    This task combines multiple modalities for mortality prediction:
+    - EHR codes: ICD diagnoses, procedures, and prescriptions
+    - Clinical notes: Discharge summaries and radiology reports
+    - Lab events: 10-dimensional lab value vectors (time-series)
+    - Chest X-rays: CXR images and NegBio findings
+
+    This is a TRUE multimodal task requiring ALL modalities to be present,
+    making it suitable for showcasing PyHealth's multimodal data loading
+    capabilities.
+
+    Lab Processing:
+        - 10-dimensional vectors (one per lab category)
+        - Categories: Sodium, Potassium, Chloride, Bicarbonate, Glucose,
+          Calcium, Magnesium, Anion Gap, Osmolality, Phosphate
+        - Multiple itemids per category → take first observed value
+        - Time intervals calculated from admission start (hours)
+
+    Image Processing:
+        - Uses "image" processor for chest X-ray loading
+        - Images are loaded from MIMIC-CXR dataset paths
+        - Returns first available X-ray image per admission
+    """
 
     task_name: str = "MultimodalMortalityPredictionMIMIC4"
-    input_schema: Dict[str, str] = {
-        "conditions": "sequence",
-        "procedures": "sequence",
-        "drugs": "sequence",
-        "discharge": "text",
-        "radiology": "text",
-        "xrays_negbio": "sequence",
-        "image_paths": "text",  # Added image paths to the schema
+
+    # Lab categories matching MortalityPredictionStageNetMIMIC4
+    LAB_CATEGORIES: Dict[str, List[str]] = {
+        "Sodium": ["50824", "52455", "50983", "52623"],
+        "Potassium": ["50822", "52452", "50971", "52610"],
+        "Chloride": ["50806", "52434", "50902", "52535"],
+        "Bicarbonate": ["50803", "50804"],
+        "Glucose": ["50809", "52027", "50931", "52569"],
+        "Calcium": ["50808", "51624"],
+        "Magnesium": ["50960"],
+        "Anion Gap": ["50868", "52500"],
+        "Osmolality": ["52031", "50964", "51701"],
+        "Phosphate": ["50970"],
     }
-    output_schema: Dict[str, str] = {"mortality": "binary"}
+
+    LAB_CATEGORY_NAMES: List[str] = [
+        "Sodium",
+        "Potassium",
+        "Chloride",
+        "Bicarbonate",
+        "Glucose",
+        "Calcium",
+        "Magnesium",
+        "Anion Gap",
+        "Osmolality",
+        "Phosphate",
+    ]
+
+    LABITEMS: List[str] = [
+        item for itemids in LAB_CATEGORIES.values() for item in itemids
+    ]
+
+    def __init__(self, cxr_root: Optional[str] = None):
+        """Initialize the multimodal mortality prediction task.
+
+        Args:
+            cxr_root: Root directory for MIMIC-CXR images. If provided,
+                image paths will be prefixed with this root.
+        """
+        self.cxr_root = cxr_root
+        self.input_schema: Dict[str, str] = {
+            "conditions": "sequence",
+            "procedures": "sequence",
+            "drugs": "sequence",
+            "discharge": "text",
+            "radiology": "text",
+            "labs": "stagenet_tensor",  # 10D lab vectors with time
+            "xrays_negbio": "sequence",
+            "image_path": "text",  # returns the image_path
+        }
+        self.output_schema: Dict[str, str] = {"mortality": "binary"}
 
     def _clean_sequence(self, sequence: Optional[List[Any]]) -> List[str]:
         """Clean a sequence by removing None values and converting to strings."""
@@ -306,8 +370,7 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
     def _construct_image_path(
         self, subject_id: str, study_id: str, dicom_id: str
     ) -> str:
-        """
-        Constructs the relative path to a MIMIC-CXR image file based on the folder structure.
+        """Constructs the path to a MIMIC-CXR image file.
 
         Args:
             subject_id: The patient/subject ID (e.g., "10000032")
@@ -315,19 +378,116 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
             dicom_id: The DICOM ID (e.g., "02aa804e-bde0afdd-112c0b34-7bc16630-4e384014")
 
         Returns:
-            The relative path to the image file
+            The path to the image file
         """
-        # Extract first two characters of the patient_id for the parent folder
-        parent_folder = f"p{subject_id[0][:2]}"
+        # Extract first two characters of patient_id for parent folder
+        patient_id_clean = subject_id.replace("p", "")
+        parent_folder = f"p{patient_id_clean[:2]}"
+        patient_folder = f"p{patient_id_clean}"
 
-        # Format the complete patient ID path component
-        patient_folder = f"p{subject_id[0]}"
+        # Construct path
+        relative_path = (
+            f"files/{parent_folder}/{patient_folder}/s{study_id}/{dicom_id}.jpg"
+        )
 
-        # Construct the complete path
-        return f"files/{parent_folder}/{patient_folder}/s{study_id}/{dicom_id}.jpg"
+        if self.cxr_root:
+            return f"{self.cxr_root}/{relative_path}"
+        return relative_path
+
+    def _process_lab_events(
+        self, patient: Any, admission_time: datetime, admission_dischtime: datetime
+    ) -> Optional[tuple]:
+        """Process lab events into 10-dimensional vectors with timestamps.
+
+        Args:
+            patient: Patient object
+            admission_time: Admission start time
+            admission_dischtime: Admission discharge time
+
+        Returns:
+            Tuple of (times_list, values_list) or None if no lab events
+        """
+        try:
+            import polars as pl
+        except ImportError:
+            return None
+
+        # Use timestamp filtering for lab events (hadm_id not reliable)
+        labevents_df = patient.get_events(
+            event_type="labevents",
+            start=admission_time,
+            end=admission_dischtime,
+            return_df=True,
+        )
+
+        if labevents_df is None or labevents_df.height == 0:
+            return None
+
+        # Filter to relevant lab items
+        labevents_df = labevents_df.filter(
+            pl.col("labevents/itemid").is_in(self.LABITEMS)
+        )
+
+        if labevents_df.height == 0:
+            return None
+
+        # Select relevant columns
+        labevents_df = labevents_df.select(
+            pl.col("timestamp"),
+            pl.col("labevents/itemid"),
+            pl.col("labevents/valuenum").cast(pl.Float64),
+        )
+
+        # Group by timestamp and aggregate into 10D vectors
+        unique_timestamps = sorted(labevents_df["timestamp"].unique().to_list())
+
+        lab_times = []
+        lab_values = []
+
+        for lab_ts in unique_timestamps:
+            ts_labs = labevents_df.filter(pl.col("timestamp") == lab_ts)
+
+            # Create 10-dimensional vector
+            lab_vector = []
+            for category_name in self.LAB_CATEGORY_NAMES:
+                category_itemids = self.LAB_CATEGORIES[category_name]
+
+                # Find first matching value for this category
+                category_value = None
+                for itemid in category_itemids:
+                    matching = ts_labs.filter(pl.col("labevents/itemid") == itemid)
+                    if matching.height > 0:
+                        category_value = matching["labevents/valuenum"][0]
+                        break
+
+                lab_vector.append(category_value)
+
+            # Calculate time from admission start (hours)
+            time_from_admission = (
+                lab_ts - admission_time
+            ).total_seconds() / 3600.0
+
+            lab_times.append(time_from_admission)
+            lab_values.append(lab_vector)
+
+        if len(lab_values) == 0:
+            return None
+
+        return (lab_times, lab_values)
 
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
-        """Processes a single patient for the mortality prediction task."""
+        """Processes a single patient for the multimodal mortality prediction task.
+
+        This task requires ALL modalities to be present for a sample to be valid:
+        - Conditions (ICD diagnoses)
+        - Procedures (ICD procedures)
+        - Drugs (prescriptions)
+        - Discharge notes
+        - Radiology notes
+        - Lab events
+        - Chest X-ray images
+        - X-ray NegBio findings
+        """
         samples = []
 
         # Get demographic info to filter by age
@@ -360,46 +520,47 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
             else:
                 mortality_label = int(next_admission.hospital_expire_flag)
 
-            # Parse admission timestamps
+            # Parse admission discharge time for lab events filtering
             try:
                 admission_dischtime = datetime.strptime(
                     admission.dischtime, "%Y-%m-%d %H:%M:%S"
                 )
             except (ValueError, AttributeError):
+                # If we can't parse discharge time, skip this admission
                 continue
 
-            # Get clinical codes
+            # Skip if discharge is before admission (data quality issue)
+            if admission_dischtime < admission.timestamp:
+                continue
+
+            # Get clinical codes using hadm_id filtering (more robust than timestamps)
             diagnoses_icd = patient.get_events(
                 event_type="diagnoses_icd",
-                start=admission.timestamp,
-                end=admission_dischtime,
+                filters=[("hadm_id", "==", admission.hadm_id)]
             )
             procedures_icd = patient.get_events(
                 event_type="procedures_icd",
-                start=admission.timestamp,
-                end=admission_dischtime,
+                filters=[("hadm_id", "==", admission.hadm_id)]
             )
             prescriptions = patient.get_events(
                 event_type="prescriptions",
-                start=admission.timestamp,
-                end=admission_dischtime,
+                filters=[("hadm_id", "==", admission.hadm_id)]
             )
 
-            # Get notes
+            # Get notes using hadm_id filtering
             discharge_notes = patient.get_events(
                 event_type="discharge",
-                start=admission.timestamp,
-                end=admission_dischtime,
+                filters=[("hadm_id", "==", admission.hadm_id)]
             )
             radiology_notes = patient.get_events(
                 event_type="radiology",
-                start=admission.timestamp,
-                end=admission_dischtime,
+                filters=[("hadm_id", "==", admission.hadm_id)]
             )
 
             # Get X-ray data
             xrays_negbio = patient.get_events(event_type="xrays_negbio")
             xrays_metadata = patient.get_events(event_type="xrays_metadata")
+
             # Extract clinical codes
             conditions = self._clean_sequence(
                 [getattr(event, "icd_code", None) for event in diagnoses_icd]
@@ -417,6 +578,11 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
             )
             radiology_text = self._clean_text(
                 " ".join([getattr(note, "radiology", "") for note in radiology_notes])
+            )
+
+            # Process lab events using timestamp filtering
+            labs_data = self._process_lab_events(
+                patient, admission.timestamp, admission_dischtime
             )
 
             # Process X-ray findings
@@ -441,32 +607,24 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
                         "support devices",
                     ]:
                         try:
-                            # Convert the value to float first, then to int
-                            # This handles both string and numeric representations
                             value = getattr(xray, f"{finding}", None)
-
-                            # Convert to float first to handle string representations like '1.0'
                             if value is not None:
                                 try:
                                     numeric_value = float(value)
-                                    # Check if the numeric value is non-zero
                                     if numeric_value > 0:
                                         findings.append(finding)
                                 except (ValueError, TypeError):
-                                    # If conversion fails, skip this finding
                                     pass
-                        except Exception as sub_e:
-                            print(f"Error processing finding {finding}: {sub_e}")
+                        except Exception:
+                            pass
 
-                    # Extend the features list with findings for this X-ray
                     if findings:
                         xray_negbio_features.extend(findings)
+                except Exception:
+                    pass
 
-                except Exception as e:
-                    print(f"Error processing X-ray NegBio feature: {e}")
-
-            # Generate image paths
-            image_paths = []
+            # Generate image path (use first available X-ray)
+            image_path = None
             for xray in xrays_metadata:
                 try:
                     study_id = getattr(xray, "study_id", None)
@@ -474,13 +632,38 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
 
                     if study_id and dicom_id:
                         image_path = self._construct_image_path(
-                            f"p{patient.patient_id[0]}", study_id, dicom_id
+                            patient.patient_id, study_id, dicom_id
                         )
-                        image_paths.append(image_path)
-                except Exception as e:
-                    print(f"Error processing X-ray image path: {e}")
-            # Exclude visits without sufficient clinical data
-            if len(conditions) * len(procedures_list) * len(drugs) == 0:
+                        break  # Use first valid image
+                except Exception:
+                    pass
+
+            # ===== MULTIMODAL REQUIREMENT =====
+            # Require ALL modalities to be present for this sample
+            # This ensures we have truly multimodal data for each sample
+
+            # Check EHR codes
+            if len(conditions) == 0:
+                continue
+            if len(procedures_list) == 0:
+                continue
+            if len(drugs) == 0:
+                continue
+
+            # Check clinical notes
+            if not discharge_text:
+                continue
+            if not radiology_text:
+                continue
+
+            # Check lab events
+            if labs_data is None:
+                continue
+
+            # Check imaging data
+            if not xray_negbio_features:
+                continue
+            if not image_path:
                 continue
 
             samples.append(
@@ -492,8 +675,9 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
                     "drugs": drugs,
                     "discharge": discharge_text,
                     "radiology": radiology_text,
+                    "labs": labs_data,
                     "xrays_negbio": xray_negbio_features,
-                    "image_paths": image_paths,
+                    "image": image_path,
                     "mortality": mortality_label,
                 }
             )
