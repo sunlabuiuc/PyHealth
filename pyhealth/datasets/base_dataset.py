@@ -235,30 +235,19 @@ def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
         writer = BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB")
 
         dataset = litdata.StreamingDataset(str(task_df))
+        builder = SampleBuilder.load(f"{output_dir}/schema.pkl")
+
         complete = 0
-        with open(f"{output_dir}/schema.pkl", "rb") as f:
-            metadata = pickle.load(f)
+        write_index = 0
+        for i in range(start_idx, end_idx):
+            transformed: Dict[str, Any] = builder.transform(dataset[i])
+            writer.add_item(write_index, transformed)
+            write_index += 1
+            complete += 1
 
-            input_processors = metadata["input_processors"]
-            output_processors = metadata["output_processors"]
-
-            write_index = 0
-            for i in range(start_idx, end_idx):
-                transformed: Dict[str, Any] = {}
-                for key, value in pickle.loads(dataset[i]["sample"]).items():
-                    if key in input_processors:
-                        transformed[key] = input_processors[key].process(value)
-                    elif key in output_processors:
-                        transformed[key] = output_processors[key].process(value)
-                    else:
-                        transformed[key] = value
-                writer.add_item(write_index, transformed)
-                write_index += 1
-                complete += 1
-
-                if complete >= BATCH_SIZE:
-                    progress.put(complete)
-                    complete = 0
+            if complete >= BATCH_SIZE:
+                progress.put(complete)
+                complete = 0
 
         if complete > 0:
             progress.put(complete)
