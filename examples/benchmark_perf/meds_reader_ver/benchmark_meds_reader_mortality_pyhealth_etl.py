@@ -595,9 +595,9 @@ def main():
     )
     parser.add_argument("--cache-dir", type=str, default="/srv/local/data/johnwu3/meds_reader")
     parser.add_argument("--num-shards", type=int, default=100)
-    parser.add_argument("--num-threads", type=int, default=8)
+    # Note: conversion now uses the current thread count from --threads for fair comparison
     parser.add_argument("--dev", action="store_true")
-    parser.add_argument("--force-reconvert", action="store_true")
+    # Note: Cache is always cleared before first repeat of each thread count
     parser.add_argument("--skip-conversion", action="store_true")
     parser.add_argument(
         "--output-csv", type=str,
@@ -628,6 +628,20 @@ def main():
             tracker.reset()
             run_start = time.time()
 
+            # Use current thread count (t) for conversion to match task parallelism
+            # This ensures fair comparison: ETL + task both use the same thread count
+            #
+            # IMPORTANT: Always clear cache and run fresh conversion for EVERY run
+            # to ensure fair benchmarking with no cached data influence.
+            # Each run (thread count x repeat) gets a completely fresh conversion.
+            if not args.skip_conversion:
+                if os.path.exists(meds_dir):
+                    print(f"  Clearing MEDS cache: {meds_dir}")
+                    shutil.rmtree(meds_dir)
+                if os.path.exists(meds_reader_dir):
+                    print(f"  Clearing meds_reader cache: {meds_reader_dir}")
+                    shutil.rmtree(meds_reader_dir)
+            
             conversion = run_pyhealth_meds_conversion(
                 pyhealth_root=args.pyhealth_root,
                 meds_dir=meds_dir,
@@ -635,9 +649,9 @@ def main():
                 tables=tables,
                 dev=args.dev,
                 num_shards=args.num_shards,
-                num_threads=args.num_threads,
-                force_reconvert=args.force_reconvert and r == 0,
-                skip_conversion=args.skip_conversion or r > 0,
+                num_threads=t,  # Use current thread count for fair benchmarking
+                force_reconvert=not args.skip_conversion,  # Always reconvert unless skip mode
+                skip_conversion=args.skip_conversion,
             )
 
             print(f"\n  threads={t} repeat={r + 1}/{args.repeats}: Processing...")

@@ -10,9 +10,16 @@ multimodal medical data from MIMIC-IV, including:
 
 It also benchmarks memory usage and processing time with 16 workers.
 
+Data Sources:
+    - EHR data: MIMIC-IV hosp module (patients, admissions, diagnoses, etc.)
+    - Clinical notes: MIMIC-IV note module (discharge, radiology)
+    - Chest X-rays: MIMIC-CXR (images and metadata)
+
 Usage:
     python multimodal_mimic4_demo.py
-    python multimodal_mimic4_demo.py --ehr-root /path/to/mimic-iv
+    python multimodal_mimic4_demo.py --ehr-root /path/to/mimic-iv/hosp
+    python multimodal_mimic4_demo.py --note-root /path/to/mimic-iv/note
+    python multimodal_mimic4_demo.py --cxr-root /path/to/mimic-cxr
     python multimodal_mimic4_demo.py --dev
 """
 
@@ -381,6 +388,20 @@ def showcase_sample(sample: Dict[str, Any], cxr_root: Optional[str] = None,
         if cxr_root and not os.path.isabs(image_path):
             full_path = os.path.join(cxr_root, image_path)
 
+        # Check if the nested path exists, otherwise try flattened structure
+        if not os.path.exists(full_path):
+            # Extract dicom_id from the path (filename without extension)
+            # Path format: files/p10/p10000032/s50414267/<dicom_id>.jpg
+            dicom_id = Path(image_path).stem
+            if cxr_root:
+                # Try flattened structure: images/<dicom_id>.jpg
+                flattened_path = os.path.join(
+                    cxr_root, "images", f"{dicom_id}.jpg"
+                )
+                if os.path.exists(flattened_path):
+                    print(f"  Using flattened path: images/{dicom_id}.jpg")
+                    full_path = flattened_path
+
         if os.path.exists(full_path):
             display_image(full_path, save_image)
         else:
@@ -419,13 +440,19 @@ def main():
     parser.add_argument(
         "--ehr-root",
         type=str,
-        default="/srv/local/data/physionet.org/files/mimiciv/2.2/",
-        help="Path to MIMIC-IV EHR root",
+        default="/srv/local/data/physionet.org/files/mimiciv/2.2",
+        help="Path to MIMIC-IV EHR root (hosp module)",
+    )
+    parser.add_argument(
+        "--note-root",
+        type=str,
+        default="/srv/local/data/MIMIC-IV/2.0/",
+        help="Path to MIMIC-IV notes root (note module)",
     )
     parser.add_argument(
         "--cxr-root",
         type=str,
-        default=None,
+        default="/srv/local/data/MIMIC-CXR",
         help="Path to MIMIC-CXR root for images",
     )
     parser.add_argument(
@@ -459,10 +486,11 @@ def main():
     print("\nThis demo showcases PyHealth's ability to load and process")
     print("multimodal medical data from MIMIC-IV dataset.")
     print(f"\nConfiguration:")
-    print(f"  EHR root: {args.ehr_root}")
-    print(f"  CXR root: {args.cxr_root}")
-    print(f"  Dev mode: {args.dev}")
-    print(f"  Workers: {num_workers}")
+    print(f"  EHR root:  {args.ehr_root}")
+    print(f"  Note root: {args.note_root}")
+    print(f"  CXR root:  {args.cxr_root}")
+    print(f"  Dev mode:  {args.dev}")
+    print(f"  Workers:   {num_workers}")
 
     # =========================================================================
     # Benchmark: Load Dataset
@@ -485,9 +513,17 @@ def main():
 
     # Load base dataset
     print("\n[1/2] Loading base dataset...")
+    print("  Loading EHR tables from:", args.ehr_root)
+    print("  Loading note tables from:", args.note_root)
+    print("  Loading CXR tables from:", args.cxr_root)
     dataset_start = time.time()
 
+    # MIMIC4Dataset uses separate roots for different data sources:
+    # - ehr_root: hosp module (patients, admissions, diagnoses, procedures, etc.)
+    # - note_root: note module (discharge, radiology notes)
+    # - cxr_root: MIMIC-CXR (images and metadata)
     base_dataset = MIMIC4Dataset(
+        # EHR tables from hosp module
         ehr_root=args.ehr_root,
         ehr_tables=[
             "patients",
@@ -496,11 +532,22 @@ def main():
             "procedures_icd",
             "prescriptions",
             "labevents",
+        ],
+        # Clinical notes from note module
+        note_root=args.note_root,
+        note_tables=[
             "discharge",
             "radiology",
         ],
+        # Chest X-rays from MIMIC-CXR
+        cxr_root=args.cxr_root,
+        cxr_tables=[
+            "metadata",
+            "negbio",
+        ],
         dev=args.dev,
         cache_dir=str(base_cache_dir),
+        num_workers=num_workers,
     )
 
     dataset_load_s = time.time() - dataset_start

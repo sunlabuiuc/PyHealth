@@ -324,7 +324,7 @@ def run_meds_conversion(
     # Check if we can reuse existing cache
     if Path(meds_reader_dir).exists() and not force_reconvert:
         print(f"✓ MEDS database exists: {meds_reader_dir}")
-        print("  NOTE: Using cached data. Use --force-reconvert for fresh timing.")
+        print("  NOTE: Using cached data (subsequent repeat or --skip-conversion).")
         return ConversionResult(
             meds_etl_s=0.0,
             meds_reader_convert_s=0.0,
@@ -604,18 +604,14 @@ def main() -> None:
         "--num-shards", type=int, default=100,
         help="Number of shards for meds_etl_mimic (default: 100)",
     )
-    parser.add_argument(
-        "--num-proc", type=int, default=8,
-        help="Number of processes for meds_etl_mimic (default: 8)",
-    )
+    # Note: --num-proc is deprecated; conversion now uses the current thread count
+    # being benchmarked (from --threads) to ensure fair comparison
     parser.add_argument(
         "--backend", type=str, default="polars", choices=["polars", "cpp"],
         help="Backend for meds_etl_mimic (default: polars)",
     )
-    parser.add_argument(
-        "--force-reconvert", action="store_true",
-        help="Force reconversion even if MEDS database exists (recommended for benchmarking)",
-    )
+    # Note: Cache is always cleared before first repeat of each thread count
+    # for accurate benchmarking. Use --skip-conversion to skip conversion entirely.
     parser.add_argument(
         "--skip-conversion", action="store_true",
         help="Skip conversion entirely (for debugging only - NOT fair benchmarking)",
@@ -654,7 +650,8 @@ def main() -> None:
     print("BENCHMARK: meds_reader - Drug Recommendation (Thread Sweep)")
     print(f"threads={args.threads} repeats={args.repeats}")
     print(f"mimic_root: {args.mimic_root}")
-    print(f"backend: {args.backend}, num_proc: {args.num_proc}, num_shards: {args.num_shards}")
+    print(f"backend: {args.backend}, num_shards: {args.num_shards}")
+    print("NOTE: meds_etl uses the same thread count as task processing for fair comparison")
     if args.skip_conversion:
         print("WARNING: --skip-conversion is set. Conversion time will NOT be included.")
         print("         This is NOT a fair comparison with PyHealth!")
@@ -678,15 +675,29 @@ def main() -> None:
             # Step 0: Convert MIMIC-IV to MEDS format (part of total time)
             # For fair comparison with PyHealth, we must include this conversion time
             # since PyHealth's dataset loading includes parsing raw MIMIC-IV CSVs.
+            # Use current thread count (t) for meds_etl conversion to match task parallelism
+            # This ensures fair comparison: ETL + task both use the same thread count
+            #
+            # IMPORTANT: Always clear cache and run fresh conversion for EVERY run
+            # to ensure fair benchmarking with no cached data influence.
+            # Each run (thread count x repeat) gets a completely fresh conversion.
+            if not args.skip_conversion:
+                if os.path.exists(meds_dir):
+                    print(f"  Clearing MEDS cache: {meds_dir}")
+                    shutil.rmtree(meds_dir)
+                if os.path.exists(meds_reader_dir):
+                    print(f"  Clearing meds_reader cache: {meds_reader_dir}")
+                    shutil.rmtree(meds_reader_dir)
+            
             conversion = run_meds_conversion(
                 mimic_root=args.mimic_root,
                 meds_dir=meds_dir,
                 meds_reader_dir=meds_reader_dir,
                 num_shards=args.num_shards,
-                num_proc=args.num_proc,
+                num_proc=t,  # Use current thread count for fair benchmarking
                 backend=args.backend,
-                force_reconvert=args.force_reconvert and r == 0,  # Only reconvert on first repeat
-                skip_conversion=args.skip_conversion or r > 0,  # Reuse on subsequent repeats
+                force_reconvert=not args.skip_conversion,  # Always reconvert unless skip mode
+                skip_conversion=args.skip_conversion,
             )
             
             print(f"\n  threads={t} repeat={r + 1}/{args.repeats}: Processing task...")
@@ -801,7 +812,7 @@ def main() -> None:
         print("\n  NOTE: Conversion time included for fair comparison with PyHealth.")
         print("        PyHealth's dataset_load_s ≈ meds_etl_s + meds_reader_convert_s")
     else:
-        print("\n  WARNING: Conversion was cached. For fair benchmarking, use --force-reconvert")
+        print("\n  NOTE: Conversion was skipped (--skip-conversion mode).")
 
     print()
     for t in args.threads:
@@ -810,7 +821,7 @@ def main() -> None:
         med_total = median([rr.total_s for rr in trs])
         med_peak = median([float(rr.peak_rss_bytes) for rr in trs])
         
-        # Get conversion times (from first repeat which has them if --force-reconvert)
+        # Get conversion times (from first repeat which has them)
         first_run = [rr for rr in trs if rr.repeat_index == 0][0]
         
         if not first_run.conversion_cached:
