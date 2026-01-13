@@ -89,7 +89,7 @@ def main() -> None:
     print("STEP 1: Load TUEV + build task dataset")
     print("=" * 80)
     dataset = TUEVDataset(root=str(root), subset=args.subset)
-    sample_dataset = dataset.set_task(EEGEventsTUEV())
+    sample_dataset = dataset.set_task(EEGEventsTUEV(), cache_dir="examples/conformal_eeg/cache")
 
     print(f"Task samples: {len(sample_dataset)}")
     print(f"Input schema: {sample_dataset.input_schema}")
