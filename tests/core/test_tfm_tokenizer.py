@@ -16,14 +16,14 @@ class TestTFMTokenizer(unittest.TestCase):
                 "patient_id": "patient-0",
                 "visit_id": "visit-0",
                 "stft": torch.randn(100, 60).numpy().tolist(),  # (n_freq, n_time)
-                "signal": torch.randn(1280).numpy().tolist(),  # (n_samples,)
+                "signal": torch.randn(6100).numpy().tolist(),  # (n_samples,)
                 "label": 1,
             },
             {
                 "patient_id": "patient-1",
                 "visit_id": "visit-0",
                 "stft": torch.randn(100, 60).numpy().tolist(),
-                "signal": torch.randn(1280).numpy().tolist(),
+                "signal": torch.randn(6100).numpy().tolist(),
                 "label": 0,
             },
         ]

@@ -243,6 +243,8 @@ class TFM_VQVAE2_deep(nn.Module):
     ):
         super().__init__()
         self.n_freq_patch = n_freq_patch
+        self.emb_size = emb_size
+        self.code_book_size = code_book_size
 
         # bin wise frequency embedding
         self.freq_patch_embedding = nn.Sequential(
