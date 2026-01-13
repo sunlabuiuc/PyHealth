@@ -746,7 +746,10 @@ class TFMTokenizer(BaseModel):
             label_key = self.label_keys[0]
             y_true = kwargs[label_key].to(self.device)
 
-            logits = self.classifier(tokens)
+            # Reshape tokens to (B, C, T) for multi-channel classifier
+            # tokens shape: (B, T) -> (B, 1, T)
+            tokens_reshaped = tokens.unsqueeze(1)
+            logits = self.classifier(tokens_reshaped)
             loss_fn = self.get_loss_function()
             cls_loss = loss_fn(logits, y_true)
             total_loss = recon_loss + vq_loss + cls_loss
