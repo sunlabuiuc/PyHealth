@@ -137,191 +137,193 @@ def generate_holdout_set(
     return holdout_dataset
 
 
-# STEP 1: Load MIMIC-IV base dataset
-base_dataset = MIMIC4Dataset(
-    ehr_root="/srv/local/data/physionet.org/files/mimiciv/2.2/",
-    ehr_tables=[
-        "patients",
-        "admissions",
-        "diagnoses_icd",
-        "procedures_icd",
-        "labevents",
-    ],
-    # dev=True,
-)
-
-# STEP 2: Apply StageNet mortality prediction task with padding
-#
-# Processor Saving/Loading:
-# - Processors are saved after the first run to avoid refitting
-# - On subsequent runs, pre-fitted processors are loaded from disk
-# - This ensures consistent encoding and saves computation time
-# - Processors include vocabulary mappings and sequence length statistics
-processor_dir = "../../output/processors/stagenet_mortality_mimic4"
-cache_dir = "../../mimic4_stagenet_cache_v3"
-
-if os.path.exists(os.path.join(processor_dir, "input_processors.pkl")):
-    print("\n=== Loading Pre-fitted Processors ===")
-    input_processors, output_processors = load_processors(processor_dir)
-
-    sample_dataset = base_dataset.set_task(
-        MortalityPredictionStageNetMIMIC4(padding=20),
+if __name__ == "__main__":
+    # STEP 1: Load MIMIC-IV base dataset
+    base_dataset = MIMIC4Dataset(
+        ehr_root="/srv/local/data/physionet.org/files/mimiciv/2.2/",
+        ehr_tables=[
+            "patients",
+            "admissions",
+            "diagnoses_icd",
+            "procedures_icd",
+            "labevents",
+        ],
+        dev=True,
         num_workers=4,
-        cache_dir=cache_dir,
-        input_processors=input_processors,
-        output_processors=output_processors,
-    )
-else:
-    print("\n=== Fitting New Processors ===")
-    sample_dataset = base_dataset.set_task(
-        MortalityPredictionStageNetMIMIC4(padding=20),
-        num_workers=4,
-        cache_dir=cache_dir,
     )
 
-    # Save processors for future runs
-    print("\n=== Saving Processors ===")
-    save_processors(sample_dataset, processor_dir)
+    # STEP 2: Apply StageNet mortality prediction task with padding
+    #
+    # Processor Saving/Loading:
+    # - Processors are saved after the first run to avoid refitting
+    # - On subsequent runs, pre-fitted processors are loaded from disk
+    # - This ensures consistent encoding and saves computation time
+    # - Processors include vocabulary mappings and sequence length statistics
+    processor_dir = "../../output/processors/stagenet_mortality_mimic4"
+    cache_dir = "../../mimic4_stagenet_cache_v3"
 
-print(f"Total samples: {len(sample_dataset)}")
-print(f"Input schema: {sample_dataset.input_schema}")
-print(f"Output schema: {sample_dataset.output_schema}")
+    if os.path.exists(os.path.join(processor_dir, "input_processors.pkl")):
+        print("\n=== Loading Pre-fitted Processors ===")
+        input_processors, output_processors = load_processors(processor_dir)
 
-# Inspect a sample
-sample = sample_dataset.samples[0]
-print("\nSample structure:")
-print(f"  Patient ID: {sample['patient_id']}")
-print(f"ICD Codes: {sample['icd_codes']}")
-print(f"  Labs shape: {len(sample['labs'][0])} timesteps")
-print(f"  Mortality: {sample['mortality']}")
+        sample_dataset = base_dataset.set_task(
+            MortalityPredictionStageNetMIMIC4(padding=20),
+            num_workers=4,
+            cache_dir=cache_dir,
+            input_processors=input_processors,
+            output_processors=output_processors,
+        )
+    else:
+        print("\n=== Fitting New Processors ===")
+        sample_dataset = base_dataset.set_task(
+            MortalityPredictionStageNetMIMIC4(padding=20),
+            num_workers=4,
+            cache_dir=cache_dir,
+        )
 
-# STEP 3: Split dataset
-train_dataset, val_dataset, test_dataset = split_by_patient(
-    sample_dataset, [0.8, 0.1, 0.1]
-)
+        # Save processors for future runs
+        print("\n=== Saving Processors ===")
+        save_processors(sample_dataset, processor_dir)
 
-# Create dataloaders
-train_loader = get_dataloader(train_dataset, batch_size=256, shuffle=True)
-val_loader = get_dataloader(val_dataset, batch_size=256, shuffle=False)
-test_loader = get_dataloader(test_dataset, batch_size=256, shuffle=False)
+    print(f"Total samples: {len(sample_dataset)}")
+    print(f"Input schema: {sample_dataset.input_schema}")
+    print(f"Output schema: {sample_dataset.output_schema}")
 
-# STEP 4: Initialize StageNet model
-model = StageNet(
-    dataset=sample_dataset,
-    embedding_dim=128,
-    chunk_size=128,
-    levels=3,
-    dropout=0.3,
-)
+    # Inspect a sample
+    sample = sample_dataset[0]
+    print("\nSample structure:")
+    print(f"  Patient ID: {sample['patient_id']}")
+    print(f"ICD Codes: {sample['icd_codes']}")
+    print(f"  Labs shape: {len(sample['labs'][0])} timesteps")
+    print(f"  Mortality: {sample['mortality']}")
 
-num_params = sum(p.numel() for p in model.parameters())
-print(f"\nModel initialized with {num_params} parameters")
+    # STEP 3: Split dataset
+    train_dataset, val_dataset, test_dataset = split_by_patient(
+        sample_dataset, [0.8, 0.1, 0.1]
+    )
 
-# STEP 5: Train the model
-trainer = Trainer(
-    model=model,
-    device="cuda:2",  # or "cpu"
-    metrics=["pr_auc", "roc_auc", "accuracy", "f1"],
-)
+    # Create dataloaders
+    train_loader = get_dataloader(train_dataset, batch_size=256, shuffle=True)
+    val_loader = get_dataloader(val_dataset, batch_size=256, shuffle=False)
+    test_loader = get_dataloader(test_dataset, batch_size=256, shuffle=False)
 
-trainer.train(
-    train_dataloader=train_loader,
-    val_dataloader=val_loader,
-    epochs=20,
-    monitor="roc_auc",
-    optimizer_params={"lr": 1e-5},
-)
+    # STEP 4: Initialize StageNet model
+    model = StageNet(
+        dataset=sample_dataset,
+        embedding_dim=128,
+        chunk_size=128,
+        levels=3,
+        dropout=0.3,
+    )
 
-# STEP 6: Evaluate on test set
-results = trainer.evaluate(test_loader)
-print("\nTest Results:")
-for metric, value in results.items():
-    print(f"  {metric}: {value:.4f}")
+    num_params = sum(p.numel() for p in model.parameters())
+    print(f"\nModel initialized with {num_params} parameters")
 
-# STEP 7: Inspect model predictions
-sample_batch = next(iter(test_loader))
-with torch.no_grad():
-    output = model(**sample_batch)
+    # STEP 5: Train the model
+    trainer = Trainer(
+        model=model,
+        device="cuda:2",  # or "cpu"
+        metrics=["pr_auc", "roc_auc", "accuracy", "f1"],
+    )
 
-print("\nSample predictions:")
-print(f"  Predicted probabilities: {output['y_prob'][:5]}")
-print(f"  True labels: {output['y_true'][:5]}")
+    trainer.train(
+        train_dataloader=train_loader,
+        val_dataloader=val_loader,
+        epochs=20,
+        monitor="roc_auc",
+        optimizer_params={"lr": 1e-5},
+    )
 
-# STEP 8: Test with synthetic hold-out set (unseen codes, varying lengths)
-print("\n" + "=" * 60)
-print("TESTING PROCESSOR ROBUSTNESS WITH SYNTHETIC HOLD-OUT SET")
-print("=" * 60)
+    # STEP 6: Evaluate on test set
+    results = trainer.evaluate(test_loader)
+    print("\nTest Results:")
+    for metric, value in results.items():
+        print(f"  {metric}: {value:.4f}")
 
-# Generate hold-out set with fitted processors
-holdout_dataset = generate_holdout_set(
-    sample_dataset=sample_dataset, num_samples=50, seed=42
-)
+    # STEP 7: Inspect model predictions
+    sample_batch = next(iter(test_loader))
+    with torch.no_grad():
+        output = model(**sample_batch)
 
-# Create dataloader for hold-out set
-holdout_loader = get_dataloader(holdout_dataset, batch_size=16, shuffle=False)
+    print("\nSample predictions:")
+    print(f"  Predicted probabilities: {output['y_prob'][:5]}")
+    print(f"  True labels: {output['y_true'][:5]}")
 
-# Inspect processed samples
-print("\n=== Inspecting Processed Hold-out Samples ===")
-holdout_batch = next(iter(holdout_loader))
+    # STEP 8: Test with synthetic hold-out set (unseen codes, varying lengths)
+    print("\n" + "=" * 60)
+    print("TESTING PROCESSOR ROBUSTNESS WITH SYNTHETIC HOLD-OUT SET")
+    print("=" * 60)
 
-print(f"Batch size: {len(holdout_batch['patient_id'])}")
-print(f"ICD codes tensor shape: {holdout_batch['icd_codes'][1].shape}")
-print("ICD codes sample (first patient):")
-print(f"  Time: {holdout_batch['icd_codes'][0][0][:5]}")
-print(f"  Values (indices): {holdout_batch['icd_codes'][1][0][:3]}")
+    # Generate hold-out set with fitted processors
+    holdout_dataset = generate_holdout_set(
+        sample_dataset=sample_dataset, num_samples=50, seed=42
+    )
 
-# Check for unknown tokens
-icd_processor = sample_dataset.input_processors["icd_codes"]
-unk_token_idx = icd_processor.code_vocab["<unk>"]
-pad_token_idx = icd_processor.code_vocab["<pad>"]
+    # Create dataloader for hold-out set
+    holdout_loader = get_dataloader(holdout_dataset, batch_size=16, shuffle=False)
 
-print(f"\n<unk> token index: {unk_token_idx}")
-print(f"<pad> token index: {pad_token_idx}")
+    # Inspect processed samples
+    print("\n=== Inspecting Processed Hold-out Samples ===")
+    holdout_batch = next(iter(holdout_loader))
 
-# Count unknown and padding tokens in batch
-icd_values = holdout_batch["icd_codes"][1]
-num_unk = (icd_values == unk_token_idx).sum().item()
-num_pad = (icd_values == pad_token_idx).sum().item()
-total_tokens = icd_values.numel()
+    print(f"Batch size: {len(holdout_batch['patient_id'])}")
+    print(f"ICD codes tensor shape: {holdout_batch['icd_codes'][1].shape}")
+    print("ICD codes sample (first patient):")
+    print(f"  Time: {holdout_batch['icd_codes'][0][0][:5]}")
+    print(f"  Values (indices): {holdout_batch['icd_codes'][1][0][:3]}")
 
-print("\nToken statistics in hold-out batch:")
-print(f"  Total tokens: {total_tokens}")
-print(f"  Unknown tokens: {num_unk} ({100*num_unk/total_tokens:.1f}%)")
-print(f"  Padding tokens: {num_pad} ({100*num_pad/total_tokens:.1f}%)")
+    # Check for unknown tokens
+    icd_processor = sample_dataset.input_processors["icd_codes"]
+    unk_token_idx = icd_processor.code_vocab["<unk>"]
+    pad_token_idx = icd_processor.code_vocab["<pad>"]
 
-# Run model inference on hold-out set
-print("\n=== Model Inference on Hold-out Set ===")
-with torch.no_grad():
-    holdout_output = model(**holdout_batch)
+    print(f"\n<unk> token index: {unk_token_idx}")
+    print(f"<pad> token index: {pad_token_idx}")
 
-print(f"Predictions shape: {holdout_output['y_prob'].shape}")
-print(f"Sample predictions: {holdout_output['y_prob'][:5]}")
-print(f"True labels: {holdout_output['y_true'][:5]}")
+    # Count unknown and padding tokens in batch
+    icd_values = holdout_batch["icd_codes"][1]
+    num_unk = (icd_values == unk_token_idx).sum().item()
+    num_pad = (icd_values == pad_token_idx).sum().item()
+    total_tokens = icd_values.numel()
 
-print("\n" + "=" * 60)
-print("HOLD-OUT SET TEST COMPLETED SUCCESSFULLY!")
-print("Processors handled unseen codes and varying lengths correctly.")
-print("=" * 60)
+    print("\nToken statistics in hold-out batch:")
+    print(f"  Total tokens: {total_tokens}")
+    print(f"  Unknown tokens: {num_unk} ({100*num_unk/total_tokens:.1f}%)")
+    print(f"  Padding tokens: {num_pad} ({100*num_pad/total_tokens:.1f}%)")
 
-# STEP 9: Inspect saved processors
-print("\n" + "=" * 60)
-print("PROCESSOR INFORMATION")
-print("=" * 60)
-print(f"\nProcessors saved at: {processor_dir}")
-print("\nICD Codes Processor:")
-print(f"  {icd_processor}")
-print(f"  Vocabulary size: {icd_processor.size()}")
-print(f"  <unk> token index: {icd_processor.code_vocab['<unk>']}")
-print(f"  <pad> token index: {icd_processor.code_vocab['<pad>']}")
-print(f"  Max nested length: {icd_processor._max_nested_len}")
-print(f"  Padding capacity: {getattr(icd_processor, '_padding', 0)}")
+    # Run model inference on hold-out set
+    print("\n=== Model Inference on Hold-out Set ===")
+    with torch.no_grad():
+        holdout_output = model(**holdout_batch)
 
-labs_processor = sample_dataset.input_processors["labs"]
-print("\nLabs Processor:")
-print(f"  {labs_processor}")
-print(f"  Feature dimension: {labs_processor.size}")
+    print(f"Predictions shape: {holdout_output['y_prob'].shape}")
+    print(f"Sample predictions: {holdout_output['y_prob'][:5]}")
+    print(f"True labels: {holdout_output['y_true'][:5]}")
 
-print("\nTo reuse these processors in future runs:")
-print("  1. Keep the processor_dir path the same")
-print("  2. The script will automatically load them on next run")
-print("  3. This ensures consistent encoding across experiments")
+    print("\n" + "=" * 60)
+    print("HOLD-OUT SET TEST COMPLETED SUCCESSFULLY!")
+    print("Processors handled unseen codes and varying lengths correctly.")
+    print("=" * 60)
+
+    # STEP 9: Inspect saved processors
+    print("\n" + "=" * 60)
+    print("PROCESSOR INFORMATION")
+    print("=" * 60)
+    print(f"\nProcessors saved at: {processor_dir}")
+    print("\nICD Codes Processor:")
+    print(f"  {icd_processor}")
+    print(f"  Vocabulary size: {icd_processor.size()}")
+    print(f"  <unk> token index: {icd_processor.code_vocab['<unk>']}")
+    print(f"  <pad> token index: {icd_processor.code_vocab['<pad>']}")
+    print(f"  Max nested length: {icd_processor._max_nested_len}")
+    print(f"  Padding capacity: {getattr(icd_processor, '_padding', 0)}")
+
+    labs_processor = sample_dataset.input_processors["labs"]
+    print("\nLabs Processor:")
+    print(f"  {labs_processor}")
+    print(f"  Feature dimension: {labs_processor.size}")
+
+    print("\nTo reuse these processors in future runs:")
+    print("  1. Keep the processor_dir path the same")
+    print("  2. The script will automatically load them on next run")
+    print("  3. This ensures consistent encoding across experiments")
