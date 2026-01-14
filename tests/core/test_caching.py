@@ -167,7 +167,7 @@ class TestCachingFunctionality(BaseTestCase):
             default=str
         )
 
-        task_cache = self.dataset.cache_dir / "tasks" / f"{self.task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params)}"
+        task_cache = self.dataset.cache_dir / "tasks" / f"{self.task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params).hex}"
         sample_dataset = self.dataset.set_task(self.task)
 
         self.assertTrue(task_cache.exists())
@@ -211,8 +211,8 @@ class TestCachingFunctionality(BaseTestCase):
             default=str
         )
 
-        task_cache1 = self.dataset.cache_dir / "tasks" / f"{self.task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params1)}"
-        task_cache2 = self.dataset.cache_dir / "tasks" / f"{self.task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params2)}"
+        task_cache1 = self.dataset.cache_dir / "tasks" / f"{self.task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params1).hex}"
+        task_cache2 = self.dataset.cache_dir / "tasks" / f"{self.task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params2).hex}"
 
         self.assertTrue(task_cache1.exists())
         self.assertTrue(task_cache2.exists())
