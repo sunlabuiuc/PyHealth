@@ -115,6 +115,24 @@ def _csv_tsv_gz_path(path: str) -> str:
 
     raise FileNotFoundError(f"Neither path exists: {path} or {alt_path}")
 
+
+def _litdata_empty_index(writer: BinaryWriter):
+    """
+    Create an empty index file for LitData writer if it does not exist. This
+    avoids program hanging when merging empty datasets.
+    
+    Args:
+        writer (BinaryWriter): The writer instance.
+    """
+    from litdata.streaming.writer import _INDEX_FILENAME
+
+    filepath = os.path.join(writer._cache_dir, f"{writer.rank}.{_INDEX_FILENAME}")
+    if not os.path.exists(filepath):
+        config = writer.get_config()
+        with open(filepath, "w") as out:
+            json.dump({"chunks": [], "config": config}, out, sort_keys=True)
+
+
 class _ProgressContext:
     def __init__(self, queue: multiprocessing.queues.Queue | None, total: int, **kwargs):
         """
@@ -196,6 +214,7 @@ def _task_transform_fn(args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, P
                 complete += 1
             progress.put(complete)
         writer.done()
+        _litdata_empty_index(writer)
 
     logger.info(f"Worker {worker_id} finished processing patients.")
 
@@ -252,6 +271,7 @@ def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
         if complete > 0:
             progress.put(complete)
         writer.done()
+        _litdata_empty_index(writer)
 
     logger.info(f"Worker {worker_id} finished processing samples.")
 
