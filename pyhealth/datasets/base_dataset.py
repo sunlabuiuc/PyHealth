@@ -842,7 +842,7 @@ class BaseDataset(ABC):
         )
 
         if cache_dir is None:
-            cache_dir = self.cache_dir / "tasks" / f"{task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params).hex}"
+            cache_dir = self.cache_dir / "tasks" / f"{task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params)}"
             cache_dir.mkdir(parents=True, exist_ok=True)
         else:
             # Ensure the explicitly provided cache_dir exists
@@ -875,7 +875,7 @@ class BaseDataset(ABC):
         )
 
         task_df_path = Path(cache_dir) / "task_df.ld"
-        samples_path = Path(cache_dir) / f"samples_{uuid.uuid5(uuid.NAMESPACE_DNS, proc_params).hex}.ld"
+        samples_path = Path(cache_dir) / f"samples_{uuid.uuid5(uuid.NAMESPACE_DNS, proc_params)}.ld"
 
         task_df_path.mkdir(parents=True, exist_ok=True)
         samples_path.mkdir(parents=True, exist_ok=True)
