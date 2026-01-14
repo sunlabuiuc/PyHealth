@@ -215,8 +215,6 @@ def _task_transform_fn(args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, P
                 patient_id = patient_id[0]  # Extract string from single-element list
                 patient = Patient(patient_id=patient_id, data_source=patient_df)
                 for sample in task(patient):
-                    if worker_id == 1:
-                        continue # simulate empty task
                     writer.add_item(write_index, {"sample": pickle.dumps(sample)})
                     write_index += 1
                 complete += 1
