@@ -115,6 +115,30 @@ def _csv_tsv_gz_path(path: str) -> str:
 
     raise FileNotFoundError(f"Neither path exists: {path} or {alt_path}")
 
+
+def _litdata_merge(cache_dir: Path) -> None:
+    """
+    Merges LitData binary writer index files in the given cache directory.
+
+    Args:
+        cache_dir (Path): The cache directory containing LitData binary writer files.
+    """
+    from litdata.streaming.writer import _INDEX_FILENAME
+    files = os.listdir(cache_dir)
+    
+    # Return if the index already exists
+    if _INDEX_FILENAME in files:
+        return
+
+    index_files = [f for f in files if f.endswith(_INDEX_FILENAME)]
+    
+    # Return if there are no index files to merge
+    if len(index_files) == 0:
+        raise ValueError("There are zero samples in the dataset, please check the task and processors.")
+    
+    BinaryWriter(cache_dir=str(cache_dir), chunk_bytes="64MB").merge(num_workers=len(index_files))
+
+
 class _ProgressContext:
     def __init__(self, queue: multiprocessing.queues.Queue | None, total: int, **kwargs):
         """
@@ -700,7 +724,7 @@ class BaseDataset(ABC):
                 if num_workers == 1:
                     logger.info("Single worker mode, processing sequentially")
                     _task_transform_fn((0, task, patient_ids, global_event_df, output_dir))
-                    BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB").merge(num_workers)
+                    _litdata_merge(output_dir)
                     return
 
                 # spwan is required for polars in multiprocessing, see https://docs.pola.rs/user-guide/misc/multiprocessing/#summary
@@ -726,7 +750,7 @@ class BaseDataset(ABC):
                         while not queue.empty():
                             progress.update(queue.get())
                     result.get() # ensure exceptions are raised
-                BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB").merge(num_workers)
+                _litdata_merge(output_dir)
 
                 logger.info(f"Task transformation completed and saved to {output_dir}")
         except Exception as e:
@@ -750,7 +774,7 @@ class BaseDataset(ABC):
                 if num_workers == 1:
                     logger.info("Single worker mode, processing sequentially")
                     _proc_transform_fn((0, task_df, 0, num_samples, output_dir))
-                    BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB").merge(num_workers)
+                    _litdata_merge(output_dir)
                     return
 
                 ctx = multiprocessing.get_context("spawn")
@@ -776,7 +800,7 @@ class BaseDataset(ABC):
                         while not queue.empty():
                             progress.update(queue.get())
                     result.get() # ensure exceptions are raised
-                BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB").merge(num_workers)
+                _litdata_merge(output_dir)
 
                 logger.info(f"Processor transformation completed and saved to {output_dir}")
         except Exception as e:
@@ -854,44 +878,74 @@ class BaseDataset(ABC):
             cache_dir = Path(cache_dir)
             cache_dir.mkdir(parents=True, exist_ok=True)
 
+        proc_params = json.dumps(
+            {
+                "input_schema": task.input_schema,
+                "output_schema": task.output_schema,
+                "input_processors": (
+                    {
+                        f"{k}_{v.__class__.__name__}": vars(v)
+                        for k, v in input_processors.items()
+                    }
+                    if input_processors
+                    else None
+                ),
+                "output_processors": (
+                    {
+                        f"{k}_{v.__class__.__name__}": vars(v)
+                        for k, v in output_processors.items()
+                    }
+                    if output_processors
+                    else None
+                ),
+            },
+            sort_keys=True,
+            default=str
+        )
+
         task_df_path = Path(cache_dir) / "task_df.ld"
-        samples_path = Path(cache_dir) / f"samples_{uuid.uuid4()}.ld"
+        samples_path = Path(cache_dir) / f"samples_{uuid.uuid5(uuid.NAMESPACE_DNS, proc_params)}.ld"
 
         task_df_path.mkdir(parents=True, exist_ok=True)
         samples_path.mkdir(parents=True, exist_ok=True)
+        
+        if not (samples_path / "index.json").exists():
+            # Check if index.json exists to verify cache integrity, this
+            # is the standard file for litdata.StreamingDataset
+            if not (task_df_path / "index.json").exists():
+                self._task_transform(
+                    task,
+                    task_df_path,
+                    num_workers,
+                )
+            else:
+                logger.info(f"Found cached task dataframe at {task_df_path}, skipping task transformation.")
 
-        # Check if index.json exists to verify cache integrity, this
-        # is the standard file for litdata.StreamingDataset
-        if not (task_df_path / "index.json").exists():
-            self._task_transform(
-                task,
+            # Build processors and fit on the dataset
+            logger.info(f"Fitting processors on the dataset...")
+            dataset = litdata.StreamingDataset(
+                str(task_df_path),
+                transform=lambda x: pickle.loads(x["sample"]),
+            )
+            builder = SampleBuilder(
+                input_schema=task.input_schema,  # type: ignore
+                output_schema=task.output_schema,  # type: ignore
+                input_processors=input_processors,
+                output_processors=output_processors,
+            )
+            builder.fit(dataset)
+            builder.save(str(samples_path / "schema.pkl"))
+
+            # Apply processors and save final samples to cache_dir
+            logger.info(f"Processing samples and saving to {samples_path}...")
+            self._proc_transform(
                 task_df_path,
+                samples_path,
                 num_workers,
             )
-
-        # Build processors and fit on the dataset
-        logger.info(f"Fitting processors on the dataset...")
-        dataset = litdata.StreamingDataset(
-            str(task_df_path),
-            transform=lambda x: pickle.loads(x["sample"]),
-        )
-        builder = SampleBuilder(
-            input_schema=task.input_schema,  # type: ignore
-            output_schema=task.output_schema,  # type: ignore
-            input_processors=input_processors,
-            output_processors=output_processors,
-        )
-        builder.fit(dataset)
-        builder.save(str(samples_path / "schema.pkl"))
-
-        # Apply processors and save final samples to cache_dir
-        logger.info(f"Processing samples and saving to {samples_path}...")
-        self._proc_transform(
-            task_df_path,
-            samples_path,
-            num_workers,
-        )
-        logger.info(f"Cached processed samples to {samples_path}")
+            logger.info(f"Cached processed samples to {samples_path}")
+        else:
+            logger.info(f"Found cached processed samples at {samples_path}, skipping processing.")
 
         return SampleDataset(
             path=str(samples_path),
