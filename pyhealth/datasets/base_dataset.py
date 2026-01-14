@@ -869,7 +869,9 @@ class BaseDataset(ABC):
                     if output_processors
                     else None
                 ),
-            }
+            },
+            sort_keys=True,
+            default=str
         )
 
         task_df_path = Path(cache_dir) / "task_df.ld"
