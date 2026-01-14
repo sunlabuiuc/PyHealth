@@ -24,6 +24,7 @@ We implement the following models for supporting multiple healthcare predictive 
     models/pyhealth.models.ContraWR
     models/pyhealth.models.SparcNet
     models/pyhealth.models.StageNet
+    models/pyhealth.models.StageAttentionNet
     models/pyhealth.models.AdaCare
     models/pyhealth.models.ConCare
     models/pyhealth.models.Agent
