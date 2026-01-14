@@ -12,6 +12,20 @@ import logging
 from pyhealth.tokenizer import Tokenizer
 
 
+class VocabCompat:
+    """Wrapper to provide pehr_scratch-style vocab interface for PyHealth tokenizer.
+
+    This class provides backward compatibility with pehr_scratch's tokenizer API
+    by wrapping PyHealth's vocabulary structure.
+    """
+    def __init__(self, tokenizer):
+        self.idx2code = tokenizer.vocabulary.idx2token
+        self.code2idx = tokenizer.vocabulary.token2idx
+
+    def __len__(self):
+        return len(self.idx2code)
+
+
 def create_promptehr_tokenizer(diagnosis_codes: List[str]) -> Tokenizer:
     """Create a tokenizer for PromptEHR with special generation tokens.
 
@@ -67,21 +81,15 @@ def create_promptehr_tokenizer(diagnosis_codes: List[str]) -> Tokenizer:
         special_tokens=special_tokens
     )
 
-    # Add convenience properties and methods for generation compatibility
+    # Add convenience properties for generation compatibility
     # These mirror pehr_scratch's DiagnosisCodeTokenizer API
     tokenizer.pad_token_id = tokenizer.vocabulary("<pad>")  # ID 0
     tokenizer.bos_token_id = tokenizer.vocabulary("<s>")     # ID 1
     tokenizer.eos_token_id = tokenizer.vocabulary("</s>")    # ID 2
     tokenizer.code_offset = len(special_tokens)              # ID 7 (first diagnosis code)
 
-    # Add method alias: convert_tokens_to_ids → convert_tokens_to_indices
-    # pehr_scratch uses convert_tokens_to_ids(single_token) → int
-    # PyHealth uses convert_tokens_to_indices(token_list) → list
-    def convert_tokens_to_ids(token: str) -> int:
-        """Convert single token to ID (pehr_scratch compatibility)."""
-        return tokenizer.convert_tokens_to_indices([token])[0]
-
-    tokenizer.convert_tokens_to_ids = convert_tokens_to_ids
+    # Add vocab object for idx2code and code2idx mappings (module-level class for pickling)
+    tokenizer.vocab = VocabCompat(tokenizer)
 
     return tokenizer
 

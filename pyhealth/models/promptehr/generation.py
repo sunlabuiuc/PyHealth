@@ -69,29 +69,29 @@ def parse_sequence_to_visits(
 ) -> List[List[str]]:
     """Parse generated token sequence into visit structure.
 
-    Extracts visits by splitting at <v> and <\v> markers, and decodes
+    Extracts visits by splitting at <v> and </v> markers, and decodes
     diagnosis codes within each visit.
 
     Args:
         token_ids: List of token IDs from model generation.
-        tokenizer: DiagnosisCodeTokenizer instance (must have convert_tokens_to_ids,
-            bos_token_id, pad_token_id, code_offset, and vocab attributes).
+        tokenizer: PyHealth Tokenizer instance (must have bos_token_id,
+            pad_token_id, code_offset, and vocab attributes).
 
     Returns:
         List of visits, where each visit is a list of ICD-9 code strings.
 
     Example:
-        Input: [BOS, <v>, 401.9, 250.00, <\v>, <v>, 428.0, <\v>, <END>]
+        Input: [BOS, <v>, 401.9, 250.00, </v>, <v>, 428.0, </v>, <END>]
         Output: [['401.9', '250.00'], ['428.0']]
     """
     visits = []
     current_visit_codes = []
 
     # Special token IDs
-    v_token_id = tokenizer.convert_tokens_to_ids("<v>")
-    v_end_token_id = tokenizer.convert_tokens_to_ids("<\\v>")
+    v_token_id = tokenizer.convert_tokens_to_indices(["<v>"])[0]
+    v_end_token_id = tokenizer.convert_tokens_to_indices(["<\\v>"])[0]
     bos_token_id = tokenizer.bos_token_id
-    end_token_id = tokenizer.convert_tokens_to_ids("<END>")
+    end_token_id = tokenizer.convert_tokens_to_indices(["<END>"])[0]
 
     in_visit = False
 
@@ -193,8 +193,8 @@ def generate_patient_sequence_conditional(
     encoder_attention_mask = torch.ones_like(encoder_input_ids)
 
     # Special token IDs
-    v_token_id = tokenizer.convert_tokens_to_ids("<v>")
-    v_end_token_id = tokenizer.convert_tokens_to_ids("<\\v>")
+    v_token_id = tokenizer.convert_tokens_to_indices(["<v>"])[0]
+    v_end_token_id = tokenizer.convert_tokens_to_indices(["<\\v>"])[0]
 
     with torch.no_grad():
         # Process each visit from target patient
@@ -250,7 +250,7 @@ def generate_patient_sequence_conditional(
             # Step 5: Extract generated codes
             visit_token_ids = generated_ids[0].cpu().tolist()
 
-            # Extract code tokens (skip BOS, <v>, <\v>)
+            # Extract code tokens (skip BOS, <v>, </v>)
             generated_code_ids = [
                 tid for tid in visit_token_ids
                 if tid >= tokenizer.code_offset
@@ -342,9 +342,9 @@ def generate_patient_with_structure_constraints(
 
     # Special token IDs
     bos_token_id = tokenizer.bos_token_id
-    v_token_id = tokenizer.convert_tokens_to_ids("<v>")
-    v_end_token_id = tokenizer.convert_tokens_to_ids("<\\v>")
-    end_token_id = tokenizer.convert_tokens_to_ids("<END>")
+    v_token_id = tokenizer.convert_tokens_to_indices(["<v>"])[0]
+    v_end_token_id = tokenizer.convert_tokens_to_indices(["<\\v>"])[0]
+    end_token_id = tokenizer.convert_tokens_to_indices(["<END>"])[0]
 
     # Extract target structure
     num_visits = target_structure['num_visits']
@@ -382,7 +382,7 @@ def generate_patient_with_structure_constraints(
             decoder_input_ids = torch.cat([decoder_input_ids, v_token_tensor], dim=1)
 
             # Calculate max tokens to generate for this visit
-            # Each code is ~1 token, plus 1 for <\v>
+            # Each code is ~1 token, plus 1 for </v>
             # Add 50% buffer for flexibility
             max_new_tokens_this_visit = int(target_codes * 1.5) + 1
 
@@ -430,7 +430,7 @@ def generate_patient_with_structure_constraints(
 
                     all_visits.append(visit_codes)
 
-                    # Update decoder_input_ids with the full visit (including <\v>)
+                    # Update decoder_input_ids with the full visit (including </v>)
                     # Reconstruct the visit tokens
                     visit_token_ids = [v_token_id]  # <v>
                     for code in visit_codes:
@@ -438,7 +438,7 @@ def generate_patient_with_structure_constraints(
                             code_idx = tokenizer.vocab.code2idx[code]
                             code_token_id = code_idx + tokenizer.code_offset
                             visit_token_ids.append(code_token_id)
-                    visit_token_ids.append(v_end_token_id)  # <\v>
+                    visit_token_ids.append(v_end_token_id)  # </v>
 
                     # Convert to tensor and concatenate (skip first <v> since already added)
                     visit_tensor = torch.tensor([visit_token_ids[1:]], dtype=torch.long).to(device)
