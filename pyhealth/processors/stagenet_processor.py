@@ -134,6 +134,12 @@ class StageNetProcessor(FeatureProcessor, VocabMixin):
         vocab = ["<pad>"] + vocab + ["<unk>"]
         self.code_vocab = {v: i for i, v in enumerate(vocab)}
 
+    def add(self, vocabularies: set[str]):
+        """Add specified vocabularies to the processor."""
+        vocab = list(set(self.code_vocab.keys()) | vocabularies - {"<pad>", "<unk>"})
+        vocab = ["<pad>"] + vocab + ["<unk>"]
+        self.code_vocab = {v: i for i, v in enumerate(vocab)}
+
     def process(
         self, value: Tuple[Optional[List], List]
     ) -> Tuple[Optional[torch.Tensor], torch.Tensor]:

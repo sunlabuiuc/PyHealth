@@ -3,11 +3,11 @@ from typing import Any, Dict, List, Iterable
 import torch
 
 from . import register_processor
-from .base_processor import FeatureProcessor
+from .base_processor import FeatureProcessor, VocabMixin
 
 
 @register_processor("deep_nested_sequence")
-class DeepNestedSequenceProcessor(FeatureProcessor):
+class DeepNestedSequenceProcessor(FeatureProcessor, VocabMixin):
     """
     Feature processor for deeply nested categorical sequences with vocabulary.
 
@@ -96,6 +96,13 @@ class DeepNestedSequenceProcessor(FeatureProcessor):
     def retain(self, vocabularies: set[str]):
         """Retain only the specified vocabularies in the processor."""
         vocab = list(set(self.code_vocab.keys()) & vocabularies)
+        self.code_vocab = {"<pad>": 0, "<unk>": -1}
+        for i, v in enumerate(vocab):
+            self.code_vocab[v] = i + 1
+
+    def add(self, vocabularies: set[str]):
+        """Add specified vocabularies to the processor."""
+        vocab = list(set(self.code_vocab.keys()) | vocabularies - {"<pad>", "<unk>"})
         self.code_vocab = {"<pad>": 0, "<unk>": -1}
         for i, v in enumerate(vocab):
             self.code_vocab[v] = i + 1

@@ -60,6 +60,28 @@ class TestVocabProcessors(unittest.TestCase):
         self.assertIn("<unk>", new_vocab)
         self.assertIn("<pad>", new_vocab)
 
+    def test_sequence_processor_add(self):
+        processor = SequenceProcessor()
+        samples = [
+            {"codes": ["A", "B", "C"]},
+        ]
+        processor.fit(samples, "codes")
+        
+        processor.add({"D", "E"})
+        new_vocab = set(processor.code_vocab.keys())
+        self.assertIn("A", new_vocab)
+        self.assertIn("B", new_vocab)
+        self.assertIn("C", new_vocab)
+        self.assertIn("D", new_vocab)
+        self.assertIn("E", new_vocab)
+        
+        # Test processing with new vocabulary
+        res = processor.process(["A", "D"])
+        d_idx = processor.code_vocab["D"]
+        a_idx = processor.code_vocab["A"]
+        self.assertEqual(res[0].item(), a_idx)
+        self.assertEqual(res[1].item(), d_idx)
+
     def test_stagenet_processor_remove(self):
         processor = StageNetProcessor()
         # Flat codes
@@ -99,6 +121,29 @@ class TestVocabProcessors(unittest.TestCase):
         self.assertIn("B", new_vocab)
         self.assertNotIn("C", new_vocab)
         self.assertNotIn("D", new_vocab)
+
+    def test_stagenet_processor_add(self):
+        processor = StageNetProcessor()
+        # Flat codes
+        samples = [
+            {"data": ([0.0, 1.0, 2.0], ["A", "B", "C"])},
+        ]
+        processor.fit(samples, "data")
+        
+        processor.add({"D", "E"})
+        new_vocab = set(processor.code_vocab.keys())
+        self.assertIn("A", new_vocab)
+        self.assertIn("B", new_vocab)
+        self.assertIn("C", new_vocab)
+        self.assertIn("D", new_vocab)
+        self.assertIn("E", new_vocab)
+        
+        # Test processing with new vocabulary
+        time, res = processor.process(([0.0, 1.0], ["A", "D"]))
+        d_idx = processor.code_vocab["D"]
+        a_idx = processor.code_vocab["A"]
+        self.assertEqual(res[0].item(), a_idx)
+        self.assertEqual(res[1].item(), d_idx)
 
     def test_nested_sequence_processor_remove(self):
         processor = NestedSequenceProcessor()
@@ -142,6 +187,21 @@ class TestVocabProcessors(unittest.TestCase):
         self.assertNotIn("C", new_vocab)
         self.assertNotIn("D", new_vocab)
 
+    def test_nested_sequence_processor_add(self):
+        processor = NestedSequenceProcessor()
+        samples = [
+            {"codes": [["A", "B"], ["C", "D"]]},
+        ]
+        processor.fit(samples, "codes")
+        
+        processor.add({"E"})
+        new_vocab = set(processor.code_vocab.keys())
+        self.assertIn("A", new_vocab)
+        self.assertIn("B", new_vocab)
+        self.assertIn("C", new_vocab)
+        self.assertIn("D", new_vocab)
+        self.assertIn("E", new_vocab)
+
     def test_deep_nested_sequence_processor_remove(self):
         processor = DeepNestedSequenceProcessor()
         samples = [
@@ -177,6 +237,26 @@ class TestVocabProcessors(unittest.TestCase):
         self.assertNotIn("B", new_vocab)
         self.assertNotIn("C", new_vocab)
         self.assertNotIn("D", new_vocab)
+
+    def test_deep_nested_sequence_processor_add(self):
+        processor = DeepNestedSequenceProcessor()
+        samples = [
+            {"codes": [[["A", "B"], ["C"]], [["D"]]]},
+        ]
+        processor.fit(samples, "codes")
+        
+        processor.add({"E"})
+        new_vocab = set(processor.code_vocab.keys())
+        self.assertIn("A", new_vocab)
+        self.assertIn("B", new_vocab)
+        self.assertIn("C", new_vocab)
+        self.assertIn("D", new_vocab)
+        self.assertIn("E", new_vocab)
+        
+        # Test process
+        res = processor.process([[["E"]]])
+        e_idx = processor.code_vocab["E"]
+        self.assertEqual(res[0, 0, 0].item(), e_idx)
 
 if __name__ == "__main__":
     unittest.main()

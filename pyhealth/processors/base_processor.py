@@ -109,3 +109,8 @@ class VocabMixin(ABC):
     def retain(self, vocabularies: set[str]):
         """Retain only the specified vocabularies in the processor."""
         pass
+    
+    @abstractmethod
+    def add(self, vocabularies: set[str]):
+        """Add specified vocabularies to the processor."""
+        pass

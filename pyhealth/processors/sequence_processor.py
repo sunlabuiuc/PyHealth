@@ -3,11 +3,11 @@ from typing import Any, Dict, List, Iterable
 import torch
 
 from . import register_processor
-from .base_processor import FeatureProcessor
+from .base_processor import FeatureProcessor, VocabMixin
 
 
 @register_processor("sequence")
-class SequenceProcessor(FeatureProcessor):
+class SequenceProcessor(FeatureProcessor, VocabMixin):
     """
     Feature processor for encoding categorical sequences (e.g., medical codes) into numerical indices.
 
@@ -58,6 +58,12 @@ class SequenceProcessor(FeatureProcessor):
     def retain(self, vocabularies: set[str]):
         """Retain only the specified vocabularies in the processor."""
         vocab = list(set(self.code_vocab.keys()) & vocabularies)
+        vocab = ["<pad>"] + vocab + ["<unk>"]
+        self.code_vocab = {v: i for i, v in enumerate(vocab)}
+
+    def add(self, vocabularies: set[str]):
+        """Add specified vocabularies to the processor."""
+        vocab = list(set(self.code_vocab.keys()) | vocabularies - {"<pad>", "<unk>"})
         vocab = ["<pad>"] + vocab + ["<unk>"]
         self.code_vocab = {v: i for i, v in enumerate(vocab)}
 
