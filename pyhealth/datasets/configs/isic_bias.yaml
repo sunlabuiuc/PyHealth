@@ -5,6 +5,7 @@ tables:
       sample_id: null
       timestamp: null
       attributes:
+        - "image"
         - "dark_corner"
         - "hair"
         - "gel_border"
@@ -19,6 +20,7 @@ tables:
       sample_id: null
       timestamp: null
       attributes:
+        - "image"
         - "dark_corner"
         - "hair"
         - "gel_border"
