@@ -1,6 +1,7 @@
 import logging
 from pathlib import Path
 from typing import Optional
+import os
 
 import pandas as pd
 
@@ -58,7 +59,9 @@ class ISICBiasDataset(BaseDataset):
             config_path: Optional[str] = None,
     ) -> None:
         root_path = Path(root)
+        images_path = root_path / "images"
         normalize_csv_delimiters(root_path)
+        normalize_image_extensions(root_path, images_path)
 
         if config_path is None:
             logger.info("No config path provided, using default config")
@@ -91,8 +94,70 @@ def normalize_csv_delimiters(root_path: Path):
                 # Read with semicolon delimiter
                 df = pd.read_csv(csv_file, sep=";")
 
-
+                df = df.loc[:, ~df.columns.str.startswith("Unnamed")]
                 # Rewrite as comma CSV
                 df.to_csv(csv_file, index=False)
         except Exception as e:
             logger.warning(f"Failed to check/normalize CSV {csv_file}: {e}")
+
+
+def normalize_image_extensions(root_path: Path, images_path: Path) -> None:
+    """
+    Normalize image metadata when CSV references .png but actual images on disk
+    are .jpg/.jpeg (or vice versa).
+
+    Assumes CSV column `image` contains only the filename (e.g., "ISIC_10.png").
+    Looks for files under `images_path`.
+    Updates CSVs in-place only when a matching file exists.
+    """
+    IMAGE_COL = "image"
+    IMAGE_EXTS = (".png", ".jpg", ".jpeg")
+
+    for csv_file in root_path.rglob("*.csv"):
+        try:
+            df = pd.read_csv(csv_file)
+            if IMAGE_COL not in df.columns:
+                continue
+
+            updated = False
+
+            for idx, image_val in df[IMAGE_COL].items():
+                if pd.isna(image_val):
+                    continue
+
+                raw_name = str(image_val).strip()
+                if not raw_name:
+                    continue
+
+                rel_name = Path(raw_name).name  # enforce filename-only
+                abs_img_path = images_path / rel_name
+
+                # If referenced file exists, nothing to do
+                if abs_img_path.exists():
+                    continue
+
+                p = Path(rel_name)
+                stem = p.stem if p.suffix else p.name
+
+                # Try alternate extensions under images_path
+                found_name = None
+                for ext in IMAGE_EXTS:
+                    candidate = images_path / f"{stem}{ext}"
+                    if candidate.exists():
+                        found_name = f"{stem}{ext}"
+                        break
+
+                if found_name is not None:
+                    df.at[idx, IMAGE_COL] = found_name
+                    updated = True
+                    logger.info(
+                        f"Normalized image extension in {csv_file.name}: "
+                        f"{raw_name} → {found_name}"
+                    )
+
+            if updated:
+                df = df.loc[:, ~df.columns.str.startswith("Unnamed")]
+                df.to_csv(csv_file, index=False)
+
+        except Exception as e:
+            logger.warning(f"Failed to normalize image extensions in {csv_file}: {e}")
