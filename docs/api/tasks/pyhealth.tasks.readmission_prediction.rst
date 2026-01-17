@@ -9,4 +9,8 @@
 .. autofunction:: pyhealth.tasks.readmission_prediction.readmission_prediction_mimic4_fn
 .. autofunction:: pyhealth.tasks.readmission_prediction.readmission_prediction_eicu_fn
 .. autofunction:: pyhealth.tasks.readmission_prediction.readmission_prediction_eicu_fn2
-.. autofunction:: pyhealth.tasks.readmission_prediction.readmission_prediction_omop_fn
+
+.. autoclass:: pyhealth.tasks.readmission_prediction.ReadmissionPredictionOMOP
+    :members:
+    :undoc-members:
+    :show-inheritance:
