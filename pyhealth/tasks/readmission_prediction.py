@@ -381,9 +381,9 @@ class ReadmissionPredictionOMOP(BaseTask):
 
             filter = ("visit_occurrence_id", "==", admissions[i].visit_occurrence_id)
 
-            diagnoses = patient.get_events(event_type="condition_occurrence", filters=[filter])
-            diagnoses = [event.condition_concept_id for event in diagnoses]
-            if len(diagnoses) == 0:
+            conditions = patient.get_events(event_type="condition_occurrence", filters=[filter])
+            conditions = [event.condition_concept_id for event in conditions]
+            if len(conditions) == 0:
                 continue
 
             procedures = patient.get_events(event_type="procedure_occurrence", filters=[filter])
@@ -391,9 +391,9 @@ class ReadmissionPredictionOMOP(BaseTask):
             if len(procedures) == 0:
                 continue
 
-            prescriptions = patient.get_events(event_type="drug_exposure", filters=[filter])
-            prescriptions = [event.drug_concept_id for event in prescriptions]
-            if len(prescriptions) == 0:
+            drugs = patient.get_events(event_type="drug_exposure", filters=[filter])
+            drugs = [event.drug_concept_id for event in drugs]
+            if len(drugs) == 0:
                 continue
 
             discharge_time = datetime.strptime(admissions[i].visit_end_datetime, "%Y-%m-%d %H:%M:%S")
@@ -404,9 +404,9 @@ class ReadmissionPredictionOMOP(BaseTask):
                 {
                     "visit_id": admissions[i].visit_occurrence_id,
                     "patient_id": patient.patient_id,
-                    "conditions": diagnoses,
+                    "conditions": conditions,
                     "procedures": procedures,
-                    "drugs": prescriptions,
+                    "drugs": drugs,
                     "readmission": readmission,
                 }
             )
