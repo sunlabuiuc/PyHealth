@@ -25,13 +25,21 @@ class SDOHICD9AdmissionTask(BaseTask):
         self,
         target_codes: Optional[Sequence[str]] = None,
         label_source: str = "manual",
+        label_map: Optional[Dict[str, Dict[str, Set[str]]]] = None,
     ) -> None:
         self.target_codes = list(target_codes) if target_codes else list(TARGET_CODES)
         if label_source not in {"manual", "true"}:
             raise ValueError("label_source must be 'manual' or 'true'")
         self.label_source = label_source
+        self.label_map = label_map or {}
 
     def __call__(self, admission: Dict) -> List[Dict]:
+        admission_id = str(admission.get("visit_id", ""))
+        if admission_id and admission_id in self.label_map:
+            admission = dict(admission)
+            admission.setdefault("manual_codes", self.label_map[admission_id]["manual"])
+            admission.setdefault("true_codes", self.label_map[admission_id]["true"])
+
         if self.label_source == "manual":
             label_codes: Set[str] = admission.get("manual_codes", set())
         else:

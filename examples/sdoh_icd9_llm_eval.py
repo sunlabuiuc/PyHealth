@@ -5,11 +5,11 @@ from datetime import datetime
 from typing import List, Set
 
 import numpy as np
-from pyhealth.datasets import MIMIC3NotesDataset
+from pyhealth.datasets import MIMIC3NoteDataset
 from pyhealth.metrics import multilabel_metrics_fn
 from pyhealth.models.sdoh_icd9_llm import SDOHICD9LLM
 from pyhealth.tasks.sdoh_icd9_detection import TARGET_CODES
-from pyhealth.tasks.sdoh_utils import codes_to_multihot
+from pyhealth.tasks.sdoh_utils import codes_to_multihot, load_sdoh_icd9_labels
 
 
 def parse_args():
@@ -46,6 +46,7 @@ def parse_args():
 def main():
     args = parse_args()
     target_codes = list(TARGET_CODES)
+    label_map = load_sdoh_icd9_labels(args.label_csv_path, target_codes)
 
     include_categories = (
         [cat.strip() for cat in args.note_categories.split(",")]
@@ -68,19 +69,24 @@ def main():
             max_admissions = int(args.max_admissions)
         except ValueError as exc:
             raise ValueError("--max-admissions must be an integer or 'all'") from exc
-        if max_admissions <= 0:
-            raise ValueError("--max-admissions must be a positive integer or 'all'")
+    if max_admissions <= 0:
+        raise ValueError("--max-admissions must be a positive integer or 'all'")
 
-    noteevents_path = f"{args.mimic_root}/NOTEEVENTS.csv.gz"
-    note_dataset = MIMIC3NotesDataset(
-        noteevents_path=noteevents_path,
-        label_csv_path=args.label_csv_path,
+    hadm_ids = list(label_map.keys())
+    if max_admissions is not None:
+        hadm_ids = hadm_ids[:max_admissions]
+        label_map = {hadm_id: label_map[hadm_id] for hadm_id in hadm_ids}
+
+    note_dataset = MIMIC3NoteDataset(
+        root=args.mimic_root,
         target_codes=target_codes,
+        hadm_ids=hadm_ids,
         include_categories=include_categories,
     )
-    sample_dataset = note_dataset.set_task(label_source=args.label_source)
-    if max_admissions is not None:
-        sample_dataset = sample_dataset.subset(slice(0, max_admissions))
+    sample_dataset = note_dataset.set_task(
+        label_source=args.label_source,
+        label_map=label_map,
+    )
 
     dry_run = args.dry_run or not os.environ.get("OPENAI_API_KEY")
     model = SDOHICD9LLM(
@@ -101,8 +107,12 @@ def main():
             sample.get("chartdates"),
         )
         predicted_codes_all.append(predicted_codes)
-        manual_codes_all.append(set(sample.get("manual_codes", [])))
-        true_codes_all.append(set(sample.get("true_codes", [])))
+        visit_id = str(sample.get("visit_id", ""))
+        label_entry = label_map.get(visit_id, {"manual": set(), "true": set()})
+        manual_codes = set(label_entry["manual"])
+        true_codes = set(label_entry["true"])
+        manual_codes_all.append(manual_codes)
+        true_codes_all.append(true_codes)
 
         results.append(
             {
@@ -111,8 +121,8 @@ def main():
                 "num_notes": sample.get("num_notes"),
                 "text_length": sample.get("text_length"),
                 "is_gap_case": sample.get("is_gap_case"),
-                "manual_codes": ",".join(sorted(sample.get("manual_codes", []))),
-                "true_codes": ",".join(sorted(sample.get("true_codes", []))),
+                "manual_codes": ",".join(sorted(manual_codes)),
+                "true_codes": ",".join(sorted(true_codes)),
                 "predicted_codes": ",".join(sorted(predicted_codes)),
                 "note_results": json.dumps(note_results),
             }
