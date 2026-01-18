@@ -24,6 +24,20 @@ def parse_args():
         choices=["manual", "true"],
         help="Which labels to use as primary ground truth.",
     )
+    parser.add_argument(
+        "--max-notes",
+        default="all",
+        help="Limit notes per admission (e.g., 1, 2, 5, or 'all').",
+    )
+    parser.add_argument(
+        "--max-admissions",
+        default="all",
+        help="Limit admissions to process (e.g., 5 or 'all').",
+    )
+    parser.add_argument(
+        "--note-categories",
+        help="Comma-separated NOTE_CATEGORY values to include (optional).",
+    )
     parser.add_argument("--output-dir", default=".", help="Directory to save outputs.")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
@@ -33,16 +47,47 @@ def main():
     args = parse_args()
     target_codes = list(TARGET_CODES)
 
+    include_categories = (
+        [cat.strip() for cat in args.note_categories.split(",")]
+        if args.note_categories
+        else None
+    )
+    if str(args.max_notes).lower() == "all":
+        max_notes = None
+    else:
+        try:
+            max_notes = int(args.max_notes)
+        except ValueError as exc:
+            raise ValueError("--max-notes must be an integer or 'all'") from exc
+        if max_notes <= 0:
+            raise ValueError("--max-notes must be a positive integer or 'all'")
+    if str(args.max_admissions).lower() == "all":
+        max_admissions = None
+    else:
+        try:
+            max_admissions = int(args.max_admissions)
+        except ValueError as exc:
+            raise ValueError("--max-admissions must be an integer or 'all'") from exc
+        if max_admissions <= 0:
+            raise ValueError("--max-admissions must be a positive integer or 'all'")
+
     noteevents_path = f"{args.mimic_root}/NOTEEVENTS.csv.gz"
     note_dataset = MIMIC3NotesDataset(
         noteevents_path=noteevents_path,
         label_csv_path=args.label_csv_path,
         target_codes=target_codes,
+        include_categories=include_categories,
     )
     sample_dataset = note_dataset.set_task(label_source=args.label_source)
+    if max_admissions is not None:
+        sample_dataset = sample_dataset.subset(slice(0, max_admissions))
 
     dry_run = args.dry_run or not os.environ.get("OPENAI_API_KEY")
-    model = SDOHICD9LLM(target_codes=target_codes, dry_run=dry_run)
+    model = SDOHICD9LLM(
+        target_codes=target_codes,
+        dry_run=dry_run,
+        max_notes=max_notes,
+    )
 
     results = []
     predicted_codes_all: List[Set[str]] = []

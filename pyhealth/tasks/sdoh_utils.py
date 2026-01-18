@@ -1,12 +1,9 @@
 """Utilities for SDOH ICD-9 V-code detection tasks."""
 
-import logging
-from typing import Iterable, Sequence, Set
+from typing import Dict, Iterable, Sequence, Set
 
 import pandas as pd
 import torch
-
-logger = logging.getLogger(__name__)
 
 
 # Standard SDOH ICD-9 V-codes
@@ -74,3 +71,20 @@ def codes_to_multihot(codes: Iterable[str], target_codes: Sequence[str]) -> torc
         [1.0 if code in code_set else 0.0 for code in target_codes],
         dtype=torch.float32,
     )
+
+
+def load_sdoh_icd9_labels(
+    csv_path: str, target_codes: Sequence[str]
+) -> Dict[str, Dict[str, Set[str]]]:
+    df = pd.read_csv(csv_path)
+    if "HADM_ID" not in df.columns:
+        raise ValueError("CSV must include HADM_ID column.")
+
+    labels: Dict[str, Dict[str, Set[str]]] = {}
+    for hadm_id, group in df.groupby("HADM_ID"):
+        first = group.iloc[0]
+        labels[str(hadm_id)] = {
+            "manual": parse_codes(first.get("ADMISSION_MANUAL_LABELS"), target_codes),
+            "true": parse_codes(first.get("ADMISSION_TRUE_CODES"), target_codes),
+        }
+    return labels

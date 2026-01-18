@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, List, Optional, Sequence, Set
+from typing import Dict, List, Optional, Sequence
 
 import pandas as pd
 
@@ -29,10 +29,16 @@ class SDOHICD9NotesDataset:
         csv_path: str,
         dataset_name: Optional[str] = None,
         target_codes: Optional[Sequence[str]] = None,
+        include_categories: Optional[Sequence[str]] = None,
     ) -> None:
         self.csv_path = csv_path
         self.dataset_name = dataset_name or "sdoh_icd9_notes"
         self.target_codes = list(target_codes) if target_codes else list(TARGET_CODES)
+        self.include_categories = (
+            {cat.strip().upper() for cat in include_categories}
+            if include_categories
+            else None
+        )
         self._admissions = self._load_admissions()
 
     def _load_admissions(self) -> List[Dict]:
@@ -43,6 +49,12 @@ class SDOHICD9NotesDataset:
 
         admissions: List[Dict] = []
         df["CHARTDATE"] = pd.to_datetime(df["CHARTDATE"], errors="coerce")
+        if self.include_categories is not None:
+            df = df[
+                df["NOTE_CATEGORY"].astype("string")
+                .str.upper()
+                .isin(self.include_categories)
+            ]
         for hadm_id, group in df.groupby("HADM_ID"):
             group = group.sort_values("CHARTDATE")
             first = group.iloc[0]

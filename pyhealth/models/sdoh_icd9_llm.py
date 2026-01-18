@@ -1,29 +1,22 @@
-import logging
 import os
+import hashlib
 import re
 import time
 from typing import Iterable, List, Optional, Sequence, Set, Tuple
 
-import torch
-from torch import nn
-
-from pyhealth.tasks.sdoh_utils import TARGET_CODES, codes_to_multihot
-
-logger = logging.getLogger(__name__)
+from pyhealth.tasks.sdoh_utils import TARGET_CODES
 
 
-PROMPT_TEMPLATE = """\
-You are an assistant that extracts SDOH ICD-9 V-codes from clinical notes.
-Return only the codes, comma-separated, inside triple backticks.
-If no target codes are present, return None inside triple backticks.
-Target codes: {codes}
-"""
+PROMPT_PATH = os.path.join(os.path.dirname(__file__), "sdoh_icd9_task.txt")
 
 
-class SDOHICD9LLM(nn.Module):
+def _load_prompt_template() -> str:
+    with open(PROMPT_PATH, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+class SDOHICD9LLM:
     """Admission-level SDOH ICD-9 V-code detector using an LLM."""
-
-    mode = "multilabel"
 
     def __init__(
         self,
@@ -35,17 +28,18 @@ class SDOHICD9LLM(nn.Module):
         max_chars: int = 100000,
         temperature: float = 0.0,
         sleep_s: float = 0.2,
+        max_notes: Optional[int] = None,
         dry_run: bool = False,
     ) -> None:
-        super().__init__()
         self.target_codes = list(target_codes) if target_codes else list(TARGET_CODES)
         self.model_name = model_name
-        self.prompt_template = prompt_template or PROMPT_TEMPLATE
+        self.prompt_template = prompt_template or _load_prompt_template()
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
         self.max_tokens = max_tokens
         self.max_chars = max_chars
         self.temperature = temperature
         self.sleep_s = sleep_s
+        self.max_notes = max_notes
         self.dry_run = dry_run
         self._client = None
 
@@ -53,12 +47,6 @@ class SDOHICD9LLM(nn.Module):
             raise EnvironmentError(
                 "OPENAI_API_KEY is required unless dry_run=True."
             )
-
-        mode = "dry-run" if dry_run else "live"
-        logger.info(
-            "Initialized SDOHICD9LLM (mode=%s, model=%s, codes=%d)",
-            mode, model_name, len(self.target_codes)
-        )
 
     def _get_client(self):
         if self._client is None:
@@ -68,6 +56,8 @@ class SDOHICD9LLM(nn.Module):
         return self._client
 
     def _call_openai_api(self, text: str) -> str:
+        self._write_prompt_preview(text)
+
         if self.dry_run:
             return "```None```"
 
@@ -78,24 +68,19 @@ class SDOHICD9LLM(nn.Module):
         response = client.chat.completions.create(
             model=self.model_name,
             messages=[
-                {
-                    "role": "system",
-                    "content": self.prompt_template.format(
-                        codes=", ".join(self.target_codes)
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        "Analyze this clinical note and identify SDOH codes:\n\n"
-                        f"{text}"
-                    ),
-                },
+                {"role": "system", "content": self.prompt_template.format(note=text)},
             ],
             max_tokens=self.max_tokens,
             temperature=self.temperature,
         )
         return response.choices[0].message.content.strip()
+
+    def _write_prompt_preview(self, text: str) -> None:
+        prompt = self.prompt_template.format(note=text)
+        digest = hashlib.sha1(prompt.encode("utf-8")).hexdigest()[:10]
+        filename = f"sdoh_prompt_{digest}.txt"
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(prompt)
 
     def _parse_llm_response(self, response: str) -> Set[str]:
         if not response:
@@ -130,25 +115,20 @@ class SDOHICD9LLM(nn.Module):
     ) -> Tuple[Set[str], List[dict]]:
         aggregated: Set[str] = set()
         note_results: List[dict] = []
-
         categories = list(note_categories) if note_categories is not None else []
         dates = list(chartdates) if chartdates is not None else []
         notes_list = list(notes)
-
-        logger.debug("Processing admission with %d notes", len(notes_list))
+        if self.max_notes and self.max_notes > 0:
+            notes_list = notes_list[: self.max_notes]
+            categories = categories[: self.max_notes]
+            dates = dates[: self.max_notes]
 
         for idx, note in enumerate(notes_list):
             category = categories[idx] if idx < len(categories) else "Unknown"
             date = dates[idx] if idx < len(dates) else "Unknown"
-
             response = self._call_openai_api(note)
             predicted = self._parse_llm_response(response)
             aggregated.update(predicted)
-
-            logger.debug(
-                "Note %d/%d (%s, %s): predicted %s",
-                idx + 1, len(notes_list), category, date, sorted(predicted) or "none"
-            )
 
             note_results.append(
                 {
@@ -158,46 +138,10 @@ class SDOHICD9LLM(nn.Module):
                     "llm_response": response,
                 }
             )
-
             if self.sleep_s > 0 and not self.dry_run:
                 time.sleep(self.sleep_s)
 
-        logger.debug("Admission complete: aggregated codes %s", sorted(aggregated))
         return aggregated, note_results
-
-    def forward(
-        self,
-        notes,
-        note_categories=None,
-        chartdates=None,
-        label=None,
-        **kwargs,
-    ):
-        if notes and isinstance(notes[0], str):
-            notes_batch = [notes]
-            categories_batch = [note_categories] if note_categories is not None else [None]
-            dates_batch = [chartdates] if chartdates is not None else [None]
-        else:
-            notes_batch = notes
-            categories_batch = note_categories or [None] * len(notes_batch)
-            dates_batch = chartdates or [None] * len(notes_batch)
-
-        batch_probs: List[torch.Tensor] = []
-        for note_list, cats, dates in zip(
-            notes_batch, categories_batch, dates_batch
-        ):
-            predicted, _ = self._predict_admission(note_list, cats, dates)
-            batch_probs.append(codes_to_multihot(predicted, self.target_codes))
-
-        y_prob = torch.stack(batch_probs, dim=0)
-        if label is not None and isinstance(label, torch.Tensor):
-            y_prob = y_prob.to(label.device)
-            y_true = label
-        else:
-            y_true = label
-
-        loss = torch.zeros(1, device=y_prob.device).sum()
-        return {"loss": loss, "y_prob": y_prob, "y_true": y_true}
 
     def predict_admission_with_notes(
         self,
