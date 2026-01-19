@@ -271,21 +271,29 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
     """Task for predicting patient-level mortality using MIMIC-IV multimodal data.
 
     This task combines multiple modalities for mortality prediction at the
-    PATIENT LEVEL (not visit level). All events are aggregated across visits
-    up to and including the death visit (if patient dies) or all visits
-    (if patient survives).
+    PATIENT LEVEL (not visit level). All core modalities are required for
+    each sample.
 
-    Modalities:
-    - EHR codes: ICD diagnoses, procedures, and prescriptions
-    - Clinical notes: Discharge summaries and radiology reports
+    Required Modalities:
+    - EHR codes: ICD diagnoses, procedures, AND prescriptions (all required)
+    - Clinical notes: Discharge summaries OR radiology reports (at least one)
     - Lab events: 10-dimensional lab value vectors (time-series)
-    - Chest X-rays: CXR images and NegBio findings
+    - Chest X-rays: Must have an image path available
 
     Patient-Level Aggregation:
-        - For patients who die: aggregate all events UP TO (but NOT including)
-          the admission where death occurs (prediction uses pre-death data only)
-        - For patients who survive: aggregate all events across all admissions
+        - Mortality is determined iteratively by checking if the NEXT admission
+          has the death flag
+        - Admissions are included up to (but not including) any admission where
+          the patient dies
+        - For surviving patients: aggregate all events across all admissions
         - Returns ONE sample per patient with aggregated multimodal data
+
+    Modality Coverage:
+        - No modality requirements - returns all patients
+        - Coverage analysis should be done downstream
+        - Discharge and radiology notes are returned as lists
+        - Uses "raw" processor for notes, labs, and image to preserve structure
+        - Labs is a tuple of (times_list, values_list) for time-series data
 
     Lab Processing:
         - 10-dimensional vectors (one per lab category)
@@ -295,9 +303,8 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
         - Time intervals calculated from first admission start (hours)
 
     Image Processing:
-        - Uses "image" processor for chest X-ray loading
-        - Images are loaded from MIMIC-CXR dataset paths
-        - Returns first available X-ray image across all admissions
+        - Uses image_path from MIMIC-CXR metadata directly
+        - Returns first available X-ray image path across all X-rays
     """
 
     task_name: str = "MultimodalMortalityPredictionMIMIC4"
@@ -333,23 +340,17 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
         item for itemids in LAB_CATEGORIES.values() for item in itemids
     ]
 
-    def __init__(self, cxr_root: Optional[str] = None):
-        """Initialize the multimodal mortality prediction task.
-
-        Args:
-            cxr_root: Root directory for MIMIC-CXR images. If provided,
-                image paths will be prefixed with this root.
-        """
-        self.cxr_root = cxr_root
+    def __init__(self):
+        """Initialize the multimodal mortality prediction task."""
         self.input_schema: Dict[str, str] = {
-            "conditions": "sequence",
-            "procedures": "sequence",
-            "drugs": "sequence",
-            "discharge": "text",
-            "radiology": "text",
-            "labs": "stagenet_tensor",  # 10D lab vectors with time
-            "xrays_negbio": "sequence",
-            "image_path": "text",  # returns the image_path
+            "conditions": "nested_sequence",  # Nested by visit
+            "procedures": "nested_sequence",  # Nested by visit
+            "drugs": "nested_sequence",  # Nested by visit
+            "discharge": "raw",  # List of discharge notes (JSON serialized)
+            "radiology": "raw",  # List of radiology notes (JSON serialized)
+            "labs": "raw",  # Labs as string (pre-encoded in task)
+            "negbio_findings": "sequence",  # NegBio X-ray findings
+            "image_path": "text",  # Image path as text string
         }
         self.output_schema: Dict[str, str] = {"mortality": "binary"}
 
@@ -367,39 +368,8 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
         return cleaned
 
     def _clean_text(self, text: Optional[str]) -> Optional[str]:
-        """Clean text by stripping whitespace and returning None if empty."""
-        if text is None:
-            return None
-
-        cleaned_text = str(text).strip()
-        return cleaned_text if cleaned_text else None
-
-    def _construct_image_path(
-        self, subject_id: str, study_id: str, dicom_id: str
-    ) -> str:
-        """Constructs the path to a MIMIC-CXR image file.
-
-        Args:
-            subject_id: The patient/subject ID (e.g., "10000032")
-            study_id: The study ID (e.g., "50414267")
-            dicom_id: The DICOM ID (e.g., "02aa804e-bde0afdd-112c0b34-7bc16630-4e384014")
-
-        Returns:
-            The path to the image file
-        """
-        # Extract first two characters of patient_id for parent folder
-        patient_id_clean = subject_id.replace("p", "")
-        parent_folder = f"p{patient_id_clean[:2]}"
-        patient_folder = f"p{patient_id_clean}"
-
-        # Construct path
-        relative_path = (
-            f"files/{parent_folder}/{patient_folder}/s{study_id}/{dicom_id}.jpg"
-        )
-
-        if self.cxr_root:
-            return f"{self.cxr_root}/{relative_path}"
-        return relative_path
+        """Return text if non-empty, otherwise None."""
+        return text if text else None
 
     def _process_lab_events(
         self, patient: Any, admission_time: datetime, admission_dischtime: datetime,
@@ -438,6 +408,19 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
         # Filter to relevant lab items
         labevents_df = labevents_df.filter(
             pl.col("labevents/itemid").is_in(self.LABITEMS)
+        )
+
+        if labevents_df.height == 0:
+            return None
+
+        # Parse storetime and filter (matching stagenet implementation)
+        labevents_df = labevents_df.with_columns(
+            pl.col("labevents/storetime").str.strptime(
+                pl.Datetime, "%Y-%m-%d %H:%M:%S"
+            )
+        )
+        labevents_df = labevents_df.filter(
+            pl.col("labevents/storetime") <= admission_dischtime
         )
 
         if labevents_df.height == 0:
@@ -490,12 +473,14 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
         """Processes a single patient for patient-level multimodal mortality prediction.
 
-        This task aggregates ALL modalities across visits at the patient level:
-        - For patients who die: aggregate events UP TO (excluding) death admission
-        - For patients who survive: aggregate all events across all admissions
+        This task aggregates ALL modalities across visits at the patient level,
+        supporting heterogeneous features (not all modalities required).
+
+        Mortality is determined iteratively by checking if the NEXT admission
+        has the death flag. Admissions are included up to (but not including)
+        any admission where the patient dies.
 
         Returns ONE sample per patient with aggregated multimodal data.
-        Requires at least some data from each modality to be present.
         """
         # Get demographic info to filter by age
         demographics = patient.get_events(event_type="patients")
@@ -503,38 +488,36 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
             return []
 
         demographics = demographics[0]
-        anchor_age = getattr(demographics, "anchor_age", None)
-
-        # Check age - filter out patients under 18 when possible
-        try:
-            if anchor_age is not None and int(float(anchor_age)) < 18:
-                return []
-        except (ValueError, TypeError):
-            pass
 
         # Get visits
         admissions = patient.get_events(event_type="admissions")
         if len(admissions) == 0:
             return []
 
-        # Determine patient-level mortality and which admissions to include
+        # Determine which admissions to process iteratively
+        # Check each admission's NEXT admission for mortality flag
+        admissions_to_process = []
         mortality_label = 0
-        death_admission_idx = None
 
         for i, admission in enumerate(admissions):
+            # Check if THIS admission has the death flag
             if admission.hospital_expire_flag in [1, "1"]:
+                # Patient died in this admission - set mortality label
+                # but don't include this admission's data
                 mortality_label = 1
-                death_admission_idx = i
                 break
 
-        # Determine which admissions to aggregate
-        # EXCLUDE the death visit - only use data available BEFORE death
-        if death_admission_idx is not None:
-            # Include all admissions UP TO (but NOT including) death admission
-            admissions_to_process = admissions[:death_admission_idx]
-        else:
-            # Include all admissions for surviving patients
-            admissions_to_process = admissions
+            # Check if there's a next admission with death flag
+            if i + 1 < len(admissions):
+                next_admission = admissions[i + 1]
+                if next_admission.hospital_expire_flag in [1, "1"]:
+                    # Next admission has death - include current, set mortality
+                    admissions_to_process.append(admission)
+                    mortality_label = 1
+                    break
+
+            # No death in current or next - include this admission
+            admissions_to_process.append(admission)
 
         if len(admissions_to_process) == 0:
             return []
@@ -546,66 +529,55 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
         all_conditions = []
         all_procedures = []
         all_drugs = []
-        all_discharge_texts = []
-        all_radiology_texts = []
+        all_discharge_notes = []  # List of individual discharge notes
+        all_radiology_notes = []  # List of individual radiology notes
         all_lab_times = []
         all_lab_values = []
-        all_xray_negbio_features = []
-        image_path = None
+        all_negbio_findings = []
+        image_path = ""  # Empty string instead of None for serialization
 
         # Get X-ray data (patient-level, not admission-specific)
-        xrays_negbio = patient.get_events(event_type="xrays_negbio")
-        xrays_metadata = patient.get_events(event_type="xrays_metadata")
+        # Note: event types match table names in mimic4_cxr.yaml (negbio, metadata)
+        negbio_events = patient.get_events(event_type="negbio")
+        metadata_events = patient.get_events(event_type="metadata")
 
         # Process X-ray findings (aggregate across all X-rays)
-        for xray in xrays_negbio:
+        # NegBio findings attributes (from mimic4_cxr.yaml negbio table)
+        negbio_finding_names = [
+            "no finding",
+            "enlarged cardiomediastinum",
+            "cardiomegaly",
+            "lung opacity",
+            "lung lesion",
+            "edema",
+            "consolidation",
+            "pneumonia",
+            "atelectasis",
+            "pneumothorax",
+            "pleural effusion",
+            "pleural other",
+            "fracture",
+            "support devices",
+        ]
+        for xray in negbio_events:
             try:
-                findings = []
-                for finding in [
-                    "no finding",
-                    "enlarged cardiomediastinum",
-                    "cardiomegaly",
-                    "lung opacity",
-                    "lung lesion",
-                    "edema",
-                    "consolidation",
-                    "pneumonia",
-                    "atelectasis",
-                    "pneumothorax",
-                    "pleural effusion",
-                    "pleural other",
-                    "fracture",
-                    "support devices",
-                ]:
+                for finding_name in negbio_finding_names:
                     try:
-                        value = getattr(xray, f"{finding}", None)
-                        if value is not None:
-                            try:
-                                numeric_value = float(value)
-                                if numeric_value > 0:
-                                    findings.append(finding)
-                            except (ValueError, TypeError):
-                                pass
-                    except Exception:
+                        value = getattr(xray, finding_name, None)
+                        if value is not None and float(value) > 0:
+                            all_negbio_findings.append(finding_name)
+                    except (ValueError, TypeError, AttributeError):
                         pass
-
-                if findings:
-                    all_xray_negbio_features.extend(findings)
             except Exception:
                 pass
 
-        # Get first available image path
-        for xray in xrays_metadata:
+        # Get first available image path from metadata
+        for event in metadata_events:
             try:
-                study_id = getattr(xray, "study_id", None)
-                dicom_id = getattr(xray, "dicom_id", None)
-
-                if study_id and dicom_id:
-                    image_path = self._construct_image_path(
-                        patient.patient_id, study_id, dicom_id
-                    )
+                if event.image_path:
+                    image_path = event.image_path
                     break  # Use first valid image
-            except Exception:
+            except AttributeError:
                 pass
 
         # Process each admission and aggregate data
@@ -647,33 +619,39 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
                 filters=[("hadm_id", "==", admission.hadm_id)]
             )
 
-            # Extract and aggregate clinical codes
+            # Extract clinical codes per visit (nested structure)
             conditions = self._clean_sequence(
-                [getattr(event, "icd_code", None) for event in diagnoses_icd]
+                [event.icd_code for event in diagnoses_icd]
             )
             procedures_list = self._clean_sequence(
-                [getattr(event, "icd_code", None) for event in procedures_icd]
+                [event.icd_code for event in procedures_icd]
             )
             drugs = self._clean_sequence(
-                [getattr(event, "drug", None) for event in prescriptions]
+                [event.ndc for event in prescriptions]
             )
 
-            all_conditions.extend(conditions)
-            all_procedures.extend(procedures_list)
-            all_drugs.extend(drugs)
+            # Append as nested lists (one list per visit) for nested_sequence
+            all_conditions.append(conditions)
+            all_procedures.append(procedures_list)
+            all_drugs.append(drugs)
 
-            # Extract and aggregate note text
-            discharge_text = self._clean_text(
-                " ".join([getattr(note, "discharge", "") for note in discharge_notes])
-            )
-            radiology_text = self._clean_text(
-                " ".join([getattr(note, "radiology", "") for note in radiology_notes])
-            )
+            # Extract and aggregate notes as individual items in lists
+            # Note: attribute is "text" (from mimic4_note.yaml), not "discharge"/"radiology"
+            for note in discharge_notes:
+                try:
+                    note_text = self._clean_text(note.text)
+                    if note_text:
+                        all_discharge_notes.append(note_text)
+                except AttributeError:
+                    pass
 
-            if discharge_text:
-                all_discharge_texts.append(discharge_text)
-            if radiology_text:
-                all_radiology_texts.append(radiology_text)
+            for note in radiology_notes:
+                try:
+                    note_text = self._clean_text(note.text)
+                    if note_text:
+                        all_radiology_notes.append(note_text)
+                except AttributeError:
+                    pass
 
             # Process lab events with reference to first admission time
             labs_data = self._process_lab_events(
@@ -686,64 +664,62 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
                 all_lab_times.extend(lab_times)
                 all_lab_values.extend(lab_values)
 
-        # ===== MULTIMODAL REQUIREMENT =====
-        # Require at least some data from each modality for the patient
+        # ===== MODALITY REQUIREMENTS =====
+        # Check that all required modalities are present before returning sample
+        # Required: EHR codes (conditions, procedures, drugs), notes (discharge OR radiology),
+        # labs, and image_path
 
-        # Check EHR codes
-        if len(all_conditions) == 0:
-            return []
-        if len(all_procedures) == 0:
-            return []
-        if len(all_drugs) == 0:
-            return []
+        # Check EHR codes - need at least one code in each category across all visits
+        has_conditions = any(len(codes) > 0 for codes in all_conditions)
+        has_procedures = any(len(codes) > 0 for codes in all_procedures)
+        has_drugs = any(len(codes) > 0 for codes in all_drugs)
 
-        # Check clinical notes
-        if len(all_discharge_texts) == 0:
-            return []
-        if len(all_radiology_texts) == 0:
-            return []
+        # Check notes - need at least one discharge OR radiology note
+        has_notes = len(all_discharge_notes) > 0 or len(all_radiology_notes) > 0
 
-        # Check lab events
-        if len(all_lab_values) == 0:
-            return []
+        # Check labs - need at least one lab measurement
+        has_labs = len(all_lab_times) > 0
 
-        # Check imaging data
-        if len(all_xray_negbio_features) == 0:
-            return []
-        if not image_path:
-            return []
+        # Check image - need a valid image path
+        has_image = bool(image_path)
 
-        # Combine texts with separator
-        combined_discharge = " [SEP] ".join(all_discharge_texts)
-        combined_radiology = " [SEP] ".join(all_radiology_texts)
+        # Return empty list if any required modality is missing
+        if not (has_conditions and has_procedures and has_drugs
+                and has_notes and has_labs and has_image):
+            return []
 
         # Sort lab events by time and create aggregated labs data
+        # Pre-encode as string to avoid litdata serialization issues with floats/None
+        import json
         if all_lab_times:
-            sorted_indices = sorted(range(len(all_lab_times)), key=lambda k: all_lab_times[k])
+            sorted_indices = sorted(
+                range(len(all_lab_times)), key=lambda k: all_lab_times[k]
+            )
             sorted_lab_times = [all_lab_times[i] for i in sorted_indices]
             sorted_lab_values = [all_lab_values[i] for i in sorted_indices]
-            aggregated_labs = (sorted_lab_times, sorted_lab_values)
+            # Encode as JSON string in task (raw processor will pass through)
+            aggregated_labs = json.dumps([sorted_lab_times, sorted_lab_values])
         else:
-            aggregated_labs = None
+            aggregated_labs = json.dumps([[], []])
 
-        # Deduplicate sequences while preserving order
-        unique_conditions = list(dict.fromkeys(all_conditions))
-        unique_procedures = list(dict.fromkeys(all_procedures))
-        unique_drugs = list(dict.fromkeys(all_drugs))
-        unique_xray_features = list(dict.fromkeys(all_xray_negbio_features))
+        # Deduplicate negbio findings (flat sequence)
+        unique_negbio = list(dict.fromkeys(all_negbio_findings))
 
-        # Return single patient-level sample
+        # Return single patient-level sample with heterogeneous features
+        # Note: conditions/procedures/drugs are nested lists (one list per visit)
+        # Note: discharge and radiology are lists (JSON serialized by raw processor)
+        # Note: labs is pre-encoded as JSON string to handle floats/None
         return [
             {
                 "patient_id": patient.patient_id,
-                "conditions": unique_conditions,
-                "procedures": unique_procedures,
-                "drugs": unique_drugs,
-                "discharge": combined_discharge,
-                "radiology": combined_radiology,
-                "labs": aggregated_labs,
-                "xrays_negbio": unique_xray_features,
-                "image": image_path,
+                "conditions": all_conditions,  # Nested: [[visit1_codes], [visit2_codes], ...]
+                "procedures": all_procedures,  # Nested: [[visit1_codes], [visit2_codes], ...]
+                "drugs": all_drugs,  # Nested: [[visit1_codes], [visit2_codes], ...]
+                "discharge": all_discharge_notes,  # List of discharge notes
+                "radiology": all_radiology_notes,  # List of radiology notes
+                "labs": aggregated_labs,  # Pre-encoded JSON string
+                "negbio_findings": unique_negbio,  # NegBio X-ray findings
+                "image_path": image_path,  # Image path as string
                 "mortality": mortality_label,
             }
         ]

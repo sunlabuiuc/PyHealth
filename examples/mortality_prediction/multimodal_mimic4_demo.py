@@ -340,97 +340,343 @@ def display_image(image_path: str, output_path: Optional[str] = None) -> bool:
         return False
 
 
-def showcase_sample(sample: Dict[str, Any], cxr_root: Optional[str] = None,
+def copy_image_to_workdir(
+    image_path: str,
+    patient_id: str,
+    output_dir: str = ".",
+) -> Optional[str]:
+    """Copy X-ray image to working directory.
+
+    Args:
+        image_path: Full path to the source image
+        patient_id: Patient identifier for the output filename
+        output_dir: Directory to copy the image to (default: current dir)
+
+    Returns:
+        Path to copied image if successful, None otherwise
+    """
+    try:
+        if not os.path.exists(image_path):
+            print(f"  [Source image not found: {image_path}]")
+            return None
+
+        # Create output filename
+        src_ext = Path(image_path).suffix
+        output_filename = f"patient_{patient_id}_xray{src_ext}"
+        output_path = Path(output_dir) / output_filename
+
+        # Copy the file
+        shutil.copy2(image_path, output_path)
+        print(f"  ✓ X-ray image copied to: {output_path}")
+        return str(output_path)
+
+    except Exception as e:
+        print(f"  [Error copying image: {e}]")
+        return None
+
+
+def plot_labs_plotly(
+    labs_data: tuple,
+    patient_id: str,
+    output_dir: str = ".",
+) -> Optional[str]:
+    """Create professional Plotly Express plot of lab events.
+
+    Plots lab values with measurement index on x-axis and different
+    colored lines for each lab category that has non-null values.
+
+    Args:
+        labs_data: Tuple of (times_list, values_list) from the sample
+        patient_id: Patient identifier for the filename
+        output_dir: Directory to save the HTML plot
+
+    Returns:
+        Path to saved plot if successful, None otherwise
+    """
+    try:
+        import plotly.express as px
+        import pandas as pd
+
+        lab_times, lab_values = labs_data
+
+        if len(lab_times) == 0:
+            print("  [No lab data to plot]")
+            return None
+
+        # Build dataframe for plotting - long format for plotly express
+        records = []
+        for idx, (time_val, values) in enumerate(zip(lab_times, lab_values)):
+            for cat_idx, category in enumerate(LAB_CATEGORIES):
+                val = values[cat_idx]
+                if val is not None:
+                    records.append({
+                        "Visit": idx,
+                        "Time (hours)": time_val,
+                        "Lab Category": category,
+                        "Value": val,
+                    })
+
+        if not records:
+            print("  [No non-null lab values to plot]")
+            return None
+
+        df = pd.DataFrame(records)
+
+        # Create professional plotly express line chart
+        fig = px.line(
+            df,
+            x="Visit",
+            y="Value",
+            color="Lab Category",
+            markers=True,
+            title=f"Lab Events Over Time - Patient {patient_id}",
+            hover_data=["Time (hours)"],
+            template="plotly_white",
+        )
+
+        # Professional styling
+        fig.update_layout(
+            font=dict(family="Helvetica Neue, Arial, sans-serif", size=12),
+            title=dict(
+                font=dict(size=18, color="#2c3e50"),
+                x=0.5,
+                xanchor="center",
+            ),
+            legend=dict(
+                title=dict(text="Lab Category", font=dict(size=13)),
+                font=dict(size=11),
+                bgcolor="rgba(255,255,255,0.9)",
+                bordercolor="#e0e0e0",
+                borderwidth=1,
+            ),
+            xaxis=dict(
+                title=dict(text="Visit", font=dict(size=13)),
+                showgrid=True,
+                gridcolor="#f0f0f0",
+                dtick=1,
+            ),
+            yaxis=dict(
+                title=dict(text="Lab Value", font=dict(size=13)),
+                showgrid=True,
+                gridcolor="#f0f0f0",
+            ),
+            plot_bgcolor="white",
+            hovermode="x unified",
+            margin=dict(l=60, r=40, t=80, b=60),
+        )
+
+        # Update marker and line styling
+        fig.update_traces(
+            line=dict(width=2.5),
+            marker=dict(size=8, line=dict(width=1, color="white")),
+        )
+
+        # Save to HTML
+        output_path = Path(output_dir) / f"patient_{patient_id}_labs.html"
+        fig.write_html(str(output_path), include_plotlyjs="cdn")
+        print(f"  ✓ Lab events plot saved to: {output_path}")
+
+        return str(output_path)
+
+    except ImportError as e:
+        print(f"  [Plotly/pandas not available: {e}]")
+        return None
+    except Exception as e:
+        print(f"  [Error creating lab plot: {e}]")
+        return None
+
+
+def showcase_sample(sample: Dict[str, Any], sample_dataset=None,
+                    cxr_root: Optional[str] = None,
                     save_image: Optional[str] = None,
-                    save_labs_dir: Optional[str] = None) -> None:
+                    save_labs_dir: Optional[str] = None,
+                    copy_image_dir: Optional[str] = None,
+                    plot_labs_dir: Optional[str] = None) -> None:
     """Display a patient-level multimodal sample with all its components.
 
     Args:
         sample: The patient sample dict containing aggregated multimodal data
+        sample_dataset: SampleDataset with input_processors for vocab lookup
         cxr_root: Root directory for CXR images
         save_image: Path to save X-ray image visualization
         save_labs_dir: Directory to save lab events CSV file
+        copy_image_dir: Directory to copy X-ray image to (default: None)
+        plot_labs_dir: Directory to save Plotly lab events plot (default: None)
     """
 
+    # Helper to reverse vocab lookup (index -> code string)
+    def indices_to_codes(indices, processor):
+        """Convert tensor indices back to original code strings using vocab."""
+        if processor is None:
+            return indices
+        # Reverse the vocab: {index: code}
+        idx_to_code = {v: k for k, v in processor.code_vocab.items()}
+        idx_list = indices.tolist() if hasattr(indices, 'tolist') else list(indices)
+        return [idx_to_code.get(idx, f"<idx:{idx}>") for idx in idx_list]
+
+    # Get processors for vocab lookup
+    cond_proc = None
+    proc_proc = None
+    drug_proc = None
+    if sample_dataset is not None:
+        cond_proc = sample_dataset.input_processors.get("conditions")
+        proc_proc = sample_dataset.input_processors.get("procedures")
+        drug_proc = sample_dataset.input_processors.get("drugs")
+
     # =========================================================================
-    # EHR Codes with MedCode Lookup
+    # EHR Codes with MedCode Lookup (Nested by Visit)
     # =========================================================================
     print_section("EHR Codes (ICD-10)")
+    print("  (Codes organized by visit using nested_sequence processor)")
 
-    # Diagnoses
+    # Helper to convert nested indices to codes
+    def nested_indices_to_codes(nested_indices, processor):
+        """Convert nested tensor indices back to code strings by visit."""
+        if processor is None:
+            return nested_indices
+        idx_to_code = {v: k for k, v in processor.code_vocab.items()}
+        result = []
+        for visit_indices in nested_indices:
+            idx_list = visit_indices.tolist() if hasattr(visit_indices, 'tolist') else list(visit_indices)
+            visit_codes = [idx_to_code.get(idx, f"<idx:{idx}>") for idx in idx_list]
+            # Filter out special tokens
+            visit_codes = [c for c in visit_codes if not str(c).startswith("<")]
+            result.append(visit_codes)
+        return result
+
+    # Diagnoses (nested_sequence processor returns nested tensor indices)
     conditions = sample.get("conditions", [])
-    print_subsection(f"Diagnosis Codes ({len(conditions)} total)")
+    num_visits = len(conditions)
+    total_conditions = sum(len(v) if hasattr(v, '__len__') else 0 for v in conditions)
+    print_subsection(f"Diagnosis Codes ({total_conditions} codes across {num_visits} visits)")
 
-    if conditions:
-        diagnosis_info = lookup_icd_codes(conditions, "ICD10CM", max_display=10)
-        if all(info["name"] == "[Unknown code]" for info in diagnosis_info):
-            diagnosis_info = lookup_icd_codes(conditions, "ICD9CM", max_display=10)
+    if num_visits > 0:
+        cond_by_visit = nested_indices_to_codes(conditions, cond_proc)
+        for visit_idx, visit_codes in enumerate(cond_by_visit):
+            if visit_codes:
+                # Look up codes for this visit
+                visit_info = lookup_icd_codes(visit_codes, "ICD10CM", max_display=10)
+                if all(info["name"] == "[Unknown code]" for info in visit_info):
+                    visit_info = lookup_icd_codes(visit_codes, "ICD9CM", max_display=10)
+                
+                codes_preview = ", ".join(info['code'] for info in visit_info)
+                if len(visit_codes) > 10:
+                    codes_preview += f" (+{len(visit_codes) - 10} more)"
+                print(f"  [Visit {visit_idx + 1}] {len(visit_codes)} codes: {codes_preview}")
 
-        for info in diagnosis_info:
-            print(f"  • {info['code']}: {info['name']}")
-
-        if len(conditions) > 10:
-            print(f"  ... and {len(conditions) - 10} more codes")
-
-    # Procedures
+    # Procedures (nested_sequence)
     procedures = sample.get("procedures", [])
-    print_subsection(f"Procedure Codes ({len(procedures)} total)")
+    num_visits_proc = len(procedures)
+    total_procedures = sum(len(v) if hasattr(v, '__len__') else 0 for v in procedures)
+    print_subsection(f"Procedure Codes ({total_procedures} codes across {num_visits_proc} visits)")
 
-    if procedures:
-        procedure_info = lookup_icd_codes(procedures, "ICD10PROC", max_display=5)
-        if all(info["name"] in ["[Unknown code]", "[ICD10PROC unavailable]"]
-               for info in procedure_info):
-            procedure_info = lookup_icd_codes(procedures, "ICD9PROC", max_display=5)
+    if num_visits_proc > 0:
+        proc_by_visit = nested_indices_to_codes(procedures, proc_proc)
+        for visit_idx, visit_codes in enumerate(proc_by_visit):
+            if visit_codes:
+                visit_info = lookup_icd_codes(visit_codes, "ICD10PROC", max_display=10)
+                if all(info["name"] in ["[Unknown code]", "[ICD10PROC unavailable]"]
+                       for info in visit_info):
+                    visit_info = lookup_icd_codes(visit_codes, "ICD9PROC", max_display=10)
+                
+                codes_preview = ", ".join(info['code'] for info in visit_info)
+                if len(visit_codes) > 10:
+                    codes_preview += f" (+{len(visit_codes) - 10} more)"
+                print(f"  [Visit {visit_idx + 1}] {len(visit_codes)} codes: {codes_preview}")
 
-        for info in procedure_info:
-            print(f"  • {info['code']}: {info['name']}")
-
-        if len(procedures) > 5:
-            print(f"  ... and {len(procedures) - 5} more codes")
-
-    # Drugs
+    # Drugs (nested_sequence)
     drugs = sample.get("drugs", [])
-    print_subsection(f"Drug Prescriptions ({len(drugs)} total)")
-    if drugs:
-        for drug in drugs[:5]:
-            print(f"  • {drug}")
-        if len(drugs) > 5:
-            print(f"  ... and {len(drugs) - 5} more drugs")
+    num_visits_drugs = len(drugs)
+    total_drugs = sum(len(v) if hasattr(v, '__len__') else 0 for v in drugs)
+    print_subsection(f"Drug Prescriptions ({total_drugs} drugs across {num_visits_drugs} visits)")
+
+    if num_visits_drugs > 0:
+        drugs_by_visit = nested_indices_to_codes(drugs, drug_proc)
+        for visit_idx, visit_drugs in enumerate(drugs_by_visit):
+            if visit_drugs:
+                drugs_preview = ", ".join(visit_drugs[:10])
+                if len(visit_drugs) > 10:
+                    drugs_preview += f" (+{len(visit_drugs) - 10} more)"
+                print(f"  [Visit {visit_idx + 1}] {len(visit_drugs)} drugs: {drugs_preview}")
 
     # =========================================================================
-    # Clinical Notes
+    # Clinical Notes (now returned as lists)
     # =========================================================================
     print_section("Clinical Notes")
+    print("  (Notes shown in chronological visit order)")
 
-    # Radiology report (truncated to <100 words)
-    print_subsection("Radiology Report Summary (<100 words)")
-    radiology_text = sample.get("radiology", "")
-    truncated_radiology = truncate_text(radiology_text, max_words=100)
-    wrapped = textwrap.fill(truncated_radiology, width=70,
-                            initial_indent="  ", subsequent_indent="  ")
-    print(wrapped)
+    # Helper to deserialize raw processor output (JSON)
+    import json
 
-    # Discharge summary (truncated)
-    print_subsection("Discharge Summary Excerpt (<100 words)")
-    discharge_text = sample.get("discharge", "")
-    truncated_discharge = truncate_text(discharge_text, max_words=100)
-    wrapped = textwrap.fill(truncated_discharge, width=70,
-                            initial_indent="  ", subsequent_indent="  ")
-    print(wrapped)
+    def deserialize_raw(value, default=None):
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except (json.JSONDecodeError, TypeError):
+                return value
+        return value if value is not None else default
+
+    # Radiology reports (list of notes)
+    radiology_notes = deserialize_raw(sample.get("radiology"), [])
+    if isinstance(radiology_notes, str):
+        radiology_notes = [radiology_notes] if radiology_notes else []
+    print_subsection(f"Radiology Reports ({len(radiology_notes)} notes)")
+    if radiology_notes:
+        # Show snippet of each note with visit index
+        for i, note in enumerate(radiology_notes):
+            truncated = truncate_text(note, max_words=30)
+            wrapped = textwrap.fill(truncated, width=70,
+                                    initial_indent=f"  [Note {i+1}] ",
+                                    subsequent_indent="           ")
+            print(wrapped)
+    else:
+        print("  [No radiology notes available]")
+
+    # Discharge summaries (list of notes)
+    discharge_notes = deserialize_raw(sample.get("discharge"), [])
+    if isinstance(discharge_notes, str):
+        discharge_notes = [discharge_notes] if discharge_notes else []
+    print_subsection(f"Discharge Summaries ({len(discharge_notes)} notes)")
+    if discharge_notes:
+        # Show snippet of each note with visit index
+        for i, note in enumerate(discharge_notes):
+            truncated = truncate_text(note, max_words=30)
+            wrapped = textwrap.fill(truncated, width=70,
+                                    initial_indent=f"  [Visit {i+1}] ",
+                                    subsequent_indent="            ")
+            print(wrapped)
+    else:
+        print("  [No discharge notes available]")
 
     # =========================================================================
     # Lab Events (Aggregated Across All Visits)
     # =========================================================================
     print_section("Lab Events (Time-Series, Aggregated)")
 
-    labs_data = sample.get("labs")
-    if labs_data and isinstance(labs_data, tuple) and len(labs_data) == 2:
+    # Labs are pre-encoded as JSON string in task, then JSON-serialized by raw processor
+    # So we need to deserialize twice: raw processor output -> pre-encoded string -> data
+    labs_raw = deserialize_raw(sample.get("labs"), "")
+    labs_data = None
+    if labs_raw and isinstance(labs_raw, str):
+        try:
+            labs_list = json.loads(labs_raw)  # Second decode
+            if isinstance(labs_list, list) and len(labs_list) == 2:
+                labs_data = (labs_list[0], labs_list[1])
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    if labs_data and len(labs_data[0]) > 0:
         display_lab_stats(labs_data)
+
+        patient_id = sample.get("patient_id", "unknown")
 
         # Save to CSV if directory specified
         if save_labs_dir:
-            patient_id = sample.get("patient_id", "unknown")
             save_labs_to_csv(labs_data, patient_id, save_labs_dir)
+
+        # Create Plotly plot if directory specified
+        if plot_labs_dir:
+            plot_labs_plotly(labs_data, patient_id, plot_labs_dir)
     else:
         print("  [No lab data available]")
 
@@ -439,19 +685,25 @@ def showcase_sample(sample: Dict[str, Any], cxr_root: Optional[str] = None,
     # =========================================================================
     print_section("Chest X-Ray Data")
 
-    # X-ray NegBio findings
-    xray_findings = sample.get("xrays_negbio", [])
-    print_subsection(f"NegBio Findings ({len(xray_findings)} detected)")
-    if xray_findings:
-        unique_findings = list(set(xray_findings))
+    # X-ray NegBio findings (sequence processor returns tensor indices)
+    negbio_raw = sample.get("negbio_findings", [])
+    negbio_proc = None
+    if sample_dataset is not None:
+        negbio_proc = sample_dataset.input_processors.get("negbio_findings")
+    # Convert indices back to finding names using vocab
+    negbio_findings = indices_to_codes(negbio_raw, negbio_proc)
+    negbio_findings = [f for f in negbio_findings if not str(f).startswith("<")]
+    print_subsection(f"NegBio Findings ({len(negbio_findings)} detected)")
+    if len(negbio_findings) > 0:
+        unique_findings = list(set(negbio_findings))
         for finding in unique_findings[:10]:
-            count = xray_findings.count(finding)
-            print(f"  • {finding.title()} (×{count})")
+            count = negbio_findings.count(finding)
+            print(f"  • {str(finding).title()} (×{count})")
     else:
         print("  [No X-ray findings detected]")
 
-    # X-ray image
-    image_path = sample.get("image")
+    # X-ray image (now text processor, not raw)
+    image_path = sample.get("image_path", "")
     print_subsection("X-Ray Image")
     if image_path:
         print(f"  Image path: {image_path}")
@@ -465,16 +717,21 @@ def showcase_sample(sample: Dict[str, Any], cxr_root: Optional[str] = None,
             # Path format: files/p10/p10000032/s50414267/<dicom_id>.jpg
             dicom_id = Path(image_path).stem
             if cxr_root:
-                # Try flattened structure: images/<dicom_id>.jpg
+                # Try flattened structure: /srv/local/data/MIMIC-CXR/images/<dicom_id>.jpg
                 flattened_path = os.path.join(
-                    cxr_root, "images", f"{dicom_id}.jpg"
+                    "/srv/local/data/MIMIC-CXR/images", f"{dicom_id}.jpg"
                 )
                 if os.path.exists(flattened_path):
-                    print(f"  Using flattened path: images/{dicom_id}.jpg")
+                    print(f"  Using flattened path: {flattened_path}")
                     full_path = flattened_path
 
         if os.path.exists(full_path):
             display_image(full_path, save_image)
+
+            # Copy image to working directory if specified
+            if copy_image_dir:
+                patient_id = sample.get("patient_id", "unknown")
+                copy_image_to_workdir(full_path, patient_id, copy_image_dir)
         else:
             print("  [Image file not accessible - set --cxr-root to view]")
     else:
@@ -485,17 +742,24 @@ def showcase_sample(sample: Dict[str, Any], cxr_root: Optional[str] = None,
     # =========================================================================
     print_section("Patient Profile Summary (Aggregated Across Visits)")
 
+    # Calculate total word counts for notes (now lists)
+    discharge_word_count = sum(len(note.split()) for note in discharge_notes)
+    radiology_word_count = sum(len(note.split()) for note in radiology_notes)
+
     print(f"\n  Patient ID: {sample.get('patient_id', 'N/A')}")
     print(f"  Mortality Label: {sample.get('mortality', 'N/A')}")
-    print(f"\n  ✓ EHR Codes: {len(conditions)} unique diagnoses, "
-          f"{len(procedures)} unique procedures, {len(drugs)} unique drugs")
-    print(f"  ✓ Clinical Notes: Discharge ({len(discharge_text.split())} words), "
-          f"Radiology ({len(radiology_text.split())} words)")
-    if labs_data:
+    print(f"\n  ✓ EHR Codes: {total_conditions} diagnoses across {num_visits} visits, "
+          f"{total_procedures} procedures, {total_drugs} drugs")
+    print(f"  ✓ Clinical Notes: {len(discharge_notes)} discharge notes "
+          f"({discharge_word_count} words), {len(radiology_notes)} radiology notes "
+          f"({radiology_word_count} words)")
+    if labs_data and len(labs_data[0]) > 0:
         time_span = max(labs_data[0]) - min(labs_data[0])
         print(f"  ✓ Lab Events: {len(labs_data[0])} measurements over "
               f"{time_span:.1f} hours, 10 dimensions")
-    print(f"  ✓ X-Ray: {len(set(xray_findings))} unique NegBio findings, "
+    else:
+        print("  ✓ Lab Events: None")
+    print(f"  ✓ X-Ray: {len(set(negbio_findings))} unique NegBio findings, "
           f"Image: {'Available' if image_path else 'N/A'}")
 
 
@@ -568,6 +832,18 @@ def main():
         type=str,
         default=None,
         help="Directory to save lab events CSV file",
+    )
+    parser.add_argument(
+        "--copy-image-dir",
+        type=str,
+        default=".",
+        help="Directory to copy X-ray image to (default: current directory)",
+    )
+    parser.add_argument(
+        "--plot-labs-dir",
+        type=str,
+        default=".",
+        help="Directory to save Plotly lab events plot (default: current directory)",
     )
     args = parser.parse_args()
 
@@ -670,7 +946,7 @@ def main():
     print("\n[2/2] Applying MultimodalMortalityPredictionMIMIC4 task...")
     task_start = time.time()
 
-    task = MultimodalMortalityPredictionMIMIC4(cxr_root=args.cxr_root)
+    task = MultimodalMortalityPredictionMIMIC4()
     sample_dataset = base_dataset.set_task(
         task,
         num_workers=num_workers,
@@ -727,22 +1003,24 @@ def main():
 
     tracker.stop()
 
-    # =========================================================================
-    # Showcase: Display First Sample
-    # =========================================================================
     if num_samples == 0:
         print("\n⚠ No samples generated. This may be because:")
         print("  - The dataset is too small (try without --dev)")
-        print("  - Missing required modalities (all must be present)")
+        print("  - No patients have all required modalities")
         return
 
-    print_section("Step 2: Showcasing Patient Profile (Aggregated Multimodal Data)")
+    # =========================================================================
+    # Showcase: Display a sample patient
+    # =========================================================================
+    print_section("Step 2: Showcasing Sample Patient")
+    print("\n  All samples have complete modality coverage (filtered by task)")
 
     sample_idx = min(args.sample_idx, num_samples - 1)
-    print(f"  Loading sample {sample_idx}...", flush=True)
+
+    print(f"\n  Loading sample {sample_idx}...", flush=True)
     load_start = time.time()
     try:
-        sample = sample_dataset.samples[sample_idx]
+        sample = sample_dataset[sample_idx]
         load_time = time.time() - load_start
         print(f"  ✓ Sample loaded in {load_time:.1f}s")
     except Exception as e:
@@ -757,9 +1035,12 @@ def main():
 
     showcase_sample(
         sample,
+        sample_dataset=sample_dataset,
         cxr_root=args.cxr_root,
         save_image=args.save_image,
-        save_labs_dir=args.save_labs
+        save_labs_dir=args.save_labs,
+        copy_image_dir=args.copy_image_dir,
+        plot_labs_dir=args.plot_labs_dir,
     )
 
     # =========================================================================
@@ -774,6 +1055,8 @@ def main():
     print("    • Time-series lab event processing with CSV export")
     print("    • Chest X-ray image integration")
     print("    • Memory-efficient parallel processing")
+
+    print(f"\n  ✓ {num_samples} patients with complete multimodal coverage")
     print("=" * 80)
 
 
