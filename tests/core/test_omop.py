@@ -13,10 +13,6 @@ class TestOMOPDataset(unittest.TestCase):
             Path(__file__).parent.parent.parent / "test-resources" / "omop"
         )
 
-        # Check if test data exists
-        if not self.test_data_path.exists():
-            self.skipTest("OMOP test data not found in test-resources/omop/")
-
         # Load dataset with all available tables
         self.tables = [
             "person",
