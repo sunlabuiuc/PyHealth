@@ -365,9 +365,16 @@ class MedLink(BaseModel):
     def compute_scores(self, queries_emb: torch.Tensor, corpus_emb: torch.Tensor) -> torch.Tensor:
         """TF-IDF-like score used by MedLink.
 
-        queries_emb: [Q, V]
-        corpus_emb: [C, V]
-        returns: [Q, C]
+        The score is calculated as the dot product of the query embeddings (weighted by IDF)
+        and the corpus embeddings.
+
+        Args:
+            queries_emb: Query embeddings of shape [Q, V]
+            corpus_emb: Corpus embeddings of shape [C, V]
+
+        Returns:
+             Scores matrix of shape [Q, C] where element [q, c] represents the similarity score
+             between query q and corpus item c.
         """
 
         n = torch.tensor(float(corpus_emb.shape[0]), device=queries_emb.device)
@@ -411,6 +418,20 @@ class MedLink(BaseModel):
     # ------------------------------------------------------------------
 
     def search(self, queries_ids, queries_embeddings, corpus_ids, corpus_embeddings):
+        """
+        Search for the most similar corpus items for each query.
+
+        Args:
+            queries_ids: List of query identifiers
+            queries_embeddings: Embeddings for the queries
+            corpus_ids: List of corpus identifiers
+            corpus_embeddings: Embeddings for the corpus
+
+        Returns:
+            A nested dictionary mapping query_id -> {corpus_id -> score}.
+            Each inner dictionary contains the similarity scores for all corpus items
+            against the specific query.
+        """
         scores = self.compute_scores(queries_embeddings, corpus_embeddings)
         results = {}
         for q_idx, q_id in enumerate(queries_ids):
@@ -420,6 +441,16 @@ class MedLink(BaseModel):
         return results
 
     def evaluate(self, corpus_dataloader, queries_dataloader):
+        """
+        Evaluates the model by encoding the entire corpus and queries, then performing a global search.
+
+        Args:
+            corpus_dataloader: DataLoader for the corpus.
+            queries_dataloader: DataLoader for the queries.
+
+        Returns:
+            The search results from `self.search`.
+        """
         self.eval()
         all_corpus_ids, all_corpus_embeddings = [], []
         all_queries_ids, all_queries_embeddings = [], []
@@ -452,17 +483,18 @@ if __name__ == "__main__":
         get_train_dataloader,
         tvt_split,
     )
-    from pyhealth.tasks import patient_linkage_mimic3_fn
+    from pyhealth.tasks import PatientLinkageMIMIC3Task
 
     base_dataset = MIMIC3Dataset(
         root="/srv/local/data/physionet.org/files/mimiciii/1.4",
-        tables=["DIAGNOSES_ICD"],
+        tables=["DIAGNOSES_ICD", "ADMISSIONS", "PATIENTS"], # added tables for task class
         code_mapping={"ICD9CM": ("CCSCM", {})},
         dev=False,
         refresh_cache=False,
     )
 
-    sample_dataset = base_dataset.set_task(patient_linkage_mimic3_fn)
+    task = PatientLinkageMIMIC3Task()
+    sample_dataset = base_dataset.set_task(task)
     corpus, queries, qrels, *_ = convert_to_ir_format(sample_dataset.samples)
     tr_queries, _, _, tr_qrels, _, _ = tvt_split(queries, qrels)
     train_dataloader = get_train_dataloader(corpus, tr_queries, tr_qrels, batch_size=4)

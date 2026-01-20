@@ -61,34 +61,22 @@ class TestPatientLinkageMIMIC3Task(unittest.TestCase):
 
         # Check Schema Keys
         expected_keys = {
-            "patient_id", "q_visit_id", "q_conditions", "q_timestamp",
-            "d_visit_ids", "d_conditions", "d_timestamp", "time_gap_days"
+            "patient_id", "visit_id", "conditions", "timestamp",
+            "d_visit_id", "d_conditions", "d_timestamp", "time_gap_days",
+            "age", "identifiers", "d_age", "d_identifiers"
         }
         self.assertTrue(expected_keys.issubset(sample.keys()))
 
         # Check Query (Adm 3)
-        self.assertEqual(sample["q_visit_id"], "3")
-        self.assertEqual(sample["q_conditions"], ["", "D", "E"])
-        self.assertEqual(sample["q_timestamp"], datetime(2012, 1, 1))
+        self.assertEqual(sample["visit_id"], "3")
+        self.assertEqual(sample["conditions"], ["", "D", "E"])
+        self.assertEqual(sample["timestamp"], datetime(2012, 1, 1))
 
         # Check Database (Adm 1 + Adm 2)
-        # Expected order (sorted by time): Adm 1 then Adm 2
-        # Adm 1 codes: A, B
-        # Adm 2 codes: C
-        # Concatenated: A, B, [SEP], C
-        # Plus leading ""
-        # Note: dict order might vary if not sorted in task, but task sorts admissions. 
-        # Inside admission, codes are list append order.
-        
-        # d_conditions should be ["", "A", "B", "[SEP]", "C"] 
-        # OR ["", "C", "[SEP]", "A", "B"] depending on if it processes most recent first or chronological.
-        # Task code: `d_visits = admissions[:-1]` where admissions is sorted chronological.
-        # So d_visits = [adm1, adm2]
-        # Then `for d_visit in d_visits:` -> processed in chronological order.
         expected_d_conditions = ["", "A", "B", "[SEP]", "C"]
         self.assertEqual(sample["d_conditions"], expected_d_conditions)
         
-        self.assertEqual(sample["d_visit_ids"], "1|2")
+        self.assertEqual(sample["d_visit_id"], "2")
         self.assertEqual(sample["d_timestamp"], datetime(2011, 1, 1)) # Most recent db visit
         
         # Check Time Gap
