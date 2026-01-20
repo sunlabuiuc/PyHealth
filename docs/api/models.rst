@@ -15,6 +15,7 @@ We implement the following models for supporting multiple healthcare predictive 
     models/pyhealth.models.GNN
     models/pyhealth.models.Transformer
     models/pyhealth.models.TransformersModel
+    models/pyhealth.models.BERT
     models/pyhealth.models.RETAIN
     models/pyhealth.models.GAMENet
     models/pyhealth.models.MICRON
