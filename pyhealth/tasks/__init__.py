@@ -66,3 +66,4 @@ from .variant_classification import (
     MutationPathogenicityPrediction,
     VariantClassificationClinVar,
 )
+from .dreamt_osa import DREAMTOSAClassification
