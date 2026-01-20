@@ -63,6 +63,10 @@ from .sleep_staging import (
 from .sleep_staging_v2 import SleepStagingSleepEDF
 from .temple_university_EEG_tasks import EEGEventsTUEV
 from .variant_classification import (
-    MutationPathogenicityPrediction,
     VariantClassificationClinVar,
+)
+from .next_visit_diagnosis_prediction import (
+    next_visit_diagnosis_prediction_mimic4_fn,
+    next_visit_diagnosis_prediction_mimic3_fn,
+    next_visit_diagnosis_prediction_eicu_fn,
 )
