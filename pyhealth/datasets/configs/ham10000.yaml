@@ -1,0 +1,13 @@
+version: "1.0"
+tables:
+  ham10000:
+    file_path: "ham10000-metadata-pyhealth.csv"
+    patient_id: "lesion_id"
+    timestamp: null
+    attributes:
+      - "image"
+      - "path"
+      - "label" 
+      - "age"
+      - "sex"
+      - "localization"
