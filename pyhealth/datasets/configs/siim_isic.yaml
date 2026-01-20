@@ -1,0 +1,18 @@
+version: "1.0"
+tables:
+  siim_isic:
+    file_path: "ISIC_2020_Training_GroundTruth.csv"
+    patient_id: "patient_id"
+
+    timestamp: null
+    timestamp_format: null
+
+    attributes:
+      - "image_name"
+      - "patient_id"
+      - "sex"
+      - "age_approx"
+      - "anatom_site_general_challenge"
+      - "diagnosis"
+      - "benign_malignant"
+      - "target"
