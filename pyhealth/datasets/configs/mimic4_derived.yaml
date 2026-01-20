@@ -1,0 +1,21 @@
+version: "3.1"
+tables:
+  vasopressin:
+    file_path: "mimic_iv_vasopressor.csv.gz"
+    patient_id: "stay_id"
+    timestamp: "starttime"
+    attributes:
+    - "stay_id"
+    - "endtime"
+    - "linkorderid"
+    - "vaso_rate"
+    - "vaso_amount"
+
+  ventilation:
+    file_path: "mimic_iv_ventilation_duration.csv.gz"
+    patient_id: "stay_id"
+    timestamp: "starttime"
+    attributes:
+      - "stay_id"
+      - "endtime"
+      - "ventilation_status"
