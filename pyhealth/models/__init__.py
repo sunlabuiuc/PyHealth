@@ -8,6 +8,7 @@ from .deepr import Deepr, DeeprLayer
 from .embedding import EmbeddingModel
 from .gamenet import GAMENet, GAMENetLayer
 from .logistic_regression import LogisticRegression
+from .lasso import Lasso
 from .gan import GAN
 from .gnn import GAT, GCN
 from .graph_torchvision_model import Graph_TorchvisionModel
