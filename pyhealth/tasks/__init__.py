@@ -66,3 +66,7 @@ from .variant_classification import (
     MutationPathogenicityPrediction,
     VariantClassificationClinVar,
 )
+from .diagnosis_prediction import (
+    DiagnosisPredictionMIMIC3,
+    DiagnosisPredictionMIMIC4,
+)
