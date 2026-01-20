@@ -66,3 +66,9 @@ from .variant_classification import (
     MutationPathogenicityPrediction,
     VariantClassificationClinVar,
 )
+from .stress_detection_wesad import (
+    stress_detection_wesad_fn,
+    stress_detection_wesad_binary_fn,
+    stress_detection_wesad_multiclass_fn,
+)
+from .blood_glucose_prediction_ohiot1dm import blood_glucose_prediction_ohiot1dm_fn
