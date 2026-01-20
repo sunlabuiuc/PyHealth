@@ -66,3 +66,8 @@ from .variant_classification import (
     MutationPathogenicityPrediction,
     VariantClassificationClinVar,
 )
+from .covidred import (
+    covidred_detection_fn,
+    covidred_prediction_fn,
+    covidred_multiclass_fn,
+)
