@@ -43,6 +43,8 @@ dependencies = [
   "pyarrow~=22.0.0",
   "narwhals~=2.13.0",
   "more-itertools~=10.8.0",
+  "einops>=0.8.0",
+  "linear-attention-transformer>=0.19.1",
 ]
 license = "BSD-3-Clause"
 license-files = ["LICENSE.md"]
