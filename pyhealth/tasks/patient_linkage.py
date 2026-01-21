@@ -2,7 +2,13 @@ from pyhealth.data import Patient
 
 
 def patient_linkage_mimic3_fn(patient: Patient):
-    """ Patient linkage task for the mimic3 dataset. """
+    """
+    Patient linkage task for the mimic3 dataset (Simple Pair).
+    
+    NOTE: This task only links the last visit with the second-to-last visit.
+    For the full MedLink configuration (linking last visit with ALL previous visits),
+    please use `pyhealth.tasks.patient_linkage_mimic3.PatientLinkageMIMIC3Task`.
+    """
 
     # exclude patients with less than two visits
     if len(patient) < 2:

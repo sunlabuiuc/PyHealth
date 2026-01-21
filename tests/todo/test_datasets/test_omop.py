@@ -5,7 +5,7 @@ from pyhealth.data.data import Event
 import collections
 
 from pyhealth.datasets import OMOPDataset
-from pyhealth.unittests.test_datasets.utils import EHRDatasetStatAssertion
+from tests.todo.test_datasets.utils import EHRDatasetStatAssertion
 
 
 class TestOMOPDataset(unittest.TestCase):
@@ -25,9 +25,7 @@ class TestOMOPDataset(unittest.TestCase):
         dataset_name=DATASET_NAME,
         root=ROOT,
         tables=TABLES,
-        code_mapping=CODE_MAPPING,
         dev=DEV,
-        refresh_cache=REFRESH_CACHE,
     )
 
     def setUp(self):
