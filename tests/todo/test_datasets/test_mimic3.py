@@ -2,7 +2,7 @@ import datetime
 import unittest
 
 from pyhealth.datasets import MIMIC3Dataset
-from pyhealth.unittests.test_datasets.utils import EHRDatasetStatAssertion
+from tests.todo.test_datasets.utils import EHRDatasetStatAssertion
 import os, sys
 
 current = os.path.dirname(os.path.realpath(__file__))
@@ -30,8 +30,6 @@ class TestsMimic3Dataset(unittest.TestCase):
         dataset_name=DATASET_NAME,
         root=ROOT,
         tables=TABLES,
-        code_mapping=CODE_MAPPING,
-        refresh_cache=REFRESH_CACHE,
     )
 
     def setUp(self):

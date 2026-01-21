@@ -5,7 +5,7 @@ from pyhealth.data.data import Event
 import pandas
 
 from pyhealth.datasets import eICUDataset
-from pyhealth.unittests.test_datasets.utils import EHRDatasetStatAssertion
+from tests.todo.test_datasets.utils import EHRDatasetStatAssertion
 
 
 class TesteICUDataset(unittest.TestCase):
