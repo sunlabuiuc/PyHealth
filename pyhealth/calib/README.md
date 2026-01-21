@@ -55,6 +55,18 @@ KCal uses kernel density estimation on embeddings for full multiclass calibratio
 
 Prediction set methods provide set-valued predictions with statistical coverage guarantees.
 
+### BaseConformal (Base Split Conformal Prediction)
+
+**Modes**: `multiclass`
+
+**Class**: `pyhealth.calib.predictionset.BaseConformal`
+
+BaseConformal implements standard split conformal prediction without covariate shift correction. It provides a clean baseline implementation for constructing prediction sets with distribution-free coverage guarantees by calibrating score thresholds on a held-out calibration set.
+
+**References**:
+- Vovk, Vladimir, Alexander Gammerman, and Glenn Shafer. "Algorithmic learning in a random world." Springer, 2005.
+- Lei, Jing, et al. "Distribution-free predictive inference for regression." Journal of the American Statistical Association (2018).
+
 ### LABEL (Least Ambiguous Set-valued Classifier)
 
 **Modes**: `multiclass`
