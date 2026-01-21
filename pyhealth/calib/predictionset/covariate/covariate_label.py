@@ -2,12 +2,24 @@
 Covariate Shift Adaptive Conformal Prediction.
 
 This module implements conformal prediction with covariate shift correction
-using likelihood ratio weighting based on density estimation.
+using likelihood ratio weighting. The implementation supports both:
+1. KDE-based density estimation for automatic weight computation
+2. User-provided custom weights for flexibility
 
-Paper:
+The KDE-based correction approach is based on the CoDrug method, which uses
+energy-based models and kernel density estimation to assess molecular densities
+and construct weighted conformal prediction sets.
+
+Papers:
     Tibshirani, Ryan J., Rina Foygel Barber, Emmanuel Candes, and
     Aaditya Ramdas. "Conformal prediction under covariate shift."
     Advances in neural information processing systems 32 (2019).
+    https://arxiv.org/abs/1904.06019
+    
+    Laghuvarapu, Siddhartha, Zhen Lin, and Jimeng Sun.
+    "Conformal Drug Property Prediction with Density Estimation under 
+    Covariate Shift." NeurIPS 2023.
+    https://arxiv.org/abs/2310.12033
 """
 
 from typing import Callable, Dict, Optional, Union
@@ -33,8 +45,18 @@ def fit_kde(
 ) -> tuple[Callable, Callable]:
     """Fit KDEs on calibration and test embeddings using PyHealth's KDE.
 
+    This implements the KDE-based density estimation approach from the CoDrug
+    paper (Laghuvarapu et al., NeurIPS 2023) for computing likelihood ratios
+    under covariate shift. The method uses kernel density estimation on both
+    calibration and test embeddings to estimate p_test(x) / p_cal(x).
+
     This uses the PyHealth torch-based RBF kernel density estimator
     which is more efficient than sklearn for GPU computation.
+
+    Reference:
+        Laghuvarapu, S., Lin, Z., & Sun, J. (2023). Conformal Drug Property
+        Prediction with Density Estimation under Covariate Shift. NeurIPS 2023.
+        https://arxiv.org/abs/2310.12033
 
     Args:
         cal_embeddings: Calibration embeddings as numpy array of shape
@@ -187,10 +209,22 @@ class CovariateLabel(SetPredictor):
     reweighting calibration examples according to the likelihood ratio
     between test and calibration densities.
 
-    Paper:
+    The default KDE-based approach follows the CoDrug method (Laghuvarapu et al.,
+    NeurIPS 2023), which uses kernel density estimation on embeddings to compute
+    likelihood ratios. Alternatively, users can provide custom weights directly
+    for more flexibility (e.g., from importance sampling, propensity scores, or
+    domain-specific methods).
+
+    Papers:
         Tibshirani, Ryan J., Rina Foygel Barber, Emmanuel Candes, and
         Aaditya Ramdas. "Conformal prediction under covariate shift."
         Advances in neural information processing systems 32 (2019).
+        https://arxiv.org/abs/1904.06019
+        
+        Laghuvarapu, Siddhartha, Zhen Lin, and Jimeng Sun.
+        "Conformal Drug Property Prediction with Density Estimation under 
+        Covariate Shift." NeurIPS 2023.
+        https://arxiv.org/abs/2310.12033
 
     Args:
         model: A trained base model
@@ -200,13 +234,17 @@ class CovariateLabel(SetPredictor):
         kde_test: Optional density estimator fitted on test distribution.
             Should be a callable that takes embeddings (numpy array) and
             returns density estimates. Can be obtained via fit_kde().
+            Used for KDE-based likelihood ratio weighting (CoDrug approach).
         kde_cal: Optional density estimator fitted on calibration
             distribution. Should be a callable that takes embeddings
             (numpy array) and returns density estimates.
+            Used for KDE-based likelihood ratio weighting (CoDrug approach).
         debug: Whether to use debug mode (processes fewer samples for
             faster iteration)
 
     Examples:
+        **Example 1: KDE-based approach (CoDrug method)**
+        
         >>> from pyhealth.datasets import ISRUCDataset
         >>> from pyhealth.datasets import split_by_patient, get_dataloader
         >>> from pyhealth.models import SparcNet
@@ -240,12 +278,8 @@ class CovariateLabel(SetPredictor):
         >>> cal_embs = extract_embeddings(model, val_data)
         >>> test_embs = extract_embeddings(model, test_data)
         >>>
-        >>> # Fit KDEs
-        >>> kde_cal, kde_test = fit_kde(cal_embs, test_embs)
-        >>>
-        >>> # Create covariate-adaptive set predictor
-        >>> cal_model = CovariateLabel(model, alpha=0.1,
-        ...     kde_test=kde_test, kde_cal=kde_cal)
+        >>> # KDE-based approach: automatically compute weights
+        >>> cal_model = CovariateLabel(model, alpha=0.1)
         >>> cal_model.calibrate(cal_dataset=val_data,
         ...     cal_embeddings=cal_embs, test_embeddings=test_embs)
         >>>
@@ -259,6 +293,19 @@ class CovariateLabel(SetPredictor):
         >>> print(get_metrics_fn(cal_model.mode)(
         ...     y_true_all, y_prob_all, metrics=['accuracy', 'miscoverage_ps'],
         ...     y_predset=extra_output['y_predset']))
+        
+        **Example 2: Custom weights approach**
+        
+        >>> # If you have your own covariate shift correction method
+        >>> # (e.g., importance sampling, propensity scores, etc.)
+        >>> def compute_custom_weights(cal_data, test_data):
+        ...     # Your custom weight computation
+        ...     # Should return weights proportional to p_test(x) / p_cal(x)
+        ...     return weights  # shape: (n_cal,)
+        >>>
+        >>> custom_weights = compute_custom_weights(val_data, test_data)
+        >>> cal_model = CovariateLabel(model, alpha=0.1)
+        >>> cal_model.calibrate(cal_dataset=val_data, cal_weights=custom_weights)
     """
 
     def __init__(
@@ -309,42 +356,53 @@ class CovariateLabel(SetPredictor):
         cal_dataset: IterableDataset,
         cal_embeddings: Optional[np.ndarray] = None,
         test_embeddings: Optional[np.ndarray] = None,
+        cal_weights: Optional[np.ndarray] = None,
     ):
         """Calibrate the thresholds with covariate shift correction.
+
+        This method supports three approaches for handling covariate shift:
+        
+        1. **KDE-based (CoDrug approach)**: Provide cal_embeddings and 
+           test_embeddings (and optionally kde_test/kde_cal). The method will
+           use kernel density estimation to compute likelihood ratios.
+           
+        2. **Custom weights**: Directly provide cal_weights computed from your
+           own covariate shift correction method (e.g., importance sampling,
+           propensity scores, discriminator-based methods, etc.).
+           
+        3. **Pre-fitted KDEs**: Provide kde_test and kde_cal during initialization
+           along with cal_embeddings here.
 
         Args:
             cal_dataset: Calibration set
             cal_embeddings: Optional pre-computed calibration embeddings
                 of shape (n_cal, embedding_dim). If provided along with
                 test_embeddings and KDEs are not set, will be used to
-                compute likelihood ratios.
+                compute likelihood ratios via KDE (CoDrug approach).
             test_embeddings: Optional pre-computed test embeddings
                 of shape (n_test, embedding_dim). Used with cal_embeddings
-                for likelihood ratio computation.
+                for KDE-based likelihood ratio computation.
+            cal_weights: Optional custom weights for calibration samples
+                of shape (n_cal,). If provided, these weights will be used
+                directly instead of computing likelihood ratios via KDE.
+                Weights should represent importance weights or likelihood ratios
+                p_test(x) / p_cal(x). These will be normalized internally.
 
         Note:
-            You must either:
-            1. Provide kde_test and kde_cal during initialization, OR
-            2. Provide cal_embeddings and test_embeddings here
+            You must provide ONE of:
+            1. cal_weights (custom weights), OR
+            2. kde_test and kde_cal during initialization, OR
+            3. cal_embeddings and test_embeddings here
 
-            If you provide embeddings, likelihood ratios will be computed
-            by evaluating the KDEs on the calibration embeddings only.
+        Examples:
+            >>> # Approach 1: KDE-based (CoDrug)
+            >>> model.calibrate(cal_dataset, cal_embeddings, test_embeddings)
+            >>> 
+            >>> # Approach 2: Custom weights (e.g., from importance sampling)
+            >>> custom_weights = compute_importance_weights(cal_data, test_data)
+            >>> model.calibrate(cal_dataset, cal_weights=custom_weights)
         """
-        # Check if we have KDEs
-        if self.kde_test is None or self.kde_cal is None:
-            if cal_embeddings is None or test_embeddings is None:
-                raise ValueError(
-                    "Must provide either:\n"
-                    "  1. kde_test and kde_cal during __init__, OR\n"
-                    "  2. cal_embeddings and test_embeddings during "
-                    "calibrate()"
-                )
-
-            # Fit KDEs if embeddings provided
-            print("Fitting KDEs on provided embeddings...")
-            self.kde_cal, self.kde_test = fit_kde(cal_embeddings, test_embeddings)
-
-        # Get predictions and true labels
+        # Get predictions and true labels first
         cal_dataset_dict = prepare_numpy_dataset(
             self.model,
             cal_dataset,
@@ -356,20 +414,49 @@ class CovariateLabel(SetPredictor):
         y_true = cal_dataset_dict["y_true"]
         N, K = y_prob.shape
 
-        # Use provided embeddings or extract from calibration data
-        if cal_embeddings is not None:
-            X = cal_embeddings
+        # Determine weights: either custom or KDE-based
+        if cal_weights is not None:
+            # Use custom weights provided by user
+            if len(cal_weights) != N:
+                raise ValueError(
+                    f"cal_weights must have length {N} (size of calibration set), "
+                    f"got {len(cal_weights)}"
+                )
+            likelihood_ratios = np.asarray(cal_weights, dtype=np.float64)
+            print("Using custom calibration weights")
         else:
-            # KDEs should already be provided in this case
-            # We just need to get the embeddings for likelihood ratio
-            # This assumes the model outputs embeddings
-            raise NotImplementedError(
-                "Automatic embedding extraction not yet supported. "
-                "Please provide cal_embeddings and test_embeddings."
-            )
+            # Use KDE-based approach (CoDrug method)
+            # Check if we have KDEs
+            if self.kde_test is None or self.kde_cal is None:
+                if cal_embeddings is None or test_embeddings is None:
+                    raise ValueError(
+                        "Must provide ONE of:\n"
+                        "  1. cal_weights (custom weights), OR\n"
+                        "  2. kde_test and kde_cal during __init__, OR\n"
+                        "  3. cal_embeddings and test_embeddings during calibrate()"
+                    )
 
-        # Compute likelihood ratios for covariate shift correction
-        likelihood_ratios = _compute_likelihood_ratio(self.kde_test, self.kde_cal, X)
+                # Fit KDEs if embeddings provided
+                print("Fitting KDEs on provided embeddings (CoDrug approach)...")
+                self.kde_cal, self.kde_test = fit_kde(cal_embeddings, test_embeddings)
+
+            # Use provided embeddings or extract from calibration data
+            if cal_embeddings is not None:
+                X = cal_embeddings
+            else:
+                # KDEs should already be provided in this case
+                # We just need to get the embeddings for likelihood ratio
+                # This assumes the model outputs embeddings
+                raise NotImplementedError(
+                    "Automatic embedding extraction not yet supported. "
+                    "Please provide cal_embeddings and test_embeddings."
+                )
+
+            # Compute likelihood ratios using KDE
+            print("Computing likelihood ratios via KDE...")
+            likelihood_ratios = _compute_likelihood_ratio(
+                self.kde_test, self.kde_cal, X
+            )
 
         # Normalize weights
         weights = likelihood_ratios / np.sum(likelihood_ratios)
@@ -419,11 +506,18 @@ class CovariateLabel(SetPredictor):
 
 
 if __name__ == "__main__":
-    # Example usage (requires actual density estimators)
+    """
+    Demonstration of three approaches for covariate shift correction:
+    1. Embeddings approach: Automatic KDE computation (CoDrug method)
+    2. Pre-fitted KDEs approach: User provides KDE estimators
+    3. Custom weights approach: User provides custom importance weights
+    """
     from pyhealth.datasets import ISRUCDataset, split_by_patient, get_dataloader
     from pyhealth.models import SparcNet
     from pyhealth.tasks import sleep_staging_isruc_fn
+    from pyhealth.trainer import Trainer, get_metrics_fn
 
+    # Setup data and model
     sleep_ds = ISRUCDataset("/srv/local/data/trash", dev=True).set_task(
         sleep_staging_isruc_fn
     )
@@ -432,27 +526,144 @@ if __name__ == "__main__":
     model = SparcNet(
         dataset=sleep_ds, feature_keys=["signal"], label_key="label", mode="multiclass"
     )
+    # ... Train the model here ...
 
-    # Note: In practice, you would fit proper KDE estimators here
-    # For demonstration, using dummy estimators
-    def dummy_kde(data):
-        return np.ones(len(data))
+    # Helper function to extract embeddings (mock implementation)
+    def extract_embeddings(model, dataset):
+        """Extract embeddings from model for a dataset."""
+        # In practice, you would do:
+        # loader = get_dataloader(dataset, batch_size=32, shuffle=False)
+        # all_embs = []
+        # for batch in loader:
+        #     batch['embed'] = True
+        #     output = model(**batch)
+        #     all_embs.append(output['embed'].cpu().numpy())
+        # return np.concatenate(all_embs, axis=0)
+        
+        # For demo, return random embeddings
+        n_samples = len(dataset)
+        embedding_dim = 64
+        return np.random.randn(n_samples, embedding_dim)
 
-    cal_model = CovariateLabel(model, alpha=0.1, kde_test=dummy_kde, kde_cal=dummy_kde)
-    cal_model.calibrate(cal_dataset=val_data)
+    print("=" * 80)
+    print("APPROACH 1: Embeddings (Automatic KDE - CoDrug Method)")
+    print("=" * 80)
+    print("This approach automatically computes KDEs from embeddings.")
+    print("Best for: When you have model embeddings and want automatic density estimation.\n")
+
+    # Extract embeddings from calibration and test sets
+    cal_embeddings = extract_embeddings(model, val_data)
+    test_embeddings = extract_embeddings(model, test_data)
+
+    # Create model and calibrate with embeddings
+    cal_model_1 = CovariateLabel(model, alpha=0.1)
+    cal_model_1.calibrate(
+        cal_dataset=val_data,
+        cal_embeddings=cal_embeddings,
+        test_embeddings=test_embeddings
+    )
 
     # Evaluate
-    from pyhealth.trainer import Trainer, get_metrics_fn
-
     test_dl = get_dataloader(test_data, batch_size=32, shuffle=False)
-    y_true_all, y_prob_all, _, extra_output = Trainer(model=cal_model).inference(
+    y_true, y_prob, _, extra = Trainer(model=cal_model_1).inference(
         test_dl, additional_outputs=["y_predset"]
     )
-    print(
-        get_metrics_fn(cal_model.mode)(
-            y_true_all,
-            y_prob_all,
-            metrics=["accuracy", "miscoverage_ps"],
-            y_predset=extra_output["y_predset"],
-        )
+    metrics_1 = get_metrics_fn(cal_model_1.mode)(
+        y_true, y_prob,
+        metrics=["accuracy", "miscoverage_ps"],
+        y_predset=extra["y_predset"]
     )
+    print(f"Results: {metrics_1}\n")
+
+    print("=" * 80)
+    print("APPROACH 2: Pre-fitted KDEs")
+    print("=" * 80)
+    print("This approach uses pre-computed KDE estimators.")
+    print("Best for: When you want control over KDE parameters or reuse KDEs.\n")
+
+    # Fit KDEs separately with custom parameters
+    kde_cal, kde_test = fit_kde(
+        cal_embeddings,
+        test_embeddings,
+        bandwidth=0.5,  # Custom bandwidth
+        kernel="rbf"
+    )
+
+    # Create model with pre-fitted KDEs
+    cal_model_2 = CovariateLabel(
+        model,
+        alpha=0.1,
+        kde_test=kde_test,
+        kde_cal=kde_cal
+    )
+    cal_model_2.calibrate(
+        cal_dataset=val_data,
+        cal_embeddings=cal_embeddings  # Still need embeddings for likelihood ratio computation
+    )
+
+    # Evaluate
+    y_true, y_prob, _, extra = Trainer(model=cal_model_2).inference(
+        test_dl, additional_outputs=["y_predset"]
+    )
+    metrics_2 = get_metrics_fn(cal_model_2.mode)(
+        y_true, y_prob,
+        metrics=["accuracy", "miscoverage_ps"],
+        y_predset=extra["y_predset"]
+    )
+    print(f"Results: {metrics_2}\n")
+
+    print("=" * 80)
+    print("APPROACH 3: Custom Weights")
+    print("=" * 80)
+    print("This approach uses user-provided importance weights.")
+    print("Best for: Alternative covariate shift methods (importance sampling,")
+    print("          propensity scores, discriminator-based, domain-specific).\n")
+
+    # Compute custom weights using your own method
+    # Examples of custom weight computation:
+    
+    # Option A: Uniform weights (no covariate shift correction)
+    custom_weights = np.ones(len(val_data))
+    
+    # Option B: Importance sampling weights (mock example)
+    # In practice, you might use:
+    # - Discriminator-based methods
+    # - Propensity score matching
+    # - Domain adaptation techniques
+    # - Energy-based models
+    # custom_weights = compute_importance_weights(val_data, test_data)
+    
+    # Option C: Exponential weights based on distance (mock example)
+    # distances = compute_distribution_distances(val_data, test_data)
+    # custom_weights = np.exp(-distances)
+    
+    print(f"Using custom weights (shape: {custom_weights.shape})")
+
+    # Create model and calibrate with custom weights
+    cal_model_3 = CovariateLabel(model, alpha=0.1)
+    cal_model_3.calibrate(
+        cal_dataset=val_data,
+        cal_weights=custom_weights  # Provide weights directly
+    )
+
+    # Evaluate
+    y_true, y_prob, _, extra = Trainer(model=cal_model_3).inference(
+        test_dl, additional_outputs=["y_predset"]
+    )
+    metrics_3 = get_metrics_fn(cal_model_3.mode)(
+        y_true, y_prob,
+        metrics=["accuracy", "miscoverage_ps"],
+        y_predset=extra["y_predset"]
+    )
+    print(f"Results: {metrics_3}\n")
+
+    print("=" * 80)
+    print("SUMMARY")
+    print("=" * 80)
+    print("Approach 1 (Embeddings):     ", metrics_1)
+    print("Approach 2 (Pre-fitted KDEs):", metrics_2)
+    print("Approach 3 (Custom Weights): ", metrics_3)
+    print("\nAll three approaches are valid and can be chosen based on your needs!")
+    print("- Use Approach 1 for simplicity with embeddings (CoDrug method)")
+    print("- Use Approach 2 for fine-grained control over KDE parameters")
+    print("- Use Approach 3 for alternative covariate shift correction methods")
