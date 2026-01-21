@@ -55,7 +55,7 @@ from .readmission_prediction import (
     readmission_prediction_eicu_fn,
     readmission_prediction_eicu_fn2,
     readmission_prediction_mimic4_fn,
-    readmission_prediction_omop_fn,
+    ReadmissionPredictionOMOP,
 )
 from .sleep_staging import (
     sleep_staging_isruc_fn,
@@ -68,3 +68,4 @@ from .variant_classification import (
     MutationPathogenicityPrediction,
     VariantClassificationClinVar,
 )
+from .patient_linkage_mimic3 import PatientLinkageMIMIC3Task

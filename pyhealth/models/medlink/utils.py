@@ -7,6 +7,19 @@ from torch.utils.data import DataLoader
 
 
 def convert_to_ir_format(samples):
+    """
+    Converts a list of samples (dictionaries) into Information Retrieval (IR) format buffers.
+
+    Args:
+        samples: List of dictionaries, each containing patient linkage data (visits, conditions, metadata).
+
+    Returns:
+        corpus: Dict[d_visit_id, d_conditions]
+        queries: Dict[visit_id, conditions]
+        qrels: Dict[visit_id, Dict[d_visit_id, 1]] (ground truth positive pairs)
+        corpus_meta: Dict[d_visit_id, metadata]
+        queries_meta: Dict[visit_id, metadata]
+    """
     corpus = {}
     queries = {}
     qrels = {}
@@ -24,6 +37,19 @@ def convert_to_ir_format(samples):
 
 
 def generate_candidates(corpus_meta, queries_meta):
+    """
+    Generates candidate positives (hard filters) based on basic metadata (age and identifiers).
+    
+    Candidates are database records that match the query's age and identifiers.
+    This is used to reduce the search space and finding hard negatives.
+
+    Args:
+        corpus_meta: Dict of corpus metadata.
+        queries_meta: Dict of query metadata.
+
+    Returns:
+        candidates: Dict[q_id, List[c_id]] mapping each query to a list of candidate corpus IDs.
+    """
     candidates = {}
     for q_id, q_meta in queries_meta.items():
         age = q_meta["age"]
@@ -43,6 +69,18 @@ def generate_candidates(corpus_meta, queries_meta):
 
 
 def filter_by_candidates(results, qrels, candidates):
+    """
+    Filters search results to only include items present in the candidate lists.
+    Also ensures validation/test ground truth (qrels) are included in the results.
+
+    Args:
+        results: Dict[q_id, Dict[c_id, score]]
+        qrels: Dict[q_id, Dict[c_id, label]]
+        candidates: Dict[q_id, List[c_id]]
+
+    Returns:
+        filtered_results: Dict[q_id, Dict[c_id, score]]
+    """
     filtered_results = {}
     for q_id, scores in results.items():
         c_ids = list(qrels[q_id].keys())
@@ -55,6 +93,14 @@ def filter_by_candidates(results, qrels, candidates):
 
 
 def tvt_split(queries, qrels, train_ratio=0.7, val_ratio=0.1, test_ratio=0.2):
+    """
+    Splits queries and their corresponding qrels into train/val/test sets.
+    The split is done on the query level (unseen queries).
+
+    Returns:
+        train_queries, val_queries, test_queries
+        train_qrels, val_qrels, test_qrels
+    """
     assert train_ratio + val_ratio + test_ratio == 1
     qids = list(queries.keys())
     np.random.shuffle(qids)
@@ -73,6 +119,15 @@ def tvt_split(queries, qrels, train_ratio=0.7, val_ratio=0.1, test_ratio=0.2):
 
 
 def get_bm25_hard_negatives(bm25_model, corpus, queries, qrels):
+    """
+    Mines hard negatives using BM25.
+    
+    For each query, finds corpus items that have high BM25 scores but are not the positive ground truth.
+    Adds these negatives to the qrels with label -1.
+
+    Returns:
+        qrels_w_neg: Updated qrels dictionary containing both positives (1) and negatives (-1).
+    """
     qrels_w_neg = {}
     for q_id, q in tqdm.tqdm(queries.items()):
         d_ids = [d_id for d_id in qrels[q_id] if qrels[q_id][d_id] > 0]
@@ -102,6 +157,18 @@ def get_train_dataloader(
     batch_size: int,
     shuffle: bool = True
 ):
+    """
+    Creates a DataLoader for training. Each batch contains (query, pos, neg) triplets or (query, pos) pairs.
+
+    Args:
+        corpus: Dict mapping corpus_id to content.
+        queries: Dict mapping query_id to content.
+        qrels: Dict mapping query_id to {corpus_id: label}. Label 1 is positive, -1 is negative.
+
+    Returns:
+        DataLoader returning batches of dicts.
+    """
+
     query_ids = list(queries.keys())
     train_samples = []
     for query_id in query_ids:
@@ -145,6 +212,13 @@ def get_eval_dataloader(
     queries: Dict[str, str],
     batch_size: int
 ):
+    """
+    Creates DataLoaders for evaluation (corpus and queries separately).
+
+    Returns:
+        eval_corpus_dataloader, eval_queries_dataloader
+    """
+
     corpus_ids = list(corpus.keys())
     eval_samples = []
     for corpus_id in corpus_ids:
