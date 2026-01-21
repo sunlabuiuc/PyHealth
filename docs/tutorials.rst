@@ -104,6 +104,8 @@ These examples are located in ``examples/readmission/``.
      - RNN for readmission prediction on MIMIC-III
    * - ``readmission/readmission_mimic3_fairness.py``
      - Fairness-aware readmission prediction on MIMIC-III
+    * - ``readmission/readmission_omop_rnn.py``
+     - RNN for readmission prediction on OMOP dataset
 
 Survival Prediction
 -------------------
