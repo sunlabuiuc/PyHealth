@@ -31,6 +31,7 @@ We implement the following models for supporting multiple healthcare predictive 
     models/pyhealth.models.GRASP
     models/pyhealth.models.MedLink
     models/pyhealth.models.TCN
+    models/pyhealth.models.TFMTokenizer
     models/pyhealth.models.GAN
     models/pyhealth.models.VAE
     models/pyhealth.models.SDOH
