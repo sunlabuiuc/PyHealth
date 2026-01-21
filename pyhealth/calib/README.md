@@ -107,10 +107,11 @@ FavMac constructs prediction sets that maximize value while controlling cost/ris
 
 **Class**: `pyhealth.calib.predictionset.CovariateLabel`
 
-CovariateLabel extends LABEL to handle covariate shift between calibration and test distributions using likelihood ratio weighting.
+CovariateLabel extends LABEL to handle covariate shift between calibration and test distributions using likelihood ratio weighting. The default KDE-based approach follows the CoDrug method, which uses kernel density estimation on embeddings to compute likelihood ratios. Users can also provide custom weights for flexibility.
 
-**Reference**:
-- Tibshirani, Ryan J., Rina Foygel Barber, Emmanuel Candes, and Aaditya Ramdas. "Conformal prediction under covariate shift." NeurIPS 2019.
+**References**:
+- Tibshirani, Ryan J., Rina Foygel Barber, Emmanuel Candes, and Aaditya Ramdas. "Conformal prediction under covariate shift." NeurIPS 2019. https://arxiv.org/abs/1904.06019
+- Laghuvarapu, Siddhartha, Zhen Lin, and Jimeng Sun. "Conformal Drug Property Prediction with Density Estimation under Covariate Shift." NeurIPS 2023. https://arxiv.org/abs/2310.12033
 
 ## Usage
 
