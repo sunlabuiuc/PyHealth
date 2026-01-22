@@ -79,6 +79,7 @@ Available Tasks
     MIMIC-III ICD-9 Coding <tasks/pyhealth.tasks.MIMIC3ICD9Coding>
     Cardiology Detection <tasks/pyhealth.tasks.cardiology_detect>
     COVID-19 CXR Classification <tasks/pyhealth.tasks.COVID19CXRClassification>
+    DKA Prediction (MIMIC-IV) <tasks/pyhealth.tasks.dka>
     Drug Recommendation <tasks/pyhealth.tasks.drug_recommendation>
     EEG Abnormal <tasks/pyhealth.tasks.EEG_abnormal>
     EEG Events <tasks/pyhealth.tasks.EEG_events>
