@@ -291,9 +291,9 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
     Modality Coverage:
         - No modality requirements - returns all patients
         - Coverage analysis should be done downstream
-        - Discharge and radiology notes are returned as lists
-        - Uses "raw" processor for notes, labs, and image to preserve structure
-        - Labs is a tuple of (times_list, values_list) for time-series data
+        - Discharge and radiology notes are returned as lists (raw processor)
+        - lab_values uses nested_sequence_floats processor for 10D vectors
+        - lab_times is a separate list of time offsets (raw processor)
 
     Lab Processing:
         - 10-dimensional vectors (one per lab category)
@@ -346,9 +346,10 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
             "conditions": "nested_sequence",  # Nested by visit
             "procedures": "nested_sequence",  # Nested by visit
             "drugs": "nested_sequence",  # Nested by visit
-            "discharge": "raw",  # List of discharge notes (JSON serialized)
-            "radiology": "raw",  # List of radiology notes (JSON serialized)
-            "labs": "raw",  # Labs as string (pre-encoded in task)
+            "discharge": "raw",  # List of discharge notes
+            "radiology": "raw",  # List of radiology notes
+            "lab_values": "nested_sequence_floats",  # 10D lab vectors per timestamp
+            "lab_times": "raw",  # Lab measurement times (hours from first admission)
             "negbio_findings": "sequence",  # NegBio X-ray findings
             "image_path": "text",  # Image path as text string
         }
@@ -689,26 +690,24 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
             return []
 
         # Sort lab events by time and create aggregated labs data
-        # Pre-encode as string to avoid litdata serialization issues with floats/None
-        import json
+        # Use nested_sequence_floats processor for lab_values (handles None values)
         if all_lab_times:
             sorted_indices = sorted(
                 range(len(all_lab_times)), key=lambda k: all_lab_times[k]
             )
             sorted_lab_times = [all_lab_times[i] for i in sorted_indices]
             sorted_lab_values = [all_lab_values[i] for i in sorted_indices]
-            # Encode as JSON string in task (raw processor will pass through)
-            aggregated_labs = json.dumps([sorted_lab_times, sorted_lab_values])
         else:
-            aggregated_labs = json.dumps([[], []])
+            sorted_lab_times = []
+            sorted_lab_values = []
 
         # Deduplicate negbio findings (flat sequence)
         unique_negbio = list(dict.fromkeys(all_negbio_findings))
 
         # Return single patient-level sample with heterogeneous features
         # Note: conditions/procedures/drugs are nested lists (one list per visit)
-        # Note: discharge and radiology are lists (JSON serialized by raw processor)
-        # Note: labs is pre-encoded as JSON string to handle floats/None
+        # Note: discharge and radiology are lists (passed through by raw processor)
+        # Note: lab_values uses nested_sequence_floats processor (handles None values)
         return [
             {
                 "patient_id": patient.patient_id,
@@ -717,7 +716,8 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
                 "drugs": all_drugs,  # Nested: [[visit1_codes], [visit2_codes], ...]
                 "discharge": all_discharge_notes,  # List of discharge notes
                 "radiology": all_radiology_notes,  # List of radiology notes
-                "labs": aggregated_labs,  # Pre-encoded JSON string
+                "lab_values": sorted_lab_values,  # Nested floats: [[10D vector], ...]
+                "lab_times": sorted_lab_times,  # List of times (hours from first admission)
                 "negbio_findings": unique_negbio,  # NegBio X-ray findings
                 "image_path": image_path,  # Image path as string
                 "mortality": mortality_label,

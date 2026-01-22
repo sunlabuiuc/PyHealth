@@ -600,26 +600,17 @@ def showcase_sample(sample: Dict[str, Any], sample_dataset=None,
                 print(f"  [Visit {visit_idx + 1}] {len(visit_drugs)} drugs: {drugs_preview}")
 
     # =========================================================================
-    # Clinical Notes (now returned as lists)
+    # Clinical Notes (returned as lists via raw processor)
     # =========================================================================
     print_section("Clinical Notes")
     print("  (Notes shown in chronological visit order)")
 
-    # Helper to deserialize raw processor output (JSON)
-    import json
-
-    def deserialize_raw(value, default=None):
-        if isinstance(value, str):
-            try:
-                return json.loads(value)
-            except (json.JSONDecodeError, TypeError):
-                return value
-        return value if value is not None else default
-
-    # Radiology reports (list of notes)
-    radiology_notes = deserialize_raw(sample.get("radiology"), [])
+    # Notes are returned as lists directly (raw processor passes through unchanged)
+    radiology_notes = sample.get("radiology", [])
     if isinstance(radiology_notes, str):
         radiology_notes = [radiology_notes] if radiology_notes else []
+    elif radiology_notes is None:
+        radiology_notes = []
     print_subsection(f"Radiology Reports ({len(radiology_notes)} notes)")
     if radiology_notes:
         # Show snippet of each note with visit index
@@ -633,9 +624,11 @@ def showcase_sample(sample: Dict[str, Any], sample_dataset=None,
         print("  [No radiology notes available]")
 
     # Discharge summaries (list of notes)
-    discharge_notes = deserialize_raw(sample.get("discharge"), [])
+    discharge_notes = sample.get("discharge", [])
     if isinstance(discharge_notes, str):
         discharge_notes = [discharge_notes] if discharge_notes else []
+    elif discharge_notes is None:
+        discharge_notes = []
     print_subsection(f"Discharge Summaries ({len(discharge_notes)} notes)")
     if discharge_notes:
         # Show snippet of each note with visit index
@@ -653,17 +646,20 @@ def showcase_sample(sample: Dict[str, Any], sample_dataset=None,
     # =========================================================================
     print_section("Lab Events (Time-Series, Aggregated)")
 
-    # Labs are pre-encoded as JSON string in task, then JSON-serialized by raw processor
-    # So we need to deserialize twice: raw processor output -> pre-encoded string -> data
-    labs_raw = deserialize_raw(sample.get("labs"), "")
+    # Lab data is now returned as:
+    # - lab_values: tensor from nested_sequence_floats processor (shape: num_timestamps x 10)
+    # - lab_times: list of floats from raw processor
+    lab_values_tensor = sample.get("lab_values")
+    lab_times_raw = sample.get("lab_times", [])
+    
     labs_data = None
-    if labs_raw and isinstance(labs_raw, str):
-        try:
-            labs_list = json.loads(labs_raw)  # Second decode
-            if isinstance(labs_list, list) and len(labs_list) == 2:
-                labs_data = (labs_list[0], labs_list[1])
-        except (json.JSONDecodeError, TypeError):
-            pass
+    if lab_values_tensor is not None and len(lab_times_raw) > 0:
+        # Convert tensor to list of lists for display functions
+        if hasattr(lab_values_tensor, 'tolist'):
+            lab_values_list = lab_values_tensor.tolist()
+        else:
+            lab_values_list = list(lab_values_tensor)
+        labs_data = (lab_times_raw, lab_values_list)
 
     if labs_data and len(labs_data[0]) > 0:
         display_lab_stats(labs_data)

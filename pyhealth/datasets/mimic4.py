@@ -254,7 +254,6 @@ class MIMIC4Dataset(BaseDataset):
             dev=dev,
             cache_dir=cache_dir,
             num_workers=num_workers,
-            **kwargs
         )
 
         # Initialize child datasets
