@@ -3,10 +3,14 @@
 This module defines the interface that all interpretability/attribution
 methods must implement. It ensures consistency across different methods
 and makes it easy to swap between different attribution techniques.
+
+The key API contract is that ``attribute()`` returns a dictionary keyed by
+the model's feature keys (as defined by the task schema), making it easy to
+map attributions back to specific input modalities.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Optional
+from typing import Dict
 
 import torch
 import torch.nn as nn
@@ -22,53 +26,78 @@ class BaseInterpreter(ABC):
     features, explaining which features contributed most to the model's
     prediction.
 
-    All interpretability methods should:
-    1. Take a trained model in their constructor
-    2. Implement the `attribute()` method
-    3. Return attributions as a dictionary matching input shapes
-    4. Work with any PyHealth model (or at least clearly document
-       compatibility requirements)
+    **API Contract:**
 
-    The `attribute()` method is the core interface that:
-    - Takes model inputs (as would be passed to model.forward())
-    - Computes attribution scores for each input feature
-    - Returns a dictionary mapping feature keys to attribution tensors
-    - Attribution tensors have the same shape as input tensors
-    - Higher absolute values indicate more important features
+    All interpretability methods should:
+
+    1. Take a trained model in their constructor
+    2. Implement the ``attribute()`` method
+    3. Return attributions as a dictionary **keyed by the model's feature keys**
+       (as defined by the task's ``input_schema``)
+    4. Work with any PyHealth model (or clearly document compatibility)
+
+    The ``attribute()`` method returns a dictionary that mirrors the task schema:
+
+    - For EHR tasks with ``input_schema={"conditions": "sequence", "procedures": "sequence"}``,
+      returns ``{"conditions": attr_tensor, "procedures": attr_tensor}``
+    - For image tasks with ``input_schema={"image": "image"}``,
+      returns ``{"image": attr_tensor}``
+
+    This design ensures attributions are dynamically tied to dataset feature keys,
+    making the API consistent across CXR datasets, EHR datasets, or any custom
+    task schema.
 
     Subclasses should implement:
-        - __init__(self, model, **kwargs): Initialize with model and
+        - ``__init__(self, model, **kwargs)``: Initialize with model and
           method-specific parameters
-        - attribute(self, **data): Compute attributions for given inputs
+        - ``attribute(self, **data)``: Compute attributions for given inputs
 
     Args:
-        model (BaseModel or nn.Module): A trained PyHealth model to
-            interpret. Should be in evaluation mode during attribution
-            computation.
+        model (BaseModel or nn.Module): A trained PyHealth model to interpret.
+            The model must have ``feature_keys`` (list of input feature names)
+            derived from the dataset's task schema. Should be in evaluation
+            mode during attribution computation.
 
-    Examples:
-        >>> # Example of implementing a new attribution method
-        >>> class MyAttributionMethod(BaseInterpreter):
-        ...     def __init__(self, model, some_param=1.0):
-        ...         super().__init__(model)
-        ...         self.some_param = some_param
-        ...
-        ...     def attribute(self, **data):
-        ...         # Implement attribution computation
-        ...         attributions = {}
-        ...         for key in self.model.feature_keys:
-        ...             # Compute importance scores
-        ...             attributions[key] = compute_scores(data[key])
-        ...         return attributions
+    Example:
+        >>> # Example 1: EHR data with multiple feature keys
+        >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
+        >>> from pyhealth.models import Transformer
         >>>
-        >>> # Using the attribution method
-        >>> model = StageNet(dataset=dataset)
-        >>> interpreter = MyAttributionMethod(model)
-        >>> batch = next(iter(dataloader))
+        >>> samples = [
+        ...     {
+        ...         "patient_id": "p0",
+        ...         "visit_id": "v0",
+        ...         "conditions": ["A05B", "A05C", "A06A"],
+        ...         "procedures": ["P01", "P02"],
+        ...         "label": 1,
+        ...     },
+        ... ]
+        >>> dataset = create_sample_dataset(
+        ...     samples=samples,
+        ...     input_schema={"conditions": "sequence", "procedures": "sequence"},
+        ...     output_schema={"label": "binary"},
+        ...     dataset_name="ehr_example",
+        ... )
+        >>> model = Transformer(dataset=dataset)
+        >>> # model.feature_keys == ["conditions", "procedures"]
+        >>>
+        >>> interpreter = CheferRelevance(model)
+        >>> batch = next(iter(get_dataloader(dataset, batch_size=1)))
         >>> attributions = interpreter.attribute(**batch)
+        >>> # Returns: {"conditions": tensor(...), "procedures": tensor(...)}
+        >>> print(attributions.keys())  # dict_keys(['conditions', 'procedures'])
+        >>>
+        >>> # Example 2: Image data (CXR) with single feature key
+        >>> # Given task schema: input_schema={"image": "image"}
+        >>> # model.feature_keys == ["image"] (or model.feature_key == "image")
+        >>>
+        >>> interpreter = CheferRelevance(vit_model)
+        >>> attributions = interpreter.attribute(**batch)
+        >>> # Returns: {"image": tensor(...)} - keyed by the task's feature key
+        >>> print(attributions["image"].shape)  # [batch, 1, H, W]
     """
 
-    def __init__(self, model: nn.Module):
+    def __init__(self, model: BaseModel):
         """Initialize the base interpreter.
 
         Args:
@@ -95,28 +124,46 @@ class BaseInterpreter(ABC):
         indicating which features were most important for the model's
         prediction.
 
+        **Important:** The returned dictionary must be keyed by the model's
+        feature keys (from ``model.feature_keys`` or ``model.feature_key``),
+        which are derived from the task's ``input_schema``. This ensures
+        attributions map directly to the input modalities defined in the task.
+
         Args:
             **data: Input data dictionary from a dataloader batch. Should
                 contain at minimum:
-                - Feature keys (e.g., 'conditions', 'procedures', 'icd_codes'):
-                  Input tensors or sequences for each modality. The exact
-                  keys depend on the model's feature_keys.
-                - 'label' (optional): Ground truth labels, may be needed by
-                  some methods but not used in attribution computation.
-                - Additional method-specific parameters can be passed here
-                  (e.g., target_class_idx, baseline, steps).
+
+                - Feature keys (e.g., ``"conditions"``, ``"procedures"``,
+                  ``"image"``): Input tensors for each modality as defined
+                  by the task's ``input_schema``.
+                - Label key (optional): Ground truth labels, may be needed
+                  by some methods for loss computation.
+                - ``class_index`` (optional): Target class for attribution.
+                  If not provided, uses the predicted class.
+                - Additional method-specific parameters (e.g., ``baseline``,
+                  ``steps``, ``interpolate``).
 
                 The data dictionary should match what would be passed to
-                the model's forward() method.
+                the model's ``forward()`` method.
 
         Returns:
-            Dict[str, torch.Tensor]: Dictionary mapping each feature key to
-                its attribution tensor. Each attribution tensor:
-                - Has the same shape as the corresponding input tensor
+            Dict[str, torch.Tensor]: Dictionary mapping **each feature key**
+                to its attribution tensor. The keys must match the model's
+                feature keys from the task schema.
+
+                For EHR tasks::
+
+                    {"conditions": tensor, "procedures": tensor, ...}
+
+                For image tasks::
+
+                    {"image": tensor}  # Shape: [batch, 1, H, W] for spatial
+
+                Each attribution tensor:
+
                 - Contains real-valued importance scores
                 - Higher absolute values = more important features
-                - Can be positive (increases prediction) or negative
-                  (decreases prediction) depending on the method
+                - Can be positive or negative depending on the method
                 - Should be on the same device as the input
 
         Raises:
@@ -125,51 +172,38 @@ class BaseInterpreter(ABC):
         Note:
             **Attribution Properties:**
 
-            Different attribution methods may produce scores with different
+            Different attribution methods produce scores with different
             properties:
 
             1. **Sign**: Some methods produce only positive scores (e.g.,
-               attention weights), while others can produce both positive
-               and negative scores (e.g., Integrated Gradients).
+               attention weights), while others produce both positive and
+               negative scores (e.g., Integrated Gradients, DeepLift).
 
-            2. **Magnitude**: Scores may be:
-               - Normalized to sum to 1 (probability-like)
-               - Unnormalized gradients or relevance scores
-               - Relative importance within each feature modality
+            2. **Magnitude**: Scores may be normalized (sum to 1) or
+               unnormalized (raw gradients/relevance).
 
-            3. **Interpretation**: Higher absolute values generally mean
-               more important, but the exact interpretation depends on the
-               method.
+            3. **Shape**: For sequential data, shape matches input tokens.
+               For images, shape is typically ``[batch, 1, H, W]`` for
+               spatial attribution maps.
 
             **Common Patterns:**
 
-            - Gradient-based methods (IG, Saliency): Can be positive or
-              negative, represent contribution to output change
-            - Attention-based methods (Chefer): Usually positive, represent
-              relevance or importance
-            - Perturbation-based methods (LIME, SHAP): Can be positive or
-              negative, represent feature contribution
+            - Gradient-based (IG, Saliency): +/- scores, contribution to output
+            - Attention-based (Chefer): Usually positive, relevance/importance
+            - Perturbation-based (LIME, SHAP): +/- scores, feature contribution
 
-        Examples:
-            >>> # Basic usage
-            >>> interpreter = IntegratedGradients(model)
+        Example:
+            >>> # EHR model with multiple feature keys
+            >>> interpreter = DeepLift(model)
             >>> batch = next(iter(test_loader))
             >>> attributions = interpreter.attribute(**batch)
-            >>> print(attributions.keys())  # Feature keys
-            >>> print(attributions['conditions'].shape)  # Same as input
+            >>> print(attributions.keys())  # ['conditions', 'procedures']
             >>>
-            >>> # With method-specific parameters
-            >>> attributions = interpreter.attribute(
-            ...     **batch,
-            ...     target_class_idx=1,  # Attribute to specific class
-            ...     steps=50  # Method-specific parameter
-            ... )
-            >>>
-            >>> # Analyze most important features
-            >>> cond_attr = attributions['conditions'][0]  # First sample
-            >>> top_features = torch.topk(torch.abs(cond_attr), k=5)
-            >>> print(f"Top 5 features: {top_features.indices}")
-            >>> print(f"Importance scores: {top_features.values}")
+            >>> # Image model (CXR) with single feature key
+            >>> interpreter = CheferRelevance(vit_model)
+            >>> attributions = interpreter.attribute(**batch)
+            >>> print(attributions.keys())  # ['image']
+            >>> print(attributions['image'].shape)  # [1, 1, 224, 224]
         """
         pass
 
