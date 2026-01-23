@@ -2,7 +2,7 @@
 Unit tests for the ChestXray14Dataset, ChestXray14BinaryClassification, and ChestXray14MultilabelClassification classes.
 
 Author:
-    Eric Schrock (ejs9@illinois.edu)
+    REDACTED_AUTHOR
 """
 from pathlib import Path
 import tempfile

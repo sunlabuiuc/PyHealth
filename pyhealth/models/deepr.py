@@ -1,4 +1,4 @@
-# Author: Joshua Steier
+# Author: REDACTED_AUTHOR
 # Description: Deepr model implementation for PyHealth 2.0
 
 from typing import Any, Dict, Optional, Tuple

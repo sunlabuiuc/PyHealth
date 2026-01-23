@@ -22793,7 +22793,7 @@ if __name__ == "__main__":
 Here is the code content for __init__.py:
 """KCal: Kernel-based Calibration
 
-Implementation based on https://github.com/zlin7/KCal.
+Implementation based on https://github.com/REDACTED_USER/KCal.
 
 Paper:
 
@@ -23687,7 +23687,7 @@ Here is the code content for __init__.py:
 """
 SCRIB: Set-classifier with Class-specific Risk Bounds
 
-Implementation based on https://github.com/zlin7/scrib
+Implementation based on https://github.com/REDACTED_USER/scrib
 
 """
 
@@ -24359,7 +24359,7 @@ Here is the code content for __init__.py:
 """
 Fast Online Value-Maximizing Prediction Sets with Conformal Cost Control (FavMac)
 
-Implementation based on https://github.com/zlin7/FavMac
+Implementation based on https://github.com/REDACTED_USER/FavMac
 
 """
 

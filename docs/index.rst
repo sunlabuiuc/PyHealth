@@ -7,7 +7,7 @@ Welcome to PyHealth
 
 **The Python Library for Healthcare AI**
 
-Build, test, and deploy healthcare machine learning models with ease. PyHealth is designed for both **ML researchers and medical practitioners**. We can make your **healthcare AI applications** easier to develop, test and validate. Your development process becomes more flexible and more customizable. `[GitHub] <https://github.com/sunlabuiuc/PyHealth>`_ 
+Build, test, and deploy healthcare machine learning models with ease. PyHealth is designed for both **ML researchers and medical practitioners**. We can make your **healthcare AI applications** easier to develop, test and validate. Your development process becomes more flexible and more customizable. `[GitHub] <https://github.com/REDACTED_ORG/PyHealth>`_ 
 
 **Key Features**
 
@@ -23,7 +23,7 @@ Build, test, and deploy healthcare machine learning models with ease. PyHealth i
    :alt: Docs
 
 .. image:: https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white
-   :target: https://discord.gg/mpb835EHaX
+   :target: REDACTED_DISCORD_LINK
    :alt: Discord
 
 .. image:: https://img.shields.io/badge/Mailing%20List-Subscribe-blue?logo=gmail&logoColor=white
@@ -34,13 +34,13 @@ Build, test, and deploy healthcare machine learning models with ease. PyHealth i
    :target: https://pypi.org/project/pyhealth/
    :alt: PyPI version
 
-.. image:: https://img.shields.io/github/stars/yzhao062/pyhealth.svg
-   :target: https://github.com/sunlabuiuc/pyhealth/stargazers
+.. image:: https://img.shields.io/github/stars/REDACTED_ORG/pyhealth.svg
+   :target: https://github.com/REDACTED_ORG/pyhealth/stargazers
    :alt: GitHub stars
 
 
-.. image:: https://img.shields.io/github/forks/yzhao062/pyhealth.svg?color=blue
-   :target: https://github.com/sunlabuiuc/pyhealth/network
+.. image:: https://img.shields.io/github/forks/REDACTED_ORG/pyhealth.svg?color=blue
+   :target: https://github.com/REDACTED_ORG/pyhealth/network
    :alt: GitHub forks
 
 
@@ -61,7 +61,7 @@ Build, test, and deploy healthcare machine learning models with ease. PyHealth i
 
 ----------
 
- **[News!]** Join us for **PyHealth Casual Chats** – informal sessions where you can ask questions, discuss research ideas, or talk about PyHealth developments! Everyone is welcome. `Join Zoom → <https://illinois.zoom.us/j/83607767000?pwd=xXKdKKs2YBH8d0UMWeUiYNEl0lhDoU.1>`_ | `Add to Calendar → <https://calendar.google.com/calendar/event?action=TEMPLATE&tmeid=NGY5NXM1ZnF1MWQ1cnFpdmxxMzNodTNlM2pfMjAyNTEyMTJUMTgwMDAwWiBqb2hud3UzQGlsbGlub2lzLmVkdQ&tmsrc=johnwu3%40illinois.edu&scp=ALL>`_
+ **[News!]** Join us for **PyHealth Casual Chats** – informal sessions where you can ask questions, discuss research ideas, or talk about PyHealth developments! Everyone is welcome. `Join Zoom → <REDACTED_ZOOM_LINK>`_ | `Add to Calendar → <REDACTED_CALENDAR_LINK>`_
 
  **[News!]** We are continuously implementing good papers and benchmarks into PyHealth, checkout the `[Planned List] <https://docs.google.com/spreadsheets/d/1PNMgDe-llOm1SM5ZyGLkmPysjC4wwaVblPLAHLxejTw/edit#gid=159213380>`_. Welcome to pick one from the list and send us a PR or add more influential and new papers into the plan list.
 
@@ -73,23 +73,23 @@ Build, test, and deploy healthcare machine learning models with ease. PyHealth i
 
 .. **Build Status & Coverage & Maintainability & License**
 
-.. .. image:: https://travis-ci.org/yzhao062/pyhealth.svg?branch=master
-..    :target: https://travis-ci.org/yzhao062/pyhealth
+.. .. image:: https://travis-ci.org/REDACTED_ORG/pyhealth.svg?branch=master
+..    :target: https://travis-ci.org/REDACTED_ORG/pyhealth
 ..    :alt: Build Status
 
 
 .. .. image:: https://ci.appveyor.com/api/projects/status/1kupdy87etks5n3r/branch/master?svg=true
-..    :target: https://ci.appveyor.com/project/yzhao062/pyhealth/branch/master
+..    :target: https://ci.appveyor.com/project/REDACTED_ORG/pyhealth/branch/master
 ..    :alt: Build status
 
 
 .. .. image:: https://api.codeclimate.com/v1/badges/bdc3d8d0454274c753c4/maintainability
-..    :target: https://codeclimate.com/github/yzhao062/pyhealth/maintainability
+..    :target: https://codeclimate.com/github/REDACTED_ORG/pyhealth/maintainability
 ..    :alt: Maintainability
 
 
-.. .. image:: https://img.shields.io/github/license/yzhao062/pyhealth
-..    :target: https://github.com/yzhao062/pyhealth/blob/master/LICENSE
+.. .. image:: https://img.shields.io/github/license/REDACTED_ORG/pyhealth
+..    :target: https://github.com/REDACTED_ORG/pyhealth/blob/master/LICENSE
 ..    :alt: License
 
 
@@ -163,7 +163,7 @@ Quick Navigation
       
       Join our Discord server and contribute to PyHealth
       
-      `Discord → <https://discord.gg/mpb835EHaX>`_ | :doc:`Contribute → <how_to_contribute>`
+      `Discord → <REDACTED_DISCORD_LINK>`_ | :doc:`Contribute → <how_to_contribute>`
     - 
 
 
@@ -183,9 +183,9 @@ Quick Navigation
 .. **Key Links and Resources**\ :
 
 
-.. * `View the latest codes on Github <https://github.com/ycq091044/PyHealth-OMOP>`_
-.. * `Execute Interactive Jupyter Notebooks <https://mybinder.org/v2/gh/yzhao062/pyhealth/master>`_
-.. * `Check out the PyHealth paper <https://github.com/yzhao062/pyhealth>`_
+.. * `View the latest codes on Github <https://github.com/REDACTED_USER/PyHealth-OMOP>`_
+.. * `Execute Interactive Jupyter Notebooks <https://mybinder.org/v2/gh/REDACTED_ORG/pyhealth/master>`_
+.. * `Check out the PyHealth paper <https://github.com/REDACTED_ORG/pyhealth>`_
 
 
 

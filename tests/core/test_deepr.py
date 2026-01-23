@@ -1,4 +1,4 @@
-# Author: Joshua Steier
+# Author: REDACTED_AUTHOR
 # Description: Unit tests for Deepr model (PyHealth 2.0)
 import unittest
 

@@ -28,7 +28,7 @@ Getting Started
 
 New to calibration and uncertainty quantification? Check out this complete example:
 
-**Browse all examples online**: https://github.com/sunlabuiuc/PyHealth/tree/master/examples
+**Browse all examples online**: https://github.com/REDACTED_ORG/PyHealth/tree/master/examples
 
 - **Example**: ``examples/covid19cxr_conformal.py`` - Comprehensive conformal prediction workflow demonstrating:
 

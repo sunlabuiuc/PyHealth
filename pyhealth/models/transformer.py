@@ -1,5 +1,5 @@
-# Author: Yongda Fan
-# NetID: yongdaf2
+# Author: REDACTED_AUTHOR
+# NetID: REDACTED_NETID
 # Description: Transformer model implementation for PyHealth 2.0
 
 import math

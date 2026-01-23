@@ -36,7 +36,7 @@ If you are contributing to PyHealth or need the latest development features, ins
 
 .. code-block:: bash
 
-   git clone https://github.com/sunlabuiuc/PyHealth.git
+   git clone https://github.com/REDACTED_ORG/PyHealth.git
    cd PyHealth
    pip install -e .
 

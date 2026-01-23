@@ -15,7 +15,7 @@ Here are some photos from our time at ML4H, including the poster sessions and te
 
 .. figure:: /_static/newsletter/dec_2025/PresentingAPoster.jpg
    :width: 100%
-   :alt: PyHealth Research Initiative (Abraham Francisco Arellano Tavara & Umesh Kumar) Presenting Posters
+   :alt: PyHealth Research Initiative (REDACTED_RESEARCHER_1 & REDACTED_RESEARCHER_2) Presenting Posters
 
    Poster session at ML4H
 

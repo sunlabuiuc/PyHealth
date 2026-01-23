@@ -1,6 +1,6 @@
 """Test cases for the Dr. Agent model.
 
-Author: Joshua Steier
+Author: REDACTED_AUTHOR
 """
 
 import unittest

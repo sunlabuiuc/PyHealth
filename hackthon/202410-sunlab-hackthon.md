@@ -1,10 +1,10 @@
-# Sunlab PyHealth Hackathon 2024
+# REDACTED_LAB PyHealth Hackathon 2024
 
-Welcome to the Sunlab PyHealth Hackathon 2024! This hackathon is an exciting opportunity to contribute to PyHealth, a cutting-edge open-source framework for healthcare AI, while collaborating with peers and experts. Whether you're a machine learning enthusiast or clinical practitioner, there’s something for everyone.
+Welcome to the REDACTED_LAB PyHealth Hackathon 2024! This hackathon is an exciting opportunity to contribute to PyHealth, a cutting-edge open-source framework for healthcare AI, while collaborating with peers and experts. Whether you're a machine learning enthusiast or clinical practitioner, there's something for everyone.
 
-Throughout the week, you’ll get hands-on experience with PyHealth, develop your coding skills, and work on projects that have the potential to make a real impact in healthcare AI. We will be here to guide you through the process, ensuring that you get the most out of this collaborative learning experience.
+Throughout the week, you'll get hands-on experience with PyHealth, develop your coding skills, and work on projects that have the potential to make a real impact in healthcare AI. We will be here to guide you through the process, ensuring that you get the most out of this collaborative learning experience.
 
-Ready to innovate and make meaningful contributions to healthcare AI? Let’s get started!
+Ready to innovate and make meaningful contributions to healthcare AI? Let's get started!
 
 Sign-up now and join us for a week of learning, building, and sharing ideas.
 
@@ -18,7 +18,7 @@ It supports various data types, such as electronic health records (EHRs), time-s
 
 | Day	                     | Activity                                                    |
 |--------------------------|-------------------------------------------------------------|
-| Mon (Oct 28)	9AM-12PM CT | Overview and PyHealth tutorial (3 hrs) by Zhenbang and John |
+| Mon (Oct 28)	9AM-12PM CT | Overview and PyHealth tutorial (3 hrs) by REDACTED_MENTOR_1 and REDACTED_MENTOR_2 |
 | Tue (Oct 29)             | Project formation and discussion                            | 
 | Wed - Thu (Oct 30 - 31)	 | Working on the project                                      | 
 | Fri (Nov 1) Time TBD	    | Presentation (afternoon group meeting)                      | 
@@ -38,11 +38,11 @@ Idea list: https://docs.google.com/spreadsheets/d/12oQXB1Nrf-8kubaYaMoAY28WCsRko
 
 ## Resources
 - PyHealth Documentation: https://pyhealth.readthedocs.io/en/latest/
-- PyHealth GitHub: https://github.com/sunlabuiuc/PyHealth
+- PyHealth GitHub: https://github.com/REDACTED_ORG/PyHealth
 - PyHealth Tutorial: https://pyhealth.readthedocs.io/en/latest/tutorials.html
 - PyHealth Live Videos: https://www.youtube.com/playlist?list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV
 
 ## Mentors
-- Zhenbang Wu: Ph.D. student at UIUC, working on foundation model for healthcare.
-- John Wu: Ph.D. student at UIUC, working on explainable AI for healthcare.
-- Dr. Jimeng Sun, Health Innovation Professor at Computer Science Department and Carle's Illinois College of Medicine at UIUC.
+- REDACTED_MENTOR_1: REDACTED_ROLE at REDACTED_INSTITUTION, working on foundation model for healthcare.
+- REDACTED_MENTOR_2: REDACTED_ROLE at REDACTED_INSTITUTION, working on explainable AI for healthcare.
+- REDACTED_MENTOR_3, REDACTED_ROLE at REDACTED_DEPARTMENT and REDACTED_INSTITUTION_3 at REDACTED_INSTITUTION.

@@ -74,7 +74,7 @@ We track the new development here:
 .. code-block:: rst
 
     1. add MIMIC-Extract dataset  `#136`
-    2. add new maintainer members for pyhealth: Junyi Gao and Benjamin Danek
+    2. add new maintainer members for pyhealth: REDACTED_MAINTAINER_1 and REDACTED_MAINTAINER_2
 
 **May 6, 2023**
 
@@ -100,13 +100,13 @@ We track the new development here:
 
 .. code-block:: rst
 
-    1. fix Ambiguous datetime usage in eICU (https://github.com/sunlabuiuc/PyHealth/pull/132)
+    1. fix Ambiguous datetime usage in eICU (https://github.com/REDACTED_ORG/PyHealth/pull/132)
 
 **Mar 26, 2023**    
 
 .. code-block:: rst
 
-    1. add the entire uncertainty quantification module (https://github.com/sunlabuiuc/PyHealth/pull/111)
+    1. add the entire uncertainty quantification module (https://github.com/REDACTED_ORG/PyHealth/pull/111)
 
 **Feb 26, 2023**
 

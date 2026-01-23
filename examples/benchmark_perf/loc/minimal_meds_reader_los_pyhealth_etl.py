@@ -52,7 +52,7 @@ def get_los_samples(subjects: Iterator[meds_reader.Subject]):
                                 "procedures": list(data['procedures']), "drugs": list(data['drugs']), "label": data['label']})
     return samples
 if __name__ == "__main__":
-    PYHEALTH_ROOT, CACHE_DIR = "/srv/local/data/physionet.org/files/mimiciv/2.0/hosp", "/srv/local/data/johnwu3/meds_reader"
+    PYHEALTH_ROOT, CACHE_DIR = "/srv/local/data/physionet.org/files/mimiciv/2.0/hosp", "/srv/local/data/REDACTED_USER/meds_reader"
     MEDS_DIR, MEDS_READER_DIR = f"{CACHE_DIR}/mimic4_meds_los_pyhealth", f"{CACHE_DIR}/mimic4_meds_reader_los_pyhealth"
     pyhealth_to_meds(PYHEALTH_ROOT, MEDS_DIR, ["diagnoses_icd", "procedures_icd", "prescriptions"]); run_meds_reader_convert(MEDS_DIR, MEDS_READER_DIR)
     samples = []

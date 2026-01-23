@@ -33,7 +33,7 @@ print("=" * 80)
 print("STEP 1: Loading COVID-19 CXR Dataset")
 print("=" * 80)
 
-root = "/home/johnwu3/projects/PyHealth_Branch_Testing/datasets/COVID-19_Radiography_Dataset"
+root = "/home/REDACTED_USER/projects/PyHealth_Branch_Testing/datasets/COVID-19_Radiography_Dataset"
 base_dataset = COVID19CXRDataset(root)
 sample_dataset = base_dataset.set_task(cache_dir="../../covid19cxr_cache")
 

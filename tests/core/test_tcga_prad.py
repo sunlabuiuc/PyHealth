@@ -2,7 +2,7 @@
 Unit tests for the TCGAPRADDataset and CancerSurvivalPrediction classes.
 
 Author:
-    Abraham Arellano
+    REDACTED_AUTHOR
 """
 import os
 import shutil

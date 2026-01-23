@@ -20,7 +20,7 @@ This is the central place to track important things to be fixed/added:
 - Support additional languages, see `Manage Translations <https://docs.readthedocs.io/en/latest/guides/manage-translations.html>`_
 
 Feel free to open on issue report if needed.
-See `Issues <https://github.com/yzhao062/combo/issues>`_.
+See `Issues <REDACTED_EXTERNAL_REPO_LINK>`_.
 
 
 Inclusion Criteria

@@ -7,7 +7,7 @@ Welcome to PyHealth!
 
 .. important::
 
-   * **Join our PyHealth Discord Community!** We are actively looking for contributors and want to get to know our users better! `Click here to join Discord <https://discord.gg/mpb835EHaX>`_
+   * **Join our PyHealth Discord Community!** We are actively looking for contributors and want to get to know our users better! `Click here to join Discord <REDACTED_DISCORD_LINK>`_
    * **Signup for our mailing list!** We will email any significant PyHealth changes that are soon to come! `Click here to subscribe <https://docs.google.com/forms/d/e/1FAIpQLSfpJB5tdkI7BccTCReoszV9cyyX2rF99SgznzwlOepi5v-xLw/viewform?usp=header>`_
 
 .. image:: https://img.shields.io/readthedocs/pyhealth?logo=readthedocs&label=docs&version=latest
@@ -15,7 +15,7 @@ Welcome to PyHealth!
    :alt: Docs
 
 .. image:: https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white
-   :target: https://discord.gg/mpb835EHaX
+   :target: REDACTED_DISCORD_LINK
    :alt: Discord
 
 .. image:: https://img.shields.io/badge/Mailing%20List-Subscribe-blue?logo=gmail&logoColor=white
@@ -27,13 +27,13 @@ Welcome to PyHealth!
    :alt: PyPI version
 
 
-.. image:: https://img.shields.io/github/stars/sunlabuiuc/pyhealth.svg
-   :target: https://github.com/sunlabuiuc/pyhealth/stargazers
+.. image:: https://img.shields.io/github/stars/REDACTED_ORG/pyhealth.svg
+   :target: https://github.com/REDACTED_ORG/pyhealth/stargazers
    :alt: GitHub stars
 
 
-.. image:: https://img.shields.io/github/forks/sunlabuiuc/pyhealth.svg?color=blue
-   :target: https://github.com/sunlabuiuc/pyhealth/network
+.. image:: https://img.shields.io/github/forks/REDACTED_ORG/pyhealth.svg?color=blue
+   :target: https://github.com/REDACTED_ORG/pyhealth/network
    :alt: GitHub forks
 
 
@@ -51,21 +51,21 @@ Welcome to PyHealth!
    :target: https://www.youtube.com/playlist?list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV
    :alt: YouTube
 
-.. image:: https://github.com/sunlabuiuc/PyHealth/workflows/CI/badge.svg
-   :target: https://github.com/sunlabuiuc/PyHealth/actions
+.. image:: https://github.com/REDACTED_ORG/PyHealth/workflows/CI/badge.svg
+   :target: https://github.com/REDACTED_ORG/PyHealth/actions
    :alt: CI status
 
 
 Citing PyHealth :handshake:
 ----------------------------------
- Yang, Chaoqi, Zhenbang Wu, Patrick Jiang, Zhen Lin, Junyi Gao, Benjamin P. Danek, and Jimeng Sun. 2023. "PyHealth: A Deep Learning Toolkit for Healthcare Applications." In Proceedings of the 29th ACM SIGKDD Conference on Knowledge Discovery and Data Mining, 5788–89. KDD '23. New York, NY, USA: Association for Computing Machinery.
+ REDACTED_AUTHOR_1, REDACTED_AUTHOR_2, REDACTED_AUTHOR_3, REDACTED_AUTHOR_4, REDACTED_AUTHOR_5, REDACTED_AUTHOR_6, and REDACTED_AUTHOR_7. 2023. "PyHealth: A Deep Learning Toolkit for Healthcare Applications." In Proceedings of the 29th ACM SIGKDD Conference on Knowledge Discovery and Data Mining, 5788–89. KDD '23. New York, NY, USA: Association for Computing Machinery.
 
 .. code-block:: bibtex
 
     @inproceedings{pyhealth2023yang,
-        author = {Yang, Chaoqi and Wu, Zhenbang and Jiang, Patrick and Lin, Zhen and Gao, Junyi and Danek, Benjamin and Sun, Jimeng},
+        author = {REDACTED_AUTHOR_1 and REDACTED_AUTHOR_2 and REDACTED_AUTHOR_3 and REDACTED_AUTHOR_4 and REDACTED_AUTHOR_5 and REDACTED_AUTHOR_6 and REDACTED_AUTHOR_7},
         title = {{PyHealth}: A Deep Learning Toolkit for Healthcare Predictive Modeling},
-        url = {https://github.com/sunlabuiuc/PyHealth},
+        url = {https://github.com/REDACTED_ORG/PyHealth},
         booktitle = {Proceedings of the 27th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD) 2023},
         year = {2023}
     }
@@ -121,7 +121,7 @@ If you are contributing to PyHealth or need the latest development features, ins
 
 .. code-block:: sh
 
-    git clone https://github.com/sunlabuiuc/PyHealth.git
+    git clone https://github.com/REDACTED_ORG/PyHealth.git
     cd PyHealth
     pip install -e .
 
@@ -449,8 +449,8 @@ The **PyHealth Research Initiative** is a year-round, open research program that
 
 **How to participate:**
 
-1. Join our `Discord server <https://discord.gg/mpb835EHaX>`_
-2. Submit a high-quality PR to the `PyHealth repository <https://github.com/sunlabuiuc/PyHealth>`_
+1. Join our `Discord server <REDACTED_DISCORD_LINK>`_
+2. Submit a high-quality PR to the `PyHealth repository <https://github.com/REDACTED_ORG/PyHealth>`_
 3. Check the `documentation <https://pyhealth.readthedocs.io/en/latest/research_initiative.html>`_ for more details
 
 Recent research from the initiative has been published at venues including **ML4H 2025** and other top conferences.
@@ -459,18 +459,18 @@ Recent research from the initiative has been published at venues including **ML4
 10. About Us :busts_in_silhouette:
 --------------------------------------------
 
-We are the `SunLab <http://sunlab.org/>`_ healthcare research team at UIUC.
+We are the REDACTED_LAB healthcare research team at REDACTED_INSTITUTION.
 
 **Current Maintainers:**
 
-- `Zhenbang Wu <https://zzachw.github.io/>`_ (Ph.D. Student @ UIUC)
-- `John Wu <https://jhnwu3.github.io/>`_ (Ph.D. Student @ UIUC)
-- `Junyi Gao <http://aboutme.vixerunt.org/>`_ (Ph.D. Student @ University of Edinburgh)
-- `Jimeng Sun <http://sunlab.org/>`_ (Professor @ UIUC)
+- REDACTED_CONTRIBUTOR_1 (REDACTED_ROLE @ REDACTED_INSTITUTION)
+- REDACTED_CONTRIBUTOR_2 (REDACTED_ROLE @ REDACTED_INSTITUTION)
+- REDACTED_CONTRIBUTOR_3 (REDACTED_ROLE @ REDACTED_INSTITUTION_2)
+- REDACTED_CONTRIBUTOR_4 (REDACTED_ROLE @ REDACTED_INSTITUTION)
 
 **Get in Touch:**
 
-- `Discord Community <https://discord.gg/mpb835EHaX>`_ (fastest response)
-- `GitHub Issues <https://github.com/sunlabuiuc/PyHealth/issues>`_
+- `Discord Community <REDACTED_DISCORD_LINK>`_ (fastest response)
+- `GitHub Issues <https://github.com/REDACTED_ORG/PyHealth/issues>`_
 - `Mailing List <https://docs.google.com/forms/d/e/1FAIpQLSfpJB5tdkI7BccTCReoszV9cyyX2rF99SgznzwlOepi5v-xLw/viewform?usp=header>`_
 

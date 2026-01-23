@@ -30,7 +30,7 @@ def get_drug_rec_samples(subjects: Iterator[meds_reader.Subject]):
                             "drugs_hist": [list(valid[j][1]['drugs']) if j < i else [] for j in range(i+1)], "drugs": list(data['drugs'])})
     return samples
 if __name__ == "__main__":
-    MIMIC_ROOT, CACHE_DIR = "/srv/local/data/physionet.org/files/mimiciv", "/srv/local/data/johnwu3/meds_reader"
+    MIMIC_ROOT, CACHE_DIR = "/srv/local/data/physionet.org/files/mimiciv", "/srv/local/data/REDACTED_USER/meds_reader"
     MEDS_DIR, MEDS_READER_DIR = f"{CACHE_DIR}/mimic4_meds_drug_rec", f"{CACHE_DIR}/mimic4_meds_reader_drug_rec"
     run_meds_etl_mimic(MIMIC_ROOT, MEDS_DIR); run_meds_reader_convert(MEDS_DIR, MEDS_READER_DIR)
     samples = []

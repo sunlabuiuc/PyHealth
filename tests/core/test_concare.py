@@ -1,6 +1,6 @@
 """Test cases for the ConCare model.
 
-Author: Joshua Steier
+Author: REDACTED_AUTHOR
 
 Description:
     This module contains unit tests for the ConCare model implementation.

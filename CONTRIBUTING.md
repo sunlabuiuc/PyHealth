@@ -13,7 +13,7 @@ Everyone can contribute, and we value every contribution, whether it is
 ## Submit an Issue
 
 In the following cases, you are encouraged
-to [submit an issue](https://github.com/sunlabuiuc/PyHealth/issues)
+to [submit an issue](https://github.com/REDACTED_ORG/PyHealth/issues)
 on GitHub.
 
 - Reporting a bug
@@ -40,9 +40,9 @@ request, you need to
 - Push it to your GitHub repository
 - [Create a pull request] in PyHelath repository
 
-[Fork the PyHealth repository]: https://github.com/sunlabuiuc/PyHealth/fork
+[Fork the PyHealth repository]: https://github.com/REDACTED_ORG/PyHealth/fork
 
-[Create a pull request]: https://github.com/sunlabuiuc/PyHealth/pulls
+[Create a pull request]: https://github.com/REDACTED_ORG/PyHealth/pulls
 
 If your forked repository is behind the latest version, you can create a pull request in
 your repository to pull the latest version from PyHealth.

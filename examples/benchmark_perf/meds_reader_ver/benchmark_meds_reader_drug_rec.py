@@ -597,7 +597,7 @@ def main() -> None:
         help="Path to MIMIC-IV root directory (containing 2.2/ subdirectory)",
     )
     parser.add_argument(
-        "--cache-dir", type=str, default="/srv/local/data/johnwu3/meds_reader",
+        "--cache-dir", type=str, default="/srv/local/data/REDACTED_USER/meds_reader",
         help="Directory for MEDS cache",
     )
     parser.add_argument(

@@ -24,8 +24,8 @@ Subscribe
 Want to stay informed about PyHealth updates? 
 
 - 📧 `Join our mailing list <https://docs.google.com/forms/d/e/1FAIpQLSfpJB5tdkI7BccTCReoszV9cyyX2rF99SgznzwlOepi5v-xLw/viewform?usp=header>`_
-- 💬 `Join our Discord community <https://discord.gg/mpb835EHaX>`_
-- ⭐ `Follow us on GitHub <https://github.com/sunlabuiuc/PyHealth>`_
+- 💬 `Join our Discord community <REDACTED_DISCORD_LINK>`_
+- ⭐ `Follow us on GitHub <https://github.com/REDACTED_ORG/PyHealth>`_
 
 
 Archive

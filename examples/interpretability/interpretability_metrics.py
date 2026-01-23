@@ -64,7 +64,7 @@ def main():
     )
 
     checkpoint_path = (
-        "/home/johnwu3/projects/PyHealth_Branch_Testing/PyHealth/output/"
+        "/home/REDACTED_USER/projects/PyHealth_Branch_Testing/PyHealth/output/"
         "20251028-191219/best.ckpt"
     )
     trainer = Trainer(model=model, device=device)

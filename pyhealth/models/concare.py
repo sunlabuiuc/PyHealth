@@ -1,6 +1,6 @@
 """ConCare Model for Personalized Clinical Feature Embedding.
 
-Author: Joshua Steier
+Author: REDACTED_AUTHOR
 Paper: Concare: Personalized clinical feature embedding via capturing the
     healthcare context.
 Paper Link: https://ojs.aaai.org/index.php/AAAI/article/view/5428

@@ -1,7 +1,7 @@
 """
 Fast Online Value-Maximizing Prediction Sets with Conformal Cost Control (FavMac)
 
-Implementation based on https://github.com/zlin7/FavMac
+Implementation based on https://github.com/REDACTED_USER/FavMac
 
 """
 

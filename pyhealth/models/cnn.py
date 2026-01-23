@@ -1,5 +1,5 @@
-# Author: Yongda Fan
-# NetID: yongdaf2
+# Author: REDACTED_AUTHOR
+# NetID: REDACTED_NETID
 # Description: CNN model implementation for PyHealth 2.0
 
 from typing import Any, Dict, Tuple

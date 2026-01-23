@@ -61,12 +61,12 @@ We're always looking for contributors to PyHealth and people to work on interest
 
 **Time Commitment**: We expect participants to dedicate 10–20 hours per week to this program.
 
-- **Official Research Initiative start date**: January 20, 2026 — We'll hold a kickoff meeting to go over program details. Meeting information will be announced via Discord closer to the date.
+- **Official Research Initiative start date**: January 20, 2026 — We'll hold a kickoff meeting to go over program details. Meeting information will be announced via REDACTED_COMMUNICATION_CHANNEL closer to the date.
 - **Pre-submission intent deadline**: April 10, 2026
 - **Full submission deadline**: April 11, 2026
 - **Conference dates**: August 15–16, 2026
 
-We plan to run this research program over the spring, working toward the MLHC submission deadline. All official announcements and communication will be done through our Discord server, so make sure to join!
+We plan to run this research program over the spring, working toward the MLHC submission deadline. All official announcements and communication will be done through our REDACTED_COMMUNICATION_CHANNEL, so make sure to join!
 
 **Open Projects**: Browse our list of (not yet finalized) available research projects and find one that matches your interests: `Open Projects List <https://docs.google.com/spreadsheets/d/1DLDpjBi40esOqaDWUvHTvCEEEoixyORTDisemIOkMBo/edit?usp=sharing>`_
 
@@ -88,7 +88,7 @@ How Do I Apply?
 
 There are three steps to apply:
 
-1. **Join the PyHealth Discord**: `https://discord.gg/mpb835EHaX <https://discord.gg/mpb835EHaX>`_
+1. **Join the PyHealth Discord**: `REDACTED_DISCORD_LINK <REDACTED_DISCORD_LINK>`_
 
 2. **Submit an application** (especially for those interested in industry collaborations): `Application Form <https://docs.google.com/forms/d/e/1FAIpQLSc96iNxjnQPaCWc8ml8eEsxFgZlIQI6XxkNslM9A8G9LILe_Q/viewform?usp=publish-editor>`_
 
@@ -106,8 +106,8 @@ Get Involved
 
 We're always looking for feedback, feature requests, and contributions. Here's how to stay connected:
 
-- **Discord**: `https://discord.gg/mpb835EHaX <https://discord.gg/mpb835EHaX>`_ — Join the community, ask questions, share what you're working on
-- **GitHub**: `https://github.com/sunlabuiuc/PyHealth <https://github.com/sunlabuiuc/PyHealth>`_ — Star the repo, open issues, submit PRs
+- **Discord**: `REDACTED_DISCORD_LINK <REDACTED_DISCORD_LINK>`_ — Join the community, ask questions, share what you're working on
+- **GitHub**: `https://github.com/REDACTED_ORG/PyHealth <https://github.com/REDACTED_ORG/PyHealth>`_ — Star the repo, open issues, submit PRs
 - **Mailing List**: `Subscribe here <https://docs.google.com/forms/d/e/1FAIpQLSfpJB5tdkI7BccTCReoszV9cyyX2rF99SgznzwlOepi5v-xLw/viewform?usp=header>`_ — Get updates delivered to your inbox
 
 Thanks for being part of the community!

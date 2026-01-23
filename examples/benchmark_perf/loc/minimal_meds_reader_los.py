@@ -29,7 +29,7 @@ def get_los_samples(subjects: Iterator[meds_reader.Subject]):
                                 "procedures": list(data['procedures']), "drugs": list(data['drugs']), "label": data['label']})
     return samples
 if __name__ == "__main__":
-    MIMIC_ROOT, CACHE_DIR = "/srv/local/data/physionet.org/files/mimiciv", "/srv/local/data/johnwu3/meds_reader"
+    MIMIC_ROOT, CACHE_DIR = "/srv/local/data/physionet.org/files/mimiciv", "/srv/local/data/REDACTED_USER/meds_reader"
     MEDS_DIR, MEDS_READER_DIR = f"{CACHE_DIR}/mimic4_meds_los", f"{CACHE_DIR}/mimic4_meds_reader_los"
     run_meds_etl_mimic(MIMIC_ROOT, MEDS_DIR); run_meds_reader_convert(MEDS_DIR, MEDS_READER_DIR)
     samples = []

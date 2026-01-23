@@ -8,15 +8,15 @@ name = "pyhealth"
 # must be kept in sync with git tags; is not updated by any automation tools
 version = "2.0a14"
 authors = [
-  {name = "John Wu", email = "johnwu3@illinois.edu"},
-  {name = "Chaoqi Yang"},
-  {name = "Zhenbang Wu"},
-  {name = "Patrick Jiang"},
-  {name = "Zhen Lin"},
-  {name = "Benjamin Danek"},
-  {name = "Junyi Gao"},
-  {name = "Paul Landes", email = "landes@mailc.net"},
-  {name = "Jimeng Sun"},
+  {name = "REDACTED_AUTHOR_1"},
+  {name = "REDACTED_AUTHOR_2"},
+  {name = "REDACTED_AUTHOR_3"},
+  {name = "REDACTED_AUTHOR_4"},
+  {name = "REDACTED_AUTHOR_5"},
+  {name = "REDACTED_AUTHOR_6"},
+  {name = "REDACTED_AUTHOR_7"},
+  {name = "REDACTED_AUTHOR_8"},
+  {name = "REDACTED_AUTHOR_9"},
 ]
 description = "A Python library for healthcare AI"
 readme = "README.rst"
@@ -60,11 +60,11 @@ keywords = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/sunlabuiuc/PyHealth"
+Homepage = "https://github.com/REDACTED_ORG/PyHealth"
 Documentation = "https://pyhealth.readthedocs.io/en/latest/about.html"
-Repository = "https://github.com/sunlabuiuc/PyHealth.git"
-Issues = "https://github.com/sunlabuiuc/PyHealth/issues"
-Changelog = "https://github.com/sunlabuiuc/PyHealth/blob/master/CHANGELOG.md"
+Repository = "https://github.com/REDACTED_ORG/PyHealth.git"
+Issues = "https://github.com/REDACTED_ORG/PyHealth/issues"
+Changelog = "https://github.com/REDACTED_ORG/PyHealth/blob/master/CHANGELOG.md"
 
 [build-system]
 requires = ["hatchling"]

@@ -14,7 +14,7 @@ Dataset paper link:
     https://arxiv.org/abs/1705.02315
 
 Author:
-    Eric Schrock (ejs9@illinois.edu)
+    REDACTED_AUTHOR
 """
 from functools import wraps
 import hashlib

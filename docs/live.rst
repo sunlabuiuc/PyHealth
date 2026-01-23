@@ -5,11 +5,11 @@ PyHealth Webinar 4/9/25
 
  **Recurrence**: There are no repeat sessions for now.
 
- **Zoom**: `Join Link <https://illinois.zoom.us/j/88033880443?pwd=QzgyekNVVkswNkVKNEFjL3hHRXRIdz09>`_
+ **Zoom**: `Join Link <REDACTED_ZOOM_LINK>`_
 
  **YouTube**: `Recorded Live Sessions <https://www.youtube.com/playlist?list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV>`_
 
- **User/Developer Discord**: `Click to join <https://discord.gg/Fkj7Wn23>`_
+ **User/Developer Discord**: `Click to join <REDACTED_DISCORD_LINK>`_
 
 Past Scheduled Videos
 ^^^^^^^^^^^^^^

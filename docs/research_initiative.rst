@@ -37,17 +37,17 @@ drug recommendation, and healthcare AI infrastructure.
      - Venue
      - Links
    * - 2025
-     - Zilal Eiz Al Din
+     - REDACTED_RESEARCHER_1
      - MIMIC-RD: Can LLMs differentially diagnose rare diseases in real-world clinical settings?
      - ML4H 2025
      - `Paper <https://openreview.net/forum?id=CrZyNUfWHp>`_
    * - 2025
-     - Abraham Francisco Arellano Tavara, Umesh Kumar
+     - REDACTED_RESEARCHER_2, REDACTED_RESEARCHER_3
      - Prostate-VarBench: A Benchmark with Interpretable TabNet Framework for Prostate Cancer Variant Classification
      - ML4H 2025
      - `Paper <https://openreview.net/forum?id=zOUjZgKD2E>`_
    * - 2025
-     - Sharim Khan
+     - REDACTED_RESEARCHER_4
      - Social Determinants of Health Prediction for ICD-9 Code with Reasoning Models
      - ML4H 2025
      - `Paper <https://openreview.net/forum?id=gMpzlCnq66>`_
@@ -64,7 +64,7 @@ Program Information
 **Format**: Remote
 
 **Application**: Open to anyone! Applications are evaluated based on contributions to PyHealth. To apply, submit a high-quality 
-pull request (PR) to the `PyHealth repository <https://github.com/sunlabuiuc/PyHealth>`_. Strong PRs that 
+pull request (PR) to the `PyHealth repository <https://github.com/REDACTED_ORG/PyHealth>`_. Strong PRs that 
 demonstrate understanding of the codebase, good software engineering practices, and meaningful contributions 
 will be considered for the program. The program welcomes individuals from all backgrounds and career stages. 
 Check the GitHub repository for open issues and contribution opportunities.
@@ -103,8 +103,8 @@ Getting Involved
 
 Interested in participating in the PyHealth Research Initiative? Here's how to get involved:
 
-1. **Join Discord**: Join our `Discord server <https://discord.gg/mpb835EHaX>`_ - the best way to connect with the team and community
-2. **Stay Updated**: Watch the `PyHealth repository <https://github.com/sunlabuiuc/PyHealth>`_ for announcements
+1. **Join Discord**: Join our `Discord server <REDACTED_DISCORD_LINK>`_ - the best way to connect with the team and community
+2. **Stay Updated**: Watch the `PyHealth repository <https://github.com/REDACTED_ORG/PyHealth>`_ for announcements
 3. **Participate**: Contribute to PyHealth discussions and the codebase
 4. **Prepare**: Familiarize yourself with the PyHealth library and explore the documentation
 
@@ -114,8 +114,8 @@ Past Participants
 The PyHealth Research Initiative has brought together participants from diverse backgrounds and institutions 
 around the world, including:
 
-- University of Illinois Urbana-Champaign
-- Georgia Tech
+- REDACTED_INSTITUTION_1
+- REDACTED_INSTITUTION_2
 - Industry professionals and independent researchers
 - And many more...
 
@@ -127,20 +127,20 @@ Contact
 
 For more information about the PyHealth Research Initiative:
 
-**Best way to reach us:** Join our `Discord server <https://discord.gg/mpb835EHaX>`_ for the fastest response and community support!
+**Best way to reach us:** Join our `Discord server <REDACTED_DISCORD_LINK>`_ for the fastest response and community support!
 
 Additional resources:
 
-- GitHub: https://github.com/sunlabuiuc/PyHealth
+- GitHub: https://github.com/REDACTED_ORG/PyHealth
 - Documentation: https://pyhealth.readthedocs.io
-- Email: johnwu3@illinois.edu
+- Email: [REDACTED_EMAIL]
 
 Acknowledgments
 ---------------
 
 The PyHealth Research Initiative is made possible through the support of:
 
-- SunLab at the University of Illinois Urbana-Champaign
+- REDACTED_ORG_1
 - National Science Foundation (NSF)
 - Industry partners and collaborators
 

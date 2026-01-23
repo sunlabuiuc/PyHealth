@@ -18,7 +18,7 @@ from pyhealth.tasks import MortalityPredictionOMOP
 # This dataset includes MIMIC-IV demo data in OMOP CDM 5.3 format
 dataset = OMOPDataset(
     root=(
-        "/home/johnwu3/projects/PyHealth_Branch_Testing/datasets/"
+        "/home/REDACTED_USER/projects/PyHealth_Branch_Testing/datasets/"
         "physionet.org/files/mimic-iv-demo-omop/0.9/1_omop_data_csv"
     ),
     tables=[

@@ -9,7 +9,7 @@ Getting Started
 
 New to interpretability in PyHealth? Check out these complete examples:
 
-**Browse all examples online**: https://github.com/sunlabuiuc/PyHealth/tree/master/examples
+**Browse all examples online**: https://github.com/REDACTED_ORG/PyHealth/tree/master/examples
 
 **Basic Gradient Example:**
 

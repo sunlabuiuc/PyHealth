@@ -1,6 +1,6 @@
 """Dr. Agent model for PyHealth 2.0.
 
-Author: Joshua Steier
+Author: REDACTED_AUTHOR
 Paper: Dr. Agent: Clinical predictive model via mimicked second opinions
 Link: https://doi.org/10.1093/jamia/ocaa074
 Description: Multi-agent reinforcement learning model with dynamic skip

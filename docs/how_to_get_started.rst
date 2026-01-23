@@ -32,7 +32,7 @@ To install the latest development version from GitHub:
 
 .. code-block:: bash
 
-   git clone https://github.com/sunlabuiuc/PyHealth.git
+   git clone https://github.com/REDACTED_ORG/PyHealth.git
    cd PyHealth
    pip install -e .
 
@@ -162,4 +162,4 @@ Now that you understand the basics, dive deeper into PyHealth's capabilities:
 --------------------------
 
 - :doc:`how_to_contribute` - Join our community of healthcare AI developers
-- `Discord Community <https://discord.gg/mpb835EHaX>`_ - Chat with other users and developers
+- `Discord Community <REDACTED_DISCORD_LINK>`_ - Chat with other users and developers

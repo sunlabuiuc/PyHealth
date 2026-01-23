@@ -199,7 +199,7 @@ Join thousands of healthcare AI practitioners:
 - **Open Source**: Transparent, auditable, and customizable
 - **Documentation**: Comprehensive guides and tutorials
 - **Support**: Active Discord community and GitHub discussions
-  - `Join our Discord <https://discord.gg/mpb835EHaX>`_
+  - `Join our Discord <REDACTED_DISCORD_LINK>`_
 
 Get started today
 =======================

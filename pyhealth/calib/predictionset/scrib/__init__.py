@@ -1,7 +1,7 @@
 """
 SCRIB: Set-classifier with Class-specific Risk Bounds
 
-Implementation based on https://github.com/zlin7/scrib
+Implementation based on https://github.com/REDACTED_USER/scrib
 
 """
 

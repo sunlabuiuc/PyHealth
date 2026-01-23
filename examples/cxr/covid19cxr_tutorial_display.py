@@ -23,11 +23,11 @@ from pyhealth.interpret.methods import CheferRelevance
 from pyhealth.interpret.utils import visualize_image_attr
 
 # Configuration
-DATA_ROOT = "/home/johnwu3/projects/PyHealth_Branch_Testing/datasets"
+DATA_ROOT = "/home/REDACTED_USER/projects/PyHealth_Branch_Testing/datasets"
 ROOT = f"{DATA_ROOT}/COVID-19_Radiography_Dataset"
-CACHE = "/home/johnwu3/projects/covid19cxr_base_cache"
-TASK_CACHE = "/home/johnwu3/projects/covid19cxr_task_cache"
-CKPT = "/home/johnwu3/projects/covid19cxr_vit_model.ckpt"
+CACHE = "/home/REDACTED_USER/projects/covid19cxr_base_cache"
+TASK_CACHE = "/home/REDACTED_USER/projects/covid19cxr_task_cache"
+CKPT = "/home/REDACTED_USER/projects/covid19cxr_vit_model.ckpt"
 SEED = 42
 
 if __name__ == "__main__":

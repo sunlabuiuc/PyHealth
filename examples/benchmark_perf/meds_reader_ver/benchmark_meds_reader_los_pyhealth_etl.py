@@ -619,7 +619,7 @@ def main():
         default="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
         help="Path to MIMIC-IV hosp directory (for PyHealth 1.1.6)",
     )
-    parser.add_argument("--cache-dir", type=str, default="/srv/local/data/johnwu3/meds_reader")
+    parser.add_argument("--cache-dir", type=str, default="/srv/local/data/REDACTED_USER/meds_reader")
     parser.add_argument("--num-shards", type=int, default=100)
     # Note: conversion now uses the current thread count from --threads for fair comparison
     parser.add_argument("--dev", action="store_true")

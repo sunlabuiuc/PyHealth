@@ -20,7 +20,7 @@ make it work with the PyHealth framework. Specifically, we do not use the
 pre-trained GloVe embeddings. And we only monitor the loss on the validation 
 set instead of the ranking metrics. As a result, the performance of this model
 is different from the original paper. To reproduce the results in the paper,
-please use the official GitHub repo: https://github.com/zzachw/MedLink.
+please use the official GitHub repo: https://github.com/REDACTED_USER/MedLink.
 """
 
 USE_BM25_HARDNEGS = False

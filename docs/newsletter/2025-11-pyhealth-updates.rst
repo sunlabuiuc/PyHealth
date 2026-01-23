@@ -216,7 +216,7 @@ The response has been great! High-quality contributions (implementing models, ad
 2. Follow our `contribution guide <https://pyhealth.readthedocs.io/en/latest/how_to_contribute.html>`_
 3. Submit a PR
 
-We're always happy to help new contributors get started—just reach out on Discord if you have questions.
+We're always happy to help new contributors get started—just reach out on REDACTED_COMMUNICATION_CHANNEL if you have questions.
 
 
 ----
@@ -243,7 +243,7 @@ The initiative has been running for a while now, and we've built up a strong net
 
 **How to join:**
 
-1. Join our Discord community: `https://discord.gg/mpb835EHaX <https://discord.gg/mpb835EHaX>`_
+1. Join our Discord community: `REDACTED_DISCORD_LINK <REDACTED_DISCORD_LINK>`_
 2. Make a high-quality contribution via the bounty system (add a new dataset, model, or task with comprehensive examples)
 3. Get matched with a mentor based on your interests and contribution
 
@@ -259,10 +259,10 @@ Join Us for PyHealth Casual Chats
 We run informal "Casual Chats" sessions where you can ask questions, discuss research ideas, or just talk about what you're working on with PyHealth. These are completely open—no preparation needed, just drop in if you're free.
 
 - **When**: Every other Friday, 12:00 PM - 1:00 PM CT
-- **Where**: `Zoom link <https://illinois.zoom.us/j/83607767000?pwd=xXKdKKs2YBH8d0UMWeUiYNEl0lhDoU.1>`_
+- **Where**: `Zoom link <REDACTED_ZOOM_LINK>`_
 - **Format**: Open Q&A, feature discussions, research questions, or whatever's on your mind
 
-`Add to your calendar → <https://calendar.google.com/calendar/event?action=TEMPLATE&tmeid=NGY5NXM1ZnF1MWQ1cnFpdmxxMzNodTNlM2pfMjAyNTEyMTJUMTgwMDAwWiBqb2hud3UzQGlsbGlub2lzLmVkdQ&tmsrc=johnwu3%40illinois.edu&scp=ALL>`_
+`Add to your calendar → <REDACTED_CALENDAR_LINK>`_
 
 
 ----
@@ -273,8 +273,8 @@ Get Involved
 
 We're always looking for feedback, feature requests, and contributions. Here's how to stay connected:
 
-- **Discord**: `https://discord.gg/mpb835EHaX <https://discord.gg/mpb835EHaX>`_ — Join the community, ask questions, share what you're working on
-- **GitHub**: `https://github.com/sunlabuiuc/PyHealth <https://github.com/sunlabuiuc/PyHealth>`_ — Star the repo, open issues, submit PRs
+- **Discord**: `REDACTED_DISCORD_LINK <REDACTED_DISCORD_LINK>`_ — Join the community, ask questions, share what you're working on
+- **GitHub**: `https://github.com/REDACTED_ORG/PyHealth <https://github.com/REDACTED_ORG/PyHealth>`_ — Star the repo, open issues, submit PRs
 - **Mailing List**: `Subscribe here <https://docs.google.com/forms/d/e/1FAIpQLSfpJB5tdkI7BccTCReoszV9cyyX2rF99SgznzwlOepi5v-xLw/viewform?usp=header>`_ — Get updates delivered to your inbox
 
 Please don't hesitate to reach out! We love hearing what features you'd like to see in PyHealth and how you're using it in your work.

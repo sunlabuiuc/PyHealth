@@ -1,5 +1,5 @@
-# Author: John Wu
-# NetID: johnwu3
+# Author: REDACTED_AUTHOR
+# NetID: REDACTED_NETID
 # Description: Medical coding tasks for MIMIC-III and MIMIC-IV datasets
 
 import logging

@@ -59,7 +59,7 @@ In PyHealth 2.0a13+, we've switched to lazy-loading patient data, pulling record
 We Need Your Help!
 ------------------
 
-Please test the new approach and report any issues here: `[Tracking] Tracking issue for the new memory efficient dataset · Issue #740 <https://github.com/sunlabuiuc/PyHealth/issues/740>`_
+Please test the new approach and report any issues here: `[Tracking] Tracking issue for the new memory efficient dataset · Issue #740 <https://github.com/REDACTED_ORG/PyHealth/issues/740>`_
 
 Don't hesitate to share comments or suggestions.
 
@@ -70,7 +70,7 @@ Don't hesitate to share comments or suggestions.
 Looking Ahead
 -------------
 
-This memory optimization is just the first step in our mission to make healthcare AI truly accessible. By dramatically lowering the computational barriers to entry, we're opening the door for researchers and clinicians with limited resources—whether that's a PhD student with a laptop or a hospital in a low-resource setting—to build and deploy meaningful healthcare AI solutions.
+This memory optimization is just the first step in our mission to make healthcare AI truly accessible. By dramatically lowering the computational barriers to entry, we're opening the door for researchers and clinicians with limited resources—whether that's a REDACTED_ROLE with a laptop or a hospital in a low-resource setting—to build and deploy meaningful healthcare AI solutions.
 
 We believe democratizing these tools is essential for ensuring healthcare AI benefits everyone, not just those with access to massive compute infrastructure.
 

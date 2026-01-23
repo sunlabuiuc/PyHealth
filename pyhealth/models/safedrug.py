@@ -1,5 +1,5 @@
-# Author: Arjun Chatterjee
-# NetID: arjunc4
+# Author: REDACTED_AUTHOR
+# NetID: REDACTED_NETID
 # Description: SafeDrug model implementation.
 
 from collections import defaultdict
@@ -131,7 +131,7 @@ class SafeDrugLayer(nn.Module):
     This layer is used in the SafeDrug model. But it can also be used as a
     standalone layer. Note that we improve the layer a little bit to make it
     compatible with the package. Original code can be found at 
-    https://github.com/ycq091044/SafeDrug/blob/main/src/models.py.
+    https://github.com/REDACTED_USER/SafeDrug/blob/main/src/models.py.
 
     Args:
         hidden_size: hidden feature size.

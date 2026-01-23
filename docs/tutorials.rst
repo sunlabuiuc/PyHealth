@@ -24,7 +24,7 @@ Tutorials
 Data Access Guide
 =======================
 
-For information on how to access and download the datasets supported by PyHealth, please refer to our `Datasets Overview Notebook <https://github.com/sunlabuiuc/PyHealth/blob/main/examples/datasets_overview.ipynb>`_.
+For information on how to access and download the datasets supported by PyHealth, please refer to our `Datasets Overview Notebook <https://github.com/REDACTED_ORG/PyHealth/blob/main/examples/datasets_overview.ipynb>`_.
 
 Additionally, for detailed tutorials on accessing PhysioNet and MIMIC datasets, see the `Getting MIMIC access` section of the `DL4H course instructions <https://docs.google.com/document/d/1NHgXzSPINafSg8Cd_whdfSauFXgh-ZflZIw5lu6k2T0/edit?tab=t.5pba851jxeg6>`_.
 
@@ -57,7 +57,7 @@ Additional Examples
 
 The ``examples/`` directory contains additional code examples demonstrating various tasks, models, and techniques. These examples show how to use PyHealth in real-world scenarios.
 
-**Browse all examples online**: https://github.com/sunlabuiuc/PyHealth/tree/master/examples
+**Browse all examples online**: https://github.com/REDACTED_ORG/PyHealth/tree/master/examples
 
 Mortality Prediction
 --------------------

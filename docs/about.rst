@@ -1,26 +1,26 @@
 About us
 ========
 
-We are the `SunLab <http://sunlab.org/>`_ healthcare research team at UIUC.
+We are the REDACTED_LAB healthcare research team at REDACTED_INSTITUTION.
 
 Current Maintainers
 ------------------
 
-`Zhenbang Wu <https://zzachw.github.io/>`_ (Ph.D. Student @ University of Illinois Urbana-Champaign)
+REDACTED_MAINTAINER_1 (REDACTED_ROLE @ REDACTED_INSTITUTION)
 
-`John Wu <https://jhnwu3.github.io/>`_ (Ph.D. Student @ University of Illinois Urbana-Champaign)
+REDACTED_MAINTAINER_2 (REDACTED_ROLE @ REDACTED_INSTITUTION)
 
-`Junyi Gao <http://aboutme.vixerunt.org/>`_ (M.S. @ UIUC, Ph.D. Student @ University of Edinburgh)
+REDACTED_MAINTAINER_3 (REDACTED_ROLE @ REDACTED_INSTITUTION, REDACTED_ROLE @ REDACTED_INSTITUTION_2)
 
-`Jimeng Sun <http://sunlab.org/>`_ (Professor @ University of Illinois Urbana-Champaign)
+REDACTED_MAINTAINER_4 (REDACTED_ROLE @ REDACTED_INSTITUTION)
 
 Alumni
 ------
 
-`Chaoqi Yang <https://ycq091044.github.io//>`_ (Ph.D. Student @ University of Illinois Urbana-Champaign)
+REDACTED_ALUMNI_1 (REDACTED_ROLE @ REDACTED_INSTITUTION)
 
-`Zhen Lin <https://zlin7.github.io/>`_ (Ph.D. Student @ University of Illinois Urbana-Champaign)
+REDACTED_ALUMNI_2 (REDACTED_ROLE @ REDACTED_INSTITUTION)
 
-`Benjamin Danek <https://bpdanek.github.io/>`_ (M.S. Student @ University of Illinois Urbana-Champaign)
+REDACTED_ALUMNI_3 (REDACTED_ROLE @ REDACTED_INSTITUTION)
 
-`Patrick Jiang <https://www.linkedin.com/in/patrick-j-3492b4235/>`_ (M.S. Student @ University of Illinois Urbana-Champaign)
+REDACTED_ALUMNI_4 (REDACTED_ROLE @ REDACTED_INSTITUTION)

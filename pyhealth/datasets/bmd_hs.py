@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class BMDHSDataset(BaseDataset):
     """BUET Multi-disease Heart Sound (BMD-HS) Dataset
     Repository (current main branch) available at:
-    https://github.com/sani002/BMD-HS-Dataset
+    REDACTED_EXTERNAL_REPO_LINK
 
     BMD-HS is a curated collection of phonocardiogram (PCG/heart-sound) recordings
     designed for automated cardiovascular disease research. It includes

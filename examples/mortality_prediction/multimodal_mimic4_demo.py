@@ -793,7 +793,7 @@ def main():
     parser.add_argument(
         "--cache-dir",
         type=str,
-        default="/srv/local/data/jw3/pyhealth_cache",
+        default="/srv/local/data/REDACTED_USER/pyhealth_cache",
         help="Cache directory for processed data",
     )
     parser.add_argument(

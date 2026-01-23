@@ -41,23 +41,23 @@ Welcome to PyHealth!
 
 .. **Build Status & Coverage & Maintainability & License**
 
-.. .. image:: https://travis-ci.org/yzhao062/pyhealth.svg?branch=master
-..    :target: https://travis-ci.org/yzhao062/pyhealth
+.. .. image:: https://travis-ci.org/REDACTED_ORG/pyhealth.svg?branch=master
+..    :target: https://travis-ci.org/REDACTED_ORG/pyhealth
 ..    :alt: Build Status
 
 
 .. .. image:: https://ci.appveyor.com/api/projects/status/1kupdy87etks5n3r/branch/master?svg=true
-..    :target: https://ci.appveyor.com/project/yzhao062/pyhealth/branch/master
+..    :target: https://ci.appveyor.com/project/REDACTED_ORG/pyhealth/branch/master
 ..    :alt: Build status
 
 
 .. .. image:: https://api.codeclimate.com/v1/badges/bdc3d8d0454274c753c4/maintainability
-..    :target: https://codeclimate.com/github/yzhao062/pyhealth/maintainability
+..    :target: https://codeclimate.com/github/REDACTED_ORG/pyhealth/maintainability
 ..    :alt: Maintainability
 
 
-.. .. image:: https://img.shields.io/github/license/yzhao062/pyhealth
-..    :target: https://github.com/yzhao062/pyhealth/blob/master/LICENSE
+.. .. image:: https://img.shields.io/github/license/REDACTED_ORG/pyhealth
+..    :target: https://github.com/REDACTED_ORG/pyhealth/blob/master/LICENSE
 ..    :alt: License
 
 
@@ -505,21 +505,21 @@ Here is the docs/about.rst content:
 About us
 ========
 
-We are the `SunLab <http://sunlab.org/>`_ healthcare research team at UIUC.
+We are the REDACTED_LAB healthcare research team at REDACTED_INSTITUTION.
 
-`*Zhenbang Wu <https://zzachw.github.io/>`_ (Ph.D. Student @ University of Illinois Urbana-Champaign)
+REDACTED_MAINTAINER_1 (REDACTED_ROLE @ REDACTED_INSTITUTION)
 
-`*Chaoqi Yang <https://ycq091044.github.io//>`_ (Ph.D. Student @ University of Illinois Urbana-Champaign)
+REDACTED_MAINTAINER_2 (REDACTED_ROLE @ REDACTED_INSTITUTION)
 
-`Patrick Jiang <https://www.linkedin.com/in/patrick-j-3492b4235/>`_ (M.S. Student @ University of Illinois Urbana-Champaign)
+REDACTED_ALUMNI_1 (REDACTED_ROLE @ REDACTED_INSTITUTION)
 
-`Zhen Lin <https://zlin7.github.io/>`_ (Ph.D. Student @ University of Illinois Urbana-Champaign)
+REDACTED_ALUMNI_2 (REDACTED_ROLE @ REDACTED_INSTITUTION)
 
-`Junyi Gao <http://aboutme.vixerunt.org/>`_ (M.S. Student @ UIUC, Ph.D. Student @ University of Edinburgh)
+REDACTED_ALUMNI_3 (REDACTED_ROLE @ REDACTED_INSTITUTION, REDACTED_ROLE @ REDACTED_INSTITUTION_2)
 
-`Benjamin Danek <https://bpdanek.github.io/>`_ (M.S. Student @ University of Illinois Urbana-Champaign)
+REDACTED_ALUMNI_4 (REDACTED_ROLE @ REDACTED_INSTITUTION)
 
-`Jimeng Sun <http://sunlab.org/>`_ (Professor @ University of Illinois Urbana-Champaign)
+REDACTED_MAINTAINER_3 (REDACTED_ROLE @ REDACTED_INSTITUTION)
 
 (* indicates equal contribution)
 
@@ -528,13 +528,13 @@ We are the `SunLab <http://sunlab.org/>`_ healthcare research team at UIUC.
 Acknowledgement
 ^^^^^^^^^^^^^^^^^^^^
 
-`Yue Zhao <https://www.andrew.cmu.edu/user/yuezhao2/>`_ (Ph.D. Student @ Carnegie Mellon University)
+REDACTED_CONTRIBUTOR_5 (REDACTED_ROLE @ REDACTED_INSTITUTION_4)
 
-`Dr. Zhi Qiao <https://scholar.google.com/citations?user=20W38KYAAAAJ&hl=en>`_ (Associate ML Director, ACOE @ IQVIA)
+REDACTED_CONTRIBUTOR_7 (REDACTED_ROLE, REDACTED_ORG @ REDACTED_COMPANY_1)
 
-`Dr. Xiao Cao <https://sites.google.com/view/danicaxiao/home>`_ (VP of Machine Learning and NLP, Relativity)
+REDACTED_CONTRIBUTOR_8 (REDACTED_ROLE, REDACTED_COMPANY_2)
 
-`Xiyang Hu <https://www.andrew.cmu.edu/user/xiyanghu/>`_ (Ph.D. Student @ Carnegie Mellon University)
+REDACTED_CONTRIBUTOR_6 (REDACTED_ROLE @ REDACTED_INSTITUTION_4)
 Here is the docs/advance_tutorials.rst content: 
 
 Advanced Tutorials
@@ -572,13 +572,13 @@ Welcome to PyHealth!
    :alt: Documentation status
 
 
-.. image:: https://img.shields.io/github/stars/yzhao062/pyhealth.svg
-   :target: https://github.com/sunlabuiuc/pyhealth/stargazers
+.. image:: https://img.shields.io/github/stars/REDACTED_ORG/pyhealth.svg
+   :target: https://github.com/REDACTED_ORG/pyhealth/stargazers
    :alt: GitHub stars
 
 
-.. image:: https://img.shields.io/github/forks/yzhao062/pyhealth.svg?color=blue
-   :target: https://github.com/sunlabuiuc/pyhealth/network
+.. image:: https://img.shields.io/github/forks/REDACTED_ORG/pyhealth.svg?color=blue
+   :target: https://github.com/REDACTED_ORG/pyhealth/network
    :alt: GitHub forks
 
 
@@ -602,23 +602,23 @@ Welcome to PyHealth!
 
 .. **Build Status & Coverage & Maintainability & License**
 
-.. .. image:: https://travis-ci.org/yzhao062/pyhealth.svg?branch=master
-..    :target: https://travis-ci.org/yzhao062/pyhealth
+.. .. image:: https://travis-ci.org/REDACTED_ORG/pyhealth.svg?branch=master
+..    :target: https://travis-ci.org/REDACTED_ORG/pyhealth
 ..    :alt: Build Status
 
 
 .. .. image:: https://ci.appveyor.com/api/projects/status/1kupdy87etks5n3r/branch/master?svg=true
-..    :target: https://ci.appveyor.com/project/yzhao062/pyhealth/branch/master
+..    :target: https://ci.appveyor.com/project/REDACTED_ORG/pyhealth/branch/master
 ..    :alt: Build status
 
 
 .. .. image:: https://api.codeclimate.com/v1/badges/bdc3d8d0454274c753c4/maintainability
-..    :target: https://codeclimate.com/github/yzhao062/pyhealth/maintainability
+..    :target: https://codeclimate.com/github/REDACTED_ORG/pyhealth/maintainability
 ..    :alt: Maintainability
 
 
-.. .. image:: https://img.shields.io/github/license/yzhao062/pyhealth
-..    :target: https://github.com/yzhao062/pyhealth/blob/master/LICENSE
+.. .. image:: https://img.shields.io/github/license/REDACTED_ORG/pyhealth
+..    :target: https://github.com/REDACTED_ORG/pyhealth/blob/master/LICENSE
 ..    :alt: License
 
 Go to KDD'23 Tutorial Link https://sunlabuiuc.github.io/PyHealth/
@@ -634,8 +634,8 @@ PyHealth is designed for both **ML researchers and medical practitioners**. We c
 Introduction `[Video] <https://www.youtube.com/watch?v=1Ir6hzU4Nro&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=1>`_
 --------------------------------------------------------------------------------------------------------------------
 
-.. .. image:: https://raw.githubusercontent.com/yzhao062/PyHealth/master/docs/images/logo.png
-..    :target: https://raw.githubusercontent.com/yzhao062/PyHealth/master/docs/images/logo.png
+.. .. image:: https://raw.githubusercontent.com/REDACTED_ORG/PyHealth/master/docs/images/logo.png
+..    :target: https://raw.githubusercontent.com/REDACTED_ORG/PyHealth/master/docs/images/logo.png
 ..    :alt: PyHealth Logo
 ..    :align: center
 
@@ -796,9 +796,9 @@ Users can **customize their healthcare AI pipeline** as simply as calling one mo
 .. **Key Links and Resources**\ :
 
 
-.. * `View the latest codes on Github <https://github.com/ycq091044/PyHealth-OMOP>`_
-.. * `Execute Interactive Jupyter Notebooks <https://mybinder.org/v2/gh/yzhao062/pyhealth/master>`_
-.. * `Check out the PyHealth paper <https://github.com/yzhao062/pyhealth>`_
+.. * `View the latest codes on Github <https://github.com/REDACTED_USER/PyHealth-OMOP>`_
+.. * `Execute Interactive Jupyter Notebooks <https://mybinder.org/v2/gh/REDACTED_ORG/pyhealth/master>`_
+.. * `Check out the PyHealth paper <https://github.com/REDACTED_ORG/pyhealth>`_
 
 
 
@@ -931,11 +931,11 @@ PyHealth live
 
  **Recurrence**: There is no live session for now.
 
- **Zoom**: `Join Link <https://illinois.zoom.us/j/87450975602?pwd=ckQyaHhkRitlUzlwYUY3NjdEQ0pFdz09>`_
+ **Zoom**: `Join Link <REDACTED_ZOOM_LINK>`_
 
- **Add to Google Calender**: `Invitation <https://illinois.zoom.us/meeting/tZMpcumhqT4sGtYh_bBC37B9At6vTpwjDBW4/calendar/google/add>`_
+ **Add to Google Calender**: `Invitation <REDACTED_ZOOM_LINK>`_
 
- **Add to Microsoft Outlook (.ics)**: `Invitation <https://illinois.zoom.us/meeting/tZMpcumhqT4sGtYh_bBC37B9At6vTpwjDBW4/ics>`_
+ **Add to Microsoft Outlook (.ics)**: `Invitation <REDACTED_ZOOM_LINK>`_
 
  **YouTube**: `Recorded Live Sessions <https://www.youtube.com/playlist?list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV>`_
 
@@ -24034,7 +24034,7 @@ if __name__ == "__main__":
 Here is the code content for __init__.py:
 """KCal: Kernel-based Calibration
 
-Implementation based on https://github.com/zlin7/KCal.
+Implementation based on https://github.com/REDACTED_USER/KCal.
 
 Paper:
 
@@ -24928,7 +24928,7 @@ Here is the code content for __init__.py:
 """
 SCRIB: Set-classifier with Class-specific Risk Bounds
 
-Implementation based on https://github.com/zlin7/scrib
+Implementation based on https://github.com/REDACTED_USER/scrib
 
 """
 
@@ -25600,7 +25600,7 @@ Here is the code content for __init__.py:
 """
 Fast Online Value-Maximizing Prediction Sets with Conformal Cost Control (FavMac)
 
-Implementation based on https://github.com/zlin7/FavMac
+Implementation based on https://github.com/REDACTED_USER/FavMac
 
 """
 

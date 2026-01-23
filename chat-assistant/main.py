@@ -85,7 +85,7 @@ if __name__ == "__main__":
     with gr.Blocks(theme="default", css=CSS, title="PyHealthChat") as block:
         with gr.Row():
             gr.Markdown(
-                "<div><img src='https://raw.githubusercontent.com/sunlabuiuc/PyHealth/master/docs/_static/pyhealth_logos/pyhealth-logo.png' width=140>")
+                "<div><img src='https://raw.githubusercontent.com/REDACTED_ORG/PyHealth/master/docs/_static/pyhealth_logos/pyhealth-logo.png' width=140>")
             gr.Markdown(
                 "<h1><center style='padding: 25px 0; border: 3px;'>PyHealthChat</center></h1>")
             gr.Markdown(
@@ -157,5 +157,5 @@ if __name__ == "__main__":
         share=False,
         debug=True,
         server_name="0.0.0.0",
-        # favicon_path="https://raw.githubusercontent.com/sunlabuiuc/PyHealth/master/docs/_static/pyhealth_logos/pyhealth-logo.png",
+        # favicon_path="https://raw.githubusercontent.com/REDACTED_ORG/PyHealth/master/docs/_static/pyhealth_logos/pyhealth-logo.png",
     )

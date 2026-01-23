@@ -187,13 +187,13 @@ class SparcNet(BaseModel):
         ...         {
         ...             "record_id": "SC4001-0",
         ...             "patient_id": "SC4001",
-        ...             "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/2f06a9232e54254cbcb4b62624294d71/SC4001-0.pkl",
+        ...             "epoch_path": "/home/REDACTED_USER/.cache/pyhealth/datasets/2f06a9232e54254cbcb4b62624294d71/SC4001-0.pkl",
         ...             "label": "W",
         ...         },
         ...         {
         ...             "record_id": "SC4001-1",
         ...             "patient_id": "SC4001",
-        ...             "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/2f06a9232e54254cbcb4b62624294d71/SC4001-1.pkl",
+        ...             "epoch_path": "/home/REDACTED_USER/.cache/pyhealth/datasets/2f06a9232e54254cbcb4b62624294d71/SC4001-1.pkl",
         ...             "label": "R",
         ...         }
         ...     ]
@@ -391,13 +391,13 @@ if __name__ == "__main__":
         {
             "record_id": "SC4001-0",
             "patient_id": "SC4001",
-            "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/2f06a9232e54254cbcb4b62624294d71/SC4001-0.pkl",
+            "epoch_path": "/home/REDACTED_USER/.cache/pyhealth/datasets/2f06a9232e54254cbcb4b62624294d71/SC4001-0.pkl",
             "label": "W",
         },
         {
             "record_id": "SC4001-0",
             "patient_id": "SC4001",
-            "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/2f06a9232e54254cbcb4b62624294d71/SC4001-1.pkl",
+            "epoch_path": "/home/REDACTED_USER/.cache/pyhealth/datasets/2f06a9232e54254cbcb4b62624294d71/SC4001-1.pkl",
             "label": "R",
         },
     ]

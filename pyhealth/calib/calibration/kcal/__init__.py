@@ -1,6 +1,6 @@
 """KCal: Kernel-based Calibration
 
-Implementation based on https://github.com/zlin7/KCal.
+Implementation based on https://github.com/REDACTED_USER/KCal.
 
 Paper:
 

@@ -7,7 +7,7 @@ from pyhealth.tasks import MultimodalMortalityPredictionMIMIC4
 EHR_ROOT = "/srv/local/data/physionet.org/files/mimiciv/2.2"
 NOTE_ROOT = "/srv/local/data/MIMIC-IV/2.0/"
 CXR_ROOT = "/srv/local/data/MIMIC-CXR"
-CACHE_DIR = "/srv/local/data/jw3/pyhealth_cache"
+CACHE_DIR = "/srv/local/data/REDACTED_USER/pyhealth_cache"
 
 
 if __name__ == "__main__":

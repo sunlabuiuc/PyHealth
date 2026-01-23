@@ -13,7 +13,7 @@ Before diving into the details, here are some excellent pull requests that demon
 
 **Dataset & Task Contributions:**
 
-- **ChestX-ray14 Dataset with Classification Tasks** (`PR #392 <https://github.com/sunlabuiuc/PyHealth/pull/392/files>`_)
+- **ChestX-ray14 Dataset with Classification Tasks** (`PR #392 <https://github.com/REDACTED_ORG/PyHealth/pull/392/files>`_)
   
   This is an exemplary dataset contribution that includes:
   
@@ -26,7 +26,7 @@ Before diving into the details, here are some excellent pull requests that demon
 
 **Model Updates & Revamps:**
 
-- **Model Compatibility Updates** (`PR #610 <https://github.com/sunlabuiuc/PyHealth/pull/610>`_)
+- **Model Compatibility Updates** (`PR #610 <https://github.com/REDACTED_ORG/PyHealth/pull/610>`_)
   
   A great example of updating models to work with PyHealth 2.0:
   
@@ -70,7 +70,7 @@ To start contributing to PyHealth:
 
    - Target the ``main`` branch
    - Enable edits by maintainers
-   - Rebase with the remote ``sunlabuiuc`` main branch before creating the PR
+   - Rebase with the remote ``REDACTED_ORG`` main branch before creating the PR
 
 Data Access for Testing
 ========================
@@ -120,7 +120,7 @@ Code File Headers
 For new contributors, include the following information at the top of your code files:
 
 - Your name(s)
-- Your NetID(s) (if applicable for UIUC students)
+- Your NetID(s) (if applicable for REDACTED_INSTITUTION students)
 - Paper title (if applicable to a reproducibility contribution)
 - Paper link (if applicable)
 - Description of the task/dataset/model you're implementing
@@ -176,8 +176,8 @@ All datasets must follow these guidelines:
 - **Inherit from BaseDataset**: All datasets must inherit from the appropriate BaseDataset class
 - **Follow established patterns**: 
   
-  - For EHR datasets: See the `MIMIC4 dataset example <https://github.com/sunlabuiuc/PyHealth/blob/main/pyhealth/datasets/mimic4.py>`_
-  - For image datasets: See the `CovidCXR dataset example <https://github.com/sunlabuiuc/PyHealth/blob/main/pyhealth/datasets/covidcxr.py>`_ where each folder represents a sample
+  - For EHR datasets: See the `MIMIC4 dataset example <https://github.com/REDACTED_ORG/PyHealth/blob/main/pyhealth/datasets/mimic4.py>`_
+  - For image datasets: See the `CovidCXR dataset example <https://github.com/REDACTED_ORG/PyHealth/blob/main/pyhealth/datasets/covidcxr.py>`_ where each folder represents a sample
 
 - **Include a test task**: Datasets should ideally have an associated task for testing purposes
 
@@ -195,8 +195,8 @@ Tasks must follow the established task class structure:
 - **Inherit from base task class**: Follow the pattern defined in existing tasks
 - **Examples to reference**:
   
-  - `Mortality prediction task <https://github.com/sunlabuiuc/PyHealth/blob/main/pyhealth/tasks/mortality_prediction.py>`_
-  - `X-ray classification task <https://github.com/sunlabuiuc/PyHealth/blob/main/pyhealth/tasks/chest_xray_classification.py>`_
+  - `Mortality prediction task <https://github.com/REDACTED_ORG/PyHealth/blob/main/pyhealth/tasks/mortality_prediction.py>`_
+  - `X-ray classification task <https://github.com/REDACTED_ORG/PyHealth/blob/main/pyhealth/tasks/chest_xray_classification.py>`_
 
 - **Flexibility**: Tasks can include various implementation details but must have clear inputs/outputs
 - **Test cases**: Include example test cases with defined inputs and expected outputs
@@ -207,7 +207,7 @@ Contributing a Model
 Models must follow the model base class structure:
 
 - **Inherit from BaseModel**: All models must inherit from the appropriate base model class
-- **Reference implementation**: See the `RNN model example <https://github.com/sunlabuiuc/PyHealth/blob/main/pyhealth/models/rnn.py>`_
+- **Reference implementation**: See the `RNN model example <https://github.com/REDACTED_ORG/PyHealth/blob/main/pyhealth/models/rnn.py>`_
 - **Test cases**: Include example test cases with dummy inputs and expected outputs
 
 **Key Requirements:**
@@ -533,7 +533,7 @@ Every pull request must include the following information in the comment:
 
 .. code-block:: text
 
-   **Contributor:** Jane Doe (jdoe2@illinois.edu)
+   **Contributor:** Jane Doe ([REDACTED_EMAIL])
    
    **Contribution Type:** New Dataset
    

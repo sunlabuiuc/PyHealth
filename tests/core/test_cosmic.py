@@ -2,7 +2,7 @@
 Unit tests for the COSMICDataset and MutationPathogenicityPrediction classes.
 
 Author:
-    Abraham Arellano
+    REDACTED_AUTHOR
 """
 import os
 import shutil
