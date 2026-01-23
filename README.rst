@@ -56,20 +56,6 @@ Welcome to PyHealth!
    :alt: CI status
 
 
-Citing PyHealth :handshake:
-----------------------------------
- REDACTED_AUTHOR_1, REDACTED_AUTHOR_2, REDACTED_AUTHOR_3, REDACTED_AUTHOR_4, REDACTED_AUTHOR_5, REDACTED_AUTHOR_6, and REDACTED_AUTHOR_7. 2023. "PyHealth: A Deep Learning Toolkit for Healthcare Applications." In Proceedings of the 29th ACM SIGKDD Conference on Knowledge Discovery and Data Mining, 5788–89. KDD '23. New York, NY, USA: Association for Computing Machinery.
-
-.. code-block:: bibtex
-
-    @inproceedings{pyhealth2023yang,
-        author = {REDACTED_AUTHOR_1 and REDACTED_AUTHOR_2 and REDACTED_AUTHOR_3 and REDACTED_AUTHOR_4 and REDACTED_AUTHOR_5 and REDACTED_AUTHOR_6 and REDACTED_AUTHOR_7},
-        title = {{PyHealth}: A Deep Learning Toolkit for Healthcare Predictive Modeling},
-        url = {https://github.com/REDACTED_ORG/PyHealth},
-        booktitle = {Proceedings of the 27th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD) 2023},
-        year = {2023}
-    }
-
 -----------------------------------------------------------------
 
 
@@ -97,19 +83,9 @@ PyHealth is a comprehensive deep learning toolkit for supporting clinical predic
 
 PyHealth requires **Python 3.12 or 3.13** (``>=3.12,<3.14``). This version requirement enables optimal parallel processing, memory management, and compatibility with our modern dependencies.
 
-**Recommended Installation (Alpha Version)**
+**Installation**
 
-We recommend installing the latest alpha version from PyPi, which offers significant improvements in performance:
-
-.. code-block:: sh
-
-    pip install pyhealth==2.0a14
-
-This version includes optimized implementations and enhanced features compared to the legacy version.
-
-**Legacy Version**
-
-The older stable version is still available for backward compatibility:
+Install PyHealth from PyPI:
 
 .. code-block:: sh
 
@@ -125,7 +101,7 @@ If you are contributing to PyHealth or need the latest development features, ins
     cd PyHealth
     pip install -e .
 
-**Note:** PyHealth 2.0 automatically installs PyTorch and other deep learning dependencies. The alpha version includes all required libraries for neural network-based models.
+**Note:** PyHealth automatically installs PyTorch and other deep learning dependencies.
 
 
 2. Introduction :book:

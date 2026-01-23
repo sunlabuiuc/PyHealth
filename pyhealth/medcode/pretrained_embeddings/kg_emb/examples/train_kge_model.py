@@ -15,7 +15,7 @@ This is an example to show you how to train a KG embedding model using our packa
 
 
 umls_ds = UMLSDataset(
-    root="/data/pj20/umls/",
+    root="/data/REDACTED_USER/umls/",
     # root="https://storage.googleapis.com/pyhealth/umls/",
     dev=False,
     refresh_cache=True
@@ -30,10 +30,10 @@ print("Relations in KG:", umls_ds.relation2id)
 umls_ds = umls_ds.set_task(link_prediction_fn, negative_sampling=64, save=False)
 
 # save the id2entity, id2relation
-with open("/data/pj20/umls_kge/pretrained_model/umls_transe_new/id2entity.json", "w") as f:
+with open("/data/REDACTED_USER/umls_kge/pretrained_model/umls_transe_new/id2entity.json", "w") as f:
     json.dump(umls_ds.id2entity, f, indent=6)
 
-with open("/data/pj20/umls_kge/pretrained_model/umls_transe_new/id2relation.json", "w") as f:
+with open("/data/REDACTED_USER/umls_kge/pretrained_model/umls_transe_new/id2relation.json", "w") as f:
     json.dump(umls_ds.id2relation, f, indent=6)
 
 # check the dataset statistics after setting task
@@ -54,7 +54,7 @@ model = TransE(
 )
 
 print('Loaded model: ', model)
-state_dict = torch.load("/data/pj20/umls_kge/pretrained_model/umls_transe_new/1_250000_last.ckpt")
+state_dict = torch.load("/data/REDACTED_USER/umls_kge/pretrained_model/umls_transe_new/1_250000_last.ckpt")
 model.load_state_dict(state_dict)
 
 # initialize a trainer and start training
@@ -62,7 +62,7 @@ trainer = Trainer(
     model=model, 
     device='cuda:5', 
     metrics=['hits@n', 'mean_rank'], 
-    output_path='/data/pj20/umls_kge/pretrained_model',
+    output_path='/data/REDACTED_USER/umls_kge/pretrained_model',
     exp_name='umls_transe_new'
     )
 
@@ -78,10 +78,10 @@ trainer.train(
 )
 
 # save the entity embedding and relation embedding
-with open("/data/pj20/umls_kge/pretrained_model/umls_transe_new/entity_embedding.pkl", "wb") as f:
+with open("/data/REDACTED_USER/umls_kge/pretrained_model/umls_transe_new/entity_embedding.pkl", "wb") as f:
     pickle.dump(model.E_emb, f)
 
-with open("/data/pj20/umls_kge/pretrained_model/umls_transe_new/relation_embedding.pkl", "wb") as f:
+with open("/data/REDACTED_USER/umls_kge/pretrained_model/umls_transe_new/relation_embedding.pkl", "wb") as f:
     pickle.dump(model.R_emb, f)
 
 # evaluate the trained model
