@@ -3,7 +3,7 @@ Welcome to PyHealth!
 
 .. note::
 
-   **Documentation:** The official documentation site at `pyhealth.readthedocs.io <https://pyhealth.readthedocs.io/en/latest/>`_ will be released when it is no longer double blind.
+   **Documentation:** The official documentation site will be released when it is no longer double blind.
 
 
 -----------------------------------------------------------------
@@ -19,7 +19,7 @@ PyHealth is a comprehensive deep learning toolkit for supporting clinical predic
 - 10+ supported healthcare tasks and datasets
 - Fast (~3x faster than pandas) data processing for quick experimentation
 
- **[News!]** We are continuously implementing good papers and benchmarks into PyHealth, checkout the `[Planned List] <https://docs.google.com/spreadsheets/d/1PNMgDe-llOm1SM5ZyGLkmPysjC4wwaVblPLAHLxejTw/edit#gid=159213380>`_. Welcome to pick one from the list and send us a PR or add more influential and new papers into the plan list.
+ **[News!]** We are continuously implementing good papers and benchmarks into PyHealth. Welcome to send us a PR with influential and new papers.
 
 .. image:: figure/poster.png
    :width: 810
@@ -47,7 +47,7 @@ If you are contributing to PyHealth or need the latest development features, ins
 
 .. code-block:: sh
 
-    git clone https://github.com/REDACTED_ORG/PyHealth.git
+    git clone REDACTED_GITHUB_URL
     cd PyHealth
     pip install -e .
 
@@ -93,7 +93,7 @@ Module 1: <pyhealth.datasets>
 
     mimic3base = MIMIC3Dataset(
         # root directory of the dataset
-        root="https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III/",
+        root="REDACTED_STORAGE_URL/Synthetic_MIMIC-III/",
         # raw CSV table name
         tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
         # map all NDC codes to CCS codes in these tables
@@ -322,7 +322,7 @@ The **PyHealth Research Initiative** is a year-round, open research program that
 
 **How to participate:**
 
-1. Submit a high-quality PR to the `PyHealth repository <https://github.com/REDACTED_ORG/PyHealth>`_
+1. Submit a high-quality PR to the PyHealth repository
 2. Check the documentation for more details (will be released when no longer double blind)
 
 Recent research from the initiative has been published at venues including **ML4H 2025** and other top conferences.
@@ -342,5 +342,5 @@ We are the REDACTED_LAB healthcare research team at REDACTED_INSTITUTION.
 
 **Get in Touch:**
 
-- `GitHub Issues <https://github.com/REDACTED_ORG/PyHealth/issues>`_
+- GitHub Issues (will be released when no longer double blind)
 
