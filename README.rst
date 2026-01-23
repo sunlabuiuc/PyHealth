@@ -101,7 +101,7 @@ If you are contributing to PyHealth or need the latest development features, ins
     cd PyHealth
     pip install -e .
 
-**Note:** PyHealth automatically installs PyTorch and other deep learning dependencies.
+**Note:** PyHealth automatically installs PyTorch and other deep learning dependencies. However, users may need to reinstall PyTorch based on their CUDA versions for optimal GPU support.
 
 
 2. Introduction :book:
