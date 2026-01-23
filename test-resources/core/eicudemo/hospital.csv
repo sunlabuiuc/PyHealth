@@ -1,0 +1,82 @@
+hospitalid,numbedscategory,teachingstatus,region
+56,<100,f,Midwest
+59,<100,f,Midwest
+71,100 - 249,f,Midwest
+79,>= 500,f,Midwest
+95,100 - 249,f,Midwest
+110,100 - 249,f,South
+112,250 - 499,f,South
+115,<100,f,South
+122,>= 500,f,South
+125,<100,f,South
+131,<100,f,South
+138,<100,f,Midwest
+141,250 - 499,f,South
+143,250 - 499,f,
+144,100 - 249,f,South
+148,250 - 499,f,West
+152,100 - 249,f,West
+155,100 - 249,f,West
+157,250 - 499,f,West
+165,>= 500,f,West
+167,>= 500,t,West
+174,<100,f,West
+176,,f,
+180,100 - 249,f,South
+181,,f,South
+182,100 - 249,f,South
+183,>= 500,f,South
+195,250 - 499,t,South
+198,>= 500,t,South
+199,>= 500,t,Northeast
+201,100 - 249,f,
+204,100 - 249,f,Northeast
+207,<100,f,South
+208,>= 500,f,South
+209,,f,
+220,250 - 499,t,South
+224,100 - 249,f,South
+244,100 - 249,f,South
+245,100 - 249,f,South
+246,100 - 249,f,South
+248,100 - 249,f,Midwest
+251,<100,f,Midwest
+263,,f,
+269,,f,
+273,100 - 249,f,Midwest
+277,100 - 249,f,Midwest
+279,100 - 249,f,Midwest
+280,250 - 499,f,Midwest
+281,250 - 499,f,Midwest
+303,,f,
+310,100 - 249,f,Midwest
+328,<100,f,Midwest
+331,,f,
+353,100 - 249,f,Midwest
+357,,f,Midwest
+382,>= 500,f,
+387,>= 500,f,West
+388,100 - 249,f,West
+389,<100,f,West
+393,<100,f,West
+396,100 - 249,f,West
+397,100 - 249,f,
+399,<100,f,West
+400,250 - 499,f,West
+404,<100,f,West
+405,100 - 249,f,West
+417,250 - 499,f,South
+421,<100,f,Northeast
+423,<100,f,Northeast
+425,100 - 249,f,Northeast
+429,,f,South
+433,,f,South
+435,250 - 499,f,South
+438,,f,South
+439,100 - 249,f,South
+443,>= 500,t,South
+444,,f,Midwest
+458,>= 500,f,South
+459,100 - 249,f,South
+
+

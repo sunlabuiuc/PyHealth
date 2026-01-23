@@ -288,17 +288,13 @@ class LengthOfStayPredictioneICU(BaseTask):
 
     Examples:
         >>> from pyhealth.datasets import eICUDataset
-        >>> eicu_base = eICUDataset(
-        ...     root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
-        ...     tables=["diagnosis", "medication", "physicalExam"],
-        ...     code_mapping={},
-        ...     dev=True
-        ... )
         >>> from pyhealth.tasks import LengthOfStayPredictioneICU
+        >>> dataset = eICUDataset(
+        ...     root="/path/to/eicu-crd/2.0",
+        ...     tables=["diagnosis", "medication", "physicalexam"],
+        ... )
         >>> task = LengthOfStayPredictioneICU()
-        >>> eicu_sample = eicu_base.set_task(task)
-        >>> eicu_sample.samples[0]
-        [{'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '98', '663', '58', '51']], 'procedures': [['1']], 'drugs': [['...']], 'los': 5}]
+        >>> sample_dataset = dataset.set_task(task)
     """
 
     task_name: str = "LengthOfStayPredictioneICU"
@@ -312,52 +308,70 @@ class LengthOfStayPredictioneICU(BaseTask):
     def __call__(self, patient: Patient) -> List[Dict]:
         samples = []
 
-        # Get all patient stays
+        # Get all patient stays (each row in patient table is an ICU stay)
         patient_stays = patient.get_events(event_type="patient")
         if len(patient_stays) == 0:
             return []
 
         # Process each patient stay
         for stay in patient_stays:
+            # Get the patientunitstayid for filtering
+            stay_id = str(getattr(stay, "patientunitstayid", ""))
+            
             # Get diagnosis codes
             diagnosis_events = patient.get_events(
                 event_type="diagnosis",
-                filters=[("patientunitstayid", "==", stay.patientunitstayid)],
+                filters=[("patientunitstayid", "==", stay_id)],
             )
-            conditions = [event.diagnosisstring for event in diagnosis_events]
+            conditions = [
+                getattr(event, "diagnosisstring", "") for event in diagnosis_events
+                if getattr(event, "diagnosisstring", None)
+            ]
 
             # Get physical exam findings
             physicalexam_events = patient.get_events(
                 event_type="physicalexam",
-                filters=[("patientunitstayid", "==", stay.patientunitstayid)],
+                filters=[("patientunitstayid", "==", stay_id)],
             )
-            procedures = [event.physicalexamtext for event in physicalexam_events]
+            procedures = [
+                getattr(event, "physicalexamtext", "") for event in physicalexam_events
+                if getattr(event, "physicalexamtext", None)
+            ]
 
             # Get medications
             medication_events = patient.get_events(
                 event_type="medication",
-                filters=[("patientunitstayid", "==", stay.patientunitstayid)],
+                filters=[("patientunitstayid", "==", stay_id)],
             )
-            drugs = [event.drugname for event in medication_events]
+            drugs = [
+                getattr(event, "drugname", "") for event in medication_events
+                if getattr(event, "drugname", None)
+            ]
 
             # Exclude visits without condition, procedure, or drug code
             if len(conditions) * len(procedures) * len(drugs) == 0:
                 continue
 
-            # Calculate length of stay
-            admit_time = datetime.strptime(
-                stay.hospitaladmittime24, "%Y-%m-%d %H:%M:%S"
-            )
-            discharge_time = datetime.strptime(
-                stay.hospitaldischargetime24, "%Y-%m-%d %H:%M:%S"
-            )
+            # Calculate length of stay using hospital admit/discharge times
+            admit_time_str = getattr(stay, "hospitaladmittime24", None)
+            discharge_time_str = getattr(stay, "hospitaldischargetime24", None)
+            
+            if not admit_time_str or not discharge_time_str:
+                continue
+                
+            try:
+                admit_time = datetime.strptime(admit_time_str, "%Y-%m-%d %H:%M:%S")
+                discharge_time = datetime.strptime(discharge_time_str, "%Y-%m-%d %H:%M:%S")
+            except (ValueError, TypeError):
+                continue
+                
             los_days = (discharge_time - admit_time).days
             los_category = categorize_los(los_days)
 
             # TODO: should also exclude visit with age < 18
             samples.append(
                 {
-                    "visit_id": stay.patientunitstayid,
+                    "visit_id": stay_id,
                     "patient_id": patient.patient_id,
                     "conditions": conditions,
                     "procedures": procedures,
