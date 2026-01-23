@@ -325,8 +325,6 @@ The **PyHealth Research Initiative** is a year-round, open research program that
 1. Submit a high-quality PR to the PyHealth repository
 2. Check the documentation for more details (will be released when no longer double blind)
 
-Recent research from the initiative has been published at venues including **ML4H 2025** and other top conferences.
-
 
 10. About Us :busts_in_silhouette:
 --------------------------------------------
