@@ -3,57 +3,7 @@ Welcome to PyHealth!
 
 .. note::
 
-   **This README may be out of date.** For the most up-to-date documentation, tutorials, and API reference, please visit our official documentation site at `pyhealth.readthedocs.io <https://pyhealth.readthedocs.io/en/latest/>`_.
-
-.. important::
-
-   * **Join our PyHealth Discord Community!** We are actively looking for contributors and want to get to know our users better! `Click here to join Discord <REDACTED_DISCORD_LINK>`_
-   * **Signup for our mailing list!** We will email any significant PyHealth changes that are soon to come! `Click here to subscribe <https://docs.google.com/forms/d/e/1FAIpQLSfpJB5tdkI7BccTCReoszV9cyyX2rF99SgznzwlOepi5v-xLw/viewform?usp=header>`_
-
-.. image:: https://img.shields.io/readthedocs/pyhealth?logo=readthedocs&label=docs&version=latest
-   :target: https://pyhealth.readthedocs.io/en/latest/
-   :alt: Docs
-
-.. image:: https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white
-   :target: REDACTED_DISCORD_LINK
-   :alt: Discord
-
-.. image:: https://img.shields.io/badge/Mailing%20List-Subscribe-blue?logo=gmail&logoColor=white
-   :target: https://docs.google.com/forms/d/e/1FAIpQLSfpJB5tdkI7BccTCReoszV9cyyX2rF99SgznzwlOepi5v-xLw/viewform?usp=header
-   :alt: Mailing list
-
-.. image:: https://img.shields.io/pypi/v/pyhealth.svg?color=brightgreen
-   :target: https://pypi.org/project/pyhealth/
-   :alt: PyPI version
-
-
-.. image:: https://img.shields.io/github/stars/REDACTED_ORG/pyhealth.svg
-   :target: https://github.com/REDACTED_ORG/pyhealth/stargazers
-   :alt: GitHub stars
-
-
-.. image:: https://img.shields.io/github/forks/REDACTED_ORG/pyhealth.svg?color=blue
-   :target: https://github.com/REDACTED_ORG/pyhealth/network
-   :alt: GitHub forks
-
-
-.. image:: https://static.pepy.tech/badge/pyhealth
-   :target: https://pepy.tech/project/pyhealth
-   :alt: Downloads
-
-
-.. image:: https://img.shields.io/badge/Tutorials-Google%20Colab-red
-   :target: https://pyhealth.readthedocs.io/en/latest/tutorials.html
-   :alt: Tutorials
-
-
-.. image:: https://img.shields.io/badge/YouTube-16%20Videos-red
-   :target: https://www.youtube.com/playlist?list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV
-   :alt: YouTube
-
-.. image:: https://github.com/REDACTED_ORG/PyHealth/workflows/CI/badge.svg
-   :target: https://github.com/REDACTED_ORG/PyHealth/actions
-   :alt: CI status
+   **Documentation:** The official documentation site at `pyhealth.readthedocs.io <https://pyhealth.readthedocs.io/en/latest/>`_ will be released when it is no longer double blind.
 
 
 -----------------------------------------------------------------
@@ -306,11 +256,6 @@ Module 5: <pyhealth.metrics>
 6. Tutorials :teacher:
 ----------------------------
 
-.. image:: https://colab.research.google.com/assets/colab-badge.svg
-    :target: https://pyhealth.readthedocs.io/en/latest/tutorials.html
-
-..
-
  We provide the following tutorials to help users get started with our pyhealth. Please bear with us as we update the documentation on how to use PyHealth 2.0.
 
 `Tutorial 0: Introduction to pyhealth.data <https://colab.research.google.com/drive/1y9PawgSbyMbSSMw1dpfwtooH7qzOEYdN?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=Nk1itBoLOX8&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=2>`__
@@ -425,9 +370,8 @@ The **PyHealth Research Initiative** is a year-round, open research program that
 
 **How to participate:**
 
-1. Join our `Discord server <REDACTED_DISCORD_LINK>`_
-2. Submit a high-quality PR to the `PyHealth repository <https://github.com/REDACTED_ORG/PyHealth>`_
-3. Check the `documentation <https://pyhealth.readthedocs.io/en/latest/research_initiative.html>`_ for more details
+1. Submit a high-quality PR to the `PyHealth repository <https://github.com/REDACTED_ORG/PyHealth>`_
+2. Check the documentation for more details (will be released when no longer double blind)
 
 Recent research from the initiative has been published at venues including **ML4H 2025** and other top conferences.
 
@@ -446,7 +390,5 @@ We are the REDACTED_LAB healthcare research team at REDACTED_INSTITUTION.
 
 **Get in Touch:**
 
-- `Discord Community <REDACTED_DISCORD_LINK>`_ (fastest response)
 - `GitHub Issues <https://github.com/REDACTED_ORG/PyHealth/issues>`_
-- `Mailing List <https://docs.google.com/forms/d/e/1FAIpQLSfpJB5tdkI7BccTCReoszV9cyyX2rF99SgznzwlOepi5v-xLw/viewform?usp=header>`_
 
