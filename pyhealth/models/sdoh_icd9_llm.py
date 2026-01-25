@@ -225,6 +225,7 @@ class SDOHICD9LLM:
             )
 
     def _get_client(self):
+        """Initialize and cache the OpenAI client."""
         if self._client is None:
             from openai import OpenAI
 
@@ -232,6 +233,7 @@ class SDOHICD9LLM:
         return self._client
 
     def _call_openai_api(self, text: str) -> str:
+        """Send a single note to the LLM and return the raw response."""
         self._write_prompt_preview(text)
 
         if self.dry_run:
@@ -252,6 +254,7 @@ class SDOHICD9LLM:
         return response.choices[0].message.content.strip()
 
     def _write_prompt_preview(self, text: str) -> None:
+        """Write the fully rendered prompt (with note) to a local file."""
         prompt = self.prompt_template.format(note=text)
         digest = hashlib.sha1(prompt.encode("utf-8")).hexdigest()[:10]
         filename = f"sdoh_prompt_{digest}.txt"
@@ -259,6 +262,7 @@ class SDOHICD9LLM:
             f.write(prompt)
 
     def _parse_llm_response(self, response: str) -> Set[str]:
+        """Parse the LLM response into a set of valid target codes."""
         if not response:
             return set()
 
@@ -289,6 +293,7 @@ class SDOHICD9LLM:
         note_categories: Optional[Iterable[str]] = None,
         chartdates: Optional[Iterable[str]] = None,
     ) -> Tuple[Set[str], List[dict]]:
+        """Run per-note predictions and aggregate codes for one admission."""
         aggregated: Set[str] = set()
         note_results: List[dict] = []
         categories = list(note_categories) if note_categories is not None else []
@@ -325,4 +330,5 @@ class SDOHICD9LLM:
         note_categories: Optional[Iterable[str]] = None,
         chartdates: Optional[Iterable[str]] = None,
     ) -> Tuple[Set[str], List[dict]]:
+        """Public helper to predict and return codes for one admission."""
         return self._predict_admission(notes, note_categories, chartdates)

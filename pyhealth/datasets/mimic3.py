@@ -92,7 +92,11 @@ class MIMIC3Dataset(BaseDataset):
 
 
 class MIMIC3NoteDataset:
-    """Note-only loader for MIMIC-III NOTEEVENTS."""
+    """Note-only loader for MIMIC-III NOTEEVENTS.
+
+    This loader streams NOTEEVENTS in chunks and optionally filters by HADM_IDs
+    and note categories. Use set_task() to convert admissions into samples.
+    """
 
     def __init__(
         self,
@@ -104,6 +108,17 @@ class MIMIC3NoteDataset:
         chunksize: int = 200_000,
         dataset_name: Optional[str] = None,
     ) -> None:
+        """Initialize the note-only loader.
+
+        Args:
+            noteevents_path: Path to NOTEEVENTS CSV/CSV.GZ.
+            root: MIMIC-III root directory (used if noteevents_path is None).
+            target_codes: Target ICD-9 codes for label vector construction.
+            hadm_ids: Optional admission IDs to include.
+            include_categories: Optional NOTE_CATEGORY values to include.
+            chunksize: Number of rows per chunk read.
+            dataset_name: Optional dataset name for the SampleDataset.
+        """
         if noteevents_path is None:
             if root is None:
                 raise ValueError("root is required when noteevents_path is not set.")
@@ -120,6 +135,7 @@ class MIMIC3NoteDataset:
         self.dataset_name = dataset_name or "mimic3_note"
 
     def _load_notes(self) -> Dict[str, List[Dict]]:
+        """Load and group note events by admission."""
         keep_cols = {
             "SUBJECT_ID",
             "HADM_ID",
@@ -168,6 +184,7 @@ class MIMIC3NoteDataset:
         return notes_by_hadm
 
     def _build_admissions(self) -> List[Dict]:
+        """Build admission-level note bundles with timestamps and categories."""
         notes_by_hadm = self._load_notes()
         admissions: List[Dict] = []
         for hadm_id, notes in notes_by_hadm.items():
@@ -205,6 +222,7 @@ class MIMIC3NoteDataset:
         label_map: Optional[Dict[str, Dict[str, Set[str]]]] = None,
         in_memory: bool = True,
     ) -> SampleDataset:
+        """Apply a task to admissions and return a SampleDataset."""
         if task is None:
             task = SDOHICD9AdmissionTask(
                 target_codes=self.target_codes,

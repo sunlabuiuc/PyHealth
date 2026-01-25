@@ -7,7 +7,11 @@ from .sdoh_utils import TARGET_CODES, codes_to_multihot
 
 
 class SDOHICD9AdmissionTask(BaseTask):
-    """Builds admission-level samples for SDOH ICD-9 V-code detection."""
+    """Builds admission-level samples for SDOH ICD-9 V-code detection.
+
+    The task attaches a multi-hot label vector and the corresponding label
+    codes based on the provided admission dictionary (and optional label_map).
+    """
 
     task_name: str = "SDOHICD9Admission"
     input_schema: Dict[str, str] = {
@@ -27,6 +31,13 @@ class SDOHICD9AdmissionTask(BaseTask):
         label_source: str = "manual",
         label_map: Optional[Dict[str, Dict[str, Set[str]]]] = None,
     ) -> None:
+        """Initialize the admission-level task.
+
+        Args:
+            target_codes: Target ICD-9 codes for label vector construction.
+            label_source: Which label set to use ("manual" or "true").
+            label_map: Optional mapping of HADM_ID to label codes.
+        """
         self.target_codes = list(target_codes) if target_codes else list(TARGET_CODES)
         if label_source not in {"manual", "true"}:
             raise ValueError("label_source must be 'manual' or 'true'")
@@ -34,6 +45,7 @@ class SDOHICD9AdmissionTask(BaseTask):
         self.label_map = label_map or {}
 
     def __call__(self, admission: Dict) -> List[Dict]:
+        """Build a single labeled sample from an admission dictionary."""
         admission_id = str(admission.get("visit_id", ""))
         if admission_id and admission_id in self.label_map:
             admission = dict(admission)

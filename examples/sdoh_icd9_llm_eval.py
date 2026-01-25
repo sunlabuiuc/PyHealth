@@ -13,6 +13,7 @@ from pyhealth.tasks.sdoh_utils import codes_to_multihot, load_sdoh_icd9_labels
 
 
 def parse_args():
+    """Parse CLI arguments for SDOH ICD-9 note evaluation."""
     parser = argparse.ArgumentParser(
         description="Admission-level SDOH ICD-9 evaluation with per-note LLM calls."
     )
@@ -44,6 +45,7 @@ def parse_args():
 
 
 def main():
+    """Run admission-level evaluation with per-note LLM calls."""
     args = parse_args()
     target_codes = list(TARGET_CODES)
     label_map = load_sdoh_icd9_labels(args.label_csv_path, target_codes)
