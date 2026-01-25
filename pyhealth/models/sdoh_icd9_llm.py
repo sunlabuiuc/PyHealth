@@ -176,8 +176,12 @@ def _load_prompt_template() -> str:
 class SDOHICD9LLM:
     """Admission-level SDOH ICD-9 V-code detector using an LLM.
 
-    This model runs an LLM on each note for an admission, parses the predicted
-    ICD-9 V-codes, and aggregates predictions across notes (union).
+    This model sends each note for an admission to an LLM, parses predicted
+    ICD-9 V-codes, and aggregates the codes across notes (set union).
+
+    Notes:
+        - Use ``dry_run=True`` to skip LLM calls while exercising the pipeline.
+        - Predictions are derived entirely from the LLM response parsing logic.
 
     Examples:
         >>> from pyhealth.models.sdoh_icd9_llm import SDOHICD9LLM
@@ -207,6 +211,21 @@ class SDOHICD9LLM:
         max_notes: Optional[int] = None,
         dry_run: bool = False,
     ) -> None:
+        """Initialize the LLM wrapper.
+
+        Args:
+            target_codes: Target ICD-9 codes to retain after parsing.
+            model_name: OpenAI model name.
+            prompt_template: Optional prompt template override. Uses built-in
+                SDOH template if not provided.
+            api_key: OpenAI API key. Defaults to ``OPENAI_API_KEY`` env var.
+            max_tokens: Max tokens for LLM response.
+            max_chars: Max chars from each note to send.
+            temperature: LLM temperature.
+            sleep_s: Delay between per-note requests (seconds).
+            max_notes: Optional limit on notes per admission.
+            dry_run: If True, skips API calls and returns "None" responses.
+        """
         self.target_codes = list(target_codes) if target_codes else list(TARGET_CODES)
         self.model_name = model_name
         self.prompt_template = prompt_template or _load_prompt_template()
@@ -233,7 +252,14 @@ class SDOHICD9LLM:
         return self._client
 
     def _call_openai_api(self, text: str) -> str:
-        """Send a single note to the LLM and return the raw response."""
+        """Send a single note to the LLM and return the raw response.
+
+        Args:
+            text: Note text to send.
+
+        Returns:
+            Raw string response from the LLM.
+        """
         self._write_prompt_preview(text)
 
         if self.dry_run:
@@ -262,7 +288,11 @@ class SDOHICD9LLM:
             f.write(prompt)
 
     def _parse_llm_response(self, response: str) -> Set[str]:
-        """Parse the LLM response into a set of valid target codes."""
+        """Parse the LLM response into a set of valid target codes.
+
+        Returns:
+            A set of ICD-9 codes intersected with ``target_codes``.
+        """
         if not response:
             return set()
 
@@ -293,7 +323,16 @@ class SDOHICD9LLM:
         note_categories: Optional[Iterable[str]] = None,
         chartdates: Optional[Iterable[str]] = None,
     ) -> Tuple[Set[str], List[dict]]:
-        """Run per-note predictions and aggregate codes for one admission."""
+        """Run per-note predictions and aggregate codes for one admission.
+
+        Args:
+            notes: Iterable of note texts.
+            note_categories: Optional note categories aligned to ``notes``.
+            chartdates: Optional chart dates aligned to ``notes``.
+
+        Returns:
+            A tuple of (aggregated_codes, per_note_results).
+        """
         aggregated: Set[str] = set()
         note_results: List[dict] = []
         categories = list(note_categories) if note_categories is not None else []
@@ -330,5 +369,14 @@ class SDOHICD9LLM:
         note_categories: Optional[Iterable[str]] = None,
         chartdates: Optional[Iterable[str]] = None,
     ) -> Tuple[Set[str], List[dict]]:
-        """Public helper to predict and return codes for one admission."""
+        """Predict codes for one admission using per-note LLM calls.
+
+        Args:
+            notes: Iterable of note texts.
+            note_categories: Optional note categories aligned to ``notes``.
+            chartdates: Optional chart dates aligned to ``notes``.
+
+        Returns:
+            A tuple of (aggregated_codes, per_note_results).
+        """
         return self._predict_admission(notes, note_categories, chartdates)
