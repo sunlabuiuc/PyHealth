@@ -6,14 +6,25 @@ from pyhealth.interpret.methods.gim import GIM
 from pyhealth.interpret.methods.integrated_gradients import IntegratedGradients
 from pyhealth.interpret.methods.shap import ShapExplainer
 from pyhealth.interpret.methods.lime import LimeExplainer
+from pyhealth.interpret.methods.lrp import LayerwiseRelevancePropagation, UnifiedLRP
+from pyhealth.interpret.methods.saliency_visualization import (
+    SaliencyVisualizer,
+    visualize_attribution
+)
 
 __all__ = [
     "BaseInterpreter",
+    "BasicGradientSaliencyMaps",
     "CheferRelevance",
     "DeepLift",
     "GIM",
     "IntegratedGradients",
-    "BasicGradientSaliencyMaps",
+    "LayerwiseRelevancePropagation",
+    "SaliencyVisualizer",
+    "visualize_attribution",
+    # Unified LRP
+    "UnifiedLRP",
     "ShapExplainer",
-    "LimeExplainer"
+    "LimeExplainer",
+    "LayerWiseRelevancePropagation",
 ]
