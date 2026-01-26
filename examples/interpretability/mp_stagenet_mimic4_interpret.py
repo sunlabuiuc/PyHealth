@@ -18,6 +18,8 @@ from pyhealth.tasks import MortalityPredictionStageNetMIMIC4
 from pyhealth.trainer import Trainer
 from pyhealth.datasets.utils import load_processors
 from pathlib import Path
+from datetime import date
+
 
 
 def main():
@@ -99,102 +101,47 @@ def main():
         "lime": LimeExplainer(model, use_embeddings=True),
     }
     
+    res = {}
     for name, method in methods.items():
         print(f"\n Initializing {name}...")
         print("=" * 70)
         
-        print("Running single batch with debug output...")
+        # Option 1: Functional API (simple one-off evaluation)
+        print("\nEvaluating with Functional API on full dataset...")
+        print("Using: evaluate_attribution(model, dataloader, method, ...)")
 
-        # Get one batch
-        test_batch = next(iter(test_loader))
-
-        # Move batch to device (handles both tensors and tuples)
-        test_batch_device = {}
-        for key, value in test_batch.items():
-            if isinstance(value, torch.Tensor):
-                test_batch_device[key] = value.to(device)
-            elif isinstance(value, tuple):
-                # StageNet format: (time, values) or similar tuples
-                test_batch_device[key] = tuple(
-                    v.to(device) if isinstance(v, torch.Tensor) else v for v in value
-                )
-            else:
-                # Keep non-tensor values as-is (labels, metadata, etc.)
-                test_batch_device[key] = value
-        print("Moved test batch to device.")
-
-        # Get batch size from first tensor found
-        batch_size_val = None
-        for value in test_batch_device.values():
-            if isinstance(value, torch.Tensor):
-                batch_size_val = value.shape[0]
-                break
-            elif isinstance(value, tuple):
-                for v in value:
-                    if isinstance(v, torch.Tensor):
-                        batch_size_val = v.shape[0]
-                        break
-                if batch_size_val is not None:
-                    break
-
-        print(f"Batch size: {batch_size_val}")
-
-        # Compute attributions for this batch
-        print(f"\nComputing attributions with {name}...")
-        attributions = method.attribute(**test_batch_device, steps=10)
-        print(f"✓ Attributions computed for {len(attributions)} feature types")
-
-        # Initialize evaluator
-        evaluator = Evaluator(model, percentages=[1, 99])
-
-        # Compute metrics for single batch
-        print("\nComputing metrics on single batch...")
-        comp_metric = evaluator.metrics["comprehensiveness"]
-        comp_scores, comp_mask = comp_metric.compute(test_batch_device, attributions)
-
-        suff_metric = evaluator.metrics["sufficiency"]
-        suff_scores, suff_mask = suff_metric.compute(test_batch_device, attributions)
+        results_functional = evaluate_attribution(
+            model,
+            test_loader,
+            method,
+            metrics=["comprehensiveness", "sufficiency"],
+            percentages=[25, 50, 99],
+        )
 
         print("\n" + "=" * 70)
-        print("Single Batch Results Summary")
+        print("Dataset-Wide Results (Functional API)")
         print("=" * 70)
-        if comp_mask.sum() > 0:
-            valid_comp = comp_scores[comp_mask]
-            print(f"Comprehensiveness (valid samples): {valid_comp.mean():.4f}")
-            print(f"  Valid samples: {comp_mask.sum()}/{len(comp_mask)}")
-        else:
-            print("Comprehensiveness: No valid samples")
-
-        if suff_mask.sum() > 0:
-            valid_suff = suff_scores[suff_mask]
-            print(f"Sufficiency (valid samples): {valid_suff.mean():.4f}")
-            print(f"  Valid samples: {suff_mask.sum()}/{len(suff_mask)}")
-        else:
-            print("Sufficiency: No valid samples")
-
-        # # Option 1: Functional API (simple one-off evaluation)
-        # print("\n[5/6] Evaluating with Functional API on full dataset...")
-        # print("-" * 70)
-        # print("Using: evaluate_attribution(model, dataloader, method, ...)")
-
-        # results_functional = evaluate_attribution(
-        #     model,
-        #     test_loader,
-        #     method,
-        #     metrics=["comprehensiveness", "sufficiency"],
-        #     percentages=[25, 50, 99],
-        # )
-
-        # print("\n" + "=" * 70)
-        # print("Dataset-Wide Results (Functional API)")
-        # print("=" * 70)
-        # comp = results_functional["comprehensiveness"]
-        # suff = results_functional["sufficiency"]
-        # print(f"\nComprehensiveness: {comp:.4f}")
-        # print(f"Sufficiency:       {suff:.4f}")
+        comp = results_functional["comprehensiveness"]
+        suff = results_functional["sufficiency"]
+        print(f"\nComprehensiveness: {comp:.4f}")
+        print(f"Sufficiency:       {suff:.4f}")
+        
+        res[name] = {
+            "comp": comp,
+            "suff": suff,
+        }
     
-    print("complete")
-
+    print("")
+    print("=" * 70)
+    print("Summary of Results for All Methods")
+    print(res)
+    
+    # Save results
+    today = date.today().strftime("%Y%m%d")
+    with open(OUTPUT_DIR / f"{today}.txt", "w") as f:
+        f.write("Method\tComprehensiveness\tSufficiency\n")
+        for name, scores in res.items():
+            f.write(f"{name}\t{scores['comp']:.4f}\t{scores['suff']:.4f}\n")
 
 if __name__ == "__main__":
     main()
