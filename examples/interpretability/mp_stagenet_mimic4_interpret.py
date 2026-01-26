@@ -27,7 +27,7 @@ def main():
     print("=" * 70)
 
     # Set path
-    CACHE_DIR = Path("/shared/eng/pyhealth_dka/cache")
+    CACHE_DIR = Path("/shared/eng/pyhealth_dka/cache/mp_stagenet_mimic4")
     CKPTS_DIR = Path("/shared/eng/pyhealth_dka/ckpts/mp_stagenet_mimic4")
     OUTPUT_DIR = Path("/shared/eng/pyhealth_dka/output/mp_stagenet_mimic4")
     print(f"\nUsing cache dir: {CACHE_DIR}")
@@ -49,7 +49,7 @@ def main():
             "procedures_icd",
             "labevents",
         ],
-        cache_dir=str("../cache"),
+        cache_dir=str(CACHE_DIR),
         num_workers=16,
     )
 
@@ -92,7 +92,6 @@ def main():
     print(f"✓ Model moved to {device}")
 
     methods = {
-        "chefer": CheferRelevance(model),
         "ig": IntegratedGradients(model, use_embeddings=True),
         "deeplift": DeepLift(model, use_embeddings=True),
         "glim": GIM(model),
