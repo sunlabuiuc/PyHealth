@@ -10,15 +10,15 @@ PyHealth 2.0 requires **Python 3.12 or higher** (up to Python 3.13). This is a h
    # Verify your Python version
    python --version  # Should be 3.12.x or 3.13.x
 
-**Recommended Installation (Alpha Version)**
+**Recommended Installation (Latest Release)**
 
-We recommend installing the latest alpha version from PyPI, which offers significant improvements in performance:
+Install the latest PyHealth 2.0 release from PyPI:
 
 .. code-block:: bash
 
-   pip install pyhealth==2.0a14
+   pip install pyhealth
 
-This version includes optimized implementations and enhanced features compared to the legacy version.
+This version includes significant performance improvements, dynamic memory support, parallelized processing, multimodal dataloaders, and many new features.
 
 **Legacy Version**
 
@@ -26,9 +26,9 @@ The older stable version (1.16) is still available for backward compatibility an
 
 .. code-block:: bash
 
-    pip install pyhealth
+   pip install pyhealth==1.16
 
-**Note:** The legacy version (1.16) should still work for most use cases, but we recommend upgrading to 2.0a14 for better performance and new features.
+**Note:** The legacy version (1.16) should still work for most use cases, but we recommend using PyHealth 2.0 for better performance and new features.
 
 **For Contributors and Developers**
 
