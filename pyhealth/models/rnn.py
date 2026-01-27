@@ -109,6 +109,8 @@ class RNNLayer(nn.Module):
             )
         else:
             lengths = torch.sum(mask.int(), dim=-1).cpu()
+        # Ensure tensor is contiguous for cuDNN compatibility
+        x = x.contiguous()
         x = rnn_utils.pack_padded_sequence(
             x, lengths, batch_first=True, enforce_sorted=False
         )

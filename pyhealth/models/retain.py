@@ -6,6 +6,16 @@ import torch.nn.utils.rnn as rnn_utils
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
+from pyhealth.processors import (
+    DeepNestedFloatsProcessor,
+    DeepNestedSequenceProcessor,
+    MultiHotProcessor,
+    NestedFloatsProcessor,
+    NestedSequenceProcessor,
+    SequenceProcessor,
+    TensorProcessor,
+    TimeseriesProcessor,
+)
 
 from .embedding import EmbeddingModel
 
@@ -331,3 +341,233 @@ if __name__ == "__main__":
 
     # try loss backward
     ret["loss"].backward()
+
+
+class MultimodalRETAIN(BaseModel):
+    """Multimodal RETAIN model for mixed sequential and non-sequential features.
+
+    This model extends RETAIN to support mixed input modalities:
+    - Sequential features (sequences, timeseries) go through RETAINLayer
+    - Non-sequential features (multi-hot, tensor) bypass RETAIN, use embeddings directly
+
+    The model automatically classifies input features based on their processor types:
+    - Sequential processors (apply RETAINLayer): SequenceProcessor,
+        NestedSequenceProcessor, DeepNestedSequenceProcessor, NestedFloatsProcessor,
+        DeepNestedFloatsProcessor, TimeseriesProcessor
+    - Non-sequential processors (embeddings only): MultiHotProcessor, TensorProcessor
+
+    For sequential features, the model:
+    1. Embeds the input using EmbeddingModel
+    2. Applies RETAINLayer with reverse time attention mechanism
+    3. Extracts the patient representation
+
+    For non-sequential features, the model:
+    1. Embeds the input using EmbeddingModel
+    2. Applies mean pooling if needed to reduce to 2D
+    3. Uses the embedding directly
+
+    All feature representations are concatenated and passed through a final
+    fully connected layer for predictions.
+
+    Args:
+        dataset (SampleDataset): the dataset to train the model. It is used to query
+            certain information such as the set of all tokens and processor types.
+        embedding_dim (int): the embedding dimension. Default is 128.
+        **kwargs: other parameters for the RETAIN layer (e.g., dropout).
+
+    Examples:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> samples = [
+        ...     {
+        ...         "patient_id": "patient-0",
+        ...         "visit_id": "visit-0",
+        ...         "conditions": [["A", "B"], ["C"]],  # nested sequence
+        ...         "demographics": ["asian", "male"],   # multi-hot
+        ...         "vitals": [110.0, 75.0, 98.2],     # tensor
+        ...         "label": 1,
+        ...     },
+        ...     {
+        ...         "patient_id": "patient-1",
+        ...         "visit_id": "visit-1",
+        ...         "conditions": [["D"], ["E", "F"]],  # nested sequence
+        ...         "demographics": ["white", "female"], # multi-hot
+        ...         "vitals": [120.0, 80.0, 98.6],     # tensor
+        ...         "label": 0,
+        ...     },
+        ... ]
+        >>> dataset = create_sample_dataset(
+        ...     samples=samples,
+        ...     input_schema={
+        ...         "conditions": "nested_sequence",
+        ...         "demographics": "multi_hot",
+        ...         "vitals": "tensor",
+        ...     },
+        ...     output_schema={"label": "binary"},
+        ...     dataset_name="test"
+        ... )
+        >>>
+        >>> from pyhealth.datasets import get_dataloader
+        >>> train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
+        >>>
+        >>> model = MultimodalRETAIN(dataset=dataset)
+        >>>
+        >>> data_batch = next(iter(train_loader))
+        >>>
+        >>> ret = model(**data_batch)
+        >>> print(ret)
+        {
+            'loss': tensor(...),
+            'y_prob': tensor(...),
+            'y_true': tensor(...),
+            'logit': tensor(...)
+        }
+    """
+
+    def __init__(
+        self,
+        dataset: SampleDataset,
+        embedding_dim: int = 128,
+        **kwargs
+    ):
+        super(MultimodalRETAIN, self).__init__(dataset=dataset)
+        self.embedding_dim = embedding_dim
+
+        # validate kwargs for RETAIN layer
+        if "feature_size" in kwargs:
+            raise ValueError("feature_size is determined by embedding_dim")
+
+        assert len(self.label_keys) == 1, "Only one label key is supported"
+        self.label_key = self.label_keys[0]
+        self.mode = self.dataset.output_schema[self.label_key]
+
+        self.embedding_model = EmbeddingModel(dataset, embedding_dim)
+
+        # Classify features as sequential or non-sequential
+        self.sequential_features = []
+        self.non_sequential_features = []
+
+        self.retain = nn.ModuleDict()
+        for feature_key in self.feature_keys:
+            processor = dataset.input_processors[feature_key]
+            if self._is_sequential_processor(processor):
+                self.sequential_features.append(feature_key)
+                # Create RETAIN layer for this feature
+                self.retain[feature_key] = RETAINLayer(
+                    feature_size=embedding_dim,
+                    **kwargs
+                )
+            else:
+                self.non_sequential_features.append(feature_key)
+
+        # Calculate final concatenated dimension
+        final_dim = (len(self.sequential_features) * embedding_dim +
+                     len(self.non_sequential_features) * embedding_dim)
+        output_size = self.get_output_size()
+        self.fc = nn.Linear(final_dim, output_size)
+
+    def _is_sequential_processor(self, processor) -> bool:
+        """Check if processor represents sequential data.
+
+        Sequential processors are those that benefit from RETAIN processing,
+        including sequences of codes and timeseries data.
+
+        Note:
+            StageNetProcessor and StageNetTensorProcessor are excluded as they
+            are specialized for the StageNet model architecture and should be
+            treated as non-sequential for standard RETAIN processing.
+
+        Args:
+            processor: The processor instance to check.
+
+        Returns:
+            bool: True if processor is sequential, False otherwise.
+        """
+        return isinstance(processor, (
+            SequenceProcessor,
+            NestedSequenceProcessor,
+            DeepNestedSequenceProcessor,
+            NestedFloatsProcessor,
+            DeepNestedFloatsProcessor,
+            TimeseriesProcessor,
+        ))
+
+    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+        """Forward propagation handling mixed modalities.
+
+        Args:
+            **kwargs: keyword arguments for the model. The keys must contain
+                all the feature keys and the label key.
+
+        Returns:
+            Dict[str, torch.Tensor]: A dictionary with the following keys:
+                - loss: a scalar tensor representing the loss.
+                - y_prob: a tensor representing the predicted probabilities.
+                - y_true: a tensor representing the true labels.
+                - logit: a tensor representing the logits.
+                - embed (optional): a tensor representing the patient
+                    embeddings if requested.
+        """
+        patient_emb = []
+        embedded = self.embedding_model(kwargs)
+
+        # Process sequential features through RETAIN
+        for feature_key in self.sequential_features:
+            x = embedded[feature_key]
+
+            # Handle different input dimensions
+            # Case 1: 4D tensor from NestedSequenceProcessor
+            # (batch, visits, events, embedding_dim)
+            # Need to sum across events to get (batch, visits, embedding_dim)
+            if x.dim() == 4:
+                x = torch.sum(x, dim=2)  # Sum across events within visit
+
+            # Case 2: 3D tensor from SequenceProcessor or after summing
+            # (batch, seq_len, embedding_dim) - already correct format
+            elif x.dim() == 3:
+                pass  # Already correct format
+
+            # Case 3: 2D tensor - shouldn't happen for RETAIN but handle it
+            elif x.dim() == 2:
+                x = x.unsqueeze(1)  # Add seq dim: (batch, 1, embedding_dim)
+
+            else:
+                raise ValueError(
+                    f"Unexpected tensor shape {x.shape} for feature {feature_key}"
+                )
+
+            # Create mask: non-padding entries are valid
+            # Use abs() before sum to catch edge cases where embeddings sum to 0
+            # despite being valid values (e.g., [1.0, -1.0])
+            mask = (torch.abs(x).sum(dim=-1) > 0).float()
+
+            x = self.retain[feature_key](x, mask)
+            patient_emb.append(x)
+
+        # Process non-sequential features (use embeddings directly)
+        for feature_key in self.non_sequential_features:
+            x = embedded[feature_key]
+            # If multi-dimensional, aggregate (mean pooling)
+            while x.dim() > 2:
+                x = x.mean(dim=1)
+            patient_emb.append(x)
+
+        # Concatenate all representations
+        patient_emb = torch.cat(patient_emb, dim=1)
+        # (patient, label_size)
+        logits = self.fc(patient_emb)
+
+        # Calculate loss and predictions
+        y_true = kwargs[self.label_key].to(self.device)
+        loss = self.get_loss_function()(logits, y_true)
+        y_prob = self.prepare_y_prob(logits)
+
+        results = {
+            "loss": loss,
+            "y_prob": y_prob,
+            "y_true": y_true,
+            "logit": logits,
+        }
+        if kwargs.get("embed", False):
+            results["embed"] = patient_emb
+        return results
+
