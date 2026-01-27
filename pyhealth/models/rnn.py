@@ -248,6 +248,7 @@ class RNN(BaseModel):
         for feature_key in self.feature_keys:
             x = embedded[feature_key]
             # Use abs() before sum to catch edge cases where embeddings sum to 0
+            # @TODO bug with 0 embedding sum can still persist if the embedding is all 0s but the mask is not all 0s. 
             # despite being valid values (e.g., [1.0, -1.0])
             mask = (torch.abs(x).sum(dim=-1) != 0).int()
             _, x = self.rnn[feature_key](x, mask)
@@ -447,6 +448,7 @@ class MultimodalRNN(BaseModel):
             x = embedded[feature_key]
             # Use abs() before sum to catch edge cases where embeddings sum to 0
             # despite being valid values (e.g., [1.0, -1.0])
+            # @TODO bug with 0 embedding sum can still persist if the embedding is all 0s but the mask is not all 0s. 
             mask = (torch.abs(x).sum(dim=-1) != 0).int()
             _, last_hidden = self.rnn[feature_key](x, mask)
             patient_emb.append(last_hidden)
