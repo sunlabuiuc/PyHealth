@@ -95,25 +95,25 @@ PyHealth is a comprehensive deep learning toolkit for supporting clinical predic
 
 **Python Version Requirement**
 
-PyHealth requires **Python 3.12 or 3.13** (``>=3.12,<3.14``). This version requirement enables optimal parallel processing, memory management, and compatibility with our modern dependencies.
+PyHealth 2.0 requires **Python 3.12 or 3.13** (``>=3.12,<3.14``). This version requirement enables optimal parallel processing, memory management, and compatibility with our modern dependencies.
 
-**Recommended Installation (Alpha Version)**
+**Recommended Installation (Latest Release)**
 
-We recommend installing the latest alpha version from PyPi, which offers significant improvements in performance:
-
-.. code-block:: sh
-
-    pip install pyhealth==2.0a14
-
-This version includes optimized implementations and enhanced features compared to the legacy version.
-
-**Legacy Version**
-
-The older stable version is still available for backward compatibility:
+Install the latest PyHealth 2.0 release from PyPI:
 
 .. code-block:: sh
 
     pip install pyhealth
+
+This version includes significant performance improvements, dynamic memory support, parallelized processing, multimodal dataloaders, and many new features.
+
+**Legacy Version**
+
+The older stable version (1.16) is still available for backward compatibility and supports Python 3.9+:
+
+.. code-block:: sh
+
+    pip install pyhealth==1.16
 
 **For Contributors and Developers**
 
@@ -339,9 +339,9 @@ Module 5: <pyhealth.metrics>
 
 `Tutorial 0: Introduction to pyhealth.data <https://colab.research.google.com/drive/1y9PawgSbyMbSSMw1dpfwtooH7qzOEYdN?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=Nk1itBoLOX8&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=2>`__
 
-`Tutorial 1: Introduction to pyhealth.datasets <https://colab.research.google.com/drive/1voSx7wEfzXfEf2sIfW6b-8p1KqMyuWxK?usp=sharing>`_  `[Video (PyHealth 1.6)] <https://www.youtube.com/watch?v=c1InKqFJbsI&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=3>`__
+`Tutorial 1: Introduction to pyhealth.datasets <https://colab.research.google.com/drive/1voSx7wEfzXfEf2sIfW6b-8p1KqMyuWxK?usp=sharing>`_  `[Video (PyHealth 1.16)] <https://www.youtube.com/watch?v=c1InKqFJbsI&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=3>`__
 
-`Tutorial 2: Introduction to pyhealth.tasks <https://colab.research.google.com/drive/1kKkkBVS_GclHoYTbnOtjyYnSee79hsyT?usp=sharing>`_  `[Video (PyHealth 1.6)] <https://www.youtube.com/watch?v=CxESe1gYWU4&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=4>`__
+`Tutorial 2: Introduction to pyhealth.tasks <https://colab.research.google.com/drive/1kKkkBVS_GclHoYTbnOtjyYnSee79hsyT?usp=sharing>`_  `[Video (PyHealth 1.16)] <https://www.youtube.com/watch?v=CxESe1gYWU4&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=4>`__
 
 `Tutorial 3: Introduction to pyhealth.models <https://colab.research.google.com/drive/1LcXZlu7ZUuqepf269X3FhXuhHeRvaJX5?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=fRc0ncbTgZA&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=6>`__
 
