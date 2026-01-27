@@ -58,7 +58,26 @@ Welcome to PyHealth!
 
 Citing PyHealth :handshake:
 ----------------------------------
- Yang, Chaoqi, Zhenbang Wu, Patrick Jiang, Zhen Lin, Junyi Gao, Benjamin P. Danek, and Jimeng Sun. 2023. "PyHealth: A Deep Learning Toolkit for Healthcare Applications." In Proceedings of the 29th ACM SIGKDD Conference on Knowledge Discovery and Data Mining, 5788–89. KDD '23. New York, NY, USA: Association for Computing Machinery.
+
+**PyHealth 2.0 (2026):**
+
+Wu, John, Yongda Fan, Zhenbang Wu, Paul Landes, Eric Schrock, Sayeed Sajjad Razin, Arjun Chatterjee, Naveen Baskaran, Joshua Steier, Andrea Fitzpatrick, Bilal Arif, Rian Atri, Jathurshan Pradeepkumar, Siddhartha Laghuvarapu, Junyi Gao, Adam R. Cross, and Jimeng Sun. 2026. "PyHealth 2.0: A Comprehensive Open-Source Toolkit for Accessible and Reproducible Clinical Deep Learning." arXiv preprint arXiv:2601.16414.
+
+.. code-block:: bibtex
+
+    @misc{wu2026pyhealth20comprehensiveopensource,
+        title={PyHealth 2.0: A Comprehensive Open-Source Toolkit for Accessible and Reproducible Clinical Deep Learning}, 
+        author={John Wu and Yongda Fan and Zhenbang Wu and Paul Landes and Eric Schrock and Sayeed Sajjad Razin and Arjun Chatterjee and Naveen Baskaran and Joshua Steier and Andrea Fitzpatrick and Bilal Arif and Rian Atri and Jathurshan Pradeepkumar and Siddhartha Laghuvarapu and Junyi Gao and Adam R. Cross and Jimeng Sun},
+        year={2026},
+        eprint={2601.16414},
+        archivePrefix={arXiv},
+        primaryClass={cs.LG},
+        url={https://arxiv.org/abs/2601.16414}
+    }
+
+**PyHealth 1.0 (2023):**
+
+Yang, Chaoqi, Zhenbang Wu, Patrick Jiang, Zhen Lin, Junyi Gao, Benjamin P. Danek, and Jimeng Sun. 2023. "PyHealth: A Deep Learning Toolkit for Healthcare Applications." In Proceedings of the 29th ACM SIGKDD Conference on Knowledge Discovery and Data Mining, 5788–89. KDD '23. New York, NY, USA: Association for Computing Machinery.
 
 .. code-block:: bibtex
 
