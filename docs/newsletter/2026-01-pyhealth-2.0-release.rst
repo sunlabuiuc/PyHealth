@@ -1,4 +1,4 @@
-PyHealth 2.0 Release Announcement
+PyHealth 2.0 Early Release Announcement
 =====================================
 
 **January 2026**
