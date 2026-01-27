@@ -17,7 +17,7 @@ from .micron import MICRON, MICRONLayer
 from .mlp import MLP
 from .molerec import MoleRec, MoleRecLayer
 from .retain import RETAIN, RETAINLayer
-from .rnn import RNN, RNNLayer
+from .rnn import MultimodalRNN, RNN, RNNLayer
 from .safedrug import SafeDrug, SafeDrugLayer
 from .sparcnet import DenseBlock, DenseLayer, SparcNet, TransitionLayer
 from .stagenet import StageNet, StageNetLayer
