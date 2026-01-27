@@ -6,7 +6,7 @@
 [project]
 name = "pyhealth"
 # must be kept in sync with git tags; is not updated by any automation tools
-version = "2.0a14"
+version = "2.0.0"
 authors = [
   {name = "John Wu", email = "johnwu3@illinois.edu"},
   {name = "Chaoqi Yang"},
@@ -97,10 +97,10 @@ build-env = { features = ["pyverbase", "build-env"], solve-group = "default" }
 # specify where to download the build backend that builds conda files
 [tool.pixi.package.build.backend]
 name = "pixi-build-python"
-version = "0.1.*"
+version = "2.0.0"
 channels = [
   "https://prefix.dev/pixi-build-backends",
-  "https://prefix.dev/conda-forge",
+  "https://prefix.dev/conda-forge", 
 ]
 
 # set the Python requirement for its environment

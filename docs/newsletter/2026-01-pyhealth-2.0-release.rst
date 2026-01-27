@@ -12,6 +12,20 @@ What's New
 
 The full technical report with comparisons against other frameworks is now available: https://arxiv.org/abs/2601.16414
 
+If you use PyHealth 2.0 in your research, please cite:
+
+.. code-block:: bibtex
+
+    @misc{wu2026pyhealth20comprehensiveopensource,
+        title={PyHealth 2.0: A Comprehensive Open-Source Toolkit for Accessible and Reproducible Clinical Deep Learning}, 
+        author={John Wu and Yongda Fan and Zhenbang Wu and Paul Landes and Eric Schrock and Sayeed Sajjad Razin and Arjun Chatterjee and Naveen Baskaran and Joshua Steier and Andrea Fitzpatrick and Bilal Arif and Rian Atri and Jathurshan Pradeepkumar and Siddhartha Laghuvarapu and Junyi Gao and Adam R. Cross and Jimeng Sun},
+        year={2026},
+        eprint={2601.16414},
+        archivePrefix={arXiv},
+        primaryClass={cs.LG},
+        url={https://arxiv.org/abs/2601.16414}
+    }
+
 **This means when you use** ``pip install pyhealth``, **it no longer installs the legacy version PyHealth 1.16, but rather the PyHealth 2.0.1 release!**
 
 Key Features in PyHealth 2.0
