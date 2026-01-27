@@ -1,12 +1,19 @@
 from .binary import binary_metrics_fn
 from .drug_recommendation import ddi_rate_score
-from .interpretability import (
-    ComprehensivenessMetric,
-    Evaluator,
-    RemovalBasedMetric,
-    SufficiencyMetric,
-    evaluate_attribution,
-)
+try:
+    from .interpretability import (
+        ComprehensivenessMetric,
+        Evaluator,
+        RemovalBasedMetric,
+        SufficiencyMetric,
+        evaluate_attribution,
+    )
+except Exception:  # pragma: no cover - optional dependencies
+    ComprehensivenessMetric = None
+    Evaluator = None
+    RemovalBasedMetric = None
+    SufficiencyMetric = None
+    evaluate_attribution = None
 from .multiclass import multiclass_metrics_fn
 from .multilabel import multilabel_metrics_fn
 

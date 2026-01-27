@@ -37,3 +37,4 @@ from .transformers_model import TransformersModel
 from .vae import VAE
 from .sdoh import SdohClassifier
 from .medlink import MedLink
+from .sdoh_icd9_llm import SDOHICD9LLM
