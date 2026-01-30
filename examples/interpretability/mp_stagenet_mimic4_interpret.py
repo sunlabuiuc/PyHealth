@@ -19,7 +19,7 @@ from pyhealth.tasks import MortalityPredictionStageNetMIMIC4
 from pyhealth.trainer import Trainer
 from pyhealth.datasets.utils import load_processors
 from pathlib import Path
-from datetime import date
+import datetime
 
 
 
@@ -150,11 +150,11 @@ def main():
     print(res)
     
     # Save results
-    today = date.today().strftime("%Y%m%d")
-    with open(OUTPUT_DIR / f"{today}.txt", "w") as f:
-        f.write("Method\tComprehensiveness\tSufficiency\n")
+    now = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+    with open(OUTPUT_DIR / f"{now}.txt", "w") as f:
+        f.write("Method,Comprehensiveness,Sufficiency\n")
         for name, scores in res.items():
-            f.write(f"{name}\t{scores['comp']:.4f}\t{scores['suff']:.4f}\n")
+            f.write(f"{name},{scores['comp']:.4f},{scores['suff']:.4f}\n")
 
 if __name__ == "__main__":
     main()
