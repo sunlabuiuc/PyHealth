@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 from typing import List, Optional
 
-import polars as pl
+import narwhals as pl
 
 from .base_dataset import BaseDataset
 
@@ -155,15 +155,19 @@ class OMOPDataset(BaseDataset):
         df = df.with_columns(
             [
                 (
-                    pl.col("year_of_birth").cast(pl.Utf8)
+                    pl.col("year_of_birth").cast(pl.String)
                     + "-"
-                    + pl.when(pl.col("month_of_birth").is_null())
-                    .then(pl.lit("01"))
-                    .otherwise(pl.col("month_of_birth").cast(pl.Utf8).str.zfill(2))
+                    + (
+                        pl.when(pl.col("month_of_birth").is_null())
+                        .then(pl.lit("01"))
+                        .otherwise(pl.col("month_of_birth").cast(pl.String).str.zfill(2))
+                    ).cast(pl.String)
                     + "-"
-                    + pl.when(pl.col("day_of_birth").is_null())
-                    .then(pl.lit("01"))
-                    .otherwise(pl.col("day_of_birth").cast(pl.Utf8).str.zfill(2))
+                    + (
+                        pl.when(pl.col("day_of_birth").is_null())
+                        .then(pl.lit("01"))
+                        .otherwise(pl.col("day_of_birth").cast(pl.String).str.zfill(2))
+                    ).cast(pl.String)
                     + " 00:00:00"
                 ).alias("birth_datetime")
             ]

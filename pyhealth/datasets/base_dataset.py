@@ -2,24 +2,49 @@ import logging
 import os
 import pickle
 from abc import ABC
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional
+from typing import Dict, Iterator, Iterable, List, Optional, Any, Callable
+import functools
+import operator
 from urllib.parse import urlparse, urlunparse
+from urllib.request import urlretrieve
+import json
+import uuid
+import platformdirs
+import multiprocessing
+import multiprocessing.queues
+import shutil
 
+import litdata
+from litdata.streaming.item_loader import ParquetLoader
+from litdata.processing.data_processor import in_notebook
+from litdata.streaming.writer import BinaryWriter
+import pyarrow as pa
+import pyarrow.csv as pv
+import pyarrow.parquet as pq
+import pandas as pd
 import polars as pl
 import requests
 from tqdm import tqdm
+import dask.dataframe as dd
+from dask.distributed import Client as DaskClient, LocalCluster as DaskCluster, progress as dask_progress
+import narwhals as nw
+import itertools
+import numpy as np
+import more_itertools
 
 from ..data import Patient
 from ..tasks import BaseTask
 from ..processors.base_processor import FeatureProcessor
 from .configs import load_yaml_config
-from .sample_dataset import SampleDataset
-from .utils import _convert_for_cache, _restore_from_cache
+from .sample_dataset import SampleDataset, SampleBuilder
+from ..utils import set_env
 
+# Set logging level for distributed to ERROR to reduce verbosity
+logging.getLogger("distributed").setLevel(logging.ERROR)
 logger = logging.getLogger(__name__)
-
+# Remove LitData version check to avoid unnecessary warnings
+os.environ["LITDATA_DISABLE_VERSION_CHECK"] = "1"
 
 def is_url(path: str) -> bool:
     """URL detection."""
@@ -56,26 +81,24 @@ def path_exists(path: str) -> bool:
         return Path(path).exists()
 
 
-def scan_csv_gz_or_csv_tsv(path: str) -> pl.LazyFrame:
+def _csv_tsv_gz_path(path: str) -> str:
     """
-    Scan a CSV.gz, CSV, TSV.gz, or TSV file and returns a LazyFrame.
-    It will fall back to the other extension if not found.
+    Get the path to the file, trying the original path first, then the alternative path
+    by switching between .csv.gz, .csv, .tsv.gz, and .tsv extensions.
 
     Args:
-        path (str): URL or local path to a .csv, .csv.gz, .tsv, or .tsv.gz file
+        path (str): Original file path.
 
     Returns:
-        pl.LazyFrame: The LazyFrame for the CSV.gz, CSV, TSV.gz, or TSV file.
+        str: The file path that exists.
+
+    Raises:
+        FileNotFoundError: If neither the original nor the alternative path exists.
+        ValueError: If the path does not have an expected extension.
     """
-
-    def scan_file(file_path: str) -> pl.LazyFrame:
-        separator = "\t" if ".tsv" in file_path else ","
-        return pl.scan_csv(file_path, separator=separator, infer_schema=False)
-
     if path_exists(path):
-        return scan_file(path)
+        return path
 
-    # Try the alternative extension
     if path.endswith(".csv.gz"):
         alt_path = path[:-3]  # Remove .gz -> try .csv
     elif path.endswith(".csv"):
@@ -85,13 +108,176 @@ def scan_csv_gz_or_csv_tsv(path: str) -> pl.LazyFrame:
     elif path.endswith(".tsv"):
         alt_path = f"{path}.gz"  # Add .gz -> try .tsv.gz
     else:
-        raise FileNotFoundError(f"Path does not have expected extension: {path}")
+        raise ValueError(f"Path does not have expected extension: {path}")
 
     if path_exists(alt_path):
-        logger.info(f"Original path does not exist. Using alternative: {alt_path}")
-        return scan_file(alt_path)
+        return alt_path
 
     raise FileNotFoundError(f"Neither path exists: {path} or {alt_path}")
+
+
+def _litdata_merge(cache_dir: Path) -> None:
+    """
+    Merges LitData binary writer index files in the given cache directory.
+
+    Args:
+        cache_dir (Path): The cache directory containing LitData binary writer files.
+    """
+    from litdata.streaming.writer import _INDEX_FILENAME
+    files = os.listdir(cache_dir)
+    
+    # Return if the index already exists
+    if _INDEX_FILENAME in files:
+        return
+
+    index_files = [f for f in files if f.endswith(_INDEX_FILENAME)]
+    
+    # Return if there are no index files to merge
+    if len(index_files) == 0:
+        raise ValueError("There are zero samples in the dataset, please check the task and processors.")
+    
+    BinaryWriter(cache_dir=str(cache_dir), chunk_bytes="64MB").merge(num_workers=len(index_files))
+
+
+class _ProgressContext:
+    def __init__(self, queue: multiprocessing.queues.Queue | None, total: int, **kwargs):
+        """
+        :param queue: An existing queue (e.g., from multiprocessing). If provided,
+                      this class acts as a passthrough.
+        :param total: Total items for the progress bar (only used if queue is None).
+        :param kwargs: Extra arguments for tqdm (e.g., desc="Processing").
+        """
+        self.queue = queue
+        self.total = total
+        self.kwargs = kwargs
+        self.progress = None
+
+    def put(self, n):
+        if self.progress:
+            self.progress.update(n)
+
+    def __enter__(self):
+        if self.queue:
+            return self.queue
+
+        self.progress = tqdm(total=self.total, **self.kwargs)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.progress:
+            self.progress.close()
+
+_task_transform_progress: multiprocessing.queues.Queue | None = None
+
+def _task_transform_init(queue: multiprocessing.queues.Queue) -> None:
+    """
+    Initializer for worker processes to set up a global queue.
+
+    Args:
+        queue (multiprocessing.queues.Queue): The queue for progress tracking.
+    """
+    global _task_transform_progress
+    _task_transform_progress = queue
+
+def _task_transform_fn(args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, Path]) -> None:
+    """
+    Worker function to apply task transformation on a chunk of patients.
+
+    Args:
+        args (tuple): A tuple containing:
+            worker_id (int): The ID of the worker.
+            task (BaseTask): The task to apply.
+            patient_ids (Iterable[str]): The patient IDs to process.
+            global_event_df (pl.LazyFrame): The global event dataframe.
+            output_dir (Path): The output directory to save results.
+    """
+    BATCH_SIZE = 128 # Use a batch size 128 can reduce runtime by 30%.
+    worker_id, task, patient_ids, global_event_df, output_dir = args
+    total_patients = len(list(patient_ids))
+    logger.info(f"Worker {worker_id} started processing {total_patients} patients. (Polars threads: {pl.thread_pool_size()})")
+
+    with (
+        set_env(DATA_OPTIMIZER_GLOBAL_RANK=str(worker_id)),
+        _ProgressContext(_task_transform_progress, total=total_patients) as progress
+    ):
+        writer = BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB")
+
+        write_index = 0
+        batches = itertools.batched(patient_ids, BATCH_SIZE)
+        for batch in batches:
+            complete = 0
+            patients = (
+                global_event_df.filter(pl.col("patient_id").is_in(batch))
+                    .collect(engine="streaming")
+                    .partition_by("patient_id", as_dict=True)
+            )
+            for patient_id, patient_df in patients.items():
+                patient_id = patient_id[0]  # Extract string from single-element list
+                patient = Patient(patient_id=patient_id, data_source=patient_df)
+                for sample in task(patient):
+                    writer.add_item(write_index, {"sample": pickle.dumps(sample)})
+                    write_index += 1
+                complete += 1
+            progress.put(complete)
+        writer.done()
+
+    logger.info(f"Worker {worker_id} finished processing patients.")
+
+_proc_transform_progress: multiprocessing.queues.Queue | None = None
+
+def _proc_transform_init(queue: multiprocessing.queues.Queue) -> None:
+    """
+    Initializer for worker processes to set up a global queue.
+
+    Args:
+        queue (multiprocessing.queues.Queue): The queue for progress tracking.
+    """
+    global _proc_transform_progress
+    _proc_transform_progress = queue
+
+def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
+    """
+    Worker function to apply processors on a chunk of samples.
+
+    Args:
+        args (tuple): A tuple containing:
+            worker_id (int): The ID of the worker.
+            task_df (Path): The path to the task dataframe.
+            start_idx (int): The start index of samples to process.
+            end_idx (int): The end index of samples to process.
+            output_dir (Path): The output directory to save results.
+    """
+    BATCH_SIZE = 128
+    worker_id, task_df, start_idx, end_idx, output_dir = args
+    total_samples = end_idx - start_idx
+    logger.info(f"Worker {worker_id} started processing {total_samples} samples. ({start_idx} to {end_idx})")
+
+    with (
+        set_env(DATA_OPTIMIZER_GLOBAL_RANK=str(worker_id)),
+        _ProgressContext(_proc_transform_progress, total=total_samples) as progress
+    ):
+        writer = BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB")
+
+        dataset = litdata.StreamingDataset(str(task_df))
+        builder = SampleBuilder.load(f"{output_dir}/schema.pkl")
+
+        complete = 0
+        write_index = 0
+        for i in range(start_idx, end_idx):
+            transformed: Dict[str, Any] = builder.transform(dataset[i])
+            writer.add_item(write_index, transformed)
+            write_index += 1
+            complete += 1
+
+            if complete >= BATCH_SIZE:
+                progress.put(complete)
+                complete = 0
+
+        if complete > 0:
+            progress.put(complete)
+        writer.done()
+
+    logger.info(f"Worker {worker_id} finished processing samples.")
 
 
 class BaseDataset(ABC):
@@ -112,6 +298,8 @@ class BaseDataset(ABC):
         tables: List[str],
         dataset_name: Optional[str] = None,
         config_path: Optional[str] = None,
+        cache_dir: str | Path | None = None,
+        num_workers: int = 1,
         dev: bool = False,
     ):
         """Initializes the BaseDataset.
@@ -129,123 +317,258 @@ class BaseDataset(ABC):
         self.root = root
         self.tables = tables
         self.dataset_name = dataset_name or self.__class__.__name__
-        self.config = load_yaml_config(config_path)
+        self.num_workers = num_workers
         self.dev = dev
+        self.config = load_yaml_config(config_path) if config_path else None
 
         logger.info(
             f"Initializing {self.dataset_name} dataset from {self.root} (dev mode: {self.dev})"
         )
 
-        self.global_event_df = self.load_data()
-
         # Cached attributes
-        self._collected_global_event_df = None
+        self._cache_dir = cache_dir
+        self._global_event_df = None
         self._unique_patient_ids = None
 
     @property
-    def collected_global_event_df(self) -> pl.DataFrame:
-        """Collects and returns the global event data frame.
+    def cache_dir(self) -> Path:
+        """Returns the cache directory path.
+        The cache structure is as follows::
+
+            tmp/                     # Temporary files during processing
+            global_event_df.parquet/ # Cached global event dataframe
+            tasks/                   # Cached task-specific data, please see set_task method
 
         Returns:
-            pl.DataFrame: The collected global event data frame.
+            Path: The cache directory path.
         """
-        if self._collected_global_event_df is None:
-            logger.info("Collecting global event dataframe...")
+        if self._cache_dir is None:
+            id_str = json.dumps(
+                {
+                    "root": self.root,
+                    "tables": sorted(self.tables),
+                    "dataset_name": self.dataset_name,
+                    "dev": self.dev,
+                },
+                sort_keys=True,
+            )
+            cache_dir = Path(platformdirs.user_cache_dir(appname="pyhealth")) / str(
+                uuid.uuid5(uuid.NAMESPACE_DNS, id_str)
+            )
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"No cache_dir provided. Using default cache dir: {cache_dir}")
+            self._cache_dir = cache_dir
+        else:
+            # Ensure the explicitly provided cache_dir exists
+            cache_dir = Path(self._cache_dir)
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            self._cache_dir = cache_dir
+        return Path(self._cache_dir)
 
-            # Collect the dataframe - with dev mode limiting if applicable
-            df = self.global_event_df
-            # TODO: dev doesn't seem to improve the speed / memory usage
-            if self.dev:
-                # Limit the number of patients in dev mode
-                logger.info("Dev mode enabled: limiting to 1000 patients")
-                limited_patients = df.select(pl.col("patient_id")).unique().limit(1000)
-                df = df.join(limited_patients, on="patient_id", how="inner")
+    def create_tmpdir(self) -> Path:
+        """Creates and returns a new temporary directory within the cache.
 
-            self._collected_global_event_df = df.collect()
+        Returns:
+            Path: The path to the new temporary directory.
+        """
+        tmp_dir = self.cache_dir / "tmp" / str(uuid.uuid4())
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        return tmp_dir
 
-            # Profile the Polars collect() operation (commented out by default)
-            # self._collected_global_event_df, profile = df.profile()
-            # profile = profile.with_columns([
-            #     (pl.col("end") - pl.col("start")).alias("duration"),
-            # ])
-            # profile = profile.with_columns([
-            #     (pl.col("duration") / profile["duration"].sum() * 100).alias("percentage")
-            # ])
-            # profile = profile.sort("duration", descending=True)
-            # with pl.Config() as cfg:
-            #     cfg.set_tbl_rows(-1)
-            #     cfg.set_fmt_str_lengths(200)
-            #     print(profile)
+    def clean_tmpdir(self) -> None:
+        """Cleans up the temporary directory within the cache."""
+        tmp_dir = self.cache_dir / "tmp"
+        if tmp_dir.exists():
+            shutil.rmtree(tmp_dir)
 
-            logger.info(
-                f"Collected dataframe with shape: {self._collected_global_event_df.shape}"
+    def _scan_csv_tsv_gz(
+        self, source_path: str
+    ) -> dd.DataFrame:
+        """Scans a CSV/TSV file (possibly gzipped) and returns a Dask DataFrame.
+
+        If the cached Parquet file does not exist, it converts the source CSV/TSV file
+        to Parquet and saves it to the cache.
+
+        Args:
+            source_path (str): The source CSV/TSV file path.
+
+        Returns:
+            dd.DataFrame: The Dask DataFrame loaded from the cached Parquet file.
+
+        Raises:
+            FileNotFoundError: If source_path is None and the cached Parquet file does not exist;
+                or if neither the original nor the alternative path of source_path exists.
+            ValueError: If the path does not have an expected extension.
+        """
+        # Ensure the tables cache directory exists
+        ret_path = self.create_tmpdir() / "table.parquet"
+
+        if not ret_path.exists():
+            source_path = _csv_tsv_gz_path(source_path)
+
+            if is_url(source_path):
+                local_filename = os.path.basename(source_path)
+                local_path = self.create_tmpdir() / local_filename
+                if not local_path.exists():
+                    logger.info(f"Downloading {source_path} to {local_path}")
+                    urlretrieve(source_path, local_path)
+                source_path = str(local_path)
+
+            # Determine delimiter based on file extension
+            delimiter = (
+                "\t"
+                if source_path.endswith(".tsv") or source_path.endswith(".tsv.gz")
+                else ","
             )
 
-        return self._collected_global_event_df
+            # Always infer schema as string to avoid incorrect type inference
+            # Enable newlines_in_values for clinical notes with multi-line text
+            schema_reader = pv.open_csv(
+                source_path,
+                read_options=pv.ReadOptions(block_size=1 << 26),  # 64 MB
+                parse_options=pv.ParseOptions(
+                    delimiter=delimiter, newlines_in_values=True
+                ),
+            )
+            schema = pa.schema(
+                [pa.field(name, pa.string()) for name in schema_reader.schema.names]
+            )
 
-    def load_data(self) -> pl.LazyFrame:
+            # Convert CSV/TSV to Parquet
+            csv_reader = pv.open_csv(
+                source_path,
+                read_options=pv.ReadOptions(block_size=1 << 26),  # 64 MB
+                parse_options=pv.ParseOptions(
+                    delimiter=delimiter, newlines_in_values=True
+                ),
+                convert_options=pv.ConvertOptions(column_types=schema),
+            )
+            with pq.ParquetWriter(ret_path, csv_reader.schema) as writer:
+                for batch in csv_reader:
+                    writer.write_batch(batch)
+
+        df: dd.DataFrame = dd.read_parquet(
+            ret_path,
+            split_row_groups=True,  # type: ignore
+            blocksize="64MB",
+        )
+        return df.replace("", pd.NA)  # Replace empty strings with NaN
+
+    def _event_transform(self, output_dir: Path) -> None:
+        try:
+            df = self.load_data()
+            with DaskCluster(
+                n_workers=self.num_workers,
+                threads_per_worker=1,
+                processes=not in_notebook(),
+                # Use cache_dir for Dask's scratch space to avoid filling up /tmp or home directory
+                local_directory=str(self.create_tmpdir()),
+            ) as cluster:
+                with DaskClient(cluster) as client:
+                    if self.dev:
+                        logger.info("Dev mode enabled: limiting to 1000 patients")
+                        patients = df["patient_id"].unique().head(1000).tolist()
+                        filter = df["patient_id"].isin(patients)
+                        df = df[filter]
+
+                    logger.info(f"Caching event dataframe to {output_dir}...")
+                    collection = df.sort_values("patient_id").to_parquet(
+                        output_dir,
+                        write_index=False,
+                        compute=False,
+                    )
+                    handle = client.compute(collection)
+                    dask_progress(handle)
+                    handle.result()  # type: ignore
+        except Exception as e:
+            if output_dir.exists():
+                logger.error(f"Error during caching, removing incomplete file {output_dir}")
+                shutil.rmtree(output_dir)
+            raise e
+        finally:
+            self.clean_tmpdir()
+        pass
+
+    @property
+    def global_event_df(self) -> pl.LazyFrame:
+        """Returns the path to the cached event dataframe.
+
+        Returns:
+            Path: The path to the cached event dataframe.
+        """
+        self._main_guard(type(self).global_event_df.fget.__name__) # type: ignore
+
+        if self._global_event_df is None:
+            ret_path = self.cache_dir / "global_event_df.parquet"
+            if not ret_path.exists():
+                self._event_transform(ret_path)
+            self._global_event_df = ret_path
+
+        return pl.scan_parquet(
+            self._global_event_df,
+            low_memory=True,
+        )
+
+    def load_data(self) -> dd.DataFrame:
         """Loads data from the specified tables.
 
         Returns:
-            pl.LazyFrame: A concatenated lazy frame of all tables.
+            dd.DataFrame: A concatenated lazy frame of all tables.
         """
         frames = [self.load_table(table.lower()) for table in self.tables]
-        return pl.concat(frames, how="diagonal")
+        return dd.concat(frames, axis=0, join="outer")
 
-    def load_table(self, table_name: str) -> pl.LazyFrame:
+    def load_table(self, table_name: str) -> dd.DataFrame:
         """Loads a table and processes joins if specified.
 
         Args:
             table_name (str): The name of the table to load.
 
         Returns:
-            pl.LazyFrame: The processed lazy frame for the table.
+            dd.DataFrame: The processed Dask dataframe for the table.
 
         Raises:
             ValueError: If the table is not found in the config.
             FileNotFoundError: If the CSV file for the table or join is not found.
         """
+        assert self.config is not None, "Config must be provided to load tables"
+
         if table_name not in self.config.tables:
             raise ValueError(f"Table {table_name} not found in config")
-
-        def _to_lower(col_name: str) -> str:
-            lower_name = col_name.lower()
-            if lower_name != col_name:
-                logger.warning(
-                    "Renaming column %s to lowercase %s", col_name, lower_name
-                )
-            return lower_name
 
         table_cfg = self.config.tables[table_name]
         csv_path = f"{self.root}/{table_cfg.file_path}"
         csv_path = clean_path(csv_path)
 
         logger.info(f"Scanning table: {table_name} from {csv_path}")
-        df = scan_csv_gz_or_csv_tsv(csv_path)
+        df = self._scan_csv_tsv_gz(csv_path)
 
         # Convert column names to lowercase before calling preprocess_func
-        df = df.rename(_to_lower)
+        df = df.rename(columns=str.lower)
 
         # Check if there is a preprocessing function for this table
+        preprocess_func: Optional[Callable[[nw.LazyFrame], nw.LazyFrame]]
         preprocess_func = getattr(self, f"preprocess_{table_name}", None)
         if preprocess_func is not None:
             logger.info(
                 f"Preprocessing table: {table_name} with {preprocess_func.__name__}"
             )
-            df = preprocess_func(df)
+            df = preprocess_func(nw.from_native(df)).to_native()  # type: ignore
 
         # Handle joins
         for join_cfg in table_cfg.join:
             other_csv_path = f"{self.root}/{join_cfg.file_path}"
             other_csv_path = clean_path(other_csv_path)
             logger.info(f"Joining with table: {other_csv_path}")
-            join_df = scan_csv_gz_or_csv_tsv(other_csv_path)
-            join_df = join_df.rename(_to_lower)
+            join_df = self._scan_csv_tsv_gz(other_csv_path)
+            join_df = join_df.rename(columns=str.lower)
             join_key = join_cfg.on
             columns = join_cfg.columns
             how = join_cfg.how
 
-            df = df.join(join_df.select([join_key] + columns), on=join_key, how=how)
+            df: dd.DataFrame = df.merge(
+                join_df[[join_key] + columns], on=join_key, how=how
+            )
 
         patient_id_col = table_cfg.patient_id
         timestamp_col = table_cfg.timestamp
@@ -253,41 +576,43 @@ class BaseDataset(ABC):
         attribute_cols = table_cfg.attributes
 
         # Timestamp expression
+        # .astype(str) will convert `pd.NA` to "<NA>", which will raise error in to_datetime
+        #   use .astype("string") instead, which keeps `pd.NA` as is.
         if timestamp_col:
             if isinstance(timestamp_col, list):
                 # Concatenate all timestamp parts in order with no separator
-                combined_timestamp = pl.concat_str(
-                    [pl.col(col) for col in timestamp_col]
-                ).str.strptime(pl.Datetime, format=timestamp_format, strict=True)
-                timestamp_expr = combined_timestamp
-            else:
-                # Single timestamp column
-                timestamp_expr = pl.col(timestamp_col).str.strptime(
-                    pl.Datetime, format=timestamp_format, strict=True
+                timestamp_series: dd.Series = functools.reduce(
+                    operator.add, (df[col].astype("string") for col in timestamp_col)
                 )
+            else:
+                timestamp_series: dd.Series = df[timestamp_col].astype("string")
+
+            timestamp_series: dd.Series = dd.to_datetime(
+                timestamp_series,
+                format=timestamp_format,
+                errors="raise",
+            )
+            df: dd.DataFrame = df.assign(
+                timestamp=timestamp_series.astype("datetime64[ms]")
+            )
         else:
-            timestamp_expr = pl.lit(None, dtype=pl.Datetime)
+            df: dd.DataFrame = df.assign(timestamp=pd.NaT)
 
         # If patient_id_col is None, use row index as patient_id
-        patient_id_expr = (
-            pl.col(patient_id_col).cast(pl.Utf8)
-            if patient_id_col
-            else pl.int_range(0, pl.count()).cast(pl.Utf8)
-        )
-        base_columns = [
-            patient_id_expr.alias("patient_id"),
-            pl.lit(table_name).cast(pl.Utf8).alias("event_type"),
-            # ms should be sufficient for most cases
-            timestamp_expr.cast(pl.Datetime(time_unit="ms")).alias("timestamp"),
-        ]
+        if patient_id_col:
+            df: dd.DataFrame = df.assign(patient_id=df[patient_id_col].astype("string"))
+        else:
+            df: dd.DataFrame = df.reset_index(drop=True)
+            df: dd.DataFrame = df.assign(patient_id=df.index.astype("string"))
 
-        # Flatten attribute columns with event_type prefix
-        attribute_columns = [
-            pl.col(attr.lower()).alias(f"{table_name}/{attr}")
-            for attr in attribute_cols
-        ]
+        df: dd.DataFrame = df.assign(event_type=table_name)
 
-        event_frame = df.select(base_columns + attribute_columns)
+        rename_attr = {attr.lower(): f"{table_name}/{attr}" for attr in attribute_cols}
+        df: dd.DataFrame = df.rename(columns=rename_attr)
+
+        attr_cols = [rename_attr[attr.lower()] for attr in attribute_cols]
+        final_cols = ["patient_id", "event_type", "timestamp"] + attr_cols
+        event_frame = df[final_cols]
 
         return event_frame
 
@@ -300,8 +625,9 @@ class BaseDataset(ABC):
         """
         if self._unique_patient_ids is None:
             self._unique_patient_ids = (
-                self.collected_global_event_df.select("patient_id")
+                self.global_event_df.select("patient_id")
                 .unique()
+                .collect(engine="streaming")
                 .to_series()
                 .to_list()
             )
@@ -323,8 +649,11 @@ class BaseDataset(ABC):
         assert (
             patient_id in self.unique_patient_ids
         ), f"Patient {patient_id} not found in dataset"
-        df = self.collected_global_event_df.filter(pl.col("patient_id") == patient_id)
-        return Patient(patient_id=patient_id, data_source=df)
+
+        data_source = self.global_event_df.filter(
+            pl.col("patient_id") == patient_id
+        ).collect(engine="streaming")
+        return Patient(patient_id=patient_id, data_source=data_source)
 
     def iter_patients(self, df: Optional[pl.LazyFrame] = None) -> Iterator[Patient]:
         """Yields Patient objects for each unique patient in the dataset.
@@ -333,20 +662,30 @@ class BaseDataset(ABC):
             Iterator[Patient]: An iterator over Patient objects.
         """
         if df is None:
-            df = self.collected_global_event_df
-        grouped = df.group_by("patient_id")
+            df = self.global_event_df
+        patient_ids = (
+            df.select("patient_id")
+            .unique(maintain_order=True)
+            .collect(engine="streaming")
+            .to_series()
+        )
 
-        for patient_id, patient_df in grouped:
-            patient_id = patient_id[0]
+        for patient_id in patient_ids:
+            patient_df = df.filter(pl.col("patient_id") == patient_id).collect(
+                engine="streaming"
+            )
             yield Patient(patient_id=patient_id, data_source=patient_df)
 
     def stats(self) -> None:
         """Prints statistics about the dataset."""
-        df = self.collected_global_event_df
+        stats = self.global_event_df.select(
+            pl.len().alias("n_events"),
+            pl.col("patient_id").n_unique().alias("n_patients"),
+        ).collect(engine="streaming")
         print(f"Dataset: {self.dataset_name}")
         print(f"Dev mode: {self.dev}")
-        print(f"Number of patients: {df['patient_id'].n_unique()}")
-        print(f"Number of events: {df.height}")
+        print(f"Number of patients: {stats['n_patients'][0]}")
+        print(f"Number of events: {stats['n_events'][0]}")
 
     @property
     def default_task(self) -> Optional[BaseTask]:
@@ -357,26 +696,145 @@ class BaseDataset(ABC):
         """
         return None
 
+    def _task_transform(self, task: BaseTask, output_dir: Path, num_workers: int) -> None:
+        self._main_guard(self._task_transform.__name__)
+
+        logger.info(f"Applying task transformations on data with {num_workers} workers...")
+        global_event_df = task.pre_filter(self.global_event_df)
+        patient_ids = (
+            global_event_df.select("patient_id")
+            .unique()
+            .collect(engine="streaming")
+            .to_series()
+            # .sort can reduce runtime by 5%.
+            .sort()
+        )
+
+        if in_notebook():
+            logger.info("Detected Jupyter notebook environment, setting num_workers to 1")
+            num_workers = 1
+        num_workers = min(num_workers, len(patient_ids)) # Avoid spawning empty workers
+
+        # This ensures worker's polars threads are limited to avoid oversubscription,
+        # which can lead to additional 75% speedup when num_workers is large.
+        threads_per_worker = max(1, (os.cpu_count() or 1) // num_workers)
+
+        try:
+            with set_env(POLARS_MAX_THREADS=str(threads_per_worker), DATA_OPTIMIZER_NUM_WORKERS=str(num_workers)):
+                if num_workers == 1:
+                    logger.info("Single worker mode, processing sequentially")
+                    _task_transform_fn((0, task, patient_ids, global_event_df, output_dir))
+                    _litdata_merge(output_dir)
+                    return
+
+                # spwan is required for polars in multiprocessing, see https://docs.pola.rs/user-guide/misc/multiprocessing/#summary
+                ctx = multiprocessing.get_context("spawn")
+                queue = ctx.Queue()
+                args_list = [(
+                    worker_id,
+                    task,
+                    pids,
+                    global_event_df,
+                    output_dir,
+                ) for worker_id, pids in enumerate(itertools.batched(patient_ids, len(patient_ids) // num_workers + 1))]
+                with ctx.Pool(processes=num_workers, initializer=_task_transform_init, initargs=(queue,)) as pool:
+                    result = pool.map_async(_task_transform_fn, args_list) # type: ignore
+                    with tqdm(total=len(patient_ids)) as progress:
+                        while not result.ready():
+                            try:
+                                progress.update(queue.get(timeout=1))
+                            except:
+                                pass
+
+                        # remaining items
+                        while not queue.empty():
+                            progress.update(queue.get())
+                    result.get() # ensure exceptions are raised
+                _litdata_merge(output_dir)
+
+                logger.info(f"Task transformation completed and saved to {output_dir}")
+        except Exception as e:
+            logger.error(f"Error during task transformation, cleaning up output directory: {output_dir}")
+            shutil.rmtree(output_dir)
+            raise e
+
+    def _proc_transform(self, task_df: Path, output_dir: Path, num_workers: int) -> None:
+        self._main_guard(self._proc_transform.__name__)
+
+        logger.info(f"Applying processors on data with {num_workers} workers...")
+        num_samples = len(litdata.StreamingDataset(str(task_df)))
+
+        if in_notebook():
+            logger.info("Detected Jupyter notebook environment, setting num_workers to 1")
+            num_workers = 1
+
+        num_workers = min(num_workers, num_samples) # Avoid spawning empty workers
+        try:
+            with set_env(DATA_OPTIMIZER_NUM_WORKERS=str(num_workers)):
+                if num_workers == 1:
+                    logger.info("Single worker mode, processing sequentially")
+                    _proc_transform_fn((0, task_df, 0, num_samples, output_dir))
+                    _litdata_merge(output_dir)
+                    return
+
+                ctx = multiprocessing.get_context("spawn")
+                queue = ctx.Queue()
+                linspace = more_itertools.sliding_window(np.linspace(0, num_samples, num_workers + 1, dtype=int), 2)
+                args_list = [(
+                    worker_id,
+                    task_df,
+                    start,
+                    end,
+                    output_dir,
+                ) for worker_id, (start, end) in enumerate(linspace)]
+                with ctx.Pool(processes=num_workers, initializer=_proc_transform_init, initargs=(queue,)) as pool:
+                    result = pool.map_async(_proc_transform_fn, args_list) # type: ignore
+                    with tqdm(total=num_samples) as progress:
+                        while not result.ready():
+                            try:
+                                progress.update(queue.get(timeout=1))
+                            except:
+                                pass
+
+                        # remaining items
+                        while not queue.empty():
+                            progress.update(queue.get())
+                    result.get() # ensure exceptions are raised
+                _litdata_merge(output_dir)
+
+                logger.info(f"Processor transformation completed and saved to {output_dir}")
+        except Exception as e:
+            logger.error(f"Error during processor transformation.")
+            shutil.rmtree(output_dir)
+            raise e
+        finally:
+            self.clean_tmpdir()
+
     def set_task(
         self,
         task: Optional[BaseTask] = None,
-        num_workers: int = 1,
-        cache_dir: Optional[str] = None,
+        num_workers: Optional[int] = None,
+        cache_dir: str | Path | None = None,
         cache_format: str = "parquet",
         input_processors: Optional[Dict[str, FeatureProcessor]] = None,
         output_processors: Optional[Dict[str, FeatureProcessor]] = None,
     ) -> SampleDataset:
         """Processes the base dataset to generate the task-specific sample dataset.
+        The cache structure is as follows::
+
+            task_df.ld/ # Intermediate task dataframe after task transformation
+            samples_{uuid}.ld/  # Final processed samples after applying processors
+                schema.pkl      # Saved SampleBuilder schema
+                *.bin           # Processed sample files
+            samples_{uuid}.ld/
+                ...
 
         Args:
             task (Optional[BaseTask]): The task to set. Uses default task if None.
-            num_workers (int): Number of workers for multi-threading. Default is 1.
-                This is because the task function is usually CPU-bound. And using
-                multi-threading may not speed up the task function.
-            cache_dir (Optional[str]): Directory to cache processed samples.
-                Default is None (no caching).
-            cache_format (str): Format for caching ('parquet' or 'pickle').
-                Default is 'parquet'.
+            num_workers (int): Number of workers for multi-threading. Default is `self.num_workers`.
+            cache_dir (Optional[str]): Directory to cache samples after task transformation,
+                but without applying processors. Default is {self.cache_dir}/tasks/{task_name}_{uuid5(vars(task))}.
+            cache_format (str): Deprecated. Only "parquet" is supported now.
             input_processors (Optional[Dict[str, FeatureProcessor]]):
                 Pre-fitted input processors. If provided, these will be used
                 instead of creating new ones from task's input_schema. Defaults to None.
@@ -390,110 +848,117 @@ class BaseDataset(ABC):
         Raises:
             AssertionError: If no default task is found and task is None.
         """
+        self._main_guard(self.set_task.__name__)
+
         if task is None:
             assert self.default_task is not None, "No default tasks found"
             task = self.default_task
+
+        if num_workers is None:
+            num_workers = self.num_workers
+
+        if cache_format != "parquet":
+            logger.warning("Only 'parquet' cache_format is supported now. ")
 
         logger.info(
             f"Setting task {task.task_name} for {self.dataset_name} base dataset..."
         )
 
-        # Check for cached data if cache_dir is provided
-        samples = None
-        if cache_dir is not None:
-            cache_filename = f"{task.task_name}.{cache_format}"
-            cache_path = Path(cache_dir) / cache_filename
-            if cache_path.exists():
-                logger.info(f"Loading cached samples from {cache_path}")
-                try:
-                    if cache_format == "parquet":
-                        # Load samples from parquet file
-                        cached_df = pl.read_parquet(cache_path)
-                        samples = [
-                            _restore_from_cache(row) for row in cached_df.to_dicts()
-                        ]
-                    elif cache_format == "pickle":
-                        # Load samples from pickle file
-                        with open(cache_path, "rb") as f:
-                            samples = pickle.load(f)
-                    else:
-                        msg = f"Unsupported cache format: {cache_format}"
-                        raise ValueError(msg)
-                    logger.info(f"Loaded {len(samples)} cached samples")
-                except Exception as e:
-                    logger.warning(
-                        "Failed to load cached data: %s. Regenerating...",
-                        e,
-                    )
-                    samples = None
-
-        # Generate samples if not loaded from cache
-        if samples is None:
-            logger.info(f"Generating samples with {num_workers} worker(s)...")
-            filtered_global_event_df = task.pre_filter(self.collected_global_event_df)
-            samples = []
-
-            if num_workers == 1:
-                # single-threading (by default)
-                for patient in tqdm(
-                    self.iter_patients(filtered_global_event_df),
-                    total=filtered_global_event_df["patient_id"].n_unique(),
-                    desc=(f"Generating samples for {task.task_name} " "with 1 worker"),
-                    smoothing=0,
-                ):
-                    samples.extend(task(patient))
-            else:
-                # multi-threading (not recommended)
-                logger.info(
-                    f"Generating samples for {task.task_name} with "
-                    f"{num_workers} workers"
-                )
-                patients = list(self.iter_patients(filtered_global_event_df))
-                with ThreadPoolExecutor(max_workers=num_workers) as executor:
-                    futures = [executor.submit(task, patient) for patient in patients]
-                    for future in tqdm(
-                        as_completed(futures),
-                        total=len(futures),
-                        desc=(
-                            f"Collecting samples for {task.task_name} "
-                            f"from {num_workers} workers"
-                        ),
-                    ):
-                        samples.extend(future.result())
-
-            # Cache the samples if cache_dir is provided
-            if cache_dir is not None:
-                cache_path = Path(cache_dir) / cache_filename
-                cache_path.parent.mkdir(parents=True, exist_ok=True)
-                logger.info(f"Caching samples to {cache_path}")
-                try:
-                    if cache_format == "parquet":
-                        # Save samples as parquet file
-                        samples_for_cache = [
-                            _convert_for_cache(sample) for sample in samples
-                        ]
-                        samples_df = pl.DataFrame(samples_for_cache)
-                        samples_df.write_parquet(cache_path)
-                    elif cache_format == "pickle":
-                        # Save samples as pickle file
-                        with open(cache_path, "wb") as f:
-                            pickle.dump(samples, f)
-                    else:
-                        msg = f"Unsupported cache format: {cache_format}"
-                        raise ValueError(msg)
-                    logger.info(f"Successfully cached {len(samples)} samples")
-                except Exception as e:
-                    logger.warning(f"Failed to cache samples: {e}")
-
-        sample_dataset = SampleDataset(
-            samples,
-            input_schema=task.input_schema,
-            output_schema=task.output_schema,
-            dataset_name=self.dataset_name,
-            task_name=task,
-            input_processors=input_processors,
-            output_processors=output_processors,
+        task_params = json.dumps(
+            vars(task),
+            sort_keys=True,
+            default=str
         )
 
-        logger.info(f"Generated {len(samples)} samples for task {task.task_name}")
-        return sample_dataset
+        if cache_dir is None:
+            cache_dir = self.cache_dir / "tasks" / f"{task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params)}"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            # Ensure the explicitly provided cache_dir exists
+            cache_dir = Path(cache_dir)
+            cache_dir.mkdir(parents=True, exist_ok=True)
+
+        proc_params = json.dumps(
+            {
+                "input_schema": task.input_schema,
+                "output_schema": task.output_schema,
+                "input_processors": (
+                    {
+                        f"{k}_{v.__class__.__name__}": vars(v)
+                        for k, v in input_processors.items()
+                    }
+                    if input_processors
+                    else None
+                ),
+                "output_processors": (
+                    {
+                        f"{k}_{v.__class__.__name__}": vars(v)
+                        for k, v in output_processors.items()
+                    }
+                    if output_processors
+                    else None
+                ),
+            },
+            sort_keys=True,
+            default=str
+        )
+
+        task_df_path = Path(cache_dir) / "task_df.ld"
+        samples_path = Path(cache_dir) / f"samples_{uuid.uuid5(uuid.NAMESPACE_DNS, proc_params)}.ld"
+
+        task_df_path.mkdir(parents=True, exist_ok=True)
+        samples_path.mkdir(parents=True, exist_ok=True)
+        
+        if not (samples_path / "index.json").exists():
+            # Check if index.json exists to verify cache integrity, this
+            # is the standard file for litdata.StreamingDataset
+            if not (task_df_path / "index.json").exists():
+                self._task_transform(
+                    task,
+                    task_df_path,
+                    num_workers,
+                )
+            else:
+                logger.info(f"Found cached task dataframe at {task_df_path}, skipping task transformation.")
+
+            # Build processors and fit on the dataset
+            logger.info(f"Fitting processors on the dataset...")
+            dataset = litdata.StreamingDataset(
+                str(task_df_path),
+                transform=lambda x: pickle.loads(x["sample"]),
+            )
+            builder = SampleBuilder(
+                input_schema=task.input_schema,  # type: ignore
+                output_schema=task.output_schema,  # type: ignore
+                input_processors=input_processors,
+                output_processors=output_processors,
+            )
+            builder.fit(dataset)
+            builder.save(str(samples_path / "schema.pkl"))
+
+            # Apply processors and save final samples to cache_dir
+            logger.info(f"Processing samples and saving to {samples_path}...")
+            self._proc_transform(
+                task_df_path,
+                samples_path,
+                num_workers,
+            )
+            logger.info(f"Cached processed samples to {samples_path}")
+        else:
+            logger.info(f"Found cached processed samples at {samples_path}, skipping processing.")
+
+        return SampleDataset(
+            path=str(samples_path),
+            dataset_name=self.dataset_name,
+            task_name=task.task_name,
+        )
+
+    def _main_guard(self, func_name: str):
+        """Warn if method is accessed from a non-main process."""
+
+        if not multiprocessing.current_process().name == "MainProcess":
+            logger.warning(
+                f"{func_name} method accessed from a non-main process. This may lead to unexpected behavior.\n"
+                + "Consider use __name__ == '__main__' guard when using multiprocessing."
+            )
+            exit(1)

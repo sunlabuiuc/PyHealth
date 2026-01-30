@@ -6,7 +6,7 @@
 [project]
 name = "pyhealth"
 # must be kept in sync with git tags; is not updated by any automation tools
-version = "2.0a10"
+version = "2.0.0"
 authors = [
   {name = "John Wu", email = "johnwu3@illinois.edu"},
   {name = "Chaoqi Yang"},
@@ -20,7 +20,7 @@ authors = [
 ]
 description = "A Python library for healthcare AI"
 readme = "README.rst"
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.12,<3.14"
 dependencies = [
   "torch~=2.7.1",
   "torchvision",
@@ -33,15 +33,21 @@ dependencies = [
   "networkx",
   "mne~=1.10.0",
   "urllib3~=2.5.0",
-  "numpy~=1.26.4",
+  "numpy~=2.2.0",
   "tqdm",
-  "polars~=1.31.0",
+  "polars~=1.35.2",
   "pandas~=2.3.1",
-  "pandarallel~=1.6.5",
   "pydantic~=2.11.7",
   "gymnasium",
   "scikit-image",
   "pygame"
+  "dask[complete]~=2025.11.0",
+  "litdata~=0.2.59",
+  "pyarrow~=22.0.0",
+  "narwhals~=2.13.0",
+  "more-itertools~=10.8.0",
+  "einops>=0.8.0",
+  "linear-attention-transformer>=0.19.1",
 ]
 license = "BSD-3-Clause"
 license-files = ["LICENSE.md"]
@@ -77,7 +83,7 @@ packages = ["pyhealth"]
 ### Pixi
 #
 # specifies properties for the whole workspace
-[tool.pixi.project]
+[tool.pixi.workspace]
 channels = ["conda-forge"]
 platforms = ["osx-arm64", "linux-64", "linux-aarch64", "win-64"]
 preview = ["pixi-build"]
@@ -92,11 +98,12 @@ build-pypi = { features = ["pyverbase", "build-pypi"], solve-group = "default" }
 build-env = { features = ["pyverbase", "build-env"], solve-group = "default" }
 
 # specify where to download the build backend that builds conda files
-[tool.pixi.package.build]
-backend = { name = "pixi-build-python", version = "0.1.*" }
+[tool.pixi.package.build.backend]
+name = "pixi-build-python"
+version = "2.0.0"
 channels = [
   "https://prefix.dev/pixi-build-backends",
-  "https://prefix.dev/conda-forge",
+  "https://prefix.dev/conda-forge", 
 ]
 
 # set the Python requirement for its environment

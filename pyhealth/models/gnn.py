@@ -324,9 +324,29 @@ class GCN(BaseModel):
         num_layers: Number of GCN layers. Defaults to 2.
 
     Examples:
-        >>> from pyhealth.datasets import SampleDataset, get_dataloader
-        >>> samples = [...]
-        >>> dataset = SampleDataset(...)
+        >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
+        >>> samples = [
+        ...     {
+        ...         "patient_id": "patient-0",
+        ...         "visit_id": "visit-0",
+        ...         "diagnoses": ["A", "B", "C"],
+        ...         "procedures": ["X", "Y"],
+        ...         "label": 1,
+        ...     },
+        ...     {
+        ...         "patient_id": "patient-1",
+        ...         "visit_id": "visit-0",
+        ...         "diagnoses": ["D", "E"],
+        ...         "procedures": ["Z"],
+        ...         "label": 0,
+        ...     },
+        ... ]
+        >>> dataset = create_sample_dataset(
+        ...     samples=samples,
+        ...     input_schema={"diagnoses": "sequence", "procedures": "sequence"},
+        ...     output_schema={"label": "binary"},
+        ...     dataset_name="test",
+        ... )
         >>> model = GCN(dataset=dataset)
         >>> loader = get_dataloader(dataset, batch_size=2, shuffle=True)
         >>> batch = next(iter(loader))
@@ -503,9 +523,29 @@ class GAT(BaseModel):
         num_layers: Number of GAT layers. Defaults to 2.
 
     Examples:
-        >>> from pyhealth.datasets import SampleDataset, get_dataloader
-        >>> samples = [...]
-        >>> dataset = SampleDataset(...)
+        >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
+        >>> samples = [
+        ...     {
+        ...         "patient_id": "patient-0",
+        ...         "visit_id": "visit-0",
+        ...         "diagnoses": ["A", "B", "C"],
+        ...         "procedures": ["X", "Y"],
+        ...         "label": 1,
+        ...     },
+        ...     {
+        ...         "patient_id": "patient-1",
+        ...         "visit_id": "visit-0",
+        ...         "diagnoses": ["D", "E"],
+        ...         "procedures": ["Z"],
+        ...         "label": 0,
+        ...     },
+        ... ]
+        >>> dataset = create_sample_dataset(
+        ...     samples=samples,
+        ...     input_schema={"diagnoses": "sequence", "procedures": "sequence"},
+        ...     output_schema={"label": "binary"},
+        ...     dataset_name="test",
+        ... )
         >>> model = GAT(dataset=dataset)
         >>> loader = get_dataloader(dataset, batch_size=2, shuffle=True)
         >>> batch = next(iter(loader))
@@ -666,7 +706,7 @@ class GAT(BaseModel):
 
 
 if __name__ == "__main__":
-    from pyhealth.datasets import SampleDataset, get_dataloader
+    from pyhealth.datasets import create_sample_dataset, get_dataloader
 
     samples = [
         {
@@ -688,7 +728,7 @@ if __name__ == "__main__":
     input_schema = {"diagnoses": "sequence", "procedures": "sequence"}
     output_schema = {"label": "binary"}
 
-    dataset = SampleDataset(
+    dataset = create_sample_dataset(
         samples=samples,
         input_schema=input_schema,
         output_schema=output_schema,

@@ -24,6 +24,10 @@ from .EEG_abnormal import EEG_isAbnormal_fn
 from .EEG_events import EEG_events_fn
 from .in_hospital_mortality_mimic4 import InHospitalMortalityMIMIC4
 from .length_of_stay_prediction import (
+    LengthOfStayPredictioneICU,
+    LengthOfStayPredictionMIMIC3,
+    LengthOfStayPredictionMIMIC4,
+    LengthOfStayPredictionOMOP,
     length_of_stay_prediction_eicu_fn,
     length_of_stay_prediction_mimic3_fn,
     length_of_stay_prediction_mimic4_fn,
@@ -37,6 +41,8 @@ from .mortality_prediction import (
     MortalityPredictionMIMIC3,
     MortalityPredictionMIMIC4,
     MortalityPredictionOMOP,
+    MultimodalMortalityPredictionMIMIC3,
+    MultimodalMortalityPredictionMIMIC4,
 )
 from .survival_preprocess_support2 import SurvivalPreprocessSupport2
 from .mortality_prediction_stagenet_mimic4 import (
@@ -45,11 +51,11 @@ from .mortality_prediction_stagenet_mimic4 import (
 from .patient_linkage import patient_linkage_mimic3_fn
 from .readmission_30days_mimic4 import Readmission30DaysMIMIC4
 from .readmission_prediction import (
+    ReadmissionPredictionMIMIC3,
     readmission_prediction_eicu_fn,
     readmission_prediction_eicu_fn2,
-    readmission_prediction_mimic3_fn,
     readmission_prediction_mimic4_fn,
-    readmission_prediction_omop_fn,
+    ReadmissionPredictionOMOP,
 )
 from .sleep_staging import (
     sleep_staging_isruc_fn,
@@ -57,8 +63,9 @@ from .sleep_staging import (
     sleep_staging_sleepedf_fn,
 )
 from .sleep_staging_v2 import SleepStagingSleepEDF
-from .temple_university_EEG_tasks import EEG_events_fn, EEG_isAbnormal_fn
+from .temple_university_EEG_tasks import EEGEventsTUEV
 from .variant_classification import (
     MutationPathogenicityPrediction,
     VariantClassificationClinVar,
 )
+from .patient_linkage_mimic3 import PatientLinkageMIMIC3Task

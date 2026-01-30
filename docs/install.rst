@@ -1,25 +1,46 @@
 Installation
 ============
 
-You could install from PyPi for the older stable version of PyHealth:
+**Python Version Requirement**
+
+PyHealth 2.0 requires **Python 3.12 or higher** (up to Python 3.13). This is a hard requirement due to dependencies on modern Python features for parallel processing and memory management.
 
 .. code-block:: bash
 
-    pip install pyhealth
+   # Verify your Python version
+   python --version  # Should be 3.12.x or 3.13.x
 
-or our most-updated alpha version from PyPi:
+**Recommended Installation (Latest Release)**
+
+Install the latest PyHealth 2.0 release from PyPI:
 
 .. code-block:: bash
 
-   pip install pyhealth==2.0a4
+   pip install pyhealth
 
-or from github source for the latest version of PyHealth:
+This version includes significant performance improvements, dynamic memory support, parallelized processing, multimodal dataloaders, and many new features.
+
+**Legacy Version**
+
+The older stable version (1.16) is still available for backward compatibility and supports Python 3.9+:
+
+.. code-block:: bash
+
+   pip install pyhealth==1.16
+
+**Note:** The legacy version (1.16) should still work for most use cases, but we recommend using PyHealth 2.0 for better performance and new features.
+
+**For Contributors and Developers**
+
+If you are contributing to PyHealth or need the latest development features, install from GitHub source:
 
 .. code-block:: bash
 
    git clone https://github.com/sunlabuiuc/PyHealth.git
-   cd pyhealth
+   cd PyHealth
    pip install -e .
+
+This approach is recommended for developers as it allows you to modify the code and immediately see changes without reinstalling.
 
 
 .. **Required Dependencies**\ :
@@ -54,5 +75,41 @@ For example, if you use NVIDIA RTX A6000 as your GPU for training, you should in
 .. code-block:: bash
 
     conda install pytorch torchvision torchaudio cudatoolkit=11.3 -c pytorch.
+
+----
+
+**Platform-Specific Notes**
+
+**Windows Subsystem for Linux (WSL)**
+
+When using PyHealth on WSL, you **may need to** disable swap memory due to a bug in how Dask interacts with WSL's memory management when memory runs out. This prevents performance issues and potential crashes.
+
+**Method 1: Using WSL Settings App (Windows 11)**
+
+1. Open the WSL Settings app in Windows
+2. Navigate to Memory and Processor settings
+3. Set Swap size to 0 MB
+4. Apply changes and restart WSL
+
+**Method 2: Manual Configuration**
+
+1. Open PowerShell as Administrator
+2. Create or edit `%UserProfile%\.wslconfig` file
+3. Add the following configuration:
+
+.. code-block:: ini
+
+    [wsl2]
+    swap=0
+
+4. Restart WSL by running in PowerShell: ``wsl --shutdown``
+
+**Other Platforms**
+
+PyHealth should work without additional configuration on:
+
+- Linux (native)
+- macOS
+- Windows (with proper Python installation)
 
 ----

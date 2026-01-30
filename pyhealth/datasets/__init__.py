@@ -63,6 +63,7 @@ from .mimicextract import MIMICExtractDataset
 from .omop import OMOPDataset
 from .pendulum_data import PendulumData
 from .sample_dataset import SampleDataset
+from .sample_dataset import SampleBuilder, SampleDataset, create_sample_dataset
 from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset
 from .bmd_hs import BMDHSDataset

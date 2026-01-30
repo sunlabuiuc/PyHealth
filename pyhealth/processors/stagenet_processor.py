@@ -1,13 +1,13 @@
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Iterable
 
 import torch
 
 from . import register_processor
-from .base_processor import FeatureProcessor
+from .base_processor import FeatureProcessor, VocabMixin
 
 
 @register_processor("stagenet")
-class StageNetProcessor(FeatureProcessor):
+class StageNetProcessor(FeatureProcessor, VocabMixin):
     """
     Feature processor for StageNet CODE inputs with coupled value/time data.
 
@@ -63,7 +63,7 @@ class StageNetProcessor(FeatureProcessor):
         self._max_nested_len = None
         self._padding = padding  # Additional padding beyond observed max
 
-    def fit(self, samples: List[Dict], key: str) -> None:
+    def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
         """Build vocabulary and determine input structure.
 
         Args:
@@ -72,9 +72,9 @@ class StageNetProcessor(FeatureProcessor):
         """
         # Examine first non-None sample to determine structure
         for sample in samples:
-            if key in sample and sample[key] is not None:
+            if field in sample and sample[field] is not None:
                 # Unpack tuple: (time, values)
-                time_data, value_data = sample[key]
+                time_data, value_data = sample[field]
 
                 # Determine nesting level for codes
                 if isinstance(value_data, list) and len(value_data) > 0:
@@ -92,9 +92,9 @@ class StageNetProcessor(FeatureProcessor):
         # Build vocabulary for codes and find max nested length
         max_inner_len = 0
         for sample in samples:
-            if key in sample and sample[key] is not None:
+            if field in sample and sample[field] is not None:
                 # Unpack tuple: (time, values)
-                time_data, value_data = sample[key]
+                time_data, value_data = sample[field]
 
                 if self._is_nested:
                     # Nested codes
@@ -121,6 +121,24 @@ class StageNetProcessor(FeatureProcessor):
         # Set <unk> token to the next available index
         # Since <unk> is already in the vocab dict, we use _next_index
         self.code_vocab["<unk>"] = self._next_index
+
+    def remove(self, vocabularies: set[str]):
+        """Remove specified vocabularies from the processor."""
+        vocab = list(set(self.code_vocab.keys()) - vocabularies - {"<pad>", "<unk>"})
+        vocab = ["<pad>"] + vocab + ["<unk>"]
+        self.code_vocab = {v: i for i, v in enumerate(vocab)}
+
+    def retain(self, vocabularies: set[str]):
+        """Retain only the specified vocabularies in the processor."""
+        vocab = list(set(self.code_vocab.keys()) & vocabularies)
+        vocab = ["<pad>"] + vocab + ["<unk>"]
+        self.code_vocab = {v: i for i, v in enumerate(vocab)}
+
+    def add(self, vocabularies: set[str]):
+        """Add specified vocabularies to the processor."""
+        vocab = list(set(self.code_vocab.keys()) | vocabularies - {"<pad>", "<unk>"})
+        vocab = ["<pad>"] + vocab + ["<unk>"]
+        self.code_vocab = {v: i for i, v in enumerate(vocab)}
 
     def process(
         self, value: Tuple[Optional[List], List]
@@ -262,7 +280,7 @@ class StageNetTensorProcessor(FeatureProcessor):
         self._size = None  # Feature dimension (set during fit)
         self._is_nested = None
 
-    def fit(self, samples: List[Dict], key: str) -> None:
+    def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
         """Determine input structure.
 
         Args:
@@ -271,9 +289,9 @@ class StageNetTensorProcessor(FeatureProcessor):
         """
         # Examine first non-None sample to determine structure
         for sample in samples:
-            if key in sample and sample[key] is not None:
+            if field in sample and sample[field] is not None:
                 # Unpack tuple: (time, values)
-                time_data, value_data = sample[key]
+                time_data, value_data = sample[field]
 
                 # Determine nesting level for numerics
                 if isinstance(value_data, list) and len(value_data) > 0:

@@ -4,8 +4,8 @@ Unit tests for the ChestXray14Dataset, ChestXray14BinaryClassification, and Ches
 Author:
     Eric Schrock (ejs9@illinois.edu)
 """
-import os
-import shutil
+from pathlib import Path
+import tempfile
 import unittest
 
 import numpy as np
@@ -16,41 +16,40 @@ from pyhealth.tasks import ChestXray14BinaryClassification
 from pyhealth.tasks import ChestXray14MultilabelClassification
 
 class TestChestXray14Dataset(unittest.TestCase):
-    def setUp(self):
-        if os.path.exists("test"):
-            shutil.rmtree("test")
-        os.makedirs("test/images")
+    @classmethod
+    def setUpClass(cls):
+        cls.root = Path(__file__).parent.parent.parent / "test-resources" / "core" / "chestxray14"
+        cls.generate_fake_images()
+        cls.cache_dir = tempfile.TemporaryDirectory()
+        cls.dataset = ChestXray14Dataset(cls.root, cache_dir=cls.cache_dir.name)
 
-        # Source: https://nihcc.app.box.com/v/ChestXray-NIHCC/file/219760887468
-        lines = [
-            "Image Index,Finding Labels,Follow-up #,Patient ID,Patient Age,Patient Sex,View Position,OriginalImage[Width,Height],OriginalImagePixelSpacing[x,y],",
-            "00000001_000.png,Cardiomegaly,0,1,57,M,PA,2682,2749,0.14300000000000002,0.14300000000000002,",
-            "00000001_001.png,Cardiomegaly|Emphysema,1,1,58,M,PA,2894,2729,0.14300000000000002,0.14300000000000002,",
-            "00000001_002.png,Cardiomegaly|Effusion,2,1,58,M,PA,2500,2048,0.168,0.168,",
-            "00000002_000.png,No Finding,0,2,80,M,PA,2500,2048,0.171,0.171,",
-            "00000003_001.png,Hernia,0,3,74,F,PA,2500,2048,0.168,0.168,",
-            "00000003_002.png,Hernia,1,3,75,F,PA,2048,2500,0.168,0.168,",
-            "00000003_003.png,Hernia|Infiltration,2,3,76,F,PA,2698,2991,0.14300000000000002,0.14300000000000002,",
-            "00000003_004.png,Hernia,3,3,77,F,PA,2500,2048,0.168,0.168,",
-            "00000003_005.png,Hernia,4,3,78,F,PA,2686,2991,0.14300000000000002,0.14300000000000002,",
-            "00000003_006.png,Hernia,5,3,79,F,PA,2992,2991,0.14300000000000002,0.14300000000000002,",
-        ]
+        cls.samples_cardiomegaly = cls.dataset.set_task(ChestXray14BinaryClassification(disease="cardiomegaly"))
+        cls.samples_hernia = cls.dataset.set_task(ChestXray14BinaryClassification(disease="hernia"))
+        cls.samples_multilabel = cls.dataset.set_task()
 
-        # Create mock images to test image loading
+    @classmethod
+    def tearDownClass(cls):
+        cls.samples_cardiomegaly.close()
+        cls.samples_hernia.close()
+        cls.samples_multilabel.close()
+
+        Path(cls.dataset.root / "chestxray14-metadata-pyhealth.csv").unlink()
+        cls.delete_fake_images()
+
+    @classmethod
+    def generate_fake_images(cls):
+        with open(Path(cls.root / "Data_Entry_2017_v2020.csv"), 'r') as f:
+            lines = f.readlines()
+
         for line in lines[1:]: # Skip header row
             name = line.split(',')[0]
-            img = Image.fromarray(np.random.randint(0, 256, (224, 224, 4), dtype=np.uint8), mode="RGBA")
-            img.save(os.path.join("test/images", name))
+            img = Image.fromarray(np.random.randint(0, 256, (224, 224, 4), dtype=np.uint8))
+            img.save(Path(cls.root / "images" / name))
 
-        # Save image labels to file
-        with open("test/Data_Entry_2017_v2020.csv", 'w') as f:
-            f.write("\n".join(lines))
-
-        self.dataset = ChestXray14Dataset(root="./test")
-
-    def tearDown(self):
-        if os.path.exists("test"):
-            shutil.rmtree("test")
+    @classmethod
+    def delete_fake_images(cls):
+        for png in Path(cls.root / "images").glob("*.png"):
+            png.unlink()
 
     def test_stats(self):
         self.dataset.stats()
@@ -124,22 +123,17 @@ class TestChestXray14Dataset(unittest.TestCase):
             _ = ChestXray14BinaryClassification(disease="toothache")
 
     def test_task_classify_cardiomegaly(self):
-        task = ChestXray14BinaryClassification(disease="cardiomegaly")
-        samples = self.dataset.set_task(task)
-        self.assertEqual(len(samples), 10)
-        self.assertEqual(sum(sample["label"] for sample in samples), 3)
+        self.assertEqual(len(self.samples_cardiomegaly), 10)
+        self.assertEqual(sum(sample["label"] for sample in self.samples_cardiomegaly), 3)
 
     def test_task_classify_hernia(self):
-        task = ChestXray14BinaryClassification(disease="hernia")
-        samples = self.dataset.set_task(task)
-        self.assertEqual(len(samples), 10)
-        self.assertEqual(sum(sample["label"] for sample in samples), 6)
+        self.assertEqual(len(self.samples_hernia), 10)
+        self.assertEqual(sum(sample["label"] for sample in self.samples_hernia), 6)
 
     def test_task_classify_all(self):
-        samples = self.dataset.set_task()
-        self.assertEqual(len(samples), 10)
+        self.assertEqual(len(self.samples_multilabel), 10)
 
-        actual_labels = [sample["labels"].tolist() for sample in samples]
+        actual_labels = [sample["labels"].tolist() for sample in self.samples_multilabel]
 
         expected_labels = [
             [1.0, 0.0, 0.0, 0.0, 0.0],

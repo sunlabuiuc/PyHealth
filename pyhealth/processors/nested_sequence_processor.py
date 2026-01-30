@@ -1,13 +1,13 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Iterable
 
 import torch
 
 from . import register_processor
-from .base_processor import FeatureProcessor
+from .base_processor import FeatureProcessor, VocabMixin
 
 
 @register_processor("nested_sequence")
-class NestedSequenceProcessor(FeatureProcessor):
+class NestedSequenceProcessor(FeatureProcessor, VocabMixin):
     """
     Feature processor for nested categorical sequences with vocabulary.
 
@@ -51,7 +51,7 @@ class NestedSequenceProcessor(FeatureProcessor):
         self._max_inner_len = 1  # Maximum length of inner sequences
         self._padding = padding  # Additional padding beyond observed max
 
-    def fit(self, samples: List[Dict[str, Any]], field: str) -> None:
+    def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
         """Build vocabulary and determine maximum inner sequence length.
 
         Args:
@@ -85,6 +85,24 @@ class NestedSequenceProcessor(FeatureProcessor):
         # Set <unk> token to len(vocab) - 1 after building vocabulary
         # (-1 because <unk> is already in vocab)
         self.code_vocab["<unk>"] = len(self.code_vocab) - 1
+
+    def remove(self, vocabularies: set[str]):
+        """Remove specified vocabularies from the processor."""
+        vocab = list(set(self.code_vocab.keys()) - vocabularies - {"<pad>", "<unk>"})
+        vocab = ["<pad>"] + vocab + ["<unk>"]
+        self.code_vocab = {v: i for i, v in enumerate(vocab)}
+
+    def retain(self, vocabularies: set[str]):
+        """Retain only the specified vocabularies in the processor."""
+        vocab = list(set(self.code_vocab.keys()) & vocabularies)
+        vocab = ["<pad>"] + vocab + ["<unk>"]
+        self.code_vocab = {v: i for i, v in enumerate(vocab)}
+
+    def add(self, vocabularies: set[str]):
+        """Add specified vocabularies to the processor."""
+        vocab = list(set(self.code_vocab.keys()) | vocabularies - {"<pad>", "<unk>"})
+        vocab = ["<pad>"] + vocab + ["<unk>"]
+        self.code_vocab = {v: i for i, v in enumerate(vocab)}
 
     def process(self, value: List[List[Any]]) -> torch.Tensor:
         """Process nested sequence into padded 2D tensor.
@@ -187,7 +205,7 @@ class NestedFloatsProcessor(FeatureProcessor):
         self.forward_fill = forward_fill
         self._padding = padding  # Additional padding beyond observed max
 
-    def fit(self, samples: List[Dict[str, Any]], field: str) -> None:
+    def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
         """Determine maximum inner sequence length.
 
         Args:

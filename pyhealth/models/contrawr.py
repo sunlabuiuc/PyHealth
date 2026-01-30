@@ -173,7 +173,7 @@ class ContraWR(BaseModel):
         self.fc = nn.Linear(emb_size, output_size)
 
     def _determine_input_channels_length(self) -> int:
-        for sample in self.dataset.samples:
+        for sample in self.dataset:
             if self.feature_keys[0] not in sample:
                 continue
 
@@ -282,7 +282,7 @@ class ContraWR(BaseModel):
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation."""
         # concat the info within one batch (batch, channel, length)
-        x = kwargs[self.feature_keys[0]]
+        x = kwargs[self.feature_keys[0]].to(self.device)
         # obtain the stft spectrogram (batch, channel, freq, time step)
         x_spectrogram = self.torch_stft(x)
         # final layer embedding (batch, embedding)
@@ -291,7 +291,7 @@ class ContraWR(BaseModel):
         # (patient, label_size)
         logits = self.fc(emb)
         # obtain y_true, loss, y_prob
-        y_true = kwargs[self.label_keys[0]]
+        y_true = kwargs[self.label_keys[0]].to(self.device)
         loss = self.get_loss_function()(logits, y_true)
         y_prob = self.prepare_y_prob(logits)
 
