@@ -8,6 +8,7 @@ This example demonstrates:
 4. Presenting results in a summary table
 """
 
+from datetime import datetime
 import torch
 
 import argparse
@@ -19,8 +20,7 @@ from pyhealth.tasks import MortalityPredictionStageNetMIMIC4
 from pyhealth.trainer import Trainer
 from pyhealth.datasets.utils import load_processors
 from pathlib import Path
-import datetime
-
+import pandas as pd
 
 
 def main():
@@ -151,11 +151,19 @@ def main():
     
     # Save results
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    now = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-    with open(OUTPUT_DIR / f"{now}.txt", "w") as f:
-        f.write("Method,Comprehensiveness,Sufficiency\n")
-        for name, scores in res.items():
-            f.write(f"{name},{scores['comp']:.4f},{scores['suff']:.4f}\n")
+    if (OUTPUT_DIR / "results.csv").exists():
+        df = pd.read_csv(OUTPUT_DIR / "results.csv")
+    else:
+        df = pd.DataFrame({
+            'Method': pd.Series(dtype='str'),
+            'Comp': pd.Series(dtype='float'),
+            'Suff': pd.Series(dtype='float'),
+        })
+    
+    for name, scores in res.items():
+        df.loc[len(df)] = [name, scores['comp'], scores['suff']]
+    
+    df.to_csv(OUTPUT_DIR / "results.csv", index=False)
 
 if __name__ == "__main__":
     main()
