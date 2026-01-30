@@ -305,6 +305,7 @@ class DeepLift(BaseInterpreter):
         self.use_embeddings = use_embeddings
 
         self._forward_from_embedding_accepts_time_info = False
+        self._forward_from_embedding_accepts_mask_info = False
 
         if use_embeddings:
             assert hasattr(
@@ -312,6 +313,9 @@ class DeepLift(BaseInterpreter):
             ), f"Model {type(model).__name__} must implement forward_from_embedding()"
             self._forward_from_embedding_accepts_time_info = self._method_accepts_argument(
                 model.forward_from_embedding, "time_info"
+            )
+            self._forward_from_embedding_accepts_mask_info = self._method_accepts_argument(
+                model.forward_from_embedding, "mask_info"
             )
 
     # ------------------------------------------------------------------
@@ -410,6 +414,8 @@ class DeepLift(BaseInterpreter):
             inputs, baseline
         )
 
+        mask_info = self._compute_embedding_masks(input_embs)
+
         delta_embeddings: Dict[str, torch.Tensor] = {}
         current_embeddings: Dict[str, torch.Tensor] = {}
         for key in input_embs:
@@ -424,6 +430,8 @@ class DeepLift(BaseInterpreter):
             call_kwargs = dict(forward_kwargs)
             if time_info and self._forward_from_embedding_accepts_time_info:
                 call_kwargs["time_info"] = time_info
+            if mask_info and self._forward_from_embedding_accepts_mask_info:
+                call_kwargs["mask_info"] = mask_info
             return self.model.forward_from_embedding(
                 feature_embeddings=feature_embeddings,
                 **call_kwargs,
@@ -645,6 +653,21 @@ class DeepLift(BaseInterpreter):
 
             mapped[key] = token_attr.detach()
         return mapped
+
+    @staticmethod
+    def _compute_embedding_masks(input_embs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        """Derive sequence masks from embedded inputs without zeroing baseline information."""
+
+        masks: Dict[str, torch.Tensor] = {}
+        for key, emb in input_embs.items():
+            mask_source = emb.detach()
+            # For nested sequences the inner dimension is pooled before mask creation
+            if mask_source.dim() == 4:
+                mask_source = mask_source.sum(dim=2)
+
+            masks[key] = (mask_source.sum(dim=-1) != 0).int()
+
+        return masks
 
     @staticmethod
     def _method_accepts_argument(function, arg_name: str) -> bool:
