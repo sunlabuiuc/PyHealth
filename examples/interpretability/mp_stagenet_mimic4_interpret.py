@@ -150,6 +150,7 @@ def main():
     print(res)
     
     # Save results
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     now = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
     with open(OUTPUT_DIR / f"{now}.txt", "w") as f:
         f.write("Method,Comprehensiveness,Sufficiency\n")
