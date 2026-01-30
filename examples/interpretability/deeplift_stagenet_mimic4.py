@@ -102,11 +102,13 @@ def main():
         "lime": LimeExplainer(model, use_embeddings=True),
     }
     
-    name = "gim"
+    name = "deeplift"
     method = methods[name]
     
     print(f"\nMove batch to {device}...")
-    batch = next(iter(test_loader))
+    it = iter(test_loader)
+    _ = next(it)
+    batch = next(it)
     batch0 = {}
     for key, value in batch.items():
         if isinstance(value, torch.Tensor):
@@ -123,34 +125,53 @@ def main():
     
     attributions = method.attribute(**batch)
 
-    # Initialize evaluator
-    evaluator = Evaluator(model, percentages=[1, 99])
+    # # Initialize evaluator
+    # evaluator = Evaluator(model, percentages=[1, 99])
 
-    # Compute metrics for single batch
-    print("\nComputing metrics on single batch...")
-    comp_metric = evaluator.metrics["comprehensiveness"]
-    comp_scores, comp_mask = comp_metric.compute(batch, attributions)
+    # # Compute metrics for single batch
+    # print("\nComputing metrics on single batch...")
+    # comp_metric = evaluator.metrics["comprehensiveness"]
+    # comp_scores, comp_mask = comp_metric.compute(batch, attributions)
 
-    suff_metric = evaluator.metrics["sufficiency"]
-    suff_scores, suff_mask = suff_metric.compute(batch, attributions)
+    # suff_metric = evaluator.metrics["sufficiency"]
+    # suff_scores, suff_mask = suff_metric.compute(batch, attributions)
+
+    # print("\n" + "=" * 70)
+    # print("Single Batch Results Summary")
+    # print("=" * 70)
+    # if comp_mask.sum() > 0:
+    #     valid_comp = comp_scores[comp_mask]
+    #     print(f"Comprehensiveness (valid samples): {valid_comp.mean():.4f}")
+    #     print(f"  Valid samples: {comp_mask.sum()}/{len(comp_mask)}")
+    # else:
+    #     print("Comprehensiveness: No valid samples")
+
+    # if suff_mask.sum() > 0:
+    #     valid_suff = suff_scores[suff_mask]
+    #     print(f"Sufficiency (valid samples): {valid_suff.mean():.4f}")
+    #     print(f"  Valid samples: {suff_mask.sum()}/{len(suff_mask)}")
+    # else:
+    #     print("Sufficiency: No valid samples")
+
+    # Option 1: Functional API (simple one-off evaluation)
+    print("\nEvaluating with Functional API on full dataset...")
+    print("Using: evaluate_attribution(model, dataloader, method, ...)")
+
+    results_functional = evaluate_attribution(
+        model,
+        test_loader,
+        method,
+        metrics=["comprehensiveness", "sufficiency"],
+        percentages=[25, 50, 99],
+    )
 
     print("\n" + "=" * 70)
-    print("Single Batch Results Summary")
+    print("Dataset-Wide Results (Functional API)")
     print("=" * 70)
-    if comp_mask.sum() > 0:
-        valid_comp = comp_scores[comp_mask]
-        print(f"Comprehensiveness (valid samples): {valid_comp.mean():.4f}")
-        print(f"  Valid samples: {comp_mask.sum()}/{len(comp_mask)}")
-    else:
-        print("Comprehensiveness: No valid samples")
-
-    if suff_mask.sum() > 0:
-        valid_suff = suff_scores[suff_mask]
-        print(f"Sufficiency (valid samples): {valid_suff.mean():.4f}")
-        print(f"  Valid samples: {suff_mask.sum()}/{len(suff_mask)}")
-    else:
-        print("Sufficiency: No valid samples")
-
+    comp = results_functional["comprehensiveness"]
+    suff = results_functional["sufficiency"]
+    print(f"\nComprehensiveness: {comp:.4f}")
+    print(f"Sufficiency:       {suff:.4f}")
 
 if __name__ == "__main__":
     main()
