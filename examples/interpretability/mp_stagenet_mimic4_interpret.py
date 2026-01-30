@@ -72,7 +72,7 @@ def main():
     print(f"✓ Loaded {len(sample_dataset)} samples")
 
     # Split dataset and get test loader
-    _, _, test_dataset = split_by_patient(sample_dataset, [0.8, 0.1, 0.1])
+    _, _, test_dataset = split_by_patient(sample_dataset, [0.9, 0.09, 0.01], seed=233)
     test_loader = get_dataloader(test_dataset, batch_size=16, shuffle=False)
     print(f"✓ Test set: {len(test_dataset)} samples")
 
