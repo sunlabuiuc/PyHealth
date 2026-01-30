@@ -19,8 +19,13 @@ Note on ResNet support:
 import pytest
 import torch
 import numpy as np
+import tempfile
+import shutil
+import pickle
+import litdata
 
 from pyhealth.datasets import SampleDataset
+from pyhealth.datasets.sample_dataset import SampleBuilder
 from pyhealth.interpret.methods import LayerwiseRelevancePropagation
 from pyhealth.models import MLP
 
@@ -39,14 +44,40 @@ def simple_dataset():
         for i in range(20)
     ]
 
-    dataset = SampleDataset(
-        samples=samples,
+    # Create temporary directory
+    temp_dir = tempfile.mkdtemp()
+    
+    # Build dataset using SampleBuilder
+    builder = SampleBuilder(
         input_schema={"conditions": "sequence", "labs": "tensor"},
         output_schema={"label": "binary"},
+    )
+    builder.fit(samples)
+    builder.save(f"{temp_dir}/schema.pkl")
+    
+    # Optimize samples into dataset format
+    def sample_generator():
+        for sample in samples:
+            yield {"sample": pickle.dumps(sample)}
+    
+    litdata.optimize(
+        fn=builder.transform,
+        inputs=list(sample_generator()),
+        output_dir=temp_dir,
+        num_workers=1,
+        chunk_bytes="64MB",
+    )
+    
+    # Create dataset
+    dataset = SampleDataset(
+        path=temp_dir,
         dataset_name="test_dataset",
     )
-
-    return dataset
+    
+    yield dataset
+    
+    # Cleanup
+    shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 @pytest.fixture
@@ -247,7 +278,6 @@ class TestDifferentRules:
 class TestEmbeddingModels:
     """Test LRP with embedding-based models (discrete medical codes)."""
     
-    @pytest.mark.skip(reason="Custom model tests - PyHealth models are tested in other tests")
     def test_embedding_model_forward_from_embedding(self):
         """Test LRP with a model that has forward_from_embedding method."""
         
@@ -333,21 +363,30 @@ class TestEmbeddingModels:
         assert not torch.isnan(attributions["diagnosis"]).any()
         assert not torch.isinf(attributions["diagnosis"]).any()
 
-    @pytest.mark.skip(reason="Custom model tests - PyHealth models are tested in other tests")
     def test_embedding_model_different_targets(self):
         """Test that attributions differ for different target classes."""
+        
+        class EmbeddingLayer:
+            def __init__(self):
+                self.embeddings = torch.nn.ModuleDict({
+                    "diagnosis": torch.nn.Embedding(100, 32)
+                })
+            
+            def __call__(self, inputs):
+                return {k: self.embeddings[k](v) for k, v in inputs.items()}
         
         class SimpleEmbeddingModel(torch.nn.Module):
             def __init__(self):
                 super().__init__()
                 self.feature_keys = ["diagnosis"]
-                self.embedding = torch.nn.Embedding(100, 32)
+                self.embedding_model = EmbeddingLayer()
                 self.fc1 = torch.nn.Linear(32, 64)
                 self.relu = torch.nn.ReLU()
                 self.fc2 = torch.nn.Linear(64, 2)
                 
             def forward(self, diagnosis, **kwargs):
-                x = self.embedding(diagnosis).mean(dim=1)
+                embedded = self.embedding_model({"diagnosis": diagnosis})
+                x = embedded["diagnosis"].mean(dim=1)
                 x = self.fc1(x)
                 x = self.relu(x)
                 x = self.fc2(x)
@@ -377,19 +416,28 @@ class TestEmbeddingModels:
         diff = (attr_class0["diagnosis"] - attr_class1["diagnosis"]).abs().mean()
         assert diff > 1e-6, "Attributions should differ between target classes"
 
-    @pytest.mark.skip(reason="Custom model tests - PyHealth models are tested in other tests")
     def test_embedding_model_variable_batch_sizes(self):
         """Test LRP works with different batch sizes."""
+        
+        class EmbeddingLayer:
+            def __init__(self):
+                self.embeddings = torch.nn.ModuleDict({
+                    "diagnosis": torch.nn.Embedding(100, 32)
+                })
+            
+            def __call__(self, inputs):
+                return {k: self.embeddings[k](v) for k, v in inputs.items()}
         
         class SimpleEmbeddingModel(torch.nn.Module):
             def __init__(self):
                 super().__init__()
                 self.feature_keys = ["diagnosis"]
-                self.embedding = torch.nn.Embedding(100, 32)
+                self.embedding_model = EmbeddingLayer()
                 self.fc = torch.nn.Linear(32, 2)
                 
             def forward(self, diagnosis, **kwargs):
-                x = self.embedding(diagnosis).mean(dim=1)
+                embedded = self.embedding_model({"diagnosis": diagnosis})
+                x = embedded["diagnosis"].mean(dim=1)
                 x = self.fc(x)
                 return {"logit": x}
             
@@ -434,12 +482,29 @@ class TestEndToEndIntegration:
                 "label": i % 2,
             })
         
-        dataset = SampleDataset(
-            samples=samples,
-            input_schema={"conditions": "sequence", "procedures": "tensor"},
-            output_schema={"label": "binary"},
-            dataset_name="test_branching",
+        # Create dataset using SampleBuilder
+        temp_dir = tempfile.mkdtemp()
+        input_schema = {"conditions": "sequence", "procedures": "tensor"}
+        output_schema = {"label": "binary"}
+        builder = SampleBuilder(input_schema, output_schema)
+        builder.fit(samples)
+        builder.save(f"{temp_dir}/schema.pkl")
+        
+        # Optimize samples into dataset format
+        def sample_generator():
+            for sample in samples:
+                yield {"sample": pickle.dumps(sample)}
+        
+        # Create optimized dataset
+        litdata.optimize(
+            fn=builder.transform,
+            inputs=list(sample_generator()),
+            output_dir=temp_dir,
+            num_workers=1,
+            chunk_bytes="64MB",
         )
+        
+        dataset = SampleDataset(path=temp_dir)
         
         # Create model with branching architecture
         model = MLP(
@@ -546,6 +611,9 @@ class TestEndToEndIntegration:
             assert not torch.isinf(attributions_eps[key]).any()
             assert not torch.isnan(attributions_ab[key]).any()
             assert not torch.isinf(attributions_ab[key]).any()
+        
+        # Cleanup
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
     def test_multiple_feature_types(self):
         """Test LRP handles different feature types (sequences and tensors)."""
@@ -560,12 +628,29 @@ class TestEndToEndIntegration:
             for i in range(20)
         ]
         
-        dataset = SampleDataset(
-            samples=samples,
-            input_schema={"conditions": "sequence", "measurements": "tensor"},
-            output_schema={"label": "binary"},
-            dataset_name="test_mixed_features",
+        # Create dataset using SampleBuilder
+        temp_dir = tempfile.mkdtemp()
+        input_schema = {"conditions": "sequence", "measurements": "tensor"}
+        output_schema = {"label": "binary"}
+        builder = SampleBuilder(input_schema, output_schema)
+        builder.fit(samples)
+        builder.save(f"{temp_dir}/schema.pkl")
+        
+        # Optimize samples into dataset format
+        def sample_generator():
+            for sample in samples:
+                yield {"sample": pickle.dumps(sample)}
+        
+        # Create optimized dataset
+        litdata.optimize(
+            fn=builder.transform,
+            inputs=list(sample_generator()),
+            output_dir=temp_dir,
+            num_workers=1,
+            chunk_bytes="64MB",
         )
+        
+        dataset = SampleDataset(path=temp_dir)
         
         model = MLP(
             dataset=dataset,
@@ -596,6 +681,9 @@ class TestEndToEndIntegration:
         # Check shapes
         assert attributions["conditions"].shape[0] == 1
         assert attributions["measurements"].shape[0] == 1
+        
+        # Cleanup
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
     def test_real_pyhealth_mlp_model(self):
         """Test LRP with actual PyHealth MLP model end-to-end."""
@@ -609,10 +697,32 @@ class TestEndToEndIntegration:
                 "label": i % 2,
             })
         
-        dataset = SampleDataset(
-            samples=samples,
+        # Create temporary directory
+        temp_dir = tempfile.mkdtemp()
+        
+        # Build dataset using SampleBuilder
+        builder = SampleBuilder(
             input_schema={"conditions": "sequence"},
             output_schema={"label": "binary"},
+        )
+        builder.fit(samples)
+        builder.save(f"{temp_dir}/schema.pkl")
+        
+        # Optimize samples
+        def sample_generator():
+            for sample in samples:
+                yield {"sample": pickle.dumps(sample)}
+        
+        litdata.optimize(
+            fn=builder.transform,
+            inputs=list(sample_generator()),
+            output_dir=temp_dir,
+            num_workers=1,
+            chunk_bytes="64MB",
+        )
+        
+        dataset = SampleDataset(
+            path=temp_dir,
             dataset_name="test_mlp",
         )
         
@@ -666,10 +776,32 @@ class TestEndToEndIntegration:
                 "label": i % 2,
             })
         
-        dataset = SampleDataset(
-            samples=samples,
+        # Create temporary directory
+        temp_dir = tempfile.mkdtemp()
+        
+        # Build dataset using SampleBuilder
+        builder = SampleBuilder(
             input_schema={"conditions": "sequence"},
             output_schema={"label": "binary"},
+        )
+        builder.fit(samples)
+        builder.save(f"{temp_dir}/schema.pkl")
+        
+        # Optimize samples
+        def sample_generator():
+            for sample in samples:
+                yield {"sample": pickle.dumps(sample)}
+        
+        litdata.optimize(
+            fn=builder.transform,
+            inputs=list(sample_generator()),
+            output_dir=temp_dir,
+            num_workers=1,
+            chunk_bytes="64MB",
+        )
+        
+        dataset = SampleDataset(
+            path=temp_dir,
             dataset_name="test_batch",
         )
         
@@ -712,6 +844,12 @@ class TestEndToEndIntegration:
         # Check no NaN or Inf values
         assert not torch.isnan(attributions["conditions"]).any()
         assert not torch.isinf(attributions["conditions"]).any()
+        
+        # Cleanup
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        
+        # Cleanup
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

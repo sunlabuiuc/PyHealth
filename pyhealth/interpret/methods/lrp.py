@@ -535,34 +535,21 @@ class LayerwiseRelevancePropagation:
         relevance: torch.Tensor,
         target_shape: torch.Size,
     ) -> torch.Tensor:
-        """Match relevance tensor shape to target shape.
-        
-        Args:
-            relevance: Relevance tensor to reshape
-            target_shape: Desired output shape
-            
-        Returns:
-            Reshaped relevance tensor matching target_shape
-        """
+        """Match relevance tensor shape to target shape."""
         if relevance.shape == target_shape:
             return relevance
         
         batch_size = relevance.shape[0]
         
-        # 2D -> 4D: Flatten to spatial
+        # 2D -> 4D: expand to spatial
         if relevance.dim() == 2 and len(target_shape) == 4:
-            C, H, W = target_shape[1], target_shape[2], target_shape[3]
-            
-            # Direct reshape if dimensions match
-            if relevance.shape[1] == C * H * W:
-                return relevance.view(batch_size, C, H, W)
-            
-            # Distribute relevance uniformly
-            total_rel = relevance.sum(dim=1, keepdim=True)
-            per_element = total_rel / (C * H * W)
-            return per_element.view(batch_size, 1, 1, 1).expand(batch_size, C, H, W)
+            if relevance.shape[1] == target_shape[1] * target_shape[2] * target_shape[3]:
+                return relevance.view(batch_size, *target_shape[1:])
+            # Uniform distribution fallback
+            return (relevance.sum(dim=1, keepdim=True) / (target_shape[1] * target_shape[2] * target_shape[3])
+                   ).view(batch_size, 1, 1, 1).expand(batch_size, *target_shape[1:])
         
-        # 4D -> 4D: Interpolate
+        # 4D -> 4D: adjust channels and/or spatial dims
         if relevance.dim() == 4 and len(target_shape) == 4:
             if relevance.shape[1] != target_shape[1]:
                 relevance = relevance.mean(dim=1, keepdim=True).expand(-1, target_shape[1], -1, -1)
@@ -570,7 +557,7 @@ class LayerwiseRelevancePropagation:
                 relevance = F.interpolate(relevance, size=target_shape[2:], mode='bilinear', align_corners=False)
             return relevance
         
-        # 3D -> 4D: Add channel dimension
+        # 3D -> 4D: add channel dimension
         if relevance.dim() == 3 and len(target_shape) == 4:
             relevance = relevance.unsqueeze(1).expand(-1, target_shape[1], -1, -1)
             if relevance.shape[2:] != target_shape[2:]:
@@ -724,33 +711,19 @@ class LayerwiseRelevancePropagation:
         """LRP epsilon-rule for linear layers.
 
         Formula: R_i = Σ_j (z_ij / (z_j + ε·sign(z_j))) · R_j
-
-        Args:
-            module: The linear layer.
-            activation_info: Stored activations.
-            relevance_output: Relevance from next layer.
-
-        Returns:
-            Relevance for previous layer.
         """
+        from pyhealth.interpret.methods.lrp_base import stabilize_denominator
+        
         x = activation_info["input"]
         if isinstance(x, tuple):
             x = x[0]
         if x.dim() > 2:
             x = x.view(x.size(0), -1)
 
-        W = module.weight
-        b = module.bias
-
-        # Forward pass with stabilization
-        z = F.linear(x, W, b)
-        z = z + self.epsilon * torch.sign(z)
-        z = torch.where(torch.abs(z) < 1e-9, torch.ones_like(z) * 1e-9, z)
-
-        # Compute relevance using einsum for clarity
-        # z_ij = x_i * w_ji, R_i = sum_j (z_ij / z_j) * R_j
-        s = relevance_output / z  # [batch, out_features]
-        c = torch.einsum('bo,oi->bi', s, W)  # [batch, in_features]
+        z = F.linear(x, module.weight, module.bias)
+        z = stabilize_denominator(z, self.epsilon, rule="epsilon")
+        s = relevance_output / z
+        c = torch.einsum('bo,oi->bi', s, module.weight)
         return x * c
 
     def _lrp_linear_alphabeta(
@@ -762,14 +735,6 @@ class LayerwiseRelevancePropagation:
         """LRP alphabeta-rule for linear layers.
 
         Formula: R_i = Σ_j [(α·z_ij^+ / z_j^+) - (β·z_ij^- / z_j^-)] · R_j
-
-        Args:
-            module: The linear layer.
-            activation_info: Stored activations.
-            relevance_output: Relevance from next layer.
-
-        Returns:
-            Relevance for previous layer.
         """
         x = activation_info["input"]
         if isinstance(x, tuple):
@@ -777,44 +742,22 @@ class LayerwiseRelevancePropagation:
         if x.dim() > 2:
             x = x.view(x.size(0), -1)
 
-        W = module.weight
-        b = module.bias
+        W_pos, W_neg = torch.clamp(module.weight, min=0), torch.clamp(module.weight, max=0)
+        b_pos = torch.clamp(module.bias, min=0) if module.bias is not None else None
+        b_neg = torch.clamp(module.bias, max=0) if module.bias is not None else None
 
-        # Separate positive and negative components
-        W_pos = torch.clamp(W, min=0)
-        W_neg = torch.clamp(W, max=0)
-        b_pos = torch.clamp(b, min=0) if b is not None else None
-        b_neg = torch.clamp(b, max=0) if b is not None else None
-
-        # Forward passes
         z_pos = F.linear(x, W_pos, b_pos) + 1e-9
         z_neg = F.linear(x, W_neg, b_neg) - 1e-9
 
-        # Backward passes using einsum
-        s_pos = relevance_output / z_pos
-        s_neg = relevance_output / z_neg
-        c_pos = torch.einsum('bo,oi->bi', s_pos, W_pos)
-        c_neg = torch.einsum('bo,oi->bi', s_neg, W_neg)
+        c_pos = torch.einsum('bo,oi->bi', relevance_output / z_pos, W_pos)
+        c_neg = torch.einsum('bo,oi->bi', relevance_output / z_neg, W_neg)
 
-        return self.alpha * (x * c_pos) - self.beta * (x * c_neg)
+        return x * (self.alpha * c_pos - self.beta * c_neg)
 
     def _lrp_relu(
         self, activation_info: dict, relevance_output: torch.Tensor
     ) -> torch.Tensor:
-        """LRP for ReLU activation.
-
-        ReLU is element-wise, so relevance passes through unchanged.
-        Only positive activations contributed to the output.
-
-        Args:
-            activation_info: Stored activations.
-            relevance_output: Relevance from next layer.
-
-        Returns:
-            Relevance for previous layer (unchanged).
-        """
-        # ReLU doesn't change relevance distribution
-        # Relevance flows through unchanged
+        """LRP for ReLU - relevance passes through unchanged."""
         return relevance_output
 
     def _lrp_conv2d(
@@ -826,14 +769,6 @@ class LayerwiseRelevancePropagation:
         """LRP for Conv2d layers.
 
         Applies the chosen LRP rule (epsilon or alphabeta) to convolutional layers.
-
-        Args:
-            module: The Conv2d layer.
-            activation_info: Stored activations.
-            relevance_output: Relevance from next layer.
-
-        Returns:
-            Relevance for previous layer.
         """
         if self.rule == "epsilon":
             return self._lrp_conv2d_epsilon(module, activation_info, relevance_output)
@@ -842,66 +777,53 @@ class LayerwiseRelevancePropagation:
         else:
             raise ValueError(f"Unknown rule: {self.rule}")
 
+    def _compute_conv_output_padding(self, module: nn.Conv2d, z_shape: torch.Size, x_shape: torch.Size) -> tuple:
+        """Compute output_padding for conv_transpose2d to match input shape."""
+        output_padding = []
+        for i in range(2):  # H and W dimensions
+            stride = module.stride[i] if isinstance(module.stride, tuple) else module.stride
+            padding = module.padding[i] if isinstance(module.padding, tuple) else module.padding
+            dilation = module.dilation[i] if isinstance(module.dilation, tuple) else module.dilation
+            kernel_size = module.weight.shape[2 + i]
+            expected = (z_shape[2 + i] - 1) * stride - 2 * padding + dilation * (kernel_size - 1) + 1
+            output_padding.append(max(0, x_shape[2 + i] - expected))
+        return tuple(output_padding)
+
+    def _adjust_spatial_shape(self, tensor: torch.Tensor, target_shape: torch.Size) -> torch.Tensor:
+        """Adjust spatial dimensions (H, W) to match target shape."""
+        if tensor.shape[2:] == target_shape[2:]:
+            return tensor
+        # Crop or pad as needed
+        if tensor.shape[2] > target_shape[2] or tensor.shape[3] > target_shape[3]:
+            return tensor[:, :, :target_shape[2], :target_shape[3]]
+        if tensor.shape[2] < target_shape[2] or tensor.shape[3] < target_shape[3]:
+            pad_h = target_shape[2] - tensor.shape[2]
+            pad_w = target_shape[3] - tensor.shape[3]
+            return F.pad(tensor, (0, pad_w, 0, pad_h))
+        return tensor
+
     def _lrp_conv2d_epsilon(
         self,
         module: nn.Conv2d,
         activation_info: dict,
         relevance_output: torch.Tensor,
     ) -> torch.Tensor:
-        """LRP epsilon-rule for Conv2d.
-
-        Args:
-            module: The Conv2d layer.
-            activation_info: Stored activations.
-            relevance_output: Relevance from next layer.
-
-        Returns:
-            Relevance for input to this layer.
-        """
+        """LRP epsilon-rule for Conv2d."""
+        from pyhealth.interpret.methods.lrp_base import stabilize_denominator
+        
         x = activation_info["input"]
         if isinstance(x, tuple):
             x = x[0]
         
-        # Get layer parameters
-        W = module.weight
-        b = module.bias
-        
-        # Forward pass with stabilization
-        z = F.conv2d(x, W, b, stride=module.stride, padding=module.padding,
+        z = F.conv2d(x, module.weight, module.bias, stride=module.stride, padding=module.padding,
                      dilation=module.dilation, groups=module.groups)
-        z = z + self.epsilon * torch.sign(z)
-        
-        # Backward pass
+        z = stabilize_denominator(z, self.epsilon, rule="epsilon")
         s = relevance_output / z
         
-        # Calculate output_padding to match input shape
-        output_padding = []
-        for i in range(2):  # H and W dimensions
-            stride = module.stride[i] if isinstance(module.stride, tuple) else module.stride
-            padding = module.padding[i] if isinstance(module.padding, tuple) else module.padding
-            dilation = module.dilation[i] if isinstance(module.dilation, tuple) else module.dilation
-            kernel_size = W.shape[2 + i]
-            
-            # Expected output size from conv_transpose2d
-            expected = (z.shape[2 + i] - 1) * stride - 2 * padding + dilation * (kernel_size - 1) + 1
-            actual = x.shape[2 + i]
-            output_padding.append(max(0, actual - expected))
-        
-        c = F.conv_transpose2d(s, W, stride=module.stride, padding=module.padding,
-                               output_padding=tuple(output_padding),
-                               dilation=module.dilation, groups=module.groups)
-        
-        # Ensure exact shape match by cropping or padding
-        if c.shape[2:] != x.shape[2:]:
-            # Crop if c is larger
-            if c.shape[2] > x.shape[2] or c.shape[3] > x.shape[3]:
-                c = c[:, :, :x.shape[2], :x.shape[3]]
-            # Pad if c is smaller
-            elif c.shape[2] < x.shape[2] or c.shape[3] < x.shape[3]:
-                pad_h = x.shape[2] - c.shape[2]
-                pad_w = x.shape[3] - c.shape[3]
-                c = F.pad(c, (0, pad_w, 0, pad_h))
-        
+        output_padding = self._compute_conv_output_padding(module, z.shape, x.shape)
+        c = F.conv_transpose2d(s, module.weight, stride=module.stride, padding=module.padding,
+                               output_padding=output_padding, dilation=module.dilation, groups=module.groups)
+        c = self._adjust_spatial_shape(c, x.shape)
         return x * c
 
     def _lrp_conv2d_alphabeta(
@@ -910,108 +832,33 @@ class LayerwiseRelevancePropagation:
         activation_info: dict,
         relevance_output: torch.Tensor,
     ) -> torch.Tensor:
-        """LRP alphabeta-rule for Conv2d.
-
-        Args:
-            module: The Conv2d layer.
-            activation_info: Stored activations.
-            relevance_output: Relevance from next layer.
-
-        Returns:
-            Relevance for input to this layer.
-        """
+        """LRP alphabeta-rule for Conv2d."""
         x = activation_info["input"]
         if isinstance(x, tuple):
             x = x[0]
         
-        # Get layer parameters
-        W = module.weight
-        b = module.bias  # Keep as None if no bias
+        W_pos, W_neg = torch.clamp(module.weight, min=0), torch.clamp(module.weight, max=0)
+        b_pos = torch.clamp(module.bias, min=0) if module.bias is not None else None
+        b_neg = torch.clamp(module.bias, max=0) if module.bias is not None else None
         
-        # Separate positive and negative weights
-        W_pos = torch.clamp(W, min=0)
-        W_neg = torch.clamp(W, max=0)
+        conv_kwargs = dict(stride=module.stride, padding=module.padding, 
+                          dilation=module.dilation, groups=module.groups)
+        z_pos = F.conv2d(x, W_pos, b_pos, **conv_kwargs)
+        z_neg = F.conv2d(x, W_neg, b_neg, **conv_kwargs)
+        z_total = z_pos + z_neg + self.epsilon * torch.sign(z_pos + z_neg)
         
-        # Separate positive and negative bias
-        if b is not None:
-            b_pos = torch.clamp(b, min=0)
-            b_neg = torch.clamp(b, max=0)
-        else:
-            b_pos = None
-            b_neg = None
-        
-        # Forward passes with separated weights
-        z_pos = F.conv2d(
-            x, W_pos, b_pos,
-            stride=module.stride,
-            padding=module.padding,
-            dilation=module.dilation,
-            groups=module.groups
-        )
-        z_neg = F.conv2d(
-            x, W_neg, b_neg,
-            stride=module.stride,
-            padding=module.padding,
-            dilation=module.dilation,
-            groups=module.groups
-        )
-        
-        # Combine for total forward pass and stabilize
-        z_total = z_pos + z_neg
-        z_total = z_total + self.epsilon * torch.sign(z_total)
-        
-        # Backward passes - distribute relevance proportionally
         s = relevance_output / z_total
-        s_pos = s
-        s_neg = s
+        output_padding = self._compute_conv_output_padding(module, z_pos.shape, x.shape)
         
-        # Calculate output_padding to match input shape
-        output_padding = []
-        for i in range(2):  # H and W dimensions
-            stride = module.stride[i] if isinstance(module.stride, tuple) else module.stride
-            padding = module.padding[i] if isinstance(module.padding, tuple) else module.padding
-            dilation = module.dilation[i] if isinstance(module.dilation, tuple) else module.dilation
-            kernel_size = W_pos.shape[2 + i]
-            
-            # Expected output size from conv_transpose2d
-            expected = (z_pos.shape[2 + i] - 1) * stride - 2 * padding + dilation * (kernel_size - 1) + 1
-            actual = x.shape[2 + i]
-            output_padding.append(max(0, actual - expected))
+        c_pos = F.conv_transpose2d(s, W_pos, stride=module.stride, padding=module.padding,
+                                   output_padding=output_padding, **conv_kwargs)
+        c_neg = F.conv_transpose2d(s, W_neg, stride=module.stride, padding=module.padding,
+                                   output_padding=output_padding, **conv_kwargs)
         
-        c_pos = F.conv_transpose2d(
-            s_pos, W_pos,
-            stride=module.stride,
-            padding=module.padding,
-            output_padding=tuple(output_padding),
-            dilation=module.dilation,
-            groups=module.groups
-        )
-        c_neg = F.conv_transpose2d(
-            s_neg, W_neg,
-            stride=module.stride,
-            padding=module.padding,
-            output_padding=tuple(output_padding),
-            dilation=module.dilation,
-            groups=module.groups
-        )
+        c_pos = self._adjust_spatial_shape(c_pos, x.shape)
+        c_neg = self._adjust_spatial_shape(c_neg, x.shape)
         
-        # Ensure exact shape match by cropping or padding
-        if c_pos.shape[2:] != x.shape[2:]:
-            # Crop if c is larger
-            if c_pos.shape[2] > x.shape[2] or c_pos.shape[3] > x.shape[3]:
-                c_pos = c_pos[:, :, :x.shape[2], :x.shape[3]]
-                c_neg = c_neg[:, :, :x.shape[2], :x.shape[3]]
-            # Pad if c is smaller
-            elif c_pos.shape[2] < x.shape[2] or c_pos.shape[3] < x.shape[3]:
-                pad_h = x.shape[2] - c_pos.shape[2]
-                pad_w = x.shape[3] - c_pos.shape[3]
-                c_pos = F.pad(c_pos, (0, pad_w, 0, pad_h))
-                c_neg = F.pad(c_neg, (0, pad_w, 0, pad_h))
-        
-        # Apply alpha-beta weighting: positive contributions get alpha, negative get beta
-        # Multiply by input x to get element-wise relevance (same pattern as epsilon rule)
-        relevance_input = x * (self.alpha * c_pos + self.beta * c_neg)
-        return relevance_input
+        return x * (self.alpha * c_pos + self.beta * c_neg)
 
     def _lrp_maxpool2d(
         self,
@@ -1063,54 +910,25 @@ class LayerwiseRelevancePropagation:
         activation_info: dict,
         relevance_output: torch.Tensor,
     ) -> torch.Tensor:
-        """LRP for AvgPool2d and AdaptiveAvgPool2d.
-
-        For average pooling, relevance is distributed equally to all input positions.
-
-        Args:
-            module: The pooling layer.
-            activation_info: Stored activations.
-            relevance_output: Relevance from next layer.
-
-        Returns:
-            Relevance for input to this layer.
-        """
+        """LRP for AvgPool2d and AdaptiveAvgPool2d - distribute relevance uniformly."""
         x = activation_info["input"]
         if isinstance(x, tuple):
             x = x[0]
         
         if isinstance(module, nn.AdaptiveAvgPool2d):
-            # For adaptive pooling, use interpolation to upscale
-            relevance_input = F.interpolate(
-                relevance_output,
-                size=x.shape[2:],
-                mode='bilinear',
-                align_corners=False
-            )
-        else:
-            # For regular avg pooling, distribute relevance uniformly
-            # Create a kernel of ones to represent equal distribution
-            kernel_size = module.kernel_size if isinstance(module.kernel_size, tuple) else (module.kernel_size, module.kernel_size)
-            stride = module.stride if isinstance(module.stride, tuple) else (module.stride, module.stride)
-            padding = module.padding if isinstance(module.padding, tuple) else (module.padding, module.padding)
-            
-            # Upsample using transposed convolution with uniform weights
-            channels = relevance_output.size(1)
-            weight = torch.ones(channels, 1, kernel_size[0], kernel_size[1], device=x.device) / (kernel_size[0] * kernel_size[1])
-            
-            relevance_input = F.conv_transpose2d(
-                relevance_output,
-                weight,
-                stride=stride,
-                padding=padding,
-                groups=channels
-            )
-            
-            # Crop to match input size if needed
-            if relevance_input.shape != x.shape:
-                relevance_input = relevance_input[:, :, :x.shape[2], :x.shape[3]]
+            return F.interpolate(relevance_output, size=x.shape[2:], mode='bilinear', align_corners=False)
         
-        return relevance_input
+        # Regular AvgPool2d: upsample using transposed convolution with uniform weights
+        kernel_size = module.kernel_size if isinstance(module.kernel_size, tuple) else (module.kernel_size, module.kernel_size)
+        stride = module.stride if isinstance(module.stride, tuple) else (module.stride, module.stride)
+        padding = module.padding if isinstance(module.padding, tuple) else (module.padding, module.padding)
+        
+        channels = relevance_output.size(1)
+        weight = torch.ones(channels, 1, *kernel_size, device=x.device) / (kernel_size[0] * kernel_size[1])
+        
+        relevance_input = F.conv_transpose2d(relevance_output, weight, stride=stride,
+                                              padding=padding, groups=channels)
+        return self._adjust_spatial_shape(relevance_input, x.shape)
 
     def _lrp_batchnorm2d(
         self,
@@ -1118,18 +936,7 @@ class LayerwiseRelevancePropagation:
         activation_info: dict,
         relevance_output: torch.Tensor,
     ) -> torch.Tensor:
-        """LRP for BatchNorm2d - pass through with scaling.
-
-        Args:
-            module: The BatchNorm2d layer.
-            activation_info: Stored activations.
-            relevance_output: Relevance from next layer.
-
-        Returns:
-            Relevance for input to this layer.
-        """
-        # Simplified: pass relevance through with gamma scaling
-        # BatchNorm is treated as a linear scaling in eval mode
+        """LRP for BatchNorm2d - pass through with gamma scaling."""
         gamma = module.weight.view(1, -1, 1, 1) if module.weight is not None else 1.0
         return relevance_output * gamma
 
@@ -1139,39 +946,15 @@ class LayerwiseRelevancePropagation:
         activation_info: dict,
         relevance_output: torch.Tensor,
     ) -> torch.Tensor:
-        """LRP for RNN/LSTM/GRU layers.
-
-        This is a simplified approach that treats the RNN as a black box.
-        For more sophisticated temporal LRP, see LRP-LSTM papers.
-
-        Args:
-            module: The RNN layer.
-            activation_info: Stored activations.
-            relevance_output: Relevance from next layer.
-
-        Returns:
-            Relevance for previous layer.
-        """
-        # Simplified: distribute relevance uniformly over time steps
-        # More sophisticated approaches would consider hidden states
-
+        """LRP for RNN/LSTM/GRU - simplified uniform distribution."""
         input_tensor = activation_info["input"]
         if isinstance(input_tensor, tuple):
             input_tensor = input_tensor[0]
 
-        # For now, assume relevance_output is [batch, hidden_size]
-        # and input is [batch, seq_len, input_size]
-
         if input_tensor.dim() == 3:
-            batch_size, seq_len, input_size = input_tensor.shape
-            # Distribute relevance equally across time steps
-            # This is a simplification - real LRP for RNN is more complex
-            relevance_per_timestep = relevance_output.unsqueeze(1).expand(
-                batch_size, seq_len, -1
-            )
-            return relevance_per_timestep
-        else:
-            return relevance_output
+            batch_size, seq_len = input_tensor.shape[:2]
+            return relevance_output.unsqueeze(1).expand(batch_size, seq_len, -1)
+        return relevance_output
 
     def _split_relevance_to_features(
         self,
