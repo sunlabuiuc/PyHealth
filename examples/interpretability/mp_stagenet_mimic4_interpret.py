@@ -33,6 +33,12 @@ def main():
         default="ig,deeplift,gim,shap,lime",
         help="Comma-separated list of interpretability methods to evaluate (default: ig,deeplift,gim,shap,lime)",
     )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="cuda:0",
+        help="Device to use for evaluation (default: cuda:0)",
+    )
     
     """Main execution function."""
     print("=" * 70)
@@ -48,7 +54,7 @@ def main():
     print(f"Using output dir: {OUTPUT_DIR}")
 
     # Set device
-    device = "cuda:1" if torch.cuda.is_available() else "cpu"
+    device = parser.parse_args().device
     print(f"\nUsing device: {device}")
 
     # Load MIMIC-IV dataset
