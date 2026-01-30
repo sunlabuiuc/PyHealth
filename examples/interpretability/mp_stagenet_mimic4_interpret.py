@@ -10,6 +10,7 @@ This example demonstrates:
 
 import torch
 
+import argparse
 from pyhealth.datasets import MIMIC4Dataset, get_dataloader, split_by_patient
 from pyhealth.interpret.methods import BaseInterpreter, IntegratedGradients, DeepLift, GIM, ShapExplainer, LimeExplainer
 from pyhealth.metrics.interpretability import Evaluator, evaluate_attribution
@@ -23,6 +24,16 @@ from datetime import date
 
 
 def main():
+    parser = argparse.ArgumentParser(
+        description="Comma separated list of interpretability methods to evaluate"
+    )
+    parser.add_argument(
+        "--methods",
+        type=str,
+        default="ig,deeplift,gim,shap,lime",
+        help="Comma-separated list of interpretability methods to evaluate (default: ig,deeplift,gim,shap,lime)",
+    )
+    
     """Main execution function."""
     print("=" * 70)
     print("Interpretability Metrics Example: StageNet + MIMIC-IV")
@@ -100,6 +111,8 @@ def main():
         "shap": ShapExplainer(model, use_embeddings=True),
         "lime": LimeExplainer(model, use_embeddings=True),
     }
+    methods = {k: v for k, v in methods.items() if k in parser.parse_args().methods.split(",")}
+    print(f"\nEvaluating methods: {list(methods.keys())}")
     
     res = {}
     for name, method in methods.items():
