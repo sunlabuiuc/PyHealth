@@ -42,9 +42,9 @@ class StageNetLayer(nn.Module):
         chunk_size: int = 128,
         conv_size: int = 10,
         levels: int = 3,
-        dropconnect: int = 0.3,
-        dropout: int = 0.3,
-        dropres: int = 0.3,
+        dropconnect: float = 0.3,
+        dropout: float = 0.3,
+        dropres: float = 0.3,
     ):
         super(StageNetLayer, self).__init__()
 
@@ -148,10 +148,10 @@ class StageNetLayer(nn.Module):
 
     def forward(
         self,
-        x: torch.tensor,
-        time: Optional[torch.tensor] = None,
-        mask: Optional[torch.tensor] = None,
-    ) -> Tuple[torch.tensor]:
+        x: torch.Tensor,
+        time: Optional[torch.Tensor] = None,
+        mask: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, ...]:
         """Forward propagation.
 
         Args:

@@ -46,9 +46,9 @@ class StageNetAttentionLayer(nn.Module):
         chunk_size: int = 128,
         conv_size: int = 10,
         levels: int = 3,
-        dropconnect: int = 0.3,
-        dropout: int = 0.3,
-        dropres: int = 0.3,
+        dropconnect: float = 0.3,
+        dropout: float = 0.3,
+        dropres: float = 0.3,
         num_heads: int = 8,
         attn_dropout: float = 0.1,
     ):
@@ -187,11 +187,11 @@ class StageNetAttentionLayer(nn.Module):
 
     def forward(
         self,
-        x: torch.tensor,
-        time: Optional[torch.tensor] = None,
-        mask: Optional[torch.tensor] = None,
+        x: torch.Tensor,
+        time: Optional[torch.Tensor] = None,
+        mask: Optional[torch.Tensor] = None,
         register_hook: bool = False,
-    ) -> Tuple[torch.tensor]:
+    ) -> Tuple[torch.Tensor, ...]:
         """Forward propagation.
 
         Args:
@@ -652,71 +652,3 @@ class StageAttentionNet(BaseModel):
         if kwargs.get("embed", False):
             results["embed"] = patient_emb
         return results
-
-
-if __name__ == "__main__":
-    from pyhealth.datasets import SampleDataset
-
-    samples = [
-        {
-            "patient_id": "patient-0",
-            "visit_id": "visit-0",
-            "codes": (
-                [0.0, 2.0, 1.3],
-                ["505800458", "50580045810", "50580045811"],
-            ),
-            "procedures": (
-                [0.0, 1.5],
-                [["A05B", "A05C", "A06A"], ["A11D", "A11E"]],
-            ),
-            "label": 1,
-        },
-        {
-            "patient_id": "patient-0",
-            "visit_id": "visit-1",
-            "codes": (
-                [0.0, 2.0, 1.3, 1.0, 2.0],
-                [
-                    "55154191800",
-                    "551541928",
-                    "55154192800",
-                    "705182798",
-                    "70518279800",
-                ],
-            ),
-            "procedures": (
-                [0.0],
-                [["A04A", "B035", "C129"]],
-            ),
-            "label": 0,
-        },
-    ]
-
-    # dataset
-    dataset = SampleDataset(
-        samples=samples,
-        input_schema={
-            "codes": "stagenet",
-            "procedures": "stagenet",
-        },
-        output_schema={"label": "binary"},
-        dataset_name="test",
-    )
-
-    # data loader
-    from pyhealth.datasets import get_dataloader
-
-    train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
-
-    # model
-    model = StageAttentionNet(dataset=dataset)
-
-    # data batch
-    data_batch = next(iter(train_loader))
-
-    # try the model
-    ret = model(**data_batch)
-    print(ret)
-
-    # try loss backward
-    ret["loss"].backward()
