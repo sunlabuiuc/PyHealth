@@ -113,7 +113,7 @@ if __name__ == "__main__":
     trainer.train(
         train_dataloader=train_loader,
         val_dataloader=val_loader,
-        epochs=20,
+        epochs=30,
         monitor="roc_auc",
         optimizer_params={"lr": 1e-5},
     )
