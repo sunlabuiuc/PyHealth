@@ -29,18 +29,7 @@ class Attention(nn.Module):
 
     def __init__(self):
         super().__init__()
-        self._activation_hooks = None
-
-    def set_activation_hooks(self, hooks) -> None:
-        """Inject activation hooks for interpretability methods."""
-
-        self._activation_hooks = hooks
-
-    def _apply_activation(self, name: str, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
-        if self._activation_hooks is not None and hasattr(self._activation_hooks, "apply"):
-            return self._activation_hooks.apply(name, tensor, **kwargs)
-        fn = getattr(torch, name)
-        return fn(tensor, **kwargs)
+        self.softmax = nn.Softmax(dim=-1)
 
     def forward(
         self,
@@ -70,7 +59,7 @@ class Attention(nn.Module):
         scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(query.size(-1))
         if mask is not None:
             scores = scores.masked_fill(mask == 0, -1e9)
-        p_attn = self._apply_activation("softmax", scores, dim=-1)
+        p_attn = self.softmax(scores)
         if mask is not None:
             p_attn = p_attn.masked_fill(mask == 0, 0)
         if dropout is not None:
@@ -116,10 +105,8 @@ class MultiHeadedAttention(nn.Module):
         )
 
     def set_activation_hooks(self, hooks) -> None:
-        """Propagate activation hooks to the underlying Attention module."""
-
-        if hasattr(self.attention, "set_activation_hooks"):
-            self.attention.set_activation_hooks(hooks)
+        """Deprecated: retained for backward compatibility; no-op."""
+        return None
 
     # helper functions for interpretability
     def get_attn_map(self) -> Optional[torch.Tensor]:
@@ -255,10 +242,8 @@ class TransformerBlock(nn.Module):
         self.dropout = nn.Dropout(p=dropout)
 
     def set_activation_hooks(self, hooks) -> None:
-        """Forward activation hooks to the multi-head attention block."""
-
-        if hasattr(self.attention, "set_activation_hooks"):
-            self.attention.set_activation_hooks(hooks)
+        """Deprecated compatibility stub; no-op."""
+        return None
 
     def forward(self, x, mask=None, register_hook = False):
         """Forward propagation.
@@ -307,11 +292,8 @@ class TransformerLayer(nn.Module):
         )
 
     def set_activation_hooks(self, hooks) -> None:
-        """Attach activation hooks to every TransformerBlock in the layer."""
-
-        for transformer in self.transformer:
-            if hasattr(transformer, "set_activation_hooks"):
-                transformer.set_activation_hooks(hooks)
+        """Deprecated compatibility stub; no-op."""
+        return None
 
     def forward(
         self, x: torch.Tensor, mask: Optional[torch.Tensor] = None, register_hook: bool = False
@@ -423,23 +405,12 @@ class Transformer(BaseModel):
 
         output_size = self.get_output_size()
         self.fc = nn.Linear(len(self.feature_keys) * embedding_dim, output_size)
-        self._activation_hooks = None
 
     def set_deeplift_hooks(self, hooks) -> None:
-        """Attach activation hooks for interpretability algorithms."""
-
-        self._activation_hooks = hooks
-        for layer in self.transformer.values():
-            if hasattr(layer, "set_activation_hooks"):
-                layer.set_activation_hooks(hooks)
+        """Backward-compatibility stub; interpreters swap activations directly."""
 
     def clear_deeplift_hooks(self) -> None:
-        """Remove previously registered interpretability hooks."""
-
-        self._activation_hooks = None
-        for layer in self.transformer.values():
-            if hasattr(layer, "set_activation_hooks"):
-                layer.set_activation_hooks(None)
+        """Backward-compatibility stub; interpreters swap activations directly."""
 
     @staticmethod
     def _split_temporal(feature):

@@ -21,6 +21,8 @@ class _DummyBinaryDataset:
         self.input_schema = {"codes": "sequence"}
         self.output_schema = {"label": "binary"}
         self.output_processors = {"label": _BinaryProcessor()}
+        self.input_processors = {"codes": None}
+        self.dataset_name = "dummy"
 
 
 class _ToyEmbeddingModel(nn.Module):
@@ -37,9 +39,8 @@ class _ToyEmbeddingModel(nn.Module):
     def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         return {key: self.embedding(val.long()) for key, val in inputs.items()}
 
-
 class _ToyGIMModel(BaseModel):
-    """Small attention-style model exposing StageNet-compatible hooks."""
+    """Small attention-style model with module-based nonlinearities."""
 
     def __init__(self, vocab_size: int = 32, embedding_dim: int = 4):
         super().__init__(dataset=_DummyBinaryDataset())
@@ -53,8 +54,9 @@ class _ToyGIMModel(BaseModel):
         self.value = nn.Linear(embedding_dim, embedding_dim, bias=False)
         self.fc = nn.Linear(embedding_dim, 1, bias=False)
 
-        self._activation_hooks = None
-        self.deeplift_hook_calls = 0
+        # Nonlinearities as modules so interpretability can swap them
+        self.softmax = nn.Softmax(dim=-1)
+        self.sigmoid = nn.Sigmoid()
 
         self._initialize_weights()
 
@@ -65,19 +67,6 @@ class _ToyGIMModel(BaseModel):
             self.key.weight.copy_(identity)
             self.value.weight.copy_(identity)
             self.fc.weight.copy_(torch.tensor([[0.2, -0.3, 0.4, 0.1]]))
-
-    def set_deeplift_hooks(self, hooks) -> None:
-        self.deeplift_hook_calls += 1
-        self._activation_hooks = hooks
-
-    def clear_deeplift_hooks(self) -> None:
-        self._activation_hooks = None
-
-    def _apply_activation(self, name: str, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
-        if self._activation_hooks is not None and hasattr(self._activation_hooks, "apply"):
-            return self._activation_hooks.apply(name, tensor, **kwargs)
-        fn = getattr(torch, name)
-        return fn(tensor, **kwargs)
 
     def forward_from_embedding(
         self,
@@ -91,7 +80,7 @@ class _ToyGIMModel(BaseModel):
         v = self.value(emb)
 
         scores = torch.matmul(q, k.transpose(-1, -2)) / math.sqrt(q.size(-1))
-        weights = self._apply_activation("softmax", scores, dim=-1)
+        weights = self.softmax(scores)
         context = torch.matmul(weights, v)
         pooled = context.mean(dim=1)
         logits = self.fc(pooled)
@@ -102,27 +91,10 @@ class _ToyGIMModel(BaseModel):
 
         return {
             "logit": logits,
-            "y_prob": torch.sigmoid(logits),
+            "y_prob": self.sigmoid(logits),
             "y_true": label,
             "loss": torch.zeros((), device=logits.device),
         }
-
-
-class _ToyGIMModelWithCustomHooks(_ToyGIMModel):
-    """Variant that exposes dedicated set_gim_hooks/clear_gim_hooks."""
-
-    def __init__(self):
-        super().__init__()
-        self.gim_hook_calls = 0
-
-    def set_gim_hooks(self, hooks) -> None:
-        self.gim_hook_calls += 1
-        self._activation_hooks = hooks
-
-    def clear_gim_hooks(self) -> None:
-        self._activation_hooks = None
-
-
 def _manual_token_attribution(
     model: _ToyGIMModel,
     tokens: torch.Tensor,
@@ -171,7 +143,7 @@ class TestGIM(unittest.TestCase):
         torch.testing.assert_close(attributions["codes"], manual, atol=1e-6, rtol=1e-5)
 
     def test_temperature_hooks_modify_gradients(self):
-        """Raising the temperature must both attach hooks and change attributions."""
+        """Raising the temperature should change attributions."""
 
         model = _ToyGIMModel()
         baseline_gim = GIM(model, temperature=1.0)
@@ -188,18 +160,7 @@ class TestGIM(unittest.TestCase):
             label=self.labels,
         )["codes"]
 
-        self.assertEqual(model.deeplift_hook_calls, 1)
-        self.assertFalse(torch.allclose(baseline_attr, hot_attr))
-
-    def test_prefers_custom_gim_hooks(self):
-        """Models exposing set_gim_hooks should bypass the DeepLIFT surface."""
-
-        model = _ToyGIMModelWithCustomHooks()
-        gim = GIM(model, temperature=2.0)
-        gim.attribute(target_class_idx=0, codes=self.tokens, label=self.labels)
-
-        self.assertEqual(model.gim_hook_calls, 1)
-        self.assertEqual(model.deeplift_hook_calls, 0)
+        self.assertTrue(torch.any(~torch.isclose(baseline_attr, hot_attr)))
 
     def test_attributions_match_input_shape(self):
         """Collapsed gradients should align with the token tensor shape."""

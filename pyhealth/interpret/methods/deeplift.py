@@ -2,12 +2,63 @@ from __future__ import annotations
 
 import contextlib
 import inspect
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Type
 
 import torch
 
 from pyhealth.models import BaseModel
 from .base_interpreter import BaseInterpreter
+
+
+def _iter_child_modules(module: torch.nn.Module):
+    for name, child in module.named_children():
+        yield module, name, child
+        yield from _iter_child_modules(child)
+
+
+class _HookedModule(torch.nn.Module):
+    """Wrap an activation module to route through DeepLIFT hooks."""
+
+    def __init__(self, hook_name: str, hooks: "_DeepLiftActivationHooks", forward_kwargs: Optional[Dict] = None):
+        super().__init__()
+        self.hook_name = hook_name
+        self.hooks = hooks
+        self.forward_kwargs = forward_kwargs or {}
+
+    def forward(self, tensor: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
+        return self.hooks.apply(self.hook_name, tensor, **self.forward_kwargs)
+
+
+class _ActivationSwapContext(contextlib.AbstractContextManager):
+    """Temporarily replace activation modules with DeepLIFT-aware wrappers."""
+
+    _TARGETS: Dict[Type[torch.nn.Module], Tuple[str, Dict]] = {
+        torch.nn.ReLU: ("relu", {}),
+        torch.nn.Sigmoid: ("sigmoid", {}),
+        torch.nn.Tanh: ("tanh", {}),
+    }
+
+    def __init__(self, model: BaseModel):
+        self.model = model
+        self.hooks = _DeepLiftActivationHooks()
+        self._swapped: List[Tuple[torch.nn.Module, str, torch.nn.Module]] = []
+
+    def __enter__(self) -> "_ActivationSwapContext":
+        for parent, name, child in _iter_child_modules(self.model):
+            for target_cls, (hook_name, fkwargs) in self._TARGETS.items():
+                if isinstance(child, target_cls):
+                    wrapper = _HookedModule(hook_name, self.hooks, fkwargs)
+                    setattr(parent, name, wrapper)
+                    self._swapped.append((parent, name, child))
+                    break
+        return self
+
+    def __exit__(self, exc_type, exc, exc_tb) -> bool:
+        for parent, name, original in reversed(self._swapped):
+            setattr(parent, name, original)
+        self._swapped.clear()
+        self.hooks.reset()
+        return False
 
 
 class _DeepLiftActivationHooks:
@@ -161,34 +212,24 @@ class _DeepLiftActivationHooks:
 
 
 class _DeepLiftHookContext(contextlib.AbstractContextManager):
-    """Context manager wiring activation hooks onto a model if supported."""
+    """Context manager that swaps activations for DeepLIFT without model hooks."""
 
     def __init__(self, model: BaseModel):
         self.model = model
-        self.hooks: Optional[_DeepLiftActivationHooks] = None
-        self._enabled = all(
-            hasattr(model, method) for method in ("set_deeplift_hooks", "clear_deeplift_hooks")
-        )
+        self._swap_ctx = _ActivationSwapContext(model)
 
     def __enter__(self) -> "_DeepLiftHookContext":
-        if self._enabled:
-            self.hooks = _DeepLiftActivationHooks()
-            self.model.set_deeplift_hooks(self.hooks)
+        self._swap_ctx.__enter__()
         return self
 
     def start_baseline(self) -> None:
-        if self.hooks is not None:
-            self.hooks.start_baseline()
+        self._swap_ctx.hooks.start_baseline()
 
     def start_actual(self) -> None:
-        if self.hooks is not None:
-            self.hooks.start_actual()
+        self._swap_ctx.hooks.start_actual()
 
     def __exit__(self, exc_type, exc, exc_tb) -> bool:
-        if self.hooks is not None:
-            self.hooks.reset()
-            self.model.clear_deeplift_hooks()
-            self.hooks = None
+        self._swap_ctx.__exit__(exc_type, exc, exc_tb)
         return False
 
 
