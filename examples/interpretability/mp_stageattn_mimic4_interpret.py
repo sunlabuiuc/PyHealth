@@ -12,14 +12,14 @@ import argparse
 from pyhealth.datasets import MIMIC4Dataset, get_dataloader, split_by_patient
 from pyhealth.interpret.methods import BaseInterpreter, IntegratedGradients, DeepLift, GIM, ShapExplainer, LimeExplainer
 from pyhealth.metrics.interpretability import evaluate_attribution
-from pyhealth.models import StageNet
+from pyhealth.models import StageAttentionNet
 from pyhealth.tasks import MortalityPredictionStageNetMIMIC4
 from pyhealth.trainer import Trainer
 from pyhealth.datasets.utils import load_processors
 from pathlib import Path
 import pandas as pd
 
-# python -u examples/interpretability/mp_stagenet_mimic4_interpret.py --methods deeplift --device cuda:7 2>&1 | tee -a /home/yongdaf2/pyhealth_dka/output/mp_stagenet_mimic4/deeplift.log
+# python -u examples/interpretability/mp_stageattn_mimic4_interpret.py --methods deeplift --device cuda:7 2>&1 | tee -a /home/yongdaf2/pyhealth_dka/output/mp_stageattn_mimic4/deeplift.log
 def main():
     parser = argparse.ArgumentParser(
         description="Comma separated list of interpretability methods to evaluate"
@@ -39,13 +39,13 @@ def main():
     
     """Main execution function."""
     print("=" * 70)
-    print("Interpretability Metrics Example: StageNet + MIMIC-IV")
+    print("Interpretability Metrics Example: StageAttentionNet + MIMIC-IV")
     print("=" * 70)
 
     # Set path
-    CACHE_DIR = Path("/shared/eng/pyhealth_dka/cache/mp_stagenet_mimic4")
-    CKPTS_DIR = Path("/shared/eng/pyhealth_dka/ckpts/mp_stagenet_mimic4")
-    OUTPUT_DIR = Path("/shared/eng/pyhealth_dka/output/mp_stagenet_mimic4")
+    CACHE_DIR = Path("/shared/eng/pyhealth_dka/cache/mp_stageattn_mimic4")
+    CKPTS_DIR = Path("/shared/eng/pyhealth_dka/ckpts/mp_stageattn_mimic4")
+    OUTPUT_DIR = Path("/shared/eng/pyhealth_dka/output/mp_stageattn_mimic4")
     print(f"\nUsing cache dir: {CACHE_DIR}")
     print(f"Using checkpoints dir: {CKPTS_DIR}")
     print(f"Using output dir: {OUTPUT_DIR}")
@@ -91,8 +91,8 @@ def main():
     print(f"✓ Test set: {len(test_dataset)} samples")
 
     # Initialize and load pre-trained model
-    print("\n Loading pre-trained StageNet model...")
-    model = StageNet(
+    print("\n Loading pre-trained StageAttentionNet model...")
+    model = StageAttentionNet(
         dataset=sample_dataset,
         embedding_dim=128,
         chunk_size=128,
