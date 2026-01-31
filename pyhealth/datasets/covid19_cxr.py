@@ -67,6 +67,9 @@ class COVID19CXRDataset(BaseDataset):
         dataset_name: Optional name of the dataset. Defaults to "covid19_cxr".
         config_path: Optional path to the configuration file. If not provided,
             uses the default config in the configs directory.
+        cache_dir: Optional directory for caching processed data.
+        num_workers: Number of parallel workers for data processing. Defaults to 1.
+        dev: If True, only loads a small subset of data for development/testing.
 
     Attributes:
         root: Root directory of the raw data.
@@ -88,6 +91,9 @@ class COVID19CXRDataset(BaseDataset):
         root: str,
         dataset_name: Optional[str] = None,
         config_path: Optional[str] = None,
+        cache_dir: Optional[str] = None,
+        num_workers: int = 1,
+        dev: bool = False,
     ) -> None:
         if config_path is None:
             logger.info("No config path provided, using default config")
@@ -100,6 +106,9 @@ class COVID19CXRDataset(BaseDataset):
             tables=default_tables,
             dataset_name=dataset_name or "covid19_cxr",
             config_path=config_path,
+            cache_dir=cache_dir,
+            num_workers=num_workers,
+            dev=dev,
         )
         return
 
@@ -148,33 +157,6 @@ class COVID19CXRDataset(BaseDataset):
             assert os.path.isfile(path), f"File {path} does not exist"
         df.to_csv(os.path.join(root, "covid19_cxr-metadata-pyhealth.csv"), index=False)
         return
-
-    def set_task(
-        self,
-        task: BaseTask | None = None,
-        num_workers: int = 1,
-        cache_dir: str | None = None,
-        cache_format: str = "parquet",
-        input_processors: Dict[str, FeatureProcessor] | None = None,
-        output_processors: Dict[str, FeatureProcessor] | None = None,
-    ) -> SampleDataset:
-        if input_processors is None or "image" not in input_processors:
-            image_processor = ImageProcessor(
-                image_size=299,  # The image size for COVID-19 CXR dataset
-                mode="L",  # Grayscale images
-            )
-            if input_processors is None:
-                input_processors = {}
-            input_processors["image"] = image_processor
-
-        return super().set_task(
-            task,
-            num_workers,
-            cache_dir,
-            cache_format,
-            input_processors,
-            output_processors,
-        )
 
     @property
     def default_task(self) -> COVID19CXRClassification:

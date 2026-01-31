@@ -2,12 +2,63 @@ from __future__ import annotations
 
 import contextlib
 import inspect
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Type
 
 import torch
 
 from pyhealth.models import BaseModel
 from .base_interpreter import BaseInterpreter
+
+
+def _iter_child_modules(module: torch.nn.Module):
+    for name, child in module.named_children():
+        yield module, name, child
+        yield from _iter_child_modules(child)
+
+
+class _HookedModule(torch.nn.Module):
+    """Wrap an activation module to route through DeepLIFT hooks."""
+
+    def __init__(self, hook_name: str, hooks: "_DeepLiftActivationHooks", forward_kwargs: Optional[Dict] = None):
+        super().__init__()
+        self.hook_name = hook_name
+        self.hooks = hooks
+        self.forward_kwargs = forward_kwargs or {}
+
+    def forward(self, tensor: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
+        return self.hooks.apply(self.hook_name, tensor, **self.forward_kwargs)
+
+
+class _ActivationSwapContext(contextlib.AbstractContextManager):
+    """Temporarily replace activation modules with DeepLIFT-aware wrappers."""
+
+    _TARGETS: Dict[Type[torch.nn.Module], Tuple[str, Dict]] = {
+        torch.nn.ReLU: ("relu", {}),
+        torch.nn.Sigmoid: ("sigmoid", {}),
+        torch.nn.Tanh: ("tanh", {}),
+    }
+
+    def __init__(self, model: BaseModel):
+        self.model = model
+        self.hooks = _DeepLiftActivationHooks()
+        self._swapped: List[Tuple[torch.nn.Module, str, torch.nn.Module]] = []
+
+    def __enter__(self) -> "_ActivationSwapContext":
+        for parent, name, child in _iter_child_modules(self.model):
+            for target_cls, (hook_name, fkwargs) in self._TARGETS.items():
+                if isinstance(child, target_cls):
+                    wrapper = _HookedModule(hook_name, self.hooks, fkwargs)
+                    setattr(parent, name, wrapper)
+                    self._swapped.append((parent, name, child))
+                    break
+        return self
+
+    def __exit__(self, exc_type, exc, exc_tb) -> bool:
+        for parent, name, original in reversed(self._swapped):
+            setattr(parent, name, original)
+        self._swapped.clear()
+        self.hooks.reset()
+        return False
 
 
 class _DeepLiftActivationHooks:
@@ -161,34 +212,24 @@ class _DeepLiftActivationHooks:
 
 
 class _DeepLiftHookContext(contextlib.AbstractContextManager):
-    """Context manager wiring activation hooks onto a model if supported."""
+    """Context manager that swaps activations for DeepLIFT without model hooks."""
 
     def __init__(self, model: BaseModel):
         self.model = model
-        self.hooks: Optional[_DeepLiftActivationHooks] = None
-        self._enabled = all(
-            hasattr(model, method) for method in ("set_deeplift_hooks", "clear_deeplift_hooks")
-        )
+        self._swap_ctx = _ActivationSwapContext(model)
 
     def __enter__(self) -> "_DeepLiftHookContext":
-        if self._enabled:
-            self.hooks = _DeepLiftActivationHooks()
-            self.model.set_deeplift_hooks(self.hooks)
+        self._swap_ctx.__enter__()
         return self
 
     def start_baseline(self) -> None:
-        if self.hooks is not None:
-            self.hooks.start_baseline()
+        self._swap_ctx.hooks.start_baseline()
 
     def start_actual(self) -> None:
-        if self.hooks is not None:
-            self.hooks.start_actual()
+        self._swap_ctx.hooks.start_actual()
 
     def __exit__(self, exc_type, exc, exc_tb) -> bool:
-        if self.hooks is not None:
-            self.hooks.reset()
-            self.model.clear_deeplift_hooks()
-            self.hooks = None
+        self._swap_ctx.__exit__(exc_type, exc, exc_tb)
         return False
 
 
@@ -305,6 +346,7 @@ class DeepLift(BaseInterpreter):
         self.use_embeddings = use_embeddings
 
         self._forward_from_embedding_accepts_time_info = False
+        self._forward_from_embedding_accepts_mask_info = False
 
         if use_embeddings:
             assert hasattr(
@@ -312,6 +354,9 @@ class DeepLift(BaseInterpreter):
             ), f"Model {type(model).__name__} must implement forward_from_embedding()"
             self._forward_from_embedding_accepts_time_info = self._method_accepts_argument(
                 model.forward_from_embedding, "time_info"
+            )
+            self._forward_from_embedding_accepts_mask_info = self._method_accepts_argument(
+                model.forward_from_embedding, "mask_info"
             )
 
     # ------------------------------------------------------------------
@@ -406,7 +451,7 @@ class DeepLift(BaseInterpreter):
         embedded representations, propagate differences through the network, and
         finally project the attribution scores back onto the input tensor shape.
         """
-        input_embs, baseline_embs, input_shapes = self._prepare_embeddings_and_baselines(
+        input_embs, baseline_embs, input_shapes, mask_info = self._prepare_embeddings_and_baselines(
             inputs, baseline
         )
 
@@ -424,6 +469,8 @@ class DeepLift(BaseInterpreter):
             call_kwargs = dict(forward_kwargs)
             if time_info and self._forward_from_embedding_accepts_time_info:
                 call_kwargs["time_info"] = time_info
+            if mask_info and self._forward_from_embedding_accepts_mask_info:
+                call_kwargs["mask_info"] = mask_info
             return self.model.forward_from_embedding(
                 feature_embeddings=feature_embeddings,
                 **call_kwargs,
@@ -463,25 +510,27 @@ class DeepLift(BaseInterpreter):
         self,
         inputs: Dict[str, torch.Tensor],
         baseline: Optional[Dict[str, torch.Tensor]],
-    ) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor], Dict[str, tuple]]:
+    ) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor], Dict[str, tuple], Dict[str, torch.Tensor]]:
         """Embed inputs and baselines in preparation for difference propagation."""
         input_embeddings: Dict[str, torch.Tensor] = {}
         baseline_embeddings: Dict[str, torch.Tensor] = {}
         input_shapes: Dict[str, tuple] = {}
 
-        for key, value in inputs.items():
-            input_shapes[key] = value.shape
-            embedded = self.model.embedding_model({key: value})[key]
-            input_embeddings[key] = embedded
+        input_embeddings, mask = self.model.embedding_model(inputs, output_mask=True) # type: ignore
+        if baseline is None:
+            baseline_embeddings = {key: torch.zeros_like(val) for key, val in input_embeddings.items()}
+        else:
+            baseline_embeddings = self.model.embedding_model(baseline) # type: ignore
+        
+        # Ensure baselines are on the same device as inputs
+        baseline_embeddings = {
+            key: val.to(input_embeddings[key].device)
+            for key, val in baseline_embeddings.items()
+        }
+        
+        input_shapes = {key: value.shape for key, value in inputs.items()}
 
-            if baseline is None:
-                baseline_embeddings[key] = torch.zeros_like(embedded)
-            else:
-                if key not in baseline:
-                    raise ValueError(f"Baseline missing key '{key}'")
-                baseline_embeddings[key] = baseline[key].to(embedded.device)
-
-        return input_embeddings, baseline_embeddings, input_shapes
+        return input_embeddings, baseline_embeddings, input_shapes, mask
 
     # ------------------------------------------------------------------
     # Continuous DeepLIFT fallback (for tensor inputs)

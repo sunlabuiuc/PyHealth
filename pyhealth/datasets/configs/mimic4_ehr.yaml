@@ -32,6 +32,7 @@ tables:
     patient_id: "subject_id"
     timestamp: "intime"
     attributes:
+      - "hadm_id"
       - "stay_id"
       - "first_careunit"
       - "last_careunit"
@@ -96,6 +97,7 @@ tables:
           - "category"
     timestamp: "charttime"
     attributes:
+      - "hadm_id"
       - "itemid"
       - "label"
       - "fluid"

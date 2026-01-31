@@ -1,7 +1,8 @@
 import torch
 import os
 import math
-import pkg_resources
+import importlib.metadata as importlib_metadata
+from packaging import version
 import numpy as np
 from typing import Any, Dict, List, Tuple, Optional, Union
 from rdkit import Chem
@@ -17,6 +18,31 @@ from pyhealth.medcode import ATC
 from pyhealth.datasets import SampleDataset
 
 from pyhealth import BASE_CACHE_PATH as CACHE_PATH
+
+
+def _import_ogb(min_version: str = "1.3.5") -> None:
+    """Import ogb components and validate version."""
+    try:
+        installed = importlib_metadata.version("ogb")
+    except importlib_metadata.PackageNotFoundError as exc:
+        raise ImportError(f"Please install ogb>={min_version}.") from exc
+
+    if version.parse(installed) < version.parse(min_version):
+        raise ImportError(
+            f"ogb>={min_version} required, but found {installed}."
+        )
+
+    from ogb.utils import smiles2graph
+    from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
+
+    globals().update(
+        {
+            "smiles2graph": smiles2graph,
+            "AtomEncoder": AtomEncoder,
+            "BondEncoder": BondEncoder,
+        }
+    )
+
 
 def graph_batch_from_smiles(smiles_list, device=torch.device("cpu")):
     edge_idxes, edge_feats, node_feats, lstnode, batch = [], [], [], 0, []
@@ -309,19 +335,14 @@ class MoleRecLayer(torch.nn.Module):
     ):
         super(MoleRecLayer, self).__init__()
 
-        dependencies = ["ogb>=1.3.5"]
-
         # test whether the ogb and torch_scatter packages are ready
         try:
-            pkg_resources.require(dependencies)
-            global smiles2graph, AtomEncoder, BondEncoder
-            from ogb.utils import smiles2graph
-            from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
-        except Exception as e:
+            _import_ogb("1.3.5")
+        except Exception:
             print(
                 "Please follow the error message and install the [ogb>=1.3.5] packages first."
             )
-            print(e)
+            raise
 
         self.hidden_size = hidden_size
         self.coef, self.target_ddi = coef, target_ddi
@@ -569,18 +590,13 @@ class MoleRec(BaseModel):
             else:
                 self.mode = "multilabel"
 
-        dependencies = ["ogb>=1.3.5"]
-
         try:
-            pkg_resources.require(dependencies)
-            global smiles2graph, AtomEncoder, BondEncoder
-            from ogb.utils import smiles2graph
-            from ogb.graphproppred.mol_encoder import AtomEncoder, BondEncoder
-        except Exception as e:
+            _import_ogb("1.3.5")
+        except Exception:
             print(
                 "Please follow the error message and install the [ogb>=1.3.5] packages first."
             )
-            print(e)
+            raise
 
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim

@@ -41,10 +41,36 @@ New to interpretability in PyHealth? Check out these complete examples:
   - **Sufficiency**: Measures how much prediction is retained when keeping only important features
   - Both functional API (``evaluate_attribution``) and class-based API (``Evaluator``)
 
+**SHAP Example:**
+
+- ``examples/shap_stagenet_mimic4.py`` - Demonstrates SHAP (SHapley Additive exPlanations) for StageNet mortality prediction. Shows how to:
+
+  - Compute Kernel SHAP attributions for healthcare models with discrete and continuous features
+  - Interpret Shapley values to understand feature contributions based on game theory
+  - Compare different baseline strategies for background sample generation
+  - Decode attributions to human-readable medical codes and lab measurements
+
+**ViT/Chefer Attribution Example:**
+
+- ``examples/covid19_cxr_tutorial.py`` - Demonstrates Chefer's attention-based attribution for Vision Transformers:
+
+  - Train a ViT model on COVID-19 chest X-ray classification
+  - Use CheferRelevance for gradient-weighted attention attribution
+  - Visualize which image patches contribute to predictions
+**LIME Example:**
+
+- ``examples/lime_stagenet_mimic4.py`` - Demonstrates LIME (Local Interpretable Model-agnostic Explanations) for StageNet mortality prediction. Shows how to:
+
+  - Compute local linear approximations to explain model predictions
+  - Generate perturbations around input samples to train interpretable models
+  - Compare different regularization methods (Lasso vs Ridge) for feature selection
+  - Test various distance kernels (cosine vs euclidean) and sample sizes
+  - Decode attributions to human-readable medical codes and lab measurements
+
 These examples provide end-to-end workflows from loading data to interpreting and evaluating attributions.
 
-Available Methods
------------------
+Attribution Methods
+-------------------
     
 .. toctree::
     :maxdepth: 4
@@ -54,3 +80,18 @@ Available Methods
     interpret/pyhealth.interpret.methods.chefer
     interpret/pyhealth.interpret.methods.deeplift
     interpret/pyhealth.interpret.methods.integrated_gradients
+    interpret/pyhealth.interpret.methods.shap
+    interpret/pyhealth.interpret.methods.lime
+
+Visualization Utilities
+-----------------------
+
+The ``pyhealth.interpret.utils`` module provides visualization functions for 
+creating attribution overlays, heatmaps, and publication-ready figures.
+Includes specialized support for Vision Transformer (ViT) attribution visualization.
+
+.. toctree::
+    :maxdepth: 4
+
+    interpret/pyhealth.interpret.utils
+ 
