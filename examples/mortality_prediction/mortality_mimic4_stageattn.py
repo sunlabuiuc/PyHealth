@@ -86,9 +86,9 @@ if __name__ == "__main__":
     )
 
     # Create dataloaders
-    train_loader = get_dataloader(train_dataset, batch_size=256, shuffle=True)
-    val_loader = get_dataloader(val_dataset, batch_size=256, shuffle=False)
-    test_loader = get_dataloader(test_dataset, batch_size=256, shuffle=False)
+    train_loader = get_dataloader(train_dataset, batch_size=64, shuffle=True)
+    val_loader = get_dataloader(val_dataset, batch_size=64, shuffle=False)
+    test_loader = get_dataloader(test_dataset, batch_size=64, shuffle=False)
 
     # STEP 4: Initialize StageNet model
     model = StageAttentionNet(
