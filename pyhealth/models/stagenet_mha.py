@@ -46,9 +46,9 @@ class StageNetAttentionLayer(nn.Module):
         chunk_size: int = 128,
         conv_size: int = 10,
         levels: int = 3,
-        dropconnect: int = 0.3,
-        dropout: int = 0.3,
-        dropres: int = 0.3,
+        dropconnect: float = 0.3,
+        dropout: float = 0.3,
+        dropres: float = 0.3,
         num_heads: int = 8,
         attn_dropout: float = 0.1,
     ):
@@ -81,6 +81,15 @@ class StageNetAttentionLayer(nn.Module):
         self.nn_conv = nn.Conv1d(
             int(self.hidden_dim), int(self.conv_dim), int(conv_size), 1
         )
+
+        # Non-linearities are defined as modules so they can be swapped
+        # wholesale (e.g., for DeepLIFT/GIM instrumentation).
+        self.relu = nn.ReLU()
+        self.sigmoid = nn.Sigmoid()
+        self.tanh = nn.Tanh()
+        self.softmax = nn.Softmax(dim=-1)
+        self.softmax_dim1 = nn.Softmax(dim=1)
+
         if self.hidden_dim % num_heads != 0:
             raise ValueError(
                 f"hidden_dim ({self.hidden_dim}) must be divisible by num_heads ({num_heads})"
@@ -101,26 +110,9 @@ class StageNetAttentionLayer(nn.Module):
             self.nn_dropout = nn.Dropout(p=dropout)
             self.nn_dropres = nn.Dropout(p=dropres)
 
-        # Hooks for interpretability (e.g., DeepLIFT) default to None
-        self._activation_hooks = None
-
-    def set_activation_hooks(self, hooks) -> None:
-        """Registers activation hooks for interpretability methods.
-
-        Args:
-            hooks: Object exposing ``apply(name, tensor, **kwargs)``. When
-                provided, activation functions inside the layer will be
-                routed through ``hooks`` instead of raw torch.ops. Passing
-                ``None`` disables the hooks.
-        """
-
-        self._activation_hooks = hooks
-
-    def _apply_activation(self, name: str, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
-        if self._activation_hooks is not None and hasattr(self._activation_hooks, "apply"):
-            return self._activation_hooks.apply(name, tensor, **kwargs)
-        fn = getattr(torch, name)
-        return fn(tensor, **kwargs)
+        # Nonlinearities are plain modules; interpretability wrappers are
+        # applied externally (e.g., DeepLIFT/GIM) by temporarily replacing
+        # these modules at runtime.
 
     def get_attn_map(self) -> Optional[torch.Tensor]:
         """Return the last attention weight map from the MHA block."""
@@ -143,12 +135,12 @@ class StageNetAttentionLayer(nn.Module):
 
     def cumax(self, x, mode="l2r"):
         if mode == "l2r":
-            x = self._apply_activation("softmax", x, dim=-1)
+            x = self.softmax(x)
             x = torch.cumsum(x, dim=-1)
             return x
         elif mode == "r2l":
             x = torch.flip(x, [-1])
-            x = self._apply_activation("softmax", x, dim=-1)
+            x = self.softmax(x)
             x = torch.cumsum(x, dim=-1)
             return torch.flip(x, [-1])
         else:
@@ -174,18 +166,12 @@ class StageNetAttentionLayer(nn.Module):
         i_master_gate = i_master_gate.unsqueeze(2)
         x_out = x_out[:, self.levels * 2 :]
         x_out = x_out.reshape(-1, self.levels * 4, self.chunk_size)
-        f_gate = self._apply_activation("sigmoid", x_out[:, : self.levels]).to(
+        f_gate = self.sigmoid(x_out[:, : self.levels]).to(device=device)
+        i_gate = self.sigmoid(x_out[:, self.levels : self.levels * 2]).to(
             device=device
         )
-        i_gate = self._apply_activation(
-            "sigmoid", x_out[:, self.levels : self.levels * 2]
-        ).to(device=device)
-        o_gate = self._apply_activation(
-            "sigmoid", x_out[:, self.levels * 2 : self.levels * 3]
-        )
-        c_in = self._apply_activation("tanh", x_out[:, self.levels * 3 :]).to(
-            device=device
-        )
+        o_gate = self.sigmoid(x_out[:, self.levels * 2 : self.levels * 3])
+        c_in = self.tanh(x_out[:, self.levels * 3 :]).to(device=device)
         c_last = c_last.reshape(-1, self.levels, self.chunk_size).to(device=device)
         overlap = (f_master_gate * i_master_gate).to(device=device)
         c_out = (
@@ -193,7 +179,7 @@ class StageNetAttentionLayer(nn.Module):
             + (f_master_gate - overlap) * c_last
             + (i_master_gate - overlap) * c_in
         )
-        h_out = o_gate * self._apply_activation("tanh", c_out)
+        h_out = o_gate * self.tanh(c_out)
         c_out = c_out.reshape(-1, self.hidden_dim)
         h_out = h_out.reshape(-1, self.hidden_dim)
         out = torch.cat([h_out, f_master_gate[..., 0], i_master_gate[..., 0]], 1)
@@ -201,11 +187,11 @@ class StageNetAttentionLayer(nn.Module):
 
     def forward(
         self,
-        x: torch.tensor,
-        time: Optional[torch.tensor] = None,
-        mask: Optional[torch.tensor] = None,
+        x: torch.Tensor,
+        time: Optional[torch.Tensor] = None,
+        mask: Optional[torch.Tensor] = None,
         register_hook: bool = False,
-    ) -> Tuple[torch.tensor]:
+    ) -> Tuple[torch.Tensor, ...]:
         """Forward propagation.
 
         Args:
@@ -280,16 +266,16 @@ class StageNetAttentionLayer(nn.Module):
             # Re-weighted convolution operation
             local_dis = tmp_dis.permute(1, 0)
             local_dis = torch.cumsum(local_dis, dim=1)
-            local_dis = self._apply_activation("softmax", local_dis, dim=1)
+            local_dis = self.softmax_dim1(local_dis)
             local_h = tmp_h.permute(1, 2, 0)
             local_h = local_h * local_dis.unsqueeze(1)
 
             # Re-calibrate Progression patterns
             local_theme = torch.mean(local_h, dim=-1)
             local_theme = self.nn_scale(local_theme)
-            local_theme = self._apply_activation("relu", local_theme)
+            local_theme = self.relu(local_theme)
             local_theme = self.nn_rescale(local_theme)
-            local_theme = self._apply_activation("sigmoid", local_theme)
+            local_theme = self.sigmoid(local_theme)
 
             local_h = self.nn_conv(local_h).squeeze(-1)
             local_h = local_theme * local_h
@@ -451,25 +437,14 @@ class StageAttentionNet(BaseModel):
     # Interpretability support (e.g., DeepLIFT)
     # ------------------------------------------------------------------
     def set_deeplift_hooks(self, hooks) -> None:
-        """Attach activation hooks for interpretability algorithms.
-
-        Args:
-            hooks: Object exposing ``apply(name, tensor, **kwargs)`` which
-                will be invoked for activation calls within StageNet layers.
-        """
+        """Backward-compatibility stub; activation swapping is done in interpreters."""
 
         self._deeplift_hooks = hooks
-        for layer in self.stagenet.values():
-            if hasattr(layer, "set_activation_hooks"):
-                layer.set_activation_hooks(hooks)
 
     def clear_deeplift_hooks(self) -> None:
-        """Remove previously registered interpretability hooks."""
+        """Backward-compatibility stub; activation swapping is done in interpreters."""
 
         self._deeplift_hooks = None
-        for layer in self.stagenet.values():
-            if hasattr(layer, "set_activation_hooks"):
-                layer.set_activation_hooks(None)
 
     def forward_from_embedding(
         self,
@@ -677,71 +652,3 @@ class StageAttentionNet(BaseModel):
         if kwargs.get("embed", False):
             results["embed"] = patient_emb
         return results
-
-
-if __name__ == "__main__":
-    from pyhealth.datasets import SampleDataset
-
-    samples = [
-        {
-            "patient_id": "patient-0",
-            "visit_id": "visit-0",
-            "codes": (
-                [0.0, 2.0, 1.3],
-                ["505800458", "50580045810", "50580045811"],
-            ),
-            "procedures": (
-                [0.0, 1.5],
-                [["A05B", "A05C", "A06A"], ["A11D", "A11E"]],
-            ),
-            "label": 1,
-        },
-        {
-            "patient_id": "patient-0",
-            "visit_id": "visit-1",
-            "codes": (
-                [0.0, 2.0, 1.3, 1.0, 2.0],
-                [
-                    "55154191800",
-                    "551541928",
-                    "55154192800",
-                    "705182798",
-                    "70518279800",
-                ],
-            ),
-            "procedures": (
-                [0.0],
-                [["A04A", "B035", "C129"]],
-            ),
-            "label": 0,
-        },
-    ]
-
-    # dataset
-    dataset = SampleDataset(
-        samples=samples,
-        input_schema={
-            "codes": "stagenet",
-            "procedures": "stagenet",
-        },
-        output_schema={"label": "binary"},
-        dataset_name="test",
-    )
-
-    # data loader
-    from pyhealth.datasets import get_dataloader
-
-    train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
-
-    # model
-    model = StageAttentionNet(dataset=dataset)
-
-    # data batch
-    data_batch = next(iter(train_loader))
-
-    # try the model
-    ret = model(**data_batch)
-    print(ret)
-
-    # try loss backward
-    ret["loss"].backward()
