@@ -1,6 +1,5 @@
 import copy
 from typing import List, Optional, Tuple, NamedTuple, Union, Callable, TypeVar
-import pkg_resources
 import torch
 from torch import Tensor
 
@@ -103,19 +102,16 @@ class NeighborSampler(torch.utils.data.DataLoader):
 
         if 'collate_fn' in kwargs:
             del kwargs['collate_fn']
-            
-        dependencies = ["torch_sparse"]
 
-        # test whether the ogb and torch_scatter packages are ready
+        # Ensure torch_sparse is available before proceeding
         try:
-            pkg_resources.require(dependencies)
             global SparseTensor
             from torch_sparse import SparseTensor
         except Exception as e:
             print(
                 "Please follow the error message and install the [torch_sparse] packages first."
             )
-            print(e)
+            raise
 
         # Save for Pytorch Lightning...
         self.raw_data = dataset
