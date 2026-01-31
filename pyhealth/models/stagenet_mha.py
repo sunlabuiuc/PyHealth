@@ -113,11 +113,8 @@ class StageNetAttentionLayer(nn.Module):
                 routed through ``hooks`` instead of raw torch.ops. Passing
                 ``None`` disables the hooks.
         """
+
         self._activation_hooks = hooks
-        # Ensure the attention block shares the same activation router so its
-        # softmax is intercepted (required by methods like GIM).
-        if hasattr(self.mha, "set_activation_hooks"):
-            self.mha.set_activation_hooks(hooks)
 
     def _apply_activation(self, name: str, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
         if self._activation_hooks is not None and hasattr(self._activation_hooks, "apply"):
