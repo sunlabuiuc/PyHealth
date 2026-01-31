@@ -410,11 +410,9 @@ class DeepLift(BaseInterpreter):
         embedded representations, propagate differences through the network, and
         finally project the attribution scores back onto the input tensor shape.
         """
-        input_embs, baseline_embs, input_shapes = self._prepare_embeddings_and_baselines(
+        input_embs, baseline_embs, input_shapes, mask_info = self._prepare_embeddings_and_baselines(
             inputs, baseline
         )
-
-        mask_info = self._compute_embedding_masks(input_embs)
 
         delta_embeddings: Dict[str, torch.Tensor] = {}
         current_embeddings: Dict[str, torch.Tensor] = {}
@@ -471,25 +469,27 @@ class DeepLift(BaseInterpreter):
         self,
         inputs: Dict[str, torch.Tensor],
         baseline: Optional[Dict[str, torch.Tensor]],
-    ) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor], Dict[str, tuple]]:
+    ) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor], Dict[str, tuple], Dict[str, torch.Tensor]]:
         """Embed inputs and baselines in preparation for difference propagation."""
         input_embeddings: Dict[str, torch.Tensor] = {}
         baseline_embeddings: Dict[str, torch.Tensor] = {}
         input_shapes: Dict[str, tuple] = {}
 
-        for key, value in inputs.items():
-            input_shapes[key] = value.shape
-            embedded = self.model.embedding_model({key: value})[key]
-            input_embeddings[key] = embedded
+        input_embeddings, mask = self.model.embedding_model(inputs, output_mask=True) # type: ignore
+        if baseline is None:
+            baseline_embeddings = {key: torch.zeros_like(val) for key, val in input_embeddings.items()}
+        else:
+            baseline_embeddings = self.model.embedding_model(baseline) # type: ignore
+        
+        # Ensure baselines are on the same device as inputs
+        baseline_embeddings = {
+            key: val.to(input_embeddings[key].device)
+            for key, val in baseline_embeddings.items()
+        }
+        
+        input_shapes = {key: value.shape for key, value in inputs.items()}
 
-            if baseline is None:
-                baseline_embeddings[key] = torch.zeros_like(embedded)
-            else:
-                if key not in baseline:
-                    raise ValueError(f"Baseline missing key '{key}'")
-                baseline_embeddings[key] = baseline[key].to(embedded.device)
-
-        return input_embeddings, baseline_embeddings, input_shapes
+        return input_embeddings, baseline_embeddings, input_shapes, mask
 
     # ------------------------------------------------------------------
     # Continuous DeepLIFT fallback (for tensor inputs)
@@ -653,21 +653,6 @@ class DeepLift(BaseInterpreter):
 
             mapped[key] = token_attr.detach()
         return mapped
-
-    @staticmethod
-    def _compute_embedding_masks(input_embs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        """Derive sequence masks from embedded inputs without zeroing baseline information."""
-
-        masks: Dict[str, torch.Tensor] = {}
-        for key, emb in input_embs.items():
-            mask_source = emb.detach()
-            # For nested sequences the inner dimension is pooled before mask creation
-            if mask_source.dim() == 4:
-                mask_source = mask_source.sum(dim=2)
-
-            masks[key] = (mask_source.sum(dim=-1) != 0).int()
-
-        return masks
 
     @staticmethod
     def _method_accepts_argument(function, arg_name: str) -> bool:

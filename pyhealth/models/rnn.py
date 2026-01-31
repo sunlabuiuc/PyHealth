@@ -441,15 +441,11 @@ class MultimodalRNN(BaseModel):
                 - embed (optional): a tensor representing the patient embeddings if requested.
         """
         patient_emb = []
-        embedded = self.embedding_model(kwargs)
+        embedded, mask = self.embedding_model(kwargs, output_mask=True)
 
         # Process sequential features through RNN
         for feature_key in self.sequential_features:
             x = embedded[feature_key]
-            # Use abs() before sum to catch edge cases where embeddings sum to 0
-            # despite being valid values (e.g., [1.0, -1.0])
-            # @TODO bug with 0 embedding sum can still persist if the embedding is all 0s but the mask is not all 0s. 
-            mask = (torch.abs(x).sum(dim=-1) != 0).int()
             _, last_hidden = self.rnn[feature_key](x, mask)
             patient_emb.append(last_hidden)
 
