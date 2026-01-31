@@ -32,7 +32,6 @@ if __name__ == "__main__":
             "procedures_icd",
             "labevents",
         ],
-        dev=True,
         num_workers=16,
     )
 
