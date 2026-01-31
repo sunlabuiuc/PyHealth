@@ -116,6 +116,9 @@ class RNNLayer(nn.Module):
         )
         outputs, _ = self.rnn(x)
         outputs, _ = rnn_utils.pad_packed_sequence(outputs, batch_first=True)
+        # Ensure outputs are contiguous after unpacking
+        outputs = outputs.contiguous()
+
         if not self.bidirectional:
             last_outputs = outputs[torch.arange(batch_size), (lengths - 1), :]
             return outputs, last_outputs
@@ -124,7 +127,8 @@ class RNNLayer(nn.Module):
             f_last_outputs = outputs[torch.arange(batch_size), (lengths - 1), 0, :]
             b_last_outputs = outputs[:, 0, 1, :]
             last_outputs = torch.cat([f_last_outputs, b_last_outputs], dim=-1)
-            outputs = outputs.view(batch_size, outputs.shape[1], -1)
+            # Ensure view result is contiguous for cuDNN
+            outputs = outputs.view(batch_size, outputs.shape[1], -1).contiguous()
             last_outputs = self.down_projection(last_outputs)
             outputs = self.down_projection(outputs)
             return outputs, last_outputs
