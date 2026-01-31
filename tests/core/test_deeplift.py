@@ -4,9 +4,10 @@ from typing import Dict
 import torch
 import torch.nn as nn
 
+from pyhealth.datasets import create_sample_dataset
 from pyhealth.interpret.methods import DeepLift
 from pyhealth.interpret.methods.base_interpreter import BaseInterpreter
-from pyhealth.models import BaseModel
+from pyhealth.models import BaseModel, EmbeddingModel
 
 
 class _ToyDeepLiftModel(BaseModel):
@@ -176,28 +177,13 @@ class TestDeepLift(unittest.TestCase):
         torch.testing.assert_close(from_call["x"], from_attribute["x"])
 
 
-class _ToyEmbeddingModel(nn.Module):
-    """Simple embedding module mapping integer tokens to vectors."""
-
-    def __init__(self, vocab_size: int = 16, embedding_dim: int = 3):
-        super().__init__()
-        self.embedding = nn.Embedding(vocab_size, embedding_dim)
-
-    def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        return {key: self.embedding(value.long()) for key, value in inputs.items()}
-
-
 class _EmbeddingForwardModel(BaseModel):
     """Toy model exposing forward_from_embedding without time_info argument."""
 
-    def __init__(self):
-        super().__init__(dataset=None)
-        self.feature_keys = ["seq"]
-        self.label_keys = ["label"]
-        self.mode = "binary"
-
-        self.embedding_model = _ToyEmbeddingModel()
-        self.linear = nn.Linear(3, 1, bias=True)
+    def __init__(self, dataset: "SampleDataset", embedding_dim: int = 3):
+        super().__init__(dataset=dataset)
+        self.embedding_model = EmbeddingModel(dataset, embedding_dim)
+        self.linear = nn.Linear(embedding_dim, 1, bias=True)
 
     def forward_from_embedding(
         self,
@@ -220,7 +206,16 @@ class TestDeepLiftEmbeddingCompatibility(unittest.TestCase):
     """Ensure embedding-mode DeepLIFT handles models without time_info support."""
 
     def setUp(self):
-        self.model = _EmbeddingForwardModel()
+        samples = [
+            {"patient_id": "p0", "visit_id": "v0", "seq": [1, 2], "label": 0},
+            {"patient_id": "p1", "visit_id": "v1", "seq": [2, 3], "label": 1},
+        ]
+        input_schema = {"seq": "sequence"}
+        output_schema = {"label": "binary"}
+        dataset = create_sample_dataset(samples, input_schema, output_schema)
+
+        embedding_dim = 3
+        self.model = _EmbeddingForwardModel(dataset, embedding_dim)
         with torch.no_grad():
             self.model.linear.weight.copy_(torch.tensor([[0.4, -0.3, 0.2]]))
             self.model.linear.bias.copy_(torch.tensor([0.1]))

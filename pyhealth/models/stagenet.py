@@ -420,6 +420,7 @@ class StageNet(BaseModel):
         self,
         feature_embeddings: Dict[str, torch.Tensor],
         time_info: Optional[Dict[str, torch.Tensor]] = None,
+        mask_info: Optional[Dict[str, torch.Tensor]] = None,
         **kwargs,
     ) -> Dict[str, torch.Tensor]:
         """Forward pass starting from feature embeddings.
@@ -436,6 +437,9 @@ class StageNet(BaseModel):
             time_info: Optional dictionary mapping feature keys to their
                 time information tensors of shape [batch_size, seq_len].
                 If None, uniform time intervals are assumed.
+            mask_info: Optional dictionary mapping feature keys to masks
+                of shape [batch_size, seq_len]. When provided, these masks
+                override the automatic mask derived from the embeddings.
             **kwargs: Additional keyword arguments, must include the label
                 key for loss computation.
 
@@ -470,8 +474,11 @@ class StageNet(BaseModel):
                     if time.dim() == 1:
                         time = time.unsqueeze(0)
 
-            # Create mask from embedded values
-            mask = (x.sum(dim=-1) != 0).int()  # [batch, seq_len]
+            # Create mask from embedded values unless an explicit one is provided
+            if mask_info is not None and feature_key in mask_info:
+                mask = mask_info[feature_key].to(self.device)
+            else:
+                mask = (x.sum(dim=-1) != 0).int()  # [batch, seq_len]
 
             # Pass through StageNet layer with embedded features
             last_output, _, cur_dis = self.stagenet[feature_key](
