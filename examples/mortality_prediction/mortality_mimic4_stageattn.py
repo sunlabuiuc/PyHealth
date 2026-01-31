@@ -16,7 +16,7 @@ from pyhealth.datasets import (
     split_by_patient,
 )
 from pyhealth.datasets.utils import save_processors, load_processors
-from pyhealth.models import StageNet
+from pyhealth.models import StageAttentionNet
 from pyhealth.tasks import MortalityPredictionStageNetMIMIC4
 from pyhealth.trainer import Trainer
 import torch
@@ -91,7 +91,7 @@ if __name__ == "__main__":
     test_loader = get_dataloader(test_dataset, batch_size=256, shuffle=False)
 
     # STEP 4: Initialize StageNet model
-    model = StageNet(
+    model = StageAttentionNet(
         dataset=sample_dataset,
         embedding_dim=128,
         chunk_size=128,
