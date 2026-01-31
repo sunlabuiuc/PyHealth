@@ -446,7 +446,8 @@ class MultimodalRNN(BaseModel):
         # Process sequential features through RNN
         for feature_key in self.sequential_features:
             x = embedded[feature_key]
-            _, last_hidden = self.rnn[feature_key](x, mask)
+            m = mask[feature_key]
+            _, last_hidden = self.rnn[feature_key](x, m)
             patient_emb.append(last_hidden)
 
         # Process non-sequential features (use embeddings directly)
