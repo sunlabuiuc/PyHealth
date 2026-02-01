@@ -165,7 +165,7 @@ class IntegratedGradients(BaseInterpreter):
         ... )
     """
 
-    def __init__(self, model: BaseModel, use_embeddings: bool = True):
+    def __init__(self, model: BaseModel, use_embeddings: bool = True, steps: int = 50):
         """Initialize IntegratedGradients interpreter.
 
         Args:
@@ -176,6 +176,10 @@ class IntegratedGradients(BaseInterpreter):
                 codes. Set to False only for fully continuous input models.
                 When True, the model must implement forward_from_embedding()
                 and have an embedding_model attribute.
+            steps: Default number of interpolation steps for Riemann
+                approximation of the path integral. Default is 50.
+                Can be overridden in attribute() calls. More steps lead to
+                better approximation but slower computation.
 
         Raises:
             AssertionError: If use_embeddings=True but model does not
@@ -183,6 +187,7 @@ class IntegratedGradients(BaseInterpreter):
         """
         super().__init__(model)
         self.use_embeddings = use_embeddings
+        self.steps = steps
 
         # Check model supports forward_from_embedding if needed
         if use_embeddings:
@@ -196,7 +201,7 @@ class IntegratedGradients(BaseInterpreter):
     def attribute(
         self,
         baseline: Optional[Dict[str, torch.Tensor]] = None,
-        steps: int = 50,
+        steps: Optional[int] = None,
         target_class_idx: Optional[int] = None,
         **data,
     ) -> Dict[str, torch.Tensor]:
@@ -211,8 +216,9 @@ class IntegratedGradients(BaseInterpreter):
                 - None: Uses small random baseline for all features (default)
                 - Dict[str, torch.Tensor]: Custom baseline for each feature
             steps: Number of steps to use in the Riemann approximation of
-                the integral. More steps lead to better approximation but
-                slower computation. Default is 50.
+                the integral. If None, uses self.steps (set during
+                initialization). More steps lead to better approximation but
+                slower computation.
             target_class_idx: Target class index for attribution
                 computation. If None, uses the predicted class (argmax of
                 model output).
@@ -275,6 +281,10 @@ class IntegratedGradients(BaseInterpreter):
             >>> top_k = torch.topk(torch.abs(condition_attr), k=5)
             >>> print(f"Most important features: {top_k.indices}")
         """
+        # Use instance default if steps not specified
+        if steps is None:
+            steps = self.steps
+
         # Extract feature keys and prepare inputs
         feature_keys = self.model.feature_keys
         inputs = {}
@@ -455,7 +465,7 @@ class IntegratedGradients(BaseInterpreter):
         target_class_idx: Optional[int] = None,
         time_info: Optional[Dict[str, torch.Tensor]] = None,
         label_data: Optional[Dict[str, torch.Tensor]] = None,
-    ) -> Dict[str, list]:
+    ) -> Dict[str, torch.Tensor]:
         """Interpolate between baseline and input, accumulating gradients.
 
         This is the core of the Integrated Gradients algorithm. For each
@@ -463,7 +473,7 @@ class IntegratedGradients(BaseInterpreter):
         1. Creates interpolated embeddings between baseline and input
         2. Runs forward pass through the model
         3. Computes gradients w.r.t. the interpolated embeddings
-        4. Collects gradients for later averaging
+        4. Accumulates gradients using running sum (memory efficient)
 
         Args:
             input_embeddings: Embedded input tensors for each feature.
@@ -474,10 +484,13 @@ class IntegratedGradients(BaseInterpreter):
             label_data: Optional label data to pass to model.
 
         Returns:
-            Dictionary mapping feature keys to lists of gradients, one
-            gradient tensor per interpolation step.
+            Dictionary mapping feature keys to accumulated gradient tensors
+            (already averaged over steps).
         """
-        all_gradients = {key: [] for key in input_embeddings}
+        # Use running sum instead of storing all gradients (memory efficient)
+        avg_gradients = {
+            key: torch.zeros_like(emb) for key, emb in input_embeddings.items()
+        }
 
         for step_idx in range(steps + 1):
             alpha = step_idx / steps
@@ -512,20 +525,23 @@ class IntegratedGradients(BaseInterpreter):
             self.model.zero_grad()
             target_output.backward(retain_graph=True)
 
-            # Collect gradients for each feature's embedding
+            # Accumulate gradients using running sum (memory efficient)
             for key in input_embeddings:
                 emb = interpolated_embeddings[key]
                 if emb.grad is not None:
-                    grad = emb.grad.detach().clone()
-                    all_gradients[key].append(grad)
-                else:
-                    all_gradients[key].append(torch.zeros_like(emb))
+                    # Add to running sum instead of storing in list
+                    avg_gradients[key] += emb.grad.detach()
+                # If grad is None, we add nothing (zeros)
 
-        return all_gradients
+        # Average the accumulated gradients
+        for key in avg_gradients:
+            avg_gradients[key] /= steps + 1
+
+        return avg_gradients
 
     def _compute_final_attributions(
         self,
-        all_gradients: Dict[str, list],
+        avg_gradients: Dict[str, torch.Tensor],
         input_embeddings: Dict[str, torch.Tensor],
         baseline_embeddings: Dict[str, torch.Tensor],
         input_shapes: Dict[str, tuple],
@@ -533,10 +549,9 @@ class IntegratedGradients(BaseInterpreter):
         """Compute final integrated gradients and map to input shapes.
 
         This method completes the IG computation by:
-        1. Averaging gradients across interpolation steps
-        2. Applying the IG formula: (input - baseline) * avg_gradient
-        3. Summing over embedding dimension
-        4. Mapping attributions back to original input tensor shapes
+        1. Applying the IG formula: (input - baseline) * avg_gradient
+        2. Summing over embedding dimension
+        3. Mapping attributions back to original input tensor shapes
 
         Important properties of IG attributions:
         - Can be POSITIVE (feature increases prediction) or NEGATIVE
@@ -547,7 +562,7 @@ class IntegratedGradients(BaseInterpreter):
           from the target class
 
         Args:
-            all_gradients: Dictionary of gradient lists from interpolation.
+            avg_gradients: Dictionary of averaged gradient tensors.
             input_embeddings: Embedded input tensors.
             baseline_embeddings: Baseline embeddings.
             input_shapes: Original input tensor shapes for mapping.
@@ -559,13 +574,9 @@ class IntegratedGradients(BaseInterpreter):
         integrated_grads = {}
 
         for key in input_embeddings:
-            # Average gradients across interpolation steps (exclude last)
-            stacked_grads = torch.stack(all_gradients[key][:-1], dim=0)
-            avg_grad = torch.mean(stacked_grads, dim=0)
-
             # Apply IG formula: (input_emb - baseline_emb) * avg_gradient
             delta_emb = input_embeddings[key] - baseline_embeddings[key]
-            emb_attribution = delta_emb * avg_grad
+            emb_attribution = delta_emb * avg_gradients[key]
 
             # Sum over embedding dimension to get per-token attribution
             # Handle both 3D [batch, seq, emb] and 4D [batch, seq, tokens, emb]
