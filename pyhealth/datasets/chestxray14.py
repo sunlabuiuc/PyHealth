@@ -53,7 +53,8 @@ class ChestXray14Dataset(BaseDataset):
                  root: str = ".",
                  config_path: Optional[str] = str(Path(__file__).parent / "configs" / "chestxray14.yaml"),
                  download: bool = False,
-                 partial: bool = False) -> None:
+                 partial: bool = False,
+                 **kwargs) -> None:
         """Initializes the ChestX-ray14 dataset.
 
         Args:
@@ -70,7 +71,7 @@ class ChestXray14Dataset(BaseDataset):
             FileNotFoundError: If the dataset path does not contain the 'images' directory.
             ValueError: If the dataset 'images' directory does not contain any PNG files.
 
-        Example:
+        Example::
             >>> dataset = ChestXray14Dataset(root="./data")
         """
         self._label_path: str = os.path.join(root, "Data_Entry_2017_v2020.csv")
@@ -87,6 +88,7 @@ class ChestXray14Dataset(BaseDataset):
             tables=["chestxray14"],
             dataset_name="ChestX-ray14",
             config_path=config_path,
+            **kwargs
         )
 
     @property
@@ -96,7 +98,7 @@ class ChestXray14Dataset(BaseDataset):
         Returns:
             ChestXray14MultilabelClassification: The default classification task.
 
-        Example:
+        Example::
             >>> dataset = ChestXray14Dataset()
             >>> task = dataset.default_task
         """
@@ -116,12 +118,20 @@ class ChestXray14Dataset(BaseDataset):
 
         return super().set_task(*args, **kwargs)
 
+    set_task.__doc__ = (
+        f"{set_task.__doc__}\n"
+        "        Note:\n"
+        "            If no image processor is provided, a default grayscale `ImageProcessor(mode='L')` is injected. "
+        "This is needed because the ChestX-ray14 dataset images do not all have the same number of channels, "
+        "causing the default PyHealth image processor to fail."
+    )
+
     def _download(self, root: str, partial: bool) -> None:
         """Downloads and verifies the ChestX-ray14 dataset files.
 
         This method performs the following steps:
-        1. Downloads the label CSV file from a Google Drive mirror.
-        2. Downloads compressed image archives from NIH Box links.
+        1. Downloads the label CSV file from the shared NIH Box folder.
+        2. Downloads compressed image archives from static NIH Box links.
         3. Verifies the integrity of each downloaded file using its MD5 checksum.
         4. Extracts the image archives to the dataset directory.
         5. Removes the original compressed files after successful extraction.
@@ -136,11 +146,18 @@ class ChestXray14Dataset(BaseDataset):
             ValueError: If an image tar file contains an unsafe path.
             ValueError: If an unexpected number of images are downloaded.
         """
-        # https://nihcc.app.box.com/v/ChestXray-NIHCC/file/219760887468 (mirrored to Google Drive)
-        # I couldn't figure out a way to download this file directly from box.com
-        response = requests.get('https://drive.google.com/uc?export=download&id=1mkOZNfYt-Px52b8CJZJANNbM3ULUVO3f')
-        with open(self._label_path, "wb") as file:
-            file.write(response.content)
+        response = requests.get(
+            url=(
+                "https://nihcc.app.box.com/index.php"
+                "?rm=box_download_shared_file"
+                "&vanity_name=ChestXray-NIHCC"
+                "&file_id=f_219760887468"
+            ),
+            allow_redirects=True,
+        )
+
+        with open(self._label_path, "wb") as f:
+            f.write(response.content)
 
         # https://nihcc.app.box.com/v/ChestXray-NIHCC/file/371647823217
         links = [

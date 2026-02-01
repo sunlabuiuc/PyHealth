@@ -1,5 +1,7 @@
 import unittest
 import torch
+import importlib.metadata as importlib_metadata
+from packaging import version
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import MoleRec
@@ -10,11 +12,19 @@ class TestMoleRec(unittest.TestCase):
 
     def setUp(self):
         """Set up test data and model."""
+        min_version = "1.3.5"
         try:
-            import pkg_resources
-            pkg_resources.require(["ogb>=1.3.5"])
-        except Exception:
+            installed = importlib_metadata.version("ogb")
+        except importlib_metadata.PackageNotFoundError:
             self.skipTest("ogb package not available")
+
+        if version.parse(installed) < version.parse(min_version):
+            self.skipTest(f"ogb>={min_version} required, but found {installed}")
+
+        try:
+            from ogb.utils import smiles2graph  # noqa: F401
+        except Exception as exc:
+            self.skipTest(f"ogb import failed: {exc}")
         
         self.samples = [
             {

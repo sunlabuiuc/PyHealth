@@ -1,6 +1,6 @@
 from typing import List
 import logging
-from base import BaseTestCase
+from tests.base import BaseTestCase
 from pathlib import Path
 import pandas as pd
 from pyhealth.nlp.metrics import (

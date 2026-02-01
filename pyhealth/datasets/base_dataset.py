@@ -115,10 +115,34 @@ def _csv_tsv_gz_path(path: str) -> str:
 
     raise FileNotFoundError(f"Neither path exists: {path} or {alt_path}")
 
+
+def _litdata_merge(cache_dir: Path) -> None:
+    """
+    Merges LitData binary writer index files in the given cache directory.
+
+    Args:
+        cache_dir (Path): The cache directory containing LitData binary writer files.
+    """
+    from litdata.streaming.writer import _INDEX_FILENAME
+    files = os.listdir(cache_dir)
+    
+    # Return if the index already exists
+    if _INDEX_FILENAME in files:
+        return
+
+    index_files = [f for f in files if f.endswith(_INDEX_FILENAME)]
+    
+    # Return if there are no index files to merge
+    if len(index_files) == 0:
+        raise ValueError("There are zero samples in the dataset, please check the task and processors.")
+    
+    BinaryWriter(cache_dir=str(cache_dir), chunk_bytes="64MB").merge(num_workers=len(index_files))
+
+
 class _ProgressContext:
     def __init__(self, queue: multiprocessing.queues.Queue | None, total: int, **kwargs):
         """
-        :param queue: An existing queue (e.g., from multiprocessing). If provided, 
+        :param queue: An existing queue (e.g., from multiprocessing). If provided,
                       this class acts as a passthrough.
         :param total: Total items for the progress bar (only used if queue is None).
         :param kwargs: Extra arguments for tqdm (e.g., desc="Processing").
@@ -135,7 +159,7 @@ class _ProgressContext:
     def __enter__(self):
         if self.queue:
             return self.queue
-        
+
         self.progress = tqdm(total=self.total, **self.kwargs)
         return self
 
@@ -158,7 +182,7 @@ def _task_transform_init(queue: multiprocessing.queues.Queue) -> None:
 def _task_transform_fn(args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, Path]) -> None:
     """
     Worker function to apply task transformation on a chunk of patients.
-    
+
     Args:
         args (tuple): A tuple containing:
             worker_id (int): The ID of the worker.
@@ -171,13 +195,13 @@ def _task_transform_fn(args: tuple[int, BaseTask, Iterable[str], pl.LazyFrame, P
     worker_id, task, patient_ids, global_event_df, output_dir = args
     total_patients = len(list(patient_ids))
     logger.info(f"Worker {worker_id} started processing {total_patients} patients. (Polars threads: {pl.thread_pool_size()})")
-    
+
     with (
-        set_env(DATA_OPTIMIZER_GLOBAL_RANK=str(worker_id)), 
+        set_env(DATA_OPTIMIZER_GLOBAL_RANK=str(worker_id)),
         _ProgressContext(_task_transform_progress, total=total_patients) as progress
     ):
         writer = BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB")
-            
+
         write_index = 0
         batches = itertools.batched(patient_ids, BATCH_SIZE)
         for batch in batches:
@@ -210,11 +234,11 @@ def _proc_transform_init(queue: multiprocessing.queues.Queue) -> None:
     """
     global _proc_transform_progress
     _proc_transform_progress = queue
-    
+
 def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
     """
     Worker function to apply processors on a chunk of samples.
-    
+
     Args:
         args (tuple): A tuple containing:
             worker_id (int): The ID of the worker.
@@ -233,32 +257,21 @@ def _proc_transform_fn(args: tuple[int, Path, int, int, Path]) -> None:
         _ProgressContext(_proc_transform_progress, total=total_samples) as progress
     ):
         writer = BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB")
-    
-        dataset = litdata.StreamingDataset(str(task_df))
-        complete = 0
-        with open(f"{output_dir}/schema.pkl", "rb") as f:
-            metadata = pickle.load(f)
 
-            input_processors = metadata["input_processors"]
-            output_processors = metadata["output_processors"]
-            
-            write_index = 0
-            for i in range(start_idx, end_idx):
-                transformed: Dict[str, Any] = {}
-                for key, value in pickle.loads(dataset[i]["sample"]).items():
-                    if key in input_processors:
-                        transformed[key] = input_processors[key].process(value)
-                    elif key in output_processors:
-                        transformed[key] = output_processors[key].process(value)
-                    else:
-                        transformed[key] = value
-                writer.add_item(write_index, transformed)
-                write_index += 1
-                complete += 1
-            
-                if complete >= BATCH_SIZE:
-                    progress.put(complete)
-                    complete = 0
+        dataset = litdata.StreamingDataset(str(task_df))
+        builder = SampleBuilder.load(f"{output_dir}/schema.pkl")
+
+        complete = 0
+        write_index = 0
+        for i in range(start_idx, end_idx):
+            transformed: Dict[str, Any] = builder.transform(dataset[i])
+            writer.add_item(write_index, transformed)
+            write_index += 1
+            complete += 1
+
+            if complete >= BATCH_SIZE:
+                progress.put(complete)
+                complete = 0
 
         if complete > 0:
             progress.put(complete)
@@ -409,10 +422,13 @@ class BaseDataset(ABC):
             )
 
             # Always infer schema as string to avoid incorrect type inference
+            # Enable newlines_in_values for clinical notes with multi-line text
             schema_reader = pv.open_csv(
                 source_path,
                 read_options=pv.ReadOptions(block_size=1 << 26),  # 64 MB
-                parse_options=pv.ParseOptions(delimiter=delimiter),
+                parse_options=pv.ParseOptions(
+                    delimiter=delimiter, newlines_in_values=True
+                ),
             )
             schema = pa.schema(
                 [pa.field(name, pa.string()) for name in schema_reader.schema.names]
@@ -422,7 +438,9 @@ class BaseDataset(ABC):
             csv_reader = pv.open_csv(
                 source_path,
                 read_options=pv.ReadOptions(block_size=1 << 26),  # 64 MB
-                parse_options=pv.ParseOptions(delimiter=delimiter),
+                parse_options=pv.ParseOptions(
+                    delimiter=delimiter, newlines_in_values=True
+                ),
                 convert_options=pv.ConvertOptions(column_types=schema),
             )
             with pq.ParquetWriter(ret_path, csv_reader.schema) as writer:
@@ -680,7 +698,7 @@ class BaseDataset(ABC):
 
     def _task_transform(self, task: BaseTask, output_dir: Path, num_workers: int) -> None:
         self._main_guard(self._task_transform.__name__)
-        
+
         logger.info(f"Applying task transformations on data with {num_workers} workers...")
         global_event_df = task.pre_filter(self.global_event_df)
         patient_ids = (
@@ -691,22 +709,22 @@ class BaseDataset(ABC):
             # .sort can reduce runtime by 5%.
             .sort()
         )
-        
+
         if in_notebook():
             logger.info("Detected Jupyter notebook environment, setting num_workers to 1")
             num_workers = 1
         num_workers = min(num_workers, len(patient_ids)) # Avoid spawning empty workers
-        
+
         # This ensures worker's polars threads are limited to avoid oversubscription,
         # which can lead to additional 75% speedup when num_workers is large.
         threads_per_worker = max(1, (os.cpu_count() or 1) // num_workers)
-        
+
         try:
             with set_env(POLARS_MAX_THREADS=str(threads_per_worker), DATA_OPTIMIZER_NUM_WORKERS=str(num_workers)):
                 if num_workers == 1:
                     logger.info("Single worker mode, processing sequentially")
                     _task_transform_fn((0, task, patient_ids, global_event_df, output_dir))
-                    BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB").merge(num_workers)
+                    _litdata_merge(output_dir)
                     return
 
                 # spwan is required for polars in multiprocessing, see https://docs.pola.rs/user-guide/misc/multiprocessing/#summary
@@ -727,38 +745,38 @@ class BaseDataset(ABC):
                                 progress.update(queue.get(timeout=1))
                             except:
                                 pass
-                                
+
                         # remaining items
                         while not queue.empty():
                             progress.update(queue.get())
                     result.get() # ensure exceptions are raised
-                BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB").merge(num_workers)
+                _litdata_merge(output_dir)
 
                 logger.info(f"Task transformation completed and saved to {output_dir}")
         except Exception as e:
             logger.error(f"Error during task transformation, cleaning up output directory: {output_dir}")
             shutil.rmtree(output_dir)
             raise e
-                
+
     def _proc_transform(self, task_df: Path, output_dir: Path, num_workers: int) -> None:
         self._main_guard(self._proc_transform.__name__)
-        
+
         logger.info(f"Applying processors on data with {num_workers} workers...")
         num_samples = len(litdata.StreamingDataset(str(task_df)))
-            
+
         if in_notebook():
             logger.info("Detected Jupyter notebook environment, setting num_workers to 1")
             num_workers = 1
-        
+
         num_workers = min(num_workers, num_samples) # Avoid spawning empty workers
         try:
             with set_env(DATA_OPTIMIZER_NUM_WORKERS=str(num_workers)):
                 if num_workers == 1:
                     logger.info("Single worker mode, processing sequentially")
                     _proc_transform_fn((0, task_df, 0, num_samples, output_dir))
-                    BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB").merge(num_workers)
+                    _litdata_merge(output_dir)
                     return
-                
+
                 ctx = multiprocessing.get_context("spawn")
                 queue = ctx.Queue()
                 linspace = more_itertools.sliding_window(np.linspace(0, num_samples, num_workers + 1, dtype=int), 2)
@@ -777,12 +795,12 @@ class BaseDataset(ABC):
                                 progress.update(queue.get(timeout=1))
                             except:
                                 pass
-                                
+
                         # remaining items
                         while not queue.empty():
                             progress.update(queue.get())
                     result.get() # ensure exceptions are raised
-                BinaryWriter(cache_dir=str(output_dir), chunk_bytes="64MB").merge(num_workers)
+                _litdata_merge(output_dir)
 
                 logger.info(f"Processor transformation completed and saved to {output_dir}")
         except Exception as e:
@@ -814,8 +832,8 @@ class BaseDataset(ABC):
         Args:
             task (Optional[BaseTask]): The task to set. Uses default task if None.
             num_workers (int): Number of workers for multi-threading. Default is `self.num_workers`.
-            cache_dir (Optional[str]): Directory to cache samples after task transformation, 
-                but without applying processors. Default is {self.cache_dir}/tasks/{task_name}.
+            cache_dir (Optional[str]): Directory to cache samples after task transformation,
+                but without applying processors. Default is {self.cache_dir}/tasks/{task_name}_{uuid5(vars(task))}.
             cache_format (str): Deprecated. Only "parquet" is supported now.
             input_processors (Optional[Dict[str, FeatureProcessor]]):
                 Pre-fitted input processors. If provided, these will be used
@@ -835,7 +853,7 @@ class BaseDataset(ABC):
         if task is None:
             assert self.default_task is not None, "No default tasks found"
             task = self.default_task
-            
+
         if num_workers is None:
             num_workers = self.num_workers
 
@@ -846,52 +864,88 @@ class BaseDataset(ABC):
             f"Setting task {task.task_name} for {self.dataset_name} base dataset..."
         )
 
+        task_params = json.dumps(
+            vars(task),
+            sort_keys=True,
+            default=str
+        )
+
         if cache_dir is None:
-            cache_dir = self.cache_dir / "tasks" / task.task_name
+            cache_dir = self.cache_dir / "tasks" / f"{task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params)}"
             cache_dir.mkdir(parents=True, exist_ok=True)
         else:
             # Ensure the explicitly provided cache_dir exists
             cache_dir = Path(cache_dir)
             cache_dir.mkdir(parents=True, exist_ok=True)
 
+        proc_params = json.dumps(
+            {
+                "input_schema": task.input_schema,
+                "output_schema": task.output_schema,
+                "input_processors": (
+                    {
+                        f"{k}_{v.__class__.__name__}": vars(v)
+                        for k, v in input_processors.items()
+                    }
+                    if input_processors
+                    else None
+                ),
+                "output_processors": (
+                    {
+                        f"{k}_{v.__class__.__name__}": vars(v)
+                        for k, v in output_processors.items()
+                    }
+                    if output_processors
+                    else None
+                ),
+            },
+            sort_keys=True,
+            default=str
+        )
+
         task_df_path = Path(cache_dir) / "task_df.ld"
-        samples_path = Path(cache_dir) / f"samples_{uuid.uuid4()}.ld"
-        
+        samples_path = Path(cache_dir) / f"samples_{uuid.uuid5(uuid.NAMESPACE_DNS, proc_params)}.ld"
+
         task_df_path.mkdir(parents=True, exist_ok=True)
         samples_path.mkdir(parents=True, exist_ok=True)
+        
+        if not (samples_path / "index.json").exists():
+            # Check if index.json exists to verify cache integrity, this
+            # is the standard file for litdata.StreamingDataset
+            if not (task_df_path / "index.json").exists():
+                self._task_transform(
+                    task,
+                    task_df_path,
+                    num_workers,
+                )
+            else:
+                logger.info(f"Found cached task dataframe at {task_df_path}, skipping task transformation.")
 
-        # Check if index.json exists to verify cache integrity, this
-        # is the standard file for litdata.StreamingDataset
-        if not (task_df_path / "index.json").exists():
-            self._task_transform(
-                task,
+            # Build processors and fit on the dataset
+            logger.info(f"Fitting processors on the dataset...")
+            dataset = litdata.StreamingDataset(
+                str(task_df_path),
+                transform=lambda x: pickle.loads(x["sample"]),
+            )
+            builder = SampleBuilder(
+                input_schema=task.input_schema,  # type: ignore
+                output_schema=task.output_schema,  # type: ignore
+                input_processors=input_processors,
+                output_processors=output_processors,
+            )
+            builder.fit(dataset)
+            builder.save(str(samples_path / "schema.pkl"))
+
+            # Apply processors and save final samples to cache_dir
+            logger.info(f"Processing samples and saving to {samples_path}...")
+            self._proc_transform(
                 task_df_path,
+                samples_path,
                 num_workers,
             )
-
-        # Build processors and fit on the dataset
-        logger.info(f"Fitting processors on the dataset...")
-        dataset = litdata.StreamingDataset(
-            str(task_df_path),
-            transform=lambda x: pickle.loads(x["sample"]),
-        )
-        builder = SampleBuilder(
-            input_schema=task.input_schema,  # type: ignore
-            output_schema=task.output_schema,  # type: ignore
-            input_processors=input_processors,
-            output_processors=output_processors,
-        )
-        builder.fit(dataset)
-        builder.save(str(samples_path / "schema.pkl"))
-
-        # Apply processors and save final samples to cache_dir
-        logger.info(f"Processing samples and saving to {samples_path}...")
-        self._proc_transform(
-            task_df_path,
-            samples_path,
-            num_workers,
-        )
-        logger.info(f"Cached processed samples to {samples_path}")
+            logger.info(f"Cached processed samples to {samples_path}")
+        else:
+            logger.info(f"Found cached processed samples at {samples_path}, skipping processing.")
 
         return SampleDataset(
             path=str(samples_path),
