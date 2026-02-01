@@ -89,11 +89,11 @@ class DKAPredictionMIMIC4(BaseTask):
             padding: Additional padding for nested sequences. Default: 0.
         """
         self.padding = padding
-        self.input_schema: Dict[str, Tuple[str, Dict[str, Any]]] = {
+        self.input_schema: Dict[str, Tuple[str, Dict[str, Any]]] = { # type: ignore
             "icd_codes": ("stagenet", {"padding": padding}),
             "labs": ("stagenet_tensor", {}),
         }
-        self.output_schema: Dict[str, str] = {"label": "binary"}
+        self.output_schema: Dict[str, str] = {"label": "binary"} # type: ignore
 
     def _is_dka_code(self, code: str, version: Any) -> bool:
         """Check if an ICD code represents Diabetic Ketoacidosis."""
@@ -133,7 +133,7 @@ class DKAPredictionMIMIC4(BaseTask):
             cat_df = filtered.filter(pl.col("labevents/itemid").is_in(itemids))
             if cat_df.height > 0:
                 values = cat_df["labevents/valuenum"].drop_nulls()
-                vector.append(float(values.mean()) if len(values) > 0 else math.nan)
+                vector.append(float(values.mean()) if len(values) > 0 else math.nan) # type: ignore
             else:
                 vector.append(math.nan)
         return vector
@@ -361,13 +361,13 @@ class T1DDKAPredictionMIMIC4(BaseTask):
         """Initialize task with configurable DKA window and padding."""
         self.dka_window_days = dka_window_days
         self.padding = padding
-        self.input_schema: Dict[str, Tuple[str, Dict[str, Any]]] = {
+        self.input_schema: Dict[str, Tuple[str, Dict[str, Any]]] = { # type: ignore
             "icd_codes": ("stagenet", {"padding": padding}),
             "labs": ("stagenet_tensor", {}),
-        }
-        self.output_schema: Dict[str, str] = {"label": "binary"}
+        } 
+        self.output_schema: Dict[str, str] = {"label": "binary"} # type: ignore
 
-    def _is_t1dm_code(self, code: str, version: Any) -> bool:
+    def _is_t1dm_code(self, code: str | None, version: Any) -> bool:
         """Check if an ICD code represents Type 1 Diabetes Mellitus."""
         if not code:
             return False
@@ -416,7 +416,7 @@ class T1DDKAPredictionMIMIC4(BaseTask):
             cat_df = filtered.filter(pl.col("labevents/itemid").is_in(itemids))
             if cat_df.height > 0:
                 values = cat_df["labevents/valuenum"].drop_nulls()
-                vector.append(float(values.mean()) if len(values) > 0 else math.nan)
+                vector.append(float(values.mean()) if len(values) > 0 else math.nan) # type: ignore
             else:
                 vector.append(math.nan)
         return vector
