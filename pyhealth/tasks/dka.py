@@ -426,15 +426,18 @@ class T1DDKAPredictionMIMIC4(BaseTask):
         if "diagnoses_icd/icd_code" not in df.collect_schema().names():
             return df
 
-        collected_df = df.collect()
-        mask_icd10 = collected_df["diagnoses_icd/icd_code"].str.starts_with(
-            self.T1DM_ICD10_PREFIX
+        # Flag rows whose diagnosis code indicates T1DM; window over patient_id to keep full histories
+        has_t1dm = (
+            pl.col("diagnoses_icd/icd_code").str.starts_with(self.T1DM_ICD10_PREFIX)
+            | pl.col("diagnoses_icd/icd_code").is_in(list(self.T1DM_ICD9_CODES))
+        ).fill_null(False)
+
+        return (
+            df.with_columns(has_t1dm.alias("__is_t1dm_code"))
+            .with_columns(pl.col("__is_t1dm_code").any().over("patient_id").alias("__has_t1dm"))
+            .filter(pl.col("__has_t1dm"))
+            .drop(["__is_t1dm_code", "__has_t1dm"])
         )
-        mask_icd9 = collected_df["diagnoses_icd/icd_code"].is_in(
-            list(self.T1DM_ICD9_CODES)
-        )
-        t1dm_patients = collected_df.filter(mask_icd10 | mask_icd9)["patient_id"].unique()
-        return collected_df.filter(collected_df["patient_id"].is_in(t1dm_patients)).lazy()
 
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
         """Process a patient to create DKA prediction samples.
