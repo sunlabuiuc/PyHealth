@@ -8,6 +8,7 @@ This example demonstrates:
 4. Presenting results in a summary table
 """
 
+import datetime
 import argparse
 from pyhealth.datasets import MIMIC4Dataset, get_dataloader, split_by_patient
 from pyhealth.interpret.methods import BaseInterpreter, IntegratedGradients, DeepLift, GIM, ShapExplainer, LimeExplainer
@@ -41,6 +42,9 @@ def main():
     print("=" * 70)
     print("Interpretability Metrics Example: StageNet + MIMIC-IV")
     print("=" * 70)
+    
+    now = datetime.datetime.now()
+    print(f"Start Time: {now.strftime('%Y-%m-%d %H:%M:%S')}")
 
     # Set path
     CACHE_DIR = Path("/shared/eng/pyhealth_dka/cache/mp_stagenet_mimic4")
@@ -167,6 +171,10 @@ def main():
         df.loc[len(df)] = [name, scores['comp'], scores['suff']]
     
     df.to_csv(OUTPUT_DIR / "results.csv", index=False)
+    
+    end = datetime.datetime.now()
+    print(f"End Time: {end.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Total Duration: {end - now}")
 
 if __name__ == "__main__":
     main()
