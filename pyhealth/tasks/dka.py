@@ -1,7 +1,7 @@
 # Description: DKA (Diabetic Ketoacidosis) prediction tasks for MIMIC-IV dataset
 
 import math
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, ClassVar, Dict, List, Optional, Set, Tuple
 
 import polars as pl
@@ -478,6 +478,14 @@ class T1DDKAPredictionMIMIC4(BaseTask):
         # Sort admissions chronologically by timestamp
         admissions = sorted(admissions, key=lambda x: x.timestamp)
 
+        # Track earliest T1DM time to enforce the DKA window on history length
+        window_start = min(t1dm_times) if t1dm_times else None
+        window_end = (
+            window_start + timedelta(days=self.dka_window_days)
+            if window_start is not None
+            else None
+        )
+
         # Initialize tracking variables
         all_icd_codes: List[List[str]] = []
         all_icd_times: List[float] = []
@@ -503,6 +511,10 @@ class T1DDKAPredictionMIMIC4(BaseTask):
             except (ValueError, AttributeError):
                 continue
 
+            # Stop once we are past the allowed window to avoid leakage from long histories
+            if window_end is not None and admission_time > window_end:
+                break
+
             # Get diagnoses for this admission
             diagnoses = patient.get_events(
                 event_type="diagnoses_icd",
@@ -512,6 +524,7 @@ class T1DDKAPredictionMIMIC4(BaseTask):
             # Iterate through diagnoses - check for DKA and collect codes
             visit_codes: List[str] = []
             seen: Set[str] = set()
+            stop_processing = False
 
             for diag in diagnoses:
                 code = getattr(diag, "icd_code", None)
@@ -521,8 +534,16 @@ class T1DDKAPredictionMIMIC4(BaseTask):
 
                 # Check for DKA - if found, record time and stop
                 if self._is_dka_code(code, version):
+                    candidate_dka_time = getattr(diag, "timestamp", admission_time)
+                    # If DKA occurs outside the window, treat as negative and stop
+                    if window_end is not None and candidate_dka_time > window_end:
+                        stop_processing = True
+                        has_dka = False
+                        dka_time = None
+                        break
+
                     has_dka = True
-                    dka_time = getattr(diag, "timestamp", admission_time)
+                    dka_time = candidate_dka_time
                     break
 
                 # Add diagnosis code if not seen
@@ -530,6 +551,9 @@ class T1DDKAPredictionMIMIC4(BaseTask):
                 if normalized not in seen:
                     seen.add(normalized)
                     visit_codes.append(normalized)
+
+            if stop_processing:
+                break
 
             # If DKA found, don't append this visit's data and stop
             if has_dka:
