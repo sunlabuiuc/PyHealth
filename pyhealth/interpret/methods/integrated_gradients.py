@@ -457,6 +457,21 @@ class IntegratedGradients(BaseInterpreter):
         target_output = torch.sum(one_hot.to(logits.device) * logits)
         return target_output
 
+    def _determine_target_class(self, logits: torch.Tensor) -> torch.Tensor:
+        """Resolve target class index once to avoid class flips along IG path."""
+        output_schema = self.model.dataset.output_schema
+        label_key = list(output_schema.keys())[0]
+        task_mode = output_schema[label_key]
+
+        is_binary = task_mode == "binary" or (
+            hasattr(task_mode, "__name__") and task_mode.__name__ == "BinaryLabelProcessor"
+        )
+
+        if is_binary:
+            probs = torch.sigmoid(logits)
+            return (probs > 0.5).long().squeeze(-1)
+        return torch.argmax(logits, dim=-1)
+
     def _interpolate_and_compute_gradients(
         self,
         input_embeddings: Dict[str, torch.Tensor],
@@ -645,6 +660,16 @@ class IntegratedGradients(BaseInterpreter):
             inputs, baseline
         )
 
+        # Resolve target class once on original input to avoid per-step flips
+        if target_class_idx is None:
+            forward_kwargs = {**label_data} if label_data else {}
+            orig_logits = self.model.forward_from_embedding(
+                feature_embeddings=input_embs,
+                time_info=time_info,
+                **forward_kwargs,
+            )["logit"]
+            target_class_idx = self._determine_target_class(orig_logits)
+
         # Step 2: Interpolate and accumulate gradients across steps
         all_grads = self._interpolate_and_compute_gradients(
             input_embs,
@@ -695,6 +720,22 @@ class IntegratedGradients(BaseInterpreter):
                 baseline[key] = torch.ones_like(inputs[key]) * 1e-5
 
         all_gradients = {key: [] for key in inputs}
+
+        # Resolve target class once on original input to avoid per-step flips
+        if target_class_idx is None:
+            forward_inputs = {}
+            for key in inputs:
+                if time_info and key in time_info:
+                    forward_inputs[key] = (time_info[key], inputs[key])
+                else:
+                    forward_inputs[key] = inputs[key]
+
+            if label_data:
+                for key in label_data:
+                    forward_inputs[key] = label_data[key]
+
+            orig_logits = self.model(**forward_inputs)["logit"]
+            target_class_idx = self._determine_target_class(orig_logits)
 
         # Interpolation loop
         for step_idx in range(steps + 1):
