@@ -107,7 +107,6 @@ tables:
       - "valueuom"
       - "flag"
       - "storetime"
-      - "hadm_id"
 
   hcpcsevents:
     file_path: "hosp/hcpcsevents.csv.gz"
