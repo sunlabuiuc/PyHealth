@@ -59,9 +59,9 @@ class TextEmbedding(nn.Module):
             Chunk 3: [CLS] + tokens[252:300] + [SEP] = 50 tokens
 
     Pooling Modes:
-        - "none" (default): All token embeddings → [B, T, E'] where T = total tokens
-        - "cls": One [CLS] embedding per chunk → [B, C, E'] where C = num chunks
-        - "mean": Mean-pooled embedding per chunk → [B, C, E']
+        - "none" (default): All token embeddings [B, T, E'] where T = total tokens
+        - "cls": One [CLS] embedding per chunk [B, C, E'] where C = num chunks
+        - "mean": Mean-pooled embedding per chunk [B, C, E']
 
     Design Decisions:
 
@@ -78,16 +78,16 @@ class TextEmbedding(nn.Module):
             - Silent OOMs in production
             - Unexpectedly slow inference
 
-            Default max_chunks=64 caps output at ~8K tokens. A UserWarning
-            alerts when truncation occurs, allowing users to:
+            Default max_chunks=64 caps output at approximately 8K tokens. A UserWarning
+            alerts when truncation occurs. Users can:
             - Increase max_chunks if memory permits
-            - Pre-summarize long notes
-            - Use chunk-level pooling instead
+            - Pre-summarize long notes before encoding
+            - Use chunk-level pooling instead of token-level
 
         freeze parameter:
             Medical transformers are expensive to fine-tune. For multimodal
-            fusion where the text encoder is just one component, freezing
-            prevents catastrophic forgetting and reduces GPU memory by ~50%.
+            fusion where the text encoder is one component among several, freezing
+            prevents catastrophic forgetting and reduces GPU memory by approximately 50%.
 
     Mask Convention:
         Returns torch.bool tensor matching PyHealth's TransformerLayer:
