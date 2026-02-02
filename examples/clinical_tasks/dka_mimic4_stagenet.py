@@ -105,7 +105,7 @@ if __name__ == "__main__":
     # STEP 5: Train the model
     trainer = Trainer(
         model=model,
-        device="cuda:7",  # or "cpu"
+        device="cuda:4",  # or "cpu"
         metrics=["pr_auc", "roc_auc", "accuracy", "f1"],
         output_path="/home/yongdaf2/dka_sn/output"
     )
