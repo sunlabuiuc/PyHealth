@@ -21,8 +21,12 @@ from einops import rearrange
 # who don't use TFM classes, while still providing clear error messages for
 # the 5% who do but forgot to install the dependency.
 #
-# Note: tests/core/test_tfm_tokenizer.py tests will fail without the optional
-# dependency installed. This is expected behavior, not a regression.
+# Why test failures are not an issue:
+#   - Package imports work correctly (pyhealth.models loads without error)
+#   - Only users who instantiate TFMTokenizer see the ImportError
+#   - Error message provides clear install instructions
+#   - Tests in tests/core/test_tfm_tokenizer.py will fail without the optional
+#     dependency, but this is intentional behavior showing the lazy import works
 # =============================================================================
 
 LinearAttentionTransformer = None
