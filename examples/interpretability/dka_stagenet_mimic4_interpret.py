@@ -10,7 +10,8 @@ This example demonstrates:
 
 import datetime
 import argparse
-from pyhealth.datasets import MIMIC4Dataset, get_dataloader, split_by_patient
+from pyhealth.datasets import MIMIC4Dataset, get_dataloader, sample_balanced
+from collections import Counter
 from pyhealth.interpret.methods import BaseInterpreter, IntegratedGradients, DeepLift, GIM, ShapExplainer, LimeExplainer
 from pyhealth.metrics.interpretability import evaluate_attribution
 from pyhealth.models import StageNet
@@ -20,7 +21,7 @@ from pyhealth.datasets.utils import load_processors
 from pathlib import Path
 import pandas as pd
 
-# python -u examples/interpretability/dka_stagenet_mimic4_interpret.py --methods deeplift --device cuda:7 2>&1 | tee -a /home/yongdaf2/pyhealth_dka/output/dka_stagenet_mimic4/deeplift.log
+# python -u examples/interpretability/dka_stagenet_mimic4_interpret.py --methods shap --device cuda:6 2>&1 | tee -a /shared/eng/pyhealth_dka/output/dka_stagenet_mimic4/shap.log
 def main():
     parser = argparse.ArgumentParser(
         description="Comma separated list of interpretability methods to evaluate"
@@ -47,7 +48,7 @@ def main():
     print(f"Start Time: {now.strftime('%Y-%m-%d %H:%M:%S')}")
 
     # Set path
-    CACHE_DIR = Path("/home/yongdaf2/dka_stagenet_mimic4")
+    CACHE_DIR = Path("/shared/eng/pyhealth_dka/cache/dka_stagenet_mimic4")
     CKPTS_DIR = Path("/shared/eng/pyhealth_dka/ckpts/dka_stagenet_mimic4")
     OUTPUT_DIR = Path("/shared/eng/pyhealth_dka/output/dka_stagenet_mimic4")
     print(f"\nUsing cache dir: {CACHE_DIR}")
@@ -89,15 +90,28 @@ def main():
     )
     print(f"✓ Loaded {len(sample_dataset)} samples")
 
+    def count_labels(ds):
+        c = Counter()
+        for i in range(len(ds)):
+            lbl = ds[i]["label"]
+            c[int(lbl.item() if hasattr(lbl, "item") else lbl)] += 1
+        return c
+
+    # Debug: before balancing
+    before_counts = count_labels(sample_dataset)
+    print(f"Label count of original dataset {before_counts}")
+
     # Split dataset and get test loader
-    _, _, test_dataset = split_by_patient(sample_dataset, [0.9, 0.09, 0.01], seed=233)
+    test_dataset = sample_balanced(sample_dataset, ratio=1.0, subsample=0.01, seed=233)
+    after_counts = count_labels(test_dataset)
+    print(f"Label counts after balancing: {after_counts}")
     test_loader = get_dataloader(test_dataset, batch_size=16, shuffle=False)
     print(f"✓ Test set: {len(test_dataset)} samples")
 
     # Initialize and load pre-trained model
     print("\n Loading pre-trained StageNet model...")
     model = StageNet(
-        dataset=sample_dataset,
+        dataset=test_dataset,
         embedding_dim=128,
         chunk_size=128,
         levels=3,
