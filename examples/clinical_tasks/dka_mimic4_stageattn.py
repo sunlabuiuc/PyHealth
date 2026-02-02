@@ -78,7 +78,7 @@ if __name__ == "__main__":
     print(f"  Patient ID: {sample['patient_id']}")
     print(f"ICD Codes: {sample['icd_codes']}")
     print(f"  Labs shape: {len(sample['labs'][0])} timesteps")
-    print(f"  DKA: {sample['dka']}")
+    print(f"  DKA: {sample['label']}")
 
     # STEP 3: Split dataset
     train_dataset, val_dataset, test_dataset = split_by_patient(
