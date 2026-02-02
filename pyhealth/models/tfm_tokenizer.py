@@ -5,10 +5,67 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
-from linear_attention_transformer import LinearAttentionTransformer
+
+# =============================================================================
+# LAZY IMPORT FOR OPTIONAL DEPENDENCY
+# =============================================================================
+# The linear_attention_transformer package is only needed for TFMTokenizer and
+# TFM_TOKEN_Classifier classes. However, this module is imported at package
+# load time via pyhealth.models.__init__.py.
+#
+# Problem: If we import LinearAttentionTransformer at module level, users who
+# don't need TFMTokenizer still get ImportError when they `import pyhealth.models`.
+#
+# Solution: Lazy import - only load the dependency when actually instantiating
+# a class that needs it. This keeps the repo functional for the 95% of users
+# who don't use TFM classes, while still providing clear error messages for
+# the 5% who do but forgot to install the dependency.
+# =============================================================================
+
+LinearAttentionTransformer = None
+
+
+def _get_linear_attention_transformer():
+    """Lazily import LinearAttentionTransformer on first use.
+
+    This function implements a lazy import pattern to avoid breaking the
+    PyHealth package when the optional `linear_attention_transformer`
+    dependency is not installed.
+
+    Returns:
+        The LinearAttentionTransformer class from the external package.
+
+    Raises:
+        ImportError: If the package is not installed, with a helpful
+            message explaining how to install it.
+
+    Why This Pattern:
+        - pyhealth.models.__init__.py imports from this file at package load
+        - A top-level `from linear_attention_transformer import ...` would
+          cause ImportError for ALL users of pyhealth.models, even those
+          who don't need TFMTokenizer
+        - By deferring the import to class instantiation time, we ensure
+          the error only occurs for users who actually try to use the
+          affected classes
+    """
+    global LinearAttentionTransformer
+    if LinearAttentionTransformer is None:
+        try:
+            from linear_attention_transformer import LinearAttentionTransformer as LAT
+            LinearAttentionTransformer = LAT
+        except ImportError:
+            raise ImportError(
+                "linear_attention_transformer is required for TFMTokenizer. "
+                "Install it with: pip install linear-attention-transformer"
+            )
+    return LinearAttentionTransformer
+
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
+
+
+
 
 class PositionalEncoding(nn.Module):
     """Positional encoding for transformer models.
@@ -65,7 +122,8 @@ class TransformerEncoder(nn.Module):
     ):
         super().__init__()
 
-        self.transformer = LinearAttentionTransformer(
+        LAT = _get_linear_attention_transformer()
+        self.transformer = LAT(
             dim=emb_size,
             heads=num_heads,
             depth=depth,
@@ -475,7 +533,8 @@ class TFM_TOKEN_Classifier(nn.Module):
         self.pos_drop = nn.Dropout(p=0.1)
         self.cls_token = nn.Parameter(torch.zeros(1, 1, emb_size))
 
-        self.LAT = LinearAttentionTransformer(
+        LAT = _get_linear_attention_transformer()
+        self.LAT = LAT(
             dim=emb_size,
             heads=num_heads,
             depth=depth,
