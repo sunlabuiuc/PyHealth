@@ -1,0 +1,20 @@
+itemid,label,fluid,category
+50809,Glucose,Blood,Chemistry
+50931,Glucose,Blood,Chemistry
+52027,Glucose,Blood,Chemistry
+52569,Glucose,Blood,Chemistry
+50803,Calculated Bicarbonate,Blood,Blood Gas
+50804,Calculated Total CO2,Blood,Blood Gas
+51084,Bicarbonate,Blood,Chemistry
+50868,Anion Gap,Blood,Chemistry
+50822,Potassium,Blood,Chemistry
+50971,Potassium,Blood,Chemistry
+52452,Potassium,Blood,Chemistry
+52510,Potassium,Blood,Chemistry
+50824,Sodium,Blood,Chemistry
+50983,Sodium,Blood,Chemistry
+52455,Sodium,Blood,Chemistry
+50806,Chloride,Blood,Chemistry
+50902,Chloride,Blood,Chemistry
+52434,Chloride,Blood,Chemistry
+
