@@ -20,6 +20,9 @@ from einops import rearrange
 # a class that needs it. This keeps the repo functional for the 95% of users
 # who don't use TFM classes, while still providing clear error messages for
 # the 5% who do but forgot to install the dependency.
+#
+# Note: tests/core/test_tfm_tokenizer.py tests will fail without the optional
+# dependency installed. This is expected behavior, not a regression.
 # =============================================================================
 
 LinearAttentionTransformer = None
