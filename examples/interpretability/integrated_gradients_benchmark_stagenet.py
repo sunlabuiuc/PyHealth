@@ -34,7 +34,7 @@ from pyhealth.trainer import Trainer
 # Configuration
 CHECKPOINT_PATH = (
     "/home/johnwu3/projects/PyHealth_Branch_Testing/PyHealth/output/"
-    "20251028-191219/best.ckpt"
+    "20260131-184735/best.ckpt"
 )
 PROCESSOR_DIR = "../output/processors/stagenet_mortality_mimic4"
 CACHE_DIR = "../../mimic4_stagenet_cache"
