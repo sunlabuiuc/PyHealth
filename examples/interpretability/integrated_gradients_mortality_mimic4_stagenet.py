@@ -289,6 +289,7 @@ def main():
             "procedures_icd",
             "labevents",
         ],
+        num_workers=8,
     )
 
     # STEP 2: Check for existing processors and load/create accordingly
@@ -317,7 +318,7 @@ def main():
     # Apply StageNet mortality prediction task
     sample_dataset = base_dataset.set_task(
         MortalityPredictionStageNetMIMIC4(),
-        num_workers=4,
+        num_workers=8,
         cache_dir="../../mimic4_stagenet_cache",
         input_processors=input_processors,
         output_processors=output_processors,
