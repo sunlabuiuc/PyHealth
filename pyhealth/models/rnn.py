@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -6,6 +6,18 @@ import torch.nn.utils.rnn as rnn_utils
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
+from pyhealth.processors import (
+    DeepNestedFloatsProcessor,
+    DeepNestedSequenceProcessor,
+    MultiHotProcessor,
+    NestedFloatsProcessor,
+    NestedSequenceProcessor,
+    SequenceProcessor,
+    StageNetProcessor,
+    StageNetTensorProcessor,
+    TensorProcessor,
+    TimeseriesProcessor,
+)
 
 from .embedding import EmbeddingModel
 
@@ -235,7 +247,10 @@ class RNN(BaseModel):
         embedded = self.embedding_model(kwargs)
         for feature_key in self.feature_keys:
             x = embedded[feature_key]
-            mask = (x.sum(dim=-1) != 0).int()
+            # Use abs() before sum to catch edge cases where embeddings sum to 0
+            # @TODO bug with 0 embedding sum can still persist if the embedding is all 0s but the mask is not all 0s. 
+            # despite being valid values (e.g., [1.0, -1.0])
+            mask = (torch.abs(x).sum(dim=-1) != 0).int()
             _, x = self.rnn[feature_key](x, mask)
             patient_emb.append(x)
 
@@ -247,6 +262,218 @@ class RNN(BaseModel):
         loss = self.get_loss_function()(logits, y_true)
         y_prob = self.prepare_y_prob(logits)
         results = {"loss": loss, "y_prob": y_prob, "y_true": y_true, "logit": logits}
+        if kwargs.get("embed", False):
+            results["embed"] = patient_emb
+        return results
+
+
+class MultimodalRNN(BaseModel):
+    """Multimodal RNN model that handles both sequential and non-sequential features.
+
+    This model extends the vanilla RNN to support mixed input modalities:
+    - Sequential features (sequences, timeseries) go through RNN layers
+    - Non-sequential features (multi-hot, tensor) bypass RNN and use embeddings directly
+
+    The model automatically classifies input features based on their processor types:
+    - Sequential processors (apply RNN): SequenceProcessor, NestedSequenceProcessor,
+        DeepNestedSequenceProcessor, NestedFloatsProcessor, DeepNestedFloatsProcessor,
+        TimeseriesProcessor
+    - Non-sequential processors (embeddings only): MultiHotProcessor, TensorProcessor,
+        StageNetProcessor, StageNetTensorProcessor
+
+    For sequential features, the model:
+    1. Embeds the input using EmbeddingModel
+    2. Applies RNNLayer to get sequential representations
+    3. Extracts the last hidden state
+
+    For non-sequential features, the model:
+    1. Embeds the input using EmbeddingModel
+    2. Applies mean pooling if needed to reduce to 2D
+    3. Uses the embedding directly
+
+    All feature representations are concatenated and passed through a final
+    fully connected layer for predictions.
+
+    Args:
+        dataset (SampleDataset): the dataset to train the model. It is used to query
+            certain information such as the set of all tokens and processor types.
+        embedding_dim (int): the embedding dimension. Default is 128.
+        hidden_dim (int): the hidden dimension for RNN layers. Default is 128.
+        **kwargs: other parameters for the RNN layer (e.g., rnn_type, num_layers,
+            dropout, bidirectional).
+
+    Examples:
+        >>> from pyhealth.datasets import create_sample_dataset
+        >>> samples = [
+        ...     {
+        ...         "patient_id": "patient-0",
+        ...         "visit_id": "visit-0",
+        ...         "conditions": ["cond-33", "cond-86"],  # sequential
+        ...         "demographics": ["asian", "male"],      # multi-hot
+        ...         "vitals": [120.0, 80.0, 98.6],        # tensor
+        ...         "label": 1,
+        ...     },
+        ...     {
+        ...         "patient_id": "patient-1",
+        ...         "visit_id": "visit-1",
+        ...         "conditions": ["cond-12", "cond-52"],  # sequential
+        ...         "demographics": ["white", "female"],    # multi-hot
+        ...         "vitals": [110.0, 75.0, 98.2],        # tensor
+        ...         "label": 0,
+        ...     },
+        ... ]
+        >>> dataset = create_sample_dataset(
+        ...     samples=samples,
+        ...     input_schema={
+        ...         "conditions": "sequence",
+        ...         "demographics": "multi_hot",
+        ...         "vitals": "tensor",
+        ...     },
+        ...     output_schema={"label": "binary"},
+        ...     dataset_name="test"
+        ... )
+        >>>
+        >>> from pyhealth.datasets import get_dataloader
+        >>> train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
+        >>>
+        >>> model = MultimodalRNN(dataset=dataset, embedding_dim=128, hidden_dim=64)
+        >>>
+        >>> data_batch = next(iter(train_loader))
+        >>>
+        >>> ret = model(**data_batch)
+        >>> print(ret)
+        {
+            'loss': tensor(...),
+            'y_prob': tensor(...),
+            'y_true': tensor(...),
+            'logit': tensor(...)
+        }
+    """
+
+    def __init__(
+        self,
+        dataset: SampleDataset,
+        embedding_dim: int = 128,
+        hidden_dim: int = 128,
+        **kwargs
+    ):
+        super(MultimodalRNN, self).__init__(dataset=dataset)
+        self.embedding_dim = embedding_dim
+        self.hidden_dim = hidden_dim
+
+        # validate kwargs for RNN layer
+        if "input_size" in kwargs:
+            raise ValueError("input_size is determined by embedding_dim")
+        if "hidden_size" in kwargs:
+            raise ValueError("hidden_size is determined by hidden_dim")
+
+        assert len(self.label_keys) == 1, "Only one label key is supported"
+        self.label_key = self.label_keys[0]
+        self.mode = self.dataset.output_schema[self.label_key]
+
+        self.embedding_model = EmbeddingModel(dataset, embedding_dim)
+
+        # Classify features as sequential or non-sequential
+        self.sequential_features = []
+        self.non_sequential_features = []
+
+        self.rnn = nn.ModuleDict()
+        for feature_key in self.feature_keys:
+            processor = dataset.input_processors[feature_key]
+            if self._is_sequential_processor(processor):
+                self.sequential_features.append(feature_key)
+                # Create RNN for this feature
+                self.rnn[feature_key] = RNNLayer(
+                    input_size=embedding_dim,
+                    hidden_size=hidden_dim,
+                    **kwargs
+                )
+            else:
+                self.non_sequential_features.append(feature_key)
+
+        # Calculate final concatenated dimension
+        final_dim = (len(self.sequential_features) * hidden_dim +
+                     len(self.non_sequential_features) * embedding_dim)
+        output_size = self.get_output_size()
+        self.fc = nn.Linear(final_dim, output_size)
+
+    def _is_sequential_processor(self, processor) -> bool:
+        """Check if processor represents sequential data.
+
+        Sequential processors are those that benefit from RNN processing,
+        including sequences of codes and timeseries data.
+
+        Note:
+            StageNetProcessor and StageNetTensorProcessor are excluded as they
+            are specialized for the StageNet model architecture and should be
+            treated as non-sequential for standard RNN processing.
+
+        Args:
+            processor: The processor instance to check.
+
+        Returns:
+            bool: True if processor is sequential, False otherwise.
+        """
+        return isinstance(processor, (
+            SequenceProcessor,
+            NestedSequenceProcessor,
+            DeepNestedSequenceProcessor,
+            NestedFloatsProcessor,
+            DeepNestedFloatsProcessor,
+            TimeseriesProcessor,
+        ))
+
+    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+        """Forward propagation handling mixed modalities.
+
+        The label `kwargs[self.label_key]` is a list of labels for each patient.
+
+        Args:
+            **kwargs: keyword arguments for the model. The keys must contain
+                all the feature keys and the label key.
+
+        Returns:
+            Dict[str, torch.Tensor]: A dictionary with the following keys:
+                - loss: a scalar tensor representing the loss.
+                - y_prob: a tensor representing the predicted probabilities.
+                - y_true: a tensor representing the true labels.
+                - logit: a tensor representing the logits.
+                - embed (optional): a tensor representing the patient embeddings if requested.
+        """
+        patient_emb = []
+        embedded, mask = self.embedding_model(kwargs, output_mask=True)
+
+        # Process sequential features through RNN
+        for feature_key in self.sequential_features:
+            x = embedded[feature_key]
+            m = mask[feature_key]
+            _, last_hidden = self.rnn[feature_key](x, m)
+            patient_emb.append(last_hidden)
+
+        # Process non-sequential features (use embeddings directly)
+        for feature_key in self.non_sequential_features:
+            x = embedded[feature_key]
+            # If multi-dimensional, aggregate (mean pooling)
+            while x.dim() > 2:
+                x = x.mean(dim=1)
+            patient_emb.append(x)
+
+        # Concatenate all representations
+        patient_emb = torch.cat(patient_emb, dim=1)
+        # (patient, label_size)
+        logits = self.fc(patient_emb)
+
+        # Calculate loss and predictions
+        y_true = kwargs[self.label_key].to(self.device)
+        loss = self.get_loss_function()(logits, y_true)
+        y_prob = self.prepare_y_prob(logits)
+
+        results = {
+            "loss": loss,
+            "y_prob": y_prob,
+            "y_true": y_true,
+            "logit": logits
+        }
         if kwargs.get("embed", False):
             results["embed"] = patient_emb
         return results

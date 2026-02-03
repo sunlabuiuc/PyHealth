@@ -1,13 +1,56 @@
 from __future__ import annotations
 
 import contextlib
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Type
 
 import torch
 
 from pyhealth.models import BaseModel
 
 from .base_interpreter import BaseInterpreter
+
+
+def _iter_child_modules(module: torch.nn.Module):
+    for name, child in module.named_children():
+        yield module, name, child
+        yield from _iter_child_modules(child)
+
+
+class _SoftmaxWrapper(torch.nn.Module):
+    """Swap nn.Softmax with temperature-adjusted backward for GIM."""
+
+    def __init__(self, dim: int, temperature: float):
+        super().__init__()
+        self.dim = dim
+        self.temperature = temperature
+
+    def forward(self, tensor: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
+        return _TemperatureSoftmax.apply(tensor, self.dim, self.temperature)
+
+
+class _GIMSwapContext(contextlib.AbstractContextManager):
+    """Temporarily replace softmax modules with GIM-aware versions."""
+
+    _TARGETS: Dict[Type[torch.nn.Module], str] = {torch.nn.Softmax: "softmax"}
+
+    def __init__(self, model: BaseModel, temperature: float):
+        self.model = model
+        self.temperature = temperature
+        self._swapped: List[Tuple[torch.nn.Module, str, torch.nn.Module]] = []
+
+    def __enter__(self) -> "_GIMSwapContext":
+        for parent, name, child in _iter_child_modules(self.model):
+            if isinstance(child, torch.nn.Softmax):
+                wrapper = _SoftmaxWrapper(dim=child.dim, temperature=self.temperature)
+                setattr(parent, name, wrapper)
+                self._swapped.append((parent, name, child))
+        return self
+
+    def __exit__(self, exc_type, exc, exc_tb) -> bool:
+        for parent, name, original in reversed(self._swapped):
+            setattr(parent, name, original)
+        self._swapped.clear()
+        return False
 
 
 class _TemperatureSoftmax(torch.autograd.Function):
@@ -52,55 +95,21 @@ class _TemperatureSoftmax(torch.autograd.Function):
         return grad_input, None, None
 
 
-class _GIMActivationHooks:
-    """Router that swaps selected activations for GIM-aware variants."""
-
-    def __init__(self, temperature: float = 2.0):
-        self.temperature = temperature
-
-    def apply(self, name: str, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
-        if name == "softmax" and self.temperature is not None:
-            dim = kwargs.get("dim", -1)
-            temp = max(float(self.temperature), 1.0)
-            return _TemperatureSoftmax.apply(tensor, dim, temp)
-        fn = getattr(torch, name)
-        return fn(tensor, **kwargs)
-
-
 class _GIMHookContext(contextlib.AbstractContextManager):
-    """Context manager that wires GIM hooks if the model supports them.
-
-    TSG needs to intercept every activation that calls ``torch.softmax``.
-    StageNet exposes DeepLIFT-style hook setters, so we reuse that surface
-    unless a dedicated ``set_gim_hooks`` is provided.
-    """
+    """Context manager that swaps softmax modules for temperature-aware variants."""
 
     def __init__(self, model: BaseModel, temperature: float):
         self.model = model
         self.temperature = temperature
-        self.hooks: Optional[_GIMActivationHooks] = None
-        self._set_fn = None
-        self._clear_fn = None
-
-        # Prefer explicit GIM hooks if the model exposes them, otherwise
-        # reuse the DeepLIFT hook wiring which StageNet already supports.
-        if hasattr(model, "set_gim_hooks") and hasattr(model, "clear_gim_hooks"):
-            self._set_fn = model.set_gim_hooks
-            self._clear_fn = model.clear_gim_hooks
-        elif hasattr(model, "set_deeplift_hooks") and hasattr(model, "clear_deeplift_hooks"):
-            self._set_fn = model.set_deeplift_hooks
-            self._clear_fn = model.clear_deeplift_hooks
+        self._swap_ctx = _GIMSwapContext(model, temperature=max(float(temperature), 1.0))
 
     def __enter__(self) -> "_GIMHookContext":
-        if self._set_fn is not None and self.temperature > 1.0:
-            self.hooks = _GIMActivationHooks(temperature=self.temperature)
-            self._set_fn(self.hooks)
+        if self.temperature > 1.0:
+            self._swap_ctx.__enter__()
         return self
 
     def __exit__(self, exc_type, exc, exc_tb) -> bool:
-        if self._clear_fn is not None and self.hooks is not None:
-            self._clear_fn()
-        self.hooks = None
+        self._swap_ctx.__exit__(exc_type, exc, exc_tb)
         return False
 
 
