@@ -47,9 +47,12 @@ def main():
     print(f"Start Time: {now.strftime('%Y-%m-%d %H:%M:%S')}")
 
     # Set path
-    CACHE_DIR = Path("/shared/eng/pyhealth_dka/cache/mp_stagenet_mimic4")
+    CACHE_DIR = Path("/shared/eng/pyhealth_dka/cache/mp_mimic4")
     CKPTS_DIR = Path("/shared/eng/pyhealth_dka/ckpts/mp_stagenet_mimic4")
     OUTPUT_DIR = Path("/shared/eng/pyhealth_dka/output/mp_stagenet_mimic4")
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    CKPTS_DIR.mkdir(parents=True, exist_ok=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     print(f"\nUsing cache dir: {CACHE_DIR}")
     print(f"Using checkpoints dir: {CKPTS_DIR}")
     print(f"Using output dir: {OUTPUT_DIR}")

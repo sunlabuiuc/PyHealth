@@ -13,14 +13,14 @@ import argparse
 from pyhealth.datasets import MIMIC4Dataset, get_dataloader, split_by_patient
 from pyhealth.interpret.methods import BaseInterpreter, IntegratedGradients, DeepLift, GIM, ShapExplainer, LimeExplainer
 from pyhealth.metrics.interpretability import evaluate_attribution
-from pyhealth.models import StageAttentionNet
+from pyhealth.models import Transformer
 from pyhealth.tasks import MortalityPredictionStageNetMIMIC4
 from pyhealth.trainer import Trainer
 from pyhealth.datasets.utils import load_processors
 from pathlib import Path
 import pandas as pd
 
-# python -u examples/interpretability/mp_stageattn_mimic4_interpret.py --methods deeplift --device cuda:7 2>&1 | tee -a /home/yongdaf2/pyhealth_dka/output/mp_stageattn_mimic4/deeplift.log
+# python -u examples/interpretability/mp_transformer_mimic4_interpret.py --methods deeplift --device cuda:3 2>&1 | tee -a /home/yongdaf2/pyhealth_dka/output/mp_transformer_mimic4/deeplift.log
 def main():
     parser = argparse.ArgumentParser(
         description="Comma separated list of interpretability methods to evaluate"
@@ -40,16 +40,16 @@ def main():
     
     """Main execution function."""
     print("=" * 70)
-    print("Interpretability Metrics Example: StageAttentionNet + MIMIC-IV")
+    print("Interpretability Metrics Example: Transformer + MIMIC-IV")
     print("=" * 70)
-
+    
     now = datetime.datetime.now()
     print(f"Start Time: {now.strftime('%Y-%m-%d %H:%M:%S')}")
 
     # Set path
     CACHE_DIR = Path("/shared/eng/pyhealth_dka/cache/mp_mimic4")
-    CKPTS_DIR = Path("/shared/eng/pyhealth_dka/ckpts/mp_stageattn_mimic4")
-    OUTPUT_DIR = Path("/shared/eng/pyhealth_dka/output/mp_stageattn_mimic4")
+    CKPTS_DIR = Path("/shared/eng/pyhealth_dka/ckpts/mp_transformer_mimic4")
+    OUTPUT_DIR = Path("/shared/eng/pyhealth_dka/output/mp_transformer_mimic4")
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     CKPTS_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -98,13 +98,13 @@ def main():
     print(f"✓ Test set: {len(test_dataset)} samples")
 
     # Initialize and load pre-trained model
-    print("\n Loading pre-trained StageAttentionNet model...")
-    model = StageAttentionNet(
+    print("\n Loading pre-trained Transformer model...")
+    model = Transformer(
         dataset=sample_dataset,
         embedding_dim=128,
-        chunk_size=128,
-        levels=3,
+        heads=4,
         dropout=0.3,
+        num_layers=3,
     )
 
     trainer = Trainer(model=model, device=device)
