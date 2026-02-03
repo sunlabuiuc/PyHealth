@@ -14,14 +14,14 @@ from pyhealth.datasets import MIMIC4Dataset, get_dataloader, sample_balanced
 from collections import Counter
 from pyhealth.interpret.methods import BaseInterpreter, IntegratedGradients, DeepLift, GIM, ShapExplainer, LimeExplainer
 from pyhealth.metrics.interpretability import evaluate_attribution
-from pyhealth.models import StageNet
+from pyhealth.models import Transformer
 from pyhealth.tasks import DKAPredictionMIMIC4
 from pyhealth.trainer import Trainer
 from pyhealth.datasets.utils import load_processors
 from pathlib import Path
 import pandas as pd
 
-# python -u examples/interpretability/dka_stagenet_mimic4_interpret.py --methods shap --device cuda:6 2>&1 | tee -a /shared/eng/pyhealth_dka/output/dka_stagenet_mimic4/shap.log
+# python -u examples/interpretability/dka_transformer_mimic4_interpret.py --methods deeplift --device cuda:4 2>&1 | tee -a /shared/eng/pyhealth_dka/output/dka_transformer_mimic4/deeplift.log
 def main():
     parser = argparse.ArgumentParser(
         description="Comma separated list of interpretability methods to evaluate"
@@ -41,7 +41,7 @@ def main():
     
     """Main execution function."""
     print("=" * 70)
-    print("Interpretability Metrics Example: StageNet + MIMIC-IV")
+    print("Interpretability Metrics Example: Transformer + MIMIC-IV")
     print("=" * 70)
     
     now = datetime.datetime.now()
@@ -49,8 +49,8 @@ def main():
 
     # Set path
     CACHE_DIR = Path("/shared/eng/pyhealth_dka/cache/dka_mimic4")
-    CKPTS_DIR = Path("/shared/eng/pyhealth_dka/ckpts/dka_stagenet_mimic4")
-    OUTPUT_DIR = Path("/shared/eng/pyhealth_dka/output/dka_stagenet_mimic4")
+    CKPTS_DIR = Path("/shared/eng/pyhealth_dka/ckpts/dka_transformer_mimic4")
+    OUTPUT_DIR = Path("/shared/eng/pyhealth_dka/output/dka_transformer_mimic4")
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     CKPTS_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -112,13 +112,13 @@ def main():
     print(f"✓ Test set: {len(test_dataset)} samples")
 
     # Initialize and load pre-trained model
-    print("\n Loading pre-trained StageNet model...")
-    model = StageNet(
-        dataset=test_dataset,
+    print("\n Loading pre-trained Transformer model...")
+    model = Transformer(
+        dataset=sample_dataset,
         embedding_dim=128,
-        chunk_size=128,
-        levels=3,
+        heads=4,
         dropout=0.3,
+        num_layers=3,
     )
 
     trainer = Trainer(model=model, device=device)
