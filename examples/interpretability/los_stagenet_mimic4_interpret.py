@@ -20,7 +20,7 @@ from pyhealth.datasets.utils import load_processors
 from pathlib import Path
 import pandas as pd
 
-# python -u examples/interpretability/los_stagenet_mimic4_interpret.py --methods deeplift --device cuda:7 2>&1 | tee -a /home/yongdaf2/pyhealth_dka/output/los_stagenet_mimic4/deeplift.log
+# python -u examples/interpretability/los_stagenet_mimic4_interpret.py --methods deeplift --device cuda:3 2>&1 | tee -a /home/yongdaf2/pyhealth_dka/output/los_stagenet_mimic4/deeplift.log
 def main():
     parser = argparse.ArgumentParser(
         description="Comma separated list of interpretability methods to evaluate"
@@ -47,8 +47,7 @@ def main():
     print(f"Start Time: {now.strftime('%Y-%m-%d %H:%M:%S')}")
 
     # Set path
-    # CACHE_DIR = Path("/shared/eng/pyhealth_dka/cache/los_mimic4")
-    CACHE_DIR = Path("/home/yongdaf2/los_mimic4")
+    CACHE_DIR = Path("/shared/eng/pyhealth_dka/cache/los_mimic4")
     CKPTS_DIR = Path("/shared/eng/pyhealth_dka/ckpts/los_stagenet_mimic4")
     OUTPUT_DIR = Path("/shared/eng/pyhealth_dka/output/los_stagenet_mimic4")
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
