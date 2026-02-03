@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --account=jalenj4-ic
-#SBATCH --partition=IllinoisComputes-GPU
+#SBATCH --partition=ic-express
 #SBATCH --gres=gpu:1
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=4
@@ -8,6 +8,8 @@
 #SBATCH --job-name=promptehr_gen_10k
 #SBATCH --output=logs/promptehr_gen_10k_%j.out
 #SBATCH --error=logs/promptehr_gen_10k_%j.err
+#SBATCH --mail-type=END,FAIL
+#SBATCH --mail-user=jalen.jiang2@gmail.com
 
 # Exit on error
 set -e
@@ -45,15 +47,18 @@ echo "CUDA available: $(python3 -c 'import torch; print(torch.cuda.is_available(
 echo "GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader)"
 echo "=========================================================="
 
-# Run generation for 10,000 patients
+# Run generation for 10,000 patients with optimal parameters
+# Checkpoint: best_model_fixed.pt (20 epochs, Jan 29 2026)
+# Optimal params from diagnostic: alpha=2.0, temp=1.0 (R²=0.61)
 python3 examples/promptehr_mimic3.py \
     --mimic3_root /u/jalenj4/pehr_scratch/data_files \
     --output_dir ./promptehr_outputs \
-    --checkpoint ./promptehr_outputs/checkpoints/final_model.pt \
+    --checkpoint /scratch/jalenj4/promptehr_checkpoints/best_model_fixed.pt \
     --generate_only \
     --num_synthetic 10000 \
     --num_patients 1000 \
-    --temperature 0.7 \
+    --temperature 1.0 \
+    --alpha 2.0 \
     --device cuda
 
 echo "Generation completed at $(date)"

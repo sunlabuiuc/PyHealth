@@ -118,7 +118,9 @@ class EHRDataCollator:
                 shuffled_visits.append(shuffled_visit)
 
             # Encode visits to token IDs
-            token_sequence = ["<s>"]
+            # Note: Do NOT prepend <s> here - shift_tokens_right will add it during training
+            # Labels should be the target sequence without BOS
+            token_sequence = []
             for visit in shuffled_visits:
                 token_sequence.append("<v>")
                 token_sequence.extend(visit)

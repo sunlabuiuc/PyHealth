@@ -450,8 +450,9 @@ class PromptEHRDataset(Dataset):
         record_dict = record.to_dict()
 
         # Encode visits to token IDs using PyHealth tokenizer
-        # Build sequence: <s> + <v> codes </v> + <v> codes </v> + ... + </s>
-        token_sequence = ["<s>"]  # Start token
+        # Build sequence: <v> codes </v> + <v> codes </v> + ... + </s>
+        # Note: BOS token will be prepended by shift_tokens_right during training
+        token_sequence = []
 
         for visit in record.visits:
             token_sequence.append("<v>")  # Visit start

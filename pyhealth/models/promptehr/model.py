@@ -502,8 +502,8 @@ class PromptEHR(BaseModel):
         """
         import torch
 
-        # Load checkpoint
-        checkpoint = torch.load(checkpoint_path, map_location='cpu')
+        # Load checkpoint (weights_only=False needed for custom tokenizer class)
+        checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
 
         # Extract model state dict (pehr_scratch format has extra keys)
         if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:

@@ -18,6 +18,7 @@ from .bart_encoder import PromptBartEncoder
 from .bart_decoder import PromptBartDecoder
 from .visit_sampler import VisitStructureSampler
 from .generation import (
+    DemographicSampler,
     sample_demographics,
     decode_patient_demographics,
     parse_sequence_to_visits,
@@ -31,6 +32,7 @@ __all__ = [
     "PromptBartEncoder",
     "PromptBartDecoder",
     "VisitStructureSampler",
+    "DemographicSampler",
     "sample_demographics",
     "decode_patient_demographics",
     "parse_sequence_to_visits",

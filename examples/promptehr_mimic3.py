@@ -173,10 +173,16 @@ def train_promptehr(
     logger.info(f"Train size: {train_size}, Validation size: {val_size}")
 
     # Create data collator
+    # CRITICAL FIX: Disable token replacement to prevent distribution inversion
+    # Token replacement causes rare codes to be enriched 3.24x and common codes depleted to 0.85x
     base_collator = EHRDataCollator(
         tokenizer=tokenizer,
         max_seq_length=512,
-        logger=logger
+        logger=logger,
+        corruption_prob=0.5,
+        use_mask_infilling=True,
+        use_token_deletion=True,
+        use_token_replacement=False  # DISABLED: Causes 4700x frequency inversion
     )
 
     # Wrap collator to handle device placement
@@ -279,7 +285,9 @@ def generate_synthetic_patients(
     patient_records: List,
     num_patients: int = 100,
     temperature: float = 0.7,
-    device: str = "cuda"
+    alpha: float = 2.0,
+    device: str = "cuda",
+    mimic3_root: str = None
 ):
     """Generate synthetic patients using trained PromptEHR model.
 
@@ -290,11 +298,17 @@ def generate_synthetic_patients(
         num_patients: Number of synthetic patients to generate
         temperature: Sampling temperature
         device: Device to use
+        mimic3_root: Path to MIMIC-III training data (for first code prior)
 
     Returns:
         List of generated patient dictionaries
     """
-    from pyhealth.models.promptehr import VisitStructureSampler, generate_patient_with_structure_constraints
+    from pyhealth.models.promptehr import VisitStructureSampler
+    from pyhealth.models.promptehr.generation import (
+        DemographicSampler,
+        build_frequency_prior,
+        generate_with_frequency_prior
+    )
 
     logger.info("\n" + "=" * 80)
     logger.info(f"Generating {num_patients} Synthetic Patients")
@@ -303,6 +317,32 @@ def generate_synthetic_patients(
     # Initialize visit structure sampler
     structure_sampler = VisitStructureSampler(patient_records, seed=42)
     logger.info(f"Structure sampler: {structure_sampler}")
+
+    # Initialize demographic sampler
+    demographic_sampler = DemographicSampler(patient_records, seed=42)
+    logger.info(f"Demographic sampler: {demographic_sampler}")
+
+    # Build frequency prior for ALL code generation
+    frequency_prior = None
+    freq_path = Path(mimic3_root).parent / "promptehr_outputs" / "training_frequencies.json"
+    if not freq_path.exists():
+        freq_path = Path("promptehr_outputs") / "training_frequencies.json"
+
+    if freq_path.exists():
+        logger.info(f"Building frequency prior from {freq_path}...")
+        try:
+            frequency_prior = build_frequency_prior(
+                tokenizer,
+                frequency_path=str(freq_path),
+                vocab_size=len(tokenizer.vocab.idx2code)
+            )
+            logger.info(f"Frequency prior built: shape {frequency_prior.shape}")
+        except Exception as e:
+            logger.warning(f"Failed to build frequency prior: {e}")
+            logger.warning("Continuing without frequency guidance...")
+    else:
+        logger.warning(f"training_frequencies.json not found at {freq_path}")
+        logger.warning("Continuing without frequency guidance...")
 
     # Set model to eval mode
     model.eval()
@@ -317,17 +357,42 @@ def generate_synthetic_patients(
         # Sample realistic visit structure
         target_structure = structure_sampler.sample_structure()
 
-        # Generate patient
-        result = generate_patient_with_structure_constraints(
-            model=model,
-            tokenizer=tokenizer,
-            device=device,
-            target_structure=target_structure,
-            temperature=temperature,
-            top_k=40,
-            top_p=0.9,
-            max_codes_per_visit=25
-        )
+        # Sample demographics from empirical distribution
+        demographics = demographic_sampler.sample()
+        age = demographics['age']
+        sex = demographics['sex']
+
+        # Generate patient with frequency-guided sampling
+        if frequency_prior is not None:
+            result = generate_with_frequency_prior(
+                model=model,
+                tokenizer=tokenizer,
+                device=device,
+                target_structure=target_structure,
+                frequency_prior=frequency_prior,
+                alpha=alpha,  # Frequency prior weight (optimal: 2.0 from diagnostic)
+                age=age,
+                sex=sex,
+                temperature=temperature,  # Sampling temperature (optimal: 1.0 from diagnostic)
+                top_k=0,  # Disabled - use full vocabulary
+                top_p=0.95,  # Nucleus sampling for quality
+                max_codes_per_visit=25
+            )
+        else:
+            # Fallback to regular generation if no frequency prior
+            from pyhealth.models.promptehr import generate_patient_with_structure_constraints
+            result = generate_patient_with_structure_constraints(
+                model=model,
+                tokenizer=tokenizer,
+                device=device,
+                target_structure=target_structure,
+                age=age,
+                sex=sex,
+                temperature=0.5,
+                top_k=0,
+                top_p=0.95,
+                max_codes_per_visit=25
+            )
 
         # Store result
         demo = result['demographics']
@@ -428,6 +493,8 @@ def main():
                         help="Number of synthetic patients to generate")
     parser.add_argument("--temperature", type=float, default=0.7,
                         help="Sampling temperature for generation")
+    parser.add_argument("--alpha", type=float, default=2.0,
+                        help="Frequency prior weight (alpha) for generation")
 
     args = parser.parse_args()
 
@@ -478,7 +545,9 @@ def main():
         patient_records=patient_records,
         num_patients=args.num_synthetic,
         temperature=args.temperature,
-        device=args.device
+        alpha=args.alpha,
+        device=args.device,
+        mimic3_root=args.mimic3_root
     )
 
     # Save results
