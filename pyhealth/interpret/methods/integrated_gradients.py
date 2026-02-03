@@ -314,6 +314,38 @@ class IntegratedGradients(BaseInterpreter):
                 label_val = label_val.to(next(self.model.parameters()).device)
                 label_data[key] = label_val
 
+        # Determine target class from original input if not specified
+        # This ensures the target class is fixed for all interpolation steps
+        if target_class_idx is None:
+            with torch.no_grad():
+                # Prepare inputs for forward pass
+                forward_inputs = {}
+                for key in inputs:
+                    if time_info and key in time_info:
+                        forward_inputs[key] = (time_info[key], inputs[key])
+                    else:
+                        forward_inputs[key] = inputs[key]
+
+                forward_kwargs = {**label_data} if label_data else {}
+                output = self.model(**forward_inputs, **forward_kwargs)
+                logits = output["logit"]
+
+                # Determine task type
+                output_schema = self.model.dataset.output_schema
+                label_key = list(output_schema.keys())[0]
+                task_mode = output_schema[label_key]
+                is_binary = task_mode == "binary" or (
+                    hasattr(task_mode, "__name__")
+                    and task_mode.__name__ == "BinaryLabelProcessor"
+                )
+
+                # Get predicted class
+                if is_binary:
+                    probs = torch.sigmoid(logits)
+                    target_class_idx = (probs > 0.5).long().squeeze(-1)
+                else:
+                    target_class_idx = torch.argmax(logits, dim=-1)
+
         # Compute integrated gradients with single baseline
         attributions = self._integrated_gradients(
             inputs=inputs,
@@ -387,22 +419,25 @@ class IntegratedGradients(BaseInterpreter):
     def _compute_target_output(
         self,
         logits: torch.Tensor,
-        target_class_idx: Optional[int] = None,
+        target_class_idx: int,
     ) -> torch.Tensor:
         """Compute target output scalar for backpropagation.
 
-        This method determines the target class (if not specified), creates
-        the appropriate one-hot encoding, and computes the scalar output
-        that will be used for computing gradients.
+        This method creates the appropriate one-hot encoding and computes
+        the scalar output that will be used for computing gradients.
 
         Args:
             logits: Model output logits [batch, num_classes] or [batch, 1]
-            target_class_idx: Optional target class index. If None, uses
-                the predicted class (argmax of logits).
+            target_class_idx: Target class index (must not be None).
 
         Returns:
             Scalar tensor representing the target output for backprop.
         """
+        assert target_class_idx is not None, (
+            "target_class_idx must be set before calling _compute_target_output. "
+            "This should be determined in attribute() method."
+        )
+
         # Determine task type from model's output schema
         output_schema = self.model.dataset.output_schema
         label_key = list(output_schema.keys())[0]
@@ -414,16 +449,8 @@ class IntegratedGradients(BaseInterpreter):
             and task_mode.__name__ == "BinaryLabelProcessor"
         )
 
-        # Determine target class
-        if target_class_idx is None:
-            if is_binary:
-                # Binary: if sigmoid(logit) > 0.5, class=1, else class=0
-                probs = torch.sigmoid(logits)
-                tc_idx = (probs > 0.5).long().squeeze(-1)
-            else:
-                # Multiclass: argmax over classes
-                tc_idx = torch.argmax(logits, dim=-1)
-        elif not isinstance(target_class_idx, torch.Tensor):
+        # Convert target_class_idx to tensor if needed
+        if not isinstance(target_class_idx, torch.Tensor):
             tc_idx = torch.tensor(target_class_idx, device=logits.device)
         else:
             tc_idx = target_class_idx
@@ -633,13 +660,18 @@ class IntegratedGradients(BaseInterpreter):
             inputs: Dictionary of input tensors.
             baseline: Optional baseline tensors.
             steps: Number of interpolation steps.
-            target_class_idx: Target class for attribution.
+            target_class_idx: Target class for attribution (must not be None).
             time_info: Optional time information for temporal models.
             label_data: Optional label data.
 
         Returns:
             Dictionary of attribution tensors matching input shapes.
         """
+        assert target_class_idx is not None, (
+            "target_class_idx must be set before calling _integrated_gradients_embedding_based. "
+            "This should be determined in attribute() method."
+        )
+
         # Step 1: Embed inputs and create baselines in embedding space
         input_embs, baseline_embs, shapes = self._prepare_embeddings_and_baselines(
             inputs, baseline
@@ -680,13 +712,18 @@ class IntegratedGradients(BaseInterpreter):
             inputs: Dictionary of input tensors.
             baseline: Optional baseline tensors.
             steps: Number of interpolation steps.
-            target_class_idx: Target class for attribution.
+            target_class_idx: Target class for attribution (must not be None).
             time_info: Optional time information for temporal models.
             label_data: Optional label data.
 
         Returns:
             Dictionary of attribution tensors matching input shapes.
         """
+        assert target_class_idx is not None, (
+            "target_class_idx must be set before calling _integrated_gradients_continuous. "
+            "This should be determined in attribute() method."
+        )
+
         # Create baseline if not provided
         if baseline is None:
             baseline = {}
