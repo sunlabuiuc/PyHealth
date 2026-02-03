@@ -14,7 +14,7 @@ from pyhealth.datasets import MIMIC4Dataset, get_dataloader, split_by_patient
 from pyhealth.interpret.methods import BaseInterpreter, IntegratedGradients, DeepLift, GIM, ShapExplainer, LimeExplainer
 from pyhealth.metrics.interpretability import evaluate_attribution
 from pyhealth.models import StageNet
-from pyhealth.tasks import MortalityPredictionStageNetMIMIC4
+from pyhealth.tasks import LengthOfStayStageNetMIMIC4
 from pyhealth.trainer import Trainer
 from pyhealth.datasets.utils import load_processors
 from pathlib import Path
@@ -86,7 +86,7 @@ def main():
     print("✓ Loaded input and output processors from checkpoint directory.")
     
     sample_dataset = base_dataset.set_task(
-        MortalityPredictionStageNetMIMIC4(),
+        LengthOfStayStageNetMIMIC4(padding=20),
         num_workers=16,
         input_processors=input_processors,
         output_processors=output_processors,
