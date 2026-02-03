@@ -106,7 +106,7 @@ if __name__ == "__main__":
     trainer = Trainer(
         model=model,
         device="cuda:6",  # or "cpu"
-        metrics=["pr_auc", "roc_auc", "accuracy", "f1"],
+        metrics=["accuracy", "f1_weighted", "f1_macro", "f1_micro"],
         output_path="/home/yongdaf2/los_sn/output"
     )
 
