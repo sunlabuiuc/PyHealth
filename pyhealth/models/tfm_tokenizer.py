@@ -22,10 +22,10 @@ from einops import rearrange
 # the 5% who do but forgot to install the dependency.
 #
 # Why test failures are not an issue:
-#   - Package imports work correctly (pyhealth.models loads without error)
-#   - Only users who instantiate TFMTokenizer see the ImportError
+#   - Package imports work correctly (pyhealth.models loads w/ out error)
+#   - Only those who instantiate TFMTokenizer see the ImportError
 #   - Error message provides clear install instructions
-#   - Tests in tests/core/test_tfm_tokenizer.py will fail without the optional
+#   - Tests in tests/core/test_tfm_tokenizer.py will fail w/ out the optional
 #     dependency, but this is intentional behavior showing the lazy import works
 # =============================================================================
 
