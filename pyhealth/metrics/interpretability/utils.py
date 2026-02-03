@@ -16,6 +16,7 @@ def get_model_predictions(
     model: BaseModel,
     inputs: Dict[str, torch.Tensor],
     classifier_type: str,
+    pred_classes: Optional[torch.Tensor] = None,
     positive_threshold: float = 0.5,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Get model predictions, probabilities, and class-specific probabilities.
@@ -24,6 +25,8 @@ def get_model_predictions(
         model: PyHealth BaseModel that returns dict with 'y_prob' or 'logit'
         inputs: Model inputs dict
         classifier_type: One of 'binary', 'multiclass', 'multilabel', 'unknown'
+        pred_classes: (Optional) Pre-computed predicted classes, this would ensure ablated runs
+                      are consistent with original predictions. If None, will compute from model outputs.
         positive_threshold: Threshold for binary classification (default: 0.5)
 
     Returns:
@@ -57,14 +60,15 @@ def get_model_predictions(
         # Get predicted classes based on classifier type
         if classifier_type == "binary":
             # For binary: class 1 if P(class=1) >= threshold, else 0
-            pred_classes = (y_prob.squeeze(-1) >= positive_threshold).long()
+            pred_classes = (y_prob.squeeze(-1) >= positive_threshold).long() if pred_classes is None else pred_classes
             # For binary, class_probs is P(class=1)
             class_probs = y_prob.squeeze(-1)
         else:
             # For multiclass/multilabel: argmax
-            pred_classes = torch.argmax(y_prob, dim=-1)
+            pred_classes = torch.argmax(y_prob, dim=-1) if pred_classes is None else pred_classes
             # Gather probabilities for predicted classes
             class_probs = y_prob.gather(1, pred_classes.unsqueeze(1)).squeeze(1)
+        assert pred_classes is not None, "pred_classes should have been set either by input or computation."
 
         return y_prob, pred_classes, class_probs
 
