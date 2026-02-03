@@ -21,7 +21,7 @@ from pyhealth.datasets.utils import load_processors
 from pathlib import Path
 import pandas as pd
 
-# python -u examples/interpretability/dka_stagenet_mimic4_interpret.py --methods shap --device cuda:6 2>&1 | tee -a /shared/eng/pyhealth_dka/output/dka_stagenet_mimic4/shap.log
+# python -u examples/interpretability/dka_stagenet_mimic4_interpret.py --methods ig --device cuda:3 2>&1 | tee -a /shared/eng/pyhealth_dka/output/dka_stagenet_mimic4/ig.log
 def main():
     parser = argparse.ArgumentParser(
         description="Comma separated list of interpretability methods to evaluate"
