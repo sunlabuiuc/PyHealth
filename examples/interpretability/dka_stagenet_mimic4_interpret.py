@@ -48,7 +48,7 @@ def main():
     print(f"Start Time: {now.strftime('%Y-%m-%d %H:%M:%S')}")
 
     # Set path
-    CACHE_DIR = Path("/shared/eng/pyhealth_dka/cache/dka_stagenet_mimic4")
+    CACHE_DIR = Path("/shared/eng/pyhealth_dka/cache/dka_mimic4")
     CKPTS_DIR = Path("/shared/eng/pyhealth_dka/ckpts/dka_stagenet_mimic4")
     OUTPUT_DIR = Path("/shared/eng/pyhealth_dka/output/dka_stagenet_mimic4")
     print(f"\nUsing cache dir: {CACHE_DIR}")
