@@ -123,6 +123,10 @@ class ClusterLabel(SetPredictor):
         self.alpha = alpha
 
         # Store clustering parameters
+        if not isinstance(n_clusters, int) or n_clusters <= 0:
+            raise ValueError(
+                f"n_clusters must be a positive integer, got {n_clusters!r}"
+            )
         self.n_clusters = n_clusters
         self.random_state = random_state
 
@@ -135,6 +139,7 @@ class ClusterLabel(SetPredictor):
         cal_dataset: IterableDataset,
         train_embeddings: Optional[np.ndarray] = None,
         cal_embeddings: Optional[np.ndarray] = None,
+        batch_size: int = 32,
     ):
         """Calibrate cluster-specific thresholds.
 
@@ -152,6 +157,8 @@ class ClusterLabel(SetPredictor):
             cal_embeddings: Optional pre-computed calibration embeddings
                 of shape (n_cal, embedding_dim). If not provided, will be
                 extracted from cal_dataset.
+            batch_size: Batch size for embedding extraction when
+                cal_embeddings is not provided. Default is 32.
 
         Note:
             Either provide embeddings directly or ensure the model supports
@@ -173,7 +180,7 @@ class ClusterLabel(SetPredictor):
         if cal_embeddings is None:
             print("Extracting embeddings from calibration set...")
             cal_embeddings = extract_embeddings(
-                self.model, cal_dataset, batch_size=32, device=self.device
+                self.model, cal_dataset, batch_size=batch_size, device=self.device
             )
         else:
             cal_embeddings = np.asarray(cal_embeddings)
@@ -272,42 +279,42 @@ class ClusterLabel(SetPredictor):
                 "Call calibrate() first."
             )
 
-        # Get base model prediction
-        pred = self.model(**kwargs)
-
-        # Extract embedding for this sample to assign to cluster
-        embed_kwargs = {**kwargs, "embed": True}
-        embed_output = self.model(**embed_kwargs)
-        if "embed" not in embed_output:
+        # Single forward pass with embed=True to get both predictions and
+        # embeddings (avoids double compute)
+        pred = self.model(**{**kwargs, "embed": True})
+        if "embed" not in pred:
             raise ValueError(
                 f"Model {type(self.model).__name__} does not return "
                 "embeddings. Make sure the model supports the "
                 "embed=True flag in its forward() method."
             )
 
-        # Get embedding and assign to cluster
-        sample_embedding = embed_output["embed"].detach().cpu().numpy()
-        if sample_embedding.ndim == 1:
-            sample_embedding = sample_embedding.reshape(1, -1)
+        # Ensure embeddings are 2D (batch_size, embedding_dim)
+        sample_embedding = pred["embed"].detach().cpu().numpy()
+        sample_embedding = np.atleast_2d(sample_embedding)
 
-        cluster_id = self.kmeans_model.predict(sample_embedding)[0]
+        # Predict cluster for each sample in the batch
+        cluster_ids = self.kmeans_model.predict(sample_embedding)
 
-        # Get cluster-specific threshold
-        cluster_threshold = self.cluster_thresholds[cluster_id]
+        # Get cluster-specific threshold for each sample
+        cluster_thresholds = np.array(
+            [self.cluster_thresholds[cid] for cid in cluster_ids]
+        )
+        cluster_thresholds = torch.as_tensor(
+            cluster_thresholds, device=self.device, dtype=pred["y_prob"].dtype
+        )
 
-        # Convert to tensor if needed
-        if isinstance(cluster_threshold, np.ndarray):
-            cluster_threshold = torch.tensor(
-                cluster_threshold, device=self.device, dtype=pred["y_prob"].dtype
+        # Broadcast thresholds to match y_prob shape (batch_size, n_classes).
+        # Marginal: thresholds are (batch_size,) -> view to (batch_size, 1, ...).
+        # Class-conditional: thresholds are already (batch_size, K), no view.
+        if pred["y_prob"].ndim > 1 and cluster_thresholds.ndim == 1:
+            view_shape = (cluster_thresholds.shape[0],) + (1,) * (
+                pred["y_prob"].ndim - 1
             )
-        else:
-            cluster_threshold = torch.tensor(
-                cluster_threshold, device=self.device, dtype=pred["y_prob"].dtype
-            )
+            cluster_thresholds = cluster_thresholds.view(view_shape)
 
-        # Construct prediction set using cluster-specific threshold
-        pred["y_predset"] = pred["y_prob"] >= cluster_threshold
-
+        pred["y_predset"] = pred["y_prob"] >= cluster_thresholds
+        pred.pop("embed", None)  # do not expose internal embedding to caller
         return pred
 
 

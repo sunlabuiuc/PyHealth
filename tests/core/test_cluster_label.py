@@ -155,6 +155,27 @@ class TestClusterLabel(unittest.TestCase):
                 n_clusters=2,
             )
 
+    def test_initialization_invalid_n_clusters_raises_error(self):
+        """Test that invalid n_clusters (non-positive or non-int) raises ValueError."""
+        with self.assertRaises(ValueError):
+            ClusterLabel(
+                model=self.model,
+                alpha=0.1,
+                n_clusters=0,
+            )
+        with self.assertRaises(ValueError):
+            ClusterLabel(
+                model=self.model,
+                alpha=0.1,
+                n_clusters=-1,
+            )
+        with self.assertRaises(ValueError):
+            ClusterLabel(
+                model=self.model,
+                alpha=0.1,
+                n_clusters=2.5,
+            )
+
     def test_calibrate_marginal(self):
         """Test calibration with marginal coverage (single alpha)."""
         cluster_model = ClusterLabel(
