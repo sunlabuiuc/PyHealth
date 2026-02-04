@@ -20,7 +20,7 @@ from pyhealth.datasets.utils import load_processors
 from pathlib import Path
 import pandas as pd
 
-# python -u examples/interpretability/mp_stageattn_mimic4_interpret.py --methods ig --device cuda:6 2>&1 | tee -a /home/yongdaf2/pyhealth_dka/output/mp_stageattn_mimic4/ig.log
+# python -u examples/interpretability/mp_stageattn_mimic4_interpret.py --methods lime --device cuda:6 2>&1 | tee -a /home/yongdaf2/pyhealth_dka/output/mp_stageattn_mimic4/lime.log
 def main():
     parser = argparse.ArgumentParser(
         description="Comma separated list of interpretability methods to evaluate"
