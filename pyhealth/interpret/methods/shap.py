@@ -706,7 +706,7 @@ class ShapExplainer(BaseInterpreter):
         except Exception:
             loss_name = ""
 
-        is_cross_entropy = "cross_entropy" in loss_name
+        is_cross_entropy = loss_name == "cross_entropy"
         if is_cross_entropy:
             dummy = torch.zeros(
                 (batch_size,), device=self.model.device, dtype=torch.long
@@ -728,7 +728,7 @@ class ShapExplainer(BaseInterpreter):
         try:
             loss_fn = self.model.get_loss_function()
             loss_name = getattr(loss_fn, "__name__", "").lower()
-            return "cross_entropy" in loss_name
+            return loss_name == "cross_entropy"
         except Exception:
             return False
 
