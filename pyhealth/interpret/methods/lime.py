@@ -234,6 +234,14 @@ class LimeExplainer(BaseInterpreter):
                     label_val = torch.as_tensor(label_val)
                 label_data[key] = label_val.to(device)
 
+        # Fix target class for multiclass if not provided to avoid class flipping
+        if target_class_idx is None and self._is_multiclass():
+            base_logits = self._compute_base_logits(
+                feature_inputs,
+                time_info=time_info,
+            )
+            target_class_idx = base_logits.argmax(dim=-1)
+
         # Generate or validate baseline (neutral replacement values)
         # Note: LIME does not require a background dataset; baselines here
         # serve only as neutral values when a feature is masked (absent).
@@ -829,12 +837,9 @@ class LimeExplainer(BaseInterpreter):
             forward_kwargs = {
                 "time_info": time_info_adj,
             }
-            # Add label with the correct key name
-            if len(self.model.label_keys) > 0:
-                label_key = self.model.label_keys[0]
-                forward_kwargs[label_key] = torch.zeros(
-                    (perturbed_emb.shape[0], 1), device=self.model.device
-                )
+            forward_kwargs.update(
+                self._build_label_kwargs(batch_size=perturbed_emb.shape[0])
+            )
             
             model_output = self.model.forward_from_embedding(
                 feature_embeddings,
@@ -878,12 +883,10 @@ class LimeExplainer(BaseInterpreter):
             else:
                 model_inputs[fk] = torch.zeros_like(perturbed_inputs)
 
-        # Add label stub if needed
-        if len(self.model.label_keys) > 0:
-            label_key = self.model.label_keys[0]
-            model_inputs[label_key] = torch.zeros(
-                (perturbed_inputs.shape[0], 1), device=perturbed_inputs.device
-            )
+        # Add dummy labels sized for the loss
+        model_inputs.update(
+            self._build_label_kwargs(batch_size=perturbed_inputs.shape[0])
+        )
 
         with torch.no_grad():
             output = self.model(**model_inputs)
@@ -927,6 +930,38 @@ class LimeExplainer(BaseInterpreter):
 
         return time_info_adj if time_info_adj else None
 
+    def _compute_base_logits(
+        self,
+        inputs: Dict[str, torch.Tensor],
+        time_info: Optional[Dict[str, torch.Tensor]],
+    ) -> torch.Tensor:
+        """Run a single forward on the original inputs to select target class."""
+        batch_size = next(iter(inputs.values())).shape[0]
+
+        with torch.no_grad():
+            if self.use_embeddings:
+                input_embs = self.model.embedding_model(inputs)
+                time_info_adj = self._prepare_time_info(
+                    time_info, input_embs, batch_size
+                )
+                forward_kwargs = {"time_info": time_info_adj}
+                forward_kwargs.update(
+                    self._build_label_kwargs(batch_size=batch_size)
+                )
+                output = self.model.forward_from_embedding(
+                    input_embs, **forward_kwargs
+                )
+            else:
+                model_inputs = {
+                    fk: inputs[fk] for fk in self.model.feature_keys if fk in inputs
+                }
+                model_inputs.update(
+                    self._build_label_kwargs(batch_size=batch_size)
+                )
+                output = self.model(**model_inputs)
+
+        return self._extract_logits(output)
+
     # ------------------------------------------------------------------
     # Baseline generation
     # ------------------------------------------------------------------
@@ -966,6 +1001,54 @@ class LimeExplainer(BaseInterpreter):
             baseline_samples[key] = baseline.to(x.device)
 
         return baseline_samples
+
+    # ------------------------------------------------------------------
+    # Label and mode helpers
+    # ------------------------------------------------------------------
+    def _build_label_kwargs(self, batch_size: int) -> Dict[str, torch.Tensor]:
+        """Provide dummy labels shaped for the model loss."""
+        if not getattr(self.model, "label_keys", None):
+            return {}
+
+        loss_name = ""
+        try:
+            loss_fn = self.model.get_loss_function()
+            loss_name = getattr(loss_fn, "__name__", "").lower()
+        except Exception:
+            loss_name = ""
+
+        loss_name = ""
+        try:
+            loss_fn = self.model.get_loss_function()
+            loss_name = getattr(loss_fn, "__name__", "").lower()
+        except Exception:
+            loss_name = ""
+
+        is_cross_entropy = loss_name == "cross_entropy"
+        if is_cross_entropy:
+            dummy = torch.zeros(
+                (batch_size,), device=self.model.device, dtype=torch.long
+            )
+        else:
+            out_size = 1
+            try:
+                out_size = self.model.get_output_size()
+            except Exception:
+                pass
+            dummy = torch.zeros(
+                (batch_size, out_size), device=self.model.device, dtype=torch.float32
+            )
+
+        return {label_key: dummy for label_key in self.model.label_keys}
+
+    def _is_multiclass(self) -> bool:
+        """Detect multiclass mode via loss function signature."""
+        try:
+            loss_fn = self.model.get_loss_function()
+            loss_name = getattr(loss_fn, "__name__", "").lower()
+            return loss_name == "cross_entropy"
+        except Exception:
+            return False
 
     # ------------------------------------------------------------------
     # Utility helpers (shared with SHAP)
