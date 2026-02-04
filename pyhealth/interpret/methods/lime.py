@@ -410,33 +410,35 @@ class LimeExplainer(BaseInterpreter):
                 torch.ones(n_features, device=device) * 0.5
             )
             
-            # Vectorized perturbed batch
-            perturbed_batch = self._create_perturbed_sample_batch(
-                key, binary_vector, input_emb, baseline_emb
-            )  # (batch, ...)
-
-            # Forward pass for the whole batch
-            if self.use_embeddings:
-                logits = self._forward_from_embeddings(
-                    key, perturbed_batch, baseline_emb, time_info, label_data
+            # Create perturbed sample for each batch item
+            batch_preds = []
+            batch_similarities = []
+            
+            for b_idx in range(batch_size):
+                # Create perturbed embedding by mixing input and baseline
+                perturbed_emb = self._create_perturbed_sample(
+                    key, binary_vector, input_emb, baseline_emb, b_idx
                 )
-            else:
-                logits = self._forward_from_inputs(
-                    key, perturbed_batch, baseline_emb, time_info, label_data
+                
+                # Get model prediction for perturbed sample
+                pred = self._evaluate_sample(
+                    key, perturbed_emb, baseline_emb,
+                    target_class_idx, time_info, label_data
                 )
-
-            preds = self._extract_target_prediction(logits, target_class_idx)
-            if preds.dim() == 0:
-                preds = preds.unsqueeze(0)
-
-            similarities = self._compute_similarity_batch(
-                input_emb[key], perturbed_batch, binary_vector
-            )
-
+                batch_preds.append(pred)
+                
+                # Compute similarity weight
+                similarity = self._compute_similarity(
+                    input_emb[key][b_idx:b_idx+1] if batch_size > 1 else input_emb[key],
+                    perturbed_emb,
+                    binary_vector,
+                )
+                batch_similarities.append(similarity)
+            
             # Store sample information
             interpretable_samples.append(binary_vector.float())
-            perturbed_predictions.append(preds.detach())
-            similarity_weights.append(similarities.detach())
+            perturbed_predictions.append(torch.stack(batch_preds, dim=0))
+            similarity_weights.append(torch.stack(batch_similarities, dim=0))
 
             # Move small summaries to CPU to free GPU memory
             interpretable_samples[-1] = interpretable_samples[-1].float().to(storage_device)
@@ -493,32 +495,6 @@ class LimeExplainer(BaseInterpreter):
                     perturbed[:, i] = input_emb[key][batch_idx, i]
 
         return perturbed
-
-    def _create_perturbed_sample_batch(
-        self,
-        key: str,
-        binary_vector: torch.Tensor,
-        input_emb: Dict[str, torch.Tensor],
-        baseline_emb: Dict[str, torch.Tensor],
-    ) -> torch.Tensor:
-        """Vectorized mix of input and baseline for a single mask across the batch."""
-        dim = input_emb[key].dim()
-        batch_size = input_emb[key].shape[0]
-        n_features = binary_vector.shape[0]
-
-        if dim == 4:
-            mask_view = binary_vector.view(1, n_features, 1, 1)
-        elif dim == 3:
-            mask_view = binary_vector.view(1, n_features, 1)
-        else:
-            mask_view = binary_vector.view(1, n_features)
-
-        mask_view = mask_view.expand(batch_size, *mask_view.shape[1:])
-        base = baseline_emb[key]
-        if base.shape[0] != batch_size:
-            base = base.expand(batch_size, *base.shape[1:])
-
-        return torch.where(mask_view.bool(), input_emb[key], base)
 
     def _evaluate_sample(
         self,
@@ -628,33 +604,6 @@ class LimeExplainer(BaseInterpreter):
                 raise ValueError("Invalid distance_mode")
 
             # Apply exponential kernel
-            similarity = torch.exp(
-                -1 * (distance ** 2) / (2 * (self.kernel_width ** 2))
-            )
-
-        return similarity
-
-    def _compute_similarity_batch(
-        self,
-        original_emb: torch.Tensor,
-        perturbed_batch: torch.Tensor,
-        binary_vector: torch.Tensor,
-    ) -> torch.Tensor:
-        """Vectorized similarity for a batch with a single mask.
-
-        Returns: (batch,) similarities.
-        """
-        with torch.no_grad():
-            orig_flat = original_emb.reshape(original_emb.shape[0], -1).float()
-            pert_flat = perturbed_batch.reshape(perturbed_batch.shape[0], -1).float()
-
-            if self.distance_mode == "cosine":
-                distance = 1 - F.cosine_similarity(orig_flat, pert_flat, dim=-1)
-            elif self.distance_mode == "euclidean":
-                distance = torch.norm(orig_flat - pert_flat, dim=-1)
-            else:
-                raise ValueError("Invalid distance_mode")
-
             similarity = torch.exp(
                 -1 * (distance ** 2) / (2 * (self.kernel_width ** 2))
             )
