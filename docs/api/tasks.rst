@@ -21,9 +21,9 @@ New to PyHealth tasks? Start here:
 - **Tutorial**: `Introduction to pyhealth.tasks <https://colab.research.google.com/drive/1kKkkBVS_GclHoYTbnOtjyYnSee79hsyT?usp=sharing>`_ - Learn the basics of defining and using tasks
 - **Code Examples**: Browse all examples online at https://github.com/sunlabuiuc/PyHealth/tree/master/examples
 - **Pipeline Examples**: Check out our :doc:`../tutorials` page for complete end-to-end examples including:
-  
+
   - Mortality Prediction Pipeline
-  - Readmission Prediction Pipeline  
+  - Readmission Prediction Pipeline
   - Medical Coding Pipeline
   - Chest X-ray Classification Pipeline
 
@@ -47,14 +47,14 @@ After you define a task:
     task = MortalityPredictionMIMIC4()
     # input_schema = {"conditions": "sequence", "procedures": "sequence"}
     # output_schema = {"mortality": "binary"}
-    
+
     # 2. Apply task to dataset
     sample_dataset = base_dataset.set_task(task)
-    
+
     # 3. Processors automatically transform samples:
     #    - "sequence" -> SequenceProcessor (converts codes to indices)
     #    - "binary" -> BinaryLabelProcessor (converts labels to tensors)
-    
+
     # 4. Get model-ready tensors
     sample = sample_dataset[0]
     # sample["conditions"] is now a tensor of token indices
@@ -74,7 +74,6 @@ Available Tasks
     :maxdepth: 3
 
     Base Task <tasks/pyhealth.tasks.BaseTask>
-    Readmission (30 Days, MIMIC-IV) <tasks/pyhealth.tasks.Readmission30DaysMIMIC4>
     In-Hospital Mortality (MIMIC-IV) <tasks/pyhealth.tasks.InHospitalMortalityMIMIC4>
     MIMIC-III ICD-9 Coding <tasks/pyhealth.tasks.MIMIC3ICD9Coding>
     Cardiology Detection <tasks/pyhealth.tasks.cardiology_detect>
