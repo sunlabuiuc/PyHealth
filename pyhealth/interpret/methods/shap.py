@@ -707,12 +707,20 @@ class ShapExplainer(BaseInterpreter):
             loss_name = ""
 
         is_cross_entropy = "cross_entropy" in loss_name
-        target_shape = (batch_size,) if is_cross_entropy else (batch_size, 1)
-        target_dtype = torch.long if is_cross_entropy else torch.float32
+        if is_cross_entropy:
+            dummy = torch.zeros(
+                (batch_size,), device=self.model.device, dtype=torch.long
+            )
+        else:
+            out_size = 1
+            try:
+                out_size = self.model.get_output_size()
+            except Exception:
+                pass
+            dummy = torch.zeros(
+                (batch_size, out_size), device=self.model.device, dtype=torch.float32
+            )
 
-        dummy = torch.zeros(target_shape, device=self.model.device, dtype=target_dtype)
-
-        # Always supply a dummy; attribution only uses logits, not loss.
         return {label_key: dummy for label_key in self.model.label_keys}
 
     def _is_multiclass(self) -> bool:
