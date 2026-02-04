@@ -1,3 +1,4 @@
+from functools import partial
 from pathlib import Path
 from typing import Any, List, Optional, Union
 
@@ -19,6 +20,9 @@ class ImageProcessor(FeatureProcessor):
         normalize: Whether to normalize image values to [0, 1]. Defaults to False.
         mean: Precomputed mean for normalization.
         std: Precomputed std for normalization.
+        mode: PIL image mode to convert the image to before processing.
+            Common modes: 'RGB', 'RGBA', 'L' (grayscale), 'P' (palette).
+            If None, keeps the original mode. Defaults to None.
 
     Raises:
         ValueError: If normalization parameters are inconsistent.
@@ -31,6 +35,7 @@ class ImageProcessor(FeatureProcessor):
         normalize: bool = False,
         mean: Optional[List[float]] = None,
         std: Optional[List[float]] = None,
+        mode: Optional[str] = None,
     ) -> None:
         self.image_size = image_size
         self.to_tensor = to_tensor
@@ -38,6 +43,7 @@ class ImageProcessor(FeatureProcessor):
 
         self.mean = mean
         self.std = std
+        self.mode = mode
 
         if self.normalize and (self.mean is None or self.std is None):
             raise ValueError(
@@ -53,6 +59,10 @@ class ImageProcessor(FeatureProcessor):
 
     def _build_transform(self) -> transforms.Compose:
         transform_list = []
+        if self.mode is not None:
+            transform_list.append(
+                transforms.Lambda(partial(_convert_mode, mode=self.mode))
+            )
         if self.image_size is not None:
             transform_list.append(
                 transforms.Resize((self.image_size, self.image_size))
@@ -89,5 +99,10 @@ class ImageProcessor(FeatureProcessor):
         return (
             f"ImageLoadingProcessor(image_size={self.image_size}, "
             f"to_tensor={self.to_tensor}, normalize={self.normalize}, "
-            f"mean={self.mean}, std={self.std})"
+            f"mean={self.mean}, std={self.std}, mode={self.mode})"
         )
+
+
+def _convert_mode(img: Image.Image, mode: str) -> Image.Image:
+    """Convert a PIL image to the requested mode."""
+    return img.convert(mode)

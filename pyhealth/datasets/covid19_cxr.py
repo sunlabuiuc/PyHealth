@@ -1,9 +1,14 @@
 import logging
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
 import pandas as pd
+
+from pyhealth.datasets.sample_dataset import SampleDataset
+from pyhealth.processors.base_processor import FeatureProcessor
+from pyhealth.processors.image_processor import ImageProcessor
+from pyhealth.tasks.base_task import BaseTask
 
 from ..tasks import COVID19CXRClassification
 from .base_dataset import BaseDataset
@@ -62,6 +67,9 @@ class COVID19CXRDataset(BaseDataset):
         dataset_name: Optional name of the dataset. Defaults to "covid19_cxr".
         config_path: Optional path to the configuration file. If not provided,
             uses the default config in the configs directory.
+        cache_dir: Optional directory for caching processed data.
+        num_workers: Number of parallel workers for data processing. Defaults to 1.
+        dev: If True, only loads a small subset of data for development/testing.
 
     Attributes:
         root: Root directory of the raw data.
@@ -83,12 +91,13 @@ class COVID19CXRDataset(BaseDataset):
         root: str,
         dataset_name: Optional[str] = None,
         config_path: Optional[str] = None,
+        cache_dir: Optional[str] = None,
+        num_workers: int = 1,
+        dev: bool = False,
     ) -> None:
         if config_path is None:
             logger.info("No config path provided, using default config")
-            config_path = (
-                Path(__file__).parent / "configs" / "covid19_cxr.yaml"
-            )
+            config_path = Path(__file__).parent / "configs" / "covid19_cxr.yaml"
         if not os.path.exists(os.path.join(root, "covid19_cxr-metadata-pyhealth.csv")):
             self.prepare_metadata(root)
         default_tables = ["covid19_cxr"]
@@ -97,6 +106,9 @@ class COVID19CXRDataset(BaseDataset):
             tables=default_tables,
             dataset_name=dataset_name or "covid19_cxr",
             config_path=config_path,
+            cache_dir=cache_dir,
+            num_workers=num_workers,
+            dev=dev,
         )
         return
 
@@ -113,26 +125,18 @@ class COVID19CXRDataset(BaseDataset):
         4. Saves the processed metadata to a CSV file
         """
         # process and merge raw xlsx files from the dataset
-        covid = pd.DataFrame(
-            pd.read_excel(f"{root}/COVID.metadata.xlsx")
-        )
+        covid = pd.DataFrame(pd.read_excel(f"{root}/COVID.metadata.xlsx"))
         covid["FILE NAME"] = covid["FILE NAME"].apply(
             lambda x: f"{root}/COVID/images/{x}.png"
         )
         covid["label"] = "COVID"
-        lung_opacity = pd.DataFrame(
-            pd.read_excel(f"{root}/Lung_Opacity.metadata.xlsx")
-        )
+        lung_opacity = pd.DataFrame(pd.read_excel(f"{root}/Lung_Opacity.metadata.xlsx"))
         lung_opacity["FILE NAME"] = lung_opacity["FILE NAME"].apply(
             lambda x: f"{root}/Lung_Opacity/images/{x}.png"
         )
         lung_opacity["label"] = "Lung Opacity"
-        normal = pd.DataFrame(
-            pd.read_excel(f"{root}/Normal.metadata.xlsx")
-        )
-        normal["FILE NAME"] = normal["FILE NAME"].apply(
-            lambda x: x.capitalize()
-        )
+        normal = pd.DataFrame(pd.read_excel(f"{root}/Normal.metadata.xlsx"))
+        normal["FILE NAME"] = normal["FILE NAME"].apply(lambda x: x.capitalize())
         normal["FILE NAME"] = normal["FILE NAME"].apply(
             lambda x: f"{root}/Normal/images/{x}.png"
         )
@@ -145,18 +149,13 @@ class COVID19CXRDataset(BaseDataset):
         )
         viral_pneumonia["label"] = "Viral Pneumonia"
         df = pd.concat(
-            [covid, lung_opacity, normal, viral_pneumonia],
-            axis=0,
-            ignore_index=True
+            [covid, lung_opacity, normal, viral_pneumonia], axis=0, ignore_index=True
         )
         df = df.drop(columns=["FORMAT", "SIZE"])
         df.columns = ["path", "url", "label"]
         for path in df.path:
             assert os.path.isfile(path), f"File {path} does not exist"
-        df.to_csv(
-            os.path.join(root, "covid19_cxr-metadata-pyhealth.csv"),
-            index=False
-        )
+        df.to_csv(os.path.join(root, "covid19_cxr-metadata-pyhealth.csv"), index=False)
         return
 
     @property

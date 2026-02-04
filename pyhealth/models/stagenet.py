@@ -1,15 +1,13 @@
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import torch.nn.utils.rnn as rnn_utils
 
-from pyhealth.datasets import SampleEHRDataset
+from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.utils import get_last_visit
 
-# VALID_OPERATION_LEVEL = ["visit", "event"]
+from .embedding import EmbeddingModel
 
 
 class StageNetLayer(nn.Module):
@@ -44,9 +42,9 @@ class StageNetLayer(nn.Module):
         chunk_size: int = 128,
         conv_size: int = 10,
         levels: int = 3,
-        dropconnect: int = 0.3,
-        dropout: int = 0.3,
-        dropres: int = 0.3,
+        dropconnect: float = 0.3,
+        dropout: float = 0.3,
+        dropres: float = 0.3,
     ):
         super(StageNetLayer, self).__init__()
 
@@ -79,6 +77,13 @@ class StageNetLayer(nn.Module):
         )
         # self.nn_output = nn.Linear(int(self.conv_dim), int(output_dim))
 
+        # Non-linearities exposed as modules for easy swapping
+        self.relu = nn.ReLU()
+        self.sigmoid = nn.Sigmoid()
+        self.tanh = nn.Tanh()
+        self.softmax = nn.Softmax(dim=-1)
+        self.softmax_dim1 = nn.Softmax(dim=1)
+
         if self.dropconnect:
             self.nn_dropconnect = nn.Dropout(p=dropconnect)
             self.nn_dropconnect_r = nn.Dropout(p=dropconnect)
@@ -86,14 +91,17 @@ class StageNetLayer(nn.Module):
             self.nn_dropout = nn.Dropout(p=dropout)
             self.nn_dropres = nn.Dropout(p=dropres)
 
+        # Nonlinearities are plain modules; interpretability wrappers are applied
+        # externally (e.g., DeepLIFT/GIM) by temporarily replacing these modules.
+
     def cumax(self, x, mode="l2r"):
         if mode == "l2r":
-            x = torch.softmax(x, dim=-1)
+            x = self.softmax(x)
             x = torch.cumsum(x, dim=-1)
             return x
         elif mode == "r2l":
             x = torch.flip(x, [-1])
-            x = torch.softmax(x, dim=-1)
+            x = self.softmax(x)
             x = torch.cumsum(x, dim=-1)
             return torch.flip(x, [-1])
         else:
@@ -119,12 +127,12 @@ class StageNetLayer(nn.Module):
         i_master_gate = i_master_gate.unsqueeze(2)
         x_out = x_out[:, self.levels * 2 :]
         x_out = x_out.reshape(-1, self.levels * 4, self.chunk_size)
-        f_gate = torch.sigmoid(x_out[:, : self.levels]).to(device=device)
-        i_gate = torch.sigmoid(x_out[:, self.levels : self.levels * 2]).to(
+        f_gate = self.sigmoid(x_out[:, : self.levels]).to(device=device)
+        i_gate = self.sigmoid(x_out[:, self.levels : self.levels * 2]).to(
             device=device
         )
-        o_gate = torch.sigmoid(x_out[:, self.levels * 2 : self.levels * 3])
-        c_in = torch.tanh(x_out[:, self.levels * 3 :]).to(device=device)
+        o_gate = self.sigmoid(x_out[:, self.levels * 2 : self.levels * 3])
+        c_in = self.tanh(x_out[:, self.levels * 3 :]).to(device=device)
         c_last = c_last.reshape(-1, self.levels, self.chunk_size).to(device=device)
         overlap = (f_master_gate * i_master_gate).to(device=device)
         c_out = (
@@ -132,7 +140,7 @@ class StageNetLayer(nn.Module):
             + (f_master_gate - overlap) * c_last
             + (i_master_gate - overlap) * c_in
         )
-        h_out = o_gate * torch.tanh(c_out)
+        h_out = o_gate * self.tanh(c_out)
         c_out = c_out.reshape(-1, self.hidden_dim)
         h_out = h_out.reshape(-1, self.hidden_dim)
         out = torch.cat([h_out, f_master_gate[..., 0], i_master_gate[..., 0]], 1)
@@ -140,10 +148,10 @@ class StageNetLayer(nn.Module):
 
     def forward(
         self,
-        x: torch.tensor,
-        time: Optional[torch.tensor] = None,
-        mask: Optional[torch.tensor] = None,
-    ) -> Tuple[torch.tensor]:
+        x: torch.Tensor,
+        time: Optional[torch.Tensor] = None,
+        mask: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, ...]:
         """Forward propagation.
 
         Args:
@@ -201,16 +209,16 @@ class StageNetLayer(nn.Module):
             # Re-weighted convolution operation
             local_dis = tmp_dis.permute(1, 0)
             local_dis = torch.cumsum(local_dis, dim=1)
-            local_dis = torch.softmax(local_dis, dim=1)
+            local_dis = self.softmax_dim1(local_dis)
             local_h = tmp_h.permute(1, 2, 0)
             local_h = local_h * local_dis.unsqueeze(1)
 
             # Re-calibrate Progression patterns
             local_theme = torch.mean(local_h, dim=-1)
             local_theme = self.nn_scale(local_theme).to(device)
-            local_theme = torch.relu(local_theme)
+            local_theme = self.relu(local_theme)
             local_theme = self.nn_rescale(local_theme).to(device)
-            local_theme = torch.sigmoid(local_theme)
+            local_theme = self.sigmoid(local_theme)
 
             local_h = self.nn_conv(local_h).squeeze(-1)
             local_h = local_theme * local_h
@@ -234,124 +242,91 @@ class StageNetLayer(nn.Module):
 class StageNet(BaseModel):
     """StageNet model.
 
-    Paper: Junyi Gao et al. Stagenet: Stage-aware neural networks for health risk prediction. WWW 2020.
+    Paper: Junyi Gao et al. Stagenet: Stage-aware neural networks for health
+    risk prediction. WWW 2020.
 
-    Note:
-        We use separate StageNet layers for different feature_keys.
-        Currently, we automatically support different input formats:
-            - code based input (need to use the embedding table later)
-            - float/int based value input
-        We follow the current convention for the StageNet model:
-            - case 1. [code1, code2, code3, ...]
-                - we will assume the code follows the order; our model will encode
-                each code into a vector and apply StageNet on the code level
-            - case 2. [[code1, code2]] or [[code1, code2], [code3, code4, code5], ...]
-                - we will assume the inner bracket follows the order; our model first
-                use the embedding table to encode each code into a vector and then use
-                average/mean pooling to get one vector for one inner bracket; then use
-                StageNet one the braket level
-            - case 3. [[1.5, 2.0, 0.0]] or [[1.5, 2.0, 0.0], [8, 1.2, 4.5], ...]
-                - this case only makes sense when each inner bracket has the same length;
-                we assume each dimension has the same meaning; we run StageNet directly
-                on the inner bracket level, similar to case 1 after embedding table
-            - case 4. [[[1.5, 2.0, 0.0]]] or [[[1.5, 2.0, 0.0], [8, 1.2, 4.5]], ...]
-                - this case only makes sense when each inner bracket has the same length;
-                we assume each dimension has the same meaning; we run StageNet directly
-                on the inner bracket level, similar to case 2 after embedding table
-        The time interval information specified by time_keys will be used to calculate the memory decay between each visit. If time_keys is None, all visits are treated as the same time interval. For each feature, the time interval should be a two-dimensional float array with shape (time_step, 1).
+    This model uses the StageNetProcessor which expects inputs in the format:
+        {"value": [...], "time": [...]}
+
+    The processor handles various input types:
+        - Code sequences (with/without time intervals)
+        - Nested code sequences (with/without time intervals)
+        - Numeric feature vectors (with/without time intervals)
+
+    Time intervals are optional and represent inter-event delays. If not
+    provided, all events are treated as having uniform time intervals.
 
     Args:
         dataset: the dataset to train the model. It is used to query certain
             information such as the set of all tokens.
-        feature_keys:  list of keys in samples to use as features,
-            e.g. ["conditions", "procedures"].
-        label_key: key in samples to use as label (e.g., "drugs").
-        mode: one of "binary", "multiclass", or "multilabel".
-        time_keys: list of keys in samples to use as time interval information for each feature, Default is None. If none, all visits are treated as the same time interval.
         embedding_dim: the embedding dimension. Default is 128.
         chunk_size: the chunk size for the StageNet layer. Default is 128.
-        levels: the number of levels for the StageNet layer. levels * chunk_size = hidden_dim in the RNN. Smaller chunk size and more levels can capture more detailed patient status variations. Default is 3.
+        levels: the number of levels for the StageNet layer.
+            levels * chunk_size = hidden_dim in the RNN. Smaller chunk_size
+            and more levels can capture more detailed patient status
+            variations. Default is 3.
         **kwargs: other parameters for the StageNet layer.
 
-
     Examples:
-        >>> from pyhealth.datasets import SampleEHRDataset
+        >>> from pyhealth.datasets import create_sample_dataset
         >>> samples = [
         ...     {
         ...         "patient_id": "patient-0",
         ...         "visit_id": "visit-0",
-        ...         # "single_vector": [1, 2, 3],
-        ...         "list_codes": ["505800458", "50580045810", "50580045811"],  # NDC
-        ...         "list_vectors": [[1.0, 2.55, 3.4], [4.1, 5.5, 6.0]],
-        ...         "list_list_codes": [["A05B", "A05C", "A06A"], ["A11D", "A11E"]],  # ATC-4
-        ...         "list_list_vectors": [
-        ...             [[1.8, 2.25, 3.41], [4.50, 5.9, 6.0]],
-        ...             [[7.7, 8.5, 9.4]],
-        ...         ],
+        ...         "codes": {
+        ...             "value": ["505800458", "50580045810", "50580045811"],
+        ...             "time": [0.0, 2.0, 1.3],
+        ...         },
+        ...         "procedures": {
+        ...             "value": [["A05B", "A05C", "A06A"], ["A11D", "A11E"]],
+        ...             "time": [0.0, 1.5],
+        ...         },
         ...         "label": 1,
-        ...         "list_vectors_time": [[0.0], [1.3]],
-        ...         "list_codes_time": [[0.0], [2.0], [1.3]],
-        ...         "list_list_codes_time": [[0.0], [1.5]],
         ...     },
         ...     {
         ...         "patient_id": "patient-0",
         ...         "visit_id": "visit-1",
-        ...         # "single_vector": [1, 5, 8],
-        ...         "list_codes": [
-        ...             "55154191800",
-        ...             "551541928",
-        ...             "55154192800",
-        ...             "705182798",
-        ...             "70518279800",
-        ...         ],
-        ...         "list_vectors": [[1.4, 3.2, 3.5], [4.1, 5.9, 1.7], [4.5, 5.9, 1.7]],
-        ...         "list_list_codes": [["A04A", "B035", "C129"]],
-        ...         "list_list_vectors": [
-        ...             [[1.0, 2.8, 3.3], [4.9, 5.0, 6.6], [7.7, 8.4, 1.3], [7.7, 8.4, 1.3]],
-        ...         ],
+        ...         "codes": {
+        ...             "value": ["55154191800", "551541928", "55154192800"],
+        ...             "time": [0.0, 2.0, 1.3],
+        ...         },
+        ...         "procedures": {
+        ...             "value": [["A04A", "B035", "C129"]],
+        ...             "time": [0.0],
+        ...         },
         ...         "label": 0,
-        ...         "list_vectors_time": [[0.0], [2.0], [1.0]],
-        ...         "list_codes_time": [[0.0], [2.0], [1.3], [1.0], [2.0]],
-        ...         "list_list_codes_time": [[0.0]],
         ...     },
         ... ]
         >>>
         >>> # dataset
-        >>> dataset = SampleEHRDataset(samples=samples, dataset_name="test")
+        >>> dataset = create_sample_dataset(
+        ...     samples=samples,
+        ...     input_schema={
+        ...         "codes": "stagenet",
+        ...         "procedures": "stagenet",
+        ...     },
+        ...     output_schema={"label": "binary"},
+        ...     dataset_name="test"
+        ... )
         >>>
         >>> # data loader
         >>> from pyhealth.datasets import get_dataloader
-        >>>
         >>> train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
         >>>
         >>> # model
-        >>> model = StageNet(
-        ...     dataset=dataset,
-        ...     feature_keys=[
-        ...         "list_codes",
-        ...         "list_vectors",
-        ...         "list_list_codes",
-        ...         # "list_list_vectors",
-        ...     ],
-        ...     time_keys=["list_codes_time", "list_vectors_time", "list_list_codes_time"],
-        ...     label_key="label",
-        ...     mode="binary",
-        ... )
+        >>> model = StageNet(dataset=dataset)
         >>>
-        >>> from pyhealth.datasets import get_dataloader
-        >>> train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
+        >>> # data batch
         >>> data_batch = next(iter(train_loader))
         >>>
+        >>> # try the model
         >>> ret = model(**data_batch)
         >>> print(ret)
         {
-            'loss': tensor(0.7111, grad_fn=<BinaryCrossEntropyWithLogitsBackward0>),
-            'y_prob': tensor([[0.4815],
-                        [0.4991]], grad_fn=<SigmoidBackward0>),
-            'y_true': tensor([[1.],
-                        [0.]]),
-            'logit': tensor([[-0.0742],
-                        [-0.0038]], grad_fn=<AddmmBackward0>)
+            'loss': tensor(...),
+            'y_prob': tensor(...),
+            'y_true': tensor(...),
+            'logit': tensor(...)
         }
         >>>
 
@@ -359,11 +334,7 @@ class StageNet(BaseModel):
 
     def __init__(
         self,
-        dataset: SampleEHRDataset,
-        feature_keys: List[str],
-        label_key: str,
-        mode: str,
-        time_keys: List[str] = None,
+        dataset: SampleDataset,
         embedding_dim: int = 128,
         chunk_size: int = 128,
         levels: int = 3,
@@ -371,55 +342,25 @@ class StageNet(BaseModel):
     ):
         super(StageNet, self).__init__(
             dataset=dataset,
-            feature_keys=feature_keys,
-            label_key=label_key,
-            mode=mode,
         )
         self.embedding_dim = embedding_dim
         self.chunk_size = chunk_size
         self.levels = levels
 
         # validate kwargs for StageNet layer
-        if "feature_size" in kwargs:
-            raise ValueError("feature_size is determined by embedding_dim")
-        if time_keys is not None:
-            if len(time_keys) != len(feature_keys):
-                raise ValueError(
-                    "time_keys should have the same length as feature_keys"
-                )
+        if "input_dim" in kwargs:
+            raise ValueError("input_dim is determined by embedding_dim")
 
-        # the key of self.feat_tokenizers only contains the code based inputs
-        self.feat_tokenizers = {}
-        self.time_keys = time_keys
-        self.label_tokenizer = self.get_label_tokenizer()
-        # the key of self.embeddings only contains the code based inputs
-        self.embeddings = nn.ModuleDict()
-        # the key of self.linear_layers only contains the float/int based inputs
-        self.linear_layers = nn.ModuleDict()
+        assert len(self.label_keys) == 1, "Only one label key is supported"
+        self.label_key = self.label_keys[0]
+        self.mode = self.dataset.output_schema[self.label_key]
 
+        # Use EmbeddingModel for unified embedding handling
+        self.embedding_model = EmbeddingModel(dataset, embedding_dim)
+
+        # Create StageNet layers for each feature
         self.stagenet = nn.ModuleDict()
-        # add feature StageNet layers
         for feature_key in self.feature_keys:
-            input_info = self.dataset.input_info[feature_key]
-            # sanity check
-            if input_info["type"] not in [str, float, int]:
-                raise ValueError(
-                    "StageNet only supports str code, float and int as input types"
-                )
-            elif (input_info["type"] == str) and (input_info["dim"] not in [2, 3]):
-                raise ValueError(
-                    "StageNet only supports 2-dim or 3-dim str code as input types"
-                )
-            elif (input_info["type"] in [float, int]) and (
-                input_info["dim"] not in [2, 3]
-            ):
-                raise ValueError(
-                    "StageNet only supports 2-dim or 3-dim float and int as input types"
-                )
-
-            # for code based input, we need Type
-            # for float/int based input, we need Type, input_dim
-            self.add_feature_transform_layer(feature_key, input_info)
             self.stagenet[feature_key] = StageNetLayer(
                 input_dim=embedding_dim,
                 chunk_size=self.chunk_size,
@@ -427,106 +368,218 @@ class StageNet(BaseModel):
                 **kwargs,
             )
 
-        output_size = self.get_output_size(self.label_tokenizer)
+        output_size = self.get_output_size()
         self.fc = nn.Linear(
             len(self.feature_keys) * self.chunk_size * self.levels, output_size
         )
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
-        """Forward propagation.
+        self._deeplift_hooks = None
 
-        The label `kwargs[self.label_key]` is a list of labels for each patient.
+    # ------------------------------------------------------------------
+    # Interpretability support (e.g., DeepLIFT)
+    # ------------------------------------------------------------------
+    def set_deeplift_hooks(self, hooks) -> None:
+        """Backward-compatibility stub; activation swapping occurs in interpreters."""
+
+        self._deeplift_hooks = hooks
+
+    def clear_deeplift_hooks(self) -> None:
+        """Backward-compatibility stub; activation swapping occurs in interpreters."""
+
+        self._deeplift_hooks = None
+
+    def forward_from_embedding(
+        self,
+        feature_embeddings: Dict[str, torch.Tensor],
+        time_info: Optional[Dict[str, torch.Tensor]] = None,
+        mask_info: Optional[Dict[str, torch.Tensor]] = None,
+        **kwargs,
+    ) -> Dict[str, torch.Tensor]:
+        """Forward pass starting from feature embeddings.
+
+        This method bypasses the embedding layers but still performs
+        temporal processing through StageNet layers. This is useful for
+        interpretability methods like Integrated Gradients that need to
+        interpolate in embedding space.
 
         Args:
-            **kwargs: keyword arguments for the model. The keys must contain
-                all the feature keys and the label key.
+            feature_embeddings: Dictionary mapping feature keys to their
+                embedded representations. Each tensor should have shape
+                [batch_size, seq_len, embedding_dim].
+            time_info: Optional dictionary mapping feature keys to their
+                time information tensors of shape [batch_size, seq_len].
+                If None, uniform time intervals are assumed.
+            mask_info: Optional dictionary mapping feature keys to masks
+                of shape [batch_size, seq_len]. When provided, these masks
+                override the automatic mask derived from the embeddings.
+            **kwargs: Additional keyword arguments, must include the label
+                key for loss computation.
 
         Returns:
             A dictionary with the following keys:
                 loss: a scalar tensor representing the final loss.
-                distance: list of tensors representing the stage variation of the patient.
-                y_prob: a tensor representing the predicted probabilities.
+                y_prob: a tensor of predicted probabilities.
+                y_true: a tensor representing the true labels.
+                logit: the raw logits before activation.
+                embed: (if embed=True in kwargs) the patient embedding.
+        """
+        patient_emb = []
+        distance = []
+
+        for feature_key in self.feature_keys:
+            # Get embedded feature
+            x = feature_embeddings[feature_key].to(self.device)
+            # x: [batch, seq_len, embedding_dim] or 4D nested
+
+            # Handle nested sequences (4D) by pooling over inner dim
+            # This matches forward() processing for consistency
+            if x.dim() == 4:  # [batch, seq_len, inner_len, embedding_dim]
+                # Sum pool over inner dimension
+                x = x.sum(dim=2)  # [batch, seq_len, embedding_dim]
+
+            # Get time information if available
+            time = None
+            if time_info is not None and feature_key in time_info:
+                if time_info[feature_key] is not None:
+                    time = time_info[feature_key].to(self.device)
+                    # Ensure time is 2D [batch, seq_len]
+                    if time.dim() == 1:
+                        time = time.unsqueeze(0)
+
+            # Create mask from embedded values unless an explicit one is provided
+            if mask_info is not None and feature_key in mask_info:
+                mask = mask_info[feature_key].to(self.device)
+            else:
+                mask = (x.sum(dim=-1) != 0).int()  # [batch, seq_len]
+
+            # Pass through StageNet layer with embedded features
+            last_output, _, cur_dis = self.stagenet[feature_key](
+                x, time=time, mask=mask
+            )
+
+            patient_emb.append(last_output)
+            distance.append(cur_dis)
+
+        # Concatenate all feature embeddings
+        patient_emb = torch.cat(patient_emb, dim=1)
+
+        # Register hook if needed for gradient tracking
+        if patient_emb.requires_grad:
+            patient_emb.register_hook(lambda grad: grad)
+
+        # Pass through final classification layer
+        logits = self.fc(patient_emb)
+
+        # Obtain y_true, loss, y_prob
+        y_true = kwargs[self.label_key].to(self.device)
+        loss = self.get_loss_function()(logits, y_true)
+
+        y_prob = self.prepare_y_prob(logits)
+        results = {
+            "loss": loss,
+            "y_prob": y_prob,
+            "y_true": y_true,
+            "logit": logits,
+        }
+
+        # Optionally return embeddings
+        if kwargs.get("embed", False):
+            results["embed"] = patient_emb
+
+        return results
+
+    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+        """Forward propagation.
+
+        The label `kwargs[self.label_key]` is a list of labels for each
+        patient.
+
+        Args:
+            **kwargs: keyword arguments for the model. The keys must contain
+                all the feature keys and the label key. Feature keys should
+                contain tuples of (time, values) from temporal processors.
+
+        Returns:
+            A dictionary with the following keys:
+                loss: a scalar tensor representing the final loss.
+                distance: list of tensors of stage variation.
+                y_prob: a tensor of predicted probabilities.
                 y_true: a tensor representing the true labels.
         """
         patient_emb = []
         distance = []
-        mask_dict = {}
-        for idx, feature_key in enumerate(self.feature_keys):
-            input_info = self.dataset.input_info[feature_key]
-            dim_, type_ = input_info["dim"], input_info["type"]
 
-            # for case 1: [code1, code2, code3, ...]
-            if (dim_ == 2) and (type_ == str):
-                x = self.feat_tokenizers[feature_key].batch_encode_2d(
-                    kwargs[feature_key]
-                )
-                # (patient, event)
-                x = torch.tensor(x, dtype=torch.long, device=self.device)
-                # (patient, event, embedding_dim)
-                x = self.embeddings[feature_key](x)
-                # (patient, event)
-                mask = torch.any(x !=0, dim=2)
-                mask_dict[feature_key] = mask
+        for feature_key in self.feature_keys:
+            # Extract (time, values) tuple
+            feature = kwargs[feature_key]
 
-            # for case 2: [[code1, code2], [code3, ...], ...]
-            elif (dim_ == 3) and (type_ == str):
-                x = self.feat_tokenizers[feature_key].batch_encode_3d(
-                    kwargs[feature_key]
-                )
-                # (patient, visit, event)
-                x = torch.tensor(x, dtype=torch.long, device=self.device)
-                # (patient, visit, event, embedding_dim)
-                x = self.embeddings[feature_key](x)
-                # (patient, visit, embedding_dim)
-                x = torch.sum(x, dim=2)
-                # (patient, visit)
-                mask = torch.any(x !=0, dim=2)
-                mask_dict[feature_key] = mask
+            # Get value and time tensors from tuple
+            if isinstance(feature, tuple) and len(feature) == 2:
+                time, x = feature  # Unpack (time, values)
+                # x: [batch, seq_len] or [batch, seq_len, dim]
+                # time: [batch, seq_len] or None
 
-            # for case 3: [[1.5, 2.0, 0.0], ...]
-            elif (dim_ == 2) and (type_ in [float, int]):
-                x, mask = self.padding2d(kwargs[feature_key])
-                # (patient, event, values)
-                x = torch.tensor(x, dtype=torch.float, device=self.device)
-                # (patient, event, embedding_dim)
-                x = self.linear_layers[feature_key](x)
-                # (patient, event)
-                mask = mask.bool().to(self.device)
-                mask_dict[feature_key] = mask
+                # Warn if time information is missing
+                if time is None:
+                    import warnings
 
-            # for case 4: [[[1.5, 2.0, 0.0], [1.8, 2.4, 6.0]], ...]
-            elif (dim_ == 3) and (type_ in [float, int]):
-                x, mask = self.padding3d(kwargs[feature_key])
-                # (patient, visit, event, values)
-                x = torch.tensor(x, dtype=torch.float, device=self.device)
-                # (patient, visit, embedding_dim)
-                x = torch.sum(x, dim=2)
-                x = self.linear_layers[feature_key](x)
-                # (patient, event)
-                mask = mask[:, :, 0]
-                mask = mask.bool().to(self.device)
-                mask_dict[feature_key] = mask
-
+                    warnings.warn(
+                        f"Feature '{feature_key}' does not have time "
+                        f"intervals. StageNet's temporal modeling "
+                        f"capabilities will be limited. Consider using "
+                        f"StageNet format with time intervals for "
+                        f"better performance.",
+                        UserWarning,
+                    )
             else:
-                raise NotImplementedError
+                # Fallback for backward compatibility
+                import warnings
 
-            time = None
-            if self.time_keys is not None:
-                input_info = self.dataset.input_info[self.time_keys[idx]]
-                dim_, type_ = input_info["dim"], input_info["type"]
-                if (dim_ != 2) or (type_ not in [float, int]):
-                    raise ValueError("Time interval must be 2-dim float or int.")
-                time, _ = self.padding2d(kwargs[self.time_keys[idx]])
-                time = torch.tensor(time, dtype=torch.float, device=self.device)
-            x, _, cur_dis = self.stagenet[feature_key](x, time=time, mask=mask)
-            patient_emb.append(x)
+                warnings.warn(
+                    f"Feature '{feature_key}' is not a temporal tuple. "
+                    f"Using fallback mode without time intervals. "
+                    f"The model may not learn temporal patterns properly. "
+                    f"Please use 'stagenet' or 'stagenet_tensor' "
+                    f"processors in your input schema.",
+                    UserWarning,
+                )
+                x = feature
+                time = None
+
+            # Embed the values using EmbeddingModel
+            # Need to pass as dict for EmbeddingModel
+            embedded = self.embedding_model({feature_key: x})
+            x = embedded[feature_key]  # [batch, seq_len, embedding_dim]
+            # Handle nested sequences (2D codes -> need pooling on inner dim)
+            if x.dim() == 4:  # [batch, seq_len, inner_len, embedding_dim]
+                # Sum pool over inner dimension
+                x = x.sum(dim=2)  # [batch, seq_len, embedding_dim]
+
+            # Create mask from embedded values
+            mask = (x.sum(dim=-1) != 0).int()  # [batch, seq_len]
+
+            # Move time to correct device if present
+            if time is not None:
+                time = time.to(self.device)
+                # Ensure time is 2D [batch, seq_len]
+                if time.dim() == 1:
+                    time = time.unsqueeze(0)
+
+            # Pass through StageNet layer
+            last_output, _, cur_dis = self.stagenet[feature_key](
+                x, time=time, mask=mask
+            )
+
+            patient_emb.append(last_output)
+
             distance.append(cur_dis)
 
         patient_emb = torch.cat(patient_emb, dim=1)
         # (patient, label_size)
         logits = self.fc(patient_emb)
+
         # obtain y_true, loss, y_prob
-        y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
+        y_true = kwargs[self.label_key].to(self.device)
         loss = self.get_loss_function()(logits, y_true)
 
         y_prob = self.prepare_y_prob(logits)
@@ -542,50 +595,53 @@ class StageNet(BaseModel):
 
 
 if __name__ == "__main__":
-    from pyhealth.datasets import SampleEHRDataset
+    from pyhealth.datasets import create_sample_dataset
 
     samples = [
         {
             "patient_id": "patient-0",
             "visit_id": "visit-0",
-            # "single_vector": [1, 2, 3],
-            "list_codes": ["505800458", "50580045810", "50580045811"],  # NDC
-            "list_vectors": [[1.0, 2.55, 3.4], [4.1, 5.5, 6.0]],
-            "list_list_codes": [["A05B", "A05C", "A06A"], ["A11D", "A11E"]],  # ATC-4
-            "list_list_vectors": [
-                [[1.8, 2.25, 3.41], [4.50, 5.9, 6.0]],
-                [[7.7, 8.5, 9.4]],
-            ],
+            "codes": (
+                [0.0, 2.0, 1.3],
+                ["505800458", "50580045810", "50580045811"],
+            ),
+            "procedures": (
+                [0.0, 1.5],
+                [["A05B", "A05C", "A06A"], ["A11D", "A11E"]],
+            ),
             "label": 1,
-            "list_vectors_time": [[0.0], [1.3]],
-            "list_codes_time": [[0.0], [2.0], [1.3]],
-            "list_list_codes_time": [[0.0], [1.5]],
         },
         {
             "patient_id": "patient-0",
             "visit_id": "visit-1",
-            # "single_vector": [1, 5, 8],
-            "list_codes": [
-                "55154191800",
-                "551541928",
-                "55154192800",
-                "705182798",
-                "70518279800",
-            ],
-            "list_vectors": [[1.4, 3.2, 3.5], [4.1, 5.9, 1.7], [4.5, 5.9, 1.7]],
-            "list_list_codes": [["A04A", "B035", "C129"]],
-            "list_list_vectors": [
-                [[1.0, 2.8, 3.3], [4.9, 5.0, 6.6], [7.7, 8.4, 1.3], [7.7, 8.4, 1.3]],
-            ],
+            "codes": (
+                [0.0, 2.0, 1.3, 1.0, 2.0],
+                [
+                    "55154191800",
+                    "551541928",
+                    "55154192800",
+                    "705182798",
+                    "70518279800",
+                ],
+            ),
+            "procedures": (
+                [0.0],
+                [["A04A", "B035", "C129"]],
+            ),
             "label": 0,
-            "list_vectors_time": [[0.0], [2.0], [1.0]],
-            "list_codes_time": [[0.0], [2.0], [1.3], [1.0], [2.0]],
-            "list_list_codes_time": [[0.0]],
         },
     ]
 
     # dataset
-    dataset = SampleEHRDataset(samples=samples, dataset_name="test")
+    dataset = create_sample_dataset(
+        samples=samples,
+        input_schema={
+            "codes": "stagenet",
+            "procedures": "stagenet",
+        },
+        output_schema={"label": "binary"},
+        dataset_name="test",
+    )
 
     # data loader
     from pyhealth.datasets import get_dataloader
@@ -593,18 +649,7 @@ if __name__ == "__main__":
     train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
 
     # model
-    model = StageNet(
-        dataset=dataset,
-        feature_keys=[
-            "list_codes",
-            "list_vectors",
-            "list_list_codes",
-            # "list_list_vectors",
-        ],
-        time_keys=["list_codes_time", "list_vectors_time", "list_list_codes_time"],
-        label_key="label",
-        mode="binary",
-    )
+    model = StageNet(dataset=dataset)
 
     # data batch
     data_batch = next(iter(train_loader))

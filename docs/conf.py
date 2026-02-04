@@ -36,8 +36,8 @@ print(sys.path)
 needs_sphinx = "4.3"  # Nicer param docs
 
 project = "PyHealth"
-copyright = "2022, PyHealth Team"
-author = "Chaoqi Yang, Zhenbang Wu, Patrick Jiang"
+copyright = "2025, PyHealth Team"
+author = "John Wu, Paul Landes, Zhenbang Wu"
 
 # The full version, including alpha/beta/rc tags
 version = pyhealth.__version__
@@ -67,14 +67,15 @@ extensions = [
     "sphinxcontrib.httpdomain",
     "sphinx_copybutton",
     "sphinx_toggleprompt",
-    "bokeh.sphinxext.bokeh_plot",
+    # "bokeh.sphinxext.bokeh_plot",
 ]
 
 toggleprompt_offset_right = 35
 
 ogp_site_url = "https://pyhealth.readthedocs.io/en/latest/"
 ogp_image = (
-    "https://pyhealth.readthedocs.io/en/latest/pyhealth_logos/_static/pyhealth-logo.png"
+    "https://pyhealth.readthedocs.io/en/latest/pyhealth_logos/_static/"
+    "PyHealth2Logo.png"
 )
 
 # Add any paths that contain templates here, relative to this directory.
@@ -104,7 +105,7 @@ autodoc_member_order = "bysource"
 napoleon_google_docstring = True  # for pytorch lightning
 napoleon_numpy_docstring = True
 napoleon_include_init_with_doc = False
-napoleon_use_rtype = True  # having a separate entry generally helps readability
+napoleon_use_rtype = True  # separate entry generally helps readability
 napoleon_use_param = True
 napoleon_custom_sections = [("Params", "Parameters")]
 todo_include_todos = False
@@ -115,6 +116,15 @@ myst_enable_extensions = [
     "dollarmath",
     "amsmath",
 ]
+
+# Make autodoc include imported members so tasks re-exported at package level
+autodoc_default_options = {
+    "members": True,
+    "undoc-members": True,
+    "inherited-members": True,
+    "show-inheritance": True,
+    "imported-members": True,
+}
 
 # The master toctree document.
 master_doc = "index"
@@ -130,7 +140,10 @@ intersphinx_mapping = dict(
     sklearn=("https://scikit-learn.org/stable/", None),
     torch=("https://pytorch.org/docs/master/", None),
     scanpy=("https://scanpy.readthedocs.io/en/stable/", None),
-    pytorch_lightning=("https://pytorch-lightning.readthedocs.io/en/stable/", None),
+    pytorch_lightning=(
+        "https://pytorch-lightning.readthedocs.io/en/stable/",
+        None,
+    ),
     pyro=("http://docs.pyro.ai/en/stable/", None),
     pymde=("https://pymde.org/", None),
     flax=("https://flax.readthedocs.io/en/latest/", None),
@@ -148,7 +161,7 @@ pygments_dark_style = "native"
 # a list of builtin themes.
 #
 html_theme = "furo"
-html_logo = "_static/pyhealth_logos/pyhealth-logo.png"
+html_logo = "_static/pyhealth_logos/PyHealth2Logo.png"
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,

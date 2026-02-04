@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Iterable
 
 
 class Processor(ABC):
@@ -33,7 +33,7 @@ class FeatureProcessor(Processor):
     Example: Tokenization, image loading, normalization.
     """
 
-    def fit(self, samples: List[Dict[str, Any]], field: str) -> None:
+    def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
         """Fit the processor to the samples.
 
         Args:
@@ -91,4 +91,26 @@ class DatasetProcessor(Processor):
         Returns:
             List of processed sample dictionaries.
         """
+        pass
+
+class VocabMixin(ABC):
+    """
+    Base class for feature processors that build a vocabulary.
+
+    Provides a common interface for accessing vocabulary-related information.
+    """
+
+    @abstractmethod
+    def remove(self, vocabularies: set[str]):
+        """Remove specified vocabularies from the processor."""
+        pass
+    
+    @abstractmethod
+    def retain(self, vocabularies: set[str]):
+        """Retain only the specified vocabularies in the processor."""
+        pass
+    
+    @abstractmethod
+    def add(self, vocabularies: set[str]):
+        """Add specified vocabularies to the processor."""
         pass
