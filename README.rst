@@ -225,7 +225,31 @@ Module 4: <pyhealth.trainer>
         monitor="pr_auc_samples",
     )
 
-Module 5: <pyhealth.metrics>
+Module 5: <pyhealth.models.generators>
+""""""""""""""""""""""""""""""""""""""""""""
+
+``pyhealth.models.generators`` provides **synthetic data generation models** for creating artificial EHR data while preserving statistical properties and medical code correlations.
+
+**CorGAN (Correlation-capturing Generative Adversarial Network)**: Generates synthetic patient records that maintain realistic correlations between medical codes.
+
+.. code-block:: python
+
+    from pyhealth.models.generators.corgan import CorGAN
+    from pyhealth.datasets import MIMIC3Dataset
+    
+    # Load real EHR data
+    dataset = MIMIC3Dataset(root="./data", tables=["DIAGNOSES_ICD"])
+    
+    # Train CorGAN model
+    corgan = CorGAN(dataset)
+    corgan.fit(autoencoder_epochs=10, gan_epochs=50)
+    
+    # Generate synthetic patients
+    synthetic_data = corgan.generate(n_samples=1000)
+
+**Example Script**: See ``examples/synthetic_data_generation_mimic3_corgan.py`` for a complete end-to-end example using native ICD-9 codes from MIMIC-III data.
+
+Module 6: <pyhealth.metrics>
 """"""""""""""""""""""""""""""""""""
 
 ``pyhealth.metrics`` provides several **common evaluation metrics** (refer to `Doc <https://pyhealth.readthedocs.io/en/latest/api/metrics.html>`_ and see what are available).
@@ -241,7 +265,7 @@ Module 5: <pyhealth.metrics>
     y_true, y_prob, loss = trainer.inference(test_loader)
     binary_metrics_fn(y_true, y_prob, metrics=["pr_auc", "roc_auc"])
 
-4. Medical Code Map :hospital: 
+5. Medical Code Map :hospital: 
 ---------------------------------
 
 ``pyhealth.codemap`` provides two core functionalities. **This module can be used independently.**
@@ -286,7 +310,7 @@ Module 5: <pyhealth.metrics>
     codemap.map("50090539100")
     # ['A10AC04', 'A10AD04', 'A10AB04']
 
-5. Medical Code Tokenizer :speech_balloon:
+6. Medical Code Tokenizer :speech_balloon:
 ---------------------------------------------
 
 ``pyhealth.tokenizer`` is used for transformations between string-based tokens and integer-based indices, based on the overall token space. We provide flexible functions to tokenize 1D, 2D and 3D lists. **This module can be used independently.**

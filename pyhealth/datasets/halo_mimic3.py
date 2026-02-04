@@ -73,7 +73,9 @@ class HALO_MIMIC3Dataset:
 
         data = list(data.values())
 
-        with open("./configs/hcup_ccs_2015_definitions_benchmark.yaml") as definitions_file:
+        import os
+        config_path = os.path.join(os.path.dirname(__file__), "configs", "hcup_ccs_2015_definitions_benchmark.yaml")
+        with open(config_path) as definitions_file:
             definitions = yaml.full_load(definitions_file)
 
         code_to_group = {}
