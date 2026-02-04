@@ -50,7 +50,6 @@ from .mortality_prediction_stagenet_mimic4 import (
     MortalityPredictionStageNetMIMIC4,
 )
 from .patient_linkage import patient_linkage_mimic3_fn
-from .readmission_30days_mimic4 import Readmission30DaysMIMIC4
 from .readmission_prediction import (
     ReadmissionPredictionMIMIC3,
     ReadmissionPredictionMIMIC4,
