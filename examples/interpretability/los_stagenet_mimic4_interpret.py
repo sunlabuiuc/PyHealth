@@ -20,7 +20,7 @@ from pyhealth.datasets.utils import load_processors
 from pathlib import Path
 import pandas as pd
 
-# python -u examples/interpretability/los_stagenet_mimic4_interpret.py --methods deeplift --device cuda:3 2>&1 | tee -a /home/yongdaf2/pyhealth_dka/output/los_stagenet_mimic4/deeplift.log
+# python -u examples/interpretability/los_stagenet_mimic4_interpret.py --methods ig --device cuda:3 2>&1 | tee -a /home/yongdaf2/pyhealth_dka/output/los_stagenet_mimic4/ig.log
 def main():
     parser = argparse.ArgumentParser(
         description="Comma separated list of interpretability methods to evaluate"
@@ -115,11 +115,11 @@ def main():
     print(f"✓ Model moved to {device}")
 
     methods: dict[str, BaseInterpreter] = {
-        "ig": IntegratedGradients(model, use_embeddings=True), # CUDA out of memory for attributions without embeddings
+        "ig": IntegratedGradients(model, use_embeddings=True),
         "deeplift": DeepLift(model, use_embeddings=True),
         "gim": GIM(model),
-        "shap": ShapExplainer(model, use_embeddings=True), # Warning: very slow
-        "lime": LimeExplainer(model, use_embeddings=True), # CUDA out of memory for attributions without embeddings
+        "shap": ShapExplainer(model, use_embeddings=True),
+        "lime": LimeExplainer(model, use_embeddings=True, n_samples=50),
     }
     methods = {k: v for k, v in methods.items() if k in parser.parse_args().methods.split(",")}
     print(f"\nEvaluating methods: {list(methods.keys())}")
