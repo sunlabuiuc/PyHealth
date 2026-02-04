@@ -115,11 +115,11 @@ def main():
     print(f"✓ Model moved to {device}")
 
     methods: dict[str, BaseInterpreter] = {
-        "ig": IntegratedGradients(model, use_embeddings=True), # CUDA out of memory for attributions without embeddings
+        "ig": IntegratedGradients(model, use_embeddings=True),
         "deeplift": DeepLift(model, use_embeddings=True),
         "gim": GIM(model),
-        "shap": ShapExplainer(model, use_embeddings=True), # Warning: very slow
-        "lime": LimeExplainer(model, use_embeddings=True), # CUDA out of memory for attributions without embeddings
+        "shap": ShapExplainer(model, use_embeddings=True),
+        "lime": LimeExplainer(model, use_embeddings=True, n_samples=50),
     }
     methods = {k: v for k, v in methods.items() if k in parser.parse_args().methods.split(",")}
     print(f"\nEvaluating methods: {list(methods.keys())}")
