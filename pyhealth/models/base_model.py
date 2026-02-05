@@ -29,7 +29,7 @@ class BaseModel(ABC, nn.Module):
         functional versions (e.g., F.relu, F.sigmoid, F.softmax) so that hooks can be registered properly.
     """
 
-    def __init__(self, dataset: Optional[SampleDataset] = None):
+    def __init__(self, dataset: SampleDataset):
         """
         Initializes the BaseModel.
 
@@ -56,7 +56,7 @@ class BaseModel(ABC, nn.Module):
 
         self.mode = getattr(self, "mode", None)  # legacy API
         
-    def forward(self, *kwargs: dict[str, torch.Tensor | str]) -> dict[str, torch.Tensor]:
+    def forward(self, **kwargs: dict[str, torch.Tensor | str]) -> dict[str, torch.Tensor]:
         """Forward pass of the model.
         
         Args:
@@ -72,7 +72,7 @@ class BaseModel(ABC, nn.Module):
         """
         raise NotImplementedError
     
-    def forward_from_embedding(self, *kwargs: dict[str, torch.Tensor | str]) -> dict[str, torch.Tensor]:
+    def forward_from_embedding(self, **kwargs: dict[str, torch.Tensor | str]) -> dict[str, torch.Tensor]:
         """Forward pass of the model from embeddings.
         
         This method should be implemented for interpretability methods that require
@@ -148,7 +148,6 @@ class BaseModel(ABC, nn.Module):
         assert (
             len(self.label_keys) == 1
         ), "Only one label key is supported if get_output_size is called"
-        assert self.dataset is not None, "Dataset must be provided to get output size"
         output_size = self.dataset.output_processors[self.label_keys[0]].size()
         return output_size
 
@@ -168,7 +167,6 @@ class BaseModel(ABC, nn.Module):
         assert (
             len(self.label_keys) == 1
         ), "Only one label key is supported if get_loss_function is called"
-        assert self.dataset is not None, "Dataset must be provided to get loss function"
         label_key = self.label_keys[0]
         mode = self._resolve_mode(self.dataset.output_schema[label_key])
         if mode == "binary":
@@ -206,7 +204,6 @@ class BaseModel(ABC, nn.Module):
         assert (
             len(self.label_keys) == 1
         ), "Only one label key is supported if get_loss_function is called"
-        assert self.dataset is not None, "Dataset must be provided to prepare y_prob"
         label_key = self.label_keys[0]
         mode = self._resolve_mode(self.dataset.output_schema[label_key])
         if mode in ["binary"]:
