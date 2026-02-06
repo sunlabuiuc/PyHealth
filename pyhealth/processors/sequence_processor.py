@@ -3,11 +3,11 @@ from typing import Any, Dict, List, Iterable
 import torch
 
 from . import register_processor
-from .base_processor import FeatureProcessor, VocabMixin
+from .base_processor import FeatureProcessor, TokenProcessorInterface
 
 
 @register_processor("sequence")
-class SequenceProcessor(FeatureProcessor, VocabMixin):
+class SequenceProcessor(FeatureProcessor, TokenProcessorInterface):
     """
     Feature processor for encoding categorical sequences (e.g., medical codes) into numerical indices.
 
@@ -16,9 +16,8 @@ class SequenceProcessor(FeatureProcessor, VocabMixin):
     """
 
     def __init__(self):
-        # <unk> will be set to len(vocab) after fit
-        self.code_vocab: Dict[Any, int] = {"<pad>": 0}
-        self._next_index = 1
+        self.code_vocab: Dict[Any, int] = {"<pad>": self.PAD, "<unk>": self.UNK}
+        self._next_index = 2
 
     def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
         for sample in samples:
@@ -28,8 +27,6 @@ class SequenceProcessor(FeatureProcessor, VocabMixin):
                 elif token not in self.code_vocab:
                     self.code_vocab[token] = self._next_index
                     self._next_index += 1
-
-        self.code_vocab["<unk>"] = len(self.code_vocab)
 
     def process(self, value: Any) -> torch.Tensor:
         """Process token value(s) into tensor of indices.
@@ -49,23 +46,27 @@ class SequenceProcessor(FeatureProcessor, VocabMixin):
 
         return torch.tensor(indices, dtype=torch.long)
     
-    def remove(self, vocabularies: set[str]):
+    def remove(self, tokens: set[str]):
         """Remove specified vocabularies from the processor."""
-        vocab = list(set(self.code_vocab.keys()) - vocabularies - {"<pad>", "<unk>"})
-        vocab = ["<pad>"] + vocab + ["<unk>"]
-        self.code_vocab = {v: i for i, v in enumerate(vocab)}
+        keep = set(self.code_vocab.keys()) - tokens | {"<pad>", "<unk>"}
+        order = [k for k, v in sorted(self.code_vocab.items(), key=lambda x: x[1]) if k in keep]
+        
+        self.code_vocab = { k : i for i, k in enumerate(order) }
 
-    def retain(self, vocabularies: set[str]):
+    def retain(self, tokens: set[str]):
         """Retain only the specified vocabularies in the processor."""
-        vocab = list(set(self.code_vocab.keys()) & vocabularies)
-        vocab = ["<pad>"] + vocab + ["<unk>"]
-        self.code_vocab = {v: i for i, v in enumerate(vocab)}
+        keep = set(self.code_vocab.keys()) & tokens | {"<pad>", "<unk>"}
+        order = [k for k, v in sorted(self.code_vocab.items(), key=lambda x: x[1]) if k in keep]
+        
+        self.code_vocab = { k : i for i, k in enumerate(order) }
 
-    def add(self, vocabularies: set[str]):
+    def add(self, tokens: set[str]):
         """Add specified vocabularies to the processor."""
-        vocab = list(set(self.code_vocab.keys()) | vocabularies - {"<pad>", "<unk>"})
-        vocab = ["<pad>"] + vocab + ["<unk>"]
-        self.code_vocab = {v: i for i, v in enumerate(vocab)}
+        i = len(self.code_vocab)
+        for token in tokens:
+            if token not in self.code_vocab:
+                self.code_vocab[token] = i
+                i += 1
 
     def size(self):
         return len(self.code_vocab)
