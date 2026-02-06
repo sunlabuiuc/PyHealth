@@ -1,20 +1,15 @@
-"""K-means Cluster-Based Conformal Prediction (ClusterLabel) on TUEV EEG Events using ContraWR.
+"""Neighborhood Conformal Prediction (NCP) on TUEV EEG Events using ContraWR.
 
 This script:
 1) Loads the TUEV dataset and applies the EEGEventsTUEV task.
 2) Splits into train/val/cal/test using split conformal protocol.
 3) Trains a ContraWR model.
-4) Extracts embeddings for training and calibration splits using embed=True.
-5) Calibrates a ClusterLabel prediction-set predictor (K-means clustering).
-6) Evaluates prediction-set coverage/miscoverage and efficiency on the test split.
+4) Extracts calibration embeddings and calibrates a NeighborhoodLabel (NCP) predictor.
+5) Evaluates prediction-set coverage/miscoverage and efficiency on the test split.
 
 Example (from repo root):
-  python examples/conformal_eeg/tuev_kmeans_conformal.py --root downloads/tuev/v2.0.1/edf --n-clusters 5
-  python examples/conformal_eeg/tuev_kmeans_conformal.py --quick-test --log-file quicktest_kmeans.log
-
-Notes:
-- ClusterLabel uses K-means clustering on embeddings to compute cluster-specific thresholds.
-- Different K values can be tested to find optimal cluster count.
+  python examples/conformal_eeg/tuev_ncp_conformal.py --root downloads/tuev/v2.0.1/edf
+  python examples/conformal_eeg/tuev_ncp_conformal.py --quick-test --log-file quicktest_ncp.log
 """
 
 from __future__ import annotations
@@ -45,7 +40,7 @@ class _Tee:
         self._file.flush()
 
 
-from pyhealth.calib.predictionset.cluster import ClusterLabel
+from pyhealth.calib.predictionset.cluster import NeighborhoodLabel
 from pyhealth.calib.utils import extract_embeddings
 from pyhealth.datasets import TUEVDataset, get_dataloader, split_by_sample_conformal
 from pyhealth.models import ContraWR
@@ -55,7 +50,7 @@ from pyhealth.trainer import Trainer, get_metrics_fn
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="K-means cluster-based conformal prediction (ClusterLabel) on TUEV EEG events using ContraWR."
+        description="Neighborhood conformal prediction (NCP) on TUEV EEG events using ContraWR."
     )
     parser.add_argument(
         "--root",
@@ -77,10 +72,16 @@ def parse_args() -> argparse.Namespace:
         help="Split ratios for train/val/cal/test. Must sum to 1.0.",
     )
     parser.add_argument(
-        "--n-clusters",
+        "--k-neighbors",
         type=int,
-        default=5,
-        help="Number of K-means clusters for cluster-specific thresholds.",
+        default=50,
+        help="Number of nearest calibration neighbors for NCP.",
+    )
+    parser.add_argument(
+        "--lambda-L",
+        type=float,
+        default=100.0,
+        help="Temperature for NCP exponential weights; smaller => more localization.",
     )
     parser.add_argument("--n-fft", type=int, default=128, help="STFT FFT size used by ContraWR.")
     parser.add_argument(
@@ -192,38 +193,33 @@ def _run(args: argparse.Namespace) -> None:
         print(f"  {metric}: {value:.4f}")
 
     print("\n" + "=" * 80)
-    print("STEP 4: K-means Cluster-Based Conformal Prediction (ClusterLabel)")
+    print("STEP 4: Neighborhood Conformal Prediction (NCP / NeighborhoodLabel)")
     print("=" * 80)
     print(f"Target miscoverage alpha: {args.alpha} (target coverage {1 - args.alpha:.0%})")
-    print(f"Number of clusters: {args.n_clusters}")
-
-    print("Extracting embeddings for training split...")
-    train_embeddings = extract_embeddings(model, train_ds, batch_size=args.batch_size, device=device)
-    print(f"  train_embeddings shape: {train_embeddings.shape}")
+    print(f"k_neighbors: {args.k_neighbors}, lambda_L: {args.lambda_L}")
 
     print("Extracting embeddings for calibration split...")
     cal_embeddings = extract_embeddings(model, cal_ds, batch_size=args.batch_size, device=device)
     print(f"  cal_embeddings shape: {cal_embeddings.shape}")
 
-    cluster_predictor = ClusterLabel(
+    ncp_predictor = NeighborhoodLabel(
         model=model,
         alpha=float(args.alpha),
-        n_clusters=args.n_clusters,
-        random_state=args.seed,
+        k_neighbors=args.k_neighbors,
+        lambda_L=args.lambda_L,
     )
-    print("Calibrating ClusterLabel predictor (fits K-means and computes cluster-specific thresholds)...")
-    cluster_predictor.calibrate(
+    print("Calibrating NCP predictor (store cal embeddings and conformity scores)...")
+    ncp_predictor.calibrate(
         cal_dataset=cal_ds,
-        train_embeddings=train_embeddings,
         cal_embeddings=cal_embeddings,
     )
 
-    print("Evaluating ClusterLabel predictor on test set...")
-    y_true, y_prob, _loss, extra = Trainer(model=cluster_predictor).inference(
+    print("Evaluating NCP predictor on test set...")
+    y_true, y_prob, _loss, extra = Trainer(model=ncp_predictor).inference(
         test_loader, additional_outputs=["y_predset"]
     )
 
-    cluster_metrics = get_metrics_fn("multiclass")(
+    ncp_metrics = get_metrics_fn("multiclass")(
         y_true,
         y_prob,
         metrics=["accuracy", "miscoverage_ps"],
@@ -237,18 +233,18 @@ def _run(args: argparse.Namespace) -> None:
         predset_t = predset
     avg_set_size = predset_t.float().sum(dim=1).mean().item()
 
-    miscoverage = cluster_metrics["miscoverage_ps"]
+    miscoverage = ncp_metrics["miscoverage_ps"]
     if isinstance(miscoverage, np.ndarray):
         miscoverage = float(miscoverage.item() if miscoverage.size == 1 else miscoverage.mean())
     else:
         miscoverage = float(miscoverage)
 
-    print("\nClusterLabel Results:")
-    print(f"  Accuracy: {cluster_metrics['accuracy']:.4f}")
+    print("\nNCP (NeighborhoodLabel) Results:")
+    print(f"  Accuracy: {ncp_metrics['accuracy']:.4f}")
     print(f"  Empirical miscoverage: {miscoverage:.4f}")
     print(f"  Empirical coverage: {1 - miscoverage:.4f}")
     print(f"  Average set size: {avg_set_size:.2f}")
-    print(f"  Number of clusters: {args.n_clusters}")
+    print(f"  k_neighbors: {args.k_neighbors}")
 
 
 if __name__ == "__main__":
