@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import Dict, Optional, Tuple, Callable, Union
+from typing import Dict, Optional, Tuple, Callable, Union, cast
 
 import torch
 import torch.nn.functional as F
@@ -161,7 +161,7 @@ class LimeExplainer(BaseInterpreter):
         self,
         baseline: Optional[Dict[str, torch.Tensor]] = None,
         target_class_idx: Optional[int] = None,
-        **data,
+        **kwargs: torch.Tensor | tuple[torch.Tensor, ...],
     ) -> Dict[str, torch.Tensor]:
         """Compute LIME attributions for input features.
 
@@ -179,7 +179,7 @@ class LimeExplainer(BaseInterpreter):
             target_class_idx: For multi-class models, specifies which class's 
                             prediction to explain. If None, explains the model's
                             maximum prediction across all classes.
-            **data: Input data dictionary from dataloader batch. Should contain:
+            **kwargs: Input data dictionary from dataloader batch. Should contain:
                    - Feature tensors with shape (batch_size, ..., feature_dim)
                    - Optional time information for temporal models
                    - Optional label data for supervised models
@@ -206,41 +206,14 @@ class LimeExplainer(BaseInterpreter):
         device = next(self.model.parameters()).device
 
         # Extract and prepare inputs
-        feature_inputs: Dict[str, torch.Tensor] = {}
-        time_info: Dict[str, torch.Tensor] = {}
-        label_data: Dict[str, torch.Tensor] = {}
-
-        for key in self.model.feature_keys:
-            if key not in data:
-                continue
-            value = data[key]
-            
-            # Handle (time, value) tuples for temporal data
-            if isinstance(value, tuple):
-                time_tensor, feature_tensor = value
-                if time_tensor is not None:
-                    time_info[key] = time_tensor.to(device)
-                value = feature_tensor
-
-            if not isinstance(value, torch.Tensor):
-                value = torch.as_tensor(value)
-            feature_inputs[key] = value.to(device)
-
-        # Store label data
-        for key in self.model.label_keys:
-            if key in data:
-                label_val = data[key]
-                if not isinstance(label_val, torch.Tensor):
-                    label_val = torch.as_tensor(label_val)
-                label_data[key] = label_val.to(device)
-
-        # Fix target class for multiclass if not provided to avoid class flipping
-        if target_class_idx is None and self._is_multiclass():
-            base_logits = self._compute_base_logits(
-                feature_inputs,
-                time_info=time_info,
-            )
-            target_class_idx = base_logits.argmax(dim=-1)
+        base_logits, base_input = self._compute_logits(
+            kwargs, 
+            use_embeddings=self.use_embeddings,
+        )
+        
+        # Enforce target class selection for multi-class models to avoid class flipping
+        if self._prediction_mode() == "multiclass":
+            target_class_idx = target_class_idx or int(base_logits.argmax(dim=-1).item())
 
         # Generate or validate baseline (neutral replacement values)
         # Note: LIME does not require a background dataset; baselines here
@@ -883,11 +856,6 @@ class LimeExplainer(BaseInterpreter):
             else:
                 model_inputs[fk] = torch.zeros_like(perturbed_inputs)
 
-        # Add dummy labels sized for the loss
-        model_inputs.update(
-            self._build_label_kwargs(batch_size=perturbed_inputs.shape[0])
-        )
-
         with torch.no_grad():
             output = self.model(**model_inputs)
         return self._extract_logits(output)
@@ -930,43 +898,12 @@ class LimeExplainer(BaseInterpreter):
 
         return time_info_adj if time_info_adj else None
 
-    def _compute_base_logits(
-        self,
-        inputs: Dict[str, torch.Tensor],
-        time_info: Optional[Dict[str, torch.Tensor]],
-    ) -> torch.Tensor:
-        """Run a single forward on the original inputs to select target class."""
-        batch_size = next(iter(inputs.values())).shape[0]
-
-        with torch.no_grad():
-            if self.use_embeddings:
-                input_embs = self.model.embedding_model(inputs)
-                time_info_adj = self._prepare_time_info(
-                    time_info, input_embs, batch_size
-                )
-                forward_kwargs = {"time_info": time_info_adj}
-                forward_kwargs.update(
-                    self._build_label_kwargs(batch_size=batch_size)
-                )
-                output = self.model.forward_from_embedding(
-                    input_embs, **forward_kwargs
-                )
-            else:
-                model_inputs = {
-                    fk: inputs[fk] for fk in self.model.feature_keys if fk in inputs
-                }
-                model_inputs.update(
-                    self._build_label_kwargs(batch_size=batch_size)
-                )
-                output = self.model(**model_inputs)
-
-        return self._extract_logits(output)
 
     # ------------------------------------------------------------------
     # Baseline generation
     # ------------------------------------------------------------------
     def _generate_baseline(
-        self, inputs: Dict[str, torch.Tensor]
+        self, x: Dict[str, torch.Tensor]
     ) -> Dict[str, torch.Tensor]:
         """Generate baseline samples for LIME computation.
 
@@ -976,7 +913,7 @@ class LimeExplainer(BaseInterpreter):
         - Continuous features: Use mean or small non-zero values
 
         Args:
-            inputs: Dictionary mapping feature names to input tensors.
+            x: The dictionary of input tensors for which plan to perturb. It 
 
         Returns:
             Dictionary mapping feature names to baseline sample tensors.
@@ -987,6 +924,7 @@ class LimeExplainer(BaseInterpreter):
             batch_size = x.shape[0]
             if x.dtype in [torch.int64, torch.int32, torch.long]:
                 # Discrete features: use small non-zero token index to avoid zero-mask issues
+                # TODO: use UNK token if available in vocab
                 # in sequential models (e.g., StageNet). Using ones is a safe neutral choice.
                 baseline = torch.ones_like(x)
             else:
@@ -1001,54 +939,6 @@ class LimeExplainer(BaseInterpreter):
             baseline_samples[key] = baseline.to(x.device)
 
         return baseline_samples
-
-    # ------------------------------------------------------------------
-    # Label and mode helpers
-    # ------------------------------------------------------------------
-    def _build_label_kwargs(self, batch_size: int) -> Dict[str, torch.Tensor]:
-        """Provide dummy labels shaped for the model loss."""
-        if not getattr(self.model, "label_keys", None):
-            return {}
-
-        loss_name = ""
-        try:
-            loss_fn = self.model.get_loss_function()
-            loss_name = getattr(loss_fn, "__name__", "").lower()
-        except Exception:
-            loss_name = ""
-
-        loss_name = ""
-        try:
-            loss_fn = self.model.get_loss_function()
-            loss_name = getattr(loss_fn, "__name__", "").lower()
-        except Exception:
-            loss_name = ""
-
-        is_cross_entropy = loss_name == "cross_entropy"
-        if is_cross_entropy:
-            dummy = torch.zeros(
-                (batch_size,), device=self.model.device, dtype=torch.long
-            )
-        else:
-            out_size = 1
-            try:
-                out_size = self.model.get_output_size()
-            except Exception:
-                pass
-            dummy = torch.zeros(
-                (batch_size, out_size), device=self.model.device, dtype=torch.float32
-            )
-
-        return {label_key: dummy for label_key in self.model.label_keys}
-
-    def _is_multiclass(self) -> bool:
-        """Detect multiclass mode via loss function signature."""
-        try:
-            loss_fn = self.model.get_loss_function()
-            loss_name = getattr(loss_fn, "__name__", "").lower()
-            return loss_name == "cross_entropy"
-        except Exception:
-            return False
 
     # ------------------------------------------------------------------
     # Utility helpers (shared with SHAP)
