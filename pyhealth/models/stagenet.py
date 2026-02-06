@@ -375,7 +375,7 @@ class StageNet(BaseModel):
 
     def forward_from_embedding(
         self,
-        **kwargs: Dict[str, tuple[torch.Tensor, ...]],
+        **kwargs: tuple[torch.Tensor, ...],
     ) -> Dict[str, torch.Tensor]:
         """Forward pass starting from feature embeddings.
 
@@ -483,7 +483,7 @@ class StageNet(BaseModel):
 
     def forward(
         self, 
-        **kwargs: Dict[str, torch.Tensor | tuple[torch.Tensor, ...]]
+        **kwargs: torch.Tensor | tuple[torch.Tensor, ...]
     ) -> Dict[str, torch.Tensor]:
         """Forward propagation.
 

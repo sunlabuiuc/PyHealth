@@ -57,7 +57,7 @@ class BaseModel(ABC, nn.Module):
         self.mode = getattr(self, "mode", None)  # legacy API
         
     def forward(self, 
-            **kwargs: dict[str, torch.Tensor | tuple[torch.Tensor, ...]]
+            **kwargs: torch.Tensor | tuple[torch.Tensor, ...]
         ) -> dict[str, torch.Tensor]:
         """Forward pass of the model.
         
@@ -76,7 +76,7 @@ class BaseModel(ABC, nn.Module):
     
     def forward_from_embedding(
         self, 
-        **kwargs: dict[str, torch.Tensor | tuple[torch.Tensor, ...]]
+        **kwargs: torch.Tensor | tuple[torch.Tensor, ...]
     ) -> dict[str, torch.Tensor]:
         """Forward pass of the model from embeddings.
         
