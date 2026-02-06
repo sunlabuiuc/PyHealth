@@ -9,7 +9,7 @@ This script:
 6) Evaluates prediction-set coverage/miscoverage and efficiency on the test split.
 
 Example (from repo root):
-  python examples/conformal_eeg/tuev_kmeans_conformal.py --root downloads/tuev/v2.0.1/edf --n-clusters 5
+  python examples/conformal_eeg/tuev_kmeans_conformal.py --root /srv/local/data/TUH/tuh_eeg_events/v2.0.0/edf --n-clusters 5
   python examples/conformal_eeg/tuev_kmeans_conformal.py --quick-test --log-file quicktest_kmeans.log
 
 Notes:
@@ -60,7 +60,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--root",
         type=str,
-        default="downloads/tuev/v2.0.1/edf",
+        default="/srv/local/data/TUH/tuh_eeg_events/v2.0.0/edf",
         help="Path to TUEV edf/ folder.",
     )
     parser.add_argument("--subset", type=str, default="both", choices=["train", "eval", "both"])
