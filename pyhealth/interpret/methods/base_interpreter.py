@@ -10,7 +10,7 @@ map attributions back to specific input modalities.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict
+from typing import Dict, cast
 
 import torch
 import torch.nn as nn
@@ -219,6 +219,78 @@ class BaseInterpreter(ABC):
         ), "Only one label key is supported if get_loss_function is called"
         label_key = self.model.label_keys[0]
         return self.model._resolve_mode(self.model.dataset.output_schema[label_key])
+    
+    def _compute_logits(
+        self,
+        inputs: Dict[str, torch.Tensor | tuple[torch.Tensor, ...]],
+        use_embeddings: bool,
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor | tuple[torch.Tensor, ...]]]:
+        """Run a single forward on the original inputs to select target class and mask.
+        We typically need to run a forward pass on the original inputs at beginning of
+        each interpretability methods to select the target class for attribution and 
+        to get the input masks. 
+        
+        Args:
+            inputs (Dict[str, torch.Tensor | tuple[torch.Tensor, ...]]): The inputs to the model, 
+                which can be either raw features or already embedded features depending on the use_embeddings flag.
+            use_embeddings (bool): Whether to use the model's embedding layer to get the embedded features and masks. 
+                If False, will directly use the raw features as input to the model. Enable this on a dense-input model
+                will crash.
+        
+        Returns:
+            Tuple[torch.Tensor, dict[str, torch.Tensor | tuple[torch.Tensor, ...]]]: A tuple containing:
+                - logit: The output logits from the model's forward pass, which can be used to select the target class for attribution.
+                - inputs: The inputs used for the forward pass, which may include embedded features and masks if use_embeddings is True, 
+                    or raw features if use_embeddings is False. This should be used for subsequent forward passes in the interpretability method 
+                    to ensure consistent auxiliary inputs and masks.
+        """
+        
+        if use_embeddings:
+            # TODO: we assume only the last tensor in the tuple is the tensor to be
+            # embedded and masked. 
+            if isinstance(inputs, tuple):
+                # input: {key: (..., x)}
+                inputs = {
+                    key: inputs[key] for key in self.model.feature_keys if key in inputs
+                }
+                x = {
+                    key: inputs[key][-1] for key in self.model.feature_keys if key in inputs
+                }
+                x = cast(Dict[str, torch.Tensor], x)
+                
+                embedding_model = self.model.get_embedding_model()
+                assert embedding_model is not None, "Embedding model not found"
+                x, mask = embedding_model(inputs, output_mask=True)
+                
+                # (..., x, mask) pairs for each feature key
+                inputs = {
+                    key: (*inputs[key][:-1], cast(torch.Tensor, x[key]), cast(torch.Tensor, mask[key])) for key in inputs
+                }
+            else:
+                # input: {key: x}
+                x = {
+                    key: inputs[key] for key in self.model.feature_keys if key in inputs
+                }
+                x = cast(Dict[str, torch.Tensor], x)
+                
+                
+                embedding_model = self.model.get_embedding_model()
+                assert embedding_model is not None, "Embedding model not found"
+                x, mask = embedding_model(x, output_mask=True)
+                
+                # (x, mask) pairs for each feature key
+                inputs = {
+                    key: (cast(torch.Tensor, x[key]), cast(torch.Tensor, mask[key])) for key in x
+                }
+            
+            output = self.model.forward_from_embedding(**inputs)
+            return output["logit"], inputs
+        else:
+            inputs = {
+                key: inputs[key] for key in self.model.feature_keys if key in inputs
+            }
+            output = self.model(**inputs)
+            return output["logit"], inputs
 
     def __call__(self, **data) -> Dict[str, torch.Tensor]:
         """Convenience method to call attribute().
