@@ -206,6 +206,19 @@ class BaseInterpreter(ABC):
             >>> print(attributions['image'].shape)  # [1, 1, 224, 224]
         """
         pass
+    
+    def _prediction_mode(self) -> str:
+        """Resolve the prediction mode from the model. 
+        
+        Returns:
+            str: The prediction mode, one of "binary", "multiclass", "multilabel" or "regression".
+        """
+        
+        assert (
+            len(self.model.label_keys) == 1
+        ), "Only one label key is supported if get_loss_function is called"
+        label_key = self.model.label_keys[0]
+        return self.model._resolve_mode(self.model.dataset.output_schema[label_key])
 
     def __call__(self, **data) -> Dict[str, torch.Tensor]:
         """Convenience method to call attribute().
