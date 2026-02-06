@@ -386,9 +386,13 @@ class StageNet(BaseModel):
 
         Args:
             **kwargs: keyword arguments for the model. The keys must contain
-                all the feature keys and the label key. Feature keys should
-                contain tuples of tensors (time, values, mask) from temporal processors. 
-                But the featurs keys can also contain just the values without time and mask for backward compatibility.
+                all the feature keys and the label key. 
+                
+                Feature keys should contain tuples of tensors (time, embedding, mask) 
+                from temporal processors. 
+                But the featurs keys can also contain just the embedding values 
+                without time and mask for backward compatibility.
+                
                 The label key should contain the true labels for loss computation.
 
         Returns:
