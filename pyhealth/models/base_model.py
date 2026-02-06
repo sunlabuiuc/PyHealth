@@ -56,35 +56,41 @@ class BaseModel(ABC, nn.Module):
 
         self.mode = getattr(self, "mode", None)  # legacy API
         
-    def forward(self, **kwargs: dict[str, torch.Tensor | str]) -> dict[str, torch.Tensor]:
+    def forward(self, 
+            **kwargs: dict[str, torch.Tensor | tuple[torch.Tensor, ...]]
+        ) -> dict[str, torch.Tensor]:
         """Forward pass of the model.
         
         Args:
-            *kwargs: A variable number of keyword arguments representing input features.
-                Each keyword argument is a tensor of shape (batch_size, ...).
+            **kwargs: A variable number of keyword arguments representing input features.
+                Each keyword argument is a tensor or a tuple of tensors of shape (batch_size, ...).
         
         Returns:
             A dictionary with the following keys:
-                distance: list of tensors of stage variation.
+                logit: a tensor of predicted logits.
                 y_prob: a tensor of predicted probabilities.
                 loss [optional]: a scalar tensor representing the final loss, if self.label_keys in kwargs.
                 y_true [optional]: a tensor representing the true labels, if self.label_keys in kwargs.
         """
         raise NotImplementedError
     
-    def forward_from_embedding(self, **kwargs: dict[str, torch.Tensor | str]) -> dict[str, torch.Tensor]:
+    def forward_from_embedding(
+        self, 
+        **kwargs: dict[str, torch.Tensor | tuple[torch.Tensor, ...]]
+    ) -> dict[str, torch.Tensor]:
         """Forward pass of the model from embeddings.
         
         This method should be implemented for interpretability methods that require
         access to the model's forward pass from embeddings.
         
         Args:
-            *kwargs: A variable number of keyword arguments representing input features
-                as embeddings. Each keyword argument is a tensor of shape (batch_size, ...).
+            **kwargs: A variable number of keyword arguments representing input features
+                as embeddings. Each keyword argument is a tensor or a tuple of tensors of
+                shape (batch_size, ...).
 
         Returns:
             A dictionary with the following keys:
-                distance: list of tensors of stage variation.
+                logit: a tensor of predicted logits.
                 y_prob: a tensor of predicted probabilities.
                 loss [optional]: a scalar tensor representing the final loss, if self.label_keys in kwargs.
                 y_true [optional]: a tensor representing the true labels, if self.label_keys in kwargs.
