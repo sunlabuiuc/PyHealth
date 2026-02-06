@@ -98,7 +98,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--quick-test",
         action="store_true",
-        help="Dev mode: dev=True, 2 epochs, ~5 min smoke test.",
+        help="Smoke test: dev=True, max 2000 samples, 2 epochs, ~5-10 min.",
     )
     return parser.parse_args()
 
@@ -141,14 +141,18 @@ def _run(args: argparse.Namespace) -> None:
         )
 
     epochs = 2 if args.quick_test else args.epochs
+    quick_test_max_samples = 2000  # cap samples so quick-test finishes in ~5-10 min
     if args.quick_test:
-        print("*** QUICK TEST MODE (dev=True, 2 epochs) ***")
+        print("*** QUICK TEST MODE (dev=True, 2 epochs, max 2000 samples) ***")
 
     print("=" * 80)
     print("STEP 1: Load TUEV + build task dataset")
     print("=" * 80)
     dataset = TUEVDataset(root=str(root), subset=args.subset, dev=args.quick_test)
     sample_dataset = dataset.set_task(EEGEventsTUEV(), cache_dir="examples/conformal_eeg/cache")
+    if args.quick_test and len(sample_dataset) > quick_test_max_samples:
+        sample_dataset = sample_dataset.subset(range(quick_test_max_samples))
+        print(f"Capped to {quick_test_max_samples} samples for quick-test.")
 
     print(f"Task samples: {len(sample_dataset)}")
     print(f"Input schema: {sample_dataset.input_schema}")
