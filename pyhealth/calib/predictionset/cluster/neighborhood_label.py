@@ -1,7 +1,7 @@
 """
 Neighborhood Conformal Prediction (NCP).
 
-This module implements Neighborhood Conformal Prediction.
+This module implements Neighborhood Conformal Prediction!
 
 NCP uses the learned representation (embeddings) to assign importance weights
 to calibration examples: for each test input it finds k nearest calibration
