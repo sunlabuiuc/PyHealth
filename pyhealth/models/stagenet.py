@@ -508,6 +508,8 @@ class StageNet(BaseModel):
         patient_emb = []
         distance = []
 
+        # TODO: we should be able to implement forward from forward_from_embedding 
+        # to avoid code duplication.
         for feature_key in self.feature_keys:
             # Extract (time, values) tuple
             feature = kwargs[feature_key]
