@@ -16,7 +16,17 @@ class MedicalTranscriptionsClassification(BaseTask):
         task_name (str): Name of the task
         input_schema (Dict[str, str]): Schema defining input features
         output_schema (Dict[str, str]): Schema defining output features
+
+    Examples:
+        >>> from pyhealth.datasets import MedicalTranscriptionsDataset
+        >>> from pyhealth.tasks import MedicalTranscriptionsClassification
+        >>> dataset = MedicalTranscriptionsDataset(
+        ...     root="/path/to/medical_transcriptions",
+        ... )
+        >>> task = MedicalTranscriptionsClassification()
+        >>> samples = dataset.set_task(task)
     """
+
     task_name: str = "MedicalTranscriptionsClassification"
     input_schema: Dict[str, str] = {"transcription": "text"}
     output_schema: Dict[str, str] = {"medical_specialty": "multiclass"}

@@ -18,6 +18,16 @@ class InHospitalMortalityMIMIC4(BaseTask):
             - labs: A timeseries of lab results.
         output_schema (Dict[str, str]): The schema for output data, which includes:
             - mortality: A binary indicator of mortality.
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC4EHRDataset
+        >>> from pyhealth.tasks import InHospitalMortalityMIMIC4
+        >>> dataset = MIMIC4EHRDataset(
+        ...     root="/path/to/mimic-iv/2.2",
+        ...     tables=["diagnoses_icd", "procedures_icd", "labevents"],
+        ... )
+        >>> task = InHospitalMortalityMIMIC4()
+        >>> samples = dataset.set_task(task)
     """
 
     task_name: str = "InHospitalMortalityMIMIC4"
