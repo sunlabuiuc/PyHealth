@@ -93,24 +93,27 @@ class DatasetProcessor(Processor):
         """
         pass
 
-class VocabMixin(ABC):
+class TokenProcessorInterface(ABC):
     """
     Base class for feature processors that build a vocabulary.
 
     Provides a common interface for accessing vocabulary-related information.
     """
+    
+    PAD = 0
+    UNK = 1
 
     @abstractmethod
-    def remove(self, vocabularies: set[str]):
+    def remove(self, tokens: set[str]):
         """Remove specified vocabularies from the processor."""
         pass
     
     @abstractmethod
-    def retain(self, vocabularies: set[str]):
+    def retain(self, tokens: set[str]):
         """Retain only the specified vocabularies in the processor."""
         pass
     
     @abstractmethod
-    def add(self, vocabularies: set[str]):
+    def add(self, tokens: set[str]):
         """Add specified vocabularies to the processor."""
         pass
