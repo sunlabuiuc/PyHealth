@@ -1,13 +1,13 @@
 """
 Length of Stay Prediction on eICU with RNN
 
-This example demonstrates how to use the modernized eICUDataset with the 
+This example demonstrates how to use the modernized eICUDataset with the
 LengthOfStayPredictioneICU task class for predicting ICU length of stay
 using an RNN model.
 
 Length of stay is categorized into 10 classes:
 - 0: < 1 day
-- 1: 1 day  
+- 1: 1 day
 - 2: 2 days
 - 3: 3 days
 - 4: 4 days
@@ -18,7 +18,7 @@ Length of stay is categorized into 10 classes:
 - 9: > 2 weeks
 
 Features:
-- Uses the new BaseDataset-based eICUDataset with YAML configuration  
+- Uses the new BaseDataset-based eICUDataset with YAML configuration
 - Uses the LengthOfStayPredictioneICU BaseTask class
 - Demonstrates the standardized PyHealth workflow
 """
@@ -41,14 +41,13 @@ if __name__ == "__main__":
     base_dataset = eICUDataset(
         root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
         tables=["diagnosis", "medication", "physicalexam"],
-        cache_dir=cache_dir.name
-        dev=True,
+        num_workers=4,
     )
     base_dataset.stats()
 
     # STEP 2: Set task using LengthOfStayPredictioneICU
     task = LengthOfStayPredictioneICU()
-    sample_dataset = base_dataset.set_task(task)
+    sample_dataset = base_dataset.set_task(task, num_workers=16)
     sample_dataset.stats()
 
     # STEP 3: Split and create dataloaders
@@ -62,9 +61,6 @@ if __name__ == "__main__":
     # STEP 4: Define model
     model = RNN(
         dataset=sample_dataset,
-        feature_keys=["conditions", "procedures", "drugs"],
-        label_key="los",
-        mode="multiclass",
     )
 
     # STEP 5: Train
@@ -81,8 +77,3 @@ if __name__ == "__main__":
 
     # Cleanup
     sample_dataset.close()
-
-
-
-
-

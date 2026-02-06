@@ -272,15 +272,19 @@ class LengthOfStayPredictioneICU(BaseTask):
     """Task for predicting length of stay using eICU dataset.
 
     Length of stay prediction aims at predicting the length of stay (in days) of the
-    current hospital visit based on the clinical information from the visit
-    (e.g., conditions and procedures).
+    current ICU stay based on the clinical information from the stay
+    (e.g., diagnoses, physical exams, and medications).
+
+    In eICU, timestamps are stored as minute-offsets from ICU admission.
+    The ICU length of stay is computed directly from ``unitdischargeoffset``
+    (minutes from ICU admission to ICU discharge).
 
     Attributes:
         task_name (str): The name of the task.
         input_schema (Dict[str, str]): The schema for input data, which includes:
-            - conditions: A list of condition codes.
-            - procedures: A list of procedure codes.
-            - drugs: A list of drug codes.
+            - conditions: A list of diagnosis strings.
+            - procedures: A list of physical exam values.
+            - drugs: A list of drug names.
         output_schema (Dict[str, str]): The schema for output data, which includes:
             - los: A multi-class label for length of stay category.
 
@@ -308,74 +312,83 @@ class LengthOfStayPredictioneICU(BaseTask):
     def __call__(self, patient: Patient) -> List[Dict]:
         samples = []
 
-        # Get all patient stays (each row in patient table is an ICU stay)
+        # In the new BaseDataset, each row of the patient table is an ICU stay.
+        # The patient table has timestamp=null in the YAML, so we use
+        # get_events(event_type="patient") to iterate over ICU stays.
         patient_stays = patient.get_events(event_type="patient")
         if len(patient_stays) == 0:
             return []
 
-        # Process each patient stay
         for stay in patient_stays:
-            # Get the patientunitstayid for filtering
             stay_id = str(getattr(stay, "patientunitstayid", ""))
-            
-            # Get diagnosis codes
+            if not stay_id:
+                continue
+
+            # --- Diagnoses ---
+            # YAML: diagnosis table has attributes [patientunitstayid,
+            #        diagnosisoffset, diagnosisstring, icd9code, diagnosispriority]
             diagnosis_events = patient.get_events(
                 event_type="diagnosis",
                 filters=[("patientunitstayid", "==", stay_id)],
             )
             conditions = [
-                getattr(event, "diagnosisstring", "") for event in diagnosis_events
+                getattr(event, "diagnosisstring", "")
+                for event in diagnosis_events
                 if getattr(event, "diagnosisstring", None)
             ]
 
-            # Get physical exam findings
+            # --- Physical exams (used as "procedures") ---
+            # YAML: physicalexam table has attributes [patientunitstayid,
+            #        physicalexamvalue]
             physicalexam_events = patient.get_events(
                 event_type="physicalexam",
                 filters=[("patientunitstayid", "==", stay_id)],
             )
             procedures = [
-                getattr(event, "physicalexamtext", "") for event in physicalexam_events
-                if getattr(event, "physicalexamtext", None)
+                getattr(event, "physicalexamvalue", "")
+                for event in physicalexam_events
+                if getattr(event, "physicalexamvalue", None)
             ]
 
-            # Get medications
+            # --- Medications ---
+            # YAML: medication table has attributes [patientunitstayid,
+            #        drugstartoffset, drugstopoffset, drugname, ...]
             medication_events = patient.get_events(
                 event_type="medication",
                 filters=[("patientunitstayid", "==", stay_id)],
             )
             drugs = [
-                getattr(event, "drugname", "") for event in medication_events
+                getattr(event, "drugname", "")
+                for event in medication_events
                 if getattr(event, "drugname", None)
             ]
 
-            # Exclude visits without condition, procedure, or drug code
+            # Exclude stays without condition, procedure, or drug code
             if len(conditions) * len(procedures) * len(drugs) == 0:
                 continue
 
-            # Calculate length of stay using hospital admit/discharge times
-            admit_time_str = getattr(stay, "hospitaladmittime24", None)
-            discharge_time_str = getattr(stay, "hospitaldischargetime24", None)
-            
-            if not admit_time_str or not discharge_time_str:
+            # --- Length of stay ---
+            # unitdischargeoffset is the number of minutes from ICU admission
+            # to ICU discharge. This directly gives us the ICU LOS.
+            unit_discharge_offset = getattr(stay, "unitdischargeoffset", None)
+            if unit_discharge_offset is None:
                 continue
-                
+
             try:
-                admit_time = datetime.strptime(admit_time_str, "%Y-%m-%d %H:%M:%S")
-                discharge_time = datetime.strptime(discharge_time_str, "%Y-%m-%d %H:%M:%S")
+                los_minutes = int(unit_discharge_offset)
             except (ValueError, TypeError):
                 continue
-                
-            los_days = (discharge_time - admit_time).days
+
+            los_days = los_minutes // (60 * 24)
             los_category = categorize_los(los_days)
 
-            # TODO: should also exclude visit with age < 18
             samples.append(
                 {
                     "visit_id": stay_id,
                     "patient_id": patient.patient_id,
-                    "conditions": conditions,
-                    "procedures": procedures,
-                    "drugs": drugs,
+                    "conditions": [conditions],
+                    "procedures": [procedures],
+                    "drugs": [drugs],
                     "los": los_category,
                 }
             )
