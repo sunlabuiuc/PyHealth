@@ -3,11 +3,11 @@ from typing import Any, Dict, List, Optional, Tuple, Iterable
 import torch
 
 from . import register_processor
-from .base_processor import FeatureProcessor, VocabMixin
+from .base_processor import FeatureProcessor, TokenProcessorInterface
 
 
 @register_processor("stagenet")
-class StageNetProcessor(FeatureProcessor, VocabMixin):
+class StageNetProcessor(FeatureProcessor, TokenProcessorInterface):
     """
     Feature processor for StageNet CODE inputs with coupled value/time data.
 
@@ -55,9 +55,8 @@ class StageNetProcessor(FeatureProcessor, VocabMixin):
     """
 
     def __init__(self, padding: int = 0):
-        # <unk> will be set to len(vocab) after fit
-        self.code_vocab: Dict[Any, int] = {"<unk>": None, "<pad>": 0}
-        self._next_index = 1
+        self.code_vocab: Dict[Any, int] = {"<pad>": self.PAD, "<unk>": self.UNK}
+        self._next_index = 2
         self._is_nested = None  # Will be determined during fit
         # Max inner sequence length for nested codes
         self._max_nested_len = None
@@ -118,27 +117,27 @@ class StageNetProcessor(FeatureProcessor, VocabMixin):
             observed_max = max(1, max_inner_len)
             self._max_nested_len = observed_max + self._padding
 
-        # Set <unk> token to the next available index
-        # Since <unk> is already in the vocab dict, we use _next_index
-        self.code_vocab["<unk>"] = self._next_index
-
-    def remove(self, vocabularies: set[str]):
+    def remove(self, tokens: set[str]):
         """Remove specified vocabularies from the processor."""
-        vocab = list(set(self.code_vocab.keys()) - vocabularies - {"<pad>", "<unk>"})
-        vocab = ["<pad>"] + vocab + ["<unk>"]
-        self.code_vocab = {v: i for i, v in enumerate(vocab)}
+        keep = set(self.code_vocab.keys()) - tokens | {"<pad>", "<unk>"}
+        order = [k for k, v in sorted(self.code_vocab.items(), key=lambda x: x[1]) if k in keep]
+        
+        self.code_vocab = { k : i for i, k in enumerate(order) }
 
-    def retain(self, vocabularies: set[str]):
+    def retain(self, tokens: set[str]):
         """Retain only the specified vocabularies in the processor."""
-        vocab = list(set(self.code_vocab.keys()) & vocabularies)
-        vocab = ["<pad>"] + vocab + ["<unk>"]
-        self.code_vocab = {v: i for i, v in enumerate(vocab)}
+        keep = set(self.code_vocab.keys()) & tokens | {"<pad>", "<unk>"}
+        order = [k for k, v in sorted(self.code_vocab.items(), key=lambda x: x[1]) if k in keep]
+        
+        self.code_vocab = { k : i for i, k in enumerate(order) }
 
-    def add(self, vocabularies: set[str]):
+    def add(self, tokens: set[str]):
         """Add specified vocabularies to the processor."""
-        vocab = list(set(self.code_vocab.keys()) | vocabularies - {"<pad>", "<unk>"})
-        vocab = ["<pad>"] + vocab + ["<unk>"]
-        self.code_vocab = {v: i for i, v in enumerate(vocab)}
+        i = len(self.code_vocab)
+        for token in tokens:
+            if token not in self.code_vocab:
+                self.code_vocab[token] = i
+                i += 1
 
     def process(
         self, value: Tuple[Optional[List], List]

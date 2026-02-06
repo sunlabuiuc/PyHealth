@@ -8,37 +8,57 @@ This example demonstrates:
 4. Presenting results in a summary table
 """
 
-from datetime import datetime
-import torch
-
+import datetime
 import argparse
 from pyhealth.datasets import MIMIC4Dataset, get_dataloader, split_by_patient
 from pyhealth.interpret.methods import BaseInterpreter, IntegratedGradients, DeepLift, GIM, ShapExplainer, LimeExplainer
-from pyhealth.metrics.interpretability import Evaluator, evaluate_attribution
+from pyhealth.metrics.interpretability import evaluate_attribution
 from pyhealth.models import StageNet
-from pyhealth.tasks import MortalityPredictionStageNetMIMIC4
+from pyhealth.tasks import LengthOfStayStageNetMIMIC4
 from pyhealth.trainer import Trainer
 from pyhealth.datasets.utils import load_processors
 from pathlib import Path
 import pandas as pd
 
-
-def main():    
+# python -u examples/interpretability/los_stagenet_mimic4_interpret.py --methods ig --device cuda:3 2>&1 | tee -a /home/yongdaf2/pyhealth_dka/output/los_stagenet_mimic4/ig.log
+def main():
+    parser = argparse.ArgumentParser(
+        description="Comma separated list of interpretability methods to evaluate"
+    )
+    parser.add_argument(
+        "--methods",
+        type=str,
+        default="ig,deeplift,gim,shap,lime",
+        help="Comma-separated list of interpretability methods to evaluate (default: ig,deeplift,gim,shap,lime)",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="cuda:0",
+        help="Device to use for evaluation (default: cuda:0)",
+    )
+    
     """Main execution function."""
     print("=" * 70)
     print("Interpretability Metrics Example: StageNet + MIMIC-IV")
     print("=" * 70)
+    
+    now = datetime.datetime.now()
+    print(f"Start Time: {now.strftime('%Y-%m-%d %H:%M:%S')}")
 
     # Set path
-    CACHE_DIR = Path("/shared/eng/pyhealth_dka/cache/mp_stagenet_mimic4")
-    CKPTS_DIR = Path("/shared/eng/pyhealth_dka/ckpts/mp_stagenet_mimic4")
-    OUTPUT_DIR = Path("/shared/eng/pyhealth_dka/output/mp_stagenet_mimic4")
+    CACHE_DIR = Path("/shared/eng/pyhealth_dka/cache/los_mimic4")
+    CKPTS_DIR = Path("/shared/eng/pyhealth_dka/ckpts/los_stagenet_mimic4")
+    OUTPUT_DIR = Path("/shared/eng/pyhealth_dka/output/los_stagenet_mimic4")
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    CKPTS_DIR.mkdir(parents=True, exist_ok=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     print(f"\nUsing cache dir: {CACHE_DIR}")
     print(f"Using checkpoints dir: {CKPTS_DIR}")
     print(f"Using output dir: {OUTPUT_DIR}")
 
     # Set device
-    device = "cuda:7"
+    device = parser.parse_args().device
     print(f"\nUsing device: {device}")
 
     # Load MIMIC-IV dataset
@@ -65,7 +85,7 @@ def main():
     print("✓ Loaded input and output processors from checkpoint directory.")
     
     sample_dataset = base_dataset.set_task(
-        MortalityPredictionStageNetMIMIC4(),
+        LengthOfStayStageNetMIMIC4(padding=20),
         num_workers=16,
         input_processors=input_processors,
         output_processors=output_processors,
@@ -99,79 +119,65 @@ def main():
         "deeplift": DeepLift(model, use_embeddings=True),
         "gim": GIM(model),
         "shap": ShapExplainer(model, use_embeddings=True),
-        "lime": LimeExplainer(model, use_embeddings=True),
+        "lime": LimeExplainer(model, use_embeddings=True, n_samples=50),
     }
+    methods = {k: v for k, v in methods.items() if k in parser.parse_args().methods.split(",")}
+    print(f"\nEvaluating methods: {list(methods.keys())}")
     
-    name = "deeplift"
-    method = methods[name]
+    res = {}
+    for name, method in methods.items():
+        print(f"\n Initializing {name}...")
+        print("=" * 70)
+        
+        # Option 1: Functional API (simple one-off evaluation)
+        print("\nEvaluating with Functional API on full dataset...")
+        print("Using: evaluate_attribution(model, dataloader, method, ...)")
+
+        results_functional = evaluate_attribution(
+            model,
+            test_loader,
+            method,
+            metrics=["comprehensiveness", "sufficiency"],
+            percentages=[25, 50, 99],
+        )
+
+        print("\n" + "=" * 70)
+        print("Dataset-Wide Results (Functional API)")
+        print("=" * 70)
+        comp = results_functional["comprehensiveness"]
+        suff = results_functional["sufficiency"]
+        print(f"\nComprehensiveness: {comp:.4f}")
+        print(f"Sufficiency:       {suff:.4f}")
+        
+        res[name] = {
+            "comp": comp,
+            "suff": suff,
+        }
     
-    print(f"\nMove batch to {device}...")
-    it = iter(test_loader)
-    _ = next(it)
-    batch = next(it)
-    batch0 = {}
-    for key, value in batch.items():
-        if isinstance(value, torch.Tensor):
-            batch0[key] = value.to(device)
-        elif isinstance(value, tuple):
-            # StageNet format: (time, values) or similar tuples
-            batch0[key] = tuple(
-                v.to(device) if isinstance(v, torch.Tensor) else v for v in value
-            )
-        else:
-            # Keep non-tensor values as-is (labels, metadata, etc.)
-            batch0[key] = value
-    batch = batch0
-    
-    attributions = method.attribute(**batch)
-
-    # # Initialize evaluator
-    # evaluator = Evaluator(model, percentages=[1, 99])
-
-    # # Compute metrics for single batch
-    # print("\nComputing metrics on single batch...")
-    # comp_metric = evaluator.metrics["comprehensiveness"]
-    # comp_scores, comp_mask = comp_metric.compute(batch, attributions)
-
-    # suff_metric = evaluator.metrics["sufficiency"]
-    # suff_scores, suff_mask = suff_metric.compute(batch, attributions)
-
-    # print("\n" + "=" * 70)
-    # print("Single Batch Results Summary")
-    # print("=" * 70)
-    # if comp_mask.sum() > 0:
-    #     valid_comp = comp_scores[comp_mask]
-    #     print(f"Comprehensiveness (valid samples): {valid_comp.mean():.4f}")
-    #     print(f"  Valid samples: {comp_mask.sum()}/{len(comp_mask)}")
-    # else:
-    #     print("Comprehensiveness: No valid samples")
-
-    # if suff_mask.sum() > 0:
-    #     valid_suff = suff_scores[suff_mask]
-    #     print(f"Sufficiency (valid samples): {valid_suff.mean():.4f}")
-    #     print(f"  Valid samples: {suff_mask.sum()}/{len(suff_mask)}")
-    # else:
-    #     print("Sufficiency: No valid samples")
-
-    # Option 1: Functional API (simple one-off evaluation)
-    print("\nEvaluating with Functional API on full dataset...")
-    print("Using: evaluate_attribution(model, dataloader, method, ...)")
-
-    results_functional = evaluate_attribution(
-        model,
-        test_loader,
-        method,
-        metrics=["comprehensiveness", "sufficiency"],
-        percentages=[25, 50, 99],
-    )
-
-    print("\n" + "=" * 70)
-    print("Dataset-Wide Results (Functional API)")
+    print("")
     print("=" * 70)
-    comp = results_functional["comprehensiveness"]
-    suff = results_functional["sufficiency"]
-    print(f"\nComprehensiveness: {comp:.4f}")
-    print(f"Sufficiency:       {suff:.4f}")
+    print("Summary of Results for All Methods")
+    print(res)
+    
+    # Save results
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    if (OUTPUT_DIR / "results.csv").exists():
+        df = pd.read_csv(OUTPUT_DIR / "results.csv")
+    else:
+        df = pd.DataFrame({
+            'Method': pd.Series(dtype='str'),
+            'Comp': pd.Series(dtype='float'),
+            'Suff': pd.Series(dtype='float'),
+        })
+    
+    for name, scores in res.items():
+        df.loc[len(df)] = [name, scores['comp'], scores['suff']]
+    
+    df.to_csv(OUTPUT_DIR / "results.csv", index=False)
+    
+    end = datetime.datetime.now()
+    print(f"End Time: {end.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Total Duration: {end - now}")
 
 if __name__ == "__main__":
     main()

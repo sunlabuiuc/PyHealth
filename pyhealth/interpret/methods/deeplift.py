@@ -455,6 +455,8 @@ class DeepLift(BaseInterpreter):
             inputs, baseline
         )
 
+        mask_info = self._compute_embedding_masks(input_embs)
+
         delta_embeddings: Dict[str, torch.Tensor] = {}
         current_embeddings: Dict[str, torch.Tensor] = {}
         for key in input_embs:
@@ -694,6 +696,21 @@ class DeepLift(BaseInterpreter):
 
             mapped[key] = token_attr.detach()
         return mapped
+
+    @staticmethod
+    def _compute_embedding_masks(input_embs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        """Derive sequence masks from embedded inputs without zeroing baseline information."""
+
+        masks: Dict[str, torch.Tensor] = {}
+        for key, emb in input_embs.items():
+            mask_source = emb.detach()
+            # For nested sequences the inner dimension is pooled before mask creation
+            if mask_source.dim() == 4:
+                mask_source = mask_source.sum(dim=2)
+
+            masks[key] = (mask_source.sum(dim=-1) != 0).int()
+
+        return masks
 
     @staticmethod
     def _method_accepts_argument(function, arg_name: str) -> bool:

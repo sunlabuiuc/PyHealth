@@ -214,6 +214,15 @@ class ShapExplainer(BaseInterpreter):
                     label_val = torch.as_tensor(label_val)
                 label_data[key] = label_val.to(device)
 
+        # Fix target class for multiclass if not provided to avoid class flipping
+        if target_class_idx is None and self._is_multiclass():
+            base_logits = self._compute_base_logits(
+                feature_inputs,
+                time_info=time_info,
+                label_data=label_data,
+            )
+            target_class_idx = base_logits.argmax(dim=-1)
+
         # Generate or validate background samples
         if baseline is None:
             background = self._generate_background_samples(feature_inputs)
@@ -545,12 +554,12 @@ class ShapExplainer(BaseInterpreter):
             forward_kwargs = {
                 "time_info": time_info_bg,
             }
-            # Add label with the correct key name
-            if len(self.model.label_keys) > 0:
-                label_key = self.model.label_keys[0]
-                forward_kwargs[label_key] = torch.zeros(
-                    (mixed_emb.shape[0], 1), device=self.model.device
+            # Add labels shaped for the model's loss (e.g., 1D long for cross entropy)
+            forward_kwargs.update(
+                self._build_label_kwargs(
+                    batch_size=mixed_emb.shape[0], label_data=label_data
                 )
+            )
             
             model_output = self.model.forward_from_embedding(
                 feature_embeddings,
@@ -588,12 +597,12 @@ class ShapExplainer(BaseInterpreter):
             else:
                 model_inputs[fk] = torch.zeros_like(mixed_inputs)
 
-        # Add label stub if needed
-        if len(self.model.label_keys) > 0:
-            label_key = self.model.label_keys[0]
-            model_inputs[label_key] = torch.zeros(
-                (mixed_inputs.shape[0], 1), device=mixed_inputs.device
+        # Add labels shaped for the model's loss (e.g., 1D long for cross entropy)
+        model_inputs.update(
+            self._build_label_kwargs(
+                batch_size=mixed_inputs.shape[0], label_data=label_data
             )
+        )
 
         output = self.model(**model_inputs)
         return self._extract_logits(output)
@@ -635,6 +644,93 @@ class ShapExplainer(BaseInterpreter):
             time_info_bg[fk] = t_adj.unsqueeze(0).expand(n_background, -1)
 
         return time_info_bg if time_info_bg else None
+
+    def _compute_base_logits(
+        self,
+        inputs: Dict[str, torch.Tensor],
+        time_info: Optional[Dict[str, torch.Tensor]],
+        label_data: Optional[Dict[str, torch.Tensor]],
+    ) -> torch.Tensor:
+        """Run a single forward on the original inputs to select target class."""
+        batch_size = next(iter(inputs.values())).shape[0]
+
+        with torch.no_grad():
+            if self.use_embeddings:
+                input_embs = self.model.embedding_model(inputs)
+                time_info_adj = self._prepare_time_info(
+                    time_info, input_embs, batch_size
+                )
+                forward_kwargs = {"time_info": time_info_adj}
+                forward_kwargs.update(
+                    self._build_label_kwargs(
+                        batch_size=batch_size, label_data=label_data
+                    )
+                )
+                output = self.model.forward_from_embedding(
+                    input_embs, **forward_kwargs
+                )
+            else:
+                model_inputs = {
+                    fk: inputs[fk] for fk in self.model.feature_keys if fk in inputs
+                }
+                model_inputs.update(
+                    self._build_label_kwargs(
+                        batch_size=batch_size, label_data=label_data
+                    )
+                )
+                output = self.model(**model_inputs)
+
+        return self._extract_logits(output)
+
+    # ------------------------------------------------------------------
+    # Label handling helpers
+    # ------------------------------------------------------------------
+    def _build_label_kwargs(
+        self,
+        batch_size: int,
+        label_data: Optional[Dict[str, torch.Tensor]],
+    ) -> Dict[str, torch.Tensor]:
+        """Provide dummy labels shaped for the model loss.
+
+        StageNet computes loss inside `forward_from_embedding`; we feed zeros
+        with the correct shape/dtype to satisfy the loss signature without
+        influencing logits used for attribution.
+        """
+        if not getattr(self.model, "label_keys", None):
+            return {}
+
+        loss_name = ""
+        try:
+            loss_fn = self.model.get_loss_function()
+            loss_name = getattr(loss_fn, "__name__", "").lower()
+        except Exception:
+            loss_name = ""
+
+        is_cross_entropy = loss_name == "cross_entropy"
+        if is_cross_entropy:
+            dummy = torch.zeros(
+                (batch_size,), device=self.model.device, dtype=torch.long
+            )
+        else:
+            out_size = 1
+            try:
+                out_size = self.model.get_output_size()
+            except Exception:
+                pass
+            dummy = torch.zeros(
+                (batch_size, out_size), device=self.model.device, dtype=torch.float32
+            )
+
+        return {label_key: dummy for label_key in self.model.label_keys}
+
+    def _is_multiclass(self) -> bool:
+        """Detect multiclass mode via loss function signature."""
+        try:
+            loss_fn = self.model.get_loss_function()
+            loss_name = getattr(loss_fn, "__name__", "").lower()
+            return loss_name == "cross_entropy"
+        except Exception:
+            return False
 
     # ------------------------------------------------------------------
     # Weighted least squares solver

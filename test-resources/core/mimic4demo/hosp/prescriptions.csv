@@ -23,4 +23,9 @@ subject_id,hadm_id,starttime,stoptime,drug,ndc,prod_strength,dose_val_rx,dose_un
 10009,20014,2152-03-20 08:00:00,2152-03-23 13:00:00,Atorvastatin,00378377710,20 mg,20,MG,PO
 10010,20015,2150-08-01 11:00:00,2150-08-05 14:00:00,Insulin Lispro,00002751001,100 unit/mL,8,UNIT,SC
 10010,20015,2150-08-01 11:00:00,2150-08-05 14:00:00,Potassium Chloride,00338001404,20 mEq/100mL,40,MEQ,IV
-
+1,1,,,,,,,,
+1,2,,,,,,,,
+2,3,,,,,,,,
+2,4,,,,,,,,
+2,6,,,,,,,,
+3,7,,,,,,,,
