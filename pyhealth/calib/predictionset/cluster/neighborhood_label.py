@@ -223,6 +223,12 @@ class NeighborhoodLabel(SetPredictor):
         )
         if pred["y_prob"].ndim > 1:
             th = th.view(-1, *([1] * (pred["y_prob"].ndim - 1)))
-        pred["y_predset"] = pred["y_prob"] >= th
+        y_predset = pred["y_prob"] >= th
+        # if threshold is high, include at least argmax
+        empty = y_predset.sum(dim=1) == 0
+        if empty.any():
+            argmax_idx = pred["y_prob"].argmax(dim=1)
+            y_predset[empty, argmax_idx[empty]] = True
+        pred["y_predset"] = y_predset
         pred.pop("embed", None)
         return pred
