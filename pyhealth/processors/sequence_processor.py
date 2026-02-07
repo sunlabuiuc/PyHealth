@@ -71,9 +71,9 @@ class SequenceProcessor(FeatureProcessor, TokenProcessorInterface):
     def size(self):
         return len(self.code_vocab)
 
-    def is_continuous(self) -> bool:
-        """Sequence codes are discrete indices."""
-        return False
+    def is_token(self) -> bool:
+        """Sequence codes are discrete token indices."""
+        return True
 
     def schema(self) -> tuple[str, ...]:
         return ("value",)

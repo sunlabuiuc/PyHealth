@@ -102,9 +102,9 @@ class TimeseriesProcessor(FeatureProcessor):
         # Size equals number of features, unknown until first process
         return self.n_features
 
-    def is_continuous(self) -> bool:
-        """Time series values are continuous."""
-        return True
+    def is_token(self) -> bool:
+        """Time series values are continuous, not discrete tokens."""
+        return False
 
     def schema(self) -> tuple[str, ...]:
         return ("value",)

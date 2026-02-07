@@ -134,13 +134,13 @@ class AudioProcessor(FeatureProcessor):
 
         return waveform
 
-    def is_continuous(self) -> bool:
-        """Audio data is continuous (float-valued).
+    def is_token(self) -> bool:
+        """Audio data is continuous (float-valued), not discrete tokens.
 
         Returns:
-            True, since audio waveforms and spectrograms are continuous signals.
+            False, since audio waveforms and spectrograms are continuous signals.
         """
-        return True
+        return False
 
     def schema(self) -> tuple[str, ...]:
         """Returns the schema of the processed audio feature.

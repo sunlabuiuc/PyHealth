@@ -95,13 +95,13 @@ class ImageProcessor(FeatureProcessor):
             img.load()  # Avoid "too many open files" errors
             return self.transform(img)
 
-    def is_continuous(self) -> bool:
-        """Image data is continuous (float-valued pixel intensities).
+    def is_token(self) -> bool:
+        """Image data is continuous (float-valued pixel intensities), not discrete tokens.
 
         Returns:
-            True.
+            False.
         """
-        return True
+        return False
 
     def schema(self) -> tuple[str, ...]:
         """Single tensor output.

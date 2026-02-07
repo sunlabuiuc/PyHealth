@@ -162,9 +162,9 @@ class NestedSequenceProcessor(FeatureProcessor, TokenProcessorInterface):
             f"padding={self._padding})"
         )
 
-    def is_continuous(self) -> bool:
-        """Nested sequence codes are discrete indices."""
-        return False
+    def is_token(self) -> bool:
+        """Nested sequence codes are discrete token indices."""
+        return True
 
     def schema(self) -> tuple[str, ...]:
         return ("value",)
@@ -361,9 +361,9 @@ class NestedFloatsProcessor(FeatureProcessor):
             f"padding={self._padding})"
         )
 
-    def is_continuous(self) -> bool:
-        """Nested float values are continuous."""
-        return True
+    def is_token(self) -> bool:
+        """Nested float values are continuous, not discrete tokens."""
+        return False
 
     def schema(self) -> tuple[str, ...]:
         return ("value",)

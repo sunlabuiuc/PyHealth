@@ -53,14 +53,16 @@ class FeatureProcessor(Processor):
         """
         pass
     
-    def is_continuous(self) -> bool:
-        """Returns whether the output (in particular, the value tensor) of the processor is 
-        continuous (float) or discrete (int).
+    def is_token(self) -> bool:
+        """Returns whether the output (in particular, the value tensor) of the processor 
+        represents discrete token indices (True) or continuous values (False). This is used to 
+        determine whether to apply token-based transformations (e.g. `nn.Embedding`) or 
+        value-based augmentations (e.g. `nn.Linear`). 
 
         Returns:
-            True if the output is continuous, False if it is discrete.
+            True if the output of the processor represents discrete token indices, False otherwise.
         """
-        raise NotImplementedError("is_continuous method is not implemented for this processor.")
+        raise NotImplementedError("is_token method is not implemented for this processor.")
     
     def schema(self) -> tuple[str, ...]:
         """Returns the schema of the processed feature. For a processor that emits a single tensor,

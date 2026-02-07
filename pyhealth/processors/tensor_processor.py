@@ -83,13 +83,13 @@ class TensorProcessor(FeatureProcessor):
         """
         return None
 
-    def is_continuous(self) -> bool:
-        """Whether the output tensor is continuous, inferred from dtype.
+    def is_token(self) -> bool:
+        """Whether the output tensor represents discrete token indices, inferred from dtype.
 
         Returns:
-            True if dtype is floating point, False otherwise.
+            True if dtype is integer (discrete tokens), False if floating point (continuous).
         """
-        return self.dtype.is_floating_point
+        return not self.dtype.is_floating_point
 
     def schema(self) -> tuple[str, ...]:
         return ("value",)

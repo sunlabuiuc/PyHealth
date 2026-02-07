@@ -221,9 +221,9 @@ class StageNetProcessor(FeatureProcessor, TokenProcessorInterface):
         """Return vocabulary size."""
         return len(self.code_vocab)
 
-    def is_continuous(self) -> bool:
-        """Code indices are discrete."""
-        return False
+    def is_token(self) -> bool:
+        """Code indices are discrete token indices."""
+        return True
 
     def schema(self) -> tuple[str, ...]:
         """Output is a tuple of (time_tensor, value_tensor)."""
@@ -421,9 +421,9 @@ class StageNetTensorProcessor(FeatureProcessor):
         """Return feature dimension."""
         return self._size
 
-    def is_continuous(self) -> bool:
-        """Numeric values are continuous."""
-        return True
+    def is_token(self) -> bool:
+        """Numeric values are continuous, not discrete tokens."""
+        return False
 
     def schema(self) -> tuple[str, ...]:
         """Output is a tuple of (time_tensor, value_tensor)."""

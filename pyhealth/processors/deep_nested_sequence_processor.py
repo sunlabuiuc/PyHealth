@@ -185,9 +185,9 @@ class DeepNestedSequenceProcessor(FeatureProcessor, TokenProcessorInterface):
             f"max_inner_len={self._max_inner_len})"
         )
 
-    def is_continuous(self) -> bool:
-        """Deep nested sequence codes are discrete indices."""
-        return False
+    def is_token(self) -> bool:
+        """Deep nested sequence codes are discrete token indices."""
+        return True
 
     def schema(self) -> tuple[str, ...]:
         return ("value",)
@@ -400,9 +400,9 @@ class DeepNestedFloatsProcessor(FeatureProcessor):
             f"forward_fill={self.forward_fill})"
         )
 
-    def is_continuous(self) -> bool:
-        """Deep nested float values are continuous."""
-        return True
+    def is_token(self) -> bool:
+        """Deep nested float values are continuous, not discrete tokens."""
+        return False
 
     def schema(self) -> tuple[str, ...]:
         return ("value",)

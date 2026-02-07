@@ -40,8 +40,8 @@ class BinaryLabelProcessor(FeatureProcessor):
     def size(self):
         return 1
 
-    def is_continuous(self) -> bool:
-        """Binary labels are discrete (0 or 1)."""
+    def is_token(self) -> bool:
+        """Binary labels are continuous float targets for BCE loss."""
         return False
 
     def schema(self) -> tuple[str, ...]:
@@ -90,9 +90,9 @@ class MultiClassLabelProcessor(FeatureProcessor):
     def size(self):
         return len(self.label_vocab)
 
-    def is_continuous(self) -> bool:
-        """Multi-class labels are discrete."""
-        return False
+    def is_token(self) -> bool:
+        """Multi-class labels are discrete token indices."""
+        return True
 
     def schema(self) -> tuple[str, ...]:
         return ("value",)
@@ -151,8 +151,8 @@ class MultiLabelProcessor(FeatureProcessor):
     def size(self):
         return len(self.label_vocab)
 
-    def is_continuous(self) -> bool:
-        """Multi-label indicators are discrete (binary 0/1)."""
+    def is_token(self) -> bool:
+        """Multi-label indicators are continuous float targets for BCE loss."""
         return False
 
     def schema(self) -> tuple[str, ...]:
@@ -185,9 +185,9 @@ class RegressionLabelProcessor(FeatureProcessor):
     def size(self):
         return 1
 
-    def is_continuous(self) -> bool:
-        """Regression labels are continuous."""
-        return True
+    def is_token(self) -> bool:
+        """Regression labels are continuous, not discrete tokens."""
+        return False
 
     def schema(self) -> tuple[str, ...]:
         return ("value",)
