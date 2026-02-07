@@ -68,6 +68,11 @@ class FeatureProcessor(Processor):
         this should return a tuple of the same length as the tuple, with the semantic name of each tensor,
         such as `["time", "value"]`, `["value", "mask"]`, etc.
         
+        Typical semantic names include:
+            - "value": the main processed tensor output of the processor
+            - "time": the time tensor output of the processor (mostly for StageNet)
+            - "mask": the mask tensor output of the processor (if applicable)
+        
         Returns:
             Tuple of semantic names corresponding to the output of the processor.
         """
