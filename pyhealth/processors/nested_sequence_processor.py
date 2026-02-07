@@ -162,6 +162,25 @@ class NestedSequenceProcessor(FeatureProcessor, TokenProcessorInterface):
             f"padding={self._padding})"
         )
 
+    def is_continuous(self) -> bool:
+        """Nested sequence codes are discrete indices."""
+        return False
+
+    def schema(self) -> tuple[str, ...]:
+        return ("value",)
+
+    def dim(self) -> tuple[int, ...]:
+        """Output is a 2D tensor (visits, codes_per_visit)."""
+        return (2,)
+
+    def spatial(self, i: int) -> tuple[bool, ...]:
+        if i != 0:
+            raise IndexError(
+                f"NestedSequenceProcessor has 1 output tensor, but index {i} was requested."
+            )
+        # Visits (time) is spatial; codes-per-visit is an unordered set, not spatial
+        return (True, False)
+
 
 @register_processor("nested_sequence_floats")
 class NestedFloatsProcessor(FeatureProcessor):
@@ -341,3 +360,22 @@ class NestedFloatsProcessor(FeatureProcessor):
             f"forward_fill={self.forward_fill}, "
             f"padding={self._padding})"
         )
+
+    def is_continuous(self) -> bool:
+        """Nested float values are continuous."""
+        return True
+
+    def schema(self) -> tuple[str, ...]:
+        return ("value",)
+
+    def dim(self) -> tuple[int, ...]:
+        """Output is a 2D tensor (visits, features)."""
+        return (2,)
+
+    def spatial(self, i: int) -> tuple[bool, ...]:
+        if i != 0:
+            raise IndexError(
+                f"NestedFloatsProcessor has 1 output tensor, but index {i} was requested."
+            )
+        # Visits (time) is spatial; features dimension is not
+        return (True, False)

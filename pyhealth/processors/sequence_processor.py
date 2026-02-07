@@ -71,5 +71,23 @@ class SequenceProcessor(FeatureProcessor, TokenProcessorInterface):
     def size(self):
         return len(self.code_vocab)
 
+    def is_continuous(self) -> bool:
+        """Sequence codes are discrete indices."""
+        return False
+
+    def schema(self) -> tuple[str, ...]:
+        return ("value",)
+
+    def dim(self) -> tuple[int, ...]:
+        """Output is a 1D tensor of code indices."""
+        return (1,)
+
+    def spatial(self, i: int) -> tuple[bool, ...]:
+        if i != 0:
+            raise IndexError(
+                f"SequenceProcessor has 1 output tensor, but index {i} was requested."
+            )
+        return (True,)
+
     def __repr__(self):
         return f"SequenceProcessor(code_vocab_size={len(self.code_vocab)})"

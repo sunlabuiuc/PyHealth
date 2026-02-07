@@ -191,6 +191,8 @@ class StageNetProcessor(FeatureProcessor, TokenProcessorInterface):
 
         Pads all inner sequences to self._max_nested_len (global max).
         """
+        assert self._max_nested_len is not None, "Max nested length must be set during fit()"
+        
         # Handle empty nested codes (no visits/events)
         # Return single padding token with shape (1, max_len)
         if len(nested_codes) == 0:
@@ -218,6 +220,56 @@ class StageNetProcessor(FeatureProcessor, TokenProcessorInterface):
     def size(self) -> int:
         """Return vocabulary size."""
         return len(self.code_vocab)
+
+    def is_continuous(self) -> bool:
+        """Code indices are discrete."""
+        return False
+
+    def schema(self) -> tuple[str, ...]:
+        """Output is a tuple of (time_tensor, value_tensor)."""
+        return ("time", "value")
+
+    def dim(self) -> tuple[int, ...]:
+        """Number of dimensions for each output tensor.
+
+        Time tensor is 1D. Value tensor is 1D (flat) or 2D (nested).
+        Must be called after fit().
+
+        Returns:
+            (1, 1) for flat codes or (1, 2) for nested codes.
+        """
+        if self._is_nested is None:
+            raise NotImplementedError(
+                "StageNetProcessor.dim() requires fit() to be called first "
+                "to determine whether codes are flat or nested."
+            )
+        if self._is_nested:
+            return (1, 2)
+        return (1, 1)
+
+    def spatial(self, i: int) -> tuple[bool, ...]:
+        """Whether each dimension of the i-th output tensor is spatial.
+
+        Args:
+            i: 0 for time tensor, 1 for value tensor.
+        """
+        if i == 0:
+            # Time tensor: 1D, the time dimension is spatial
+            return (True,)
+        elif i == 1:
+            if self._is_nested is None:
+                raise NotImplementedError(
+                    "StageNetProcessor.spatial() requires fit() to be called first."
+                )
+            if self._is_nested:
+                # (visits, codes_per_visit) - visits are sequential/spatial,
+                # codes_per_visit is an unordered set and not spatial
+                return (True, False)
+            # Flat codes: single sequence dimension is spatial
+            return (True,)
+        raise IndexError(
+            f"StageNetProcessor has 2 output tensors, but index {i} was requested."
+        )
 
     def __repr__(self):
         if self._is_nested:
@@ -368,6 +420,55 @@ class StageNetTensorProcessor(FeatureProcessor):
     def size(self):
         """Return feature dimension."""
         return self._size
+
+    def is_continuous(self) -> bool:
+        """Numeric values are continuous."""
+        return True
+
+    def schema(self) -> tuple[str, ...]:
+        """Output is a tuple of (time_tensor, value_tensor)."""
+        return ("time", "value")
+
+    def dim(self) -> tuple[int, ...]:
+        """Number of dimensions for each output tensor.
+
+        Time tensor is 1D. Value tensor is 1D (flat) or 2D (nested).
+        Must be called after fit().
+
+        Returns:
+            (1, 1) for flat values or (1, 2) for nested values.
+        """
+        if self._is_nested is None:
+            raise NotImplementedError(
+                "StageNetTensorProcessor.dim() requires fit() to be called first "
+                "to determine whether values are flat or nested."
+            )
+        if self._is_nested:
+            return (1, 2)
+        return (1, 1)
+
+    def spatial(self, i: int) -> tuple[bool, ...]:
+        """Whether each dimension of the i-th output tensor is spatial.
+
+        Args:
+            i: 0 for time tensor, 1 for value tensor.
+        """
+        if i == 0:
+            # Time tensor: 1D, the time dimension is spatial
+            return (True,)
+        elif i == 1:
+            if self._is_nested is None:
+                raise NotImplementedError(
+                    "StageNetTensorProcessor.spatial() requires fit() to be called first."
+                )
+            if self._is_nested:
+                # (time_steps, features) - time is spatial, features are not
+                return (True, False)
+            # Flat: single sequence dimension is spatial
+            return (True,)
+        raise IndexError(
+            f"StageNetTensorProcessor has 2 output tensors, but index {i} was requested."
+        )
 
     def __repr__(self):
         return (
