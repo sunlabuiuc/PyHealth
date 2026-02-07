@@ -1,14 +1,6 @@
 """
 Neighborhood Conformal Prediction (NCP).
 
-This module implements Neighborhood Conformal Prediction!
-
-NCP uses the learned representation (embeddings) to assign importance weights
-to calibration examples: for each test input it finds k nearest calibration
-points in embedding space and computes a weighted quantile of their conformity
-scores to form an adaptive, per-sample threshold. This can yield smaller
-prediction sets than standard conformal prediction when the representation
-has good separation between classes.
 """
 
 from typing import Dict, Optional, Union
@@ -28,12 +20,6 @@ __all__ = ["NeighborhoodLabel"]
 
 class NeighborhoodLabel(SetPredictor):
     """Neighborhood Conformal Prediction (NCP) for multiclass classification.
-
-    For each test input, NCP finds its k nearest calibration examples in
-    embedding space and assigns them importance weights proportional to
-    distance (exponential kernel). The prediction set threshold is the
-    weighted quantile of calibration conformity scores, so the threshold
-    is adaptive per test sample.
 
     Reference:
         Ghosh, S., Belkhouja, T., Yan, Y., & Doppa, J. R. (2023).
@@ -115,6 +101,7 @@ class NeighborhoodLabel(SetPredictor):
 
         self.cal_embeddings_ = None
         self.cal_conformity_scores_ = None
+        self.alpha_tilde_ = None
         self._nn = None
 
     def calibrate(
@@ -123,7 +110,12 @@ class NeighborhoodLabel(SetPredictor):
         cal_embeddings: Optional[np.ndarray] = None,
         batch_size: int = 32,
     ) -> None:
-        """Calibrate NCP: store calibration embeddings and conformity scores.
+        """Calibrate NCP steps:
+
+        Step 1: For each calibration point i, compute Q̃^NCP (weighted quantile)
+        over its k-NN in calibration using weights.
+        Step 2: Find ã^NCP(α) = largest ã such that empirical coverage on the
+        calibration set is >= 1-α; store as alpha_tilde_ for use at test time.
 
         Args:
             cal_dataset: Calibration dataset (for labels and predictions if
@@ -165,9 +157,39 @@ class NeighborhoodLabel(SetPredictor):
         self.cal_embeddings_ = np.atleast_2d(cal_embeddings)
         self.cal_conformity_scores_ = np.asarray(conformity_scores, dtype=np.float64)
 
+       # this is the ncp calibration step
+        distances_cal, indices_cal = self._nn.kneighbors(
+            self.cal_embeddings_, n_neighbors=k
+        )
+        cal_weights = np.exp(-distances_cal / self.lambda_L)
+        cal_weights = cal_weights / cal_weights.sum(axis=1, keepdims=True)
+
+        def _empirical_coverage(alpha_tilde_cand: float) -> float:
+            t_all = np.zeros(N, dtype=np.float64)
+            for i in range(N):
+                t_all[i] = _query_weighted_quantile(
+                    self.cal_conformity_scores_[indices_cal[i]],
+                    1.0 - alpha_tilde_cand,
+                    cal_weights[i],
+                )
+            return float(np.mean(self.cal_conformity_scores_ <= t_all))
+
+        low, high = 0.0, 1.0
+        for _ in range(50):
+            mid = (low + high) / 2
+            if _empirical_coverage(mid) >= 1.0 - self.alpha:
+                low = mid
+            else:
+                high = mid
+        self.alpha_tilde_ = float(low)
+
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
-        """Forward with NCP: per-sample weighted quantile threshold."""
-        if self.cal_embeddings_ is None or self.cal_conformity_scores_ is None:
+        """Forward with NCP: per-sample weighted quantile threshold (Eq 2, Q̃^NCP)."""
+        if (
+            self.cal_embeddings_ is None
+            or self.cal_conformity_scores_ is None
+            or self.alpha_tilde_ is None
+        ):
             raise RuntimeError(
                 "NeighborhoodLabel must be calibrated before inference. "
                 "Call calibrate() first."
@@ -193,7 +215,7 @@ class NeighborhoodLabel(SetPredictor):
             w = w / np.sum(w)
             scores_i = self.cal_conformity_scores_[indices[i]]
             thresholds[i] = _query_weighted_quantile(
-                scores_i, self.alpha, w
+                scores_i, 1.0 - self.alpha_tilde_, w
             )
 
         th = torch.as_tensor(

@@ -139,6 +139,44 @@ class TestNeighborhoodLabel(unittest.TestCase):
         self.assertIsNotNone(ncp.cal_embeddings_)
         self.assertIsNotNone(ncp.cal_conformity_scores_)
 
+    def test_calibration_empirical_coverage_at_least_1_minus_alpha(self):
+        """After calibrate(), empirical coverage on calibration set >= 1-alpha (Eq 2)."""
+        from pyhealth.calib.predictionset.base_conformal import _query_weighted_quantile
+
+        ncp = NeighborhoodLabel(model=self.model, alpha=0.2, k_neighbors=3, lambda_L=50.0)
+        cal_indices = [0, 1, 2, 3, 4, 5]
+        cal_dataset = self.dataset.subset(cal_indices)
+        cal_emb = self._get_embeddings(cal_dataset)
+        ncp.calibrate(cal_dataset=cal_dataset, cal_embeddings=cal_emb)
+
+        self.assertIsNotNone(ncp.alpha_tilde_)
+        self.assertGreaterEqual(ncp.alpha_tilde_, 0.0)
+        self.assertLessEqual(ncp.alpha_tilde_, 1.0)
+
+        N = ncp.cal_conformity_scores_.shape[0]
+        k = min(ncp.k_neighbors, N)
+        distances_cal, indices_cal = ncp._nn.kneighbors(
+            ncp.cal_embeddings_, n_neighbors=k
+        )
+        cal_weights = np.exp(-distances_cal / ncp.lambda_L)
+        cal_weights = cal_weights / cal_weights.sum(axis=1, keepdims=True)
+
+        covered = 0
+        for i in range(N):
+            t_i = _query_weighted_quantile(
+                ncp.cal_conformity_scores_[indices_cal[i]],
+                1.0 - ncp.alpha_tilde_,
+                cal_weights[i],
+            )
+            if ncp.cal_conformity_scores_[i] <= t_i:
+                covered += 1
+        empirical_coverage = covered / N
+        self.assertGreaterEqual(
+            empirical_coverage,
+            1.0 - ncp.alpha - 1e-6,
+            msg=f"Calibration empirical coverage {empirical_coverage:.4f} should be >= 1-alpha={1 - ncp.alpha}",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
