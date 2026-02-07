@@ -46,6 +46,7 @@ from .text_processor import TextProcessor
 from .timeseries_processor import TimeseriesProcessor
 from .audio_processor import AudioProcessor
 from .ignore_processor import IgnoreProcessor
+from .tuple_time_text_processor import TupleTimeTextProcessor
 
 # Expose public API
 __all__ = [
@@ -64,4 +65,5 @@ __all__ = [
     "TextProcessor",
     "TimeseriesProcessor",
     "AudioProcessor",
+    "TupleTimeTextProcessor",
 ]
