@@ -282,15 +282,13 @@ class BaseInterpreter(ABC):
                 inputs = {
                     key: (cast(torch.Tensor, x[key]), cast(torch.Tensor, mask[key])) for key in x
                 }
-            
-            output = self.model.forward_from_embedding(**inputs)
-            return output["logit"], inputs
         else:
             inputs = {
                 key: inputs[key] for key in self.model.feature_keys if key in inputs
             }
-            output = self.model(**inputs)
-            return output["logit"], inputs
+            
+        output = self.model.forward_from_embedding(**inputs)
+        return output["logit"], inputs
 
     def __call__(self, **data) -> Dict[str, torch.Tensor]:
         """Convenience method to call attribute().

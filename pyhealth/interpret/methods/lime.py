@@ -204,10 +204,14 @@ class LimeExplainer(BaseInterpreter):
             torch.manual_seed(self.random_seed)
 
         device = next(self.model.parameters()).device
+        
+        raw_inputs = {
+            key: kwargs[key] for key in self.model.feature_keys if key in kwargs
+        }
 
         # Extract and prepare inputs
-        base_logits, base_input = self._compute_logits(
-            kwargs, 
+        base_logits, inputs = self._compute_logits(
+            raw_inputs, 
             use_embeddings=self.use_embeddings,
         )
         
@@ -215,137 +219,55 @@ class LimeExplainer(BaseInterpreter):
         if self._prediction_mode() == "multiclass":
             target_class_idx = target_class_idx or int(base_logits.argmax(dim=-1).item())
 
+        if self.use_embeddings:
+            raw_x = {k: v[-1] if isinstance(v, tuple) else v for k, v in raw_inputs.items() if k in self.model.feature_keys}
+            m = {k: v[-1] for k, v in inputs.items()} # The last tensor in tuple for use_embeddings=True is always the input mask
+        else:
+            raw_x = {k: v for k, v in raw_inputs.items() if k in self.model.feature_keys}
+
         # Generate or validate baseline (neutral replacement values)
         # Note: LIME does not require a background dataset; baselines here
         # serve only as neutral values when a feature is masked (absent).
         if baseline is None:
-            baseline = self._generate_baseline(feature_inputs)
+            if self.use_embeddings:
+                raw_x = {k: v[-1] if isinstance(v, tuple) else v for k, v in raw_inputs.items() if k in self.model.feature_keys}
+                m = {k: v[-1] for k, v in inputs.items()} # The last tensor in tuple for use_embeddings=True is always the input mask
+                baseline = self._generate_baseline(raw_x, use_embeddings=self.use_embeddings, mask=m)
+            else:
+                raw_x = {k: v for k, v in raw_inputs.items() if k in self.model.feature_keys}
+                baseline = self._generate_baseline(raw_x, use_embeddings=self.use_embeddings) # type: ignore
         else:
-            baseline = {k: v.to(device) for k, v in baseline.items()}
-
-        # Compute LIME values
-        if self.use_embeddings:
-            return self._lime_embeddings(
-                feature_inputs,
-                baseline=baseline,
-                target_class_idx=target_class_idx,
-                time_info=time_info,
-                label_data=label_data,
-            )
-        else:
-            return self._lime_continuous(
-                feature_inputs,
-                baseline=baseline,
-                target_class_idx=target_class_idx,
-                time_info=time_info,
-                label_data=label_data,
-            )
-
-    # ------------------------------------------------------------------
-    # Embedding-based LIME 
-    # ------------------------------------------------------------------
-    def _lime_embeddings(
-        self,
-        inputs: Dict[str, torch.Tensor],
-        baseline: Dict[str, torch.Tensor],
-        target_class_idx: Optional[int],
-        time_info: Dict[str, torch.Tensor],
-        label_data: Dict[str, torch.Tensor],
-    ) -> Dict[str, torch.Tensor]:
-        """Compute LIME values for discrete inputs in embedding space.
-
-        Args:
-            inputs: Dictionary of input tensors.
-            baseline: Dictionary of baseline samples.
-            target_class_idx: Target class index for attribution.
-            time_info: Temporal information for time-series models.
-            label_data: Label information for supervised models.
-
-        Returns:
-            Dictionary of LIME coefficients mapped back to input shapes.
-        """
+            baseline = {k: v.to(device) for k, v in baseline.items() if k in self.model.feature_keys}
+            
         # Embed inputs and baseline
-        input_embs = self.model.embedding_model(inputs)
-        baseline_embs = self.model.embedding_model(baseline)
-
-        # Store original input shapes for mapping back
-        input_shapes = {key: val.shape for key, val in inputs.items()}
+        if self.use_embeddings:
+            # The last tensor in tuple is always the input mask
+            baselines = { k : (*v[:-2], baseline[k], v[-1]) for k, v in inputs.items() }
+        else:
+            baselines = { k : baseline[k] for k, v in inputs.items() }
 
         # Compute LIME values for each feature
-        lime_values = {}
-        for key in inputs:
-            n_features = self._determine_n_features(key, inputs, input_embs)
-            
-            coefs = self._compute_lime(
-                key=key,
-                input_emb=input_embs,
-                baseline_emb=baseline_embs,
-                n_features=n_features,
-                target_class_idx=target_class_idx,
-                time_info=time_info,
-                label_data=label_data,
-            )
-            
-            lime_values[key] = coefs
-
-        # Map embedding-space attributions back to input shapes
-        return self._map_to_input_shapes(lime_values, input_shapes)
-
-    # ------------------------------------------------------------------
-    # Continuous LIME
-    # ------------------------------------------------------------------
-    def _lime_continuous(
-        self,
-        inputs: Dict[str, torch.Tensor],
-        baseline: Dict[str, torch.Tensor],
-        target_class_idx: Optional[int],
-        time_info: Dict[str, torch.Tensor],
-        label_data: Dict[str, torch.Tensor],
-    ) -> Dict[str, torch.Tensor]:
-        """Compute LIME values for continuous tensor inputs.
-
-        Args:
-            inputs: Dictionary of input tensors.
-            baseline: Dictionary of baseline samples.
-            target_class_idx: Target class index for attribution.
-            time_info: Temporal information for time-series models.
-            label_data: Label information for supervised models.
-
-        Returns:
-            Dictionary of LIME coefficients with same shapes as inputs.
-        """
-        lime_values = {}
+        n_features = self._determine_n_features(key, raw_x)
         
-        for key in inputs:
-            n_features = self._determine_n_features(key, inputs, inputs)
-            
-            coefs = self._compute_lime(
-                key=key,
-                input_emb=inputs,
-                baseline_emb=baseline,
-                n_features=n_features,
-                target_class_idx=target_class_idx,
-                time_info=time_info,
-                label_data=label_data,
-            )
-            
-            lime_values[key] = coefs
-
-        return lime_values
+        out = self._compute_lime(
+            xs=inputs,
+            bs=baselines,
+            n_features=n_features,
+            target_class_idx=target_class_idx,
+        )
+        
+        return self._map_to_input_shapes(lime_values, input_shapes)
 
     # ------------------------------------------------------------------
     # Core LIME computation
     # ------------------------------------------------------------------
     def _compute_lime(
         self,
-        key: str,
-        input_emb: Dict[str, torch.Tensor],
-        baseline_emb: Dict[str, torch.Tensor],
-        n_features: int,
-        target_class_idx: Optional[int],
-        time_info: Optional[Dict[str, torch.Tensor]],
-        label_data: Optional[Dict[str, torch.Tensor]],
-    ) -> torch.Tensor:
+        xs: Dict[str, torch.Tensor | tuple[torch.Tensor, ...]],
+        bs: Dict[str, torch.Tensor | tuple[torch.Tensor, ...]],
+        n_features: dict[str, int],
+        target_class_idx: int,
+    ) -> Dict[str, torch.Tensor]:
         """Compute LIME coefficients using interpretable linear model.
 
         This implements the LIME algorithm:
@@ -368,8 +290,9 @@ class LimeExplainer(BaseInterpreter):
         Returns:
             torch.Tensor: LIME coefficients with shape (batch_size, n_features).
         """
-        device = input_emb[key].device
-        batch_size = input_emb[key].shape[0] if input_emb[key].dim() >= 2 else 1
+        device = next(iter(xs.values())).device
+        batch_size = next(iter(xs.values())).shape[0]
+        keys = sorted(xs.keys()) # Ensure consistent key order
         # Keep large intermediate tensors off the GPU to avoid OOM
         storage_device = torch.device("cpu")
 
@@ -378,46 +301,47 @@ class LimeExplainer(BaseInterpreter):
         perturbed_predictions = []  # Model predictions
         similarity_weights = []     # Distance-based weights
 
-        # Original input prediction
-        original_pred = self._get_prediction(
-            key, input_emb, baseline_emb, None, 
-            target_class_idx, time_info, label_data
-        )
 
         # Generate perturbed samples
         for _ in range(self.n_samples):
-            # Sample binary vector (which features to include)
-            binary_vector = torch.bernoulli(
-                torch.ones(n_features, device=device) * 0.5
+            # Create gates for feature inclusion/exclusion, dict[str, (batch_size, n_features)]
+            gates = {
+                key: torch.bernoulli(torch.ones((n_features[key]), device=device) * 0.5).expand(batch_size, -1)
+                for key in xs.keys()
+            }
+            
+            # Create perturbed embedding by mixing input and baseline, dict[str, (batch_size, ...)]
+            perturb = self._create_perturbed_sample(
+                xs, bs, gates
             )
             
+            # Get model prediction for perturbed sample, shape (batch_size, )
+            pred = self._evaluate_sample(
+                perturb,
+                target_class_idx,
+            )
+        
             # Create perturbed sample for each batch item
             batch_preds = []
             batch_similarities = []
             
-            for b_idx in range(batch_size):
-                # Create perturbed embedding by mixing input and baseline
-                perturbed_emb = self._create_perturbed_sample(
-                    key, binary_vector, input_emb, baseline_emb, b_idx
-                )
-                
-                # Get model prediction for perturbed sample
-                pred = self._evaluate_sample(
-                    key, perturbed_emb, baseline_emb,
-                    target_class_idx, time_info, label_data
-                )
-                batch_preds.append(pred)
+            for b in range(batch_size):
+                batch_preds.append(pred[b])
                 
                 # Compute similarity weight
+                x_flatten = torch.cat([xs[k][b].reshape(-1) for k in keys], dim=0)
+                p_flatten = torch.cat([perturb[k][b].reshape(-1) for k in keys], dim=0)
                 similarity = self._compute_similarity(
-                    input_emb[key][b_idx:b_idx+1] if batch_size > 1 else input_emb[key],
-                    perturbed_emb,
-                    binary_vector,
+                    x_flatten,
+                    p_flatten,
                 )
                 batch_similarities.append(similarity)
             
+            # Since gates are identical across batch, just take the first
+            g_flatten = torch.cat([gates[k][0] for k in keys], dim=0)
+            
             # Store sample information
-            interpretable_samples.append(binary_vector.float())
+            interpretable_samples.append(g_flatten.float())
             perturbed_predictions.append(torch.stack(batch_preds, dim=0))
             similarity_weights.append(torch.stack(batch_similarities, dim=0))
 
@@ -427,135 +351,105 @@ class LimeExplainer(BaseInterpreter):
             similarity_weights[-1] = similarity_weights[-1].detach().to(storage_device)
 
         # Train weighted linear regression
-        return self._train_interpretable_model(
+        coefficients = self._train_interpretable_model(
             interpretable_samples,
             perturbed_predictions,
             similarity_weights,
             compute_device=storage_device,
             target_device=device,
-        )
+        ) # (batch_size, n_features)
+        
+        return self.split_feature_keys(coefficients, keys, n_features)
+        
+    def split_feature_keys(self, tensor: torch.Tensor, keys, n_features: dict[str, int]) -> dict[str, torch.Tensor]:
+        """Split concatenated coefficients back into per-feature tensors.
+        
+        Args:
+            tensor: Concatenated coefficient tensor (batch_size, total_n_features).
+            keys: List of feature keys in order.
+            n_features: Dictionary mapping feature keys to number of features.
+        """
+        out: dict[str, torch.Tensor] = {}
+        start = 0
+        total = tensor.shape[1]
+
+        for k in keys:
+            nf = int(n_features[k])
+            end = start + nf
+            if end > total:
+                raise ValueError(f"Not enough features to slice key={k}: need {end}, have {total}")
+            out[k] = tensor[:, start:end]   # (batch_size, nf)
+            start = end
+
+        if start != total:
+            raise ValueError(f"Unused trailing features: used {start}, total {total}")
+
+        return out        
 
     def _create_perturbed_sample(
         self,
-        key: str,
-        binary_vector: torch.Tensor,
-        input_emb: Dict[str, torch.Tensor],
-        baseline_emb: Dict[str, torch.Tensor],
-        batch_idx: int,
-    ) -> torch.Tensor:
-        """Create a perturbed sample by mixing input and baseline based on binary vector.
+        xs: dict[str, torch.Tensor | tuple[torch.Tensor, ...]],
+        bs: dict[str, torch.Tensor | tuple[torch.Tensor, ...]],
+        gates: dict[str, torch.Tensor],
+    ) -> dict[str, torch.Tensor]:
+        """Create a perturbed sample by mixing input and baseline based on gate tensor.
 
         Args:
             key: Feature key.
-            binary_vector: Binary vector (1 = use input feature, 0 = use baseline).
-            input_emb: Input embeddings.
-            baseline_emb: Baseline embeddings.
-            batch_idx: Index of the sample in the batch.
+            xs: Original input tensors.
+            bs: Baseline tensors.
+            gates: Binary gate tensors indicating which features to include (1) or exclude (0).
 
         Returns:
             Perturbed sample tensor.
         """
-        # Start with baseline for the specific sample
-        perturbed = baseline_emb[key][batch_idx:batch_idx+1].clone()
-        
-        # Mix in input features based on binary vector
-        for i, use_input in enumerate(binary_vector):
-            if not use_input:
-                continue
-                
-            # Handle various embedding shapes
-            dim = input_emb[key].dim()
-            if dim == 4:  # (batch, seq_len, inner_len, emb)
-                if i < perturbed.shape[1]:
-                    perturbed[:, i, :, :] = input_emb[key][batch_idx, i, :, :]
-            elif dim == 3:  # (batch, seq_len, emb)
-                if i < perturbed.shape[1]:
-                    perturbed[:, i, :] = input_emb[key][batch_idx, i, :]
-            else:  # 2D or other
-                if i < perturbed.shape[1]:
-                    perturbed[:, i] = input_emb[key][batch_idx, i]
-
-        return perturbed
+        perurb = {}
+        for key, gate in gates.items():
+            x = xs[key]
+            b = bs[key] # type: ignore
+            if isinstance(x, tuple):
+                # Handle tuple inputs (e.g., with time info)
+                # Only perturb the -2 item (values), keep time and mask unchanged
+                perurb[key] = tuple(
+                    torch.where(gate.unsqueeze(-1) == 1, x_i, b_i) if i == len(x) - 2 else x_i
+                    for i, (x_i, b_i) in enumerate(zip(x, b))
+                )
+            else:
+                b: torch.Tensor = b  # type: ignore
+                perurb[key] = torch.where(gate == 1, x, b)
+            
+        return perurb
 
     def _evaluate_sample(
         self,
-        key: str,
-        perturbed_emb: torch.Tensor,
-        baseline_emb: Dict[str, torch.Tensor],
-        target_class_idx: Optional[int],
-        time_info: Optional[Dict[str, torch.Tensor]],
-        label_data: Optional[Dict[str, torch.Tensor]],
+        perturb: dict[str, torch.Tensor],
+        target_class_idx: int,
     ) -> torch.Tensor:
         """Evaluate model prediction for a perturbed sample.
 
         Args:
             key: Feature key being explained.
-            perturbed_emb: Perturbed embedding tensor.
-            baseline_emb: Baseline embeddings for other features.
+            perturb: Perturbed sample tensor.
             target_class_idx: Target class index.
-            time_info: Optional temporal information.
-            label_data: Optional label information.
 
         Returns:
-            Scalar prediction.
+            Model prediction for the perturbed sample, shape (batch_size, ).
         """
-        if self.use_embeddings:
-            logits = self._forward_from_embeddings(
-                key, perturbed_emb, baseline_emb, time_info, label_data
-            )
-        else:
-            logits = self._forward_from_inputs(
-                key, perturbed_emb, baseline_emb, time_info, label_data
-            )
-
-        # Extract target class prediction
-        pred_vec = self._extract_target_prediction(logits, target_class_idx)
+        output = self.model.forward_from_embedding(**perturb)
+        logits = output["logit"]
         
-        # Return mean prediction (average over baseline samples if multiple)
-        return pred_vec.detach().mean()
-
-    def _get_prediction(
-        self,
-        key: str,
-        input_emb: Dict[str, torch.Tensor],
-        baseline_emb: Dict[str, torch.Tensor],
-        binary_vector: Optional[torch.Tensor],
-        target_class_idx: Optional[int],
-        time_info: Optional[Dict[str, torch.Tensor]],
-        label_data: Optional[Dict[str, torch.Tensor]],
-    ) -> torch.Tensor:
-        """Get model prediction for original input or perturbed sample.
-
-        Args:
-            key: Feature key.
-            input_emb: Input embeddings.
-            baseline_emb: Baseline embeddings.
-            binary_vector: Optional binary perturbation vector.
-            target_class_idx: Target class index.
-            time_info: Optional temporal information.
-            label_data: Optional label information.
-
-        Returns:
-            Model prediction.
-        """
-        if binary_vector is None:
-            # Use original input
-            sample = input_emb[key]
+        if self._prediction_mode() == "multiclass":
+            return logits[..., target_class_idx]
+        elif self._prediction_mode() == "binary":
+            p = torch.sigmoid(logits).squeeze(-1)
+            return p if target_class_idx == 1 else 1 - p
         else:
-            # Create perturbed sample
-            sample = self._create_perturbed_sample(
-                key, binary_vector, input_emb, baseline_emb, 0
-            )
-
-        return self._evaluate_sample(
-            key, sample, baseline_emb, target_class_idx, time_info, label_data
-        )
+            raise ValueError("Unsupported prediction mode for LIME evaluation.")
 
     def _compute_similarity(
         self,
         original_emb: torch.Tensor,
         perturbed_emb: torch.Tensor,
-        binary_vector: torch.Tensor,
     ) -> torch.Tensor:
         """Compute similarity weight using exponential kernel.
 
@@ -754,300 +648,75 @@ class LimeExplainer(BaseInterpreter):
         return coef
 
     # ------------------------------------------------------------------
-    # Forward pass methods
-    # ------------------------------------------------------------------
-    def _forward_from_embeddings(
-        self,
-        key: str,
-        perturbed_emb: torch.Tensor,
-        baseline_emb: Dict[str, torch.Tensor],
-        time_info: Optional[Dict[str, torch.Tensor]],
-        label_data: Optional[Dict[str, torch.Tensor]],
-    ) -> torch.Tensor:
-        """Forward pass using embeddings.
-
-        Args:
-            key: Feature key being explained.
-            perturbed_emb: Perturbed embedding tensor.
-            baseline_emb: Baseline embeddings.
-            time_info: Optional temporal information.
-            label_data: Optional label information.
-
-        Returns:
-            Model logits.
-        """
-        # Build feature embeddings dictionary
-        batch_size = perturbed_emb.shape[0]
-        feature_embeddings = {key: perturbed_emb}
-        
-        for fk in self.model.feature_keys:
-            if fk not in feature_embeddings:
-                if fk in baseline_emb:
-                    # Expand baseline to match batch size if needed
-                    base_emb = baseline_emb[fk]
-                    if base_emb.shape[0] == batch_size:
-                        feature_embeddings[fk] = base_emb.clone()
-                    elif base_emb.shape[0] == 1 and batch_size > 1:
-                        feature_embeddings[fk] = base_emb.expand(batch_size, *base_emb.shape[1:]).clone()
-                    elif base_emb.shape[0] > 1 and batch_size == 1:
-                        # Slice a single neutral baseline sample
-                        feature_embeddings[fk] = base_emb[:1].clone()
-                    else:
-                        feature_embeddings[fk] = base_emb.expand(batch_size, *base_emb.shape[1:]).clone()
-                else:
-                    # Zero fallback
-                    ref_tensor = next(iter(feature_embeddings.values()))
-                    feature_embeddings[fk] = torch.zeros_like(ref_tensor)
-
-        # Prepare time info matching batch size
-        time_info_adj = self._prepare_time_info(
-            time_info, feature_embeddings, batch_size
-        )
-
-        # Forward pass
-        with torch.no_grad():
-            # Create kwargs with proper label key
-            forward_kwargs = {
-                "time_info": time_info_adj,
-            }
-            forward_kwargs.update(
-                self._build_label_kwargs(batch_size=perturbed_emb.shape[0])
-            )
-            
-            model_output = self.model.forward_from_embedding(
-                feature_embeddings,
-                **forward_kwargs
-            )
-
-        return self._extract_logits(model_output)
-
-    def _forward_from_inputs(
-        self,
-        key: str,
-        perturbed_inputs: torch.Tensor,
-        baseline_inputs: Dict[str, torch.Tensor],
-        time_info: Optional[Dict[str, torch.Tensor]],
-        label_data: Optional[Dict[str, torch.Tensor]],
-    ) -> torch.Tensor:
-        """Forward pass using raw inputs (continuous features).
-
-        Args:
-            key: Feature key being explained.
-            perturbed_inputs: Perturbed input tensor.
-            baseline_inputs: Baseline inputs.
-            time_info: Optional temporal information.
-            label_data: Optional label information.
-
-        Returns:
-            Model logits.
-        """
-        model_inputs = {}
-        for fk in self.model.feature_keys:
-            if fk == key:
-                model_inputs[fk] = perturbed_inputs
-            elif fk in baseline_inputs:
-                base = baseline_inputs[fk]
-                # Expand baseline batch to match perturbed batch size if needed
-                if base.shape[0] != perturbed_inputs.shape[0]:
-                    base = base.expand(perturbed_inputs.shape[0], *base.shape[1:]).clone()
-                else:
-                    base = base.clone()
-                model_inputs[fk] = base
-            else:
-                model_inputs[fk] = torch.zeros_like(perturbed_inputs)
-
-        with torch.no_grad():
-            output = self.model(**model_inputs)
-        return self._extract_logits(output)
-
-    def _prepare_time_info(
-        self,
-        time_info: Optional[Dict[str, torch.Tensor]],
-        feature_embeddings: Dict[str, torch.Tensor],
-        n_samples: int,
-    ) -> Optional[Dict[str, torch.Tensor]]:
-        """Prepare time information to match sample batch size.
-
-        Args:
-            time_info: Original time information.
-            feature_embeddings: Feature embeddings to match sequence lengths.
-            n_samples: Number of samples.
-
-        Returns:
-            Adjusted time information or None.
-        """
-        if time_info is None:
-            return None
-
-        time_info_adj = {}
-        for fk, emb in feature_embeddings.items():
-            if fk not in time_info or time_info[fk] is None:
-                continue
-
-            seq_len = emb.shape[1]
-            t_orig = time_info[fk].to(self.model.device)
-
-            # Normalize to 1D sequence
-            t_vec = self._normalize_time_vector(t_orig)
-
-            # Adjust length to match embedding sequence length
-            t_adj = self._adjust_time_length(t_vec, seq_len)
-
-            # Expand to batch size
-            time_info_adj[fk] = t_adj.unsqueeze(0).expand(n_samples, -1)
-
-        return time_info_adj if time_info_adj else None
-
-
-    # ------------------------------------------------------------------
     # Baseline generation
     # ------------------------------------------------------------------
     def _generate_baseline(
-        self, x: Dict[str, torch.Tensor]
+        self, 
+        raw_x: Dict[str, torch.Tensor], 
+        use_embeddings: bool = False, 
+        mask: Optional[Dict[str, torch.Tensor]] = None,
     ) -> Dict[str, torch.Tensor]:
-        """Generate baseline samples for LIME computation.
+        """Generate post-embedding baselines for LIME.
 
         Creates reference samples to use as the "absence" of features.
         The sampling strategy adapts to the feature type:
-        - Discrete features: Use the most common value or a small non-zero value
-        - Continuous features: Use mean or small non-zero values
+        - Discrete features: Embed UNK token as the baseline
+        - Continuous features: Use a small neutral value (e.g., near-zero)
 
         Args:
-            x: The dictionary of input tensors for which plan to perturb. It 
+            raw_x: The dictionary of input tensors for which plan to perturb. It 
+                should be the last tensor in tuple if the input is a tuple. This is a raw
+                input, meaning it does not go through any embedding layer yet.
+            use_embeddings: If True, generate baselines suitable for embedding-based LIME.
+            mask: Optional dictionary of masks indicating valid tokens for discrete features,
+                required if use_embeddings=True.
 
         Returns:
             Dictionary mapping feature names to baseline sample tensors.
         """
-        baseline_samples = {}
+        baselines = {}
 
-        for key, x in inputs.items():
-            batch_size = x.shape[0]
-            if x.dtype in [torch.int64, torch.int32, torch.long]:
-                # Discrete features: use small non-zero token index to avoid zero-mask issues
-                # TODO: use UNK token if available in vocab
-                # in sequential models (e.g., StageNet). Using ones is a safe neutral choice.
-                baseline = torch.ones_like(x)
+        for key, x0 in raw_x.items():
+            if use_embeddings:
+                # use UNK token as the baseline, we will embed it later
+                baseline = torch.ones_like(x0)
             else:
                 # Continuous features: use small neutral values (near-zero)
-                baseline = torch.zeros_like(x)
-                baseline = baseline + 0.01
-
-            # Ensure baseline matches input batch size
-            if baseline.shape[0] != batch_size:
-                baseline = baseline.expand(batch_size, *baseline.shape[1:])
-
-            baseline_samples[key] = baseline.to(x.device)
-
-        return baseline_samples
+                baseline = torch.zeros_like(x0) + 1e-2
+            baselines[key] = baseline
+            
+        if use_embeddings:
+            assert mask is not None, "Mask is required when using embeddings for baseline generation."
+            embedding_model = self.model.get_embedding_model()
+            assert embedding_model is not None, "Model must have an embedding model for embedding-based LIME."
+            baselines = embedding_model(baselines)
+            baselines = {k: v * mask[k] for k, v in baselines.items()}
+        
+        return baselines
 
     # ------------------------------------------------------------------
     # Utility helpers (shared with SHAP)
     # ------------------------------------------------------------------
     @staticmethod
     def _determine_n_features(
-        key: str,
-        inputs: Dict[str, torch.Tensor],
-        embeddings: Dict[str, torch.Tensor],
-    ) -> int:
+        raw_x: Dict[str, torch.Tensor],
+    ) -> dict[str, int]:
         """Determine the number of features to explain for a given key.
 
         Args:
-            key: Feature key.
-            inputs: Original input tensors.
-            embeddings: Embedding tensors.
+            raw_x: Original input tensors, it is usually the last tensor in tuple.
+                It should be the raw input, meaning it does not go through any embedding layer yet.
 
         Returns:
             Number of features (typically sequence length or feature dimension).
         """
-        # Prefer original input shape
-        if key in inputs and inputs[key].dim() >= 2:
-            return inputs[key].shape[1]
-
-        # Fallback to embedding shape
-        emb = embeddings[key]
-        if emb.dim() >= 2:
-            return emb.shape[1]
-        return emb.shape[-1]
-
-    @staticmethod
-    def _extract_logits(model_output) -> torch.Tensor:
-        """Extract logits from model output.
-
-        Args:
-            model_output: Model output (dict or tensor).
-
-        Returns:
-            Logit tensor.
-        """
-        if isinstance(model_output, dict) and "logit" in model_output:
-            return model_output["logit"]
-        return model_output
-
-    @staticmethod
-    def _extract_target_prediction(
-        logits: torch.Tensor, target_class_idx: Optional[int]
-    ) -> torch.Tensor:
-        """Extract target class prediction from logits.
-
-        Args:
-            logits: Model logits.
-            target_class_idx: Target class index (None for max prediction).
-
-        Returns:
-            Target prediction tensor.
-        """
-        if target_class_idx is None:
-            return torch.max(logits, dim=-1)[0]
-
-        if logits.dim() > 1 and logits.shape[-1] > 1:
-            return logits[..., target_class_idx]
-        else:
-            # Binary classification with single logit
-            sig = torch.sigmoid(logits.squeeze(-1))
-            return sig if target_class_idx == 1 else 1.0 - sig
-
-    @staticmethod
-    def _normalize_time_vector(time_tensor: torch.Tensor) -> torch.Tensor:
-        """Normalize time tensor to 1D vector.
-
-        Args:
-            time_tensor: Time information tensor.
-
-        Returns:
-            1D time vector.
-        """
-        if time_tensor.dim() == 2 and time_tensor.shape[0] > 0:
-            return time_tensor[0].detach()
-        elif time_tensor.dim() == 1:
-            return time_tensor.detach()
-        else:
-            return time_tensor.reshape(-1).detach()
-
-    @staticmethod
-    def _adjust_time_length(time_vec: torch.Tensor, target_len: int) -> torch.Tensor:
-        """Adjust time vector length to match target length.
-
-        Args:
-            time_vec: 1D time vector.
-            target_len: Target sequence length.
-
-        Returns:
-            Adjusted time vector.
-        """
-        current_len = time_vec.numel()
-
-        if current_len == target_len:
-            return time_vec
-        elif current_len < target_len:
-            # Pad by repeating last value
-            if current_len == 0:
-                return torch.zeros(target_len, device=time_vec.device)
-            pad_len = target_len - current_len
-            pad = time_vec[-1].unsqueeze(0).repeat(pad_len)
-            return torch.cat([time_vec, pad], dim=0)
-        else:
-            # Truncate
-            return time_vec[:target_len]
+        out = {}
+        for key, value in raw_x.items():
+            if value.dim() >= 2:
+                out[key] = value.shape[1]
+            else:
+                out[key] = value.shape[-1]
+        return out
 
     @staticmethod
     def _map_to_input_shapes(
