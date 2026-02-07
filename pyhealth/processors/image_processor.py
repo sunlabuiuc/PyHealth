@@ -95,6 +95,47 @@ class ImageProcessor(FeatureProcessor):
             img.load()  # Avoid "too many open files" errors
             return self.transform(img)
 
+    def is_token(self) -> bool:
+        """Image data is continuous (float-valued pixel intensities), not discrete tokens.
+
+        Returns:
+            False.
+        """
+        return False
+
+    def schema(self) -> tuple[str, ...]:
+        """Single tensor output.
+
+        Returns:
+            ("value",)
+        """
+        return ("value",)
+
+    def dim(self) -> tuple[int, ...]:
+        """Output tensor has 3 dimensions: (C, H, W).
+
+        Returns:
+            (3,)
+        """
+        return (3,)
+
+    def spatial(self, i: int) -> tuple[bool, ...]:
+        """Spatial axes for the output tensor (C, H, W).
+
+        Channels are not spatial; height and width are.
+
+        Args:
+            i: Index of the output tensor (must be 0).
+
+        Returns:
+            (False, True, True)
+        """
+        if i != 0:
+            raise IndexError(
+                f"ImageProcessor has 1 output tensor, but index {i} was requested."
+            )
+        return (False, True, True)
+
     def __repr__(self) -> str:
         return (
             f"ImageLoadingProcessor(image_size={self.image_size}, "
