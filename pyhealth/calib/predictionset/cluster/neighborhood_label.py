@@ -184,7 +184,7 @@ class NeighborhoodLabel(SetPredictor):
         self.alpha_tilde_ = float(low)
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
-        """Forward with NCP: per-sample weighted quantile threshold (Eq 2, Q̃^NCP)."""
+        """Forward with NCP: per-sample weighted quantile threshold."""
         if (
             self.cal_embeddings_ is None
             or self.cal_conformity_scores_ is None

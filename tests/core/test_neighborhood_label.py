@@ -140,7 +140,7 @@ class TestNeighborhoodLabel(unittest.TestCase):
         self.assertIsNotNone(ncp.cal_conformity_scores_)
 
     def test_calibration_empirical_coverage_at_least_1_minus_alpha(self):
-        """After calibrate(), empirical coverage on calibration set >= 1-alpha (Eq 2)."""
+        """After calibrate(), empirical coverage on calibration set >= 1-alpha."""
         from pyhealth.calib.predictionset.base_conformal import _query_weighted_quantile
 
         ncp = NeighborhoodLabel(model=self.model, alpha=0.2, k_neighbors=3, lambda_L=50.0)
