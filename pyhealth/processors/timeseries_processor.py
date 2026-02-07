@@ -102,6 +102,25 @@ class TimeseriesProcessor(FeatureProcessor):
         # Size equals number of features, unknown until first process
         return self.n_features
 
+    def is_continuous(self) -> bool:
+        """Time series values are continuous."""
+        return True
+
+    def schema(self) -> tuple[str, ...]:
+        return ("value",)
+
+    def dim(self) -> tuple[int, ...]:
+        """Output is a 2D tensor (time_steps, features)."""
+        return (2,)
+
+    def spatial(self, i: int) -> tuple[bool, ...]:
+        if i != 0:
+            raise IndexError(
+                f"TimeseriesProcessor has 1 output tensor, but index {i} was requested."
+            )
+        # Time dimension is spatial; feature dimension is not
+        return (True, False)
+
     def __repr__(self):
         return (
             f"TimeSeriesProcessor(sampling_rate={self.sampling_rate}, "
