@@ -169,10 +169,10 @@ class NeighborhoodLabel(SetPredictor):
             for i in range(N):
                 t_all[i] = _query_weighted_quantile(
                     self.cal_conformity_scores_[indices_cal[i]],
-                    1.0 - alpha_tilde_cand,
+                    alpha_tilde_cand,
                     cal_weights[i],
                 )
-            return float(np.mean(self.cal_conformity_scores_ <= t_all))
+            return float(np.mean(self.cal_conformity_scores_ >= t_all))
 
         low, high = 0.0, 1.0
         for _ in range(50):
@@ -215,7 +215,7 @@ class NeighborhoodLabel(SetPredictor):
             w = w / np.sum(w)
             scores_i = self.cal_conformity_scores_[indices[i]]
             thresholds[i] = _query_weighted_quantile(
-                scores_i, 1.0 - self.alpha_tilde_, w
+                scores_i, self.alpha_tilde_, w
             )
 
         th = torch.as_tensor(
