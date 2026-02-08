@@ -507,50 +507,30 @@ class StageNet(BaseModel):
         """
         patient_emb = []
         distance = []
+        
+        values = {}
 
         # TODO: we should be able to implement forward from forward_from_embedding 
         # to avoid code duplication.
         for feature_key in self.feature_keys:
-            # Extract (time, values) tuple
+            processor = self.dataset.input_processors[feature_key]
             feature = kwargs[feature_key]
 
-            # Get value and time tensors from tuple
-            if isinstance(feature, tuple) and len(feature) == 2:
-                time, x = feature  # Unpack (time, values)
-                # x: [batch, seq_len] or [batch, seq_len, dim]
-                # time: [batch, seq_len] or None
-
-                # Warn if time information is missing
-                if time is None:
-                    import warnings
-
-                    warnings.warn(
-                        f"Feature '{feature_key}' does not have time "
-                        f"intervals. StageNet's temporal modeling "
-                        f"capabilities will be limited. Consider using "
-                        f"StageNet format with time intervals for "
-                        f"better performance.",
-                        UserWarning,
-                    )
-            else:
-                # Fallback for backward compatibility
-                import warnings
-
-                warnings.warn(
-                    f"Feature '{feature_key}' is not a temporal tuple. "
-                    f"Using fallback mode without time intervals. "
-                    f"The model may not learn temporal patterns properly. "
-                    f"Please use 'stagenet' or 'stagenet_tensor' "
-                    f"processors in your input schema.",
-                    UserWarning,
-                )
-                x = feature
-                time = None
+            if isinstance(feature, torch.Tensor):
+                # Backward compatibility: if feature is a tensor, treat it as values without time
+                feature = (feature,)
+                
+            schema_map = dict(zip(processor.schema(), feature))
+            
+            time = schema_map.get("time", None)
+            value = schema_map.get("value", None)
+            
 
             # Embed the values using EmbeddingModel
             # Need to pass as dict for EmbeddingModel
-            embedded = self.embedding_model({feature_key: x})
-            x = embedded[feature_key]  # [batch, seq_len, embedding_dim]
+            value = self.embedding_model({feature_key: value})[feature_key]
+            values[feature_key] = value
+            
             # Handle nested sequences (2D codes -> need pooling on inner dim)
             if x.dim() == 4:  # [batch, seq_len, inner_len, embedding_dim]
                 # Sum pool over inner dimension
