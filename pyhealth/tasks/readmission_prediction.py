@@ -16,6 +16,16 @@ class ReadmissionPredictionMIMIC3(BaseTask):
         task_name (str): The name of the task.
         input_schema (Dict[str, str]): The schema for the task input.
         output_schema (Dict[str, str]): The schema for the task output.
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC3Dataset
+        >>> from pyhealth.tasks import ReadmissionPredictionMIMIC3
+        >>> dataset = MIMIC3Dataset(
+        ...     root="/path/to/mimic-iii/1.4",
+        ...     tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
+        ... )
+        >>> task = ReadmissionPredictionMIMIC3()
+        >>> samples = dataset.set_task(task)
     """
     task_name: str = "ReadmissionPredictionMIMIC3"
     input_schema: Dict[str, str] = {"conditions": "sequence", "procedures": "sequence", "drugs": "sequence"}
@@ -123,6 +133,16 @@ class ReadmissionPredictionMIMIC4(BaseTask):
         task_name (str): The name of the task.
         input_schema (Dict[str, str]): The schema for the task input.
         output_schema (Dict[str, str]): The schema for the task output.
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC4EHRDataset
+        >>> from pyhealth.tasks import ReadmissionPredictionMIMIC4
+        >>> dataset = MIMIC4EHRDataset(
+        ...     root="/path/to/mimic-iv/2.2",
+        ...     tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
+        ... )
+        >>> task = ReadmissionPredictionMIMIC4()
+        >>> samples = dataset.set_task(task)
     """
     task_name: str = "ReadmissionPredictionMIMIC4"
     input_schema: Dict[str, str] = {"conditions": "sequence", "procedures": "sequence", "drugs": "sequence"}
@@ -364,6 +384,17 @@ class ReadmissionPredictionOMOP(BaseTask):
         task_name (str): The name of the task.
         input_schema (Dict[str, str]): The schema for the task input.
         output_schema (Dict[str, str]): The schema for the task output.
+
+    Examples:
+        >>> from pyhealth.datasets import OMOPDataset
+        >>> from pyhealth.tasks import ReadmissionPredictionOMOP
+        >>> dataset = OMOPDataset(
+        ...     root="/path/to/omop/data",
+        ...     tables=["condition_occurrence", "procedure_occurrence",
+        ...             "drug_exposure"],
+        ... )
+        >>> task = ReadmissionPredictionOMOP()
+        >>> samples = dataset.set_task(task)
     """
     task_name: str = "ReadmissionPredictionOMOP"
     input_schema: Dict[str, str] = {"conditions": "sequence", "procedures": "sequence", "drugs": "sequence"}
