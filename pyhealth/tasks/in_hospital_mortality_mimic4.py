@@ -24,7 +24,7 @@ class InHospitalMortalityMIMIC4(BaseTask):
         >>> from pyhealth.tasks import InHospitalMortalityMIMIC4
         >>> dataset = MIMIC4EHRDataset(
         ...     root="/path/to/mimic-iv/2.2",
-        ...     tables=["diagnoses_icd", "procedures_icd", "labevents"],
+        ...     tables=["labevents"],
         ... )
         >>> task = InHospitalMortalityMIMIC4()
         >>> samples = dataset.set_task(task)
