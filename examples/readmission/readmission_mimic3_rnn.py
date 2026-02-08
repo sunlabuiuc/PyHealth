@@ -7,18 +7,20 @@ from pyhealth.tasks import ReadmissionPredictionMIMIC3
 from pyhealth.trainer import Trainer
 
 # Since PyHealth uses multiprocessing, it is best practice to use a main guard.
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Use tempfile to automate cleanup
     cache_dir = tempfile.TemporaryDirectory()
 
     base_dataset = MIMIC3Dataset(
         root="https://storage.googleapis.com/pyhealth/Synthetic_MIMIC-III",
         tables=["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
-        cache_dir=cache_dir.name
+        cache_dir=cache_dir.name,
     )
     base_dataset.stats()
 
-    sample_dataset = base_dataset.set_task(ReadmissionPredictionMIMIC3(exclude_minors=False)) # Must include minors to get any readmission samples on the synthetic dataset
+    sample_dataset = base_dataset.set_task(
+        ReadmissionPredictionMIMIC3(exclude_minors=False)
+    )  # Must include minors to get any readmission samples on the synthetic dataset
 
     train_dataset, val_dataset, test_dataset = split_by_patient(
         sample_dataset, [0.8, 0.1, 0.1]
@@ -40,5 +42,3 @@ if __name__ == '__main__':
     )
 
     trainer.evaluate(test_dataloader)
-
-    sample_dataset.close()

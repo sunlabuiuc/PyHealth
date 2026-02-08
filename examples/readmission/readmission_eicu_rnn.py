@@ -1,7 +1,7 @@
 """
 Readmission Prediction on eICU with RNN
 
-This example demonstrates how to use the modernized eICUDataset with the 
+This example demonstrates how to use the modernized eICUDataset with the
 ReadmissionPredictionEICU task class for predicting hospital readmission
 using an RNN model.
 
@@ -12,7 +12,6 @@ Features:
 - Demonstrates the standardized PyHealth workflow
 """
 
-import tempfile
 from datetime import timedelta
 
 from pyhealth.datasets import eICUDataset
@@ -23,15 +22,12 @@ from pyhealth.trainer import Trainer
 
 
 if __name__ == "__main__":
-    # Use tempfile to automate cleanup
-    cache_dir = tempfile.TemporaryDirectory()
-
     # STEP 1: Load dataset
     # Replace with your eICU dataset path
     base_dataset = eICUDataset(
         root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
         tables=["diagnosis", "medication", "physicalexam"],
-        cache_dir=cache_dir.name
+        cache_dir="/shared/eng/pyhealth/eicu",
     )
     base_dataset.stats()
 
@@ -39,7 +35,6 @@ if __name__ == "__main__":
     # Configurable readmission window (default 15 days)
     task = ReadmissionPredictionEICU(window=timedelta(days=15))
     sample_dataset = base_dataset.set_task(task)
-    sample_dataset.stats()
 
     # STEP 3: Split and create dataloaders
     train_dataset, val_dataset, test_dataset = split_by_patient(
@@ -68,11 +63,3 @@ if __name__ == "__main__":
 
     # STEP 6: Evaluate
     print(trainer.evaluate(test_dataloader))
-
-    # Cleanup
-    sample_dataset.close()
-
-
-
-
-

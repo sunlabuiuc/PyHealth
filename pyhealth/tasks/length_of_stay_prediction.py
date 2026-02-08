@@ -386,9 +386,9 @@ class LengthOfStayPredictioneICU(BaseTask):
                 {
                     "visit_id": stay_id,
                     "patient_id": patient.patient_id,
-                    "conditions": [conditions],
-                    "procedures": [procedures],
-                    "drugs": [drugs],
+                    "conditions": conditions,
+                    "procedures": procedures,
+                    "drugs": drugs,
                     "los": los_category,
                 }
             )

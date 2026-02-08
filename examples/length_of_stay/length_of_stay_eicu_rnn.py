@@ -23,8 +23,6 @@ Features:
 - Demonstrates the standardized PyHealth workflow
 """
 
-import tempfile
-
 from pyhealth.datasets import eICUDataset
 from pyhealth.datasets import split_by_patient, get_dataloader
 from pyhealth.models import RNN
@@ -33,22 +31,19 @@ from pyhealth.trainer import Trainer
 
 
 if __name__ == "__main__":
-    # Use tempfile to automate cleanup
-    cache_dir = tempfile.TemporaryDirectory()
-
     # STEP 1: Load dataset
     # Replace with your eICU dataset path
     base_dataset = eICUDataset(
         root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
         tables=["diagnosis", "medication", "physicalexam"],
         num_workers=4,
+        cache_dir="/shared/eng/pyhealth/eicu",
     )
     base_dataset.stats()
 
     # STEP 2: Set task using LengthOfStayPredictioneICU
     task = LengthOfStayPredictioneICU()
     sample_dataset = base_dataset.set_task(task, num_workers=16)
-    sample_dataset.stats()
 
     # STEP 3: Split and create dataloaders
     train_dataset, val_dataset, test_dataset = split_by_patient(
@@ -74,6 +69,3 @@ if __name__ == "__main__":
 
     # STEP 6: Evaluate
     print(trainer.evaluate(test_dataloader))
-
-    # Cleanup
-    sample_dataset.close()

@@ -7,14 +7,14 @@ from pyhealth.tasks import ReadmissionPredictionMIMIC4
 from pyhealth.trainer import Trainer
 
 # Since PyHealth uses multiprocessing, it is best practice to use a main guard.
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Use tempfile to automate cleanup
     cache_dir = tempfile.TemporaryDirectory()
 
     base_dataset = MIMIC4Dataset(
         ehr_root="https://physionet.org/files/mimic-iv-demo/2.2/",
         ehr_tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
-        cache_dir=cache_dir.name
+        cache_dir=cache_dir.name,
     )
     base_dataset.stats()
 
@@ -40,5 +40,3 @@ if __name__ == '__main__':
     )
 
     trainer.evaluate(test_dataloader)
-
-    sample_dataset.close()
