@@ -41,7 +41,7 @@ class ChestXray14BinaryClassification(BaseTask):
         >>> from pyhealth.datasets import ChestXray14Dataset
         >>> from pyhealth.tasks import ChestXray14BinaryClassification
         >>> dataset = ChestXray14Dataset(root="/path/to/chestxray14")
-        >>> task = ChestXray14BinaryClassification(disease="Pneumonia")
+        >>> task = ChestXray14BinaryClassification(disease="pneumonia")
         >>> samples = dataset.set_task(task)
     """
 
