@@ -16,6 +16,7 @@ Dataset paper link:
 Author:
     Eric Schrock (ejs9@illinois.edu)
 """
+
 import logging
 from typing import Dict, List
 
@@ -23,6 +24,7 @@ from pyhealth.data import Event, Patient
 from pyhealth.tasks import BaseTask
 
 logger = logging.getLogger(__name__)
+
 
 class ChestXray14MultilabelClassification(BaseTask):
     """
@@ -33,7 +35,15 @@ class ChestXray14MultilabelClassification(BaseTask):
         task_name (str): The name of the task.
         input_schema (Dict[str, str]): The schema for the task input.
         output_schema (Dict[str, str]): The schema for the task output.
+
+    Examples:
+        >>> from pyhealth.datasets import ChestXray14Dataset
+        >>> from pyhealth.tasks import ChestXray14MultilabelClassification
+        >>> dataset = ChestXray14Dataset(root="/path/to/chestxray14")
+        >>> task = ChestXray14MultilabelClassification()
+        >>> samples = dataset.set_task(task)
     """
+
     task_name: str = "ChestXray14MultilabelClassification"
     input_schema: Dict[str, str] = {"image": "image"}
     output_schema: Dict[str, str] = {"labels": "multilabel"}
@@ -54,8 +64,18 @@ class ChestXray14MultilabelClassification(BaseTask):
         events: List[Event] = patient.get_events(event_type="chestxray14")
 
         samples = []
-        from pyhealth.datasets import ChestXray14Dataset # Avoid circular import
+        from pyhealth.datasets import ChestXray14Dataset  # Avoid circular import
+
         for event in events:
-            samples.append({"image": event["path"], "labels": [disease for disease in ChestXray14Dataset.classes if int(event[disease])]})
+            samples.append(
+                {
+                    "image": event["path"],
+                    "labels": [
+                        disease
+                        for disease in ChestXray14Dataset.classes
+                        if int(event[disease])
+                    ],
+                }
+            )
 
         return samples

@@ -29,6 +29,16 @@ class LengthOfStayStageNetMIMIC4(BaseTask):
     Args:
         padding: Optional padding forwarded to the StageNet processor for nested
             sequences. Default is 0.
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC4EHRDataset
+        >>> from pyhealth.tasks import LengthOfStayStageNetMIMIC4
+        >>> dataset = MIMIC4EHRDataset(
+        ...     root="/path/to/mimic-iv/2.2",
+        ...     tables=["diagnoses_icd", "procedures_icd", "labevents"],
+        ... )
+        >>> task = LengthOfStayStageNetMIMIC4()
+        >>> samples = dataset.set_task(task)
     """
 
     task_name: str = "LengthOfStayStageNetMIMIC4"

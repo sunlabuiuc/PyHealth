@@ -25,6 +25,16 @@ class MIMIC3ICD9Coding(BaseTask):
         task_name: Name of the task
         input_schema: Definition of the input data schema
         output_schema: Definition of the output data schema
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC3Dataset
+        >>> from pyhealth.tasks import MIMIC3ICD9Coding
+        >>> dataset = MIMIC3Dataset(
+        ...     root="/path/to/mimic-iii/1.4",
+        ...     tables=["diagnoses_icd", "procedures_icd", "noteevents"],
+        ... )
+        >>> task = MIMIC3ICD9Coding()
+        >>> samples = dataset.set_task(task)
     """
 
     task_name: str = "mimic3_icd9_coding"

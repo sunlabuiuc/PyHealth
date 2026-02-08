@@ -22,6 +22,15 @@ class MIMIC3Dataset(BaseDataset):
         tables (List[str]): A list of tables to be included in the dataset.
         dataset_name (Optional[str]): The name of the dataset.
         config_path (Optional[str]): The path to the configuration file.
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC3Dataset
+        >>> # Load MIMIC-III dataset with clinical tables
+        >>> dataset = MIMIC3Dataset(
+        ...     root="/path/to/mimic-iii/1.4",
+        ...     tables=["diagnoses_icd", "procedures_icd", "labevents"],
+        ... )
+        >>> dataset.stats()
     """
 
     def __init__(
@@ -30,7 +39,7 @@ class MIMIC3Dataset(BaseDataset):
         tables: List[str],
         dataset_name: Optional[str] = None,
         config_path: Optional[str] = None,
-        **kwargs
+        **kwargs,
     ) -> None:
         """
         Initializes the MIMIC4Dataset with the specified parameters.
@@ -57,14 +66,14 @@ class MIMIC3Dataset(BaseDataset):
             tables=tables,
             dataset_name=dataset_name or "mimic3",
             config_path=config_path,
-            **kwargs
+            **kwargs,
         )
         return
 
     def preprocess_noteevents(self, df: pl.LazyFrame) -> pl.LazyFrame:
         """
         Table-specific preprocess function which will be called by BaseDataset.load_table().
-    
+
         Preprocesses the noteevents table by ensuring that the charttime column
         is populated. If charttime is null, it uses chartdate with a default
         time of 00:00:00.
