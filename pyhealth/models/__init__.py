@@ -7,6 +7,7 @@ from .contrawr import ContraWR, ResBlock2D
 from .deepr import Deepr, DeeprLayer
 from .embedding import EmbeddingModel
 from .gamenet import GAMENet, GAMENetLayer
+from .graphcare import GraphCare, BiAttentionGNNConv
 from .logistic_regression import LogisticRegression
 from .gan import GAN
 from .gnn import GAT, GCN
