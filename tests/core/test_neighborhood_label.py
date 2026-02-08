@@ -153,6 +153,7 @@ class TestNeighborhoodLabel(unittest.TestCase):
         self.assertGreaterEqual(ncp.alpha_tilde_, 0.0)
         self.assertLessEqual(ncp.alpha_tilde_, 1.0)
 
+        # Recompute per-sample thresholds using alpha_tilde (Q^NCP definition: alpha_tilde-quantile of conformity)
         N = ncp.cal_conformity_scores_.shape[0]
         k = min(ncp.k_neighbors, N)
         distances_cal, indices_cal = ncp._nn.kneighbors(
@@ -165,10 +166,11 @@ class TestNeighborhoodLabel(unittest.TestCase):
         for i in range(N):
             t_i = _query_weighted_quantile(
                 ncp.cal_conformity_scores_[indices_cal[i]],
-                1.0 - ncp.alpha_tilde_,
+                ncp.alpha_tilde_,
                 cal_weights[i],
             )
-            if ncp.cal_conformity_scores_[i] <= t_i:
+            # Covered = true label in set = conformity_i >= threshold_i (paper: V_i <= t in non-conf space)
+            if ncp.cal_conformity_scores_[i] >= t_i:
                 covered += 1
         empirical_coverage = covered / N
         self.assertGreaterEqual(
