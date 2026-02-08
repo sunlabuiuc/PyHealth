@@ -26,6 +26,7 @@ import random
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch import Tensor
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,6 @@ try:
     from torch_geometric.nn import global_mean_pool
     from torch_geometric.data import Data, Batch
     from torch_geometric.typing import Adj, OptPairTensor, OptTensor, Size
-    from torch import Tensor
 
     HAS_TORCH_GEOMETRIC = True
 except ImportError:
