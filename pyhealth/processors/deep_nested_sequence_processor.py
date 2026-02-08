@@ -185,6 +185,21 @@ class DeepNestedSequenceProcessor(FeatureProcessor, TokenProcessorInterface):
             f"max_inner_len={self._max_inner_len})"
         )
 
+    def is_token(self) -> bool:
+        """Deep nested sequence codes are discrete token indices."""
+        return True
+
+    def schema(self) -> tuple[str, ...]:
+        return ("value",)
+
+    def dim(self) -> tuple[int, ...]:
+        """Output is a 3D tensor (groups, visits, codes)."""
+        return (3,)
+
+    def spatial(self) -> tuple[bool, ...]:
+        # Groups are not sequential; visits are temporal/spatial; codes-per-visit is an unordered set
+        return (False, True, False)
+
 
 @register_processor("deep_nested_sequence_floats")
 class DeepNestedFloatsProcessor(FeatureProcessor):
@@ -380,3 +395,18 @@ class DeepNestedFloatsProcessor(FeatureProcessor):
             f"max_inner_len={self._max_inner_len}, "
             f"forward_fill={self.forward_fill})"
         )
+
+    def is_token(self) -> bool:
+        """Deep nested float values are continuous, not discrete tokens."""
+        return False
+
+    def schema(self) -> tuple[str, ...]:
+        return ("value",)
+
+    def dim(self) -> tuple[int, ...]:
+        """Output is a 3D tensor (groups, visits, features)."""
+        return (3,)
+
+    def spatial(self) -> tuple[bool, ...]:
+        # Groups are not sequential; visits are temporal/spatial; features dimension is not
+        return (False, True, False)
