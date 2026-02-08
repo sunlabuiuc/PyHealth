@@ -113,11 +113,7 @@ class TimeseriesProcessor(FeatureProcessor):
         """Output is a 2D tensor (time_steps, features)."""
         return (2,)
 
-    def spatial(self, i: int) -> tuple[bool, ...]:
-        if i != 0:
-            raise IndexError(
-                f"TimeseriesProcessor has 1 output tensor, but index {i} was requested."
-            )
+    def spatial(self) -> tuple[bool, ...]:
         # Time dimension is spatial; feature dimension is not
         return (True, False)
 

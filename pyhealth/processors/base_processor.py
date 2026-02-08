@@ -89,19 +89,16 @@ class FeatureProcessor(Processor):
         """
         raise NotImplementedError("dim method is not implemented for this processor.")
     
-    def spatial(self, i: int) -> tuple[bool, ...]:
-        """Whether each dimension (axis) of the i-th output tensor is spatial (i.e. corresponds to a spatial 
+    def spatial(self) -> tuple[bool, ...]:
+        """Whether each dimension (axis) of the value tensor is spatial (i.e. corresponds to a spatial 
         axis like time, height, width, etc.) or not. This is used to determine how to apply 
         augmentations and other transformations that should only be applied to spatial dimensions.
         
         E.g. for CNN or RNN features, this would help determine which dimensions to apply spatial augmentations to, 
         and which dimensions to treat as channels or features.
         
-        Args:
-            i: Index of the output tensor to check.
-        
         Returns:
-            Tuple of booleans corresponding to whether each axis of the i-th output tensor is spatial or not.
+            Tuple of booleans corresponding to whether each axis of the value tensor is spatial or not.
         """
         raise NotImplementedError("spatial method is not implemented for this processor.")
     

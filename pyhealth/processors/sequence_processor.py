@@ -82,11 +82,7 @@ class SequenceProcessor(FeatureProcessor, TokenProcessorInterface):
         """Output is a 1D tensor of code indices."""
         return (1,)
 
-    def spatial(self, i: int) -> tuple[bool, ...]:
-        if i != 0:
-            raise IndexError(
-                f"SequenceProcessor has 1 output tensor, but index {i} was requested."
-            )
+    def spatial(self) -> tuple[bool, ...]:
         return (True,)
 
     def __repr__(self):

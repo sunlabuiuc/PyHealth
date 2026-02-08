@@ -119,21 +119,14 @@ class ImageProcessor(FeatureProcessor):
         """
         return (3,)
 
-    def spatial(self, i: int) -> tuple[bool, ...]:
+    def spatial(self) -> tuple[bool, ...]:
         """Spatial axes for the output tensor (C, H, W).
 
         Channels are not spatial; height and width are.
 
-        Args:
-            i: Index of the output tensor (must be 0).
-
         Returns:
             (False, True, True)
         """
-        if i != 0:
-            raise IndexError(
-                f"ImageProcessor has 1 output tensor, but index {i} was requested."
-            )
         return (False, True, True)
 
     def __repr__(self) -> str:

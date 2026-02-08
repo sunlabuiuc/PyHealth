@@ -163,26 +163,16 @@ class AudioProcessor(FeatureProcessor):
             return (3,)
         return (2,)
 
-    def spatial(self, i: int) -> tuple[bool, ...]:
+    def spatial(self) -> tuple[bool, ...]:
         """Whether each dimension of the output tensor is spatial.
 
         For waveform (channels, samples): channels is not spatial, samples is.
         For mel spectrogram (channels, n_mels, time): channels is not spatial,
         n_mels and time are.
 
-        Args:
-            i: Index of the output tensor (must be 0).
-
         Returns:
             Tuple of booleans for each axis.
-
-        Raises:
-            IndexError: If i != 0 (only one output tensor).
         """
-        if i != 0:
-            raise IndexError(
-                f"AudioProcessor has 1 output tensor, but index {i} was requested."
-            )
         if self.n_mels is not None:
             # (channels, n_mels, time)
             return (False, True, True)

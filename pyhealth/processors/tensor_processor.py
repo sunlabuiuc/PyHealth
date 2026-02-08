@@ -110,19 +110,12 @@ class TensorProcessor(FeatureProcessor):
             )
         return (self._n_dim,)
 
-    def spatial(self, i: int) -> tuple[bool, ...]:
+    def spatial(self) -> tuple[bool, ...]:
         """Whether each dimension of the output tensor is spatial.
 
         If spatial_dims was provided at init, returns that. Otherwise defaults
         to all False based on n_dim.
-
-        Args:
-            i: Index of the output tensor (must be 0).
         """
-        if i != 0:
-            raise IndexError(
-                f"TensorProcessor has 1 output tensor, but index {i} was requested."
-            )
         if self._spatial_dims is not None:
             return self._spatial_dims
         if self._n_dim is None:
