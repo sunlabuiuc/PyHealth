@@ -17,7 +17,7 @@ from .micron import MICRON, MICRONLayer
 from .mlp import MLP
 from .molerec import MoleRec, MoleRecLayer
 from .retain import RETAIN, RETAINLayer
-from .rnn import RNN, RNNLayer
+from .rnn import MultimodalRNN, RNN, RNNLayer
 from .safedrug import SafeDrug, SafeDrugLayer
 from .sparcnet import DenseBlock, DenseLayer, SparcNet, TransitionLayer
 from .stagenet import StageNet, StageNetLayer
@@ -34,6 +34,9 @@ from .tfm_tokenizer import (
 from .torchvision_model import TorchvisionModel
 from .transformer import Transformer, TransformerLayer
 from .transformers_model import TransformersModel
+from .ehrmamba import EHRMamba, MambaBlock
 from .vae import VAE
+from .vision_embedding import VisionEmbeddingModel
+from .text_embedding import TextEmbedding
 from .sdoh import SdohClassifier
 from .medlink import MedLink

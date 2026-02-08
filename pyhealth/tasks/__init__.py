@@ -12,6 +12,7 @@ from .cardiology_detect import (
 from .chestxray14_binary_classification import ChestXray14BinaryClassification
 from .chestxray14_multilabel_classification import ChestXray14MultilabelClassification
 from .covid19_cxr_classification import COVID19CXRClassification
+from .dka import DKAPredictionMIMIC4, T1DDKAPredictionMIMIC4
 from .drug_recommendation import (
     DrugRecommendationEICU,
     DrugRecommendationMIMIC3,
@@ -34,6 +35,7 @@ from .length_of_stay_prediction import (
     length_of_stay_prediction_mimic4_fn,
     length_of_stay_prediction_omop_fn,
 )
+from .length_of_stay_stagenet_mimic4 import LengthOfStayStageNetMIMIC4
 from .medical_coding import MIMIC3ICD9Coding
 from .medical_transcriptions_classification import MedicalTranscriptionsClassification
 from .mortality_prediction import (
@@ -50,14 +52,13 @@ from .mortality_prediction_stagenet_mimic4 import (
     MortalityPredictionStageNetMIMIC4,
 )
 from .patient_linkage import patient_linkage_mimic3_fn
-from .readmission_30days_mimic4 import Readmission30DaysMIMIC4
 from .readmission_prediction import (
     ReadmissionPredictionEICU,
     ReadmissionPredictionMIMIC3,
-    ReadmissionPredictionOMOP,
+    ReadmissionPredictionMIMIC4,
     readmission_prediction_eicu_fn,
     readmission_prediction_eicu_fn2,
-    readmission_prediction_mimic4_fn,
+    ReadmissionPredictionOMOP,
 )
 from .sleep_staging import (
     sleep_staging_isruc_fn,

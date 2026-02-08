@@ -112,66 +112,107 @@ class ReadmissionPredictionMIMIC3(BaseTask):
         return samples
 
 
-def readmission_prediction_mimic4_fn(patient: Patient, time_window=15):
-    """Processes a single patient for the readmission prediction task.
-
-    Readmission prediction aims at predicting whether the patient will be readmitted
-    into hospital within time_window days based on the clinical information from
-    current visit (e.g., conditions and procedures).
-
-    Args:
-        patient: a Patient object
-        time_window: the time window threshold (gap < time_window means label=1 for
-            the task)
-
-    Returns:
-        samples: a list of samples, each sample is a dict with patient_id, visit_id,
-            and other task-specific attributes as key
-
-    Note that we define the task as a binary classification task.
-
-    Examples:
-        >>> from pyhealth.datasets import MIMIC4Dataset
-        >>> mimic4_base = MIMIC4Dataset(
-        ...     root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
-        ...     tables=["diagnoses_icd", "procedures_icd"],
-        ...     code_mapping={"ICD10PROC": "CCSPROC"},
-        ... )
-        >>> from pyhealth.tasks import readmission_prediction_mimic4_fn
-        >>> mimic4_sample = mimic4_base.set_task(readmission_prediction_mimic4_fn)
-        >>> mimic4_sample.samples[0]
-        [{'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '19', '122', '98', '663', '58', '51']], 'procedures': [['1']], 'label': 0}]
+class ReadmissionPredictionMIMIC4(BaseTask):
     """
-    samples = []
+    Readmission prediction on the MIMIC4 dataset.
 
-    # we will drop the last visit
-    for i in range(len(patient) - 1):
-        visit: Visit = patient[i]
-        next_visit: Visit = patient[i + 1]
+    This task aims at predicting whether the patient will be readmitted into hospital within
+    a specified number of days based on clinical information from the current visit.
 
-        # get time difference between current visit and next visit
-        time_diff = (next_visit.encounter_time - visit.encounter_time).days
-        readmission_label = 1 if time_diff < time_window else 0
+    Attributes:
+        task_name (str): The name of the task.
+        input_schema (Dict[str, str]): The schema for the task input.
+        output_schema (Dict[str, str]): The schema for the task output.
+    """
+    task_name: str = "ReadmissionPredictionMIMIC4"
+    input_schema: Dict[str, str] = {"conditions": "sequence", "procedures": "sequence", "drugs": "sequence"}
+    output_schema: Dict[str, str] = {"readmission": "binary"}
 
-        conditions = visit.get_code_list(table="diagnoses_icd")
-        procedures = visit.get_code_list(table="procedures_icd")
-        drugs = visit.get_code_list(table="prescriptions")
-        # exclude: visits without condition, procedure, or drug code
-        if len(conditions) * len(procedures) * len(drugs) == 0:
-            continue
-        # TODO: should also exclude visit with age < 18
-        samples.append(
-            {
-                "visit_id": visit.visit_id,
-                "patient_id": patient.patient_id,
-                "conditions": [conditions],
-                "procedures": [procedures],
-                "drugs": [drugs],
-                "label": readmission_label,
-            }
-        )
-    # no cohort selection
-    return samples
+    def __init__(self, window: timedelta=timedelta(days=15), exclude_minors: bool=True) -> None:
+        """
+        Initializes the task object.
+
+        Args:
+            window (timedelta): If two admissions are closer than this window, it is considered a readmission. Defaults to 15 days.
+            exclude_minors (bool): Whether to exclude patients whose "anchor_age" is less than 18. Defaults to True.
+        """
+        self.window = window
+        self.exclude_minors = exclude_minors
+
+    def __call__(self, patient: Patient) -> List[Dict]:
+        """
+        Generates binary classification data samples for a single patient.
+
+        Visits with no conditions OR no procedures OR no drugs are excluded from the output but are still used to calculate readmission for prior visits.
+
+        Args:
+            patient (Patient): A patient object.
+
+        Returns:
+            List[Dict]: A list containing a dictionary for each patient visit with:
+                - 'visit_id': MIMIC4 hadm_id.
+                - 'patient_id': MIMIC4 subject_id.
+                - 'conditions': MIMIC4 diagnoses_icd table ICD-9 or ICD-10 codes.
+                - 'procedures': MIMIC4 procedures_icd table ICD-9 or ICD-10 codes.
+                - 'drugs': MIMIC4 prescriptions table drug column entries.
+                - 'readmission': binary label.
+
+        Raises:
+            ValueError: If any `str` to `datetime` conversions fail.
+            AssertionError: If any icd_version value in the diagnoses_icd or procedures_icd tables is not "9" or "10"
+        """
+        patients: List[Event] = patient.get_events(event_type="patients")
+        assert len(patients) == 1
+
+        if self.exclude_minors and int(patients[0]["anchor_age"]) < 18:
+            return []
+
+        admissions: List[Event] = patient.get_events(event_type="admissions")
+        if len(admissions) < 2:
+            return []
+
+        samples = []
+        for i in range(len(admissions) - 1): # Skip the last admission since we need a "next" admission
+            filter = ("hadm_id", "==", admissions[i].hadm_id)
+
+            diagnoses = []
+            for event in patient.get_events(event_type="diagnoses_icd", filters=[filter]):
+                assert event.icd_version in ("9", "10")
+                diagnoses.append(f"{event.icd_version}_{event.icd_code}")
+            if len(diagnoses) == 0:
+                continue
+
+            procedures = []
+            for event in patient.get_events(event_type="procedures_icd", filters=[filter]):
+                assert event.icd_version in ("9", "10")
+                procedures.append(f"{event.icd_version}_{event.icd_code}")
+            if len(procedures) == 0:
+                continue
+
+            prescriptions = patient.get_events(event_type="prescriptions", filters=[filter])
+            prescriptions = [event.drug for event in prescriptions]
+            if len(prescriptions) == 0:
+                continue
+
+            try:
+                discharge_time = datetime.strptime(admissions[i].dischtime, "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                discharge_time = datetime.strptime(admissions[i].dischtime, "%Y-%m-%d")
+
+            readmission = int((admissions[i + 1].timestamp - discharge_time) < self.window)
+
+            samples.append(
+                {
+                    "visit_id": admissions[i].hadm_id,
+                    "patient_id": patient.patient_id,
+                    "conditions": diagnoses,
+                    "procedures": procedures,
+                    "drugs": prescriptions,
+                    "readmission": readmission,
+                }
+            )
+
+        return samples
 
 
 def readmission_prediction_eicu_fn(patient: Patient, time_window=5):
@@ -579,19 +620,6 @@ class ReadmissionPredictionOMOP(BaseTask):
 
 
 if __name__ == "__main__":
-    from pyhealth.datasets import MIMIC4Dataset
-
-    base_dataset = MIMIC4Dataset(
-        root="/srv/local/data/physionet.org/files/mimiciv/2.0/hosp",
-        tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
-        dev=True,
-        code_mapping={"NDC": "ATC"},
-        refresh_cache=False,
-    )
-    sample_dataset = base_dataset.set_task(task_fn=readmission_prediction_mimic4_fn)
-    sample_dataset.stat()
-    print(sample_dataset.available_keys)
-
     from pyhealth.datasets import eICUDataset
 
     base_dataset = eICUDataset(
