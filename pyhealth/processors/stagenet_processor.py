@@ -247,29 +247,18 @@ class StageNetProcessor(FeatureProcessor, TokenProcessorInterface):
             return (1, 2)
         return (1, 1)
 
-    def spatial(self, i: int) -> tuple[bool, ...]:
-        """Whether each dimension of the i-th output tensor is spatial.
-
-        Args:
-            i: 0 for time tensor, 1 for value tensor.
-        """
-        if i == 0:
-            # Time tensor: 1D, the time dimension is spatial
-            return (True,)
-        elif i == 1:
-            if self._is_nested is None:
-                raise NotImplementedError(
-                    "StageNetProcessor.spatial() requires fit() to be called first."
-                )
-            if self._is_nested:
-                # (visits, codes_per_visit) - visits are sequential/spatial,
-                # codes_per_visit is an unordered set and not spatial
-                return (True, False)
-            # Flat codes: single sequence dimension is spatial
-            return (True,)
-        raise IndexError(
-            f"StageNetProcessor has 2 output tensors, but index {i} was requested."
-        )
+    def spatial(self) -> tuple[bool, ...]:
+        """Whether each dimension of the value tensor is spatial."""
+        if self._is_nested is None:
+            raise NotImplementedError(
+                "StageNetProcessor.spatial() requires fit() to be called first."
+            )
+        if self._is_nested:
+            # (visits, codes_per_visit) - visits are sequential/spatial,
+            # codes_per_visit is an unordered set and not spatial
+            return (True, False)
+        # Flat codes: single sequence dimension is spatial
+        return (True,)
 
     def __repr__(self):
         if self._is_nested:
@@ -447,28 +436,17 @@ class StageNetTensorProcessor(FeatureProcessor):
             return (1, 2)
         return (1, 1)
 
-    def spatial(self, i: int) -> tuple[bool, ...]:
-        """Whether each dimension of the i-th output tensor is spatial.
-
-        Args:
-            i: 0 for time tensor, 1 for value tensor.
-        """
-        if i == 0:
-            # Time tensor: 1D, the time dimension is spatial
-            return (True,)
-        elif i == 1:
-            if self._is_nested is None:
-                raise NotImplementedError(
-                    "StageNetTensorProcessor.spatial() requires fit() to be called first."
-                )
-            if self._is_nested:
-                # (time_steps, features) - time is spatial, features are not
-                return (True, False)
-            # Flat: single sequence dimension is spatial
-            return (True,)
-        raise IndexError(
-            f"StageNetTensorProcessor has 2 output tensors, but index {i} was requested."
-        )
+    def spatial(self) -> tuple[bool, ...]:
+        """Whether each dimension of the value tensor is spatial."""
+        if self._is_nested is None:
+            raise NotImplementedError(
+                "StageNetTensorProcessor.spatial() requires fit() to be called first."
+            )
+        if self._is_nested:
+            # (time_steps, features) - time is spatial, features are not
+            return (True, False)
+        # Flat: single sequence dimension is spatial
+        return (True,)
 
     def __repr__(self):
         return (

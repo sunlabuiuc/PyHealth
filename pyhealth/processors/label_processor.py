@@ -51,11 +51,7 @@ class BinaryLabelProcessor(FeatureProcessor):
         """Output shape is (1,), so 1 dimension."""
         return (1,)
 
-    def spatial(self, i: int) -> tuple[bool, ...]:
-        if i != 0:
-            raise IndexError(
-                f"BinaryLabelProcessor has 1 output tensor, but index {i} was requested."
-            )
+    def spatial(self) -> tuple[bool, ...]:
         return (False,)
 
     def __repr__(self):
@@ -101,11 +97,7 @@ class MultiClassLabelProcessor(FeatureProcessor):
         """Output is a scalar tensor (dim 0)."""
         return (0,)
 
-    def spatial(self, i: int) -> tuple[bool, ...]:
-        if i != 0:
-            raise IndexError(
-                f"MultiClassLabelProcessor has 1 output tensor, but index {i} was requested."
-            )
+    def spatial(self) -> tuple[bool, ...]:
         return ()
 
     def __repr__(self):
@@ -162,11 +154,7 @@ class MultiLabelProcessor(FeatureProcessor):
         """Output shape is (num_classes,), so 1 dimension."""
         return (1,)
 
-    def spatial(self, i: int) -> tuple[bool, ...]:
-        if i != 0:
-            raise IndexError(
-                f"MultiLabelProcessor has 1 output tensor, but index {i} was requested."
-            )
+    def spatial(self) -> tuple[bool, ...]:
         return (False,)
 
     def __repr__(self):
@@ -196,11 +184,7 @@ class RegressionLabelProcessor(FeatureProcessor):
         """Output shape is (1,), so 1 dimension."""
         return (1,)
 
-    def spatial(self, i: int) -> tuple[bool, ...]:
-        if i != 0:
-            raise IndexError(
-                f"RegressionLabelProcessor has 1 output tensor, but index {i} was requested."
-            )
+    def spatial(self) -> tuple[bool, ...]:
         return (False,)
 
     def __repr__(self):

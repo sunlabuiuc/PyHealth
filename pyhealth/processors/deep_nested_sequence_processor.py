@@ -196,11 +196,7 @@ class DeepNestedSequenceProcessor(FeatureProcessor, TokenProcessorInterface):
         """Output is a 3D tensor (groups, visits, codes)."""
         return (3,)
 
-    def spatial(self, i: int) -> tuple[bool, ...]:
-        if i != 0:
-            raise IndexError(
-                f"DeepNestedSequenceProcessor has 1 output tensor, but index {i} was requested."
-            )
+    def spatial(self) -> tuple[bool, ...]:
         # Groups are not sequential; visits are temporal/spatial; codes-per-visit is an unordered set
         return (False, True, False)
 
@@ -411,10 +407,6 @@ class DeepNestedFloatsProcessor(FeatureProcessor):
         """Output is a 3D tensor (groups, visits, features)."""
         return (3,)
 
-    def spatial(self, i: int) -> tuple[bool, ...]:
-        if i != 0:
-            raise IndexError(
-                f"DeepNestedFloatsProcessor has 1 output tensor, but index {i} was requested."
-            )
+    def spatial(self) -> tuple[bool, ...]:
         # Groups are not sequential; visits are temporal/spatial; features dimension is not
         return (False, True, False)

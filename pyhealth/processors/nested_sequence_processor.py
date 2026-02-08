@@ -173,11 +173,7 @@ class NestedSequenceProcessor(FeatureProcessor, TokenProcessorInterface):
         """Output is a 2D tensor (visits, codes_per_visit)."""
         return (2,)
 
-    def spatial(self, i: int) -> tuple[bool, ...]:
-        if i != 0:
-            raise IndexError(
-                f"NestedSequenceProcessor has 1 output tensor, but index {i} was requested."
-            )
+    def spatial(self) -> tuple[bool, ...]:
         # Visits (time) is spatial; codes-per-visit is an unordered set, not spatial
         return (True, False)
 
@@ -372,10 +368,6 @@ class NestedFloatsProcessor(FeatureProcessor):
         """Output is a 2D tensor (visits, features)."""
         return (2,)
 
-    def spatial(self, i: int) -> tuple[bool, ...]:
-        if i != 0:
-            raise IndexError(
-                f"NestedFloatsProcessor has 1 output tensor, but index {i} was requested."
-            )
+    def spatial(self) -> tuple[bool, ...]:
         # Visits (time) is spatial; features dimension is not
         return (True, False)
