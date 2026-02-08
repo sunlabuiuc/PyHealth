@@ -371,10 +371,11 @@ class RemovalBasedMetric(ABC):
         """
         # Get original predictions (returns 3 values)
         original_probs, pred_classes, original_class_probs = get_model_predictions(
-            self.model,
-            inputs,
-            self.classifier_type,
-            self._positive_threshold,
+            model=self.model,
+            inputs=inputs,
+            classifier_type=self.classifier_type,
+            pred_classes=predicted_class,
+            positive_threshold=self._positive_threshold,
         )
 
         if predicted_class is not None:
@@ -452,10 +453,11 @@ class RemovalBasedMetric(ABC):
 
             # Get predictions on ablated inputs
             ablated_probs, _, ablated_class_probs = get_model_predictions(
-                self.model,
-                ablated_inputs,
-                self.classifier_type,
-                self._positive_threshold,
+                model=self.model,
+                inputs=ablated_inputs,
+                pred_classes=pred_classes, # Use same predicted classes from original to avoid shifts
+                classifier_type=self.classifier_type,
+                positive_threshold=self._positive_threshold,
             )
 
             # Compute probability drop

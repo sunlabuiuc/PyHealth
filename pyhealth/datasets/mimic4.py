@@ -40,6 +40,15 @@ class MIMIC4EHRDataset(BaseDataset):
         tables (List[str]): A list of tables to be included in the dataset.
         dataset_name (Optional[str]): The name of the dataset.
         config_path (Optional[str]): The path to the configuration file.
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC4EHRDataset
+        >>> # Load MIMIC-IV EHR dataset with clinical tables
+        >>> dataset = MIMIC4EHRDataset(
+        ...     root="/path/to/mimic-iv/2.2",
+        ...     tables=["diagnoses_icd", "procedures_icd", "labevents"],
+        ... )
+        >>> dataset.stats()
     """
 
     def __init__(
@@ -83,6 +92,15 @@ class MIMIC4NoteDataset(BaseDataset):
         tables (List[str]): A list of tables to be included in the dataset.
         dataset_name (Optional[str]): The name of the dataset.
         config_path (Optional[str]): The path to the configuration file.
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC4NoteDataset
+        >>> # Load MIMIC-IV clinical notes dataset
+        >>> dataset = MIMIC4NoteDataset(
+        ...     root="/path/to/mimic-iv-note/2.2",
+        ...     tables=["discharge", "radiology"],
+        ... )
+        >>> dataset.stats()
     """
 
     def __init__(
@@ -135,6 +153,15 @@ class MIMIC4CXRDataset(BaseDataset):
         tables (List[str]): A list of tables to be included in the dataset.
         dataset_name (Optional[str]): The name of the dataset.
         config_path (Optional[str]): The path to the configuration file.
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC4CXRDataset
+        >>> # Load MIMIC-CXR dataset with chest X-ray images and labels
+        >>> dataset = MIMIC4CXRDataset(
+        ...     root="/path/to/mimic-cxr/2.0.0",
+        ...     tables=["metadata", "chexpert"],
+        ... )
+        >>> dataset.stats()
     """
 
     def __init__(
@@ -217,6 +244,28 @@ class MIMIC4Dataset(BaseDataset):
         cxr_config_path: Path to the CXR config file
         dataset_name: Name of the dataset
         dev: Whether to enable dev mode (limit to 1000 patients)
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC4Dataset
+        >>> # Load unified MIMIC-IV dataset with EHR, notes, and CXR data
+        >>> dataset = MIMIC4Dataset(
+        ...     ehr_root="/path/to/mimic-iv/2.2",
+        ...     note_root="/path/to/mimic-iv-note/2.2",
+        ...     cxr_root="/path/to/mimic-cxr/2.0.0",
+        ...     ehr_tables=["diagnoses_icd", "procedures_icd", "labevents"],
+        ...     note_tables=["discharge", "radiology"],
+        ...     cxr_tables=["metadata", "chexpert"],
+        ... )
+        >>> dataset.stats()
+        >>>
+        >>> # Load with only EHR and notes (without CXR)
+        >>> dataset = MIMIC4Dataset(
+        ...     ehr_root="/path/to/mimic-iv/2.2",
+        ...     note_root="/path/to/mimic-iv-note/2.2",
+        ...     ehr_tables=["diagnoses_icd", "labevents"],
+        ...     note_tables=["discharge"],
+        ... )
+        >>> dataset.stats()
     """
 
     def __init__(
