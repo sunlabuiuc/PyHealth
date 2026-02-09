@@ -9,7 +9,8 @@ This script:
 6) Evaluates prediction-set coverage/miscoverage and efficiency on the test split.
 
 Example (from repo root):
-  python examples/conformal_eeg/tuev_kmeans_conformal.py --root downloads/tuev/v2.0.1/edf --n-clusters 5
+  python examples/conformal_eeg/tuev_kmeans_conformal.py --root /srv/local/data/TUH/tuh_eeg_events/v2.0.0/edf --n-clusters 5
+  python examples/conformal_eeg/tuev_kmeans_conformal.py --quick-test --log-file quicktest_kmeans.log
 
 Notes:
 - ClusterLabel uses K-means clustering on embeddings to compute cluster-specific thresholds.
@@ -20,10 +21,29 @@ from __future__ import annotations
 
 import argparse
 import random
+import sys
 from pathlib import Path
 
 import numpy as np
 import torch
+
+
+class _Tee:
+    """Writes to both a stream and a file."""
+
+    def __init__(self, stream, file):
+        self._stream = stream
+        self._file = file
+
+    def write(self, data):
+        self._stream.write(data)
+        self._file.write(data)
+        self._file.flush()
+
+    def flush(self):
+        self._stream.flush()
+        self._file.flush()
+
 
 from pyhealth.calib.predictionset.cluster import ClusterLabel
 from pyhealth.calib.utils import extract_embeddings
@@ -40,13 +60,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--root",
         type=str,
-        default="downloads/tuev/v2.0.1/edf",
+        default="/srv/local/data/TUH/tuh_eeg_events/v2.0.0/edf",
         help="Path to TUEV edf/ folder.",
     )
-    parser.add_argument("--subset", type=str, default="both", choices=["train", "eval", "both"]) 
+    parser.add_argument("--subset", type=str, default="both", choices=["train", "eval", "both"])
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--batch-size", type=int, default=32)
-    parser.add_argument("--epochs", type=int, default=3)
+    parser.add_argument("--batch-size", type=int, default=64)
+    parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--alpha", type=float, default=0.1, help="Miscoverage rate (e.g., 0.1 => 90% target coverage).")
     parser.add_argument(
         "--ratios",
@@ -69,6 +89,17 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Device string, e.g. 'cuda:0' or 'cpu'. Defaults to auto-detect.",
     )
+    parser.add_argument(
+        "--log-file",
+        type=str,
+        default=None,
+        help="Path to log file. Stdout and stderr are teed to this file.",
+    )
+    parser.add_argument(
+        "--quick-test",
+        action="store_true",
+        help="Smoke test: dev=True, max 2000 samples, 2 epochs, ~5-10 min.",
+    )
     return parser.parse_args()
 
 
@@ -84,6 +115,23 @@ def main() -> None:
     args = parse_args()
     set_seed(args.seed)
 
+    orig_stdout, orig_stderr = sys.stdout, sys.stderr
+    log_file = None
+    if args.log_file:
+        log_file = open(args.log_file, "w", encoding="utf-8")
+        sys.stdout = _Tee(orig_stdout, log_file)
+        sys.stderr = _Tee(orig_stderr, log_file)
+
+    try:
+        _run(args)
+    finally:
+        if log_file is not None:
+            sys.stdout = orig_stdout
+            sys.stderr = orig_stderr
+            log_file.close()
+
+
+def _run(args: argparse.Namespace) -> None:
     device = args.device or ("cuda:0" if torch.cuda.is_available() else "cpu")
     root = Path(args.root)
     if not root.exists():
@@ -92,11 +140,19 @@ def main() -> None:
             "Pass --root to point to your downloaded TUEV edf/ directory."
         )
 
+    epochs = 2 if args.quick_test else args.epochs
+    quick_test_max_samples = 2000  # cap samples so quick-test finishes in ~5-10 min
+    if args.quick_test:
+        print("*** QUICK TEST MODE (dev=True, 2 epochs, max 2000 samples) ***")
+
     print("=" * 80)
     print("STEP 1: Load TUEV + build task dataset")
     print("=" * 80)
-    dataset = TUEVDataset(root=str(root), subset=args.subset)
+    dataset = TUEVDataset(root=str(root), subset=args.subset, dev=args.quick_test)
     sample_dataset = dataset.set_task(EEGEventsTUEV(), cache_dir="examples/conformal_eeg/cache")
+    if args.quick_test and len(sample_dataset) > quick_test_max_samples:
+        sample_dataset = sample_dataset.subset(range(quick_test_max_samples))
+        print(f"Capped to {quick_test_max_samples} samples for quick-test.")
 
     print(f"Task samples: {len(sample_dataset)}")
     print(f"Input schema: {sample_dataset.input_schema}")
@@ -129,7 +185,7 @@ def main() -> None:
     trainer.train(
         train_dataloader=train_loader,
         val_dataloader=val_loader,
-        epochs=args.epochs,
+        epochs=epochs,
         monitor="accuracy" if val_loader is not None else None,
     )
 
