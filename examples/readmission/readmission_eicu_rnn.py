@@ -2,17 +2,15 @@
 Readmission Prediction on eICU with RNN
 
 This example demonstrates how to use the modernized eICUDataset with the
-ReadmissionPredictionEICU task class for predicting hospital readmission
+ReadmissionPredictionEICU task class for predicting ICU readmission
 using an RNN model.
 
 Features:
 - Uses the new BaseDataset-based eICUDataset with YAML configuration
 - Uses the new ReadmissionPredictionEICU BaseTask class
-- Configurable readmission time window (default: 15 days)
 - Demonstrates the standardized PyHealth workflow
 """
 
-from datetime import timedelta
 import tempfile
 
 from pyhealth.datasets import eICUDataset
@@ -33,8 +31,7 @@ if __name__ == "__main__":
     base_dataset.stats()
 
     # STEP 2: Set task using ReadmissionPredictionEICU
-    # Configurable readmission window (default 15 days)
-    task = ReadmissionPredictionEICU(window=timedelta(days=15))
+    task = ReadmissionPredictionEICU()
     sample_dataset = base_dataset.set_task(task)
 
     # STEP 3: Split and create dataloaders

@@ -274,18 +274,9 @@ class ReadmissionPredictionEICU(BaseTask):
     """
     Readmission prediction on the eICU dataset.
 
-    This task aims at predicting whether the patient will be readmitted into hospital within
-    a specified time window based on clinical information from the current visit.
-
-    In eICU, timestamps are stored as offsets from ICU admission rather than absolute dates.
-    This task handles two scenarios:
-
-    1. **Same hospitalization**: Multiple ICU stays within the same hospital admission
-       (same patienthealthsystemstayid). Time gap is computed using offset values.
-
-    2. **Different hospitalizations**: ICU stays from different hospital admissions
-       (different patienthealthsystemstayid). Since eICU only provides discharge year
-       (not full dates), any subsequent hospitalization is considered a readmission.
+    This task aims at predicting whether the patient will be readmitted into the ICU
+    during the same hospital stay based on clinical information from the current ICU
+    visit.
 
     Features:
     - using diagnosis table (ICD9CM and ICD10CM) as condition codes
@@ -296,7 +287,6 @@ class ReadmissionPredictionEICU(BaseTask):
         task_name (str): The name of the task.
         input_schema (Dict[str, str]): The schema for the task input.
         output_schema (Dict[str, str]): The schema for the task output.
-        window (timedelta): Time window for readmission (used for same-hospitalization only).
 
     Examples:
         >>> from pyhealth.datasets import eICUDataset
@@ -305,7 +295,7 @@ class ReadmissionPredictionEICU(BaseTask):
         ...     root="/path/to/eicu-crd/2.0",
         ...     tables=["diagnosis", "medication", "physicalexam"],
         ... )
-        >>> task = ReadmissionPredictionEICU(window=timedelta(days=15))
+        >>> task = ReadmissionPredictionEICU()
         >>> sample_dataset = dataset.set_task(task)
     """
 
@@ -316,18 +306,6 @@ class ReadmissionPredictionEICU(BaseTask):
         "drugs": "sequence",
     }
     output_schema: Dict[str, str] = {"readmission": "binary"}
-
-    def __init__(self, window: timedelta = timedelta(days=15)) -> None:
-        """
-        Initializes the task object.
-
-        Args:
-            window (timedelta): Time window for considering a readmission within the same
-                hospitalization. For different hospitalizations, any subsequent admission
-                is considered a readmission. Defaults to 15 days.
-        """
-        self.window = window
-        self.window_minutes = int(window.total_seconds() / 60)
 
     def __call__(self, patient: Patient) -> List[Dict]:
         """
@@ -404,29 +382,10 @@ class ReadmissionPredictionEICU(BaseTask):
             if len(drugs) == 0:
                 continue
 
-            # Determine readmission label based on hospitalization relationship
+            # If the current and next hospital ID are the same, the patient was readmitted to the ICU
             current_hosp_id = getattr(stay, "patienthealthsystemstayid", None)
             next_hosp_id = getattr(next_stay, "patienthealthsystemstayid", None)
-
-            if current_hosp_id == next_hosp_id:
-                # Same hospitalization: compute time gap using offsets (in minutes)
-                # Gap = next stay's ICU admit (time 0) - current stay's unit discharge offset
-                try:
-                    current_unit_discharge_offset = int(
-                        getattr(stay, "unitdischargeoffset", 0) or 0
-                    )
-                    # Time gap in minutes from current ICU discharge to next ICU admission
-                    # Since next stay's ICU admission is its reference point (offset 0),
-                    # we need to estimate the gap. For simplicity, if there's a next stay
-                    # in the same hospitalization, consider the gap as minimal (readmission).
-                    # A more precise calculation would require additional offset information.
-                    readmission_label = 1  # ICU readmission within same hospitalization
-                except (ValueError, TypeError):
-                    readmission_label = 1
-            else:
-                # Different hospitalization: eICU doesn't provide full dates,
-                # so any subsequent hospitalization is flagged as readmission
-                readmission_label = 1
+            readmission = int(current_hosp_id == next_hosp_id)
 
             samples.append(
                 {
@@ -435,7 +394,7 @@ class ReadmissionPredictionEICU(BaseTask):
                     "conditions": conditions,
                     "procedures": procedures,
                     "drugs": drugs,
-                    "readmission": readmission_label,
+                    "readmission": readmission,
                 }
             )
 

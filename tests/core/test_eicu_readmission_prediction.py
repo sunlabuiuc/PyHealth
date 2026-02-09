@@ -1,6 +1,5 @@
+import tempfile
 import unittest
-import os
-from datetime import timedelta
 from pathlib import Path
 
 from pyhealth.datasets import eICUDataset
@@ -29,13 +28,17 @@ class TesteICUReadmissionPrediction(unittest.TestCase):
         # Load dataset with required tables
         tables = ["diagnosis", "medication", "physicalexam"]
         print(f"Loading eICUDataset with tables: {tables}")
-        dataset = eICUDataset(root=self.demo_dataset_path, tables=tables)
+        dataset = eICUDataset(
+            root=self.demo_dataset_path,
+            tables=tables,
+            cache_dir=tempfile.TemporaryDirectory().name,
+        )
         print("✓ Dataset loaded successfully")
 
-        # Initialize task with 15-day window
-        print("\nInitializing ReadmissionPredictionEICU task (15-day window)...")
-        task = ReadmissionPredictionEICU(window=timedelta(days=15))
-        
+        # Initialize task
+        print("\nInitializing ReadmissionPredictionEICU task...")
+        task = ReadmissionPredictionEICU()
+
         # Verify task schema
         self.assertEqual(task.task_name, "ReadmissionPredictionEICU")
         self.assertIn("conditions", task.input_schema)
@@ -45,7 +48,6 @@ class TesteICUReadmissionPrediction(unittest.TestCase):
         print(f"✓ Task initialized: {task.task_name}")
         print(f"  Input schema: {list(task.input_schema.keys())}")
         print(f"  Output schema: {list(task.output_schema.keys())}")
-        print(f"  Readmission window: {task.window}")
 
         # Apply task
         try:
@@ -61,27 +63,27 @@ class TesteICUReadmissionPrediction(unittest.TestCase):
             if num_samples > 0:
                 sample = sample_dataset[0]
                 required_keys = ["visit_id", "patient_id", "conditions", "procedures", "drugs", "readmission"]
-                
+
                 print(f"\nFirst sample structure:")
                 print(f"  Sample keys: {list(sample.keys())}")
-                
+
                 for key in required_keys:
                     self.assertIn(key, sample, f"Sample should contain key: {key}")
-                
+
                 # Verify readmission is binary
                 readmission = sample["readmission"]
                 self.assertIn(int(readmission.item()) if hasattr(readmission, 'item') else int(readmission), [0, 1])
-                
+
                 # Count readmission distribution
                 readmission_counts = {0: 0, 1: 0}
                 for s in sample_dataset:
                     label = int(s["readmission"].item()) if hasattr(s["readmission"], 'item') else int(s["readmission"])
                     readmission_counts[label] += 1
-                
+
                 print(f"\nReadmission distribution:")
                 print(f"  No readmission (0): {readmission_counts[0]}")
                 print(f"  Readmission (1): {readmission_counts[1]}")
-                
+
                 print(f"\n✓ test_readmission_prediction_eicu_set_task() passed")
 
         except Exception as e:
