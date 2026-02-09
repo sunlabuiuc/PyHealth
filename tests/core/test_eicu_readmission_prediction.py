@@ -9,31 +9,32 @@ from pyhealth.tasks import ReadmissionPredictionEICU
 class TesteICUReadmissionPrediction(unittest.TestCase):
     """Test eICU readmission prediction task with demo data."""
 
-    def setUp(self):
+    @classmethod
+    def setUpClass(cls):
         """Set up demo dataset path for each test."""
         test_dir = Path(__file__).parent.parent.parent
-        self.demo_dataset_path = str(test_dir / "test-resources" / "core" / "eicudemo")
+        demo_dataset_path = str(test_dir / "test-resources" / "core" / "eicudemo")
 
         print(f"\n{'='*60}")
         print(f"Setting up eICU demo dataset for readmission prediction")
-        print(f"Dataset path: {self.demo_dataset_path}")
+        print(f"Dataset path: {demo_dataset_path}")
         print(f"{'='*60}\n")
+
+        # Load dataset with required tables
+        tables = ["diagnosis", "medication", "physicalexam"]
+        print(f"Loading eICUDataset with tables: {tables}")
+        cls.dataset = eICUDataset(
+            root=demo_dataset_path,
+            tables=tables,
+            cache_dir=tempfile.TemporaryDirectory().name,
+        )
+        print("✓ Dataset loaded successfully")
 
     def test_readmission_prediction_eicu_set_task(self):
         """Test ReadmissionPredictionEICU task with set_task() method."""
         print(f"\n{'='*60}")
         print("TEST: test_readmission_prediction_eicu_set_task()")
         print(f"{'='*60}")
-
-        # Load dataset with required tables
-        tables = ["diagnosis", "medication", "physicalexam"]
-        print(f"Loading eICUDataset with tables: {tables}")
-        dataset = eICUDataset(
-            root=self.demo_dataset_path,
-            tables=tables,
-            cache_dir=tempfile.TemporaryDirectory().name,
-        )
-        print("✓ Dataset loaded successfully")
 
         # Initialize task
         print("\nInitializing ReadmissionPredictionEICU task...")
@@ -48,11 +49,12 @@ class TesteICUReadmissionPrediction(unittest.TestCase):
         print(f"✓ Task initialized: {task.task_name}")
         print(f"  Input schema: {list(task.input_schema.keys())}")
         print(f"  Output schema: {list(task.output_schema.keys())}")
+        print(f"  Exclude minors: {task.exclude_minors}")
 
         # Apply task
         try:
             print("\nCalling dataset.set_task()...")
-            sample_dataset = dataset.set_task(task)
+            sample_dataset = self.dataset.set_task(task)
             self.assertIsNotNone(sample_dataset, "set_task should return a dataset")
             print(f"✓ set_task() completed")
 
@@ -92,11 +94,18 @@ class TesteICUReadmissionPrediction(unittest.TestCase):
             traceback.print_exc()
             self.fail(f"Failed: {e}")
 
+    def test_admissions_of_minors_are_excluded(self):
+        """Test the ReadmissionPredictionEICU task exclude_minors param."""
+        print(f"\n{'='*60}")
+        print("TEST: test_admissions_of_minors_are_excluded()")
+        print(f"{'='*60}")
+
+        patients = [ s["patient_id"] for s in self.dataset.set_task(ReadmissionPredictionEICU()) ]
+        self.assertNotIn("035-10434", patients)
+
+        patients = [ s["patient_id"] for s in self.dataset.set_task(ReadmissionPredictionEICU(exclude_minors=False)) ]
+        self.assertIn("035-10434", patients)
+
 
 if __name__ == "__main__":
     unittest.main()
-
-
-
-
-

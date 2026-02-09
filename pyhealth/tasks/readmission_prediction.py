@@ -287,6 +287,7 @@ class ReadmissionPredictionEICU(BaseTask):
         task_name (str): The name of the task.
         input_schema (Dict[str, str]): The schema for the task input.
         output_schema (Dict[str, str]): The schema for the task output.
+        exclude_minors (bool): Whether to exclude patients whose age is less than 18.
 
     Examples:
         >>> from pyhealth.datasets import eICUDataset
@@ -306,6 +307,16 @@ class ReadmissionPredictionEICU(BaseTask):
         "drugs": "sequence",
     }
     output_schema: Dict[str, str] = {"readmission": "binary"}
+
+    def __init__(self, exclude_minors: bool = True) -> None:
+        """
+        Initializes the task object.
+
+        Args:
+            exclude_minors (bool): Whether to exclude patients whose age is less than 18.
+                Defaults to True.
+        """
+        self.exclude_minors = exclude_minors
 
     def __call__(self, patient: Patient) -> List[Dict]:
         """
@@ -343,6 +354,9 @@ class ReadmissionPredictionEICU(BaseTask):
         for i in range(len(sorted_stays) - 1):
             stay = sorted_stays[i]
             next_stay = sorted_stays[i + 1]
+
+            if self.exclude_minors and stay.age != "> 89" and int(stay.age) < 18:
+                continue
 
             # Get the patientunitstayid for filtering
             stay_id = str(getattr(stay, "patientunitstayid", ""))
