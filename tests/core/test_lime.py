@@ -560,10 +560,9 @@ class TestLimeExplainerEmbedding(unittest.TestCase):
     def test_embedding_with_custom_baseline(self):
         """Test embedding-based LIME with custom baseline."""
         seq_inputs = torch.tensor([[1, 2, 3]])
-        # Custom baseline must be in embedding space (post-embedding) because
-        # the LIME code does not embed user-supplied baselines.
-        embedded_baseline = self.model.embedding_model({"seq": torch.zeros_like(seq_inputs)})
-        baseline = {"seq": embedded_baseline["seq"]}
+        # Custom baseline should be in raw (pre-embedding) space;
+        # LIME will embed it alongside perturbed values.
+        baseline = {"seq": torch.zeros_like(seq_inputs)}
         
         attributions = self.explainer.attribute(
             baseline=baseline,
@@ -667,7 +666,6 @@ class TestLimeExplainerMultiFeature(unittest.TestCase):
         self.assertTrue(torch.isfinite(attributions["x2"]).all())
 
 
-@unittest.skip("MLP does not yet support the LIME interpreter API")
 class TestLimeExplainerMLP(unittest.TestCase):
     """Test cases for LIME with MLP model on real dataset."""
 

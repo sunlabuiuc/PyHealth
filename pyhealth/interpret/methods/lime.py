@@ -263,14 +263,30 @@ class LimeExplainer(BaseInterpreter):
         n_features = self._determine_n_features(values)
         shapes = {k: v.shape for k, v in values.items()}  # Save raw shapes before embedding
 
-        # Embed values when using embedding-based LIME so xs and baselines
-        # live in the same space for perturbation.
+        # Split features by type using is_token():
+        # - Token features (discrete): perturb in embedding space (raw indices are meaningless)
+        # - Continuous features: perturb in raw space (raw values are interpretable)
         if self.use_embeddings:
             embedding_model = self.model.get_embedding_model()
             assert embedding_model is not None, (
                 "Model must have an embedding model for embedding-based LIME."
             )
-            values = embedding_model(values)
+            token_keys = {
+                k for k in values
+                if self.model.dataset.input_processors[k].is_token()
+            }
+            if token_keys:
+                # Embed token values
+                token_values = {k: values[k] for k in token_keys}
+                embedded_tokens = embedding_model(token_values)
+                for k in token_keys:
+                    values[k] = embedded_tokens[k]
+                # Embed token baselines so they live in the same space
+                token_baselines = {k: baselines[k] for k in token_keys if k in baselines}
+                if token_baselines:
+                    embedded_baselines = embedding_model(token_baselines)
+                    for k in token_baselines:
+                        baselines[k] = embedded_baselines[k]
 
         out = self._compute_lime(
             inputs=inputs,
@@ -448,13 +464,32 @@ class LimeExplainer(BaseInterpreter):
         """Evaluate model prediction for a perturbed sample.
 
         Args:
-            key: Feature key being explained.
-            perturb: Perturbed sample tensor.
-            target_class_idx: Target class index.
+            inputs: Original input tuples (used for non-value fields like time/mask).
+            perturb: Perturbed sample tensors. Token features are already
+                embedded; continuous features are still in raw space.
+            target: Target class tensor.
 
         Returns:
             Model prediction for the perturbed sample, shape (batch_size, ).
         """
+        # Embed continuous (non-token) perturbed features that are still raw
+        if self.use_embeddings:
+            embedding_model = self.model.get_embedding_model()
+            assert embedding_model is not None, (
+                "Model must have an embedding model for embedding-based LIME."
+            )
+            continuous_keys = {
+                k for k in perturb
+                if not self.model.dataset.input_processors[k].is_token()
+            }
+            if continuous_keys:
+                continuous_values = {k: perturb[k] for k in continuous_keys}
+                embedded_continuous = embedding_model(continuous_values)
+                perturb = {
+                    k: (embedded_continuous[k] if k in continuous_keys else v)
+                    for k, v in perturb.items()
+                }
+
         inputs = inputs.copy()
         for k in inputs.keys():
             # Insert perturbed value tensor back into input tuple
@@ -675,38 +710,36 @@ class LimeExplainer(BaseInterpreter):
         values: Dict[str, torch.Tensor],
         use_embeddings: bool = False,
     ) -> Dict[str, torch.Tensor]:
-        """Generate post-embedding baselines for LIME.
+        """Generate raw baselines for LIME perturbation.
 
         Creates reference samples to use as the "absence" of features.
         The sampling strategy adapts to the feature type:
-        - Discrete features: Embed UNK token as the baseline
-        - Continuous features: Use a small neutral value (e.g., near-zero)
+        - Discrete (token) features: UNK token index (will be embedded later
+          in ``attribute()`` alongside the values)
+        - Continuous features: small neutral value (near-zero)
 
         Args:
-            values: The dictionary of input tensors for which plan to perturb. It 
-                should be the last tensor in tuple if the input is a tuple. This is a raw
-                input, meaning it does not go through any embedding layer yet.
-            use_embeddings: If True, generate baselines suitable for embedding-based LIME.
+            values: Dictionary of raw input tensors (pre-embedding).
+            use_embeddings: If True, generate baselines suitable for
+                embedding-based LIME.
 
         Returns:
-            Dictionary mapping feature names to baseline sample tensors.
+            Dictionary mapping feature names to baseline tensors in raw
+            (pre-embedding) space.  Embedding of token baselines is handled
+            by the caller (``attribute()``).
         """
         baselines = {}
 
         for k, v in values.items():
-            if use_embeddings:
-                # use UNK token as the baseline, we will embed it later
+            processor = self.model.dataset.input_processors[k]
+            if use_embeddings and processor.is_token():
+                # Token features: UNK token index as baseline
                 baseline = torch.ones_like(v)
             else:
-                # Continuous features: use small neutral values (near-zero)
+                # Continuous features (or non-embedding mode): near-zero baseline
                 baseline = torch.zeros_like(v) + 1e-2
             baselines[k] = baseline
-            
-        if use_embeddings:
-            embedding_model = self.model.get_embedding_model()
-            assert embedding_model is not None, "Model must have an embedding model for embedding-based LIME."
-            baselines: Dict[str, torch.Tensor] = embedding_model(baselines)
-        
+
         return baselines
 
     # ------------------------------------------------------------------
