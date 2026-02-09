@@ -205,68 +205,84 @@ class LimeExplainer(BaseInterpreter):
 
         device = next(self.model.parameters()).device
         
-        raw_inputs = {
-            key: kwargs[key] for key in self.model.feature_keys if key in kwargs
+        # Filter kwargs to only include model feature keys and ensure they are tuples
+        inputs = {
+            k : (v, ) if isinstance(v, torch.Tensor) else v
+            for k, v in kwargs.items()
+            if k in self.model.feature_keys
         }
+        
+        # disassemble inputs
+        values = {}
+        masks = {}
+        for k, v in inputs.items():
+            schema = self.model.dataset.input_processors[k].schema()
+            values[k] = v[schema.index("value")]
+            if "mask" in schema:
+                masks[k] = v[schema.index("mask")]
+            else:
+                # Infer mask from values if not explicitly provided (assumes zero values indicate masked features)
+                masks[k] = (v[schema.index("value")] != 0).int()
+                
+        # Append input masks to inputs for baseline generation and perturbation
+        for k, v in inputs.items():
+            # If the processor schema does not include a mask, we add it as an additional tensor at the end of the tuple.
+            # Models should follow this convention to ensure consistent auxiliary inputs and masks.
+            if "mask" not in self.model.dataset.input_processors[k].schema():
+                inputs[k] = (*v, masks[k])
 
         # Extract and prepare inputs
-        base_logits, inputs = self._compute_logits(
-            raw_inputs, 
-            use_embeddings=self.use_embeddings,
-        )
+        base_logits = self.model.forward(**inputs)["logit"]
         
         # Enforce target class selection for multi-class models to avoid class flipping
-        if self._prediction_mode() == "multiclass":
-            target_class_idx = target_class_idx or int(base_logits.argmax(dim=-1).item())
-
-        if self.use_embeddings:
-            raw_x = {k: v[-1] if isinstance(v, tuple) else v for k, v in raw_inputs.items() if k in self.model.feature_keys}
-            m = {k: v[-1] for k, v in inputs.items()} # The last tensor in tuple for use_embeddings=True is always the input mask
-        else:
-            raw_x = {k: v for k, v in raw_inputs.items() if k in self.model.feature_keys}
-
-        # Generate or validate baseline (neutral replacement values)
-        # Note: LIME does not require a background dataset; baselines here
-        # serve only as neutral values when a feature is masked (absent).
-        if baseline is None:
-            if self.use_embeddings:
-                raw_x = {k: v[-1] if isinstance(v, tuple) else v for k, v in raw_inputs.items() if k in self.model.feature_keys}
-                m = {k: v[-1] for k, v in inputs.items()} # The last tensor in tuple for use_embeddings=True is always the input mask
-                baseline = self._generate_baseline(raw_x, use_embeddings=self.use_embeddings, mask=m)
+        if self._prediction_mode() == "binary":
+            if target_class_idx is not None:
+                target = torch.tensor([target_class_idx], device=device)
             else:
-                raw_x = {k: v for k, v in raw_inputs.items() if k in self.model.feature_keys}
-                baseline = self._generate_baseline(raw_x, use_embeddings=self.use_embeddings) # type: ignore
+                target = (torch.sigmoid(base_logits) > 0.5).long()
+        elif self._prediction_mode() == "multiclass":
+            if target_class_idx is not None:
+                target = torch.nn.functional.one_hot(torch.tensor(target_class_idx, device=device), num_classes=base_logits.shape[-1])
+            else:
+                target = torch.argmax(base_logits, dim=-1)
+                target = torch.nn.functional.one_hot(target, num_classes=base_logits.shape[-1])
+        elif self._prediction_mode() == "multilabel":
+            if target_class_idx is not None:
+                target = torch.nn.functional.one_hot(torch.tensor(target_class_idx, device=device), num_classes=base_logits.shape[-1])
+            else:
+                target = torch.sigmoid(base_logits) > 0.5
         else:
-            baseline = {k: v.to(device) for k, v in baseline.items() if k in self.model.feature_keys}
-            
-        # Embed inputs and baseline
-        if self.use_embeddings:
-            # The last tensor in tuple is always the input mask
-            baselines = { k : (*v[:-2], baseline[k], v[-1]) for k, v in inputs.items() }
+            raise ValueError("Unsupported prediction mode for LIME attribution.")
+        
+        if baseline is None:
+            baselines = self._generate_baseline(values, use_embeddings=self.use_embeddings)
         else:
-            baselines = { k : baseline[k] for k, v in inputs.items() }
+            baselines = {k: v.to(device) for k, v in baseline.items() if k in self.model.feature_keys}
 
         # Compute LIME values for each feature
-        n_features = self._determine_n_features(key, raw_x)
+        n_features = self._determine_n_features(values)
         
         out = self._compute_lime(
-            xs=inputs,
+            inputs=inputs,
+            xs=values,
             bs=baselines,
             n_features=n_features,
-            target_class_idx=target_class_idx,
+            target=target,
         )
+        shapes = {k: v.shape for k, v in values.items()}
         
-        return self._map_to_input_shapes(lime_values, input_shapes)
+        return self._map_to_input_shapes(out, shapes)
 
     # ------------------------------------------------------------------
     # Core LIME computation
     # ------------------------------------------------------------------
     def _compute_lime(
         self,
-        xs: Dict[str, torch.Tensor | tuple[torch.Tensor, ...]],
-        bs: Dict[str, torch.Tensor | tuple[torch.Tensor, ...]],
+        inputs: Dict[str, tuple[torch.Tensor, ...]],
+        xs: Dict[str, torch.Tensor],
+        bs: Dict[str, torch.Tensor],
         n_features: dict[str, int],
-        target_class_idx: int,
+        target: torch.Tensor,
     ) -> Dict[str, torch.Tensor]:
         """Compute LIME coefficients using interpretable linear model.
 
@@ -317,8 +333,9 @@ class LimeExplainer(BaseInterpreter):
             
             # Get model prediction for perturbed sample, shape (batch_size, )
             pred = self._evaluate_sample(
+                inputs,
                 perturb,
-                target_class_idx,
+                target,
             )
         
             # Create perturbed sample for each batch item
@@ -388,8 +405,8 @@ class LimeExplainer(BaseInterpreter):
 
     def _create_perturbed_sample(
         self,
-        xs: dict[str, torch.Tensor | tuple[torch.Tensor, ...]],
-        bs: dict[str, torch.Tensor | tuple[torch.Tensor, ...]],
+        xs: dict[str, torch.Tensor],
+        bs: dict[str, torch.Tensor],
         gates: dict[str, torch.Tensor],
     ) -> dict[str, torch.Tensor]:
         """Create a perturbed sample by mixing input and baseline based on gate tensor.
@@ -405,25 +422,15 @@ class LimeExplainer(BaseInterpreter):
         """
         perurb = {}
         for key, gate in gates.items():
-            x = xs[key]
-            b = bs[key] # type: ignore
-            if isinstance(x, tuple):
-                # Handle tuple inputs (e.g., with time info)
-                # Only perturb the -2 item (values), keep time and mask unchanged
-                perurb[key] = tuple(
-                    torch.where(gate.unsqueeze(-1) == 1, x_i, b_i) if i == len(x) - 2 else x_i
-                    for i, (x_i, b_i) in enumerate(zip(x, b))
-                )
-            else:
-                b: torch.Tensor = b  # type: ignore
-                perurb[key] = torch.where(gate == 1, x, b)
+            perurb[key] = torch.where(gate == 1, xs[key], bs[key])
             
         return perurb
 
     def _evaluate_sample(
         self,
+        inputs: dict[str, tuple[torch.Tensor, ...]],
         perturb: dict[str, torch.Tensor],
-        target_class_idx: int,
+        target: torch.Tensor,
     ) -> torch.Tensor:
         """Evaluate model prediction for a perturbed sample.
 
@@ -435,16 +442,14 @@ class LimeExplainer(BaseInterpreter):
         Returns:
             Model prediction for the perturbed sample, shape (batch_size, ).
         """
-        output = self.model.forward_from_embedding(**perturb)
-        logits = output["logit"]
+        for k in inputs.keys():
+            # Insert perturbed value tensor back into input tuple
+            schema = self.model.dataset.input_processors[k].schema()
+            inputs[k] = (*inputs[k][:schema.index("value")], perturb[k], *inputs[k][schema.index("value")+1:])
         
-        if self._prediction_mode() == "multiclass":
-            return logits[..., target_class_idx]
-        elif self._prediction_mode() == "binary":
-            p = torch.sigmoid(logits).squeeze(-1)
-            return p if target_class_idx == 1 else 1 - p
-        else:
-            raise ValueError("Unsupported prediction mode for LIME evaluation.")
+        logits = self.model.forward_from_embedding(**perturb)["logit"]
+        
+        return (target - logits).abs().mean()
 
     def _compute_similarity(
         self,
@@ -652,9 +657,8 @@ class LimeExplainer(BaseInterpreter):
     # ------------------------------------------------------------------
     def _generate_baseline(
         self, 
-        raw_x: Dict[str, torch.Tensor], 
-        use_embeddings: bool = False, 
-        mask: Optional[Dict[str, torch.Tensor]] = None,
+        values: Dict[str, torch.Tensor],
+        use_embeddings: bool = False,
     ) -> Dict[str, torch.Tensor]:
         """Generate post-embedding baselines for LIME.
 
@@ -664,33 +668,29 @@ class LimeExplainer(BaseInterpreter):
         - Continuous features: Use a small neutral value (e.g., near-zero)
 
         Args:
-            raw_x: The dictionary of input tensors for which plan to perturb. It 
+            values: The dictionary of input tensors for which plan to perturb. It 
                 should be the last tensor in tuple if the input is a tuple. This is a raw
                 input, meaning it does not go through any embedding layer yet.
             use_embeddings: If True, generate baselines suitable for embedding-based LIME.
-            mask: Optional dictionary of masks indicating valid tokens for discrete features,
-                required if use_embeddings=True.
 
         Returns:
             Dictionary mapping feature names to baseline sample tensors.
         """
         baselines = {}
 
-        for key, x0 in raw_x.items():
+        for k, v in values.items():
             if use_embeddings:
                 # use UNK token as the baseline, we will embed it later
-                baseline = torch.ones_like(x0)
+                baseline = torch.ones_like(v)
             else:
                 # Continuous features: use small neutral values (near-zero)
-                baseline = torch.zeros_like(x0) + 1e-2
-            baselines[key] = baseline
+                baseline = torch.zeros_like(v) + 1e-2
+            baselines[k] = baseline
             
         if use_embeddings:
-            assert mask is not None, "Mask is required when using embeddings for baseline generation."
             embedding_model = self.model.get_embedding_model()
             assert embedding_model is not None, "Model must have an embedding model for embedding-based LIME."
-            baselines = embedding_model(baselines)
-            baselines = {k: v * mask[k] for k, v in baselines.items()}
+            baselines: Dict[str, torch.Tensor] = embedding_model(baselines)
         
         return baselines
 
