@@ -6,7 +6,6 @@ from pyhealth.models import MLP, StageNet
 from pyhealth.interpret.methods import IntegratedGradients
 
 
-@unittest.skip("MLP not yet updated to new interpretability API")
 class TestIntegratedGradientsMLP(unittest.TestCase):
     """Test cases for Integrated Gradients with MLP model."""
 

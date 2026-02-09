@@ -362,15 +362,35 @@ class IntegratedGradients(BaseInterpreter):
         # Save raw shapes before embedding for later mapping
         shapes = {k: v.shape for k, v in values.items()}
 
-        # Embed values when using embedding-based IG so xs and baselines
-        # live in the same continuous space for interpolation.
+        # Split features by type using is_token():
+        # - Token features (discrete): embed before interpolation, since
+        #   interpolating raw indices is meaningless. Gradients are computed
+        #   w.r.t. embeddings, then summed over the embedding dim.
+        # - Continuous features: keep raw for interpolation so each raw
+        #   dimension gets its own attribution. The model's forward() handles
+        #   embedding internally.
         if self.use_embeddings:
             embedding_model = self.model.get_embedding_model()
             assert embedding_model is not None, (
                 "Model must have an embedding model for embedding-based "
                 "Integrated Gradients."
             )
-            values = embedding_model(values)
+            token_keys = {
+                k for k in values
+                if self.model.dataset.input_processors[k].is_token()
+            }
+            if token_keys:
+                # Embed token values
+                token_values = {k: values[k] for k in token_keys}
+                embedded_tokens = embedding_model(token_values)
+                for k in token_keys:
+                    values[k] = embedded_tokens[k]
+                # Embed token baselines so they live in the same space
+                token_baselines = {k: baselines[k] for k in token_keys if k in baselines}
+                if token_baselines:
+                    embedded_baselines = embedding_model(token_baselines)
+                    for k in token_baselines:
+                        baselines[k] = embedded_baselines[k]
 
         # Compute integrated gradients
         attributions = self._integrated_gradients(
@@ -419,6 +439,17 @@ class IntegratedGradients(BaseInterpreter):
         """
         keys = sorted(xs.keys())
 
+        # Determine which keys are token (already embedded) vs continuous (raw)
+        token_keys = set()
+        continuous_keys = set()
+        if self.use_embeddings:
+            for k in keys:
+                if self.model.dataset.input_processors[k].is_token():
+                    token_keys.add(k)
+                else:
+                    continuous_keys.add(k)
+        # If not using embeddings, all features are treated as continuous/raw
+
         # Use running sum instead of storing all gradients (memory efficient)
         avg_gradients = {key: torch.zeros_like(xs[key]) for key in keys}
 
@@ -445,8 +476,30 @@ class IntegratedGradients(BaseInterpreter):
                     *forward_inputs[k][val_idx + 1:],
                 )
 
-            # Forward pass
+            # Forward pass: use forward_from_embedding for token features
+            # (already embedded), but continuous features still need embedding
+            # inside the model. We always use forward_from_embedding and let
+            # it handle both embedded and raw values.
             if self.use_embeddings:
+                # For continuous features, embed them before forward_from_embedding
+                if continuous_keys:
+                    embedding_model = self.model.get_embedding_model()
+                    assert embedding_model is not None, (
+                        "Model must have an embedding model for embedding-based "
+                        "Integrated Gradients."
+                    )
+                    continuous_to_embed = {
+                        k: interpolated[k] for k in continuous_keys
+                    }
+                    embedded_continuous = embedding_model(continuous_to_embed)
+                    for k in continuous_keys:
+                        schema = self.model.dataset.input_processors[k].schema()
+                        val_idx = schema.index("value")
+                        forward_inputs[k] = (
+                            *forward_inputs[k][:val_idx],
+                            embedded_continuous[k],
+                            *forward_inputs[k][val_idx + 1:],
+                        )
                 output = self.model.forward_from_embedding(**forward_inputs)
             else:
                 output = self.model.forward(**forward_inputs)
@@ -476,7 +529,8 @@ class IntegratedGradients(BaseInterpreter):
 
             # When using embeddings, sum over the embedding dimension
             # to collapse from (batch, ..., emb_dim) to (batch, ...)
-            if self.use_embeddings and attr.dim() >= 3:
+            # Only for token features that were embedded before interpolation
+            if self.use_embeddings and key in token_keys and attr.dim() >= 3:
                 attr = attr.sum(dim=-1)
 
             attributions[key] = attr
@@ -533,42 +587,35 @@ class IntegratedGradients(BaseInterpreter):
         values: Dict[str, torch.Tensor],
         use_embeddings: bool = False,
     ) -> Dict[str, torch.Tensor]:
-        """Generate baselines for IG computation.
+        """Generate raw baselines for IG computation.
 
         Creates reference samples representing the "absence" of features.
         The strategy depends on the feature type:
-        - Discrete features (use_embeddings=True): Use UNK token (index 1)
-          as baseline, then embed it through the model's embedding layer.
-        - Continuous features (use_embeddings=False): Use small near-zero
-          values as a neutral baseline.
+        - Discrete (token) features: UNK token index (will be embedded
+          later in ``attribute()`` alongside the values)
+        - Continuous features: small near-zero neutral values
 
         Args:
             values: Dictionary of raw input value tensors (before embedding).
             use_embeddings: If True, generate baselines suitable for
-                embedding-based IG by embedding UNK tokens.
+                embedding-based IG.
 
         Returns:
-            Dictionary mapping feature names to baseline tensors. When
-            use_embeddings=True, these are already in embedding space.
+            Dictionary mapping feature names to baseline tensors in raw
+            (pre-embedding) space. Embedding of token baselines is handled
+            by the caller (``attribute()``).
         """
         baselines: dict[str, torch.Tensor] = {}
 
         for k, v in values.items():
-            if use_embeddings:
-                # Use UNK token as the baseline, will be embedded below
+            processor = self.model.dataset.input_processors[k]
+            if use_embeddings and processor.is_token():
+                # Token features: UNK token index as baseline
                 baseline = torch.ones_like(v)
             else:
-                # Continuous features: use small neutral values (near-zero)
+                # Continuous features (or non-embedding mode): near-zero baseline
                 baseline = torch.zeros_like(v) + 1e-2
             baselines[k] = baseline
-
-        if use_embeddings:
-            embedding_model = self.model.get_embedding_model()
-            assert embedding_model is not None, (
-                "Model must have an embedding model for embedding-based "
-                "Integrated Gradients."
-            )
-            baselines = embedding_model(baselines)
 
         return baselines
 
