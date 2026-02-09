@@ -494,11 +494,17 @@ class ShapExplainer(BaseInterpreter):
     ) -> torch.Tensor:
         """Extract the model's prediction for the target class.
 
+        Kernel SHAP decomposes f(x) ≈ φ₀ + Σ φᵢ zᵢ via weighted least squares.
+        Using **raw logits** (unbounded) rather than probabilities (bounded
+        [0, 1]) is critical: sigmoid compression squashes coalition differences
+        in the saturated regions, producing uniformly small SHAP values and
+        degraded feature rankings.
+
         Args:
             logits: Raw model logits, shape (batch_size, n_classes) or
                 (batch_size, 1).
             target: Target indicator.  Binary: scalar/tensor with 0 or 1.
-                Multiclass/multilabel: one-hot tensor.
+                Multiclass: one-hot tensor.  Multilabel: multi-hot tensor.
 
         Returns:
             Scalar prediction per batch item, shape (batch_size,).
@@ -506,13 +512,15 @@ class ShapExplainer(BaseInterpreter):
         mode = self._prediction_mode()
 
         if mode == "binary":
-            # logits: (batch, 1), target: (1,) or (batch, 1) with 0/1
-            sig = torch.sigmoid(logits.squeeze(-1))  # (batch,)
+            # Use raw logit — not sigmoid probability — to preserve the
+            # dynamic range that Kernel SHAP's linear decomposition needs.
+            logit = logits.squeeze(-1)  # (batch,)
             t = target.float()
             if t.dim() > 1:
                 t = t.squeeze(-1)
-            # Probability of the target class
-            return t * sig + (1 - t) * (1 - sig)
+            # target=1  →  logit   (higher logit ⇒ more positive class)
+            # target=0  → −logit   (higher value ⇒ more negative class)
+            return t * logit + (1 - t) * (-logit)
 
         elif mode == "multiclass":
             # target is one-hot; dot-product extracts the target-class logit
