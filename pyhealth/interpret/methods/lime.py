@@ -455,12 +455,13 @@ class LimeExplainer(BaseInterpreter):
         Returns:
             Model prediction for the perturbed sample, shape (batch_size, ).
         """
+        inputs = inputs.copy()
         for k in inputs.keys():
             # Insert perturbed value tensor back into input tuple
             schema = self.model.dataset.input_processors[k].schema()
             inputs[k] = (*inputs[k][:schema.index("value")], perturb[k], *inputs[k][schema.index("value")+1:])
         
-        logits = self.model.forward_from_embedding(**perturb)["logit"]
+        logits = self.model.forward_from_embedding(**inputs)["logit"]
         
         return (target - logits).abs().mean()
 
