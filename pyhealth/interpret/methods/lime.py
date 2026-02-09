@@ -463,7 +463,8 @@ class LimeExplainer(BaseInterpreter):
         
         logits = self.model.forward_from_embedding(**inputs)["logit"]
         
-        return (target - logits).abs().mean()
+        # Reduce to [batch_size, ] by taking absolute difference from target class logit
+        return (target - logits).abs().mean(dim=tuple(range(1, logits.ndim)))
 
     def _compute_similarity(
         self,
