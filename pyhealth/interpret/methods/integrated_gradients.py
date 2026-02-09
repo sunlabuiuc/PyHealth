@@ -1,8 +1,9 @@
-import torch
-import torch.nn.functional as F
+from __future__ import annotations
+
 from typing import Dict, Optional
 
 import torch
+import torch.nn.functional as F
 
 from pyhealth.models import BaseModel
 
@@ -51,12 +52,12 @@ class IntegratedGradients(BaseInterpreter):
 
         - Input code index: 245 (e.g., "Diabetes Type 2")
         - Baseline index: 0 (padding token)
-        - Interpolation creates: 0 → 61.25 → 122.5 → 183.75 → 245
+        - Interpolation creates: 0 -> 61.25 -> 122.5 -> 183.75 -> 245
 
         Fractional indices like 61.25 cannot be looked up in an embedding
         table and cause "index out of bounds" errors.
 
-        With `use_embeddings=True`, the method:
+        With ``use_embeddings=True``, the method:
         1. Embeds both baseline and input tokens into continuous vectors
         2. Interpolates in the embedding space (which is valid)
         3. Computes gradients with respect to these embeddings
@@ -65,7 +66,7 @@ class IntegratedGradients(BaseInterpreter):
         This makes IG compatible with models like StageNet, Transformer,
         RNN, and MLP that process discrete medical codes.
 
-        Set `use_embeddings=False` only when all inputs are continuous
+        Set ``use_embeddings=False`` only when all inputs are continuous
         (e.g., vital signs, lab values) and no embedding layers are used.
 
     Examples:
@@ -175,7 +176,7 @@ class IntegratedGradients(BaseInterpreter):
                 This is required for models with discrete inputs like ICD
                 codes. Set to False only for fully continuous input models.
                 When True, the model must implement forward_from_embedding()
-                and have an embedding_model attribute.
+                and have an embedding model accessible via get_embedding_model().
             steps: Default number of interpolation steps for Riemann
                 approximation of the path integral. Default is 50.
                 Can be overridden in attribute() calls. More steps lead to
@@ -203,7 +204,7 @@ class IntegratedGradients(BaseInterpreter):
         baseline: Optional[Dict[str, torch.Tensor]] = None,
         steps: Optional[int] = None,
         target_class_idx: Optional[int] = None,
-        **data,
+        **kwargs: torch.Tensor | tuple[torch.Tensor, ...],
     ) -> Dict[str, torch.Tensor]:
         """Compute Integrated Gradients attributions for input features.
 
@@ -213,7 +214,8 @@ class IntegratedGradients(BaseInterpreter):
 
         Args:
             baseline: Baseline input for integration. Can be:
-                - None: Uses small random baseline for all features (default)
+                - None: Uses UNK-token baseline for discrete features or
+                  small near-zero baseline for continuous features (default)
                 - Dict[str, torch.Tensor]: Custom baseline for each feature
             steps: Number of steps to use in the Riemann approximation of
                 the integral. If None, uses self.steps (set during
@@ -222,10 +224,10 @@ class IntegratedGradients(BaseInterpreter):
             target_class_idx: Target class index for attribution
                 computation. If None, uses the predicted class (argmax of
                 model output).
-            **data: Input data dictionary from a dataloader batch
+            **kwargs: Input data dictionary from a dataloader batch
                 containing:
                 - Feature keys (e.g., 'conditions', 'procedures'):
-                  Input tensors for each modality
+                  Input tensors or tuples of tensors for each modality
                 - 'label' (optional): Ground truth label tensor
                 - Other metadata keys are ignored
 
@@ -285,580 +287,334 @@ class IntegratedGradients(BaseInterpreter):
         if steps is None:
             steps = self.steps
 
-        # Extract feature keys and prepare inputs
-        feature_keys = self.model.feature_keys
-        inputs = {}
-        time_info = {}  # Store time information for StageNet-like models
-        label_data = {}  # Store label information
+        device = next(self.model.parameters()).device
 
-        for key in feature_keys:
-            if key in data:
-                x = data[key]
-                # Handle tuple inputs (e.g., StageNet with (time, values))
-                if isinstance(x, tuple):
-                    time_info[key] = x[0]  # Store time component
-                    x = x[1]  # Use values component for attribution
+        # Filter kwargs to only include model feature keys and ensure they are tuples
+        inputs = {
+            k: (v,) if isinstance(v, torch.Tensor) else v
+            for k, v in kwargs.items()
+            if k in self.model.feature_keys
+        }
 
-                if not isinstance(x, torch.Tensor):
-                    x = torch.tensor(x)
+        # Disassemble inputs to get values and masks
+        values: dict[str, torch.Tensor] = {}
+        masks: dict[str, torch.Tensor] = {}
+        for k, v in inputs.items():
+            schema = self.model.dataset.input_processors[k].schema()
+            values[k] = v[schema.index("value")]
+            if "mask" in schema:
+                masks[k] = v[schema.index("mask")]
+            else:
+                # Infer mask from values if not explicitly provided
+                masks[k] = (v[schema.index("value")] != 0).int()
 
-                x = x.to(next(self.model.parameters()).device)
-                inputs[key] = x
+        # Append input masks to inputs for models that expect them
+        for k, v in inputs.items():
+            if "mask" not in self.model.dataset.input_processors[k].schema():
+                inputs[k] = (*v, masks[k])
 
-        # Store label data for passing to model
-        for key in self.model.label_keys:
-            if key in data:
-                label_val = data[key]
-                if not isinstance(label_val, torch.Tensor):
-                    label_val = torch.tensor(label_val)
-                label_val = label_val.to(next(self.model.parameters()).device)
-                label_data[key] = label_val
+        # Determine target class from original input
+        with torch.no_grad():
+            base_logits = self.model.forward(**inputs)["logit"]
 
-        # Determine target class from original input if not specified
-        # This ensures the target class is fixed for all interpolation steps
-        if target_class_idx is None:
-            with torch.no_grad():
-                # Prepare inputs for forward pass
-                forward_inputs = {}
-                for key in inputs:
-                    if time_info and key in time_info:
-                        forward_inputs[key] = (time_info[key], inputs[key])
-                    else:
-                        forward_inputs[key] = inputs[key]
+        mode = self._prediction_mode()
+        if mode == "binary":
+            if target_class_idx is not None:
+                target = torch.tensor([target_class_idx], device=device)
+            else:
+                target = (torch.sigmoid(base_logits) > 0.5).long()
+        elif mode == "multiclass":
+            if target_class_idx is not None:
+                target = F.one_hot(
+                    torch.tensor(target_class_idx, device=device),
+                    num_classes=base_logits.shape[-1],
+                ).float()
+            else:
+                target = torch.argmax(base_logits, dim=-1)
+                target = F.one_hot(
+                    target, num_classes=base_logits.shape[-1]
+                ).float()
+        elif mode == "multilabel":
+            if target_class_idx is not None:
+                target = F.one_hot(
+                    torch.tensor(target_class_idx, device=device),
+                    num_classes=base_logits.shape[-1],
+                ).float()
+            else:
+                target = (torch.sigmoid(base_logits) > 0.5).float()
+        else:
+            raise ValueError(
+                "Unsupported prediction mode for Integrated Gradients attribution."
+            )
 
-                forward_kwargs = {**label_data} if label_data else {}
-                output = self.model(**forward_inputs, **forward_kwargs)
-                logits = output["logit"]
+        # Generate baselines
+        if baseline is None:
+            baselines = self._generate_baseline(
+                values, use_embeddings=self.use_embeddings
+            )
+        else:
+            baselines = {
+                k: v.to(device)
+                for k, v in baseline.items()
+                if k in self.model.feature_keys
+            }
 
-                # Determine task type
-                output_schema = self.model.dataset.output_schema
-                label_key = list(output_schema.keys())[0]
-                task_mode = output_schema[label_key]
-                is_binary = task_mode == "binary" or (
-                    hasattr(task_mode, "__name__")
-                    and task_mode.__name__ == "BinaryLabelProcessor"
-                )
+        # Save raw shapes before embedding for later mapping
+        shapes = {k: v.shape for k, v in values.items()}
 
-                # Get predicted class
-                if is_binary:
-                    probs = torch.sigmoid(logits)
-                    target_class_idx = (probs > 0.5).long().squeeze(-1)
-                else:
-                    target_class_idx = torch.argmax(logits, dim=-1)
+        # Embed values when using embedding-based IG so xs and baselines
+        # live in the same continuous space for interpolation.
+        if self.use_embeddings:
+            embedding_model = self.model.get_embedding_model()
+            assert embedding_model is not None, (
+                "Model must have an embedding model for embedding-based "
+                "Integrated Gradients."
+            )
+            values = embedding_model(values)
 
-        # Compute integrated gradients with single baseline
+        # Compute integrated gradients
         attributions = self._integrated_gradients(
             inputs=inputs,
-            baseline=baseline,
+            xs=values,
+            bs=baselines,
             steps=steps,
-            target_class_idx=target_class_idx,
-            time_info=time_info,
-            label_data=label_data,
+            target=target,
         )
+
+        return self._map_to_input_shapes(attributions, shapes)
+
+    # ------------------------------------------------------------------
+    # Core IG computation
+    # ------------------------------------------------------------------
+    def _integrated_gradients(
+        self,
+        inputs: Dict[str, tuple[torch.Tensor, ...]],
+        xs: Dict[str, torch.Tensor],
+        bs: Dict[str, torch.Tensor],
+        steps: int,
+        target: torch.Tensor,
+    ) -> Dict[str, torch.Tensor]:
+        """Compute integrated gradients via Riemann sum approximation.
+
+        For each interpolation step alpha in [0, 1]:
+        1. Creates interpolated values: baseline + alpha * (input - baseline)
+        2. Inserts them into the input tuples via the processor schema
+        3. Runs forward pass (forward_from_embedding or forward)
+        4. Computes gradients w.r.t. the interpolated values
+        5. Accumulates gradients using a running sum (memory efficient)
+
+        After all steps, computes the final attribution as:
+            (input - baseline) * average_gradient
+
+        Args:
+            inputs: Full input tuples keyed by feature name.
+            xs: Input values (embedded if use_embeddings=True).
+            bs: Baseline values (embedded if use_embeddings=True).
+            steps: Number of interpolation steps.
+            target: Target tensor for computing the scalar output to
+                differentiate (one-hot for multiclass, class idx for binary).
+
+        Returns:
+            Dictionary mapping feature keys to attribution tensors.
+        """
+        keys = sorted(xs.keys())
+
+        # Use running sum instead of storing all gradients (memory efficient)
+        avg_gradients = {key: torch.zeros_like(xs[key]) for key in keys}
+
+        for step_idx in range(steps + 1):
+            alpha = step_idx / steps
+
+            # Create interpolated values with gradients enabled
+            interpolated: dict[str, torch.Tensor] = {}
+            for key in keys:
+                interp = bs[key] + alpha * (xs[key] - bs[key])
+                interp = interp.detach().requires_grad_(True)
+                # CRITICAL: retain_grad() needed for non-leaf tensors
+                interp.retain_grad()
+                interpolated[key] = interp
+
+            # Insert interpolated values back into input tuples
+            forward_inputs = inputs.copy()
+            for k in forward_inputs.keys():
+                schema = self.model.dataset.input_processors[k].schema()
+                val_idx = schema.index("value")
+                forward_inputs[k] = (
+                    *forward_inputs[k][:val_idx],
+                    interpolated[k],
+                    *forward_inputs[k][val_idx + 1:],
+                )
+
+            # Forward pass
+            if self.use_embeddings:
+                output = self.model.forward_from_embedding(**forward_inputs)
+            else:
+                output = self.model.forward(**forward_inputs)
+            logits = output["logit"]
+
+            # Compute target output and backward pass
+            target_output = self._compute_target_output(logits, target)
+
+            self.model.zero_grad()
+            target_output.backward(retain_graph=True)
+
+            # Accumulate gradients using running sum
+            for key in keys:
+                emb = interpolated[key]
+                if emb.grad is not None:
+                    avg_gradients[key] += emb.grad.detach()
+
+        # Average the accumulated gradients
+        for key in keys:
+            avg_gradients[key] /= steps + 1
+
+        # Compute final attributions: (input - baseline) * avg_gradient
+        attributions: dict[str, torch.Tensor] = {}
+        for key in keys:
+            delta = xs[key] - bs[key]
+            attr = delta * avg_gradients[key]
+
+            # When using embeddings, sum over the embedding dimension
+            # to collapse from (batch, ..., emb_dim) to (batch, ...)
+            if self.use_embeddings and attr.dim() >= 3:
+                attr = attr.sum(dim=-1)
+
+            attributions[key] = attr
 
         return attributions
 
-    def _prepare_embeddings_and_baselines(
-        self,
-        inputs: Dict[str, torch.Tensor],
-        baseline: Optional[Dict[str, torch.Tensor]] = None,
-    ) -> tuple:
-        """Prepare input embeddings and baseline embeddings.
-
-        This method embeds the input tokens using the model's embedding layer,
-        handles nested sequences (4D tensors), and creates baseline embeddings
-        in the embedding space.
-
-        Args:
-            inputs: Dictionary of input tensors for each feature.
-            baseline: Optional custom baseline tensors. If None, creates
-                small random baseline in embedding space.
-
-        Returns:
-            Tuple of (input_embeddings, baseline_embeddings, input_shapes):
-                - input_embeddings: Dict mapping feature keys to embedded
-                  input tensors [batch, seq_len, embedding_dim]
-                - baseline_embeddings: Dict mapping feature keys to baseline
-                  embeddings with same shape as input_embeddings
-                - input_shapes: Dict mapping feature keys to original input
-                  tensor shapes for later attribution mapping
-        """
-        input_embeddings = {}
-        baseline_embeddings = {}
-        input_shapes = {}
-
-        # Process each feature key individually
-        for key in inputs:
-            # Store original input shape for later attribution mapping
-            input_shapes[key] = inputs[key].shape
-
-            # Embed the input values using model's embedding layer
-            embedded = self.model.embedding_model({key: inputs[key]})
-            x = embedded[key]
-
-            # DO NOT pool 4D tensors - keep individual token embeddings
-            # for proper per-token attribution
-            # For nested sequences: [batch, seq_len, tokens, embedding_dim]
-            # We need to compute gradients for each token separately
-
-            input_embeddings[key] = x
-
-            # Create baseline directly in embedding space
-            if baseline is None:
-                # Default: small random values preserving structure
-                baseline_embeddings[key] = torch.randn_like(x).abs() * 0.01
-            else:
-                if key not in baseline:
-                    raise ValueError(
-                        f"Baseline missing key '{key}'. " f"Expected shape: {x.shape}"
-                    )
-                baseline_embeddings[key] = baseline[key]
-
-        return input_embeddings, baseline_embeddings, input_shapes
-
+    # ------------------------------------------------------------------
+    # Target output computation
+    # ------------------------------------------------------------------
     def _compute_target_output(
         self,
         logits: torch.Tensor,
-        target_class_idx: int,
+        target: torch.Tensor,
     ) -> torch.Tensor:
-        """Compute target output scalar for backpropagation.
+        """Compute scalar target output for backpropagation.
 
-        This method creates the appropriate one-hot encoding and computes
-        the scalar output that will be used for computing gradients.
+        Creates a differentiable scalar from the model logits that,
+        when differentiated, gives the gradient of the target class
+        logit w.r.t. the input.
 
         Args:
-            logits: Model output logits [batch, num_classes] or [batch, 1]
-            target_class_idx: Target class index (must not be None).
+            logits: Model output logits, shape [batch, num_classes] or
+                [batch, 1].
+            target: Target tensor. For binary: [batch] or [1] with 0/1
+                class indices. For multiclass/multilabel: [batch, num_classes]
+                one-hot or multi-hot tensor.
 
         Returns:
-            Scalar tensor representing the target output for backprop.
+            Scalar tensor for backpropagation.
         """
-        assert target_class_idx is not None, (
-            "target_class_idx must be set before calling _compute_target_output. "
-            "This should be determined in attribute() method."
-        )
+        target_f = target.to(logits.device).float()
+        mode = self._prediction_mode()
 
-        # Determine task type from model's output schema
-        output_schema = self.model.dataset.output_schema
-        label_key = list(output_schema.keys())[0]
-        task_mode = output_schema[label_key]
-
-        # Check if binary classification
-        is_binary = task_mode == "binary" or (
-            hasattr(task_mode, "__name__")
-            and task_mode.__name__ == "BinaryLabelProcessor"
-        )
-
-        # Convert target_class_idx to tensor if needed
-        if not isinstance(target_class_idx, torch.Tensor):
-            tc_idx = torch.tensor(target_class_idx, device=logits.device)
+        if mode == "binary":
+            # target shape: [1] or [batch, 1] with 0/1 values
+            # Convert to signs: 0 -> -1, 1 -> 1
+            while target_f.dim() < logits.dim():
+                target_f = target_f.unsqueeze(-1)
+            target_f = target_f.expand_as(logits)
+            signs = 2.0 * target_f - 1.0
+            return (signs * logits).sum()
         else:
-            tc_idx = target_class_idx
+            # multiclass or multilabel: target is one-hot/multi-hot
+            while target_f.dim() < logits.dim():
+                target_f = target_f.unsqueeze(0)
+            target_f = target_f.expand_as(logits)
+            return (target_f * logits).sum()
 
-        # Create one-hot encoding for target class
-        if is_binary:
-            # Binary classification case with [batch, 1] logits
-            if isinstance(tc_idx, torch.Tensor):
-                if tc_idx.numel() > 1:
-                    one_hot = torch.where(
-                        tc_idx.unsqueeze(-1) == 1,
-                        torch.ones_like(logits),
-                        -torch.ones_like(logits),
-                    )
-                else:
-                    tc_val = tc_idx.item()
-                    one_hot = (
-                        torch.ones_like(logits)
-                        if tc_val == 1
-                        else -torch.ones_like(logits)
-                    )
-            else:
-                one_hot = (
-                    torch.ones_like(logits) if tc_idx == 1 else -torch.ones_like(logits)
-                )
-        else:
-            # Multi-class case
-            one_hot = F.one_hot(tc_idx, logits.size(-1)).float()
-
-        # Compute target output (scalar for backprop)
-        target_output = torch.sum(one_hot.to(logits.device) * logits)
-        return target_output
-
-    def _interpolate_and_compute_gradients(
+    # ------------------------------------------------------------------
+    # Baseline generation
+    # ------------------------------------------------------------------
+    def _generate_baseline(
         self,
-        input_embeddings: Dict[str, torch.Tensor],
-        baseline_embeddings: Dict[str, torch.Tensor],
-        steps: int,
-        target_class_idx: Optional[int] = None,
-        time_info: Optional[Dict[str, torch.Tensor]] = None,
-        label_data: Optional[Dict[str, torch.Tensor]] = None,
+        values: Dict[str, torch.Tensor],
+        use_embeddings: bool = False,
     ) -> Dict[str, torch.Tensor]:
-        """Interpolate between baseline and input, accumulating gradients.
+        """Generate baselines for IG computation.
 
-        This is the core of the Integrated Gradients algorithm. For each
-        interpolation step, it:
-        1. Creates interpolated embeddings between baseline and input
-        2. Runs forward pass through the model
-        3. Computes gradients w.r.t. the interpolated embeddings
-        4. Accumulates gradients using running sum (memory efficient)
+        Creates reference samples representing the "absence" of features.
+        The strategy depends on the feature type:
+        - Discrete features (use_embeddings=True): Use UNK token (index 1)
+          as baseline, then embed it through the model's embedding layer.
+        - Continuous features (use_embeddings=False): Use small near-zero
+          values as a neutral baseline.
 
         Args:
-            input_embeddings: Embedded input tensors for each feature.
-            baseline_embeddings: Baseline embeddings for each feature.
-            steps: Number of interpolation steps for Riemann approximation.
-            target_class_idx: Target class for attribution.
-            time_info: Optional time information for temporal models.
-            label_data: Optional label data to pass to model.
+            values: Dictionary of raw input value tensors (before embedding).
+            use_embeddings: If True, generate baselines suitable for
+                embedding-based IG by embedding UNK tokens.
 
         Returns:
-            Dictionary mapping feature keys to accumulated gradient tensors
-            (already averaged over steps).
+            Dictionary mapping feature names to baseline tensors. When
+            use_embeddings=True, these are already in embedding space.
         """
-        # Use running sum instead of storing all gradients (memory efficient)
-        avg_gradients = {
-            key: torch.zeros_like(emb) for key, emb in input_embeddings.items()
-        }
+        baselines: dict[str, torch.Tensor] = {}
 
-        for step_idx in range(steps + 1):
-            alpha = step_idx / steps
+        for k, v in values.items():
+            if use_embeddings:
+                # Use UNK token as the baseline, will be embedded below
+                baseline = torch.ones_like(v)
+            else:
+                # Continuous features: use small neutral values (near-zero)
+                baseline = torch.zeros_like(v) + 1e-2
+            baselines[k] = baseline
 
-            # Create interpolated embeddings with gradients enabled
-            interpolated_embeddings = {}
-            for key in input_embeddings:
-                interp_emb = baseline_embeddings[key] + alpha * (
-                    input_embeddings[key] - baseline_embeddings[key]
-                )
-                # Enable gradients AND retain them (non-leaf tensors!)
-                interp_emb = interp_emb.requires_grad_(True)
-                # CRITICAL: Must call retain_grad() for non-leaf tensors
-                interp_emb.retain_grad()
-                interpolated_embeddings[key] = interp_emb
-
-            # Forward pass through the model
-            forward_kwargs = {**label_data} if label_data else {}
-
-            # Pass interpolated embeddings directly to model
-            # forward_from_embedding will handle 4D -> 3D pooling
-            output = self.model.forward_from_embedding(
-                feature_embeddings=interpolated_embeddings,
-                time_info=time_info,
-                **forward_kwargs,
+        if use_embeddings:
+            embedding_model = self.model.get_embedding_model()
+            assert embedding_model is not None, (
+                "Model must have an embedding model for embedding-based "
+                "Integrated Gradients."
             )
-            logits = output["logit"]
+            baselines = embedding_model(baselines)
 
-            # Compute target output and backward pass
-            target_output = self._compute_target_output(logits, target_class_idx)
+        return baselines
 
-            self.model.zero_grad()
-            target_output.backward(retain_graph=True)
-
-            # Accumulate gradients using running sum (memory efficient)
-            for key in input_embeddings:
-                emb = interpolated_embeddings[key]
-                if emb.grad is not None:
-                    # Add to running sum instead of storing in list
-                    avg_gradients[key] += emb.grad.detach()
-                # If grad is None, we add nothing (zeros)
-
-        # Average the accumulated gradients
-        for key in avg_gradients:
-            avg_gradients[key] /= steps + 1
-
-        return avg_gradients
-
-    def _compute_final_attributions(
-        self,
-        avg_gradients: Dict[str, torch.Tensor],
-        input_embeddings: Dict[str, torch.Tensor],
-        baseline_embeddings: Dict[str, torch.Tensor],
-        input_shapes: Dict[str, tuple],
+    # ------------------------------------------------------------------
+    # Utility helpers
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _map_to_input_shapes(
+        attr_values: Dict[str, torch.Tensor],
+        input_shapes: dict,
     ) -> Dict[str, torch.Tensor]:
-        """Compute final integrated gradients and map to input shapes.
+        """Map attributions back to original input tensor shapes.
 
-        This method completes the IG computation by:
-        1. Applying the IG formula: (input - baseline) * avg_gradient
-        2. Summing over embedding dimension
-        3. Mapping attributions back to original input tensor shapes
-
-        Important properties of IG attributions:
-        - Can be POSITIVE (feature increases prediction) or NEGATIVE
-          (feature decreases prediction)
-        - Sum approximately to f(input) - f(baseline), NOT to 1
-        - Represent contribution to the difference in model output
-        - Negative values indicate features that push prediction away
-          from the target class
+        For embedding-based attributions, the embedding dimension has
+        already been summed out. This method handles any remaining
+        shape mismatches (e.g., expanding scalar attributions to match
+        multi-dimensional inputs).
 
         Args:
-            avg_gradients: Dictionary of averaged gradient tensors.
-            input_embeddings: Embedded input tensors.
-            baseline_embeddings: Baseline embeddings.
-            input_shapes: Original input tensor shapes for mapping.
+            attr_values: Dictionary of attribution tensors.
+            input_shapes: Dictionary of original input shapes.
 
         Returns:
-            Dictionary mapping feature keys to attribution tensors with
-            the same shape as the original input tensors.
+            Dictionary of attributions reshaped to match original inputs.
         """
-        integrated_grads = {}
-
-        for key in input_embeddings:
-            # Apply IG formula: (input_emb - baseline_emb) * avg_gradient
-            delta_emb = input_embeddings[key] - baseline_embeddings[key]
-            emb_attribution = delta_emb * avg_gradients[key]
-
-            # Sum over embedding dimension to get per-token attribution
-            # Handle both 3D [batch, seq, emb] and 4D [batch, seq, tokens, emb]
-            if emb_attribution.dim() == 4:
-                # [batch, seq_len, tokens, embedding_dim] -> [batch, seq, tok]
-                token_attr = emb_attribution.sum(dim=-1)
-            elif emb_attribution.dim() == 3:
-                # [batch, seq_len, embedding_dim] -> [batch, seq_len]
-                token_attr = emb_attribution.sum(dim=-1)
-            elif emb_attribution.dim() == 2:
-                token_attr = emb_attribution.sum(dim=-1)
-            else:
-                # Unexpected dimension, keep as is
-                token_attr = emb_attribution
-
-            # Map back to original input shape if needed
-            orig_shape = input_shapes[key]
-
-            # Check if shapes already match (e.g., 4D case)
-            if token_attr.shape == orig_shape:
-                integrated_grads[key] = token_attr
+        mapped: dict[str, torch.Tensor] = {}
+        for key, values in attr_values.items():
+            if key not in input_shapes:
+                mapped[key] = values
                 continue
 
-            # For inputs like [batch, seq_len, tokens], expand attributions
-            if len(orig_shape) > len(token_attr.shape):
-                # Expand dimensions to match
-                while len(token_attr.shape) < len(orig_shape):
-                    token_attr = token_attr.unsqueeze(-1)
-                # Broadcast to original shape
-                token_attr = token_attr.expand(orig_shape)
+            orig_shape = input_shapes[key]
 
-            integrated_grads[key] = token_attr
+            # If shapes already match, no adjustment needed
+            if values.shape == orig_shape:
+                mapped[key] = values
+                continue
 
-        return integrated_grads
+            # Expand dimensions to match original input
+            reshaped = values
+            while len(reshaped.shape) < len(orig_shape):
+                reshaped = reshaped.unsqueeze(-1)
 
-    def _integrated_gradients_embedding_based(
-        self,
-        inputs: Dict[str, torch.Tensor],
-        baseline: Optional[Dict[str, torch.Tensor]] = None,
-        steps: int = 50,
-        target_class_idx: Optional[int] = None,
-        time_info: Optional[Dict[str, torch.Tensor]] = None,
-        label_data: Optional[Dict[str, torch.Tensor]] = None,
-    ) -> Dict[str, torch.Tensor]:
-        """Compute integrated gradients using embedding-level gradients.
+            if reshaped.shape != orig_shape:
+                reshaped = reshaped.expand(orig_shape)
 
-        This method implements IG for models with discrete inputs by:
-        1. Embedding inputs into continuous space
-        2. Interpolating in embedding space
-        3. Computing gradients w.r.t. embeddings
-        4. Mapping attributions back to input tokens
+            mapped[key] = reshaped
 
-        Args:
-            inputs: Dictionary of input tensors.
-            baseline: Optional baseline tensors.
-            steps: Number of interpolation steps.
-            target_class_idx: Target class for attribution (must not be None).
-            time_info: Optional time information for temporal models.
-            label_data: Optional label data.
-
-        Returns:
-            Dictionary of attribution tensors matching input shapes.
-        """
-        assert target_class_idx is not None, (
-            "target_class_idx must be set before calling _integrated_gradients_embedding_based. "
-            "This should be determined in attribute() method."
-        )
-
-        # Step 1: Embed inputs and create baselines in embedding space
-        input_embs, baseline_embs, shapes = self._prepare_embeddings_and_baselines(
-            inputs, baseline
-        )
-
-        # Step 2: Interpolate and accumulate gradients across steps
-        all_grads = self._interpolate_and_compute_gradients(
-            input_embs,
-            baseline_embs,
-            steps,
-            target_class_idx,
-            time_info,
-            label_data,
-        )
-
-        # Step 3: Integrate gradients and map to input space
-        attributions = self._compute_final_attributions(
-            all_grads, input_embs, baseline_embs, shapes
-        )
-
-        return attributions
-
-    def _integrated_gradients_continuous(
-        self,
-        inputs: Dict[str, torch.Tensor],
-        baseline: Optional[Dict[str, torch.Tensor]] = None,
-        steps: int = 50,
-        target_class_idx: Optional[int] = None,
-        time_info: Optional[Dict[str, torch.Tensor]] = None,
-        label_data: Optional[Dict[str, torch.Tensor]] = None,
-    ) -> Dict[str, torch.Tensor]:
-        """Compute integrated gradients for continuous inputs.
-
-        This method implements IG for models with continuous inputs by
-        directly interpolating input values (not embeddings).
-
-        Args:
-            inputs: Dictionary of input tensors.
-            baseline: Optional baseline tensors.
-            steps: Number of interpolation steps.
-            target_class_idx: Target class for attribution (must not be None).
-            time_info: Optional time information for temporal models.
-            label_data: Optional label data.
-
-        Returns:
-            Dictionary of attribution tensors matching input shapes.
-        """
-        assert target_class_idx is not None, (
-            "target_class_idx must be set before calling _integrated_gradients_continuous. "
-            "This should be determined in attribute() method."
-        )
-
-        # Create baseline if not provided
-        if baseline is None:
-            baseline = {}
-            for key in inputs:
-                # Use small non-zero baseline for continuous features
-                baseline[key] = torch.ones_like(inputs[key]) * 1e-5
-
-        all_gradients = {key: [] for key in inputs}
-
-        # Interpolation loop
-        for step_idx in range(steps + 1):
-            alpha = step_idx / steps
-            scaled_inputs = {}
-
-            for key in inputs:
-                baseline_val = baseline[key]
-                input_val = inputs[key]
-
-                # Check for discrete inputs
-                is_discrete = input_val.dtype in [
-                    torch.int64,
-                    torch.int32,
-                    torch.long,
-                ]
-                if is_discrete:
-                    raise ValueError(
-                        f"Feature '{key}' has discrete integer values "
-                        "that cannot be interpolated. "
-                        "set use_embeddings=True is not yet supported. "
-                        "Consider using gradient-based saliency instead."
-                    )
-
-                # Interpolate continuous inputs
-                delta = input_val - baseline_val
-                scaled_input = baseline_val + alpha * delta
-                scaled_input = scaled_input.requires_grad_(True)
-
-                # Reconstruct tuple if needed
-                if time_info and key in time_info:
-                    scaled_inputs[key] = (time_info[key], scaled_input)
-                else:
-                    scaled_inputs[key] = scaled_input
-
-            # Add label data
-            if label_data:
-                for key in label_data:
-                    scaled_inputs[key] = label_data[key]
-
-            # Forward pass
-            output = self.model(**scaled_inputs)
-            logits = output["logit"]
-
-            # Compute target output and backward pass
-            target_output = self._compute_target_output(logits, target_class_idx)
-            self.model.zero_grad()
-            target_output.backward(retain_graph=True)
-
-            # Collect gradients
-            for key in inputs:
-                if time_info and key in time_info:
-                    _, scaled_val = scaled_inputs[key]
-                    grad = scaled_val.grad
-                else:
-                    grad = scaled_inputs[key].grad
-
-                if grad is not None:
-                    all_gradients[key].append(grad.detach().clone())
-                else:
-                    all_gradients[key].append(torch.zeros_like(inputs[key]))
-
-        # Compute average gradients (Riemann sum approximation)
-        avg_gradients = {}
-        for key in inputs:
-            # Average all gradients except the last one
-            stacked_grads = torch.stack(all_gradients[key][:-1], dim=0)
-            avg_gradients[key] = torch.mean(stacked_grads, dim=0)
-
-        # Compute integrated gradients: (input - baseline) * avg_gradients
-        integrated_grads = {}
-        for key in inputs:
-            delta_input = inputs[key] - baseline[key]
-            avg_grad = avg_gradients[key]
-
-            # Ensure shapes are compatible
-            if delta_input.shape != avg_grad.shape:
-                if len(avg_grad.shape) < len(delta_input.shape):
-                    # Expand gradient to match input dimensions
-                    while len(avg_grad.shape) < len(delta_input.shape):
-                        avg_grad = avg_grad.unsqueeze(-1)
-                    avg_grad = avg_grad.expand_as(delta_input)
-                elif len(delta_input.shape) < len(avg_grad.shape):
-                    # This shouldn't happen, but handle it
-                    avg_grad = avg_grad.squeeze()
-
-            integrated_grads[key] = delta_input * avg_grad
-
-        return integrated_grads
-
-    def _integrated_gradients(
-        self,
-        inputs: Dict[str, torch.Tensor],
-        baseline: Optional[Dict[str, torch.Tensor]] = None,
-        steps: int = 50,
-        target_class_idx: Optional[int] = None,
-        time_info: Optional[Dict[str, torch.Tensor]] = None,
-        label_data: Optional[Dict[str, torch.Tensor]] = None,
-    ) -> Dict[str, torch.Tensor]:
-        """Compute integrated gradients for a single baseline.
-
-        Args:
-            inputs: Dictionary of input tensors.
-            baseline: Baseline tensors. If None, uses default baseline.
-            steps: Number of integration steps.
-            target_class_idx: Target class index.
-            time_info: Optional time information for temporal models.
-            label_data: Optional label data.
-
-        Returns:
-            Dictionary of attribution tensors.
-        """
-        if self.use_embeddings:
-            return self._integrated_gradients_embedding_based(
-                inputs,
-                baseline,
-                steps,
-                target_class_idx,
-                time_info,
-                label_data,
-            )
-        else:
-            return self._integrated_gradients_continuous(
-                inputs,
-                baseline,
-                steps,
-                target_class_idx,
-                time_info,
-                label_data,
-            )
+        return mapped
