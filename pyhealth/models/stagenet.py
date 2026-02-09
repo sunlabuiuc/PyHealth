@@ -409,13 +409,13 @@ class StageNet(BaseModel):
         distance = []
 
         for feature_key in self.feature_keys:
+            processor = self.dataset.input_processors[feature_key]
+            schema = processor.schema()
             feature = kwargs[feature_key]
             
             if isinstance(feature, torch.Tensor):
                 # Backward compatibility: if feature is a tensor, treat it as values without time and mask
                 feature = (feature,)
-            
-            schema = self.dataset.input_processors[feature_key].schema()
             
             time = feature[schema.index("time")] if "time" in schema else None
             value = feature[schema.index("value")] if "value" in schema else None
@@ -454,6 +454,10 @@ class StageNet(BaseModel):
                     f"embedded values. But it may not be accurate.",
                 )
                 mask = (value.abs().sum(dim=-1) != 0).int()
+            elif not processor.is_token() and value.dim() == mask.dim():
+                # for continuous features, if mask is provided, 
+                # we need to collapse the feature dimension.
+                mask = mask.any(dim=-1).int()
             else:
                 mask = mask.to(self.device)
             
@@ -461,7 +465,7 @@ class StageNet(BaseModel):
                 # Nested sequences: [batch, seq_len, inner_len, embedding_dim]
                 value = value.sum(dim=2)        # Sum pool over inner dimension
                 mask = mask.any(dim=2).int()    # Update mask for nested sequences
-            
+
             # Pass through StageNet layer with embedded features
             last_output, _, cur_dis = self.stagenet[feature_key](
                 value, time=time, mask=mask
