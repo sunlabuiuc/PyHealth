@@ -355,8 +355,12 @@ class ReadmissionPredictionEICU(BaseTask):
             stay = sorted_stays[i]
             next_stay = sorted_stays[i + 1]
 
-            if self.exclude_minors and stay.age != "> 89" and int(stay.age) < 18:
-                continue
+            if self.exclude_minors:
+                try:
+                    if int(stay.age) < 18:
+                        continue
+                except (ValueError, TypeError):
+                    pass
 
             # Get the patientunitstayid for filtering
             stay_id = str(getattr(stay, "patientunitstayid", ""))
