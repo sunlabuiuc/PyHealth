@@ -11,6 +11,8 @@ Features:
 - Demonstrates the standardized PyHealth workflow
 """
 
+import tempfile
+
 from pyhealth.datasets import eICUDataset
 from pyhealth.datasets import split_by_patient, get_dataloader
 from pyhealth.models import RNN
@@ -22,9 +24,9 @@ if __name__ == "__main__":
     # STEP 1: Load dataset
     # Replace with your eICU dataset path
     base_dataset = eICUDataset(
-        root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
+        root="https://storage.googleapis.com/pyhealth/eicu-demo/",
         tables=["diagnosis", "medication", "physicalexam"],
-        cache_dir="/shared/eng/pyhealth/eicu",
+        cache_dir=tempfile.TemporaryDirectory().name,
     )
     base_dataset.stats()
 
@@ -44,9 +46,6 @@ if __name__ == "__main__":
     # STEP 4: Define model
     model = RNN(
         dataset=sample_dataset,
-        feature_keys=["conditions", "procedures", "drugs"],
-        label_key="mortality",
-        mode="binary",
     )
 
     # STEP 5: Train
@@ -54,7 +53,7 @@ if __name__ == "__main__":
     trainer.train(
         train_dataloader=train_dataloader,
         val_dataloader=val_dataloader,
-        epochs=20,
+        epochs=1,
         monitor="roc_auc",
     )
 
