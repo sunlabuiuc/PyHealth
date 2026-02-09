@@ -56,8 +56,6 @@ from .readmission_prediction import (
     ReadmissionPredictionEICU,
     ReadmissionPredictionMIMIC3,
     ReadmissionPredictionMIMIC4,
-    readmission_prediction_eicu_fn,
-    readmission_prediction_eicu_fn2,
     ReadmissionPredictionOMOP,
 )
 from .sleep_staging import (
