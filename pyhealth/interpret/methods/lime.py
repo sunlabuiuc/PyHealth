@@ -261,7 +261,17 @@ class LimeExplainer(BaseInterpreter):
 
         # Compute LIME values for each feature
         n_features = self._determine_n_features(values)
-        
+        shapes = {k: v.shape for k, v in values.items()}  # Save raw shapes before embedding
+
+        # Embed values when using embedding-based LIME so xs and baselines
+        # live in the same space for perturbation.
+        if self.use_embeddings:
+            embedding_model = self.model.get_embedding_model()
+            assert embedding_model is not None, (
+                "Model must have an embedding model for embedding-based LIME."
+            )
+            values = embedding_model(values)
+
         out = self._compute_lime(
             inputs=inputs,
             xs=values,
@@ -269,7 +279,6 @@ class LimeExplainer(BaseInterpreter):
             n_features=n_features,
             target=target,
         )
-        shapes = {k: v.shape for k, v in values.items()}
         
         return self._map_to_input_shapes(out, shapes)
 
@@ -422,7 +431,11 @@ class LimeExplainer(BaseInterpreter):
         """
         perurb = {}
         for key, gate in gates.items():
-            perurb[key] = torch.where(gate == 1, xs[key], bs[key])
+            # Expand gate dims to broadcast over trailing dimensions (e.g. embed_dim)
+            g = gate
+            while g.dim() < xs[key].dim():
+                g = g
+            perurb[key] = torch.where(g == 1, xs[key], bs[key])
             
         return perurb
 
