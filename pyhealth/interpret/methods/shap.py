@@ -255,14 +255,32 @@ class ShapExplainer(BaseInterpreter):
         n_features = self._determine_n_features(values)
         shapes = {k: v.shape for k, v in values.items()}
 
-        # Embed values when using embedding-based SHAP so xs and baselines
-        # live in the same space for perturbation.
+        # Embed values when using embedding-based SHAP.
+        # Split by is_token(): token features are embedded before perturbation
+        # (raw indices are meaningless for interpolation), while continuous
+        # features stay raw so each raw dimension gets its own SHAP value.
+        # Continuous features will be embedded inside _evaluate_sample().
         if self.use_embeddings:
             embedding_model = self.model.get_embedding_model()
             assert embedding_model is not None, (
                 "Model must have an embedding model for embedding-based SHAP."
             )
-            values = embedding_model(values)
+            token_keys = {
+                k for k in values
+                if self.model.dataset.input_processors[k].is_token()
+            }
+            if token_keys:
+                token_embedded = embedding_model(
+                    {k: values[k] for k in token_keys}
+                )
+                values = {**values, **token_embedded}
+            # Embed token baselines too so xs and bs are in the same space
+            token_baselines = {
+                k: v for k, v in baselines.items() if k in token_keys
+            }
+            if token_baselines:
+                embedded_baselines = embedding_model(token_baselines)
+                baselines = {**baselines, **embedded_baselines}
 
         out = self._compute_kernel_shap(
             inputs=inputs,
@@ -474,6 +492,21 @@ class ShapExplainer(BaseInterpreter):
             Target-class prediction scalar per batch item, shape (batch_size,).
         """
         inputs = inputs.copy()
+        # For continuous (non-token) features, embed through embedding_model
+        # so forward_from_embedding receives proper embeddings.
+        # Token features were already embedded before perturbation.
+        if self.use_embeddings:
+            embedding_model = self.model.get_embedding_model()
+            continuous_keys = {
+                k for k in perturb
+                if not self.model.dataset.input_processors[k].is_token()
+            }
+            if continuous_keys:
+                continuous_embedded = embedding_model(
+                    {k: perturb[k] for k in continuous_keys}
+                )
+                perturb = {**perturb, **continuous_embedded}
+
         for k in inputs.keys():
             # Insert perturbed value tensor back into input tuple
             schema = self.model.dataset.input_processors[k].schema()
@@ -615,20 +648,14 @@ class ShapExplainer(BaseInterpreter):
         baselines = {}
 
         for k, v in values.items():
-            if use_embeddings:
-                # Use UNK token as the baseline, we will embed it later
+            if use_embeddings and self.model.dataset.input_processors[k].is_token():
+                # Token features: UNK token (index 1) as baseline.
+                # Embedding happens later in attribute().
                 baseline = torch.ones_like(v)
             else:
                 # Continuous features: use small neutral values (near-zero)
                 baseline = torch.zeros_like(v) + 1e-2
             baselines[k] = baseline
-
-        if use_embeddings:
-            embedding_model = self.model.get_embedding_model()
-            assert embedding_model is not None, (
-                "Model must have an embedding model for embedding-based SHAP."
-            )
-            baselines: Dict[str, torch.Tensor] = embedding_model(baselines)
 
         return baselines
 
