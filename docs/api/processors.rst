@@ -36,6 +36,7 @@ Available Processors
 - ``AudioProcessor``: For audio signal data
 - ``SignalProcessor``: For general signal data (e.g., EEG, ECG)
 - ``TimeseriesProcessor``: For time-series data
+- ``TimeImageProcessor``: For time-stamped image sequences (e.g., serial X-rays)
 - ``TensorProcessor``: For pre-processed tensor data
 - ``RawProcessor``: Pass-through processor for raw data
 
@@ -270,6 +271,7 @@ Common string keys for automatic processor selection:
 - ``"audio"``: For audio data
 - ``"signal"``: For signal data
 - ``"timeseries"``: For time-series data
+- ``"time_image"``: For time-stamped image sequences
 - ``"tensor"``: For pre-processed tensors
 - ``"raw"``: For raw/unprocessed data
 
@@ -459,6 +461,7 @@ API Reference
     processors/pyhealth.processors.AudioProcessor
     processors/pyhealth.processors.SignalProcessor
     processors/pyhealth.processors.TimeseriesProcessor
+    processors/pyhealth.processors.TimeImageProcessor
     processors/pyhealth.processors.TensorProcessor
     processors/pyhealth.processors.RawProcessor
     processors/pyhealth.processors.IgnoreProcessor
