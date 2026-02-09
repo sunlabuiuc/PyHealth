@@ -153,6 +153,16 @@ class DrugRecommendationMIMIC4(BaseTask):
             - drugs_hist: Nested list of drug codes from history (current visit excluded)
         output_schema (Dict[str, str]): The schema for output data:
             - drugs: List of drugs to predict for current visit
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC4EHRDataset
+        >>> from pyhealth.tasks import DrugRecommendationMIMIC4
+        >>> dataset = MIMIC4EHRDataset(
+        ...     root="/path/to/mimic-iv/2.2",
+        ...     tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
+        ... )
+        >>> task = DrugRecommendationMIMIC4()
+        >>> samples = dataset.set_task(task)
     """
 
     task_name: str = "DrugRecommendationMIMIC4"

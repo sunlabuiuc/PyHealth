@@ -9,6 +9,16 @@ class MortalityPredictionMIMIC3(BaseTask):
 
     This task aims to predict whether the patient will decease in the next
     hospital visit based on clinical information from the current visit.
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC3Dataset
+        >>> from pyhealth.tasks import MortalityPredictionMIMIC3
+        >>> dataset = MIMIC3Dataset(
+        ...     root="/path/to/mimic-iii/1.4",
+        ...     tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
+        ... )
+        >>> task = MortalityPredictionMIMIC3()
+        >>> samples = dataset.set_task(task)
     """
 
     task_name: str = "MortalityPredictionMIMIC3"
@@ -78,6 +88,17 @@ class MultimodalMortalityPredictionMIMIC3(BaseTask):
 
     This task aims to predict whether the patient will decease in the next
     hospital visit based on clinical information from the current visit.
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC3Dataset
+        >>> from pyhealth.tasks import MultimodalMortalityPredictionMIMIC3
+        >>> dataset = MIMIC3Dataset(
+        ...     root="/path/to/mimic-iii/1.4",
+        ...     tables=["diagnoses_icd", "procedures_icd", "prescriptions",
+        ...             "noteevents"],
+        ... )
+        >>> task = MultimodalMortalityPredictionMIMIC3()
+        >>> samples = dataset.set_task(task)
     """
 
     task_name: str = "MultimodalMortalityPredictionMIMIC3"
@@ -149,7 +170,18 @@ class MultimodalMortalityPredictionMIMIC3(BaseTask):
 
 
 class MortalityPredictionMIMIC4(BaseTask):
-    """Task for predicting mortality using MIMIC-IV EHR data only."""
+    """Task for predicting mortality using MIMIC-IV EHR data only.
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC4EHRDataset
+        >>> from pyhealth.tasks import MortalityPredictionMIMIC4
+        >>> dataset = MIMIC4EHRDataset(
+        ...     root="/path/to/mimic-iv/2.2",
+        ...     tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
+        ... )
+        >>> task = MortalityPredictionMIMIC4()
+        >>> samples = dataset.set_task(task)
+    """
 
     task_name: str = "MortalityPredictionMIMIC4"
     input_schema: Dict[str, str] = {
@@ -280,6 +312,21 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
     - Lab events: 10-dimensional lab value vectors (time-series)
     - Chest X-rays: Must have an image path available
 
+    Examples:
+        >>> from pyhealth.datasets import MIMIC4Dataset
+        >>> from pyhealth.tasks import MultimodalMortalityPredictionMIMIC4
+        >>> dataset = MIMIC4Dataset(
+        ...     ehr_root="/path/to/mimic-iv/2.2",
+        ...     note_root="/path/to/mimic-iv-note/2.2",
+        ...     cxr_root="/path/to/mimic-cxr/2.0.0",
+        ...     ehr_tables=["diagnoses_icd", "procedures_icd",
+        ...                 "prescriptions", "labevents"],
+        ...     note_tables=["discharge", "radiology"],
+        ...     cxr_tables=["metadata", "negbio"],
+        ... )
+        >>> task = MultimodalMortalityPredictionMIMIC4()
+        >>> samples = dataset.set_task(task)
+
     Patient-Level Aggregation:
         - Mortality is determined iteratively by checking if the NEXT admission
           has the death flag
@@ -373,8 +420,11 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
         return text if text else None
 
     def _process_lab_events(
-        self, patient: Any, admission_time: datetime, admission_dischtime: datetime,
-        reference_time: Optional[datetime] = None
+        self,
+        patient: Any,
+        admission_time: datetime,
+        admission_dischtime: datetime,
+        reference_time: Optional[datetime] = None,
     ) -> Optional[tuple]:
         """Process lab events into 10-dimensional vectors with timestamps.
 
@@ -416,9 +466,7 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
 
         # Parse storetime and filter (matching stagenet implementation)
         labevents_df = labevents_df.with_columns(
-            pl.col("labevents/storetime").str.strptime(
-                pl.Datetime, "%Y-%m-%d %H:%M:%S"
-            )
+            pl.col("labevents/storetime").str.strptime(pl.Datetime, "%Y-%m-%d %H:%M:%S")
         )
         labevents_df = labevents_df.filter(
             pl.col("labevents/storetime") <= admission_dischtime
@@ -459,9 +507,7 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
                 lab_vector.append(category_value)
 
             # Calculate time from reference time (hours)
-            time_from_reference = (
-                lab_ts - reference_time
-            ).total_seconds() / 3600.0
+            time_from_reference = (lab_ts - reference_time).total_seconds() / 3600.0
 
             lab_times.append(time_from_reference)
             lab_values.append(lab_vector)
@@ -599,25 +645,23 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
             # Get clinical codes using hadm_id filtering
             diagnoses_icd = patient.get_events(
                 event_type="diagnoses_icd",
-                filters=[("hadm_id", "==", admission.hadm_id)]
+                filters=[("hadm_id", "==", admission.hadm_id)],
             )
             procedures_icd = patient.get_events(
                 event_type="procedures_icd",
-                filters=[("hadm_id", "==", admission.hadm_id)]
+                filters=[("hadm_id", "==", admission.hadm_id)],
             )
             prescriptions = patient.get_events(
                 event_type="prescriptions",
-                filters=[("hadm_id", "==", admission.hadm_id)]
+                filters=[("hadm_id", "==", admission.hadm_id)],
             )
 
             # Get notes using hadm_id filtering
             discharge_notes = patient.get_events(
-                event_type="discharge",
-                filters=[("hadm_id", "==", admission.hadm_id)]
+                event_type="discharge", filters=[("hadm_id", "==", admission.hadm_id)]
             )
             radiology_notes = patient.get_events(
-                event_type="radiology",
-                filters=[("hadm_id", "==", admission.hadm_id)]
+                event_type="radiology", filters=[("hadm_id", "==", admission.hadm_id)]
             )
 
             # Extract clinical codes per visit (nested structure)
@@ -627,9 +671,7 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
             procedures_list = self._clean_sequence(
                 [event.icd_code for event in procedures_icd]
             )
-            drugs = self._clean_sequence(
-                [event.ndc for event in prescriptions]
-            )
+            drugs = self._clean_sequence([event.ndc for event in prescriptions])
 
             # Append as nested lists (one list per visit) for nested_sequence
             all_conditions.append(conditions)
@@ -656,8 +698,10 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
 
             # Process lab events with reference to first admission time
             labs_data = self._process_lab_events(
-                patient, admission.timestamp, admission_dischtime,
-                reference_time=first_admission_time
+                patient,
+                admission.timestamp,
+                admission_dischtime,
+                reference_time=first_admission_time,
             )
 
             if labs_data is not None:
@@ -685,8 +729,14 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
         has_image = bool(image_path)
 
         # Return empty list if any required modality is missing
-        if not (has_conditions and has_procedures and has_drugs
-                and has_notes and has_labs and has_image):
+        if not (
+            has_conditions
+            and has_procedures
+            and has_drugs
+            and has_notes
+            and has_labs
+            and has_image
+        ):
             return []
 
         # Sort lab events by time and create aggregated labs data
@@ -741,10 +791,10 @@ class MortalityPredictionEICU(BaseTask):
         >>> from pyhealth.tasks import MortalityPredictionEICU
         >>> dataset = eICUDataset(
         ...     root="/path/to/eicu-crd/2.0",
-        ...     tables=["diagnosis", "medication", "physicalexam"],
+        ...     tables=["diagnosis", "medication", "physicalExam"],
         ... )
         >>> task = MortalityPredictionEICU()
-        >>> sample_dataset = dataset.set_task(task)
+        >>> samples = dataset.set_task(task)
     """
 
     task_name: str = "MortalityPredictionEICU"
@@ -850,10 +900,10 @@ class MortalityPredictionEICU2(BaseTask):
         >>> from pyhealth.tasks import MortalityPredictionEICU2
         >>> dataset = eICUDataset(
         ...     root="/path/to/eicu-crd/2.0",
-        ...     tables=["diagnosis", "admissiondx", "treatment"],
+        ...     tables=["diagnosis", "treatment", "admissionDx"],
         ... )
         >>> task = MortalityPredictionEICU2()
-        >>> sample_dataset = dataset.set_task(task)
+        >>> samples = dataset.set_task(task)
     """
 
     task_name: str = "MortalityPredictionEICU2"
