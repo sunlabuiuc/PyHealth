@@ -257,27 +257,63 @@ class GIM(BaseInterpreter):
                 "Unsupported prediction mode for GIM attribution."
             )
 
-        # Embed values and detach for gradient attribution
+        # Embed values and detach for gradient attribution.
+        # Split features by type using is_token():
+        # - Token features (discrete): embed before gradient computation,
+        #   since raw indices are not differentiable. Gradients are computed
+        #   w.r.t. embeddings, then summed over the embedding dim.
+        # - Continuous features: keep raw so each raw dimension gets its own
+        #   gradient-based attribution. The embedding happens inside the
+        #   forward pass via the embedding model.
         embedding_model = self.model.get_embedding_model()
         assert embedding_model is not None
-        embedded = embedding_model(values)
 
+        token_keys = {
+            k for k in values
+            if self.model.dataset.input_processors[k].is_token()
+        }
+        continuous_keys = set(values.keys()) - token_keys
+
+        # Embed token features
+        if token_keys:
+            token_embedded = embedding_model({k: values[k] for k in token_keys})
+        else:
+            token_embedded = {}
+
+        # Prepare gradient targets: embeddings for tokens, raw values for continuous
         embeddings: dict[str, torch.Tensor] = {}
-        for key, emb in embedded.items():
+        for key in sorted(values.keys()):
+            if key in token_keys:
+                emb = token_embedded[key]
+            else:
+                emb = values[key].to(device).float()
             emb = emb.detach().requires_grad_(True)
             emb.retain_grad()
             embeddings[key] = emb
 
-        # Insert embeddings back into input tuples
+        # Insert gradient targets back into input tuples.
+        # For continuous features, we also need to embed them for
+        # forward_from_embedding, but we keep the raw tensor as the
+        # gradient target so attributions have per-raw-feature granularity.
         forward_inputs = inputs.copy()
         for k in forward_inputs.keys():
             schema = self.model.dataset.input_processors[k].schema()
             val_idx = schema.index("value")
-            forward_inputs[k] = (
-                *forward_inputs[k][:val_idx],
-                embeddings[k],
-                *forward_inputs[k][val_idx + 1:],
-            )
+            if k in continuous_keys:
+                # Embed the raw tensor through the embedding model;
+                # autograd will track gradients back to the raw tensor.
+                embedded_val = embedding_model({k: embeddings[k]})[k]
+                forward_inputs[k] = (
+                    *forward_inputs[k][:val_idx],
+                    embedded_val,
+                    *forward_inputs[k][val_idx + 1:],
+                )
+            else:
+                forward_inputs[k] = (
+                    *forward_inputs[k][:val_idx],
+                    embeddings[k],
+                    *forward_inputs[k][val_idx + 1:],
+                )
 
         # Clear stale gradients before the attribution pass.
         self.model.zero_grad(set_to_none=True)
@@ -309,8 +345,9 @@ class GIM(BaseInterpreter):
             if grad is None:
                 grad = torch.zeros_like(emb)
             # Sum embedding dimension to get per-token attribution
+            # (only for token features that were embedded before gradient computation)
             attr = grad.detach()
-            if attr.dim() >= 3:
+            if key in token_keys and attr.dim() >= 3:
                 attr = attr.sum(dim=-1)
             attributions[key] = attr
 
