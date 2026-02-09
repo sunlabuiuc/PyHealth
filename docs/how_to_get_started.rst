@@ -16,17 +16,31 @@ Prefer video? Watch a short introduction to PyHealth before you start.
 Installing PyHealth
 ===================
 
-You can install the new faster PyHealth 2.0 alpha release using `pip`:
+**Python Version Requirement**
+
+PyHealth 2.0 requires **Python 3.12 or higher**. Verify your version:
 
 .. code-block:: bash
 
-   !pip install pyhealth==2.0a4
+   python --version  # Should be 3.12.x or 3.13.x
 
-or our older more stable version:
+**Latest Release (Recommended)**
+
+Install PyHealth 2.0 from PyPI with significant performance improvements and new features:
 
 .. code-block:: bash
 
-    pip install pyhealth
+   pip install pyhealth
+
+**Legacy Version**
+
+For backward compatibility, the older stable version (1.16) supports Python 3.9+:
+
+.. code-block:: bash
+
+   pip install pyhealth==1.16
+
+**Development Installation**
 
 To install the latest development version from GitHub:
 
@@ -36,7 +50,7 @@ To install the latest development version from GitHub:
    cd PyHealth
    pip install -e .
 
-Ensure you have the required dependencies installed before proceeding. See :doc:`install` for detailed installation instructions.
+See :doc:`install` for detailed installation instructions including CUDA setup and platform-specific notes.
 
 Overview of ML Pipelines
 =========================
