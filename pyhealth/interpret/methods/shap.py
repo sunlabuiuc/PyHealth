@@ -497,6 +497,9 @@ class ShapExplainer(BaseInterpreter):
         # Token features were already embedded before perturbation.
         if self.use_embeddings:
             embedding_model = self.model.get_embedding_model()
+            assert embedding_model is not None, (
+                "Model must have an embedding model for embedding-based SHAP."
+            )
             continuous_keys = {
                 k for k in perturb
                 if not self.model.dataset.input_processors[k].is_token()
