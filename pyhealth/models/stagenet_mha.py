@@ -597,7 +597,7 @@ class StageAttentionNet(BaseModel):
         """
         register_attn_hook = kwargs.pop("register_attn_hook", False)
         if register_attn_hook:
-            kwargs["register_attn_hook"] = register_attn_hook
+            kwargs["register_attn_hook"] = register_attn_hook # type: ignore
 
         for feature_key in self.feature_keys:
             feature = kwargs[feature_key]
