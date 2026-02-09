@@ -458,13 +458,20 @@ class ShapExplainer(BaseInterpreter):
     ) -> torch.Tensor:
         """Evaluate model prediction for a perturbed sample.
 
+        Unlike LIME (which uses distance-from-target), Kernel SHAP requires the
+        **actual model prediction** for the target class so the weighted least
+        squares correctly decomposes f(x) - E[f(x)] into per-feature Shapley
+        values.
+
         Args:
             inputs: Original input tuples from the dataloader.
             perturb: Dictionary of perturbed value tensors.
-            target: Target tensor for prediction comparison.
+            target: Target tensor used to select which class prediction to
+                return.  For binary this is a 0/1 scalar or (batch,1) tensor;
+                for multiclass/multilabel it is a one-hot vector.
 
         Returns:
-            Model prediction for the perturbed sample, shape (batch_size,).
+            Target-class prediction scalar per batch item, shape (batch_size,).
         """
         inputs = inputs.copy()
         for k in inputs.keys():
@@ -478,8 +485,48 @@ class ShapExplainer(BaseInterpreter):
 
         logits = self.model.forward_from_embedding(**inputs)["logit"]
 
-        # Reduce to [batch_size,] by taking absolute difference from target class logit
-        return (target - logits).abs().mean(dim=tuple(range(1, logits.ndim)))
+        return self._extract_target_prediction(logits, target)
+
+    def _extract_target_prediction(
+        self,
+        logits: torch.Tensor,
+        target: torch.Tensor,
+    ) -> torch.Tensor:
+        """Extract the model's prediction for the target class.
+
+        Args:
+            logits: Raw model logits, shape (batch_size, n_classes) or
+                (batch_size, 1).
+            target: Target indicator.  Binary: scalar/tensor with 0 or 1.
+                Multiclass/multilabel: one-hot tensor.
+
+        Returns:
+            Scalar prediction per batch item, shape (batch_size,).
+        """
+        mode = self._prediction_mode()
+
+        if mode == "binary":
+            # logits: (batch, 1), target: (1,) or (batch, 1) with 0/1
+            sig = torch.sigmoid(logits.squeeze(-1))  # (batch,)
+            t = target.float()
+            if t.dim() > 1:
+                t = t.squeeze(-1)
+            # Probability of the target class
+            return t * sig + (1 - t) * (1 - sig)
+
+        elif mode == "multiclass":
+            # target is one-hot; dot-product extracts the target-class logit
+            return (target.float() * logits).sum(dim=-1)  # (batch,)
+
+        elif mode == "multilabel":
+            # target is multi-hot; average logits over active labels
+            t = target.float()
+            n_active = t.sum(dim=-1).clamp(min=1)  # avoid div-by-zero
+            return (t * logits).sum(dim=-1) / n_active  # (batch,)
+
+        else:
+            # regression or unknown — just return the logit
+            return logits.squeeze(-1)
 
     # ------------------------------------------------------------------
     # Weighted least squares solver
