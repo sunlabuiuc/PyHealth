@@ -1,4 +1,5 @@
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, cast
+import warnings
 
 import torch
 import torch.nn as nn
@@ -326,7 +327,7 @@ class StageAttentionNet(BaseModel):
         **kwargs: other parameters for the StageNetAttentionLayer.
 
     Examples:
-        >>> from pyhealth.datasets import SampleDataset
+        >>> from pyhealth.datasets import create_sample_dataset
         >>> samples = [
         ...     {
         ...         "patient_id": "patient-0",
@@ -357,7 +358,7 @@ class StageAttentionNet(BaseModel):
         ... ]
         >>>
         >>> # dataset
-        >>> dataset = SampleDataset(
+        >>> dataset = create_sample_dataset(
         ...     samples=samples,
         ...     input_schema={
         ...         "codes": "stagenet",
@@ -431,27 +432,9 @@ class StageAttentionNet(BaseModel):
             len(self.feature_keys) * self.chunk_size * self.levels, output_size
         )
 
-        self._deeplift_hooks = None
-
-    # ------------------------------------------------------------------
-    # Interpretability support (e.g., DeepLIFT)
-    # ------------------------------------------------------------------
-    def set_deeplift_hooks(self, hooks) -> None:
-        """Backward-compatibility stub; activation swapping is done in interpreters."""
-
-        self._deeplift_hooks = hooks
-
-    def clear_deeplift_hooks(self) -> None:
-        """Backward-compatibility stub; activation swapping is done in interpreters."""
-
-        self._deeplift_hooks = None
-
     def forward_from_embedding(
         self,
-        feature_embeddings: Dict[str, torch.Tensor],
-        time_info: Optional[Dict[str, torch.Tensor]] = None,
-        mask_info: Optional[Dict[str, torch.Tensor]] = None,
-        **kwargs,
+        **kwargs: torch.Tensor | tuple[torch.Tensor, ...],
     ) -> Dict[str, torch.Tensor]:
         """Forward pass starting from feature embeddings.
 
@@ -461,17 +444,27 @@ class StageAttentionNet(BaseModel):
         interpolate in embedding space.
 
         Args:
-            feature_embeddings: Dictionary mapping feature keys to their
-                embedded representations. Each tensor should have shape
-                [batch_size, seq_len, embedding_dim].
-            time_info: Optional dictionary mapping feature keys to their
-                time information tensors of shape [batch_size, seq_len].
-                If None, uniform time intervals are assumed.
-            mask_info: Optional dictionary mapping feature keys to masks
-                of shape [batch_size, seq_len]. When provided, these masks
-                override the automatic mask derived from the embeddings.
-            **kwargs: Additional keyword arguments, must include the label
-                key for loss computation.
+            **kwargs: keyword arguments for the model. The keys must contain
+                all the feature keys and the label key.
+
+                It is expected to contain the following semantic tensors:
+                    - "value": the embedded feature tensor of shape
+                      [batch, seq_len, embedding_dim] or
+                      [batch, seq_len, inner_len, embedding_dim] for
+                      nested sequences.
+                    - "time" (optional): the time intervals tensor of shape
+                      [batch, seq_len]. If not provided, uniform intervals
+                      will be assumed.
+                    - "mask" (optional): the mask tensor of shape
+                      [batch, seq_len] or [batch, seq_len, inner_len] for
+                      nested sequences. If not in the processor schema, it
+                      can be provided as the last element of the feature
+                      tuple. If not provided, masks will be generated from
+                      the embedded values (non-zero entries are treated as
+                      valid).
+
+                The label key should contain the true labels for loss
+                computation.
 
         Returns:
             A dictionary with the following keys:
@@ -486,77 +479,114 @@ class StageAttentionNet(BaseModel):
         distance = []
 
         for feature_key in self.feature_keys:
-            # Get embedded feature
-            x = feature_embeddings[feature_key].to(self.device)
-            # x: [batch, seq_len, embedding_dim] or 4D nested
+            processor = self.dataset.input_processors[feature_key]
+            schema = processor.schema()
+            feature = kwargs[feature_key]
 
-            # Handle nested sequences (4D) by pooling over inner dim
-            # This matches forward() processing for consistency
-            if x.dim() == 4:  # [batch, seq_len, inner_len, embedding_dim]
-                # Sum pool over inner dimension
-                x = x.sum(dim=2)  # [batch, seq_len, embedding_dim]
+            if isinstance(feature, torch.Tensor):
+                # Backward compatibility: if feature is a tensor, treat it
+                # as values without time and mask
+                feature = (feature,)
 
-            # Get time information if available
-            time = None
-            if time_info is not None and feature_key in time_info:
-                if time_info[feature_key] is not None:
-                    time = time_info[feature_key].to(self.device)
-                    # Ensure time is 2D [batch, seq_len]
-                    if time.dim() == 1:
-                        time = time.unsqueeze(0)
+            time = feature[schema.index("time")] if "time" in schema else None
+            value = feature[schema.index("value")] if "value" in schema else None
+            mask = feature[schema.index("mask")] if "mask" in schema else None
 
-            # Create mask from embedded values unless an explicit one is provided
-            if mask_info is not None and feature_key in mask_info:
-                mask = mask_info[feature_key].to(self.device)
+            if len(feature) == len(schema) + 1 and mask is None:
+                # An optional mask can be provided as the last element
+                # if not included in the schema
+                mask = feature[-1]
+
+            if value is None:
+                raise ValueError(
+                    f"Feature '{feature_key}' must contain 'value' "
+                    f"in the schema."
+                )
             else:
-                mask = (x.sum(dim=-1) != 0).int()  # [batch, seq_len]
+                value = value.to(self.device)
+
+            if time is None:
+                warnings.warn(
+                    f"Feature '{feature_key}' does not have time "
+                    f"intervals. StageNet's temporal modeling "
+                    f"capabilities will be limited. Consider using "
+                    f"StageNet format with time intervals for "
+                    f"better performance.",
+                    UserWarning,
+                )
+            else:
+                time = time.to(self.device)
+                # Ensure time is 2D [batch, seq_len]
+                if time.dim() == 1:
+                    time = time.unsqueeze(0)
+
+            if mask is None:
+                warnings.warn(
+                    f"Feature '{feature_key}' does not have mask "
+                    f"information. Default mask will be created from "
+                    f"embedded values. But it may not be accurate.",
+                )
+                mask = (value.abs().sum(dim=-1) != 0).int()
+            elif not processor.is_token() and value.dim() == mask.dim():
+                # for continuous features, if mask is provided,
+                # we need to collapse the feature dimension.
+                mask = mask.any(dim=-1).int()
+            else:
+                mask = mask.to(self.device)
+
+            if value.dim() == 4:
+                # Nested sequences: [batch, seq_len, inner_len, embedding_dim]
+                value = value.sum(dim=2)        # Sum pool over inner dimension
+                mask = mask.any(dim=2).int()    # Update mask for nested sequences
 
             # Pass through StageNet layer with embedded features
             last_output, _, cur_dis = self.stagenet[feature_key](
-                x, time=time, mask=mask, register_hook=register_attn_hook
+                value, time=time, mask=mask, register_hook=register_attn_hook
             )
 
             patient_emb.append(last_output)
             distance.append(cur_dis)
 
-        # Concatenate all feature embeddings
         patient_emb = torch.cat(patient_emb, dim=1)
-
-        # Register hook if needed for gradient tracking
-        if patient_emb.requires_grad:
-            patient_emb.register_hook(lambda grad: grad)
-
-        # Pass through final classification layer
+        # (patient, label_size)
         logits = self.fc(patient_emb)
-
-        # Obtain y_true, loss, y_prob
-        y_true = kwargs[self.label_key].to(self.device)
-        loss = self.get_loss_function()(logits, y_true)
-
         y_prob = self.prepare_y_prob(logits)
+
         results = {
-            "loss": loss,
-            "y_prob": y_prob,
-            "y_true": y_true,
             "logit": logits,
+            "y_prob": y_prob,
         }
+
+        # obtain y_true, loss, y_prob
+        if self.label_key in kwargs:
+            y_true = cast(torch.Tensor, kwargs[self.label_key]).to(self.device)
+            loss = self.get_loss_function()(logits, y_true)
+            results["loss"] = loss
+            results["y_true"] = y_true
 
         # Optionally return embeddings
         if kwargs.get("embed", False):
             results["embed"] = patient_emb
-
         return results
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+    def forward(
+        self,
+        **kwargs: torch.Tensor | tuple[torch.Tensor, ...],
+    ) -> Dict[str, torch.Tensor]:
         """Forward propagation.
 
-        The label `kwargs[self.label_key]` is a list of labels for each
-        patient.
-
         Args:
-            **kwargs: keyword arguments for the model. The keys must contain
-                all the feature keys and the label key. Feature keys should
-                contain tuples of (time, values) from temporal processors.
+            **kwargs: keyword arguments for the model.
+
+                The keys must contain all the feature keys and the label key.
+
+                Feature keys should contain tuples of tensors (time, values)
+                from temporal processors. But the feature keys can also
+                contain just the values without time at the cost of degraded
+                performance.
+
+                The label key should contain the true labels for loss
+                computation.
 
         Returns:
             A dictionary with the following keys:
@@ -566,89 +596,35 @@ class StageAttentionNet(BaseModel):
                 y_true: a tensor representing the true labels.
         """
         register_attn_hook = kwargs.pop("register_attn_hook", False)
-        patient_emb = []
-        distance = []
+        if register_attn_hook:
+            kwargs["register_attn_hook"] = register_attn_hook
 
         for feature_key in self.feature_keys:
-            # Extract (time, values) tuple
             feature = kwargs[feature_key]
 
-            # Get value and time tensors from tuple
-            if isinstance(feature, tuple) and len(feature) == 2:
-                time, x = feature  # Unpack (time, values)
-                # x: [batch, seq_len] or [batch, seq_len, dim]
-                # time: [batch, seq_len] or None
+            if isinstance(feature, torch.Tensor):
+                # Backward compatibility: if feature is a tensor, treat it
+                # as values without time
+                feature = (feature,)
 
-                # Warn if time information is missing
-                if time is None:
-                    import warnings
+            schema = self.dataset.input_processors[feature_key].schema()
 
-                    warnings.warn(
-                        f"Feature '{feature_key}' does not have time "
-                        f"intervals. StageNet's temporal modeling "
-                        f"capabilities will be limited. Consider using "
-                        f"StageNet format with time intervals for "
-                        f"better performance.",
-                        UserWarning,
-                    )
-            else:
-                # Fallback for backward compatibility
-                import warnings
+            value = feature[schema.index("value")] if "value" in schema else None
 
-                warnings.warn(
-                    f"Feature '{feature_key}' is not a temporal tuple. "
-                    f"Using fallback mode without time intervals. "
-                    f"The model may not learn temporal patterns properly. "
-                    f"Please use 'stagenet' or 'stagenet_tensor' "
-                    f"processors in your input schema.",
-                    UserWarning,
+            if value is None:
+                raise ValueError(
+                    f"Feature '{feature_key}' must contain 'value' "
+                    f"in the schema."
                 )
-                x = feature
-                time = None
+            else:
+                value = value.to(self.device)
 
-            # Embed the values using EmbeddingModel
-            # Need to pass as dict for EmbeddingModel
-            embedded = self.embedding_model({feature_key: x})
-            x = embedded[feature_key]  # [batch, seq_len, embedding_dim]
-            # Handle nested sequences (2D codes -> need pooling on inner dim)
-            if x.dim() == 4:  # [batch, seq_len, inner_len, embedding_dim]
-                # Sum pool over inner dimension
-                x = x.sum(dim=2)  # [batch, seq_len, embedding_dim]
+            value = self.embedding_model({feature_key: value})[feature_key]
 
-            # Create mask from embedded values
-            mask = (x.sum(dim=-1) != 0).int()  # [batch, seq_len]
+            i = schema.index("value")
+            kwargs[feature_key] = feature[:i] + (value,) + feature[i + 1:]
 
-            # Move time to correct device if present
-            if time is not None:
-                time = time.to(self.device)
-                # Ensure time is 2D [batch, seq_len]
-                if time.dim() == 1:
-                    time = time.unsqueeze(0)
+        return self.forward_from_embedding(**kwargs)
 
-            # Pass through StageNet layer
-            last_output, _, cur_dis = self.stagenet[feature_key](
-                x, time=time, mask=mask, register_hook=register_attn_hook
-            )
-
-            patient_emb.append(last_output)
-
-            distance.append(cur_dis)
-
-        patient_emb = torch.cat(patient_emb, dim=1)
-        # (patient, label_size)
-        logits = self.fc(patient_emb)
-
-        # obtain y_true, loss, y_prob
-        y_true = kwargs[self.label_key].to(self.device)
-        loss = self.get_loss_function()(logits, y_true)
-
-        y_prob = self.prepare_y_prob(logits)
-        results = {
-            "loss": loss,
-            "y_prob": y_prob,
-            "y_true": y_true,
-            "logit": logits,
-        }
-        if kwargs.get("embed", False):
-            results["embed"] = patient_emb
-        return results
+    def get_embedding_model(self) -> nn.Module | None:
+        return self.embedding_model
