@@ -84,19 +84,12 @@ class ReadmissionPredictionMIMIC3(BaseTask):
             return []
 
         samples = []
-        for i in range(
-            len(admissions) - 1
-        ):  # Skip the last admission since we need a "next" admission
+        # Skip the last admission since we need a "next" admission
+        for i in range(len(admissions) - 1):
             if self.exclude_minors:
                 age = admissions[i].timestamp.year - dob.year
-                age = (
-                    age - 1
-                    if (
-                        (admissions[i].timestamp.month, admissions[i].timestamp.day)
-                        < (dob.month, dob.day)
-                    )
-                    else age
-                )
+                if (admissions[i].timestamp.month, admissions[i].timestamp.day) < (dob.month, dob.day):
+                    age -= 1
                 if age < 18:
                     continue
 
@@ -223,9 +216,8 @@ class ReadmissionPredictionMIMIC4(BaseTask):
             return []
 
         samples = []
-        for i in range(
-            len(admissions) - 1
-        ):  # Skip the last admission since we need a "next" admission
+        # Skip the last admission since we need a "next" admission
+        for i in range(len(admissions) - 1):
             filter = ("hadm_id", "==", admissions[i].hadm_id)
 
             diagnoses = []
@@ -528,19 +520,12 @@ class ReadmissionPredictionOMOP(BaseTask):
             return []
 
         samples = []
-        for i in range(
-            len(admissions) - 1
-        ):  # Skip the last admission since we need a "next" admission
+        # Skip the last admission since we need a "next" admission
+        for i in range(len(admissions) - 1):
             if self.exclude_minors:
                 age = admissions[i].timestamp.year - dob.year
-                age = (
-                    age - 1
-                    if (
-                        (admissions[i].timestamp.month, admissions[i].timestamp.day)
-                        < (dob.month, dob.day)
-                    )
-                    else age
-                )
+                if (admissions[i].timestamp.month, admissions[i].timestamp.day) < (dob.month, dob.day):
+                    age -= 1
                 if age < 18:
                     continue
 

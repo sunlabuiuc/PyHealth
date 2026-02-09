@@ -18,9 +18,9 @@ if __name__ == "__main__":
     )
     base_dataset.stats()
 
-    sample_dataset = base_dataset.set_task(
-        ReadmissionPredictionMIMIC3(exclude_minors=False)
-    )  # Must include minors to get any readmission samples on the synthetic dataset
+    # Must include minors to get any readmission samples on the synthetic dataset
+    task = ReadmissionPredictionMIMIC3(exclude_minors=False)
+    sample_dataset = base_dataset.set_task(task)
 
     train_dataset, val_dataset, test_dataset = split_by_patient(
         sample_dataset, [0.8, 0.1, 0.1]
