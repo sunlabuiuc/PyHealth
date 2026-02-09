@@ -434,7 +434,7 @@ class LimeExplainer(BaseInterpreter):
             # Expand gate dims to broadcast over trailing dimensions (e.g. embed_dim)
             g = gate
             while g.dim() < xs[key].dim():
-                g = g
+                g = g.unsqueeze(-1)
             perurb[key] = torch.where(g == 1, xs[key], bs[key])
             
         return perurb
