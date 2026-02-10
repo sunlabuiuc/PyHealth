@@ -321,9 +321,13 @@ class TestGIM(unittest.TestCase):
         torch.testing.assert_close(attributions["codes"], manual, atol=1e-6, rtol=1e-5)
 
     def test_temperature_hooks_modify_gradients(self):
-        """Raising the temperature should change attributions."""
+        """Raising the temperature should change attributions.
 
-        model = _ToyGIMModel()
+        TSG only applies to attention softmax (per the paper), so this
+        test must use a model with a real Attention module.
+        """
+
+        model = _ToyGIMModelWithAttention()
         baseline_gim = GIM(model, temperature=1.0)
         hot_gim = GIM(model, temperature=2.0)
 
