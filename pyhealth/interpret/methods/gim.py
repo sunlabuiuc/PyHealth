@@ -18,18 +18,6 @@ def _iter_child_modules(module: torch.nn.Module):
         yield from _iter_child_modules(child)
 
 
-class _SoftmaxTSG(torch.nn.Module):
-    """Swap nn.Softmax with temperature-adjusted backward for GIM."""
-
-    def __init__(self, dim: int | None, temperature: float):
-        super().__init__()
-        self.dim = dim
-        self.temperature = temperature
-
-    def forward(self, tensor: torch.Tensor) -> torch.Tensor:  
-        return _TemperatureSoftmaxFn.apply(tensor, self.dim, self.temperature) # type: ignore[override]
-
-
 class _FrozenLayerNorm(torch.nn.Module):
     """LayerNorm replacement that treats normalization statistics as constants.
 
@@ -200,12 +188,6 @@ class _GIMSwapContext(contextlib.AbstractContextManager):
             # (gradient normalisation) rules for attention.
             if self._is_attention_module(child):
                 wrapper = _AttentionGIM(temperature=self.temperature)
-                setattr(parent, name, wrapper)
-                self._swapped.append((parent, name, child))
-            # Swap remaining standalone nn.Softmax modules (e.g. StageNet's
-            # cumulative softmax) that live outside of Attention.
-            elif isinstance(child, torch.nn.Softmax):
-                wrapper = _SoftmaxTSG(dim=child.dim, temperature=self.temperature)
                 setattr(parent, name, wrapper)
                 self._swapped.append((parent, name, child))
             # Swap nn.LayerNorm modules (LN freeze rule).
