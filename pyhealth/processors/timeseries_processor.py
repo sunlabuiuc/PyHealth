@@ -102,6 +102,21 @@ class TimeseriesProcessor(FeatureProcessor):
         # Size equals number of features, unknown until first process
         return self.n_features
 
+    def is_token(self) -> bool:
+        """Time series values are continuous, not discrete tokens."""
+        return False
+
+    def schema(self) -> tuple[str, ...]:
+        return ("value",)
+
+    def dim(self) -> tuple[int, ...]:
+        """Output is a 2D tensor (time_steps, features)."""
+        return (2,)
+
+    def spatial(self) -> tuple[bool, ...]:
+        # Time dimension is spatial; feature dimension is not
+        return (True, False)
+
     def __repr__(self):
         return (
             f"TimeSeriesProcessor(sampling_rate={self.sampling_rate}, "
