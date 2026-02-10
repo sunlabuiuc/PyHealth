@@ -3,22 +3,14 @@
 # Description: Transformer model implementation for PyHealth 2.0
 
 import math
-from typing import Any, Dict, Optional, Tuple, Union
+import warnings
+from typing import Any, Dict, Optional, Tuple, Union, cast
 
 import torch
 from torch import nn
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
-from pyhealth.processors import (
-    MultiHotProcessor,
-    SequenceProcessor,
-    StageNetProcessor,
-    StageNetTensorProcessor,
-    TensorProcessor,
-    TimeseriesProcessor,
-)
-from pyhealth.processors.base_processor import FeatureProcessor
 from pyhealth.models.embedding import EmbeddingModel
 
 # VALID_OPERATION_LEVEL = ["visit", "event"]
@@ -389,10 +381,6 @@ class Transformer(BaseModel):
         self.mode = self.dataset.output_schema[self.label_key]
 
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
-        self.feature_processors = {
-            feature_key: self.dataset.input_processors[feature_key]
-            for feature_key in self.feature_keys
-        }
 
         self.transformer = nn.ModuleDict()
         for feature_key in self.feature_keys:
@@ -405,121 +393,6 @@ class Transformer(BaseModel):
 
         output_size = self.get_output_size()
         self.fc = nn.Linear(len(self.feature_keys) * embedding_dim, output_size)
-
-    def set_deeplift_hooks(self, hooks) -> None:
-        """Backward-compatibility stub; interpreters swap activations directly."""
-
-    def clear_deeplift_hooks(self) -> None:
-        """Backward-compatibility stub; interpreters swap activations directly."""
-
-    @staticmethod
-    def _split_temporal(feature):
-        """Separate temporal metadata from a feature payload.
-
-        Args:
-            feature: Either a tuple ``(time, value)`` produced by temporal
-                processors or a tensor-like payload for non-temporal features.
-
-        Returns:
-            Tuple[Optional[torch.Tensor], Any]: A tuple of ``(time_tensor,
-            value)`` where ``time_tensor`` is ``None`` if no temporal
-            information exists.
-
-        Example:
-            The StageNet processor returns ``(time, values)`` tuples. This
-            helper ensures downstream embedding logic receives a consistent
-            signature.
-        """
-
-        if isinstance(feature, tuple) and len(feature) == 2:
-            return feature
-        return None, feature
-
-    def _ensure_tensor(self, feature_key: str, value) -> torch.Tensor:
-        """Convert raw feature payloads into tensors on demand.
-
-        Args:
-            feature_key: Name of the feature in the dataset schema.
-            value: Raw payload from the dataloader (tensor, list of codes, etc.).
-
-        Returns:
-            torch.Tensor: Tensor representation suitable for the embedding model.
-
-        Example:
-            For sequence-coded features the processor yields integer indices;
-            for numeric tensors we upcast to ``float``. This keeps notebook
-            examples concise by re-using processor outputs directly.
-        """
-
-        if isinstance(value, torch.Tensor):
-            return value
-        processor = self.feature_processors[feature_key]
-        if isinstance(processor, (SequenceProcessor, StageNetProcessor)):
-            return torch.tensor(value, dtype=torch.long)
-        return torch.tensor(value, dtype=torch.float)
-
-    def _create_mask(self, feature_key: str, value: torch.Tensor) -> torch.Tensor:
-        """Create a boolean mask indicating valid sequence positions.
-
-        Args:
-            feature_key: Name of the feature in the dataset schema.
-            value: Tensor produced by :meth:`_ensure_tensor`.
-
-        Returns:
-            torch.Tensor: Boolean tensor of shape ``[batch, seq_len]`` marking
-            valid timesteps.
-
-        Example:
-            The mask is consumed by :class:`TransformerLayer` to zero-out padded
-            positions before attention is applied.
-        """
-
-        processor = self.feature_processors[feature_key]
-        if isinstance(processor, SequenceProcessor):
-            mask = value != 0
-        elif isinstance(processor, StageNetProcessor):
-            if value.dim() >= 3:
-                mask = torch.any(value != 0, dim=-1)
-            else:
-                mask = value != 0
-        elif isinstance(processor, (TimeseriesProcessor, StageNetTensorProcessor)):
-            if value.dim() >= 3:
-                mask = torch.any(torch.abs(value) > 0, dim=-1)
-            elif value.dim() == 2:
-                mask = torch.any(torch.abs(value) > 0, dim=-1, keepdim=True)
-            else:
-                mask = torch.ones(
-                    value.size(0),
-                    1,
-                    dtype=torch.bool,
-                    device=value.device,
-                )
-        elif isinstance(processor, (TensorProcessor, MultiHotProcessor)):
-            mask = torch.ones(
-                value.size(0),
-                1,
-                dtype=torch.bool,
-                device=value.device,
-            )
-        else:
-            if value.dim() >= 2:
-                mask = torch.any(value != 0, dim=-1)
-            else:
-                mask = torch.ones(
-                    value.size(0),
-                    1,
-                    dtype=torch.bool,
-                    device=value.device,
-                )
-
-        if mask.dim() == 1:
-            mask = mask.unsqueeze(1)
-        mask = mask.bool()
-        if mask.dim() == 2:
-            invalid_rows = ~mask.any(dim=1)
-            if invalid_rows.any():
-                mask[invalid_rows, 0] = True
-        return mask
 
     @staticmethod
     def _pool_embedding(x: torch.Tensor) -> torch.Tensor:
@@ -557,78 +430,154 @@ class Transformer(BaseModel):
 
     def forward_from_embedding(
         self,
-        feature_embeddings: Dict[str, torch.Tensor],
-        time_info: Optional[Dict[str, torch.Tensor]] = None,
-        **kwargs,
+        **kwargs: torch.Tensor | tuple[torch.Tensor, ...],
     ) -> Dict[str, torch.Tensor]:
-        """Forward pass that consumes pre-computed embeddings."""
+        """Forward pass starting from feature embeddings.
 
-        register_hook = bool(kwargs.get("register_hook", False))
-        patient_emb = []
-
-        for feature_key in self.feature_keys:
-            x = feature_embeddings[feature_key].to(self.device)
-            x = self._pool_embedding(x)
-            mask = self._mask_from_embeddings(x).to(self.device)
-            _, cls_emb = self.transformer[feature_key](x, mask, register_hook)
-            patient_emb.append(cls_emb)
-
-        patient_emb = torch.cat(patient_emb, dim=1)
-        logits = self.fc(patient_emb)
-
-        y_true = kwargs[self.label_key].to(self.device)
-        loss = self.get_loss_function()(logits, y_true)
-        y_prob = self.prepare_y_prob(logits)
-        results = {"loss": loss, "y_prob": y_prob, "y_true": y_true, "logit": logits}
-        if kwargs.get("embed", False):
-            results["embed"] = patient_emb
-        return results
-
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
-        """Forward propagation with PyHealth 2.0 inputs.
+        This method bypasses the embedding layers and processes
+        pre-embedded features. This is useful for interpretability
+        methods like Integrated Gradients that need to interpolate
+        in embedding space.
 
         Args:
-            **kwargs: Keyword arguments that include every feature key defined in
-                the dataset schema plus the label key.
+            **kwargs: keyword arguments for the model. The keys must contain
+                all the feature keys and the label key.
+
+                It is expected to contain the following semantic tensors:
+                    - "value": the embedded feature tensor of shape
+                      [batch, seq_len, embedding_dim] or
+                      [batch, embedding_dim].
+                    - "mask" (optional): the mask tensor of shape
+                      [batch, seq_len]. If not in the processor schema,
+                      it can be provided as the last element of the
+                      feature tuple. If not provided, masks will be
+                      generated from the embedded values (non-zero
+                      entries are treated as valid).
+
+                The label key should contain the true labels for loss
+                computation.
 
         Returns:
-            Dict[str, torch.Tensor]: Prediction dictionary containing the loss,
-            probabilities, logits, labels, and (optionally) embeddings.
-
-        Example:
-            This method is invoked by :class:`pyhealth.trainer.Trainer`, which
-            supplies batches from :func:`pyhealth.datasets.get_dataloader`.
+            A dictionary with the following keys:
+                loss: a scalar tensor representing the final loss.
+                y_prob: a tensor of predicted probabilities.
+                y_true: a tensor representing the true labels.
+                logit: the raw logits before activation.
+                embed: (if embed=True in kwargs) the patient embedding.
         """
-
-        register_hook = bool(kwargs.get("register_hook", False))
+        register_hook = bool(kwargs.pop("register_hook", False))
         patient_emb = []
-        embedding_inputs: Dict[str, torch.Tensor] = {}
-        masks: Dict[str, torch.Tensor] = {}
 
         for feature_key in self.feature_keys:
-            _, value = self._split_temporal(kwargs[feature_key])
-            value_tensor = self._ensure_tensor(feature_key, value)
-            embedding_inputs[feature_key] = value_tensor
-            masks[feature_key] = self._create_mask(feature_key, value_tensor)
+            processor = self.dataset.input_processors[feature_key]
+            schema = processor.schema()
+            feature = kwargs[feature_key]
 
-        embedded = self.embedding_model(embedding_inputs)
+            if isinstance(feature, torch.Tensor):
+                feature = (feature,)
 
-        for feature_key in self.feature_keys:
-            x = embedded[feature_key]
-            mask = masks[feature_key].to(self.device)
-            x = self._pool_embedding(x)
-            _, cls_emb = self.transformer[feature_key](x, mask, register_hook)
+            value = feature[schema.index("value")] if "value" in schema else None
+            mask = feature[schema.index("mask")] if "mask" in schema else None
+
+            if len(feature) == len(schema) + 1 and mask is None:
+                mask = feature[-1]
+
+            if value is None:
+                raise ValueError(
+                    f"Feature '{feature_key}' must contain 'value' "
+                    f"in the schema."
+                )
+            else:
+                value = value.to(self.device)
+
+            value = self._pool_embedding(value)
+
+            if mask is not None:
+                mask = mask.to(self.device).bool()
+                if mask.dim() == value.dim():
+                    mask = mask.any(dim=-1)
+            else:
+                mask = self._mask_from_embeddings(value).to(self.device)
+
+            _, cls_emb = self.transformer[feature_key](
+                value, mask, register_hook
+            )
             patient_emb.append(cls_emb)
 
         patient_emb = torch.cat(patient_emb, dim=1)
         logits = self.fc(patient_emb)
-        y_true = kwargs[self.label_key].to(self.device)
-        loss = self.get_loss_function()(logits, y_true)
         y_prob = self.prepare_y_prob(logits)
-        results = {"loss": loss, "y_prob": y_prob, "y_true": y_true, "logit": logits}
+
+        results = {
+            "logit": logits,
+            "y_prob": y_prob,
+        }
+
+        if self.label_key in kwargs:
+            y_true = cast(torch.Tensor, kwargs[self.label_key]).to(self.device)
+            loss = self.get_loss_function()(logits, y_true)
+            results["loss"] = loss
+            results["y_true"] = y_true
+
         if kwargs.get("embed", False):
             results["embed"] = patient_emb
         return results
+
+    def forward(
+        self,
+        **kwargs: torch.Tensor | tuple[torch.Tensor, ...],
+    ) -> Dict[str, torch.Tensor]:
+        """Forward propagation.
+
+        Args:
+            **kwargs: keyword arguments for the model.
+
+                The keys must contain all the feature keys and the label key.
+
+                Feature keys should contain tensors or tuples of tensors
+                following the processor schema. The label key should
+                contain the true labels for loss computation.
+
+        Returns:
+            A dictionary with the following keys:
+                loss: a scalar tensor representing the final loss.
+                y_prob: a tensor of predicted probabilities.
+                y_true: a tensor representing the true labels.
+                logit: the raw logits before activation.
+                embed: (if embed=True in kwargs) the patient embedding.
+        """
+        for feature_key in self.feature_keys:
+            feature = kwargs[feature_key]
+
+            if isinstance(feature, torch.Tensor):
+                feature = (feature,)
+
+            schema = self.dataset.input_processors[feature_key].schema()
+
+            value = feature[schema.index("value")] if "value" in schema else None
+
+            if value is None:
+                raise ValueError(
+                    f"Feature '{feature_key}' must contain 'value' "
+                    f"in the schema."
+                )
+            else:
+                value = value.to(self.device)
+
+            value = self.embedding_model({feature_key: value})[feature_key]
+
+            i = schema.index("value")
+            kwargs[feature_key] = feature[:i] + (value,) + feature[i + 1:]
+
+        return self.forward_from_embedding(**kwargs)
+
+    def get_embedding_model(self) -> nn.Module | None:
+        """Get the embedding model.
+
+        Returns:
+            nn.Module: The embedding model used to embed raw features.
+        """
+        return self.embedding_model
 
 
 if __name__ == "__main__":
@@ -651,11 +600,11 @@ if __name__ == "__main__":
         },
     ]
 
-    input_schema: Dict[str, Union[str, type[FeatureProcessor]]] = {
+    input_schema = {
         "diagnoses": "sequence",
         "procedures": "sequence",
     }
-    output_schema: Dict[str, Union[str, type[FeatureProcessor]]] = {"label": "binary"}
+    output_schema = {"label": "binary"}
 
     dataset = create_sample_dataset(
         samples=samples,

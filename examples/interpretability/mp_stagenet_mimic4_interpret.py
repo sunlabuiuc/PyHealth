@@ -11,7 +11,7 @@ This example demonstrates:
 import datetime
 import argparse
 from pyhealth.datasets import MIMIC4Dataset, get_dataloader, split_by_patient
-from pyhealth.interpret.methods import BaseInterpreter, IntegratedGradients, DeepLift, GIM, ShapExplainer, LimeExplainer
+from pyhealth.interpret.methods import *
 from pyhealth.metrics.interpretability import evaluate_attribution
 from pyhealth.models import StageNet
 from pyhealth.tasks import MortalityPredictionStageNetMIMIC4
@@ -20,7 +20,7 @@ from pyhealth.datasets.utils import load_processors
 from pathlib import Path
 import pandas as pd
 
-# python -u examples/interpretability/mp_stagenet_mimic4_interpret.py --methods lime --device cuda:6 2>&1 | tee -a /home/yongdaf2/pyhealth_dka/output/mp_stagenet_mimic4/lime.log
+# python -u examples/interpretability/mp_stagenet_mimic4_interpret.py --methods shap --device cuda:6 2>&1 | tee -a /home/yongdaf2/pyhealth_dka/output/mp_stagenet_mimic4/shap.log
 def main():
     parser = argparse.ArgumentParser(
         description="Comma separated list of interpretability methods to evaluate"
@@ -28,8 +28,8 @@ def main():
     parser.add_argument(
         "--methods",
         type=str,
-        default="ig,deeplift,gim,shap,lime",
-        help="Comma-separated list of interpretability methods to evaluate (default: ig,deeplift,gim,shap,lime)",
+        default="",
+        help="Comma-separated list of interpretability methods to evaluate (default: <empty, no methods>).",
     )
     parser.add_argument(
         "--device",
@@ -115,11 +115,13 @@ def main():
     print(f"✓ Model moved to {device}")
 
     methods: dict[str, BaseInterpreter] = {
+        "random": RandomBaseline(model),
         "ig": IntegratedGradients(model, use_embeddings=True),
+        "ig_gim": IntegratedGradientGIM(model),
         "deeplift": DeepLift(model, use_embeddings=True),
         "gim": GIM(model),
         "shap": ShapExplainer(model, use_embeddings=True),
-        "lime": LimeExplainer(model, use_embeddings=True, n_samples=50),
+        "lime": LimeExplainer(model, use_embeddings=True, n_samples=200),
     }
     methods = {k: v for k, v in methods.items() if k in parser.parse_args().methods.split(",")}
     print(f"\nEvaluating methods: {list(methods.keys())}")

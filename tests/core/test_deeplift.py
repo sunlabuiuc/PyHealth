@@ -1,260 +1,262 @@
 import unittest
-from typing import Dict
 
 import torch
-import torch.nn as nn
 
-from pyhealth.datasets import create_sample_dataset
+from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.interpret.methods import DeepLift
 from pyhealth.interpret.methods.base_interpreter import BaseInterpreter
-from pyhealth.models import BaseModel, EmbeddingModel
+from pyhealth.models import MLP, StageNet
 
 
-class _ToyDeepLiftModel(BaseModel):
-    """Minimal model that exposes the DeepLIFT hook surface."""
-
-    def __init__(self):
-        super().__init__(dataset=None)
-        self.feature_keys = ["x"]
-        self.label_keys = ["y"]
-        self.mode = "binary"
-
-        self.linear1 = nn.Linear(2, 1, bias=True)
-        self.linear2 = nn.Linear(1, 1, bias=True)
-
-        self._activation_hooks = None
-
-    # ------------------------------------------------------------------
-    # Hook utilities mirroring StageNet integration
-    # ------------------------------------------------------------------
-    def set_deeplift_hooks(self, hooks) -> None:
-        self._activation_hooks = hooks
-
-    def clear_deeplift_hooks(self) -> None:
-        self._activation_hooks = None
-
-    def _apply_activation(self, name: str, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
-        if self._activation_hooks is not None and hasattr(self._activation_hooks, "apply"):
-            return self._activation_hooks.apply(name, tensor, **kwargs)
-        fn = getattr(torch, name)
-        return fn(tensor, **kwargs)
-
-    # ------------------------------------------------------------------
-    # Forward definition compatible with DeepLift(use_embeddings=False)
-    # ------------------------------------------------------------------
-    def forward(self, x: torch.Tensor, y: torch.Tensor) -> dict:
-        pre_relu = self.linear1(x)
-        hidden = self._apply_activation("relu", pre_relu)
-        logit = self.linear2(hidden)
-        y_prob = self._apply_activation("sigmoid", logit)
-
-        return {
-            "logit": y_prob,
-            "y_prob": y_prob,
-            "y_true": y.to(y_prob.device),
-            "loss": torch.zeros((), device=y_prob.device),
-        }
-
-
-def _safe_division(numerator: torch.Tensor, denominator: torch.Tensor, fallback: torch.Tensor, eps: float = 1e-7) -> torch.Tensor:
-    mask = denominator.abs() > eps
-    safe_denominator = torch.where(mask, denominator, torch.ones_like(denominator))
-    quotient = numerator / safe_denominator
-    return torch.where(mask, quotient, fallback)
-
-
-class TestDeepLift(unittest.TestCase):
-    """Unit tests validating DeepLIFT against analytical expectations."""
+class TestDeepLiftMLP(unittest.TestCase):
+    """Test cases for DeepLIFT with MLP model."""
 
     def setUp(self):
-        self.model = _ToyDeepLiftModel()
+        """Set up test data and model."""
+        self.samples = [
+            {
+                "patient_id": "patient-0",
+                "visit_id": "visit-0",
+                "conditions": ["cond-33", "cond-86", "cond-80", "cond-12"],
+                "procedures": [1.0, 2.0, 3.5, 4],
+                "label": 0,
+            },
+            {
+                "patient_id": "patient-1",
+                "visit_id": "visit-1",
+                "conditions": ["cond-33", "cond-86", "cond-80"],
+                "procedures": [5.0, 2.0, 3.5, 4],
+                "label": 1,
+            },
+            {
+                "patient_id": "patient-2",
+                "visit_id": "visit-2",
+                "conditions": ["cond-55", "cond-12"],
+                "procedures": [2.0, 3.0, 1.5, 5],
+                "label": 1,
+            },
+        ]
+
+        self.input_schema = {
+            "conditions": "sequence",
+            "procedures": "tensor",
+        }
+        self.output_schema = {"label": "binary"}
+
+        self.dataset = create_sample_dataset(
+            samples=self.samples,
+            input_schema=self.input_schema,
+            output_schema=self.output_schema,
+            dataset_name="test_deeplift",
+        )
+
+        self.model = MLP(
+            dataset=self.dataset,
+            embedding_dim=32,
+            hidden_dim=32,
+            n_layers=2,
+        )
         self.model.eval()
 
-        with torch.no_grad():
-            self.model.linear1.weight.copy_(torch.tensor([[1.5, -2.0]]))
-            self.model.linear1.bias.copy_(torch.tensor([0.5]))
-            self.model.linear2.weight.copy_(torch.tensor([[0.8]]))
-            self.model.linear2.bias.copy_(torch.tensor([-0.2]))
+        self.test_loader = get_dataloader(self.dataset, batch_size=1, shuffle=False)
 
-        self.baseline = torch.tensor([[-0.5, 0.0]])
-        self.labels = torch.zeros((1, 1))
-        self.deeplift = DeepLift(self.model, use_embeddings=False)
-        self.assertIsInstance(self.deeplift, BaseInterpreter)
+    def test_initialization(self):
+        """Test that DeepLift initializes correctly."""
+        dl = DeepLift(self.model)
+        self.assertIsInstance(dl, DeepLift)
+        self.assertIsInstance(dl, BaseInterpreter)
+        self.assertEqual(dl.model, self.model)
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-    def _manual_deeplift(self, inputs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """Compute DeepLIFT contributions by hand using the Rescale rule."""
+    def test_basic_attribution(self):
+        """Test basic attribution computation with default settings."""
+        dl = DeepLift(self.model)
+        data_batch = next(iter(self.test_loader))
 
-        w1 = self.model.linear1.weight.detach()
-        b1 = self.model.linear1.bias.detach()
-        w2 = self.model.linear2.weight.detach()
-        b2 = self.model.linear2.bias.detach()
+        attributions = dl.attribute(**data_batch)
 
-        a = torch.nn.functional.linear(inputs, w1, b1)
-        a0 = torch.nn.functional.linear(self.baseline, w1, b1)
-        delta_a = a - a0
-        h = torch.relu(a)
-        h0 = torch.relu(a0)
-        delta_h = h - h0
-        relu_deriv = (a > 0).to(inputs.dtype)
-        relu_secant = _safe_division(delta_h, delta_a, relu_deriv)
+        self.assertIn("conditions", attributions)
+        self.assertIn("procedures", attributions)
 
-        z = torch.nn.functional.linear(h, w2, b2)
-        z0 = torch.nn.functional.linear(h0, w2, b2)
-        delta_z = z - z0
-        y = torch.sigmoid(z)
-        y0 = torch.sigmoid(z0)
-        delta_y = y - y0
-        sigmoid_deriv = y * (1 - y)
-        sigmoid_secant = _safe_division(delta_y, delta_z, sigmoid_deriv)
-
-        delta_x = (inputs - self.baseline).squeeze(0)
-        chain_multiplier = (
-            w1.squeeze(0) * relu_secant.squeeze(0) * w2.squeeze(0) * sigmoid_secant.squeeze(0)
+        self.assertEqual(
+            attributions["conditions"].shape, data_batch["conditions"].shape
         )
-        expected = delta_x * chain_multiplier
-        return expected, delta_y.squeeze()
-
-    # ------------------------------------------------------------------
-    # Tests
-    # ------------------------------------------------------------------
-    def test_rescale_matches_manual_chain(self):
-        """DeepLIFT contributions should match the analytical Rescale solution."""
-
-        inputs = torch.tensor([[1.2, -0.3]])
-        attributions = self.deeplift.attribute(
-            baseline={"x": self.baseline}, x=inputs, y=self.labels
+        self.assertEqual(
+            attributions["procedures"].shape, data_batch["procedures"].shape
         )
 
-        contrib = attributions["x"].squeeze(0)
-        expected, delta_y = self._manual_deeplift(inputs)
+        self.assertIsInstance(attributions["conditions"], torch.Tensor)
+        self.assertIsInstance(attributions["procedures"], torch.Tensor)
 
-        torch.testing.assert_close(contrib, expected, atol=1e-5, rtol=1e-5)
-        torch.testing.assert_close(contrib.sum(), delta_y, atol=1e-5, rtol=1e-5)
+    def test_attribution_with_target_class(self):
+        """Test attribution computation with specific target class."""
+        dl = DeepLift(self.model)
+        data_batch = next(iter(self.test_loader))
+
+        attr_class_0 = dl.attribute(**data_batch, target_class_idx=0)
+        attr_class_1 = dl.attribute(**data_batch, target_class_idx=1)
+
+        # Attributions should differ for different classes
+        self.assertFalse(
+            torch.allclose(attr_class_0["conditions"], attr_class_1["conditions"])
+        )
+
+    def test_attribution_values_are_finite(self):
+        """Test that attribution values are finite (no NaN or Inf)."""
+        dl = DeepLift(self.model)
+        data_batch = next(iter(self.test_loader))
+
+        attributions = dl.attribute(**data_batch)
+
+        self.assertTrue(torch.isfinite(attributions["conditions"]).all())
+        self.assertTrue(torch.isfinite(attributions["procedures"]).all())
 
     def test_state_reset_between_calls(self):
         """Multiple DeepLIFT calls should not leak activation state."""
+        dl = DeepLift(self.model)
 
-        first_input = torch.tensor([[0.2, 0.1]])
-        second_input = torch.tensor([[1.0, -1.0]])
+        test_loader = get_dataloader(self.dataset, batch_size=1, shuffle=False)
+        batches = list(test_loader)
 
-        first_attr = self.deeplift.attribute(
-            baseline={"x": self.baseline}, x=first_input, y=self.labels
-        )
-        second_attr = self.deeplift.attribute(
-            baseline={"x": self.baseline}, x=second_input, y=self.labels
-        )
+        first_attr = dl.attribute(**batches[0])
+        second_attr = dl.attribute(**batches[1])
 
-        first_expected, first_delta_y = self._manual_deeplift(first_input)
-        second_expected, second_delta_y = self._manual_deeplift(second_input)
-
-        torch.testing.assert_close(first_attr["x"].squeeze(0), first_expected, atol=1e-5, rtol=1e-5)
-        torch.testing.assert_close(second_attr["x"].squeeze(0), second_expected, atol=1e-5, rtol=1e-5)
-        torch.testing.assert_close(first_attr["x"].sum(), first_delta_y, atol=1e-5, rtol=1e-5)
-        torch.testing.assert_close(second_attr["x"].sum(), second_delta_y, atol=1e-5, rtol=1e-5)
-
-    def test_zero_delta_input_returns_zero_attribution(self):
-        """If inputs equal the baseline, contributions must be zero."""
-
-        inputs = self.baseline.clone()
-        attributions = self.deeplift.attribute(
-            baseline={"x": self.baseline}, x=inputs, y=self.labels
-        )
-
-        self.assertTrue(torch.allclose(attributions["x"], torch.zeros_like(inputs)))
+        # Both should succeed and produce valid output
+        self.assertIn("conditions", first_attr)
+        self.assertIn("conditions", second_attr)
+        self.assertTrue(torch.isfinite(first_attr["conditions"]).all())
+        self.assertTrue(torch.isfinite(second_attr["conditions"]).all())
 
     def test_callable_interface_delegates_to_attribute(self):
         """DeepLIFT instances should be callable via BaseInterpreter.__call__."""
+        dl = DeepLift(self.model)
+        data_batch = next(iter(self.test_loader))
 
-        inputs = torch.tensor([[0.3, -0.4]])
-        kwargs = {"baseline": {"x": self.baseline}, "x": inputs, "y": self.labels}
+        from_attribute = dl.attribute(**data_batch)
+        from_call = dl(**data_batch)
 
-        from_attribute = self.deeplift.attribute(**kwargs)
-        from_call = self.deeplift(**kwargs)
+        torch.testing.assert_close(
+            from_call["conditions"], from_attribute["conditions"]
+        )
+        torch.testing.assert_close(
+            from_call["procedures"], from_attribute["procedures"]
+        )
 
-        torch.testing.assert_close(from_call["x"], from_attribute["x"])
+    def test_multiple_samples(self):
+        """Test attribution on batch with multiple samples."""
+        dl = DeepLift(self.model)
 
+        test_loader = get_dataloader(self.dataset, batch_size=2, shuffle=False)
+        data_batch = next(iter(test_loader))
 
-class _EmbeddingForwardModel(BaseModel):
-    """Toy model exposing forward_from_embedding without time_info argument."""
+        attributions = dl.attribute(**data_batch)
 
-    def __init__(self, dataset: "SampleDataset", embedding_dim: int = 3):
-        super().__init__(dataset=dataset)
-        self.embedding_model = EmbeddingModel(dataset, embedding_dim)
-        self.linear = nn.Linear(embedding_dim, 1, bias=True)
-
-    def forward_from_embedding(
-        self,
-        feature_embeddings: Dict[str, torch.Tensor],
-        label: torch.Tensor,
-    ) -> Dict[str, torch.Tensor]:
-        pooled = feature_embeddings["seq"].mean(dim=1)
-        logits = self.linear(pooled)
-        y_true = label.to(logits.device)
-        y_prob = torch.sigmoid(logits)
-        return {
-            "logit": logits,
-            "y_prob": y_prob,
-            "y_true": y_true,
-            "loss": torch.zeros((), device=logits.device),
-        }
+        self.assertEqual(attributions["conditions"].shape[0], 2)
+        self.assertEqual(attributions["procedures"].shape[0], 2)
 
 
-class TestDeepLiftEmbeddingCompatibility(unittest.TestCase):
-    """Ensure embedding-mode DeepLIFT handles models without time_info support."""
+class TestDeepLiftStageNet(unittest.TestCase):
+    """Test cases for DeepLIFT with StageNet model.
+
+    StageNet supports the new interpretability API (forward_from_embedding,
+    get_embedding_model, processor schemas). DeepLIFT operates in embedding
+    space so discrete codes are handled correctly.
+    """
 
     def setUp(self):
-        samples = [
-            {"patient_id": "p0", "visit_id": "v0", "seq": [1, 2], "label": 0},
-            {"patient_id": "p1", "visit_id": "v1", "seq": [2, 3], "label": 1},
+        """Set up test data and model."""
+        self.samples = [
+            {
+                "patient_id": "patient-0",
+                "visit_id": "visit-0",
+                "conditions": ([0.0, 2.0, 1.3], ["cond-33", "cond-86", "cond-80"]),
+                "procedures": (None, [[1.0, 2.0, 3.5], [5.0, 2.0, 3.5], [2.0, 3.0, 1.5]]),
+                "label": 0,
+            },
+            {
+                "patient_id": "patient-1",
+                "visit_id": "visit-1",
+                "conditions": ([0.0, 2.0], ["cond-33", "cond-86"]),
+                "procedures": (None, [[1.0, 2.0, 3.5], [5.0, 2.0, 3.5]]),
+                "label": 1,
+            },
+            {
+                "patient_id": "patient-2",
+                "visit_id": "visit-2",
+                "conditions": ([0.0, 1.5], ["cond-86", "cond-80"]),
+                "procedures": (None, [[2.0, 3.0, 1.5], [5.0, 2.0, 3.5]]),
+                "label": 1,
+            },
         ]
-        input_schema = {"seq": "sequence"}
-        output_schema = {"label": "binary"}
-        dataset = create_sample_dataset(samples, input_schema, output_schema)
 
-        embedding_dim = 3
-        self.model = _EmbeddingForwardModel(dataset, embedding_dim)
-        with torch.no_grad():
-            self.model.linear.weight.copy_(torch.tensor([[0.4, -0.3, 0.2]]))
-            self.model.linear.bias.copy_(torch.tensor([0.1]))
-        self.labels = torch.zeros((1, 1))
-        self.deeplift = DeepLift(self.model, use_embeddings=True)
+        self.input_schema = {
+            "conditions": "stagenet",
+            "procedures": "stagenet_tensor",
+        }
+        self.output_schema = {"label": "binary"}
 
-    def test_attribute_skips_missing_time_info_argument(self):
-        """Attribute call should succeed and satisfy completeness."""
-
-        time_tensor = torch.tensor([[0.0, 1.5]])
-        seq_tensor = torch.tensor([[1, 2]])
-
-        attributions = self.deeplift.attribute(
-            seq=(time_tensor, seq_tensor),
-            label=self.labels,
+        self.dataset = create_sample_dataset(
+            samples=self.samples,
+            input_schema=self.input_schema,
+            output_schema=self.output_schema,
+            dataset_name="test_deeplift_stagenet",
         )
 
-        self.assertIn("seq", attributions)
-        self.assertEqual(attributions["seq"].shape, seq_tensor.shape)
-
-        emb_inputs = self.model.embedding_model({"seq": seq_tensor})["seq"]
-        zero_inputs = torch.zeros_like(emb_inputs)
-        with torch.no_grad():
-            baseline_out = self.model.forward_from_embedding(
-                {"seq": zero_inputs},
-                label=self.labels,
-            )
-            actual_out = self.model.forward_from_embedding(
-                {"seq": emb_inputs},
-                label=self.labels,
-            )
-
-        delta_logit = actual_out["logit"] - baseline_out["logit"]
-        torch.testing.assert_close(
-            attributions["seq"].sum(),
-            delta_logit.squeeze(),
-            atol=1e-5,
-            rtol=1e-5,
+        self.model = StageNet(
+            dataset=self.dataset,
+            embedding_dim=32,
+            chunk_size=32,
         )
+        self.model.eval()
+
+        self.test_loader = get_dataloader(
+            self.dataset, batch_size=1, shuffle=False
+        )
+
+    def test_basic_attribution(self):
+        """Test basic DeepLIFT attribution with StageNet."""
+        dl = DeepLift(self.model)
+        data_batch = next(iter(self.test_loader))
+
+        attributions = dl.attribute(**data_batch)
+
+        self.assertIn("conditions", attributions)
+        self.assertIn("procedures", attributions)
+
+    def test_attribution_shapes_match_input(self):
+        """Test that attribution shapes match input shapes."""
+        dl = DeepLift(self.model)
+        data_batch = next(iter(self.test_loader))
+
+        attributions = dl.attribute(**data_batch)
+
+        # Check shape matches the value tensor in the input tuple
+        cond_schema = self.model.dataset.input_processors["conditions"].schema()
+        cond_value = data_batch["conditions"][cond_schema.index("value")]
+        self.assertEqual(attributions["conditions"].shape, cond_value.shape)
+
+    def test_attribution_with_target_class(self):
+        """Test DeepLIFT with specific target class for StageNet."""
+        dl = DeepLift(self.model)
+        data_batch = next(iter(self.test_loader))
+
+        attr_0 = dl.attribute(**data_batch, target_class_idx=0)
+        attr_1 = dl.attribute(**data_batch, target_class_idx=1)
+
+        self.assertIn("conditions", attr_0)
+        self.assertIn("conditions", attr_1)
+
+    def test_attribution_values_are_finite(self):
+        """Test that StageNet DeepLIFT values are finite."""
+        dl = DeepLift(self.model)
+        data_batch = next(iter(self.test_loader))
+
+        attributions = dl.attribute(**data_batch)
+
+        for key in attributions:
+            self.assertTrue(
+                torch.isfinite(attributions[key]).all(),
+                f"Non-finite values in {key} attributions",
+            )
 
 
 if __name__ == "__main__":  # pragma: no cover

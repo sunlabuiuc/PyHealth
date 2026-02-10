@@ -142,7 +142,7 @@ class ShapExplainer(BaseInterpreter):
         self,
         baseline: Optional[Dict[str, torch.Tensor]] = None,
         target_class_idx: Optional[int] = None,
-        **data,
+        **kwargs: torch.Tensor | tuple[torch.Tensor, ...],
     ) -> Dict[str, torch.Tensor]:
         """Compute SHAP attributions for input features.
 
@@ -159,7 +159,7 @@ class ShapExplainer(BaseInterpreter):
             target_class_idx: For multi-class models, specifies which class's 
                             prediction to explain. If None, explains the model's
                             maximum prediction across all classes.
-            **data: Input data dictionary from dataloader batch. Should contain:
+            **kwargs: Input data dictionary from dataloader batch. Should contain:
                    - Feature tensors with shape (batch_size, ..., feature_dim)
                    - Optional time information for temporal models
                    - Optional label data for supervised models
@@ -185,176 +185,138 @@ class ShapExplainer(BaseInterpreter):
 
         device = next(self.model.parameters()).device
 
+        # Filter kwargs to only include model feature keys and ensure they are tuples
+        inputs = {
+            k: (v,) if isinstance(v, torch.Tensor) else v
+            for k, v in kwargs.items()
+            if k in self.model.feature_keys
+        }
+
+        # Disassemble inputs into values and masks
+        values = {}
+        masks = {}
+        for k, v in inputs.items():
+            schema = self.model.dataset.input_processors[k].schema()
+            values[k] = v[schema.index("value")]
+            if "mask" in schema:
+                masks[k] = v[schema.index("mask")]
+            else:
+                val = v[schema.index("value")]
+                processor = self.model.dataset.input_processors[k]
+                if processor.is_token():
+                    masks[k] = (val != 0).int()
+                else:
+                    # For continuous features, check whether the entire
+                    # feature vector at each timestep is zero (padding)
+                    # rather than per-element, so valid 0.0 values are
+                    # not masked out.
+                    if val.dim() >= 3:
+                        masks[k] = (val.abs().sum(dim=-1) != 0).int()
+                    else:
+                        masks[k] = (val != 0).int()
+
+        # Append input masks to inputs for baseline generation and perturbation
+        for k, v in inputs.items():
+            if "mask" not in self.model.dataset.input_processors[k].schema():
+                inputs[k] = (*v, masks[k])
+
         # Extract and prepare inputs
-        feature_inputs: Dict[str, torch.Tensor] = {}
-        time_info: Dict[str, torch.Tensor] = {}
-        label_data: Dict[str, torch.Tensor] = {}
+        base_logits = self.model.forward(**inputs)["logit"]
 
-        for key in self.model.feature_keys:
-            if key not in data:
-                continue
-            value = data[key]
-            
-            # Handle (time, value) tuples for temporal data
-            if isinstance(value, tuple):
-                time_tensor, feature_tensor = value
-                if time_tensor is not None:
-                    time_info[key] = time_tensor.to(device)
-                value = feature_tensor
-
-            if not isinstance(value, torch.Tensor):
-                value = torch.as_tensor(value)
-            feature_inputs[key] = value.to(device)
-
-        # Store label data
-        for key in self.model.label_keys:
-            if key in data:
-                label_val = data[key]
-                if not isinstance(label_val, torch.Tensor):
-                    label_val = torch.as_tensor(label_val)
-                label_data[key] = label_val.to(device)
-
-        # Fix target class for multiclass if not provided to avoid class flipping
-        if target_class_idx is None and self._is_multiclass():
-            base_logits = self._compute_base_logits(
-                feature_inputs,
-                time_info=time_info,
-                label_data=label_data,
-            )
-            target_class_idx = base_logits.argmax(dim=-1)
-
-        # Generate or validate background samples
-        if baseline is None:
-            background = self._generate_background_samples(feature_inputs)
+        # Enforce target class selection for multi-class models to avoid class flipping
+        if self._prediction_mode() == "binary":
+            if target_class_idx is not None:
+                target = torch.tensor([target_class_idx], device=device)
+            else:
+                target = (torch.sigmoid(base_logits) > 0.5).long()
+        elif self._prediction_mode() == "multiclass":
+            if target_class_idx is not None:
+                target = torch.nn.functional.one_hot(
+                    torch.tensor(target_class_idx, device=device),
+                    num_classes=base_logits.shape[-1],
+                )
+            else:
+                target = torch.argmax(base_logits, dim=-1)
+                target = torch.nn.functional.one_hot(
+                    target, num_classes=base_logits.shape[-1]
+                )
+        elif self._prediction_mode() == "multilabel":
+            if target_class_idx is not None:
+                target = torch.nn.functional.one_hot(
+                    torch.tensor(target_class_idx, device=device),
+                    num_classes=base_logits.shape[-1],
+                )
+            else:
+                target = torch.sigmoid(base_logits) > 0.5
         else:
-            background = {k: v.to(device) for k, v in baseline.items()}
+            raise ValueError("Unsupported prediction mode for SHAP attribution.")
+
+        if baseline is None:
+            baselines = self._generate_background_samples(
+                values, use_embeddings=self.use_embeddings
+            )
+        else:
+            baselines = {
+                k: v.to(device)
+                for k, v in baseline.items()
+                if k in self.model.feature_keys
+            }
 
         # Compute SHAP values
+        n_features = self._determine_n_features(values)
+        shapes = {k: v.shape for k, v in values.items()}
+
+        # Embed values when using embedding-based SHAP.
+        # Split by is_token(): token features are embedded before perturbation
+        # (raw indices are meaningless for interpolation), while continuous
+        # features stay raw so each raw dimension gets its own SHAP value.
+        # Continuous features will be embedded inside _evaluate_sample().
         if self.use_embeddings:
-            return self._shap_embeddings(
-                feature_inputs,
-                background=background,
-                target_class_idx=target_class_idx,
-                time_info=time_info,
-                label_data=label_data,
+            embedding_model = self.model.get_embedding_model()
+            assert embedding_model is not None, (
+                "Model must have an embedding model for embedding-based SHAP."
             )
-        else:
-            return self._shap_continuous(
-                feature_inputs,
-                background=background,
-                target_class_idx=target_class_idx,
-                time_info=time_info,
-                label_data=label_data,
-            )
+            token_keys = {
+                k for k in values
+                if self.model.dataset.input_processors[k].is_token()
+            }
+            if token_keys:
+                token_embedded = embedding_model(
+                    {k: values[k] for k in token_keys}
+                )
+                values = {**values, **token_embedded}
+            # Embed token baselines too so xs and bs are in the same space
+            token_baselines = {
+                k: v for k, v in baselines.items() if k in token_keys
+            }
+            if token_baselines:
+                embedded_baselines = embedding_model(token_baselines)
+                baselines = {**baselines, **embedded_baselines}
 
-    # ------------------------------------------------------------------
-    # Embedding-based SHAP (discrete features)
-    # ------------------------------------------------------------------
-    def _shap_embeddings(
-        self,
-        inputs: Dict[str, torch.Tensor],
-        background: Dict[str, torch.Tensor],
-        target_class_idx: Optional[int],
-        time_info: Dict[str, torch.Tensor],
-        label_data: Dict[str, torch.Tensor],
-    ) -> Dict[str, torch.Tensor]:
-        """Compute SHAP values for discrete inputs in embedding space.
+        out = self._compute_kernel_shap(
+            inputs=inputs,
+            xs=values,
+            bs=baselines,
+            n_features=n_features,
+            target=target,
+        )
 
-        Args:
-            inputs: Dictionary of input tensors.
-            background: Dictionary of background samples.
-            target_class_idx: Target class index for attribution.
-            time_info: Temporal information for time-series models.
-            label_data: Label information for supervised models.
-
-        Returns:
-            Dictionary of SHAP values mapped back to input shapes.
-        """
-        # Embed inputs and background
-        input_embs = self.model.embedding_model(inputs)
-        background_embs = self.model.embedding_model(background)
-
-        # Store original input shapes for mapping back
-        input_shapes = {key: val.shape for key, val in inputs.items()}
-
-        # Compute SHAP values for each feature
-        shap_values = {}
-        for key in inputs:
-            n_features = self._determine_n_features(key, inputs, input_embs)
-            
-            shap_matrix = self._compute_kernel_shap(
-                key=key,
-                input_emb=input_embs,
-                background_emb=background_embs,
-                n_features=n_features,
-                target_class_idx=target_class_idx,
-                time_info=time_info,
-                label_data=label_data,
-            )
-            
-            shap_values[key] = shap_matrix
-
-        # Map embedding-space attributions back to input shapes
-        return self._map_to_input_shapes(shap_values, input_shapes)
-
-    # ------------------------------------------------------------------
-    # Continuous SHAP (for tensor inputs)
-    # ------------------------------------------------------------------
-    def _shap_continuous(
-        self,
-        inputs: Dict[str, torch.Tensor],
-        background: Dict[str, torch.Tensor],
-        target_class_idx: Optional[int],
-        time_info: Dict[str, torch.Tensor],
-        label_data: Dict[str, torch.Tensor],
-    ) -> Dict[str, torch.Tensor]:
-        """Compute SHAP values for continuous tensor inputs.
-
-        Args:
-            inputs: Dictionary of input tensors.
-            background: Dictionary of background samples.
-            target_class_idx: Target class index for attribution.
-            time_info: Temporal information for time-series models.
-            label_data: Label information for supervised models.
-
-        Returns:
-            Dictionary of SHAP values with same shapes as inputs.
-        """
-        shap_values = {}
-        
-        for key in inputs:
-            n_features = self._determine_n_features(key, inputs, inputs)
-            
-            shap_matrix = self._compute_kernel_shap(
-                key=key,
-                input_emb=inputs,
-                background_emb=background,
-                n_features=n_features,
-                target_class_idx=target_class_idx,
-                time_info=time_info,
-                label_data=label_data,
-            )
-            
-            shap_values[key] = shap_matrix
-
-        return shap_values
+        return self._map_to_input_shapes(out, shapes)
 
     # ------------------------------------------------------------------
     # Core Kernel SHAP computation
     # ------------------------------------------------------------------
     def _compute_kernel_shap(
         self,
-        key: str,
-        input_emb: Dict[str, torch.Tensor],
-        background_emb: Dict[str, torch.Tensor],
-        n_features: int,
-        target_class_idx: Optional[int],
-        time_info: Optional[Dict[str, torch.Tensor]],
-        label_data: Optional[Dict[str, torch.Tensor]],
-    ) -> torch.Tensor:
+        inputs: Dict[str, tuple[torch.Tensor, ...]],
+        xs: Dict[str, torch.Tensor],
+        bs: Dict[str, torch.Tensor],
+        n_features: dict[str, int],
+        target: torch.Tensor,
+    ) -> Dict[str, torch.Tensor]:
         """Compute SHAP values using the Kernel SHAP approximation method.
 
-        This implements the Kernel SHAP algorithm that approximates Shapley values 
+        This implements the Kernel SHAP algorithm that approximates Shapley values
         through a weighted least squares regression. The key steps are:
 
         1. Feature Coalitions: Generate random subsets of features
@@ -362,20 +324,20 @@ class ShapExplainer(BaseInterpreter):
         3. Weighted Least Squares: Solve for SHAP values using kernel weights
 
         Args:
-            key: Feature key being explained.
-            input_emb: Dictionary of input embeddings/tensors.
-            background_emb: Dictionary of background embeddings/tensors.
-            n_features: Number of features to explain.
-            target_class_idx: Target class index for multi-class models.
-            time_info: Optional temporal information.
-            label_data: Optional label information.
+            inputs: Dictionary of input tuples from the dataloader.
+            xs: Dictionary of input values (or embeddings).
+            bs: Dictionary of baseline values (or embeddings).
+            n_features: Dictionary mapping feature keys to feature counts.
+            target: Target tensor for prediction comparison.
 
         Returns:
-            torch.Tensor: SHAP values with shape (batch_size, n_features).
+            Dictionary mapping feature keys to SHAP value tensors.
         """
-        device = input_emb[key].device
-        batch_size = input_emb[key].shape[0] if input_emb[key].dim() >= 2 else 1
-        n_coalitions = min(2 ** n_features, self.max_coalitions)
+        device = next(iter(xs.values())).device
+        batch_size = next(iter(xs.values())).shape[0]
+        keys = sorted(xs.keys())  # Ensure consistent key order
+        total_features = sum(n_features[k] for k in keys)
+        n_coalitions = min(2 ** total_features, self.max_coalitions)
 
         # Storage for coalition sampling
         coalition_vectors = []
@@ -385,352 +347,241 @@ class ShapExplainer(BaseInterpreter):
         # Add edge case coalitions explicitly (empty and full)
         # These are crucial for the local accuracy property of SHAP
         edge_coalitions = [
-            torch.zeros(n_features, device=device),  # Empty coalition (baseline)
-            torch.ones(n_features, device=device),   # Full coalition (actual input)
+            torch.zeros(total_features, device=device),  # Empty coalition (baseline)
+            torch.ones(total_features, device=device),   # Full coalition (actual input)
         ]
-        
+
         for coalition in edge_coalitions:
-            per_input_preds = []
-            for b_idx in range(batch_size):
-                mixed_emb = self._create_mixed_sample(
-                    key, coalition, input_emb, background_emb, b_idx
-                )
-                
-                pred = self._evaluate_coalition(
-                    key, mixed_emb, background_emb, 
-                    target_class_idx, time_info, label_data
-                )
-                per_input_preds.append(pred)
+            gates = self._split_coalition_to_gates(
+                coalition, keys, n_features, batch_size
+            )
+            perturb = self._create_perturbed_sample(xs, bs, gates)
+            pred = self._evaluate_sample(inputs, perturb, target)
 
             coalition_vectors.append(coalition.float())
-            coalition_preds.append(torch.stack(per_input_preds, dim=0))
+            coalition_preds.append(pred.detach())
             coalition_weights.append(
-                self._compute_kernel_weight(coalition.sum().item(), n_features)
+                self._compute_kernel_weight(
+                    int(coalition.sum().item()), total_features
+                )
             )
 
         # Sample remaining coalitions randomly (excluding edge cases already added)
         n_random_coalitions = max(0, n_coalitions - 2)
         for _ in range(n_random_coalitions):
-            coalition = torch.randint(2, (n_features,), device=device)
-            
-            # Evaluate model for each input sample with this coalition
-            per_input_preds = []
-            for b_idx in range(batch_size):
-                mixed_emb = self._create_mixed_sample(
-                    key, coalition, input_emb, background_emb, b_idx
-                )
-                
-                pred = self._evaluate_coalition(
-                    key, mixed_emb, background_emb, 
-                    target_class_idx, time_info, label_data
-                )
-                per_input_preds.append(pred)
+            coalition = torch.randint(
+                2, (total_features,), device=device
+            ).float()
 
-            # Store coalition information
+            gates = self._split_coalition_to_gates(
+                coalition, keys, n_features, batch_size
+            )
+            perturb = self._create_perturbed_sample(xs, bs, gates)
+            pred = self._evaluate_sample(inputs, perturb, target)
+
             coalition_vectors.append(coalition.float())
-            coalition_preds.append(torch.stack(per_input_preds, dim=0))
+            coalition_preds.append(pred.detach())
             coalition_weights.append(
-                self._compute_kernel_weight(coalition.sum().item(), n_features)
+                self._compute_kernel_weight(
+                    int(coalition.sum().item()), total_features
+                )
             )
 
         # Solve weighted least squares
-        return self._solve_weighted_least_squares(
+        shap_values = self._solve_weighted_least_squares(
             coalition_vectors, coalition_preds, coalition_weights, device
         )
 
-    def _create_mixed_sample(
+        return self.split_feature_keys(shap_values, keys, n_features)
+
+    def _split_coalition_to_gates(
         self,
-        key: str,
         coalition: torch.Tensor,
-        input_emb: Dict[str, torch.Tensor],
-        background_emb: Dict[str, torch.Tensor],
-        batch_idx: int,
-    ) -> torch.Tensor:
-        """Create a mixed sample by combining background and input based on coalition.
-
-        Args:
-            key: Feature key.
-            coalition: Binary vector indicating which features to use from input.
-            input_emb: Input embeddings.
-            background_emb: Background embeddings.
-            batch_idx: Index of the sample in the batch.
-
-        Returns:
-            Mixed sample tensor.
-        """
-        mixed = background_emb[key].clone()
-        
-        for i, use_input in enumerate(coalition):
-            if not use_input:
-                continue
-                
-            # Handle various embedding shapes
-            dim = input_emb[key].dim()
-            if dim == 4:  # (batch, seq_len, inner_len, emb)
-                mixed[:, i, :, :] = input_emb[key][batch_idx, i, :, :]
-            elif dim == 3:  # (batch, seq_len, emb)
-                mixed[:, i, :] = input_emb[key][batch_idx, i, :]
-            else:  # 2D or other
-                mixed[:, i] = input_emb[key][batch_idx, i]
-
-        return mixed
-
-    def _evaluate_coalition(
-        self,
-        key: str,
-        mixed_emb: torch.Tensor,
-        background_emb: Dict[str, torch.Tensor],
-        target_class_idx: Optional[int],
-        time_info: Optional[Dict[str, torch.Tensor]],
-        label_data: Optional[Dict[str, torch.Tensor]],
-    ) -> torch.Tensor:
-        """Evaluate model prediction for a coalition.
-
-        Args:
-            key: Feature key being explained.
-            mixed_emb: Mixed embedding tensor.
-            background_emb: Background embeddings for other features.
-            target_class_idx: Target class index.
-            time_info: Optional temporal information.
-            label_data: Optional label information.
-
-        Returns:
-            Scalar prediction averaged over background samples.
-        """
-        if self.use_embeddings:
-            logits = self._forward_from_embeddings(
-                key, mixed_emb, background_emb, time_info, label_data
-            )
-        else:
-            logits = self._forward_from_inputs(
-                key, mixed_emb, background_emb, time_info, label_data
-            )
-
-        # Extract target class prediction
-        pred_vec = self._extract_target_prediction(logits, target_class_idx)
-        
-        # Average over background samples
-        return pred_vec.detach().mean()
-
-    def _forward_from_embeddings(
-        self,
-        key: str,
-        mixed_emb: torch.Tensor,
-        background_emb: Dict[str, torch.Tensor],
-        time_info: Optional[Dict[str, torch.Tensor]],
-        label_data: Optional[Dict[str, torch.Tensor]],
-    ) -> torch.Tensor:
-        """Forward pass using embeddings.
-
-        Args:
-            key: Feature key being explained.
-            mixed_emb: Mixed embedding tensor.
-            background_emb: Background embeddings.
-            time_info: Optional temporal information.
-            label_data: Optional label information.
-
-        Returns:
-            Model logits.
-        """
-        # Build feature embeddings dictionary
-        feature_embeddings = {key: mixed_emb}
-        for fk in self.model.feature_keys:
-            if fk not in feature_embeddings:
-                if fk in background_emb:
-                    feature_embeddings[fk] = background_emb[fk].clone()
-                else:
-                    # Zero fallback
-                    ref_tensor = next(iter(feature_embeddings.values()))
-                    feature_embeddings[fk] = torch.zeros_like(ref_tensor)
-
-        # Prepare time info matching background batch size
-        time_info_bg = self._prepare_time_info(
-            time_info, feature_embeddings, mixed_emb.shape[0]
-        )
-
-        # Forward pass
-        with torch.no_grad():
-            # Create kwargs with proper label key
-            forward_kwargs = {
-                "time_info": time_info_bg,
-            }
-            # Add labels shaped for the model's loss (e.g., 1D long for cross entropy)
-            forward_kwargs.update(
-                self._build_label_kwargs(
-                    batch_size=mixed_emb.shape[0], label_data=label_data
-                )
-            )
-            
-            model_output = self.model.forward_from_embedding(
-                feature_embeddings,
-                **forward_kwargs
-            )
-
-        return self._extract_logits(model_output)
-
-    def _forward_from_inputs(
-        self,
-        key: str,
-        mixed_inputs: torch.Tensor,
-        background_inputs: Dict[str, torch.Tensor],
-        time_info: Optional[Dict[str, torch.Tensor]],
-        label_data: Optional[Dict[str, torch.Tensor]],
-    ) -> torch.Tensor:
-        """Forward pass using raw inputs (continuous features).
-
-        Args:
-            key: Feature key being explained.
-            mixed_inputs: Mixed input tensor.
-            background_inputs: Background inputs.
-            time_info: Optional temporal information.
-            label_data: Optional label information.
-
-        Returns:
-            Model logits.
-        """
-        model_inputs = {}
-        for fk in self.model.feature_keys:
-            if fk == key:
-                model_inputs[fk] = mixed_inputs
-            elif fk in background_inputs:
-                model_inputs[fk] = background_inputs[fk].clone()
-            else:
-                model_inputs[fk] = torch.zeros_like(mixed_inputs)
-
-        # Add labels shaped for the model's loss (e.g., 1D long for cross entropy)
-        model_inputs.update(
-            self._build_label_kwargs(
-                batch_size=mixed_inputs.shape[0], label_data=label_data
-            )
-        )
-
-        output = self.model(**model_inputs)
-        return self._extract_logits(output)
-
-    def _prepare_time_info(
-        self,
-        time_info: Optional[Dict[str, torch.Tensor]],
-        feature_embeddings: Dict[str, torch.Tensor],
-        n_background: int,
-    ) -> Optional[Dict[str, torch.Tensor]]:
-        """Prepare time information to match background batch size.
-
-        Args:
-            time_info: Original time information.
-            feature_embeddings: Feature embeddings to match sequence lengths.
-            n_background: Number of background samples.
-
-        Returns:
-            Adjusted time information or None.
-        """
-        if time_info is None:
-            return None
-
-        time_info_bg = {}
-        for fk, emb in feature_embeddings.items():
-            if fk not in time_info or time_info[fk] is None:
-                continue
-
-            seq_len = emb.shape[1]
-            t_orig = time_info[fk].to(self.model.device)
-
-            # Normalize to 1D sequence
-            t_vec = self._normalize_time_vector(t_orig)
-
-            # Adjust length to match embedding sequence length
-            t_adj = self._adjust_time_length(t_vec, seq_len)
-
-            # Expand to background batch size
-            time_info_bg[fk] = t_adj.unsqueeze(0).expand(n_background, -1)
-
-        return time_info_bg if time_info_bg else None
-
-    def _compute_base_logits(
-        self,
-        inputs: Dict[str, torch.Tensor],
-        time_info: Optional[Dict[str, torch.Tensor]],
-        label_data: Optional[Dict[str, torch.Tensor]],
-    ) -> torch.Tensor:
-        """Run a single forward on the original inputs to select target class."""
-        batch_size = next(iter(inputs.values())).shape[0]
-
-        with torch.no_grad():
-            if self.use_embeddings:
-                input_embs = self.model.embedding_model(inputs)
-                time_info_adj = self._prepare_time_info(
-                    time_info, input_embs, batch_size
-                )
-                forward_kwargs = {"time_info": time_info_adj}
-                forward_kwargs.update(
-                    self._build_label_kwargs(
-                        batch_size=batch_size, label_data=label_data
-                    )
-                )
-                output = self.model.forward_from_embedding(
-                    input_embs, **forward_kwargs
-                )
-            else:
-                model_inputs = {
-                    fk: inputs[fk] for fk in self.model.feature_keys if fk in inputs
-                }
-                model_inputs.update(
-                    self._build_label_kwargs(
-                        batch_size=batch_size, label_data=label_data
-                    )
-                )
-                output = self.model(**model_inputs)
-
-        return self._extract_logits(output)
-
-    # ------------------------------------------------------------------
-    # Label handling helpers
-    # ------------------------------------------------------------------
-    def _build_label_kwargs(
-        self,
+        keys: list,
+        n_features: dict[str, int],
         batch_size: int,
-        label_data: Optional[Dict[str, torch.Tensor]],
-    ) -> Dict[str, torch.Tensor]:
-        """Provide dummy labels shaped for the model loss.
+    ) -> dict[str, torch.Tensor]:
+        """Split a flat coalition vector into per-feature-key gate tensors.
 
-        StageNet computes loss inside `forward_from_embedding`; we feed zeros
-        with the correct shape/dtype to satisfy the loss signature without
-        influencing logits used for attribution.
+        Args:
+            coalition: Flat binary vector of length total_features.
+            keys: Sorted list of feature keys.
+            n_features: Dictionary mapping feature keys to feature counts.
+            batch_size: Batch size to expand gates to.
+
+        Returns:
+            Dictionary mapping feature keys to gate tensors (batch_size, n_features_k).
         """
-        if not getattr(self.model, "label_keys", None):
-            return {}
+        gates = {}
+        start = 0
+        for k in keys:
+            nf = n_features[k]
+            gates[k] = coalition[start : start + nf].expand(batch_size, -1)
+            start += nf
+        return gates
 
-        loss_name = ""
-        try:
-            loss_fn = self.model.get_loss_function()
-            loss_name = getattr(loss_fn, "__name__", "").lower()
-        except Exception:
-            loss_name = ""
+    def split_feature_keys(
+        self,
+        tensor: torch.Tensor,
+        keys: list,
+        n_features: dict[str, int],
+    ) -> dict[str, torch.Tensor]:
+        """Split concatenated SHAP values back into per-feature tensors.
 
-        is_cross_entropy = loss_name == "cross_entropy"
-        if is_cross_entropy:
-            dummy = torch.zeros(
-                (batch_size,), device=self.model.device, dtype=torch.long
+        Args:
+            tensor: Concatenated SHAP value tensor (batch_size, total_n_features).
+            keys: List of feature keys in order.
+            n_features: Dictionary mapping feature keys to number of features.
+        """
+        out: dict[str, torch.Tensor] = {}
+        start = 0
+        total = tensor.shape[1]
+
+        for k in keys:
+            nf = int(n_features[k])
+            end = start + nf
+            if end > total:
+                raise ValueError(
+                    f"Not enough features to slice key={k}: need {end}, have {total}"
+                )
+            out[k] = tensor[:, start:end]  # (batch_size, nf)
+            start = end
+
+        if start != total:
+            raise ValueError(
+                f"Unused trailing features: used {start}, total {total}"
             )
+
+        return out
+
+    def _create_perturbed_sample(
+        self,
+        xs: dict[str, torch.Tensor],
+        bs: dict[str, torch.Tensor],
+        gates: dict[str, torch.Tensor],
+    ) -> dict[str, torch.Tensor]:
+        """Create a perturbed sample by mixing input and baseline based on gate tensor.
+
+        Args:
+            xs: Original input tensors.
+            bs: Baseline tensors.
+            gates: Binary gate tensors indicating which features to include (1) or exclude (0).
+
+        Returns:
+            Dictionary of perturbed sample tensors.
+        """
+        perturb = {}
+        for key, gate in gates.items():
+            # Expand gate dims to broadcast over trailing dimensions (e.g. embed_dim)
+            g = gate
+            while g.dim() < xs[key].dim():
+                g = g.unsqueeze(-1)
+            perturb[key] = torch.where(g == 1, xs[key], bs[key])
+        return perturb
+
+    def _evaluate_sample(
+        self,
+        inputs: dict[str, tuple[torch.Tensor, ...]],
+        perturb: dict[str, torch.Tensor],
+        target: torch.Tensor,
+    ) -> torch.Tensor:
+        """Evaluate model prediction for a perturbed sample.
+
+        Unlike LIME (which uses distance-from-target), Kernel SHAP requires the
+        **actual model prediction** for the target class so the weighted least
+        squares correctly decomposes f(x) - E[f(x)] into per-feature Shapley
+        values.
+
+        Args:
+            inputs: Original input tuples from the dataloader.
+            perturb: Dictionary of perturbed value tensors.
+            target: Target tensor used to select which class prediction to
+                return.  For binary this is a 0/1 scalar or (batch,1) tensor;
+                for multiclass/multilabel it is a one-hot vector.
+
+        Returns:
+            Target-class prediction scalar per batch item, shape (batch_size,).
+        """
+        inputs = inputs.copy()
+        # For continuous (non-token) features, embed through embedding_model
+        # so forward_from_embedding receives proper embeddings.
+        # Token features were already embedded before perturbation.
+        if self.use_embeddings:
+            embedding_model = self.model.get_embedding_model()
+            assert embedding_model is not None, (
+                "Model must have an embedding model for embedding-based SHAP."
+            )
+            continuous_keys = {
+                k for k in perturb
+                if not self.model.dataset.input_processors[k].is_token()
+            }
+            if continuous_keys:
+                continuous_embedded = embedding_model(
+                    {k: perturb[k] for k in continuous_keys}
+                )
+                perturb = {**perturb, **continuous_embedded}
+
+        for k in inputs.keys():
+            # Insert perturbed value tensor back into input tuple
+            schema = self.model.dataset.input_processors[k].schema()
+            inputs[k] = (
+                *inputs[k][: schema.index("value")],
+                perturb[k],
+                *inputs[k][schema.index("value") + 1 :],
+            )
+
+        logits = self.model.forward_from_embedding(**inputs)["logit"]
+
+        return self._extract_target_prediction(logits, target)
+
+    def _extract_target_prediction(
+        self,
+        logits: torch.Tensor,
+        target: torch.Tensor,
+    ) -> torch.Tensor:
+        """Extract the model's prediction for the target class.
+
+        Kernel SHAP decomposes f(x) ≈ φ₀ + Σ φᵢ zᵢ via weighted least squares.
+        Using **raw logits** (unbounded) rather than probabilities (bounded
+        [0, 1]) is critical: sigmoid compression squashes coalition differences
+        in the saturated regions, producing uniformly small SHAP values and
+        degraded feature rankings.
+
+        Args:
+            logits: Raw model logits, shape (batch_size, n_classes) or
+                (batch_size, 1).
+            target: Target indicator.  Binary: scalar/tensor with 0 or 1.
+                Multiclass: one-hot tensor.  Multilabel: multi-hot tensor.
+
+        Returns:
+            Scalar prediction per batch item, shape (batch_size,).
+        """
+        mode = self._prediction_mode()
+
+        if mode == "binary":
+            # Use raw logit — not sigmoid probability — to preserve the
+            # dynamic range that Kernel SHAP's linear decomposition needs.
+            logit = logits.squeeze(-1)  # (batch,)
+            t = target.float()
+            if t.dim() > 1:
+                t = t.squeeze(-1)
+            # target=1  →  logit   (higher logit ⇒ more positive class)
+            # target=0  → −logit   (higher value ⇒ more negative class)
+            return t * logit + (1 - t) * (-logit)
+
+        elif mode == "multiclass":
+            # target is one-hot; dot-product extracts the target-class logit
+            return (target.float() * logits).sum(dim=-1)  # (batch,)
+
+        elif mode == "multilabel":
+            # target is multi-hot; average logits over active labels
+            t = target.float()
+            n_active = t.sum(dim=-1).clamp(min=1)  # avoid div-by-zero
+            return (t * logits).sum(dim=-1) / n_active  # (batch,)
+
         else:
-            out_size = 1
-            try:
-                out_size = self.model.get_output_size()
-            except Exception:
-                pass
-            dummy = torch.zeros(
-                (batch_size, out_size), device=self.model.device, dtype=torch.float32
-            )
-
-        return {label_key: dummy for label_key in self.model.label_keys}
-
-    def _is_multiclass(self) -> bool:
-        """Detect multiclass mode via loss function signature."""
-        try:
-            loss_fn = self.model.get_loss_function()
-            loss_name = getattr(loss_fn, "__name__", "").lower()
-            return loss_name == "cross_entropy"
-        except Exception:
-            return False
+            # regression or unknown — just return the logit
+            return logits.squeeze(-1)
 
     # ------------------------------------------------------------------
     # Weighted least squares solver
@@ -787,76 +638,66 @@ class ShapExplainer(BaseInterpreter):
     # Background sample generation
     # ------------------------------------------------------------------
     def _generate_background_samples(
-        self, inputs: Dict[str, torch.Tensor]
+        self,
+        values: Dict[str, torch.Tensor],
+        use_embeddings: bool = False,
     ) -> Dict[str, torch.Tensor]:
         """Generate background samples for SHAP computation.
 
-        Creates reference samples to establish baseline predictions. The sampling 
-        strategy adapts to the feature type:
-        - Discrete features: Sample uniformly from observed unique values
-        - Continuous features: Sample uniformly from the range [min, max]
+        Creates reference samples to establish baseline predictions.
+        The sampling strategy adapts to the feature type:
+        - Discrete features: Embed UNK token as the baseline
+        - Continuous features: Use a small neutral value (e.g., near-zero)
 
         Args:
-            inputs: Dictionary mapping feature names to input tensors.
+            values: The dictionary of input tensors for which we plan to perturb.
+                It should be the raw input, meaning it does not go through any
+                embedding layer yet.
+            use_embeddings: If True, generate baselines suitable for
+                embedding-based SHAP.
 
         Returns:
             Dictionary mapping feature names to background sample tensors.
         """
-        background_samples = {}
+        baselines = {}
 
-        for key, x in inputs.items():
-            if x.dtype in [torch.int64, torch.int32, torch.long]:
-                # Discrete features: sample from unique values
-                unique_vals = torch.unique(x)
-                samples = unique_vals[
-                    torch.randint(
-                        len(unique_vals),
-                        (self.n_background_samples,) + x.shape[1:],
-                    )
-                ]
+        for k, v in values.items():
+            if use_embeddings and self.model.dataset.input_processors[k].is_token():
+                # Token features: UNK token (index 1) as baseline.
+                # Embedding happens later in attribute().
+                baseline = torch.ones_like(v)
             else:
-                # Continuous features: sample from range
-                min_val = torch.min(x)
-                max_val = torch.max(x)
-                samples = torch.rand(
-                    (self.n_background_samples,) + x.shape[1:], device=x.device
-                ) * (max_val - min_val) + min_val
+                # Continuous features: use small neutral values (near-zero)
+                baseline = torch.zeros_like(v) + 1e-2
+            baselines[k] = baseline
 
-            background_samples[key] = samples.to(x.device)
-
-        return background_samples
+        return baselines
 
     # ------------------------------------------------------------------
     # Utility helpers
     # ------------------------------------------------------------------
     @staticmethod
     def _determine_n_features(
-        key: str,
-        inputs: Dict[str, torch.Tensor],
-        embeddings: Dict[str, torch.Tensor],
-    ) -> int:
-        """Determine the number of features to explain for a given key.
+        raw_x: Dict[str, torch.Tensor],
+    ) -> dict[str, int]:
+        """Determine the number of features to explain for each key.
 
         Args:
-            key: Feature key.
-            inputs: Original input tensors.
-            embeddings: Embedding tensors.
+            raw_x: Original input tensors. It should be the raw input,
+                meaning it does not go through any embedding layer yet.
 
         Returns:
-            Number of features (typically sequence length or feature dimension).
+            Dictionary mapping feature keys to feature counts.
         """
-        # Prefer original input shape
-        if key in inputs and inputs[key].dim() >= 2:
-            return inputs[key].shape[1]
-
-        # Fallback to embedding shape
-        emb = embeddings[key]
-        if emb.dim() >= 2:
-            return emb.shape[1]
-        return emb.shape[-1]
+        out = {}
+        for key, value in raw_x.items():
+            if value.dim() >= 2:
+                out[key] = value.shape[1]
+            else:
+                out[key] = value.shape[-1]
+        return out
 
     @staticmethod
-    
     def _compute_kernel_weight(coalition_size: int, n_features: int) -> torch.Tensor:
         """Compute Kernel SHAP weight for a coalition.
 
@@ -885,86 +726,6 @@ class ShapExplainer(BaseInterpreter):
         weight = (M - 1) / (comb_val * z * (M - z))
 
         return torch.tensor(weight, dtype=torch.float32)
-
-    @staticmethod
-    def _extract_logits(model_output) -> torch.Tensor:
-        """Extract logits from model output.
-
-        Args:
-            model_output: Model output (dict or tensor).
-
-        Returns:
-            Logit tensor.
-        """
-        if isinstance(model_output, dict) and "logit" in model_output:
-            return model_output["logit"]
-        return model_output
-
-    @staticmethod
-    def _extract_target_prediction(
-        logits: torch.Tensor, target_class_idx: Optional[int]
-    ) -> torch.Tensor:
-        """Extract target class prediction from logits.
-
-        Args:
-            logits: Model logits.
-            target_class_idx: Target class index (None for max prediction).
-
-        Returns:
-            Target prediction tensor.
-        """
-        if target_class_idx is None:
-            return torch.max(logits, dim=-1)[0]
-
-        if logits.dim() > 1 and logits.shape[-1] > 1:
-            return logits[..., target_class_idx]
-        else:
-            # Binary classification with single logit
-            sig = torch.sigmoid(logits.squeeze(-1))
-            return sig if target_class_idx == 1 else 1.0 - sig
-
-    @staticmethod
-    def _normalize_time_vector(time_tensor: torch.Tensor) -> torch.Tensor:
-        """Normalize time tensor to 1D vector.
-
-        Args:
-            time_tensor: Time information tensor.
-
-        Returns:
-            1D time vector.
-        """
-        if time_tensor.dim() == 2 and time_tensor.shape[0] > 0:
-            return time_tensor[0].detach()
-        elif time_tensor.dim() == 1:
-            return time_tensor.detach()
-        else:
-            return time_tensor.reshape(-1).detach()
-
-    @staticmethod
-    def _adjust_time_length(time_vec: torch.Tensor, target_len: int) -> torch.Tensor:
-        """Adjust time vector length to match target length.
-
-        Args:
-            time_vec: 1D time vector.
-            target_len: Target sequence length.
-
-        Returns:
-            Adjusted time vector.
-        """
-        current_len = time_vec.numel()
-
-        if current_len == target_len:
-            return time_vec
-        elif current_len < target_len:
-            # Pad by repeating last value
-            if current_len == 0:
-                return torch.zeros(target_len, device=time_vec.device)
-            pad_len = target_len - current_len
-            pad = time_vec[-1].unsqueeze(0).repeat(pad_len)
-            return torch.cat([time_vec, pad], dim=0)
-        else:
-            # Truncate
-            return time_vec[:target_len]
 
     @staticmethod
     def _map_to_input_shapes(

@@ -302,10 +302,10 @@ class SampleDataset(litdata.StreamingDataset):
         with open(f"{path}/schema.pkl", "rb") as f:
             metadata = pickle.load(f)
 
-        self.input_schema = metadata["input_schema"]
-        self.output_schema = metadata["output_schema"]
-        self.input_processors = metadata["input_processors"]
-        self.output_processors = metadata["output_processors"]
+        self.input_schema: dict[str, Any] = metadata["input_schema"]
+        self.output_schema: dict[str, Any] = metadata["output_schema"]
+        self.input_processors: dict[str, FeatureProcessor] = metadata["input_processors"]
+        self.output_processors: dict[str, FeatureProcessor]= metadata["output_processors"]
         self._remove_ignored_processors()
 
         self.patient_to_index = metadata["patient_to_index"]
