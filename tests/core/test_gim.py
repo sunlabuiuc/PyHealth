@@ -492,14 +492,14 @@ class TestGIM(unittest.TestCase):
         p_T = softmax(x/T) in the Jacobian formula p*(g - <p,g>) but NOT
         multiply by 1/T (which would be the chain-rule factor for x/T).
         """
-        from pyhealth.interpret.methods.gim import _TemperatureSoftmax
+        from pyhealth.interpret.methods.gim import _TemperatureSoftmaxFn
 
         torch.manual_seed(42)
         x = torch.randn(1, 5, requires_grad=True)
         T = 2.0
 
         # Compute TSG output and gradient
-        y = _TemperatureSoftmax.apply(x, -1, T)
+        y = _TemperatureSoftmaxFn.apply(x, -1, T)
         grad_out = torch.ones_like(y)
         y.backward(grad_out)
         tsg_grad = x.grad.clone()

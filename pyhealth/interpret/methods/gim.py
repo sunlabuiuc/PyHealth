@@ -18,7 +18,7 @@ def _iter_child_modules(module: torch.nn.Module):
         yield from _iter_child_modules(child)
 
 
-class _SoftmaxWrapper(torch.nn.Module):
+class _SoftmaxTSG(torch.nn.Module):
     """Swap nn.Softmax with temperature-adjusted backward for GIM."""
 
     def __init__(self, dim: int | None, temperature: float):
@@ -27,7 +27,7 @@ class _SoftmaxWrapper(torch.nn.Module):
         self.temperature = temperature
 
     def forward(self, tensor: torch.Tensor) -> torch.Tensor:  
-        return _TemperatureSoftmax.apply(tensor, self.dim, self.temperature) # type: ignore[override]
+        return _TemperatureSoftmaxFn.apply(tensor, self.dim, self.temperature) # type: ignore[override]
 
 
 class _FrozenLayerNorm(torch.nn.Module):
@@ -172,7 +172,7 @@ class _AttentionGIM(torch.nn.Module):
             scores = scores.masked_fill(mask == 0, -1e9)
 
         # --- softmax with TSG ---
-        p_attn: torch.Tensor = _TemperatureSoftmax.apply(scores, -1, self.temperature)  # type: ignore[assignment]
+        p_attn: torch.Tensor = _TemperatureSoftmaxFn.apply(scores, -1, self.temperature)  # type: ignore[assignment]
 
         if mask is not None:
             p_attn = p_attn.masked_fill(mask == 0, 0)
@@ -205,7 +205,7 @@ class _GIMSwapContext(contextlib.AbstractContextManager):
             # Swap remaining standalone nn.Softmax modules (e.g. StageNet's
             # cumulative softmax) that live outside of Attention.
             elif isinstance(child, torch.nn.Softmax):
-                wrapper = _SoftmaxWrapper(dim=child.dim, temperature=self.temperature)
+                wrapper = _SoftmaxTSG(dim=child.dim, temperature=self.temperature)
                 setattr(parent, name, wrapper)
                 self._swapped.append((parent, name, child))
             # Swap nn.LayerNorm modules (LN freeze rule).
@@ -232,7 +232,7 @@ class _GIMSwapContext(contextlib.AbstractContextManager):
         )
 
 
-class _TemperatureSoftmax(torch.autograd.Function):
+class _TemperatureSoftmaxFn(torch.autograd.Function):
     """Custom autograd op implementing temperature-adjusted softmax gradients.
 
     Implements the Temperature-Scaled Gradients (TSG) rule from GIM Sec. 4.1 by
