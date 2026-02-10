@@ -10,13 +10,13 @@ class EEGEventsTUEV(BaseTask):
 
     For each EDF recording, this task:
       1) reads the EDF
-      2) applies bandpass (0.1-75 Hz), notch (50 Hz), resamples to 200 Hz
+      2) applies bandpass (0.1-75 Hz), notch (50 Hz), resamples to 256 Hz
       3) loads the paired .rec file (same path, .edf -> .rec)
       4) constructs 5-second event-centered windows (16 bipolar channels)
       5) returns one sample per event
 
     Each returned sample contains:
-      - "signal": np.ndarray, shape (16, 200*5)
+      - "signal": np.ndarray, shape (16, 256*5)
       - "offending_channel": int
       - "label": int
 
@@ -49,7 +49,7 @@ class EEGEventsTUEV(BaseTask):
         EventData = np.atleast_2d(EventData)
 
         numEvents, _ = EventData.shape
-        fs = 200.0
+        fs = 256.0
         numChan, _ = signals.shape
 
         features = np.zeros([numEvents, numChan, int(fs) * 5])
@@ -109,7 +109,7 @@ class EEGEventsTUEV(BaseTask):
 
         Rawdata.filter(l_freq=0.1, h_freq=75.0, verbose="error")
         Rawdata.notch_filter(50.0, verbose="error")
-        Rawdata.resample(200, n_jobs=5, verbose="error")
+        Rawdata.resample(256, n_jobs=5, verbose="error")
 
         _, times = Rawdata[:]
         signals = Rawdata.get_data(units="uV")
