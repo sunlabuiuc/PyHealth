@@ -131,14 +131,6 @@ class Ensemble(BaseInterpreter):
         # Normalize the attributions across items for each interpreter (e.g., by competitive ranking)
         attributions = self.competitive_ranking_noramlize(attributions) # shape (B, I, M)
         
-        
-        
-        # normalize the attributions across interpreters (e.g., by ranking)
-        _, rank = attributions.sort
-            
-            
-            
-            
             
         
         raise NotImplementedError("Ensemble attribution method is not implemented yet. This is a placeholder for future development.")
@@ -194,3 +186,16 @@ class Ensemble(BaseInterpreter):
 
         # 5. Normalize to [0, 1]
         return ranks / (M - 1)
+
+    def conflict_resolution(self, attributions: torch.Tensor) -> torch.Tensor:
+        """Truth discovery using CRH algorithm. This try to estimate the true importance scores 
+        by iteratively reweighting the experts based on their agreement with the current consensus.
+
+        Args:
+            attributions: A normalized attribution tensor of shape (B, I, M) 
+                where values are in [0, 1].
+
+        Returns:
+            Tensor of the same shape with values in [0, 1].
+        """
+        pas
