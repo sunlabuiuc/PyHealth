@@ -134,7 +134,6 @@ class TUABDataset(BaseDataset):
             
             rows: list[dict] = []
             for label in ("normal", "abnormal"):
-                label = 1 if label == "abnormal" else 0
                 edf_dir = root / split / label/ "01_tcp_ar"
                 
                 if not edf_dir.is_dir():
@@ -171,7 +170,7 @@ class TUABDataset(BaseDataset):
             df = pd.DataFrame(rows)
             
             df.sort_values(
-                ["patient_id", "session_id", "token_id"],
+                ["patient_id", "record_id"],
                 inplace=True,
                 na_position="last",
             )
