@@ -577,8 +577,8 @@ class DeepLift(BaseInterpreter):
             else:
                 current_output = self.model.forward(**current_fwd)
 
-        logits = current_output["logit"]
-        baseline_logits = baseline_output["logit"]
+        logits = current_output["logit"] # type: ignore[index]
+        baseline_logits = baseline_output["logit"] # type: ignore[index]
 
         # Compute per-sample target outputs
         target_output = self._compute_target_output(logits, target)
