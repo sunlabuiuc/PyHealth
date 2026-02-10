@@ -7,6 +7,12 @@ The tasks are:
 - EEGEventsTUEV: EEG event classification task for the TUEV dataset.
 - EEGAbnormalTUAB: Binary classification task for the TUAB dataset (abnormal vs normal).
 
+.. autoclass:: pyhealth.tasks.temple_university_EEG_tasks.EEGEventsTUEV
+    :members:
+    :undoc-members:
+    :show-inheritance:
 
-.. autofunction:: pyhealth.tasks.temple_university_EEG_tasks.EEGEventsTUEV
-.. autofunction:: pyhealth.tasks.temple_university_EEG_tasks.EEGAbnormalTUAB
+.. autoclass:: pyhealth.tasks.temple_university_EEG_tasks.EEGAbnormalTUAB
+    :members:
+    :undoc-members:
+    :show-inheritance:
