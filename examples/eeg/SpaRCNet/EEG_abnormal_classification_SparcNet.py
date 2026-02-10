@@ -1,36 +1,34 @@
 from pyhealth.datasets import split_by_visit, get_dataloader
 from pyhealth.trainer import Trainer
-from pyhealth.datasets import TUEVDataset
-from pyhealth.tasks import EEGEventsTUEV
+from pyhealth.datasets import TUABDataset
+from pyhealth.tasks import EEGAbnormalTUAB
 from pyhealth.models import SparcNet
 
 # step 1: load signal data
-dataset = TUEVDataset(root="/srv/local/data/TUH/tuh_eeg_events/v2.0.0/edf/", 
+dataset = TUABDataset(root="/srv/local/data/TUH/tuh_eeg_abnormal/v3.0.0/edf/", 
                             dev=True,
                             refresh_cache=True, 
                             )
-dataset.stats()
+print(dataset.stats())
 # step 2: set task
-TUEV_ds = dataset.set_task(EEGEventsTUEV(
-    resample_rate=200,    # Resample rate
-    bandpass_filter=(0.1, 75.0),    # Bandpass filter
-    notch_filter=50.0,    # Notch filter
+TUAB_ds = dataset.set_task(EEGAbnormalTUAB(
+    resample_rate=200,
+    bandpass_filter=(0.1, 75.0),
+    notch_filter=50.0,
 ))
-
-print(f"Total task samples: {len(TUEV_ds)}")
-print(f"Input schema: {TUEV_ds.input_schema}")
-print(f"Output schema: {TUEV_ds.output_schema}")
+print(f"Total task samples: {len(TUAB_ds)}")
+print(f"Input schema: {TUAB_ds.input_schema}")
+print(f"Output schema: {TUAB_ds.output_schema}")
 
 # Inspect a sample
-sample = TUEV_ds[0]
+sample = TUAB_ds[0]
 print(f"\nSample keys: {sample.keys()}")
 print(f"Signal shape: {sample['signal'].shape}")
 print(f"Label: {sample['label']}")
 
-
 # split dataset
 train_dataset, val_dataset, test_dataset = split_by_visit(
-    TUEV_ds, [0.6, 0.2, 0.2]
+    TUAB_ds, [0.6, 0.2, 0.2]
 )
 train_dataloader = get_dataloader(train_dataset, batch_size=32, shuffle=True)
 val_dataloader = get_dataloader(val_dataset, batch_size=32, shuffle=False)
@@ -44,10 +42,10 @@ print(
 
 # STEP 3: define model
 model = SparcNet(
-    dataset=TUEV_ds,
+    dataset=TUAB_ds,
     feature_keys=["signal"],
     label_key="label",
-    mode="multiclass",
+    mode="binary",
 )
 
 # STEP 4: define trainer
@@ -56,6 +54,7 @@ trainer.train(
     train_dataloader=train_dataloader,
     val_dataloader=val_dataloader,
     epochs=10,
+    monitor="pr_auc",
     optimizer_params={"lr": 1e-3},
 )
 
