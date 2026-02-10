@@ -22,15 +22,15 @@ from pyhealth.trainer import Trainer
 
 if __name__ == "__main__":
     # STEP 1: Load dataset
-    # Replace with your eICU dataset path
     base_dataset = eICUDataset(
         root="https://storage.googleapis.com/pyhealth/eicu-demo/",
         tables=["diagnosis", "medication", "physicalexam"],
         cache_dir=tempfile.TemporaryDirectory().name,
+        dev=True,
     )
     base_dataset.stats()
 
-    # STEP 2: Set task using ReadmissionPredictionEICU
+    # STEP 2: Set task
     task = ReadmissionPredictionEICU()
     sample_dataset = base_dataset.set_task(task)
 
