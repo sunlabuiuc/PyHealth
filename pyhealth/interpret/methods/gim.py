@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import contextlib
 from typing import Dict, List, Optional, Tuple, Type
 
@@ -29,10 +30,163 @@ class _SoftmaxWrapper(torch.nn.Module):
         return _TemperatureSoftmax.apply(tensor, self.dim, self.temperature) # type: ignore[override]
 
 
-class _GIMSwapContext(contextlib.AbstractContextManager):
-    """Temporarily replace softmax modules with GIM-aware versions."""
+class _FrozenLayerNorm(torch.nn.Module):
+    """LayerNorm replacement that treats normalization statistics as constants.
 
-    _TARGETS: Dict[Type[torch.nn.Module], str] = {torch.nn.Softmax: "softmax"}
+    Implements the LayerNorm freeze rule from GIM Sec. 4.2: in the forward
+    pass the output is identical to ``nn.LayerNorm``, but the backward pass
+    treats the mean and variance as fixed constants (i.e. their Jacobian
+    contributions are detached).
+    """
+
+    def __init__(self, original: torch.nn.LayerNorm):
+        super().__init__()
+        self.original = original
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:  # noqa: D401
+        out = _FrozenLayerNormFn.apply(
+            x,
+            self.original.normalized_shape,
+            self.original.weight,
+            self.original.bias,
+            self.original.eps,
+        )
+        assert isinstance(out, torch.Tensor)
+        return out
+
+
+class _FrozenLayerNormFn(torch.autograd.Function):
+    """Custom autograd: forward == LayerNorm, backward freezes statistics."""
+
+    @staticmethod
+    def forward(
+        ctx,
+        x: torch.Tensor,
+        normalized_shape: Tuple[int, ...],
+        weight: Optional[torch.Tensor],
+        bias: Optional[torch.Tensor],
+        eps: float,
+    ) -> torch.Tensor:
+        # Compute the standard LayerNorm output.
+        dims = tuple(range(-len(normalized_shape), 0))
+        mean = x.mean(dim=dims, keepdim=True)
+        var = x.var(dim=dims, unbiased=False, keepdim=True)
+        x_hat = (x - mean) / torch.sqrt(var + eps)
+        out = x_hat
+        if weight is not None:
+            out = out * weight
+        if bias is not None:
+            out = out + bias
+        # Save what we need for backward – mean and std are treated as
+        # constants, so we only need x_hat, weight, and 1/std.
+        inv_std = 1.0 / torch.sqrt(var + eps)
+        ctx.save_for_backward(x_hat, weight, inv_std)
+        return out
+
+    @staticmethod
+    def backward(ctx, grad_output: torch.Tensor):  # type: ignore[override]
+        x_hat, weight, inv_std = ctx.saved_tensors
+        # Treat mean/var as frozen constants → ∂out/∂x = weight / std
+        # (no correction terms from differentiating through mean/var).
+        if weight is not None:
+            grad_x = grad_output * weight * inv_std
+        else:
+            grad_x = grad_output * inv_std
+
+        # Gradients for affine parameters (weight, bias) are standard.
+        grad_weight = None
+        if weight is not None:
+            grad_weight = (grad_output * x_hat).flatten(end_dim=-len(weight.shape) - 1).sum(0)
+        grad_bias = None
+        if ctx.saved_tensors[1] is not None:  # bias was provided
+            grad_bias = grad_output.flatten(end_dim=-len(weight.shape) - 1).sum(0)
+
+        return grad_x, None, grad_weight, grad_bias, None
+
+
+class _MatMulNorm(torch.autograd.Function):
+    """matmul whose backward divides grad by fan-in (=2 for a binary product).
+
+    Implements the uniform division rule from GIM Sec. 4.2 for a single
+    matrix multiplication.  Used inside :class:`_AttentionGIM` to normalise
+    gradients flowing through Q·K^T and attn·V products.
+
+    Because the /2 is applied *per matmul*, the effective normalisation
+    compounds across the two sequential multiplications in attention:
+
+    * **V** participates in one matmul (attn·V)  → effective /2.
+    * **Q** passes through two matmuls (Q·K^T → softmax → attn·V) →
+      effective /4  (the /2 from attn·V propagates through softmax's
+      linear Jacobian, then a second /2 comes from Q·K^T).
+    * **K** — same as Q → effective /4.
+
+    This matches the reference implementation (JoakimEdin/gim,
+    ``_grad_normalize``: key÷4, query÷4, value÷2).
+    """
+
+    @staticmethod
+    def forward(ctx, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+        ctx.save_for_backward(a, b)
+        return a @ b
+
+    @staticmethod
+    def backward(ctx, grad_output: torch.Tensor):  # type: ignore[override]
+        a, b = ctx.saved_tensors
+        grad_a = (grad_output @ b.transpose(-2, -1)) / 2.0
+        grad_b = (a.transpose(-2, -1) @ grad_output) / 2.0
+        return grad_a, grad_b
+
+
+class _AttentionGIM(torch.nn.Module):
+    """Drop-in replacement for ``Attention`` that applies GIM rules 1 & 3.
+
+    1. **TSG** – the softmax in the forward pass is computed normally, but
+       the backward Jacobian uses a higher temperature (Sec. 4.1).
+    3. **Gradient normalisation** – both ``matmul(Q, K^T)`` and
+       ``matmul(attn, V)`` use the uniform division rule so that each
+       factor receives half of the incoming gradient (Sec. 4.2).
+
+    This module mirrors the signature of
+    ``pyhealth.models.transformer.Attention`` so it can be swapped in and
+    out by :class:`_GIMSwapContext` without touching any global state.
+    """
+
+    def __init__(self, temperature: float):
+        super().__init__()
+        self.temperature = max(float(temperature), 1.0)
+
+    def forward(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        mask: Optional[torch.Tensor] = None,
+        dropout: Optional[torch.nn.Module] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        # --- scores = Q · K^T / sqrt(d_k) with gradient normalisation ---
+        qk = _MatMulNorm.apply(query, key.transpose(-2, -1))
+        assert isinstance(qk, torch.Tensor)
+        scores = qk / math.sqrt(query.size(-1))
+
+        if mask is not None:
+            scores = scores.masked_fill(mask == 0, -1e9)
+
+        # --- softmax with TSG ---
+        p_attn: torch.Tensor = _TemperatureSoftmax.apply(scores, -1, self.temperature)  # type: ignore[assignment]
+
+        if mask is not None:
+            p_attn = p_attn.masked_fill(mask == 0, 0)
+        if dropout is not None:
+            p_attn = dropout(p_attn)
+
+        # --- attn · V with gradient normalisation ---
+        out = _MatMulNorm.apply(p_attn, value)
+        assert isinstance(out, torch.Tensor)
+        return out, p_attn
+
+
+class _GIMSwapContext(contextlib.AbstractContextManager):
+    """Temporarily replace Attention, Softmax and LayerNorm modules with GIM-aware versions."""
 
     def __init__(self, model: BaseModel, temperature: float):
         self.model = model
@@ -41,8 +195,22 @@ class _GIMSwapContext(contextlib.AbstractContextManager):
 
     def __enter__(self) -> "_GIMSwapContext":
         for parent, name, child in _iter_child_modules(self.model):
-            if isinstance(child, torch.nn.Softmax):
+            # Swap Attention modules inside MultiHeadedAttention –
+            # this subsumes both the softmax (TSG) and the matmul
+            # (gradient normalisation) rules for attention.
+            if self._is_attention_module(child):
+                wrapper = _AttentionGIM(temperature=self.temperature)
+                setattr(parent, name, wrapper)
+                self._swapped.append((parent, name, child))
+            # Swap remaining standalone nn.Softmax modules (e.g. StageNet's
+            # cumulative softmax) that live outside of Attention.
+            elif isinstance(child, torch.nn.Softmax):
                 wrapper = _SoftmaxWrapper(dim=child.dim, temperature=self.temperature)
+                setattr(parent, name, wrapper)
+                self._swapped.append((parent, name, child))
+            # Swap nn.LayerNorm modules (LN freeze rule).
+            elif isinstance(child, torch.nn.LayerNorm):
+                wrapper = _FrozenLayerNorm(child)
                 setattr(parent, name, wrapper)
                 self._swapped.append((parent, name, child))
         return self
@@ -52,6 +220,16 @@ class _GIMSwapContext(contextlib.AbstractContextManager):
             setattr(parent, name, original)
         self._swapped.clear()
         return False
+
+    @staticmethod
+    def _is_attention_module(module: torch.nn.Module) -> bool:
+        """Return True for PyHealth's ``Attention`` (scaled dot-product helper)."""
+        cls = type(module)
+        return (
+            cls.__name__ == "Attention"
+            and hasattr(module, "softmax")
+            and isinstance(getattr(module, "softmax"), torch.nn.Softmax)
+        )
 
 
 class _TemperatureSoftmax(torch.autograd.Function):
@@ -89,15 +267,28 @@ class _TemperatureSoftmax(torch.autograd.Function):
             grad_input = probs * (grad_output - dot)
             return grad_input, None, None
 
+        # TSG: recompute softmax at higher temperature, then use the
+        # *standard* softmax Jacobian formula evaluated at the
+        # temperature-adjusted distribution.  Crucially, we do NOT
+        # multiply by 1/T (the chain-rule factor for x/T) — TSG is
+        # defined as "change the point at which the Jacobian is
+        # evaluated", not "compute the full derivative of softmax(x/T)".
+        # This matches the reference implementation (softmax_tsg in
+        # JoakimEdin/gim, utils.py).
         adjusted = torch.softmax(input_tensor / temperature, dim=dim)
         dot = (grad_output * adjusted).sum(dim=dim, keepdim=True)
         grad_input = adjusted * (grad_output - dot)
-        grad_input = grad_input / temperature
         return grad_input, None, None
 
 
 class _GIMHookContext(contextlib.AbstractContextManager):
-    """Context manager that swaps softmax modules for temperature-aware variants."""
+    """Context manager that installs all GIM backward-pass modifications.
+
+    Activates three mechanisms when entered (all via module swapping):
+    1. Temperature-adjusted softmax (TSG) — ``nn.Softmax`` and ``Attention``.
+    2. Frozen LayerNorm — ``nn.LayerNorm``.
+    3. Gradient normalisation for Q·K^T and attn·V — ``Attention``.
+    """
 
     def __init__(self, model: BaseModel, temperature: float):
         self.model = model
@@ -105,8 +296,7 @@ class _GIMHookContext(contextlib.AbstractContextManager):
         self._swap_ctx = _GIMSwapContext(model, temperature=max(float(temperature), 1.0))
 
     def __enter__(self) -> "_GIMHookContext":
-        if self.temperature > 1.0:
-            self._swap_ctx.__enter__()
+        self._swap_ctx.__enter__()
         return self
 
     def __exit__(self, exc_type, exc, exc_tb) -> bool:
@@ -118,26 +308,40 @@ class GIM(BaseInterpreter):
     """Gradient Interaction Modifications for StageNet-style and Transformer models.
 
     This interpreter adapts the Gradient Interaction Modifications (GIM)
-    technique (Edin et al., 2025) to PyHealth, focusing on StageNet where
-    cumulative softmax operations can exhibit self-repair. The implementation
-    follows three high-level ideas from the paper:
+    technique (Edin et al., 2025) to PyHealth. It supports both
+    recurrent models such as StageNet (where cumulative softmax can
+    exhibit self-repair) and Transformer / attention-based architectures
+    (where LayerNorm and Q·K^T interactions require special treatment).
 
-    1. **Temperature-adjusted softmax gradients (TSG):** Backpropagated
-       gradients through cumulative softmax are recomputed with a higher
-       temperature, exposing interactions that are otherwise hidden by
-       softmax redistribution.
-    2. **LayerNorm freeze:** Layer normalization parameters are treated as
-       constants during backpropagation. StageNet does not employ layer norm,
-       so this rule becomes a mathematical no-op, matching the paper when
-       σ is constant.
-    3. **Gradient normalization:** When no multiplicative fan-in exists (as in
-       StageNet's embedding → recurrent pipeline) the uniform division rule
-       effectively multiplies by 1, so propagating raw gradients remains
-       faithful to Section 4.2.
+    The implementation follows three rules from the paper:
+
+    1. **Temperature-adjusted softmax gradients (TSG):** All ``nn.Softmax``
+       modules are temporarily replaced so the backward Jacobian is
+       recomputed at a higher temperature, exposing interactions hidden
+       by softmax redistribution (Sec. 4.1).
+    2. **LayerNorm freeze:** ``nn.LayerNorm`` modules are replaced with a
+       variant that treats the running mean and variance as frozen
+       constants during backpropagation. For models without LayerNorm
+       (e.g. StageNet) this is a no-op (Sec. 4.2).
+    3. **Gradient normalization (uniform division):** ``torch.matmul``
+       calls inside attention layers (the Q·K^T product) are wrapped so
+       that gradients flowing through the binary product are divided by 2.
+       Thanks to composition across the two matmuls in attention, Q and K
+       effectively receive /4 and V receives /2, matching the reference
+       implementation.  For models without multi-head attention (e.g.
+       StageNet) this is a no-op (Sec. 4.2).
+
+    .. note::
+       The paper also mentions a third multiplicative interaction (MLP
+       gate-projection) that is relevant for gated FFNs (e.g. SwiGLU).
+       PyHealth's ``PositionwiseFeedForward`` uses a standard two-layer
+       FFN with GELU (no element-wise gate), so this normalisation is not
+       needed and is intentionally omitted.
 
     Args:
         model: Trained PyHealth model supporting ``forward_from_embedding``
-            and ``get_embedding_model()`` (StageNet is currently supported).
+            and ``get_embedding_model()``. Currently tested with StageNet,
+            StageNetMHA, and Transformer.
         temperature: Softmax temperature used exclusively for the backward
             pass. A value of ``2.0`` matches the paper's best setting.
 
@@ -318,27 +522,28 @@ class GIM(BaseInterpreter):
         # Clear stale gradients before the attribution pass.
         self.model.zero_grad(set_to_none=True)
 
-        # Step 1 (TSG): install the temperature-adjusted softmax hooks so all
-        # backward passes through StageNet's cumax operations use the higher τ.
+        # All three GIM rules are applied via _GIMHookContext:
+        #   Step 1 (TSG): nn.Softmax → temperature-adjusted backward.
+        #   Step 2 (LayerNorm freeze): nn.LayerNorm → frozen statistics.
+        #   Step 3 (Gradient normalization): torch.matmul → uniform division
+        #            for Q·K^T in attention layers.
+        # The context manager detects which rules are applicable to the model
+        # and only activates the relevant ones.
         with _GIMHookContext(self.model, self.temperature):
             output = self.model.forward_from_embedding(**forward_inputs)
 
-        logits = output["logit"] # type: ignore[assignment]
-        target_output = self._compute_target_output(logits, target)
+            logits = output["logit"]  # type: ignore[assignment]
+            target_output = self._compute_target_output(logits, target)
 
-        # Step 2 (LayerNorm freeze): StageNet does not contain layer norms, so
-        # there are no σ parameters to freeze; the reset below ensures any
-        # hypothetical normalization buffers would stay constant as in Sec. 4.2.
-        self.model.zero_grad(set_to_none=True)
-        for emb in embeddings.values():
-            if emb.grad is not None:
-                emb.grad.zero_()
+            # Clear stale gradients, then backpropagate through the
+            # GIM-modified computational graph.
+            self.model.zero_grad(set_to_none=True)
+            for emb in embeddings.values():
+                if emb.grad is not None:
+                    emb.grad.zero_()
 
-        target_output.backward()
+            target_output.backward()
 
-        # Step 3 (Gradient normalization): StageNet lacks the multi-input
-        # products targeted by the uniform rule, so dividing by 1 (identity)
-        # yields the same gradients the paper would propagate.
         attributions: dict[str, torch.Tensor] = {}
         for key, emb in embeddings.items():
             grad = emb.grad
