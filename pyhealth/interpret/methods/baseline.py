@@ -17,7 +17,7 @@ from pyhealth.models import BaseModel
 from .base_interpreter import BaseInterpreter
 
 
-class Random(BaseInterpreter):
+class RandomBaseline(BaseInterpreter):
     """Random feature attribution baseline for PyHealth models.
 
     This interpreter assigns uniformly random importance scores to input
