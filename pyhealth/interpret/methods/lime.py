@@ -221,8 +221,19 @@ class LimeExplainer(BaseInterpreter):
             if "mask" in schema:
                 masks[k] = v[schema.index("mask")]
             else:
-                # Infer mask from values if not explicitly provided (assumes zero values indicate masked features)
-                masks[k] = (v[schema.index("value")] != 0).int()
+                val = v[schema.index("value")]
+                processor = self.model.dataset.input_processors[k]
+                if processor.is_token():
+                    masks[k] = (val != 0).int()
+                else:
+                    # For continuous features, check whether the entire
+                    # feature vector at each timestep is zero (padding)
+                    # rather than per-element, so valid 0.0 values are
+                    # not masked out.
+                    if val.dim() >= 3:
+                        masks[k] = (val.abs().sum(dim=-1) != 0).int()
+                    else:
+                        masks[k] = (val != 0).int()
                 
         # Append input masks to inputs for baseline generation and perturbation
         for k, v in inputs.items():
