@@ -37,19 +37,28 @@ class EEGEventsTUEV(BaseTask):
     input_schema: Dict[str, str] = {"signal": "tensor"}
     output_schema: Dict[str, str] = {"label": "multiclass"}
 
-    def __init__(self) -> None:
+    def __init__(self,
+                 resample_rate: float = 200,
+                 bandpass_filter: Tuple[float, float] = (0.1, 75.0),
+                 notch_filter: float = 50.0,
+                 ) -> None:
         super().__init__()
+
+        self.resample_rate = resample_rate
+        self.bandpass_filter = bandpass_filter
+        self.notch_filter = notch_filter
 
 
     @staticmethod
     def BuildEvents(
-        signals: np.ndarray, times: np.ndarray, EventData: np.ndarray
+        signals: np.ndarray, times: np.ndarray, EventData: np.ndarray,
+        resample_rate: float = 200,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         # Ensure 2D in case a .rec has only one row
         EventData = np.atleast_2d(EventData)
 
         numEvents, _ = EventData.shape
-        fs = 256.0
+        fs = resample_rate
         numChan, _ = signals.shape
 
         features = np.zeros([numEvents, numChan, int(fs) * 5])
@@ -104,12 +113,16 @@ class EEGEventsTUEV(BaseTask):
         return new_signals
 
     @staticmethod
-    def readEDF(fileName: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray, mne.io.BaseRaw]:
+    def readEDF(fileName: str,
+                 resample_rate: float = 200,
+                 bandpass_filter: Tuple[float, float] = (0.1, 75.0),
+                 notch_filter: float = 50.0,
+                 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, mne.io.BaseRaw]:
         Rawdata = mne.io.read_raw_edf(fileName, preload=True, verbose="error")
 
-        Rawdata.filter(l_freq=0.1, h_freq=75.0, verbose="error")
-        Rawdata.notch_filter(50.0, verbose="error")
-        Rawdata.resample(256, n_jobs=5, verbose="error")
+        Rawdata.filter(l_freq=bandpass_filter[0], h_freq=bandpass_filter[1], verbose="error")
+        Rawdata.notch_filter(notch_filter, verbose="error")
+        Rawdata.resample(resample_rate, n_jobs=5, verbose="error")
 
         _, times = Rawdata[:]
         signals = Rawdata.get_data(units="uV")
@@ -134,9 +147,9 @@ class EEGEventsTUEV(BaseTask):
         for event in events:
             edf_path = event.signal_file
 
-            signals, times, rec, raw = self.readEDF(edf_path)
+            signals, times, rec, raw = self.readEDF(edf_path, self.resample_rate, self.bandpass_filter, self.notch_filter)
             signals = self.convert_signals(signals, raw)
-            feats, offending_channels, labels = self.BuildEvents(signals, times, rec)
+            feats, offending_channels, labels = self.BuildEvents(signals, times, rec, self.resample_rate)
 
             for idx, (signal, offending_channel, label) in enumerate(
                 zip(feats, offending_channels, labels)
@@ -185,16 +198,27 @@ class EEGAbnormalTUAB(BaseTask):
     input_schema: Dict[str, str] = {"signal": "tensor"}
     output_schema: Dict[str, str] = {"label": "binary"}
 
-    def __init__(self) -> None:
+    def __init__(self,
+                 resample_rate: float = 200,
+                 bandpass_filter: Tuple[float, float] = (0.1, 75.0),
+                 notch_filter: float = 50.0,
+                 ) -> None:
         super().__init__()
-        
+        self.resample_rate = resample_rate
+        self.bandpass_filter = bandpass_filter
+        self.notch_filter = notch_filter
+
     @staticmethod
-    def read_and_process_edf(fileName: str) -> Tuple[np.ndarray, List[str]]:
+    def read_and_process_edf(fileName: str,
+                             resample_rate: float = 200,
+                             bandpass_filter: Tuple[float, float] = (0.1, 75.0),
+                             notch_filter: float = 50.0,
+                             ) -> Tuple[np.ndarray, List[str]]:
         Rawdata = mne.io.read_raw_edf(fileName, preload=True, verbose="error")
 
-        Rawdata.filter(l_freq=0.1, h_freq=75.0, verbose="error")
-        Rawdata.notch_filter(50.0, verbose="error")
-        Rawdata.resample(200, n_jobs=5, verbose="error")
+        Rawdata.filter(l_freq=bandpass_filter[0], h_freq=bandpass_filter[1], verbose="error")
+        Rawdata.notch_filter(notch_filter, verbose="error")
+        Rawdata.resample(resample_rate, n_jobs=5, verbose="error")
 
         raw_data = Rawdata.get_data(units="uV")
         ch_name = Rawdata.ch_names
@@ -283,7 +307,7 @@ class EEGAbnormalTUAB(BaseTask):
         events = patient.get_events()
         
         samples: List[Dict[str, Any]] = []
-        fs = 200
+        fs = self.resample_rate
         
         for event in events:
             edf_path = event.signal_file
@@ -292,7 +316,7 @@ class EEGAbnormalTUAB(BaseTask):
                 label = 0
             elif label == 'abnormal':
                 label = 1
-            raw_data, ch_name = self.read_and_process_edf(edf_path)
+            raw_data, ch_name = self.read_and_process_edf(edf_path, self.resample_rate, self.bandpass_filter, self.notch_filter)
             bipolar_data = self.convert_to_bipolar(raw_data, ch_name)
             
             num_samples = int(bipolar_data.shape[1] // (fs * 10))
