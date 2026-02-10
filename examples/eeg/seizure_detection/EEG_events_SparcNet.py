@@ -1,7 +1,7 @@
 from pyhealth.datasets import split_by_visit, get_dataloader
 from pyhealth.trainer import Trainer
 from pyhealth.datasets import TUEVDataset
-from pyhealth.tasks import EEG_events_fn
+from pyhealth.tasks import EEGEventsTUEV
 from pyhealth.models import SparcNet
 
 # step 1: load signal data
@@ -9,10 +9,24 @@ dataset = TUEVDataset(root="/srv/local/data/TUH/tuh_eeg_events/v2.0.0/edf/",
                             dev=True,
                             refresh_cache=True, 
                             )
-
+dataset.stats()
 # step 2: set task
-TUEV_ds = dataset.set_task(EEG_events_fn)
-TUEV_ds.stat()
+TUEV_ds = dataset.set_task(EEGEventsTUEV(
+    resample_rate=200,    # Resample rate
+    bandpass_filter=(0.1, 75.0),    # Bandpass filter
+    notch_filter=50.0,    # Notch filter
+))
+
+print(f"Total task samples: {len(TUEV_ds)}")
+print(f"Input schema: {TUEV_ds.input_schema}")
+print(f"Output schema: {TUEV_ds.output_schema}")
+
+# Inspect a sample
+sample = TUEV_ds[0]
+print(f"\nSample keys: {sample.keys()}")
+print(f"Signal shape: {sample['signal'].shape}")
+print(f"Label: {sample['label']}")
+
 
 # split dataset
 train_dataset, val_dataset, test_dataset = split_by_visit(
