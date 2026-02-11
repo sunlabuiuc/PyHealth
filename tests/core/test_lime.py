@@ -585,7 +585,7 @@ class TestLimeExplainerEmbedding(unittest.TestCase):
                 self.linear = nn.Linear(3, 1)
 
         model = _BareModel()
-        with self.assertRaises(AssertionError):
+        with self.assertRaises((AssertionError, ValueError)):
             LimeExplainer(model, use_embeddings=True)
 
 

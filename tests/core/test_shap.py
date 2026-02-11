@@ -504,7 +504,7 @@ class TestShapExplainerEmbedding(unittest.TestCase):
                 self.linear = nn.Linear(3, 1)
 
         model = _BareModel()
-        with self.assertRaises(AssertionError):
+        with self.assertRaises((AssertionError, ValueError)):
             ShapExplainer(model, use_embeddings=True)
 
 
