@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import contextlib
-from typing import Dict, List, Optional, Tuple, Type
+from typing import Dict, List, Optional, Tuple, Type, cast
 
 import torch
 import torch.nn.functional as F
 
 from pyhealth.models import BaseModel
+from pyhealth.interpret.api import Interpretable
 from .base_interpreter import BaseInterpreter
 
 
@@ -330,15 +331,11 @@ class DeepLift(BaseInterpreter):
 
     def __init__(self, model: BaseModel, use_embeddings: bool = True):
         super().__init__(model)
+        if not isinstance(model, Interpretable):
+            raise ValueError("Model must implement Interpretable interface")
+        self.model = model
+        
         self.use_embeddings = use_embeddings
-
-        if use_embeddings:
-            assert hasattr(model, "forward_from_embedding"), (
-                f"Model {type(model).__name__} must implement "
-                "forward_from_embedding() method to support embedding-level "
-                "DeepLIFT. Set use_embeddings=False to use input-level "
-                "gradients (only for continuous features)."
-            )
 
     # ------------------------------------------------------------------
     # Public API

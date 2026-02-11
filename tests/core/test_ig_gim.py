@@ -9,6 +9,7 @@ import torch.nn as nn
 
 from pyhealth.interpret.methods import GIM, IntegratedGradients
 from pyhealth.interpret.methods.ig_gim import IntegratedGradientGIM
+from pyhealth.interpret.api import Interpretable
 from pyhealth.models import BaseModel
 from pyhealth.models.transformer import Attention
 
@@ -75,7 +76,7 @@ class _ToyEmbeddingModel(nn.Module):
         return {key: self.embedding(val.long()) for key, val in inputs.items()}
 
 
-class _ToyModel(BaseModel):
+class _ToyModel(BaseModel, Interpretable):
     """Small model with softmax attention for testing IG-GIM."""
 
     def __init__(self, vocab_size=32, embedding_dim=4, schema=("value",)):
@@ -375,15 +376,18 @@ class TestIntegratedGradientGIM(unittest.TestCase):
         obj.label_keys = ["label"]
         obj.get_embedding_model = lambda: _ToyEmbeddingModel()
 
-        with self.assertRaises((AssertionError, AttributeError)):
+        with self.assertRaises((AssertionError, AttributeError, ValueError)):
             IntegratedGradientGIM(obj)
 
     def test_init_rejects_model_without_embedding_model(self):
-        """Should raise if get_embedding_model returns None."""
+        """Should raise if get_embedding_model returns None during attribution."""
         model = _ToyModel()
         model.get_embedding_model = lambda: None
+        ig_gim = IntegratedGradientGIM(model)
         with self.assertRaises(AssertionError):
-            IntegratedGradientGIM(model)
+            ig_gim.attribute(
+                codes=self.tokens, label=self.labels, target_class_idx=0,
+            )
 
     def test_temperature_clamped_to_one(self):
         """Temperatures below 1.0 should be clamped to 1.0."""
@@ -653,7 +657,7 @@ class TestIntegratedGradientGIM(unittest.TestCase):
 # Additional toy model without Attention (no GIM-swappable modules)
 # ---------------------------------------------------------------------------
 
-class _ToyModelNoAttention(BaseModel):
+class _ToyModelNoAttention(BaseModel, Interpretable):
     """Simple model without Attention or LayerNorm — GIM hooks are no-ops."""
 
     def __init__(self, vocab_size=32, embedding_dim=4):

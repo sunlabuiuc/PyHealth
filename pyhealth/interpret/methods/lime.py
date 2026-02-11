@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from torch.nn import CosineSimilarity
 
 from pyhealth.models import BaseModel
+from pyhealth.interpret.api import Interpretable
 from .base_interpreter import BaseInterpreter
 
 
@@ -131,6 +132,10 @@ class LimeExplainer(BaseInterpreter):
             ValueError: If feature_selection is not "lasso", "ridge", or "none".
         """
         super().__init__(model)
+        if not isinstance(model, Interpretable):
+            raise ValueError("Model must implement Interpretable interface")
+        self.model = model
+        
         self.use_embeddings = use_embeddings
         self.n_samples = n_samples
         self.kernel_width = kernel_width

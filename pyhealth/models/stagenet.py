@@ -6,6 +6,7 @@ import torch.nn as nn
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.utils import get_last_visit
+from pyhealth.interpret.api import Interpretable
 
 from .embedding import EmbeddingModel
 
@@ -239,7 +240,7 @@ class StageNetLayer(nn.Module):
         return last_output, output, torch.stack(distance)
 
 
-class StageNet(BaseModel):
+class StageNet(BaseModel, Interpretable):
     """StageNet model.
 
     Paper: Junyi Gao et al. Stagenet: Stage-aware neural networks for health

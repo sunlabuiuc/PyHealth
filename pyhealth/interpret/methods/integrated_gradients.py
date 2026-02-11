@@ -6,7 +6,7 @@ import torch
 import torch.nn.functional as F
 
 from pyhealth.models import BaseModel
-
+from pyhealth.interpret.api import Interpretable
 from .base_interpreter import BaseInterpreter
 
 
@@ -187,17 +187,13 @@ class IntegratedGradients(BaseInterpreter):
                 implement forward_from_embedding() method.
         """
         super().__init__(model)
+        if not isinstance(model, Interpretable):
+            raise ValueError("Model must implement Interpretable interface")
+        self.model = model
+
         self.use_embeddings = use_embeddings
         self.steps = steps
 
-        # Check model supports forward_from_embedding if needed
-        if use_embeddings:
-            assert hasattr(model, "forward_from_embedding"), (
-                f"Model {type(model).__name__} must implement "
-                "forward_from_embedding() method to support embedding-level "
-                "Integrated Gradients. Set use_embeddings=False to use "
-                "input-level gradients (only for continuous features)."
-            )
 
     def attribute(
         self,

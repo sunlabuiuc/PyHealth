@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 
 from pyhealth.interpret.methods import GIM
+from pyhealth.interpret.api import Interpretable
 from pyhealth.models import BaseModel
 from pyhealth.models.transformer import Attention
 
@@ -64,7 +65,7 @@ class _ToyEmbeddingModel(nn.Module):
         return {key: self.embedding(val.long()) for key, val in inputs.items()}
 
 
-class _ToyGIMModel(BaseModel):
+class _ToyGIMModel(BaseModel, Interpretable):
     """Small attention-style model with module-based nonlinearities.
 
     Follows the new API conventions: ``forward_from_embedding(**kwargs)``
