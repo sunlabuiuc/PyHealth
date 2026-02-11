@@ -22,11 +22,16 @@ class Ensemble(BaseInterpreter):
         self,
         model: BaseModel,
         experts: list[BaseInterpreter],
+        n_iter: int = 20,
+        low_confidence_threshold: float | None = None,
+        early_stopping_threshold: float | None = None,
     ):
         super().__init__(model)
         assert len(experts) >= 3, "Ensemble must contain at least three interpreters for majority voting"
         self.experts = experts
-
+        self.n_iter = n_iter
+        self.low_confidence_threshold = low_confidence_threshold
+        self.early_stopping_threshold = early_stopping_threshold
 
     # ------------------------------------------------------------------
     # Public API
@@ -66,7 +71,7 @@ class Ensemble(BaseInterpreter):
         # Combine the flattened attributions from all interpreters
         attributions = torch.stack(attr_lst, dim=1)  # shape (B, I, M)
         # Normalize the attributions across items for each interpreter (e.g., by competitive ranking)
-        attributions = self._competitive_ranking_noramlize(attributions) # shape (B, I, M)
+        attributions = self._competitive_ranking_normalize(attributions) # shape (B, I, M)
         
             
         
@@ -139,7 +144,7 @@ class Ensemble(BaseInterpreter):
 
 
     @staticmethod
-    def _competitive_ranking_noramlize(x: torch.Tensor) -> torch.Tensor:
+    def _competitive_ranking_normalize(x: torch.Tensor) -> torch.Tensor:
         """Normalize a tensor via competitive (standard competition) ranking.
 
         For each (batch, expert) slice, items are ranked ascendingly from
@@ -201,4 +206,48 @@ class Ensemble(BaseInterpreter):
         Returns:
             Tensor of shape (B, M) in [0, 1].
         """
-        pass
+        # Step 1: Initialize truth as median across experts (B, M)
+        t = torch.median(attributions, dim=1).values  # (B, M)
+        
+        # Iterative refinement
+        eps = 1e-6
+        
+        for _ in range(self.n_iter):
+            t_old = t.clone()
+            
+            # Step 2: Compute expert reliability per batch
+            # errors: (B, I) - mean squared error per expert per batch
+            errors = torch.mean((attributions - t.unsqueeze(1)) ** 2, dim=2)  # (B, I)
+            
+            # weights: (B, I)
+            w = 1.0 / (eps + errors)  # (B, I)
+            w = w / w.sum(dim=1, keepdim=True)  # normalize per batch
+            
+            # Step 3: Update truth as weighted average
+            # t: (B, M) = sum over experts of w * attributions
+            t = torch.sum(w.unsqueeze(2) * attributions, dim=1)  # (B, M)
+            
+            # Early stopping: check convergence per batch
+            if self.early_stopping_threshold is not None:
+                if torch.allclose(t, t_old, atol=self.early_stopping_threshold):
+                    break
+        
+        if self.low_confidence_threshold is None:
+            # If no low confidence threshold is set, just return the CRH result
+            return t
+        
+        # Detect low-confidence batches where all experts are equally weighted
+        # If std(w) is very low, it means no expert is clearly better
+        w_std = torch.std(w, dim=1)  # type: ignore[assignment] (B,)
+        low_confidence = w_std < self.low_confidence_threshold  # (B,)
+        
+        # For low-confidence batches, fall back to uniform weighting (mean)
+        if low_confidence.any():
+            uniform_consensus = torch.mean(attributions, dim=1)  # (B, M)
+            t = torch.where(
+                low_confidence.unsqueeze(1),  # (B, 1)
+                uniform_consensus,
+                t
+            )
+        
+        return t
