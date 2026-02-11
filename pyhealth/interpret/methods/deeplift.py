@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import contextlib
-import inspect
 from typing import Dict, List, Optional, Tuple, Type
 
 import torch
+import torch.nn.functional as F
 
 from pyhealth.models import BaseModel
 from .base_interpreter import BaseInterpreter
@@ -241,9 +241,9 @@ class DeepLift(BaseInterpreter):
 
     DeepLIFT propagates difference-from-baseline activations using Rescale
     multipliers so that feature attributions sum to the change in model output.
-    When a model exposes ``set_deeplift_hooks``/``clear_deeplift_hooks`` the
-    implementation injects secant slopes for supported activations to mirror
-    the original algorithm while falling back to autograd gradients elsewhere.
+    The implementation injects secant slopes for supported activations
+    (ReLU, Sigmoid, Tanh) via module swapping to mirror the original algorithm
+    while falling back to autograd gradients for unsupported operations.
 
     This method is particularly useful for:
         - EHR feature importance: highlight influential visits, codes, or labs
@@ -257,72 +257,59 @@ class DeepLift(BaseInterpreter):
 
     Key Features:
         - Dual operating modes for embedding-based or continuous inputs.
-        - Automatic hook management for models with DeepLIFT instrumentation.
+        - Automatic activation module swapping for DeepLIFT Rescale rule.
         - Completeness enforcement ensuring ``sum(attribution) ~= f(x) - f(x0)``.
-        - Batch-friendly API accepting trainer-style dictionaries and optional
-          ``(time, value)`` tuples.
+        - Batch-friendly API accepting trainer-style dictionaries with
+          tuple-based inputs following processor schemas.
         - Target control via ``target_class_idx`` to explain any desired logit.
+        - Mixed token/continuous feature support using ``is_token()``
+          processor introspection.
 
     Usage Notes:
         1. Choose a baseline dictionary that reflects a neutral clinical state
            when zeros are not meaningful.
-        2. Ensure the model exposes ``set_deeplift_hooks``/``clear_deeplift_hooks``;
-           unsupported activations fall back to standard gradients.
-        3. Move inputs, baselines, and the model to the same device before
+        2. Move inputs, baselines, and the model to the same device before
            calling ``attribute``.
-        4. Keep ``use_embeddings=True`` for token indices; set it to ``False``
+        3. Keep ``use_embeddings=True`` for token indices; set it to ``False``
            to attribute continuous tensors directly.
-        5. Call ``model.eval()`` so stochastic layers remain deterministic
+        4. Call ``model.eval()`` so stochastic layers remain deterministic
            during paired forward passes.
 
     Args:
         model: A :class:`~pyhealth.models.BaseModel` instance exposing either
             :meth:`forward_from_embedding` (for discrete inputs) or the standard
-            :meth:`forward` used by PyHealth trainers. Models that implement
-            DeepLIFT hook registration yield the most faithful multipliers.
+            :meth:`forward` used by PyHealth trainers.
         use_embeddings: Whether to operate in embedding space. Set to ``True``
             (default) for tokenized inputs or ``False`` to attribute continuous
             tensors directly.
 
     Examples:
         >>> import torch
-        >>> from pyhealth.datasets import get_dataloader
+        >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
         >>> from pyhealth.interpret.methods.deeplift import DeepLift
-        >>> from pyhealth.models import StageNet
+        >>> from pyhealth.models import MLP
         >>>
-        >>> # Assume ``sample_dataset`` and trained StageNet weights are available.
-        >>> device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        >>> model = StageNet(dataset=sample_dataset, embedding_dim=128, chunk_size=128)
-        >>> model = model.to(device).eval()
-        >>> test_loader = get_dataloader(sample_dataset, batch_size=1, shuffle=False)
+        >>> samples = [
+        ...     {"patient_id": "p0", "visit_id": "v0",
+        ...      "conditions": ["cond-33", "cond-86", "cond-80"],
+        ...      "procedures": [1.0, 2.0, 3.5, 4.0], "label": 1},
+        ...     {"patient_id": "p1", "visit_id": "v1",
+        ...      "conditions": ["cond-55", "cond-12"],
+        ...      "procedures": [5.0, 2.0, 3.5, 4.0], "label": 0},
+        ... ]
+        >>> dataset = create_sample_dataset(
+        ...     samples=samples,
+        ...     input_schema={"conditions": "sequence", "procedures": "tensor"},
+        ...     output_schema={"label": "binary"},
+        ... )
+        >>> model = MLP(dataset=dataset, embedding_dim=32, hidden_dim=32)
+        >>> model.eval()
+        >>> test_loader = get_dataloader(dataset, batch_size=1, shuffle=False)
         >>> deeplift = DeepLift(model, use_embeddings=True)
         >>>
         >>> batch = next(iter(test_loader))
-        >>> batch_device = {}
-        >>> for key, value in batch.items():
-        ...     if isinstance(value, torch.Tensor):
-        ...         batch_device[key] = value.to(device)
-        ...     elif isinstance(value, tuple):
-        ...         batch_device[key] = tuple(v.to(device) for v in value)
-        ...     else:
-        ...         batch_device[key] = value
-        >>>
-        >>> attributions = deeplift.attribute(**batch_device)
+        >>> attributions = deeplift.attribute(**batch)
         >>> print({k: v.shape for k, v in attributions.items()})
-        >>>
-        >>> baseline = {
-        ...     "icd_codes": torch.zeros_like(batch_device["icd_codes"][1]),
-        ...     "labs": torch.full_like(
-        ...         batch_device["labs"][1],
-        ...         batch_device["labs"][1].mean(),
-        ...     ),
-        ... }
-        >>> positive_attr = deeplift.attribute(
-        ...     baseline=baseline,
-        ...     target_class_idx=1,
-        ...     **batch_device,
-        ... )
-        >>> print(float(positive_attr["labs"].sum()))
 
     Algorithm Details:
         1. Run a baseline forward pass while caching activations for supported
@@ -345,18 +332,12 @@ class DeepLift(BaseInterpreter):
         super().__init__(model)
         self.use_embeddings = use_embeddings
 
-        self._forward_from_embedding_accepts_time_info = False
-        self._forward_from_embedding_accepts_mask_info = False
-
         if use_embeddings:
-            assert hasattr(
-                model, "forward_from_embedding"
-            ), f"Model {type(model).__name__} must implement forward_from_embedding()"
-            self._forward_from_embedding_accepts_time_info = self._method_accepts_argument(
-                model.forward_from_embedding, "time_info"
-            )
-            self._forward_from_embedding_accepts_mask_info = self._method_accepts_argument(
-                model.forward_from_embedding, "mask_info"
+            assert hasattr(model, "forward_from_embedding"), (
+                f"Model {type(model).__name__} must implement "
+                "forward_from_embedding() method to support embedding-level "
+                "DeepLIFT. Set use_embeddings=False to use input-level "
+                "gradients (only for continuous features)."
             )
 
     # ------------------------------------------------------------------
@@ -366,7 +347,7 @@ class DeepLift(BaseInterpreter):
         self,
         baseline: Optional[Dict[str, torch.Tensor]] = None,
         target_class_idx: Optional[int] = None,
-        **data,
+        **kwargs: torch.Tensor | tuple[torch.Tensor, ...],
     ) -> Dict[str, torch.Tensor]:
         """Compute DeepLIFT attributions for a single batch.
 
@@ -376,14 +357,16 @@ class DeepLift(BaseInterpreter):
 
         Args:
             baseline: Optional dictionary providing reference inputs per
-                feature key. If omitted, zeros are used for embedding space and
-                dense tensors.
+                feature key. If omitted, UNK tokens are used for discrete
+                features and near-zero values for continuous features.
             target_class_idx: Optional class index to explain. ``None`` defaults
-                to the model prediction, matching the "target layer" choice in
-                attribution literature.
-            **data: Model inputs. For temporal features this includes ``(time,
-                value)`` tuples mirroring StageNet processors. Label tensors may
-                also be supplied (needed when the model computes a loss).
+                to the model prediction.
+            **kwargs: Input data dictionary from a dataloader batch
+                containing:
+                - Feature keys (e.g., 'conditions', 'procedures'):
+                  Input tensors or tuples of tensors for each modality
+                - 'label' (optional): Ground truth label tensor
+                - Other metadata keys are ignored
 
         Returns:
             ``Dict[str, torch.Tensor]`` mapping each feature key to attribution
@@ -392,268 +375,313 @@ class DeepLift(BaseInterpreter):
         """
         device = next(self.model.parameters()).device
 
-        feature_inputs: Dict[str, torch.Tensor] = {}
-        time_info: Dict[str, torch.Tensor] = {}
-        label_data: Dict[str, torch.Tensor] = {}
-
-        for key in self.model.feature_keys:
-            if key not in data:
-                continue
-            value = data[key]
-            if isinstance(value, tuple):
-                time_tensor, feature_tensor = value
-                time_info[key] = time_tensor.to(device)
-                value = feature_tensor
-
-            if not isinstance(value, torch.Tensor):
-                value = torch.as_tensor(value)
-            feature_inputs[key] = value.to(device)
-
-        for key in self.model.label_keys:
-            if key in data:
-                label_val = data[key]
-                if not isinstance(label_val, torch.Tensor):
-                    label_val = torch.as_tensor(label_val)
-                label_data[key] = label_val.to(device)
-
-        if self.use_embeddings:
-            return self._deeplift_embeddings(
-                feature_inputs,
-                baseline=baseline,
-                target_class_idx=target_class_idx,
-                time_info=time_info,
-                label_data=label_data,
-            )
-
-        return self._deeplift_continuous(
-            feature_inputs,
-            baseline=baseline,
-            target_class_idx=target_class_idx,
-            time_info=time_info,
-            label_data=label_data,
-        )
-
-    # ------------------------------------------------------------------
-    # Embedding-based DeepLIFT (discrete features)
-    # ------------------------------------------------------------------
-    def _deeplift_embeddings(
-        self,
-        inputs: Dict[str, torch.Tensor],
-        baseline: Optional[Dict[str, torch.Tensor]],
-        target_class_idx: Optional[int],
-        time_info: Dict[str, torch.Tensor],
-        label_data: Dict[str, torch.Tensor],
-    ) -> Dict[str, torch.Tensor]:
-        """DeepLIFT for discrete inputs operating in embedding space.
-
-        This mirrors the "embedding difference" strategy discussed in Sec. 3.2
-        of the paper. Instead of interpolating raw token IDs we work on the
-        embedded representations, propagate differences through the network, and
-        finally project the attribution scores back onto the input tensor shape.
-        """
-        input_embs, baseline_embs, input_shapes, mask_info = self._prepare_embeddings_and_baselines(
-            inputs, baseline
-        )
-
-        mask_info = self._compute_embedding_masks(input_embs)
-
-        delta_embeddings: Dict[str, torch.Tensor] = {}
-        current_embeddings: Dict[str, torch.Tensor] = {}
-        for key in input_embs:
-            delta = (input_embs[key] - baseline_embs[key]).detach()
-            delta.requires_grad_(True)
-            delta_embeddings[key] = delta
-            current_embeddings[key] = baseline_embs[key].detach() + delta
-
-        forward_kwargs = {**label_data} if label_data else {}
-
-        def forward_from_embeddings(feature_embeddings: Dict[str, torch.Tensor]):
-            call_kwargs = dict(forward_kwargs)
-            if time_info and self._forward_from_embedding_accepts_time_info:
-                call_kwargs["time_info"] = time_info
-            if mask_info and self._forward_from_embedding_accepts_mask_info:
-                call_kwargs["mask_info"] = mask_info
-            return self.model.forward_from_embedding(
-                feature_embeddings=feature_embeddings,
-                **call_kwargs,
-            )
-
-        with _DeepLiftHookContext(self.model) as hook_ctx:
-            hook_ctx.start_baseline()
-            with torch.no_grad():
-                baseline_output = forward_from_embeddings(baseline_embs)
-
-            hook_ctx.start_actual()
-            current_output = forward_from_embeddings(current_embeddings)
-
-        logits = current_output["logit"]
-        target_idx = self._determine_target_index(logits, target_class_idx)
-        target_logit = self._gather_target_logit(logits, target_idx)
-
-        baseline_logit = self._gather_target_logit(baseline_output["logit"], target_idx)
-
-        self.model.zero_grad(set_to_none=True)
-        target_logit.sum().backward()
-
-        emb_contribs: Dict[str, torch.Tensor] = {}
-        for key, delta in delta_embeddings.items():
-            grad = delta.grad
-            if grad is None:
-                emb_contribs[key] = torch.zeros_like(delta)
-            else:
-                emb_contribs[key] = grad.detach() * delta.detach()
-
-        emb_contribs = self._enforce_completeness(
-            emb_contribs, target_logit.detach(), baseline_logit.detach()
-        )
-        return self._map_embeddings_to_inputs(emb_contribs, input_shapes)
-
-    def _prepare_embeddings_and_baselines(
-        self,
-        inputs: Dict[str, torch.Tensor],
-        baseline: Optional[Dict[str, torch.Tensor]],
-    ) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor], Dict[str, tuple], Dict[str, torch.Tensor]]:
-        """Embed inputs and baselines in preparation for difference propagation."""
-        input_embeddings: Dict[str, torch.Tensor] = {}
-        baseline_embeddings: Dict[str, torch.Tensor] = {}
-        input_shapes: Dict[str, tuple] = {}
-
-        input_embeddings, mask = self.model.embedding_model(inputs, output_mask=True) # type: ignore
-        if baseline is None:
-            baseline_embeddings = {key: torch.zeros_like(val) for key, val in input_embeddings.items()}
-        else:
-            baseline_embeddings = self.model.embedding_model(baseline) # type: ignore
-        
-        # Ensure baselines are on the same device as inputs
-        baseline_embeddings = {
-            key: val.to(input_embeddings[key].device)
-            for key, val in baseline_embeddings.items()
+        # Filter kwargs to only include model feature keys and ensure they are tuples
+        inputs = {
+            k: (v,) if isinstance(v, torch.Tensor) else v
+            for k, v in kwargs.items()
+            if k in self.model.feature_keys
         }
-        
-        input_shapes = {key: value.shape for key, value in inputs.items()}
 
-        return input_embeddings, baseline_embeddings, input_shapes, mask
+        # Disassemble inputs to get values and masks
+        values: dict[str, torch.Tensor] = {}
+        masks: dict[str, torch.Tensor] = {}
+        for k, v in inputs.items():
+            schema = self.model.dataset.input_processors[k].schema()
+            values[k] = v[schema.index("value")]
+            if "mask" in schema:
+                masks[k] = v[schema.index("mask")]
+            else:
+                val = v[schema.index("value")]
+                processor = self.model.dataset.input_processors[k]
+                if processor.is_token():
+                    masks[k] = (val != 0).int()
+                else:
+                    # For continuous features, check whether the entire
+                    # feature vector at each timestep is zero (padding)
+                    # rather than per-element, so valid 0.0 values are
+                    # not masked out.
+                    if val.dim() >= 3:
+                        masks[k] = (val.abs().sum(dim=-1) != 0).int()
+                    else:
+                        masks[k] = (val != 0).int()
 
-    # ------------------------------------------------------------------
-    # Continuous DeepLIFT fallback (for tensor inputs)
-    # ------------------------------------------------------------------
-    def _deeplift_continuous(
-        self,
-        inputs: Dict[str, torch.Tensor],
-        baseline: Optional[Dict[str, torch.Tensor]],
-        target_class_idx: Optional[int],
-        time_info: Dict[str, torch.Tensor],
-        label_data: Dict[str, torch.Tensor],
-    ) -> Dict[str, torch.Tensor]:
-        """DeepLIFT for models that operate directly on dense tensors."""
-        device = next(self.model.parameters()).device
+        # Append input masks to inputs for models that expect them
+        for k, v in inputs.items():
+            if "mask" not in self.model.dataset.input_processors[k].schema():
+                inputs[k] = (*v, masks[k])
 
+        # Determine target class from original input
+        with torch.no_grad():
+            base_logits = self.model.forward(**inputs)["logit"]
+
+        mode = self._prediction_mode()
+        if mode == "binary":
+            if target_class_idx is not None:
+                target = torch.tensor([target_class_idx], device=device)
+            else:
+                target = (torch.sigmoid(base_logits) > 0.5).long()
+        elif mode == "multiclass":
+            if target_class_idx is not None:
+                target = F.one_hot(
+                    torch.tensor(target_class_idx, device=device),
+                    num_classes=base_logits.shape[-1],
+                ).float()
+            else:
+                target = torch.argmax(base_logits, dim=-1)
+                target = F.one_hot(
+                    target, num_classes=base_logits.shape[-1]
+                ).float()
+        elif mode == "multilabel":
+            if target_class_idx is not None:
+                target = F.one_hot(
+                    torch.tensor(target_class_idx, device=device),
+                    num_classes=base_logits.shape[-1],
+                ).float()
+            else:
+                target = (torch.sigmoid(base_logits) > 0.5).float()
+        else:
+            raise ValueError(
+                "Unsupported prediction mode for DeepLIFT attribution."
+            )
+
+        # Generate baselines
         if baseline is None:
-            baseline = {key: torch.zeros_like(val) for key, val in inputs.items()}
-
-        delta_inputs: Dict[str, torch.Tensor] = {}
-        current_inputs: Dict[str, torch.Tensor] = {}
-        for key, value in inputs.items():
-            delta = (value - baseline[key]).detach()
-            delta.requires_grad_(True)
-            delta_inputs[key] = delta
-
-            if key in time_info:
-                current_inputs[key] = (
-                    time_info[key],
-                    baseline[key].detach() + delta,
-                )
-            else:
-                current_inputs[key] = baseline[key].detach() + delta
-
-        model_inputs = {**current_inputs, **label_data}
-
-        with _DeepLiftHookContext(self.model) as hook_ctx:
-            hook_ctx.start_baseline()
-            baseline_inputs = {
-                key: (time_info[key], baseline[key]) if key in time_info else baseline[key]
-                for key in inputs
+            baselines = self._generate_baseline(
+                values, use_embeddings=self.use_embeddings
+            )
+        else:
+            baselines = {
+                k: v.to(device)
+                for k, v in baseline.items()
+                if k in self.model.feature_keys
             }
-            with torch.no_grad():
-                baseline_output = self.model(**{**baseline_inputs, **label_data})
 
-            hook_ctx.start_actual()
-            current_output = self.model(**model_inputs)
+        # Save raw shapes before embedding for later mapping
+        shapes = {k: v.shape for k, v in values.items()}
 
-        logits = current_output["logit"]
-        target_idx = self._determine_target_index(logits, target_class_idx)
-        target_logit = self._gather_target_logit(logits, target_idx)
-        baseline_logit = self._gather_target_logit(baseline_output["logit"], target_idx)
+        # Split features by type using is_token():
+        # - Token features (discrete): embed before DeepLIFT, since
+        #   working with raw indices is meaningless. Gradients are computed
+        #   w.r.t. embeddings, then summed over the embedding dim.
+        # - Continuous features: keep raw so each raw dimension gets its
+        #   own attribution. The model's forward() handles embedding internally.
+        token_keys: set[str] = set()
+        if self.use_embeddings:
+            embedding_model = self.model.get_embedding_model()
+            assert embedding_model is not None, (
+                "Model must have an embedding model for embedding-based "
+                "DeepLIFT."
+            )
+            token_keys = {
+                k for k in values
+                if self.model.dataset.input_processors[k].is_token()
+            }
+            if token_keys:
+                # Embed token values
+                token_values = {k: values[k] for k in token_keys}
+                embedded_tokens = embedding_model(token_values)
+                for k in token_keys:
+                    values[k] = embedded_tokens[k]
+                # Embed token baselines so they live in the same space
+                token_baselines = {k: baselines[k] for k in token_keys if k in baselines}
+                if token_baselines:
+                    embedded_baselines = embedding_model(token_baselines)
+                    for k in token_baselines:
+                        baselines[k] = embedded_baselines[k]
 
-        self.model.zero_grad(set_to_none=True)
-        target_logit.sum().backward()
-
-        contribs: Dict[str, torch.Tensor] = {}
-        for key, delta in delta_inputs.items():
-            grad = delta.grad
-            if grad is None:
-                contribs[key] = torch.zeros_like(delta)
-            else:
-                contribs[key] = grad.detach() * delta.detach()
-
-        contribs = self._enforce_completeness(
-            contribs, target_logit.detach(), baseline_logit.detach()
+        # Compute DeepLIFT attributions
+        attributions = self._deeplift(
+            inputs=inputs,
+            xs=values,
+            bs=baselines,
+            target=target,
+            token_keys=token_keys,
         )
 
-        mapped: Dict[str, torch.Tensor] = {}
-        for key, contrib in contribs.items():
-            mapped[key] = contrib.to(device)
-        return mapped
+        return self._map_to_input_shapes(attributions, shapes)
 
     # ------------------------------------------------------------------
-    # Utility helpers
+    # Core DeepLIFT computation
     # ------------------------------------------------------------------
-    @staticmethod
-    def _determine_target_index(
-        logits: torch.Tensor, target_class_idx: Optional[int]
-    ) -> torch.Tensor:
-        """Resolve the logit index that should be explained."""
-        if target_class_idx is None:
-            if logits.dim() >= 2 and logits.size(-1) > 1:
-                target_idx = torch.argmax(logits, dim=-1)
-            else:
-                target_idx = torch.zeros(
-                    logits.size(0), dtype=torch.long, device=logits.device
+    def _deeplift(
+        self,
+        inputs: Dict[str, tuple[torch.Tensor, ...]],
+        xs: Dict[str, torch.Tensor],
+        bs: Dict[str, torch.Tensor],
+        target: torch.Tensor,
+        token_keys: set[str],
+    ) -> Dict[str, torch.Tensor]:
+        """Core DeepLIFT computation using the Rescale rule.
+
+        Performs two forward passes (baseline and actual) under the activation
+        swap context, then backpropagates to obtain DeepLIFT multipliers.
+
+        Args:
+            inputs: Full input tuples keyed by feature name.
+            xs: Input values (embedded if token features with use_embeddings).
+            bs: Baseline values (embedded if token features with use_embeddings).
+            target: Target tensor for computing the scalar output to
+                differentiate (one-hot for multiclass, class idx for binary).
+            token_keys: Set of feature keys that are token (already embedded).
+
+        Returns:
+            Dictionary mapping feature keys to attribution tensors.
+        """
+        keys = sorted(xs.keys())
+
+        # Create delta tensors with gradients enabled
+        delta: dict[str, torch.Tensor] = {}
+        current: dict[str, torch.Tensor] = {}
+        for key in keys:
+            d = (xs[key] - bs[key]).detach()
+            d.requires_grad_(True)
+            d.retain_grad()
+            delta[key] = d
+            current[key] = bs[key].detach() + d
+
+        # Build forward inputs with current (baseline + delta) values
+        # inserted into the proper position in the input tuples
+        def _build_forward_inputs(value_dict: dict[str, torch.Tensor]) -> dict:
+            fwd_inputs = inputs.copy()
+            for k in fwd_inputs.keys():
+                schema = self.model.dataset.input_processors[k].schema()
+                val_idx = schema.index("value")
+                fwd_inputs[k] = (
+                    *fwd_inputs[k][:val_idx],
+                    value_dict[k],
+                    *fwd_inputs[k][val_idx + 1:],
                 )
+            return fwd_inputs
+
+        # For continuous features, embed them before forward_from_embedding
+        def _maybe_embed_continuous(value_dict: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+            if not self.use_embeddings:
+                return value_dict
+            continuous_keys = {k for k in value_dict if k not in token_keys}
+            if not continuous_keys:
+                return value_dict
+            embedding_model = self.model.get_embedding_model()
+            assert embedding_model is not None
+            continuous_to_embed = {k: value_dict[k] for k in continuous_keys}
+            embedded_continuous = embedding_model(continuous_to_embed)
+            return {**value_dict, **embedded_continuous}
+
+        # Two forward passes under the hook context
+        with _DeepLiftHookContext(self.model) as hook_ctx:
+            # --- Baseline forward pass ---
+            hook_ctx.start_baseline()
+            baseline_values = _maybe_embed_continuous(
+                {k: bs[k].detach() for k in keys}
+            )
+            baseline_fwd = _build_forward_inputs(baseline_values)
+            with torch.no_grad():
+                if self.use_embeddings:
+                    baseline_output = self.model.forward_from_embedding(**baseline_fwd)
+                else:
+                    baseline_output = self.model.forward(**baseline_fwd)
+
+            # --- Actual forward pass ---
+            hook_ctx.start_actual()
+            current_values = _maybe_embed_continuous(current)
+            current_fwd = _build_forward_inputs(current_values)
+            if self.use_embeddings:
+                current_output = self.model.forward_from_embedding(**current_fwd)
+            else:
+                current_output = self.model.forward(**current_fwd)
+
+        logits = current_output["logit"] # type: ignore[index]
+        baseline_logits = baseline_output["logit"] # type: ignore[index]
+
+        # Compute per-sample target outputs
+        target_output = self._compute_target_output(logits, target)
+        baseline_target_output = self._compute_target_output(
+            baseline_logits, target
+        )
+
+        self.model.zero_grad(set_to_none=True)
+        target_output.sum().backward()
+
+        # Collect attributions: grad * delta
+        attributions: dict[str, torch.Tensor] = {}
+        for key in keys:
+            grad = delta[key].grad
+            if grad is None:
+                attributions[key] = torch.zeros_like(delta[key])
+            else:
+                attr = grad.detach() * delta[key].detach()
+                # For token features, sum over the embedding dimension
+                if self.use_embeddings and key in token_keys and attr.dim() >= 3:
+                    attr = attr.sum(dim=-1)
+                attributions[key] = attr
+
+        # Enforce completeness: sum of attributions == f(x) - f(x0)
+        attributions = self._enforce_completeness(
+            attributions,
+            target_output.detach(),
+            baseline_target_output.detach(),
+        )
+
+        return attributions
+
+    # ------------------------------------------------------------------
+    # Target output computation
+    # ------------------------------------------------------------------
+    def _compute_target_output(
+        self,
+        logits: torch.Tensor,
+        target: torch.Tensor,
+    ) -> torch.Tensor:
+        """Compute per-sample target output.
+
+        Creates a differentiable per-sample scalar from the model logits
+        that, when summed and differentiated, gives the gradient of the
+        target class logit w.r.t. the input.
+
+        Args:
+            logits: Model output logits, shape [batch, num_classes] or
+                [batch, 1].
+            target: Target tensor. For binary: [batch] or [1] with 0/1
+                class indices. For multiclass/multilabel: [batch, num_classes]
+                one-hot or multi-hot tensor.
+
+        Returns:
+            Per-sample target output tensor, shape [batch].
+        """
+        target_f = target.to(logits.device).float()
+        mode = self._prediction_mode()
+
+        if mode == "binary":
+            while target_f.dim() < logits.dim():
+                target_f = target_f.unsqueeze(-1)
+            target_f = target_f.expand_as(logits)
+            signs = 2.0 * target_f - 1.0
+            # Sum over all dims except batch to get per-sample scalar
+            per_sample = (signs * logits)
+            if per_sample.dim() > 1:
+                per_sample = per_sample.sum(dim=tuple(range(1, per_sample.dim())))
+            return per_sample
         else:
-            if isinstance(target_class_idx, int):
-                target_idx = torch.full(
-                    (logits.size(0),),
-                    target_class_idx,
-                    dtype=torch.long,
-                    device=logits.device,
-                )
-            elif isinstance(target_class_idx, torch.Tensor):
-                target_idx = target_class_idx.to(logits.device).long()
-                if target_idx.dim() == 0:
-                    target_idx = target_idx.expand(logits.size(0))
-            else:
-                raise ValueError("target_class_idx must be int or Tensor")
-        return target_idx
+            # multiclass or multilabel: target is one-hot/multi-hot
+            while target_f.dim() < logits.dim():
+                target_f = target_f.unsqueeze(0)
+            target_f = target_f.expand_as(logits)
+            per_sample = (target_f * logits)
+            if per_sample.dim() > 1:
+                per_sample = per_sample.sum(dim=tuple(range(1, per_sample.dim())))
+            return per_sample
 
-    @staticmethod
-    def _gather_target_logit(
-        logits: torch.Tensor, target_idx: torch.Tensor
-    ) -> torch.Tensor:
-        """Collect the scalar logit associated with ``target_idx``."""
-        if logits.dim() == 2 and logits.size(-1) > 1:
-            return logits.gather(1, target_idx.unsqueeze(-1)).squeeze(-1)
-        return logits.squeeze(-1)
-
+    # ------------------------------------------------------------------
+    # Completeness enforcement
+    # ------------------------------------------------------------------
     @staticmethod
     def _enforce_completeness(
         contributions: Dict[str, torch.Tensor],
-        target_logit: torch.Tensor,
-        baseline_logit: torch.Tensor,
+        target_output: torch.Tensor,
+        baseline_output: torch.Tensor,
         eps: float = 1e-8,
     ) -> Dict[str, torch.Tensor]:
         """Scale attributions so their sum matches ``f(x) - f(x₀)`` (Eq. 1)."""
-        delta_output = (target_logit - baseline_logit)
+        delta_output = (target_output - baseline_output)
 
         total = None
         for contrib in contributions.values():
@@ -662,7 +690,6 @@ class DeepLift(BaseInterpreter):
 
         scale = torch.ones_like(delta_output)
         if total is not None:
-            # Preserve the sign of the raw contributions by dividing by the signed sum
             denom = total
             mask = denom.abs() > eps
             scale[mask] = delta_output[mask] / denom[mask]
@@ -673,56 +700,87 @@ class DeepLift(BaseInterpreter):
 
         return contributions
 
-    @staticmethod
-    def _map_embeddings_to_inputs(
-        emb_contribs: Dict[str, torch.Tensor],
-        input_shapes: Dict[str, tuple],
+    # ------------------------------------------------------------------
+    # Baseline generation
+    # ------------------------------------------------------------------
+    def _generate_baseline(
+        self,
+        values: Dict[str, torch.Tensor],
+        use_embeddings: bool = False,
     ) -> Dict[str, torch.Tensor]:
-        """Project embedding-space contributions back to input tensor shapes."""
-        mapped: Dict[str, torch.Tensor] = {}
-        for key, contrib in emb_contribs.items():
-            if contrib.dim() >= 2:
-                token_attr = contrib.sum(dim=-1)
+        """Generate raw baselines for DeepLIFT computation.
+
+        Creates reference samples representing the "absence" of features.
+        The strategy depends on the feature type:
+        - Discrete (token) features: UNK token index (will be embedded
+          later in ``attribute()`` alongside the values)
+        - Continuous features: small near-zero neutral values
+
+        Args:
+            values: Dictionary of raw input value tensors (before embedding).
+            use_embeddings: If True, generate baselines suitable for
+                embedding-based DeepLIFT.
+
+        Returns:
+            Dictionary mapping feature names to baseline tensors in raw
+            (pre-embedding) space. Embedding of token baselines is handled
+            by the caller (``attribute()``).
+        """
+        baselines: dict[str, torch.Tensor] = {}
+
+        for k, v in values.items():
+            processor = self.model.dataset.input_processors[k]
+            if use_embeddings and processor.is_token():
+                # Token features: UNK token index as baseline
+                baseline = torch.ones_like(v)
             else:
-                token_attr = contrib
+                # Continuous features (or non-embedding mode): near-zero baseline
+                baseline = torch.zeros_like(v) + 1e-2
+            baselines[k] = baseline
+
+        return baselines
+
+    # ------------------------------------------------------------------
+    # Utility helpers
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _map_to_input_shapes(
+        attr_values: Dict[str, torch.Tensor],
+        input_shapes: dict,
+    ) -> Dict[str, torch.Tensor]:
+        """Map attributions back to original input tensor shapes.
+
+        For embedding-based attributions, the embedding dimension has
+        already been summed out. This method handles any remaining
+        shape mismatches (e.g., expanding scalar attributions to match
+        multi-dimensional inputs).
+
+        Args:
+            attr_values: Dictionary of attribution tensors.
+            input_shapes: Dictionary of original input shapes.
+
+        Returns:
+            Dictionary of attributions reshaped to match original inputs.
+        """
+        mapped: dict[str, torch.Tensor] = {}
+        for key, values in attr_values.items():
+            if key not in input_shapes:
+                mapped[key] = values
+                continue
 
             orig_shape = input_shapes[key]
-            if token_attr.shape != orig_shape:
-                reshaped = token_attr
-                while len(reshaped.shape) < len(orig_shape):
-                    reshaped = reshaped.unsqueeze(-1)
+
+            if values.shape == orig_shape:
+                mapped[key] = values
+                continue
+
+            reshaped = values
+            while len(reshaped.shape) < len(orig_shape):
+                reshaped = reshaped.unsqueeze(-1)
+
+            if reshaped.shape != orig_shape:
                 reshaped = reshaped.expand(orig_shape)
-                token_attr = reshaped
 
-            mapped[key] = token_attr.detach()
+            mapped[key] = reshaped
+
         return mapped
-
-    @staticmethod
-    def _compute_embedding_masks(input_embs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        """Derive sequence masks from embedded inputs without zeroing baseline information."""
-
-        masks: Dict[str, torch.Tensor] = {}
-        for key, emb in input_embs.items():
-            mask_source = emb.detach()
-            # For nested sequences the inner dimension is pooled before mask creation
-            if mask_source.dim() == 4:
-                mask_source = mask_source.sum(dim=2)
-
-            masks[key] = (mask_source.sum(dim=-1) != 0).int()
-
-        return masks
-
-    @staticmethod
-    def _method_accepts_argument(function, arg_name: str) -> bool:
-        """Return True if ``function`` declares ``arg_name`` or **kwargs."""
-        if function is None:
-            return False
-        try:
-            signature = inspect.signature(function)
-        except (ValueError, TypeError):
-            return False
-
-        for param in signature.parameters.values():
-            if param.kind == inspect.Parameter.VAR_KEYWORD:
-                return True
-        return arg_name in signature.parameters

@@ -44,8 +44,10 @@ from .stagenet_processor import (
 from .tensor_processor import TensorProcessor
 from .text_processor import TextProcessor
 from .timeseries_processor import TimeseriesProcessor
+from .time_image_processor import TimeImageProcessor
 from .audio_processor import AudioProcessor
 from .ignore_processor import IgnoreProcessor
+from .tuple_time_text_processor import TupleTimeTextProcessor
 
 # Expose public API
 __all__ = [
@@ -63,5 +65,7 @@ __all__ = [
     "TensorProcessor",
     "TextProcessor",
     "TimeseriesProcessor",
+    "TimeImageProcessor",
     "AudioProcessor",
+    "TupleTimeTextProcessor",
 ]

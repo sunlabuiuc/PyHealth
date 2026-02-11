@@ -1,0 +1,18 @@
+version: "3.0.0"
+tables:
+  train:
+    file_path: "tuab-train-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "record_id"
+    - "signal_file"
+    - "label"
+  eval:
+    file_path: "tuab-eval-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "record_id"
+    - "signal_file"
+    - "label"
