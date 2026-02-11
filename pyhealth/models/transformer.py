@@ -12,6 +12,7 @@ from torch import nn
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.embedding import EmbeddingModel
+from pyhealth.interpret.api import CheferInterpretable
 
 # VALID_OPERATION_LEVEL = ["visit", "event"]
 
@@ -312,7 +313,7 @@ class TransformerLayer(nn.Module):
         return emb, cls_emb
 
 
-class Transformer(BaseModel):
+class Transformer(BaseModel, CheferInterpretable):
     """Transformer model for PyHealth 2.0 datasets.
 
     Each feature stream is embedded with :class:`EmbeddingModel` and encoded by
@@ -373,6 +374,7 @@ class Transformer(BaseModel):
         self.heads = heads
         self.dropout = dropout
         self.num_layers = num_layers
+        self._attention_hooks_enabled = False
 
         assert (
             len(self.label_keys) == 1
@@ -382,7 +384,7 @@ class Transformer(BaseModel):
 
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
 
-        self.transformer = nn.ModuleDict()
+        self.transformer: nn.ModuleDict = nn.ModuleDict()
         for feature_key in self.feature_keys:
             self.transformer[feature_key] = TransformerLayer(
                 feature_size=embedding_dim,
@@ -465,7 +467,8 @@ class Transformer(BaseModel):
                 logit: the raw logits before activation.
                 embed: (if embed=True in kwargs) the patient embedding.
         """
-        register_hook = bool(kwargs.pop("register_hook", False))
+        # Support both the flag-based API and legacy kwarg-based API
+        register_hook = self._attention_hooks_enabled
         patient_emb = []
 
         for feature_key in self.feature_keys:
@@ -578,6 +581,41 @@ class Transformer(BaseModel):
             nn.Module: The embedding model used to embed raw features.
         """
         return self.embedding_model
+
+    # ------------------------------------------------------------------
+    # CheferInterpretable interface
+    # ------------------------------------------------------------------
+
+    def set_attention_hooks(self, enabled: bool) -> None:
+        self._attention_hooks_enabled = enabled
+
+    def get_attention_layers(
+        self,
+    ) -> dict[str, list[tuple[torch.Tensor, torch.Tensor]]]:
+        return {  # type: ignore[return-value]
+            key: [
+                (
+                    cast(TransformerBlock, blk).attention.get_attn_map(),
+                    cast(TransformerBlock, blk).attention.get_attn_grad(),
+                )
+                for blk in cast(
+                    TransformerLayer, self.transformer[key]
+                ).transformer
+            ]
+            for key in self.feature_keys
+        }
+
+    def get_relevance_tensor(
+        self,
+        R: dict[str, torch.Tensor],
+        **data: torch.Tensor | tuple[torch.Tensor, ...],
+    ) -> dict[str, torch.Tensor]:
+        # CLS token is at index 0 for all feature keys
+        result = {}
+        for key, r in R.items():
+            # CLS token is at index 0; extract its attention row
+            result[key] = r[:, 0]  # [batch, attention_seq_len]
+        return result
 
 
 if __name__ == "__main__":
