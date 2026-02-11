@@ -73,9 +73,10 @@ class Ensemble(BaseInterpreter):
         # Normalize the attributions across items for each interpreter (e.g., by competitive ranking)
         attributions = self._competitive_ranking_normalize(attributions) # shape (B, I, M)
         
-            
-        
-        raise NotImplementedError("Ensemble attribution method is not implemented yet. This is a placeholder for future development.")
+        # Resolve conflicts and aggregate across interpreters using CRH
+        consensus = self._conflict_resolution(attributions)  # shape (B, M)
+        assert out_shape is not None, "Output shape should have been determined from the first interpreter"
+        return self._unflatten_attributions(consensus, out_shape)  # dict of tensors with original shapes
 
 
     # ------------------------------------------------------------------
