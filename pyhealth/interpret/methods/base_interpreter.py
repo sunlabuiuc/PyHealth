@@ -16,15 +16,7 @@ import torch
 import torch.nn as nn
 
 from pyhealth.models import BaseModel
-from pyhealth.interpret.api import Interpretable, CheferInterpretable
 
-class _InterpretableModel(BaseModel, Interpretable):
-    pass
-
-class _CheferInterpretableModel(BaseModel, CheferInterpretable):
-    pass
-
-type _AnyInterpretableModel = _InterpretableModel | _CheferInterpretableModel
 
 class BaseInterpreter(ABC):
     """Abstract base class for interpretability methods.
@@ -105,7 +97,7 @@ class BaseInterpreter(ABC):
         >>> print(attributions["image"].shape)  # [batch, 1, H, W]
     """
 
-    def __init__(self, model: _AnyInterpretableModel):
+    def __init__(self, model: BaseModel):
         """Initialize the base interpreter.
 
         Args:

@@ -6,7 +6,8 @@ from typing import Dict, Optional, Tuple
 import torch
 
 from pyhealth.models import BaseModel
-from .base_interpreter import BaseInterpreter, _InterpretableModel
+from pyhealth.interpret.api import Interpretable
+from .base_interpreter import BaseInterpreter
 
 
 class ShapExplainer(BaseInterpreter):
@@ -94,7 +95,7 @@ class ShapExplainer(BaseInterpreter):
 
     def __init__(
         self,
-        model: _InterpretableModel,
+        model: BaseModel,
         use_embeddings: bool = True,
         n_background_samples: int = 100,
         max_coalitions: int = 1000,
@@ -120,6 +121,9 @@ class ShapExplainer(BaseInterpreter):
                 implement forward_from_embedding() method.
         """
         super().__init__(model)
+        if not isinstance(model, Interpretable):
+            raise ValueError("Model must implement Interpretable interface")
+        self.model = model
         self.use_embeddings = use_embeddings
         self.n_background_samples = n_background_samples
         self.max_coalitions = max_coalitions

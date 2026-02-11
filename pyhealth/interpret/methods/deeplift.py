@@ -7,7 +7,8 @@ import torch
 import torch.nn.functional as F
 
 from pyhealth.models import BaseModel
-from .base_interpreter import BaseInterpreter, _InterpretableModel
+from pyhealth.interpret.api import Interpretable
+from .base_interpreter import BaseInterpreter
 
 
 def _iter_child_modules(module: torch.nn.Module):
@@ -328,17 +329,13 @@ class DeepLift(BaseInterpreter):
             Learning (ICML), 2017. https://proceedings.mlr.press/v70/shrikumar17a.html
     """
 
-    def __init__(self, model: _InterpretableModel, use_embeddings: bool = True):
+    def __init__(self, model: BaseModel, use_embeddings: bool = True):
         super().__init__(model)
+        if not isinstance(model, Interpretable):
+            raise ValueError("Model must implement Interpretable interface")
+        self.model = model
+        
         self.use_embeddings = use_embeddings
-
-        if use_embeddings:
-            assert hasattr(model, "forward_from_embedding"), (
-                f"Model {type(model).__name__} must implement "
-                "forward_from_embedding() method to support embedding-level "
-                "DeepLIFT. Set use_embeddings=False to use input-level "
-                "gradients (only for continuous features)."
-            )
 
     # ------------------------------------------------------------------
     # Public API

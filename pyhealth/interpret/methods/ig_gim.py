@@ -35,7 +35,8 @@ import torch.nn.functional as F
 
 from pyhealth.models import BaseModel
 
-from .base_interpreter import BaseInterpreter, _InterpretableModel
+from .base_interpreter import BaseInterpreter
+from pyhealth.interpret.api import Interpretable
 from .gim import _GIMHookContext
 
 
@@ -74,23 +75,14 @@ class IntegratedGradientGIM(BaseInterpreter):
 
     def __init__(
         self,
-        model: _InterpretableModel,
+        model: BaseModel,
         temperature: float = 2.0,
         steps: int = 50,
     ):
         super().__init__(model)
-
-        if not hasattr(model, "forward_from_embedding"):
-            raise AssertionError(
-                f"Model {type(model).__name__} must implement "
-                "forward_from_embedding() to use IG-GIM.  "
-                "Set use_embeddings=False for input-level IG instead."
-            )
-        if model.get_embedding_model() is None:
-            raise AssertionError(
-                "Model must provide an embedding model via "
-                "get_embedding_model() for IG-GIM."
-            )
+        if not isinstance(model, Interpretable):
+            raise ValueError("Model must implement Interpretable interface")
+        self.model = model
 
         self.temperature = max(float(temperature), 1.0)
         self.steps = steps
