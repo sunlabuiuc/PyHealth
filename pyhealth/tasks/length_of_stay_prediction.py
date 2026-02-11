@@ -131,23 +131,6 @@ class LengthOfStayPredictionMIMIC3(BaseTask):
         return samples
 
 
-def length_of_stay_prediction_mimic3_fn(patient: Patient):
-    """Processes a single patient for the length-of-stay prediction task.
-
-    This is a legacy function wrapper for backward compatibility.
-    Please use LengthOfStayPredictionMIMIC3 class instead.
-
-    Args:
-        patient: a Patient object.
-
-    Returns:
-        samples: a list of samples, each sample is a dict with patient_id, visit_id,
-            and other task-specific attributes as key.
-    """
-    task = LengthOfStayPredictionMIMIC3()
-    return task(patient)
-
-
 class LengthOfStayPredictionMIMIC4(BaseTask):
     """Task for predicting length of stay using MIMIC-IV dataset.
 
@@ -249,23 +232,6 @@ class LengthOfStayPredictionMIMIC4(BaseTask):
             )
         # no cohort selection
         return samples
-
-
-def length_of_stay_prediction_mimic4_fn(patient: Patient):
-    """Processes a single patient for the length-of-stay prediction task.
-
-    This is a legacy function wrapper for backward compatibility.
-    Please use LengthOfStayPredictionMIMIC4 class instead.
-
-    Args:
-        patient: a Patient object.
-
-    Returns:
-        samples: a list of samples, each sample is a dict with patient_id, visit_id,
-            and other task-specific attributes as key.
-    """
-    task = LengthOfStayPredictionMIMIC4()
-    return task(patient)
 
 
 class LengthOfStayPredictioneICU(BaseTask):
@@ -396,23 +362,6 @@ class LengthOfStayPredictioneICU(BaseTask):
         return samples
 
 
-def length_of_stay_prediction_eicu_fn(patient: Patient):
-    """Processes a single patient for the length-of-stay prediction task.
-
-    This is a legacy function wrapper for backward compatibility.
-    Please use LengthOfStayPredictioneICU class instead.
-
-    Args:
-        patient: a Patient object.
-
-    Returns:
-        samples: a list of samples, each sample is a dict with patient_id, visit_id,
-            and other task-specific attributes as key.
-    """
-    task = LengthOfStayPredictioneICU()
-    return task(patient)
-
-
 class LengthOfStayPredictionOMOP(BaseTask):
     """Task for predicting length of stay using OMOP dataset.
 
@@ -511,23 +460,6 @@ class LengthOfStayPredictionOMOP(BaseTask):
             )
         # no cohort selection
         return samples
-
-
-def length_of_stay_prediction_omop_fn(patient: Patient):
-    """Processes a single patient for the length-of-stay prediction task.
-
-    This is a legacy function wrapper for backward compatibility.
-    Please use LengthOfStayPredictionOMOP class instead.
-
-    Args:
-        patient: a Patient object.
-
-    Returns:
-        samples: a list of samples, each sample is a dict with patient_id, visit_id,
-            and other task-specific attributes as key.
-    """
-    task = LengthOfStayPredictionOMOP()
-    return task(patient)
 
 
 if __name__ == "__main__":

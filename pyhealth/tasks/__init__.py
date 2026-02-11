@@ -17,7 +17,6 @@ from .drug_recommendation import (
     DrugRecommendationEICU,
     DrugRecommendationMIMIC3,
     DrugRecommendationMIMIC4,
-    drug_recommendation_eicu_fn,
     drug_recommendation_mimic3_fn,
     drug_recommendation_mimic4_fn,
     drug_recommendation_omop_fn,
@@ -30,10 +29,6 @@ from .length_of_stay_prediction import (
     LengthOfStayPredictionMIMIC3,
     LengthOfStayPredictionMIMIC4,
     LengthOfStayPredictionOMOP,
-    length_of_stay_prediction_eicu_fn,
-    length_of_stay_prediction_mimic3_fn,
-    length_of_stay_prediction_mimic4_fn,
-    length_of_stay_prediction_omop_fn,
 )
 from .length_of_stay_stagenet_mimic4 import LengthOfStayStageNetMIMIC4
 from .medical_coding import MIMIC3ICD9Coding
