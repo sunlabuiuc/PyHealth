@@ -20,8 +20,8 @@ import torch.nn.functional as F
 
 from pyhealth.interpret.api import CheferInterpretable
 from pyhealth.models.base_model import BaseModel
-
-from .base_interpreter import BaseInterpreter, _CheferInterpretableModel
+from pyhealth.interpret.api import CheferInterpretable
+from .base_interpreter import BaseInterpreter
 
 
 # ---------------------------------------------------------------------------
@@ -131,15 +131,11 @@ class CheferRelevance(BaseInterpreter):
         >>> attributions = interpreter.attribute(class_index=1, **batch)
     """
 
-    def __init__(self, model: _CheferInterpretableModel):
+    def __init__(self, model: BaseModel):
         super().__init__(model)
-        self.model = cast(_CheferInterpretableModel, model)
-
         if not isinstance(model, CheferInterpretable):
-            raise ValueError(
-                f"CheferRelevance requires a model implementing "
-                f"CheferInterpretable, got {type(model).__name__}."
-            )
+            raise ValueError("Model must implement CheferInterpretable interface")
+        self.model = model
 
     def attribute(
         self,
