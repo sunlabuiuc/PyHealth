@@ -9,6 +9,7 @@ import torch.nn as nn
 
 from pyhealth.interpret.methods import GIM, IntegratedGradients
 from pyhealth.interpret.methods.ig_gim import IntegratedGradientGIM
+from pyhealth.interpret.api import Interpretable
 from pyhealth.models import BaseModel
 from pyhealth.models.transformer import Attention
 
@@ -75,7 +76,7 @@ class _ToyEmbeddingModel(nn.Module):
         return {key: self.embedding(val.long()) for key, val in inputs.items()}
 
 
-class _ToyModel(BaseModel):
+class _ToyModel(BaseModel, Interpretable):
     """Small model with softmax attention for testing IG-GIM."""
 
     def __init__(self, vocab_size=32, embedding_dim=4, schema=("value",)):

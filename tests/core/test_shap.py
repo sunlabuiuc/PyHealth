@@ -11,6 +11,7 @@ import litdata
 from pyhealth.datasets import SampleDataset, get_dataloader
 from pyhealth.datasets.sample_dataset import SampleBuilder
 from pyhealth.models import MLP, StageNet, BaseModel
+from pyhealth.interpret.api import Interpretable
 from pyhealth.interpret.methods import ShapExplainer
 from pyhealth.interpret.methods.base_interpreter import BaseInterpreter
 
@@ -47,7 +48,7 @@ class _MockDataset:
 # Test model helpers
 # ---------------------------------------------------------------------------
 
-class _SimpleShapModel(BaseModel):
+class _SimpleShapModel(BaseModel, Interpretable):
     """Minimal model for testing SHAP with continuous inputs."""
 
     def __init__(self):
@@ -97,7 +98,7 @@ class _SimpleEmbeddingModel(nn.Module):
         return {key: self.embedding(value.long()) for key, value in inputs.items()}
 
 
-class _EmbeddingForwardModel(BaseModel):
+class _EmbeddingForwardModel(BaseModel, Interpretable):
     """Toy model exposing forward_from_embedding for discrete features."""
 
     def __init__(self, schema=("value",)):
@@ -152,7 +153,7 @@ class _EmbeddingForwardModel(BaseModel):
         return self.embedding_model
 
 
-class _MultiFeatureModel(BaseModel):
+class _MultiFeatureModel(BaseModel, Interpretable):
     """Model with multiple feature inputs for testing multi-feature SHAP."""
 
     def __init__(self):
