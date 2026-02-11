@@ -407,7 +407,6 @@ class StageAttentionNet(BaseModel, CheferInterpretable):
         self.chunk_size = chunk_size
         self.levels = levels
         self._attention_hooks_enabled = False
-        self._masks: dict[str, torch.Tensor] = {}
 
         # validate kwargs for StageNet layer
         if "input_dim" in kwargs:
@@ -548,9 +547,6 @@ class StageAttentionNet(BaseModel, CheferInterpretable):
                 value, time=time, mask=mask, register_hook=register_attn_hook
             )
 
-            # Store the final mask for get_relevance_vector
-            self._masks[feature_key] = mask
-
             patient_emb.append(last_output)
             distance.append(cur_dis)
 
@@ -662,21 +658,52 @@ class StageAttentionNet(BaseModel, CheferInterpretable):
         **data: torch.Tensor | tuple[torch.Tensor, ...],
     ) -> dict[str, torch.Tensor]:
         # StageAttentionNet uses get_last_visit (last valid timestep)
-        # instead of a CLS token.  Use the masks stored during forward.
+        # instead of a CLS token.  Derive the mask from **data using
+        # the same logic as forward_from_embedding.
         result = {}
         for key in self.feature_keys:
             r = R[key]
             batch_size = r.shape[0]
             device = r.device
-            mask = self._masks.get(key)
-            if mask is not None:
-                last_idx = mask.sum(dim=1).long() - 1
-                last_idx = last_idx.clamp(min=0)
+
+            processor = self.dataset.input_processors[key]
+            schema = processor.schema()
+            feature = data[key]
+
+            if isinstance(feature, torch.Tensor):
+                feature = (feature,)
+
+            value = feature[schema.index("value")] if "value" in schema else None
+            mask = feature[schema.index("mask")] if "mask" in schema else None
+
+            if len(feature) == len(schema) + 1 and mask is None:
+                mask = feature[-1]
+
+            if mask is None:
+                if value is not None:
+                    v = value.to(device)
+                    mask = (v.abs().sum(dim=-1) != 0).int()
+                else:
+                    # Cannot determine mask; fall back to last position
+                    last_idx = torch.full(
+                        (batch_size,), r.shape[1] - 1,
+                        device=device, dtype=torch.long,
+                    )
+                    result[key] = r[
+                        torch.arange(batch_size, device=device), last_idx
+                    ]
+                    continue
             else:
-                # No mask stored → fall back to last position
-                last_idx = torch.full(
-                    (batch_size,), r.shape[1] - 1, device=device, dtype=torch.long
-                )
+                mask = mask.to(device)
+                if not processor.is_token() and value is not None and value.dim() == mask.dim():
+                    mask = mask.any(dim=-1).int()
+
+            if mask.dim() == 3:
+                # Nested sequences: collapse inner dimension
+                mask = mask.any(dim=2).int()
+
+            last_idx = mask.sum(dim=1).long() - 1
+            last_idx = last_idx.clamp(min=0)
             result[key] = r[
                 torch.arange(batch_size, device=device), last_idx
             ]
