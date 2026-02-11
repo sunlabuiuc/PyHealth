@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 import torch
 from torch import nn
 
-class InterpretableModelInterface(ABC):
+class Interpretable(ABC):
     """Abstract interface for models supporting interpretability methods.
     
     This class defines the contract that models must fulfill to be compatible
@@ -257,10 +257,10 @@ class InterpretableModelInterface(ABC):
         raise NotImplementedError
 
 
-class CheferInterpretableModelInterface(InterpretableModelInterface):
+class CheferInterpretable(Interpretable):
     """Abstract interface for models supporting Chefer relevance attribution.
 
-    This is a subclass of :class:`InterpretableModelInterface` and therefore
+    This is a subclass of :class:`Interpretable` and therefore
     inherits the embedding-level interface (``forward_from_embedding``,
     ``get_embedding_model``).  Models that implement this interface
     automatically satisfy the general interpretability contract **and** the

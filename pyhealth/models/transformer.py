@@ -12,7 +12,7 @@ from torch import nn
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.embedding import EmbeddingModel
-from pyhealth.interpret.api import InterpretableModelInterface
+from pyhealth.interpret.api import Interpretable
 
 # VALID_OPERATION_LEVEL = ["visit", "event"]
 
@@ -313,7 +313,7 @@ class TransformerLayer(nn.Module):
         return emb, cls_emb
 
 
-class Transformer(BaseModel, InterpretableModelInterface):
+class Transformer(BaseModel, Interpretable):
     """Transformer model for PyHealth 2.0 datasets.
 
     Each feature stream is embedded with :class:`EmbeddingModel` and encoded by
