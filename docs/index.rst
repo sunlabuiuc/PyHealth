@@ -126,45 +126,53 @@ Quick Navigation
    :widths: 50 50
    :class: borderless
 
-   * - Getting Started
-       
+   * - **Getting Started**
+
        Build your first healthcare AI model in 5 minutes
-       
+
        :doc:`Read Guide → <how_to_get_started>`
-     - Why PyHealth?
-       
-       Discover the advantages of PyHealth for healthcare AI
-       
+
+     - **Why PyHealth?**
+
+       Discover the comprehensive benefits and capabilities
+
        :doc:`Learn More → <why_pyhealth>`
 
-   * - Medical Standards
-       
-       Translate between medical coding systems (ICD, NDC, ATC, CCS)
-       
-       :doc:`Explore → <api/medcode>`
-     - Tutorials
-       
+   * - **Installation**
+
+       Install PyHealth and set up your environment
+
+       :doc:`Install Now → <install>`
+
+     - **Research Initiative**
+
+       Join our summer research program and contribute
+
+       :doc:`View Projects → <research_initiative>`
+
+   * - **Tutorials**
+
        Hands-on notebooks and step-by-step guides
-       
+
        :doc:`Open Tutorials → <tutorials>`
 
-  * - Research Initiative
-      
-      Explore research contributions from our annual summer program
-      
-      :doc:`View Projects → <research_initiative>`
-    - Newsletter
-      
-      Stay updated with the latest PyHealth developments and community news
-      
-      :doc:`Read Newsletter → <newsletter>`
+     - **Medical Standards**
 
-  * - Community
-      
-      Join our Discord server and contribute to PyHealth
-      
-      `Discord → <https://discord.gg/mpb835EHaX>`_ | :doc:`Contribute → <how_to_contribute>`
-    - 
+       Translate between medical coding systems (ICD, NDC, ATC, CCS)
+
+       :doc:`Explore → <api/medcode>`
+
+   * - **Community**
+
+       Join our Discord server and contribute to PyHealth
+
+       `Discord → <https://discord.gg/mpb835EHaX>`_ | :doc:`Contribute → <how_to_contribute>`
+
+     - **Newsletter**
+
+       Stay updated with the latest PyHealth developments
+
+       :doc:`Read Newsletter → <newsletter>`
 
 
 
