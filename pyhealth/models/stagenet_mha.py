@@ -8,6 +8,7 @@ from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.utils import get_last_visit
 from .transformer import MultiHeadedAttention
+from pyhealth.interpret.api import InterpretableModelInterface
 
 from .embedding import EmbeddingModel
 
@@ -297,7 +298,7 @@ class StageNetAttentionLayer(nn.Module):
         return last_output, output, distance
 
 
-class StageAttentionNet(BaseModel):
+class StageAttentionNet(BaseModel, InterpretableModelInterface):
     """StageAttentionNet model.
 
     Paper: Junyi Gao et al. Stagenet: Stage-aware neural networks for health

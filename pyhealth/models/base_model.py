@@ -73,37 +73,6 @@ class BaseModel(ABC, nn.Module):
                 y_true [optional]: a tensor representing the true labels, if self.label_keys in kwargs.
         """
         raise NotImplementedError
-    
-    def forward_from_embedding(
-        self, 
-        **kwargs: torch.Tensor | tuple[torch.Tensor, ...]
-    ) -> dict[str, torch.Tensor]:
-        """Forward pass of the model from embeddings.
-        
-        This method should be implemented for interpretability methods that require
-        access to the model's forward pass from embeddings.
-        
-        Args:
-            **kwargs: A variable number of keyword arguments representing input features
-                as embeddings. Each keyword argument is a tensor or a tuple of tensors of
-                shape (batch_size, ...).
-
-        Returns:
-            A dictionary with the following keys:
-                logit: a tensor of predicted logits.
-                y_prob: a tensor of predicted probabilities.
-                loss [optional]: a scalar tensor representing the final loss, if self.label_keys in kwargs.
-                y_true [optional]: a tensor representing the true labels, if self.label_keys in kwargs.
-        """
-        raise NotImplementedError
-
-    def get_embedding_model(self) -> nn.Module | None:
-        """Get the embedding model if applicable. This is used in pair with `forward_from_embedding`.
-
-        Returns:
-            nn.Module | None: The embedding model or None if not applicable.
-        """
-        raise NotImplementedError
 
     # ------------------------------------------------------------------
     # Internal helpers

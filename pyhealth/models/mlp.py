@@ -5,11 +5,12 @@ import torch.nn as nn
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
+from pyhealth.interpret.api import InterpretableModelInterface
 
 from .embedding import EmbeddingModel
 
 
-class MLP(BaseModel):
+class MLP(BaseModel, InterpretableModelInterface):
     """Multi-layer perceptron model.
 
     This model applies a separate MLP layer for each feature, and then
