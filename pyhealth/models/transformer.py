@@ -605,7 +605,7 @@ class Transformer(BaseModel, CheferInterpretable):
             for key in self.feature_keys
         }
 
-    def get_relevance_vector(
+    def get_relevance_tensor(
         self,
         R: dict[str, torch.Tensor],
         **data: torch.Tensor | tuple[torch.Tensor, ...],
