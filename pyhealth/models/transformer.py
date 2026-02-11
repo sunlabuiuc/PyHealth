@@ -611,7 +611,11 @@ class Transformer(BaseModel, CheferInterpretable):
         **data: torch.Tensor | tuple[torch.Tensor, ...],
     ) -> dict[str, torch.Tensor]:
         # CLS token is at index 0 for all feature keys
-        return {key: r[:, 0] for key, r in R.items()}
+        result = {}
+        for key, r in R.items():
+            # CLS token is at index 0; extract its attention row
+            result[key] = r[:, 0]  # [batch, attention_seq_len]
+        return result
 
 
 if __name__ == "__main__":

@@ -199,7 +199,55 @@ class CheferRelevance(BaseInterpreter):
             R_dict[key] = R
 
         # --- 5. Reduce R matrices to per-token vectors ---
-        return self.model.get_relevance_tensor(R_dict, **data)
+        attributions = self.model.get_relevance_tensor(R_dict, **data)
+
+        # --- 6. Expand to match raw input shapes (nested sequences) ---
+        return self._map_to_input_shapes(attributions, data)
+
+    # ------------------------------------------------------------------
+    # Shape mapping
+    # ------------------------------------------------------------------
+
+    def _map_to_input_shapes(
+        self,
+        attributions: Dict[str, torch.Tensor],
+        data: dict,
+    ) -> Dict[str, torch.Tensor]:
+        """Expand attributions to match raw input value shapes.
+
+        For nested sequences the attention operates on a pooled
+        (visit-level) sequence, but downstream consumers (e.g. ablation
+        metrics) expect attributions to match the raw input value shape.
+        Per-visit relevance scores are replicated across all codes
+        within each visit.
+
+        Args:
+            attributions: Per-feature attribution tensors returned by
+                ``model.get_relevance_tensor()``.
+            data: Original ``**data`` kwargs from the dataloader batch.
+
+        Returns:
+            Attributions expanded to raw input value shapes where needed.
+        """
+        result: Dict[str, torch.Tensor] = {}
+        for key, attr in attributions.items():
+            feature = data.get(key)
+            if feature is not None:
+                if isinstance(feature, torch.Tensor):
+                    val = feature
+                else:
+                    schema = self.model.dataset.input_processors[key].schema()
+                    val = (
+                        feature[schema.index("value")]
+                        if "value" in schema
+                        else None
+                    )
+                if val is not None and val.dim() > attr.dim():
+                    for _ in range(val.dim() - attr.dim()):
+                        attr = attr.unsqueeze(-1)
+                    attr = attr.expand_as(val)
+            result[key] = attr
+        return result
 
     # ------------------------------------------------------------------
     # Backward compatibility aliases

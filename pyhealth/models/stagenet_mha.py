@@ -704,7 +704,9 @@ class StageAttentionNet(BaseModel, CheferInterpretable):
 
             last_idx = mask.sum(dim=1).long() - 1
             last_idx = last_idx.clamp(min=0)
-            result[key] = r[
+            attn = r[
                 torch.arange(batch_size, device=device), last_idx
-            ]
+            ]  # [batch, attention_seq_len]
+
+            result[key] = attn
         return result
