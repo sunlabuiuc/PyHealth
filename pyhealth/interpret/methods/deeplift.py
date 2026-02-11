@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import contextlib
-from typing import Dict, List, Optional, Tuple, Type
+from typing import Dict, List, Optional, Tuple, Type, cast
 
 import torch
 import torch.nn.functional as F
 
 from pyhealth.models import BaseModel
-from .base_interpreter import BaseInterpreter
+from .base_interpreter import BaseInterpreter, _InterpretableModel
 
 
 def _iter_child_modules(module: torch.nn.Module):
@@ -328,7 +328,7 @@ class DeepLift(BaseInterpreter):
             Learning (ICML), 2017. https://proceedings.mlr.press/v70/shrikumar17a.html
     """
 
-    def __init__(self, model: BaseModel, use_embeddings: bool = True):
+    def __init__(self, model: _InterpretableModel, use_embeddings: bool = True):
         super().__init__(model)
         self.use_embeddings = use_embeddings
 

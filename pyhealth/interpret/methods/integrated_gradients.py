@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 from pyhealth.models import BaseModel
 
-from .base_interpreter import BaseInterpreter
+from .base_interpreter import BaseInterpreter, _InterpretableModel
 
 
 class IntegratedGradients(BaseInterpreter):
@@ -166,7 +166,7 @@ class IntegratedGradients(BaseInterpreter):
         ... )
     """
 
-    def __init__(self, model: BaseModel, use_embeddings: bool = True, steps: int = 50):
+    def __init__(self, model: _InterpretableModel, use_embeddings: bool = True, steps: int = 50):
         """Initialize IntegratedGradients interpreter.
 
         Args:

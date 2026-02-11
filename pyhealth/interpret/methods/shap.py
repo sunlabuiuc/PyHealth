@@ -6,7 +6,7 @@ from typing import Dict, Optional, Tuple
 import torch
 
 from pyhealth.models import BaseModel
-from .base_interpreter import BaseInterpreter
+from .base_interpreter import BaseInterpreter, _InterpretableModel
 
 
 class ShapExplainer(BaseInterpreter):
@@ -94,7 +94,7 @@ class ShapExplainer(BaseInterpreter):
 
     def __init__(
         self,
-        model: BaseModel,
+        model: _InterpretableModel,
         use_embeddings: bool = True,
         n_background_samples: int = 100,
         max_coalitions: int = 1000,

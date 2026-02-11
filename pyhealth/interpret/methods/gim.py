@@ -8,8 +8,7 @@ import torch
 import torch.nn.functional as F
 
 from pyhealth.models import BaseModel
-
-from .base_interpreter import BaseInterpreter
+from .base_interpreter import BaseInterpreter, _InterpretableModel
 
 
 def _iter_child_modules(module: torch.nn.Module):
@@ -347,7 +346,7 @@ class GIM(BaseInterpreter):
 
     def __init__(
         self,
-        model: BaseModel,
+        model: _InterpretableModel,
         temperature: float = 2.0,
     ):
         super().__init__(model)

@@ -35,7 +35,7 @@ import torch.nn.functional as F
 
 from pyhealth.models import BaseModel
 
-from .base_interpreter import BaseInterpreter
+from .base_interpreter import BaseInterpreter, _InterpretableModel
 from .gim import _GIMHookContext
 
 
@@ -74,7 +74,7 @@ class IntegratedGradientGIM(BaseInterpreter):
 
     def __init__(
         self,
-        model: BaseModel,
+        model: _InterpretableModel,
         temperature: float = 2.0,
         steps: int = 50,
     ):
