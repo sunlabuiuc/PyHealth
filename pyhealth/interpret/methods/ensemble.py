@@ -21,17 +21,63 @@ class Ensemble(BaseInterpreter):
     def __init__(
         self,
         model: BaseModel,
-        interpreters: list[BaseInterpreter],
+        experts: list[BaseInterpreter],
     ):
         super().__init__(model)
-        assert len(interpreters) >= 3, "Ensemble must contain at least three interpreters for majority voting"
-        self.interpreters = interpreters
+        assert len(experts) >= 3, "Ensemble must contain at least three interpreters for majority voting"
+        self.experts = experts
+
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+    def attribute(
+        self,
+        **kwargs: torch.Tensor | tuple[torch.Tensor, ...],
+    ) -> Dict[str, torch.Tensor]:
+        """Compute random attributions for input features.
+
+        Generates random importance scores with the same shape as each
+        input feature tensor. No gradients or forward passes are needed.
+
+        Args:
+            **kwargs: Input data dictionary from a dataloader batch.
+                Should contain feature tensors (or tuples of tensors)
+                keyed by the model's feature keys, plus optional label
+                or metadata tensors (which are ignored).
+
+        Returns:
+            Dictionary mapping each feature key to a random attribution
+            tensor whose shape matches the raw input values.
+        """
+        out_shape: dict[str, torch.Size] | None = None
+        attr_lst: list[torch.Tensor] = []
+        for expert in self.experts:
+            attr = expert.attribute(**kwargs)
+            
+            # record the output shape from the first interpreter, 
+            # since all interpreters should produce the same shape
+            if out_shape is None:
+                out_shape = {k: v.shape for k, v in attr.items()}
+            
+            flat_attr = self._flatten_attributions(attr) # shape (B, M)
+            attr_lst.append(flat_attr)
+        
+        # Combine the flattened attributions from all interpreters
+        attributions = torch.stack(attr_lst, dim=1)  # shape (B, I, M)
+        # Normalize the attributions across items for each interpreter (e.g., by competitive ranking)
+        attributions = self._competitive_ranking_noramlize(attributions) # shape (B, I, M)
+        
+            
+        
+        raise NotImplementedError("Ensemble attribution method is not implemented yet. This is a placeholder for future development.")
+
 
     # ------------------------------------------------------------------
     # Private helper methods
     # ------------------------------------------------------------------
+    @staticmethod
     def _flatten_attributions(
-        self,
         values: dict[str, torch.Tensor],
     ) -> torch.Tensor:
         """Flatten values dictionary to a single tensor.
@@ -56,8 +102,8 @@ class Ensemble(BaseInterpreter):
         # Concatenate along feature dimension
         return torch.cat(flattened_list, dim=1)
 
+    @staticmethod
     def _unflatten_attributions(
-        self,
         flattened: torch.Tensor,
         shapes: dict[str, torch.Size],
     ) -> dict[str, torch.Tensor]:
@@ -91,52 +137,9 @@ class Ensemble(BaseInterpreter):
 
         return values
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-    def attribute(
-        self,
-        **kwargs: torch.Tensor | tuple[torch.Tensor, ...],
-    ) -> Dict[str, torch.Tensor]:
-        """Compute random attributions for input features.
-
-        Generates random importance scores with the same shape as each
-        input feature tensor. No gradients or forward passes are needed.
-
-        Args:
-            **kwargs: Input data dictionary from a dataloader batch.
-                Should contain feature tensors (or tuples of tensors)
-                keyed by the model's feature keys, plus optional label
-                or metadata tensors (which are ignored).
-
-        Returns:
-            Dictionary mapping each feature key to a random attribution
-            tensor whose shape matches the raw input values.
-        """
-        out_shape: dict[str, torch.Size] | None = None
-        attr_lst: list[torch.Tensor] = []
-        for interpreter in self.interpreters:
-            attr = interpreter.attribute(**kwargs)
-            
-            # record the output shape from the first interpreter, 
-            # since all interpreters should produce the same shape
-            if out_shape is None:
-                out_shape = {k: v.shape for k, v in attr.items()}
-            
-            flat_attr = self._flatten_attributions(attr) # shape (B, M)
-            attr_lst.append(flat_attr)
-        
-        # Combine the flattened attributions from all interpreters
-        attributions = torch.stack(attr_lst, dim=1)  # shape (B, I, M)
-        # Normalize the attributions across items for each interpreter (e.g., by competitive ranking)
-        attributions = self.competitive_ranking_noramlize(attributions) # shape (B, I, M)
-        
-            
-        
-        raise NotImplementedError("Ensemble attribution method is not implemented yet. This is a placeholder for future development.")
 
     @staticmethod
-    def competitive_ranking_noramlize(x: torch.Tensor) -> torch.Tensor:
+    def _competitive_ranking_noramlize(x: torch.Tensor) -> torch.Tensor:
         """Normalize a tensor via competitive (standard competition) ranking.
 
         For each (batch, expert) slice, items are ranked ascendingly from
@@ -146,15 +149,15 @@ class Ensemble(BaseInterpreter):
         so that the output lies in [0, 1].
 
         Args:
-            x: Tensor of shape ``(batch_size, expert_size, total_item)``
+            x: Tensor of shape ``(B, I, M)``
                 containing unbounded floating-point scores.
 
         Returns:
             Tensor of the same shape with values in [0, 1].
         """
-        B, I, M = x.shape
+        batch_size, num_experts, num_items = x.shape
 
-        if M <= 1:
+        if num_items <= 1:
             # With a single item the rank is 0 and 0/0 is undefined;
             # return zeros as a safe default.
             return torch.zeros_like(x)
@@ -164,7 +167,7 @@ class Ensemble(BaseInterpreter):
 
         # 2. Build a mask that is True at positions where the value changes
         #    from the previous position (i.e. the start of a new rank group).
-        change_mask = torch.ones(B, I, M, dtype=torch.bool, device=x.device)
+        change_mask = torch.ones(batch_size, num_experts, num_items, dtype=torch.bool, device=x.device)
         change_mask[..., 1:] = sorted_vals[..., 1:] != sorted_vals[..., :-1]
 
         # 3. Assign competitive ranks in sorted order.
@@ -172,7 +175,7 @@ class Ensemble(BaseInterpreter):
         #    at tie positions we propagate the rank of the first occurrence
         #    via cummax (all non-change positions are set to -1 so cummax
         #    naturally carries forward the last "real" rank).
-        positions = torch.arange(M, device=x.device, dtype=torch.long).expand(B, I, M)
+        positions = torch.arange(num_items, device=x.device, dtype=torch.long).expand(batch_size, num_experts, num_items)
         ranks_sorted = torch.where(
             change_mask,
             positions,
@@ -185,9 +188,9 @@ class Ensemble(BaseInterpreter):
         ranks.scatter_(-1, sort_indices, ranks_sorted.to(x.dtype))
 
         # 5. Normalize to [0, 1]
-        return ranks / (M - 1)
+        return ranks / (num_items - 1)
 
-    def conflict_resolution(self, attributions: torch.Tensor) -> torch.Tensor:
+    def _conflict_resolution(self, attributions: torch.Tensor) -> torch.Tensor:
         """Truth discovery using CRH algorithm. This try to estimate the true importance scores 
         by iteratively reweighting the experts based on their agreement with the current consensus.
 
@@ -196,6 +199,6 @@ class Ensemble(BaseInterpreter):
                 where values are in [0, 1].
 
         Returns:
-            Tensor of the same shape with values in [0, 1].
+            Tensor of shape (B, M) in [0, 1].
         """
-        pas
+        pass

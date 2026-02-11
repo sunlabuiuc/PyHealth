@@ -336,7 +336,7 @@ class TestCompetitiveRankingNormalize(unittest.TestCase):
         """When all values are distinct, ranks should be 0..M-1 (normalized)."""
         # (B=1, I=1, M=5) with distinct values
         x = torch.tensor([[[3.0, 1.0, 4.0, 1.5, 2.0]]])
-        result = Ensemble.competitive_ranking_noramlize(x)
+        result = Ensemble._competitive_ranking_noramlize(x)
 
         # Sorted ascending: 1.0(idx1)=0, 1.5(idx3)=1, 2.0(idx4)=2, 3.0(idx0)=3, 4.0(idx2)=4
         # Normalized by (M-1)=4
@@ -347,13 +347,13 @@ class TestCompetitiveRankingNormalize(unittest.TestCase):
         """Output shape must match input shape."""
         for B, I, M in [(2, 3, 5), (1, 1, 10), (4, 2, 7)]:
             x = torch.randn(B, I, M)
-            result = Ensemble.competitive_ranking_noramlize(x)
+            result = Ensemble._competitive_ranking_noramlize(x)
             self.assertEqual(result.shape, x.shape)
 
     def test_output_range(self):
         """All output values must lie in [0, 1]."""
         x = torch.randn(4, 3, 20)
-        result = Ensemble.competitive_ranking_noramlize(x)
+        result = Ensemble._competitive_ranking_noramlize(x)
         self.assertTrue((result >= 0).all())
         self.assertTrue((result <= 1).all())
 
@@ -361,28 +361,28 @@ class TestCompetitiveRankingNormalize(unittest.TestCase):
         """Tied scores must receive the same (minimum) rank — '1224' ranking."""
         # [1, 2, 2, 4] -> ranks [0, 1, 1, 3], normalized by 3
         x = torch.tensor([[[1.0, 2.0, 2.0, 4.0]]])
-        result = Ensemble.competitive_ranking_noramlize(x)
+        result = Ensemble._competitive_ranking_noramlize(x)
         expected = torch.tensor([[[0/3, 1/3, 1/3, 3/3]]])
         torch.testing.assert_close(result, expected)
 
     def test_all_tied(self):
         """When every item has the same score, all ranks should be 0."""
         x = torch.tensor([[[5.0, 5.0, 5.0, 5.0]]])
-        result = Ensemble.competitive_ranking_noramlize(x)
+        result = Ensemble._competitive_ranking_noramlize(x)
         expected = torch.zeros_like(x)
         torch.testing.assert_close(result, expected)
 
     def test_single_item(self):
         """M=1 edge case: should return zeros."""
         x = torch.tensor([[[7.0]]])
-        result = Ensemble.competitive_ranking_noramlize(x)
+        result = Ensemble._competitive_ranking_noramlize(x)
         expected = torch.zeros_like(x)
         torch.testing.assert_close(result, expected)
 
     def test_two_items_distinct(self):
         """M=2, distinct values."""
         x = torch.tensor([[[3.0, 1.0]]])
-        result = Ensemble.competitive_ranking_noramlize(x)
+        result = Ensemble._competitive_ranking_noramlize(x)
         # 1.0 -> rank 0, 3.0 -> rank 1; normalized by 1
         expected = torch.tensor([[[1.0, 0.0]]])
         torch.testing.assert_close(result, expected)
@@ -390,14 +390,14 @@ class TestCompetitiveRankingNormalize(unittest.TestCase):
     def test_two_items_tied(self):
         """M=2, tied values."""
         x = torch.tensor([[[3.0, 3.0]]])
-        result = Ensemble.competitive_ranking_noramlize(x)
+        result = Ensemble._competitive_ranking_noramlize(x)
         expected = torch.zeros_like(x)
         torch.testing.assert_close(result, expected)
 
     def test_multiple_tie_groups(self):
         """Multiple distinct tie groups: [1,1,3,3,5]."""
         x = torch.tensor([[[1.0, 1.0, 3.0, 3.0, 5.0]]])
-        result = Ensemble.competitive_ranking_noramlize(x)
+        result = Ensemble._competitive_ranking_noramlize(x)
         # ranks: [0, 0, 2, 2, 4], normalized by 4
         expected = torch.tensor([[[0/4, 0/4, 2/4, 2/4, 4/4]]])
         torch.testing.assert_close(result, expected)
@@ -411,7 +411,7 @@ class TestCompetitiveRankingNormalize(unittest.TestCase):
              [5.0, 5.0, 5.0]],  # batch 1, expert 1
         ])  # (B=2, I=2, M=3)
 
-        result = Ensemble.competitive_ranking_noramlize(x)
+        result = Ensemble._competitive_ranking_noramlize(x)
 
         # batch0, expert0: [3,1,2] -> ranks [2,0,1] / 2
         torch.testing.assert_close(result[0, 0], torch.tensor([2/2, 0/2, 1/2]))
@@ -425,7 +425,7 @@ class TestCompetitiveRankingNormalize(unittest.TestCase):
     def test_negative_values(self):
         """Negative values should be ranked correctly."""
         x = torch.tensor([[[-3.0, -1.0, -2.0]]])
-        result = Ensemble.competitive_ranking_noramlize(x)
+        result = Ensemble._competitive_ranking_noramlize(x)
         # Ascending: -3(0), -2(1), -1(2); normalized by 2
         expected = torch.tensor([[[0/2, 2/2, 1/2]]])
         torch.testing.assert_close(result, expected)
@@ -433,14 +433,14 @@ class TestCompetitiveRankingNormalize(unittest.TestCase):
     def test_already_sorted_ascending(self):
         """Input already sorted ascending."""
         x = torch.tensor([[[1.0, 2.0, 3.0, 4.0, 5.0]]])
-        result = Ensemble.competitive_ranking_noramlize(x)
+        result = Ensemble._competitive_ranking_noramlize(x)
         expected = torch.tensor([[[0/4, 1/4, 2/4, 3/4, 4/4]]])
         torch.testing.assert_close(result, expected)
 
     def test_sorted_descending(self):
         """Input sorted descending."""
         x = torch.tensor([[[5.0, 4.0, 3.0, 2.0, 1.0]]])
-        result = Ensemble.competitive_ranking_noramlize(x)
+        result = Ensemble._competitive_ranking_noramlize(x)
         expected = torch.tensor([[[4/4, 3/4, 2/4, 1/4, 0/4]]])
         torch.testing.assert_close(result, expected)
 
@@ -450,7 +450,7 @@ class TestCompetitiveRankingNormalize(unittest.TestCase):
         For [10, 20, 20, 40]: competitive ranks are [0,1,1,3], not [0,1,1,2].
         """
         x = torch.tensor([[[10.0, 20.0, 20.0, 40.0]]])
-        result = Ensemble.competitive_ranking_noramlize(x)
+        result = Ensemble._competitive_ranking_noramlize(x)
         # Competitive: [0, 1, 1, 3] / 3
         expected = torch.tensor([[[0/3, 1/3, 1/3, 3/3]]])
         torch.testing.assert_close(result, expected)
@@ -461,25 +461,25 @@ class TestCompetitiveRankingNormalize(unittest.TestCase):
     def test_preserves_device(self):
         """Output should be on the same device as input."""
         x = torch.randn(2, 3, 5)
-        result = Ensemble.competitive_ranking_noramlize(x)
+        result = Ensemble._competitive_ranking_noramlize(x)
         self.assertEqual(result.device, x.device)
 
     def test_dtype_float32(self):
         """Works with float32 input."""
         x = torch.randn(2, 2, 6, dtype=torch.float32)
-        result = Ensemble.competitive_ranking_noramlize(x)
+        result = Ensemble._competitive_ranking_noramlize(x)
         self.assertEqual(result.dtype, torch.float32)
 
     def test_dtype_float64(self):
         """Works with float64 input."""
         x = torch.randn(2, 2, 6, dtype=torch.float64)
-        result = Ensemble.competitive_ranking_noramlize(x)
+        result = Ensemble._competitive_ranking_noramlize(x)
         self.assertEqual(result.dtype, torch.float64)
 
     def test_large_tensor(self):
         """Smoke test on a larger tensor."""
         x = torch.randn(8, 5, 100)
-        result = Ensemble.competitive_ranking_noramlize(x)
+        result = Ensemble._competitive_ranking_noramlize(x)
         self.assertEqual(result.shape, x.shape)
         self.assertTrue((result >= 0).all())
         self.assertTrue((result <= 1).all())
@@ -487,7 +487,7 @@ class TestCompetitiveRankingNormalize(unittest.TestCase):
     def test_max_is_one_min_is_zero_when_all_distinct(self):
         """When all items are distinct, min rank = 0, max rank = 1."""
         x = torch.randn(3, 2, 10)
-        result = Ensemble.competitive_ranking_noramlize(x)
+        result = Ensemble._competitive_ranking_noramlize(x)
         for b in range(3):
             for i in range(2):
                 self.assertAlmostEqual(result[b, i].min().item(), 0.0, places=6)
