@@ -24,6 +24,8 @@ class _InterpretableModel(BaseModel, Interpretable):
 class _CheferInterpretableModel(BaseModel, CheferInterpretable):
     pass
 
+type _AnyInterpretableModel = _InterpretableModel | _CheferInterpretableModel
+
 class BaseInterpreter(ABC):
     """Abstract base class for interpretability methods.
 
@@ -103,7 +105,7 @@ class BaseInterpreter(ABC):
         >>> print(attributions["image"].shape)  # [batch, 1, H, W]
     """
 
-    def __init__(self, model: _InterpretableModel):
+    def __init__(self, model: _AnyInterpretableModel):
         """Initialize the base interpreter.
 
         Args:

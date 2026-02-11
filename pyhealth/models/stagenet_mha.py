@@ -8,7 +8,7 @@ from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.utils import get_last_visit
 from .transformer import MultiHeadedAttention
-from pyhealth.interpret.api import Interpretable
+from pyhealth.interpret.api import CheferInterpretable
 
 from .embedding import EmbeddingModel
 
@@ -298,7 +298,7 @@ class StageNetAttentionLayer(nn.Module):
         return last_output, output, distance
 
 
-class StageAttentionNet(BaseModel, Interpretable):
+class StageAttentionNet(BaseModel, CheferInterpretable):
     """StageAttentionNet model.
 
     Paper: Junyi Gao et al. Stagenet: Stage-aware neural networks for health
@@ -406,6 +406,8 @@ class StageAttentionNet(BaseModel, Interpretable):
         self.embedding_dim = embedding_dim
         self.chunk_size = chunk_size
         self.levels = levels
+        self._attention_hooks_enabled = False
+        self._masks: dict[str, torch.Tensor] = {}
 
         # validate kwargs for StageNet layer
         if "input_dim" in kwargs:
@@ -475,7 +477,8 @@ class StageAttentionNet(BaseModel, Interpretable):
                 logit: the raw logits before activation.
                 embed: (if embed=True in kwargs) the patient embedding.
         """
-        register_attn_hook = kwargs.pop("register_attn_hook", False)
+        # Support both the flag-based API and legacy kwarg-based API
+        register_attn_hook = self._attention_hooks_enabled
         patient_emb = []
         distance = []
 
@@ -545,6 +548,9 @@ class StageAttentionNet(BaseModel, Interpretable):
                 value, time=time, mask=mask, register_hook=register_attn_hook
             )
 
+            # Store the final mask for get_relevance_vector
+            self._masks[feature_key] = mask
+
             patient_emb.append(last_output)
             distance.append(cur_dis)
 
@@ -598,7 +604,7 @@ class StageAttentionNet(BaseModel, Interpretable):
         """
         register_attn_hook = kwargs.pop("register_attn_hook", False)
         if register_attn_hook:
-            kwargs["register_attn_hook"] = register_attn_hook # type: ignore
+            kwargs["register_attn_hook"] = register_attn_hook  # type: ignore
 
         for feature_key in self.feature_keys:
             feature = kwargs[feature_key]
@@ -629,3 +635,49 @@ class StageAttentionNet(BaseModel, Interpretable):
 
     def get_embedding_model(self) -> nn.Module | None:
         return self.embedding_model
+
+    # ------------------------------------------------------------------
+    # CheferInterpretable interface
+    # ------------------------------------------------------------------
+
+    def set_attention_hooks(self, enabled: bool) -> None:
+        self._attention_hooks_enabled = enabled
+
+    def get_attention_layers(
+        self,
+    ) -> dict[str, list[tuple[torch.Tensor, torch.Tensor]]]:
+        return {  # type: ignore[return-value]
+            key: [
+                (
+                    cast(StageNetAttentionLayer, self.stagenet[key]).get_attn_map(),
+                    cast(StageNetAttentionLayer, self.stagenet[key]).get_attn_grad(),
+                )
+            ]
+            for key in self.feature_keys
+        }
+
+    def get_relevance_vector(
+        self,
+        R: dict[str, torch.Tensor],
+        **data: torch.Tensor | tuple[torch.Tensor, ...],
+    ) -> dict[str, torch.Tensor]:
+        # StageAttentionNet uses get_last_visit (last valid timestep)
+        # instead of a CLS token.  Use the masks stored during forward.
+        result = {}
+        for key in self.feature_keys:
+            r = R[key]
+            batch_size = r.shape[0]
+            device = r.device
+            mask = self._masks.get(key)
+            if mask is not None:
+                last_idx = mask.sum(dim=1).long() - 1
+                last_idx = last_idx.clamp(min=0)
+            else:
+                # No mask stored → fall back to last position
+                last_idx = torch.full(
+                    (batch_size,), r.shape[1] - 1, device=device, dtype=torch.long
+                )
+            result[key] = r[
+                torch.arange(batch_size, device=device), last_idx
+            ]
+        return result

@@ -300,8 +300,8 @@ class CheferInterpretable(Interpretable):
     get_attention_layers() -> dict[str, list[tuple[Tensor, Tensor]]]
         Paired (attn_map, attn_grad) for each attention layer, keyed by
         feature key.
-    extract_attribution(feature_key, R, **data) -> Tensor
-        Extract per-token attribution from the relevance matrix.
+    get_relevance_vector(R, **data) -> dict[str, Tensor]
+        Reduce relevance matrices to per-token attribution vectors.
 
     Attributes
     ----------
@@ -348,8 +348,8 @@ class CheferInterpretable(Interpretable):
     ...             ]
     ...         return result
     ...
-    ...     def extract_attribution(self, feature_key, R, **data):
-    ...         return R[:, 0]  # CLS token row
+    ...     def get_relevance_vector(self, R, **data):
+    ...         return {key: r[:, 0] for key, r in R.items()}
     """
 
     @abstractmethod
@@ -440,61 +440,54 @@ class CheferInterpretable(Interpretable):
         ...
 
     @abstractmethod
-    def extract_attribution(
+    def get_relevance_vector(
         self,
-        feature_key: str,
-        R: torch.Tensor,
+        R: dict[str, torch.Tensor],
         **data: torch.Tensor | tuple[torch.Tensor, ...],
-    ) -> torch.Tensor:
-        """Extract per-token attribution from the relevance matrix.
+    ) -> dict[str, torch.Tensor]:
+        """Reduce relevance matrices to per-token attribution vectors.
 
-        The Chefer algorithm builds a relevance matrix ``R`` of shape
+        The Chefer algorithm builds a relevance matrix of shape
         ``[batch, seq_len, seq_len]`` for each feature key.  This method
-        extracts the final attribution vector from ``R``, giving the
-        model full control over how the extraction is done.
-
-        For most models this means selecting a single row (the
-        classification token's row) from ``R``.  But the method can
-        perform any transformation — including post-processing such as
-        dropping columns, reshaping, or interpolation — giving maximum
-        flexibility.
+        reduces each matrix to a ``[batch, seq_len]`` vector by selecting
+        the row corresponding to the classification position — giving the
+        model full control over how the selection is done.
 
         Parameters
         ----------
-        feature_key : str
-            One of the model's ``feature_keys``.
-        R : torch.Tensor
-            Relevance matrix of shape ``[batch, seq_len, seq_len]``.
+        R : dict[str, torch.Tensor]
+            Relevance matrices keyed by ``feature_keys``.  Each tensor
+            has shape ``[batch, seq_len, seq_len]`` (seq_len may differ
+            across keys).
         **data : torch.Tensor or tuple[torch.Tensor, ...]
             The original input data (same kwargs passed to
-            ``forward()``).  Available for context when the extraction
+            ``forward()``).  Available for context when the selection
             logic is data-dependent (e.g. last valid timestep depends on
             mask).
 
         Returns
         -------
-        torch.Tensor
-            Attribution tensor.  Shape is model-dependent:
-
-            * EHR models with CLS token: ``R[:, 0]`` →
-              ``[batch, seq_len]``.
-            * Last-valid-timestep models: ``R[i, last_idx[i]]`` →
-              ``[batch, seq_len]``.
+        dict[str, torch.Tensor]
+            Attribution vectors keyed by ``feature_keys``.  Each tensor
+            has shape ``[batch, seq_len]``.
 
         Examples
         --------
-        CLS-token model (e.g. Transformer):
+        CLS-token model (e.g. Transformer) — row 0 for all keys:
 
-        >>> def extract_attribution(self, feature_key, R, **data):
-        ...     return R[:, 0]
+        >>> def get_relevance_vector(self, R, **data):
+        ...     return {key: r[:, 0] for key, r in R.items()}
 
         Last-valid-timestep model (e.g. StageAttentionNet):
 
-        >>> def extract_attribution(self, feature_key, R, **data):
-        ...     mask = self._get_mask(feature_key, **data)
-        ...     last_idx = mask.sum(dim=1) - 1  # [batch]
-        ...     batch_idx = torch.arange(R.shape[0], device=R.device)
-        ...     return R[batch_idx, last_idx]
+        >>> def get_relevance_vector(self, R, **data):
+        ...     result = {}
+        ...     for key, r in R.items():
+        ...         mask = self._get_mask(key, **data)
+        ...         last_idx = mask.sum(dim=1) - 1
+        ...         batch_idx = torch.arange(r.shape[0], device=r.device)
+        ...         result[key] = r[batch_idx, last_idx]
+        ...     return result
         """
         ...
 
