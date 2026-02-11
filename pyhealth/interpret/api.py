@@ -21,6 +21,8 @@ class InterpretableModelInterface(ABC):
     
     Methods
     -------
+    forward
+        Standard forward pass of the model.
     forward_from_embedding
         Perform forward pass starting from embeddings.
     get_embedding_model
@@ -65,6 +67,43 @@ class InterpretableModelInterface(ABC):
                 x = F.sigmoid(x)         # WRONG - functional variant
                 return x
     """
+
+    def forward(
+        self,
+        **kwargs: torch.Tensor | tuple[torch.Tensor, ...],
+    ) -> dict[str, torch.Tensor]:
+        """Forward pass of the model.
+
+        This is the standard entry point for running the model on a batch
+        of data.  It accepts the raw feature tensors (as produced by the
+        dataloader) and returns predictions.
+
+        Parameters
+        ----------
+        **kwargs : torch.Tensor or tuple[torch.Tensor, ...]
+            Keyword arguments keyed by the model's ``feature_keys`` and
+            ``label_keys``.  Each value is either a single tensor or a
+            tuple of tensors (e.g. ``(value, mask)``).
+
+        Returns
+        -------
+        dict[str, torch.Tensor]
+            A dictionary containing at least:
+
+            - **logit** (torch.Tensor): Raw model predictions / logits of
+              shape ``(batch_size, num_classes)``.
+            - **y_prob** (torch.Tensor): Predicted probabilities.
+            - **loss** (torch.Tensor, optional): Scalar loss, present only
+              when label keys are included in ``kwargs``.
+            - **y_true** (torch.Tensor, optional): Ground-truth labels,
+              present only when label keys are included in ``kwargs``.
+
+        Raises
+        ------
+        NotImplementedError
+            If the subclass does not implement this method.
+        """
+        raise NotImplementedError
 
     def forward_from_embedding(
         self, 
@@ -216,3 +255,252 @@ class InterpretableModelInterface(ABC):
         ...     return None  # Embeddings are not separately accessible
         """
         raise NotImplementedError
+
+
+class CheferInterpretableModelInterface(InterpretableModelInterface):
+    """Abstract interface for models supporting Chefer relevance attribution.
+
+    This is a subclass of :class:`InterpretableModelInterface` and therefore
+    inherits the embedding-level interface (``forward_from_embedding``,
+    ``get_embedding_model``).  Models that implement this interface
+    automatically satisfy the general interpretability contract **and** the
+    Chefer-specific contract, so they work with both embedding-perturbation
+    methods (DeepLIFT, LIME, …) and gradient-weighted attention methods
+    (Chefer).
+
+    The Chefer algorithm works as follows:
+
+    1. **Forward + hook registration** — run the model while capturing
+       attention weight tensors and registering backward hooks so their
+       gradients are stored.
+    2. **Backward** — back-propagate from a one-hot target class through
+       the logits.
+    3. **Relevance propagation** — for every feature key, iterate over
+       attention layers, compute gradient-weighted attention
+       (``clamp(attn * grad, min=0)``), and accumulate into a relevance
+       matrix ``R`` via ``R += cam @ R``.
+    4. **Attribution extraction** — extract the final per-token
+       attribution from ``R`` (e.g. read the CLS row, or the
+       last-valid-timestep row, possibly with reshaping).
+
+    Steps 1, 3-b and 4 are model-specific; the rest is generic.  This
+    interface captures exactly those model-specific pieces.
+
+    Inherited from ``InterpretableModelInterface``
+    -----------------------------------------------
+    forward_from_embedding(**kwargs) -> dict[str, Tensor]
+        Forward pass starting from pre-computed embeddings.
+    get_embedding_model() -> nn.Module | None
+        Access the embedding / feature-extraction stage.
+
+    Additional (Chefer-specific) methods
+    -------------------------------------
+    set_attention_hooks(enabled) -> None
+        Toggle attention map capture and gradient hook registration.
+    get_attention_layers() -> dict[str, list[tuple[Tensor, Tensor]]]
+        Paired (attn_map, attn_grad) for each attention layer, keyed by
+        feature key.
+    extract_attribution(feature_key, R, **data) -> Tensor
+        Extract per-token attribution from the relevance matrix.
+
+    Attributes
+    ----------
+    feature_keys : list[str]
+        The feature keys from the task's ``input_schema`` (e.g.
+        ``["conditions", "procedures"]``).  Already provided by
+        :class:`~pyhealth.models.base_model.BaseModel`.
+
+    Notes
+    -----
+    *  ``set_attention_hooks(True)`` must be called **before** the forward
+       pass, and ``get_attention_layers`` must be called **after** the
+       forward + backward passes, because attention maps are populated
+       during forward and gradients during backward.
+    *  The interface intentionally does **not** prescribe how hooks are
+       registered internally — ``nn.MultiheadAttention`` with
+       ``register_hook``, manual ``save_attn_grad`` callbacks, or explicit
+       QKV computation all work as long as the getter methods return the
+       right tensors.
+
+    Examples
+    --------
+    Minimal skeleton for a new model:
+
+    >>> class MyAttentionModel(BaseModel, CheferInterpretableModelInterface):
+    ...     # feature_keys is inherited from BaseModel
+    ...
+    ...     def forward_from_embedding(self, **kwargs):
+    ...         # ... prediction head from pre-computed embeddings ...
+    ...
+    ...     def get_embedding_model(self):
+    ...         return self.embedding_layer
+    ...
+    ...     def set_attention_hooks(self, enabled):
+    ...         self._register_hooks = enabled
+    ...
+    ...     def get_attention_layers(self):
+    ...         result = {}
+    ...         for key in self.feature_keys:
+    ...             result[key] = [
+    ...                 (blk.attention.get_attn_map(),
+    ...                  blk.attention.get_attn_grad())
+    ...                 for blk in self.encoder[key].blocks
+    ...             ]
+    ...         return result
+    ...
+    ...     def extract_attribution(self, feature_key, R, **data):
+    ...         return R[:, 0]  # CLS token row
+    """
+
+    @abstractmethod
+    def set_attention_hooks(self, enabled: bool) -> None:
+        """Toggle attention hook registration for subsequent forward passes.
+
+        When ``enabled=True``, the next call to ``forward()`` (or
+        ``forward_from_embedding()``) must:
+
+        1. Store attention weight tensors so they are retrievable via
+           :meth:`get_attention_layers`.
+        2. Register backward hooks on those tensors so that after
+           ``.backward()`` the corresponding gradients are also stored.
+
+        When ``enabled=False``, subsequent forward passes should **not**
+        capture attention maps or register gradient hooks, restoring the
+        model to its normal (faster) execution mode.
+
+        Parameters
+        ----------
+        enabled : bool
+            ``True`` to start capturing attention maps and registering
+            gradient hooks; ``False`` to stop.
+
+        Typical implementations set an internal flag that the model's
+        forward method checks::
+
+            def set_attention_hooks(self, enabled):
+                self._attention_hooks_enabled = enabled
+
+        And inside the forward / encoder logic::
+
+            if self._attention_hooks_enabled:
+                attn.register_hook(self.save_attn_grad)
+        """
+        ...
+
+    @abstractmethod
+    def get_attention_layers(
+        self,
+    ) -> dict[str, list[tuple[torch.Tensor, torch.Tensor]]]:
+        """Return (attention_map, attention_gradient) pairs for all feature keys.
+
+        Must be called **after** ``set_attention_hooks(True)``,
+        a ``forward()`` call, and a subsequent ``backward()`` call so
+        that both attention maps and their gradients are populated.
+
+        Returns
+        -------
+        dict[str, list[tuple[torch.Tensor, torch.Tensor]]]
+            A dictionary keyed by ``feature_keys``.  Each value is a list
+            with one ``(attn_map, attn_grad)`` tuple per attention layer,
+            ordered from the first (closest to input) to the last
+            (closest to output).
+
+            Each tensor may have shape:
+
+            * ``[batch, heads, seq, seq]`` — multi-head (will be
+              gradient-weighted-averaged across heads by Chefer).
+            * ``[batch, seq, seq]`` — already head-averaged.
+
+            ``attn_map`` and ``attn_grad`` in the same tuple must have
+            the same shape.
+
+        Examples
+        --------
+        A model with stacked ``TransformerBlock`` layers per feature key:
+
+        >>> def get_attention_layers(self):
+        ...     return {
+        ...         key: [
+        ...             (blk.attention.get_attn_map(),
+        ...              blk.attention.get_attn_grad())
+        ...             for blk in self.transformer[key].transformer
+        ...         ]
+        ...         for key in self.feature_keys
+        ...     }
+
+        A model with a single MHA layer per feature key:
+
+        >>> def get_attention_layers(self):
+        ...     return {
+        ...         key: [(self.stagenet[key].get_attn_map(),
+        ...                self.stagenet[key].get_attn_grad())]
+        ...         for key in self.feature_keys
+        ...     }
+        """
+        ...
+
+    @abstractmethod
+    def extract_attribution(
+        self,
+        feature_key: str,
+        R: torch.Tensor,
+        **data: torch.Tensor | tuple[torch.Tensor, ...],
+    ) -> torch.Tensor:
+        """Extract per-token attribution from the relevance matrix.
+
+        The Chefer algorithm builds a relevance matrix ``R`` of shape
+        ``[batch, seq_len, seq_len]`` for each feature key.  This method
+        extracts the final attribution vector from ``R``, giving the
+        model full control over how the extraction is done.
+
+        For most models this means selecting a single row (the
+        classification token's row) from ``R``.  But the method can
+        perform any transformation — including post-processing such as
+        dropping columns, reshaping, or interpolation — giving maximum
+        flexibility.
+
+        Parameters
+        ----------
+        feature_key : str
+            One of the model's ``feature_keys``.
+        R : torch.Tensor
+            Relevance matrix of shape ``[batch, seq_len, seq_len]``.
+        **data : torch.Tensor or tuple[torch.Tensor, ...]
+            The original input data (same kwargs passed to
+            ``forward()``).  Available for context when the extraction
+            logic is data-dependent (e.g. last valid timestep depends on
+            mask).
+
+        Returns
+        -------
+        torch.Tensor
+            Attribution tensor.  Shape is model-dependent:
+
+            * EHR models with CLS token: ``R[:, 0]`` →
+              ``[batch, seq_len]``.
+            * Last-valid-timestep models: ``R[i, last_idx[i]]`` →
+              ``[batch, seq_len]``.
+
+        Examples
+        --------
+        CLS-token model (e.g. Transformer):
+
+        >>> def extract_attribution(self, feature_key, R, **data):
+        ...     return R[:, 0]
+
+        Last-valid-timestep model (e.g. StageAttentionNet):
+
+        >>> def extract_attribution(self, feature_key, R, **data):
+        ...     mask = self._get_mask(feature_key, **data)
+        ...     last_idx = mask.sum(dim=1) - 1  # [batch]
+        ...     batch_idx = torch.arange(R.shape[0], device=R.device)
+        ...     return R[batch_idx, last_idx]
+        """
+        ...
+
+    # TODO: Add postprocess_attribution() when ViT support is ready.
+    # ViT models need to strip the CLS column, reshape the patch vector
+    # into a spatial [batch, 1, H, W] map, and optionally interpolate to
+    # the original image size.  For EHR models this is a no-op.  We can
+    # either fold this into extract_attribution() or add it as a separate
+    # optional method.
