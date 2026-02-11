@@ -16,6 +16,14 @@ except ImportError:
     HAS_TORCHVISION_MODEL = False
     TorchvisionModel = None
 
+# Import StageAttentionNet conditionally to avoid circular imports
+try:
+    from pyhealth.models import StageAttentionNet
+    HAS_STAGEATTN = True
+except ImportError:
+    HAS_STAGEATTN = False
+    StageAttentionNet = None
+
 
 def apply_self_attention_rules(R_ss, cam_ss):
     """Apply Chefer's self-attention rules for relevance propagation.
@@ -73,11 +81,13 @@ class CheferRelevance(BaseInterpreter):
 
     Supported Models:
         - PyHealth Transformer: For sequential/EHR data with multiple feature keys
+        - StageAttentionNet: For temporal/EHR data with MHA-based StageNet layers
         - TorchvisionModel (ViT variants): vit_b_16, vit_b_32, vit_l_16, vit_l_32, vit_h_14
 
     Args:
-        model (BaseModel): A trained PyHealth model to interpret. Must be either:
+        model (BaseModel): A trained PyHealth model to interpret. Must be one of:
             - A ``Transformer`` model for sequential/EHR data
+            - A ``StageAttentionNet`` model for temporal/EHR data
             - A ``TorchvisionModel`` with a ViT architecture for image data
 
     Example:
@@ -163,15 +173,20 @@ class CheferRelevance(BaseInterpreter):
         # Determine model type
         self._is_transformer = isinstance(model, Transformer)
         self._is_vit = False
+        self._is_stageattn = False
+        
+        if HAS_STAGEATTN and StageAttentionNet is not None:
+            self._is_stageattn = isinstance(model, StageAttentionNet)
         
         if HAS_TORCHVISION_MODEL and TorchvisionModel is not None:
             if isinstance(model, TorchvisionModel):
                 self._is_vit = model.is_vit_model()
         
-        if not self._is_transformer and not self._is_vit:
+        if not self._is_transformer and not self._is_vit and not self._is_stageattn:
             raise ValueError(
-                f"CheferRelevance requires a Transformer or TorchvisionModel (ViT), "
-                f"got {type(model).__name__}. For TorchvisionModel, only ViT variants "
+                f"CheferRelevance requires a Transformer, StageAttentionNet, "
+                f"or TorchvisionModel (ViT), got {type(model).__name__}. "
+                f"For TorchvisionModel, only ViT variants "
                 f"(vit_b_16, vit_b_32, etc.) are supported."
             )
 
@@ -193,13 +208,14 @@ class CheferRelevance(BaseInterpreter):
                 you want to explain why a specific class was predicted or to
                 compare attributions across different classes.
             **data: Input data from dataloader batch containing:
-                - For Transformer: feature keys (conditions, procedures, etc.) + label
+                - For Transformer/StageAttentionNet: feature keys + label
                 - For ViT: image feature key (e.g., "image") + label
 
         Returns:
             Dict[str, torch.Tensor]: Dictionary keyed by feature keys from the task schema.
 
-            - For Transformer: ``{"conditions": tensor, "procedures": tensor, ...}``
+            - For Transformer/StageAttentionNet:
+              ``{"conditions": tensor, "procedures": tensor, ...}``
               where each tensor has shape ``[batch, num_tokens]``.
             - For ViT: ``{"image": tensor}`` (or whatever the task's image key is)
               where tensor has shape ``[batch, 1, H, W]``.
@@ -210,6 +226,8 @@ class CheferRelevance(BaseInterpreter):
                 class_index=class_index,
                 **data
             )
+        if self._is_stageattn:
+            return self._attribute_stageattn(class_index=class_index, **data)
         return self._attribute_transformer(class_index=class_index, **data)
 
     def _attribute_transformer(
@@ -229,7 +247,10 @@ class CheferRelevance(BaseInterpreter):
         if class_index is None:
             class_index = torch.argmax(logits, dim=-1)
 
-        one_hot = F.one_hot(torch.tensor(class_index), logits.size()[1]).float()
+        if isinstance(class_index, torch.Tensor):
+            one_hot = F.one_hot(class_index.detach().clone(), logits.size()[1]).float()
+        else:
+            one_hot = F.one_hot(torch.tensor(class_index), logits.size()[1]).float()
         one_hot = one_hot.requires_grad_(True)
         one_hot = torch.sum(one_hot.to(logits.device) * logits)
         self.model.zero_grad()
@@ -242,12 +263,13 @@ class CheferRelevance(BaseInterpreter):
             for block in feature_transformer:
                 num_tokens[key] = block.attention.get_attn_map().shape[-1]
 
+        batch_size = logits.shape[0]
         attn = {}
         for key in feature_keys:
             R = (
                 torch.eye(num_tokens[key])
                 .unsqueeze(0)
-                .repeat(len(data[key]), 1, 1)
+                .repeat(batch_size, 1, 1)
                 .to(logits.device)
             )
             for blk in self.model.transformer[key].transformer:
@@ -256,6 +278,79 @@ class CheferRelevance(BaseInterpreter):
                 cam = avg_heads(cam, grad)
                 R += apply_self_attention_rules(R, cam).detach()
             attn[key] = R[:, 0]
+
+        return attn
+
+    def _attribute_stageattn(
+        self,
+        class_index: int = None,
+        **data,
+    ) -> Dict[str, torch.Tensor]:
+        """Compute relevance for StageAttentionNet models.
+
+        StageAttentionNet has a single MHA layer per feature key (inside
+        ``model.stagenet[key]``) rather than a stack of TransformerBlocks.
+        It also uses the *last valid timestep* (via ``get_last_visit``)
+        instead of a CLS token for classification, so we extract the
+        relevance row corresponding to that timestep.
+
+        Args:
+            class_index: Target class for attribution. If None, uses predicted class.
+            **data: Input data from dataloader batch.
+        """
+        # StageAttentionNet uses 'register_attn_hook' (not 'register_hook')
+        data["register_attn_hook"] = True
+
+        logits = self.model(**data)["logit"]
+        if class_index is None:
+            class_index = torch.argmax(logits, dim=-1)
+
+        if isinstance(class_index, torch.Tensor):
+            one_hot = F.one_hot(class_index.detach().clone(), logits.size()[1]).float()
+        else:
+            one_hot = F.one_hot(torch.tensor(class_index), logits.size()[1]).float()
+        one_hot = one_hot.requires_grad_(True)
+        one_hot = torch.sum(one_hot.to(logits.device) * logits)
+        self.model.zero_grad()
+        one_hot.backward(retain_graph=True)
+
+        batch_size = logits.shape[0]
+        feature_keys = self.model.feature_keys
+        attn = {}
+
+        for key in feature_keys:
+            layer = self.model.stagenet[key]
+            cam = layer.get_attn_map()
+            grad = layer.get_attn_grad()
+            num_tokens = cam.shape[-1]
+
+            R = (
+                torch.eye(num_tokens)
+                .unsqueeze(0)
+                .repeat(batch_size, 1, 1)
+                .to(logits.device)
+            )
+            cam = avg_heads(cam, grad)
+            R += apply_self_attention_rules(R, cam).detach()
+
+            # StageAttentionNet uses get_last_visit (last valid timestep)
+            # instead of a CLS token.  Reconstruct the mask to find the
+            # index that was actually used for classification.
+            feature = data[key]
+            if isinstance(feature, tuple) and len(feature) == 2:
+                _, x_val = feature
+            else:
+                x_val = feature
+
+            embedded = self.model.embedding_model({key: x_val})
+            emb = embedded[key]
+            if emb.dim() == 4:
+                emb = emb.sum(dim=2)
+            mask = (emb.sum(dim=-1) != 0).long().to(logits.device)
+
+            # last valid index per sample
+            last_idx = mask.sum(dim=1) - 1  # [batch]
+            attn[key] = R[torch.arange(batch_size, device=logits.device), last_idx]
 
         return attn
 
