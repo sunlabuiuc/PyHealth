@@ -21,7 +21,7 @@ class BinaryLabelProcessor(FeatureProcessor):
 
     def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
         all_labels = set([sample[field] for sample in samples])
-        if len(all_labels) != 2:
+        if len(all_labels) < 1 or len(all_labels) > 2 :
             raise ValueError(f"Expected 2 unique labels, got {len(all_labels)}")
         if all_labels == {0, 1}:
             self.label_vocab = {0: 0, 1: 1}
@@ -159,6 +159,39 @@ class MultiLabelProcessor(FeatureProcessor):
 
     def __repr__(self):
         return f"MultiLabelProcessor(label_vocab_size={len(self.label_vocab)})"
+
+@register_processor("singlevaluemultilabel")
+class SingleValueMultiLabelProcessor(MultiLabelProcessor):
+
+    def fit(self, samples: List[Dict[str, Any]], field: str) -> None:
+        all_labels = set()
+        for sample in samples:
+            label = "" if type(sample[field]) is torch.NoneType else sample[field]
+            if type(label) is torch.NoneType:
+                label = ""
+            all_labels.add(label)
+        num_classes = len(all_labels)
+        if all_labels == set(range(num_classes)):
+            self.label_vocab = {i: i for i in range(num_classes)}
+        else:
+            all_labels = list(all_labels)
+            all_labels = ["" if type(x) is torch.NoneType else x for x in all_labels]
+            try:
+                all_labels.sort()
+            except Exception as e:
+                logger.warning(f"Sorting labels failed: {e}")
+            self.label_vocab = {label: i for i, label in enumerate(all_labels)}
+        logger.info(f"Label {field} vocab: {self.label_vocab}")
+
+    def process(self, value: Any) -> torch.Tensor:
+        target = torch.zeros(len(self.label_vocab), dtype=torch.float32)
+        label = value
+        label = "" if type(label) is torch.NoneType else label
+        index = self.label_vocab[label]
+        target[index] = 1.0
+        return target
+
+
 
 
 @register_processor("regression")
