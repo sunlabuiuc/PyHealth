@@ -52,6 +52,57 @@ class FeatureProcessor(Processor):
             Processed value.
         """
         pass
+    
+    def is_token(self) -> bool:
+        """Returns whether the output (in particular, the value tensor) of the processor 
+        represents discrete token indices (True) or continuous values (False). This is used to 
+        determine whether to apply token-based transformations (e.g. `nn.Embedding`) or 
+        value-based augmentations (e.g. `nn.Linear`). 
+
+        Returns:
+            True if the output of the processor represents discrete token indices, False otherwise.
+        """
+        raise NotImplementedError("is_token method is not implemented for this processor.")
+    
+    def schema(self) -> tuple[str, ...]:
+        """Returns the schema of the processed feature. For a processor that emits a single tensor,
+        this should just return `["value"]`. For a processor that emits a tuple of tensors, 
+        this should return a tuple of the same length as the tuple, with the semantic name of each tensor,
+        such as `["time", "value"]`, `["value", "mask"]`, etc.
+        
+        Typical semantic names include:
+            - "value": the main processed tensor output of the processor
+            - "time": the time tensor output of the processor (mostly for StageNet)
+            - "mask": the mask tensor output of the processor (if applicable)
+        
+        Returns:
+            Tuple of semantic names corresponding to the output of the processor.
+        """
+        raise NotImplementedError("Schema method is not implemented for this processor.")
+    
+    def dim(self) -> tuple[int, ...]:
+        """Number of dimensions (`Tensor.dim()`) for each output
+        tensor, in the same order as the output tuple.
+
+        Returns:
+            Tuple of integers corresponding to the number of dimensions of each output tensor.
+        """
+        raise NotImplementedError("dim method is not implemented for this processor.")
+    
+    def spatial(self) -> tuple[bool, ...]:
+        """Whether each dimension (axis) of the value tensor is spatial (i.e. corresponds to a spatial 
+        axis like time, height, width, etc.) or not. This is used to determine how to apply 
+        augmentations and other transformations that should only be applied to spatial dimensions.
+        
+        E.g. for CNN or RNN features, this would help determine which dimensions to apply spatial augmentations to, 
+        and which dimensions to treat as channels or features.
+        
+        Returns:
+            Tuple of booleans corresponding to whether each axis of the value tensor is spatial or not.
+        """
+        raise NotImplementedError("spatial method is not implemented for this processor.")
+    
+    
 
 
 class SampleProcessor(Processor):
@@ -93,24 +144,27 @@ class DatasetProcessor(Processor):
         """
         pass
 
-class VocabMixin(ABC):
+class TokenProcessorInterface(ABC):
     """
     Base class for feature processors that build a vocabulary.
 
     Provides a common interface for accessing vocabulary-related information.
     """
+    
+    PAD = 0
+    UNK = 1
 
     @abstractmethod
-    def remove(self, vocabularies: set[str]):
+    def remove(self, tokens: set[str]):
         """Remove specified vocabularies from the processor."""
         pass
     
     @abstractmethod
-    def retain(self, vocabularies: set[str]):
+    def retain(self, tokens: set[str]):
         """Retain only the specified vocabularies in the processor."""
         pass
     
     @abstractmethod
-    def add(self, vocabularies: set[str]):
+    def add(self, tokens: set[str]):
         """Add specified vocabularies to the processor."""
         pass

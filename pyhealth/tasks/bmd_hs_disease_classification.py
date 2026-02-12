@@ -33,6 +33,13 @@ class BMDHSDiseaseClassification(BaseTask):
         output_schema (Dict[str, str]): The output schema specifying the output
             format. Contains:
             - "diagnosis": "multilabel"
+
+    Examples:
+        >>> from pyhealth.datasets import BMDHSDataset
+        >>> from pyhealth.tasks import BMDHSDiseaseClassification
+        >>> dataset = BMDHSDataset(root="/path/to/bmd_hs")
+        >>> task = BMDHSDiseaseClassification()
+        >>> samples = dataset.set_task(task)
     """
 
     task_name: str = "BMDHSDiseaseClassification"

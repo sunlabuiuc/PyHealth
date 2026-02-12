@@ -14,9 +14,9 @@ from .chestxray14_multilabel_classification import ChestXray14MultilabelClassifi
 from .covid19_cxr_classification import COVID19CXRClassification
 from .dka import DKAPredictionMIMIC4, T1DDKAPredictionMIMIC4
 from .drug_recommendation import (
+    DrugRecommendationEICU,
     DrugRecommendationMIMIC3,
     DrugRecommendationMIMIC4,
-    drug_recommendation_eicu_fn,
     drug_recommendation_mimic3_fn,
     drug_recommendation_mimic4_fn,
     drug_recommendation_omop_fn,
@@ -29,11 +29,8 @@ from .length_of_stay_prediction import (
     LengthOfStayPredictionMIMIC3,
     LengthOfStayPredictionMIMIC4,
     LengthOfStayPredictionOMOP,
-    length_of_stay_prediction_eicu_fn,
-    length_of_stay_prediction_mimic3_fn,
-    length_of_stay_prediction_mimic4_fn,
-    length_of_stay_prediction_omop_fn,
 )
+from .length_of_stay_stagenet_mimic4 import LengthOfStayStageNetMIMIC4
 from .medical_coding import MIMIC3ICD9Coding
 from .medical_transcriptions_classification import MedicalTranscriptionsClassification
 from .mortality_prediction import (
@@ -50,12 +47,10 @@ from .mortality_prediction_stagenet_mimic4 import (
     MortalityPredictionStageNetMIMIC4,
 )
 from .patient_linkage import patient_linkage_mimic3_fn
-from .readmission_30days_mimic4 import Readmission30DaysMIMIC4
 from .readmission_prediction import (
+    ReadmissionPredictionEICU,
     ReadmissionPredictionMIMIC3,
-    readmission_prediction_eicu_fn,
-    readmission_prediction_eicu_fn2,
-    readmission_prediction_mimic4_fn,
+    ReadmissionPredictionMIMIC4,
     ReadmissionPredictionOMOP,
 )
 from .sleep_staging import (
@@ -64,7 +59,10 @@ from .sleep_staging import (
     sleep_staging_sleepedf_fn,
 )
 from .sleep_staging_v2 import SleepStagingSleepEDF
-from .temple_university_EEG_tasks import EEGEventsTUEV
+from .temple_university_EEG_tasks import (
+    EEGEventsTUEV,
+    EEGAbnormalTUAB
+)
 from .variant_classification import (
     MutationPathogenicityPrediction,
     VariantClassificationClinVar,

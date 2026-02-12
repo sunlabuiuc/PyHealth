@@ -3,11 +3,11 @@ from typing import Any, Dict, List, Iterable
 import torch
 
 from . import register_processor
-from .base_processor import FeatureProcessor, VocabMixin
+from .base_processor import FeatureProcessor, TokenProcessorInterface
 
 
 @register_processor("nested_sequence")
-class NestedSequenceProcessor(FeatureProcessor, VocabMixin):
+class NestedSequenceProcessor(FeatureProcessor, TokenProcessorInterface):
     """
     Feature processor for nested categorical sequences with vocabulary.
 
@@ -22,8 +22,8 @@ class NestedSequenceProcessor(FeatureProcessor, VocabMixin):
     4. Returns a 2D tensor of shape (num_visits, max_codes_per_visit)
 
     Special tokens:
-        - <unk>: -1 for unknown codes
         - <pad>: 0 for padding
+        - <unk>: 1 for unknown codes
 
     Args:
         padding: Additional padding to add on top of the observed maximum inner
@@ -45,9 +45,8 @@ class NestedSequenceProcessor(FeatureProcessor, VocabMixin):
     """
 
     def __init__(self, padding: int = 0):
-        # <unk> will be set to len(vocab) after fit
-        self.code_vocab: Dict[Any, int] = {"<unk>": None, "<pad>": 0}
-        self._next_index = 1
+        self.code_vocab: Dict[Any, int] = {"<pad>": self.PAD, "<unk>": self.UNK}
+        self._next_index = 2
         self._max_inner_len = 1  # Maximum length of inner sequences
         self._padding = padding  # Additional padding beyond observed max
 
@@ -82,27 +81,27 @@ class NestedSequenceProcessor(FeatureProcessor, VocabMixin):
         observed_max = max(1, max_inner_len)
         self._max_inner_len = observed_max + self._padding
 
-        # Set <unk> token to len(vocab) - 1 after building vocabulary
-        # (-1 because <unk> is already in vocab)
-        self.code_vocab["<unk>"] = len(self.code_vocab) - 1
-
-    def remove(self, vocabularies: set[str]):
+    def remove(self, tokens: set[str]):
         """Remove specified vocabularies from the processor."""
-        vocab = list(set(self.code_vocab.keys()) - vocabularies - {"<pad>", "<unk>"})
-        vocab = ["<pad>"] + vocab + ["<unk>"]
-        self.code_vocab = {v: i for i, v in enumerate(vocab)}
+        keep = set(self.code_vocab.keys()) - tokens | {"<pad>", "<unk>"}
+        order = [k for k, v in sorted(self.code_vocab.items(), key=lambda x: x[1]) if k in keep]
+        
+        self.code_vocab = { k : i for i, k in enumerate(order) }
 
-    def retain(self, vocabularies: set[str]):
+    def retain(self, tokens: set[str]):
         """Retain only the specified vocabularies in the processor."""
-        vocab = list(set(self.code_vocab.keys()) & vocabularies)
-        vocab = ["<pad>"] + vocab + ["<unk>"]
-        self.code_vocab = {v: i for i, v in enumerate(vocab)}
+        keep = set(self.code_vocab.keys()) & tokens | {"<pad>", "<unk>"}
+        order = [k for k, v in sorted(self.code_vocab.items(), key=lambda x: x[1]) if k in keep]
+        
+        self.code_vocab = { k : i for i, k in enumerate(order) }
 
-    def add(self, vocabularies: set[str]):
+    def add(self, tokens: set[str]):
         """Add specified vocabularies to the processor."""
-        vocab = list(set(self.code_vocab.keys()) | vocabularies - {"<pad>", "<unk>"})
-        vocab = ["<pad>"] + vocab + ["<unk>"]
-        self.code_vocab = {v: i for i, v in enumerate(vocab)}
+        i = len(self.code_vocab)
+        for token in tokens:
+            if token not in self.code_vocab:
+                self.code_vocab[token] = i
+                i += 1
 
     def process(self, value: List[List[Any]]) -> torch.Tensor:
         """Process nested sequence into padded 2D tensor.
@@ -162,6 +161,21 @@ class NestedSequenceProcessor(FeatureProcessor, VocabMixin):
             f"max_inner_len={self._max_inner_len}, "
             f"padding={self._padding})"
         )
+
+    def is_token(self) -> bool:
+        """Nested sequence codes are discrete token indices."""
+        return True
+
+    def schema(self) -> tuple[str, ...]:
+        return ("value",)
+
+    def dim(self) -> tuple[int, ...]:
+        """Output is a 2D tensor (visits, codes_per_visit)."""
+        return (2,)
+
+    def spatial(self) -> tuple[bool, ...]:
+        # Visits (time) is spatial; codes-per-visit is an unordered set, not spatial
+        return (True, False)
 
 
 @register_processor("nested_sequence_floats")
@@ -342,3 +356,18 @@ class NestedFloatsProcessor(FeatureProcessor):
             f"forward_fill={self.forward_fill}, "
             f"padding={self._padding})"
         )
+
+    def is_token(self) -> bool:
+        """Nested float values are continuous, not discrete tokens."""
+        return False
+
+    def schema(self) -> tuple[str, ...]:
+        return ("value",)
+
+    def dim(self) -> tuple[int, ...]:
+        """Output is a 2D tensor (visits, features)."""
+        return (2,)
+
+    def spatial(self) -> tuple[bool, ...]:
+        # Visits (time) is spatial; features dimension is not
+        return (True, False)

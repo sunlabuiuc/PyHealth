@@ -33,9 +33,11 @@ Available Processors
 
 - ``ImageProcessor``: For image data (e.g., chest X-rays)
 - ``TextProcessor``: For text/clinical notes data
+- ``TupleTimeTextProcessor``: For text paired with temporal information (time-aware text)
 - ``AudioProcessor``: For audio signal data
 - ``SignalProcessor``: For general signal data (e.g., EEG, ECG)
 - ``TimeseriesProcessor``: For time-series data
+- ``TimeImageProcessor``: For time-stamped image sequences (e.g., serial X-rays)
 - ``TensorProcessor``: For pre-processed tensor data
 - ``RawProcessor``: Pass-through processor for raw data
 
@@ -266,10 +268,12 @@ Common string keys for automatic processor selection:
 - ``"multilabel"``: For multi-label classification
 - ``"regression"``: For regression targets
 - ``"text"``: For text data
+- ``"tuple_time_text"``: For text paired with temporal information
 - ``"image"``: For image data
 - ``"audio"``: For audio data
 - ``"signal"``: For signal data
 - ``"timeseries"``: For time-series data
+- ``"time_image"``: For time-stamped image sequences
 - ``"tensor"``: For pre-processed tensors
 - ``"raw"``: For raw/unprocessed data
 
@@ -456,9 +460,11 @@ API Reference
     processors/pyhealth.processors.RegressionLabelProcessor
     processors/pyhealth.processors.ImageProcessor
     processors/pyhealth.processors.TextProcessor
+    processors/pyhealth.processors.TupleTimeTextProcessor
     processors/pyhealth.processors.AudioProcessor
     processors/pyhealth.processors.SignalProcessor
     processors/pyhealth.processors.TimeseriesProcessor
+    processors/pyhealth.processors.TimeImageProcessor
     processors/pyhealth.processors.TensorProcessor
     processors/pyhealth.processors.RawProcessor
     processors/pyhealth.processors.IgnoreProcessor

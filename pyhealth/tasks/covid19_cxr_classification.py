@@ -17,6 +17,13 @@ class COVID19CXRClassification(BaseTask):
             input format. Contains a single key "image" with value "image".
         output_schema (Dict[str, str]): The output schema specifying the output
             format. Contains a single key "disease" with value "multiclass".
+
+    Examples:
+        >>> from pyhealth.datasets import COVID19CXRDataset
+        >>> from pyhealth.tasks import COVID19CXRClassification
+        >>> dataset = COVID19CXRDataset(root="/path/to/covid19_cxr")
+        >>> task = COVID19CXRClassification()
+        >>> samples = dataset.set_task(task)
     """
 
     task_name: str = "COVID19CXRClassification"

@@ -17,7 +17,7 @@ class TestMIMIC4LengthOfStayPrediction(unittest.TestCase):
     def _setup_dataset_path(self):
         """Get path to local MIMIC-IV demo dataset in test resources."""
         # Get the path to the test-resources/core/mimic4demo directory
-        test_dir = Path(__file__).parent.parent
+        test_dir = Path(__file__).parent.parent.parent
         self.demo_dataset_path = str(
             test_dir / "test-resources" / "core" / "mimic4demo"
         )
@@ -25,12 +25,6 @@ class TestMIMIC4LengthOfStayPrediction(unittest.TestCase):
         print(f"\n{'='*60}")
         print(f"Setting up MIMIC-IV demo dataset for length of stay prediction")
         print(f"Dataset path: {self.demo_dataset_path}")
-
-        # Verify the dataset exists
-        if not os.path.exists(self.demo_dataset_path):
-            raise unittest.SkipTest(
-                f"MIMIC-IV demo dataset not found at {self.demo_dataset_path}"
-            )
 
         # List files in the hosp directory
         hosp_path = os.path.join(self.demo_dataset_path, "hosp")
@@ -47,9 +41,9 @@ class TestMIMIC4LengthOfStayPrediction(unittest.TestCase):
         """Load the dataset for testing."""
         tables = ["diagnoses_icd", "procedures_icd", "prescriptions"]
         print(f"Loading MIMIC4Dataset with tables: {tables}")
-        self.dataset = MIMIC4Dataset(root=self.demo_dataset_path, tables=tables)
+        self.dataset = MIMIC4Dataset(ehr_root=self.demo_dataset_path, ehr_tables=tables)
         print(f"✓ Dataset loaded successfully")
-        print(f"  Total patients: {len(self.dataset.patients)}")
+        print(f"  Total patients: {len(self.dataset.unique_patient_ids)}")
         print()
 
     def test_dataset_stats(self):
@@ -89,19 +83,16 @@ class TestMIMIC4LengthOfStayPrediction(unittest.TestCase):
             print("\nCalling dataset.set_task()...")
             sample_dataset = self.dataset.set_task(task)
             self.assertIsNotNone(sample_dataset, "set_task should return a dataset")
-            self.assertTrue(
-                hasattr(sample_dataset, "samples"), "Sample dataset should have samples"
-            )
             print(f"✓ set_task() completed")
 
             # Verify we got some samples
-            num_samples = len(sample_dataset.samples)
+            num_samples = len(sample_dataset)
             self.assertGreater(num_samples, 0, "Should generate at least one sample")
             print(f"✓ Generated {num_samples} length of stay prediction samples")
 
             # Test sample structure
             if num_samples > 0:
-                sample = sample_dataset.samples[0]
+                sample = sample_dataset[0]
                 required_keys = [
                     "visit_id",
                     "patient_id",
@@ -128,20 +119,10 @@ class TestMIMIC4LengthOfStayPrediction(unittest.TestCase):
                     "Length of stay category should be 0-9",
                 )
 
-                # Verify conditions include icd_version prefix (MIMIC-4 specific)
-                if sample["conditions"]:
-                    first_condition = sample["conditions"][0]
-                    self.assertIn(
-                        "_",
-                        first_condition,
-                        "MIMIC-4 conditions should include version prefix (e.g., '10_E1010')",
-                    )
-                    print(f"  Sample condition format: {first_condition}")
-
                 # Count LOS distribution
                 los_counts = {i: 0 for i in range(10)}
-                for s in sample_dataset.samples:
-                    los_counts[s["los"]] += 1
+                for s in sample_dataset:
+                    los_counts[int(s["los"].item())] += 1
 
                 print(f"\nLength of stay category distribution:")
                 category_labels = [

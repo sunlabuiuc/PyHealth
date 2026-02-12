@@ -153,6 +153,16 @@ class DrugRecommendationMIMIC4(BaseTask):
             - drugs_hist: Nested list of drug codes from history (current visit excluded)
         output_schema (Dict[str, str]): The schema for output data:
             - drugs: List of drugs to predict for current visit
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC4EHRDataset
+        >>> from pyhealth.tasks import DrugRecommendationMIMIC4
+        >>> dataset = MIMIC4EHRDataset(
+        ...     root="/path/to/mimic-iv/2.2",
+        ...     tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
+        ... )
+        >>> task = DrugRecommendationMIMIC4()
+        >>> samples = dataset.set_task(task)
     """
 
     task_name: str = "DrugRecommendationMIMIC4"
@@ -445,72 +455,143 @@ def drug_recommendation_mimic4_fn(patient: Patient):
     return samples
 
 
-def drug_recommendation_eicu_fn(patient: Patient):
-    """Processes a single patient for the drug recommendation task.
+class DrugRecommendationEICU(BaseTask):
+    """Task for drug recommendation using eICU dataset.
 
     Drug recommendation aims at recommending a set of drugs given the patient health
-    history  (e.g., conditions and procedures).
+    history (e.g., conditions and procedures). This task creates samples with
+    cumulative history, where each visit includes all previous visit information.
 
-    Args:
-        patient: a Patient object
+    Features key-value pairs:
+    - using diagnosis table as condition codes
+    - using physicalexam table as procedure codes
+    - using medication table as drug codes
 
-    Returns:
-        samples: a list of samples, each sample is a dict with patient_id, visit_id,
-            and other task-specific attributes as key
+    Attributes:
+        task_name (str): The name of the task.
+        input_schema (Dict[str, str]): The schema for input data:
+            - conditions: Nested list of diagnosis codes (history + current)
+            - procedures: Nested list of procedure codes (history + current)
+            - drugs_hist: Nested list of drug codes from history (current visit excluded)
+        output_schema (Dict[str, str]): The schema for output data:
+            - drugs: List of drugs to predict for current visit
 
     Examples:
         >>> from pyhealth.datasets import eICUDataset
-        >>> eicu_base = eICUDataset(
-        ...     root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
-        ...     tables=["diagnosis", "medication"],
-        ...     code_mapping={},
-        ...     dev=True
+        >>> from pyhealth.tasks import DrugRecommendationEICU
+        >>> dataset = eICUDataset(
+        ...     root="/path/to/eicu-crd/2.0",
+        ...     tables=["diagnosis", "medication", "physicalexam"],
         ... )
-        >>> from pyhealth.tasks import drug_recommendation_eicu_fn
-        >>> eicu_sample = eicu_base.set_task(drug_recommendation_eicu_fn)
-        >>> eicu_sample.samples[0]
-        [{'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '98', '663', '58', '51']], 'procedures': [['1']], 'label': [['2', '3', '4']]}]
+        >>> task = DrugRecommendationEICU()
+        >>> sample_dataset = dataset.set_task(task)
     """
-    samples = []
-    for i in range(len(patient)):
-        visit: Visit = patient[i]
-        conditions = visit.get_code_list(table="diagnosis")
-        procedures = visit.get_code_list(table="physicalExam")
-        drugs = visit.get_code_list(table="medication")
-        # exclude: visits without condition, procedure, or drug code
-        if len(conditions) * len(procedures) * len(drugs) == 0:
-            continue
-        # TODO: should also exclude visit with age < 18
-        samples.append(
-            {
-                "visit_id": visit.visit_id,
-                "patient_id": patient.patient_id,
-                "conditions": conditions,
-                "procedures": procedures,
-                "drugs": drugs,
-                "drugs_all": drugs,
-            }
-        )
-    # exclude: patients with less than 2 visit
-    if len(samples) < 2:
-        return []
-    # add history
-    samples[0]["conditions"] = [samples[0]["conditions"]]
-    samples[0]["procedures"] = [samples[0]["procedures"]]
-    samples[0]["drugs_all"] = [samples[0]["drugs_all"]]
 
-    for i in range(1, len(samples)):
-        samples[i]["conditions"] = samples[i - 1]["conditions"] + [
-            samples[i]["conditions"]
-        ]
-        samples[i]["procedures"] = samples[i - 1]["procedures"] + [
-            samples[i]["procedures"]
-        ]
-        samples[i]["drugs_all"] = samples[i - 1]["drugs_all"] + [
-            samples[i]["drugs_all"]
-        ]
+    task_name: str = "DrugRecommendationEICU"
+    input_schema: Dict[str, str] = {
+        "conditions": "nested_sequence",
+        "procedures": "nested_sequence",
+        "drugs_hist": "nested_sequence",
+    }
+    output_schema: Dict[str, str] = {"drugs": "multilabel"}
 
-    return samples
+    def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+        """Process a patient to create drug recommendation samples.
+
+        Creates one sample per visit (after first visit) with cumulative history.
+        Each sample includes all previous visits' conditions, procedures, and drugs.
+
+        Args:
+            patient: Patient object with get_events method
+
+        Returns:
+            List of samples, each with patient_id, visit_id, conditions history,
+            procedures history, drugs history, and target drugs
+        """
+        samples = []
+
+        # Get all patient stays (each row in patient table is an ICU stay)
+        patient_stays = patient.get_events(event_type="patient")
+        if len(patient_stays) < 2:
+            # Need at least 2 visits for history-based prediction
+            return []
+
+        # Process each patient stay
+        for stay in patient_stays:
+            # Get the patientunitstayid for filtering
+            stay_id = str(getattr(stay, "patientunitstayid", ""))
+
+            # Get diagnosis codes using patientunitstayid-based filtering
+            diagnoses = patient.get_events(
+                event_type="diagnosis",
+                filters=[("patientunitstayid", "==", stay_id)]
+            )
+            conditions = [
+                getattr(event, "icd9code", "") for event in diagnoses
+                if getattr(event, "icd9code", None)
+            ]
+
+            # Get physical exam codes
+            physical_exams = patient.get_events(
+                event_type="physicalexam",
+                filters=[("patientunitstayid", "==", stay_id)]
+            )
+            procedures = [
+                getattr(event, "physicalexampath", "") for event in physical_exams
+                if getattr(event, "physicalexampath", None)
+            ]
+
+            # Get medication codes
+            medications = patient.get_events(
+                event_type="medication",
+                filters=[("patientunitstayid", "==", stay_id)]
+            )
+            drugs = [
+                getattr(event, "drugname", "") for event in medications
+                if getattr(event, "drugname", None)
+            ]
+
+            # Exclude visits without condition, procedure, or drug code
+            if len(conditions) * len(procedures) * len(drugs) == 0:
+                continue
+
+            samples.append(
+                {
+                    "visit_id": stay_id,
+                    "patient_id": patient.patient_id,
+                    "conditions": conditions,
+                    "procedures": procedures,
+                    "drugs": drugs,
+                    "drugs_hist": drugs,
+                }
+            )
+
+        # Exclude patients with less than 2 valid visits
+        if len(samples) < 2:
+            return []
+
+        # Add cumulative history for first sample
+        samples[0]["conditions"] = [samples[0]["conditions"]]
+        samples[0]["procedures"] = [samples[0]["procedures"]]
+        samples[0]["drugs_hist"] = [samples[0]["drugs_hist"]]
+
+        # Add cumulative history for subsequent samples
+        for i in range(1, len(samples)):
+            samples[i]["conditions"] = samples[i - 1]["conditions"] + [
+                samples[i]["conditions"]
+            ]
+            samples[i]["procedures"] = samples[i - 1]["procedures"] + [
+                samples[i]["procedures"]
+            ]
+            samples[i]["drugs_hist"] = samples[i - 1]["drugs_hist"] + [
+                samples[i]["drugs_hist"]
+            ]
+
+        # Remove target drug from history (set current visit drugs_hist to empty)
+        for i in range(len(samples)):
+            samples[i]["drugs_hist"][i] = []
+
+        return samples
 
 
 def drug_recommendation_omop_fn(patient: Patient):
@@ -534,7 +615,7 @@ def drug_recommendation_omop_fn(patient: Patient):
         ...     code_mapping={},
         ... )
         >>> from pyhealth.tasks import drug_recommendation_omop_fn
-        >>> omop_sample = omop_base.set_task(drug_recommendation_eicu_fn)
+        >>> omop_sample = omop_base.set_task(drug_recommendation_omop_fn)
         >>> omop_sample.samples[0]
         [{'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '98', '663', '58', '51'], ['98', '663', '58', '51']], 'procedures': [['1'], ['2', '3']], 'label': [['2', '3', '4'], ['0', '1', '4', '5']]}]
     """
@@ -610,6 +691,7 @@ if __name__ == "__main__":
     print(sample_dataset.samples[0])
 
     # from pyhealth.datasets import eICUDataset
+    # from pyhealth.tasks import DrugRecommendationEICU
 
     # base_dataset = eICUDataset(
     #     root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
@@ -617,7 +699,8 @@ if __name__ == "__main__":
     #     dev=True,
     #     refresh_cache=False,
     # )
-    # sample_dataset = base_dataset.set_task(task_fn=drug_recommendation_eicu_fn)
+    # task = DrugRecommendationEICU()
+    # sample_dataset = base_dataset.set_task(task)
     # sample_dataset.stat()
     # print(sample_dataset.available_keys)
 
