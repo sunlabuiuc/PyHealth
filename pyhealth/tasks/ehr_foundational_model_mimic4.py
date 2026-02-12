@@ -19,9 +19,9 @@ class EHRFoundationalModelMIMIC4(BaseTask):
         """Return text if non-empty, otherwise None."""
         return text if text else None
 
-    def _compute_time_diffs(self, notes_with_timestamps, anchor_time=None):
-        if not notes_with_timestamps:
-            return ([], [])
+    def _compute_time_diffs(self, notes_with_timestamps, anchor_time=None): 
+        if not notes_with_timestamps: # TODO: Maybe I should move this somewhere else as it's not relevant to time diffs
+            return (["<missing>"], [0.0]) # TODO: How should we handle notes with missing timestamps? 
         result = []
         for i, (text, timestamp) in enumerate(notes_with_timestamps):
             if anchor_time is not None:
@@ -124,25 +124,14 @@ class EHRFoundationalModelMIMIC4(BaseTask):
                     pass
 
         # Convert (note_text, timestamp) tuples to (note_text, time_diff_hours) tuples
-        discharge_note_time_diffs = self._compute_time_diffs(all_discharge_notes_timestamped)
-        radiology_note_time_diffs = self._compute_time_diffs(all_radiology_notes_timestamped)
-
-        # ===== MODALITY REQUIREMENTS =====
-        # Check notes - need at least one discharge OR radiology note
-        has_notes = len(discharge_note_time_diffs) > 0 or len(radiology_note_time_diffs) > 0
-
-        #Return empty list if any required modality is missing
-        if not (
-            has_notes
-        ):
-            return []
-
+        discharge_note_times = self._compute_time_diffs(all_discharge_notes_timestamped)
+        radiology_note_times = self._compute_time_diffs(all_radiology_notes_timestamped)
 
         return [
             {
                 "patient_id": patient.patient_id,
-                "discharge_note_times": discharge_note_time_diffs,
-                "radiology_note_times": radiology_note_time_diffs,
+                "discharge_note_times": discharge_note_times,
+                "radiology_note_times": radiology_note_times,
                 "mortality": mortality_label,
             }
         ]
