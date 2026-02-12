@@ -13,13 +13,14 @@ class EHRFoundationalModelMIMIC4(BaseTask):
             "discharge_note_times": "tuple_time_text",
             "radiology_note_times": "tuple_time_text",
         }
-        self.output_schema: Dict[str, str] = {"mortality": "regression"}
+        self.output_schema: Dict[str, str] = {"mortality": "binary"}
 
     def _clean_text(self, text: Optional[str]) -> Optional[str]:
         """Return text if non-empty, otherwise None."""
         return text if text else None
 
     def _compute_time_diffs(self, notes_with_timestamps, anchor_time=None): 
+        # TODO: Add docstrings. anchor_time is in case we want it to normalize the time on admission time or something like that.
         if not notes_with_timestamps: # TODO: Maybe I should move this somewhere else as it's not relevant to time diffs
             return (["<missing>"], [0.0]) # TODO: How should we handle notes with missing timestamps? 
         result = []
