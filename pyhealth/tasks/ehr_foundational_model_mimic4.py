@@ -13,11 +13,26 @@ class EHRFoundationalModelMIMIC4(BaseTask):
             "discharge_note_times": "tuple_time_text",
             "radiology_note_times": "tuple_time_text",
         }
-        self.output_schema: Dict[str, str] = {"mortality": "binary"}
+        self.output_schema: Dict[str, str] = {"mortality": "regression"}
 
     def _clean_text(self, text: Optional[str]) -> Optional[str]:
         """Return text if non-empty, otherwise None."""
         return text if text else None
+
+    def _compute_time_diffs(self, notes_with_timestamps, anchor_time=None):
+        if not notes_with_timestamps:
+            return ([], [])
+        result = []
+        for i, (text, timestamp) in enumerate(notes_with_timestamps):
+            if anchor_time is not None:
+                diff = (timestamp - anchor_time).total_seconds() / 3600
+            elif i == 0:
+                diff = 0.0
+            else:
+                diff = (timestamp - notes_with_timestamps[i - 1][1]).total_seconds() / 3600
+            result.append((text, diff))
+        texts, time_diffs = zip(*result)
+        return (list(texts), list(time_diffs))
 
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
         # Get demographic info to filter by age
@@ -64,11 +79,8 @@ class EHRFoundationalModelMIMIC4(BaseTask):
         first_admission_time = admissions_to_process[0].timestamp
 
         # Aggregated data across all admissions
-        all_discharge_notes = []  # List of individual discharge notes
-        all_radiology_notes = []  # List of individual radiology notes
-        all_discharge_notes_timestamps = [] # List of individual discharge notes timestamps
-        all_radiology_notes_timestamps = [] # List of individual radiology notes timestamps
-        
+        all_discharge_notes_timestamped = []  # List of (note_text, timestamp) tuples
+        all_radiology_notes_timestamped = []  # List of (note_text, timestamp) tuples
 
         # Process each admission and aggregate data
         for admission in admissions_to_process:
@@ -99,8 +111,7 @@ class EHRFoundationalModelMIMIC4(BaseTask):
                 try:
                     note_text = self._clean_text(note.text)
                     if note_text:
-                        all_discharge_notes.append(note_text)
-                        all_discharge_notes_timestamps.append(note.timestamp)
+                        all_discharge_notes_timestamped.append((note_text, note.timestamp))
                 except AttributeError:
                     pass
 
@@ -108,30 +119,17 @@ class EHRFoundationalModelMIMIC4(BaseTask):
                 try:
                     note_text = self._clean_text(note.text)
                     if note_text:
-                        all_radiology_notes.append(note_text)
-                        all_radiology_notes_timestamps.append(note.timestamp)
+                        all_radiology_notes_timestamped.append((note_text, note.timestamp))
                 except AttributeError:
                     pass
 
-        # Sort discharge_notes by timestamp 
-        all_discharge_notes_timestamps.sort()
-        all_radiology_notes_timestamps.sort()
-
-        # Compute time difference for discharge notes (hours)
-        discharge_note_time_diffs = [0.0] + [
-            (curr - prev).total_seconds() / 3600
-            for prev, curr in zip(all_discharge_notes_timestamps, all_discharge_notes_timestamps[1:])
-        ]
-
-        # Compute time difference for radiology notes (hours)
-        radiology_note_time_diffs = [0.0] + [
-            (curr - prev).total_seconds() / 3600
-            for prev, curr in zip(all_radiology_notes_timestamps, all_radiology_notes_timestamps[1:])
-        ]
+        # Convert (note_text, timestamp) tuples to (note_text, time_diff_hours) tuples
+        discharge_note_time_diffs = self._compute_time_diffs(all_discharge_notes_timestamped)
+        radiology_note_time_diffs = self._compute_time_diffs(all_radiology_notes_timestamped)
 
         # ===== MODALITY REQUIREMENTS =====
         # Check notes - need at least one discharge OR radiology note
-        has_notes = len(all_discharge_notes) > 0 or len(all_radiology_notes) > 0
+        has_notes = len(discharge_note_time_diffs) > 0 or len(radiology_note_time_diffs) > 0
 
         #Return empty list if any required modality is missing
         if not (
@@ -143,8 +141,8 @@ class EHRFoundationalModelMIMIC4(BaseTask):
         return [
             {
                 "patient_id": patient.patient_id,
-                "discharge_note_times": (all_discharge_notes, discharge_note_time_diffs),
-                "radiology_note_times": (all_radiology_notes, radiology_note_time_diffs),
+                "discharge_note_times": discharge_note_time_diffs,
+                "radiology_note_times": radiology_note_time_diffs,
                 "mortality": mortality_label,
             }
         ]
