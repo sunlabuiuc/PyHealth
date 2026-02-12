@@ -11,6 +11,35 @@ PyHealth is the comprehensive Python library for healthcare AI that makes buildi
 .. note::
    📄 **Read the PyHealth 2.0 paper**: `PyHealth 2.0: A Comprehensive Open-Source Toolkit for Accessible and Reproducible Clinical Deep Learning <https://arxiv.org/pdf/2601.16414>`_
 
+Performance Benchmarks
+=======================
+
+PyHealth 2.0 delivers exceptional performance that makes healthcare AI research accessible on standard hardware:
+
+**Breakthrough speed improvements:**
+
+- **Up to 39× faster** task processing compared to typical pandas-based approaches
+- Dramatically reduced processing time for common clinical prediction tasks
+- Optimized data loaders with smart caching and lazy evaluation
+- Efficient multi-core scaling without memory overflow
+
+**Memory efficiency:**
+
+- **Dynamically scales to fit consumer-grade hardware** (16GB laptops)
+- Handles large-scale datasets like MIMIC-IV without requiring workstation-grade resources
+- Intelligent memory management adapts to available system resources
+- Enables research on complex healthcare datasets without expensive infrastructure
+
+.. image:: ../figure/PyHealthPerformanceResults.drawio.png
+   :alt: PyHealth 2.0 performance benchmarks showing speed and memory efficiency
+   :align: center
+   :width: 700px
+
+.. note::
+   **What this means for researchers:** PyHealth 2.0 enables you to run sophisticated healthcare AI analyses on a standard laptop that previously required high-end workstations. The platform adapts to your available resources while maintaining high performance.
+
+----
+
 What Makes PyHealth 2.0 Powerful?
 ===================================
 
@@ -100,56 +129,6 @@ More readable, maintainable code
 PyHealth 2.0 makes your code clearer and your research more reproducible:
 
 **Standardized 5-stage pipeline:**
-
-.. code-block:: text
-
-    load dataset → define task → build model → train → evaluate
-         ↓            ↓           ↓         ↓        ↓
-    Your data → Your task → Your model → Auto → Results
-
-**Example: Mortality prediction in 7 lines**
-
-.. code-block:: python
-
-   from pyhealth.datasets import MIMIC4Dataset
-   from pyhealth.tasks import MortalityPredictionMIMIC4
-   from pyhealth.models import Transformer
-   
-   # Load dataset with lazy evaluation
-   dataset = MIMIC4Dataset(root="data/mimic-iv-2.2", tables=["diagnoses_icd", "procedures_icd"])
-   
-   # Define task and process in parallel
-   samples = dataset.set_task(MortalityPredictionMIMIC4())
-   
-   # Train model (PyTorch Lightning handles the rest)
-   model = Transformer.from_dataset(samples)
-   model.fit(samples)
-   
-   # Evaluate
-   results = model.evaluate(samples)
-
-**The same API works for:**
-
-- Different tasks (readmission, drug recommendation, length of stay)
-- Different datasets (MIMIC-III, eICU, OMOP, your own data)
-- Different models (33+ pre-built options)
-- Different modalities (EHR codes, images, signals, text)
-
-Core Advantages
-===============
-
-True multimodal support
------------------------
-
-PyHealth 2.0 unifies all clinical data types in a single system:
-
-- **Structured EHR**: Diagnoses (ICD), procedures (CPT), medications (NDC), lab events
-- **Clinical text**: Discharge summaries, radiology reports, clinical notes
-- **Medical images**: Chest X-rays, CT scans, pathology slides
-- **Biosignals**: EEG, ECG, PPG, heart sounds
-- **Genomics**: Variants, mutations, multi-omics data
-
-**One unified API for all healthcare data types.** Build multimodal clinical models without managing multiple libraries or reconciling different data formats.
 
 Healthcare-specific design
 --------------------------
@@ -372,30 +351,7 @@ Join our healthcare AI practitioners:
 Get Started Today
 =================
 
-Ready to build your first healthcare AI application?
-
-**Installation:**
-
-.. code-block:: bash
-
-   pip install pyhealth
-
-**Quick start:**
-
-.. code-block:: python
-
-   from pyhealth.datasets import MIMIC4Dataset
-   from pyhealth.tasks import MortalityPredictionMIMIC4
-   from pyhealth.models import Transformer
-   
-   # Load, process, train, evaluate - all in 7 lines
-   dataset = MIMIC4Dataset(root="data/mimic-iv", tables=["diagnoses_icd"])
-   samples = dataset.set_task(MortalityPredictionMIMIC4())
-   model = Transformer.from_dataset(samples)
-   model.fit(samples)
-   results = model.evaluate(samples)
-
-**Learn more:**
+Ready to build your first healthcare AI application? See the resources below:
 
 - :doc:`how_to_get_started` - Build your first model in minutes
 - :doc:`install` - Detailed installation instructions
