@@ -117,8 +117,10 @@ class TestStageNetMHA(unittest.TestCase):
         loader = get_dataloader(self.dataset, batch_size=2, shuffle=False)
         batch = next(iter(loader))
 
-        ret = self.model(register_attn_hook=True, **batch)
+        self.model.set_attention_hooks(True)
+        ret = self.model(**batch)
         ret["loss"].backward()
+        self.model.set_attention_hooks(False)
 
         for feature_key, layer in self.model.stagenet.items():
             attn_map = layer.get_attn_map()
