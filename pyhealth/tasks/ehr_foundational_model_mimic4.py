@@ -21,7 +21,7 @@ class EHRFoundationalModelMIMIC4(BaseTask):
 
     def _compute_time_diffs(self, notes_with_timestamps, anchor_time=None): 
         # TODO: Add docstrings. 
-        # anchor_time is in case we want it to normalize the time on admission time or something like that.
+        # anchor_time is in case we want it to normalize/center the time on admission time or something like that.
         
         if not notes_with_timestamps: # TODO: Maybe I should move this somewhere else as it's not relevant to time diffs
             return (["<missing>"], [0.0]) # TODO: How should we handle notes with missing timestamps? 
