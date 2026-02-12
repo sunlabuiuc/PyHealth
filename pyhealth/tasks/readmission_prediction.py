@@ -27,11 +27,18 @@ class ReadmissionPredictionMIMIC3(BaseTask):
         >>> task = ReadmissionPredictionMIMIC3()
         >>> samples = dataset.set_task(task)
     """
+
     task_name: str = "ReadmissionPredictionMIMIC3"
-    input_schema: Dict[str, str] = {"conditions": "sequence", "procedures": "sequence", "drugs": "sequence"}
+    input_schema: Dict[str, str] = {
+        "conditions": "sequence",
+        "procedures": "sequence",
+        "drugs": "sequence",
+    }
     output_schema: Dict[str, str] = {"readmission": "binary"}
 
-    def __init__(self, window: timedelta=timedelta(days=15), exclude_minors: bool=True) -> None:
+    def __init__(
+        self, window: timedelta = timedelta(days=15), exclude_minors: bool = True
+    ) -> None:
         """
         Initializes the task object.
 
@@ -77,10 +84,12 @@ class ReadmissionPredictionMIMIC3(BaseTask):
             return []
 
         samples = []
-        for i in range(len(admissions) - 1): # Skip the last admission since we need a "next" admission
+        # Skip the last admission since we need a "next" admission
+        for i in range(len(admissions) - 1):
             if self.exclude_minors:
                 age = admissions[i].timestamp.year - dob.year
-                age = age-1 if ((admissions[i].timestamp.month, admissions[i].timestamp.day) < (dob.month, dob.day)) else age
+                if (admissions[i].timestamp.month, admissions[i].timestamp.day) < (dob.month, dob.day):
+                    age -= 1
                 if age < 18:
                     continue
 
@@ -91,22 +100,30 @@ class ReadmissionPredictionMIMIC3(BaseTask):
             if len(diagnoses) == 0:
                 continue
 
-            procedures = patient.get_events(event_type="procedures_icd", filters=[filter])
+            procedures = patient.get_events(
+                event_type="procedures_icd", filters=[filter]
+            )
             procedures = [event.icd9_code for event in procedures]
             if len(procedures) == 0:
                 continue
 
-            prescriptions = patient.get_events(event_type="prescriptions", filters=[filter])
+            prescriptions = patient.get_events(
+                event_type="prescriptions", filters=[filter]
+            )
             prescriptions = [event.drug for event in prescriptions]
             if len(prescriptions) == 0:
                 continue
 
             try:
-                discharge_time = datetime.strptime(admissions[i].dischtime, "%Y-%m-%d %H:%M:%S")
+                discharge_time = datetime.strptime(
+                    admissions[i].dischtime, "%Y-%m-%d %H:%M:%S"
+                )
             except ValueError:
                 discharge_time = datetime.strptime(admissions[i].dischtime, "%Y-%m-%d")
 
-            readmission = int((admissions[i + 1].timestamp - discharge_time) < self.window)
+            readmission = int(
+                (admissions[i + 1].timestamp - discharge_time) < self.window
+            )
 
             samples.append(
                 {
@@ -144,11 +161,18 @@ class ReadmissionPredictionMIMIC4(BaseTask):
         >>> task = ReadmissionPredictionMIMIC4()
         >>> samples = dataset.set_task(task)
     """
+
     task_name: str = "ReadmissionPredictionMIMIC4"
-    input_schema: Dict[str, str] = {"conditions": "sequence", "procedures": "sequence", "drugs": "sequence"}
+    input_schema: Dict[str, str] = {
+        "conditions": "sequence",
+        "procedures": "sequence",
+        "drugs": "sequence",
+    }
     output_schema: Dict[str, str] = {"readmission": "binary"}
 
-    def __init__(self, window: timedelta=timedelta(days=15), exclude_minors: bool=True) -> None:
+    def __init__(
+        self, window: timedelta = timedelta(days=15), exclude_minors: bool = True
+    ) -> None:
         """
         Initializes the task object.
 
@@ -192,34 +216,45 @@ class ReadmissionPredictionMIMIC4(BaseTask):
             return []
 
         samples = []
-        for i in range(len(admissions) - 1): # Skip the last admission since we need a "next" admission
+        # Skip the last admission since we need a "next" admission
+        for i in range(len(admissions) - 1):
             filter = ("hadm_id", "==", admissions[i].hadm_id)
 
             diagnoses = []
-            for event in patient.get_events(event_type="diagnoses_icd", filters=[filter]):
+            for event in patient.get_events(
+                event_type="diagnoses_icd", filters=[filter]
+            ):
                 assert event.icd_version in ("9", "10")
                 diagnoses.append(f"{event.icd_version}_{event.icd_code}")
             if len(diagnoses) == 0:
                 continue
 
             procedures = []
-            for event in patient.get_events(event_type="procedures_icd", filters=[filter]):
+            for event in patient.get_events(
+                event_type="procedures_icd", filters=[filter]
+            ):
                 assert event.icd_version in ("9", "10")
                 procedures.append(f"{event.icd_version}_{event.icd_code}")
             if len(procedures) == 0:
                 continue
 
-            prescriptions = patient.get_events(event_type="prescriptions", filters=[filter])
+            prescriptions = patient.get_events(
+                event_type="prescriptions", filters=[filter]
+            )
             prescriptions = [event.drug for event in prescriptions]
             if len(prescriptions) == 0:
                 continue
 
             try:
-                discharge_time = datetime.strptime(admissions[i].dischtime, "%Y-%m-%d %H:%M:%S")
+                discharge_time = datetime.strptime(
+                    admissions[i].dischtime, "%Y-%m-%d %H:%M:%S"
+                )
             except ValueError:
                 discharge_time = datetime.strptime(admissions[i].dischtime, "%Y-%m-%d")
 
-            readmission = int((admissions[i + 1].timestamp - discharge_time) < self.window)
+            readmission = int(
+                (admissions[i + 1].timestamp - discharge_time) < self.window
+            )
 
             samples.append(
                 {
@@ -235,142 +270,153 @@ class ReadmissionPredictionMIMIC4(BaseTask):
         return samples
 
 
-def readmission_prediction_eicu_fn(patient: Patient, time_window=5):
-    """Processes a single patient for the readmission prediction task.
+class ReadmissionPredictionEICU(BaseTask):
+    """
+    Readmission prediction on the eICU dataset.
 
-    Readmission prediction aims at predicting whether the patient will be readmitted
-    into hospital within time_window days based on the clinical information from
-    current visit (e.g., conditions and procedures).
+    This task aims at predicting whether the patient will be readmitted into the ICU
+    during the same hospital stay based on clinical information from the current ICU
+    visit.
 
-    Features key-value pairs:
+    Features:
     - using diagnosis table (ICD9CM and ICD10CM) as condition codes
-    - using physicalExam table as procedure codes
+    - using physicalexam table as procedure codes
     - using medication table as drugs codes
 
-    Args:
-        patient: a Patient object
-        time_window: the time window threshold (gap < time_window means label=1 for
-            the task)
-
-    Returns:
-        samples: a list of samples, each sample is a dict with patient_id, visit_id,
-            and other task-specific attributes as key
-
-    Note that we define the task as a binary classification task.
+    Attributes:
+        task_name (str): The name of the task.
+        input_schema (Dict[str, str]): The schema for the task input.
+        output_schema (Dict[str, str]): The schema for the task output.
+        exclude_minors (bool): Whether to exclude patients whose age is less than 18.
 
     Examples:
         >>> from pyhealth.datasets import eICUDataset
-        >>> eicu_base = eICUDataset(
-        ...     root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
-        ...     tables=["diagnosis", "medication", "physicalExam"],
-        ...     code_mapping={},
-        ...     dev=True
+        >>> from pyhealth.tasks import ReadmissionPredictionEICU
+        >>> dataset = eICUDataset(
+        ...     root="/path/to/eicu-crd/2.0",
+        ...     tables=["diagnosis", "medication", "physicalexam"],
         ... )
-        >>> from pyhealth.tasks import readmission_prediction_eicu_fn
-        >>> eicu_sample = eicu_base.set_task(readmission_prediction_eicu_fn)
-        >>> eicu_sample.samples[0]
-        [{'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '98', '663', '58', '51']], 'procedures': [['1']], 'label': 1}]
+        >>> task = ReadmissionPredictionEICU()
+        >>> sample_dataset = dataset.set_task(task)
     """
-    samples = []
-    # we will drop the last visit
-    for i in range(len(patient) - 1):
-        visit: Visit = patient[i]
-        next_visit: Visit = patient[i + 1]
-        # get time difference between current visit and next visit
-        time_diff = (next_visit.encounter_time - visit.encounter_time).days
-        readmission_label = 1 if time_diff < time_window else 0
 
-        conditions = visit.get_code_list(table="diagnosis")
-        procedures = visit.get_code_list(table="physicalExam")
-        drugs = visit.get_code_list(table="medication")
-        # exclude: visits without condition, procedure, or drug code
-        if len(conditions) * len(procedures) * len(drugs) == 0:
-            continue
-        # TODO: should also exclude visit with age < 18
-        samples.append(
-            {
-                "visit_id": visit.visit_id,
-                "patient_id": patient.patient_id,
-                "conditions": [conditions],
-                "procedures": [procedures],
-                "drugs": [drugs],
-                "label": readmission_label,
-            }
+    task_name: str = "ReadmissionPredictionEICU"
+    input_schema: Dict[str, str] = {
+        "conditions": "sequence",
+        "procedures": "sequence",
+        "drugs": "sequence",
+    }
+    output_schema: Dict[str, str] = {"readmission": "binary"}
+
+    def __init__(self, exclude_minors: bool = True) -> None:
+        """
+        Initializes the task object.
+
+        Args:
+            exclude_minors (bool): Whether to exclude patients whose age is less than 18.
+                Defaults to True.
+        """
+        self.exclude_minors = exclude_minors
+
+    def __call__(self, patient: Patient) -> List[Dict]:
+        """
+        Generates binary classification data samples for a single patient.
+
+        Args:
+            patient (Patient): A patient object.
+
+        Returns:
+            List[Dict]: A list containing a dictionary for each patient visit with:
+                - 'visit_id': eICU patientunitstayid.
+                - 'patient_id': eICU uniquepid.
+                - 'conditions': Diagnosis codes from diagnosis table.
+                - 'procedures': Physical exam codes from physicalexam table.
+                - 'drugs': Drug names from medication table.
+                - 'readmission': binary label.
+        """
+        # Get patient stays (each row in patient table is an ICU stay)
+        patient_stays = patient.get_events(event_type="patient")
+        if len(patient_stays) < 2:
+            return []
+
+        # Sort stays by hospital stay ID and unit visit number for proper ordering
+        # Within same hospitalization: use unitvisitnumber
+        # Across hospitalizations: use patienthealthsystemstayid
+        sorted_stays = sorted(
+            patient_stays,
+            key=lambda s: (
+                int(getattr(s, "patienthealthsystemstayid", 0) or 0),
+                int(getattr(s, "unitvisitnumber", 0) or 0),
+            ),
         )
-    # no cohort selection
-    return samples
 
+        samples = []
+        for i in range(len(sorted_stays) - 1):
+            stay = sorted_stays[i]
+            next_stay = sorted_stays[i + 1]
 
-def readmission_prediction_eicu_fn2(patient: Patient, time_window=5):
-    """Processes a single patient for the readmission prediction task.
+            if self.exclude_minors:
+                try:
+                    if int(stay.age) < 18:
+                        continue
+                except (ValueError, TypeError):
+                    pass
 
-    Readmission prediction aims at predicting whether the patient will be readmitted
-    into hospital within time_window days based on the clinical information from
-    current visit (e.g., conditions and procedures).
+            # Get the patientunitstayid for filtering
+            stay_id = str(getattr(stay, "patientunitstayid", ""))
 
-    Similar to readmission_prediction_eicu_fn, but with different code mapping:
-    - using admissionDx table and diagnosisString under diagnosis table as condition codes
-    - using treatment table as procedure codes
-
-    Args:
-        patient: a Patient object
-        time_window: the time window threshold (gap < time_window means label=1 for
-            the task)
-
-    Returns:
-        samples: a list of samples, each sample is a dict with patient_id, visit_id,
-            and other task-specific attributes as key
-
-    Note that we define the task as a binary classification task.
-
-    Examples:
-        >>> from pyhealth.datasets import eICUDataset
-        >>> eicu_base = eICUDataset(
-        ...     root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
-        ...     tables=["diagnosis", "treatment", "admissionDx"],
-        ...     code_mapping={},
-        ...     dev=True
-        ... )
-        >>> from pyhealth.tasks import readmission_prediction_eicu_fn2
-        >>> eicu_sample = eicu_base.set_task(readmission_prediction_eicu_fn2)
-        >>> eicu_sample.samples[0]
-        [{'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '98', '663', '58', '51']], 'procedures': [['1']], 'label': 1}]
-    """
-    samples = []
-    # we will drop the last visit
-    for i in range(len(patient) - 1):
-        visit: Visit = patient[i]
-        next_visit: Visit = patient[i + 1]
-        # get time difference between current visit and next visit
-        time_diff = (next_visit.encounter_time - visit.encounter_time).days
-        readmission_label = 1 if time_diff < time_window else 0
-
-        admissionDx = visit.get_code_list(table="admissionDx")
-        diagnosisString = list(
-            set(
-                [
-                    dx.attr_dict["diagnosisString"]
-                    for dx in visit.get_event_list("diagnosis")
-                ]
+            # Get clinical codes using patientunitstayid-based filtering
+            diagnoses = patient.get_events(
+                event_type="diagnosis", filters=[("patientunitstayid", "==", stay_id)]
             )
-        )
-        treatment = visit.get_code_list(table="treatment")
+            conditions = [
+                getattr(event, "icd9code", "")
+                for event in diagnoses
+                if getattr(event, "icd9code", None)
+            ]
+            if len(conditions) == 0:
+                continue
 
-        # exclude: visits without treatment, admissionDx, diagnosisString
-        if len(admissionDx) * len(diagnosisString) * len(treatment) == 0:
-            continue
-        # TODO: should also exclude visit with age < 18
-        samples.append(
-            {
-                "visit_id": visit.visit_id,
-                "patient_id": patient.patient_id,
-                "conditions": admissionDx + diagnosisString,
-                "procedures": treatment,
-                "label": readmission_label,
-            }
-        )
-    # no cohort selection
-    return samples
+            physical_exams = patient.get_events(
+                event_type="physicalexam",
+                filters=[("patientunitstayid", "==", stay_id)],
+            )
+            procedures = [
+                getattr(event, "physicalexampath", "")
+                for event in physical_exams
+                if getattr(event, "physicalexampath", None)
+            ]
+            if len(procedures) == 0:
+                continue
+
+            medications = patient.get_events(
+                event_type="medication", filters=[("patientunitstayid", "==", stay_id)]
+            )
+            drugs = [
+                getattr(event, "drugname", "")
+                for event in medications
+                if getattr(event, "drugname", None)
+            ]
+            if len(drugs) == 0:
+                continue
+
+            # If the current and next hospital ID are the same, the patient was readmitted to the ICU
+            current_hosp_id = getattr(stay, "patienthealthsystemstayid", None)
+            next_hosp_id = getattr(next_stay, "patienthealthsystemstayid", None)
+            readmission = int(current_hosp_id == next_hosp_id)
+
+            samples.append(
+                {
+                    "visit_id": stay_id,
+                    "patient_id": patient.patient_id,
+                    "conditions": conditions,
+                    "procedures": procedures,
+                    "drugs": drugs,
+                    "readmission": readmission,
+                }
+            )
+
+        return samples
 
 
 class ReadmissionPredictionOMOP(BaseTask):
@@ -396,11 +442,18 @@ class ReadmissionPredictionOMOP(BaseTask):
         >>> task = ReadmissionPredictionOMOP()
         >>> samples = dataset.set_task(task)
     """
+
     task_name: str = "ReadmissionPredictionOMOP"
-    input_schema: Dict[str, str] = {"conditions": "sequence", "procedures": "sequence", "drugs": "sequence"}
+    input_schema: Dict[str, str] = {
+        "conditions": "sequence",
+        "procedures": "sequence",
+        "drugs": "sequence",
+    }
     output_schema: Dict[str, str] = {"readmission": "binary"}
 
-    def __init__(self, window: timedelta=timedelta(days=15), exclude_minors: bool=True) -> None:
+    def __init__(
+        self, window: timedelta = timedelta(days=15), exclude_minors: bool = True
+    ) -> None:
         """
         Initializes the task object.
 
@@ -444,21 +497,27 @@ class ReadmissionPredictionOMOP(BaseTask):
             return []
 
         samples = []
-        for i in range(len(admissions) - 1): # Skip the last admission since we need a "next" admission
+        # Skip the last admission since we need a "next" admission
+        for i in range(len(admissions) - 1):
             if self.exclude_minors:
                 age = admissions[i].timestamp.year - dob.year
-                age = age-1 if ((admissions[i].timestamp.month, admissions[i].timestamp.day) < (dob.month, dob.day)) else age
+                if (admissions[i].timestamp.month, admissions[i].timestamp.day) < (dob.month, dob.day):
+                    age -= 1
                 if age < 18:
                     continue
 
             filter = ("visit_occurrence_id", "==", admissions[i].visit_occurrence_id)
 
-            conditions = patient.get_events(event_type="condition_occurrence", filters=[filter])
+            conditions = patient.get_events(
+                event_type="condition_occurrence", filters=[filter]
+            )
             conditions = [event.condition_concept_id for event in conditions]
             if len(conditions) == 0:
                 continue
 
-            procedures = patient.get_events(event_type="procedure_occurrence", filters=[filter])
+            procedures = patient.get_events(
+                event_type="procedure_occurrence", filters=[filter]
+            )
             procedures = [event.procedure_concept_id for event in procedures]
             if len(procedures) == 0:
                 continue
@@ -468,9 +527,13 @@ class ReadmissionPredictionOMOP(BaseTask):
             if len(drugs) == 0:
                 continue
 
-            discharge_time = datetime.strptime(admissions[i].visit_end_datetime, "%Y-%m-%d %H:%M:%S")
+            discharge_time = datetime.strptime(
+                admissions[i].visit_end_datetime, "%Y-%m-%d %H:%M:%S"
+            )
 
-            readmission = int((admissions[i + 1].timestamp - discharge_time) < self.window)
+            readmission = int(
+                (admissions[i + 1].timestamp - discharge_time) < self.window
+            )
 
             samples.append(
                 {
@@ -484,27 +547,3 @@ class ReadmissionPredictionOMOP(BaseTask):
             )
 
         return samples
-
-
-if __name__ == "__main__":
-    from pyhealth.datasets import eICUDataset
-
-    base_dataset = eICUDataset(
-        root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
-        tables=["diagnosis", "medication", "physicalExam"],
-        dev=True,
-        refresh_cache=False,
-    )
-    sample_dataset = base_dataset.set_task(task_fn=readmission_prediction_eicu_fn)
-    sample_dataset.stat()
-    print(sample_dataset.available_keys)
-
-    base_dataset = eICUDataset(
-        root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
-        tables=["diagnosis", "admissionDx", "treatment"],
-        dev=True,
-        refresh_cache=False,
-    )
-    sample_dataset = base_dataset.set_task(task_fn=readmission_prediction_eicu_fn2)
-    sample_dataset.stat()
-    print(sample_dataset.available_keys)
