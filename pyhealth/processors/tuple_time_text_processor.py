@@ -9,10 +9,11 @@ Input/Output:
             - List[str]: Clinical text entries (e.g., discharge notes, progress notes)
             - List[float]: Time differences between entries (in any time unit)
     
-    Output: Tuple[List[str], torch.Tensor, str]
-            - List[str]: Same text entries (unmodified)
-            - torch.Tensor: 1D float tensor of time differences
-            - str: Type tag for automatic modality routing (default: "note")
+    Output: str (JSON)
+            JSON string with keys:
+            - "texts": List[str] - Same text entries (unmodified)
+            - "time_diffs": List[float] - Time differences (unmodified)
+            - "type_tag": str - Type tag for automatic modality routing (default: "note")
 
 Use Case:
     This processor enables automatic modality bucketing in multimodal pipelines.
@@ -51,7 +52,7 @@ Args:
 """
 
 from typing import Any, List, Tuple
-import torch
+import json
 from .base_processor import FeatureProcessor
 from . import register_processor
 
@@ -73,30 +74,23 @@ class TupleTimeTextProcessor(FeatureProcessor):
         super().__init__()
         self.type_tag = type_tag
 
-    def process(self, value: Tuple[List[str], List[float]]) -> Tuple[List[str], torch.Tensor, str]:
+    def process(self, value: Tuple[List[str], List[float]]) -> str:
         """Process a tuple of texts and time differences.
-        
+
+        Serializes the data as a JSON string so litdata can store it natively.
+        Downstream code should parse with json.loads() to recover the dict
+        with keys "texts", "time_diffs", and "type_tag".
+
         Args:
             value: Tuple containing:
                 - List[str]: Text entries (clinical notes, observations, etc.)
                 - List[float]: Time differences corresponding to each text entry
-        
+
         Returns:
-            Tuple containing:
-                - List[str]: Original text entries (unmodified)
-                - torch.Tensor: 1D float tensor of time differences [shape: (N,)]
-                - str: Type tag for modality routing
-                
-        Example:
-            >>> processor = TupleTimeTextProcessor(type_tag="clinical_note")
-            >>> texts = ["Note 1", "Note 2"]
-            >>> times = [0.0, 24.0]  # hours
-            >>> result = processor.process((texts, times))
-            >>> print(result[1])  # tensor([0., 24.])
+            str: JSON string with keys "texts", "time_diffs", "type_tag".
         """
         texts, time_diffs = value
-        time_tensor = torch.tensor(time_diffs, dtype=torch.float32)
-        return texts, time_tensor, self.type_tag
+        return json.dumps({"texts": texts, "time_diffs": time_diffs, "type_tag": self.type_tag})
     
     def size(self):
         """Return the size of the processor vocabulary (not applicable for this processor)."""
