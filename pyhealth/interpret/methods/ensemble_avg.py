@@ -15,18 +15,29 @@ from .base_interpreter import BaseInterpreter
 
 
 class AvgInterpreterEnsemble(BaseInterpreterEnsemble):
-    """Ensemble interpreter using uniform averaging (AGGMean).
+    """Ensemble interpreter using uniform averaging (AGGMean / Borda).
 
     Computes the consensus attribution as the simple arithmetic mean
     of the competitively-ranked attributions from all expert interpreters.
     This is the simplest ensemble strategy — every expert contributes
     equally regardless of its agreement with the others.
 
+    Because the inputs are already competitively ranked, averaging is
+    equivalent (up to a constant factor) to the Borda count, which sums
+    the ranks instead.  The two methods therefore produce identical
+    feature orderings.
+
     Implements the AGGMean method from:
 
         Rieger, L. and Hansen, L. K. "Aggregating Explanation Methods
         for Stable and Robust Explainability." arXiv preprint
         arXiv:1903.00519, 2019.
+
+    See also the Borda aggregation in:
+
+        Chen, Y., Mancini, M., Zhu, X., and Akata, Z. "Ensemble
+        Interpretation: A Unified Method for Interpretable Machine
+        Learning." arXiv preprint arXiv:2312.06255, 2023.
 
     Args:
         model: The PyHealth model to interpret.
