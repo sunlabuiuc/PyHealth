@@ -1,29 +1,37 @@
+"""
+Readmission Prediction on eICU with RNN
+
+This example demonstrates how to use the modernized eICUDataset with the
+ReadmissionPredictionEICU task class for predicting ICU readmission
+using an RNN model.
+
+Features:
+- Uses the new BaseDataset-based eICUDataset with YAML configuration
+- Uses the new ReadmissionPredictionEICU BaseTask class
+- Demonstrates the standardized PyHealth workflow
+"""
+
 import tempfile
 
-from pyhealth.datasets import OMOPDataset, get_dataloader, split_by_patient
+from pyhealth.datasets import eICUDataset
+from pyhealth.datasets import split_by_patient, get_dataloader
 from pyhealth.models import RNN
-from pyhealth.tasks import ReadmissionPredictionOMOP
+from pyhealth.tasks import ReadmissionPredictionEICU
 from pyhealth.trainer import Trainer
 
 
 if __name__ == "__main__":
     # STEP 1: Load dataset
-    base_dataset = OMOPDataset(
-        root="https://physionet.org/files/mimic-iv-demo-omop/0.9/1_omop_data_csv",
-        tables=[
-            "person",
-            "visit_occurrence",
-            "condition_occurrence",
-            "procedure_occurrence",
-            "drug_exposure",
-        ],
+    base_dataset = eICUDataset(
+        root="https://storage.googleapis.com/pyhealth/eicu-demo/",
+        tables=["diagnosis", "medication", "physicalexam"],
         cache_dir=tempfile.TemporaryDirectory().name,
         dev=True,
     )
     base_dataset.stats()
 
     # STEP 2: Set task
-    task = ReadmissionPredictionOMOP()
+    task = ReadmissionPredictionEICU()
     sample_dataset = base_dataset.set_task(task)
 
     # STEP 3: Split and create dataloaders
@@ -49,4 +57,4 @@ if __name__ == "__main__":
     )
 
     # STEP 6: Evaluate
-    trainer.evaluate(test_dataloader)
+    print(trainer.evaluate(test_dataloader))

@@ -131,23 +131,6 @@ class LengthOfStayPredictionMIMIC3(BaseTask):
         return samples
 
 
-def length_of_stay_prediction_mimic3_fn(patient: Patient):
-    """Processes a single patient for the length-of-stay prediction task.
-
-    This is a legacy function wrapper for backward compatibility.
-    Please use LengthOfStayPredictionMIMIC3 class instead.
-
-    Args:
-        patient: a Patient object.
-
-    Returns:
-        samples: a list of samples, each sample is a dict with patient_id, visit_id,
-            and other task-specific attributes as key.
-    """
-    task = LengthOfStayPredictionMIMIC3()
-    return task(patient)
-
-
 class LengthOfStayPredictionMIMIC4(BaseTask):
     """Task for predicting length of stay using MIMIC-IV dataset.
 
@@ -251,36 +234,23 @@ class LengthOfStayPredictionMIMIC4(BaseTask):
         return samples
 
 
-def length_of_stay_prediction_mimic4_fn(patient: Patient):
-    """Processes a single patient for the length-of-stay prediction task.
-
-    This is a legacy function wrapper for backward compatibility.
-    Please use LengthOfStayPredictionMIMIC4 class instead.
-
-    Args:
-        patient: a Patient object.
-
-    Returns:
-        samples: a list of samples, each sample is a dict with patient_id, visit_id,
-            and other task-specific attributes as key.
-    """
-    task = LengthOfStayPredictionMIMIC4()
-    return task(patient)
-
-
 class LengthOfStayPredictioneICU(BaseTask):
     """Task for predicting length of stay using eICU dataset.
 
     Length of stay prediction aims at predicting the length of stay (in days) of the
-    current hospital visit based on the clinical information from the visit
-    (e.g., conditions and procedures).
+    current ICU stay based on the clinical information from the stay
+    (e.g., diagnoses, physical exams, and medications).
+
+    In eICU, timestamps are stored as minute-offsets from ICU admission.
+    The ICU length of stay is computed directly from ``unitdischargeoffset``
+    (minutes from ICU admission to ICU discharge).
 
     Attributes:
         task_name (str): The name of the task.
         input_schema (Dict[str, str]): The schema for input data, which includes:
-            - conditions: A list of condition codes.
-            - procedures: A list of procedure codes.
-            - drugs: A list of drug codes.
+            - conditions: A list of diagnosis strings.
+            - procedures: A list of physical exam values.
+            - drugs: A list of drug names.
         output_schema (Dict[str, str]): The schema for output data, which includes:
             - los: A multi-class label for length of stay category.
 
@@ -288,17 +258,13 @@ class LengthOfStayPredictioneICU(BaseTask):
 
     Examples:
         >>> from pyhealth.datasets import eICUDataset
-        >>> eicu_base = eICUDataset(
-        ...     root="/srv/local/data/physionet.org/files/eicu-crd/2.0",
-        ...     tables=["diagnosis", "medication", "physicalExam"],
-        ...     code_mapping={},
-        ...     dev=True
-        ... )
         >>> from pyhealth.tasks import LengthOfStayPredictioneICU
+        >>> dataset = eICUDataset(
+        ...     root="/path/to/eicu-crd/2.0",
+        ...     tables=["diagnosis", "medication", "physicalexam"],
+        ... )
         >>> task = LengthOfStayPredictioneICU()
-        >>> eicu_sample = eicu_base.set_task(task)
-        >>> eicu_sample.samples[0]
-        [{'visit_id': '130744', 'patient_id': '103', 'conditions': [['42', '109', '98', '663', '58', '51']], 'procedures': [['1']], 'drugs': [['...']], 'los': 5}]
+        >>> sample_dataset = dataset.set_task(task)
     """
 
     task_name: str = "LengthOfStayPredictioneICU"
@@ -312,52 +278,79 @@ class LengthOfStayPredictioneICU(BaseTask):
     def __call__(self, patient: Patient) -> List[Dict]:
         samples = []
 
-        # Get all patient stays
+        # In the new BaseDataset, each row of the patient table is an ICU stay.
+        # The patient table has timestamp=null in the YAML, so we use
+        # get_events(event_type="patient") to iterate over ICU stays.
         patient_stays = patient.get_events(event_type="patient")
         if len(patient_stays) == 0:
             return []
 
-        # Process each patient stay
         for stay in patient_stays:
-            # Get diagnosis codes
+            stay_id = str(getattr(stay, "patientunitstayid", ""))
+            if not stay_id:
+                continue
+
+            # --- Diagnoses ---
+            # YAML: diagnosis table has attributes [patientunitstayid,
+            #        diagnosisoffset, diagnosisstring, icd9code, diagnosispriority]
             diagnosis_events = patient.get_events(
                 event_type="diagnosis",
-                filters=[("patientunitstayid", "==", stay.patientunitstayid)],
+                filters=[("patientunitstayid", "==", stay_id)],
             )
-            conditions = [event.diagnosisstring for event in diagnosis_events]
+            conditions = [
+                getattr(event, "diagnosisstring", "")
+                for event in diagnosis_events
+                if getattr(event, "diagnosisstring", None)
+            ]
 
-            # Get physical exam findings
+            # --- Physical exams (used as "procedures") ---
+            # YAML: physicalexam table has attributes [patientunitstayid,
+            #        physicalexamvalue]
             physicalexam_events = patient.get_events(
                 event_type="physicalexam",
-                filters=[("patientunitstayid", "==", stay.patientunitstayid)],
+                filters=[("patientunitstayid", "==", stay_id)],
             )
-            procedures = [event.physicalexamtext for event in physicalexam_events]
+            procedures = [
+                getattr(event, "physicalexamvalue", "")
+                for event in physicalexam_events
+                if getattr(event, "physicalexamvalue", None)
+            ]
 
-            # Get medications
+            # --- Medications ---
+            # YAML: medication table has attributes [patientunitstayid,
+            #        drugstartoffset, drugstopoffset, drugname, ...]
             medication_events = patient.get_events(
                 event_type="medication",
-                filters=[("patientunitstayid", "==", stay.patientunitstayid)],
+                filters=[("patientunitstayid", "==", stay_id)],
             )
-            drugs = [event.drugname for event in medication_events]
+            drugs = [
+                getattr(event, "drugname", "")
+                for event in medication_events
+                if getattr(event, "drugname", None)
+            ]
 
-            # Exclude visits without condition, procedure, or drug code
+            # Exclude stays without condition, procedure, or drug code
             if len(conditions) * len(procedures) * len(drugs) == 0:
                 continue
 
-            # Calculate length of stay
-            admit_time = datetime.strptime(
-                stay.hospitaladmittime24, "%Y-%m-%d %H:%M:%S"
-            )
-            discharge_time = datetime.strptime(
-                stay.hospitaldischargetime24, "%Y-%m-%d %H:%M:%S"
-            )
-            los_days = (discharge_time - admit_time).days
+            # --- Length of stay ---
+            # unitdischargeoffset is the number of minutes from ICU admission
+            # to ICU discharge. This directly gives us the ICU LOS.
+            unit_discharge_offset = getattr(stay, "unitdischargeoffset", None)
+            if unit_discharge_offset is None:
+                continue
+
+            try:
+                los_minutes = int(unit_discharge_offset)
+            except (ValueError, TypeError):
+                continue
+
+            los_days = los_minutes // (60 * 24)
             los_category = categorize_los(los_days)
 
-            # TODO: should also exclude visit with age < 18
             samples.append(
                 {
-                    "visit_id": stay.patientunitstayid,
+                    "visit_id": stay_id,
                     "patient_id": patient.patient_id,
                     "conditions": conditions,
                     "procedures": procedures,
@@ -367,23 +360,6 @@ class LengthOfStayPredictioneICU(BaseTask):
             )
         # no cohort selection
         return samples
-
-
-def length_of_stay_prediction_eicu_fn(patient: Patient):
-    """Processes a single patient for the length-of-stay prediction task.
-
-    This is a legacy function wrapper for backward compatibility.
-    Please use LengthOfStayPredictioneICU class instead.
-
-    Args:
-        patient: a Patient object.
-
-    Returns:
-        samples: a list of samples, each sample is a dict with patient_id, visit_id,
-            and other task-specific attributes as key.
-    """
-    task = LengthOfStayPredictioneICU()
-    return task(patient)
 
 
 class LengthOfStayPredictionOMOP(BaseTask):
@@ -484,23 +460,6 @@ class LengthOfStayPredictionOMOP(BaseTask):
             )
         # no cohort selection
         return samples
-
-
-def length_of_stay_prediction_omop_fn(patient: Patient):
-    """Processes a single patient for the length-of-stay prediction task.
-
-    This is a legacy function wrapper for backward compatibility.
-    Please use LengthOfStayPredictionOMOP class instead.
-
-    Args:
-        patient: a Patient object.
-
-    Returns:
-        samples: a list of samples, each sample is a dict with patient_id, visit_id,
-            and other task-specific attributes as key.
-    """
-    task = LengthOfStayPredictionOMOP()
-    return task(patient)
 
 
 if __name__ == "__main__":

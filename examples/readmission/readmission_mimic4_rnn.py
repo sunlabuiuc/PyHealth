@@ -6,20 +6,22 @@ from pyhealth.models import RNN
 from pyhealth.tasks import ReadmissionPredictionMIMIC4
 from pyhealth.trainer import Trainer
 
-# Since PyHealth uses multiprocessing, it is best practice to use a main guard.
-if __name__ == '__main__':
-    # Use tempfile to automate cleanup
-    cache_dir = tempfile.TemporaryDirectory()
 
+if __name__ == "__main__":
+    # STEP 1: Load dataset
     base_dataset = MIMIC4Dataset(
         ehr_root="https://physionet.org/files/mimic-iv-demo/2.2/",
         ehr_tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
-        cache_dir=cache_dir.name
+        cache_dir=tempfile.TemporaryDirectory().name,
+        dev=True,
     )
     base_dataset.stats()
 
-    sample_dataset = base_dataset.set_task(ReadmissionPredictionMIMIC4())
+    # STEP 2: Set task
+    task = ReadmissionPredictionMIMIC4()
+    sample_dataset = base_dataset.set_task(task)
 
+    # STEP 3: Split and create dataloaders
     train_dataset, val_dataset, test_dataset = split_by_patient(
         sample_dataset, [0.8, 0.1, 0.1]
     )
@@ -27,10 +29,12 @@ if __name__ == '__main__':
     val_dataloader = get_dataloader(val_dataset, batch_size=32, shuffle=False)
     test_dataloader = get_dataloader(test_dataset, batch_size=32, shuffle=False)
 
+    # STEP 4: Define model
     model = RNN(
         dataset=sample_dataset,
     )
 
+    # STEP 5: Train
     trainer = Trainer(model=model)
     trainer.train(
         train_dataloader=train_dataloader,
@@ -39,6 +43,5 @@ if __name__ == '__main__':
         monitor="roc_auc",
     )
 
+    # STEP 6: Evaluate
     trainer.evaluate(test_dataloader)
-
-    sample_dataset.close()
