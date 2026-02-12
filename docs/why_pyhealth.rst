@@ -6,21 +6,100 @@ Why PyHealth?
 
 PyHealth is the comprehensive Python library for healthcare AI that makes building, testing, and deploying healthcare machine learning models easier than ever before. Whether you're a researcher, data scientist, or healthcare practitioner, PyHealth provides the tools you need to develop robust healthcare AI applications.
 
-Build healthcare AI pipelines in ~10 lines of code
+**Build healthcare AI pipelines in ~7 lines of code**
 
-Key Advantages
-==============
+.. note::
+   📄 **Read the PyHealth 2.0 paper**: `PyHealth 2.0: A Comprehensive Open-Source Toolkit for Accessible and Reproducible Clinical Deep Learning <https://arxiv.org/pdf/2601.16414>`_
 
-Modular and flexible architecture
---------------------------------------
+What Makes PyHealth 2.0 Powerful?
+===================================
 
-PyHealth's 5-stage pipeline design allows you to:
+PyHealth provides **comprehensive end-to-end capabilities** in a single package:
 
-- Mix and match components: Use only the parts you need
-- Easy customization: Adapt any stage to your specific requirements  
-- Rapid prototyping: Test different models and configurations quickly
-- Production ready: Scale from research to deployment seamlessly
-- High performance: Near-instant dataset loading and ~3x faster processing than pandas baselines
+✅ **Unified API** for all data types (EHR, images, signals, text, genomics)
+
+✅ **Single dependency** with no environment conflicts
+
+✅ **One consistent workflow** across all healthcare data modalities
+
+✅ **Scales dynamically** from laptop to cluster—adapts to your resources
+
+✅ **Research to deployment** in the same codebase with the same API
+
+**PyHealth 2.0 democratizes healthcare AI**—making it accessible, reproducible, and deployable for researchers, data scientists, and healthcare practitioners alike.
+
+----
+
+Three Game-Changing Improvements
+==================================
+
+Dramatically simpler code
+--------------------------
+
+PyHealth 2.0 reduces the complexity of healthcare AI development from hundreds of lines to single digits:
+
+.. list-table:: Code Reduction Across Tasks
+   :widths: 40 20 20 20
+   :header-rows: 1
+
+   * - Task
+     - Pandas
+     - PyHealth 1.16
+     - **PyHealth 2.0**
+   * - Patient data exploration
+     - 16 lines
+     - 14 lines
+     - **10 lines**
+   * - Mortality prediction
+     - 51 lines
+     - 24 lines
+     - **7 lines**
+   * - Length of stay prediction
+     - 22 lines
+     - 7 lines
+     - **7 lines**
+   * - Drug recommendation
+     - 24 lines
+     - 7 lines
+     - **7 lines**
+
+**The same 7 lines of code work for any clinical prediction task.** Define your task once, and PyHealth's optimized backend handles all the complex data processing automatically.
+
+Exceptional performance that scales
+------------------------------------
+
+PyHealth 2.0 delivers breakthrough performance improvements that enable healthcare AI research on consumer hardware:
+
+**Speed improvements:**
+
+- **Up to 39× faster** than pandas for mortality prediction on MIMIC-IV
+- **8-9× faster** for drug recommendation and length of stay tasks
+- Near-instant dataset loading with smart caching and lazy evaluation
+- Efficient multi-core scaling: leverage all your CPU cores without memory overflow
+
+**Memory efficiency:**
+
+- **Dynamically scales to fit 16GB laptops** for any task on MIMIC-IV
+- Uses **up to 16× less memory** than PyHealth 1.16 when more memory is available
+- Mortality prediction: **17GB** (PyHealth 2.0) vs **457GB** (PyHealth 1.16) with 16 workers
+- Drug recommendation: **18GB** (PyHealth 2.0) vs **212GB** (PyHealth 1.16) with 16 workers
+
+.. note::
+   **What this means for you:** PyHealth 2.0 runs complex MIMIC-IV analyses on a standard 16GB laptop that previously required workstation-grade hardware with 146-457GB of RAM. Whether you're on a laptop or a cluster, PyHealth adapts to your resources.
+   
+   For detailed benchmarking methodology and results, see our `paper <https://arxiv.org/pdf/2601.16414>`_.
+
+.. image:: ../figure/PyHealth_Data_Performance.png
+   :alt: PyHealth 2.0 processing performance vs. Pandas and PyHealth 1.16
+   :align: center
+   :width: 700px
+
+More readable, maintainable code
+---------------------------------
+
+PyHealth 2.0 makes your code clearer and your research more reproducible:
+
+**Standardized 5-stage pipeline:**
 
 .. code-block:: text
 
@@ -28,187 +107,308 @@ PyHealth's 5-stage pipeline design allows you to:
          ↓            ↓           ↓         ↓        ↓
     Your data → Your task → Your model → Auto → Results
 
+**Example: Mortality prediction in 7 lines**
+
+.. code-block:: python
+
+   from pyhealth.datasets import MIMIC4Dataset
+   from pyhealth.tasks import MortalityPredictionMIMIC4
+   from pyhealth.models import Transformer
+   
+   # Load dataset with lazy evaluation
+   dataset = MIMIC4Dataset(root="data/mimic-iv-2.2", tables=["diagnoses_icd", "procedures_icd"])
+   
+   # Define task and process in parallel
+   samples = dataset.set_task(MortalityPredictionMIMIC4())
+   
+   # Train model (PyTorch Lightning handles the rest)
+   model = Transformer.from_dataset(samples)
+   model.fit(samples)
+   
+   # Evaluate
+   results = model.evaluate(samples)
+
+**The same API works for:**
+
+- Different tasks (readmission, drug recommendation, length of stay)
+- Different datasets (MIMIC-III, eICU, OMOP, your own data)
+- Different models (33+ pre-built options)
+- Different modalities (EHR codes, images, signals, text)
+
+Core Advantages
+===============
+
+True multimodal support
+-----------------------
+
+PyHealth 2.0 unifies all clinical data types in a single system:
+
+- **Structured EHR**: Diagnoses (ICD), procedures (CPT), medications (NDC), lab events
+- **Clinical text**: Discharge summaries, radiology reports, clinical notes
+- **Medical images**: Chest X-rays, CT scans, pathology slides
+- **Biosignals**: EEG, ECG, PPG, heart sounds
+- **Genomics**: Variants, mutations, multi-omics data
+
+**One unified API for all healthcare data types.** Build multimodal clinical models without managing multiple libraries or reconciling different data formats.
+
 Healthcare-specific design
---------------------------------
+--------------------------
 
-Unlike general ML libraries, PyHealth is built specifically for healthcare:
+PyHealth is built specifically for healthcare, not adapted from general ML libraries:
 
-- Medical code handling: Built-in support for ICD, CPT, NDC, ATC, and more
-- Healthcare datasets: Native support for MIMIC-III/IV, eICU, OMOP-CDM
-- Clinical metrics: Healthcare-specific evaluation metrics (DDI rate, clinical accuracy)
-- Temporal modeling: Handle complex patient timelines and visit sequences
-- Safety considerations: Tools for model calibration and uncertainty quantification
+**Medical domain features:**
 
-State-of-the-art models
------------------------------
+- Built-in support for medical coding standards: ICD-9/10, CPT, NDC, ATC, RXNorm, CCS
+- Automatic code translation between different ontology systems
+- Native understanding of patient timelines and visit sequences
+- Clinical safety tools: drug-drug interaction checking, model calibration
 
-Access cutting-edge healthcare AI models without complex implementation:
-
-- 33+ pre-built models from recent research papers
-- Easy benchmarking across different approaches
-- Custom model layers for building novel architectures
-- Interpretable models like RETAIN for clinical decision support
-
-📊 **Rich Dataset Ecosystem**
-----------------------------
-
-Work with the most important healthcare datasets out of the box:
+**Healthcare datasets out-of-the-box:**
 
 .. list-table:: Supported Datasets
-   :widths: 22 50 12
+   :widths: 25 45 15
    :header-rows: 1
 
    * - Dataset
-     - Information
-     - Year
-   * - MIMIC-III
-     - Critical care database (40K+ patients)
-     - 2016
-   * - MIMIC-IV
-     - Updated critical care database (300k+ patients)
-     - 2020
-   * - eICU
-     - Multi-center ICU database
-     - 2018
-   * - OMOP-CDM
+     - Description
+     - Modality
+   * - **MIMIC-III/IV**
+     - Critical care database (300K+ patients)
+     - EHR, Text, Images
+   * - **eICU**
+     - Multi-center ICU database (200K+ stays)
+     - EHR
+   * - **OMOP-CDM**
      - Standardized healthcare data format
-     - Ongoing
-   * - EHRShot
-     - Few-shot EHR benchmarking dataset
-     - 2023
-   * - COVID19-CXR
-     - COVID-19 chest X-ray image dataset
-     - 2020
-   * - SleepEDF
-     - Sleep study recordings
-     - 2018
-   * - SHHS
-     - Sleep Heart Health Study
-     - 2016
-   * - ISRUC
-     - Sleep disorder database
-     - 2016
+     - EHR
+   * - **EHRShot**
+     - Few-shot benchmarking (15 tasks)
+     - EHR
+   * - **COVID19-CXR**
+     - COVID-19 chest X-rays
+     - Images
+   * - **SleepEDF, SHHS, ISRUC**
+     - Sleep studies with EEG
+     - Biosignals
+   * - **ClinVar, COSMIC, TCGA**
+     - Genomics and cancer mutations
+     - Genomics
 
-Comprehensive model library
-==================================
+State-of-the-art model library
+-------------------------------
 
-PyHealth includes implementations of the most important healthcare AI models:
+Access 33+ pre-built models from recent research papers:
 
-Deep learning models
------------------------
+**Healthcare-specific models:**
 
-.. table:: Neural network models
-   :widths: auto
+- **RETAIN** (2016): Interpretable attention for clinical decisions
+- **StageNet** (2020): Disease progression stage modeling
+- **SafeDrug** (2021): Safe drug combinations with molecular graphs
+- **GAMENet** (2019): Graph-augmented memory for medication recommendation
+- **AdaCare** (2020): Adaptive feature extraction for EHR
+- **ConCare** (2020): Context-aware patient representation
+- **GRASP** (2021): Graph neural networks for patient similarity
+- **MoleRec** (2023): Molecular substructure-aware recommendations
 
-   ============================  ======  ================================================================
-   Model                         Year    Key Innovation
-   ============================  ======  ================================================================
-   **RETAIN**                    2016    Interpretable attention for clinical decisions
-   **GAMENet**                   2019    Memory networks for drug recommendation  
-   **SafeDrug**                  2021    Molecular graphs for safe drug combinations
-   **MoleRec**                   2023    Substructure-aware drug recommendation
-   **AdaCare**                   2020    Scale-adaptive feature extraction
-   **ConCare**                   2020    Transformer-based patient modeling
-   **StageNet**                  2020    Disease progression stage modeling
-   **GRASP**                     2021    Graph neural networks for patient clustering
-   ============================  ======  ================================================================
+**Foundation models:**
 
-Foundation models
---------------------
+- Transformers, RNN/LSTM/GRU, CNN, TCN, MLP
+- Pre-trained vision models (ResNet, ViT) via torchvision
+- Pre-trained language models (BERT, ClinicalBERT) via HuggingFace
 
-.. table:: General purpose models
-   :widths: auto
+**Specialized models:**
 
-   ============================  ======  ================================================================
-   Model                         Year    Description
-   ============================  ======  ================================================================
-   **Transformer**               2017    Attention-based sequence modeling
-   **RNN/LSTM/GRU**              2011    Recurrent neural networks for sequences
-   **CNN**                       1989    Convolutional networks for structured data
-   **TCN**                       2018    Temporal convolutional networks
-   **MLP**                       1986    Multi-layer perceptrons for tabular data
-   ============================  ======  ================================================================
+- **ContraWR** (2021): Contrastive learning for biosignals (EEG, ECG)
+- **SparcNet** (2023): Sparse CNNs for seizure detection and sleep staging
+- **Deepr** (2017): CNNs optimized for medical records
+- **Dr. Agent** (2020): Multi-agent reinforcement learning for clinical decisions
 
-Specialized models
----------------------
+Production-ready evaluation tools
+----------------------------------
 
-.. table:: Domain-specific models
-   :widths: auto
+Go beyond standard metrics with comprehensive model assessment:
 
-   ============================  ======  ================================================================
-   Model                         Year    Specialization
-   ============================  ======  ================================================================
-   **ContraWR**                  2021    Biosignal analysis (EEG, ECG)
-   **SparcNet**                  2023    Seizure detection and sleep staging
-   **Deepr**                     2017    Electronic health records
-   **Dr. Agent**                 2020    Reinforcement learning for clinical decisions
-   ============================  ======  ================================================================
+**Interpretability methods:**
 
-Common use cases
-======================
+- Gradient-based: Integrated Gradients, DeepLift, Saliency Maps, GIM
+- Perturbation-based: LIME, SHAP (with healthcare-optimized implementations)
+- Attention-based: Chefer relevance propagation for transformers
+- Visualization tools for clinical decision support
+
+**Uncertainty quantification:**
+
+- Probability calibration: Temperature scaling, histogram binning, Dirichlet calibration, KCal
+- Conformal prediction: LABEL, SCRIB, FavMac, with covariate shift support
+- Statistical coverage guarantees for high-stakes clinical decisions
+
+**Clinical metrics:**
+
+- Drug-drug interaction (DDI) rates
+- Clinical accuracy metrics
+- Fairness and bias assessment
+- Healthcare-specific performance measures
+
+**All integrated in one unified interface** for comprehensive model evaluation and validation.
+
+Common Use Cases
+================
 
 PyHealth excels at these healthcare AI applications:
 
-Clinical prediction
-----------------------
-- **Mortality prediction**: ICU and hospital mortality risk
-- **Readmission prediction**: 30-day readmission risk
-- **Length of stay**: Hospital and ICU stay duration
-- **Disease progression**: Track patient condition changes
+Clinical prediction tasks
+-------------------------
+
+- **Mortality prediction**: ICU and hospital mortality risk assessment
+- **Readmission prediction**: 30-day and general readmission risk
+- **Length of stay**: Hospital and ICU duration prediction
+- **Disease progression**: Track patient condition changes over time
 
 Drug and treatment recommendation
 ----------------------------------
-- **Medication recommendation**: Suggest appropriate drugs
-- **Drug-drug interaction**: Identify dangerous combinations  
-- **Treatment optimization**: Personalized therapy selection
-- **Dosage prediction**: Optimal medication dosing
 
-Medical coding and standards
------------------------------
-- **Code translation**: Convert between ICD, CPT, NDC, ATC systems
-- **Code completion**: Auto-suggest medical codes
-- **Standardization**: Normalize medical terminology
-- **Quality assurance**: Validate coding accuracy
+- **Medication recommendation**: Suggest optimal drug combinations
+- **Drug safety**: Identify dangerous drug-drug interactions
+- **Treatment optimization**: Personalized therapy selection
+- **Dosage prediction**: Optimal medication dosing strategies
+
+Medical coding and NLP
+----------------------
+
+- **Code translation**: Convert between ICD-9/10, CPT, NDC, ATC, RXNorm systems
+- **Code prediction**: Auto-suggest medical codes from clinical notes
+- **Specialty classification**: Identify medical specialties from transcriptions
+- **Clinical information extraction**: Extract structured data from text
 
 Biosignal analysis
----------------------
-- **Sleep staging**: Automatic sleep phase classification
+------------------
+
+- **Sleep staging**: Automatic sleep phase classification (Wake, N1, N2, N3, REM)
 - **Seizure detection**: EEG abnormality identification
 - **Cardiac monitoring**: ECG analysis and arrhythmia detection
-- **Vital sign prediction**: Forecast patient deterioration
+- **Heart sound analysis**: Phonocardiogram classification for valve diseases
 
-Processing performance
-============================
+Medical imaging
+---------------
 
-.. image:: ../figure/PyHealth_Data_Performance.png
-   :alt: PyHealth processing performance vs. Pandas
-   :align: center
-   :width: 700px
+- **Disease classification**: Multi-label chest X-ray diagnosis
+- **COVID-19 detection**: Pneumonia and COVID classification from X-rays
+- **Integration with vision models**: Easy fine-tuning of pre-trained models
 
-.. note::
-   PyHealth uses optimized data loaders and vectorized operations to achieve near-instant dataset loading and preprocessing. In our internal benchmarks, end-to-end processing throughput is roughly **3x faster** than typical pandas-centric baselines on common healthcare workloads.
+Genomics and precision medicine
+--------------------------------
 
-Growing community
-=======================
+- **Variant pathogenicity**: Classify genetic variants (ClinVar)
+- **Cancer mutation analysis**: Predict mutation impact (COSMIC)
+- **Survival prediction**: Multi-omics cancer survival models (TCGA)
 
-Join thousands of healthcare AI practitioners:
+Flexible and Modular Architecture
+==================================
+
+PyHealth's design philosophy: **Use only what you need, customize what you want**
+
+**Modular components:**
+
+- **pyhealth.data**: Flexible patient-event data structures (no assumptions on format)
+- **pyhealth.datasets**: 15+ datasets with lazy loading and smart caching
+- **pyhealth.tasks**: 40+ pre-defined tasks, easily create custom tasks
+- **pyhealth.models**: 33+ models, compatible with any PyTorch model
+- **pyhealth.processors**: Handle sequences, images, signals, text, and tabular data
+- **pyhealth.metrics**: Clinical performance metrics
+- **pyhealth.interpret**: Model interpretability methods
+- **pyhealth.calib**: Uncertainty quantification and calibration
+- **pyhealth.medcode**: Medical coding standard translation
+
+**Easy to extend:**
+
+- Add custom datasets by inheriting ``BaseDataset`` (see :doc:`tutorials/custom_dataset`)
+- Define custom tasks with simple input/output schemas (see :doc:`tutorials/custom_task`)
+- Use any PyTorch model with PyHealth's data loaders
+- Integrate with PyTorch Lightning for distributed training
+- Compatible with HuggingFace, torchvision, and other ecosystems
+
+Reproducible Research Infrastructure
+=====================================
+
+PyHealth 2.0 addresses the reproducibility crisis in healthcare AI:
+
+**Standardized implementations:**
+
+- Eliminate "works on my machine" problems with tested, version-controlled components
+- All models, tasks, and datasets follow peer-reviewed implementations
+- Extensive documentation with 50+ tutorials and examples
+
+**Active open-source community:**
+
+- **400+ members** in PyHealth Research Initiative
+- Regular updates with new models, datasets, and features
+- Direct connection to cutting-edge academic research
+- Industry partnerships with healthcare organizations
+
+**Multi-language support:**
+
+- **RHealth**: Brings PyHealth capabilities to R users and bioinformatics community
+- Expands accessibility beyond Python-centric machine learning
+
+**Standards and integration:**
+
+- Compatible with healthcare data standards: OMOP, FHIR
+- Integrates seamlessly with PyTorch, PyTorch Lightning, HuggingFace
+- Works with your existing Python data science stack
+
+Growing Community
+=================
+
+Join our healthcare AI practitioners:
 
 - **Active Development**: Regular updates with new models and features
-- **Research Collaboration**: Direct connection to academic research
-- **Industry Partnerships**: Integration with healthcare organizations  
+- **Research Collaboration**: PyHealth Research Initiative pairs researchers with mentors
+- **Industry Partnerships**: Collaborations with academic health systems
 - **Open Source**: Transparent, auditable, and customizable
-- **Documentation**: Comprehensive guides and tutorials
+- **Documentation**: Comprehensive guides and interactive tutorials
 - **Support**: Active Discord community and GitHub discussions
+
   - `Join our Discord <https://discord.gg/mpb835EHaX>`_
 
-Get started today
-=======================
+Get Started Today
+=================
 
-Ready to build your first healthcare AI application? See :doc:`how_to_get_started` to install PyHealth and build your first model in minutes.
+Ready to build your first healthcare AI application?
+
+**Installation:**
+
+.. code-block:: bash
+
+   pip install pyhealth
+
+**Quick start:**
+
+.. code-block:: python
+
+   from pyhealth.datasets import MIMIC4Dataset
+   from pyhealth.tasks import MortalityPredictionMIMIC4
+   from pyhealth.models import Transformer
+   
+   # Load, process, train, evaluate - all in 7 lines
+   dataset = MIMIC4Dataset(root="data/mimic-iv", tables=["diagnoses_icd"])
+   samples = dataset.set_task(MortalityPredictionMIMIC4())
+   model = Transformer.from_dataset(samples)
+   model.fit(samples)
+   results = model.evaluate(samples)
+
+**Learn more:**
+
+- :doc:`how_to_get_started` - Build your first model in minutes
+- :doc:`install` - Detailed installation instructions
+- :doc:`tutorials` - Interactive tutorials and examples
+- :doc:`api/models` - Complete API documentation
 
 .. seealso::
+   
+   **Next steps:**
    
    - :doc:`how_to_get_started` - Build your first model in minutes
    - :doc:`install` - Installation instructions
    - :doc:`tutorials` - Interactive tutorials and examples
    - :doc:`api/models` - Complete model documentation
+   - :doc:`api/datasets` - Available datasets
+   - :doc:`api/tasks` - Pre-defined tasks

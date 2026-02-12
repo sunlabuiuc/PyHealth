@@ -14,6 +14,7 @@ import litdata
 from pyhealth.datasets import SampleDataset, get_dataloader
 from pyhealth.datasets.sample_dataset import SampleBuilder
 from pyhealth.models import MLP, StageNet, BaseModel
+from pyhealth.interpret.api import Interpretable
 from pyhealth.interpret.methods import LimeExplainer
 from pyhealth.interpret.methods.base_interpreter import BaseInterpreter
 
@@ -50,7 +51,7 @@ class _MockDataset:
 # Test model helpers
 # ---------------------------------------------------------------------------
 
-class _SimpleLimeModel(BaseModel):
+class _SimpleLimeModel(BaseModel, Interpretable):
     """Minimal model for testing LIME with continuous inputs."""
 
     def __init__(self):
@@ -100,7 +101,7 @@ class _SimpleEmbeddingModel(nn.Module):
         return {key: self.embedding(value.long()) for key, value in inputs.items()}
 
 
-class _EmbeddingForwardModel(BaseModel):
+class _EmbeddingForwardModel(BaseModel, Interpretable):
     """Toy model exposing forward_from_embedding for discrete features."""
 
     def __init__(self, schema=("value",)):
@@ -156,7 +157,7 @@ class _EmbeddingForwardModel(BaseModel):
         return self.embedding_model
 
 
-class _MultiFeatureModel(BaseModel):
+class _MultiFeatureModel(BaseModel, Interpretable):
     """Model with multiple feature inputs for testing multi-feature LIME."""
 
     def __init__(self):
@@ -584,7 +585,7 @@ class TestLimeExplainerEmbedding(unittest.TestCase):
                 self.linear = nn.Linear(3, 1)
 
         model = _BareModel()
-        with self.assertRaises(AssertionError):
+        with self.assertRaises((AssertionError, ValueError)):
             LimeExplainer(model, use_embeddings=True)
 
 

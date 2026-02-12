@@ -8,7 +8,7 @@ import torch
 import torch.nn.functional as F
 
 from pyhealth.models import BaseModel
-
+from pyhealth.interpret.api import Interpretable
 from .base_interpreter import BaseInterpreter
 
 
@@ -351,16 +351,10 @@ class GIM(BaseInterpreter):
         temperature: float = 2.0,
     ):
         super().__init__(model)
-        if not hasattr(model, "forward_from_embedding"):
-            raise AssertionError(
-                "GIM requires models that implement `forward_from_embedding`."
-            )
-        embedding_model = model.get_embedding_model()
-        if embedding_model is None:
-            raise AssertionError(
-                "GIM requires a model with an embedding model "
-                "accessible via `get_embedding_model()`."
-            )
+        if not isinstance(model, Interpretable):
+            raise ValueError("Model must implement Interpretable interface")
+        self.model = model
+        
         self.temperature = max(float(temperature), 1.0)
 
     def attribute(
