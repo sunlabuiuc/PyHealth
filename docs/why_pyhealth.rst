@@ -11,6 +11,35 @@ PyHealth is the comprehensive Python library for healthcare AI that makes buildi
 .. note::
    📄 **Read the PyHealth 2.0 paper**: `PyHealth 2.0: A Comprehensive Open-Source Toolkit for Accessible and Reproducible Clinical Deep Learning <https://arxiv.org/pdf/2601.16414>`_
 
+Performance Benchmarks
+=======================
+
+PyHealth 2.0 delivers exceptional performance that makes healthcare AI research accessible on standard hardware:
+
+**Breakthrough speed improvements:**
+
+- **Up to 39× faster** task processing compared to typical pandas-based approaches
+- Dramatically reduced processing time for common clinical prediction tasks
+- Optimized data loaders with smart caching and lazy evaluation
+- Efficient multi-core scaling without memory overflow
+
+**Memory efficiency:**
+
+- **Dynamically scales to fit consumer-grade hardware** (16GB laptops)
+- Handles large-scale datasets like MIMIC-IV without requiring workstation-grade resources
+- Intelligent memory management adapts to available system resources
+- Enables research on complex healthcare datasets without expensive infrastructure
+
+.. image:: ../figure/PyHealthPerformanceResults.drawio.png
+   :alt: PyHealth 2.0 performance benchmarks showing speed and memory efficiency
+   :align: center
+   :width: 700px
+
+.. note::
+   **What this means for researchers:** PyHealth 2.0 enables you to run sophisticated healthcare AI analyses on a standard laptop that previously required high-end workstations. The platform adapts to your available resources while maintaining high performance.
+
+----
+
 What Makes PyHealth 2.0 Powerful?
 ===================================
 
