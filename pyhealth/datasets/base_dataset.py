@@ -339,12 +339,11 @@ class BaseDataset(ABC):
         )
 
         # Cached attributes
-        self._cache_dir = cache_dir
+        self._cache_dir = self._init_cache_dir(cache_dir)
         self._global_event_df = None
         self._unique_patient_ids = None
 
-    @property
-    def cache_dir(self) -> Path:
+    def _init_cache_dir(self, cache_dir: str | Path | None) -> Path:
         """Returns the cache directory path.
 
         The cache directory is determined by the type of ``cache_dir`` passed
@@ -360,36 +359,41 @@ class BaseDataset(ABC):
 
         The cache structure within the directory is::
 
-            tmp/                                   # Temporary files during processing
-            global_event_df_{uuid}.parquet/         # Cached global event dataframe
-            tasks/                                  # Cached task-specific data
+            tmp/                                    # Temporary files during processing
+            {uuid}/                                 # Cache files for this dataset configuration
+                global_event_df.parquet/            # Cached global event dataframe
+                tasks/                              # Cached task-specific data
+                    {task_name}_{uuid}/             # Cached data for specific task based on task name and its args
+                        task_df_{uuid}.ld/          # Intermediate task dataframe based on schema
+                        samples_{uuid}.ld/          # Final processed samples after applying processors
 
         Returns:
             Path: The resolved cache directory path.
         """
-        # If already computed (Path object), return it directly.
-        # This also handles the case where the user passed Path() explicitly
-        # at init time -- it's used as-is with no modification.
-        if isinstance(self._cache_dir, Path):
-            return self._cache_dir
-
-        if self._cache_dir is None:
-            # No cache_dir provided: use default pyhealth cache directory
-            cache_dir = Path(platformdirs.user_cache_dir(appname="pyhealth")) / "datasets"
+        id_str = json.dumps(
+            {
+                "root": self.root,
+                "tables": sorted(self.tables),
+                "dataset_name": self.dataset_name,
+                "dev": self.dev,
+            },
+            sort_keys=True,
+        )
+        
+        if cache_dir is None:
+            cache_dir = Path(platformdirs.user_cache_dir(appname="pyhealth")) / str(
+                uuid.uuid5(uuid.NAMESPACE_DNS, id_str)
+            )
             cache_dir.mkdir(parents=True, exist_ok=True)
             logger.info(f"No cache_dir provided. Using default cache dir: {cache_dir}")
             self._cache_dir = cache_dir
         else:
-            # String provided: use as-is (file-based isolation via UUID in filenames)
-            cache_dir = Path(self._cache_dir)
+            # Ensure separate cache directories for different table configurations by appending a UUID suffix
+            cache_dir = Path(self._cache_dir) / str(uuid.uuid5(uuid.NAMESPACE_DNS, id_str))
             cache_dir.mkdir(parents=True, exist_ok=True)
-            logger.info(
-                f"Using cache dir: {cache_dir} "
-                f"(cache files will include UUID suffix for table isolation)"
-            )
             self._cache_dir = cache_dir
+        return Path(self._cache_dir)
 
-        return self._cache_dir
 
     def _get_cache_uuid(self) -> str:
         """Get the cache UUID for this dataset configuration.
