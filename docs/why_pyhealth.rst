@@ -118,11 +118,6 @@ PyHealth 2.0 delivers breakthrough performance improvements that enable healthca
    
    For detailed benchmarking methodology and results, see our `paper <https://arxiv.org/pdf/2601.16414>`_.
 
-.. image:: ../figure/PyHealth_Data_Performance.png
-   :alt: PyHealth 2.0 processing performance vs. Pandas and PyHealth 1.16
-   :align: center
-   :width: 700px
-
 More readable, maintainable code
 ---------------------------------
 
