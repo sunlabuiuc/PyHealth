@@ -10,10 +10,8 @@ class EHRFoundationalModelMIMIC4(BaseTask):
     def __init__(self):
         """Initialize the EHR Foundational Model task."""
         self.input_schema: Dict[str, str] = {
-            "discharge": "raw",
-            "radiology": "raw",
-            "discharge_note_time_diffs": "tensor",
-            "radiology_note_time_diffs": "tensor",
+            "discharge_note_times": "tuple_time_text",
+            "radiology_note_times": "tuple_time_text",
         }
         self.output_schema: Dict[str, str] = {"mortality": "binary"}
 
@@ -69,9 +67,7 @@ class EHRFoundationalModelMIMIC4(BaseTask):
         all_discharge_notes = []  # List of individual discharge notes
         all_radiology_notes = []  # List of individual radiology notes
         all_discharge_notes_timestamps = [] # List of individual discharge notes timestamps
-        all_radiology_notes_timestamps = [] # List of individual discharge notes timestamps
-        discharge_note_time_diffs = []
-        radiology_notes_time_diffs = []
+        all_radiology_notes_timestamps = [] # List of individual radiology notes timestamps
         
 
         # Process each admission and aggregate data
@@ -147,10 +143,8 @@ class EHRFoundationalModelMIMIC4(BaseTask):
         return [
             {
                 "patient_id": patient.patient_id,
-                "discharge": all_discharge_notes,
-                "discharge_note_time_diffs": discharge_note_time_diffs,
-                "radiology": all_radiology_notes,
-                "radiology_note_time_diffs": radiology_note_time_diffs,
+                "discharge_note_times": (all_discharge_notes, discharge_note_time_diffs),
+                "radiology_note_times": (all_radiology_notes, radiology_note_time_diffs),
                 "mortality": mortality_label,
             }
         ]
