@@ -304,22 +304,15 @@ Join our active healthcare AI community:
 - **Support**: Active Discord community and GitHub discussions - `Join our Discord <https://discord.gg/mpb835EHaX>`_
 
 Get Started Today
-=================
+===========
 
-Ready to build your first healthcare AI application? See the resources below:
+Ready to begin? Explore these key resources:
 
-- :doc:`how_to_get_started` - Build your first model in minutes
-- :doc:`install` - Detailed installation instructions
-- :doc:`tutorials` - Interactive tutorials and examples
-- :doc:`api/models` - Complete API documentation
+- :doc:`how_to_get_started` — Quickstart guide
+- :doc:`install` — Install PyHealth
+- :doc:`tutorials` — Interactive tutorials
+- :doc:`api/models` — Model API docs
+- :doc:`api/datasets` — Datasets
+- :doc:`api/tasks` — Tasks
 
-.. seealso::
-   
-   **Next steps:**
-   
-   - :doc:`how_to_get_started` - Build your first model in minutes
-   - :doc:`install` - Installation instructions
-   - :doc:`tutorials` - Interactive tutorials and examples
-   - :doc:`api/models` - Complete model documentation
-   - :doc:`api/datasets` - Available datasets
-   - :doc:`api/tasks` - Pre-defined tasks
+Jump in with the guides above, or use the navigation on the left for more.
