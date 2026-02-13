@@ -8,7 +8,8 @@ This test suite covers:
 4. Multi-channel image attribution
 """
 
-import pytest
+import unittest
+# import pytest  # Disabled for unittest compatibility
 import torch
 import torch.nn as nn
 
@@ -83,7 +84,7 @@ class SimpleCNN(nn.Module):
         return x
 
 
-@pytest.fixture
+# @pytest.fixture - Disabled for unittest compatibility
 def simple_cnn():
     """Create a simple CNN model."""
     model = SimpleCNN(num_classes=4)
@@ -91,7 +92,7 @@ def simple_cnn():
     return model
 
 
-@pytest.fixture
+# @pytest.fixture - Disabled for unittest compatibility
 def simple_resnet():
     """Create a simplified ResNet model."""
     model = SimpleResNet(num_classes=4)
@@ -99,33 +100,39 @@ def simple_resnet():
     return model
 
 
-@pytest.fixture
+# @pytest.fixture - Disabled for unittest compatibility
 def sample_image():
     """Create a sample RGB image tensor."""
     # Batch size 2, RGB (3 channels), 64x64 pixels
     return torch.randn(2, 3, 64, 64)
 
 
-class TestLRPWithCNN:
+class TestLRPWithCNN(unittest.TestCase):
     """Test LRP with standard sequential CNN architectures."""
     
-    def test_cnn_initialization(self, simple_cnn):
+    def setUp(self):
+        """Set up test fixtures."""
+        self.simple_cnn = SimpleCNN(num_classes=4)
+        self.simple_cnn.eval()
+        self.sample_image = torch.randn(2, 3, 64, 64)
+    
+    def test_cnn_initialization(self):
         """Test LRP initializes correctly with CNN model."""
         lrp = UnifiedLRP(
-            model=simple_cnn,
+            model=self.simple_cnn,
             rule='epsilon',
             epsilon=0.1,
             validate_conservation=False
         )
         
-        assert lrp.model is simple_cnn
-        assert lrp.rule == 'epsilon'
-        assert lrp.epsilon == 0.1
+        self.assertIs(lrp.model, self.simple_cnn)
+        self.assertEqual(lrp.rule, 'epsilon')
+        self.assertEqual(lrp.epsilon, 0.1)
     
-    def test_cnn_attribution_shape(self, simple_cnn, sample_image):
+    def test_cnn_attribution_shape(self):
         """Test that CNN attributions have correct shape."""
         lrp = UnifiedLRP(
-            model=simple_cnn,
+            model=self.simple_cnn,
             rule='epsilon',
             epsilon=0.1,
             validate_conservation=False
@@ -133,30 +140,30 @@ class TestLRPWithCNN:
         
         # Get model output
         with torch.no_grad():
-            output = simple_cnn(sample_image)
+            output = self.simple_cnn(self.sample_image)
             predicted_class = output.argmax(dim=1)[0].item()
         
         # Compute attributions
         attributions = lrp.attribute(
-            inputs={'x': sample_image},
+            inputs={'x': self.sample_image},
             target_class=predicted_class
         )
         
         # Check shape matches input
-        assert attributions['x'].shape == sample_image.shape
-        assert attributions['x'].dim() == 4  # (batch, channels, height, width)
+        self.assertEqual(attributions['x'].shape, self.sample_image.shape)
+        self.assertEqual(attributions['x'].dim(), 4)  # (batch, channels, height, width)
     
-    def test_cnn_epsilon_vs_alphabeta(self, simple_cnn, sample_image):
+    def test_cnn_epsilon_vs_alphabeta(self):
         """Test different rules produce different results for CNN."""
         lrp_eps = UnifiedLRP(
-            model=simple_cnn,
+            model=self.simple_cnn,
             rule='epsilon',
             epsilon=0.1,
             validate_conservation=False
         )
         
         lrp_ab = UnifiedLRP(
-            model=simple_cnn,
+            model=self.simple_cnn,
             rule='alphabeta',
             alpha=2.0,
             beta=1.0,
@@ -164,10 +171,10 @@ class TestLRPWithCNN:
         )
         
         # Use first sample only
-        single_image = sample_image[0:1]
+        single_image = self.sample_image[0:1]
         
         with torch.no_grad():
-            output = simple_cnn(single_image)
+            output = self.simple_cnn(single_image)
             predicted_class = output.argmax(dim=1).item()
         
         attr_eps = lrp_eps.attribute(inputs={'x': single_image}, target_class=predicted_class)
@@ -175,48 +182,54 @@ class TestLRPWithCNN:
         
         # Different rules should produce different attributions
         diff = torch.abs(attr_eps['x'] - attr_ab['x']).mean()
-        assert diff > 1e-6, "Different rules should produce different attributions"
+        self.assertGreater(diff, 1e-6, "Different rules should produce different attributions")
     
-    def test_cnn_no_nan_or_inf(self, simple_cnn, sample_image):
+    def test_cnn_no_nan_or_inf(self):
         """Test that CNN attributions don't contain NaN or Inf."""
         lrp = UnifiedLRP(
-            model=simple_cnn,
+            model=self.simple_cnn,
             rule='epsilon',
             epsilon=0.1,
             validate_conservation=False
         )
         
         with torch.no_grad():
-            output = simple_cnn(sample_image)
+            output = self.simple_cnn(self.sample_image)
             predicted_class = output.argmax(dim=1)[0].item()
         
         attributions = lrp.attribute(
-            inputs={'x': sample_image},
+            inputs={'x': self.sample_image},
             target_class=predicted_class
         )
         
-        assert not torch.isnan(attributions['x']).any()
-        assert not torch.isinf(attributions['x']).any()
+        self.assertFalse(torch.isnan(attributions['x']).any())
+        self.assertFalse(torch.isinf(attributions['x']).any())
 
 
-class TestLRPWithResNet:
+class TestLRPWithResNet(unittest.TestCase):
     """Test LRP with ResNet architectures (sequential approximation)."""
     
-    def test_resnet_initialization(self, simple_resnet):
+    def setUp(self):
+        """Set up test fixtures."""
+        self.simple_resnet = SimpleResNet(num_classes=4)
+        self.simple_resnet.eval()
+        self.sample_image = torch.randn(2, 3, 64, 64)
+    
+    def test_resnet_initialization(self):
         """Test LRP initializes with ResNet model."""
         lrp = UnifiedLRP(
-            model=simple_resnet,
+            model=self.simple_resnet,
             rule='epsilon',
             epsilon=0.1,
             validate_conservation=False
         )
         
-        assert lrp.model is simple_resnet
+        self.assertIs(lrp.model, self.simple_resnet)
     
-    def test_resnet_skip_detection(self, simple_resnet):
+    def test_resnet_skip_detection(self):
         """Test that skip connections are detected in ResNet."""
         lrp = UnifiedLRP(
-            model=simple_resnet,
+            model=self.simple_resnet,
             rule='epsilon',
             validate_conservation=False
         )
@@ -224,7 +237,7 @@ class TestLRPWithResNet:
         # Skip connections are detected during forward pass
         sample = torch.randn(1, 3, 64, 64)
         with torch.no_grad():
-            output = simple_resnet(sample)
+            output = self.simple_resnet(sample)
             predicted_class = output.argmax(dim=1).item()
         
         # Trigger hook registration (happens in attribute)
@@ -233,25 +246,25 @@ class TestLRPWithResNet:
         # After attribute, hooks should be registered
         # (actual skip connection handling tested implicitly via successful execution)
     
-    def test_resnet_attribution_shape(self, simple_resnet, sample_image):
+    def test_resnet_attribution_shape(self):
         """Test ResNet attributions have correct shape."""
         lrp = UnifiedLRP(
-            model=simple_resnet,
+            model=self.simple_resnet,
             rule='epsilon',
             epsilon=0.1,
             validate_conservation=False
         )
         
         with torch.no_grad():
-            output = simple_resnet(sample_image)
+            output = self.simple_resnet(self.sample_image)
             predicted_class = output.argmax(dim=1)[0].item()
         
         attributions = lrp.attribute(
-            inputs={'x': sample_image},
+            inputs={'x': self.sample_image},
             target_class=predicted_class
         )
         
-        assert attributions['x'].shape == sample_image.shape
+        self.assertEqual(attributions['x'].shape, self.sample_image.shape)
     
     def test_resnet_downsample_exclusion(self):
         """Test that downsample layers are excluded during hook registration."""
@@ -280,16 +293,16 @@ class TestLRPWithResNet:
                 inputs={'x': sample},
                 target_class=predicted_class
             )
-            assert attributions['x'].shape == sample.shape
+            self.assertEqual(attributions['x'].shape, sample.shape)
         except RuntimeError as e:
             if "size mismatch" in str(e):
-                pytest.fail("Sequential approximation failed with shape mismatch")
+                raise AssertionError("Sequential approximation failed with shape mismatch")
             raise
     
-    def test_resnet_no_nan_or_inf(self, simple_resnet, sample_image):
+    def test_resnet_no_nan_or_inf(self):
         """Test ResNet attributions are numerically valid."""
         lrp = UnifiedLRP(
-            model=simple_resnet,
+            model=self.simple_resnet,
             rule='alphabeta',
             alpha=2.0,
             beta=1.0,
@@ -297,36 +310,41 @@ class TestLRPWithResNet:
         )
         
         with torch.no_grad():
-            output = simple_resnet(sample_image)
+            output = self.simple_resnet(self.sample_image)
             predicted_class = output.argmax(dim=1)[0].item()
         
         attributions = lrp.attribute(
-            inputs={'x': sample_image},
+            inputs={'x': self.sample_image},
             target_class=predicted_class
         )
         
-        assert not torch.isnan(attributions['x']).any()
-        assert not torch.isinf(attributions['x']).any()
+        self.assertFalse(torch.isnan(attributions['x']).any())
+        self.assertFalse(torch.isinf(attributions['x']).any())
 
 
-class TestLRPMultiChannel:
+class TestLRPMultiChannel(unittest.TestCase):
     """Test LRP handles multi-channel images correctly."""
     
-    def test_grayscale_to_rgb_conversion(self, simple_cnn):
+    def setUp(self):
+        """Set up test fixtures."""
+        self.simple_cnn = SimpleCNN(num_classes=4)
+        self.simple_cnn.eval()
+    
+    def test_grayscale_to_rgb_conversion(self):
         """Test LRP works when converting grayscale to RGB."""
         # Simulate grayscale image converted to RGB (common in medical imaging)
         grayscale = torch.randn(1, 1, 64, 64)
         rgb = grayscale.repeat(1, 3, 1, 1)
         
         lrp = UnifiedLRP(
-            model=simple_cnn,
+            model=self.simple_cnn,
             rule='epsilon',
             epsilon=0.1,
             validate_conservation=False
         )
         
         with torch.no_grad():
-            output = simple_cnn(rgb)
+            output = self.simple_cnn(rgb)
             predicted_class = output.argmax(dim=1).item()
         
         attributions = lrp.attribute(
@@ -334,22 +352,22 @@ class TestLRPMultiChannel:
             target_class=predicted_class
         )
         
-        assert attributions['x'].shape == rgb.shape
-        assert attributions['x'].shape[1] == 3  # RGB channels
+        self.assertEqual(attributions['x'].shape, rgb.shape)
+        self.assertEqual(attributions['x'].shape[1], 3)  # RGB channels
     
-    def test_channel_relevance_aggregation(self, simple_cnn):
+    def test_channel_relevance_aggregation(self):
         """Test that we can aggregate relevance across channels."""
         rgb_image = torch.randn(1, 3, 64, 64)
         
         lrp = UnifiedLRP(
-            model=simple_cnn,
+            model=self.simple_cnn,
             rule='epsilon',
             epsilon=0.1,
             validate_conservation=False
         )
         
         with torch.no_grad():
-            output = simple_cnn(rgb_image)
+            output = self.simple_cnn(rgb_image)
             predicted_class = output.argmax(dim=1).item()
         
         attributions = lrp.attribute(
@@ -359,36 +377,43 @@ class TestLRPMultiChannel:
         
         # Aggregate across channels (common for visualization)
         channel_sum = attributions['x'].sum(dim=1)  # Sum over channel dimension
-        assert channel_sum.shape == (1, 64, 64)  # (batch, height, width)
+        self.assertEqual(channel_sum.shape, (1, 64, 64))  # (batch, height, width)
         
         # Per-channel relevance should vary
         per_channel = attributions['x'].sum(dim=(2, 3))  # Sum over spatial dimensions
-        assert per_channel.shape == (1, 3)  # (batch, channels)
+        self.assertEqual(per_channel.shape, (1, 3))  # (batch, channels)
 
 
-class TestLRPBatchProcessing:
+class TestLRPBatchProcessing(unittest.TestCase):
     """Test LRP handles different batch sizes correctly."""
     
-    @pytest.mark.parametrize("batch_size", [1, 2, 4])
-    def test_variable_batch_sizes(self, simple_cnn, batch_size):
+    def setUp(self):
+        """Set up test fixtures."""
+        self.simple_cnn = SimpleCNN(num_classes=4)
+        self.simple_cnn.eval()
+    
+    def test_variable_batch_sizes(self):
         """Test LRP works with different batch sizes."""
-        images = torch.randn(batch_size, 3, 64, 64)
-        
-        lrp = UnifiedLRP(
-            model=simple_cnn,
-            rule='epsilon',
-            epsilon=0.1,
-            validate_conservation=False
-        )
-        
-        with torch.no_grad():
-            output = simple_cnn(images)
-            predicted_class = output.argmax(dim=1)[0].item()
-        
-        attributions = lrp.attribute(
-            inputs={'x': images},
-            target_class=predicted_class
-        )
-        
-        assert attributions['x'].shape[0] == batch_size
-        assert attributions['x'].shape == images.shape
+        # Test with batch size 2 (originally parameterized with [1, 2, 4])
+        for batch_size in [1, 2, 4]:
+            with self.subTest(batch_size=batch_size):
+                images = torch.randn(batch_size, 3, 64, 64)
+                
+                lrp = UnifiedLRP(
+                    model=self.simple_cnn,
+                    rule='epsilon',
+                    epsilon=0.1,
+                    validate_conservation=False
+                )
+                
+                with torch.no_grad():
+                    output = self.simple_cnn(images)
+                    predicted_class = output.argmax(dim=1)[0].item()
+                
+                attributions = lrp.attribute(
+                    inputs={'x': images},
+                    target_class=predicted_class
+                )
+                
+                self.assertEqual(attributions['x'].shape[0], batch_size)
+                self.assertEqual(attributions['x'].shape, images.shape)

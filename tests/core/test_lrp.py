@@ -16,12 +16,14 @@ Note on ResNet support:
 - See test_lrp_resnet.py for CNN-specific tests
 """
 
-import pytest
+import unittest
+# import pytest  # Disabled for unittest compatibility
 import torch
 import numpy as np
 import tempfile
 import shutil
 import pickle
+import os
 import litdata
 
 from pyhealth.datasets import SampleDataset
@@ -30,7 +32,7 @@ from pyhealth.interpret.methods import LayerwiseRelevancePropagation
 from pyhealth.models import MLP
 
 
-@pytest.fixture
+# @pytest.fixture - Disabled for unittest compatibility
 def simple_dataset():
     """Create a simple synthetic dataset for testing."""
     samples = [
@@ -80,7 +82,7 @@ def simple_dataset():
     shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-@pytest.fixture
+# @pytest.fixture - Disabled for unittest compatibility
 def trained_model(simple_dataset):
     """Create and return a simple trained model."""
     # Use both features to test branching architecture handling
@@ -97,7 +99,7 @@ def trained_model(simple_dataset):
     return model
 
 
-@pytest.fixture
+# @pytest.fixture - Disabled for unittest compatibility
 def test_batch(simple_dataset):
     """Create a test batch."""
     # Get a raw sample - directly create it to avoid any processing issues
@@ -132,85 +134,299 @@ def test_batch(simple_dataset):
     return batch
 
 
-class TestLRPInitialization:
+class TestLRPInitialization(unittest.TestCase):
     """Test LRP initialization and setup."""
 
-    def test_init_epsilon_rule(self, trained_model):
+    def setUp(self):
+        """Set up test fixtures."""
+        self.temp_dir = None
+        self.simple_dataset = self._create_simple_dataset()
+        self.trained_model = self._create_trained_model()
+
+    def tearDown(self):
+        """Clean up after tests."""
+        if self.temp_dir:
+            shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def _create_simple_dataset(self):
+        """Create a simple synthetic dataset for testing."""
+        samples = [
+            {
+                "patient_id": f"patient-{i}",
+                "visit_id": f"visit-0",
+                "conditions": [f"cond-{j}" for j in range(3)],
+                "labs": [float(j) for j in range(4)],
+                "label": i % 2,
+            }
+            for i in range(20)
+        ]
+        self.temp_dir = tempfile.mkdtemp()
+        builder = SampleBuilder(
+            input_schema={"conditions": "sequence", "labs": "tensor"},
+            output_schema={"label": "binary"},
+        )
+        builder.fit(samples)
+        builder.save(f"{self.temp_dir}/schema.pkl")
+        def sample_generator():
+            for sample in samples:
+                yield {"sample": pickle.dumps(sample)}
+        litdata.optimize(
+            fn=builder.transform,
+            inputs=list(sample_generator()),
+            output_dir=self.temp_dir,
+            num_workers=1,
+            chunk_bytes="64MB",
+        )
+        dataset = SampleDataset(path=self.temp_dir, dataset_name="test_dataset")
+        return dataset
+
+    def _create_trained_model(self):
+        """Create and return a simple trained model."""
+        model = MLP(
+            dataset=self.simple_dataset,
+            feature_keys=["conditions", "labs"],
+            embedding_dim=32,
+            hidden_dim=32,
+            dropout=0.0,
+        )
+        model.eval()
+        return model
+
+    def test_init_epsilon_rule(self):
         """Test initialization with epsilon rule."""
         lrp = LayerwiseRelevancePropagation(
-            trained_model, rule="epsilon", epsilon=0.01
+            self.trained_model, rule="epsilon", epsilon=0.01
         )
-        assert lrp.rule == "epsilon"
-        assert lrp.epsilon == 0.01
-        assert lrp.model is not None
+        self.assertEqual(lrp.rule, "epsilon")
+        self.assertEqual(lrp.epsilon, 0.01)
+        self.assertIsNotNone(lrp.model)
 
-    def test_init_alphabeta_rule(self, trained_model):
+    def test_init_alphabeta_rule(self):
         """Test initialization with alphabeta rule."""
         lrp = LayerwiseRelevancePropagation(
-            trained_model, rule="alphabeta", alpha=1.0, beta=0.0
+            self.trained_model, rule="alphabeta", alpha=1.0, beta=0.0
         )
-        assert lrp.rule == "alphabeta"
-        assert lrp.alpha == 1.0
-        assert lrp.beta == 0.0
+        self.assertEqual(lrp.rule, "alphabeta")
+        self.assertEqual(lrp.alpha, 1.0)
+        self.assertEqual(lrp.beta, 0.0)
 
-    def test_init_requires_forward_from_embedding(self, trained_model):
+    def test_init_requires_forward_from_embedding(self):
         """Test that model must have forward_from_embedding when use_embeddings=True."""
         # MLP has forward_from_embedding, so this should work
-        lrp = LayerwiseRelevancePropagation(trained_model, use_embeddings=True)
-        assert lrp.use_embeddings is True
+        lrp = LayerwiseRelevancePropagation(self.trained_model, use_embeddings=True)
+        self.assertTrue(lrp.use_embeddings)
 
 
-class TestLRPAttributions:
+class TestLRPAttributions(unittest.TestCase):
     """Test LRP attribution computation."""
 
-    def test_attribution_shape(self, trained_model, test_batch):
+    def setUp(self):
+        """Set up test fixtures."""
+        self.temp_dir = None
+        self.simple_dataset = self._create_simple_dataset()
+        self.trained_model = self._create_trained_model()
+        self.test_batch = self._create_test_batch()
+
+    def tearDown(self):
+        """Clean up after tests."""
+        if self.temp_dir:
+            shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def _create_simple_dataset(self):
+        """Create a simple synthetic dataset for testing."""
+        samples = [
+            {
+                "patient_id": f"patient-{i}",
+                "visit_id": f"visit-0",
+                "conditions": [f"cond-{j}" for j in range(3)],
+                "labs": [float(j) for j in range(4)],
+                "label": i % 2,
+            }
+            for i in range(20)
+        ]
+        self.temp_dir = tempfile.mkdtemp()
+        builder = SampleBuilder(
+            input_schema={"conditions": "sequence", "labs": "tensor"},
+            output_schema={"label": "binary"},
+        )
+        builder.fit(samples)
+        builder.save(f"{self.temp_dir}/schema.pkl")
+        def sample_generator():
+            for sample in samples:
+                yield {"sample": pickle.dumps(sample)}
+        litdata.optimize(
+            fn=builder.transform,
+            inputs=list(sample_generator()),
+            output_dir=self.temp_dir,
+            num_workers=1,
+            chunk_bytes="64MB",
+        )
+        return SampleDataset(path=self.temp_dir, dataset_name="test_dataset")
+
+    def _create_trained_model(self):
+        """Create and return a simple trained model."""
+        model = MLP(
+            dataset=self.simple_dataset,
+            feature_keys=["conditions", "labs"],
+            embedding_dim=32,
+            hidden_dim=32,
+            dropout=0.0,
+        )
+        model.eval()
+        return model
+
+    def _create_test_batch(self):
+        """Create a test batch."""
+        raw_sample = {
+            "patient_id": "patient-0",
+            "visit_id": "visit-0",
+            "conditions": ["cond-0", "cond-1", "cond-2"],
+            "labs": [0.0, 1.0, 2.0, 3.0],
+            "label": 0,
+        }
+        processed = {}
+        for key, processor in self.simple_dataset.input_processors.items():
+            if key in raw_sample:
+                processed[key] = processor.process(raw_sample[key])
+        for key, processor in self.simple_dataset.output_processors.items():
+            if key in raw_sample:
+                processed[key] = processor.process(raw_sample[key])
+        batch = {}
+        for key, value in processed.items():
+            if isinstance(value, torch.Tensor):
+                batch[key] = value.unsqueeze(0)
+            else:
+                batch[key] = torch.tensor([value])
+        batch["patient_id"] = [raw_sample["patient_id"]]
+        return batch
+
+    def test_attribution_shape(self):
         """Test that attributions have correct shapes."""
-        lrp = LayerwiseRelevancePropagation(trained_model, rule="epsilon")
-        attributions = lrp.attribute(**test_batch)
+        lrp = LayerwiseRelevancePropagation(self.trained_model, rule="epsilon")
+        attributions = lrp.attribute(**self.test_batch)
 
         # Check that we have attributions for each feature
-        assert "conditions" in attributions
-        assert "labs" in attributions
+        self.assertIn("conditions", attributions)
+        self.assertIn("labs", attributions)
 
         # Check shapes match input shapes
-        assert attributions["conditions"].shape[0] == test_batch["conditions"].shape[0]
-        assert attributions["labs"].shape[0] == test_batch["labs"].shape[0]
+        self.assertEqual(attributions["conditions"].shape[0], self.test_batch["conditions"].shape[0])
+        self.assertEqual(attributions["labs"].shape[0], self.test_batch["labs"].shape[0])
 
-    def test_attribution_types(self, trained_model, test_batch):
+    def test_attribution_types(self):
         """Test that attributions are tensors."""
-        lrp = LayerwiseRelevancePropagation(trained_model)
-        attributions = lrp.attribute(**test_batch)
+        lrp = LayerwiseRelevancePropagation(self.trained_model)
+        attributions = lrp.attribute(**self.test_batch)
 
         for key, attr in attributions.items():
-            assert isinstance(attr, torch.Tensor)
+            self.assertIsInstance(attr, torch.Tensor)
 
-    def test_epsilon_rule_attributions(self, trained_model, test_batch):
+    def test_epsilon_rule_attributions(self):
         """Test epsilon rule produces valid attributions."""
-        lrp = LayerwiseRelevancePropagation(trained_model, rule="epsilon", epsilon=0.01)
-        attributions = lrp.attribute(**test_batch, target_class_idx=1)
+        lrp = LayerwiseRelevancePropagation(self.trained_model, rule="epsilon", epsilon=0.01)
+        attributions = lrp.attribute(**self.test_batch, target_class_idx=1)
 
         # Attributions should contain numbers (not NaN or Inf)
         for key, attr in attributions.items():
-            assert not torch.isnan(attr).any()
-            assert not torch.isinf(attr).any()
+            self.assertFalse(torch.isnan(attr).any())
+            self.assertFalse(torch.isinf(attr).any())
 
-    def test_alphabeta_rule_attributions(self, trained_model, test_batch):
+    def test_alphabeta_rule_attributions(self):
         """Test alphabeta rule produces valid attributions."""
         lrp = LayerwiseRelevancePropagation(
-            trained_model, rule="alphabeta", alpha=1.0, beta=0.0
+            self.trained_model, rule="alphabeta", alpha=1.0, beta=0.0
         )
-        attributions = lrp.attribute(**test_batch, target_class_idx=1)
+        attributions = lrp.attribute(**self.test_batch, target_class_idx=1)
 
         # Attributions should contain numbers (not NaN or Inf)
         for key, attr in attributions.items():
-            assert not torch.isnan(attr).any()
-            assert not torch.isinf(attr).any()
+            self.assertFalse(torch.isnan(attr).any())
+            self.assertFalse(torch.isinf(attr).any())
 
 
-class TestRelevanceConservation:
+class TestRelevanceConservation(unittest.TestCase):
     """Test the relevance conservation property of LRP."""
 
-    def test_relevance_sums_to_output(self, trained_model, test_batch):
+    def setUp(self):
+        """Set up fixtures for each test."""
+        self.temp_dir = None
+        self.simple_dataset = self._create_simple_dataset()
+        self.trained_model = self._create_trained_model()
+        self.test_batch = self._create_test_batch()
+
+    def tearDown(self):
+        """Clean up temporary directory."""
+        if self.temp_dir and os.path.exists(self.temp_dir):
+            shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def _create_simple_dataset(self):
+        """Create a simple dataset for testing."""
+        # Create synthetic data
+        samples = []
+        for i in range(20):
+            samples.append({
+                "patient_id": f"patient-{i}",
+                "visit_id": f"visit-{i}",
+                "conditions": [f"cond-{j}" for j in range(5)],
+                "labs": np.random.rand(4).tolist(),
+                "label": i % 2,
+            })
+
+        # Create temporary directory
+        self.temp_dir = tempfile.mkdtemp()
+
+        # Build dataset using SampleBuilder
+        builder = SampleBuilder(
+            input_schema={"conditions": "sequence", "labs": "tensor"},
+            output_schema={"label": "binary"},
+        )
+        builder.fit(samples)
+        builder.save(f"{self.temp_dir}/schema.pkl")
+
+        # Optimize samples
+        def sample_generator():
+            for sample in samples:
+                yield {"sample": pickle.dumps(sample)}
+
+        litdata.optimize(
+            fn=builder.transform,
+            inputs=list(sample_generator()),
+            output_dir=self.temp_dir,
+            num_workers=1,
+            chunk_bytes="64MB",
+        )
+
+        dataset = SampleDataset(
+            path=self.temp_dir,
+            dataset_name="test_mlp",
+        )
+        return dataset
+
+    def _create_trained_model(self):
+        """Create and return a trained model."""
+        model = MLP(
+            dataset=self.simple_dataset,
+            feature_keys=["conditions", "labs"],
+            embedding_dim=32,
+            hidden_dim=32,
+            dropout=0.0,
+        )
+        model.eval()
+        return model
+
+    def _create_test_batch(self):
+        """Create a test batch from the dataset."""
+        sample = self.simple_dataset[0]
+        batch = {}
+        for key, value in sample.items():
+            if isinstance(value, torch.Tensor):
+                batch[key] = value.unsqueeze(0)
+            elif key not in ["patient_id", "visit_id"]:
+                if isinstance(value, (int, float)):
+                    batch[key] = torch.tensor([value])
+        return batch
+
+    def test_relevance_sums_to_output(self):
         """Test that sum of relevances approximately equals model output.
         
         This is the key property of LRP: conservation.
@@ -220,15 +436,15 @@ class TestRelevanceConservation:
         conservation violations of 50-200% are acceptable in practice.
         This is documented in the LRP literature.
         """
-        lrp = LayerwiseRelevancePropagation(trained_model, rule="epsilon", epsilon=0.01)
+        lrp = LayerwiseRelevancePropagation(self.trained_model, rule="epsilon", epsilon=0.01)
 
         # Get model output
         with torch.no_grad():
-            output = trained_model(**test_batch)
+            output = self.trained_model(**self.test_batch)
             logit = output["logit"][0, 0].item()
 
         # Get LRP attributions
-        attributions = lrp.attribute(**test_batch, target_class_idx=1)
+        attributions = lrp.attribute(**self.test_batch, target_class_idx=1)
 
         # Sum all relevances
         total_relevance = sum(attr.sum().item() for attr in attributions.values())
@@ -240,27 +456,106 @@ class TestRelevanceConservation:
         
         # Allow up to 200% violation (3x) for branching architectures
         # This is consistent with the LRP literature for complex models
-        assert relative_diff < 3.0, (
+        self.assertLess(relative_diff, 3.0,
             f"Conservation violated beyond acceptable threshold: "
             f"total_relevance={total_relevance:.4f}, logit={logit:.4f}, "
             f"relative_diff={relative_diff:.2%}"
         )
 
 
-class TestDifferentRules:
+class TestDifferentRules(unittest.TestCase):
     """Test that different rules produce different results."""
 
-    def test_epsilon_vs_alphabeta(self, trained_model, test_batch):
-        """Test that epsilon and alphabeta rules produce different attributions."""
-        lrp_epsilon = LayerwiseRelevancePropagation(
-            trained_model, rule="epsilon", epsilon=0.01
+    def setUp(self):
+        """Set up fixtures for each test."""
+        self.temp_dir = None
+        self.simple_dataset = self._create_simple_dataset()
+        self.trained_model = self._create_trained_model()
+        self.test_batch = self._create_test_batch()
+
+    def tearDown(self):
+        """Clean up temporary directory."""
+        if self.temp_dir and os.path.exists(self.temp_dir):
+            shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def _create_simple_dataset(self):
+        """Create a simple dataset for testing."""
+        # Create synthetic data
+        samples = []
+        for i in range(20):
+            samples.append({
+                "patient_id": f"patient-{i}",
+                "visit_id": f"visit-{i}",
+                "conditions": [f"cond-{j}" for j in range(5)],
+                "labs": np.random.rand(4).tolist(),
+                "label": i % 2,
+            })
+
+        # Create temporary directory
+        self.temp_dir = tempfile.mkdtemp()
+
+        # Build dataset using SampleBuilder
+        builder = SampleBuilder(
+            input_schema={"conditions": "sequence", "labs": "tensor"},
+            output_schema={"label": "binary"},
         )
-        lrp_alphabeta = LayerwiseRelevancePropagation(
-            trained_model, rule="alphabeta", alpha=1.0, beta=0.0
+        builder.fit(samples)
+        builder.save(f"{self.temp_dir}/schema.pkl")
+
+        # Optimize samples
+        def sample_generator():
+            for sample in samples:
+                yield {"sample": pickle.dumps(sample)}
+
+        litdata.optimize(
+            fn=builder.transform,
+            inputs=list(sample_generator()),
+            output_dir=self.temp_dir,
+            num_workers=1,
+            chunk_bytes="64MB",
         )
 
-        attrs_epsilon = lrp_epsilon.attribute(**test_batch)
-        attrs_alphabeta = lrp_alphabeta.attribute(**test_batch)
+        dataset = SampleDataset(
+            path=self.temp_dir,
+            dataset_name="test_mlp",
+        )
+        return dataset
+
+    def _create_trained_model(self):
+        """Create and return a trained model."""
+        model = MLP(
+            dataset=self.simple_dataset,
+            feature_keys=["conditions", "labs"],
+            embedding_dim=32,
+            hidden_dim=32,
+            dropout=0.0,
+        )
+        model.eval()
+        return model
+
+    def _create_test_batch(self):
+        """Create a test batch from the dataset."""
+        sample = self.simple_dataset[0]
+        batch = {}
+        for key, value in sample.items():
+            if isinstance(value, torch.Tensor):
+                batch[key] = value.unsqueeze(0)
+            elif key not in ["patient_id", "visit_id"]:
+                if isinstance(value, (int, float)):
+                    batch[key] = torch.tensor([value])
+        return batch
+
+    def test_epsilon_vs_alphabeta(self):
+        """Test that epsilon and alphabeta rules produce different attributions."""
+        lrp_epsilon = LayerwiseRelevancePropagation(
+            self.trained_model, rule="epsilon", epsilon=0.01
+        )
+        lrp_alphabeta = LayerwiseRelevancePropagation(
+            self.trained_model, rule="alphabeta", alpha=2.0, beta=1.0
+        )
+
+        attrs_epsilon = lrp_epsilon.attribute(**self.test_batch)
+        attrs_alphabeta = lrp_alphabeta.attribute(**self.test_batch)
 
         # Check that at least one feature has different attributions
         different = False
@@ -272,10 +567,13 @@ class TestDifferentRules:
                 break
 
         # Different rules should produce different results
+        # Note: With alpha=1.0, beta=0.0, results may be similar to epsilon rule
+        # Using alpha=2.0, beta=1.0 should produce more distinct results
         print(f"\nRules produce different attributions: {different}")
+        self.assertTrue(different, "Epsilon and alphabeta rules should produce different attributions")
 
 
-class TestEmbeddingModels:
+class TestEmbeddingModels(unittest.TestCase):
     """Test LRP with embedding-based models (discrete medical codes)."""
     
     def test_embedding_model_forward_from_embedding(self):
@@ -357,11 +655,11 @@ class TestEmbeddingModels:
         attributions = lrp.attribute(target_class_idx=0, **inputs)
         
         # Validations
-        assert isinstance(attributions, dict)
-        assert "diagnosis" in attributions
-        assert attributions["diagnosis"].shape[0] == batch_size
-        assert not torch.isnan(attributions["diagnosis"]).any()
-        assert not torch.isinf(attributions["diagnosis"]).any()
+        self.assertIsInstance(attributions, dict)
+        self.assertIn("diagnosis", attributions)
+        self.assertEqual(attributions["diagnosis"].shape[0], batch_size)
+        self.assertFalse(torch.isnan(attributions["diagnosis"]).any())
+        self.assertFalse(torch.isinf(attributions["diagnosis"]).any())
 
     def test_embedding_model_different_targets(self):
         """Test that attributions differ for different target classes."""
@@ -414,7 +712,7 @@ class TestEmbeddingModels:
         
         # Attributions for different classes should differ
         diff = (attr_class0["diagnosis"] - attr_class1["diagnosis"]).abs().mean()
-        assert diff > 1e-6, "Attributions should differ between target classes"
+        self.assertGreater(diff, 1e-6, "Attributions should differ between target classes")
 
     def test_embedding_model_variable_batch_sizes(self):
         """Test LRP works with different batch sizes."""
@@ -455,10 +753,10 @@ class TestEmbeddingModels:
             inputs = {"diagnosis": x}
             attr = lrp.attribute(target_class_idx=0, **inputs)
             
-            assert attr["diagnosis"].shape[0] == batch_size
+            self.assertEqual(attr["diagnosis"].shape[0], batch_size)
 
 
-class TestEndToEndIntegration:
+class TestEndToEndIntegration(unittest.TestCase):
     """Test complete end-to-end workflow with realistic scenarios."""
 
     def test_branching_architecture_support(self):
@@ -574,18 +872,18 @@ class TestEndToEndIntegration:
         # Validation checks
         # 1. Attribution batch dimensions match
         for key in batch_inputs:
-            assert attributions_eps[key].shape[0] == batch_inputs[key].shape[0]
-            assert attributions_ab[key].shape[0] == batch_inputs[key].shape[0]
+            self.assertEqual(attributions_eps[key].shape[0], batch_inputs[key].shape[0])
+            self.assertEqual(attributions_ab[key].shape[0], batch_inputs[key].shape[0])
         
         # 2. Attributions contain non-zero values
-        assert all(
+        self.assertTrue(all(
             torch.abs(attributions_eps[key]).sum() > 1e-6
             for key in attributions_eps
-        )
-        assert all(
+        ))
+        self.assertTrue(all(
             torch.abs(attributions_ab[key]).sum() > 1e-6
             for key in attributions_ab
-        )
+        ))
         
         # 3. Different rules produce different results
         different_rules = False
@@ -594,23 +892,24 @@ class TestEndToEndIntegration:
             if diff > 1e-6:
                 different_rules = True
                 break
-        assert different_rules, "Epsilon and alphabeta rules should produce different results"
+        self.assertTrue(different_rules, "Epsilon and alphabeta rules should produce different results")
         
         # 4. Attributions vary across samples
+        found_variance = False
         for key in attributions_eps:
             if attributions_eps[key].shape[0] > 1:
                 variance = torch.var(attributions_eps[key], dim=0).mean()
                 if variance > 1e-6:
+                    found_variance = True
                     break
-        else:
-            pytest.fail("Attributions should vary across samples")
+        self.assertTrue(found_variance, "Attributions should vary across samples")
         
         # 5. No NaN or Inf values
         for key in attributions_eps:
-            assert not torch.isnan(attributions_eps[key]).any()
-            assert not torch.isinf(attributions_eps[key]).any()
-            assert not torch.isnan(attributions_ab[key]).any()
-            assert not torch.isinf(attributions_ab[key]).any()
+            self.assertFalse(torch.isnan(attributions_eps[key]).any())
+            self.assertFalse(torch.isinf(attributions_eps[key]).any())
+            self.assertFalse(torch.isnan(attributions_ab[key]).any())
+            self.assertFalse(torch.isinf(attributions_ab[key]).any())
         
         # Cleanup
         shutil.rmtree(temp_dir, ignore_errors=True)
@@ -675,12 +974,12 @@ class TestEndToEndIntegration:
         attributions = lrp.attribute(**batch)
         
         # Both feature types should have attributions
-        assert "conditions" in attributions
-        assert "measurements" in attributions
+        self.assertIn("conditions", attributions)
+        self.assertIn("measurements", attributions)
         
         # Check shapes
-        assert attributions["conditions"].shape[0] == 1
-        assert attributions["measurements"].shape[0] == 1
+        self.assertEqual(attributions["conditions"].shape[0], 1)
+        self.assertEqual(attributions["measurements"].shape[0], 1)
         
         # Cleanup
         shutil.rmtree(temp_dir, ignore_errors=True)
@@ -758,11 +1057,14 @@ class TestEndToEndIntegration:
         attributions = lrp.attribute(**batch_input, target_class_idx=0)
         
         # Validations
-        assert isinstance(attributions, dict)
-        assert "conditions" in attributions
-        assert attributions["conditions"].shape[0] == 1
-        assert not torch.isnan(attributions["conditions"]).any()
-        assert not torch.isinf(attributions["conditions"]).any()
+        self.assertIsInstance(attributions, dict)
+        self.assertIn("conditions", attributions)
+        self.assertEqual(attributions["conditions"].shape[0], 1)
+        self.assertFalse(torch.isnan(attributions["conditions"]).any())
+        self.assertFalse(torch.isinf(attributions["conditions"]).any())
+        
+        # Cleanup
+        shutil.rmtree(temp_dir, ignore_errors=True)
         
     def test_mlp_batch_processing(self):
         """Test LRP with PyHealth MLP on multiple samples."""
@@ -839,18 +1141,16 @@ class TestEndToEndIntegration:
         attributions = lrp.attribute(target_class_idx=0, **batch_input)
         
         # Validations
-        assert attributions["conditions"].shape[0] == batch_size
+        self.assertEqual(attributions["conditions"].shape[0], batch_size)
         
         # Check no NaN or Inf values
-        assert not torch.isnan(attributions["conditions"]).any()
-        assert not torch.isinf(attributions["conditions"]).any()
-        
-        # Cleanup
-        shutil.rmtree(temp_dir, ignore_errors=True)
+        self.assertFalse(torch.isnan(attributions["conditions"]).any())
+        self.assertFalse(torch.isinf(attributions["conditions"]).any())
         
         # Cleanup
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":
-    pytest.main([__file__, "-v", "-s"])
+    # pytest.main([__file__, "-v", "-s"])  # Disabled - use unittest
+    pass
