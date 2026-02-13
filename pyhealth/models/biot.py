@@ -215,6 +215,10 @@ class BIOTClassifier(nn.Module):
         self.biot = BIOTEncoder(emb_size=emb_size, heads=heads, depth=depth, **kwargs)
         self.classifier = ClassificationHead(emb_size, n_classes)
 
+    def get_embeddings(self, x):
+        x = self.biot(x)
+        return x
+    
     def forward(self, x):
         x = self.biot(x)
         x = self.classifier(x)
@@ -273,6 +277,7 @@ class BIOT(BaseModel):
                  n_channels: int = 18,
                  **kwargs):
         super().__init__(dataset=dataset)
+        _get_linear_attention_transformer()
         self.biot = BIOTClassifier(emb_size=emb_size, 
                                    heads=heads, 
                                    depth=depth, 
@@ -332,6 +337,24 @@ class BIOT(BaseModel):
             "logit": logits,
         }
         return results
+    
+    def get_embeddings(self, **kwargs: Any) -> Dict[str, torch.Tensor]:
+        """Get embeddings.
+        
+        Args:
+            **kwargs: keyword arguments containing 'signal'.
+                
+        Returns:
+            a dictionary containing embeddings.
+        """
+        signal = kwargs.get("signal")
+        if signal is None:
+            raise ValueError("'signal' must be provided in inputs")
+        signal = signal.to(self.device)
+        embeddings = self.biot.get_embeddings(signal)
+        return {
+            "embeddings": embeddings,
+        }
         
         
 
