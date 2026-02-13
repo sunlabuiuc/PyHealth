@@ -280,6 +280,29 @@ class BIOT(BaseModel):
                                    n_channels=n_channels, 
                                    n_fft=n_fft, 
                                    hop_length=hop_length)
+    
+    def load_pretrained_weights(self, checkpoint_path: str, strict: bool = False, map_location: str = None):
+        """Load pre-trained weights from checkpoint.
+        
+        Args:
+            checkpoint_path: path to the checkpoint file.
+            strict: whether to strictly enforce key matching. Default is True.
+            map_location: device to map the loaded tensors. Default is None.
+        """
+        if map_location is None:
+            map_location = str(self.device)
+
+        checkpoint = torch.load(checkpoint_path, map_location=map_location)
+
+        if "model_state_dict" in checkpoint:
+            state_dict = checkpoint["model_state_dict"]
+        elif "state_dict" in checkpoint:
+            state_dict = checkpoint["state_dict"]
+        else:
+            state_dict = checkpoint
+        self.biot.load_state_dict(state_dict, strict=strict)
+        print(f"✓ Successfully loaded weights from {checkpoint_path}")
+        
         
     def forward(self, **kwargs: Any) -> Dict[str, torch.Tensor]:
         """Forward propagation.
