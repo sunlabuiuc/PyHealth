@@ -147,7 +147,7 @@ Quick Navigation
 
      - **Research Initiative**
 
-       Join our summer research program and contribute
+       Join our year round research program and contribute
 
        :doc:`View Projects → <research_initiative>`
 
