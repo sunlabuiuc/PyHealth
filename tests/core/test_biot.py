@@ -146,17 +146,33 @@ class TestBIOT(unittest.TestCase):
             depth=4,
             n_fft=200,
             hop_length=100,
-            n_classes=2,
+            n_classes=1,
             n_channels=18,
         )
 
-        train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=True)
-        data_batch = next(iter(train_loader))
+        binary_samples = [
+            {
+                "patient_id": f"patient-{i}",
+                "visit_id": "visit-0",
+                "signal": torch.randn(18, 2000).numpy().tolist(),
+                "label": i % 2,
+            }
+            for i in range(4)
+        ]
 
+        binary_dataset = create_sample_dataset(
+            samples=binary_samples,
+            input_schema={"signal": "tensor"},
+            output_schema={"label": "binary"},
+            dataset_name="test_cbramod_binary",
+        )
+
+        train_loader = get_dataloader(binary_dataset, batch_size=2, shuffle=True)
+        data_batch = next(iter(train_loader))
         with torch.no_grad():
             ret = model_binary(**data_batch)
 
-        self.assertEqual(ret["logit"].shape[1], 2)
+        self.assertEqual(ret["logit"].shape[1], 1)
 
     def test_model(self):
         """Test BIOT"""
