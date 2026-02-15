@@ -9,11 +9,10 @@ Input/Output:
             - List[str]: Clinical text entries (e.g., discharge notes, progress notes)
             - List[float]: Time differences between entries (in any time unit)
     
-    Output: str (JSON)
-            JSON string with keys:
-            - "texts": List[str] - Same text entries (unmodified)
-            - "time_diffs": List[float] - Time differences (unmodified)
-            - "type_tag": str - Type tag for automatic modality routing (default: "note")
+    Output: Tuple[bytes, torch.Tensor, str]
+            - bytes: Pickle-serialized list of text entries
+            - torch.Tensor: 1D float tensor of time differences [shape: (N,)]
+            - str: Type tag for automatic modality routing (default: "note")
 
 Use Case:
     This processor enables automatic modality bucketing in multimodal pipelines.
@@ -40,8 +39,8 @@ Example:
     >>> time_diffs = [0.0, 2.5, 5.0]  # hours since admission
     >>> 
     >>> result = processor.process((texts, time_diffs))
-    >>> texts_out, time_tensor, tag = result
-    >>> print(f"Texts: {texts_out}")
+    >>> texts_bytes, time_tensor, tag = result
+    >>> print(f"Texts: {pickle.loads(texts_bytes)}")
     >>> print(f"Time tensor: {time_tensor}")
     >>> print(f"Type tag: {tag}")
     
@@ -52,7 +51,8 @@ Args:
 """
 
 from typing import Any, List, Tuple
-import json
+import pickle
+import torch
 from .base_processor import FeatureProcessor
 from . import register_processor
 
@@ -74,12 +74,12 @@ class TupleTimeTextProcessor(FeatureProcessor):
         super().__init__()
         self.type_tag = type_tag
 
-    def process(self, value: Tuple[List[str], List[float]]) -> str:
+    def process(self, value: Tuple[List[str], List[float]]) -> Tuple[bytes, Any, str]:
         """Process a tuple of texts and time differences.
 
-        Serializes the data as a JSON string so litdata can store it natively.
-        Downstream code should parse with json.loads() to recover the dict
-        with keys "texts", "time_diffs", and "type_tag".
+        Pickle-serializes the text entries and converts time differences to a
+        tensor. Downstream code should use pickle.loads() on the first element
+        to recover the original list of strings.
 
         Args:
             value: Tuple containing:
@@ -87,10 +87,14 @@ class TupleTimeTextProcessor(FeatureProcessor):
                 - List[float]: Time differences corresponding to each text entry
 
         Returns:
-            str: JSON string with keys "texts", "time_diffs", "type_tag".
+            Tuple containing:
+                - bytes: Pickle-serialized text entries
+                - torch.Tensor: 1D float tensor of time differences [shape: (N,)]
+                - str: Type tag for modality routing
         """
         texts, time_diffs = value
-        return json.dumps({"texts": texts, "time_diffs": time_diffs, "type_tag": self.type_tag})
+        time_tensor = torch.tensor(time_diffs, dtype=torch.float32)
+        return pickle.dumps(texts), time_tensor, self.type_tag 
     
     def size(self):
         """Return the size of the processor vocabulary (not applicable for this processor)."""
