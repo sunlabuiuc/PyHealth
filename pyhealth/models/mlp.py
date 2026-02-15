@@ -1,15 +1,16 @@
-from typing import Dict
+from typing import Dict, cast
 
 import torch
 import torch.nn as nn
 
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
+from pyhealth.interpret.api import Interpretable
 
 from .embedding import EmbeddingModel
 
 
-class MLP(BaseModel):
+class MLP(BaseModel, Interpretable):
     """Multi-layer perceptron model.
 
     This model applies a separate MLP layer for each feature, and then
@@ -194,8 +195,7 @@ class MLP(BaseModel):
 
     def forward_from_embedding(
         self,
-        feature_embeddings: Dict[str, torch.Tensor],
-        **kwargs,
+        **kwargs: torch.Tensor | tuple[torch.Tensor, ...],
     ) -> Dict[str, torch.Tensor]:
         """Forward pass starting from feature embeddings.
 
@@ -205,140 +205,77 @@ class MLP(BaseModel):
         in embedding space.
 
         Args:
-            feature_embeddings: Dictionary mapping feature keys to their
-                embedded representations. Each tensor should have shape
-                [batch_size, seq_len, embedding_dim] or
-                [batch_size, embedding_dim].
-            **kwargs: Additional keyword arguments, must include the label
-                key for loss computation.
-
-        Returns:
-            Dict[str, torch.Tensor]: A dictionary with the following keys:
-                - loss: a scalar tensor representing the loss.
-                - y_prob: a tensor representing the predicted probabilities.
-                - y_true: a tensor representing the true labels.
-                - logit: a tensor representing the logits.
-                - embed (optional): a tensor representing the patient
-                    embeddings if requested.
-        """
-        patient_emb = []
-
-        for feature_key in self.feature_keys:
-            # Get embedded feature
-            x = feature_embeddings[feature_key].to(self.device)
-
-            # Handle different tensor dimensions for pooling
-            if x.dim() == 3:
-                # Case: (batch, seq_len, embedding_dim) - apply mean pooling
-                mask = (x.sum(dim=-1) != 0).float()
-                if mask.sum(dim=-1, keepdim=True).any():
-                    x = self.mean_pooling(x, mask)
-                else:
-                    x = x.mean(dim=1)
-            elif x.dim() == 2:
-                # Case: (batch, embedding_dim) - already pooled, use as is
-                pass
-            else:
-                raise ValueError(f"Unsupported tensor dimension: {x.dim()}")
-
-            # Apply MLP
-            x = self.mlp[feature_key](x)
-            patient_emb.append(x)
-
-        patient_emb = torch.cat(patient_emb, dim=1)
-
-        # (patient, label_size)
-        logits = self.fc(patient_emb)
-
-        # obtain y_true, loss, y_prob
-        y_true = kwargs[self.label_key].to(self.device)
-        loss = self.get_loss_function()(logits, y_true)
-        y_prob = self.prepare_y_prob(logits)
-        results = {
-            "loss": loss,
-            "y_prob": y_prob,
-            "y_true": y_true,
-            "logit": logits,
-        }
-        if kwargs.get("embed", False):
-            results["embed"] = patient_emb
-        return results
-
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
-        """Forward propagation.
-
-        Args:
             **kwargs: keyword arguments for the model. The keys must contain
                 all the feature keys and the label key.
 
+                It is expected to contain the following semantic tensors:
+                    - "value": the embedded feature tensor of shape
+                      [batch, seq_len, embedding_dim] or
+                      [batch, embedding_dim].
+                    - "mask" (optional): the mask tensor of shape
+                      [batch, seq_len]. If not in the processor schema,
+                      it can be provided as the last element of the
+                      feature tuple. If not provided, masks will be
+                      generated from the embedded values (non-zero
+                      entries are treated as valid).
+
+                The label key should contain the true labels for loss
+                computation.
+
         Returns:
-            Dict[str, torch.Tensor]: A dictionary with the following keys:
-                - loss: a scalar tensor representing the loss.
-                - y_prob: a tensor representing the predicted probabilities.
-                - y_true: a tensor representing the true labels.
-                - logit: a tensor representing the logits.
-                - embed (optional): a tensor representing the patient
-                    embeddings if requested.
+            A dictionary with the following keys:
+                loss: a scalar tensor representing the final loss.
+                y_prob: a tensor of predicted probabilities.
+                y_true: a tensor representing the true labels.
+                logit: the raw logits before activation.
+                embed: (if embed=True in kwargs) the patient embedding.
         """
         patient_emb = []
 
-        # Preprocess inputs for EmbeddingModel
-        processed_inputs = {}
-        reshape_info = {}  # Track which inputs were reshaped
-
         for feature_key in self.feature_keys:
-            x = kwargs[feature_key]
+            processor = self.dataset.input_processors[feature_key]
+            schema = processor.schema()
+            feature = kwargs[feature_key]
 
-            # Convert to tensor if not already
-            if not isinstance(x, torch.Tensor):
-                x = torch.tensor(x, device=self.device)
+            if isinstance(feature, torch.Tensor):
+                # Backward compatibility: if feature is a tensor, treat it
+                # as values without mask
+                feature = (feature,)
+
+            value = feature[schema.index("value")] if "value" in schema else None
+            mask = feature[schema.index("mask")] if "mask" in schema else None
+
+            if len(feature) == len(schema) + 1 and mask is None:
+                # An optional mask can be provided as the last element
+                # if not included in the schema
+                mask = feature[-1]
+
+            if value is None:
+                raise ValueError(
+                    f"Feature '{feature_key}' must contain 'value' "
+                    f"in the schema."
+                )
             else:
-                x = x.to(self.device)
-
-            # Handle 3D input: (patient, event, # of codes) -> flatten to 2D
-            if x.dim() == 3:
-                batch_size, seq_len, inner_len = x.shape
-                # Flatten to (patient, event * # of codes)
-                x = x.view(batch_size, seq_len * inner_len)
-                # Store reshape info for later reconstruction
-                reshape_info[feature_key] = {
-                    "original_shape": (batch_size, seq_len, inner_len),
-                    "was_3d": True,
-                }
-            else:
-                reshape_info[feature_key] = {"was_3d": False}
-
-            processed_inputs[feature_key] = x
-
-        # Pass through EmbeddingModel
-        embedded = self.embedding_model(processed_inputs)
-
-        for feature_key in self.feature_keys:
-            x = embedded[feature_key]
-
-            # Handle reshaped 3D inputs
-            if reshape_info[feature_key]["was_3d"]:
-                # Reconstruct 3D shape: (batch, seq_len, embedding_dim)
-                original_shape = reshape_info[feature_key]["original_shape"]
-                batch_size, seq_len, inner_len = original_shape
-                # x is currently (batch, embedding_dim) from EmbeddingModel
-                # We need to handle the sequence dimension through pooling
-                # For now, treat as already pooled since EmbeddingModel did it
-                pass
+                value = value.to(self.device)
 
             # Handle different tensor dimensions for pooling
-            if x.dim() == 3:
+            if value.dim() == 3:
                 # Case: (batch, seq_len, embedding_dim) - apply mean pooling
-                mask = (x.sum(dim=-1) != 0).float()
-                if mask.sum(dim=-1, keepdim=True).any():
-                    x = self.mean_pooling(x, mask)
+                if mask is None:
+                    mask = (value.abs().sum(dim=-1) != 0).float()
                 else:
-                    x = x.mean(dim=1)
-            elif x.dim() == 2:
+                    mask = mask.to(self.device).float()
+                    if mask.dim() == value.dim():
+                        # Collapse feature dim from mask
+                        mask = mask.any(dim=-1).float()
+                x = self.mean_pooling(value, mask)
+            elif value.dim() == 2:
                 # Case: (batch, embedding_dim) - already pooled, use as is
-                pass
+                x = value
             else:
-                raise ValueError(f"Unsupported tensor dimension: {x.dim()}")
+                raise ValueError(
+                    f"Unsupported tensor dimension: {value.dim()}"
+                )
 
             # Apply MLP
             x = self.mlp[feature_key](x)
@@ -348,19 +285,89 @@ class MLP(BaseModel):
 
         # (patient, label_size)
         logits = self.fc(patient_emb)
-        # obtain y_true, loss, y_prob
-        y_true = kwargs[self.label_key].to(self.device)
-        loss = self.get_loss_function()(logits, y_true)
         y_prob = self.prepare_y_prob(logits)
+
         results = {
-            "loss": loss,
-            "y_prob": y_prob,
-            "y_true": y_true,
             "logit": logits,
+            "y_prob": y_prob,
         }
+
+        # obtain y_true, loss, y_prob
+        if self.label_key in kwargs:
+            y_true = cast(torch.Tensor, kwargs[self.label_key]).to(self.device)
+            loss = self.get_loss_function()(logits, y_true)
+            results["loss"] = loss
+            results["y_true"] = y_true
+
+        # Optionally return embeddings
         if kwargs.get("embed", False):
             results["embed"] = patient_emb
         return results
+
+    def forward(
+        self, **kwargs: torch.Tensor | tuple[torch.Tensor, ...]
+    ) -> Dict[str, torch.Tensor]:
+        """Forward propagation.
+
+        Args:
+            **kwargs: keyword arguments for the model.
+
+                The keys must contain all the feature keys and the label key.
+
+                Feature keys should contain tensors or tuples of tensors
+                following the processor schema. The label key should
+                contain the true labels for loss computation.
+
+        Returns:
+            A dictionary with the following keys:
+                loss: a scalar tensor representing the final loss.
+                y_prob: a tensor of predicted probabilities.
+                y_true: a tensor representing the true labels.
+                logit: the raw logits before activation.
+                embed: (if embed=True in kwargs) the patient embedding.
+        """
+        for feature_key in self.feature_keys:
+            feature = kwargs[feature_key]
+
+            if isinstance(feature, torch.Tensor):
+                # Backward compatibility: if feature is a tensor, treat it
+                # as values without mask
+                feature = (feature,)
+
+            schema = self.dataset.input_processors[feature_key].schema()
+
+            value = (
+                feature[schema.index("value")] if "value" in schema else None
+            )
+
+            if value is None:
+                raise ValueError(
+                    f"Feature '{feature_key}' must contain 'value' "
+                    f"in the schema."
+                )
+            else:
+                value = value.to(self.device)
+
+            # Handle 3D input: (batch, event, # of codes) -> flatten to 2D
+            # before embedding to treat all codes as a single flat sequence
+            if value.dim() == 3:
+                batch_size, seq_len, inner_len = value.shape
+                value = value.view(batch_size, seq_len * inner_len)
+
+            value = self.embedding_model({feature_key: value})[feature_key]
+
+            i = schema.index("value")
+            kwargs[feature_key] = feature[:i] + (value,) + feature[i + 1 :]
+
+        return self.forward_from_embedding(**kwargs)
+
+    def get_embedding_model(self) -> nn.Module | None:
+        """Get the embedding model.
+
+        Returns:
+            nn.Module: The embedding model used to embed raw features.
+        """
+        return self.embedding_model
 
 
 if __name__ == "__main__":
