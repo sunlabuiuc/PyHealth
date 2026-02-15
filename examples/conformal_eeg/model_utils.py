@@ -47,6 +47,11 @@ class AddSTFTDataset:
     def subset(self, indices):
         return AddSTFTDataset(self._base.subset(indices), self.n_fft, self.hop_length)
 
+    def set_shuffle(self, shuffle: bool) -> None:
+        """Forward to base dataset so get_dataloader() works (pyhealth.datasets.utils)."""
+        if hasattr(self._base, "set_shuffle"):
+            self._base.set_shuffle(shuffle)
+
 
 def get_model(args, sample_dataset, device: str):
     """Build ContraWR or TFMTokenizer from args.model. Use sample_dataset (possibly AddSTFTDataset for TFM)."""
