@@ -10,7 +10,7 @@ from pyhealth.interpret.api import Interpretable
 from .base_interpreter import BaseInterpreter
 
 
-class ShapExplainer(BaseInterpreter):
+class Shap(BaseInterpreter):
     """SHAP (SHapley Additive exPlanations) attribution method for PyHealth models.
 
     This class implements the SHAP method for computing feature attributions in 
@@ -772,3 +772,5 @@ class ShapExplainer(BaseInterpreter):
             mapped[key] = reshaped
 
         return mapped
+    
+type ShapExplainer = Shap  # Alias for backward compatibility

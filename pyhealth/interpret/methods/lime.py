@@ -12,7 +12,7 @@ from pyhealth.interpret.api import Interpretable
 from .base_interpreter import BaseInterpreter
 
 
-class LimeExplainer(BaseInterpreter):
+class Lime(BaseInterpreter):
     """LIME (Local Interpretable Model-agnostic Explanations) attribution method for PyHealth models.
 
     This class implements the LIME method for computing feature attributions in 
@@ -823,3 +823,5 @@ class LimeExplainer(BaseInterpreter):
             mapped[key] = reshaped
 
         return mapped
+
+type LimeExplainer = Lime  # Alias for backward compatibility
