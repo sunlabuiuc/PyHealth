@@ -361,13 +361,22 @@ class CBraMod_Wrapper(BaseModel):
                  **kwargs):
         super().__init__(dataset=dataset)
         
+        self.in_dim = in_dim
+        self.emb_size = emb_size
+        self.dim_feedforward = dim_feedforward
+        self.seq_len = seq_len
+        self.n_layer = n_layer
+        self.nhead = nhead
+        self.classifier_head = classifier_head
+        self.n_classes = n_classes
+        
+        
         self.cbramod = CBraMod(in_dim=in_dim, d_model=emb_size, dim_feedforward=dim_feedforward, seq_len=seq_len, n_layer=n_layer,
                     nhead=nhead)
-        self.classifier_head = classifier_head
+        
         
         if classifier_head:
             self.pool = nn.Sequential(nn.AdaptiveAvgPool2d((1, 1)))
-            self.flatten = nn.Flatten(start_dim=1)
             self.classifier = nn.Linear(emb_size, n_classes)
         
     def forward(self, **kwargs: Any) -> Dict[str, torch.Tensor]:
@@ -386,6 +395,8 @@ class CBraMod_Wrapper(BaseModel):
         B,C,T = signal.shape
         signal = rearrange(signal, 'B C (S T) -> B C S T',T = 200)
         eeg_embed = self.cbramod(signal)
+        if eeg_embed.shape[0] != B:
+            eeg_embed = eeg_embed.unsqueeze(0)
         
         label_key = self.label_keys[0]
         y_true = kwargs[label_key].to(self.device)
@@ -394,8 +405,8 @@ class CBraMod_Wrapper(BaseModel):
 
         if self.classifier_head:
             eeg_embed = rearrange(eeg_embed,'B C S E -> B E C S')
-            eeg_embed = self.pool(eeg_embed).squeeze()#.unsqueeze(1)
-            eeg_embed = self.flatten(eeg_embed)
+            eeg_embed = self.pool(eeg_embed)
+            eeg_embed = eeg_embed.view(eeg_embed.shape[0], -1) 
             logits = self.classifier(eeg_embed)
             y_prob = self.prepare_y_prob(logits)
             loss_fn = self.get_loss_function()
@@ -419,7 +430,7 @@ class CBraMod_Wrapper(BaseModel):
         Args:
             path: path to the checkpoint file.
         """
-        self.cbramod.load_state_dict(torch.load(path, map_location=self.device))
+        self.cbramod.load_state_dict(torch.load(path, map_location=self.device),strict=False)
         print(f"Loaded pretrained weights from {path}")
 
 
