@@ -50,8 +50,10 @@ class AddSTFTDataset:
             signal_1d = np.asarray(signal, dtype=np.float32).mean(axis=0)
         else:
             signal_1d = np.asarray(signal, dtype=np.float32).flatten()
-        sample["signal"] = signal_1d
-        sample["stft"] = compute_stft(signal_1d, self.n_fft, self.hop_length)
+        # Return tensors so get_dataloader's collate stacks them (not list)
+        sample["signal"] = torch.from_numpy(signal_1d)
+        stft_np = compute_stft(signal_1d, self.n_fft, self.hop_length)
+        sample["stft"] = torch.from_numpy(stft_np)
         return sample
 
     def subset(self, indices):
