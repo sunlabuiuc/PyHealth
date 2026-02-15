@@ -9,8 +9,8 @@ Input/Output:
             - List[str]: Clinical text entries (e.g., discharge notes, progress notes)
             - List[float]: Time differences between entries (in any time unit)
 
-    Output: Tuple[dict, torch.Tensor, str]
-            - dict: HuggingFace tokenizer output (input_ids, attention_mask, etc.)
+    Output: Tuple[torch.Tensor, torch.Tensor, str]
+            - torch.Tensor: Token IDs from tokenizer [shape: (num_texts, max_seq_len)]
             - torch.Tensor: 1D float tensor of time differences [shape: (N,)]
             - str: Type tag for automatic modality routing (default: "note")
 
@@ -79,7 +79,7 @@ class TupleTimeTextProcessor(FeatureProcessor):
         self.type_tag = type_tag
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
 
-    def process(self, value: Tuple[List[str], List[float]]) -> Tuple[Dict[str, Any], Any, str]:
+    def process(self, value: Tuple[List[str], List[float]]) -> Tuple[Any, Any, str]:
         """Process a tuple of texts and time differences.
 
         Tokenizes the text entries using the HuggingFace tokenizer and
@@ -92,15 +92,14 @@ class TupleTimeTextProcessor(FeatureProcessor):
 
         Returns:
             Tuple containing:
-                - dict: Tokenizer output with keys like 'input_ids',
-                    'attention_mask', etc. (padded and truncated)
+                - torch.Tensor: Text Token IDs [shape: (num_texts, max_seq_len)]
                 - torch.Tensor: 1D float tensor of time differences [shape: (N,)]
                 - str: Type tag for modality routing
         """
         texts, time_diffs = value
-        token_ids = self.tokenizer(texts, padding=True, truncation=True, return_tensors="pt")
+        text_token_ids = self.tokenizer(texts, padding=True, truncation=True, return_tensors="pt")["input_ids"]
         time_tensor = torch.tensor(time_diffs, dtype=torch.float32)
-        return token_ids, time_tensor, self.type_tag
+        return text_token_ids, time_tensor, self.type_tag
 
     def size(self):
         """Return the vocabulary size of the tokenizer."""
