@@ -518,7 +518,7 @@ class BaseDataset(ABC):
         self._main_guard(type(self).global_event_df.fget.__name__) # type: ignore
 
         if self._global_event_df is None:
-            ret_path = self.cache_dir / f"global_event_df.parquet"
+            ret_path = self.cache_dir / "global_event_df.parquet"
             if not ret_path.exists():
                 logger.info(f"No cached event dataframe found. Creating: {ret_path}")
                 self._event_transform(ret_path)
