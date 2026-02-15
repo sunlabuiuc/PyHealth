@@ -38,3 +38,4 @@ We implement the following models for supporting multiple healthcare predictive 
     models/pyhealth.models.SDOH
     models/pyhealth.models.VisionEmbeddingModel
     models/pyhealth.models.TextEmbedding
+    models/pyhealth.models.BIOT

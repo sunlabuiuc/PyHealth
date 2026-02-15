@@ -1,4 +1,4 @@
-pyhealth.models.biot
+pyhealth.models.BIOT
 ===================================
 
 BIOT model for EEG signal classification.
