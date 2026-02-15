@@ -168,3 +168,13 @@ class TokenProcessorInterface(ABC):
     def add(self, tokens: set[str]):
         """Add specified vocabularies to the processor."""
         pass
+    
+    @abstractmethod
+    def tokens(self) -> set[str]:
+        """Return the set of tokens in the processor's vocabulary."""
+        pass
+    
+    @abstractmethod
+    def num_tokens(self) -> int:
+        """Return the size of the processor's vocabulary."""
+        pass
