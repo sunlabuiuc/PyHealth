@@ -361,8 +361,10 @@ class CBraMod_Wrapper(BaseModel):
                  **kwargs):
         super().__init__(dataset=dataset)
         
-        self.cbramod = CBraMod(in_dim=in_dim, emb_size=emb_size, dim_feedforward=dim_feedforward, seq_len=seq_len, n_layer=n_layer,
+        self.cbramod = CBraMod(in_dim=in_dim, d_model=emb_size, dim_feedforward=dim_feedforward, seq_len=seq_len, n_layer=n_layer,
                     nhead=nhead)
+        self.classifier_head = classifier_head
+        
         if classifier_head:
             self.pool = nn.Sequential(nn.AdaptiveAvgPool2d((1, 1)))
             self.flatten = nn.Flatten(start_dim=1)
@@ -421,3 +423,88 @@ class CBraMod_Wrapper(BaseModel):
         print(f"Loaded pretrained weights from {path}")
 
 
+
+if __name__ == "__main__":
+    from pyhealth.datasets import create_sample_dataset, get_dataloader
+    
+    print("Testing CBraMod model...")
+    
+    n_channels = 16
+    n_time = 10
+    patch_size = 200
+    n_samples = patch_size * n_time  # 2000
+    
+    # Create sample dataset
+    samples = [
+        {
+            "patient_id": f"patient-{i}",
+            "visit_id": "visit-0",
+            "signal": torch.randn(n_channels, n_samples).numpy().tolist(),
+            "label": i % 6,
+        }
+        for i in range(4)
+    ]
+    
+    dataset = create_sample_dataset(
+        samples=samples,
+        input_schema={"signal": "tensor"},
+        output_schema={"label": "multiclass"},
+        dataset_name="test_cbramod",
+    )
+    
+    # Use small model for quick testing
+    model = CBraMod_Wrapper(
+        dataset=dataset,
+        in_dim=200,
+        emb_size=200,
+        dim_feedforward=800,
+        seq_len=n_time,
+        n_layer=2,  # small for testing
+        nhead=8,
+        classifier_head=True,
+        n_classes=6,
+    )
+    print(f"✓ Created CBraMod_Wrapper")
+    
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"  Total params: {total_params:,}")
+    print(f"  Trainable params: {trainable_params:,}")
+    
+    # Forward pass
+    train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
+    data_batch = next(iter(train_loader))
+    
+    with torch.no_grad():
+        ret = model(**data_batch)
+    
+    print(f"✓ Forward pass:")
+    print(f"  Loss: {ret['loss'].item():.4f}")
+    print(f"  Logit shape: {ret['logit'].shape}")
+    print(f"  y_prob shape: {ret['y_prob'].shape}")
+    print(f"  y_true shape: {ret['y_true'].shape}")
+    print(f"  Embeddings shape: {ret['embeddings'].shape}")
+    
+    # Backward pass
+    ret2 = model(**data_batch)
+    ret2["loss"].backward()
+    has_grad = any(p.grad is not None for p in model.parameters() if p.requires_grad)
+    print(f"✓ Backward pass: gradients={'yes' if has_grad else 'no'}")
+    
+    # Test without classifier
+    model_no_cls = CBraMod_Wrapper(
+        dataset=dataset,
+        in_dim=200,
+        emb_size=200,
+        dim_feedforward=800,
+        seq_len=n_time,
+        n_layer=2,
+        nhead=8,
+        classifier_head=False,
+        n_classes=6,
+    )
+    with torch.no_grad():
+        ret3 = model_no_cls(**data_batch)
+    print(f"✓ Encoder-only mode: embeddings shape = {ret3['embeddings'].shape}")
+    
+    print("\n✓ All tests passed!")
