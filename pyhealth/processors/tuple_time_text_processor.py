@@ -8,9 +8,9 @@ Input/Output:
     Input:  Tuple[List[str], List[float]]
             - List[str]: Clinical text entries (e.g., discharge notes, progress notes)
             - List[float]: Time differences between entries (in any time unit)
-    
-    Output: Tuple[bytes, torch.Tensor, str]
-            - bytes: Pickle-serialized list of text entries
+
+    Output: Tuple[dict, torch.Tensor, str]
+            - dict: HuggingFace tokenizer output (input_ids, attention_mask, etc.)
             - torch.Tensor: 1D float tensor of time differences [shape: (N,)]
             - str: Type tag for automatic modality routing (default: "note")
 
@@ -18,18 +18,18 @@ Use Case:
     This processor enables automatic modality bucketing in multimodal pipelines.
     The type_tag allows downstream models to automatically route different feature
     types to appropriate encoders without hardcoding feature names:
-    
+
     - type_tag="note" routes to text encoder
     - type_tag="image" routes to vision encoder
     - type_tag="ehr" routes to EHR encoder
-    
+
     This design eliminates the need to manually map task schema feature_keys to
     specific model components.
 
 Example:
     >>> from pyhealth.processors import TupleTimeTextProcessor
-    >>> processor = TupleTimeTextProcessor(type_tag="note")
-    >>> 
+    >>> processor = TupleTimeTextProcessor(type_tag="note", tokenizer_name="bert-base-uncased")
+    >>>
     >>> # Clinical notes with time differences
     >>> texts = [
     ...     "Patient admitted with chest pain.",
@@ -37,22 +37,24 @@ Example:
     ...     "Discharge: stable condition."
     ... ]
     >>> time_diffs = [0.0, 2.5, 5.0]  # hours since admission
-    >>> 
+    >>>
     >>> result = processor.process((texts, time_diffs))
-    >>> texts_bytes, time_tensor, tag = result
-    >>> print(f"Texts: {pickle.loads(texts_bytes)}")
+    >>> token_ids, time_tensor, tag = result
+    >>> print(f"Token IDs shape: {token_ids['input_ids'].shape}")
     >>> print(f"Time tensor: {time_tensor}")
     >>> print(f"Type tag: {tag}")
-    
+
 Args:
     type_tag (str): Modality identifier for automatic routing in multimodal
         models. Common values: "note", "image", "ehr", "signal".
         Default: "note"
+    tokenizer_name (str): HuggingFace model name for the tokenizer.
+        Default: "bert-base-uncased"
 """
 
-from typing import Any, List, Tuple
-import pickle
+from typing import Any, Dict, List, Tuple
 import torch
+from transformers import AutoTokenizer
 from .base_processor import FeatureProcessor
 from . import register_processor
 
@@ -60,26 +62,28 @@ from . import register_processor
 @register_processor("tuple_time_text")
 class TupleTimeTextProcessor(FeatureProcessor):
     """Processes (text, time_diff) tuples for multimodal temporal fusion.
-    
-    Converts paired text and temporal data into a format suitable for models
-    that need to distinguish between different modality types automatically.
+
+    Tokenizes text entries using a HuggingFace tokenizer and converts
+    temporal data into tensors for downstream model consumption.
     """
-    
-    def __init__(self, type_tag: str = "note"):
+
+    def __init__(self, type_tag: str = "note", tokenizer_name: str = "bert-base-uncased"):
         """Initialize the processor.
-        
+
         Args:
             type_tag: Modality identifier for automatic routing. Default: "note"
+            tokenizer_name: HuggingFace model name for the tokenizer.
+                Default: "bert-base-uncased"
         """
         super().__init__()
         self.type_tag = type_tag
+        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
 
-    def process(self, value: Tuple[List[str], List[float]]) -> Tuple[bytes, Any, str]:
+    def process(self, value: Tuple[List[str], List[float]]) -> Tuple[Dict[str, Any], Any, str]:
         """Process a tuple of texts and time differences.
 
-        Pickle-serializes the text entries and converts time differences to a
-        tensor. Downstream code should use pickle.loads() on the first element
-        to recover the original list of strings.
+        Tokenizes the text entries using the HuggingFace tokenizer and
+        converts time differences to a float tensor.
 
         Args:
             value: Tuple containing:
@@ -88,17 +92,19 @@ class TupleTimeTextProcessor(FeatureProcessor):
 
         Returns:
             Tuple containing:
-                - bytes: Pickle-serialized text entries
+                - dict: Tokenizer output with keys like 'input_ids',
+                    'attention_mask', etc. (padded and truncated)
                 - torch.Tensor: 1D float tensor of time differences [shape: (N,)]
                 - str: Type tag for modality routing
         """
         texts, time_diffs = value
+        token_ids = self.tokenizer(texts, padding=True, truncation=True, return_tensors="pt")
         time_tensor = torch.tensor(time_diffs, dtype=torch.float32)
-        return pickle.dumps(texts), time_tensor, self.type_tag 
-    
+        return token_ids, time_tensor, self.type_tag
+
     def size(self):
-        """Return the size of the processor vocabulary (not applicable for this processor)."""
-        return None
-    
+        """Return the vocabulary size of the tokenizer."""
+        return self.tokenizer.vocab_size
+
     def __repr__(self):
-        return f"TupleTimeTextProcessor(type_tag='{self.type_tag}')"
+        return f"TupleTimeTextProcessor(type_tag='{self.type_tag}', tokenizer='{self.tokenizer.name_or_path}')"
