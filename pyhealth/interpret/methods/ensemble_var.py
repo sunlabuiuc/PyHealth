@@ -15,7 +15,7 @@ from .base_ensemble import BaseInterpreterEnsemble
 from .base_interpreter import BaseInterpreter
 
 
-class VarInterpreterEnsemble(BaseInterpreterEnsemble):
+class VarEnsemble(BaseInterpreterEnsemble):
     """Ensemble interpreter using variance-weighted averaging (AGGVar).
 
     Computes the consensus attribution by dividing the mean of the
@@ -39,7 +39,7 @@ class VarInterpreterEnsemble(BaseInterpreterEnsemble):
     Example:
         >>> from pyhealth.interpret.methods import IntegratedGradients, DeepLift, LimeExplainer
         >>> experts = [IntegratedGradients(model), DeepLift(model), LimeExplainer(model)]
-        >>> ensemble = VarInterpreterEnsemble(model, experts)
+        >>> ensemble = VarEnsemble(model, experts)
         >>> attrs = ensemble.attribute(**batch)
     """
 

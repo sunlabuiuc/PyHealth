@@ -14,7 +14,7 @@ from .base_ensemble import BaseInterpreterEnsemble
 from .base_interpreter import BaseInterpreter
 
 
-class AvgInterpreterEnsemble(BaseInterpreterEnsemble):
+class AvgEnsemble(BaseInterpreterEnsemble):
     """Ensemble interpreter using uniform averaging (AGGMean / Borda).
 
     Computes the consensus attribution as the simple arithmetic mean
@@ -48,7 +48,7 @@ class AvgInterpreterEnsemble(BaseInterpreterEnsemble):
     Example:
         >>> from pyhealth.interpret.methods import IntegratedGradients, DeepLift, LimeExplainer
         >>> experts = [IntegratedGradients(model), DeepLift(model), LimeExplainer(model)]
-        >>> ensemble = AvgInterpreterEnsemble(model, experts)
+        >>> ensemble = AvgEnsemble(model, experts)
         >>> attrs = ensemble.attribute(**batch)
     """
 

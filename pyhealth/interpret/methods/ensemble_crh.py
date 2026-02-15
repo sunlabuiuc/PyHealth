@@ -14,7 +14,7 @@ from .base_ensemble import BaseInterpreterEnsemble
 from .base_interpreter import BaseInterpreter
 
 
-class CrhInterpreterEnsemble(BaseInterpreterEnsemble):
+class CrhEnsemble(BaseInterpreterEnsemble):
     """Ensemble interpreter using Conflict Resolution on Heterogeneous data (CRH).
 
     Iteratively estimates a consensus attribution by reweighting experts
@@ -49,7 +49,7 @@ class CrhInterpreterEnsemble(BaseInterpreterEnsemble):
     Example:
         >>> from pyhealth.interpret.methods import GradientShap, IntegratedGradients, Saliency
         >>> experts = [GradientShap(model), IntegratedGradients(model), Saliency(model)]
-        >>> ensemble = CrhInterpreterEnsemble(model, experts, n_iter=30)
+        >>> ensemble = CrhEnsemble(model, experts, n_iter=30)
         >>> attrs = ensemble.attribute(**batch)
     """
 

@@ -8,9 +8,9 @@ from pyhealth.interpret.methods.ig_gim import IntegratedGradientGIM
 from pyhealth.interpret.methods.integrated_gradients import IntegratedGradients
 from pyhealth.interpret.methods.shap import ShapExplainer
 from pyhealth.interpret.methods.lime import LimeExplainer
-from pyhealth.interpret.methods.ensemble_crh import CrhInterpreterEnsemble
-from pyhealth.interpret.methods.ensemble_avg import AvgInterpreterEnsemble
-from pyhealth.interpret.methods.ensemble_var import VarInterpreterEnsemble
+from pyhealth.interpret.methods.ensemble_crh import CrhEnsemble
+from pyhealth.interpret.methods.ensemble_avg import AvgEnsemble
+from pyhealth.interpret.methods.ensemble_var import VarEnsemble
 
 __all__ = [
     "BaseInterpreter",
@@ -23,7 +23,7 @@ __all__ = [
     "RandomBaseline",
     "ShapExplainer",
     "LimeExplainer",
-    "CrhInterpreterEnsemble",
-    "AvgInterpreterEnsemble",
-    "VarInterpreterEnsemble"
+    "CrhEnsemble",
+    "AvgEnsemble",
+    "VarEnsemble"
 ]
