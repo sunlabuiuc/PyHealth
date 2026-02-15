@@ -30,6 +30,16 @@ class AddSTFTDataset:
         self.input_schema = {**getattr(base, "input_schema", {}), "stft": "tensor"}
         self.output_schema = getattr(base, "output_schema", {})
 
+    @property
+    def output_processors(self):
+        """Forward so BaseModel.get_output_size() works (TFMTokenizer/ContraWR)."""
+        return getattr(self._base, "output_processors", {})
+
+    @property
+    def input_processors(self):
+        """Forward in case the model reads input_processors."""
+        return getattr(self._base, "input_processors", {})
+
     def __len__(self) -> int:
         return len(self._base)
 
