@@ -807,6 +807,9 @@ class TFMTokenizer(BaseModel):
             "tokens": tokens,
             "embeddings": quant_out,
         }
+        if kwargs.get("embed", False):
+            # Mean-pool over sequence for compatibility with extract_embeddings (expects 2D)
+            results["embed"] = quant_out.mean(dim=1)
 
         if self.use_classifier and len(self.label_keys) > 0:
             label_key = self.label_keys[0]

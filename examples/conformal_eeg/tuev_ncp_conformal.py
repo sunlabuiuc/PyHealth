@@ -24,6 +24,10 @@ import random
 import sys
 from pathlib import Path
 
+_script_dir = Path(__file__).resolve().parent
+if str(_script_dir) not in sys.path:
+    sys.path.insert(0, str(_script_dir))
+
 import numpy as np
 import torch
 
@@ -48,9 +52,10 @@ class _Tee:
 from pyhealth.calib.predictionset.cluster import NeighborhoodLabel
 from pyhealth.calib.utils import extract_embeddings
 from pyhealth.datasets import TUEVDataset, get_dataloader, split_by_sample_conformal
-from pyhealth.models import ContraWR
 from pyhealth.tasks import EEGEventsTUEV
 from pyhealth.trainer import Trainer, get_metrics_fn
+
+from model_utils import AddSTFTDataset, get_model
 
 
 def parse_args() -> argparse.Namespace:
@@ -106,7 +111,8 @@ def parse_args() -> argparse.Namespace:
         default=100.0,
         help="Temperature for NCP exponential weights; smaller => more localization.",
     )
-    parser.add_argument("--n-fft", type=int, default=128, help="STFT FFT size used by ContraWR.")
+    parser.add_argument("--n-fft", type=int, default=128, help="STFT FFT size (ContraWR and TFM-Tokenizer).")
+    parser.add_argument("--model", type=str, default="contrawr", choices=["contrawr", "tfm"], help="Backbone: contrawr or tfm (TFM-Tokenizer).")
     parser.add_argument(
         "--device",
         type=str,
@@ -175,9 +181,10 @@ def _run_one_ncp(
     val_loader = get_dataloader(val_ds, batch_size=args.batch_size, shuffle=False) if len(val_ds) else None
 
     print("\n" + "=" * 80)
-    print("STEP 3: Train ContraWR")
+    model_name = "TFM-Tokenizer" if args.model.lower() == "tfm" else "ContraWR"
+    print(f"STEP 3: Train {model_name}")
     print("=" * 80)
-    model = ContraWR(dataset=sample_dataset, n_fft=args.n_fft).to(device)
+    model = get_model(args, sample_dataset, device)
     trainer = Trainer(model=model, device=device, enable_logging=False)
     trainer.train(
         train_dataloader=train_loader,
@@ -294,6 +301,9 @@ def _run(args: argparse.Namespace) -> None:
     if args.quick_test and len(sample_dataset) > quick_test_max_samples:
         sample_dataset = sample_dataset.subset(range(quick_test_max_samples))
         print(f"Capped to {quick_test_max_samples} samples for quick-test.")
+    if args.model.lower() == "tfm":
+        sample_dataset = AddSTFTDataset(sample_dataset, n_fft=args.n_fft)
+        print("Wrapped dataset with STFT for TFM-Tokenizer.")
 
     print(f"Task samples: {len(sample_dataset)}")
     print(f"Input schema: {sample_dataset.input_schema}")
