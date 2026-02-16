@@ -810,6 +810,22 @@ class BaseDataset(ABC):
         finally:
             self.clean_tmpdir()
 
+    def _get_task_cache_dir(self, task: BaseTask) -> Path:
+        """Generate the default cache directory path for a task.
+
+        Args:
+            task (BaseTask): The task for which to generate the cache directory path.
+
+        Returns:
+            Path: The default cache directory path for the task.
+        """
+        task_params = json.dumps(
+            vars(task),
+            sort_keys=True,
+            default=str
+        )
+        return self.cache_dir / "tasks" / f"{task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params)}"
+
     def set_task(
         self,
         task: Optional[BaseTask] = None,
@@ -864,14 +880,8 @@ class BaseDataset(ABC):
             f"Setting task {task.task_name} for {self.dataset_name} base dataset..."
         )
 
-        task_params = json.dumps(
-            vars(task),
-            sort_keys=True,
-            default=str
-        )
-
         if cache_dir is None:
-            cache_dir = self.cache_dir / "tasks" / f"{task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params)}"
+            cache_dir = self._get_task_cache_dir(task)
             cache_dir.mkdir(parents=True, exist_ok=True)
         else:
             # Ensure the explicitly provided cache_dir exists
@@ -952,6 +962,77 @@ class BaseDataset(ABC):
             dataset_name=self.dataset_name,
             task_name=task.task_name,
         )
+
+    def clear_cache(self) -> None:
+        """Clears the entire dataset cache, including global event data and all task caches.
+
+        This method removes:
+        - The global event dataframe cache (global_event_df.parquet)
+        - All task-specific caches in the tasks/ directory
+        - Temporary files in the tmp/ directory
+
+        After calling this method, the dataset will need to be reprocessed from
+        scratch the next time it is accessed.
+
+        Note:
+            This operation cannot be undone. Use with caution.
+        """
+        cache_path = self.cache_dir
+
+        if cache_path.exists():
+            logger.info(f"Clearing entire dataset cache at {cache_path}")
+            try:
+                shutil.rmtree(cache_path)
+                logger.info(f"Successfully cleared dataset cache at {cache_path}")
+
+                # Reset cached attributes since the cache has been cleared
+                self._cache_dir = None
+                self._global_event_df = None
+                self._unique_patient_ids = None
+            except Exception as e:
+                logger.error(f"Failed to clear cache at {cache_path}: {e}")
+                raise
+        else:
+            logger.info(f"No cache found at {cache_path}, nothing to clear")
+
+    def clear_task_cache(self, task: Optional[BaseTask] = None) -> None:
+        """Clears the default cache directory for a specific task.
+
+        This method removes only the default task-specific cache directory for the given task,
+        preserving the global event dataframe cache and other task caches.
+
+        Note that if set_task was called with a custom cache_dir parameter, that cache
+        will not be cleared by this method. This only clears the default cache location
+        at {self.cache_dir}/tasks/{task_name}_{uuid5(vars(task))}.
+
+        Args:
+            task (Optional[BaseTask]): The task whose default cache should be cleared.
+                If None, uses the default task.
+
+        Raises:
+            AssertionError: If no default task is found and task is None.
+
+        Note:
+            This operation cannot be undone. The task cache will need to be
+            regenerated the next time set_task is called with this task.
+        """
+        if task is None:
+            assert self.default_task is not None, "No default task found"
+            task = self.default_task
+
+        # Use the same helper method as set_task to ensure consistency
+        task_cache_dir = self._get_task_cache_dir(task)
+
+        if task_cache_dir.exists():
+            logger.info(f"Clearing task cache for '{task.task_name}' at {task_cache_dir}")
+            try:
+                shutil.rmtree(task_cache_dir)
+                logger.info(f"Successfully cleared task cache for '{task.task_name}'")
+            except Exception as e:
+                logger.error(f"Failed to clear task cache at {task_cache_dir}: {e}")
+                raise
+        else:
+            logger.info(f"No cache found for task '{task.task_name}' at {task_cache_dir}, nothing to clear")
 
     def _main_guard(self, func_name: str):
         """Warn if method is accessed from a non-main process."""
