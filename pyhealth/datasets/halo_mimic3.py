@@ -34,8 +34,9 @@ class HALO_MIMIC3Dataset:
         self.build_dataset()
 
     def build_dataset(self) -> None:
-        admissionFile = self.mimic3_dir + f"ADMISSIONS.csv{'.gz' if self.gzip else ''}"
-        diagnosisFile = self.mimic3_dir + f"DIAGNOSES_ICD.csv{'.gz' if self.gzip else ''}"
+        import os
+        admissionFile = os.path.join(self.mimic3_dir, f"ADMISSIONS.csv{'.gz' if self.gzip else ''}")
+        diagnosisFile = os.path.join(self.mimic3_dir, f"DIAGNOSES_ICD.csv{'.gz' if self.gzip else ''}")
 
         admissionDf = pd.read_csv(admissionFile, dtype=str)
         admissionDf['ADMITTIME'] = pd.to_datetime(admissionDf['ADMITTIME'])
