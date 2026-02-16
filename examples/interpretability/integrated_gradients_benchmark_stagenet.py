@@ -37,7 +37,6 @@ CHECKPOINT_PATH = (
     "20260131-184735/best.ckpt"
 )
 PROCESSOR_DIR = "../output/processors/stagenet_mortality_mimic4"
-CACHE_DIR = "../../mimic4_stagenet_cache"
 
 
 def main():
@@ -85,7 +84,6 @@ def main():
     sample_dataset = base_dataset.set_task(
         MortalityPredictionStageNetMIMIC4(),
         num_workers=8,
-        cache_dir=CACHE_DIR,
         input_processors=input_processors,
         output_processors=output_processors,
     )

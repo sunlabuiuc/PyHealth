@@ -26,7 +26,7 @@ if __name__ == "__main__":
 
     # Apply multimodal task
     task = MultimodalMortalityPredictionMIMIC4()
-    samples = dataset.set_task(task, cache_dir=f"{CACHE_DIR}/task", num_workers=8)
+    samples = dataset.set_task(task, num_workers=8)
 
     # Get and print sample
     sample = samples[0]

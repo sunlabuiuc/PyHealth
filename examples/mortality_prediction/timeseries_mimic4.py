@@ -10,7 +10,7 @@ if __name__ == "__main__":
     from pyhealth.tasks import InHospitalMortalityMIMIC4
 
     task = InHospitalMortalityMIMIC4()
-    samples = dataset.set_task(task, num_workers=2, cache_dir="../benchmark_cache/mimic4_ihm/")
+    samples = dataset.set_task(task, num_workers=2)
 
     from pyhealth.datasets import split_by_sample
 

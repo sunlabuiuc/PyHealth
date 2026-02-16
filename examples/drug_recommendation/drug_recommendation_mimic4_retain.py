@@ -35,7 +35,6 @@ base_dataset = MIMIC4Dataset(
 sample_dataset = base_dataset.set_task(
     DrugRecommendationMIMIC4(),
     num_workers=4,
-    cache_dir="../../mimic4_drug_rec_cache",
 )
 
 print(f"Total samples: {len(sample_dataset)}")
