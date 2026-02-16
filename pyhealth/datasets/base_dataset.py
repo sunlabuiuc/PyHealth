@@ -125,17 +125,17 @@ def _litdata_merge(cache_dir: Path) -> None:
     """
     from litdata.streaming.writer import _INDEX_FILENAME
     files = os.listdir(cache_dir)
-    
+
     # Return if the index already exists
     if _INDEX_FILENAME in files:
         return
 
     index_files = [f for f in files if f.endswith(_INDEX_FILENAME)]
-    
+
     # Return if there are no index files to merge
     if len(index_files) == 0:
         raise ValueError("There are zero samples in the dataset, please check the task and processors.")
-    
+
     BinaryWriter(cache_dir=str(cache_dir), chunk_bytes="64MB").merge(num_workers=len(index_files))
 
 
@@ -309,6 +309,14 @@ class BaseDataset(ABC):
             tables (List[str]): List of table names to load.
             dataset_name (Optional[str]): Name of the dataset. Defaults to class name.
             config_path (Optional[str]): Path to the configuration YAML file.
+            cache_dir (Optional[str | Path]): Directory for caching processed data.
+                Behavior depends on the type passed:
+
+                - **None** (default): Auto-generates a cache path under the default
+                  pyhealth cache directory.
+                - **str** or **Path**: Used as the root cache directory path. A UUID
+                  is appended to the provided path to capture dataset configuration.
+            num_workers (int): Number of worker processes for parallel operations.
             dev (bool): Whether to run in dev mode (limits to 1000 patients).
         """
         if len(set(tables)) != len(tables):
@@ -326,44 +334,55 @@ class BaseDataset(ABC):
         )
 
         # Cached attributes
-        self._cache_dir = cache_dir
+        self.cache_dir = self._init_cache_dir(cache_dir)
         self._global_event_df = None
         self._unique_patient_ids = None
 
-    @property
-    def cache_dir(self) -> Path:
+    def _init_cache_dir(self, cache_dir: str | Path | None) -> Path:
         """Returns the cache directory path.
-        The cache structure is as follows::
 
-            tmp/                     # Temporary files during processing
-            global_event_df.parquet/ # Cached global event dataframe
-            tasks/                   # Cached task-specific data, please see set_task method
+        The cache directory is determined by the type of ``cache_dir`` passed
+        to ``__init__``:
+
+        - **None**: Auto-generated under default pyhealth cache directory.
+        - **str** or **Path: Used as the root cache directory path. A UUID
+          is appended to the provided path to capture dataset configuration.
+
+        The cache structure within the directory is::
+
+            {dataset_uuid}/                         # Cache files for this dataset configuration
+                tmp/                                # Temporary files during processing
+                global_event_df.parquet/            # Cached global event dataframe
+                tasks/                              # Cached task-specific data
+                    {task_name}_{task_uuid}/        # Cached data for specific task based on task name, schema, and args
+                        task_df.ld/                 # Intermediate task dataframe based on schema
+                        samples_{proc_uuid}.ld/     # Final processed samples after applying processors
 
         Returns:
-            Path: The cache directory path.
+            Path: The resolved cache directory path.
         """
-        if self._cache_dir is None:
-            id_str = json.dumps(
-                {
-                    "root": self.root,
-                    "tables": sorted(self.tables),
-                    "dataset_name": self.dataset_name,
-                    "dev": self.dev,
-                },
-                sort_keys=True,
-            )
-            cache_dir = Path(platformdirs.user_cache_dir(appname="pyhealth")) / str(
-                uuid.uuid5(uuid.NAMESPACE_DNS, id_str)
-            )
+        id_str = json.dumps(
+            {
+                "root": str(self.root),
+                "tables": sorted(self.tables),
+                "dataset_name": self.dataset_name,
+                "dev": self.dev,
+            },
+            sort_keys=True,
+        )
+
+        id = str(uuid.uuid5(uuid.NAMESPACE_DNS, id_str))
+
+        if cache_dir is None:
+            cache_dir = Path(platformdirs.user_cache_dir(appname="pyhealth")) / id
             cache_dir.mkdir(parents=True, exist_ok=True)
             logger.info(f"No cache_dir provided. Using default cache dir: {cache_dir}")
-            self._cache_dir = cache_dir
         else:
-            # Ensure the explicitly provided cache_dir exists
-            cache_dir = Path(self._cache_dir)
+            # Ensure separate cache directories for different table configurations by appending a UUID suffix
+            cache_dir = Path(cache_dir) / id
             cache_dir.mkdir(parents=True, exist_ok=True)
-            self._cache_dir = cache_dir
-        return Path(self._cache_dir)
+            logger.info(f"Using provided cache_dir: {cache_dir}")
+        return Path(cache_dir)
 
     def create_tmpdir(self) -> Path:
         """Creates and returns a new temporary directory within the cache.
@@ -501,7 +520,10 @@ class BaseDataset(ABC):
         if self._global_event_df is None:
             ret_path = self.cache_dir / "global_event_df.parquet"
             if not ret_path.exists():
+                logger.info(f"No cached event dataframe found. Creating: {ret_path}")
                 self._event_transform(ret_path)
+            else:
+                logger.info(f"Found cached event dataframe: {ret_path}")
             self._global_event_df = ret_path
 
         return pl.scan_parquet(
@@ -814,27 +836,21 @@ class BaseDataset(ABC):
         self,
         task: Optional[BaseTask] = None,
         num_workers: Optional[int] = None,
-        cache_dir: str | Path | None = None,
-        cache_format: str = "parquet",
         input_processors: Optional[Dict[str, FeatureProcessor]] = None,
         output_processors: Optional[Dict[str, FeatureProcessor]] = None,
     ) -> SampleDataset:
         """Processes the base dataset to generate the task-specific sample dataset.
         The cache structure is as follows::
 
-            task_df.ld/ # Intermediate task dataframe after task transformation
-            samples_{uuid}.ld/  # Final processed samples after applying processors
-                schema.pkl      # Saved SampleBuilder schema
-                *.bin           # Processed sample files
-            samples_{uuid}.ld/
-                ...
+            {task_name}_{task_uuid}/        # Cached data for specific task based on task name, schema, and args
+                task_df.ld/                 # Intermediate task dataframe based on schema
+                samples_{proc_uuid}.ld/     # Final processed samples after applying processors
+                    schema.pkl              # Saved SampleBuilder schema
+                    *.bin                   # Processed sample files
 
         Args:
             task (Optional[BaseTask]): The task to set. Uses default task if None.
             num_workers (int): Number of workers for multi-threading. Default is `self.num_workers`.
-            cache_dir (Optional[str]): Directory to cache samples after task transformation,
-                but without applying processors. Default is {self.cache_dir}/tasks/{task_name}_{uuid5(vars(task))}.
-            cache_format (str): Deprecated. Only "parquet" is supported now.
             input_processors (Optional[Dict[str, FeatureProcessor]]):
                 Pre-fitted input processors. If provided, these will be used
                 instead of creating new ones from task's input_schema. Defaults to None.
@@ -857,31 +873,25 @@ class BaseDataset(ABC):
         if num_workers is None:
             num_workers = self.num_workers
 
-        if cache_format != "parquet":
-            logger.warning("Only 'parquet' cache_format is supported now. ")
-
         logger.info(
             f"Setting task {task.task_name} for {self.dataset_name} base dataset..."
         )
 
         task_params = json.dumps(
-            vars(task),
+            {
+                **vars(task),
+                "input_schema": task.input_schema,
+                "output_schema": task.output_schema,
+            },
             sort_keys=True,
             default=str
         )
 
-        if cache_dir is None:
-            cache_dir = self.cache_dir / "tasks" / f"{task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params)}"
-            cache_dir.mkdir(parents=True, exist_ok=True)
-        else:
-            # Ensure the explicitly provided cache_dir exists
-            cache_dir = Path(cache_dir)
-            cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_dir = self.cache_dir / "tasks" / f"{task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params)}"
+        cache_dir.mkdir(parents=True, exist_ok=True)
 
         proc_params = json.dumps(
             {
-                "input_schema": task.input_schema,
-                "output_schema": task.output_schema,
                 "input_processors": (
                     {
                         f"{k}_{v.__class__.__name__}": vars(v)
@@ -906,9 +916,11 @@ class BaseDataset(ABC):
         task_df_path = Path(cache_dir) / "task_df.ld"
         samples_path = Path(cache_dir) / f"samples_{uuid.uuid5(uuid.NAMESPACE_DNS, proc_params)}.ld"
 
+        logger.info(f"Task cache paths: task_df={task_df_path}, samples={samples_path}")
+
         task_df_path.mkdir(parents=True, exist_ok=True)
         samples_path.mkdir(parents=True, exist_ok=True)
-        
+
         if not (samples_path / "index.json").exists():
             # Check if index.json exists to verify cache integrity, this
             # is the standard file for litdata.StreamingDataset
