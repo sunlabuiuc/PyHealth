@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Run full TFM conformal grid on 8 GPUs (4 alphas × 2 datasets × 4 methods = 32 jobs, 4 waves of 8).
+# Run full TFM conformal grid on 8 GPUs (4 alphas × 2 datasets × 4 methods = 32 jobs).
+# Dynamic assignment: first free GPU takes the next job (faster when runtimes vary).
 # Usage: set TOK, TUEV_CLF, TUAB_CLF below, then: bash run_tfm_grid_8gpu.sh
 # From repo root: bash examples/conformal_eeg/run_tfm_grid_8gpu.sh
 
@@ -34,7 +35,6 @@ run_one() {
     --tfm-tokenizer-checkpoint "$TOK" \
     --tfm-classifier-checkpoint "$clf_path" \
     --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 \
-    --cache-dir "$LOG_DIR/cache_gpu${gpu}" \
     --log-file "$LOG_DIR/${method}_${dataset}_alpha${alpha}.log"
 }
 
@@ -47,17 +47,33 @@ for method in naive kde kmeans ncp; do
     done
   done
 done
-
-# Run 8 at a time (one per GPU)
 total=${#jobs[@]}
-for ((i = 0; i < total; i += 8)); do
-  pids=()
-  for ((j = 0; j < 8 && i + j < total; j++)); do
-    read -r method dataset alpha <<< "${jobs[i+j]}"
-    run_one "$j" "$method" "$dataset" "$alpha" &
-    pids+=($!)
+
+# Dynamic assignment: shared job counter, first free GPU claims next job
+NEXT_JOB_FILE=$(mktemp)
+LOCK_FILE=$(mktemp)
+echo 0 > "$NEXT_JOB_FILE"
+cleanup() { rm -f "$NEXT_JOB_FILE" "$LOCK_FILE"; }
+trap cleanup EXIT
+
+claim_next_index() {
+  # Hold lock for the whole read-increment-write so claim is atomic
+  flock 200 bash -c "read -r idx < \"$NEXT_JOB_FILE\"; echo \$((idx + 1)) > \"$NEXT_JOB_FILE\"; printf '%s\n' \"\$idx\""
+} 200>>"$LOCK_FILE"
+
+worker() {
+  local gpu=$1
+  while true; do
+    local job_idx
+    job_idx=$(claim_next_index)
+    [[ "$job_idx" -ge "$total" ]] && break
+    read -r method dataset alpha <<< "${jobs[job_idx]}"
+    run_one "$gpu" "$method" "$dataset" "$alpha"
   done
-  for pid in "${pids[@]}"; do wait "$pid"; done
-  echo "Finished batch $((i/8 + 1))/4"
+}
+
+for gpu in 0 1 2 3 4 5 6 7; do
+  worker "$gpu" &
 done
+wait
 echo "All 32 jobs done. Logs in $LOG_DIR"
