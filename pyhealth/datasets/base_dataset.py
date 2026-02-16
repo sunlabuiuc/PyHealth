@@ -836,7 +836,6 @@ class BaseDataset(ABC):
         self,
         task: Optional[BaseTask] = None,
         num_workers: Optional[int] = None,
-        cache_format: str = "parquet",
         input_processors: Optional[Dict[str, FeatureProcessor]] = None,
         output_processors: Optional[Dict[str, FeatureProcessor]] = None,
     ) -> SampleDataset:
@@ -852,7 +851,6 @@ class BaseDataset(ABC):
         Args:
             task (Optional[BaseTask]): The task to set. Uses default task if None.
             num_workers (int): Number of workers for multi-threading. Default is `self.num_workers`.
-            cache_format (str): Deprecated. Only "parquet" is supported now.
             input_processors (Optional[Dict[str, FeatureProcessor]]):
                 Pre-fitted input processors. If provided, these will be used
                 instead of creating new ones from task's input_schema. Defaults to None.
@@ -874,9 +872,6 @@ class BaseDataset(ABC):
 
         if num_workers is None:
             num_workers = self.num_workers
-
-        if cache_format != "parquet":
-            logger.warning("Only 'parquet' cache_format is supported now. ")
 
         logger.info(
             f"Setting task {task.task_name} for {self.dataset_name} base dataset..."
