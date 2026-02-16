@@ -117,6 +117,7 @@ def main():
     print("\n[1/2] Loading MIMIC-IV base dataset...")
     dataset_start = time.time()
 
+    base_cache_dir = f"{cache_root}/base_dataset"
     base_dataset = MIMIC4Dataset(
         ehr_root="/srv/local/data/physionet.org/files/mimiciv/2.2/",
         ehr_tables=[
@@ -127,7 +128,7 @@ def main():
             "labevents",
         ],
         dev=dev,
-        # cache_dir=f"{cache_root}/base_dataset",
+        cache_dir=base_cache_dir,
     )
 
     dataset_time = time.time() - dataset_start
@@ -147,12 +148,10 @@ def main():
 
     # Measure cache sizes
     print("\n[3/3] Measuring cache sizes...")
-    base_cache_dir = f"{cache_root}/base_dataset"
-    task_cache_dir = f"{base_cache_dir}/tasks"
 
-    base_cache_size = get_directory_size(base_cache_dir)
-    task_cache_size = get_directory_size(task_cache_dir)
-    total_cache_size = base_cache_size + task_cache_size
+    total_cache_size = get_directory_size(base_cache_dir)
+    task_cache_size = get_directory_size(f"{base_cache_dir}/tasks")
+    base_cache_size = total_cache_size - task_cache_size
 
     print(f"✓ Base dataset cache: {format_size(base_cache_size)}")
     print(f"✓ Task samples cache: {format_size(task_cache_size)}")
