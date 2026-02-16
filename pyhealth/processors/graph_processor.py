@@ -88,7 +88,7 @@ class GraphProcessor(FeatureProcessor):
         """
         pass
 
-    def process(self, value: Any) -> Data:
+    def process(self, value: Any) -> "Data":
         """Convert a list of medical codes to a PyG subgraph.
 
         Args:
