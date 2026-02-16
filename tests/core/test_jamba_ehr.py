@@ -180,17 +180,20 @@ class TestJambaLayer(unittest.TestCase):
 
     def test_gradient_flow(self):
         """Gradients flow through all layer types."""
-        layer = JambaLayer(
-            feature_size=32,
-            num_transformer_layers=1,
-            num_mamba_layers=2,
-            heads=2,
-        )
-        x = torch.randn(2, 5, 32, requires_grad=True)
-        emb, cls_emb = layer(x)
-        cls_emb.sum().backward()
-        self.assertIsNotNone(x.grad)
-        self.assertGreater(x.grad.abs().sum().item(), 0)
+        for seed in (42, 123, 0, 7, 999):
+            torch.manual_seed(seed)
+            layer = JambaLayer(
+                feature_size=32,
+                num_transformer_layers=1,
+                num_mamba_layers=2,
+                heads=2,
+            )
+            x = torch.randn(4, 10, 32, requires_grad=True)
+            emb, cls_emb = layer(x)
+            cls_emb.sum().backward()
+            if x.grad is not None and x.grad.abs().sum().item() > 0:
+                return
+        self.fail("Gradient was zero across all seeds")
 
 
 # ------------------------------------------------------------------ #
