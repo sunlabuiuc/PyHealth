@@ -125,7 +125,7 @@ class GraphProcessor(FeatureProcessor):
 
         return subgraph
 
-    def _prune(self, data: Data) -> Data:
+    def _prune(self, data: "Data") -> "Data":
         """Prune subgraph to max_nodes, keeping seeds + closest neighbors.
 
         Seed nodes are always retained. Remaining slots are filled by
