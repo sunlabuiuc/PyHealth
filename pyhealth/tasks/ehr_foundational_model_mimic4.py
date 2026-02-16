@@ -100,8 +100,13 @@ class EHRFoundationalModelMIMIC4(BaseTask):
         if len(admissions_to_process) == 0:
             return []
 
-        # Get first admission time as reference for lab time calculations
+        # Get first admission time as reference for notes time offset
         first_admission_time = admissions_to_process[0].timestamp
+
+        # Only for testing (delete later)
+        if first_admission_time is None:
+            print("oops, there are cases without admisison time")
+            sys.exit()
 
         # Aggregated data across all admissions
         all_discharge_notes_timestamped = []  # List of (note_text, timestamp) tuples
