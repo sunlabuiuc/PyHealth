@@ -38,6 +38,7 @@ from .transformer import Transformer, TransformerLayer
 from .transformers_model import TransformersModel
 from .ehrmamba import EHRMamba, MambaBlock
 from .vae import VAE
+from .generators.halo import HALO
 from .vision_embedding import VisionEmbeddingModel
 from .text_embedding import TextEmbedding
 from .sdoh import SdohClassifier
