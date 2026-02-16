@@ -53,6 +53,9 @@ class AddSTFTDataset:
         # Return tensors so get_dataloader's collate stacks them (not list)
         sample["signal"] = torch.from_numpy(signal_1d)
         stft_np = compute_stft(signal_1d, self.n_fft, self.hop_length)
+        # TFM tokenizer expects 100 freq bins; crop if we used n_fft=200 (101 bins)
+        if stft_np.shape[0] > 100:
+            stft_np = stft_np[:100]
         sample["stft"] = torch.from_numpy(stft_np)
         return sample
 
@@ -68,11 +71,10 @@ class AddSTFTDataset:
 def get_model(args, sample_dataset, device: str):
     """Build ContraWR or TFMTokenizer from args.model. Use sample_dataset (possibly AddSTFTDataset for TFM)."""
     if getattr(args, "model", "contrawr").lower() == "tfm":
-        n_fft = getattr(args, "n_fft", 128)
-        n_freq = n_fft // 2 + 1
+        # TFM_VQVAE2_deep expects n_freq=100 and STFT time steps = (L-200)/100+1 (hop=100)
         model = TFMTokenizer(
             dataset=sample_dataset,
-            n_freq=n_freq,
+            n_freq=100,
             emb_size=getattr(args, "tfm_emb_size", 64),
             code_book_size=getattr(args, "tfm_code_book_size", 8192),
         )

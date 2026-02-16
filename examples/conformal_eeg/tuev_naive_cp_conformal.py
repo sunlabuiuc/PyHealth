@@ -199,7 +199,10 @@ def _run(args: argparse.Namespace) -> None:
         sample_dataset = sample_dataset.subset(range(quick_test_max))
         print(f"Capped to {quick_test_max} samples.")
     if args.model.lower() == "tfm":
-        sample_dataset = AddSTFTDataset(sample_dataset, n_fft=args.n_fft)
+        # TFM tokenizer needs n_fft=200, hop_length=100 so STFT time = temporal patches
+        sample_dataset = AddSTFTDataset(
+            sample_dataset, n_fft=200, hop_length=100
+        )
         print("Wrapped dataset with STFT for TFM-Tokenizer.")
     print(f"Task samples: {len(sample_dataset)}")
 
