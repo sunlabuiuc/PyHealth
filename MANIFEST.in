@@ -1,0 +1,4 @@
+include README.rst
+include requirements.txt
+include LICENSE
+recursive-include pyhealth/datasets/configs *.yaml *.yml
