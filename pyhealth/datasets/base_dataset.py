@@ -379,7 +379,11 @@ class BaseDataset(ABC):
         """Cleans up the temporary directory within the cache."""
         tmp_dir = self.cache_dir / "tmp"
         if tmp_dir.exists():
-            shutil.rmtree(tmp_dir)
+            try:
+                shutil.rmtree(tmp_dir)
+            except (FileNotFoundError, OSError):
+                # Ignore if already removed by another process (e.g. parallel grid jobs)
+                pass
 
     def _scan_csv_tsv_gz(
         self, source_path: str

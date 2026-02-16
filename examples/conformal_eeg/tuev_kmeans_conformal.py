@@ -113,6 +113,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Path to log file. Stdout and stderr are teed to this file.",
     )
+    parser.add_argument("--cache-dir", type=str, default=None, help="Per-job cache dir to avoid races when running 8 in parallel.")
     parser.add_argument(
         "--quick-test",
         action="store_true",
@@ -311,12 +312,15 @@ def _run(args: argparse.Namespace) -> None:
     print("=" * 80)
     print(f"STEP 1: Load {dataset_name.upper()} + build task dataset")
     print("=" * 80)
+    cache_base = getattr(args, "cache_dir", None)
     if dataset_name == "tuab":
+        cache_dir = (cache_base.rstrip("/") + "_tuab") if cache_base else "examples/conformal_eeg/cache_tuab"
         dataset = TUABDataset(root=str(root), subset=args.subset, dev=args.quick_test)
-        sample_dataset = dataset.set_task(EEGAbnormalTUAB(), cache_dir="examples/conformal_eeg/cache_tuab")
+        sample_dataset = dataset.set_task(EEGAbnormalTUAB(), cache_dir=cache_dir)
     else:
+        cache_dir = cache_base or "examples/conformal_eeg/cache"
         dataset = TUEVDataset(root=str(root), subset=args.subset, dev=args.quick_test)
-        sample_dataset = dataset.set_task(EEGEventsTUEV(), cache_dir="examples/conformal_eeg/cache")
+        sample_dataset = dataset.set_task(EEGEventsTUEV(), cache_dir=cache_dir)
     if args.quick_test and len(sample_dataset) > quick_test_max_samples:
         sample_dataset = sample_dataset.subset(range(quick_test_max_samples))
         print(f"Capped to {quick_test_max_samples} samples for quick-test.")

@@ -34,6 +34,7 @@ run_one() {
     --tfm-tokenizer-checkpoint "$TOK" \
     --tfm-classifier-checkpoint "$clf_path" \
     --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 \
+    --cache-dir "$LOG_DIR/cache_gpu${gpu}" \
     --log-file "$LOG_DIR/${method}_${dataset}_alpha${alpha}.log"
 }
 
