@@ -224,7 +224,7 @@ def _run_one_kmeans_cp(
     )
 
     print("Evaluating ClusterLabel predictor on test set...")
-    y_true, y_prob, _loss, extra = Trainer(model=cluster_predictor).inference(
+    y_true, y_prob, _loss, extra = Trainer(model=cluster_predictor, enable_logging=False).inference(
         test_loader, additional_outputs=["y_predset"]
     )
 

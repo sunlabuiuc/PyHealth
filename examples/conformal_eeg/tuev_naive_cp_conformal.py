@@ -163,7 +163,7 @@ def _run_one_naive_cp(sample_dataset, train_ds, val_ds, cal_ds, test_loader, arg
     predictor = BaseConformal(model=model, alpha=float(args.alpha))
     predictor.calibrate(cal_dataset=cal_ds)
 
-    y_true, y_prob, _loss, extra = Trainer(model=predictor).inference(test_loader, additional_outputs=["y_predset"])
+    y_true, y_prob, _loss, extra = Trainer(model=predictor, enable_logging=False).inference(test_loader, additional_outputs=["y_predset"])
     metrics = get_metrics_fn(task_mode)(y_true, y_prob, metrics=["accuracy", "miscoverage_ps"], y_predset=extra["y_predset"])
     predset = extra["y_predset"]
     predset_t = torch.tensor(predset) if isinstance(predset, np.ndarray) else predset

@@ -235,7 +235,7 @@ def _run_one_ncp(
     )
     ncp_predictor.calibrate(cal_dataset=cal_ds, cal_embeddings=cal_embeddings)
 
-    y_true, y_prob, _loss, extra = Trainer(model=ncp_predictor).inference(
+    y_true, y_prob, _loss, extra = Trainer(model=ncp_predictor, enable_logging=False).inference(
         test_loader, additional_outputs=["y_predset"]
     )
     ncp_metrics = get_metrics_fn(task_mode)(
