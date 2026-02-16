@@ -26,7 +26,6 @@ from pyhealth.interpret.utils import visualize_image_attr
 DATA_ROOT = "/home/johnwu3/projects/PyHealth_Branch_Testing/datasets"
 ROOT = f"{DATA_ROOT}/COVID-19_Radiography_Dataset"
 CACHE = "/home/johnwu3/projects/covid19cxr_base_cache"
-TASK_CACHE = "/home/johnwu3/projects/covid19cxr_task_cache"
 CKPT = "/home/johnwu3/projects/covid19cxr_vit_model.ckpt"
 SEED = 42
 
