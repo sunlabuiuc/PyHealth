@@ -892,8 +892,6 @@ class BaseDataset(ABC):
 
         proc_params = json.dumps(
             {
-                "input_schema": task.input_schema,
-                "output_schema": task.output_schema,
                 "input_processors": (
                     {
                         f"{k}_{v.__class__.__name__}": vars(v)
