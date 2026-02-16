@@ -51,23 +51,21 @@ class _Tee:
 
 from pyhealth.calib.predictionset.cluster import NeighborhoodLabel
 from pyhealth.calib.utils import extract_embeddings
-from pyhealth.datasets import TUEVDataset, get_dataloader, split_by_sample_conformal
-from pyhealth.tasks import EEGEventsTUEV
+from pyhealth.datasets import TUEVDataset, TUABDataset, get_dataloader, split_by_sample_conformal
+from pyhealth.tasks import EEGEventsTUEV, EEGAbnormalTUAB
 from pyhealth.trainer import Trainer, get_metrics_fn
 
 from model_utils import AddSTFTDataset, get_model
 
+DEFAULT_ROOT = {"tuev": "/srv/local/data/TUH/tuh_eeg_events/v2.0.0/edf", "tuab": "/srv/local/data/TUH/tuh_eeg_abnormal/v3.0.0/edf"}
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Neighborhood conformal prediction (NCP) on TUEV EEG events using ContraWR."
+        description="Neighborhood conformal prediction (NCP) on TUEV/TUAB EEG using ContraWR or TFM."
     )
-    parser.add_argument(
-        "--root",
-        type=str,
-        default="/srv/local/data/TUH/tuh_eeg_events/v2.0.0/edf",
-        help="Path to TUEV edf/ folder.",
-    )
+    parser.add_argument("--dataset", type=str, default="tuev", choices=["tuev", "tuab"], help="EEG dataset: tuev or tuab.")
+    parser.add_argument("--root", type=str, default=None, help="Path to dataset edf/ folder. Default per --dataset.")
     parser.add_argument("--subset", type=str, default="both", choices=["train", "eval", "both"])
     parser.add_argument("--seed", type=int, default=42, help="Run seed (or first of run seeds when n-seeds > 1).")
     parser.add_argument(
@@ -113,6 +111,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--n-fft", type=int, default=128, help="STFT FFT size (ContraWR and TFM-Tokenizer).")
     parser.add_argument("--model", type=str, default="contrawr", choices=["contrawr", "tfm"], help="Backbone: contrawr or tfm (TFM-Tokenizer).")
+    parser.add_argument("--tfm-checkpoint", type=str, default=None, help="Path to TFM checkpoint (full model or tokenizer). Use {seed} for per-seed paths.")
+    parser.add_argument("--tfm-tokenizer-checkpoint", type=str, default=None, help="Path to pretrained TFM tokenizer (shared). Use with --tfm-classifier-checkpoint for inference.")
+    parser.add_argument("--tfm-classifier-checkpoint", type=str, default=None, help="Path to finetuned classifier. Use {seed} for per-seed paths.")
+    parser.add_argument("--tfm-skip-train", action="store_true", help="Skip training; load checkpoint(s) and run calibration + inference only.")
+    parser.add_argument("--tfm-freeze-tokenizer", action="store_true", help="Freeze tokenizer when fine-tuning; only train classifier.")
+    parser.add_argument("--tfm-epochs", type=int, default=5, help="Epochs when fine-tuning TFM. Ignored if --tfm-skip-train.")
+    parser.add_argument("--tfm-lr", type=float, default=1e-4, help="Learning rate when fine-tuning TFM.")
     parser.add_argument(
         "--device",
         type=str,
@@ -174,6 +179,7 @@ def _run_one_ncp(
     args,
     device,
     epochs,
+    task_mode="multiclass",
     return_metrics=False,
 ):
     """Train ContraWR, calibrate NCP, evaluate on test. Optionally return metrics dict for aggregation."""
@@ -182,21 +188,29 @@ def _run_one_ncp(
 
     print("\n" + "=" * 80)
     model_name = "TFM-Tokenizer" if args.model.lower() == "tfm" else "ContraWR"
-    print(f"STEP 3: Train {model_name}")
+    print(f"STEP 3: Train {model_name}" if not getattr(args, "tfm_skip_train", False) else f"STEP 3: Load {model_name} (skip train)")
     print("=" * 80)
     model = get_model(args, sample_dataset, device)
     trainer = Trainer(model=model, device=device, enable_logging=False)
-    trainer.train(
-        train_dataloader=train_loader,
-        val_dataloader=val_loader,
-        epochs=epochs,
-        monitor="accuracy" if val_loader is not None else None,
-    )
+    if not getattr(args, "tfm_skip_train", False):
+        optimizer_params = None
+        if args.model.lower() == "tfm" and (
+            getattr(args, "tfm_checkpoint", None)
+            or (getattr(args, "tfm_tokenizer_checkpoint", None) and getattr(args, "tfm_classifier_checkpoint", None))
+        ):
+            optimizer_params = {"lr": getattr(args, "tfm_lr", 1e-4)}
+        trainer.train(
+            train_dataloader=train_loader,
+            val_dataloader=val_loader,
+            epochs=epochs,
+            monitor="accuracy" if val_loader is not None else None,
+            optimizer_params=optimizer_params,
+        )
 
     if not return_metrics:
         print("\nBase model performance on test set:")
         y_true_base, y_prob_base, _loss_base = trainer.inference(test_loader)
-        base_metrics = get_metrics_fn("multiclass")(
+        base_metrics = get_metrics_fn(task_mode)(
             y_true_base, y_prob_base, metrics=["accuracy", "f1_weighted"]
         )
         for metric, value in base_metrics.items():
@@ -223,7 +237,7 @@ def _run_one_ncp(
     y_true, y_prob, _loss, extra = Trainer(model=ncp_predictor).inference(
         test_loader, additional_outputs=["y_predset"]
     )
-    ncp_metrics = get_metrics_fn("multiclass")(
+    ncp_metrics = get_metrics_fn(task_mode)(
         y_true, y_prob, metrics=["accuracy", "miscoverage_ps"], y_predset=extra["y_predset"]
     )
     predset = extra["y_predset"]
@@ -281,23 +295,34 @@ def main() -> None:
 
 def _run(args: argparse.Namespace) -> None:
     device = args.device or ("cuda:0" if torch.cuda.is_available() else "cpu")
-    root = Path(args.root)
+    dataset_name = getattr(args, "dataset", "tuev")
+    root = Path(args.root or DEFAULT_ROOT[dataset_name])
     if not root.exists():
-        raise FileNotFoundError(
-            f"TUEV root not found: {root}. "
-            "Pass --root to point to your downloaded TUEV edf/ directory."
-        )
+        raise FileNotFoundError(f"Dataset root not found: {root}. Set --root for {dataset_name}.")
 
-    epochs = 2 if args.quick_test else args.epochs
-    quick_test_max_samples = 2000  # cap samples so quick-test finishes in ~5-10 min
+    if args.quick_test:
+        epochs = 2
+    elif args.model.lower() == "tfm" and (
+        getattr(args, "tfm_checkpoint", None)
+        or (getattr(args, "tfm_tokenizer_checkpoint", None) and getattr(args, "tfm_classifier_checkpoint", None))
+    ):
+        epochs = getattr(args, "tfm_epochs", 5)
+    else:
+        epochs = args.epochs
+    quick_test_max_samples = 2000
     if args.quick_test:
         print("*** QUICK TEST MODE (dev=True, 2 epochs, max 2000 samples) ***")
 
+    task_mode = "binary" if dataset_name == "tuab" else "multiclass"
     print("=" * 80)
-    print("STEP 1: Load TUEV + build task dataset")
+    print(f"STEP 1: Load {dataset_name.upper()} + build task dataset")
     print("=" * 80)
-    dataset = TUEVDataset(root=str(root), subset=args.subset, dev=args.quick_test)
-    sample_dataset = dataset.set_task(EEGEventsTUEV(), cache_dir="examples/conformal_eeg/cache")
+    if dataset_name == "tuab":
+        dataset = TUABDataset(root=str(root), subset=args.subset, dev=args.quick_test)
+        sample_dataset = dataset.set_task(EEGAbnormalTUAB(), cache_dir="examples/conformal_eeg/cache_tuab")
+    else:
+        dataset = TUEVDataset(root=str(root), subset=args.subset, dev=args.quick_test)
+        sample_dataset = dataset.set_task(EEGEventsTUEV(), cache_dir="examples/conformal_eeg/cache")
     if args.quick_test and len(sample_dataset) > quick_test_max_samples:
         sample_dataset = sample_dataset.subset(range(quick_test_max_samples))
         print(f"Capped to {quick_test_max_samples} samples for quick-test.")
@@ -308,7 +333,7 @@ def _run(args: argparse.Namespace) -> None:
         )
         print("Wrapped dataset with STFT for TFM-Tokenizer.")
 
-    print(f"Task samples: {len(sample_dataset)}")
+    print(f"Task samples: {len(sample_dataset)} (task_mode={task_mode})")
     print(f"Input schema: {sample_dataset.input_schema}")
     print(f"Output schema: {sample_dataset.output_schema}")
 
@@ -358,6 +383,7 @@ def _run(args: argparse.Namespace) -> None:
             args=args,
             device=device,
             epochs=epochs,
+            task_mode=task_mode,
         )
         print("\n--- Split sizes and seed (for reporting) ---")
         print(f"  train={len(train_ds)}, val={len(val_ds)}, cal={len(cal_ds)}, test={len(test_ds)}, seed={args.seed}")
@@ -382,10 +408,16 @@ def _run(args: argparse.Namespace) -> None:
     print(f"Fixed test set size: {n_test}")
 
     accs, coverages, miscoverages, set_sizes = [], [], [], []
+    tfm_ckpt_original = getattr(args, "tfm_checkpoint", None)
+    tfm_classifier_ckpt_original = getattr(args, "tfm_classifier_checkpoint", None)
     for run_i, run_seed in enumerate(run_seeds):
         print("\n" + "=" * 80)
         print(f"Run {run_i + 1} / {n_runs} (seed={run_seed})")
         print("=" * 80)
+        if tfm_ckpt_original and "{seed}" in tfm_ckpt_original:
+            args.tfm_checkpoint = tfm_ckpt_original.replace("{seed}", str(run_seed))
+        if tfm_classifier_ckpt_original and "{seed}" in tfm_classifier_ckpt_original:
+            args.tfm_classifier_checkpoint = tfm_classifier_ckpt_original.replace("{seed}", str(run_seed))
         set_seed(run_seed)
         train_ds, val_ds, cal_ds = _split_remainder_into_train_val_cal(
             sample_dataset, remainder_indices, ratios, run_seed
@@ -401,8 +433,13 @@ def _run(args: argparse.Namespace) -> None:
             args=args,
             device=device,
             epochs=epochs,
+            task_mode=task_mode,
             return_metrics=True,
         )
+        if tfm_ckpt_original and "{seed}" in tfm_ckpt_original:
+            args.tfm_checkpoint = tfm_ckpt_original
+        if tfm_classifier_ckpt_original and "{seed}" in tfm_classifier_ckpt_original:
+            args.tfm_classifier_checkpoint = tfm_classifier_ckpt_original
         accs.append(metrics["accuracy"])
         coverages.append(metrics["coverage"])
         miscoverages.append(metrics["miscoverage"])

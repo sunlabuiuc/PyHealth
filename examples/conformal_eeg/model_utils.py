@@ -1,4 +1,16 @@
-"""Shared helpers for TUEV conformal scripts: model choice (ContraWR vs TFM-Tokenizer) and STFT dataset wrapper."""
+"""Shared helpers for TUEV conformal scripts: model choice (ContraWR vs TFM-Tokenizer) and STFT dataset wrapper.
+
+TFM runs use the same experimental protocol as ContraWR (split_seed, run_seeds, alpha,
+ratios, fixed test set) so results are directly comparable.
+
+TFM loading options:
+- Single checkpoint: --tfm-checkpoint (full model or tokenizer-only; use {seed} for per-seed).
+- Two checkpoints (pretrained tokenizer + finetuned classifier): --tfm-tokenizer-checkpoint
+  and --tfm-classifier-checkpoint (use {seed} in classifier path for per-seed). Use
+  --tfm-skip-train to run calibration + inference only.
+
+Scripts support --dataset tuev|tuab (same protocol; TUAB uses binary task, TUEV uses multiclass).
+"""
 
 from __future__ import annotations
 
@@ -84,16 +96,62 @@ class AddSTFTDataset:
             self._base.set_shuffle(shuffle)
 
 
+def _load_tfm_checkpoint(model, checkpoint_path: str, device: str):
+    """Load TFM checkpoint: full model state_dict or tokenizer-only (legacy)."""
+    ckpt = torch.load(checkpoint_path, map_location=device)
+    state = ckpt.get("model_state_dict", ckpt.get("state_dict", ckpt))
+    if not isinstance(state, dict):
+        model.load_pretrained_weights(checkpoint_path, map_location=device)
+        return
+    keys = list(state.keys())
+    if any(str(k).startswith("tokenizer.") or str(k).startswith("classifier.") for k in keys):
+        model.load_state_dict(state, strict=False)
+        print(f"  Loaded full model from {checkpoint_path}")
+    else:
+        model.load_pretrained_weights(checkpoint_path, map_location=device)
+
+
+def _load_tfm_classifier_checkpoint(model, checkpoint_path: str, device: str):
+    """Load classifier-only checkpoint into model.classifier. Handles keys with or without 'classifier.' prefix."""
+    ckpt = torch.load(checkpoint_path, map_location=device)
+    state = ckpt.get("model_state_dict", ckpt.get("state_dict", ckpt))
+    if not isinstance(state, dict):
+        return
+    keys = list(state.keys())
+    if any(str(k).startswith("classifier.") for k in keys):
+        model.load_state_dict(state, strict=False)
+        print(f"  Loaded classifier from {checkpoint_path}")
+    else:
+        model.classifier.load_state_dict(state, strict=False)
+        print(f"  Loaded classifier from {checkpoint_path}")
+
+
 def get_model(args, sample_dataset, device: str):
-    """Build ContraWR or TFMTokenizer from args.model. Use sample_dataset (possibly AddSTFTDataset for TFM)."""
+    """Build ContraWR or TFMTokenizer from args.model. Use sample_dataset (possibly AddSTFTDataset for TFM).
+    Loading options (TFM):
+    - args.tfm_checkpoint: single path (full model or tokenizer-only).
+    - args.tfm_tokenizer_checkpoint + args.tfm_classifier_checkpoint: pretrained tokenizer + per-seed finetuned classifier.
+    """
     if getattr(args, "model", "contrawr").lower() == "tfm":
-        # TFM_VQVAE2_deep expects n_freq=100 and STFT time steps = (L-200)/100+1 (hop=100)
         model = TFMTokenizer(
             dataset=sample_dataset,
             n_freq=100,
             emb_size=getattr(args, "tfm_emb_size", 64),
             code_book_size=getattr(args, "tfm_code_book_size", 8192),
         )
+        model = model.to(device)
+        tokenizer_ckpt = getattr(args, "tfm_tokenizer_checkpoint", None)
+        classifier_ckpt = getattr(args, "tfm_classifier_checkpoint", None)
+        single_ckpt = getattr(args, "tfm_checkpoint", None)
+        if tokenizer_ckpt and classifier_ckpt:
+            model.load_pretrained_weights(tokenizer_ckpt, map_location=device)
+            _load_tfm_classifier_checkpoint(model, classifier_ckpt, device)
+        elif single_ckpt:
+            _load_tfm_checkpoint(model, single_ckpt, device)
+        if getattr(args, "tfm_freeze_tokenizer", False):
+            for p in model.tokenizer.parameters():
+                p.requires_grad = False
+        return model
     else:
         model = ContraWR(dataset=sample_dataset, n_fft=getattr(args, "n_fft", 128))
-    return model.to(device)
+        return model.to(device)

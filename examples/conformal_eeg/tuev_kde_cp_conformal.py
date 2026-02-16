@@ -46,18 +46,21 @@ class _Tee:
 
 from pyhealth.calib.predictionset.covariate import CovariateLabel
 from pyhealth.calib.utils import extract_embeddings
-from pyhealth.datasets import TUEVDataset, get_dataloader, split_by_sample_conformal
-from pyhealth.tasks import EEGEventsTUEV
+from pyhealth.datasets import TUEVDataset, TUABDataset, get_dataloader, split_by_sample_conformal
+from pyhealth.tasks import EEGEventsTUEV, EEGAbnormalTUAB
 from pyhealth.trainer import Trainer, get_metrics_fn
 
 from model_utils import AddSTFTDataset, get_model
 
+DEFAULT_ROOT = {"tuev": "/srv/local/data/TUH/tuh_eeg_events/v2.0.0/edf", "tuab": "/srv/local/data/TUH/tuh_eeg_abnormal/v3.0.0/edf"}
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="CP with covariate shift correction (KDE / CovariateLabel) on TUEV EEG events using ContraWR."
+        description="CP with covariate shift correction (KDE / CovariateLabel) on TUEV/TUAB EEG using ContraWR or TFM."
     )
-    parser.add_argument("--root", type=str, default="/srv/local/data/TUH/tuh_eeg_events/v2.0.0/edf", help="Path to TUEV edf/ folder.")
+    parser.add_argument("--dataset", type=str, default="tuev", choices=["tuev", "tuab"], help="EEG dataset: tuev or tuab.")
+    parser.add_argument("--root", type=str, default=None, help="Path to dataset edf/ folder. Default per --dataset.")
     parser.add_argument("--subset", type=str, default="both", choices=["train", "eval", "both"])
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--n-seeds", type=int, default=1, help="Number of runs for mean±std. Test set fixed when > 1.")
@@ -69,6 +72,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ratios", type=float, nargs=4, default=(0.6, 0.1, 0.15, 0.15), metavar=("TRAIN", "VAL", "CAL", "TEST"))
     parser.add_argument("--n-fft", type=int, default=128)
     parser.add_argument("--model", type=str, default="contrawr", choices=["contrawr", "tfm"], help="Backbone: contrawr or tfm (TFM-Tokenizer).")
+    parser.add_argument("--tfm-checkpoint", type=str, default=None, help="Path to TFM checkpoint (full model or tokenizer). Use {seed} for per-seed paths.")
+    parser.add_argument("--tfm-tokenizer-checkpoint", type=str, default=None, help="Path to pretrained TFM tokenizer (shared). Use with --tfm-classifier-checkpoint for inference.")
+    parser.add_argument("--tfm-classifier-checkpoint", type=str, default=None, help="Path to finetuned classifier. Use {seed} for per-seed paths.")
+    parser.add_argument("--tfm-skip-train", action="store_true", help="Skip training; load checkpoint(s) and run calibration + inference only.")
+    parser.add_argument("--tfm-freeze-tokenizer", action="store_true", help="Freeze tokenizer when fine-tuning; only train classifier.")
+    parser.add_argument("--tfm-epochs", type=int, default=5, help="Epochs when fine-tuning TFM. Ignored if --tfm-skip-train.")
+    parser.add_argument("--tfm-lr", type=float, default=1e-4, help="Learning rate when fine-tuning TFM.")
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--log-file", type=str, default=None)
     parser.add_argument("--quick-test", action="store_true", help="dev=True, max 2000 samples, 2 epochs.")
@@ -115,6 +125,7 @@ def _run_one_kde_cp(
     args,
     device,
     epochs,
+    task_mode="multiclass",
     return_metrics=False,
 ):
     """Train ContraWR, extract cal + test embeddings, calibrate CovariateLabel (KDE), evaluate."""
@@ -123,21 +134,29 @@ def _run_one_kde_cp(
 
     model_name = "TFM-Tokenizer" if args.model.lower() == "tfm" else "ContraWR"
     print("\n" + "=" * 80)
-    print(f"STEP 3: Train {model_name}")
+    print(f"STEP 3: Train {model_name}" if not getattr(args, "tfm_skip_train", False) else f"STEP 3: Load {model_name} (skip train)")
     print("=" * 80)
     model = get_model(args, sample_dataset, device)
     trainer = Trainer(model=model, device=device, enable_logging=False)
-    trainer.train(
-        train_dataloader=train_loader,
-        val_dataloader=val_loader,
-        epochs=epochs,
-        monitor="accuracy" if val_loader is not None else None,
-    )
+    if not getattr(args, "tfm_skip_train", False):
+        optimizer_params = None
+        if args.model.lower() == "tfm" and (
+            getattr(args, "tfm_checkpoint", None)
+            or (getattr(args, "tfm_tokenizer_checkpoint", None) and getattr(args, "tfm_classifier_checkpoint", None))
+        ):
+            optimizer_params = {"lr": getattr(args, "tfm_lr", 1e-4)}
+        trainer.train(
+            train_dataloader=train_loader,
+            val_dataloader=val_loader,
+            epochs=epochs,
+            monitor="accuracy" if val_loader is not None else None,
+            optimizer_params=optimizer_params,
+        )
 
     if not return_metrics:
         print("\nBase model performance on test set:")
         y_true_base, y_prob_base, _ = trainer.inference(test_loader)
-        base_metrics = get_metrics_fn("multiclass")(y_true_base, y_prob_base, metrics=["accuracy", "f1_weighted"])
+        base_metrics = get_metrics_fn(task_mode)(y_true_base, y_prob_base, metrics=["accuracy", "f1_weighted"])
         for k, v in base_metrics.items():
             print(f"  {k}: {v:.4f}")
 
@@ -161,7 +180,7 @@ def _run_one_kde_cp(
     )
 
     y_true, y_prob, _loss, extra = Trainer(model=predictor).inference(test_loader, additional_outputs=["y_predset"])
-    metrics = get_metrics_fn("multiclass")(y_true, y_prob, metrics=["accuracy", "miscoverage_ps"], y_predset=extra["y_predset"])
+    metrics = get_metrics_fn(task_mode)(y_true, y_prob, metrics=["accuracy", "miscoverage_ps"], y_predset=extra["y_predset"])
     predset = extra["y_predset"]
     predset_t = torch.tensor(predset) if isinstance(predset, np.ndarray) else predset
     avg_set_size = predset_t.float().sum(dim=1).mean().item()
@@ -205,33 +224,44 @@ def main() -> None:
 
 def _run(args: argparse.Namespace) -> None:
     device = args.device or ("cuda:0" if torch.cuda.is_available() else "cpu")
-    root = Path(args.root)
+    dataset_name = getattr(args, "dataset", "tuev")
+    root = Path(args.root or DEFAULT_ROOT[dataset_name])
     if not root.exists():
-        raise FileNotFoundError(f"TUEV root not found: {root}.")
+        raise FileNotFoundError(f"Dataset root not found: {root}. Set --root for {dataset_name}.")
 
-    epochs = 2 if args.quick_test else args.epochs
+    if args.quick_test:
+        epochs = 2
+    elif args.model.lower() == "tfm" and (
+        getattr(args, "tfm_checkpoint", None)
+        or (getattr(args, "tfm_tokenizer_checkpoint", None) and getattr(args, "tfm_classifier_checkpoint", None))
+    ):
+        epochs = getattr(args, "tfm_epochs", 5)
+    else:
+        epochs = args.epochs
     quick_test_max = 2000
     if args.quick_test:
         print("*** QUICK TEST MODE ***")
 
+    task_mode = "binary" if dataset_name == "tuab" else "multiclass"
     print("=" * 80)
-    print("STEP 1: Load TUEV + build task dataset")
+    print(f"STEP 1: Load {dataset_name.upper()} + build task dataset")
     print("=" * 80)
-    dataset = TUEVDataset(root=str(root), subset=args.subset, dev=args.quick_test)
-    sample_dataset = dataset.set_task(EEGEventsTUEV(), cache_dir="examples/conformal_eeg/cache")
+    if dataset_name == "tuab":
+        dataset = TUABDataset(root=str(root), subset=args.subset, dev=args.quick_test)
+        sample_dataset = dataset.set_task(EEGAbnormalTUAB(), cache_dir="examples/conformal_eeg/cache_tuab")
+    else:
+        dataset = TUEVDataset(root=str(root), subset=args.subset, dev=args.quick_test)
+        sample_dataset = dataset.set_task(EEGEventsTUEV(), cache_dir="examples/conformal_eeg/cache")
     if args.quick_test and len(sample_dataset) > quick_test_max:
         sample_dataset = sample_dataset.subset(range(quick_test_max))
         print(f"Capped to {quick_test_max} samples.")
     if args.model.lower() == "tfm":
-        # TFM tokenizer needs n_fft=200, hop_length=100 so STFT time = temporal patches
-        sample_dataset = AddSTFTDataset(
-            sample_dataset, n_fft=200, hop_length=100
-        )
+        sample_dataset = AddSTFTDataset(sample_dataset, n_fft=200, hop_length=100)
         print("Wrapped dataset with STFT for TFM-Tokenizer.")
-    print(f"Task samples: {len(sample_dataset)}")
+    print(f"Task samples: {len(sample_dataset)} (task_mode={task_mode})")
 
     print("\n--- Experiment configuration ---")
-    print(f"  dataset_root: {root}, subset: {args.subset}")
+    print(f"  dataset: {dataset_name}, dataset_root: {root}, subset: {args.subset}")
     print(f"  ratios: train/val/cal/test = {args.ratios[0]:.2f}/{args.ratios[1]:.2f}/{args.ratios[2]:.2f}/{args.ratios[3]:.2f}")
     print(f"  alpha: {args.alpha} (target coverage {1 - args.alpha:.0%})")
     print(f"  epochs: {epochs}, batch_size: {args.batch_size}, device: {device}, seed: {args.seed}")
@@ -254,7 +284,7 @@ def _run(args: argparse.Namespace) -> None:
         train_ds, val_ds, cal_ds, test_ds = split_by_sample_conformal(dataset=sample_dataset, ratios=ratios, seed=args.seed)
         print(f"Train: {len(train_ds)}, Val: {len(val_ds)}, Cal: {len(cal_ds)}, Test: {len(test_ds)}")
         test_loader = get_dataloader(test_ds, batch_size=args.batch_size, shuffle=False)
-        _run_one_kde_cp(sample_dataset, train_ds, val_ds, cal_ds, test_ds, test_loader, args, device, epochs)
+        _run_one_kde_cp(sample_dataset, train_ds, val_ds, cal_ds, test_ds, test_loader, args, device, epochs, task_mode=task_mode)
         print("\n--- Split sizes and seed (for reporting) ---")
         print(f"  train={len(train_ds)}, val={len(val_ds)}, cal={len(cal_ds)}, test={len(test_ds)}, seed={args.seed}")
         return
@@ -274,14 +304,24 @@ def _run(args: argparse.Namespace) -> None:
     print(f"Fixed test set size: {n_test}")
 
     accs, coverages, miscoverages, set_sizes = [], [], [], []
+    tfm_ckpt_original = getattr(args, "tfm_checkpoint", None)
+    tfm_classifier_ckpt_original = getattr(args, "tfm_classifier_checkpoint", None)
     for run_i, run_seed in enumerate(run_seeds):
         print("\n" + "=" * 80)
         print(f"Run {run_i + 1} / {n_runs} (seed={run_seed})")
         print("=" * 80)
+        if tfm_ckpt_original and "{seed}" in tfm_ckpt_original:
+            args.tfm_checkpoint = tfm_ckpt_original.replace("{seed}", str(run_seed))
+        if tfm_classifier_ckpt_original and "{seed}" in tfm_classifier_ckpt_original:
+            args.tfm_classifier_checkpoint = tfm_classifier_ckpt_original.replace("{seed}", str(run_seed))
         set_seed(run_seed)
         train_ds, val_ds, cal_ds = _split_remainder_into_train_val_cal(sample_dataset, remainder_indices, ratios, run_seed)
         print(f"Train: {len(train_ds)}, Val: {len(val_ds)}, Cal: {len(cal_ds)}")
-        m = _run_one_kde_cp(sample_dataset, train_ds, val_ds, cal_ds, test_ds, test_loader, args, device, epochs, return_metrics=True)
+        m = _run_one_kde_cp(sample_dataset, train_ds, val_ds, cal_ds, test_ds, test_loader, args, device, epochs, task_mode=task_mode, return_metrics=True)
+        if tfm_ckpt_original and "{seed}" in tfm_ckpt_original:
+            args.tfm_checkpoint = tfm_ckpt_original
+        if tfm_classifier_ckpt_original and "{seed}" in tfm_classifier_ckpt_original:
+            args.tfm_classifier_checkpoint = tfm_classifier_ckpt_original
         accs.append(m["accuracy"])
         coverages.append(m["coverage"])
         miscoverages.append(m["miscoverage"])
