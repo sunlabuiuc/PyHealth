@@ -845,7 +845,7 @@ class BaseDataset(ABC):
 
             {task_name}_{task_uuid}/        # Cached data for specific task based on task name, schema, and args
                 task_df.ld/                 # Intermediate task dataframe based on schema
-                samples.ld/                 # Final processed samples after applying processors
+                samples_{proc_uuid}.ld/     # Final processed samples after applying processors
                     schema.pkl              # Saved SampleBuilder schema
                     *.bin                   # Processed sample files
 
