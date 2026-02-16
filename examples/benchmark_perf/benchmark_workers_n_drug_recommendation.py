@@ -159,13 +159,6 @@ def parse_workers(value: str) -> list[int]:
     return workers
 
 
-def ensure_empty_dir(path: str | Path) -> None:
-    p = Path(path)
-    if p.exists():
-        shutil.rmtree(p)
-    p.mkdir(parents=True, exist_ok=True)
-
-
 def remove_dir(path: str | Path, retries: int = 3, delay: float = 1.0) -> None:
     """Remove a directory with retry logic for busy file handles."""
     p = Path(path)
