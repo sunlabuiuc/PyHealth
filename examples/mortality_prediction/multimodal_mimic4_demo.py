@@ -883,7 +883,6 @@ def main():
         cache_suffix += "_full"
     
     base_cache_dir = cache_root / f"base_dataset{cache_suffix}"
-    task_cache_dir = cache_root / f"task_samples{cache_suffix}"
 
     # Initialize memory tracker
     tracker = PeakMemoryTracker(poll_interval_s=0.1)
@@ -971,7 +970,8 @@ def main():
     if not args.skip_benchmark:
         print("  Calculating cache size...", flush=True)
         cache_calc_start = time.time()
-        task_cache_bytes = get_directory_size(task_cache_dir)
+        tasks_dir = base_cache_dir / "tasks"
+        task_cache_bytes = get_directory_size(tasks_dir)
         cache_calc_time = time.time() - cache_calc_start
         print(f"  ✓ Task cache size: {format_size(task_cache_bytes)} "
               f"(calculated in {cache_calc_time:.1f}s)")

@@ -284,11 +284,8 @@ def main() -> None:
     print("\n[1/1] Sweeping num_workers (each run reloads dataset + task)...")
     for w in args.workers:
         for r in range(args.repeats):
-            task_cache_dir = cache_root / f"task_samples_drug_rec_w{w}"
-
             # Ensure no cache artifacts before this run.
             remove_dir(base_cache_dir)
-            ensure_empty_dir(task_cache_dir)
 
             tracker.reset()
             run_start = time.time()
@@ -313,13 +310,13 @@ def main() -> None:
             sample_dataset = base_dataset.set_task(
                 DrugRecommendationMIMIC4(),
                 num_workers=w,
-                cache_dir=str(task_cache_dir),
             )
 
             task_process_s = time.time() - task_start
             total_s = time.time() - run_start
             peak_rss_bytes = tracker.peak_bytes()
-            task_cache_bytes = get_directory_size(task_cache_dir)
+            tasks_dir = base_cache_dir / "tasks"
+            task_cache_bytes = get_directory_size(tasks_dir)
 
             # Capture sample count BEFORE cleaning up the cache (litdata needs it).
             num_samples = len(sample_dataset)
@@ -329,7 +326,6 @@ def main() -> None:
             del base_dataset
 
             # Clean up to avoid disk growth across an overnight sweep.
-            remove_dir(task_cache_dir)
             remove_dir(base_cache_dir)
 
             results.append(

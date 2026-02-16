@@ -140,7 +140,6 @@ def main():
     sample_dataset = base_dataset.set_task(
         MortalityPredictionStageNetMIMIC4(),
         num_workers=4,
-        cache_dir=f"{cache_root}/task_samples_old",
     )
 
     task_time = time.time() - task_start
@@ -149,7 +148,7 @@ def main():
     # Measure cache sizes
     print("\n[3/3] Measuring cache sizes...")
     base_cache_dir = f"{cache_root}/base_dataset"
-    task_cache_dir = f"{cache_root}/task_samples"
+    task_cache_dir = f"{base_cache_dir}/tasks"
 
     base_cache_size = get_directory_size(base_cache_dir)
     task_cache_size = get_directory_size(task_cache_dir)
