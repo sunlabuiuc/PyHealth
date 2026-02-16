@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union, Tuple
 
 from pyhealth.tasks.base_task import BaseTask
 
@@ -9,9 +9,21 @@ class EHRFoundationalModelMIMIC4(BaseTask):
     
     def __init__(self):
         """Initialize the EHR Foundational Model task."""
-        self.input_schema: Dict[str, str] = {
-            "discharge_note_times": "tuple_time_text",
-            "radiology_note_times": "tuple_time_text",
+        self.input_schema: Dict[str, Union[str, Tuple[str, Dict]]] = {
+            "discharge_note_times": (
+                "tuple_time_text",
+                {
+                    "tokenizer_name": "bert-base-uncased",
+                    "type_tag": "note",
+                },
+            ),
+            "radiology_note_times": (
+                "tuple_time_text",
+                {
+                    "tokenizer_name": "bert-base-uncased",
+                    "type_tag": "note",
+                },
+            ),
         }
         self.output_schema: Dict[str, str] = {"mortality": "binary"}
 
