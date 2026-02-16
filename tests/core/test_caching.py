@@ -20,16 +20,13 @@ class MockTask(BaseTask):
     input_schema = {"test_attribute": "raw"}
     output_schema = {"test_label": "binary"}
 
-    def __init__(self, param=None):
-        self.call_count = 0
-        if param:
-            self.param = param
+    def __init__(self, param=0):
+        self.param = param
 
     def __call__(self, patient):
         """Return mock samples based on patient data."""
         # Extract patient's test data from the patient's data source
         patient_data = patient.data_source
-        self.call_count += 1
 
         samples = []
         for row in patient_data.iter_rows(named=True):
@@ -49,16 +46,13 @@ class MockTask2(BaseTask):
     input_schema = {"test_attribute": "raw"}
     output_schema = {"test_label": "multiclass"}
 
-    def __init__(self, param=None):
-        self.call_count = 0
-        if param:
-            self.param = param
+    def __init__(self, param=0):
+        self.param = param
 
     def __call__(self, patient):
         """Return mock samples based on patient data."""
         # Extract patient's test data from the patient's data source
         patient_data = patient.data_source
-        self.call_count += 1
 
         samples = []
         for row in patient_data.iter_rows(named=True):
@@ -108,19 +102,10 @@ class MockDataset(BaseDataset):
 
 class TestCachingFunctionality(BaseTestCase):
     """Test cases for caching functionality in BaseDataset.set_task()."""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.temp_dir = tempfile.TemporaryDirectory()
-        cls.dataset = MockDataset(cache_dir=cls.temp_dir.name)
-
     def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.dataset = MockDataset(cache_dir=self.temp_dir.name)
         self.task = MockTask()
-        self.cache_dir = Path(self.temp_dir.name) / "task_cache"
-        self.cache_dir.mkdir()
-
-    def tearDown(self):
-        shutil.rmtree(self.cache_dir)
 
     def test_set_task_signature(self):
         """Test that set_task has the correct method signature."""
@@ -151,15 +136,10 @@ class TestCachingFunctionality(BaseTestCase):
             self.assertEqual(sample_dataset.dataset_name, "TestDataset")
             self.assertEqual(sample_dataset.task_name, self.task.task_name)
             self.assertEqual(len(sample_dataset), 4)
-            self.assertEqual(self.task.call_count, 2)
 
             # Ensure intermediate cache files are created in default location
             task_params = json.dumps(
-                {
-                    **vars(self.task),
-                    "input_schema": self.task.input_schema,
-                    "output_schema": self.task.output_schema,
-                },
+                {"input_schema": {"test_attribute": "raw"}, "output_schema": {"test_label": "binary"}, "param": 0},
                 sort_keys=True,
                 default=str
             )
@@ -195,7 +175,7 @@ class TestCachingFunctionality(BaseTestCase):
     def test_default_cache_dir_is_used(self):
         """When cache_dir is omitted, default cache dir should be used."""
         task_params = json.dumps(
-            {"input_schema": {"test_attribute": "raw"}, "output_schema": {"test_label": "binary"}, "call_count": 0},
+            {"input_schema": {"test_attribute": "raw"}, "output_schema": {"test_label": "binary"}, "param": 0},
             sort_keys=True,
             default=str
         )
@@ -213,15 +193,13 @@ class TestCachingFunctionality(BaseTestCase):
     def test_reuses_existing_cache_without_regeneration(self):
         """Second call should reuse cached samples instead of recomputing."""
         sample_dataset = self.dataset.set_task(self.task)
-        self.assertEqual(self.task.call_count, 2)
 
         with patch.object(
-            self.task, "__call__", side_effect=AssertionError("Task should not rerun")
+            type(self.task), "__call__", side_effect=AssertionError("Task should not rerun")
         ):
             cached_dataset = self.dataset.set_task(self.task)
 
         self.assertEqual(len(cached_dataset), 4)
-        self.assertEqual(self.task.call_count, 2)
 
         sample_dataset.close()
         cached_dataset.close()
@@ -233,13 +211,13 @@ class TestCachingFunctionality(BaseTestCase):
         self.assertNotEqual(sample_dataset1.path, sample_dataset2.path)
 
         task_params1 = json.dumps(
-            {"input_schema": {"test_attribute": "raw"}, "output_schema": {"test_label": "binary"}, "call_count": 0, "param": 1},
+            {"input_schema": {"test_attribute": "raw"}, "output_schema": {"test_label": "binary"}, "param": 1},
             sort_keys=True,
             default=str
         )
 
         task_params2 = json.dumps(
-            {"input_schema": {"test_attribute": "raw"}, "output_schema": {"test_label": "binary"}, "call_count": 0, "param": 2},
+            {"input_schema": {"test_attribute": "raw"}, "output_schema": {"test_label": "binary"}, "param": 2},
             sort_keys=True,
             default=str
         )
@@ -265,13 +243,13 @@ class TestCachingFunctionality(BaseTestCase):
         self.assertNotEqual(sample_dataset1.path, sample_dataset2.path)
 
         task_params1 = json.dumps(
-            {"input_schema": {"test_attribute": "raw"}, "output_schema": {"test_label": "binary"}, "call_count": 0},
+            {"input_schema": {"test_attribute": "raw"}, "output_schema": {"test_label": "binary"}, "param": 0},
             sort_keys=True,
             default=str
         )
 
         task_params2 = json.dumps(
-            {"input_schema": {"test_attribute": "raw"}, "output_schema": {"test_label": "multiclass"}, "call_count": 0},
+            {"input_schema": {"test_attribute": "raw"}, "output_schema": {"test_label": "multiclass"}, "param": 0},
             sort_keys=True,
             default=str
         )
