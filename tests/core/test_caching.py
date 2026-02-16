@@ -133,7 +133,6 @@ class TestCachingFunctionality(BaseTestCase):
             "self",
             "task",
             "num_workers",
-cd            "cache_format",
             "input_processors",
             "output_processors",
         ]
@@ -142,15 +141,12 @@ cd            "cache_format",
         # Check default values
         self.assertEqual(sig.parameters["task"].default, None)
         self.assertEqual(sig.parameters["num_workers"].default, None)
-        self.assertEqual(sig.parameters["cache_format"].default, "parquet")
         self.assertEqual(sig.parameters["input_processors"].default, None)
         self.assertEqual(sig.parameters["output_processors"].default, None)
 
     def test_set_task_writes_cache_and_metadata(self):
         """Ensure set_task materializes cache files and schema metadata."""
-        with self.dataset.set_task(
-            self.task, cache_format="parquet"
-        ) as sample_dataset:
+        with self.dataset.set_task(self.task) as sample_dataset:
             self.assertIsInstance(sample_dataset, SampleDataset)
             self.assertEqual(sample_dataset.dataset_name, "TestDataset")
             self.assertEqual(sample_dataset.task_name, self.task.task_name)
@@ -222,9 +218,7 @@ cd            "cache_format",
         with patch.object(
             self.task, "__call__", side_effect=AssertionError("Task should not rerun")
         ):
-            cached_dataset = self.dataset.set_task(
-                self.task, cache_format="parquet"
-            )
+            cached_dataset = self.dataset.set_task(self.task)
 
         self.assertEqual(len(cached_dataset), 4)
         self.assertEqual(self.task.call_count, 2)
