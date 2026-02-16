@@ -8,14 +8,27 @@ import torch
 from pyhealth.models import ContraWR, TFMTokenizer
 
 
-def compute_stft(signal_1d: np.ndarray, n_fft: int = 128, hop_length: int = 64) -> np.ndarray:
-    """Compute magnitude STFT for a 1D signal. Returns (n_freq, n_time) float32."""
+def compute_stft(
+    signal_1d: np.ndarray,
+    n_fft: int = 128,
+    hop_length: int = 64,
+    center: bool = False,
+) -> np.ndarray:
+    """Compute magnitude STFT for a 1D signal. Returns (n_freq, n_time) float32.
+    Use center=False for TFM so n_time = (L - n_fft) // hop_length + 1, matching
+    the tokenizer's temporal conv (kernel 200, stride 100).
+    """
     if signal_1d.ndim != 1:
         signal_1d = np.asarray(signal_1d).mean(axis=0)
     signal_1d = np.asarray(signal_1d, dtype=np.float32)
-    # Use torch.stft for consistency with typical n_fft/hop_length semantics
     t = torch.from_numpy(signal_1d).unsqueeze(0)
-    stft = torch.stft(t, n_fft=n_fft, hop_length=hop_length, return_complex=True)
+    stft = torch.stft(
+        t,
+        n_fft=n_fft,
+        hop_length=hop_length,
+        return_complex=True,
+        center=center,
+    )
     mag = stft.abs().squeeze(0).numpy()
     return mag.astype(np.float32)
 
@@ -52,7 +65,10 @@ class AddSTFTDataset:
             signal_1d = np.asarray(signal, dtype=np.float32).flatten()
         # Return tensors so get_dataloader's collate stacks them (not list)
         sample["signal"] = torch.from_numpy(signal_1d)
-        stft_np = compute_stft(signal_1d, self.n_fft, self.hop_length)
+        # center=False so n_time = (L - n_fft)//hop_length + 1, matching TFM temporal conv
+        stft_np = compute_stft(
+            signal_1d, self.n_fft, self.hop_length, center=False
+        )
         # TFM tokenizer expects 100 freq bins; crop if we used n_fft=200 (101 bins)
         if stft_np.shape[0] > 100:
             stft_np = stft_np[:100]

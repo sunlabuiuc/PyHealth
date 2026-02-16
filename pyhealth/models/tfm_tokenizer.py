@@ -418,6 +418,14 @@ class TFM_VQVAE2_deep(nn.Module):
         x_temporal = self.temporal_patch_embedding(x_temporal)
         x_temporal = rearrange(x_temporal, "B E T -> B T E")
 
+        # Align time dimensions (can differ with variable-length batching or STFT center)
+        T_f, T_t = x.size(1), x_temporal.size(1)
+        if T_f != T_t:
+            if T_f < T_t:
+                x = F.pad(x, (0, 0, 0, T_t - T_f), value=0)
+            else:
+                x_temporal = F.pad(x_temporal, (0, 0, 0, T_f - T_t), value=0)
+
         x = torch.cat((x, x_temporal), dim=-1)
 
         x = self.trans_temporal_encoder(x)
