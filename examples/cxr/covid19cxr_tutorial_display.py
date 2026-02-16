@@ -41,7 +41,7 @@ if __name__ == "__main__":
 
     # Load dataset and create train/val/calibration/test splits
     dataset = COVID19CXRDataset(ROOT, cache_dir=CACHE, num_workers=8)
-    sample_dataset = dataset.set_task(cache_dir=TASK_CACHE, num_workers=8)
+    sample_dataset = dataset.set_task(num_workers=8)
     train_data, val_data, cal_data, test_data = split_by_sample_conformal(
         sample_dataset, ratios=[0.6, 0.1, 0.15, 0.15]
     )

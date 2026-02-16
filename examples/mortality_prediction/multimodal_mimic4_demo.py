@@ -946,7 +946,6 @@ def main():
     sample_dataset = base_dataset.set_task(
         task,
         num_workers=num_workers,
-        cache_dir=str(task_cache_dir),
     )
 
     task_process_s = time.time() - task_start

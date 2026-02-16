@@ -133,8 +133,7 @@ class TestCachingFunctionality(BaseTestCase):
             "self",
             "task",
             "num_workers",
-            "cache_dir",
-            "cache_format",
+cd            "cache_format",
             "input_processors",
             "output_processors",
         ]
@@ -143,7 +142,6 @@ class TestCachingFunctionality(BaseTestCase):
         # Check default values
         self.assertEqual(sig.parameters["task"].default, None)
         self.assertEqual(sig.parameters["num_workers"].default, None)
-        self.assertEqual(sig.parameters["cache_dir"].default, None)
         self.assertEqual(sig.parameters["cache_format"].default, "parquet")
         self.assertEqual(sig.parameters["input_processors"].default, None)
         self.assertEqual(sig.parameters["output_processors"].default, None)
@@ -151,7 +149,7 @@ class TestCachingFunctionality(BaseTestCase):
     def test_set_task_writes_cache_and_metadata(self):
         """Ensure set_task materializes cache files and schema metadata."""
         with self.dataset.set_task(
-            self.task, cache_dir=self.cache_dir, cache_format="parquet"
+            self.task, cache_format="parquet"
         ) as sample_dataset:
             self.assertIsInstance(sample_dataset, SampleDataset)
             self.assertEqual(sample_dataset.dataset_name, "TestDataset")
@@ -159,8 +157,18 @@ class TestCachingFunctionality(BaseTestCase):
             self.assertEqual(len(sample_dataset), 4)
             self.assertEqual(self.task.call_count, 2)
 
-            # Ensure intermediate cache files are created
-            self.assertTrue((self.cache_dir / "task_df.ld" / "index.json").exists())
+            # Ensure intermediate cache files are created in default location
+            task_params = json.dumps(
+                {
+                    **vars(self.task),
+                    "input_schema": self.task.input_schema,
+                    "output_schema": self.task.output_schema,
+                },
+                sort_keys=True,
+                default=str
+            )
+            task_cache_dir = self.dataset.cache_dir / "tasks" / f"{self.task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params)}"
+            self.assertTrue((task_cache_dir / "task_df.ld" / "index.json").exists())
 
             # Cache artifacts should be present for StreamingDataset
             assert sample_dataset.input_dir.path is not None
@@ -185,7 +193,7 @@ class TestCachingFunctionality(BaseTestCase):
         self.assertFalse((sample_dir / "index.json").exists())
         self.assertFalse((sample_dir / "schema.pkl").exists())
         # Ensure intermediate cache files are still present
-        self.assertTrue((self.cache_dir / "task_df.ld" / "index.json").exists())
+        self.assertTrue((task_cache_dir / "task_df.ld" / "index.json").exists())
 
 
     def test_default_cache_dir_is_used(self):
@@ -208,14 +216,14 @@ class TestCachingFunctionality(BaseTestCase):
 
     def test_reuses_existing_cache_without_regeneration(self):
         """Second call should reuse cached samples instead of recomputing."""
-        sample_dataset = self.dataset.set_task(self.task, cache_dir=self.cache_dir)
+        sample_dataset = self.dataset.set_task(self.task)
         self.assertEqual(self.task.call_count, 2)
 
         with patch.object(
             self.task, "__call__", side_effect=AssertionError("Task should not rerun")
         ):
             cached_dataset = self.dataset.set_task(
-                self.task, cache_dir=self.cache_dir, cache_format="parquet"
+                self.task, cache_format="parquet"
             )
 
         self.assertEqual(len(cached_dataset), 4)

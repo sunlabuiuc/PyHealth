@@ -836,7 +836,6 @@ class BaseDataset(ABC):
         self,
         task: Optional[BaseTask] = None,
         num_workers: Optional[int] = None,
-        cache_dir: str | Path | None = None,
         cache_format: str = "parquet",
         input_processors: Optional[Dict[str, FeatureProcessor]] = None,
         output_processors: Optional[Dict[str, FeatureProcessor]] = None,
@@ -853,8 +852,6 @@ class BaseDataset(ABC):
         Args:
             task (Optional[BaseTask]): The task to set. Uses default task if None.
             num_workers (int): Number of workers for multi-threading. Default is `self.num_workers`.
-            cache_dir (Optional[str]): Directory to cache samples after task transformation,
-                but without applying processors. Default is {self.cache_dir}/tasks.
             cache_format (str): Deprecated. Only "parquet" is supported now.
             input_processors (Optional[Dict[str, FeatureProcessor]]):
                 Pre-fitted input processors. If provided, these will be used
@@ -895,13 +892,8 @@ class BaseDataset(ABC):
             default=str
         )
 
-        if cache_dir is None:
-            cache_dir = self.cache_dir / "tasks" / f"{task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params)}"
-            cache_dir.mkdir(parents=True, exist_ok=True)
-        else:
-            # Ensure the explicitly provided cache_dir exists
-            cache_dir = Path(cache_dir)
-            cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_dir = self.cache_dir / "tasks" / f"{task.task_name}_{uuid.uuid5(uuid.NAMESPACE_DNS, task_params)}"
+        cache_dir.mkdir(parents=True, exist_ok=True)
 
         proc_params = json.dumps(
             {
