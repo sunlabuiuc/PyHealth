@@ -92,7 +92,7 @@ class TupleTimeTextProcessor(FeatureProcessor):
 
         Returns:
             Tuple containing:
-                - torch.Tensor: Text Token IDs [shape: (num_texts, max_seq_len)]
+                - torch.Tensor: Text Token IDs [shape: (T: num_texts, L: max_token_len)]
                 - torch.Tensor: 1D float tensor of time differences [shape: (N,)]
                 - str: Type tag for modality routing
         """
