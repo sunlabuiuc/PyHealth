@@ -28,7 +28,7 @@ Use Case:
 
 Example:
     >>> from pyhealth.processors import TupleTimeTextProcessor
-    >>> processor = TupleTimeTextProcessor(type_tag="note", tokenizer_name="bert-base-uncased")
+    >>> processor = TupleTimeTextProcessor(type_tag="note", tokenizer_name="dmis-lab/biobert-base-cased-v1.1")
     >>>
     >>> # Clinical notes with time differences
     >>> texts = [
@@ -49,7 +49,7 @@ Args:
         models. Common values: "note", "image", "ehr", "signal".
         Default: "note"
     tokenizer_name (str): HuggingFace model name for the tokenizer.
-        Default: "bert-base-uncased"
+        Default: "dmis-lab/biobert-base-cased-v1.1"
 """
 
 from typing import Any, Dict, List, Tuple
@@ -67,13 +67,13 @@ class TupleTimeTextProcessor(FeatureProcessor):
     temporal data into tensors for downstream model consumption.
     """
 
-    def __init__(self, type_tag: str = "note", tokenizer_name: str = "bert-base-uncased"):
+    def __init__(self, type_tag: str = "note", tokenizer_name: str = "dmis-lab/biobert-base-cased-v1.1"):
         """Initialize the processor.
 
         Args:
             type_tag: Modality identifier for automatic routing. Default: "note"
             tokenizer_name: HuggingFace model name for the tokenizer.
-                Default: "bert-base-uncased"
+                Default: "dmis-lab/biobert-base-cased-v1.1"
         """
         super().__init__()
         self.type_tag = type_tag
