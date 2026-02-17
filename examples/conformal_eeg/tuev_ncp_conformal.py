@@ -371,11 +371,12 @@ def _run(args: argparse.Namespace) -> None:
     ratios = list(args.ratios)
     use_multi_seed = args.n_seeds > 1 or args.seeds is not None
     if use_multi_seed:
-        run_seeds = (
-            [int(s.strip()) for s in args.seeds.split(",")]
-            if args.seeds
-            else [args.seed + i for i in range(args.n_seeds)]
-        )
+        if args.seeds:
+            run_seeds = [int(s.strip()) for s in args.seeds.split(",")]
+        elif getattr(args, "tfm_skip_train", False) and args.model.lower() == "tfm":
+            run_seeds = list(range(1, 1 + args.n_seeds))
+        else:
+            run_seeds = [args.seed + i for i in range(args.n_seeds)]
         n_runs = len(run_seeds)
         print(f"  multi_seed: n_runs={n_runs}, run_seeds={run_seeds}, split_seed={args.split_seed} (fixed test set)")
         print(f"Multi-seed mode: {n_runs} runs (fixed test set), run seeds: {run_seeds}")
