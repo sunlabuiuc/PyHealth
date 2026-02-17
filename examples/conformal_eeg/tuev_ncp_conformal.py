@@ -340,7 +340,9 @@ def _run(args: argparse.Namespace) -> None:
     else:
         cache_dir = cache_base or "examples/conformal_eeg/cache"
         dataset = TUEVDataset(root=str(root), subset=args.subset, dev=args.quick_test)
-        sample_dataset = dataset.set_task(EEGEventsTUEV(), cache_dir=cache_dir)
+        sample_dataset = dataset.set_task(
+            EEGEventsTUEV(resample_rate=200), cache_dir=cache_dir
+        )
     if args.quick_test and len(sample_dataset) > quick_test_max_samples:
         sample_dataset = sample_dataset.subset(range(quick_test_max_samples))
         print(f"Capped to {quick_test_max_samples} samples for quick-test.")

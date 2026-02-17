@@ -8,6 +8,9 @@ resource*
 debug_entry*
 playground.ipynb
 
+# External TFM-Tokenizer (do not commit)
+TFM-Tokenizer/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

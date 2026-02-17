@@ -789,6 +789,10 @@ class TFMTokenizer(BaseModel):
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation.
         
+        Accepts either per-channel (TFM-Tokenizer standard) or legacy single-stream:
+        - Per-channel: stft (B, C, F, T), signal (B, C, T) -> tokenizer sees (B*C, F, T) / (B*C, T), classifier gets (B, C, T).
+        - Legacy: stft (B, F, T), signal (B, T) -> classifier gets (B, 1, T).
+        
         Args:
             **kwargs: keyword arguments containing 'stft', 'signal', and label key.
                 
@@ -804,28 +808,42 @@ class TFMTokenizer(BaseModel):
         stft = stft.to(self.device)
         signal = signal.to(self.device)
 
-        reconstructed, tokens, quant_out, quant_in = self.tokenizer(stft, signal)
+        per_channel = stft.dim() == 4
+        if per_channel:
+            B, C, F, T = stft.shape
+            stft_flat = rearrange(stft, "B C F T -> (B C) F T")
+            signal_flat = rearrange(signal, "B C T -> (B C) T")
+        else:
+            stft_flat = stft
+            signal_flat = signal
 
-        recon_loss = F.mse_loss(reconstructed, stft)
+        reconstructed, tokens, quant_out, quant_in = self.tokenizer(stft_flat, signal_flat)
+
+        if per_channel:
+            recon_loss = F.mse_loss(reconstructed, stft_flat)
+            tokens_reshaped = rearrange(tokens, "(B C) T -> B C T", B=B, C=C)
+        else:
+            recon_loss = F.mse_loss(reconstructed, stft_flat)
+            tokens_reshaped = tokens.unsqueeze(1)
+
         vq_loss, _, _ = self.tokenizer.vec_quantizer_loss(quant_in, quant_out)
 
         results = {
             "recon_loss": recon_loss,
             "vq_loss": vq_loss,
-            "tokens": tokens,
+            "tokens": tokens_reshaped,
             "embeddings": quant_out,
         }
         if kwargs.get("embed", False):
-            # Mean-pool over sequence for compatibility with extract_embeddings (expects 2D)
-            results["embed"] = quant_out.mean(dim=1)
+            if per_channel:
+                results["embed"] = quant_out.reshape(B, C, -1, quant_out.size(-1)).mean(dim=1)
+            else:
+                results["embed"] = quant_out.mean(dim=1)
 
         if self.use_classifier and len(self.label_keys) > 0:
             label_key = self.label_keys[0]
             y_true = kwargs[label_key].to(self.device)
 
-            # Reshape tokens to (B, C, T) for multi-channel classifier
-            # tokens shape: (B, T) -> (B, 1, T)
-            tokens_reshaped = tokens.unsqueeze(1)
             logits = self.classifier(tokens_reshaped)
             loss_fn = self.get_loss_function()
             cls_loss = loss_fn(logits, y_true)
@@ -848,12 +866,7 @@ class TFMTokenizer(BaseModel):
 
     def get_embeddings(self, dataloader) -> torch.Tensor:
         """Extract continuous embeddings for all samples in a dataloader.
-        
-        Args:
-            dataloader: PyHealth dataloader.
-            
-        Returns:
-            tensor of shape (n_samples, seq_len, emb_size).
+        With per-channel input (stft 4D, signal 3D), returns (n_samples, seq_len, emb_size) by mean-pooling over channels.
         """
         self.eval()
         all_embeddings = []
@@ -862,19 +875,23 @@ class TFMTokenizer(BaseModel):
             for batch in dataloader:
                 stft = batch.get("stft").to(self.device)
                 signal = batch.get("signal").to(self.device)
-                _, _, quant_out, _ = self.tokenizer(stft, signal)
+                per_channel = stft.dim() == 4
+                if per_channel:
+                    B, C, F, T = stft.shape
+                    stft_flat = rearrange(stft, "B C F T -> (B C) F T")
+                    signal_flat = rearrange(signal, "B C T -> (B C) T")
+                else:
+                    stft_flat, signal_flat = stft, signal
+                _, _, quant_out, _ = self.tokenizer(stft_flat, signal_flat)
+                if per_channel:
+                    quant_out = quant_out.reshape(B, C, -1, quant_out.size(-1)).mean(dim=1)
                 all_embeddings.append(quant_out.cpu())
 
         return torch.cat(all_embeddings, dim=0)
 
     def get_tokens(self, dataloader) -> torch.Tensor:
         """Extract discrete tokens for all samples in a dataloader.
-        
-        Args:
-            dataloader: PyHealth dataloader.
-            
-        Returns:
-            tensor of shape (n_samples, seq_len).
+        With per-channel input, returns (n_samples, n_channels, seq_len).
         """
         self.eval()
         all_tokens = []
@@ -883,7 +900,16 @@ class TFMTokenizer(BaseModel):
             for batch in dataloader:
                 stft = batch.get("stft").to(self.device)
                 signal = batch.get("signal").to(self.device)
-                _, tokens, _, _ = self.tokenizer(stft, signal)
+                per_channel = stft.dim() == 4
+                if per_channel:
+                    B, C, F, T = stft.shape
+                    stft_flat = rearrange(stft, "B C F T -> (B C) F T")
+                    signal_flat = rearrange(signal, "B C T -> (B C) T")
+                else:
+                    stft_flat, signal_flat = stft, signal
+                _, tokens, _, _ = self.tokenizer(stft_flat, signal_flat)
+                if per_channel:
+                    tokens = rearrange(tokens, "(B C) T -> B C T", B=B, C=C)
                 all_tokens.append(tokens.cpu())
 
         return torch.cat(all_tokens, dim=0)

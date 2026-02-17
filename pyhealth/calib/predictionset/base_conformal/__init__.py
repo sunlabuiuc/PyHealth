@@ -190,6 +190,8 @@ class BaseConformal(SetPredictor):
             Conformity scores of shape (N,)
         """
         N = len(y_true)
+        # Ensure integer indices (y_true can be float e.g. 0.0/1.0 from binary tasks)
+        y_true = np.asarray(y_true, dtype=np.int64)
         if self.score_type == "aps" or self.score_type == "threshold":
             # Use probability of true class as conformity score
             # Higher score = more conforming (better prediction)

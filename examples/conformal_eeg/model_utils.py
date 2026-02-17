@@ -20,35 +20,36 @@ import torch
 from pyhealth.models import ContraWR, TFMTokenizer
 
 
-def compute_stft(
-    signal_1d: np.ndarray,
-    n_fft: int = 128,
-    hop_length: int = 64,
-    center: bool = False,
-) -> np.ndarray:
-    """Compute magnitude STFT for a 1D signal. Returns (n_freq, n_time) float32.
-    Use center=False for TFM so n_time = (L - n_fft) // hop_length + 1, matching
-    the tokenizer's temporal conv (kernel 200, stride 100).
-    """
-    if signal_1d.ndim != 1:
-        signal_1d = np.asarray(signal_1d).mean(axis=0)
-    signal_1d = np.asarray(signal_1d, dtype=np.float32)
-    t = torch.from_numpy(signal_1d).unsqueeze(0)
-    stft = torch.stft(
-        t,
-        n_fft=n_fft,
-        hop_length=hop_length,
+RESAMPLING_RATE = 200  # TFM-Tokenizer standard; n_fft=200, hop_length=100, 100 freq bins
+
+
+def get_stft_torch(X: torch.Tensor, resampling_rate: int = RESAMPLING_RATE) -> torch.Tensor:
+    """Per-channel magnitude STFT matching TFM-Tokenizer repo. Input (B, C, T) -> output (B, C, 100, T')."""
+    B, C, T = X.shape
+    x_temp = X.reshape(B * C, T)
+    window = torch.hann_window(resampling_rate, device=X.device, dtype=X.dtype)
+    stft_complex = torch.stft(
+        x_temp,
+        n_fft=resampling_rate,
+        hop_length=resampling_rate // 2,
+        window=window,
+        onesided=True,
         return_complex=True,
-        center=center,
+        center=False,
     )
-    mag = stft.abs().squeeze(0).numpy()
-    return mag.astype(np.float32)
+    # (B*C, n_fft//2+1, T') -> take first 100 freq bins
+    x_stft_temp = torch.abs(stft_complex)[:, : resampling_rate // 2, :]
+    x_stft_temp = x_stft_temp.reshape(B, C, resampling_rate // 2, -1)
+    return x_stft_temp
 
 
 class AddSTFTDataset:
-    """Wraps a TUEV task dataset to add 'stft' and convert 'signal' to 1D (mean over channels) for TFM-Tokenizer."""
+    """Wraps a TUEV/TUAB task dataset to add per-channel 'stft' for TFM-Tokenizer.
+    Keeps 'signal' as (C, T); adds 'stft' as (C, 100, T') with n_fft=200, hop_length=100.
+    Matches the original TFM-Tokenizer training pipeline (16 token sequences per sample).
+    """
 
-    def __init__(self, base, n_fft: int = 128, hop_length: int = 64):
+    def __init__(self, base, n_fft: int = 200, hop_length: int = 100):
         self._base = base
         self.n_fft = n_fft
         self.hop_length = hop_length
@@ -71,20 +72,20 @@ class AddSTFTDataset:
     def __getitem__(self, i: int):
         sample = dict(self._base[i])
         signal = sample["signal"]
-        if np.ndim(signal) == 2:
-            signal_1d = np.asarray(signal, dtype=np.float32).mean(axis=0)
-        else:
-            signal_1d = np.asarray(signal, dtype=np.float32).flatten()
-        # Return tensors so get_dataloader's collate stacks them (not list)
-        sample["signal"] = torch.from_numpy(signal_1d)
-        # center=False so n_time = (L - n_fft)//hop_length + 1, matching TFM temporal conv
-        stft_np = compute_stft(
-            signal_1d, self.n_fft, self.hop_length, center=False
-        )
-        # TFM tokenizer expects 100 freq bins; crop if we used n_fft=200 (101 bins)
-        if stft_np.shape[0] > 100:
-            stft_np = stft_np[:100]
-        sample["stft"] = torch.from_numpy(stft_np)
+        signal = np.asarray(signal, dtype=np.float32)
+        if signal.ndim == 1:
+            signal = signal.reshape(1, -1)
+        # Normalize by 95th percentile of |signal| per channel (axis=-1), matching TFM training
+        scale = np.quantile(
+            np.abs(signal), q=0.95, axis=-1, method="linear", keepdims=True
+        ) + 1e-8
+        signal = signal / scale
+        # signal (C, T) -> tensor
+        signal_t = torch.from_numpy(signal)
+        sample["signal"] = signal_t
+        # Per-channel STFT: (1, C, T) -> (1, C, 100, T')
+        stft = get_stft_torch(signal_t.unsqueeze(0), resampling_rate=self.n_fft)
+        sample["stft"] = stft.squeeze(0)
         return sample
 
     def subset(self, indices):
