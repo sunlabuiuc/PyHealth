@@ -810,7 +810,7 @@ class TFMTokenizer(BaseModel):
 
         per_channel = stft.dim() == 4
         if per_channel:
-            B, C, F, T = stft.shape
+            B, C, n_freq, T = stft.shape
             stft_flat = rearrange(stft, "B C F T -> (B C) F T")
             signal_flat = rearrange(signal, "B C T -> (B C) T")
         else:
@@ -877,7 +877,7 @@ class TFMTokenizer(BaseModel):
                 signal = batch.get("signal").to(self.device)
                 per_channel = stft.dim() == 4
                 if per_channel:
-                    B, C, F, T = stft.shape
+                    B, C, n_freq, T = stft.shape
                     stft_flat = rearrange(stft, "B C F T -> (B C) F T")
                     signal_flat = rearrange(signal, "B C T -> (B C) T")
                 else:
@@ -902,7 +902,7 @@ class TFMTokenizer(BaseModel):
                 signal = batch.get("signal").to(self.device)
                 per_channel = stft.dim() == 4
                 if per_channel:
-                    B, C, F, T = stft.shape
+                    B, C, n_freq, T = stft.shape
                     stft_flat = rearrange(stft, "B C F T -> (B C) F T")
                     signal_flat = rearrange(signal, "B C T -> (B C) T")
                 else:
