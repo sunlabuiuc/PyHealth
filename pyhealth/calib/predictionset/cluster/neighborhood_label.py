@@ -156,11 +156,18 @@ class NeighborhoodLabel(SetPredictor):
                 f"cal_dataset size {N}"
             )
 
+        # Flatten to 2D (n_samples, n_features) so NearestNeighbors works with 3D embeddings (e.g. TFM)
+        cal_embeddings = np.asarray(cal_embeddings)
+        if cal_embeddings.ndim > 2:
+            cal_embeddings = cal_embeddings.reshape(cal_embeddings.shape[0], -1)
+        elif cal_embeddings.ndim == 1:
+            cal_embeddings = cal_embeddings.reshape(-1, 1)
+
         k = min(self.k_neighbors, N)
         self._nn = NearestNeighbors(n_neighbors=k, metric="euclidean").fit(
-            np.atleast_2d(cal_embeddings)
+            cal_embeddings
         )
-        self.cal_embeddings_ = np.atleast_2d(cal_embeddings)
+        self.cal_embeddings_ = cal_embeddings
         self.cal_conformity_scores_ = np.asarray(
             conformity_scores, dtype=np.float64
         ).ravel()
@@ -211,7 +218,11 @@ class NeighborhoodLabel(SetPredictor):
             )
 
         test_emb = pred["embed"].detach().cpu().numpy()
-        test_emb = np.atleast_2d(test_emb)
+        # Flatten to 2D (batch_size, n_features) to match calibration embeddings
+        if test_emb.ndim == 1:
+            test_emb = test_emb.reshape(1, -1)
+        elif test_emb.ndim > 2:
+            test_emb = test_emb.reshape(test_emb.shape[0], -1)
         batch_size = test_emb.shape[0]
         n_cal = self.cal_conformity_scores_.shape[0]
         k = min(self.k_neighbors, n_cal)
