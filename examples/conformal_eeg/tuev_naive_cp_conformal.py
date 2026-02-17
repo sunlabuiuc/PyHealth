@@ -288,6 +288,14 @@ def _run(args: argparse.Namespace) -> None:
         print(f"Multi-seed mode: {n_runs} runs (fixed test set), run seeds: {run_seeds}")
 
     if not use_multi_seed:
+        # Single run: substitute {seed} in TFM checkpoint paths so loading works
+        if args.model.lower() == "tfm":
+            ckpt = getattr(args, "tfm_checkpoint", None)
+            if ckpt and "{seed}" in ckpt:
+                args.tfm_checkpoint = ckpt.replace("{seed}", str(args.seed))
+            clf = getattr(args, "tfm_classifier_checkpoint", None)
+            if clf and "{seed}" in clf:
+                args.tfm_classifier_checkpoint = clf.replace("{seed}", str(args.seed))
         print("\n" + "=" * 80)
         print("STEP 2: Split train/val/cal/test")
         print("=" * 80)

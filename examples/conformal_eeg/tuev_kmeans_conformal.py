@@ -367,6 +367,13 @@ def _run(args: argparse.Namespace) -> None:
         print(f"  multi_seed: n_runs={n_runs}, run_seeds={run_seeds}, split_seed={args.split_seed} (fixed test set)")
 
     if not use_multi_seed:
+        if args.model.lower() == "tfm":
+            ckpt = getattr(args, "tfm_checkpoint", None)
+            if ckpt and "{seed}" in ckpt:
+                args.tfm_checkpoint = ckpt.replace("{seed}", str(args.seed))
+            clf = getattr(args, "tfm_classifier_checkpoint", None)
+            if clf and "{seed}" in clf:
+                args.tfm_classifier_checkpoint = clf.replace("{seed}", str(args.seed))
         print("\n" + "=" * 80)
         print("STEP 2: Split train/val/cal/test")
         print("=" * 80)
