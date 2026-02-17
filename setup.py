@@ -45,6 +45,7 @@ setup(
     ],
     packages=find_packages(exclude=["test"]),
     include_package_data=True,
+    package_data={"pyhealth": ["datasets/configs/*.yaml"]},
     install_requires=requirements,
     setup_requires=["setuptools>=38.6.0"],
     classifiers=[
