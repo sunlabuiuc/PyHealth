@@ -26,8 +26,9 @@ def _missrate(y_pred:np.ndarray, y_true:np.ndarray, ignore_rejected=False):
     # currently handles multilabel and multiclass
     K = y_pred.shape[1]
     if len(y_true.shape) == 1:
-        y_true, _ = np.zeros((len(y_true),K), dtype=bool), y_true
-        y_true[np.arange(len(y_true)), _] = 1
+        labels = np.asarray(y_true).ravel().astype(np.intp)
+        y_true = np.zeros((len(labels), K), dtype=bool)
+        y_true[np.arange(len(labels)), labels] = 1
     y_true = y_true.astype(bool)
 
     keep_msk = (y_pred.sum(1) == 1) if ignore_rejected else np.ones(len(y_true), dtype=bool)
@@ -94,7 +95,7 @@ def miscoverage_overall_ps(y_pred:np.ndarray, y_true:np.ndarray):
     The 2-th prediction set is {0,1} and the label is 1 (covered).
     Thus the miscoverage rate is 1/3.
     """
-    assert len(y_true.shape) == 1
+    y_true = np.asarray(y_true).ravel().astype(np.intp)
     truth_pred = y_pred[np.arange(len(y_true)), y_true]
     return 1 - np.mean(truth_pred) if len(truth_pred) > 0 else 0.0
 
@@ -114,7 +115,7 @@ def error_overall_ps(y_pred:np.ndarray, y_true:np.ndarray):
     The 1-th sample is not rejected and incurs on error.
     The 2-th sample is rejected, thus excluded from the computation.
     """
-    assert len(y_true.shape) == 1
+    y_true = np.asarray(y_true).ravel().astype(np.intp)
     truth_pred = y_pred[np.arange(len(y_true)), y_true]
     truth_pred = truth_pred[y_pred.sum(1) == 1]
     return 1 - np.mean(truth_pred) if len(truth_pred) > 0 else 0.0

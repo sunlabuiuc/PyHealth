@@ -62,6 +62,10 @@ def binary_metrics_fn(
     if metrics is None:
         metrics = ["pr_auc", "roc_auc", "f1"]
 
+    # Normalize to 1D so sklearn and pset get consistent shapes (e.g. from (N,1) tensors)
+    y_true = np.asarray(y_true).ravel()
+    y_prob = np.asarray(y_prob).ravel()
+
     prediction_set_metrics = [
         "rejection_rate",
         "set_size",
@@ -91,9 +95,10 @@ def binary_metrics_fn(
         elif metric == "balanced_accuracy":
             balanced_accuracy = sklearn_metrics.balanced_accuracy_score(y_true, y_pred)
             output["balanced_accuracy"] = balanced_accuracy
-        elif metric == "f1":
+        elif metric in ("f1", "f1_weighted"):
+            # f1_weighted alias for script compatibility with multiclass (binary has one class)
             f1 = sklearn_metrics.f1_score(y_true, y_pred)
-            output["f1"] = f1
+            output["f1" if metric == "f1" else "f1_weighted"] = f1
         elif metric == "precision":
             precision = sklearn_metrics.precision_score(y_true, y_pred)
             output["precision"] = precision
@@ -120,8 +125,8 @@ def binary_metrics_fn(
                 y_predset_np = np.concatenate(
                     [1 - y_predset_np, y_predset_np], axis=1
                 )
-            # pset._missrate expects y_true 1D so it can build (N, K) one-hot
-            y_true_flat = np.asarray(y_true).ravel()
+            # pset uses y_true as integer class indices; ensure 1D int
+            y_true_flat = np.asarray(y_true).ravel().astype(np.intp)
             if metric == "rejection_rate":
                 output[metric] = pset.rejection_rate(y_predset_np)
             elif metric == "set_size":
