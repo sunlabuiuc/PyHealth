@@ -194,8 +194,12 @@ class BaseConformal(SetPredictor):
         y_true = np.asarray(y_true, dtype=np.int64)
         if self.score_type == "aps" or self.score_type == "threshold":
             # Use probability of true class as conformity score
-            # Higher score = more conforming (better prediction)
-            scores = y_prob[np.arange(N), y_true]
+            if y_prob.shape[1] == 1:
+                # Binary: y_prob is (N, 1) for positive class; P(y=0)=1-p, P(y=1)=p
+                p1 = np.asarray(y_prob[:, 0], dtype=np.float64).ravel()
+                scores = np.where(y_true == 1, p1, 1.0 - p1)
+            else:
+                scores = y_prob[np.arange(N), y_true]
         else:
             raise ValueError(f"Unknown score_type: {self.score_type}")
 
@@ -268,10 +272,16 @@ class BaseConformal(SetPredictor):
             )
 
         pred = self.model(**kwargs)
+        y_prob = pred["y_prob"]
+
+        # Binary models output (N, 1) for positive class; expand to (N, 2) for set construction
+        if y_prob.shape[-1] == 1:
+            p1 = y_prob.squeeze(-1).clamp(0.0, 1.0)
+            y_prob = torch.stack([1.0 - p1, p1], dim=-1)
 
         # Construct prediction set by thresholding probabilities
         # Include classes with probability >= threshold
-        pred["y_predset"] = pred["y_prob"] >= self.t
+        pred["y_predset"] = y_prob >= self.t
 
         return pred
 
