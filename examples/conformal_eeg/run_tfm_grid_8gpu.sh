@@ -3,6 +3,7 @@
 # Dynamic assignment: first free GPU takes the next job (faster when runtimes vary).
 # Usage: set TOK, TUEV_CLF, TUAB_CLF below, then: bash run_tfm_grid_8gpu.sh
 # From repo root: bash examples/conformal_eeg/run_tfm_grid_8gpu.sh
+# Run 8 at a time (4 waves): WAVES_OF_8=1 bash examples/conformal_eeg/run_tfm_grid_8gpu.sh
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -52,31 +53,46 @@ for method in naive kde kmeans ncp; do
 done
 total=${#jobs[@]}
 
-# Dynamic assignment: shared job counter, first free GPU claims next job
-NEXT_JOB_FILE=$(mktemp)
-LOCK_FILE=$(mktemp)
-echo 0 > "$NEXT_JOB_FILE"
-cleanup() { rm -f "$NEXT_JOB_FILE" "$LOCK_FILE"; }
-trap cleanup EXIT
-
-claim_next_index() {
-  # Hold lock for the whole read-increment-write so claim is atomic
-  flock 200 bash -c "read -r idx < \"$NEXT_JOB_FILE\"; echo \$((idx + 1)) > \"$NEXT_JOB_FILE\"; printf '%s\n' \"\$idx\""
-} 200>>"$LOCK_FILE"
-
-worker() {
-  local gpu=$1
-  while true; do
-    local job_idx
-    job_idx=$(claim_next_index)
-    [[ "$job_idx" -ge "$total" ]] && break
-    read -r method dataset alpha <<< "${jobs[job_idx]}"
-    run_one "$gpu" "$method" "$dataset" "$alpha"
+if [[ -n "${WAVES_OF_8:-}" ]]; then
+  # Run 4 waves of 8 jobs: wait for each wave to finish before starting the next
+  for wave in 0 1 2 3; do
+    start=$((wave * 8))
+    echo "=== Wave $((wave + 1))/4 (jobs $((start + 1))–$((start + 8))) ==="
+    for gpu in 0 1 2 3 4 5 6 7; do
+      idx=$((start + gpu))
+      read -r method dataset alpha <<< "${jobs[idx]}"
+      run_one "$gpu" "$method" "$dataset" "$alpha" &
+    done
+    wait
+    echo "Wave $((wave + 1)) done."
   done
-}
+  echo "All 32 jobs done. Logs in $LOG_DIR"
+else
+  # Dynamic assignment: shared job counter, first free GPU claims next job
+  NEXT_JOB_FILE=$(mktemp)
+  LOCK_FILE=$(mktemp)
+  echo 0 > "$NEXT_JOB_FILE"
+  cleanup() { rm -f "$NEXT_JOB_FILE" "$LOCK_FILE"; }
+  trap cleanup EXIT
 
-for gpu in 0 1 2 3 4 5 6 7; do
-  worker "$gpu" &
-done
-wait
-echo "All 32 jobs done. Logs in $LOG_DIR"
+  claim_next_index() {
+    flock 200 bash -c "read -r idx < \"$NEXT_JOB_FILE\"; echo \$((idx + 1)) > \"$NEXT_JOB_FILE\"; printf '%s\n' \"\$idx\""
+  } 200>>"$LOCK_FILE"
+
+  worker() {
+    local gpu=$1
+    while true; do
+      local job_idx
+      job_idx=$(claim_next_index)
+      [[ "$job_idx" -ge "$total" ]] && break
+      read -r method dataset alpha <<< "${jobs[job_idx]}"
+      run_one "$gpu" "$method" "$dataset" "$alpha"
+    done
+  }
+
+  for gpu in 0 1 2 3 4 5 6 7; do
+    worker "$gpu" &
+  done
+  wait
+  echo "All 32 jobs done. Logs in $LOG_DIR"
+fi
