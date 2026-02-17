@@ -128,10 +128,11 @@ class HALO_MIMIC3Dataset:
         # Save Everything
         print("Saving Everything")
         print(len(index_to_code))
-        pickle.dump(code_to_index, open(f"{self.pkl_data_dir}codeToIndex.pkl", "wb"))
-        pickle.dump(index_to_code, open(f"{self.pkl_data_dir}indexToCode.pkl", "wb"))
-        pickle.dump(id_to_group, open(f"{self.pkl_data_dir}idToLabel.pkl", "wb"))
-        pickle.dump(train_dataset, open(f"{self.pkl_data_dir}trainDataset.pkl", "wb"))
-        pickle.dump(val_dataset, open(f"{self.pkl_data_dir}valDataset.pkl", "wb"))
-        pickle.dump(test_dataset, open(f"{self.pkl_data_dir}testDataset.pkl", "wb"))
+        os.makedirs(self.pkl_data_dir, exist_ok=True)
+        pickle.dump(code_to_index, open(os.path.join(self.pkl_data_dir, "codeToIndex.pkl"), "wb"))
+        pickle.dump(index_to_code, open(os.path.join(self.pkl_data_dir, "indexToCode.pkl"), "wb"))
+        pickle.dump(id_to_group, open(os.path.join(self.pkl_data_dir, "idToLabel.pkl"), "wb"))
+        pickle.dump(train_dataset, open(os.path.join(self.pkl_data_dir, "trainDataset.pkl"), "wb"))
+        pickle.dump(val_dataset, open(os.path.join(self.pkl_data_dir, "valDataset.pkl"), "wb"))
+        pickle.dump(test_dataset, open(os.path.join(self.pkl_data_dir, "testDataset.pkl"), "wb"))
 
