@@ -1,9 +1,10 @@
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 import numpy as np
 import sklearn.metrics as sklearn_metrics
 
 import pyhealth.metrics.calibration as calib
+import pyhealth.metrics.prediction_set as pset
 
 
 def binary_metrics_fn(
@@ -11,7 +12,8 @@ def binary_metrics_fn(
     y_prob: np.ndarray,
     metrics: Optional[List[str]] = None,
     threshold: float = 0.5,
-) -> Dict[str, float]:
+    y_predset: Optional[np.ndarray] = None,
+) -> Dict[str, Union[float, np.ndarray]]:
     """Computes metrics for binary classification.
 
     User can specify which metrics to compute by passing a list of metric names.
@@ -28,6 +30,11 @@ def binary_metrics_fn(
         - jaccard: Jaccard similarity coefficient score
         - ECE: Expected Calibration Error (with 20 equal-width bins). Check :func:`pyhealth.metrics.calibration.ece_confidence_binary`.
         - ECE_adapt: adaptive ECE (with 20 equal-size bins). Check :func:`pyhealth.metrics.calibration.ece_confidence_binary`.
+
+    The following prediction-set metrics are accepted but ignored if y_predset is None:
+        - rejection_rate, set_size, miscoverage_ps, miscoverage_overall_ps,
+          error_ps, error_overall_ps (see :mod:`pyhealth.metrics.prediction_set`).
+
     If no metrics are specified, pr_auc, roc_auc and f1 are computed by default.
 
     This function calls sklearn.metrics functions to compute the metrics. For
@@ -39,6 +46,7 @@ def binary_metrics_fn(
         y_prob: Predicted probabilities of shape (n_samples,).
         metrics: List of metrics to compute. Default is ["pr_auc", "roc_auc", "f1"].
         threshold: Threshold for binary classification. Default is 0.5.
+        y_predset: Optional (n_samples, 2) boolean prediction sets for conformal metrics.
 
     Returns:
         Dictionary of metrics whose keys are the metric names and values are
@@ -53,6 +61,17 @@ def binary_metrics_fn(
     """
     if metrics is None:
         metrics = ["pr_auc", "roc_auc", "f1"]
+
+    prediction_set_metrics = [
+        "rejection_rate",
+        "set_size",
+        "miscoverage_mean_ps",
+        "miscoverage_ps",
+        "miscoverage_overall_ps",
+        "error_mean_ps",
+        "error_ps",
+        "error_overall_ps",
+    ]
 
     y_pred = y_prob.copy()
     y_pred[y_pred >= threshold] = 1
@@ -91,6 +110,32 @@ def binary_metrics_fn(
             output[metric] = calib.ece_confidence_binary(
                 y_prob, y_true, bins=20, adaptive=metric.endswith("_adapt")
             )
+        elif metric in prediction_set_metrics:
+            if y_predset is None:
+                continue
+            y_predset_np = np.asarray(y_predset, dtype=bool)
+            if y_predset_np.ndim == 1:
+                y_predset_np = y_predset_np.reshape(-1, 1)
+            if y_predset_np.shape[1] == 1:
+                y_predset_np = np.concatenate(
+                    [1 - y_predset_np, y_predset_np], axis=1
+                )
+            if metric == "rejection_rate":
+                output[metric] = pset.rejection_rate(y_predset_np)
+            elif metric == "set_size":
+                output[metric] = pset.size(y_predset_np)
+            elif metric == "miscoverage_mean_ps":
+                output[metric] = pset.miscoverage_ps(y_predset_np, y_true).mean()
+            elif metric == "miscoverage_ps":
+                output[metric] = pset.miscoverage_ps(y_predset_np, y_true)
+            elif metric == "miscoverage_overall_ps":
+                output[metric] = pset.miscoverage_overall_ps(y_predset_np, y_true)
+            elif metric == "error_mean_ps":
+                output[metric] = pset.error_ps(y_predset_np, y_true).mean()
+            elif metric == "error_ps":
+                output[metric] = pset.error_ps(y_predset_np, y_true)
+            elif metric == "error_overall_ps":
+                output[metric] = pset.error_overall_ps(y_predset_np, y_true)
         else:
             raise ValueError(f"Unknown metric for binary classification: {metric}")
     return output
