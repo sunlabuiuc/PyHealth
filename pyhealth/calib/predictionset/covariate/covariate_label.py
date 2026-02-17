@@ -319,9 +319,9 @@ class CovariateLabel(SetPredictor):
     ) -> None:
         super().__init__(model, **kwargs)
 
-        if model.mode != "multiclass":
+        if model.mode not in ("multiclass", "binary"):
             raise NotImplementedError(
-                "CovariateLabel only supports multiclass classification"
+                "CovariateLabel only supports multiclass or binary classification"
             )
 
         self.mode = self.model.mode
@@ -414,6 +414,16 @@ class CovariateLabel(SetPredictor):
         y_true = cal_dataset_dict["y_true"]
         N, K = y_prob.shape
 
+        # Binary: model outputs (N, 1) for positive class; treat as K=2
+        if K == 1:
+            y_true = np.asarray(y_true).ravel().astype(np.intp)
+            p1 = np.asarray(y_prob[:, 0], dtype=np.float64).ravel()
+            conformity_scores = np.where(y_true == 1, p1, 1.0 - p1)
+            K = 2
+        else:
+            y_true = np.asarray(y_true).ravel().astype(np.intp)
+            conformity_scores = y_prob[np.arange(N), y_true]
+
         # Determine weights: either custom or KDE-based
         if cal_weights is not None:
             # Use custom weights provided by user
@@ -462,8 +472,7 @@ class CovariateLabel(SetPredictor):
         weights = likelihood_ratios / np.sum(likelihood_ratios)
         self._sum_cal_weights = np.sum(likelihood_ratios)
 
-        # Extract conformity scores (probabilities of true class)
-        conformity_scores = y_prob[np.arange(N), y_true]
+        # Conformity scores already set above (with binary handling)
 
         # Compute weighted quantile thresholds
         if isinstance(self.alpha, float):
@@ -498,10 +507,20 @@ class CovariateLabel(SetPredictor):
                     are in the prediction set
         """
         pred = self.model(**kwargs)
+        y_prob = pred["y_prob"]
 
-        # Construct prediction set by thresholding probabilities
-        pred["y_predset"] = pred["y_prob"] > self.t
+        # Binary: expand (batch, 1) to (batch, 2) only for set construction; keep pred["y_prob"] as-is for metrics
+        if y_prob.shape[-1] == 1:
+            p1 = y_prob.squeeze(-1).clamp(0.0, 1.0)
+            y_prob_2 = torch.stack([1.0 - p1, p1], dim=-1)
+        else:
+            y_prob_2 = y_prob
 
+        # Broadcast threshold for (batch, K)
+        th = self.t.to(device=y_prob_2.device, dtype=y_prob_2.dtype)
+        if th.dim() >= 1 and th.numel() > 1:
+            th = th.view(1, -1)
+        pred["y_predset"] = y_prob_2 > th
         return pred
 
 

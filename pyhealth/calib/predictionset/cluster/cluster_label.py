@@ -102,9 +102,9 @@ class ClusterLabel(SetPredictor):
     ) -> None:
         super().__init__(model, **kwargs)
 
-        if model.mode != "multiclass":
+        if model.mode not in ("multiclass", "binary"):
             raise NotImplementedError(
-                "ClusterLabel only supports multiclass classification"
+                "ClusterLabel only supports multiclass or binary classification"
             )
 
         self.mode = self.model.mode
@@ -176,6 +176,16 @@ class ClusterLabel(SetPredictor):
         y_true = cal_dataset_dict["y_true"]
         N, K = y_prob.shape
 
+        # Binary: model outputs (N, 1); treat as K=2 for conformity and thresholds
+        if K == 1:
+            y_true = np.asarray(y_true).ravel().astype(np.intp)
+            p1 = np.asarray(y_prob[:, 0], dtype=np.float64).ravel()
+            conformity_scores = np.where(y_true == 1, p1, 1.0 - p1)
+            K = 2
+        else:
+            y_true = np.asarray(y_true).ravel().astype(np.intp)
+            conformity_scores = y_prob[np.arange(N), y_true]
+
         # Extract embeddings if not provided
         if cal_embeddings is None:
             print("Extracting embeddings from calibration set...")
@@ -214,8 +224,7 @@ class ClusterLabel(SetPredictor):
 
         print(f"Cluster assignments: {np.bincount(cal_cluster_labels)}")
 
-        # Compute conformity scores (probabilities of true class)
-        conformity_scores = y_prob[np.arange(N), y_true]
+        # Conformity scores already set above (with binary handling)
 
         # Compute cluster-specific thresholds
         self.cluster_thresholds = {}
@@ -300,20 +309,27 @@ class ClusterLabel(SetPredictor):
         cluster_thresholds = np.array(
             [self.cluster_thresholds[cid] for cid in cluster_ids]
         )
+        y_prob = pred["y_prob"]
+
+        # Binary: expand (batch, 1) to (batch, 2) only for set construction; keep pred["y_prob"] as-is
+        if y_prob.shape[-1] == 1:
+            p1 = y_prob.squeeze(-1).clamp(0.0, 1.0)
+            y_prob_2 = torch.stack([1.0 - p1, p1], dim=-1)
+        else:
+            y_prob_2 = y_prob
+
         cluster_thresholds = torch.as_tensor(
-            cluster_thresholds, device=self.device, dtype=pred["y_prob"].dtype
+            cluster_thresholds, device=self.device, dtype=y_prob_2.dtype
         )
 
         # Broadcast thresholds to match y_prob shape (batch_size, n_classes).
-        # Marginal: thresholds are (batch_size,) -> view to (batch_size, 1, ...).
-        # Class-conditional: thresholds are already (batch_size, K), no view.
-        if pred["y_prob"].ndim > 1 and cluster_thresholds.ndim == 1:
+        if y_prob_2.ndim > 1 and cluster_thresholds.ndim == 1:
             view_shape = (cluster_thresholds.shape[0],) + (1,) * (
-                pred["y_prob"].ndim - 1
+                y_prob_2.ndim - 1
             )
             cluster_thresholds = cluster_thresholds.view(view_shape)
 
-        pred["y_predset"] = pred["y_prob"] >= cluster_thresholds
+        pred["y_predset"] = y_prob_2 >= cluster_thresholds
         pred.pop("embed", None)  # do not expose internal embedding to caller
         return pred
 

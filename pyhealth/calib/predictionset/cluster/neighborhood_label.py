@@ -74,9 +74,9 @@ class NeighborhoodLabel(SetPredictor):
     ) -> None:
         super().__init__(model, **kwargs)
 
-        if model.mode != "multiclass":
+        if model.mode not in ("multiclass", "binary"):
             raise NotImplementedError(
-                "NeighborhoodLabel only supports multiclass classification"
+                "NeighborhoodLabel only supports multiclass or binary classification"
             )
 
         self.mode = self.model.mode
@@ -134,6 +134,14 @@ class NeighborhoodLabel(SetPredictor):
         y_prob = cal_dict["y_prob"]
         y_true = cal_dict["y_true"]
         N = y_prob.shape[0]
+        y_true = np.asarray(y_true).ravel().astype(np.intp)
+
+        # Binary: model outputs (N, 1); conformity = prob of true class
+        if y_prob.shape[1] == 1:
+            p1 = np.asarray(y_prob[:, 0], dtype=np.float64).ravel()
+            conformity_scores = np.where(y_true == 1, p1, 1.0 - p1)
+        else:
+            conformity_scores = y_prob[np.arange(N), y_true]
 
         if cal_embeddings is None:
             cal_embeddings = extract_embeddings(
@@ -148,14 +156,14 @@ class NeighborhoodLabel(SetPredictor):
                 f"cal_dataset size {N}"
             )
 
-        conformity_scores = y_prob[np.arange(N), y_true]
-
         k = min(self.k_neighbors, N)
         self._nn = NearestNeighbors(n_neighbors=k, metric="euclidean").fit(
             np.atleast_2d(cal_embeddings)
         )
         self.cal_embeddings_ = np.atleast_2d(cal_embeddings)
-        self.cal_conformity_scores_ = np.asarray(conformity_scores, dtype=np.float64)
+        self.cal_conformity_scores_ = np.asarray(
+            conformity_scores, dtype=np.float64
+        ).ravel()
 
        # this is the ncp calibration step
         distances_cal, indices_cal = self._nn.kneighbors(
@@ -218,16 +226,24 @@ class NeighborhoodLabel(SetPredictor):
                 scores_i, self.alpha_tilde_, w
             )
 
+        y_prob = pred["y_prob"]
+        # Binary: expand (batch, 1) to (batch, 2) only for set construction; keep pred["y_prob"] as-is
+        if y_prob.shape[-1] == 1:
+            p1 = y_prob.squeeze(-1).clamp(0.0, 1.0)
+            y_prob_2 = torch.stack([1.0 - p1, p1], dim=-1)
+        else:
+            y_prob_2 = y_prob
+
         th = torch.as_tensor(
-            thresholds, device=self.device, dtype=pred["y_prob"].dtype
+            thresholds, device=self.device, dtype=y_prob_2.dtype
         )
-        if pred["y_prob"].ndim > 1:
-            th = th.view(-1, *([1] * (pred["y_prob"].ndim - 1)))
-        y_predset = pred["y_prob"] >= th
+        if y_prob_2.ndim > 1:
+            th = th.view(-1, *([1] * (y_prob_2.ndim - 1)))
+        y_predset = y_prob_2 >= th
         # if threshold is high, include at least argmax
         empty = y_predset.sum(dim=1) == 0
         if empty.any():
-            argmax_idx = pred["y_prob"].argmax(dim=1)
+            argmax_idx = y_prob_2.argmax(dim=1)
             y_predset[empty, argmax_idx[empty]] = True
         pred["y_predset"] = y_predset
         pred.pop("embed", None)
