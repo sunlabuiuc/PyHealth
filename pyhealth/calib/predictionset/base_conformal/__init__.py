@@ -228,8 +228,8 @@ class BaseConformal(SetPredictor):
 
         # Compute quantile thresholds
         if isinstance(self.alpha, float):
-            # Marginal coverage: single threshold
-            t = _query_quantile(conformity_scores, self.alpha)
+            # Marginal coverage: single scalar threshold
+            t = float(_query_quantile(np.asarray(conformity_scores).ravel(), self.alpha))
         else:
             # Class-conditional coverage: one threshold per class
             if len(self.alpha) != K:
@@ -279,9 +279,11 @@ class BaseConformal(SetPredictor):
             p1 = y_prob.squeeze(-1).clamp(0.0, 1.0)
             y_prob = torch.stack([1.0 - p1, p1], dim=-1)
 
-        # Construct prediction set by thresholding probabilities
-        # Include classes with probability >= threshold
-        pred["y_predset"] = y_prob >= self.t
+        # Broadcast threshold to (1, K) so (batch, K) >= (1, K) works; scalar stays scalar
+        th = self.t.to(device=y_prob.device, dtype=y_prob.dtype)
+        if th.dim() >= 1 and th.numel() > 1:
+            th = th.view(1, -1)
+        pred["y_predset"] = y_prob >= th
 
         return pred
 
