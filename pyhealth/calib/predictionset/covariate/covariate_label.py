@@ -96,19 +96,32 @@ def fit_kde(
     if kernel != "rbf":
         raise ValueError(f"Only 'rbf' kernel supported, got {kernel}")
 
-    # Calculate bandwidth if needed
+    # Calculate bandwidth if needed (embeddings may be 1D or 3D; flatten to (n_samples, n_features))
     def get_bandwidth(embeddings, bw):
         if isinstance(bw, str):
-            n_samples, n_features = embeddings.shape
+            emb = np.asarray(embeddings)
+            if emb.ndim == 1:
+                emb = emb.reshape(-1, 1)
+            else:
+                emb = emb.reshape(emb.shape[0], -1)
+            n_samples, n_features = emb.shape
             if bw == "scott":
                 return n_samples ** (-1.0 / (n_features + 4))
             else:
                 raise ValueError(f"Unknown bandwidth method: {bw}")
         return bw
 
-    # Convert to torch tensors
-    cal_emb_torch = torch.from_numpy(cal_embeddings).float()
-    test_emb_torch = torch.from_numpy(test_embeddings).float()
+    # Convert to torch tensors; flatten to (n_samples, n_features) for KDE
+    def _flatten_emb(emb):
+        emb = np.asarray(emb)
+        if emb.ndim == 1:
+            return emb.reshape(-1, 1)
+        return emb.reshape(emb.shape[0], -1)
+
+    cal_emb_2d = _flatten_emb(cal_embeddings)
+    test_emb_2d = _flatten_emb(test_embeddings)
+    cal_emb_torch = torch.from_numpy(cal_emb_2d).float()
+    test_emb_torch = torch.from_numpy(test_emb_2d).float()
 
     # Fit KDE on calibration embeddings
     cal_bw = get_bandwidth(cal_embeddings, bandwidth)
@@ -118,33 +131,29 @@ def fit_kde(
     test_bw = get_bandwidth(test_embeddings, bandwidth)
     kern_test = RBFKernelMean(h=test_bw)
 
-    # Create callable functions that compute density
+    # Create callable functions that compute density (flatten to 2D so 3D embeddings work)
+    def _to_2d_tensor(data):
+        data = np.asarray(data)
+        if data.ndim == 1:
+            data = data.reshape(-1, 1)
+        else:
+            data = data.reshape(data.shape[0], -1)
+        return torch.from_numpy(data).float()
+
     def kde_cal(data):
         """Compute density using calibration KDE."""
-        if not isinstance(data, torch.Tensor):
-            data = torch.from_numpy(np.array(data)).float()
-        if data.ndim == 1:
-            data = data.unsqueeze(0)
-
-        # Compute kernel values and average (density estimate)
+        data = _to_2d_tensor(data)
         with torch.no_grad():
             K = kern_cal(data, cal_emb_torch)  # (n_query, n_cal)
             density = K.mean(dim=1)  # Average over calibration points
-
         return density.numpy()
 
     def kde_test(data):
         """Compute density using test KDE."""
-        if not isinstance(data, torch.Tensor):
-            data = torch.from_numpy(np.array(data)).float()
-        if data.ndim == 1:
-            data = data.unsqueeze(0)
-
-        # Compute kernel values and average (density estimate)
+        data = _to_2d_tensor(data)
         with torch.no_grad():
             K = kern_test(data, test_emb_torch)  # (n_query, n_test)
             density = K.mean(dim=1)  # Average over test points
-
         return density.numpy()
 
     return kde_cal, kde_test
