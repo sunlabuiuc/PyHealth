@@ -223,6 +223,7 @@ Quick Navigation
 
    api/data
    api/datasets
+   api/graph
    api/tasks
    api/models
    api/processors
