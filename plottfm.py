@@ -1,29 +1,35 @@
 import matplotlib.pyplot as plt
+import matplotlib.lines as mlines
 import numpy as np
 
-# --- LATEX & MATPLOTLIB CONFIGURATION ---
+# ==========================================
+# 1. Configuration and Data Setup
+# ==========================================
+
+# --- LATEX & MATPLOTLIB STYLE ---
 plt.rcParams.update({
     "text.usetex": True,
     "font.family": "serif",
     "font.serif": ["Computer Modern Roman"],
-    "axes.labelsize": 12,
-    "font.size": 10,
-    "legend.fontsize": 8,
-    "xtick.labelsize": 10,
-    "ytick.labelsize": 10,
-    "figure.titlesize": 14,
+    "axes.labelsize": 14,
+    "font.size": 12,
+    "xtick.labelsize": 12,
+    "ytick.labelsize": 12,
+    "axes.titlesize": 16,
+    "legend.fontsize": 13,
     "axes.grid": True,
     "grid.alpha": 0.3,
-    "grid.linestyle": "--"
+    "grid.linestyle": "--",
+    "lines.linewidth": 2.5,
+    "lines.markersize": 8,
 })
 
-# --- DATA PARSING ---
+# --- DATA POPULATION ---
 alphas = [0.01, 0.05, 0.1, 0.2]
-datasets = ["TUEV", "TUAB"]
-methods = ["KDE CP", "KMeans CP", "Naive CP", "NCP"]
-colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728'] 
+datasets_ordered = ["TUEV", "TUAB"]
+methods_ordered = ["NCP", "KDE CP", "Naive CP", "KMeans CP"]
 
-# Extracted directly from your logs
+# Extracted from provided logs
 full_data = {
     "TUEV": {
         "KDE CP":    {0.01: (0.9723, 0.0088, 1.90, 0.56), 0.05: (0.8718, 0.0161, 1.37, 0.22), 0.1: (0.7457, 0.0072, 1.11, 0.14), 0.2: (0.5415, 0.0297, 0.89, 0.10)},
@@ -39,45 +45,70 @@ full_data = {
     }
 }
 
-models = ["ContraWR", "TFM-Tokenizer"] # TFM uses ContraWR data for mapping
+# --- STYLING (Solid lines for methods, dashed for target) ---
+style_map = {
+    "NCP":       {'color': '#4e6386', 'marker': 'o'}, # Blue-Gray
+    "KDE CP":    {'color': '#7393B3', 'marker': 's'}, # Lighter Blue-Gray
+    "Naive CP":  {'color': '#D55E00', 'marker': '^'}, # Vermillion Orange
+    "KMeans CP": {'color': '#E69F00', 'marker': 'D'}  # Light Orange
+}
+target_style = {'color': 'black', 'ls': '--', 'lw': 2.0}
 
-def plot_all_methods(metric_idx, ylabel, filename, include_target=False):
-    fig, axes = plt.subplots(2, 2, figsize=(12, 9), sharex=True, sharey='row')
+
+# ==========================================
+# 2. Main Plotting Function
+# ==========================================
+def generate_1x2_plot(metric_idx, ylabel, filename, include_target=False):
+    fig, axes = plt.subplots(1, 2, figsize=(14, 7), sharey=True, sharex=True)
     
-    for i, dset in enumerate(datasets):
-        for j, model in enumerate(models):
-            ax = axes[i, j]
-            
-            for m_idx, method in enumerate(methods):
-                means = np.array([full_data[dset][method][a][metric_idx] for a in alphas])
-                stds = np.array([full_data[dset][method][a][metric_idx + 1] for a in alphas])
-                
-                # Highlight ribbon
-                ax.fill_between(alphas, means - stds, means + stds, 
-                                color=colors[m_idx], alpha=0.15)
-                # Primary line
-                ax.plot(alphas, means, marker='o', markersize=3, 
-                        color=colors[m_idx], linewidth=1.2, label=method)
-            
-            if include_target:
-                target_cov = [1 - a for a in alphas]
-                ax.plot(alphas, target_cov, linestyle='--', color='black', 
-                        alpha=0.7, label=r"Target ($1-\alpha$)")
+    for i, dset in enumerate(datasets_ordered):
+        ax = axes[i]
+        
+        # 1. Target Line (Dashed)
+        if include_target:
+             target_cov = [1 - a for a in alphas]
+             ax.plot(alphas, target_cov, **target_style, zorder=1)
 
-            if i == 0: ax.set_title(rf"\textbf{{{model}}}")
-            if j == 0: ax.set_ylabel(rf"\textbf{{{dset}}}\\[0.5em]{ylabel}")
-            if i == 1: ax.set_xlabel(r"Significance Level ($\alpha$)")
+        # 2. CP Methods (All Solid)
+        for method in methods_ordered:
+            s = style_map[method]
+            means = np.array([full_data[dset][method][a][metric_idx] for a in alphas])
+            stds = np.array([full_data[dset][method][a][metric_idx + 1] for a in alphas])
             
-            ax.set_xticks(alphas)
-            if i == 0 and j == 1:
-                ax.legend(loc='upper right', bbox_to_anchor=(1.0, 1.0))
+            ax.fill_between(alphas, means - stds, means + stds, 
+                            color=s['color'], alpha=0.15, zorder=2)
+            
+            # Using linestyle='-' for all methods
+            ax.plot(alphas, means, color=s['color'], linestyle='-', 
+                    marker=s['marker'], label=method, zorder=3)
+            
+        ax.set_title(rf"\textbf{{{dset} (ContraWR)}}")
+        if i == 0: ax.set_ylabel(ylabel)
+        ax.set_xlabel(r"Significance Level ($\alpha$)")
+        ax.set_xticks(alphas)
 
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    # 3. Legend Header
+    handles = []
+    if include_target:
+        handles.append(mlines.Line2D([], [], **target_style, label=r'Target ($1-\alpha$)'))
+    
+    for method in methods_ordered:
+        s = style_map[method]
+        handles.append(mlines.Line2D([], [], color=s['color'], linestyle='-', 
+                                     marker=s['marker'], markersize=10, 
+                                     linewidth=3, label=method))
+
+    fig.legend(handles=handles, loc='lower center', bbox_to_anchor=(0.5, 0.91), 
+               ncol=len(handles), frameon=False, handlelength=3)
+
+    plt.tight_layout(rect=[0, 0.0, 1, 0.91])
     plt.savefig(filename, dpi=300, bbox_inches='tight')
-    print(f"File saved to: {filename}")
+    print(f"Generated: {filename}")
 
-# Create the two figures
-plot_all_methods(0, "Empirical Coverage", "coverage_plot.png", include_target=True)
-plot_all_methods(2, "Avg. Prediction Set Size", "set_size_plot.png", include_target=False)
+if __name__ == "__main__":
+    # Coverage Plot
+    generate_1x2_plot(0, "Empirical Coverage", "contrawr_coverage_solid.png", True)
+    # Set Size Plot
+    generate_1x2_plot(2, "Avg. Prediction Set Size", "contrawr_setsize_solid.png", False)
 
-plt.show()
+    plt.show()

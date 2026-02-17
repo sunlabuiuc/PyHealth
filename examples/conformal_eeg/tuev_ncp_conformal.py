@@ -303,6 +303,13 @@ def _run(args: argparse.Namespace) -> None:
     device = args.device or ("cuda:0" if torch.cuda.is_available() else "cpu")
     dataset_name = getattr(args, "dataset", "tuev")
     root = Path(args.root or DEFAULT_ROOT[dataset_name])
+    # If --root was passed but not --dataset, infer dataset from path so TUAB root => TUAB task
+    if args.root is not None and "--dataset" not in sys.argv:
+        root_str = str(root).lower()
+        if "abnormal" in root_str or "tuab" in root_str:
+            dataset_name = "tuab"
+        elif "events" in root_str or "tuev" in root_str:
+            dataset_name = "tuev"
     if not root.exists():
         raise FileNotFoundError(f"Dataset root not found: {root}. Set --root for {dataset_name}.")
 
