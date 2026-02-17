@@ -212,6 +212,10 @@ def main() -> None:
     orig_stdout, orig_stderr = sys.stdout, sys.stderr
     log_file = None
     if args.log_file:
+        p = Path(args.log_file)
+        if "/" not in args.log_file and not p.is_absolute():
+            Path("logs").mkdir(parents=True, exist_ok=True)
+            args.log_file = str(Path("logs") / args.log_file)
         log_file = open(args.log_file, "w", encoding="utf-8")
         sys.stdout = _Tee(orig_stdout, log_file)
         sys.stderr = _Tee(orig_stderr, log_file)
@@ -229,6 +233,16 @@ def _run(args: argparse.Namespace) -> None:
     root = Path(args.root or DEFAULT_ROOT[dataset_name])
     if not root.exists():
         raise FileNotFoundError(f"Dataset root not found: {root}. Set --root for {dataset_name}.")
+
+    if args.model.lower() == "tfm":
+        if not getattr(args, "tfm_tokenizer_checkpoint", None):
+            args.tfm_tokenizer_checkpoint = "/srv/local/data/arjunc4/tfm_tokenizer_last.pth"
+        if not getattr(args, "tfm_classifier_checkpoint", None):
+            args.tfm_classifier_checkpoint = (
+                "/srv/local/data/arjunc4/TFM_Tokenizer_multiple_finetuned_on_TUAB/TFM_Tokenizer_multiple_finetuned_on_TUAB_{seed}/best_model.pth"
+                if dataset_name == "tuab"
+                else "/srv/local/data/arjunc4/TFM_Tokenizer_multiple_finetuned_on_TUEV/TFM_Tokenizer_multiple_finetuned_on_TUEV_{seed}/best_model.pth"
+            )
 
     if args.quick_test:
         epochs = 2

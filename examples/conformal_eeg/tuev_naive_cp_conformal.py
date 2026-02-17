@@ -195,6 +195,11 @@ def main() -> None:
     orig_stdout, orig_stderr = sys.stdout, sys.stderr
     log_file = None
     if args.log_file:
+        # If bare filename (no path), write under repo root logs/
+        p = Path(args.log_file)
+        if "/" not in args.log_file and not p.is_absolute():
+            Path("logs").mkdir(parents=True, exist_ok=True)
+            args.log_file = str(Path("logs") / args.log_file)
         log_file = open(args.log_file, "w", encoding="utf-8")
         sys.stdout = _Tee(orig_stdout, log_file)
         sys.stderr = _Tee(orig_stderr, log_file)
@@ -206,12 +211,24 @@ def main() -> None:
             log_file.close()
 
 
+# Default TFM paths (used when --tfm-tokenizer-checkpoint / --tfm-classifier-checkpoint not set)
+DEFAULT_TFM_TOKENIZER = "/srv/local/data/arjunc4/tfm_tokenizer_last.pth"
+DEFAULT_TFM_CLF_TUEV = "/srv/local/data/arjunc4/TFM_Tokenizer_multiple_finetuned_on_TUEV/TFM_Tokenizer_multiple_finetuned_on_TUEV_{seed}/best_model.pth"
+DEFAULT_TFM_CLF_TUAB = "/srv/local/data/arjunc4/TFM_Tokenizer_multiple_finetuned_on_TUAB/TFM_Tokenizer_multiple_finetuned_on_TUAB_{seed}/best_model.pth"
+
+
 def _run(args: argparse.Namespace) -> None:
     device = args.device or ("cuda:0" if torch.cuda.is_available() else "cpu")
     dataset_name = getattr(args, "dataset", "tuev")
     root = Path(args.root or DEFAULT_ROOT[dataset_name])
     if not root.exists():
         raise FileNotFoundError(f"Dataset root not found: {root}. Set --root for {dataset_name}.")
+
+    if getattr(args, "model", "contrawr").lower() == "tfm":
+        if not getattr(args, "tfm_tokenizer_checkpoint", None):
+            args.tfm_tokenizer_checkpoint = DEFAULT_TFM_TOKENIZER
+        if not getattr(args, "tfm_classifier_checkpoint", None):
+            args.tfm_classifier_checkpoint = DEFAULT_TFM_CLF_TUAB if dataset_name == "tuab" else DEFAULT_TFM_CLF_TUEV
 
     # Same protocol (seeds, alpha, ratios, split_seed) for ContraWR and TFM for comparable results.
     if args.quick_test:

@@ -1,0 +1,41 @@
+# TFM: 32 jobs in parallel (same style as ContraWR). Run from repo root.
+# Logs go to logs/ (bare filenames are written under repo root logs/).
+# Default tokenizer + TUEV/TUAB classifier paths are set in the scripts; no need to pass them.
+
+# --- Events (TUEV), 16 jobs ---
+CUDA_VISIBLE_DEVICES=0 python examples/conformal_eeg/tuev_naive_cp_conformal.py --dataset tuev --model tfm --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 --alpha 0.2 --log-file naive_cp_alpha02_events_seeds5.log &
+CUDA_VISIBLE_DEVICES=1 python examples/conformal_eeg/tuev_naive_cp_conformal.py --dataset tuev --model tfm --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 --alpha 0.1 --log-file naive_cp_alpha01_events_seeds5.log &
+CUDA_VISIBLE_DEVICES=2 python examples/conformal_eeg/tuev_naive_cp_conformal.py --dataset tuev --model tfm --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 --alpha 0.05 --log-file naive_cp_alpha005_events_seeds5.log &
+CUDA_VISIBLE_DEVICES=3 python examples/conformal_eeg/tuev_naive_cp_conformal.py --dataset tuev --model tfm --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 --alpha 0.01 --log-file naive_cp_alpha001_events_seeds5.log &
+CUDA_VISIBLE_DEVICES=4 python examples/conformal_eeg/tuev_kde_cp_conformal.py --dataset tuev --model tfm --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 --alpha 0.2 --log-file kde_cp_alpha02_events_seeds5.log &
+CUDA_VISIBLE_DEVICES=5 python examples/conformal_eeg/tuev_kde_cp_conformal.py --dataset tuev --model tfm --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 --alpha 0.1 --log-file kde_cp_alpha01_events_seeds5.log &
+CUDA_VISIBLE_DEVICES=6 python examples/conformal_eeg/tuev_kde_cp_conformal.py --dataset tuev --model tfm --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 --alpha 0.05 --log-file kde_cp_alpha005_events_seeds5.log &
+CUDA_VISIBLE_DEVICES=7 python examples/conformal_eeg/tuev_kde_cp_conformal.py --dataset tuev --model tfm --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 --alpha 0.01 --log-file kde_cp_alpha001_events_seeds5.log &
+CUDA_VISIBLE_DEVICES=0 python examples/conformal_eeg/tuev_kmeans_conformal.py --dataset tuev --model tfm --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 --alpha 0.2 --log-file kmeans_cp_alpha02_events_seeds5.log &
+CUDA_VISIBLE_DEVICES=1 python examples/conformal_eeg/tuev_kmeans_conformal.py --dataset tuev --model tfm --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 --alpha 0.1 --log-file kmeans_cp_alpha01_events_seeds5.log &
+CUDA_VISIBLE_DEVICES=2 python examples/conformal_eeg/tuev_kmeans_conformal.py --dataset tuev --model tfm --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 --alpha 0.05 --log-file kmeans_cp_alpha005_events_seeds5.log &
+CUDA_VISIBLE_DEVICES=3 python examples/conformal_eeg/tuev_kmeans_conformal.py --dataset tuev --model tfm --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 --alpha 0.01 --log-file kmeans_cp_alpha001_events_seeds5.log &
+CUDA_VISIBLE_DEVICES=4 python examples/conformal_eeg/tuev_ncp_conformal.py --dataset tuev --model tfm --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 --alpha 0.2 --log-file ncp_alpha02_events_seeds5.log &
+CUDA_VISIBLE_DEVICES=5 python examples/conformal_eeg/tuev_ncp_conformal.py --dataset tuev --model tfm --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 --alpha 0.1 --log-file ncp_alpha01_events_seeds5.log &
+CUDA_VISIBLE_DEVICES=6 python examples/conformal_eeg/tuev_ncp_conformal.py --dataset tuev --model tfm --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 --alpha 0.05 --log-file ncp_alpha005_events_seeds5.log &
+CUDA_VISIBLE_DEVICES=7 python examples/conformal_eeg/tuev_ncp_conformal.py --dataset tuev --model tfm --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 --alpha 0.01 --log-file ncp_alpha001_events_seeds5.log &
+
+# --- Abnormal (TUAB), 16 jobs. Use --dataset tuab so task and default classifier path are correct. ---
+CUDA_VISIBLE_DEVICES=0 python examples/conformal_eeg/tuev_naive_cp_conformal.py --dataset tuab --model tfm --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 --alpha 0.2 --log-file naive_cp_alpha02_abnormal_seeds5.log &
+CUDA_VISIBLE_DEVICES=1 python examples/conformal_eeg/tuev_naive_cp_conformal.py --dataset tuab --model tfm --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 --alpha 0.1 --log-file naive_cp_alpha01_abnormal_seeds5.log &
+CUDA_VISIBLE_DEVICES=2 python examples/conformal_eeg/tuev_naive_cp_conformal.py --dataset tuab --model tfm --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 --alpha 0.05 --log-file naive_cp_alpha005_abnormal_seeds5.log &
+CUDA_VISIBLE_DEVICES=3 python examples/conformal_eeg/tuev_naive_cp_conformal.py --dataset tuab --model tfm --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 --alpha 0.01 --log-file naive_cp_alpha001_abnormal_seeds5.log &
+CUDA_VISIBLE_DEVICES=4 python examples/conformal_eeg/tuev_kde_cp_conformal.py --dataset tuab --model tfm --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 --alpha 0.2 --log-file kde_cp_alpha02_abnormal_seeds5.log &
+CUDA_VISIBLE_DEVICES=5 python examples/conformal_eeg/tuev_kde_cp_conformal.py --dataset tuab --model tfm --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 --alpha 0.1 --log-file kde_cp_alpha01_abnormal_seeds5.log &
+CUDA_VISIBLE_DEVICES=6 python examples/conformal_eeg/tuev_kde_cp_conformal.py --dataset tuab --model tfm --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 --alpha 0.05 --log-file kde_cp_alpha005_abnormal_seeds5.log &
+CUDA_VISIBLE_DEVICES=7 python examples/conformal_eeg/tuev_kde_cp_conformal.py --dataset tuab --model tfm --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 --alpha 0.01 --log-file kde_cp_alpha001_abnormal_seeds5.log &
+CUDA_VISIBLE_DEVICES=0 python examples/conformal_eeg/tuev_kmeans_conformal.py --dataset tuab --model tfm --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 --alpha 0.2 --log-file kmeans_cp_alpha02_abnormal_seeds5.log &
+CUDA_VISIBLE_DEVICES=1 python examples/conformal_eeg/tuev_kmeans_conformal.py --dataset tuab --model tfm --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 --alpha 0.1 --log-file kmeans_cp_alpha01_abnormal_seeds5.log &
+CUDA_VISIBLE_DEVICES=2 python examples/conformal_eeg/tuev_kmeans_conformal.py --dataset tuab --model tfm --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 --alpha 0.05 --log-file kmeans_cp_alpha005_abnormal_seeds5.log &
+CUDA_VISIBLE_DEVICES=3 python examples/conformal_eeg/tuev_kmeans_conformal.py --dataset tuab --model tfm --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 --alpha 0.01 --log-file kmeans_cp_alpha001_abnormal_seeds5.log &
+CUDA_VISIBLE_DEVICES=4 python examples/conformal_eeg/tuev_ncp_conformal.py --dataset tuab --model tfm --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 --alpha 0.2 --log-file ncp_alpha02_abnormal_seeds5.log &
+CUDA_VISIBLE_DEVICES=5 python examples/conformal_eeg/tuev_ncp_conformal.py --dataset tuab --model tfm --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 --alpha 0.1 --log-file ncp_alpha01_abnormal_seeds5.log &
+CUDA_VISIBLE_DEVICES=6 python examples/conformal_eeg/tuev_ncp_conformal.py --dataset tuab --model tfm --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 --alpha 0.05 --log-file ncp_alpha005_abnormal_seeds5.log &
+CUDA_VISIBLE_DEVICES=7 python examples/conformal_eeg/tuev_ncp_conformal.py --dataset tuab --model tfm --tfm-skip-train --seeds 1,2,3,4,5 --split-seed 0 --alpha 0.01 --log-file ncp_alpha001_abnormal_seeds5.log &
+
+wait

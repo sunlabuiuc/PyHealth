@@ -13,7 +13,9 @@ TOK="${TOK:-/srv/local/data/arjunc4/tfm_tokenizer_last.pth}"
 # Escape } in {seed} so bash does not close ${VAR:-default} at the first }
 TUEV_CLF="${TUEV_CLF:-/srv/local/data/arjunc4/TFM_Tokenizer_multiple_finetuned_on_TUEV/TFM_Tokenizer_multiple_finetuned_on_TUEV_{seed\}/best_model.pth}"
 TUAB_CLF="${TUAB_CLF:-/srv/local/data/arjunc4/TFM_Tokenizer_multiple_finetuned_on_TUAB/TFM_Tokenizer_multiple_finetuned_on_TUAB_{seed\}/best_model.pth}"
-LOG_DIR="${LOG_DIR:-$SCRIPT_DIR/logs}"
+# Logs go to repo root logs/ (create if missing)
+REPO_ROOT="$SCRIPT_DIR/../.."
+LOG_DIR="${LOG_DIR:-$REPO_ROOT/logs}"
 mkdir -p "$LOG_DIR"
 
 run_one() {

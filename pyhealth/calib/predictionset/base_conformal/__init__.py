@@ -153,9 +153,9 @@ class BaseConformal(SetPredictor):
     ) -> None:
         super().__init__(model, **kwargs)
 
-        if model.mode != "multiclass":
+        if model.mode not in ("multiclass", "binary"):
             raise NotImplementedError(
-                "BaseConformal only supports multiclass classification"
+                "BaseConformal only supports multiclass or binary classification"
             )
 
         self.mode = self.model.mode
