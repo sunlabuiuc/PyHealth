@@ -203,6 +203,16 @@ class ClusterLabel(SetPredictor):
         else:
             train_embeddings = np.asarray(train_embeddings)
 
+        # Flatten to 2D (n_samples, n_features) so KMeans works with 3D embeddings (e.g. TFM)
+        def _flatten_emb(emb):
+            emb = np.asarray(emb)
+            if emb.ndim <= 2:
+                return emb.reshape(emb.shape[0], -1) if emb.ndim == 2 else emb.reshape(-1, 1)
+            return emb.reshape(emb.shape[0], -1)
+
+        train_embeddings = _flatten_emb(train_embeddings)
+        cal_embeddings = _flatten_emb(cal_embeddings)
+
         # Combine embeddings for clustering
         print(f"Combining embeddings: train={train_embeddings.shape}, cal={cal_embeddings.shape}")
         all_embeddings = np.concatenate([train_embeddings, cal_embeddings], axis=0)
@@ -298,9 +308,12 @@ class ClusterLabel(SetPredictor):
                 "embed=True flag in its forward() method."
             )
 
-        # Ensure embeddings are 2D (batch_size, embedding_dim)
+        # Flatten to 2D (batch_size, n_features) so KMeans.predict works with 3D embeddings
         sample_embedding = pred["embed"].detach().cpu().numpy()
-        sample_embedding = np.atleast_2d(sample_embedding)
+        if sample_embedding.ndim == 1:
+            sample_embedding = sample_embedding.reshape(1, -1)
+        elif sample_embedding.ndim > 2:
+            sample_embedding = sample_embedding.reshape(sample_embedding.shape[0], -1)
 
         # Predict cluster for each sample in the batch
         cluster_ids = self.kmeans_model.predict(sample_embedding)
