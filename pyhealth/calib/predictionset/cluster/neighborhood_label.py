@@ -164,6 +164,7 @@ class NeighborhoodLabel(SetPredictor):
             cal_embeddings = cal_embeddings.reshape(-1, 1)
 
         k = min(self.k_neighbors, N)
+        print("  Fitting k-NN on calibration set (can be slow for large N)...")
         self._nn = NearestNeighbors(n_neighbors=k, metric="euclidean").fit(
             cal_embeddings
         )
@@ -172,7 +173,7 @@ class NeighborhoodLabel(SetPredictor):
             conformity_scores, dtype=np.float64
         ).ravel()
 
-       # this is the ncp calibration step
+        print("  Computing k-NN neighbors...")
         distances_cal, indices_cal = self._nn.kneighbors(
             self.cal_embeddings_, n_neighbors=k
         )
@@ -189,13 +190,16 @@ class NeighborhoodLabel(SetPredictor):
                 )
             return float(np.mean(self.cal_conformity_scores_ >= t_all))
 
+        print("  Calibrating alpha_tilde (binary search, 50 iters)...")
         low, high = 0.0, 1.0
-        for _ in range(50):
+        for it in range(50):
             mid = (low + high) / 2
             if _empirical_coverage(mid) >= 1.0 - self.alpha:
                 low = mid
             else:
                 high = mid
+            if (it + 1) % 10 == 0:
+                print(f"    iteration {it + 1}/50, alpha_tilde in [{low:.4f}, {high:.4f}]")
         self.alpha_tilde_ = float(low)
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:

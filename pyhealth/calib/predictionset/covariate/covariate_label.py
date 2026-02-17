@@ -120,14 +120,18 @@ def fit_kde(
 
     cal_emb_2d = _flatten_emb(cal_embeddings)
     test_emb_2d = _flatten_emb(test_embeddings)
+    n_cal, n_test = cal_emb_2d.shape[0], test_emb_2d.shape[0]
+    print(f"  Calibration embeddings: {n_cal} x {cal_emb_2d.shape[1]}, test: {n_test} x {test_emb_2d.shape[1]}")
     cal_emb_torch = torch.from_numpy(cal_emb_2d).float()
     test_emb_torch = torch.from_numpy(test_emb_2d).float()
 
     # Fit KDE on calibration embeddings
+    print("  Computing bandwidth and building calibration KDE...")
     cal_bw = get_bandwidth(cal_embeddings, bandwidth)
     kern_cal = RBFKernelMean(h=cal_bw)
 
     # Fit KDE on test embeddings
+    print("  Computing bandwidth and building test KDE...")
     test_bw = get_bandwidth(test_embeddings, bandwidth)
     kern_test = RBFKernelMean(h=test_bw)
 
@@ -471,11 +475,13 @@ class CovariateLabel(SetPredictor):
                     "Please provide cal_embeddings and test_embeddings."
                 )
 
-            # Compute likelihood ratios using KDE
-            print("Computing likelihood ratios via KDE...")
+            # Compute likelihood ratios using KDE (can be slow for large N)
+            n_cal = X.shape[0] if hasattr(X, "shape") else len(X)
+            print(f"Computing likelihood ratios via KDE (evaluating on {n_cal} calibration points)...")
             likelihood_ratios = _compute_likelihood_ratio(
                 self.kde_test, self.kde_cal, X
             )
+            print("  Likelihood ratios computed.")
 
         # Normalize weights
         weights = likelihood_ratios / np.sum(likelihood_ratios)

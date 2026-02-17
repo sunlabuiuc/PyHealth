@@ -223,6 +223,7 @@ def _run_one_ncp(
     print(f"Target miscoverage alpha: {args.alpha} (target coverage {1 - args.alpha:.0%})")
     print(f"k_neighbors: {args.k_neighbors}, lambda_L: {args.lambda_L}")
 
+    print("Extracting calibration embeddings...")
     cal_embeddings = extract_embeddings(model, cal_ds, batch_size=args.batch_size, device=device)
     if not return_metrics:
         print(f"  cal_embeddings shape: {cal_embeddings.shape}")

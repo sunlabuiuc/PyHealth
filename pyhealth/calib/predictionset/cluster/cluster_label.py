@@ -218,14 +218,16 @@ class ClusterLabel(SetPredictor):
         all_embeddings = np.concatenate([train_embeddings, cal_embeddings], axis=0)
         print(f"Total embeddings for clustering: {all_embeddings.shape}")
 
-        # Fit K-means on combined embeddings
-        print(f"Fitting K-means with {self.n_clusters} clusters...")
+        # Fit K-means on combined embeddings (verbose=1 so long runs show progress)
+        print(f"Fitting K-means with {self.n_clusters} clusters (n_init=10, may take a while for large N)...")
         self.kmeans_model = KMeans(
             n_clusters=self.n_clusters,
             random_state=self.random_state,
             n_init=10,
+            verbose=1,
         )
         self.kmeans_model.fit(all_embeddings)
+        print("  K-means fit done.")
 
         # Assign calibration samples to clusters
         # Note: cal_embeddings start at index len(train_embeddings) in all_embeddings
@@ -237,6 +239,7 @@ class ClusterLabel(SetPredictor):
         # Conformity scores already set above (with binary handling)
 
         # Compute cluster-specific thresholds
+        print(f"Computing cluster-specific thresholds for {self.n_clusters} clusters...")
         self.cluster_thresholds = {}
         for cluster_id in range(self.n_clusters):
             cluster_mask = cal_cluster_labels == cluster_id
@@ -280,6 +283,8 @@ class ClusterLabel(SetPredictor):
                             t_k = -np.inf
                         t.append(t_k)
                     self.cluster_thresholds[cluster_id] = np.array(t)
+
+        print("  Cluster thresholds computed.")
 
         if self.debug:
             print(f"Cluster thresholds: {self.cluster_thresholds}")

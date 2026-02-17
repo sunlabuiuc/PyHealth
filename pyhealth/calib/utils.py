@@ -134,11 +134,29 @@ def extract_embeddings(model, dataset, batch_size=32, device="cpu"):
     loader = datautils.get_dataloader(dataset, batch_size=batch_size, shuffle=False)
     all_embeddings = []
 
+    try:
+        n_batches = len(loader)
+    except TypeError:
+        n_batches = None
+
     model.eval()
     model.to(device)
 
+    # Print immediately so logs show we're not stuck (first batch can be slow)
+    if n_batches is not None:
+        print(f"  Extracting embeddings over {n_batches} batches...", flush=True)
+    else:
+        print("  Extracting embeddings (processing batches)...", flush=True)
+
+    # Progress every N batches so logs show movement when stdout is redirected
+    log_interval = 25
+    if n_batches is not None and n_batches <= 100:
+        log_interval = max(5, n_batches // 10)
+
     with torch.no_grad():
-        for batch in loader:
+        for batch_idx, batch in enumerate(
+            tqdm.tqdm(loader, desc="Extracting embeddings", leave=True)
+        ):
             # Move batch to device
             batch_device = {
                 k: v.to(device) if isinstance(v, torch.Tensor) else v
@@ -160,5 +178,15 @@ def extract_embeddings(model, dataset, batch_size=32, device="cpu"):
             # Extract embeddings and convert to numpy
             embeddings = output["embed"].cpu().numpy()
             all_embeddings.append(embeddings)
+
+            # Periodic print so redirected logs show progress (tqdm often doesn't)
+            if batch_idx == 0 or (batch_idx + 1) % log_interval == 0:
+                if n_batches is not None:
+                    print(
+                        f"  ... extracted {batch_idx + 1}/{n_batches} batches",
+                        flush=True,
+                    )
+                else:
+                    print(f"  ... extracted {batch_idx + 1} batches", flush=True)
 
     return np.concatenate(all_embeddings, axis=0)
