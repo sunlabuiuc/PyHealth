@@ -79,8 +79,8 @@ class AddSTFTDataset:
         scale = np.quantile(
             np.abs(signal), q=0.95, axis=-1, method="linear", keepdims=True
         ) + 1e-8
-        signal = signal / scale
-        # signal (C, T) -> tensor
+        signal = np.asarray(signal / scale, dtype=np.float32)
+        # signal (C, T) -> tensor (float32 for tokenizer)
         signal_t = torch.from_numpy(signal)
         sample["signal"] = signal_t
         # Per-channel STFT: (1, C, T) -> (1, C, 100, T')

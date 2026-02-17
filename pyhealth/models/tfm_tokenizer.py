@@ -805,8 +805,8 @@ class TFMTokenizer(BaseModel):
         if stft is None or signal is None:
             raise ValueError("Both 'stft' and 'signal' must be provided in inputs")
 
-        stft = stft.to(self.device)
-        signal = signal.to(self.device)
+        stft = stft.to(self.device, dtype=torch.float32)
+        signal = signal.to(self.device, dtype=torch.float32)
 
         per_channel = stft.dim() == 4
         if per_channel:
