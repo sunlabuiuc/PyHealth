@@ -120,22 +120,24 @@ def binary_metrics_fn(
                 y_predset_np = np.concatenate(
                     [1 - y_predset_np, y_predset_np], axis=1
                 )
+            # pset._missrate expects y_true 1D so it can build (N, K) one-hot
+            y_true_flat = np.asarray(y_true).ravel()
             if metric == "rejection_rate":
                 output[metric] = pset.rejection_rate(y_predset_np)
             elif metric == "set_size":
                 output[metric] = pset.size(y_predset_np)
             elif metric == "miscoverage_mean_ps":
-                output[metric] = pset.miscoverage_ps(y_predset_np, y_true).mean()
+                output[metric] = pset.miscoverage_ps(y_predset_np, y_true_flat).mean()
             elif metric == "miscoverage_ps":
-                output[metric] = pset.miscoverage_ps(y_predset_np, y_true)
+                output[metric] = pset.miscoverage_ps(y_predset_np, y_true_flat)
             elif metric == "miscoverage_overall_ps":
-                output[metric] = pset.miscoverage_overall_ps(y_predset_np, y_true)
+                output[metric] = pset.miscoverage_overall_ps(y_predset_np, y_true_flat)
             elif metric == "error_mean_ps":
-                output[metric] = pset.error_ps(y_predset_np, y_true).mean()
+                output[metric] = pset.error_ps(y_predset_np, y_true_flat).mean()
             elif metric == "error_ps":
-                output[metric] = pset.error_ps(y_predset_np, y_true)
+                output[metric] = pset.error_ps(y_predset_np, y_true_flat)
             elif metric == "error_overall_ps":
-                output[metric] = pset.error_overall_ps(y_predset_np, y_true)
+                output[metric] = pset.error_overall_ps(y_predset_np, y_true_flat)
         else:
             raise ValueError(f"Unknown metric for binary classification: {metric}")
     return output
