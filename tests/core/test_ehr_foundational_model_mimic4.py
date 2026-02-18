@@ -4,8 +4,8 @@ from datetime import datetime, timedelta
 from pyhealth.tasks.ehr_foundational_model_mimic4 import EHRFoundationalModelMIMIC4
 
 
-class TestComputeTimeDiffs(unittest.TestCase):
-    """Tests for EHRFoundationalModelMIMIC4._compute_time_diffs.
+class TestEHRFoundationalModelMIMIC4(unittest.TestCase):
+    """Tests for EHRFoundationalModelMIMIC4.
 
     Assumptions:
     - first_admission_time: We have a first admission time that comes from `patient.get_events(event_type="admissions")`
@@ -16,7 +16,7 @@ class TestComputeTimeDiffs(unittest.TestCase):
         self.task = EHRFoundationalModelMIMIC4()
         self.first_admission_time = datetime(2023, 1, 1, 0, 0, 0)
 
-    # Tests for _compute_time_diffs
+    # Tests for EHRFoundationalModelMIMIC4._compute_time_diffs
     def test_empty_list_returns_missing(self):
         texts, diffs = self.task._compute_time_diffs([], self.first_admission_time)
         self.assertEqual(texts, ["<missing>"])
