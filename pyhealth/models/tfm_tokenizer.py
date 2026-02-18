@@ -799,7 +799,8 @@ class TFMTokenizer(BaseModel):
         """
         # stft = kwargs.get("stft")
         signal = kwargs.get("signal")
-                
+        if len(signal.shape) == 2:
+            signal = signal.unsqueeze(0)
         B,C,T = signal.shape
         stft = get_stft_torch(signal)
         stft = rearrange(stft, 'B C F T -> (B C) F T')
@@ -833,6 +834,8 @@ class TFMTokenizer(BaseModel):
             # tokens shape: (B, T) -> (B, 1, T)
             logits = self.classifier(tokens_reshaped,num_ch=C)
             loss_fn = self.get_loss_function()
+            print(f"logits shape: {logits.shape}")
+            print(f"y_true shape: {y_true.shape}")
             cls_loss = loss_fn(logits, y_true)
             total_loss = recon_loss + vq_loss + cls_loss
             y_prob = self.prepare_y_prob(logits)
@@ -865,9 +868,17 @@ class TFMTokenizer(BaseModel):
 
         with torch.no_grad():
             for batch in dataloader:
-                stft = batch.get("stft").to(self.device)
                 signal = batch.get("signal").to(self.device)
+                if len(signal.shape) == 2:
+                    signal = signal.unsqueeze(0)
+                B,C,T = signal.shape
+                stft = get_stft_torch(signal)
+                stft = rearrange(stft, 'B C F T -> (B C) F T')
+                signal = rearrange(signal, 'B C T -> (B C) T')
                 _, _, quant_out, _ = self.tokenizer(stft, signal)
+                print(f"quant_out shape: {quant_out.shape}")
+                quant_out = rearrange(quant_out, '(B C) T E -> B C T E', C=C)
+                print(f"quant_out shape: {quant_out.shape}")
                 all_embeddings.append(quant_out.cpu())
 
         return torch.cat(all_embeddings, dim=0)
@@ -886,9 +897,15 @@ class TFMTokenizer(BaseModel):
 
         with torch.no_grad():
             for batch in dataloader:
-                stft = batch.get("stft").to(self.device)
                 signal = batch.get("signal").to(self.device)
+                if len(signal.shape) == 2:
+                    signal = signal.unsqueeze(0)
+                B,C,T = signal.shape
+                stft = get_stft_torch(signal)
+                stft = rearrange(stft, 'B C F T -> (B C) F T')
+                signal = rearrange(signal, 'B C T -> (B C) T')
                 _, tokens, _, _ = self.tokenizer(stft, signal)
+                tokens = rearrange(tokens, '(B C) T -> B C T', C=C)
                 all_tokens.append(tokens.cpu())
 
         return torch.cat(all_tokens, dim=0)
