@@ -85,3 +85,4 @@ from .utils import (
     load_processors,
     save_processors,
 )
+from .ham10000 import HAM10000Dataset
