@@ -42,11 +42,11 @@ class HALO:
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(SEED)
 
-        self.train_ehr_dataset = pickle.load(open(f'{self.dataset.pkl_data_dir}trainDataset.pkl', 'rb'))
-        self.val_ehr_dataset = pickle.load(open(f'{self.dataset.pkl_data_dir}valDataset.pkl', 'rb'))
-        self.index_to_code = pickle.load(open(f"{self.dataset.pkl_data_dir}indexToCode.pkl", "rb"))
-        self.id_to_label = pickle.load(open(f"{self.dataset.pkl_data_dir}idToLabel.pkl", "rb"))
-        test_ehr_dataset = pickle.load(open(f'{self.dataset.pkl_data_dir}testDataset.pkl', 'rb'))
+        self.train_ehr_dataset = pickle.load(open(f'{self.dataset.pkl_data_dir}/trainDataset.pkl', 'rb'))
+        self.val_ehr_dataset = pickle.load(open(f'{self.dataset.pkl_data_dir}/valDataset.pkl', 'rb'))
+        self.index_to_code = pickle.load(open(f"{self.dataset.pkl_data_dir}/indexToCode.pkl", "rb"))
+        self.id_to_label = pickle.load(open(f"{self.dataset.pkl_data_dir}/idToLabel.pkl", "rb"))
+        test_ehr_dataset = pickle.load(open(f'{self.dataset.pkl_data_dir}/testDataset.pkl', 'rb'))
 
         train_c = set([c for p in self.train_ehr_dataset for v in p['visits'] for c in v])
         self.test_ehr_dataset = [{'labels': p['labels'], 'visits': [[c for c in v if c in train_c] for v in p['visits']]} for p in test_ehr_dataset]
