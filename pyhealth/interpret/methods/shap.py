@@ -10,7 +10,7 @@ from pyhealth.interpret.api import Interpretable
 from .base_interpreter import BaseInterpreter
 
 
-class ShapExplainer(BaseInterpreter):
+class Shap(BaseInterpreter):
     """SHAP (SHapley Additive exPlanations) attribution method for PyHealth models.
 
     This class implements the SHAP method for computing feature attributions in 
@@ -121,8 +121,6 @@ class ShapExplainer(BaseInterpreter):
                 implement forward_from_embedding() method.
         """
         super().__init__(model)
-        if not isinstance(model, Interpretable):
-            raise ValueError("Model must implement Interpretable interface")
         self.model = model
         self.use_embeddings = use_embeddings
         self.n_background_samples = n_background_samples
@@ -131,13 +129,8 @@ class ShapExplainer(BaseInterpreter):
         self.random_seed = random_seed
 
         # Validate model requirements
-        if use_embeddings:
-            assert hasattr(model, "forward_from_embedding"), (
-                f"Model {type(model).__name__} must implement "
-                "forward_from_embedding() method to support embedding-level "
-                "SHAP values. Set use_embeddings=False to use "
-                "input-level attributions (only for continuous features)."
-            )
+        if use_embeddings and not isinstance(model, Interpretable):
+            raise ValueError("Model must implement Interpretable interface or use_embeddings must be False.")
 
     # ------------------------------------------------------------------
     # Public API
@@ -275,7 +268,7 @@ class ShapExplainer(BaseInterpreter):
         # (raw indices are meaningless for interpolation), while continuous
         # features stay raw so each raw dimension gets its own SHAP value.
         # Continuous features will be embedded inside _evaluate_sample().
-        if self.use_embeddings:
+        if self.use_embeddings and isinstance(self.model, Interpretable):
             embedding_model = self.model.get_embedding_model()
             assert embedding_model is not None, (
                 "Model must have an embedding model for embedding-based SHAP."
@@ -507,10 +500,12 @@ class ShapExplainer(BaseInterpreter):
             Target-class prediction scalar per batch item, shape (batch_size,).
         """
         inputs = inputs.copy()
-        # For continuous (non-token) features, embed through embedding_model
-        # so forward_from_embedding receives proper embeddings.
-        # Token features were already embedded before perturbation.
-        if self.use_embeddings:
+
+        if self.use_embeddings and isinstance(self.model, Interpretable):
+            # For continuous (non-token) features, embed through
+            # embedding_model so forward_from_embedding receives proper
+            # embeddings.  Token features were already embedded before
+            # perturbation.
             embedding_model = self.model.get_embedding_model()
             assert embedding_model is not None, (
                 "Model must have an embedding model for embedding-based SHAP."
@@ -534,7 +529,13 @@ class ShapExplainer(BaseInterpreter):
                 *inputs[k][schema.index("value") + 1 :],
             )
 
-        logits = self.model.forward_from_embedding(**inputs)["logit"]
+        if self.use_embeddings and isinstance(self.model, Interpretable):
+            # Values are already embedded; bypass the model's own embedding.
+            logits = self.model.forward_from_embedding(**inputs)["logit"]
+        else:
+            # Values are raw (token IDs / continuous floats); let the
+            # model's regular forward pass handle embedding internally.
+            logits = self.model.forward(**inputs)["logit"]
 
         return self._extract_target_prediction(logits, target)
 
@@ -666,9 +667,11 @@ class ShapExplainer(BaseInterpreter):
         baselines = {}
 
         for k, v in values.items():
-            if use_embeddings and self.model.dataset.input_processors[k].is_token():
+            if self.model.dataset.input_processors[k].is_token():
                 # Token features: UNK token (index 1) as baseline.
-                # Embedding happens later in attribute().
+                # When use_embeddings=True, embedding happens later in
+                # attribute(); when use_embeddings=False, the UNK token
+                # IDs are used directly as the perturbed replacement.
                 baseline = torch.ones_like(v)
             else:
                 # Continuous features: use small neutral values (near-zero)
@@ -772,3 +775,5 @@ class ShapExplainer(BaseInterpreter):
             mapped[key] = reshaped
 
         return mapped
+    
+ShapExplainer = Shap  # Alias for backward compatibility

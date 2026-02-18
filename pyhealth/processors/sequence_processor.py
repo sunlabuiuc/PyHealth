@@ -68,6 +68,14 @@ class SequenceProcessor(FeatureProcessor, TokenProcessorInterface):
                 self.code_vocab[token] = i
                 i += 1
 
+    def tokens(self) -> set[str]:
+        """Return the set of tokens in the processor's vocabulary."""
+        return set(self.code_vocab.keys())
+
+    def num_tokens(self) -> int:
+        """Return the size of the processor's vocabulary."""
+        return len(self.code_vocab)
+
     def size(self):
         return len(self.code_vocab)
 
