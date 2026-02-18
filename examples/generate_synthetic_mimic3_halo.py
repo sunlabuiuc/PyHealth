@@ -29,10 +29,10 @@ def main():
     pkl_data_dir = args.checkpoint + "pkl_data/"
     print(f"\nLoading vocabulary from {pkl_data_dir}")
 
-    code_to_index = pickle.load(open(f"{pkl_data_dir}codeToIndex.pkl", "rb"))
-    index_to_code = pickle.load(open(f"{pkl_data_dir}indexToCode.pkl", "rb"))
-    id_to_label = pickle.load(open(f"{pkl_data_dir}idToLabel.pkl", "rb"))
-    train_dataset = pickle.load(open(f"{pkl_data_dir}trainDataset.pkl", "rb"))
+    code_to_index = pickle.load(open(f"{pkl_data_dir}/codeToIndex.pkl", "rb"))
+    index_to_code = pickle.load(open(f"{pkl_data_dir}/indexToCode.pkl", "rb"))
+    id_to_label = pickle.load(open(f"{pkl_data_dir}/idToLabel.pkl", "rb"))
+    train_dataset = pickle.load(open(f"{pkl_data_dir}/trainDataset.pkl", "rb"))
 
     code_vocab_size = len(code_to_index)
     label_vocab_size = len(id_to_label)

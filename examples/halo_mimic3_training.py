@@ -55,8 +55,8 @@ def main():
     print(f"{'='*60}", flush=True)
 
     # Load vocabulary sizes
-    code_to_index = pickle.load(open(f"{pkl_data_dir}codeToIndex.pkl", "rb"))
-    id_to_label = pickle.load(open(f"{pkl_data_dir}idToLabel.pkl", "rb"))
+    code_to_index = pickle.load(open(f"{pkl_data_dir}/codeToIndex.pkl", "rb"))
+    id_to_label = pickle.load(open(f"{pkl_data_dir}/idToLabel.pkl", "rb"))
 
     code_vocab_size = len(code_to_index)
     label_vocab_size = len(id_to_label)
