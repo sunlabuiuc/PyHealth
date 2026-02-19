@@ -2,6 +2,8 @@
 import pytest
 import torch
 import shutil
+from torch.utils.data import DataLoader
+from torch.nn.utils.rnn import pad_sequence
 from pyhealth.processors import TupleTimeTextProcessor
 
 # Check if transformers is installed
@@ -10,6 +12,32 @@ try:
     TRANSFORMERS_AVAILABLE = True
 except ImportError:
     TRANSFORMERS_AVAILABLE = False
+
+
+def _collate_smart_processor(batch):
+    """Collate function that handles the 5-element tuple from tokenized TupleTimeTextProcessor."""
+    result = {}
+    for key in batch[0].keys():
+        vals = [s[key] for s in batch]
+        if isinstance(vals[0], tuple):
+            collated = []
+            for elem_vals in zip(*vals):
+                if isinstance(elem_vals[0], torch.Tensor):
+                    if all(e.shape == elem_vals[0].shape for e in elem_vals):
+                        collated.append(torch.stack(list(elem_vals)))
+                    else:
+                        collated.append(pad_sequence(list(elem_vals), batch_first=True))
+                else:
+                    collated.append(list(elem_vals))
+            result[key] = tuple(collated)
+        elif isinstance(vals[0], torch.Tensor):
+            if all(v.shape == vals[0].shape for v in vals):
+                result[key] = torch.stack(vals)
+            else:
+                result[key] = pad_sequence(vals, batch_first=True)
+        else:
+            result[key] = vals
+    return result
 
 def test_tuple_time_text_processor_no_tokenizer():
     """Test TupleTimeTextProcessor without tokenizer (backward compatibility)."""
@@ -80,17 +108,91 @@ def test_tuple_time_text_processor_with_tokenizer():
     assert processor.schema() == ("value", "mask", "token_type_ids", "time", "type_tag")
     # Check dims (input_ids: 2D, attention_mask: 2D, token_type_ids: 2D, time: 1D)
     assert processor.dim() == (2, 2, 2, 1)
-    
+
     assert f"tokenizer='{model_name}'" in str(processor)
+
 
 @pytest.mark.skipif(not TRANSFORMERS_AVAILABLE, reason="Transformers not installed")
 def test_tokenizer_integration_in_pyhealth_workflow():
-    """Simulate how this would work in a PyHealth task flow."""
-    # This just safeguards against basic runtime errors in likely usage
-    try:
-        proc = TupleTimeTextProcessor(tokenizer_model="prajjwal1/bert-tiny")
-        # Simulate PyHealth Dataset loading (fit not really used for this proc, but good to check)
-        # fit is inherited from FeatureProcessor and just passes
-        proc.fit([{}], "dummy_field") 
-    except Exception as e:
-        pytest.fail(f"Integration smoke test failed: {e}")
+    """Smoke test: fit() and process() don't raise for the tokenized path."""
+    proc = TupleTimeTextProcessor(tokenizer_model="prajjwal1/bert-tiny")
+    proc.fit([{}], "dummy_field")   # fit is a no-op for this processor
+    result = proc.process((["Hello"], [0.0]))
+    assert len(result) == 5        # (input_ids, mask, type_ids, time, tag)
+
+
+@pytest.mark.skipif(not TRANSFORMERS_AVAILABLE, reason="Transformers not installed")
+def test_tuple_in_schema_canonical_form():
+    """Canonical usage: declare processor via ('tuple_time_text', kwargs) in input_schema.
+
+    Users should never need to import TupleTimeTextProcessor directly; the
+    registry alias + kwargs tuple is the recommended pattern:
+
+        input_schema = {
+            "conditions": "sequence",
+            "notes": ("tuple_time_text", {"tokenizer_model": "bert-base-uncased"}),
+        }
+    """
+    from pyhealth.datasets import create_sample_dataset
+    from pyhealth.models import MLP
+
+    samples = [
+        {
+            "patient_id": f"p{i}",
+            "visit_id": f"v{i}",
+            "conditions": ["I21.0", "I10"] if i % 2 == 0 else ["R07.9", "I50.9"],
+            "notes": (
+                ["Chest pain on exertion", "Follow-up stable"],
+                [0.0, 48.0],
+            ),
+            "label": i % 2,
+        }
+        for i in range(4)
+    ]
+
+    # ── Canonical input_schema form ────────────────────────────────────
+    input_schema = {
+        "conditions": "sequence",
+        "notes": (
+            "tuple_time_text",
+            {"tokenizer_model": "prajjwal1/bert-tiny", "max_length": 16},
+        ),
+    }
+
+    dataset = create_sample_dataset(
+        samples=samples,
+        input_schema=input_schema,
+        output_schema={"label": "binary"},
+        in_memory=True,
+    )
+
+    # Processor was instantiated from registry — verify type and config
+    notes_proc = dataset.input_processors["notes"]
+    assert isinstance(notes_proc, TupleTimeTextProcessor)
+    assert notes_proc.is_token() is True
+    assert notes_proc.tokenizer_model == "prajjwal1/bert-tiny"
+
+    # One sample: notes should be the 5-element tuple
+    sample = dataset[0]
+    assert isinstance(sample["notes"], tuple)
+    assert len(sample["notes"]) == 5
+    input_ids, mask, type_ids, time, tag = sample["notes"]
+    assert input_ids.shape == (2, 16)   # (N_notes, L)
+    assert mask.shape == (2, 16)
+    assert time.shape == (2,)
+    assert tag == "note"
+
+    # Forward pass through MLP using collate helper
+    loader = DataLoader(
+        dataset, batch_size=2, shuffle=False,
+        collate_fn=_collate_smart_processor,
+    )
+    batch = next(iter(loader))
+    model = MLP(dataset, embedding_dim=64, hidden_dim=64)
+    model.eval()
+    import torch
+    with torch.no_grad():
+        out = model(**batch)
+    assert "loss" in out
+    assert out["y_prob"].shape == (2, 1)
+
