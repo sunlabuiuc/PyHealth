@@ -74,9 +74,9 @@ class EHRFoundationalModelMIMIC4(BaseTask):
 
         # Aggregated notes and time offsets across all admissions (per hadm_id)
         all_discharge_texts: List[str] = []
-        all_discharge_times: List[float] = []
+        all_discharge_times_from_admission: List[float] = []
         all_radiology_texts: List[str] = []
-        all_radiology_times: List[float] = []
+        all_radiology_times_from_admission: List[float] = []
 
         # Process each admission independently (per hadm_id)
         for admission in admissions_to_process:
@@ -90,7 +90,7 @@ class EHRFoundationalModelMIMIC4(BaseTask):
                 event_type="radiology", filters=[("hadm_id", "==", admission.hadm_id)]
             )
 
-            for note in discharge_notes:
+            for note in discharge_notes: #TODO: Maybe make this into a helper function?
                 try:
                     note_text = self._clean_text(note.text)
                     if note_text:
@@ -98,12 +98,15 @@ class EHRFoundationalModelMIMIC4(BaseTask):
                             note.timestamp - admission_time
                         ).total_seconds() / 3600.0
                         all_discharge_texts.append(note_text)
-                        all_discharge_times.append(time_from_admission)
-                except AttributeError: # if note is None, note has no .timestamp, or note has no .text
-                    all_radiology_texts.append("<missing>") # Token representing missing text
-                    all_radiology_times.append(float("nan")) # Token representing missing time(?)
+                        all_discharge_times_from_admission.append(time_from_admission)
+                except AttributeError: # note object is missing .text or .timestamp attribute (e.g. malformed note)
+                    all_discharge_texts.append("<missing>") # Token representing missing text
+                    all_discharge_times_from_admission.append(float("nan")) # Token representing missing time(?)
+            if not discharge_notes: # If we get an empty list
+                all_discharge_texts.append("<missing>") # Token representing missing text
+                all_discharge_times_from_admission.append(float("nan")) # Token representing missing time(?)
 
-            for note in radiology_notes:
+            for note in radiology_notes: #TODO: Maybe make this into a helper function?
                 try:
                     note_text = self._clean_text(note.text)
                     if note_text:
@@ -111,19 +114,22 @@ class EHRFoundationalModelMIMIC4(BaseTask):
                             note.timestamp - admission_time
                         ).total_seconds() / 3600.0
                         all_radiology_texts.append(note_text)
-                        all_radiology_times.append(time_from_admission)
-                except AttributeError: # if note is None, note has no .timestamp, or note has no .text
+                        all_radiology_times_from_admission.append(time_from_admission)
+                except AttributeError: # note object is missing .text or .timestamp attribute (e.g. malformed note)
                     all_radiology_texts.append("<missing>") # Token representing missing text
-                    all_radiology_times.append(float("nan")) # Token representing missing time(?)
+                    all_radiology_times_from_admission.append(float("nan")) # Token representing missing time(?)
+            if not radiology_notes: # If we receive empty list
+                all_radiology_texts.append("<missing>") # Token representing missing text
+                all_radiology_times_from_admission.append(float("nan")) # Token representing missing time(?)
 
-        discharge_note_times = (all_discharge_texts, all_discharge_times)
-        radiology_note_times = (all_radiology_texts, all_radiology_times)
+        discharge_note_times_from_admission = (all_discharge_texts, all_discharge_times_from_admission)
+        radiology_note_times_from_admission = (all_radiology_texts, all_radiology_times_from_admission)
 
         return [
             {
                 "patient_id": patient.patient_id,
-                "discharge_note_times": discharge_note_times,
-                "radiology_note_times": radiology_note_times,
+                "discharge_note_times": discharge_note_times_from_admission,
+                "radiology_note_times": radiology_note_times_from_admission,
                 "mortality": mortality_label,
             }
         ]
