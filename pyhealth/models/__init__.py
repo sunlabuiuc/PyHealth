@@ -42,3 +42,4 @@ from .vision_embedding import VisionEmbeddingModel
 from .text_embedding import TextEmbedding
 from .sdoh import SdohClassifier
 from .medlink import MedLink
+from .sdoh_icd9_llm import SDOHICD9LLM
