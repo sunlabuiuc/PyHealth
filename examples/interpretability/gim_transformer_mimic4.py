@@ -56,7 +56,6 @@ input_processors, output_processors = maybe_load_processors("../resources/", tas
 
 sample_dataset = dataset.set_task(
     task,
-    cache_dir="~/.cache/pyhealth/mimic4_transformer_mortality",
     input_processors=input_processors,
     output_processors=output_processors,
 )

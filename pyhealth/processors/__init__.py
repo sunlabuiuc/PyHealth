@@ -45,6 +45,7 @@ from .tensor_processor import TensorProcessor
 from .text_processor import TextProcessor
 from .timeseries_processor import TimeseriesProcessor
 from .time_image_processor import TimeImageProcessor
+from .graph_processor import GraphProcessor
 from .audio_processor import AudioProcessor
 from .ignore_processor import IgnoreProcessor
 from .tuple_time_text_processor import TupleTimeTextProcessor
@@ -66,6 +67,7 @@ __all__ = [
     "TextProcessor",
     "TimeseriesProcessor",
     "TimeImageProcessor",
+    "GraphProcessor",
     "AudioProcessor",
     "TupleTimeTextProcessor",
 ]

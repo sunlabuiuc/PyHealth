@@ -47,6 +47,7 @@ Available Processors
 - ``StageNetTensorProcessor``: Tensor processing for StageNet
 - ``MultiHotProcessor``: For multi-hot encoding
 - ``IgnoreProcessor``: A special feature processor that marks a feature to be ignored.
+- ``GraphProcessor``: For knowledge graph subgraph extraction (e.g., GraphCare, G-BERT)
 
 Usage Examples
 --------------
@@ -276,6 +277,7 @@ Common string keys for automatic processor selection:
 - ``"time_image"``: For time-stamped image sequences
 - ``"tensor"``: For pre-processed tensors
 - ``"raw"``: For raw/unprocessed data
+- ``"graph"``: For knowledge graph subgraphs
 
 Writing Custom FeatureProcessors
 ---------------------------------
@@ -471,3 +473,4 @@ API Reference
     processors/pyhealth.processors.MultiHotProcessor
     processors/pyhealth.processors.StageNetProcessor
     processors/pyhealth.processors.StageNetTensorProcessor
+    processors/pyhealth.processors.GraphProcessor

@@ -99,7 +99,7 @@ def print_top_attributions(
     """Print top-k most important features from LIME attributions."""
     if icd_code_to_desc is None:
         icd_code_to_desc = {}
-        
+
     for feature_key, attr in attributions.items():
         attr_cpu = attr.detach().cpu()
         if attr_cpu.dim() == 0 or attr_cpu.size(0) == 0:
@@ -118,7 +118,7 @@ def print_top_attributions(
         print(f"  Shape: {attr_cpu[0].shape}")
         print(f"  Total attribution sum: {flattened.sum().item():+.6f}")
         print(f"  Mean attribution: {flattened.mean().item():+.6f}")
-        
+
         k = min(top_k, flattened.numel())
         top_values, top_indices = torch.topk(flattened.abs(), k=k)
         processor = processors.get(feature_key) if processors else None
@@ -170,7 +170,6 @@ def main():
 
     sample_dataset = dataset.set_task(
         MortalityPredictionStageNetMIMIC4(),
-        cache_dir="~/.cache/pyhealth/mimic4_stagenet_mortality",
         input_processors=input_processors,
         output_processors=output_processors,
     )
@@ -225,7 +224,7 @@ def main():
         probs = output["y_prob"]
         label_key = model.label_key
         true_label = sample_batch_device[label_key]
-        
+
         # Handle binary classification (single probability output)
         if probs.shape[-1] == 1:
             prob_death = probs[0].item()
@@ -262,10 +261,10 @@ def main():
     print("Positive values increase the mortality prediction, negative values decrease it.")
 
     print_top_attributions(
-        attributions, 
-        sample_batch_device, 
-        input_processors, 
-        top_k=15, 
+        attributions,
+        sample_batch_device,
+        input_processors,
+        top_k=15,
         icd_code_to_desc=ICD_CODE_TO_DESC,
         method_name="LIME"
     )
@@ -336,11 +335,11 @@ def main():
         if key in attributions:
             flat_lasso = attributions[key][0].flatten().abs()
             flat_ridge = attr_ridge[key][0].flatten().abs()
-            
+
             k = min(5, flat_lasso.numel())
             top_lasso = torch.topk(flat_lasso, k=k)
             top_ridge = torch.topk(flat_ridge, k=k)
-            
+
             print(f"\n  {key}:")
             print(f"    Lasso non-zero features: {(flat_lasso > 1e-6).sum().item()}/{flat_lasso.numel()}")
             print(f"    Ridge non-zero features: {(flat_ridge > 1e-6).sum().item()}/{flat_ridge.numel()}")
