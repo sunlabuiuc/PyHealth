@@ -558,6 +558,7 @@ class Transformer(BaseModel, CheferInterpretable):
             schema = self.dataset.input_processors[feature_key].schema()
 
             value = feature[schema.index("value")] if "value" in schema else None
+            mask = feature[schema.index("mask")] if "mask" in schema else None
 
             if value is None:
                 raise ValueError(
@@ -567,9 +568,18 @@ class Transformer(BaseModel, CheferInterpretable):
             else:
                 value = value.to(self.device)
 
-            value = self.embedding_model({feature_key: value})[feature_key]
+            if mask is not None:
+                mask = mask.to(self.device)
+                value = self.embedding_model({feature_key: value}, masks={feature_key: mask})[feature_key]
+            else:
+                value = self.embedding_model({feature_key: value})[feature_key]
 
             i = schema.index("value")
+            # Reconstruct tuple with embedded value
+            # Note: we need to handle list/tuple conversion carefully
+            # feature is a tuple.
+            
+            # Simple slice reconstruction
             kwargs[feature_key] = feature[:i] + (value,) + feature[i + 1:]
 
         return self.forward_from_embedding(**kwargs)

@@ -244,13 +244,42 @@ class RNN(BaseModel):
                 - embed (optional): a tensor representing the patient embeddings if requested.
         """
         patient_emb = []
-        embedded = self.embedding_model(kwargs)
+        
+        # We need to preprocess kwargs to extract values and masks for EmbeddingModel
+        # because EmbeddingModel expects dict of tensors
+        inputs = {}
+        masks = {}
+        
+        for feature_key in self.feature_keys:
+            feature = kwargs[feature_key]
+            if isinstance(feature, torch.Tensor):
+                feature = (feature,)
+            
+            schema = self.dataset.input_processors[feature_key].schema()
+            value = feature[schema.index("value")] if "value" in schema else None
+            mask = feature[schema.index("mask")] if "mask" in schema else None
+            
+            if value is None:
+                raise ValueError(f"Feature '{feature_key}' must contain 'value' in the schema.")
+            
+            inputs[feature_key] = value
+            if mask is not None:
+                masks[feature_key] = mask
+
+        embedded = self.embedding_model(inputs, masks=masks)
+        
         for feature_key in self.feature_keys:
             x = embedded[feature_key]
             # Use abs() before sum to catch edge cases where embeddings sum to 0
             # @TODO bug with 0 embedding sum can still persist if the embedding is all 0s but the mask is not all 0s. 
             # despite being valid values (e.g., [1.0, -1.0])
-            mask = (torch.abs(x).sum(dim=-1) != 0).int()
+            
+            # If we have an explicit mask, use it
+            if feature_key in masks:
+                mask = masks[feature_key].to(self.device).int()
+            else:
+                mask = (torch.abs(x).sum(dim=-1) != 0).int()
+            
             _, x = self.rnn[feature_key](x, mask)
             patient_emb.append(x)
 
@@ -440,8 +469,28 @@ class MultimodalRNN(BaseModel):
                 - logit: a tensor representing the logits.
                 - embed (optional): a tensor representing the patient embeddings if requested.
         """
+        # Preprocess features
+        inputs = {}
+        masks = {}
+        
+        for feature_key in self.feature_keys:
+            feature = kwargs[feature_key]
+            if isinstance(feature, torch.Tensor):
+                feature = (feature,)
+            
+            schema = self.dataset.input_processors[feature_key].schema()
+            value = feature[schema.index("value")] if "value" in schema else None
+            mask = feature[schema.index("mask")] if "mask" in schema else None
+            
+            if value is None:
+                raise ValueError(f"Feature '{feature_key}' must contain 'value' in the schema.")
+            
+            inputs[feature_key] = value
+            if mask is not None:
+                masks[feature_key] = mask
+
         patient_emb = []
-        embedded, mask = self.embedding_model(kwargs, output_mask=True)
+        embedded, mask = self.embedding_model(inputs, masks=masks, output_mask=True)
 
         # Process sequential features through RNN
         for feature_key in self.sequential_features:

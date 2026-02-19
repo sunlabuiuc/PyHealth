@@ -339,6 +339,7 @@ class MLP(BaseModel, Interpretable):
             value = (
                 feature[schema.index("value")] if "value" in schema else None
             )
+            mask = feature[schema.index("mask")] if "mask" in schema else None
 
             if value is None:
                 raise ValueError(
@@ -353,11 +354,30 @@ class MLP(BaseModel, Interpretable):
             if value.dim() == 3:
                 batch_size, seq_len, inner_len = value.shape
                 value = value.view(batch_size, seq_len * inner_len)
+                if mask is not None:
+                     mask = mask.to(self.device)
+                     # Flatten mask properly if it exists
+                     if mask.dim() == 3:
+                         mask = mask.view(batch_size, seq_len * inner_len)
 
-            value = self.embedding_model({feature_key: value})[feature_key]
+            if mask is not None:
+                mask = mask.to(self.device)
+                value = self.embedding_model({feature_key: value}, masks={feature_key: mask})[feature_key]
+            else:
+                value = self.embedding_model({feature_key: value})[feature_key]
 
             i = schema.index("value")
-            kwargs[feature_key] = feature[:i] + (value,) + feature[i + 1 :]
+            # We replace 'value' in the tuple with the embedded value
+            # But we must ensure other elements are preserved.
+            
+            # If mask was present, we keep it? 
+            # forward_from_embedding expects (value, mask) or (value,)
+            # The embedded value is now the "value".
+            # If we pass mask to forward_from_embedding, it will be used for pooling.
+            
+            args = list(feature)
+            args[i] = value
+            kwargs[feature_key] = tuple(args)
 
         return self.forward_from_embedding(**kwargs)
 
