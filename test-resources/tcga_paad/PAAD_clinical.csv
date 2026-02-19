@@ -1,0 +1,4 @@
+submitter_id,age_at_diagnosis,vital_status,days_to_death,tumor_stage
+TCGA-AB-1234,23000,Alive,,Stage II
+TCGA-AB-5678,25000,Dead,300,Stage III
+TCGA-AB-9012,28000,Alive,,Stage II

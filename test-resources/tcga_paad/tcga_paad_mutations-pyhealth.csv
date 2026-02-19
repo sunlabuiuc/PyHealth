@@ -1,0 +1,4 @@
+patient_id,hugo_symbol,variant_classification,variant_type,hgvsc,hgvsp,tumor_sample_barcode
+TCGA-AB-1234,KRAS,Missense_Mutation,SNP,c.35G>T,p.G12V,TCGA-AB-1234-01A-01D-1234-08
+TCGA-AB-5678,TP53,Nonsense_Mutation,SNP,c.743G>A,p.R248Q,TCGA-AB-5678-01A-01D-1234-08
+TCGA-AB-9012,SMAD4,Frame_Shift_Del,DEL,c.123_124del,p.L41fs,TCGA-AB-9012-01A-01D-1234-08
