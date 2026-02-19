@@ -6,6 +6,8 @@ from pyhealth.tasks.base_task import BaseTask
 class EHRFoundationalModelMIMIC4(BaseTask):
     
     task_name: str = "EHRFoundationalModelMIMIC4"
+    TOKEN_REPRESENTING_MISSING_TEXT = "<missing>"
+    TOKEN_REPRESENTING_MISSING_FLOAT = float("nan")
     
     def __init__(self):
         """Initialize the EHR Foundational Model task."""
@@ -23,46 +25,13 @@ class EHRFoundationalModelMIMIC4(BaseTask):
                     "tokenizer_name": "bert-base-uncased",
                     "type_tag": "note",
                 },
-            ),
-            "icd_codes": (
-                "stagenet", 
-                {"padding": 0
-                }
-            ),
+            )
         }
         self.output_schema: Dict[str, str] = {"mortality": "binary"}
 
     def _clean_text(self, text: Optional[str]) -> Optional[str]:
         """Return text if non-empty, otherwise None."""
         return text if text else None
-
-    def _compute_time_diffs(self, notes_with_timestamps, first_admission_time):
-        """Compute hourly time offsets for notes relative to first admission.
-
-        Sorts notes chronologically by timestamp, then computes each note's
-        offset (in hours) from the first admission time.
-
-        Args:
-            notes_with_timestamps: List of (text, timestamp) tuples where
-                text is the clinical note string and timestamp is a datetime.
-            first_admission_time: datetime of the patient's first admission,
-                used as the anchor (t=0) for all time offsets.
-
-        Returns:
-            Tuple of (texts, time_diffs) where:
-                - texts: List[str] of note contents, sorted chronologically
-                - time_diffs: List[float] of hours since first admission
-            Returns (["<missing>"], [0.0]) if no notes are available.
-        """
-        result = []
-
-        if not notes_with_timestamps:
-            return (["<missing>"], [0.0]) # TODO: Need to also figure out how to tokenize missing timestamps
-        notes_with_timestamps.sort(key=lambda x: x[1])
-        result = [(text, (ts - first_admission_time).total_seconds() / 3600) for text, ts in notes_with_timestamps]
-        texts, time_diffs = zip(*result)
-        
-        return (list(texts), list(time_diffs))
 
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
         # Get demographic info to filter by age
@@ -105,31 +74,17 @@ class EHRFoundationalModelMIMIC4(BaseTask):
         if len(admissions_to_process) == 0:
             return []
 
-        # Get first admission time as reference for notes time offset
-        first_admission_time = admissions_to_process[0].timestamp
+        # Aggregated notes and time offsets across all admissions (per hadm_id)
+        all_discharge_texts: List[str] = []
+        all_discharge_times_from_admission: List[float] = []
+        all_radiology_texts: List[str] = []
+        all_radiology_times_from_admission: List[float] = []
 
-        # Aggregated data across all admissions
-        all_discharge_notes_timestamped = []  # List of (note_text, timestamp) tuples
-        all_radiology_notes_timestamped = []  # List of (note_text, timestamp) tuples
-        all_icd_codes = [] # ICD code lists per visit
-        all_icd_times = [] # Hours from first admission per visit
-
-        # Process each admission and aggregate data
+        # Process each admission independently (per hadm_id)
         for admission in admissions_to_process:
-            # Parse admission discharge time for lab events filtering
-            try:
-                admission_dischtime = datetime.strptime(
-                    admission.dischtime, "%Y-%m-%d %H:%M:%S"
-                )
-            except (ValueError, AttributeError):
-                # If we can't parse discharge time, skip this admission
-                continue
+            admission_time = admission.timestamp
 
-            # Skip if discharge is before admission (data quality issue)
-            if admission_dischtime < admission.timestamp:
-                continue
-
-            # Get notes using hadm_id filtering
+            # Get notes for this hadm_id only
             discharge_notes = patient.get_events(
                 event_type="discharge", filters=[("hadm_id", "==", admission.hadm_id)]
             )
@@ -137,70 +92,44 @@ class EHRFoundationalModelMIMIC4(BaseTask):
                 event_type="radiology", filters=[("hadm_id", "==", admission.hadm_id)]
             )
 
-            # Extract and aggregate notes as individual items in lists
-            # Note: attribute is "text" (from mimic4_note.yaml), not "discharge"/"radiology"
-            for note in discharge_notes:
+            for note in discharge_notes: #TODO: Maybe make this into a helper function?
                 try:
                     note_text = self._clean_text(note.text)
                     if note_text:
-                        all_discharge_notes_timestamped.append((note_text, note.timestamp))
-                except AttributeError:
+                        time_from_admission = (
+                            note.timestamp - admission_time
+                        ).total_seconds() / 3600.0
+                        all_discharge_texts.append(note_text)
+                        all_discharge_times_from_admission.append(time_from_admission)
+                except AttributeError: # note object is missing .text or .timestamp attribute (e.g. malformed note)
                     pass
+            if not discharge_notes: # If we get an empty list
+                all_discharge_texts.append(self.TOKEN_REPRESENTING_MISSING_TEXT) # Token representing missing text
+                all_discharge_times_from_admission.append(self.TOKEN_REPRESENTING_MISSING_FLOAT) # Token representing missing time(?)
 
-            for note in radiology_notes:
+            for note in radiology_notes: #TODO: Maybe make this into a helper function?
                 try:
                     note_text = self._clean_text(note.text)
                     if note_text:
-                        all_radiology_notes_timestamped.append((note_text, note.timestamp))
-                except AttributeError:
+                        time_from_admission = (
+                            note.timestamp - admission_time
+                        ).total_seconds() / 3600.0
+                        all_radiology_texts.append(note_text)
+                        all_radiology_times_from_admission.append(time_from_admission)
+                except AttributeError: # note object is missing .text or .timestamp attribute (e.g. malformed note)
                     pass
+            if not radiology_notes: # If we receive empty list
+                all_radiology_texts.append(self.TOKEN_REPRESENTING_MISSING_TEXT) # Token representing missing text
+                all_radiology_times_from_admission.append(self.TOKEN_REPRESENTING_MISSING_FLOAT) # Token representing missing time(?)
 
-            # Get diagnosis codes for this admission using hadm_id
-            diagnoses_icd = patient.get_events(
-                event_type="diagnoses_icd",
-                filters=[("hadm_id", "==", admission.hadm_id)],
-            )
-            visit_diagnoses = [
-                event.icd_code
-                for event in diagnoses_icd
-                if hasattr(event, "icd_code") and event.icd_code
-            ]
-
-            # Get procedure codes for this admission using hadm_id
-            procedures_icd = patient.get_events(
-                event_type="procedures_icd",
-                filters=[("hadm_id", "==", admission.hadm_id)],
-            )
-            visit_procedures = [
-                event.icd_code
-                for event in procedures_icd
-                if hasattr(event, "icd_code") and event.icd_code
-            ]
-
-            # Combine diagnoses and procedures into single ICD code list
-            visit_icd_codes = visit_diagnoses + visit_procedures
-
-            # Calculate time from admission start (hours)
-            if visit_icd_codes:
-                time_from_first = (
-                    admission.timestamp - first_admission_time
-                ).total_seconds() / 3600.0
-                all_icd_codes.append(visit_icd_codes)
-                all_icd_times.append(time_from_first)
-
-        # Convert (note_text, timestamp) tuples to (note_text, time_diff_hours) tuples
-        discharge_note_times = self._compute_time_diffs(all_discharge_notes_timestamped, first_admission_time)
-        radiology_note_times = self._compute_time_diffs(all_radiology_notes_timestamped, first_admission_time)
-
-        # icd_codes: (List[List[str]], List[float]) — codes per visit, hours from first admission
-        icd_codes = (all_icd_codes, all_icd_times)
+        discharge_note_times_from_admission = (all_discharge_texts, all_discharge_times_from_admission)
+        radiology_note_times_from_admission = (all_radiology_texts, all_radiology_times_from_admission)
 
         return [
             {
                 "patient_id": patient.patient_id,
-                "discharge_note_times": discharge_note_times,
-                "radiology_note_times": radiology_note_times,
-                "icd_codes": icd_codes,
+                "discharge_note_times": discharge_note_times_from_admission,
+                "radiology_note_times": radiology_note_times_from_admission,
                 "mortality": mortality_label,
             }
         ]

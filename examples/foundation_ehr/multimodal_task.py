@@ -27,7 +27,7 @@ if __name__ == "__main__":
             note_tables=["discharge", "radiology"],
             cache_dir=CACHE_DIR,
             num_workers=8,
-            # dev=True
+            dev=True
         )
     
     # Apply multimodal task
