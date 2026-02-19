@@ -6,6 +6,8 @@ from pyhealth.tasks.base_task import BaseTask
 class EHRFoundationalModelMIMIC4(BaseTask):
     
     task_name: str = "EHRFoundationalModelMIMIC4"
+    TOKEN_REPRESENTING_MISSING_TEXT = "<missing>"
+    TOKEN_REPRESENTING_MISSING_FLOAT = float("nan")
     
     def __init__(self):
         """Initialize the EHR Foundational Model task."""
@@ -100,11 +102,11 @@ class EHRFoundationalModelMIMIC4(BaseTask):
                         all_discharge_texts.append(note_text)
                         all_discharge_times_from_admission.append(time_from_admission)
                 except AttributeError: # note object is missing .text or .timestamp attribute (e.g. malformed note)
-                    all_discharge_texts.append("<missing>") # Token representing missing text
+                    all_discharge_texts.append(TOKEN_REPRESENTING_MISSING_TEXT) # Token representing missing text
                     all_discharge_times_from_admission.append(float("nan")) # Token representing missing time(?)
             if not discharge_notes: # If we get an empty list
-                all_discharge_texts.append("<missing>") # Token representing missing text
-                all_discharge_times_from_admission.append(float("nan")) # Token representing missing time(?)
+                all_discharge_texts.append(TOKEN_REPRESENTING_MISSING_TEXT) # Token representing missing text
+                all_discharge_times_from_admission.append(TOKEN_REPRESENTING_MISSING_FLOAT) # Token representing missing time(?)
 
             for note in radiology_notes: #TODO: Maybe make this into a helper function?
                 try:
@@ -116,11 +118,11 @@ class EHRFoundationalModelMIMIC4(BaseTask):
                         all_radiology_texts.append(note_text)
                         all_radiology_times_from_admission.append(time_from_admission)
                 except AttributeError: # note object is missing .text or .timestamp attribute (e.g. malformed note)
-                    all_radiology_texts.append("<missing>") # Token representing missing text
-                    all_radiology_times_from_admission.append(float("nan")) # Token representing missing time(?)
+                    all_radiology_texts.append(TOKEN_REPRESENTING_MISSING_TEXT) # Token representing missing text
+                    all_radiology_times_from_admission.append(TOKEN_REPRESENTING_MISSING_FLOAT) # Token representing missing time(?)
             if not radiology_notes: # If we receive empty list
-                all_radiology_texts.append("<missing>") # Token representing missing text
-                all_radiology_times_from_admission.append(float("nan")) # Token representing missing time(?)
+                all_radiology_texts.append(TOKEN_REPRESENTING_MISSING_TEXT) # Token representing missing text
+                all_radiology_times_from_admission.append(TOKEN_REPRESENTING_MISSING_FLOAT) # Token representing missing time(?)
 
         discharge_note_times_from_admission = (all_discharge_texts, all_discharge_times_from_admission)
         radiology_note_times_from_admission = (all_radiology_texts, all_radiology_times_from_admission)
