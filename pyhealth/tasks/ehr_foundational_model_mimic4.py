@@ -221,6 +221,13 @@ class EHRFoundationalModelMIMIC4(BaseTask):
                         all_lab_values.append(lab_vector)
                         all_lab_times.append((lab_ts - admission_time).total_seconds() / 3600.0)
 
+        if len(all_icd_codes) == 0:
+            all_icd_codes.append([self.TOKEN_REPRESENTING_MISSING_TEXT])
+            all_icd_times.append(self.TOKEN_REPRESENTING_MISSING_FLOAT)
+        if len(all_lab_values) == 0:
+            all_lab_values.append([self.TOKEN_REPRESENTING_MISSING_FLOAT] * len(self.LAB_CATEGORY_NAMES))
+            all_lab_times.append(self.TOKEN_REPRESENTING_MISSING_FLOAT)
+
         discharge_note_times_from_admission = (all_discharge_texts, all_discharge_times_from_admission)
         radiology_note_times_from_admission = (all_radiology_texts, all_radiology_times_from_admission)
 
