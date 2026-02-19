@@ -1,0 +1,15 @@
+version: "1.0"
+tables:
+  drug_info:
+    file_path: "drug_info_gdsc.csv"
+    patient_id: null
+    timestamp: null
+    attributes:
+    - "drug_id"
+    - "Name"
+    - "Synonyms"
+    - "Targets"
+    - "Target pathway"
+    - "PubCHEM"
+    - "Sample Size"
+    - "Count"
