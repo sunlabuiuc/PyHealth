@@ -231,6 +231,23 @@ class EmbeddingModel(BaseModel):
                 self.embedding_layers[field_name] = nn.Linear(
                     in_features=num_categories, out_features=embedding_dim
                 )
+            
+            # Smart Processor (Token-based) -> Transformers
+            elif hasattr(processor, "is_token") and processor.is_token():
+                try:
+                    from transformers import AutoModel
+                except ImportError:
+                    raise ImportError("Please install `transformers` to use token-based processors.")
+                
+                # Load the model
+                self.embedding_layers[field_name] = AutoModel.from_pretrained(processor.tokenizer_model)
+                
+                # Check if we need projection
+                if self.embedding_layers[field_name].config.hidden_size != self.embedding_dim:
+                    self.embedding_layers[f"{field_name}_proj"] = nn.Linear(
+                        self.embedding_layers[field_name].config.hidden_size, 
+                        self.embedding_dim
+                    )
 
             else:
                 print(
@@ -240,11 +257,12 @@ class EmbeddingModel(BaseModel):
 
     def forward(self,
                 inputs: Dict[str, torch.Tensor],
+                masks: Dict[str, torch.Tensor] = None,
                 output_mask: bool = False
                 ) -> Dict[str, torch.Tensor] | tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
         
         embedded: Dict[str, torch.Tensor] = {}
-        masks: Dict[str, torch.Tensor] = {} if output_mask else None
+        out_masks: Dict[str, torch.Tensor] = {} if output_mask else None
         
         for field_name, tensor in inputs.items():
             processor = self.dataset.input_processors.get(field_name, None)
@@ -254,20 +272,76 @@ class EmbeddingModel(BaseModel):
                 embedded[field_name] = tensor
                 continue
             
-            tensor = tensor.to(self.device)            
-            embedded[field_name] = self.embedding_layers[field_name](tensor)
+            # Check if it's a transformer model
+            layer = self.embedding_layers[field_name]
+            
+            # Check for transformers.PreTrainedModel (but without importing if possible, use class name check)
+            # or check if it has 'config' attribute
+            if hasattr(layer, "config") and hasattr(layer, "forward"): 
+                # It's likely a transformer
+                tensor = tensor.to(self.device).long() # Ensure LongTensor for IDs
+                
+                mask = None
+                if masks is not None and field_name in masks:
+                    mask = masks[field_name].to(self.device)
+                
+                # Handle 3D input (Batch, Num_Notes, Seq_Len)
+                is_3d = (inputs[field_name].dim() == 3)
+                
+                if is_3d:
+                     b, n, l = inputs[field_name].shape
+                     tensor = tensor.view(b * n, l)
+                     if mask is not None:
+                         mask = mask.view(b * n, l)
+                
+                # Forward pass through transformer
+                output = layer(input_ids=tensor, attention_mask=mask)
+                x = output.last_hidden_state # (Batch, Seq, Hidden)
+                
+                if is_3d:
+                     # If we had 3D input, we MUST pool the sequence dim (L) to get one vector per note
+                     # Resulting shape: (B, N, H)
+                     
+                     # Pool L dim -> (B*N, H) using CLS token (index 0)
+                     x = x[:, 0, :] 
+                     
+                     # Check projections
+                     if f"{field_name}_proj" in self.embedding_layers:
+                        x = self.embedding_layers[f"{field_name}_proj"](x)
+                     
+                     x = x.view(b, n, -1)
+                
+                else: 
+                     # 2D input (Batch, Seq) -> (Batch, Seq, Hidden)
+                     # No pooling, treating as sequence of tokens (word embeddings)
+                     if f"{field_name}_proj" in self.embedding_layers:
+                        x = self.embedding_layers[f"{field_name}_proj"](x)
+                
+                embedded[field_name] = x
+                
+            else: 
+                # Standard layers
+                tensor = tensor.to(self.device)
+                embedded[field_name] = layer(tensor)
             
             if output_mask:
                 # Generate a mask for this field
-                if hasattr(processor, "code_vocab"):
+                # For transformers, we might already have a mask, or use pad token
+                if masks is not None and field_name in masks:
+                     out_masks[field_name] = masks[field_name].to(self.device)
+                elif hasattr(processor, "code_vocab"):
                     pad_idx = processor.code_vocab.get("<pad>", 0)
+                    out_masks[field_name] = (tensor != pad_idx)
                 else:
+                    # Default mask generation (e.g. for simple linear layers where 0 might be padding?) 
+                    # Be careful changing this behavior. 
+                    # Previous code:
+                    # masks[field_name] = (tensor != pad_idx) -> where pad_idx was 0 default
                     pad_idx = 0
-                    
-                masks[field_name] = (tensor != pad_idx)
+                    out_masks[field_name] = (tensor != pad_idx)
         
         if output_mask:
-            return embedded, masks
+            return embedded, out_masks
         else:
             return embedded
 
