@@ -1,13 +1,13 @@
 from typing import Any, List, Tuple, Optional, Union
 import torch
 import logging
-from .base_processor import FeatureProcessor
+from .base_processor import FeatureProcessor, ModalityType, TemporalFeatureProcessor
 from . import register_processor
 
 logger = logging.getLogger(__name__)
 
 @register_processor("tuple_time_text")
-class TupleTimeTextProcessor(FeatureProcessor):
+class TupleTimeTextProcessor(TemporalFeatureProcessor):
     """Processes (text, time_diff) tuples for multimodal temporal fusion.
     
     Converts paired text and temporal data into a format suitable for models
@@ -135,6 +135,39 @@ class TupleTimeTextProcessor(FeatureProcessor):
             # The output input_ids is (N, max_length), which is 2 dimensions.
             return (2, 2, 2, 1)
         return (0, 1, 0) # text list has 0 tensor dims, time tensor has 1 dim
+
+    def modality(self) -> ModalityType:
+        """Clinical text → TEXT modality."""
+        return ModalityType.TEXT
+
+    def value_dim(self) -> int:
+        """Tokenizer vocabulary size (used with transformer encoder).
+        Returns 0 if no tokenizer is loaded."""
+        return self.tokenizer.vocab_size if self.tokenizer is not None else 0
+
+    def process_temporal(self, value) -> dict:
+        """Return dict output for UnifiedMultimodalEmbeddingModel.
+
+        Requires ``tokenizer_model`` to be set (raw strings are not
+        litdata-serialisable and cannot be embedded without tokenisation).
+
+        Returns:
+            {"value": LongTensor (N, L), "mask": LongTensor (N, L), "time": FloatTensor (N,)}
+
+        Raises:
+            ValueError: If processor was created without a tokenizer.
+        """
+        if self.tokenizer is None:
+            raise ValueError(
+                "TupleTimeTextProcessor.process_temporal() requires a tokenizer. "
+                "Pass tokenizer_model='...' when creating the processor."
+            )
+        result = self.process(value)  # (input_ids, mask, type_ids, time, tag)
+        return {
+            "value": result[0],  # input_ids  (N, L)
+            "mask":  result[1],  # attention_mask (N, L)
+            "time":  result[3],  # time tensor (N,)
+        }
 
     def __repr__(self):
         if self.tokenizer_model:
