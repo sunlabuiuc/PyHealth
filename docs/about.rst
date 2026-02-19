@@ -1,7 +1,7 @@
 About us
 ========
 
-We are the `SunLab <http://sunlab.org/>`_ healthcare research team at UIUC.
+PyHealth is developed and maintained by a diverse community of researchers and practitioners.
 
 Current Maintainers
 ------------------
@@ -12,7 +12,45 @@ Current Maintainers
 
 `Junyi Gao <http://aboutme.vixerunt.org/>`_ (M.S. @ UIUC, Ph.D. Student @ University of Edinburgh)
 
+Paul Landes (University of Illinois College of Medicine)
+
 `Jimeng Sun <http://sunlab.org/>`_ (Professor @ University of Illinois Urbana-Champaign)
+
+Major Reviewers
+---------------
+
+Eric Schrock (University of Illinois Urbana-Champaign)
+
+Yongda Fan (University of Illinois Urbana-Champaign)
+
+Joshua Steier
+
+PyHealth Research Initiative Members
+------------------------------------
+
+Sayeed Sajjad Razin (Bangladesh University of Engineering and Technology)
+
+Arjun Chatterjee (University of Illinois Urbana-Champaign)
+
+Naveen Baskaran (University of Illinois Urbana-Champaign)
+
+Andrea Fitzpatrick (University of Illinois Urbana-Champaign)
+
+Bilal Arif (University of Illinois Urbana-Champaign)
+
+Rian Atri
+
+Jathurshan Pradeepkumar (University of Illinois Urbana-Champaign)
+
+Siddhartha Laghuvarapu (University of Illinois Urbana-Champaign)
+
+Adam R. Cross (University of Illinois College of Medicine)
+
+William Pang
+
+Muni Bondu
+
+*...and more members as the initiative continues to expand*
 
 Alumni
 ------

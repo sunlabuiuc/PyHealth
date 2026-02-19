@@ -35,7 +35,7 @@ print("=" * 80)
 
 root = "/home/johnwu3/projects/PyHealth_Branch_Testing/datasets/COVID-19_Radiography_Dataset"
 base_dataset = COVID19CXRDataset(root)
-sample_dataset = base_dataset.set_task(cache_dir="../../covid19cxr_cache")
+sample_dataset = base_dataset.set_task()
 
 print(f"Total samples: {len(sample_dataset)}")
 print(f"Task mode: {sample_dataset.output_schema}")

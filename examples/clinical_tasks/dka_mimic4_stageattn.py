@@ -43,7 +43,6 @@ if __name__ == "__main__":
     # - This ensures consistent encoding and saves computation time
     # - Processors include vocabulary mappings and sequence length statistics
     processor_dir = "/home/yongdaf2/dka_sa/processors"
-    cache_dir = "/home/yongdaf2/dka_sa/cache"
 
     if os.path.exists(os.path.join(processor_dir, "input_processors.pkl")):
         print("\n=== Loading Pre-fitted Processors ===")
@@ -52,7 +51,6 @@ if __name__ == "__main__":
         sample_dataset = base_dataset.set_task(
             DKAPredictionMIMIC4(padding=20),
             num_workers=16,
-            cache_dir=cache_dir,
             input_processors=input_processors,
             output_processors=output_processors,
         )
@@ -61,7 +59,6 @@ if __name__ == "__main__":
         sample_dataset = base_dataset.set_task(
             DKAPredictionMIMIC4(padding=20),
             num_workers=16,
-            cache_dir=cache_dir,
         )
 
         # Save processors for future runs

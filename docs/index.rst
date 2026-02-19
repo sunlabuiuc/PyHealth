@@ -147,7 +147,7 @@ Quick Navigation
 
      - **Research Initiative**
 
-       Join our summer research program and contribute
+       Join our year round research program and contribute
 
        :doc:`View Projects → <research_initiative>`
 
@@ -223,6 +223,7 @@ Quick Navigation
 
    api/data
    api/datasets
+   api/graph
    api/tasks
    api/models
    api/processors
