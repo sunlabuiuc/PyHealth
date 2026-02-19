@@ -85,3 +85,6 @@ from .utils import (
     load_processors,
     save_processors,
 )
+
+# Addition of a new mimic4_ecg dataset
+from .mimic4_ecg import MIMIC4ECGDataset
