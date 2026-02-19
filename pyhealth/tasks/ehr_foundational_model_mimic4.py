@@ -26,6 +26,11 @@ class EHRFoundationalModelMIMIC4(BaseTask):
                     "type_tag": "note",
                 },
             ),
+            "icd_codes": (
+                "stagenet", 
+                {"padding": 0
+                }
+            ),
         }
         self.output_schema: Dict[str, str] = {"mortality": "binary"}
 
@@ -126,6 +131,9 @@ class EHRFoundationalModelMIMIC4(BaseTask):
 
         discharge_note_times_from_admission = (all_discharge_texts, all_discharge_times_from_admission)
         radiology_note_times_from_admission = (all_radiology_texts, all_radiology_times_from_admission)
+
+        # icd_codes: (List[List[str]], List[float]) — codes per visit, hours from first admission
+        icd_codes = (all_icd_codes, all_icd_times)
 
         return [
             {
