@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Iterable
+from typing import Any, Dict, List, Iterable, Optional, Tuple
 
 import torch
 
@@ -13,20 +13,49 @@ class SequenceProcessor(FeatureProcessor, TokenProcessorInterface):
 
     Supports single or multiple tokens (e.g., single diagnosis or list of procedures).
     Can build vocabulary on the fly if not provided.
+
+    Args:
+        code_mapping: optional tuple of (source_vocabulary, target_vocabulary)
+            to map raw codes to a grouped vocabulary before tokenizing.
+            Uses ``pyhealth.medcode.CrossMap`` internally. For example,
+            ``("ICD9CM", "CCSCM")`` maps ~128K ICD-9 diagnosis codes to
+            ~280 CCS categories, and ``("NDC", "ATC")`` maps ~940K drug
+            codes to ~5K ATC categories. When None (default), codes are
+            used as-is with no change to existing behavior.
+
+    Examples:
+        >>> proc = SequenceProcessor()  # no mapping, same as before
+        >>> proc = SequenceProcessor(code_mapping=("ICD9CM", "CCSCM"))
     """
 
-    def __init__(self):
+    def __init__(self, code_mapping: Optional[Tuple[str, str]] = None):
         self.code_vocab: Dict[Any, int] = {"<pad>": self.PAD, "<unk>": self.UNK}
         self._next_index = 2
+        self._mapper = None
+        if code_mapping is not None:
+            from pyhealth.medcode import CrossMap
+            self._mapper = CrossMap.load(code_mapping[0], code_mapping[1])
+
+    def _map(self, token: str) -> List[str]:
+        """Map a single token through the code mapping, if configured.
+
+        Returns the token unchanged (as a single-element list) when no
+        mapping is configured or when the token has no mapping.
+        """
+        if self._mapper is None:
+            return [token]
+        mapped = self._mapper.map(token)
+        return mapped if mapped else [token]
 
     def fit(self, samples: Iterable[Dict[str, Any]], field: str) -> None:
         for sample in samples:
             for token in sample[field]:
                 if token is None:
                     continue  # skip missing values
-                elif token not in self.code_vocab:
-                    self.code_vocab[token] = self._next_index
-                    self._next_index += 1
+                for mapped in self._map(token):
+                    if mapped not in self.code_vocab:
+                        self.code_vocab[mapped] = self._next_index
+                        self._next_index += 1
 
     def process(self, value: Any) -> torch.Tensor:
         """Process token value(s) into tensor of indices.
@@ -39,10 +68,11 @@ class SequenceProcessor(FeatureProcessor, TokenProcessorInterface):
         """
         indices = []
         for token in value:
-            if token in self.code_vocab:
-                indices.append(self.code_vocab[token])
-            else:
-                indices.append(self.code_vocab["<unk>"])
+            for mapped in self._map(token):
+                if mapped in self.code_vocab:
+                    indices.append(self.code_vocab[mapped])
+                else:
+                    indices.append(self.code_vocab["<unk>"])
 
         return torch.tensor(indices, dtype=torch.long)
     
