@@ -354,7 +354,7 @@ Module 5: <pyhealth.metrics>
 
 ..
 
- We provide the following tutorials to help users get started with our pyhealth. Please bear with us as we update the documentation on how to use PyHealth 2.0.
+ We provide the following tutorials to help users get started with PyHealth. Please bear with us as we update the documentation on how to use PyHealth 2.0.
 
 `Tutorial 0: Introduction to pyhealth.data <https://colab.research.google.com/drive/1y9PawgSbyMbSSMw1dpfwtooH7qzOEYdN?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=Nk1itBoLOX8&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=2>`__
 
