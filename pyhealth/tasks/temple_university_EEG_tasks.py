@@ -1,7 +1,8 @@
 import numpy as np
+import torch
 import mne
 from typing import Any, Dict, List, Tuple
-
+import numpy as np
 from pyhealth.tasks import BaseTask
 
 
@@ -41,13 +42,14 @@ class EEGEventsTUEV(BaseTask):
                  resample_rate: float = 200,
                  bandpass_filter: Tuple[float, float] = (0.1, 75.0),
                  notch_filter: float = 50.0,
+                 normalization: str = None # '95th_percentile', 'div_by_100'
                  ) -> None:
         super().__init__()
 
         self.resample_rate = resample_rate
         self.bandpass_filter = bandpass_filter
         self.notch_filter = notch_filter
-
+        self.normalization = normalization
 
     @staticmethod
     def BuildEvents(
@@ -154,6 +156,13 @@ class EEGEventsTUEV(BaseTask):
             for idx, (signal, offending_channel, label) in enumerate(
                 zip(feats, offending_channels, labels)
             ):
+                
+                if self.normalization == '95th_percentile':
+                    signal = signal/(np.quantile(np.abs(signal), q=0.95, axis=-1, method = 'linear',keepdims=True)+1e-8)
+                elif self.normalization == 'div_by_100':
+                    signal = signal/100
+                    
+                signal = torch.FloatTensor(signal)
                 samples.append(
                     {
                         "patient_id": pid,
@@ -202,12 +211,13 @@ class EEGAbnormalTUAB(BaseTask):
                  resample_rate: float = 200,
                  bandpass_filter: Tuple[float, float] = (0.1, 75.0),
                  notch_filter: float = 50.0,
+                 normalization: str = None # '95th_percentile', 'div_by_100'
                  ) -> None:
         super().__init__()
         self.resample_rate = resample_rate
         self.bandpass_filter = bandpass_filter
         self.notch_filter = notch_filter
-
+        self.normalization = normalization
     @staticmethod
     def read_and_process_edf(fileName: str,
                              resample_rate: float = 200,
@@ -324,6 +334,12 @@ class EEGAbnormalTUAB(BaseTask):
                 start = i * fs * 10
                 end = start + fs * 10
                 signal = bipolar_data[:, start:end]
+                if self.normalization == '95th_percentile':
+                    signal = signal/(np.quantile(np.abs(signal), q=0.95, axis=-1, method = 'linear',keepdims=True)+1e-8)
+                elif self.normalization == 'div_by_100':
+                    signal = signal/100
+                    
+                signal = torch.FloatTensor(signal)
                 samples.append(
                     {
                         "patient_id": pid,
