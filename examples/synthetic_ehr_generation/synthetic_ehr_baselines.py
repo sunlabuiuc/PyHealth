@@ -2,9 +2,7 @@
 Synthetic EHR Generation Baselines using PyHealth
 
 This script demonstrates how to use PyHealth's infrastructure with various
-baseline generative models for synthetic EHR data. It adapts the approach
-from the reproducible_synthetic_ehr project to work within PyHealth's
-framework.
+baseline generative models for synthetic EHR data.
 
 Supported models:
 - GReaT: Tabular data generation using language models
