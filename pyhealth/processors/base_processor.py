@@ -1,5 +1,21 @@
 from abc import ABC, abstractmethod
+from enum import Enum
 from typing import Any, Dict, List, Iterable
+
+import torch
+
+
+class ModalityType(str, Enum):
+    """Standard modality identifiers for routing in UnifiedMultimodalEmbeddingModel.
+
+    Using ``str, Enum`` so values serialise cleanly (e.g. JSON / pickle).
+    """
+    CODE    = "code"     # Discrete ICD / medication / procedure codes
+    TEXT    = "text"     # Clinical notes, reports (tokenised to int tensors)
+    IMAGE   = "image"    # Medical images (X-ray, CT slice, etc.)
+    NUMERIC = "numeric"  # Lab values, vitals, continuous measurements
+    AUDIO   = "audio"    # Heart/lung sounds, speech waveforms
+    SIGNAL  = "signal"   # ECG, EEG time-series waveforms
 
 
 class Processor(ABC):
@@ -168,3 +184,70 @@ class TokenProcessorInterface(ABC):
     def add(self, tokens: set[str]):
         """Add specified vocabularies to the processor."""
         pass
+
+
+class TemporalFeatureProcessor(FeatureProcessor):
+    """Abstract base class for processors whose features are paired with timestamps.
+
+    **Contract** — every subclass must implement:
+
+    - ``modality() -> ModalityType``  — what kind of data this processor handles.
+    - ``value_dim() -> int``          — size of the raw value vector *before* any
+      learned embedding (e.g. vocab_size for codes, n_features for numerics).
+    - ``process(value) -> dict[str, torch.Tensor]``  — must return a dict with at
+      least the keys ``"value"`` and ``"time"``, and optionally ``"mask"``.
+
+    **Backward compatibility** — the existing ``FeatureProcessor`` API
+    (``is_token``, ``schema``, ``dim``, ``spatial``) is *kept* on the parent class
+    and continues to work for all non-temporal processors.  Subclasses of
+    ``TemporalFeatureProcessor`` should still implement those methods if they want
+    to remain compatible with the existing ``EmbeddingModel`` / ``MultimodalRNN``
+    pipeline.  The new ``modality()`` / ``value_dim()`` API is *additive* — used
+    exclusively by ``UnifiedMultimodalEmbeddingModel``.
+
+    **Why dict output?**
+
+    ================ ======================== ==================================
+    Concern          Tuple (current)          Dict (this class)
+    ================ ======================== ==================================
+    Collation        Custom per arity         Generic: stack/pad per key
+    litdata          List[str] breaks         All values tensors/scalars ✓
+    Schema           Positional, fragile      Named keys, self-documenting
+    Extensibility    Adding field = new arity Adding key = backward-compat
+    ================ ======================== ==================================
+    """
+
+    # ── New API (required by UnifiedMultimodalEmbeddingModel) ─────────────────
+
+    @abstractmethod
+    def modality(self) -> ModalityType:
+        """Return the modality type of the data this processor handles."""
+        ...
+
+    @abstractmethod
+    def value_dim(self) -> int:
+        """Dimensionality of the raw value vector *before* learned embedding.
+
+        For codes:   ``vocab_size``  (used with ``nn.Embedding``)
+        For images:  ``C * H * W``   (used with CNN encoder)
+        For numerics: ``n_features`` (used with ``nn.Linear``)
+        For text:    ``vocab_size``  (used with transformer encoder)
+        """
+        ...
+
+    @abstractmethod
+    def process(self, value) -> dict[str, torch.Tensor]:
+        """Process raw input and return a dict of tensors.
+
+        Required keys:
+            ``"value"``  — main feature tensor.
+            ``"time"``   — 1-D float32 tensor, one timestamp per event.
+
+        Optional keys:
+            ``"mask"``   — validity / attention mask for ``"value"``.
+        """
+        ...
+
+    def schema(self) -> tuple[str, ...]:
+        """Standardised schema: at minimum ``('value', 'time')``."""
+        return ("value", "time")

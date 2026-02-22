@@ -11,6 +11,8 @@ PyHealth is the comprehensive Python library for healthcare AI that makes buildi
 .. note::
    📄 **Read the PyHealth 2.0 paper**: `PyHealth 2.0: A Comprehensive Open-Source Toolkit for Accessible and Reproducible Clinical Deep Learning <https://arxiv.org/pdf/2601.16414>`_
 
+----
+
 What Makes PyHealth 2.0 Powerful?
 ===================================
 
@@ -30,8 +32,8 @@ PyHealth provides **comprehensive end-to-end capabilities** in a single package:
 
 ----
 
-Three Game-Changing Improvements
-==================================
+Key Features
+============
 
 Dramatically simpler code
 --------------------------
@@ -68,88 +70,29 @@ PyHealth 2.0 reduces the complexity of healthcare AI development from hundreds o
 Exceptional performance that scales
 ------------------------------------
 
-PyHealth 2.0 delivers breakthrough performance improvements that enable healthcare AI research on consumer hardware:
+PyHealth 2.0 delivers exceptional performance that makes healthcare AI research accessible on standard hardware:
 
-**Speed improvements:**
+**Breakthrough speed improvements:**
 
-- **Up to 39× faster** than pandas for mortality prediction on MIMIC-IV
-- **8-9× faster** for drug recommendation and length of stay tasks
-- Near-instant dataset loading with smart caching and lazy evaluation
-- Efficient multi-core scaling: leverage all your CPU cores without memory overflow
+- **Up to 39× faster** task processing compared to typical pandas-based approaches
+- Dramatically reduced processing time for common clinical prediction tasks
+- Optimized data loaders with smart caching and lazy evaluation
+- Efficient multi-core scaling without memory overflow
 
 **Memory efficiency:**
 
-- **Dynamically scales to fit 16GB laptops** for any task on MIMIC-IV
-- Uses **up to 16× less memory** than PyHealth 1.16 when more memory is available
-- Mortality prediction: **17GB** (PyHealth 2.0) vs **457GB** (PyHealth 1.16) with 16 workers
-- Drug recommendation: **18GB** (PyHealth 2.0) vs **212GB** (PyHealth 1.16) with 16 workers
+- **Dynamically scales to fit consumer-grade hardware** (16GB laptops)
+- Handles large-scale datasets like MIMIC-IV without requiring workstation-grade resources
+- Intelligent memory management adapts to available system resources
+- Enables research on complex healthcare datasets without expensive infrastructure
 
-.. note::
-   **What this means for you:** PyHealth 2.0 runs complex MIMIC-IV analyses on a standard 16GB laptop that previously required workstation-grade hardware with 146-457GB of RAM. Whether you're on a laptop or a cluster, PyHealth adapts to your resources.
-   
-   For detailed benchmarking methodology and results, see our `paper <https://arxiv.org/pdf/2601.16414>`_.
-
-.. image:: ../figure/PyHealth_Data_Performance.png
-   :alt: PyHealth 2.0 processing performance vs. Pandas and PyHealth 1.16
+.. image:: ../figure/PyHealthPerformanceResults.drawio.png
+   :alt: PyHealth 2.0 performance benchmarks showing speed and memory efficiency
    :align: center
    :width: 700px
 
-More readable, maintainable code
----------------------------------
-
-PyHealth 2.0 makes your code clearer and your research more reproducible:
-
-**Standardized 5-stage pipeline:**
-
-.. code-block:: text
-
-    load dataset → define task → build model → train → evaluate
-         ↓            ↓           ↓         ↓        ↓
-    Your data → Your task → Your model → Auto → Results
-
-**Example: Mortality prediction in 7 lines**
-
-.. code-block:: python
-
-   from pyhealth.datasets import MIMIC4Dataset
-   from pyhealth.tasks import MortalityPredictionMIMIC4
-   from pyhealth.models import Transformer
-   
-   # Load dataset with lazy evaluation
-   dataset = MIMIC4Dataset(root="data/mimic-iv-2.2", tables=["diagnoses_icd", "procedures_icd"])
-   
-   # Define task and process in parallel
-   samples = dataset.set_task(MortalityPredictionMIMIC4())
-   
-   # Train model (PyTorch Lightning handles the rest)
-   model = Transformer.from_dataset(samples)
-   model.fit(samples)
-   
-   # Evaluate
-   results = model.evaluate(samples)
-
-**The same API works for:**
-
-- Different tasks (readmission, drug recommendation, length of stay)
-- Different datasets (MIMIC-III, eICU, OMOP, your own data)
-- Different models (33+ pre-built options)
-- Different modalities (EHR codes, images, signals, text)
-
-Core Advantages
-===============
-
-True multimodal support
------------------------
-
-PyHealth 2.0 unifies all clinical data types in a single system:
-
-- **Structured EHR**: Diagnoses (ICD), procedures (CPT), medications (NDC), lab events
-- **Clinical text**: Discharge summaries, radiology reports, clinical notes
-- **Medical images**: Chest X-rays, CT scans, pathology slides
-- **Biosignals**: EEG, ECG, PPG, heart sounds
-- **Genomics**: Variants, mutations, multi-omics data
-
-**One unified API for all healthcare data types.** Build multimodal clinical models without managing multiple libraries or reconciling different data formats.
+.. note::
+   **What this means for researchers:** PyHealth 2.0 enables you to run sophisticated healthcare AI analyses on a standard laptop that previously required high-end workstations. The platform adapts to your available resources while maintaining high performance.
 
 Healthcare-specific design
 --------------------------
@@ -337,13 +280,6 @@ PyHealth 2.0 addresses the reproducibility crisis in healthcare AI:
 - All models, tasks, and datasets follow peer-reviewed implementations
 - Extensive documentation with 50+ tutorials and examples
 
-**Active open-source community:**
-
-- **400+ members** in PyHealth Research Initiative
-- Regular updates with new models, datasets, and features
-- Direct connection to cutting-edge academic research
-- Industry partnerships with healthcare organizations
-
 **Multi-language support:**
 
 - **RHealth**: Brings PyHealth capabilities to R users and bioinformatics community
@@ -358,57 +294,25 @@ PyHealth 2.0 addresses the reproducibility crisis in healthcare AI:
 Growing Community
 =================
 
-Join our healthcare AI practitioners:
+Join our active healthcare AI community:
 
-- **Active Development**: Regular updates with new models and features
-- **Research Collaboration**: PyHealth Research Initiative pairs researchers with mentors
+- **400+ members** in PyHealth Research Initiative pairing researchers with mentors
+- **Active Development**: Regular updates with new models, datasets, and features
+- **Research Collaboration**: Direct connection to cutting-edge academic research
 - **Industry Partnerships**: Collaborations with academic health systems
 - **Open Source**: Transparent, auditable, and customizable
-- **Documentation**: Comprehensive guides and interactive tutorials
-- **Support**: Active Discord community and GitHub discussions
-
-  - `Join our Discord <https://discord.gg/mpb835EHaX>`_
+- **Support**: Active Discord community and GitHub discussions - `Join our Discord <https://discord.gg/mpb835EHaX>`_
 
 Get Started Today
-=================
+===========
 
-Ready to build your first healthcare AI application?
+Ready to begin? Explore these key resources:
 
-**Installation:**
+- :doc:`how_to_get_started` — Quickstart guide
+- :doc:`install` — Install PyHealth
+- :doc:`tutorials` — Interactive tutorials
+- :doc:`api/models` — Model API docs
+- :doc:`api/datasets` — Datasets
+- :doc:`api/tasks` — Tasks
 
-.. code-block:: bash
-
-   pip install pyhealth
-
-**Quick start:**
-
-.. code-block:: python
-
-   from pyhealth.datasets import MIMIC4Dataset
-   from pyhealth.tasks import MortalityPredictionMIMIC4
-   from pyhealth.models import Transformer
-   
-   # Load, process, train, evaluate - all in 7 lines
-   dataset = MIMIC4Dataset(root="data/mimic-iv", tables=["diagnoses_icd"])
-   samples = dataset.set_task(MortalityPredictionMIMIC4())
-   model = Transformer.from_dataset(samples)
-   model.fit(samples)
-   results = model.evaluate(samples)
-
-**Learn more:**
-
-- :doc:`how_to_get_started` - Build your first model in minutes
-- :doc:`install` - Detailed installation instructions
-- :doc:`tutorials` - Interactive tutorials and examples
-- :doc:`api/models` - Complete API documentation
-
-.. seealso::
-   
-   **Next steps:**
-   
-   - :doc:`how_to_get_started` - Build your first model in minutes
-   - :doc:`install` - Installation instructions
-   - :doc:`tutorials` - Interactive tutorials and examples
-   - :doc:`api/models` - Complete model documentation
-   - :doc:`api/datasets` - Available datasets
-   - :doc:`api/tasks` - Pre-defined tasks
+Jump in with the guides above, or use the navigation on the left for more.

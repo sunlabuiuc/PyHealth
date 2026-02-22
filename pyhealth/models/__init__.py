@@ -1,12 +1,14 @@
 from .adacare import AdaCare, AdaCareLayer
 from .agent import Agent, AgentLayer
 from .base_model import BaseModel
+from .biot import BIOT
 from .cnn import CNN, CNNLayer
 from .concare import ConCare, ConCareLayer
 from .contrawr import ContraWR, ResBlock2D
 from .deepr import Deepr, DeeprLayer
 from .embedding import EmbeddingModel
 from .gamenet import GAMENet, GAMENetLayer
+from .jamba_ehr import JambaEHR, JambaLayer
 from .logistic_regression import LogisticRegression
 from .gan import GAN
 from .gnn import GAT, GCN
@@ -40,3 +42,4 @@ from .vision_embedding import VisionEmbeddingModel
 from .text_embedding import TextEmbedding
 from .sdoh import SdohClassifier
 from .medlink import MedLink
+from .unified_embedding import UnifiedMultimodalEmbeddingModel, SinusoidalTimeEmbedding
