@@ -41,7 +41,6 @@ BATCH_SIZE = 32
 EPOCHS = 20
 
 DATASET_CACHE = os.path.join(CACHE_BASE, "mimic4_ehr")
-TASK_CACHE = os.path.join(CACHE_BASE, "mimic4_ihm_ehrmamba")
 
 
 def main():
@@ -52,9 +51,6 @@ def main():
     dev = quick_test
     epochs = 2 if quick_test else EPOCHS
     dataset_cache = os.path.join(CACHE_BASE, "mimic4_ehr_quick" if quick_test else "mimic4_ehr")
-    task_cache = os.path.join(
-        CACHE_BASE, "mimic4_ihm_ehrmamba_quick" if quick_test else "mimic4_ihm_ehrmamba"
-    )
     num_workers = 1 if quick_test else 4
 
     print("EHRMamba – In-hospital mortality (full MIMIC-IV)")
@@ -64,7 +60,7 @@ def main():
         print("gpu:", gpu_id, "(CUDA_VISIBLE_DEVICES)")
     print("device:", DEVICE)
     print("ehr_root:", EHR_ROOT)
-    print("cache: dataset", dataset_cache, "| task", task_cache)
+    print("cache:", dataset_cache)
     print("seed:", SEED, "| batch_size:", BATCH_SIZE, "| epochs:", epochs)
 
     t0 = time.perf_counter()
@@ -81,7 +77,6 @@ def main():
     sample_dataset = dataset.set_task(
         task,
         num_workers=num_workers,
-        cache_dir=task_cache,
     )
     print(f"Task set in {time.perf_counter() - t1:.1f}s | samples: {len(sample_dataset)}")
 
