@@ -175,6 +175,6 @@ class TokenProcessorInterface(ABC):
         pass
     
     @abstractmethod
-    def num_tokens(self) -> int:
+    def vocab_size(self) -> int:
         """Return the size of the processor's vocabulary."""
         pass

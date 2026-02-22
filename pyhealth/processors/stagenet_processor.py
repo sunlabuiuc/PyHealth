@@ -221,7 +221,7 @@ class StageNetProcessor(FeatureProcessor, TokenProcessorInterface):
 
         return torch.tensor(encoded_sequences, dtype=torch.long)
 
-    def num_tokens(self) -> int:
+    def vocab_size(self) -> int:
         """Return the size of the processor's vocabulary."""
         return len(self.code_vocab)
 
