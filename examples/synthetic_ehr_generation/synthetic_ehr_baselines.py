@@ -193,8 +193,10 @@ def train_transformer_baseline(train_ehr, args):
     train_dataset, val_dataset, _ = split_by_patient(sample_dataset, [0.8, 0.1, 0.1])
 
     # Create dataloaders
-    train_loader = get_dataloader(train_dataset, batch_size=args.batch_size, shuffle=True)
-    val_loader = get_dataloader(val_dataset, batch_size=args.batch_size, shuffle=False)
+    # Use smaller batch size for transformer (sequences are long after flattening)
+    transformer_batch_size = 8  # Much smaller than tabular models
+    train_loader = get_dataloader(train_dataset, batch_size=transformer_batch_size, shuffle=True)
+    val_loader = get_dataloader(val_dataset, batch_size=transformer_batch_size, shuffle=False)
 
     # Initialize model
     print("Initializing TransformerEHRGenerator...")
