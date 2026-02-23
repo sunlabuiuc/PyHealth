@@ -269,6 +269,10 @@ class TransformerEHRGenerator(BaseModel):
             visit_codes, self.visit_delim_token
         )
 
+        # Ensure flattened tensors are on the correct device
+        flat_input = flat_input.to(self.device)
+        input_mask = input_mask.to(self.device)
+
         # Get sequence length
         seq_len = flat_input.size(1)
         if seq_len > self.max_seq_length:
@@ -314,6 +318,10 @@ class TransformerEHRGenerator(BaseModel):
             flat_target, target_mask = self.flatten_nested_sequence(
                 future_codes, self.visit_delim_token
             )
+
+            # Ensure target tensors are on the correct device
+            flat_target = flat_target.to(self.device)
+            target_mask = target_mask.to(self.device)
 
             if flat_target.size(1) > self.max_seq_length:
                 flat_target = flat_target[:, : self.max_seq_length]
