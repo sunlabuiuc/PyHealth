@@ -194,9 +194,13 @@ def train_transformer_baseline(train_ehr, args):
 
     # Create dataloaders
     # Use smaller batch size for transformer (sequences are long after flattening)
-    transformer_batch_size = 8  # Much smaller than tabular models
-    train_loader = get_dataloader(train_dataset, batch_size=transformer_batch_size, shuffle=True)
-    val_loader = get_dataloader(val_dataset, batch_size=transformer_batch_size, shuffle=False)
+    transformer_batch_size = 64  # Much smaller than tabular models
+    train_loader = get_dataloader(
+        train_dataset, batch_size=transformer_batch_size, shuffle=True
+    )
+    val_loader = get_dataloader(
+        val_dataset, batch_size=transformer_batch_size, shuffle=False
+    )
 
     # Initialize model
     print("Initializing TransformerEHRGenerator...")
@@ -306,9 +310,7 @@ def main():
     # Training parameters
     parser.add_argument("--epochs", type=int, default=2, help="Number of epochs")
     parser.add_argument("--batch_size", type=int, default=512, help="Batch size")
-    parser.add_argument(
-        "--num_workers", type=int, default=4, help="Number of workers"
-    )
+    parser.add_argument("--num_workers", type=int, default=4, help="Number of workers")
     parser.add_argument(
         "--num_synthetic_samples",
         type=int,
