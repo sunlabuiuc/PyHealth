@@ -42,7 +42,7 @@ import pandas as pd
 import torch
 from tqdm import tqdm, trange
 
-from pyhealth.utils.synthetic_ehr_utils import (
+from pyhealth.synthetic_ehr_utils.synthetic_ehr_utils import (
     process_mimic_for_generation,
     tabular_to_sequences,
     sequences_to_tabular,
@@ -241,7 +241,7 @@ def train_transformer_baseline(train_ehr, args):
         )
 
     # Convert to sequences and tabular
-    from pyhealth.utils.synthetic_ehr_utils import (
+    from pyhealth.synthetic_ehr_utils.synthetic_ehr_utils import (
         nested_codes_to_sequences,
         sequences_to_tabular,
     )

@@ -27,7 +27,7 @@ from pyhealth.datasets import MIMIC3Dataset, get_dataloader, split_by_patient
 from pyhealth.tasks import SyntheticEHRGenerationMIMIC3
 from pyhealth.models import TransformerEHRGenerator
 from pyhealth.trainer import Trainer
-from pyhealth.utils.synthetic_ehr_utils import (
+from pyhealth.synthetic_ehr_utils.synthetic_ehr_utils import (
     nested_codes_to_sequences,
     sequences_to_tabular,
 )

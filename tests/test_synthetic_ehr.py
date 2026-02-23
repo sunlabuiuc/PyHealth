@@ -12,7 +12,7 @@ import os
 # Add pyhealth to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from pyhealth.utils.synthetic_ehr_utils import (
+from pyhealth.synthetic_ehr_utils.synthetic_ehr_utils import (
     tabular_to_sequences,
     sequences_to_tabular,
     nested_codes_to_sequences,
