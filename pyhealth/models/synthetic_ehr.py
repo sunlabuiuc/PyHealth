@@ -259,6 +259,11 @@ class TransformerEHRGenerator(BaseModel):
                 - y_true: True next tokens if future_codes provided
                 - y_prob: Predicted probabilities (batch, seq_len, vocab_size)
         """
+        # Move inputs to model's device
+        visit_codes = visit_codes.to(self.device)
+        if future_codes is not None:
+            future_codes = future_codes.to(self.device)
+
         # Flatten nested sequences
         flat_input, input_mask = self.flatten_nested_sequence(
             visit_codes, self.visit_delim_token
