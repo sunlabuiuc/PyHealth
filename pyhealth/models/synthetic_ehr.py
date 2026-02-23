@@ -99,12 +99,12 @@ class TransformerEHRGenerator(BaseModel):
         ), "Expected NestedSequenceProcessor for visit_codes"
 
         self.vocab_size = input_processor.vocab_size()
-        self.pad_idx = input_processor.code_to_index.get("<pad>", 0)
+        self.pad_idx = input_processor.code_vocab.get("<pad>", 0)
 
         # Special tokens
-        self.bos_token = input_processor.code_to_index.get("<bos>", self.vocab_size)
-        self.eos_token = input_processor.code_to_index.get("<eos>", self.vocab_size + 1)
-        self.visit_delim_token = input_processor.code_to_index.get(
+        self.bos_token = input_processor.code_vocab.get("<bos>", self.vocab_size)
+        self.eos_token = input_processor.code_vocab.get("<eos>", self.vocab_size + 1)
+        self.visit_delim_token = input_processor.code_vocab.get(
             "VISIT_DELIM", self.vocab_size + 2
         )
 
