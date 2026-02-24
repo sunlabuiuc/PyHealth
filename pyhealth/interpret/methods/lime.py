@@ -12,7 +12,7 @@ from pyhealth.interpret.api import Interpretable
 from .base_interpreter import BaseInterpreter
 
 
-class LimeExplainer(BaseInterpreter):
+class Lime(BaseInterpreter):
     """LIME (Local Interpretable Model-agnostic Explanations) attribution method for PyHealth models.
 
     This class implements the LIME method for computing feature attributions in 
@@ -488,8 +488,12 @@ class LimeExplainer(BaseInterpreter):
         Returns:
             Model prediction for the perturbed sample, shape (batch_size, ).
         """
-        # Embed continuous (non-token) perturbed features that are still raw
+        inputs = inputs.copy()
+
         if self.use_embeddings:
+            # Embed continuous (non-token) perturbed features that are still raw
+            # so forward_from_embedding receives proper embeddings.
+            # Token features were already embedded before perturbation.
             embedding_model = self.model.get_embedding_model()
             assert embedding_model is not None, (
                 "Model must have an embedding model for embedding-based LIME."
@@ -506,13 +510,18 @@ class LimeExplainer(BaseInterpreter):
                     for k, v in perturb.items()
                 }
 
-        inputs = inputs.copy()
         for k in inputs.keys():
             # Insert perturbed value tensor back into input tuple
             schema = self.model.dataset.input_processors[k].schema()
             inputs[k] = (*inputs[k][:schema.index("value")], perturb[k], *inputs[k][schema.index("value")+1:])
-        
-        logits = self.model.forward_from_embedding(**inputs)["logit"]
+
+        if self.use_embeddings:
+            # Values are already embedded; bypass the model's own embedding.
+            logits = self.model.forward_from_embedding(**inputs)["logit"]
+        else:
+            # Values are raw (token IDs / continuous floats); let the
+            # model's regular forward pass handle embedding internally.
+            logits = self.model.forward(**inputs)["logit"]
         
         # Reduce to [batch_size, ] by taking absolute difference from target class logit
         return (target - logits).abs().mean(dim=tuple(range(1, logits.ndim)))
@@ -748,11 +757,14 @@ class LimeExplainer(BaseInterpreter):
 
         for k, v in values.items():
             processor = self.model.dataset.input_processors[k]
-            if use_embeddings and processor.is_token():
-                # Token features: UNK token index as baseline
+            if processor.is_token():
+                # Token features: UNK token (index 1) as baseline.
+                # When use_embeddings=True, embedding happens later in
+                # attribute(); when use_embeddings=False, the UNK token
+                # IDs are used directly as the perturbed replacement.
                 baseline = torch.ones_like(v)
             else:
-                # Continuous features (or non-embedding mode): near-zero baseline
+                # Continuous features: use small neutral values (near-zero)
                 baseline = torch.zeros_like(v) + 1e-2
             baselines[k] = baseline
 
@@ -823,3 +835,5 @@ class LimeExplainer(BaseInterpreter):
             mapped[key] = reshaped
 
         return mapped
+
+LimeExplainer = Lime  # Alias for backward compatibility

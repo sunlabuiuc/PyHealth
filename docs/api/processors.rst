@@ -49,6 +49,19 @@ Available Processors
 - ``IgnoreProcessor``: A special feature processor that marks a feature to be ignored.
 - ``GraphProcessor``: For knowledge graph subgraph extraction (e.g., GraphCare, G-BERT)
 
+**Temporal Multimodal Processors (** :class:`~pyhealth.processors.TemporalFeatureProcessor` **subclasses):**
+
+- ``TemporalTimeseriesProcessor``: Drop-in replacement for ``TimeseriesProcessor`` that preserves timestamps in ``{"value", "time"}`` dict output — enables temporal alignment in ``UnifiedMultimodalEmbeddingModel``
+- ``StageNetProcessor``: Also a ``TemporalFeatureProcessor`` — adds ``modality()`` / ``value_dim()`` / ``process_temporal()``
+- ``StageNetTensorProcessor``: Also a ``TemporalFeatureProcessor`` — numeric vitals with dict output
+- ``TupleTimeTextProcessor``: Also a ``TemporalFeatureProcessor`` — tokenised clinical text with time
+- ``TimeImageProcessor``: Also a ``TemporalFeatureProcessor`` — serial image sequences with timestamps
+
+**Supporting Types:**
+
+- ``ModalityType``: Enum of modality identifiers (``CODE``, ``TEXT``, ``IMAGE``, ``NUMERIC``, ``AUDIO``, ``SIGNAL``) used for routing in ``UnifiedMultimodalEmbeddingModel``
+- ``TemporalFeatureProcessor``: Abstract base class for all temporal processors; requires ``modality()``, ``value_dim()``, and ``process()`` returning ``dict``
+
 Usage Examples
 --------------
 
@@ -261,6 +274,7 @@ Processor String Keys
 
 Common string keys for automatic processor selection:
 
+- ``"temporal_timeseries"``: For time-series data with preserved timestamps (use in place of ``"timeseries"`` when building ``UnifiedMultimodalEmbeddingModel``)
 - ``"sequence"``: For categorical sequences (medical codes)
 - ``"nested_sequence"``: For nested categorical sequences (visit history)
 - ``"nested_sequence_floats"``: For nested numerical sequences
@@ -451,6 +465,8 @@ API Reference
 
     processors/pyhealth.processors.Processor
     processors/pyhealth.processors.FeatureProcessor
+    processors/pyhealth.processors.TemporalFeatureProcessor
+    processors/pyhealth.processors.ModalityType
     processors/pyhealth.processors.SampleProcessor
     processors/pyhealth.processors.DatasetProcessor
     processors/pyhealth.processors.SequenceProcessor
@@ -466,6 +482,7 @@ API Reference
     processors/pyhealth.processors.AudioProcessor
     processors/pyhealth.processors.SignalProcessor
     processors/pyhealth.processors.TimeseriesProcessor
+    processors/pyhealth.processors.TemporalTimeseriesProcessor
     processors/pyhealth.processors.TimeImageProcessor
     processors/pyhealth.processors.TensorProcessor
     processors/pyhealth.processors.RawProcessor
