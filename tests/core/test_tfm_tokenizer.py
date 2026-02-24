@@ -15,21 +15,18 @@ class TestTFMTokenizer(unittest.TestCase):
             {
                 "patient_id": "patient-0",
                 "visit_id": "visit-0",
-                "stft": torch.randn(100, 60).numpy().tolist(),  # (n_freq, n_time)
-                "signal": torch.randn(6100).numpy().tolist(),  # (n_samples,)
+                "signal": torch.randn((5,6100)).numpy().tolist(),  # (n_samples,)
                 "label": 1,
             },
             {
                 "patient_id": "patient-1",
                 "visit_id": "visit-0",
-                "stft": torch.randn(100, 60).numpy().tolist(),
-                "signal": torch.randn(6100).numpy().tolist(),
+                "signal": torch.randn((5,6100)).numpy().tolist(),
                 "label": 0,
             },
         ]
 
         self.input_schema = {
-            "stft": "tensor",
             "signal": "tensor",
         }
         self.output_schema = {"label": "binary"}
@@ -54,8 +51,7 @@ class TestTFMTokenizer(unittest.TestCase):
         self.assertEqual(self.model.emb_size, 64)
         self.assertEqual(self.model.code_book_size, 128)
         self.assertTrue(self.model.use_classifier)
-        self.assertEqual(len(self.model.feature_keys), 2)
-        self.assertIn("stft", self.model.feature_keys)
+        self.assertEqual(len(self.model.feature_keys), 1)
         self.assertIn("signal", self.model.feature_keys)
 
     def test_model_forward(self):
@@ -122,7 +118,8 @@ class TestTFMTokenizer(unittest.TestCase):
         embeddings = self.model.get_embeddings(train_loader)
 
         self.assertEqual(embeddings.shape[0], 2)  # 2 samples
-        self.assertEqual(embeddings.shape[2], 64)  # emb_size
+        self.assertEqual(embeddings.shape[1], 5)  # 5 channels
+        self.assertEqual(embeddings.shape[3], 64)  # emb_size
 
     def test_get_tokens(self):
         """Test extraction of tokens from dataloader."""
