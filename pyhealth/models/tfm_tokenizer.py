@@ -1,6 +1,5 @@
 import math
 from typing import Dict, Optional, Tuple, Any
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -72,7 +71,18 @@ from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 
 
-
+def get_stft_torch(X, resampling_rate = 200):
+    B,C,T = X.shape
+    x_temp = rearrange(X, 'B C T -> (B C) T')
+    window = torch.hann_window(resampling_rate).to(x_temp.device)
+    x_stft_temp = torch.abs(torch.stft(x_temp, n_fft=resampling_rate, hop_length=resampling_rate//2, 
+                          onesided = True,
+                          return_complex=True, center = False,#normalized = True,
+                          window = window)[:,:resampling_rate//2,:])
+    
+    x_stft_temp = rearrange(x_stft_temp, '(B C) F T -> B C F T', B=B)
+    
+    return x_stft_temp
 
 class PositionalEncoding(nn.Module):
     """Positional encoding for transformer models.
@@ -787,9 +797,15 @@ class TFMTokenizer(BaseModel):
         Returns:
             a dictionary containing loss, y_prob, y_true, logit, tokens, embeddings.
         """
-        stft = kwargs.get("stft")
+        # stft = kwargs.get("stft")
         signal = kwargs.get("signal")
-
+        if len(signal.shape) == 2:
+            signal = signal.unsqueeze(0)
+        B,C,T = signal.shape
+        stft = get_stft_torch(signal)
+        stft = rearrange(stft, 'B C F T -> (B C) F T')
+        signal = rearrange(signal, 'B C T -> (B C) T')
+        
         if stft is None or signal is None:
             raise ValueError("Both 'stft' and 'signal' must be provided in inputs")
 
@@ -800,12 +816,14 @@ class TFMTokenizer(BaseModel):
 
         recon_loss = F.mse_loss(reconstructed, stft)
         vq_loss, _, _ = self.tokenizer.vec_quantizer_loss(quant_in, quant_out)
+        tokens_reshaped = rearrange(tokens, '(B C) T -> B C T', C=C)
+        quant_out_reshaped = rearrange(quant_out, '(B C) T E -> B C T E', C=C)
 
         results = {
             "recon_loss": recon_loss,
             "vq_loss": vq_loss,
-            "tokens": tokens,
-            "embeddings": quant_out,
+            "tokens": tokens_reshaped,
+            "embeddings": quant_out_reshaped,
         }
 
         if self.use_classifier and len(self.label_keys) > 0:
@@ -814,9 +832,10 @@ class TFMTokenizer(BaseModel):
 
             # Reshape tokens to (B, C, T) for multi-channel classifier
             # tokens shape: (B, T) -> (B, 1, T)
-            tokens_reshaped = tokens.unsqueeze(1)
-            logits = self.classifier(tokens_reshaped)
+            logits = self.classifier(tokens_reshaped,num_ch=C)
             loss_fn = self.get_loss_function()
+            print(f"logits shape: {logits.shape}")
+            print(f"y_true shape: {y_true.shape}")
             cls_loss = loss_fn(logits, y_true)
             total_loss = recon_loss + vq_loss + cls_loss
             y_prob = self.prepare_y_prob(logits)
@@ -849,9 +868,17 @@ class TFMTokenizer(BaseModel):
 
         with torch.no_grad():
             for batch in dataloader:
-                stft = batch.get("stft").to(self.device)
                 signal = batch.get("signal").to(self.device)
+                if len(signal.shape) == 2:
+                    signal = signal.unsqueeze(0)
+                B,C,T = signal.shape
+                stft = get_stft_torch(signal)
+                stft = rearrange(stft, 'B C F T -> (B C) F T')
+                signal = rearrange(signal, 'B C T -> (B C) T')
                 _, _, quant_out, _ = self.tokenizer(stft, signal)
+                print(f"quant_out shape: {quant_out.shape}")
+                quant_out = rearrange(quant_out, '(B C) T E -> B C T E', C=C)
+                print(f"quant_out shape: {quant_out.shape}")
                 all_embeddings.append(quant_out.cpu())
 
         return torch.cat(all_embeddings, dim=0)
@@ -870,51 +897,51 @@ class TFMTokenizer(BaseModel):
 
         with torch.no_grad():
             for batch in dataloader:
-                stft = batch.get("stft").to(self.device)
                 signal = batch.get("signal").to(self.device)
+                if len(signal.shape) == 2:
+                    signal = signal.unsqueeze(0)
+                B,C,T = signal.shape
+                stft = get_stft_torch(signal)
+                stft = rearrange(stft, 'B C F T -> (B C) F T')
+                signal = rearrange(signal, 'B C T -> (B C) T')
                 _, tokens, _, _ = self.tokenizer(stft, signal)
+                tokens = rearrange(tokens, '(B C) T -> B C T', C=C)
                 all_tokens.append(tokens.cpu())
 
         return torch.cat(all_tokens, dim=0)
 
     def load_pretrained_weights(
-        self, checkpoint_path: str, strict: bool = True, map_location: str = None
+        self, 
+        tokenizer_checkpoint_path: str, 
+        classifier_checkpoint_path: str = None,
+        is_masked_training: bool = False,
+        strict: bool = False, 
+        map_location: str = None
     ):
         """Load pre-trained weights from checkpoint.
         
         Args:
-            checkpoint_path: path to the checkpoint file.
+            tokenizer_checkpoint_path: path to the tokenizer checkpoint file.
+            classifier_checkpoint_path: path to the classifier checkpoint file.
             strict: whether to strictly enforce key matching. Default is True.
             map_location: device to map the loaded tensors. Default is None.
         """
         if map_location is None:
             map_location = str(self.device)
 
-        checkpoint = torch.load(checkpoint_path, map_location=map_location)
+        # Load tokenizer weights
+        self.tokenizer.load_state_dict(torch.load(tokenizer_checkpoint_path, map_location=map_location), strict=strict)
 
-        if "model_state_dict" in checkpoint:
-            state_dict = checkpoint["model_state_dict"]
-        elif "state_dict" in checkpoint:
-            state_dict = checkpoint["state_dict"]
+        if classifier_checkpoint_path is not None and not is_masked_training:
+            self.classifier.load_state_dict(torch.load(classifier_checkpoint_path, map_location=map_location))
+            print(f"✓ Successfully loaded weights from {classifier_checkpoint_path}")
+        elif is_masked_training:
+            load_embedding_weights(self.tokenizer, self.classifier)
+            print("✓ Successfully loaded embedding weights!")
         else:
-            state_dict = checkpoint
+            print(f"No classifier checkpoint path provided. Skipping classifier weight loading.")
 
-        try:
-            self.tokenizer.load_state_dict(state_dict, strict=strict)
-            print(f"✓ Successfully loaded weights from {checkpoint_path}")
-        except RuntimeError as e:
-            print(f"Warning: Could not load weights with strict={strict}: {e}")
-            if strict:
-                print("Retrying with strict=False...")
-                self.tokenizer.load_state_dict(state_dict, strict=False)
-                print("✓ Loaded weights with strict=False")
-
-        if self.use_classifier and hasattr(self, "classifier"):
-            try:
-                load_embedding_weights(self.tokenizer, self.classifier)
-            except Exception as e:
-                print(f"Note: Could not transfer embeddings to classifier: {e}")
-
+    
 
 if __name__ == "__main__":
     print("Testing TFM-Tokenizer components...")
