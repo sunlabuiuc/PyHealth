@@ -68,3 +68,9 @@ from .variant_classification import (
     VariantClassificationClinVar,
 )
 from .patient_linkage_mimic3 import PatientLinkageMIMIC3Task
+from pyhealth.tasks.medgan_generation import (
+    MedGANGenerationMIMIC3,
+    MedGANGenerationMIMIC4,
+    medgan_generation_mimic3_fn,
+    medgan_generation_mimic4_fn,
+)
