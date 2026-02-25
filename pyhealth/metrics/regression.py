@@ -16,7 +16,7 @@ def regression_metrics_fn(
         - kl_divergence: KL divergence
         - mse: mean squared error
         - mae: mean absolute error
-    If no metrics are specified, kd_div, mse, mae are computed by default.
+    If no metrics are specified, kl_divergence, mse, and mae are computed by default.
 
     This function calls sklearn.metrics functions to compute the metrics. For
     more information on the metrics, please refer to the documentation of the
@@ -32,11 +32,11 @@ def regression_metrics_fn(
             the metric values.
 
     Examples:
-        >>> from pyhealth.metrics import binary_metrics_fn
-        >>> y_true = np.array([0, 0, 1, 1])
-        >>> y_prob = np.array([0.1, 0.4, 0.35, 0.8])
-        >>> binary_metrics_fn(y_true, y_prob, metrics=["accuracy"])
-        {'accuracy': 0.75}
+        >>> from pyhealth.metrics import regression_metrics_fn
+        >>> x = np.array([1.0, 2.0, 3.0])
+        >>> x_rec = np.array([1.2, 1.8, 2.9])
+        >>> regression_metrics_fn(x, x_rec, metrics=["mse"])
+        {'mse': 0.03}
     """
     if metrics is None:
         metrics = ["kl_divergence", "mse", "mae"]
@@ -50,11 +50,11 @@ def regression_metrics_fn(
     output = {}
     for metric in metrics:
         if metric == "kl_divergence":
-            x[x < 1e-6] = 1e-6
-            x_rec[x_rec < 1e-6] = 1e-6
-            x = x / np.sum(x)
-            x_rec = x_rec / np.sum(x_rec)
-            kl_divergence = np.sum(x_rec * np.log(x_rec / x))
+            x_safe = np.maximum(x, 1e-6)
+            x_rec_safe = np.maximum(x_rec, 1e-6)
+            x_dist = x_safe / np.sum(x_safe)
+            x_rec_dist = x_rec_safe / np.sum(x_rec_safe)
+            kl_divergence = np.sum(x_rec_dist * np.log(x_rec_dist / x_dist))
             output["kl_divergence"] = kl_divergence
         elif metric == "mse":
             mse = sklearn_metrics.mean_squared_error(x, x_rec)

@@ -3,7 +3,6 @@ import os
 
 import numpy as np
 import sklearn.metrics as sklearn_metrics
-from pyhealth.medcode import ATC
 import pyhealth.metrics.calibration as calib
 from pyhealth.metrics import ddi_rate_score
 from pyhealth import BASE_CACHE_PATH as CACHE_PATH
@@ -68,7 +67,7 @@ def multilabel_metrics_fn(
         y_true: True target values of shape (n_samples, n_labels).
         y_prob: Predicted probabilities of shape (n_samples, n_labels).
         metrics: List of metrics to compute. Default is ["pr_auc_samples"].
-        threshold: Threshold to binarize the predicted probabilities. Default is 0.5.
+        threshold: Threshold to binarize the predicted probabilities. Default is 0.3.
 
     Returns:
         Dictionary of metrics whose keys are the metric names and values are
@@ -207,8 +206,12 @@ def multilabel_metrics_fn(
             output["hamming_loss"] = hamming_loss
         elif metric == "ddi":
             ddi_adj = np.load(os.path.join(CACHE_PATH, 'ddi_adj.npy'))
-            y_pred = [np.where(item)[0] for item in y_pred]
-            output["ddi_score"] = ddi_rate_score(y_pred, ddi_adj)
+            pred_labels = [np.where(item)[0] for item in y_pred]
+            ddi_score = ddi_rate_score(pred_labels, ddi_adj)
+            # Keep "ddi" aligned with the requested metric name while preserving
+            # the historical key for backward compatibility.
+            output["ddi"] = ddi_score
+            output["ddi_score"] = ddi_score
         elif metric in {"cwECE", "cwECE_adapt"}:
             output[metric] = calib.ece_classwise(
                 y_prob,
