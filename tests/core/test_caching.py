@@ -107,6 +107,9 @@ class TestCachingFunctionality(BaseTestCase):
         self.dataset = MockDataset(cache_dir=self.temp_dir.name)
         self.task = MockTask()
 
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
     def test_set_task_signature(self):
         """Test that set_task has the correct method signature."""
         import inspect
