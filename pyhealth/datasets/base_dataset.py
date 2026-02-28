@@ -519,7 +519,11 @@ class BaseDataset(ABC):
 
         if self._global_event_df is None:
             ret_path = self.cache_dir / "global_event_df.parquet"
-            if not ret_path.exists():
+            cache_valid = ret_path.is_dir() and any(ret_path.glob("*.parquet"))
+            if not cache_valid:
+                if ret_path.exists():
+                    logger.warning(f"Incomplete parquet cache at {ret_path} (directory exists but contains no parquet files). Removing and rebuilding.")
+                    shutil.rmtree(ret_path)
                 logger.info(f"No cached event dataframe found. Creating: {ret_path}")
                 self._event_transform(ret_path)
             else:
