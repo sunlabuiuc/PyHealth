@@ -20,6 +20,15 @@ class EHRShotDataset(BaseDataset):
         tables (List[str]): A list of tables to be included in the dataset.
         dataset_name (Optional[str]): The name of the dataset.
         config_path (Optional[str]): The path to the configuration file.
+
+    Examples:
+        >>> from pyhealth.datasets import EHRShotDataset
+        >>> # Load EHRShot dataset with benchmark tables
+        >>> dataset = EHRShotDataset(
+        ...     root="/path/to/ehrshot/data",
+        ...     tables=["ehrshot", "chexpert", "guo_icu", "lab_anemia"],
+        ... )
+        >>> dataset.stats()
     """
 
     def __init__(
@@ -28,7 +37,7 @@ class EHRShotDataset(BaseDataset):
         tables: List[str],
         dataset_name: Optional[str] = None,
         config_path: Optional[str] = None,
-        **kwargs
+        **kwargs,
     ) -> None:
         if config_path is None:
             logger.info("No config path provided, using default config")
@@ -38,6 +47,6 @@ class EHRShotDataset(BaseDataset):
             tables=tables,
             dataset_name=dataset_name or "ehrshot",
             config_path=config_path,
-            **kwargs
+            **kwargs,
         )
         return

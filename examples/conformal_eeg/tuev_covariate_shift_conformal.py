@@ -42,7 +42,7 @@ def parse_args() -> argparse.Namespace:
         default="downloads/tuev/v2.0.1/edf",
         help="Path to TUEV edf/ folder.",
     )
-    parser.add_argument("--subset", type=str, default="both", choices=["train", "eval", "both"]) 
+    parser.add_argument("--subset", type=str, default="both", choices=["train", "eval", "both"])
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--epochs", type=int, default=3)
@@ -89,7 +89,7 @@ def main() -> None:
     print("STEP 1: Load TUEV + build task dataset")
     print("=" * 80)
     dataset = TUEVDataset(root=str(root), subset=args.subset)
-    sample_dataset = dataset.set_task(EEGEventsTUEV(), cache_dir="examples/conformal_eeg/cache")
+    sample_dataset = dataset.set_task(EEGEventsTUEV())
 
     print(f"Task samples: {len(sample_dataset)}")
     print(f"Input schema: {sample_dataset.input_schema}")

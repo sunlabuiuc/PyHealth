@@ -132,7 +132,7 @@ class TestEEGEventsTUEV(unittest.TestCase):
         np.testing.assert_allclose(out[0], expected0)
 
     def test_BuildEvents_single_row_eventdata_and_window_length(self):
-        fs = 256
+        fs = 200
         num_chan = 16
         num_points = 2000
         signals = np.random.randn(num_chan, num_points)
@@ -157,7 +157,7 @@ class TestEEGEventsTUEV(unittest.TestCase):
             events=[_DummyEvent(signal_file=os.path.join("C:\\", "dummy.edf"))],
         )
 
-        feats = np.zeros((2, 16, 256 * 5), dtype=float)
+        feats = np.zeros((2, 16, 200 * 5), dtype=float)
         offending = np.array([[3], [7]])
         labels = np.array([[1], [6]])  # will become 0 and 5 in output
 
@@ -173,7 +173,7 @@ class TestEEGEventsTUEV(unittest.TestCase):
         self.assertEqual(len(samples), 2)
         self.assertEqual(samples[0]["patient_id"], "patient-0")
         self.assertIn("signal", samples[0])
-        self.assertEqual(samples[0]["signal"].shape, (16, 256 * 5))
+        self.assertEqual(samples[0]["signal"].shape, (16, 200 * 5))
         self.assertEqual(samples[0]["offending_channel"], 3)
         self.assertEqual(samples[0]["label"], 0)
         self.assertEqual(samples[1]["offending_channel"], 7)

@@ -33,8 +33,12 @@ def _missrate(y_pred:np.ndarray, y_true:np.ndarray, ignore_rejected=False):
     keep_msk = (y_pred.sum(1) == 1) if ignore_rejected else np.ones(len(y_true), dtype=bool)
     missed = []
     for k in range(K):
-        missed.append(1-np.mean(y_pred[keep_msk & y_true[:, k], k]))
-
+        msk = keep_msk & y_true[:, k]
+        n = msk.sum()
+        if n == 0:
+            missed.append(0.0)
+        else:
+            missed.append(1 - np.mean(y_pred[msk, k]))
     return np.asarray(missed)
 
 
@@ -92,8 +96,8 @@ def miscoverage_overall_ps(y_pred:np.ndarray, y_true:np.ndarray):
     """
     assert len(y_true.shape) == 1
     truth_pred = y_pred[np.arange(len(y_true)), y_true]
+    return 1 - np.mean(truth_pred) if len(truth_pred) > 0 else 0.0
 
-    return 1 - np.mean(truth_pred)
 
 def error_overall_ps(y_pred:np.ndarray, y_true:np.ndarray):
     """Overall error rate for the un-rejected samples.
@@ -113,4 +117,4 @@ def error_overall_ps(y_pred:np.ndarray, y_true:np.ndarray):
     assert len(y_true.shape) == 1
     truth_pred = y_pred[np.arange(len(y_true)), y_true]
     truth_pred = truth_pred[y_pred.sum(1) == 1]
-    return 1 - np.mean(truth_pred)
+    return 1 - np.mean(truth_pred) if len(truth_pred) > 0 else 0.0

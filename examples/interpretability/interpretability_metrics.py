@@ -44,7 +44,6 @@ def main():
     sample_dataset = base_dataset.set_task(
         MortalityPredictionStageNetMIMIC4(),
         num_workers=4,
-        cache_dir="../../mimic4_stagenet_cache",
     )
     print(f"✓ Loaded {len(sample_dataset)} samples")
 
