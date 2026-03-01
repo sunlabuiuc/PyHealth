@@ -551,7 +551,7 @@ class PromptEHR(BaseModel):
         cat_cardinalities: Optional[list] = None,
         d_hidden: int = 128,
         prompt_length: int = 1,
-        bart_config_name: str = "facebook/bart-base",
+        bart_config_name: "Union[str, BartConfig]" = "facebook/bart-base",
         epochs: int = 20,
         batch_size: int = 16,
         lr: float = 1e-5,
@@ -580,7 +580,11 @@ class PromptEHR(BaseModel):
         bart_vocab_size = self._vocab.total_size
 
         # Configure BART with our custom vocab and special token IDs
-        bart_config = BartConfig.from_pretrained(bart_config_name)
+        if isinstance(bart_config_name, str):
+            bart_config = BartConfig.from_pretrained(bart_config_name)
+        else:
+            # Accept a BartConfig object directly (useful for tiny test models)
+            bart_config = bart_config_name
         bart_config.vocab_size = bart_vocab_size
         bart_config.pad_token_id = _PromptEHRVocab.PAD
         bart_config.bos_token_id = _PromptEHRVocab.BOS
