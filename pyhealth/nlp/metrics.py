@@ -220,7 +220,10 @@ class ScoreSet(object):
         nd_rows: List[np.ndarray] = []
         for row in rows:
             nd_rows.append(np.array(tuple(map(row.get, cols))))
-        arr = np.stack(nd_rows)
+        if len(nd_rows) == 0:
+            arr = np.empty((0, len(cols)))
+        else:
+            arr = np.stack(nd_rows)
         if add_correlation and self.has_correlation_id:
             ids = np.array(tuple(map(lambda r: r.correlation_id, self.results)))
             ids = np.expand_dims(ids, 1)
@@ -477,20 +480,20 @@ class Scorer(object):
         return True
 
     def _get_missing_modules(self) -> Tuple[str, ...]:
-        missing: List[str] = []
+        all_missing: List[str] = []
         not_avail: List[str] = []
         name: str
         meth: ScoreMethod
         for name, meth in self.methods.items():
-            missing: Tuple[str, ...] = meth.missing_modules()
-            if len(missing) > 0 and not self._install_all(missing):
+            method_missing: Tuple[str, ...] = meth.missing_modules()
+            if len(method_missing) > 0 and not self._install_all(method_missing):
                 logger.warning(f'method {meth} is not available: ' +
-                               f'missing {missing}')
+                               f'missing {method_missing}')
                 not_avail.append(name)
-                missing.extend(missing)
+                all_missing.extend(method_missing)
         for name in not_avail:
             del self.methods[name]
-        return tuple(missing)
+        return tuple(all_missing)
 
     def score(self, context: ScoreContext) -> ScoreSet:
         """Score the sentences in ``context``.
