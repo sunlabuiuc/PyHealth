@@ -63,6 +63,8 @@ class PromptEHRGenerationMIMIC3(BaseTask):
                 ``"gender"`` (int): 0 for male, 1 for female.
         """
         admissions = list(patient.get_events(event_type="admissions"))
+        if len(admissions) < 2:
+            return []
 
         # --- Demographics ---
         age = 60.0
