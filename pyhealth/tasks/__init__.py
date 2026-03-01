@@ -1,5 +1,11 @@
 from .base_task import BaseTask
 from .benchmark_ehrshot import BenchmarkEHRShot
+from .ehr_generation import (
+    PromptEHRGenerationMIMIC3,
+    PromptEHRGenerationMIMIC4,
+    promptehr_generation_mimic3_fn,
+    promptehr_generation_mimic4_fn,
+)
 from .cancer_survival import CancerMutationBurden, CancerSurvivalPrediction
 from .bmd_hs_disease_classification import BMDHSDiseaseClassification
 from .cardiology_detect import (
