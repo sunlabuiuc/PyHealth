@@ -373,8 +373,20 @@ class _PromptEHRVocab:
         7+ = diagnosis codes
 
     NestedSequenceProcessor uses pad=0, unk=1, codes=2+.
-    Mapping: processor_idx i → BART token i + 5  (for i >= 2).
+    Mapping: processor_idx i -> BART token i + 5  (for i >= 2).
     Total BART vocab size = processor.vocab_size() + 5.
+
+    Args:
+        code_vocab (dict): Mapping of code string to processor index, as
+            returned by ``NestedSequenceProcessor.code_vocab``. Must include
+            ``"<pad>"`` -> 0 and ``"<unk>"`` -> 1.
+
+    Examples:
+        >>> vocab = _PromptEHRVocab({"<pad>": 0, "<unk>": 1, "428": 2, "410": 3})
+        >>> isinstance(vocab, _PromptEHRVocab)
+        True
+        >>> vocab.total_size
+        9
     """
 
     PAD = 0
@@ -387,12 +399,7 @@ class _PromptEHRVocab:
     CODE_OFFSET = 7
 
     def __init__(self, code_vocab: dict):
-        """Build vocab from NestedSequenceProcessor.code_vocab dict.
-
-        Args:
-            code_vocab (dict): Mapping of code string → processor index.
-                Must have ``"<pad>"`` → 0 and ``"<unk>"`` → 1.
-        """
+        """Build vocab from NestedSequenceProcessor.code_vocab dict."""
         self._bart_to_code: Dict[int, str] = {}
         for code, pid in code_vocab.items():
             if pid >= 2:  # skip <pad> and <unk>
@@ -552,24 +559,7 @@ class PromptEHR(BaseModel):
         max_seq_length: int = 512,
         save_dir: str = "./save/",
     ):
-        """Initialize PromptEHR with vocab derived from the dataset processor.
-
-        Args:
-            dataset (SampleDataset): PyHealth dataset with
-                ``input_processors["visits"]`` (NestedSequenceProcessor).
-            n_num_features (int): Continuous demographic features. Default: 1.
-            cat_cardinalities (list of int): Category cardinalities. Default: [2].
-            d_hidden (int): Prompt encoder hidden dim. Default: 128.
-            prompt_length (int): Prompt vectors per feature. Default: 1.
-            bart_config_name (str): Pretrained BART config. Default:
-                ``"facebook/bart-base"``.
-            epochs (int): Training epochs. Default: 20.
-            batch_size (int): Training batch size. Default: 16.
-            lr (float): AdamW learning rate. Default: 1e-5.
-            warmup_steps (int): Linear warmup steps. Default: 1000.
-            max_seq_length (int): Token sequence length cap. Default: 512.
-            save_dir (str): Checkpoint output directory. Default: ``"./save/"``.
-        """
+        """Initialize PromptEHR with vocab derived from the dataset processor."""
         super().__init__(dataset)
 
         self.mode = None  # skip discriminative evaluation
