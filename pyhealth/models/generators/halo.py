@@ -213,7 +213,7 @@ class HALO(BaseModel):
         train_loader = DataLoader(
             train_dataset,
             batch_size=self._batch_size,
-            shuffle=True,
+            shuffle=False,  # IterableDataset (litdata.StreamingDataset) does not support shuffle
             drop_last=False,
             collate_fn=_halo_collate_fn,
         )
