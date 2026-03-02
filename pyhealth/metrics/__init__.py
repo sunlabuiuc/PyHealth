@@ -1,4 +1,10 @@
-from .binary import binary_metrics_fn
+try:
+    from .binary import binary_metrics_fn
+    from .multiclass import multiclass_metrics_fn
+    from .multilabel import multilabel_metrics_fn
+    from .regression import regression_metrics_fn
+except ImportError:
+    pass  # sklearn unavailable
 from .drug_recommendation import ddi_rate_score
 from .interpretability import (
     ComprehensivenessMetric,
@@ -7,12 +13,8 @@ from .interpretability import (
     SufficiencyMetric,
     evaluate_attribution,
 )
-from .multiclass import multiclass_metrics_fn
-from .multilabel import multilabel_metrics_fn
-
 # from .fairness import fairness_metrics_fn
 from .ranking import ranking_metrics_fn
-from .regression import regression_metrics_fn
 
 __all__ = [
     "binary_metrics_fn",

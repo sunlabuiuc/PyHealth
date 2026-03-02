@@ -6,7 +6,10 @@ from typing import Optional
 import pandas as pd
 
 from pyhealth.datasets import BaseDataset
-from pyhealth.tasks.sleep_staging_v2 import SleepStagingSleepEDF
+try:
+    from pyhealth.tasks.sleep_staging_v2 import SleepStagingSleepEDF
+except ImportError:
+    SleepStagingSleepEDF = None  # mne unavailable
 
 logger = logging.getLogger(__name__)
 
@@ -230,7 +233,7 @@ class SleepEDFDataset(BaseDataset):
         return flattened
 
     @property
-    def default_task(self) -> SleepStagingSleepEDF:
+    def default_task(self) -> "SleepStagingSleepEDF":
         """Returns the default task for this dataset.
 
         Returns:
