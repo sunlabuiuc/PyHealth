@@ -2,13 +2,16 @@ from .base_task import BaseTask
 from .benchmark_ehrshot import BenchmarkEHRShot
 from .cancer_survival import CancerMutationBurden, CancerSurvivalPrediction
 from .bmd_hs_disease_classification import BMDHSDiseaseClassification
-from .cardiology_detect import (
-    cardiology_isAD_fn,
-    cardiology_isAR_fn,
-    cardiology_isBBBFB_fn,
-    cardiology_isCD_fn,
-    cardiology_isWA_fn,
-)
+try:
+    from .cardiology_detect import (
+        cardiology_isAD_fn,
+        cardiology_isAR_fn,
+        cardiology_isBBBFB_fn,
+        cardiology_isCD_fn,
+        cardiology_isWA_fn,
+    )
+except ImportError:
+    pass  # scipy unavailable; cardiology tasks not registered
 from .chestxray14_binary_classification import ChestXray14BinaryClassification
 from .chestxray14_multilabel_classification import ChestXray14MultilabelClassification
 from .covid19_cxr_classification import COVID19CXRClassification
