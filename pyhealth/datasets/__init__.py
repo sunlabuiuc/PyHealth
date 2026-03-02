@@ -76,8 +76,14 @@ from .splitter import (
     split_by_visit,
     split_by_visit_conformal,
 )
-from .tuab import TUABDataset
-from .tuev import TUEVDataset
+try:
+    from .tuab import TUABDataset
+except ImportError:
+    pass  # mne unavailable; TUABDataset not registered
+try:
+    from .tuev import TUEVDataset
+except ImportError:
+    pass  # mne unavailable; TUEVDataset not registered
 from .utils import (
     collate_fn_dict,
     collate_fn_dict_with_padding,
