@@ -30,8 +30,14 @@ from .halo_generation import (
     halo_generation_mimic3_fn,
     halo_generation_mimic4_fn,
 )
-from .EEG_abnormal import EEG_isAbnormal_fn
-from .EEG_events import EEG_events_fn
+try:
+    from .EEG_abnormal import EEG_isAbnormal_fn
+except ImportError:
+    pass  # mne unavailable
+try:
+    from .EEG_events import EEG_events_fn
+except ImportError:
+    pass  # mne unavailable
 from .in_hospital_mortality_mimic4 import InHospitalMortalityMIMIC4
 from .length_of_stay_prediction import (
     LengthOfStayPredictioneICU,
@@ -62,16 +68,25 @@ from .readmission_prediction import (
     ReadmissionPredictionMIMIC4,
     ReadmissionPredictionOMOP,
 )
-from .sleep_staging import (
-    sleep_staging_isruc_fn,
-    sleep_staging_shhs_fn,
-    sleep_staging_sleepedf_fn,
-)
-from .sleep_staging_v2 import SleepStagingSleepEDF
-from .temple_university_EEG_tasks import (
-    EEGEventsTUEV,
-    EEGAbnormalTUAB
-)
+try:
+    from .sleep_staging import (
+        sleep_staging_isruc_fn,
+        sleep_staging_shhs_fn,
+        sleep_staging_sleepedf_fn,
+    )
+except ImportError:
+    pass  # mne unavailable
+try:
+    from .sleep_staging_v2 import SleepStagingSleepEDF
+except ImportError:
+    pass  # mne unavailable
+try:
+    from .temple_university_EEG_tasks import (
+        EEGEventsTUEV,
+        EEGAbnormalTUAB
+    )
+except ImportError:
+    pass  # mne unavailable
 from .variant_classification import (
     MutationPathogenicityPrediction,
     VariantClassificationClinVar,
