@@ -53,7 +53,15 @@ class MIMIC3Dataset(BaseDataset):
         if config_path is None:
             logger.info("No config path provided, using default config")
             config_path = Path(__file__).parent / "configs" / "mimic3.yaml"
-        default_tables = ["patients", "admissions", "icustays"]
+        default_tables = ["patients", "admissions"]
+        icustays_path = Path(root)
+        if (icustays_path / "ICUSTAYS.csv.gz").exists() or (icustays_path / "ICUSTAYS.csv").exists():
+            default_tables.append("icustays")
+        else:
+            warnings.warn(
+                "ICUSTAYS.csv not found in root directory. Skipping icustays table.",
+                UserWarning,
+            )
         tables = default_tables + tables
         if "prescriptions" in tables:
             warnings.warn(
