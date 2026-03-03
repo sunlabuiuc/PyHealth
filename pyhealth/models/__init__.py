@@ -5,7 +5,10 @@ try:
     from .biot import BIOT
 except ImportError:
     pass  # einops unavailable
-from .cnn import CNN, CNNLayer
+try:
+    from .cnn import CNN, CNNLayer
+except ImportError:
+    pass  # PIL/torchvision unavailable
 from .concare import ConCare, ConCareLayer
 from .contrawr import ContraWR, ResBlock2D
 from .deepr import Deepr, DeeprLayer
@@ -62,7 +65,10 @@ except ImportError:
     pass  # transformers unavailable
 from .ehrmamba import EHRMamba, MambaBlock
 from .vae import VAE
-from .vision_embedding import VisionEmbeddingModel
+try:
+    from .vision_embedding import VisionEmbeddingModel
+except ImportError:
+    pass  # PIL/torchvision unavailable
 try:
     from .text_embedding import TextEmbedding
 except ImportError:
