@@ -48,10 +48,16 @@ class SampleSignalDataset:
 
 from .base_dataset import BaseDataset
 from .cardiology import CardiologyDataset
-from .chestxray14 import ChestXray14Dataset
+try:
+    from .chestxray14 import ChestXray14Dataset
+except ImportError:
+    pass  # PIL/torchvision unavailable
 from .clinvar import ClinVarDataset
 from .cosmic import COSMICDataset
-from .covid19_cxr import COVID19CXRDataset
+try:
+    from .covid19_cxr import COVID19CXRDataset
+except ImportError:
+    pass  # PIL/torchvision unavailable
 from .dreamt import DREAMTDataset
 from .ehrshot import EHRShotDataset
 from .eicu import eICUDataset
