@@ -169,7 +169,7 @@ def test_collate_temporal_variable_length():
 # ── 5. SinusoidalTimeEmbedding ────────────────────────────────────────────────
 
 def test_sinusoidal_time_embedding_shape():
-    from pyhealth.models.unified_embedding import SinusoidalTimeEmbedding
+    from pyhealth.models.embedding import SinusoidalTimeEmbedding
     emb = SinusoidalTimeEmbedding(dim=64, max_hours=720.0)
     t   = torch.tensor([[0.0, 12.0, 24.0], [0.0, 6.0, 48.0]])  # (2, 3)
     out = emb(t)
@@ -177,7 +177,7 @@ def test_sinusoidal_time_embedding_shape():
 
 
 def test_sinusoidal_different_times_differ():
-    from pyhealth.models.unified_embedding import SinusoidalTimeEmbedding
+    from pyhealth.models.embedding import SinusoidalTimeEmbedding
     emb = SinusoidalTimeEmbedding(dim=32)
     t0  = emb(torch.tensor([0.0]))
     t1  = emb(torch.tensor([24.0]))
@@ -206,7 +206,7 @@ def _make_code_processors_and_inputs(batch_size=2, seq_len=5):
 
 
 def test_unified_model_code_only():
-    from pyhealth.models.unified_embedding import UnifiedMultimodalEmbeddingModel
+    from pyhealth.models.embedding import UnifiedMultimodalEmbeddingModel
 
     processors, inputs = _make_code_processors_and_inputs()
     model = UnifiedMultimodalEmbeddingModel(processors=processors, embedding_dim=64)
@@ -224,7 +224,7 @@ def test_unified_model_code_only():
 
 
 def test_unified_model_rejects_non_temporal():
-    from pyhealth.models.unified_embedding import UnifiedMultimodalEmbeddingModel
+    from pyhealth.models.embedding import UnifiedMultimodalEmbeddingModel
     from pyhealth.processors import SequenceProcessor
 
     bad_proc = SequenceProcessor()
@@ -234,7 +234,7 @@ def test_unified_model_rejects_non_temporal():
 
 def test_unified_model_gradient_flow():
     """Loss.backward() should propagate through time + type embeddings."""
-    from pyhealth.models.unified_embedding import UnifiedMultimodalEmbeddingModel
+    from pyhealth.models.embedding import UnifiedMultimodalEmbeddingModel
 
     processors, inputs = _make_code_processors_and_inputs()
     model = UnifiedMultimodalEmbeddingModel(processors=processors, embedding_dim=32)
@@ -250,7 +250,7 @@ def test_unified_model_gradient_flow():
 
 def test_unified_model_time_sort():
     """Events should be sorted by time ascending in the output."""
-    from pyhealth.models.unified_embedding import UnifiedMultimodalEmbeddingModel
+    from pyhealth.models.embedding import UnifiedMultimodalEmbeddingModel
     from pyhealth.processors import StageNetProcessor
 
     samples = [{"c": (None, ["a", "b"])}]

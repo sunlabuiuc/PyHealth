@@ -19,7 +19,7 @@ import torch.nn as nn
 
 from pyhealth.datasets import create_sample_dataset
 from pyhealth.datasets.utils import get_dataloader
-from pyhealth.models.vision_embedding import VisionEmbeddingModel
+from pyhealth.models.embedding import VisionEmbeddingModel
 
 
 class TestVisionEmbeddingModel(unittest.TestCase):

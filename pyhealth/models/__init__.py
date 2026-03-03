@@ -6,7 +6,18 @@ from .cnn import CNN, CNNLayer
 from .concare import ConCare, ConCareLayer
 from .contrawr import ContraWR, ResBlock2D
 from .deepr import Deepr, DeeprLayer
-from .embedding import EmbeddingModel
+from .embedding import (
+    BaseEmbeddingModel,
+    EmbeddingModel,
+    VisionEmbeddingModel,
+    TextEmbeddingModel,
+    TextEmbedding,  # backward compat alias
+    UnifiedMultimodalEmbeddingModel,
+    SinusoidalTimeEmbedding,
+    PatchEmbedding,
+    Permute,
+    init_embedding_with_pretrained,
+)
 from .gamenet import GAMENet, GAMENetLayer
 from .jamba_ehr import JambaEHR, JambaLayer
 from .logistic_regression import LogisticRegression
@@ -38,8 +49,4 @@ from .transformer import Transformer, TransformerLayer
 from .transformers_model import TransformersModel
 from .ehrmamba import EHRMamba, MambaBlock
 from .vae import VAE
-from .vision_embedding import VisionEmbeddingModel
-from .text_embedding import TextEmbedding
 from .sdoh import SdohClassifier
-from .medlink import MedLink
-from .unified_embedding import UnifiedMultimodalEmbeddingModel, SinusoidalTimeEmbedding

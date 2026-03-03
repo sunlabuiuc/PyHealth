@@ -1,5 +1,7 @@
 """Text embedding module for multimodal PyHealth pipelines.
 
+Author: Rian
+
 This module provides a Transformer-based text encoder for clinical/medical text.
 It is designed to integrate with PyHealth's multimodal fusion architecture.
 
@@ -14,8 +16,8 @@ Dependencies:
     - torch
 
 Example:
-    >>> from pyhealth.models.text_embedding import TextEmbedding
-    >>> encoder = TextEmbedding(embedding_dim=256)
+    >>> from pyhealth.models.embedding import TextEmbeddingModel
+    >>> encoder = TextEmbeddingModel(embedding_dim=256)
     >>> embeddings, mask = encoder(["Patient has fever.", "Follow-up."])
     >>> embeddings.shape  # [2, T, 256]
 """
@@ -28,11 +30,13 @@ import torch
 import torch.nn as nn
 from transformers import AutoModel, AutoTokenizer
 
+from .base import BaseEmbeddingModel
+
 
 logger = logging.getLogger(__name__)
 
 
-class TextEmbedding(nn.Module):
+class TextEmbeddingModel(nn.Module, BaseEmbeddingModel):
     """Encodes clinical text into embeddings for multimodal fusion.
 
     This module wraps a pretrained Hugging Face transformer (default:
@@ -55,7 +59,7 @@ class TextEmbedding(nn.Module):
 
         Example: A 300-token note with chunk_size=128 becomes 3 chunks:
             Chunk 1: [CLS] + tokens[0:126] + [SEP]   = 128 tokens
-            Chunk 2: [CLS] + tokens[126:252] + [SEP] = 128 tokens  
+            Chunk 2: [CLS] + tokens[126:252] + [SEP] = 128 tokens
             Chunk 3: [CLS] + tokens[252:300] + [SEP] = 50 tokens
 
     Pooling Modes:
@@ -117,7 +121,7 @@ class TextEmbedding(nn.Module):
     Example:
         Basic usage with default parameters:
 
-        >>> encoder = TextEmbedding(embedding_dim=256)
+        >>> encoder = TextEmbeddingModel(embedding_dim=256)
         >>> texts = ["Patient presents with chest pain.", "Routine checkup."]
         >>> embeddings, mask = encoder(texts)
         >>> embeddings.shape
@@ -127,14 +131,14 @@ class TextEmbedding(nn.Module):
 
         Using chunk-level pooling for efficiency:
 
-        >>> encoder = TextEmbedding(pooling="cls", embedding_dim=128)
+        >>> encoder = TextEmbeddingModel(pooling="cls", embedding_dim=128)
         >>> long_note = "..." * 1000  # Very long clinical note
         >>> emb, mask = encoder([long_note])
         >>> emb.shape  # [1, num_chunks, 128] instead of [1, thousands, 128]
 
         Backward-compatible single tensor return:
 
-        >>> encoder = TextEmbedding(return_mask=False)
+        >>> encoder = TextEmbeddingModel(return_mask=False)
         >>> embeddings = encoder(["Test"])  # Just tensor, no tuple
     """
 
@@ -159,7 +163,7 @@ class TextEmbedding(nn.Module):
         """
         super().__init__()
         self.model_name = model_name
-        self.embedding_dim = embedding_dim
+        self._embedding_dim = embedding_dim
         self.chunk_size = chunk_size
         self.max_chunks = max_chunks
         self.pooling = pooling
@@ -183,6 +187,10 @@ class TextEmbedding(nn.Module):
         # Projection: transformer hidden_size (e.g., 768) → embedding_dim (e.g., 128)
         # This aligns text embeddings with other modalities in a shared E' space
         self.fc = nn.Linear(self.transformer.config.hidden_size, embedding_dim)
+
+    @property
+    def embedding_dim(self) -> int:
+        return self._embedding_dim
 
     def _chunk_and_encode(
         self, text: str, device: torch.device
@@ -232,11 +240,6 @@ class TextEmbedding(nn.Module):
             chunks = [[self.tokenizer.cls_token_id, self.tokenizer.sep_token_id]]
 
         # Step 3: Apply max_chunks limit (performance guardrail)
-        # Rationale: Clinical notes can be 10K+ tokens. Without a cap:
-        # - Memory usage explodes (each chunk needs transformer forward pass)
-        # - Silent OOMs in production environments
-        # - Inference time becomes unpredictable
-        # We warn rather than silently truncate so users can adjust.
         if self.max_chunks is not None and len(chunks) > self.max_chunks:
             original_chunks = len(chunks)
             chunks = chunks[: self.max_chunks]
@@ -319,18 +322,6 @@ class TextEmbedding(nn.Module):
 
             If return_mask=False (backward compatibility):
                 torch.Tensor: Just the embeddings tensor [B, T, E']
-
-        Note:
-            The return_mask parameter exists for backward compatibility.
-            New code should use the default return_mask=True to get masks
-            needed for downstream attention layers.
-
-        Example:
-            >>> encoder = TextEmbedding(embedding_dim=128)
-            >>> emb, mask = encoder(["Hello world", "A longer text here"])
-            >>> emb.shape   # [2, T, 128] where T is max tokens
-            >>> mask.shape  # [2, T]
-            >>> mask[0].sum()  # Number of valid tokens in first sample
         """
         # Normalize single string to list
         if isinstance(text, str):
@@ -357,7 +348,7 @@ class TextEmbedding(nn.Module):
 
             # Pad embedding tensor with zeros
             if pad_len > 0:
-                padding = torch.zeros(pad_len, self.embedding_dim, device=device)
+                padding = torch.zeros(pad_len, self._embedding_dim, device=device)
                 e = torch.cat([e, padding], dim=0)
             padded.append(e)
 
@@ -377,3 +368,7 @@ class TextEmbedding(nn.Module):
             return embeddings, mask
         else:
             return embeddings
+
+
+# Alias for backward compatibility
+TextEmbedding = TextEmbeddingModel

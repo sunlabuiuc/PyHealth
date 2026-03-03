@@ -8,9 +8,17 @@ sinusoidal time embeddings + learned modality-type embeddings.
 Output shape: ``(B, S_total, E')`` — a single sequence of events usable by
 any downstream sequence model (Transformer, Mamba, RNN, …).
 
+IMAGE encoding delegates to :class:`PatchEmbedding` from
+:mod:`pyhealth.models.embedding.vision` (Josh's model), pooling patch tokens
+to a single per-image vector via global mean pooling.
+
+TEXT encoding uses a pretrained BERT tokenizer model directly, extracting the
+[CLS] token per note — the same BERT-based approach as
+:class:`TextEmbeddingModel` (Rian's model).
+
 Quickstart::
 
-    from pyhealth.models.unified_embedding import UnifiedMultimodalEmbeddingModel
+    from pyhealth.models.embedding import UnifiedMultimodalEmbeddingModel
     from pyhealth.datasets.collate import collate_temporal
     model = UnifiedMultimodalEmbeddingModel(dataset, embedding_dim=128)
     # inside forward:
@@ -28,7 +36,9 @@ from typing import Any
 import torch
 import torch.nn as nn
 
-from pyhealth.processors.base_processor import ModalityType, TemporalFeatureProcessor
+from ...processors.base_processor import ModalityType, TemporalFeatureProcessor
+from .base import BaseEmbeddingModel
+from .vision import PatchEmbedding
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -68,41 +78,32 @@ class SinusoidalTimeEmbedding(nn.Module):
         return torch.cat([args.sin(), args.cos()], dim=-1)   # (..., dim)
 
 
-def _build_image_encoder(embedding_dim: int) -> nn.Module:
-    """Lightweight 5-layer CNN encoder: C × H × W → embedding_dim.
+class _MeanPool(nn.Module):
+    """Pool a sequence of patch embeddings to a single vector via global mean."""
 
-    Uses ``torchvision.models.resnet18`` pre-trained backbone, strips the
-    final FC layer, and adds a projection to ``embedding_dim``.  Falls back to
-    a toy Conv-pool-flatten network if torchvision is not installed.
-    """
-    try:
-        import torchvision.models as tv
-
-        backbone = tv.resnet18(weights=None)
-        in_features = backbone.fc.in_features
-        backbone.fc = nn.Linear(in_features, embedding_dim)
-        return backbone
-    except ImportError:
-        # Minimal fallback: single conv → global avg pool → linear
-        return nn.Sequential(
-            nn.Conv2d(3, 32, 3, padding=1),
-            nn.ReLU(),
-            nn.AdaptiveAvgPool2d(1),
-            nn.Flatten(),
-            nn.Linear(32, embedding_dim),
-        )
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # (B, num_patches, E) -> (B, E)
+        return x.mean(dim=1)
 
 
 # ── Main model ───────────────────────────────────────────────────────────────
 
 
-class UnifiedMultimodalEmbeddingModel(nn.Module):
+class UnifiedMultimodalEmbeddingModel(nn.Module, BaseEmbeddingModel):
     """Embed heterogeneous temporal features into a single aligned sequence.
 
     **All** input processors must be ``TemporalFeatureProcessor`` subclasses.
     Non-temporal processors (e.g. ``SequenceProcessor``, ``MultiHotProcessor``)
-    are rejected with a clear error — use the existing ``EmbeddingModel`` for
-    those fields.
+    are rejected with a clear error — use :class:`EmbeddingModel` for those fields.
+
+    Modality routing:
+
+    - **CODE**: ``nn.Embedding`` lookup.
+    - **TEXT**: Pretrained BERT (same approach as :class:`TextEmbeddingModel`),
+      CLS token extracted per note.
+    - **IMAGE**: :class:`PatchEmbedding` (from :class:`VisionEmbeddingModel`)
+      followed by global mean pooling to produce one vector per image event.
+    - **NUMERIC / SIGNAL**: ``nn.Linear`` projection.
 
     Algorithm
     ---------
@@ -130,6 +131,10 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
         time_embedding: ``"sinusoidal"`` (default) or ``"learned"``.
         max_time_hours: Normalisation constant for the time embedding.
             Defaults to 720 h (30 days).
+        image_size: Image size (H=W) assumed for IMAGE fields when using
+            PatchEmbedding. Defaults to 224.
+        image_channels: Number of input channels for IMAGE fields. Defaults to 3.
+        patch_size: Patch size for IMAGE PatchEmbedding encoder. Defaults to 16.
 
     Example::
 
@@ -149,9 +154,12 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
         embedding_dim: int = 128,
         time_embedding: str = "sinusoidal",
         max_time_hours: float = 720.0,
+        image_size: int = 224,
+        image_channels: int = 3,
+        patch_size: int = 16,
     ):
         super().__init__()
-        self.embedding_dim = embedding_dim
+        self._embedding_dim = embedding_dim
 
         self.encoders: nn.ModuleDict = nn.ModuleDict()
         self.projections: nn.ModuleDict = nn.ModuleDict()
@@ -163,7 +171,7 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
                     f"UnifiedMultimodalEmbeddingModel requires every input processor "
                     f"to be a TemporalFeatureProcessor subclass, but '{field_name}' "
                     f"uses {type(processor).__name__}.  For non-temporal fields use "
-                    f"the existing EmbeddingModel."
+                    f"EmbeddingModel."
                 )
 
             m = processor.modality()
@@ -192,7 +200,14 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
                     )
 
             elif m == ModalityType.IMAGE:
-                self.encoders[field_name] = _build_image_encoder(embedding_dim)
+                # Delegate image encoding to PatchEmbedding (VisionEmbeddingModel's
+                # core patch projection), then pool patches to a single per-image vector.
+                _image_size = getattr(processor, "image_size", image_size)
+                _in_channels = getattr(processor, "in_channels", image_channels)
+                self.encoders[field_name] = nn.Sequential(
+                    PatchEmbedding(_image_size, patch_size, _in_channels, embedding_dim),
+                    _MeanPool(),
+                )
 
             elif m in (ModalityType.NUMERIC, ModalityType.SIGNAL):
                 in_features = processor.value_dim()
@@ -215,6 +230,10 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
             self.time_embed = SinusoidalTimeEmbedding(embedding_dim, max_time_hours)
         else:
             raise NotImplementedError("Only 'sinusoidal' time embedding is implemented.")
+
+    @property
+    def embedding_dim(self) -> int:
+        return self._embedding_dim
 
     # ── Forward ───────────────────────────────────────────────────────────────
 
@@ -270,10 +289,11 @@ class UnifiedMultimodalEmbeddingModel(nn.Module):
                 emb = cls_emb.view(b, n, -1)                  # (B, N, E')
 
             elif modality == ModalityType.IMAGE:
+                # encoder = Sequential(PatchEmbedding, _MeanPool) → (B*N, E')
                 b, n, c, h, w = value.shape
                 flat_imgs = value.view(b * n, c, h, w)
                 img_emb   = encoder(flat_imgs)                 # (B*N, E')
-                emb       = img_emb.view(b, n, -1)
+                emb       = img_emb.view(b, n, -1)            # (B, N, E')
 
             else:  # NUMERIC / SIGNAL
                 emb = encoder(value)                           # (B, T, E')
