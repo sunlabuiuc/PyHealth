@@ -1,6 +1,5 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union, Tuple, ClassVar
-import polars as pl
 
 from pyhealth.tasks.base_task import BaseTask
 
@@ -47,7 +46,7 @@ class ClinicalNotesMIMIC4(BaseTask):
             )
         }
     output_schema: Dict[str, str] = {"mortality": "binary"}
-    
+
     def __init__(self):
         """Initialize the EHR Foundational Model task."""
         self.input_schema: Dict[str, Union[str, Tuple[str, Dict]]] = {
@@ -189,6 +188,11 @@ class ClinicalNotesICDLabsMIMIC4(BaseTask):
         Sodium, Potassium, Chloride, Bicarbonate, Glucose, Calcium, Magnesium,
         Anion Gap, Osmolality, Phosphate.
 
+    The ``labs_mask`` field is a parallel boolean tensor (same shape as ``labs``)
+    where ``True`` means the value was observed and ``False`` means it was
+    imputed w/ 0.0. Downstream models should use this mask to seperate
+    real zeros from missing data fill values.
+
     Examples:
         >>> from pyhealth.datasets import MIMIC4Dataset
         >>> from pyhealth.tasks.multimodal_mimic4 import ClinicalNotesICDLabsMIMIC4
@@ -266,6 +270,7 @@ class ClinicalNotesICDLabsMIMIC4(BaseTask):
             ),
             "icd_codes": ("stagenet", {"padding": self.PADDING}),
             "labs": ("stagenet_tensor", {}),
+            "labs_mask": ("stagenet_tensor", {}),
         }
         self.output_schema: Dict[str, str] = {"mortality": "binary"}
 
@@ -274,6 +279,14 @@ class ClinicalNotesICDLabsMIMIC4(BaseTask):
         return text if text else None
 
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
+        try:
+            import polars as pl
+        except ImportError:
+            raise ImportError(
+                "polars is required for ClinicalNotesICDLabsMIMIC4. "
+                "Install with: pip install polars"
+            ) from None
+
         # Get demographic info to filter by age
         demographics = patient.get_events(event_type="patients")
         if not demographics:
@@ -322,6 +335,7 @@ class ClinicalNotesICDLabsMIMIC4(BaseTask):
         all_icd_codes: List[List[str]] = []
         all_icd_times: List[float] = []
         all_lab_values: List[List[Any]] = []
+        all_lab_masks: List[List[bool]] = []  # True = observed, False = imputed 0.0
         all_lab_times: List[float] = []
         previous_admission_time = None
 
@@ -427,22 +441,29 @@ class ClinicalNotesICDLabsMIMIC4(BaseTask):
                     for lab_ts in sorted(labevents_df["timestamp"].unique().to_list()):
                         ts_labs = labevents_df.filter(pl.col("timestamp") == lab_ts)
                         lab_vector: List[Any] = []
+                        lab_mask: List[bool] = []
                         for category_name in self.LAB_CATEGORY_NAMES:
                             category_value = self.TOKEN_REPRESENTING_MISSING_FLOAT
+                            observed = False
                             for itemid in self.LAB_CATEGORIES[category_name]:
                                 matching = ts_labs.filter(pl.col("labevents/itemid") == itemid)
                                 if matching.height > 0:
                                     category_value = matching["labevents/valuenum"][0]
+                                    observed = True
                                     break
                             lab_vector.append(category_value)
+                            lab_mask.append(observed)
                         all_lab_values.append(lab_vector)
+                        all_lab_masks.append(lab_mask)
                         all_lab_times.append((lab_ts - admission_time).total_seconds() / 3600.0)
                 else: # If missing lab for a given admission
                     all_lab_values.append([self.TOKEN_REPRESENTING_MISSING_FLOAT] * len(self.LAB_CATEGORY_NAMES))
+                    all_lab_masks.append([False] * len(self.LAB_CATEGORY_NAMES))
                     all_lab_times.append(self.TOKEN_REPRESENTING_MISSING_FLOAT)
 
         if len(all_lab_values) == 0: # If missing lab for ALL admissions
             all_lab_values.append([self.TOKEN_REPRESENTING_MISSING_FLOAT] * len(self.LAB_CATEGORY_NAMES))
+            all_lab_masks.append([False] * len(self.LAB_CATEGORY_NAMES))
             all_lab_times.append(self.TOKEN_REPRESENTING_MISSING_FLOAT)
 
         discharge_note_times_from_admission = (all_discharge_texts, all_discharge_times_from_admission)
@@ -454,9 +475,10 @@ class ClinicalNotesICDLabsMIMIC4(BaseTask):
                 "radiology_note_times": radiology_note_times_from_admission,
                 "icd_codes": (all_icd_times, all_icd_codes),
                 "labs": (all_lab_times, all_lab_values),
+                "labs_mask": (all_lab_times, all_lab_masks),
                 "mortality": mortality_label,
             }
-        
+
         return [
             single_patient_longitudinal_record
         ]
