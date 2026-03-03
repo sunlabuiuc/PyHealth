@@ -394,11 +394,12 @@ class AdaCare(BaseModel):
                     NestedSequenceProcessor,
                     NestedFloatsProcessor,
                     DeepNestedFloatsProcessor,
+                    TimeseriesProcessor,
                 ),
             ):
                 raise ValueError(
                     """AdaCare only supports SequenceProcessor, NestedSequenceProcessor,
-                    NestedFloatsProcessor, DeepNestedFloatsProcessor."""
+                    NestedFloatsProcessor, DeepNestedFloatsProcessor, TimeseriesProcessor."""
                 )
 
             self.adacare[feature_key] = AdaCareLayer(
@@ -442,10 +443,10 @@ class AdaCare(BaseModel):
             if embeds.dim() == 3:
                 if isinstance(processor, NestedFloatsProcessor):
                     mask = torch.any(mask, dim=2)
-                elif isinstance(processor, SequenceProcessor):
+                elif isinstance(processor, (SequenceProcessor, TimeseriesProcessor)):
                     pass
                 else:
-                    raise ValueError(f"Expected NestedFloatsProcessor or SequenceProcessor for 3D input, got {type(processor)}")
+                    raise ValueError(f"Expected NestedFloatsProcessor, SequenceProcessor, or TimeseriesProcessor for 3D input, got {type(processor)}")
             elif embeds.dim() == 4:
                 if isinstance(processor, NestedSequenceProcessor):
                     embeds = torch.sum(embeds, dim=2)

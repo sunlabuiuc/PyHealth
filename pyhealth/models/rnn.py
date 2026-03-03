@@ -276,22 +276,28 @@ class RNN(BaseModel):
         
         for feature_key in self.feature_keys:
             x = embedded[feature_key]
-            # Use abs() before sum to catch edge cases where embeddings sum to 0
-            # @TODO bug with 0 embedding sum can still persist if the embedding is all 0s but the mask is not all 0s. 
-            # despite being valid values (e.g., [1.0, -1.0])
-            
-            # If we have an explicit mask, use it
-            if feature_key in masks:
-                mask = masks[feature_key].to(self.device).int()
-                # Token-level mask (B, N_notes, L): reduce to note-level (B, N_notes)
-                # by checking whether each note has at least one valid token.
-                # This is needed when TupleTimeTextProcessor returns 3D token masks that
-                # EmbeddingModel has already pooled down to (B, N_notes, H).
-                if mask.dim() == 3:
-                    mask = (mask.sum(dim=-1) > 0).int()   # (B, N_notes)
+
+            x_dim_orig = x.dim()
+            if x_dim_orig == 4:
+                # nested_sequence: (B, num_visits, num_codes, D)
+                # @TODO: sum-pooling across codes is a simple baseline. May need to investigate better embeddings for nested codes.
+                x = x.sum(dim=2)  # (B, num_visits, D)
+                if feature_key in masks:
+                    mask = (masks[feature_key].to(self.device).sum(dim=-1) > 0).int()  # (B, V)
+                else:
+                    mask = (torch.abs(x).sum(dim=-1) != 0).int()
+            elif x_dim_orig == 2:
+                x = x.unsqueeze(1)
+                mask = None
             else:
-                mask = (torch.abs(x).sum(dim=-1) != 0).int()
-            
+                # 3D: already (B, T, D)
+                if feature_key in masks:
+                    mask = masks[feature_key].to(self.device).int()
+                    if mask.dim() == 3:
+                        mask = (mask.sum(dim=-1) > 0).int()
+                else:
+                    mask = (torch.abs(x).sum(dim=-1) != 0).int()
+
             _, x = self.rnn[feature_key](x, mask)
             patient_emb.append(x)
 
@@ -508,6 +514,22 @@ class MultimodalRNN(BaseModel):
         for feature_key in self.sequential_features:
             x = embedded[feature_key]
             m = mask[feature_key]
+            
+            x_dim_orig = x.dim()
+            # Pool across events if needed
+            if x_dim_orig == 4:
+                b, v, e, d = x.shape
+                x = x.view(b, v * e, d)
+            elif x_dim_orig == 2:
+                x = x.unsqueeze(1)
+                
+            if x_dim_orig == 4 and m.dim() == 3:
+                m = m.view(b, v * e)
+            elif m.dim() == 3:
+                m = (m.sum(dim=-1) > 0).int()
+            elif m.dim() == 1:
+                m = m.unsqueeze(1)
+
             _, last_hidden = self.rnn[feature_key](x, m)
             patient_emb.append(last_hidden)
 
