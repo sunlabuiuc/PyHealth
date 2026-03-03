@@ -12,6 +12,7 @@ from torch import nn
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.embedding import EmbeddingModel
+from pyhealth.models.embedding.unified import UnifiedMultimodalEmbeddingModel
 from pyhealth.interpret.api import CheferInterpretable
 
 # VALID_OPERATION_LEVEL = ["visit", "event"]
@@ -320,12 +321,21 @@ class Transformer(BaseModel, CheferInterpretable):
     an independent :class:`TransformerLayer`. The resulting [CLS]-style
     embeddings are concatenated and passed to a classification head.
 
+    When ``unified_embedding`` is supplied the model switches to **unified
+    mode**: all temporal fields are jointly embedded and time-sorted by
+    :class:`UnifiedMultimodalEmbeddingModel`, then processed by a *single*
+    :class:`TransformerLayer` rather than one layer per field.  This allows
+    full cross-modal attention over the interleaved event sequence.
+
     Args:
         dataset (SampleDataset): dataset providing processed inputs.
         embedding_dim (int): shared embedding dimension.
         heads (int): number of attention heads per transformer block.
         dropout (float): dropout rate applied inside transformer blocks.
         num_layers (int): number of transformer blocks per feature stream.
+        unified_embedding (UnifiedMultimodalEmbeddingModel, optional): when
+            provided, the model uses a single backbone over the unified
+            multi-modal sequence instead of per-field transformers.
 
     Examples:
         >>> from pyhealth.datasets import create_sample_dataset, get_dataloader
@@ -368,6 +378,7 @@ class Transformer(BaseModel, CheferInterpretable):
         heads: int = 1,
         dropout: float = 0.5,
         num_layers: int = 1,
+        unified_embedding: Optional[UnifiedMultimodalEmbeddingModel] = None,
     ):
         super().__init__(dataset=dataset)
         self.embedding_dim = embedding_dim
@@ -375,6 +386,7 @@ class Transformer(BaseModel, CheferInterpretable):
         self.dropout = dropout
         self.num_layers = num_layers
         self._attention_hooks_enabled = False
+        self._use_unified = unified_embedding is not None
 
         assert (
             len(self.label_keys) == 1
@@ -382,19 +394,80 @@ class Transformer(BaseModel, CheferInterpretable):
         self.label_key = self.label_keys[0]
         self.mode = self.dataset.output_schema[self.label_key]
 
-        self.embedding_model = EmbeddingModel(dataset, embedding_dim)
+        output_size = self.get_output_size()
 
-        self.transformer: nn.ModuleDict = nn.ModuleDict()
-        for feature_key in self.feature_keys:
-            self.transformer[feature_key] = TransformerLayer(
+        if self._use_unified:
+            self.embedding_model = unified_embedding
+            self._unified_backbone = TransformerLayer(
                 feature_size=embedding_dim,
                 heads=heads,
                 dropout=dropout,
                 num_layers=num_layers,
             )
+            self.fc = nn.Linear(embedding_dim, output_size)
+        else:
+            self.embedding_model = EmbeddingModel(dataset, embedding_dim)
+            self.transformer: nn.ModuleDict = nn.ModuleDict()
+            for feature_key in self.feature_keys:
+                self.transformer[feature_key] = TransformerLayer(
+                    feature_size=embedding_dim,
+                    heads=heads,
+                    dropout=dropout,
+                    num_layers=num_layers,
+                )
+            self.fc = nn.Linear(len(self.feature_keys) * embedding_dim, output_size)
 
-        output_size = self.get_output_size()
-        self.fc = nn.Linear(len(self.feature_keys) * embedding_dim, output_size)
+    def _build_unified_inputs(
+        self, kwargs: Dict[str, Any]
+    ) -> Dict[str, Dict[str, torch.Tensor]]:
+        """Build the inputs dict required by UnifiedMultimodalEmbeddingModel.
+
+        Reads each feature field from *kwargs* using the processor schema to
+        extract ``value``, ``time``, and optional ``mask`` tensors.
+        """
+        inputs: Dict[str, Dict[str, torch.Tensor]] = {}
+        for field_name in self.feature_keys:
+            feature = kwargs[field_name]
+            if isinstance(feature, torch.Tensor):
+                feature = (feature,)
+            schema = self.dataset.input_processors[field_name].schema()
+            field_dict: Dict[str, torch.Tensor] = {}
+            if "value" in schema:
+                field_dict["value"] = feature[schema.index("value")].to(self.device)
+            if "time" in schema:
+                field_dict["time"] = feature[schema.index("time")].to(self.device)
+            if "mask" in schema:
+                field_dict["mask"] = feature[schema.index("mask")].to(self.device)
+            inputs[field_name] = field_dict
+        return inputs
+
+    def _forward_unified(
+        self,
+        **kwargs: torch.Tensor | tuple[torch.Tensor, ...],
+    ) -> Dict[str, torch.Tensor]:
+        """Forward pass in unified-embedding mode.
+
+        Calls :class:`UnifiedMultimodalEmbeddingModel` to produce a single
+        temporally-sorted event sequence, then encodes it with one
+        :class:`TransformerLayer` and projects to label space.
+        """
+        inputs = self._build_unified_inputs(kwargs)
+        out = self.embedding_model(inputs)
+        sequence   = out["sequence"]       # (B, S_total, E)
+        event_mask = out["mask"].bool()    # (B, S_total)
+
+        _, cls_emb = self._unified_backbone(sequence, event_mask)
+        logits = self.fc(cls_emb)
+        y_prob = self.prepare_y_prob(logits)
+
+        results: Dict[str, torch.Tensor] = {"logit": logits, "y_prob": y_prob}
+        if self.label_key in kwargs:
+            y_true = cast(torch.Tensor, kwargs[self.label_key]).to(self.device)
+            results["loss"] = self.get_loss_function()(logits, y_true)
+            results["y_true"] = y_true
+        if kwargs.get("embed", False):
+            results["embed"] = cls_emb
+        return results
 
     @staticmethod
     def _pool_embedding(x: torch.Tensor) -> torch.Tensor:
@@ -532,6 +605,11 @@ class Transformer(BaseModel, CheferInterpretable):
     ) -> Dict[str, torch.Tensor]:
         """Forward propagation.
 
+        In **unified mode** (when ``unified_embedding`` was supplied at init)
+        the model jointly embeds all temporal fields and processes them with a
+        single transformer backbone.  Otherwise each field is embedded and
+        encoded independently.
+
         Args:
             **kwargs: keyword arguments for the model.
 
@@ -549,6 +627,9 @@ class Transformer(BaseModel, CheferInterpretable):
                 logit: the raw logits before activation.
                 embed: (if embed=True in kwargs) the patient embedding.
         """
+        if self._use_unified:
+            return self._forward_unified(**kwargs)
+
         for feature_key in self.feature_keys:
             feature = kwargs[feature_key]
 

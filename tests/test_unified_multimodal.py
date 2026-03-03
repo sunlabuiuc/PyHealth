@@ -184,7 +184,7 @@ def test_sinusoidal_different_times_differ():
     assert not torch.allclose(t0, t1)
 
 
-# ── 6. UnifiedMultimodalEmbeddingModel — code-only smoke test ─────────────────
+# ── 6. UnifiedMultimodalEmbeddingModel, code-only smoke test ─────────────────
 
 def _make_code_processors_and_inputs(batch_size=2, seq_len=5):
     """Build a minimal dataset mock with a single CODE-modality field."""
@@ -245,7 +245,7 @@ def test_unified_model_gradient_flow():
 
     # type_embedding grad should be non-zero
     assert model.type_embedding.weight.grad is not None
-    assert model.time_embed.freqs.grad is None  # buffer, not parameter — OK
+    assert model.time_embed.freqs.grad is None  # buffer, not parameter, OK
 
 
 def test_unified_model_time_sort():
@@ -266,3 +266,234 @@ def test_unified_model_time_sort():
     out   = model({"c": {"value": value, "time": time}})
     assert out["time"][0, 0].item() == pytest.approx(0.0)
     assert out["time"][0, 1].item() == pytest.approx(10.0)
+
+
+# ── 7. field_embeddings: reuse pre-built unimodal encoder ─────────────────────
+
+
+def test_unified_field_embeddings_reuses_encoder():
+    """field_embeddings: encoder from a pre-built model is used in-place."""
+    import torch.nn as nn
+    from pyhealth.models.embedding import UnifiedMultimodalEmbeddingModel
+    from pyhealth.processors import StageNetProcessor
+
+    proc = StageNetProcessor()
+    proc.fit([{"codes": (None, [f"c{i}" for i in range(5)])}], "codes")
+    vocab_size = proc.value_dim()
+
+    # Simulate a pre-built EmbeddingModel via a lightweight mock
+    pre_emb = nn.Embedding(vocab_size, 32)
+
+    class _MockEmbedModel:
+        embedding_dim = 32
+        embedding_layers = {"codes": pre_emb}
+
+    model = UnifiedMultimodalEmbeddingModel(
+        processors={"codes": proc},
+        embedding_dim=32,
+        field_embeddings={"codes": _MockEmbedModel()},
+    )
+    # The encoder registered should be the exact same object
+    assert model.encoders["codes"] is pre_emb
+
+
+def test_unified_field_embeddings_projection_added_on_dim_mismatch():
+    """When pre-built embedding_dim != unified embedding_dim, a projection is added."""
+    import torch.nn as nn
+    from pyhealth.models.embedding import UnifiedMultimodalEmbeddingModel
+    from pyhealth.processors import StageNetProcessor
+
+    proc = StageNetProcessor()
+    proc.fit([{"codes": (None, ["A", "B"])}], "codes")
+    vocab_size = proc.value_dim()
+
+    pre_emb = nn.Embedding(vocab_size, 16)  # pre-built dim=16
+
+    class _MockEmbedModel:
+        embedding_dim = 16
+        embedding_layers = {"codes": pre_emb}
+
+    model = UnifiedMultimodalEmbeddingModel(
+        processors={"codes": proc},
+        embedding_dim=32,  # different from pre-built
+        field_embeddings={"codes": _MockEmbedModel()},
+    )
+    # A Sequential(pre_emb, nn.Linear(16→32)) should be built
+    assert isinstance(model.encoders["codes"], nn.Sequential)
+    # Forward should produce embedding_dim=32
+    value = torch.randint(1, vocab_size, (2, 3))
+    time  = torch.arange(3, dtype=torch.float32).unsqueeze(0).expand(2, -1)
+    out   = model({"codes": {"value": value, "time": time}})
+    assert out["sequence"].shape[-1] == 32
+
+
+def test_unified_field_embeddings_forward():
+    """End-to-end forward with field_embeddings reusing a CODE encoder."""
+    import torch.nn as nn
+    from pyhealth.models.embedding import UnifiedMultimodalEmbeddingModel
+    from pyhealth.processors import StageNetProcessor
+
+    proc = StageNetProcessor()
+    proc.fit([{"codes": (None, [f"c{i}" for i in range(4)])}], "codes")
+    vocab_size = proc.value_dim()
+
+    pre_emb = nn.Embedding(vocab_size, 64)
+
+    class _MockEmbedModel:
+        embedding_dim = 64
+        embedding_layers = {"codes": pre_emb}
+
+    model = UnifiedMultimodalEmbeddingModel(
+        processors={"codes": proc},
+        embedding_dim=64,
+        field_embeddings={"codes": _MockEmbedModel()},
+    )
+    value = torch.randint(1, vocab_size, (3, 4))
+    time  = torch.arange(4, dtype=torch.float32).unsqueeze(0).expand(3, -1)
+    out   = model({"codes": {"value": value, "time": time}})
+
+    assert out["sequence"].shape == (3, 4, 64)
+    assert out["mask"].shape == (3, 4)
+
+
+# ── 8. Downstream models in unified mode ──────────────────────────────────────
+
+
+def _make_stagenet_dataset(n_codes: int = 5):
+    """Build a minimal SampleDataset with one StageNetProcessor field.
+
+    Time arrays are kept the same length as the code arrays so that the
+    temporal batch has consistent shapes.
+    """
+    from pyhealth.datasets import create_sample_dataset
+
+    codes_p0 = [f"c{i}" for i in range(n_codes)]
+    times_p0 = [float(i) for i in range(n_codes)]
+    codes_p1 = [f"c{i}" for i in range(2)]
+    times_p1 = [0.0, 1.0]
+
+    samples = [
+        {
+            "patient_id": "p0",
+            "visit_id": "v0",
+            "codes": (times_p0, codes_p0),
+            "label": 1,
+        },
+        {
+            "patient_id": "p1",
+            "visit_id": "v1",
+            "codes": (times_p1, codes_p1),
+            "label": 0,
+        },
+    ]
+    return create_sample_dataset(
+        samples,
+        input_schema={"codes": "stagenet"},
+        output_schema={"label": "binary"},
+        dataset_name="test_unified_downstream",
+    )
+
+
+def test_transformer_unified_mode():
+    """Transformer with unified_embedding uses a single backbone + forward works."""
+    from pyhealth.datasets.utils import get_dataloader
+    from pyhealth.models.embedding import UnifiedMultimodalEmbeddingModel
+    from pyhealth.models.transformer import Transformer
+
+    dataset = _make_stagenet_dataset()
+    unified = UnifiedMultimodalEmbeddingModel(
+        processors=dataset.input_processors,
+        embedding_dim=32,
+    )
+    model = Transformer(dataset=dataset, embedding_dim=32, unified_embedding=unified)
+
+    loader = get_dataloader(dataset, batch_size=2, shuffle=False)
+    batch  = next(iter(loader))
+    out    = model(**batch)
+
+    assert "loss" in out and "y_prob" in out and "logit" in out
+    out["loss"].backward()
+    # fc input size should be embedding_dim, not n_fields * embedding_dim
+    assert model.fc.in_features == 32
+
+
+def test_ehrmamba_unified_mode():
+    """EHRMamba with unified_embedding uses a single Mamba stack."""
+    from pyhealth.datasets.utils import get_dataloader
+    from pyhealth.models.embedding import UnifiedMultimodalEmbeddingModel
+    from pyhealth.models.ehrmamba import EHRMamba
+
+    dataset = _make_stagenet_dataset()
+    unified = UnifiedMultimodalEmbeddingModel(
+        processors=dataset.input_processors,
+        embedding_dim=32,
+    )
+    model = EHRMamba(
+        dataset=dataset,
+        embedding_dim=32,
+        num_layers=1,
+        unified_embedding=unified,
+    )
+
+    loader = get_dataloader(dataset, batch_size=2, shuffle=False)
+    batch  = next(iter(loader))
+    out    = model(**batch)
+
+    assert "loss" in out and "y_prob" in out
+    out["loss"].backward()
+    assert model.fc.in_features == 32
+
+
+def test_jamba_ehr_unified_mode():
+    """JambaEHR with unified_embedding uses a single JambaLayer."""
+    from pyhealth.datasets.utils import get_dataloader
+    from pyhealth.models.embedding import UnifiedMultimodalEmbeddingModel
+    from pyhealth.models.jamba_ehr import JambaEHR
+
+    dataset = _make_stagenet_dataset()
+    unified = UnifiedMultimodalEmbeddingModel(
+        processors=dataset.input_processors,
+        embedding_dim=32,
+    )
+    model = JambaEHR(
+        dataset=dataset,
+        embedding_dim=32,
+        num_transformer_layers=1,
+        num_mamba_layers=1,
+        heads=2,
+        unified_embedding=unified,
+    )
+
+    loader = get_dataloader(dataset, batch_size=2, shuffle=False)
+    batch  = next(iter(loader))
+    out    = model(**batch)
+
+    assert "loss" in out and "y_prob" in out
+    out["loss"].backward()
+    assert model.fc.in_features == 32
+
+
+def test_unified_per_field_backward_compat():
+    """Models without unified_embedding still work in per-field mode."""
+    from pyhealth.datasets.utils import get_dataloader
+    from pyhealth.models.transformer import Transformer
+
+    dataset = _make_stagenet_dataset()
+    # Uses SequenceProcessor-style input_schema for per-field mode
+    from pyhealth.datasets import create_sample_dataset
+    samples = [
+        {"patient_id": "p0", "visit_id": "v0", "codes": ["A", "B", "C"], "label": 1},
+        {"patient_id": "p1", "visit_id": "v1", "codes": ["D", "E"], "label": 0},
+    ]
+    ds = create_sample_dataset(
+        samples,
+        input_schema={"codes": "sequence"},
+        output_schema={"label": "binary"},
+        dataset_name="test_compat",
+    )
+    model = Transformer(dataset=ds, embedding_dim=32)
+    loader = get_dataloader(ds, batch_size=2, shuffle=False)
+    batch  = next(iter(loader))
+    out    = model(**batch)
+    assert "loss" in out
+    out["loss"].backward()
