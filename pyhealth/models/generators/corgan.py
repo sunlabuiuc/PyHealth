@@ -632,9 +632,18 @@ class CorGAN(BaseModel):
             val_dataset: Unused. Accepted for API compatibility.
 
         Returns:
-            None
+            dict: Loss history with keys:
+                - ``"autoencoder_loss"``: list of float, one per pretrain epoch.
+                - ``"discriminator_loss"``: list of float, one per adversarial epoch.
+                - ``"generator_loss"``: list of float, one per adversarial epoch.
         """
         print("Starting CorGAN training...")
+
+        history = {
+            "autoencoder_loss": [],
+            "discriminator_loss": [],
+            "generator_loss": [],
+        }
 
         # build multi-hot matrix by stacking the pre-encoded tensors from MultiHotProcessor
         tensors = [train_dataset[i]["visits"] for i in range(len(train_dataset))]
@@ -673,6 +682,7 @@ class CorGAN(BaseModel):
 
                 if i % 100 == 0:
                     print(f"[Epoch {epoch_pre + 1}/{self.n_epochs_pretrain}] [Batch {i}/{len(train_dataloader)}] [A loss: {a_loss.item():.3f}]")
+            history["autoencoder_loss"].append(a_loss.item())
 
         # adversarial training
         print(f"Starting adversarial training for {self.n_epochs} epochs...")
@@ -760,6 +770,8 @@ class CorGAN(BaseModel):
                   f"Loss_D: {errD.item():.3f} Loss_G: {errG.item():.3f} "
                   f"Loss_D_real: {errD_real.item():.3f} Loss_D_fake: {errD_fake.item():.3f}")
             print(f"Epoch time: {epoch_end - epoch_start:.2f} seconds")
+            history["discriminator_loss"].append(errD.item())
+            history["generator_loss"].append(errG.item())
 
         print("Training completed!")
 
@@ -769,6 +781,8 @@ class CorGAN(BaseModel):
             checkpoint_path = os.path.join(self.save_dir, "corgan_final.pt")
             self.save_model(checkpoint_path)
             print(f"Checkpoint saved to {checkpoint_path}")
+
+        return history
 
     def synthesize_dataset(self, num_samples: int, random_sampling: bool = True) -> List[Dict]:
         """Generate synthetic patient records.

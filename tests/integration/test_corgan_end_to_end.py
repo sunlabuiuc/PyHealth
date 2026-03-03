@@ -281,6 +281,35 @@ class TestCorGANSaveLoadRoundtrip(unittest.TestCase):
             self.assertEqual(len(result), 3)
 
 
+class TestCorGANTrainModelReturnsLossHistory(unittest.TestCase):
+    """train_model() returns a dict with three loss lists."""
+
+    def test_train_model_returns_loss_history(self):
+        ds = _make_dataset()
+        model = CorGAN(dataset=ds, **_SMALL_MODEL_KWARGS)
+        history = model.train_model(ds)
+
+        self.assertIsInstance(history, dict)
+        self.assertIn("autoencoder_loss", history)
+        self.assertIn("discriminator_loss", history)
+        self.assertIn("generator_loss", history)
+        self.assertEqual(
+            len(history["autoencoder_loss"]),
+            _SMALL_MODEL_KWARGS["n_epochs_pretrain"],
+        )
+        self.assertEqual(
+            len(history["discriminator_loss"]),
+            _SMALL_MODEL_KWARGS["epochs"],
+        )
+        self.assertEqual(
+            len(history["generator_loss"]),
+            _SMALL_MODEL_KWARGS["epochs"],
+        )
+        self.assertTrue(
+            all(isinstance(v, float) for v in history["autoencoder_loss"])
+        )
+
+
 # ---------------------------------------------------------------------------
 # Category B: MIMIC-III Integration Tests (skipped if data unavailable)
 # ---------------------------------------------------------------------------
