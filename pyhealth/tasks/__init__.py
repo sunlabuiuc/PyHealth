@@ -1,14 +1,23 @@
 from .base_task import BaseTask
 from .benchmark_ehrshot import BenchmarkEHRShot
+from .ehr_generation import (
+    PromptEHRGenerationMIMIC3,
+    PromptEHRGenerationMIMIC4,
+    promptehr_generation_mimic3_fn,
+    promptehr_generation_mimic4_fn,
+)
 from .cancer_survival import CancerMutationBurden, CancerSurvivalPrediction
 from .bmd_hs_disease_classification import BMDHSDiseaseClassification
-from .cardiology_detect import (
-    cardiology_isAD_fn,
-    cardiology_isAR_fn,
-    cardiology_isBBBFB_fn,
-    cardiology_isCD_fn,
-    cardiology_isWA_fn,
-)
+try:
+    from .cardiology_detect import (
+        cardiology_isAD_fn,
+        cardiology_isAR_fn,
+        cardiology_isBBBFB_fn,
+        cardiology_isCD_fn,
+        cardiology_isWA_fn,
+    )
+except ImportError:
+    pass  # scipy unavailable; cardiology tasks not registered
 from .chestxray14_binary_classification import ChestXray14BinaryClassification
 from .chestxray14_multilabel_classification import ChestXray14MultilabelClassification
 from .covid19_cxr_classification import COVID19CXRClassification
@@ -21,8 +30,14 @@ from .drug_recommendation import (
     drug_recommendation_mimic4_fn,
     drug_recommendation_omop_fn,
 )
-from .EEG_abnormal import EEG_isAbnormal_fn
-from .EEG_events import EEG_events_fn
+try:
+    from .EEG_abnormal import EEG_isAbnormal_fn
+except ImportError:
+    pass  # mne unavailable
+try:
+    from .EEG_events import EEG_events_fn
+except ImportError:
+    pass  # mne unavailable
 from .in_hospital_mortality_mimic4 import InHospitalMortalityMIMIC4
 from .length_of_stay_prediction import (
     LengthOfStayPredictioneICU,
@@ -53,16 +68,25 @@ from .readmission_prediction import (
     ReadmissionPredictionMIMIC4,
     ReadmissionPredictionOMOP,
 )
-from .sleep_staging import (
-    sleep_staging_isruc_fn,
-    sleep_staging_shhs_fn,
-    sleep_staging_sleepedf_fn,
-)
-from .sleep_staging_v2 import SleepStagingSleepEDF
-from .temple_university_EEG_tasks import (
-    EEGEventsTUEV,
-    EEGAbnormalTUAB
-)
+try:
+    from .sleep_staging import (
+        sleep_staging_isruc_fn,
+        sleep_staging_shhs_fn,
+        sleep_staging_sleepedf_fn,
+    )
+except ImportError:
+    pass  # mne unavailable
+try:
+    from .sleep_staging_v2 import SleepStagingSleepEDF
+except ImportError:
+    pass  # mne unavailable
+try:
+    from .temple_university_EEG_tasks import (
+        EEGEventsTUEV,
+        EEGAbnormalTUAB
+    )
+except ImportError:
+    pass  # mne unavailable
 from .variant_classification import (
     MutationPathogenicityPrediction,
     VariantClassificationClinVar,
