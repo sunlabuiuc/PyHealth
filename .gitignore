@@ -137,3 +137,6 @@ data/physionet.org/
 
 # VSCode settings
 .vscode/
+
+# Local Data
+local_data/
