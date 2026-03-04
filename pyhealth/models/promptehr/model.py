@@ -458,6 +458,10 @@ class _PromptEHRVocab:
         current_visit: List[str] = []
         in_visit = False
         for tid in token_ids:
+            if tid in (self.PAD, self.BOS, self.EOS):
+                continue  # skip framing tokens (BOS is first in generate output)
+            if tid == self.SEQ_END:
+                break
             if tid == self.VISIT_START:
                 in_visit = True
                 current_visit = []
@@ -465,8 +469,6 @@ class _PromptEHRVocab:
                 if in_visit:
                     visits.append(current_visit)
                     in_visit = False
-            elif tid in (self.SEQ_END, self.EOS, self.PAD, self.BOS):
-                break
             elif in_visit and tid >= self.CODE_OFFSET:
                 code = self._bart_to_code.get(tid)
                 if code:
