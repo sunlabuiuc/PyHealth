@@ -18,7 +18,10 @@ def get_processor(name: str):
 
 
 # Import all processors so they register themselves
-from .image_processor import ImageProcessor
+try:
+    from .image_processor import ImageProcessor
+except ImportError:
+    pass  # PIL/torchvision unavailable
 from .label_processor import (
     BinaryLabelProcessor,
     MultiClassLabelProcessor,
@@ -44,7 +47,10 @@ from .stagenet_processor import (
 from .tensor_processor import TensorProcessor
 from .text_processor import TextProcessor
 from .timeseries_processor import TimeseriesProcessor
-from .time_image_processor import TimeImageProcessor
+try:
+    from .time_image_processor import TimeImageProcessor
+except ImportError:
+    pass  # PIL/torchvision unavailable
 from .audio_processor import AudioProcessor
 from .ignore_processor import IgnoreProcessor
 from .tuple_time_text_processor import TupleTimeTextProcessor
