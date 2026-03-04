@@ -751,6 +751,7 @@ class PromptEHR(BaseModel):
                     x_num=x_num,
                     x_cat=x_cat,
                     max_length=self.max_seq_length,
+                    num_beams=1,
                     do_sample=random_sampling,
                     temperature=0.7 if random_sampling else 1.0,
                     top_p=0.95 if random_sampling else 1.0,
