@@ -33,7 +33,7 @@ dependencies = [
   "networkx",
   "mne~=1.10.0",
   "urllib3~=2.5.0",
-  "numpy~=2.2.0",
+  "numpy>=2.0.0",
   "tqdm",
   "polars~=1.35.2",
   "pandas~=2.3.1",
