@@ -23,7 +23,9 @@ class ClinicalNotesMIMIC4(BaseTask):
         ... )
         >>> task = ClinicalNotesMIMIC4()
         >>> samples = dataset.set_task(task)
-    """
+    """   
+    TOKEN_REPRESENTING_MISSING_TEXT = ""
+    TOKEN_REPRESENTING_MISSING_FLOAT = 0.0
 
     TOKEN_REPRESENTING_MISSING_TEXT = ""
     TOKEN_REPRESENTING_MISSING_FLOAT = 0.0
