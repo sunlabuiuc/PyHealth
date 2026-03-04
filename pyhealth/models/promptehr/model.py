@@ -722,7 +722,9 @@ class PromptEHR(BaseModel):
                 ``"visits"`` (list of list of str): decoded code strings per visit.
         """
         self.bart_model.eval()
-        device = self.device
+        # Use bart_model's device, not self.device — HuggingFace Trainer
+        # moves bart_model to GPU but doesn't move the parent PromptEHR module.
+        device = next(self.bart_model.parameters()).device
 
         results = []
         with torch.no_grad():
