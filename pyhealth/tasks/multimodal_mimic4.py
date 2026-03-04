@@ -49,23 +49,6 @@ class ClinicalNotesMIMIC4(BaseTask):
 
     def __init__(self):
         """Initialize the EHR Foundational Model task."""
-        self.input_schema: Dict[str, Union[str, Tuple[str, Dict]]] = {
-            "discharge_note_times": (
-                "tuple_time_text",
-                {
-                    "tokenizer_model": "bert-base-uncased",
-                    "type_tag": "note",
-                },
-            ),
-            "radiology_note_times": (
-                "tuple_time_text",
-                {
-                    "tokenizer_model": "bert-base-uncased",
-                    "type_tag": "note",
-                },
-            )
-        }
-        self.output_schema: Dict[str, str] = {"mortality": "binary"}
 
     def _clean_text(self, text: Optional[str]) -> Optional[str]:
         """Return text if non-empty, otherwise None."""
@@ -225,7 +208,10 @@ class ClinicalNotesICDLabsMIMIC4(BaseTask):
                     "tokenizer_model": "bert-base-uncased",
                     "type_tag": "note",
                 },
-            )
+            ),
+            "icd_codes": ("stagenet", {"padding": PADDING}),
+            "labs": ("stagenet_tensor", {}),
+            "labs_mask": ("stagenet_tensor", {}),
         }
     output_schema: Dict[str, str] = {"mortality": "binary"}
 
@@ -253,26 +239,6 @@ class ClinicalNotesICDLabsMIMIC4(BaseTask):
 
     def __init__(self):
         """Initialize the EHR Foundational Model task."""
-        self.input_schema: Dict[str, Union[str, Tuple[str, Dict]]] = {
-            "discharge_note_times": (
-                "tuple_time_text",
-                {
-                    "tokenizer_model": "bert-base-uncased",
-                    "type_tag": "note",
-                },
-            ),
-            "radiology_note_times": (
-                "tuple_time_text",
-                {
-                    "tokenizer_model": "bert-base-uncased",
-                    "type_tag": "note",
-                },
-            ),
-            "icd_codes": ("stagenet", {"padding": self.PADDING}),
-            "labs": ("stagenet_tensor", {}),
-            "labs_mask": ("stagenet_tensor", {}),
-        }
-        self.output_schema: Dict[str, str] = {"mortality": "binary"}
 
     def _clean_text(self, text: Optional[str]) -> Optional[str]:
         """Return text if non-empty, otherwise None."""
@@ -283,8 +249,7 @@ class ClinicalNotesICDLabsMIMIC4(BaseTask):
             import polars as pl
         except ImportError:
             raise ImportError(
-                "polars is required for ClinicalNotesICDLabsMIMIC4. "
-                "Install with: pip install polars"
+                "Polars is required for ClinicalNotesICDLabsMIMIC4."
             ) from None
 
         # Get demographic info to filter by age
