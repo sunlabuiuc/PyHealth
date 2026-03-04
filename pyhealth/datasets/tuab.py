@@ -5,7 +5,10 @@ from pathlib import Path
 
 from typing import Optional
 from .base_dataset import BaseDataset
-from pyhealth.tasks import EEGAbnormalTUAB
+try:
+    from pyhealth.tasks import EEGAbnormalTUAB
+except ImportError:
+    EEGAbnormalTUAB = None  # mne unavailable; TUABDataset.default_task will raise if called
 
 logger = logging.getLogger(__name__)
 

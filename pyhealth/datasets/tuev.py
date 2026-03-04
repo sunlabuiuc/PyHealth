@@ -5,7 +5,10 @@ from pathlib import Path
 
 from typing import Optional
 from .base_dataset import BaseDataset
-from pyhealth.tasks import EEGEventsTUEV
+try:
+    from pyhealth.tasks import EEGEventsTUEV
+except ImportError:
+    EEGEventsTUEV = None  # mne unavailable; TUEVDataset.default_task will raise if called
 
 logger = logging.getLogger(__name__)
 
