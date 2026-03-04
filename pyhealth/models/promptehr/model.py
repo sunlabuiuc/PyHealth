@@ -8,12 +8,25 @@ Ported from pehr_scratch/prompt_bart_model.py (lines 16-276, excluding auxiliary
 
 import os
 import random
+import sys
 from typing import Dict, List, Optional, Tuple
 import torch
 import torch.nn as nn
 from torch.nn.utils.rnn import pad_sequence
-from transformers import BartConfig, BartForConditionalGeneration
-from transformers.modeling_outputs import Seq2SeqLMOutput
+
+# Temporarily hide torchvision so transformers skips the
+# image_utils → torchvision → PIL import chain (which fails in Colab
+# due to mixed-version Pillow files). PromptEHR only needs BART,
+# not any vision functionality from transformers.
+_tv = sys.modules.pop("torchvision", None)
+try:
+    from transformers import BartConfig, BartForConditionalGeneration
+    from transformers.modeling_outputs import Seq2SeqLMOutput
+finally:
+    if _tv is not None:
+        sys.modules["torchvision"] = _tv
+
+del _tv
 
 from pyhealth.models import BaseModel
 from .conditional_prompt import ConditionalPromptEncoder
