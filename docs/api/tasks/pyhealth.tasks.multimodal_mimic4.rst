@@ -5,3 +5,8 @@ pyhealth.tasks.multimodal_mimic4
     :members:
     :undoc-members:
     :show-inheritance:
+
+.. autoclass:: pyhealth.tasks.multimodal_mimic4.ClinicalNotesICDLabsMIMIC4
+    :members:
+    :undoc-members:
+    :show-inheritance:
