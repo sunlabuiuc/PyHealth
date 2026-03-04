@@ -107,6 +107,9 @@ class TestCachingFunctionality(BaseTestCase):
         self.dataset = MockDataset(cache_dir=self.temp_dir.name)
         self.task = MockTask()
 
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
     def test_set_task_signature(self):
         """Test that set_task has the correct method signature."""
         import inspect
@@ -295,6 +298,40 @@ class TestCachingFunctionality(BaseTestCase):
         dataset2 = MockDataset(dev=False, cache_dir=self.temp_dir.name)
 
         self.assertNotEqual(dataset1.cache_dir, dataset2.cache_dir)
+
+    def test_incomplete_parquet_cache_triggers_rebuild(self):
+        """A global_event_df.parquet dir that exists but holds no *.parquet files
+        is detected as incomplete, logged as a warning, torn down, and rebuilt."""
+        ret_path = self.dataset.cache_dir / "global_event_df.parquet"
+
+        # Simulate a partial/interrupted write: directory exists but no parquet files
+        ret_path.mkdir(parents=True, exist_ok=True)
+        stale_file = ret_path / "incomplete.tmp"
+        stale_file.touch()
+
+        self.assertTrue(ret_path.is_dir())
+        self.assertFalse(any(ret_path.glob("*.parquet")))
+
+        # global_event_df should detect the incomplete cache, emit a warning,
+        # remove the directory, and rebuild it from scratch.
+        with self.assertLogs("pyhealth.datasets.base_dataset", level="WARNING") as log:
+            _ = self.dataset.global_event_df
+
+        self.assertTrue(
+            any("Incomplete parquet cache" in msg for msg in log.output),
+            msg=f"Expected 'Incomplete parquet cache' warning; got: {log.output}",
+        )
+
+        # After rebuild the directory must exist and contain valid parquet files
+        self.assertTrue(ret_path.is_dir())
+        self.assertTrue(
+            any(ret_path.glob("*.parquet")),
+            msg="Expected *.parquet files to be present after cache rebuild",
+        )
+
+        # The stale file should be gone (the whole directory was removed then recreated)
+        self.assertFalse(stale_file.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
