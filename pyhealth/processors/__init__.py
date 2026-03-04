@@ -18,10 +18,12 @@ def get_processor(name: str):
 
 
 # Import all processors so they register themselves
+from .base_processor import FeatureProcessor
 try:
     from .image_processor import ImageProcessor
-except ImportError:
-    pass  # PIL/torchvision unavailable
+    _has_image_processor = True
+except (ImportError, RuntimeError):
+    _has_image_processor = False  # PIL/torchvision unavailable or broken
 from .label_processor import (
     BinaryLabelProcessor,
     MultiClassLabelProcessor,
@@ -49,17 +51,20 @@ from .text_processor import TextProcessor
 from .timeseries_processor import TimeseriesProcessor
 try:
     from .time_image_processor import TimeImageProcessor
-except ImportError:
-    pass  # PIL/torchvision unavailable
+    _has_time_image_processor = True
+except (ImportError, RuntimeError):
+    _has_time_image_processor = False  # PIL/torchvision unavailable or broken
 from .audio_processor import AudioProcessor
 from .ignore_processor import IgnoreProcessor
 from .tuple_time_text_processor import TupleTimeTextProcessor
 
-# Expose public API
+# Expose public API — optional processors only listed if successfully imported
 __all__ = [
     "FeatureProcessor",
-    "ImageProcessor",
-    "LabelProcessor",
+    "BinaryLabelProcessor",
+    "MultiClassLabelProcessor",
+    "MultiLabelProcessor",
+    "RegressionLabelProcessor",
     "MultiHotProcessor",
     "NestedFloatsProcessor",
     "NestedSequenceProcessor",
@@ -71,7 +76,10 @@ __all__ = [
     "TensorProcessor",
     "TextProcessor",
     "TimeseriesProcessor",
-    "TimeImageProcessor",
     "AudioProcessor",
     "TupleTimeTextProcessor",
 ]
+if _has_image_processor:
+    __all__.append("ImageProcessor")
+if _has_time_image_processor:
+    __all__.append("TimeImageProcessor")
