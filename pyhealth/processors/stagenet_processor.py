@@ -139,6 +139,10 @@ class StageNetProcessor(TemporalFeatureProcessor, TokenProcessorInterface):
                 self.code_vocab[token] = i
                 i += 1
 
+    def tokens(self) -> set[str]:
+        """Return the set of tokens in the processor's vocabulary."""
+        return set(self.code_vocab.keys())
+
     def process(
         self, value: Tuple[Optional[List], List]
     ) -> Tuple[Optional[torch.Tensor], torch.Tensor]:
@@ -216,6 +220,10 @@ class StageNetProcessor(TemporalFeatureProcessor, TokenProcessorInterface):
             encoded_sequences.append(indices)
 
         return torch.tensor(encoded_sequences, dtype=torch.long)
+
+    def vocab_size(self) -> int:
+        """Return the size of the processor's vocabulary."""
+        return len(self.code_vocab)
 
     def size(self) -> int:
         """Return vocabulary size."""
