@@ -11,13 +11,13 @@ from pyhealth.tasks.base_task import BaseTask
 # There's probably better ways dealing with this on the cluster, but working locally for now 
 # (see: https://github.com/sunlabuiuc/PyHealth/blob/master/examples/mortality_prediction/multimodal_mimic4_minimal.py)
 
-TASK = "ClinicalNotesICDLabsMIMIC4" # The idea here is that we want additive tasks so we can evaluate the value in adding more modalities
+TASK = "ClinicalNotesICDLabsCXRMIMIC4" # The idea here is that we want additive tasks so we can evaluate the value in adding more modalities
 
 PYHEALTH_REPO_ROOT = '/Users/wpang/Desktop/PyHealth'
 
 EHR_ROOT = os.path.join(PYHEALTH_REPO_ROOT, "local_data/local/data/physionet.org/files/mimiciv/2.2")
 NOTE_ROOT = os.path.join(PYHEALTH_REPO_ROOT, "local_data/local/data/physionet.org/files/mimic-iv-note/2.2")
-CXR_ROOT = os.path.join(PYHEALTH_REPO_ROOT,"local_data/local/data/physionet.org/files/mimic-cxr-jpg/2.0.0")
+CXR_ROOT = os.path.join(PYHEALTH_REPO_ROOT,"local_data/local/data/physionet.org/files/mimic-cxr/2.0.0")
 CACHE_DIR = os.path.join(PYHEALTH_REPO_ROOT,"local_data/local/data/wp/pyhealth_cache")
 
 if __name__ == "__main__":

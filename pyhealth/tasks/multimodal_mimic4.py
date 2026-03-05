@@ -501,7 +501,7 @@ class ClinicalNotesICDLabsCXRMIMIC4(BaseTask):
         item for itemids in LAB_CATEGORIES.values() for item in itemids
     ]
 
-        def __init__(self):
+    def __init__(self):
         """Initialize the EHR Foundational Model task."""
 
     def _clean_text(self, text: Optional[str]) -> Optional[str]:
