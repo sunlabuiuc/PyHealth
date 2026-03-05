@@ -1,4 +1,4 @@
-from typing import Dict, cast
+from typing import Any, Dict, Optional, cast
 
 import torch
 import torch.nn as nn
@@ -8,6 +8,7 @@ from pyhealth.models import BaseModel
 from pyhealth.interpret.api import Interpretable
 
 from .embedding import EmbeddingModel
+from .embedding.unified import UnifiedMultimodalEmbeddingModel
 
 
 class MLP(BaseModel, Interpretable):
@@ -110,12 +111,14 @@ class MLP(BaseModel, Interpretable):
         hidden_dim: int = 128,
         n_layers: int = 2,
         activation: str = "relu",
+        unified_embedding: Optional[UnifiedMultimodalEmbeddingModel] = None,
         **kwargs,
     ):
         super(MLP, self).__init__(dataset)
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
         self.n_layers = n_layers
+        self._use_unified = unified_embedding is not None
 
         # validate kwargs for MLP layer
         if "input_size" in kwargs:
@@ -125,9 +128,6 @@ class MLP(BaseModel, Interpretable):
 
         assert len(self.label_keys) == 1, "Only one label key is supported"
         self.label_key = self.label_keys[0]
-
-        # Use the EmbeddingModel to handle embedding logic
-        self.embedding_model = EmbeddingModel(dataset, embedding_dim)
 
         # Set up activation function
         if activation == "relu":
@@ -143,18 +143,74 @@ class MLP(BaseModel, Interpretable):
         else:
             raise ValueError(f"Unsupported activation function {activation}")
 
-        # Create MLP layers for each feature
-        self.mlp = nn.ModuleDict()
-        for feature_key in self.feature_keys:
-            Modules = []
-            Modules.append(nn.Linear(self.embedding_dim, self.hidden_dim))
-            for _ in range(self.n_layers - 1):
-                Modules.append(self.activation)
-                Modules.append(nn.Linear(self.hidden_dim, self.hidden_dim))
-            self.mlp[feature_key] = nn.Sequential(*Modules)
-
         output_size = self.get_output_size()
-        self.fc = nn.Linear(len(self.feature_keys) * self.hidden_dim, output_size)
+
+        if self._use_unified:
+            self.embedding_model = unified_embedding
+            modules = [nn.Linear(embedding_dim, hidden_dim)]
+            for _ in range(n_layers - 1):
+                modules.extend([self.activation, nn.Linear(hidden_dim, hidden_dim)])
+            self.mlp = nn.ModuleDict({"unified": nn.Sequential(*modules)})
+            self.fc = nn.Linear(hidden_dim, output_size)
+        else:
+            # Use the EmbeddingModel to handle embedding logic
+            self.embedding_model = EmbeddingModel(dataset, embedding_dim)
+            # Create MLP layers for each feature
+            self.mlp = nn.ModuleDict()
+            for feature_key in self.feature_keys:
+                modules = [nn.Linear(self.embedding_dim, self.hidden_dim)]
+                for _ in range(self.n_layers - 1):
+                    modules.extend([self.activation, nn.Linear(self.hidden_dim, self.hidden_dim)])
+                self.mlp[feature_key] = nn.Sequential(*modules)
+            self.fc = nn.Linear(len(self.feature_keys) * self.hidden_dim, output_size)
+
+    def _build_unified_inputs(
+        self, kwargs: Dict[str, Any]
+    ) -> Dict[str, Dict[str, torch.Tensor]]:
+        """Build the inputs dict required by UnifiedMultimodalEmbeddingModel."""
+        inputs: Dict[str, Dict[str, torch.Tensor]] = {}
+        for field_name in self.feature_keys:
+            feature = kwargs[field_name]
+            if isinstance(feature, torch.Tensor):
+                feature = (feature,)
+            schema = self.dataset.input_processors[field_name].schema()
+            field_dict: Dict[str, torch.Tensor] = {}
+            if "value" in schema:
+                field_dict["value"] = feature[schema.index("value")].to(self.device)
+            if "time" in schema:
+                field_dict["time"] = feature[schema.index("time")].to(self.device)
+            if "mask" in schema:
+                field_dict["mask"] = feature[schema.index("mask")].to(self.device)
+            inputs[field_name] = field_dict
+        return inputs
+
+    def _forward_unified(self, **kwargs: Any) -> Dict[str, torch.Tensor]:
+        """Forward pass in unified-embedding mode.
+
+        Embeds all temporal fields jointly, mean-pools the event sequence,
+        applies a single MLP, and projects to label space.
+        """
+        inputs = self._build_unified_inputs(kwargs)
+        out = self.embedding_model(inputs)
+        sequence = out["sequence"]          # (B, S, E)
+        mask = out["mask"].float()          # (B, S)
+
+        # Masked mean-pool over the event sequence
+        x = (sequence * mask.unsqueeze(-1)).sum(dim=1)
+        x = x / mask.sum(dim=1, keepdim=True).clamp(min=1)  # (B, E)
+
+        x = self.mlp["unified"](x)          # (B, hidden_dim)
+        logits = self.fc(x)
+        y_prob = self.prepare_y_prob(logits)
+
+        results: Dict[str, torch.Tensor] = {"logit": logits, "y_prob": y_prob}
+        if self.label_key in kwargs:
+            y_true = cast(torch.Tensor, kwargs[self.label_key]).to(self.device)
+            results["loss"] = self.get_loss_function()(logits, y_true)
+            results["y_true"] = y_true
+        if kwargs.get("embed", False):
+            results["embed"] = x
+        return results
 
     @staticmethod
     def mean_pooling(x, mask):
@@ -309,6 +365,11 @@ class MLP(BaseModel, Interpretable):
     ) -> Dict[str, torch.Tensor]:
         """Forward propagation.
 
+        In **unified mode** (when ``unified_embedding`` was supplied at init)
+        the model jointly embeds all temporal fields, mean-pools the event
+        sequence, and processes it with a single MLP.  Otherwise each field
+        is embedded and encoded independently.
+
         Args:
             **kwargs: keyword arguments for the model.
 
@@ -326,6 +387,9 @@ class MLP(BaseModel, Interpretable):
                 logit: the raw logits before activation.
                 embed: (if embed=True in kwargs) the patient embedding.
         """
+        if self._use_unified:
+            return self._forward_unified(**kwargs)
+
         for feature_key in self.feature_keys:
             feature = kwargs[feature_key]
 
@@ -355,10 +419,9 @@ class MLP(BaseModel, Interpretable):
                 batch_size, seq_len, inner_len = value.shape
                 value = value.view(batch_size, seq_len * inner_len)
                 if mask is not None:
-                     mask = mask.to(self.device)
-                     # Flatten mask properly if it exists
-                     if mask.dim() == 3:
-                         mask = mask.view(batch_size, seq_len * inner_len)
+                    mask = mask.to(self.device)
+                    if mask.dim() == 3:
+                        mask = mask.view(batch_size, seq_len * inner_len)
 
             if mask is not None:
                 mask = mask.to(self.device)

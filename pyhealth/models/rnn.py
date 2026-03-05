@@ -1,4 +1,4 @@
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -20,6 +20,7 @@ from pyhealth.processors import (
 )
 
 from .embedding import EmbeddingModel
+from .embedding.unified import UnifiedMultimodalEmbeddingModel
 
 
 class RNNLayer(nn.Module):
@@ -200,6 +201,7 @@ class RNN(BaseModel):
         dataset: SampleDataset,
         embedding_dim: int = 128,
         hidden_dim: int = 128,
+        unified_embedding: Optional[UnifiedMultimodalEmbeddingModel] = None,
         **kwargs
     ):
         super(RNN, self).__init__(
@@ -207,6 +209,7 @@ class RNN(BaseModel):
         )
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
+        self._use_unified = unified_embedding is not None
         # validate kwargs for RNN layer
         if "input_size" in kwargs:
             raise ValueError("input_size is determined by embedding_dim")
@@ -216,20 +219,71 @@ class RNN(BaseModel):
         self.label_key = self.label_keys[0]
         self.mode = self.dataset.output_schema[self.label_key]
 
-        self.embedding_model = EmbeddingModel(dataset, embedding_dim)
-
-        self.rnn = nn.ModuleDict()
-        for feature_key in self.dataset.input_processors.keys():
-            self.rnn[feature_key] = RNNLayer(
-                input_size=embedding_dim, hidden_size=hidden_dim, **kwargs
-            )
         output_size = self.get_output_size()
-        self.fc = nn.Linear(len(self.feature_keys) * self.hidden_dim, output_size)
+
+        if self._use_unified:
+            self.embedding_model = unified_embedding
+            self.rnn = nn.ModuleDict({
+                "unified": RNNLayer(input_size=embedding_dim, hidden_size=hidden_dim, **kwargs)
+            })
+            self.fc = nn.Linear(hidden_dim, output_size)
+        else:
+            self.embedding_model = EmbeddingModel(dataset, embedding_dim)
+            self.rnn = nn.ModuleDict()
+            for feature_key in self.dataset.input_processors.keys():
+                self.rnn[feature_key] = RNNLayer(
+                    input_size=embedding_dim, hidden_size=hidden_dim, **kwargs
+                )
+            self.fc = nn.Linear(len(self.feature_keys) * self.hidden_dim, output_size)
+
+    def _build_unified_inputs(
+        self, kwargs: Dict[str, Any]
+    ) -> Dict[str, Dict[str, torch.Tensor]]:
+        """Build the inputs dict required by UnifiedMultimodalEmbeddingModel."""
+        inputs: Dict[str, Dict[str, torch.Tensor]] = {}
+        for field_name in self.feature_keys:
+            feature = kwargs[field_name]
+            if isinstance(feature, torch.Tensor):
+                feature = (feature,)
+            schema = self.dataset.input_processors[field_name].schema()
+            field_dict: Dict[str, torch.Tensor] = {}
+            if "value" in schema:
+                field_dict["value"] = feature[schema.index("value")].to(self.device)
+            if "time" in schema:
+                field_dict["time"] = feature[schema.index("time")].to(self.device)
+            if "mask" in schema:
+                field_dict["mask"] = feature[schema.index("mask")].to(self.device)
+            inputs[field_name] = field_dict
+        return inputs
+
+    def _forward_unified(self, **kwargs: Any) -> Dict[str, torch.Tensor]:
+        """Forward pass in unified-embedding mode.
+
+        Embeds all temporal fields jointly as a single time-sorted sequence
+        and processes it with one RNN backbone.
+        """
+        inputs = self._build_unified_inputs(kwargs)
+        out = self.embedding_model(inputs)
+        sequence = out["sequence"]          # (B, S, E)
+        mask = out["mask"].int()            # (B, S)
+
+        _, last_hidden = self.rnn["unified"](sequence, mask)  # (B, hidden_dim)
+        logits = self.fc(last_hidden)
+        y_true = kwargs[self.label_key].to(self.device)
+        loss = self.get_loss_function()(logits, y_true)
+        y_prob = self.prepare_y_prob(logits)
+        results = {"loss": loss, "y_prob": y_prob, "y_true": y_true, "logit": logits}
+        if kwargs.get("embed", False):
+            results["embed"] = last_hidden
+        return results
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation.
 
-        The label `kwargs[self.label_key]` is a list of labels for each patient.
+        In **unified mode** (when ``unified_embedding`` was supplied at init)
+        the model jointly embeds all temporal fields as a single time-sorted
+        sequence and processes it with one RNN.  Otherwise each field is
+        embedded and encoded independently.
 
         Args:
             **kwargs: keyword arguments for the model. The keys must contain
@@ -243,6 +297,9 @@ class RNN(BaseModel):
                 - logit: a tensor representing the logits.
                 - embed (optional): a tensor representing the patient embeddings if requested.
         """
+        if self._use_unified:
+            return self._forward_unified(**kwargs)
+
         patient_emb = []
         
         # We need to preprocess kwargs to extract values and masks for EmbeddingModel

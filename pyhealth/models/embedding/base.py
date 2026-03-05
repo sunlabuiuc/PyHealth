@@ -26,5 +26,27 @@ class BaseEmbeddingModel(ABC):
 
     @abstractmethod
     def forward(self, *args, **kwargs):
-        """Transform processor outputs into embeddings."""
+        """Transform processor outputs into embeddings.
+
+        Subclass return types
+        ---------------------
+        EmbeddingModel
+            ``Dict[str, Tensor]`` mapping each field name to its embedded
+            tensor.  When ``output_mask=True`` is passed, returns a
+            ``(Dict[str, Tensor], Dict[str, Tensor])`` tuple of
+            (embeddings, masks).
+
+        VisionEmbeddingModel
+            ``Tensor`` of shape ``[batch, embedding_dim]``.
+
+        TextEmbeddingModel
+            ``(Tensor, BoolTensor)`` of shapes ``([B, T, E], [B, T])``
+            when ``return_mask=True`` (default), or a plain
+            ``Tensor [B, T, E]`` when ``return_mask=False``.
+
+        UnifiedMultimodalEmbeddingModel
+            ``Dict[str, Tensor]`` with keys ``"sequence"`` ``[B, S, E]``,
+            ``"mask"`` ``[B, S]``, ``"time"`` ``[B, S]``, and
+            ``"type_ids"`` ``[B, S]``.
+        """
         ...
