@@ -17,8 +17,10 @@ PYHEALTH_REPO_ROOT = '/Users/wpang/Desktop/PyHealth'
 
 EHR_ROOT = os.path.join(PYHEALTH_REPO_ROOT, "local_data/local/data/physionet.org/files/mimiciv/2.2")
 NOTE_ROOT = os.path.join(PYHEALTH_REPO_ROOT, "local_data/local/data/physionet.org/files/mimic-iv-note/2.2")
-CXR_ROOT = os.path.join(PYHEALTH_REPO_ROOT,"local_data/local/data/physionet.org/files/mimic-cxr/2.0.0")
+CXR_ROOT = os.path.join(PYHEALTH_REPO_ROOT,"local_data/local/data/physionet.org/files/mimic-cxr-jpg/2.0.0")
 CACHE_DIR = os.path.join(PYHEALTH_REPO_ROOT,"local_data/local/data/wp/pyhealth_cache")
+
+DEV = False
 
 if __name__ == "__main__":
 
@@ -30,7 +32,7 @@ if __name__ == "__main__":
                 note_tables=["discharge", "radiology"],
                 cache_dir=CACHE_DIR,
                 num_workers=8,
-                dev=True
+                dev=DEV
             )
         
         # Apply multimodal task
@@ -49,26 +51,7 @@ if __name__ == "__main__":
                 note_tables=["discharge", "radiology"],
                 cache_dir=CACHE_DIR,
                 num_workers=8,
-                dev=True
-            )
-        
-        # Apply multimodal task
-        task = ClinicalNotesICDLabsMIMIC4() 
-        samples = dataset.set_task(task)
-
-        # Get and print sample
-        sample = samples[0]
-        print(sample)
-
-    elif TASK == 'ClinicalNotesICDLabsMIMIC4':
-        dataset = MIMIC4Dataset(
-                ehr_root=EHR_ROOT,
-                note_root=NOTE_ROOT,
-                ehr_tables=["diagnoses_icd", "procedures_icd", "prescriptions", "labevents"],
-                note_tables=["discharge", "radiology"],
-                cache_dir=CACHE_DIR,
-                num_workers=8,
-                dev=True
+                dev=DEV
             )
         
         # Apply multimodal task
@@ -89,7 +72,7 @@ if __name__ == "__main__":
                 cxr_tables=["metadata", "negbio"],
                 cache_dir=CACHE_DIR,
                 num_workers=8,
-                dev=True
+                dev=DEV
             )
         
         # Apply multimodal task
