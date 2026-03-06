@@ -566,9 +566,54 @@ class ClinicalNotesICDLabsCXRMIMIC4(BaseTask):
         all_lab_values: List[List[Any]] = []
         all_lab_masks: List[List[bool]] = []  # True = observed, False = imputed 0.0
         all_lab_times: List[float] = []
+        all_negbio_findings = []
+        image_path = self.TOKEN_REPRESENTING_MISSING_TEXT 
         previous_admission_time = None
 
-        # Process each admission independently (per hadm_id)
+        # [Chest XRays]: Process at patient level, not admission-level
+        negbio_events = patient.get_events(event_type="negbio")
+        metadata_events = patient.get_events(event_type="metadata")
+
+        negbio_finding_names = [
+            "no finding",
+            "enlarged cardiomediastinum",
+            "cardiomegaly",
+            "lung opacity",
+            "lung lesion",
+            "edema",
+            "consolidation",
+            "pneumonia",
+            "atelectasis",
+            "pneumothorax",
+            "pleural effusion",
+            "pleural other",
+            "fracture",
+            "support devices",
+        ]
+        for xray in negbio_events:
+            try:
+                for finding_name in negbio_finding_names:
+                    try:
+                        value = getattr(xray, finding_name, None)
+                        if value is not None and float(value) > 0:
+                            all_negbio_findings.append(finding_name)
+                    except (ValueError, TypeError, AttributeError):
+                        pass
+            except Exception:
+                pass
+        
+        unique_negbio = list(dict.fromkeys(all_negbio_findings)) # Deduplicate negbio findings (flat sequence)
+
+        # Get first available image path from metadata
+        for event in metadata_events:
+            try:
+                if event.image_path:
+                    image_path = event.image_path
+                    break  # Use first valid image
+            except AttributeError:
+                pass
+
+        # [Clinical Notes, EHR, Labs]: Process each admission independently (per hadm_id)
         for admission in admissions_to_process:
             admission_time = admission.timestamp
 
@@ -705,6 +750,8 @@ class ClinicalNotesICDLabsCXRMIMIC4(BaseTask):
                 "icd_codes": (all_icd_times, all_icd_codes),
                 "labs": (all_lab_times, all_lab_values),
                 "labs_mask": (all_lab_times, all_lab_masks),
+                "image_path": image_path,  
+                "negbio_findings": unique_negbio,  
                 "mortality": mortality_label,
             }
 
