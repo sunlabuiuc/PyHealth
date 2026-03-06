@@ -320,6 +320,7 @@ class HALO(BaseModel):
         synthetic_dataset = []
         sample_batch_size = min(num_samples, 256)
         generated = 0
+        pbar = tqdm(total=num_samples, desc="Generating patients")
 
         with torch.no_grad():
             while generated < num_samples:
@@ -369,5 +370,7 @@ class HALO(BaseModel):
                         }
                     )
                 generated += bs
+                pbar.update(bs)
+            pbar.close()
 
         return synthetic_dataset
