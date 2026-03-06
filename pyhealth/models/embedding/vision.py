@@ -6,9 +6,10 @@ from typing import Any, Dict, Literal, Optional, Tuple, Union
 import torch
 import torch.nn as nn
 import shutil
-from pyhealth.datasets import SampleDataset
-from pyhealth.models.base_model import BaseModel
-from pyhealth.processors import ImageProcessor
+from ...datasets import SampleDataset
+from ..base_model import BaseModel
+from ...processors import ImageProcessor
+from .base import BaseEmbeddingModel
 
 
 class Permute(nn.Module):
@@ -76,7 +77,7 @@ class PatchEmbedding(nn.Module):
         return x
 
 
-class VisionEmbeddingModel(BaseModel):
+class VisionEmbeddingModel(BaseModel, BaseEmbeddingModel):
     """Vision embedding model for medical image inputs.
 
     Converts medical images to sequences of patch embeddings suitable for
@@ -118,7 +119,7 @@ class VisionEmbeddingModel(BaseModel):
     ) -> None:
         super().__init__(dataset)
 
-        self.embedding_dim = embedding_dim
+        self._embedding_dim = embedding_dim
         self.patch_size = patch_size
         self.backbone_type = backbone
         self.use_cls_token = use_cls_token
@@ -157,6 +158,10 @@ class VisionEmbeddingModel(BaseModel):
                 "in_channels": in_channels,
             }
 
+    @property
+    def embedding_dim(self) -> int:
+        return self._embedding_dim
+
     def _infer_channels(self, processor: ImageProcessor) -> int:
         """Infer number of input channels from processor mode."""
         mode = getattr(processor, "mode", None)
@@ -179,7 +184,7 @@ class VisionEmbeddingModel(BaseModel):
         if backbone == "patch":
             num_patches = (image_size // self.patch_size) ** 2
             self.embedding_layers[field_name] = PatchEmbedding(
-                image_size, self.patch_size, in_channels, self.embedding_dim
+                image_size, self.patch_size, in_channels, self._embedding_dim
             )
 
         elif backbone == "cnn":
@@ -191,8 +196,8 @@ class VisionEmbeddingModel(BaseModel):
                 nn.Conv2d(64, 128, 3, stride=2, padding=1),
                 nn.BatchNorm2d(128),
                 nn.ReLU(inplace=True),
-                nn.Conv2d(128, self.embedding_dim, 3, stride=2, padding=1),
-                nn.BatchNorm2d(self.embedding_dim),
+                nn.Conv2d(128, self._embedding_dim, 3, stride=2, padding=1),
+                nn.BatchNorm2d(self._embedding_dim),
                 nn.ReLU(inplace=True),
                 nn.AdaptiveAvgPool2d((7, 7)),
                 nn.Flatten(2),
@@ -242,7 +247,7 @@ class VisionEmbeddingModel(BaseModel):
 
         return nn.Sequential(
             backbone_net,
-            nn.Conv2d(feature_dim, self.embedding_dim, kernel_size=1),
+            nn.Conv2d(feature_dim, self._embedding_dim, kernel_size=1),
             nn.Flatten(2),
             Permute(0, 2, 1),
         )
@@ -296,7 +301,7 @@ class VisionEmbeddingModel(BaseModel):
             raise KeyError(f"Field '{field_name}' not found")
 
         info = self._field_info[field_name].copy()
-        info["embedding_dim"] = self.embedding_dim
+        info["embedding_dim"] = self._embedding_dim
         info["has_cls_token"] = self.use_cls_token
         info["num_tokens"] = info["num_patches"] + (1 if self.use_cls_token else 0)
         return info
@@ -305,7 +310,7 @@ class VisionEmbeddingModel(BaseModel):
         fields = list(self.embedding_layers.keys())
         return (
             f"VisionEmbeddingModel(backbone={self.backbone_type!r}, "
-            f"embedding_dim={self.embedding_dim}, fields={fields})"
+            f"embedding_dim={self._embedding_dim}, fields={fields})"
         )
 
 
@@ -354,5 +359,4 @@ if __name__ == "__main__":
     print(f"Output info: {model.get_output_info('chest_xray')}")
 
     # Cleanup
-   
     shutil.rmtree(temp_dir)
