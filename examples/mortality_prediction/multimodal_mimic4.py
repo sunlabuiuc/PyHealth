@@ -20,7 +20,7 @@ NOTE_ROOT = os.path.join(PYHEALTH_REPO_ROOT, "local_data/local/data/physionet.or
 CXR_ROOT = os.path.join(PYHEALTH_REPO_ROOT,"local_data/local/data/physionet.org/files/mimic-cxr-jpg/2.0.0")
 CACHE_DIR = os.path.join(PYHEALTH_REPO_ROOT,"local_data/local/data/wp/pyhealth_cache")
 
-DEV = False
+DEV_MODE = False
 
 if __name__ == "__main__":
 
@@ -32,7 +32,7 @@ if __name__ == "__main__":
                 note_tables=["discharge", "radiology"],
                 cache_dir=CACHE_DIR,
                 num_workers=8,
-                dev=DEV
+                dev=DEV_MODE
             )
         
         # Apply multimodal task
@@ -51,7 +51,7 @@ if __name__ == "__main__":
                 note_tables=["discharge", "radiology"],
                 cache_dir=CACHE_DIR,
                 num_workers=8,
-                dev=DEV
+                dev=DEV_MODE
             )
         
         # Apply multimodal task
@@ -72,7 +72,7 @@ if __name__ == "__main__":
                 cxr_tables=["metadata", "negbio"],
                 cache_dir=CACHE_DIR,
                 num_workers=8,
-                dev=DEV
+                dev=DEV_MODE
             )
         
         # Apply multimodal task
