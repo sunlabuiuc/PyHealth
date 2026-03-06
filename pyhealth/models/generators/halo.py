@@ -137,13 +137,14 @@ class HALO(BaseModel):
         batch_mask = torch.zeros(batch_size, cfg.n_ctx, 1, device=self.device)
 
         for i in range(batch_size):
-            n_visits = min(visits.shape[1], cfg.n_ctx - 2)
+            # Count actual (non-padding) visits for THIS patient.
+            n_visits = int((visits[i].sum(dim=-1) > 0).sum().item())
+            n_visits = min(n_visits, cfg.n_ctx - 2)
             for j in range(n_visits):
                 for code_idx in visits[i, j]:
                     if code_idx > 0:  # skip padding (index 0)
                         batch_ehr[i, j + 2, code_idx] = 1  # visits occupy positions 2+
-                if visits[i, j].sum() > 0:
-                    batch_mask[i, j + 2] = 1
+                batch_mask[i, j + 2] = 1
 
             # Special tokens (label_vocab_size == 0, so the 3 extras are contiguous):
             batch_ehr[i, 0, cfg.code_vocab_size + cfg.label_vocab_size] = 1       # start
