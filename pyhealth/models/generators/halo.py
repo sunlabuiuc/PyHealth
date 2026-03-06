@@ -150,7 +150,8 @@ class HALO(BaseModel):
             batch_ehr[i, n_visits + 2, cfg.code_vocab_size + cfg.label_vocab_size + 1] = 1  # end
             batch_ehr[i, n_visits + 3:, cfg.code_vocab_size + cfg.label_vocab_size + 2] = 1  # pad
 
-        batch_mask[:, 1] = 1           # label-position mask row
+        if cfg.label_vocab_size > 0:
+            batch_mask[:, 1] = 1       # label-position mask row (only when labels present)
         batch_mask = batch_mask[:, 1:, :]  # shift mask to align with shifted labels/preds
 
         return batch_ehr, batch_mask
