@@ -145,13 +145,10 @@ class ClinicalNotesMIMIC4(BaseTask):
                 all_radiology_texts.append(self.TOKEN_REPRESENTING_MISSING_TEXT) # Token representing missing text
                 all_radiology_times_from_admission.append(self.TOKEN_REPRESENTING_MISSING_FLOAT) # Token representing missing time(?)
 
-        discharge_note_times_from_admission = (all_discharge_texts, all_discharge_times_from_admission)
-        radiology_note_times_from_admission = (all_radiology_texts, all_radiology_times_from_admission)
-
         single_patient_longitudinal_record = {
                 "patient_id": patient.patient_id,
-                "discharge_note_times": discharge_note_times_from_admission,
-                "radiology_note_times": radiology_note_times_from_admission,
+                "discharge_note_times": (all_discharge_texts, all_discharge_times_from_admission),
+                "radiology_note_times": (all_radiology_texts, all_radiology_times_from_admission),
                 "mortality": mortality_label,
             }
 
@@ -433,13 +430,10 @@ class ClinicalNotesICDLabsMIMIC4(BaseTask):
             all_lab_masks.append([False] * len(self.LAB_CATEGORY_NAMES))
             all_lab_times.append(self.TOKEN_REPRESENTING_MISSING_FLOAT)
 
-        discharge_note_times_from_admission = (all_discharge_texts, all_discharge_times_from_admission)
-        radiology_note_times_from_admission = (all_radiology_texts, all_radiology_times_from_admission)
-
         single_patient_longitudinal_record = {
                 "patient_id": patient.patient_id,
-                "discharge_note_times": discharge_note_times_from_admission,
-                "radiology_note_times": radiology_note_times_from_admission,
+                "discharge_note_times": (all_discharge_texts, all_discharge_times_from_admission),
+                "radiology_note_times": (all_radiology_texts, all_radiology_times_from_admission),
                 "icd_codes": (all_icd_times, all_icd_codes),
                 "labs": (all_lab_times, all_lab_values),
                 "labs_mask": (all_lab_times, all_lab_masks),
@@ -590,9 +584,9 @@ class ClinicalNotesICDLabsCXRMIMIC4(BaseTask):
             "fracture",
             "support devices",
         ]
-        for xray in negbio_events:
+        for xray in negbio_events: # Loop through each CXR
             try:
-                for finding_name in negbio_finding_names:
+                for finding_name in negbio_finding_names: # Check each CXR's negbio_finding_names (in attr_dict)
                     try:
                         value = getattr(xray, finding_name, None)
                         if value is not None and float(value) > 0:
@@ -602,7 +596,10 @@ class ClinicalNotesICDLabsCXRMIMIC4(BaseTask):
             except Exception:
                 pass
         
-        unique_negbio = list(dict.fromkeys(all_negbio_findings)) # Deduplicate negbio findings (flat sequence)
+        if all_negbio_findings: 
+            unique_negbio = list(dict.fromkeys(all_negbio_findings)) # Deduplicate negbio findings (flat sequence)
+        else: # If there is no negbio attribute in all CXRs for a given patient
+            unique_negbio = [self.TOKEN_REPRESENTING_MISSING_TEXT]
 
         # Get first available image path from metadata
         for event in metadata_events:
@@ -612,6 +609,7 @@ class ClinicalNotesICDLabsCXRMIMIC4(BaseTask):
                     break  # Use first valid image
             except AttributeError:
                 pass
+        # If no image path, image_path = self.TOKEN_REPRESENTING_MISSING_TEXT is returned
 
         # [Clinical Notes, EHR, Labs]: Process each admission independently (per hadm_id)
         for admission in admissions_to_process:
@@ -740,18 +738,15 @@ class ClinicalNotesICDLabsCXRMIMIC4(BaseTask):
             all_lab_masks.append([False] * len(self.LAB_CATEGORY_NAMES))
             all_lab_times.append(self.TOKEN_REPRESENTING_MISSING_FLOAT)
 
-        discharge_note_times_from_admission = (all_discharge_texts, all_discharge_times_from_admission)
-        radiology_note_times_from_admission = (all_radiology_texts, all_radiology_times_from_admission)
-
         single_patient_longitudinal_record = {
                 "patient_id": patient.patient_id,
-                "discharge_note_times": discharge_note_times_from_admission,
-                "radiology_note_times": radiology_note_times_from_admission,
+                "discharge_note_times": (all_discharge_texts, all_discharge_times_from_admission),
+                "radiology_note_times": (all_radiology_texts, all_radiology_times_from_admission),
                 "icd_codes": (all_icd_times, all_icd_codes),
                 "labs": (all_lab_times, all_lab_values),
                 "labs_mask": (all_lab_times, all_lab_masks),
-                "image_path": image_path,  
-                "negbio_findings": unique_negbio,  
+                "image_path": image_path,
+                "negbio_findings": unique_negbio,
                 "mortality": mortality_label,
             }
 
