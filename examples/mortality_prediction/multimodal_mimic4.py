@@ -20,7 +20,7 @@ NOTE_ROOT = os.path.join(PYHEALTH_REPO_ROOT, "local_data/local/data/physionet.or
 CXR_ROOT = os.path.join(PYHEALTH_REPO_ROOT,"local_data/local/data/physionet.org/files/mimic-cxr-jpg/2.0.0")
 CACHE_DIR = os.path.join(PYHEALTH_REPO_ROOT,"local_data/local/data/wp/pyhealth_cache")
 
-DEV_MODE = False
+DEV_MODE = True
 
 if __name__ == "__main__":
 
