@@ -690,6 +690,7 @@ class PromptEHR(BaseModel):
             logging_steps=50,
             remove_unused_columns=False,  # essential: keeps x_num/x_cat
             use_cpu=not torch.cuda.is_available(),
+            report_to="none",
         )
 
         trainer = Trainer(
@@ -754,6 +755,7 @@ class PromptEHR(BaseModel):
                     x_cat=x_cat,
                     max_length=self.max_seq_length,
                     num_beams=1,
+                    early_stopping=False,
                     do_sample=random_sampling,
                     temperature=0.7 if random_sampling else 1.0,
                     top_p=0.95 if random_sampling else 1.0,
