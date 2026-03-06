@@ -146,10 +146,10 @@ class HALO(BaseModel):
                         batch_ehr[i, j + 2, code_idx] = 1  # visits occupy positions 2+
                 batch_mask[i, j + 2] = 1
 
-            # Special tokens (label_vocab_size == 0, so the 3 extras are contiguous):
+            # Special tokens — end token co-located with the last visit (as in original HALO):
             batch_ehr[i, 0, cfg.code_vocab_size + cfg.label_vocab_size] = 1       # start
-            batch_ehr[i, n_visits + 2, cfg.code_vocab_size + cfg.label_vocab_size + 1] = 1  # end
-            batch_ehr[i, n_visits + 3:, cfg.code_vocab_size + cfg.label_vocab_size + 2] = 1  # pad
+            batch_ehr[i, n_visits + 1, cfg.code_vocab_size + cfg.label_vocab_size + 1] = 1  # end (on last visit)
+            batch_ehr[i, n_visits + 2:, cfg.code_vocab_size + cfg.label_vocab_size + 2] = 1  # pad
 
         if cfg.label_vocab_size > 0:
             batch_mask[:, 1] = 1       # label-position mask row (only when labels present)
