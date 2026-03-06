@@ -201,6 +201,11 @@ class HALO(BaseModel):
                 validation loss is computed after every epoch and the best
                 checkpoint is saved to ``self.save_dir``.
         """
+        # Move model to GPU if available.
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.to(device)
+        print(f"Training on: {device}")
+
         os.makedirs(self.save_dir, exist_ok=True)
         optimizer = torch.optim.Adam(self.halo_model.parameters(), lr=self._lr)
 
@@ -220,9 +225,10 @@ class HALO(BaseModel):
 
         global_loss = 1e10
 
-        for epoch in tqdm(range(self._epochs)):
+        for epoch in tqdm(range(self._epochs), desc="Epochs"):
             self.halo_model.train()
-            for batch in train_loader:
+            batch_iter = tqdm(train_loader, desc=f"Epoch {epoch}", leave=False)
+            for batch in batch_iter:
                 visits = batch["visits"].to(self.device)
                 batch_ehr, batch_mask = self._encode_visits(visits)
 
@@ -236,6 +242,7 @@ class HALO(BaseModel):
                 )
                 loss.backward()
                 optimizer.step()
+                batch_iter.set_postfix(loss=f"{loss.item():.4f}")
 
             if val_dataset is not None:
                 self.halo_model.eval()
@@ -295,6 +302,10 @@ class HALO(BaseModel):
                 ``"patient_id"`` (str): unique identifier, e.g. ``"synthetic_0"``.
                 ``"visits"`` (list of list of str): decoded code strings per visit.
         """
+        # Ensure model is on GPU if available.
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.to(device)
+
         cfg = self.config
         # Invert vocabulary: index → code string
         index_to_code = {v: k for k, v in self.visits_processor.code_vocab.items()}
