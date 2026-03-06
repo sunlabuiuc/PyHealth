@@ -25,7 +25,7 @@ class ClinicalNotesMIMIC4(BaseTask):
         >>> samples = dataset.set_task(task)
 
     Note on time encoding:
-        - Notes use time (hours) relative to the current admission start.
+        - [Per Admission Granularity] Notes use time (hours) relative to each admission time.
     """
     TOKEN_REPRESENTING_MISSING_TEXT = ""
     TOKEN_REPRESENTING_MISSING_FLOAT = 0.0
@@ -178,11 +178,11 @@ class ClinicalNotesICDLabsMIMIC4(BaseTask):
     real zeros from missing data fill values.
 
     Note on time encoding:
-        Notes and labs use time relative to the current admission start (hours).
-        ICD codes use inter-admission gap (time between previous and current
-        admission start), since ICD codes represent the whole visit and have no
-        within-admission timestamp. This is intentionally inconsistent and may
-        be revisited (e.g. time since first admission, or always 0.0).
+        - [Per Admission Granularity] Notes and labs use time (hours) relative to each admission time.
+        - [Per Admission Granularity] ICD codes use inter-admission gap (time (hours) between previous and current
+          admission time), since ICD codes represent the whole visit and have no
+          within-admission timestamp. This is intentionally inconsistent and may
+          be revisited (e.g. time since first admission, or always 0.0).
 
     Examples:
         >>> from pyhealth.datasets import MIMIC4Dataset
@@ -467,12 +467,12 @@ class ClinicalNotesICDLabsCXRMIMIC4(BaseTask):
     studies are not always linked to a specific ``hadm_id``.
 
     Note on time encoding:
-        - Notes and labs use time (hours) relative to the current admission start.
-        - ICD codes use inter-admission gap (time (hours) between previous and current
-          admission start), since ICD codes represent the whole visit and have no
+        - [Per Admission Granularity] Notes and labs use time (hours) relative to each admission time.
+        - [Per Admission Granularity] ICD codes use inter-admission gap (time (hours) between previous and current
+          admission time), since ICD codes represent the whole visit and have no
           within-admission timestamp. This is intentionally inconsistent and may
           be revisited (e.g. time since first admission, or always 0.0).
-        - CXR timestamps are currently not encoded; encoding options include time
+        - [Per Patient Granularity] CXR timestamps are currently not encoded; encoding options include time
           relative to first admission or time relative to nearest admission.
     """
     TOKEN_REPRESENTING_MISSING_TEXT = ""
