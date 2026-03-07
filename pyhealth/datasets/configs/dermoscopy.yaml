@@ -1,0 +1,11 @@
+version: "5.0"
+tables:
+  dermoscopy:
+    file_path: "dermoscopy-metadata-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "image_path"
+    - "mask_path"
+    - "label"
+    - "source_dataset"
