@@ -306,7 +306,7 @@ class ClinicalNotesICDLabsMIMIC4(BaseTask):
         all_radiology_texts: List[str] = []
         all_radiology_hours_from_admission: List[float] = []
         all_icd_codes: List[List[str]] = []
-        all_icd_times: List[float] = []
+        all_icd_inter_admission_hours: List[float] = []
         all_lab_values: List[List[Any]] = []
         all_lab_masks: List[List[bool]] = []  # True = observed, False = imputed 0.0
         all_lab_hours_from_admission: List[float] = []
@@ -383,10 +383,10 @@ class ClinicalNotesICDLabsMIMIC4(BaseTask):
                 else:
                     time_from_previous = (admission_time - previous_admission_time).total_seconds() / 3600.0
                 all_icd_codes.append(visit_icd_codes)
-                all_icd_times.append(time_from_previous)
+                all_icd_inter_admission_hours.append(time_from_previous)
             else: # Add missingness token if there are no ICD diagnosis/inpatient procedure codes
                 all_icd_codes.append([self.TOKEN_REPRESENTING_MISSING_TEXT])
-                all_icd_times.append(self.TOKEN_REPRESENTING_MISSING_FLOAT)
+                all_icd_inter_admission_hours.append(self.TOKEN_REPRESENTING_MISSING_FLOAT)
 
             previous_admission_time = admission_time  # Advance rolling reference for next admission's time delta
 
@@ -445,7 +445,7 @@ class ClinicalNotesICDLabsMIMIC4(BaseTask):
                 "patient_id": patient.patient_id,
                 "discharge_note_times": (all_discharge_texts, all_discharge_hours_from_admission),
                 "radiology_note_times": (all_radiology_texts, all_radiology_hours_from_admission),
-                "icd_codes": (all_icd_times, all_icd_codes),
+                "icd_codes": (all_icd_inter_admission_hours, all_icd_codes),
                 "labs": (all_lab_hours_from_admission, all_lab_values),
                 "labs_mask": (all_lab_hours_from_admission, all_lab_masks),
                 "mortality": mortality_label,
@@ -586,7 +586,7 @@ class ClinicalNotesICDLabsCXRMIMIC4(BaseTask):
         all_radiology_texts: List[str] = []
         all_radiology_hours_from_admission: List[float] = []
         all_icd_codes: List[List[str]] = []
-        all_icd_times: List[float] = []
+        all_icd_inter_admission_hours: List[float] = []
         all_lab_values: List[List[Any]] = []
         all_lab_masks: List[List[bool]] = []  # True = observed, False = imputed 0.0
         all_lab_hours_from_admission: List[float] = []
@@ -711,10 +711,10 @@ class ClinicalNotesICDLabsCXRMIMIC4(BaseTask):
                 else:
                     time_from_previous = (admission_time - previous_admission_time).total_seconds() / 3600.0
                 all_icd_codes.append(visit_icd_codes)
-                all_icd_times.append(time_from_previous)
+                all_icd_inter_admission_hours.append(time_from_previous)
             else: # Add missingness token if there are no ICD diagnosis/inpatient procedure codes
                 all_icd_codes.append([self.TOKEN_REPRESENTING_MISSING_TEXT])
-                all_icd_times.append(self.TOKEN_REPRESENTING_MISSING_FLOAT)
+                all_icd_inter_admission_hours.append(self.TOKEN_REPRESENTING_MISSING_FLOAT)
 
             previous_admission_time = admission_time  # Advance rolling reference for next admission's time delta
 
@@ -773,7 +773,7 @@ class ClinicalNotesICDLabsCXRMIMIC4(BaseTask):
                 "patient_id": patient.patient_id,
                 "discharge_note_times": (all_discharge_texts, all_discharge_hours_from_admission),
                 "radiology_note_times": (all_radiology_texts, all_radiology_hours_from_admission),
-                "icd_codes": (all_icd_times, all_icd_codes),
+                "icd_codes": (all_icd_inter_admission_hours, all_icd_codes),
                 "labs": (all_lab_hours_from_admission, all_lab_values),
                 "labs_mask": (all_lab_hours_from_admission, all_lab_masks),
                 "image_path": image_path,
