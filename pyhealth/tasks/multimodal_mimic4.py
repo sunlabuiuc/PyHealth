@@ -687,12 +687,12 @@ class ClinicalNotesICDLabsCXRMIMIC4(BaseTask):
                             note.timestamp - admission_time
                         ).total_seconds() / 3600.0
                         all_radiology_texts.append(note_text)
-                        all_radiology_times_from_admission.append(time_from_admission)
+                        all_radiology_hours_from_admission.append(time_from_admission)
                 except AttributeError: # note object is missing .text or .timestamp attribute (e.g. malformed note)
                     pass
             if not radiology_notes: # If we receive empty list
                 all_radiology_texts.append(self.TOKEN_REPRESENTING_MISSING_TEXT) # Token representing missing text
-                all_radiology_times_from_admission.append(self.TOKEN_REPRESENTING_MISSING_FLOAT) # Token representing missing time(?)
+                all_radiology_hours_from_admission.append(self.TOKEN_REPRESENTING_MISSING_FLOAT) # Token representing missing time(?)
 
             # ICD codes (diagnoses + procedures) with time relative to previous admission
             diagnoses_icd = patient.get_events(
@@ -758,24 +758,24 @@ class ClinicalNotesICDLabsCXRMIMIC4(BaseTask):
                             lab_mask.append(observed)
                         all_lab_values.append(lab_vector)
                         all_lab_masks.append(lab_mask)
-                        all_lab_times.append((lab_ts - admission_time).total_seconds() / 3600.0)
+                        all_lab_hours_from_admission.append((lab_ts - admission_time).total_seconds() / 3600.0)
                 else: # If missing lab for a given admission
                     all_lab_values.append([self.TOKEN_REPRESENTING_MISSING_FLOAT] * len(self.LAB_CATEGORY_NAMES))
                     all_lab_masks.append([False] * len(self.LAB_CATEGORY_NAMES))
-                    all_lab_times.append(self.TOKEN_REPRESENTING_MISSING_FLOAT)
+                    all_lab_hours_from_admission.append(self.TOKEN_REPRESENTING_MISSING_FLOAT)
 
         if len(all_lab_values) == 0: # If missing lab for ALL admissions
             all_lab_values.append([self.TOKEN_REPRESENTING_MISSING_FLOAT] * len(self.LAB_CATEGORY_NAMES))
             all_lab_masks.append([False] * len(self.LAB_CATEGORY_NAMES))
-            all_lab_times.append(self.TOKEN_REPRESENTING_MISSING_FLOAT)
+            all_lab_hours_from_admission.append(self.TOKEN_REPRESENTING_MISSING_FLOAT)
 
         single_patient_longitudinal_record = {
                 "patient_id": patient.patient_id,
                 "discharge_note_times": (all_discharge_texts, all_discharge_hours_from_admission),
-                "radiology_note_times": (all_radiology_texts, all_radiology_times_from_admission),
+                "radiology_note_times": (all_radiology_texts, all_radiology_hours_from_admission),
                 "icd_codes": (all_icd_times, all_icd_codes),
-                "labs": (all_lab_times, all_lab_values),
-                "labs_mask": (all_lab_times, all_lab_masks),
+                "labs": (all_lab_hours_from_admission, all_lab_values),
+                "labs_mask": (all_lab_hours_from_admission, all_lab_masks),
                 "image_path": image_path,
                 "negbio_findings": unique_negbio,
                 "mortality": mortality_label,
