@@ -32,14 +32,14 @@ class ClinicalNotesMIMIC4(BaseTask):
 
     task_name: str = "ClinicalNotesMIMIC4"
     input_schema: Dict[str, Union[str, Tuple[str, Dict]]] = {
-            "discharge_note_times": (
+            "discharge_notes": (
                 "tuple_time_text",
                 {
                     "tokenizer_model": "bert-base-uncased",
                     "type_tag": "note",
                 },
             ),
-            "radiology_note_times": (
+            "radiology_notes": (
                 "tuple_time_text",
                 {
                     "tokenizer_model": "bert-base-uncased",
@@ -149,8 +149,8 @@ class ClinicalNotesMIMIC4(BaseTask):
 
         single_patient_longitudinal_record = {
                 "patient_id": patient.patient_id,
-                "discharge_note_times": (all_discharge_texts, all_discharge_hours_from_admission),
-                "radiology_note_times": (all_radiology_texts, all_radiology_hours_from_admission),
+                "discharge_notes": (all_discharge_texts, all_discharge_hours_from_admission),
+                "radiology_notes": (all_radiology_texts, all_radiology_hours_from_admission),
                 "mortality": mortality_label,
             }
 
@@ -165,10 +165,10 @@ class ClinicalNotesICDLabsMIMIC4(BaseTask):
 
     - **ICD codes**: diagnosis and procedure codes per admission, processed by
       ``StageNetProcessor`` with inter-admission time offsets.
-    - **Lab values**: 10-dimensional lab vectors (one per lab category) at each
+    - **Lab values**: N_Lab_Category lab vectors (one per lab category) at each
       measurement timestamp, processed by ``StageNetTensorProcessor``.
 
-    Lab categories (10 dimensions):
+    Lab categories (N_Lab_Category):
         Sodium, Potassium, Chloride, Bicarbonate, Glucose, Calcium, Magnesium,
         Anion Gap, Osmolality, Phosphate.
 
@@ -203,14 +203,14 @@ class ClinicalNotesICDLabsMIMIC4(BaseTask):
 
     task_name: str = "ClinicalNotesICDLabsMIMIC4"
     input_schema: Dict[str, Union[str, Tuple[str, Dict]]] = {
-            "discharge_note_times": (
+            "discharge_notes": (
                 "tuple_time_text",
                 {
                     "tokenizer_model": "bert-base-uncased",
                     "type_tag": "note",
                 },
             ),
-            "radiology_note_times": (
+            "radiology_notes": (
                 "tuple_time_text",
                 {
                     "tokenizer_model": "bert-base-uncased",
@@ -443,8 +443,8 @@ class ClinicalNotesICDLabsMIMIC4(BaseTask):
 
         single_patient_longitudinal_record = {
                 "patient_id": patient.patient_id,
-                "discharge_note_times": (all_discharge_texts, all_discharge_hours_from_admission),
-                "radiology_note_times": (all_radiology_texts, all_radiology_hours_from_admission),
+                "discharge_notes": (all_discharge_texts, all_discharge_hours_from_admission),
+                "radiology_notes": (all_radiology_texts, all_radiology_hours_from_admission),
                 "icd_codes": (all_icd_inter_admission_hours, all_icd_codes),
                 "labs": (all_lab_hours_from_admission, all_lab_values),
                 "labs_mask": (all_lab_hours_from_admission, all_lab_masks),
@@ -472,8 +472,8 @@ class ClinicalNotesICDLabsCXRMIMIC4(BaseTask):
           admission time), since ICD codes represent the whole visit and have no
           within-admission timestamp. This is intentionally inconsistent and may
           be revisited (e.g. time since first admission, or always 0.0).
-        - [Per Patient Granularity] CXR timestamps are currently not encoded; encoding options include time
-          relative to first admission or time relative to nearest admission.
+        - [Per Patient Granularity] CXR time is encoded as hours relative to the nearest admission start time
+          in ``admissions_to_process``.
     """
     TOKEN_REPRESENTING_MISSING_TEXT = ""
     TOKEN_REPRESENTING_MISSING_FLOAT = 0.0
@@ -481,14 +481,14 @@ class ClinicalNotesICDLabsCXRMIMIC4(BaseTask):
 
     task_name: str = "ClinicalNotesICDLabsCXRMIMIC4"
     input_schema: Dict[str, Union[str, Tuple[str, Dict]]] = {
-            "discharge_note_times": (
+            "discharge_notes": (
                 "tuple_time_text",
                 {
                     "tokenizer_model": "bert-base-uncased",
                     "type_tag": "note",
                 },
             ),
-            "radiology_note_times": (
+            "radiology_notes": (
                 "tuple_time_text",
                 {
                     "tokenizer_model": "bert-base-uncased",
@@ -498,8 +498,8 @@ class ClinicalNotesICDLabsCXRMIMIC4(BaseTask):
             "icd_codes": ("stagenet", {"padding": PADDING}),
             "labs": ("stagenet_tensor", {}),
             "labs_mask": ("stagenet_tensor", {}),
-            "image_path": "text",  # Image path as text string
-            "negbio_findings": "sequence",  # NegBio X-ray findings
+            "image_path": "text",  # (image_path, hours_from_nearest_admission)
+            "negbio_findings": "sequence",  # (negbio_findings, hours_from_nearest_admission)
         }
     output_schema: Dict[str, str] = {"mortality": "binary"}
 
@@ -523,6 +523,23 @@ class ClinicalNotesICDLabsCXRMIMIC4(BaseTask):
 
     LABITEMS: ClassVar[List[str]] = [
         item for itemids in LAB_CATEGORIES.values() for item in itemids
+    ]
+
+    NEGBIO_FINDING_NAMES: ClassVar[List[str]] = [
+            "no finding",
+            "enlarged cardiomediastinum",
+            "cardiomegaly",
+            "lung opacity",
+            "lung lesion",
+            "edema",
+            "consolidation",
+            "pneumonia",
+            "atelectasis",
+            "pneumothorax",
+            "pleural effusion",
+            "pleural other",
+            "fracture",
+            "support devices"
     ]
 
     def __init__(self):
@@ -590,56 +607,52 @@ class ClinicalNotesICDLabsCXRMIMIC4(BaseTask):
         all_lab_values: List[List[Any]] = []
         all_lab_masks: List[List[bool]] = []  # True = observed, False = imputed 0.0
         all_lab_hours_from_admission: List[float] = []
-        all_negbio_findings = []
-        image_path = self.TOKEN_REPRESENTING_MISSING_TEXT 
+        all_negbio_findings: List[List[Any]] = []
+        all_cxr_image_paths: List[str] = []
+        all_cxr_hours_relative_to_nearest_admission: List[float] = []
+
         previous_admission_time = None
 
-        # [Chest XRays]: Process at patient level, not admission-level
+        # [Chest X-Rays (CXRs)]: Process at patient level, not admission-level
         negbio_events = patient.get_events(event_type="negbio")
         metadata_events = patient.get_events(event_type="metadata")
-
-        negbio_finding_names = [
-            "no finding",
-            "enlarged cardiomediastinum",
-            "cardiomegaly",
-            "lung opacity",
-            "lung lesion",
-            "edema",
-            "consolidation",
-            "pneumonia",
-            "atelectasis",
-            "pneumothorax",
-            "pleural effusion",
-            "pleural other",
-            "fracture",
-            "support devices",
-        ]
-        for xray in negbio_events: # Loop through each CXR
-            try:
-                for finding_name in negbio_finding_names: # Check each CXR's negbio_finding_names (in attr_dict)
-                    try:
-                        value = getattr(xray, finding_name, None)
-                        if value is not None and float(value) > 0:
-                            all_negbio_findings.append(finding_name)
-                    except (ValueError, TypeError, AttributeError):
-                        pass
-            except Exception:
-                pass
         
-        if all_negbio_findings: 
-            unique_negbio = list(dict.fromkeys(all_negbio_findings)) # Deduplicate negbio findings (flat sequence)
-        else: # If there is no negbio attribute in all CXRs for a given patient
-            unique_negbio = [self.TOKEN_REPRESENTING_MISSING_TEXT]
-
-        # Get first available image path from metadata
-        for event in metadata_events:
+        for cxr in negbio_events: # Loop through each CXR
+            negbio_vector = [] # Per CXR Vector
             try:
-                if event.image_path:
-                    image_path = event.image_path
-                    break  # Use first valid image
+                for finding_name in self.NEGBIO_FINDING_NAMES: # Check each CXR's NEGBIO_FINDING_NAMES
+                    try:
+                        negbio_value = getattr(cxr, finding_name, self.TOKEN_REPRESENTING_MISSING_TEXT) 
+                        if negbio_value!= self.TOKEN_REPRESENTING_MISSING_TEXT and float(negbio_value) > 0:
+                            negbio_vector.append(finding_name)
+                    except (ValueError, TypeError, AttributeError):
+                        negbio_vector.append(self.TOKEN_REPRESENTING_MISSING_TEXT)
+            except Exception: # Missing negbio for a given cxr returns a N-length vector of MISSING_TOKEN
+                negbio_vector = [self.TOKEN_REPRESENTING_MISSING_TEXT] * len(self.NEGBIO_FINDING_NAMES)
+
+            all_negbio_findings.append(negbio_vector)
+
+        for cxr in metadata_events: # Loop through each CXR
+            try:
+                if cxr.image_path:
+                    cxr_image_path = cxr.image_path
+                    cxr_image_timestamp = cxr.timestamp
+
+                    # TODO: Consider making this into a utility function
+                    if cxr_image_timestamp is not None and admissions_to_process:
+                        nearest_admission = min(
+                            admissions_to_process,
+                            key=lambda a: abs((cxr_image_timestamp - a.timestamp).total_seconds()),
+                        )
+                        image_hours_from_nearest_admission = (
+                            (cxr_image_timestamp - nearest_admission.timestamp).total_seconds() / 3600.0
+                        )
+
+                    all_cxr_image_paths.append(cxr_image_path)
+                    all_cxr_hours_relative_to_nearest_admission.append(image_hours_from_nearest_admission)
             except AttributeError:
-                pass
-        # If no image path, image_path = self.TOKEN_REPRESENTING_MISSING_TEXT is returned
+                all_cxr_image_paths.append(self.TOKEN_REPRESENTING_MISSING_TEXT)
+                all_cxr_hours_relative_to_nearest_admission.append(self.TOKEN_REPRESENTING_MISSING_FLOAT)
 
         # [Clinical Notes, EHR, Labs]: Process each admission independently (per hadm_id)
         for admission in admissions_to_process:
@@ -771,13 +784,13 @@ class ClinicalNotesICDLabsCXRMIMIC4(BaseTask):
 
         single_patient_longitudinal_record = {
                 "patient_id": patient.patient_id,
-                "discharge_note_times": (all_discharge_texts, all_discharge_hours_from_admission),
-                "radiology_note_times": (all_radiology_texts, all_radiology_hours_from_admission),
+                "discharge_notes": (all_discharge_texts, all_discharge_hours_from_admission),
+                "radiology_notes": (all_radiology_texts, all_radiology_hours_from_admission),
                 "icd_codes": (all_icd_inter_admission_hours, all_icd_codes),
                 "labs": (all_lab_hours_from_admission, all_lab_values),
                 "labs_mask": (all_lab_hours_from_admission, all_lab_masks),
-                "image_path": image_path,
-                "negbio_findings": unique_negbio,
+                "image_path": "", # (all_cxr_image_paths, all_cxr_hours_relative_to_nearest_admission)
+                "negbio_findings":[""], # (all_cxr_hours_relative_to_nearest_admission, all_negbio_findings)
                 "mortality": mortality_label,
             }
 
