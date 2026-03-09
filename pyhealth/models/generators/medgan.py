@@ -1,95 +1,119 @@
+"""MedGAN: Medical Generative Adversarial Network for synthetic EHR generation.
+
+Reference:
+    Choi et al., "Generating Multi-label Discrete Patient Records using
+    Generative Adversarial Networks", MLHC 2017.
+"""
+
+import os
+import time
+from typing import Dict, List, Optional
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-from typing import Dict, List, Optional, Tuple, Union
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 
 from pyhealth.models import BaseModel
 
 
-class MedGANAutoencoder(nn.Module):
-    """simple autoencoder for pretraining"""
+class MedGANDataset(Dataset):
+    """Dataset wrapper for MedGAN training from a numpy binary matrix."""
 
-    def __init__(self, input_dim: int, hidden_dim: int = 128,
-                 data_mode: str = "binary", count_activation: str = "relu"):
+    def __init__(self, data):
+        self.data = data.astype(np.float32)
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        return torch.from_numpy(self.data[idx])
+
+
+class MedGANAutoencoder(nn.Module):
+    """Linear autoencoder for MedGAN pretraining.
+
+    Args:
+        input_dim (int): Dimensionality of the input (vocabulary size).
+        hidden_dim (int): Dimensionality of the latent space. Default: 128.
+    """
+
+    def __init__(self, input_dim: int, hidden_dim: int = 128):
         super().__init__()
-        self.data_mode = data_mode
         self.encoder = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
-            nn.Tanh()
+            nn.Tanh(),
+        )
+        self.decoder = nn.Sequential(
+            nn.Linear(hidden_dim, input_dim),
+            nn.Sigmoid(),
         )
 
-        # Conditional decoder activation based on data mode
-        if data_mode == "binary":
-            self.decoder = nn.Sequential(
-                nn.Linear(hidden_dim, input_dim),
-                nn.Sigmoid()
-            )
-        else:  # count mode
-            activation = nn.ReLU() if count_activation == "relu" else nn.Softplus()
-            self.decoder = nn.Sequential(
-                nn.Linear(hidden_dim, input_dim),
-                activation
-            )
-    
     def forward(self, x):
-        encoded = self.encoder(x)
-        decoded = self.decoder(encoded)
-        return decoded
-    
+        return self.decoder(self.encoder(x))
+
     def encode(self, x):
         return self.encoder(x)
-    
+
     def decode(self, x):
         return self.decoder(x)
 
-# ONLY USE ADMISSIONS AND DIAGNOSES FOR EVERYTHING
 
 class MedGANGenerator(nn.Module):
-    """generator with residual connections"""
-    
+    """Generator with residual connections.
+
+    Args:
+        latent_dim (int): Dimensionality of the noise input. Default: 128.
+        hidden_dim (int): Width of hidden layers. Default: 128.
+    """
+
     def __init__(self, latent_dim: int = 128, hidden_dim: int = 128):
         super().__init__()
         self.linear1 = nn.Linear(latent_dim, hidden_dim)
         self.bn1 = nn.BatchNorm1d(hidden_dim, eps=0.001, momentum=0.01)
         self.activation1 = nn.ReLU()
-        
+
         self.linear2 = nn.Linear(hidden_dim, hidden_dim)
         self.bn2 = nn.BatchNorm1d(hidden_dim, eps=0.001, momentum=0.01)
         self.activation2 = nn.Tanh()
-    
+
     def forward(self, x):
-        # residual block 1
         residual = x
         out = self.activation1(self.bn1(self.linear1(x)))
         out1 = out + residual
-        
-        # residual block 2
+
         residual = out1
         out = self.activation2(self.bn2(self.linear2(out1)))
         out2 = out + residual
-        
+
         return out2
 
 
 class MedGANDiscriminator(nn.Module):
-    """discriminator with minibatch averaging"""
-    
-    def __init__(self, input_dim: int, hidden_dim: int = 256, minibatch_averaging: bool = True):
+    """Discriminator with minibatch averaging.
+
+    Args:
+        input_dim (int): Dimensionality of the input.
+        hidden_dim (int): Width of hidden layers. Default: 256.
+        minibatch_averaging (bool): Concatenate batch mean to each sample. Default: True.
+    """
+
+    def __init__(self, input_dim: int, hidden_dim: int = 256,
+                 minibatch_averaging: bool = True):
         super().__init__()
         self.minibatch_averaging = minibatch_averaging
         model_input_dim = input_dim * 2 if minibatch_averaging else input_dim
-        
+
         self.model = nn.Sequential(
             nn.Linear(model_input_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim // 2),
             nn.ReLU(),
             nn.Linear(hidden_dim // 2, 1),
-            nn.Sigmoid()
+            nn.Sigmoid(),
         )
-    
+
     def forward(self, x):
         if self.minibatch_averaging:
             x_mean = torch.mean(x, dim=0).repeat(x.shape[0], 1)
@@ -97,351 +121,341 @@ class MedGANDiscriminator(nn.Module):
         return self.model(x)
 
 
+def _weights_init(m):
+    """Xavier uniform initialization for linear layers."""
+    if isinstance(m, nn.Linear):
+        nn.init.xavier_uniform_(m.weight)
+        if m.bias is not None:
+            nn.init.constant_(m.bias, 0)
+    elif isinstance(m, nn.BatchNorm1d):
+        nn.init.constant_(m.weight, 1)
+        nn.init.constant_(m.bias, 0)
+
+
 class MedGAN(BaseModel):
-    """MedGAN for binary matrix generation"""
-    
+    """MedGAN: Medical Generative Adversarial Network.
+
+    Generates synthetic binary EHR records via a two-phase training process:
+    (1) pre-train a linear autoencoder, then (2) adversarial training with
+    standard BCE loss. The generator maps noise to the autoencoder's latent
+    space, and the decoder projects back to binary medical codes.
+
+    Reference:
+        Choi et al., "Generating Multi-label Discrete Patient Records using
+        Generative Adversarial Networks", MLHC 2017.
+
+    Args:
+        dataset (SampleDataset): A fitted SampleDataset with
+            ``input_schema = {"visits": "multi_hot"}``.
+        latent_dim (int): Dimensionality of the generator latent space. Default: 128.
+        hidden_dim (int): Hidden layer width for the generator. Default: 128.
+        autoencoder_hidden_dim (int): Autoencoder latent dimension. Default: 128.
+        discriminator_hidden_dim (int): Discriminator hidden layer width. Default: 256.
+        minibatch_averaging (bool): Use minibatch averaging in discriminator. Default: True.
+        batch_size (int): Training batch size. Default: 512.
+        ae_epochs (int): Autoencoder pre-training epochs. Default: 100.
+        gan_epochs (int): Adversarial training epochs. Default: 200.
+        ae_lr (float): Autoencoder learning rate. Default: 0.001.
+        gan_lr (float): GAN learning rate. Default: 0.001.
+        save_dir (str): Checkpoint save directory. Default: ``"./medgan_checkpoints"``.
+        **kwargs: Additional arguments passed to ``BaseModel``.
+
+    Examples:
+        >>> from pyhealth.datasets.sample_dataset import InMemorySampleDataset
+        >>> dataset = InMemorySampleDataset(
+        ...     samples=[
+        ...         {"patient_id": "p1", "visits": ["A", "B", "C"]},
+        ...         {"patient_id": "p2", "visits": ["A", "C", "D"]},
+        ...     ],
+        ...     input_schema={"visits": "multi_hot"},
+        ...     output_schema={},
+        ... )
+        >>> model = MedGAN(dataset, latent_dim=32, hidden_dim=32)
+        >>> isinstance(model, MedGAN)
+        True
+    """
+
     def __init__(
         self,
         dataset,
-        feature_keys: List[str],
-        label_key: str,
-        mode: str = "generation",
-        data_mode: str = "binary",
-        count_activation: str = "relu",
-        count_loss: str = "mse",
         latent_dim: int = 128,
         hidden_dim: int = 128,
         autoencoder_hidden_dim: int = 128,
         discriminator_hidden_dim: int = 256,
         minibatch_averaging: bool = True,
-        **kwargs
+        batch_size: int = 512,
+        ae_epochs: int = 100,
+        gan_epochs: int = 200,
+        ae_lr: float = 0.001,
+        gan_lr: float = 0.001,
+        save_dir: str = "./medgan_checkpoints",
+        **kwargs,
     ):
-        # dummy wrapper for BaseModel compatibility
-        class DummyWrapper:
-            def __init__(self, dataset, feature_keys, label_key):
-                self.dataset = dataset
-                self.input_schema = {key: "multilabel" for key in feature_keys}
-                self.output_schema = {label_key: "multilabel"}
-                self.input_processors = {}
-                self.output_processors = {}
-        
-        wrapped_dataset = DummyWrapper(dataset, feature_keys, label_key)
-        super().__init__(dataset=wrapped_dataset)
+        super().__init__(dataset=dataset)
 
-        self.data_mode = data_mode
-        self.count_activation = count_activation
-        self.count_loss = count_loss
         self.latent_dim = latent_dim
         self.hidden_dim = hidden_dim
-        self.minibatch_averaging = minibatch_averaging
-        
-        # build vocab (simplified)
-        self.global_vocab = self._build_global_vocab(dataset, feature_keys)
-        self.input_dim = len(self.global_vocab)
-        
-        # init components
+        self.batch_size = batch_size
+        self.ae_epochs = ae_epochs
+        self.gan_epochs = gan_epochs
+        self.ae_lr = ae_lr
+        self.gan_lr = gan_lr
+        self.save_dir = save_dir
+
+        # Derive vocabulary size from processor
+        processor = dataset.input_processors["visits"]
+        self.input_dim = processor.size()
+
+        # Build reverse lookup: index -> code string
+        self._idx_to_code: List[Optional[str]] = [None] * self.input_dim
+        for code, idx in processor.label_vocab.items():
+            self._idx_to_code[idx] = code
+
+        # Initialize components
         self.autoencoder = MedGANAutoencoder(
             input_dim=self.input_dim,
             hidden_dim=autoencoder_hidden_dim,
-            data_mode=data_mode,
-            count_activation=count_activation
         )
-        self.generator = MedGANGenerator(latent_dim=latent_dim, hidden_dim=autoencoder_hidden_dim)
+        self.generator = MedGANGenerator(
+            latent_dim=latent_dim,
+            hidden_dim=autoencoder_hidden_dim,
+        )
         self.discriminator = MedGANDiscriminator(
             input_dim=self.input_dim,
             hidden_dim=discriminator_hidden_dim,
-            minibatch_averaging=minibatch_averaging
-        )
-        
-        self._init_weights()
-    
-    @classmethod
-    def from_binary_matrix(
-        cls,
-        binary_matrix: np.ndarray,
-        latent_dim: int = 128,
-        hidden_dim: int = 128,
-        autoencoder_hidden_dim: int = 128,
-        discriminator_hidden_dim: int = 256,
-        minibatch_averaging: bool = True,
-        data_mode: str = "binary",
-        count_activation: str = "relu",
-        count_loss: str = "mse",
-        **kwargs
-    ):
-        """create MedGAN model from binary matrix (ICD-9, etc.)"""
-        class MatrixWrapper:
-            def __init__(self, matrix):
-                self.matrix = matrix
-                self.input_processors = {}
-                self.output_processors = {}
-            
-            def __len__(self):
-                return self.matrix.shape[0]
-            
-            def __getitem__(self, idx):
-                return {"binary_vector": torch.tensor(self.matrix[idx], dtype=torch.float32)}
-            
-            def iter_patients(self):
-                """iterate over patients"""
-                for i in range(len(self)):
-                    yield type('Patient', (), {
-                        'binary_vector': self.matrix[i],
-                        'patient_id': f'patient_{i}'
-                    })()
-        
-        dummy_dataset = MatrixWrapper(binary_matrix)
-        
-        model = cls(
-            dataset=dummy_dataset,
-            feature_keys=["binary_vector"],
-            label_key="binary_vector",
-            data_mode=data_mode,
-            count_activation=count_activation,
-            count_loss=count_loss,
-            latent_dim=latent_dim,
-            hidden_dim=hidden_dim,
-            autoencoder_hidden_dim=autoencoder_hidden_dim,
-            discriminator_hidden_dim=discriminator_hidden_dim,
             minibatch_averaging=minibatch_averaging,
-            **kwargs
         )
-        
-        # override input dimension
-        model.input_dim = binary_matrix.shape[1]
-        
-        # reinitialize components with correct dimensions
-        model.autoencoder = MedGANAutoencoder(
-            input_dim=model.input_dim,
-            hidden_dim=autoencoder_hidden_dim,
-            data_mode=data_mode,
-            count_activation=count_activation
+
+        self.autoencoder.apply(_weights_init)
+        self.generator.apply(_weights_init)
+        self.discriminator.apply(_weights_init)
+
+    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+        """Not used in GAN context."""
+        raise NotImplementedError(
+            "Use train_model() for training and synthesize_dataset() for generation."
         )
-        model.generator = MedGANGenerator(latent_dim=latent_dim, hidden_dim=autoencoder_hidden_dim)
-        model.discriminator = MedGANDiscriminator(
-            input_dim=model.input_dim,
-            hidden_dim=discriminator_hidden_dim,
-            minibatch_averaging=minibatch_averaging
-        )
-        
-        # Move all components to the same device as the model
-        device = next(model.parameters()).device if hasattr(model, 'parameters') else torch.device('cpu')
-        model.autoencoder = model.autoencoder.to(device)
-        model.generator = model.generator.to(device)
-        model.discriminator = model.discriminator.to(device)
-        
-        # override feature extraction
-        def extract_features(batch_data, device):
-            return batch_data["binary_vector"].to(device)
-        
-        model._extract_features_from_batch = extract_features
 
-        return model
+    def train_model(self, train_dataset, val_dataset=None):
+        """Train MedGAN on a SampleDataset.
 
-    @classmethod
-    def from_count_matrix(
-        cls,
-        count_matrix: np.ndarray,
-        latent_dim: int = 128,
-        hidden_dim: int = 128,
-        autoencoder_hidden_dim: int = 128,
-        discriminator_hidden_dim: int = 256,
-        minibatch_averaging: bool = True,
-        count_activation: str = "relu",
-        count_loss: str = "mse",
-        **kwargs
-    ):
-        """Create MedGAN model from count matrix (integers >= 0)
-
-        This is a convenience method that calls from_binary_matrix with data_mode="count".
-        The name is kept as count_matrix to be explicit about expected input format.
+        Phase 1: pre-train the autoencoder with BCE reconstruction loss.
+        Phase 2: adversarial training with standard BCE GAN loss (not WGAN).
 
         Args:
-            count_matrix: numpy array with shape (n_patients, n_features) containing counts (integers >= 0)
-            latent_dim: dimension of latent space for generator
-            hidden_dim: hidden dimension for generator
-            autoencoder_hidden_dim: hidden dimension for autoencoder
-            discriminator_hidden_dim: hidden dimension for discriminator
-            minibatch_averaging: whether to use minibatch averaging in discriminator
-            count_activation: activation function for count mode ("relu" or "softplus")
-            count_loss: loss function for count mode ("mse" or "poisson")
-            **kwargs: additional arguments
+            train_dataset: A fitted SampleDataset with
+                ``input_schema = {"visits": "multi_hot"}``.
+            val_dataset: Unused. Accepted for API compatibility.
 
         Returns:
-            MedGAN model configured for count mode
+            None
         """
-        return cls.from_binary_matrix(
-            binary_matrix=count_matrix,
-            latent_dim=latent_dim,
-            hidden_dim=hidden_dim,
-            autoencoder_hidden_dim=autoencoder_hidden_dim,
-            discriminator_hidden_dim=discriminator_hidden_dim,
-            minibatch_averaging=minibatch_averaging,
-            data_mode="count",
-            count_activation=count_activation,
-            count_loss=count_loss,
-            **kwargs
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.to(device)
+        print(f"Training MedGAN on: {device}")
+
+        # Build multi-hot matrix from pre-encoded tensors
+        tensors = [train_dataset[i]["visits"] for i in range(len(train_dataset))]
+        data_matrix = torch.stack(tensors).numpy()
+
+        medgan_ds = MedGANDataset(data=data_matrix)
+        sampler = torch.utils.data.sampler.RandomSampler(
+            data_source=medgan_ds, replacement=True,
+        )
+        dataloader = DataLoader(
+            medgan_ds,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=0,
+            drop_last=True,
+            sampler=sampler,
         )
 
-    def _build_global_vocab(self, dataset, feature_keys: List[str]) -> List[str]:
-        """build vocab from dataset (simplified)"""
-        vocab = set()
-        for patient in dataset.iter_patients():
-            for feature_key in feature_keys:
-                if hasattr(patient, feature_key):
-                    feature_values = getattr(patient, feature_key)
-                    if isinstance(feature_values, list):
-                        vocab.update(feature_values)
-                    elif isinstance(feature_values, str):
-                        vocab.add(feature_values)
-        return sorted(list(vocab))
-    
-    def _init_weights(self):
-        """init weights"""
-        def weights_init(m):
-            if isinstance(m, nn.Linear):
-                nn.init.xavier_uniform_(m.weight)
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.BatchNorm1d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-        
-        self.autoencoder.apply(weights_init)
-        self.generator.apply(weights_init)
-        self.discriminator.apply(weights_init)
-    
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
-        """forward pass"""
-        features = self._extract_features_from_batch(kwargs, self.device)
-        noise = torch.randn(features.shape[0], self.latent_dim, device=self.device)
-        fake_samples = self.generator(noise)
-        return {"real_features": features, "fake_samples": fake_samples}
-    
-    def generate(self, n_samples: int, device: torch.device = None) -> torch.Tensor:
-        """generate synthetic samples"""
-        if device is None:
-            device = self.device
-        
+        os.makedirs(self.save_dir, exist_ok=True)
+
+        # ---- Phase 1: Autoencoder pretraining ----
+        print(f"Phase 1: Pretraining autoencoder for {self.ae_epochs} epochs...")
+        optimizer_ae = torch.optim.Adam(
+            self.autoencoder.parameters(), lr=self.ae_lr,
+        )
+        criterion_ae = nn.BCELoss()
+
+        self.autoencoder.train()
+        for epoch in range(self.ae_epochs):
+            total_loss = 0.0
+            n_batches = 0
+            for batch in dataloader:
+                real = batch.to(device)
+                recon = self.autoencoder(real)
+                loss = criterion_ae(recon, real)
+
+                optimizer_ae.zero_grad()
+                loss.backward()
+                optimizer_ae.step()
+
+                total_loss += loss.item()
+                n_batches += 1
+
+            if (epoch + 1) % max(1, self.ae_epochs // 10) == 0 or epoch == 0:
+                avg = total_loss / n_batches
+                print(f"  AE epoch {epoch + 1}/{self.ae_epochs} loss={avg:.4f}")
+
+        # ---- Phase 2: Adversarial training ----
+        print(f"Phase 2: Adversarial training for {self.gan_epochs} epochs...")
+        optimizer_g = torch.optim.Adam(
+            list(self.generator.parameters())
+            + list(self.autoencoder.decoder.parameters()),
+            lr=self.gan_lr,
+        )
+        optimizer_d = torch.optim.Adam(
+            self.discriminator.parameters(), lr=self.gan_lr,
+        )
+
+        best_d_loss = float("inf")
+
+        for epoch in range(self.gan_epochs):
+            epoch_d_loss = 0.0
+            epoch_g_loss = 0.0
+            n_batches = 0
+
+            self.generator.train()
+            self.discriminator.train()
+            self.autoencoder.eval()
+            self.autoencoder.decoder.train()
+
+            for batch in dataloader:
+                real = batch.to(device)
+                bs = real.size(0)
+
+                # --- Train Discriminator ---
+                optimizer_d.zero_grad()
+                noise = torch.randn(bs, self.latent_dim, device=device)
+                fake_hidden = self.generator(noise)
+                fake = self.autoencoder.decode(fake_hidden)
+
+                real_pred = self.discriminator(real)
+                fake_pred = self.discriminator(fake.detach())
+
+                d_loss = (
+                    F.binary_cross_entropy(real_pred, torch.ones_like(real_pred))
+                    + F.binary_cross_entropy(fake_pred, torch.zeros_like(fake_pred))
+                )
+                d_loss.backward()
+                optimizer_d.step()
+
+                # --- Train Generator ---
+                optimizer_g.zero_grad()
+                fake_pred = self.discriminator(fake)
+                g_loss = F.binary_cross_entropy(
+                    fake_pred, torch.ones_like(fake_pred),
+                )
+                g_loss.backward()
+                optimizer_g.step()
+
+                epoch_d_loss += d_loss.item()
+                epoch_g_loss += g_loss.item()
+                n_batches += 1
+
+            avg_d = epoch_d_loss / n_batches
+            avg_g = epoch_g_loss / n_batches
+
+            if (epoch + 1) % max(1, self.gan_epochs // 10) == 0 or epoch == 0:
+                print(
+                    f"  GAN epoch {epoch + 1}/{self.gan_epochs} "
+                    f"D_loss={avg_d:.4f} G_loss={avg_g:.4f}"
+                )
+
+            # Save best checkpoint
+            if avg_d < best_d_loss:
+                best_d_loss = avg_d
+                self.save_model(os.path.join(self.save_dir, "best.pt"))
+
+        # Save final checkpoint
+        self.save_model(os.path.join(self.save_dir, "final.pt"))
+        print("Training complete.")
+
+    def synthesize_dataset(
+        self, num_samples: int, random_sampling: bool = True,
+    ) -> List[Dict]:
+        """Generate synthetic patient records.
+
+        Each synthetic patient is a flat list of ICD code strings decoded from
+        a generated binary vector, matching the ``multi_hot`` input schema.
+
+        Args:
+            num_samples (int): Number of synthetic patients to generate.
+            random_sampling (bool): Unused; accepted for API compatibility.
+
+        Returns:
+            list of dict: Synthetic patient records. Each dict has:
+                ``"patient_id"`` (str): e.g. ``"synthetic_0"``.
+                ``"visits"`` (list of str): flat list of decoded ICD code strings.
+        """
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.to(device)
+
         self.generator.eval()
         self.autoencoder.eval()
+
+        gen_samples = np.zeros((num_samples, self.input_dim), dtype=np.float32)
+        n_full = num_samples // self.batch_size
+
         with torch.no_grad():
-            noise = torch.randn(n_samples, self.latent_dim, device=device)
-            generated = self.generator(noise)
-            # use autoencoder decoder to get final output
-            generated = self.autoencoder.decode(generated)
-        
-        return generated
-    
-    def discriminate(self, x: torch.Tensor) -> torch.Tensor:
-        """discriminate real vs fake"""
-        return self.discriminator(x)
-    
-    def pretrain_autoencoder(self, dataloader: DataLoader, epochs: int = 100, lr: float = 0.001, device: torch.device = None):
-        """pretrain autoencoder with detailed loss tracking"""
-        if device is None:
-            device = self.device
-        
-        # Ensure autoencoder is on the correct device
-        self.autoencoder = self.autoencoder.to(device)
-        
-        print("Pretraining Autoencoder...")
-        print("="*50)
-        print("Epoch | A_loss | Progress")
-        print("="*50)
+            for i in range(n_full):
+                z = torch.randn(self.batch_size, self.latent_dim, device=device)
+                fake = self.autoencoder.decode(self.generator(z))
+                gen_samples[i * self.batch_size : (i + 1) * self.batch_size] = (
+                    fake.cpu().numpy()
+                )
 
-        optimizer = torch.optim.Adam(self.autoencoder.parameters(), lr=lr)
+            remaining = num_samples % self.batch_size
+            if remaining > 0:
+                z = torch.randn(remaining, self.latent_dim, device=device)
+                fake = self.autoencoder.decode(self.generator(z))
+                gen_samples[n_full * self.batch_size :] = fake.cpu().numpy()
 
-        # Conditional loss function based on data mode
-        if self.data_mode == "binary":
-            criterion = nn.BCELoss()
-        elif self.count_loss == "mse":
-            criterion = nn.MSELoss()
-        else:  # poisson
-            criterion = nn.PoissonNLLLoss(log_input=False)
-        
-        # Track losses for plotting
-        a_losses = []
-        
-        self.autoencoder.train()
-        
-        for epoch in range(epochs):
-            total_loss = 0
-            num_batches = 0
-            
-            for batch in dataloader:
-                # handle both tensor and dict inputs
-                if isinstance(batch, torch.Tensor):
-                    features = batch.to(device)
-                else:
-                    features = self._extract_features_from_batch(batch, device)
-                
-                reconstructed = self.autoencoder(features)
-                loss = criterion(reconstructed, features)
-                
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-                
-                total_loss += loss.item()
-                num_batches += 1
-    
-            avg_loss = total_loss / num_batches
-            a_losses.append(avg_loss)
-            
-            # Print progress every epoch for shorter training runs, every 10 for longer runs
-            print_freq = 1 if epochs <= 50 else 10
-            if (epoch + 1) % print_freq == 0 or epoch == 0 or epoch == epochs - 1:
-                progress = (epoch + 1) / epochs * 100
-                print(f"{epoch+1:5d} | {avg_loss:.4f} | {progress:5.1f}%")
-        
-        print("="*50)
-        print("Autoencoder Pretraining Completed!")
-        print(f"Final A_loss: {a_losses[-1]:.4f}")
-        
-        return a_losses
-    
-    def _extract_features_from_batch(self, batch_data, device: torch.device) -> torch.Tensor:
-        """extract features from batch"""
-        features = []
-        for feature_key in self.feature_keys:
-            if feature_key in batch_data:
-                features.append(batch_data[feature_key])
-        
-        if len(features) == 1:
-            return features[0].to(device)
-        else:
-            return torch.cat(features, dim=1).to(device)
-    
-    def sample_transform(self, samples: torch.Tensor, threshold: float = 0.5) -> torch.Tensor:
-        """Convert to discrete values based on data mode"""
-        if self.data_mode == "binary":
-            return (samples > threshold).float()
-        else:  # count mode
-            return torch.clamp(torch.round(samples), min=0)
-    
-    def train_step(self, batch, optimizer_g, optimizer_d, optimizer_ae=None):
-        """single training step"""
-        real_features = self._extract_features_from_batch(batch, self.device)
-        
-        # train discriminator
-        optimizer_d.zero_grad()
-        noise = torch.randn(real_features.shape[0], self.latent_dim, device=self.device)
-        fake_samples = self.generator(noise)
-        
-        real_predictions = self.discriminator(real_features)
-        fake_predictions = self.discriminator(fake_samples.detach())
-        
-        d_loss = F.binary_cross_entropy(real_predictions, torch.ones_like(real_predictions)) + \
-                 F.binary_cross_entropy(fake_predictions, torch.zeros_like(fake_predictions))
-        d_loss.backward()
-        optimizer_d.step()
-        
-        # train generator
-        optimizer_g.zero_grad()
-        fake_predictions = self.discriminator(fake_samples)
-        g_loss = F.binary_cross_entropy(fake_predictions, torch.ones_like(fake_predictions))
-        g_loss.backward()
-        optimizer_g.step()
-        
-        return {"d_loss": d_loss.item(), "g_loss": g_loss.item()}
+        # Binarize at threshold 0.5
+        gen_samples = (gen_samples >= 0.5).astype(np.float32)
+
+        # Decode to code strings
+        results: List[Dict] = []
+        for i in range(num_samples):
+            codes = [
+                self._idx_to_code[idx]
+                for idx in np.where(gen_samples[i] == 1.0)[0]
+                if self._idx_to_code[idx] not in (None, "<pad>", "<unk>")
+            ]
+            results.append({
+                "patient_id": f"synthetic_{i}",
+                "visits": codes,
+            })
+        return results
+
+    def save_model(self, path: str):
+        """Save model weights to a checkpoint file.
+
+        Args:
+            path (str): File path to write the checkpoint.
+        """
+        torch.save(
+            {
+                "autoencoder": self.autoencoder.state_dict(),
+                "generator": self.generator.state_dict(),
+                "discriminator": self.discriminator.state_dict(),
+                "input_dim": self.input_dim,
+                "latent_dim": self.latent_dim,
+                "idx_to_code": self._idx_to_code,
+            },
+            path,
+        )
+
+    def load_model(self, path: str):
+        """Load model weights from a checkpoint file.
+
+        Args:
+            path (str): File path to read the checkpoint.
+        """
+        ckpt = torch.load(path, map_location=self.device)
+        self.autoencoder.load_state_dict(ckpt["autoencoder"])
+        self.generator.load_state_dict(ckpt["generator"])
+        self.discriminator.load_state_dict(ckpt["discriminator"])
