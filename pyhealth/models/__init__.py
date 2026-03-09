@@ -11,6 +11,7 @@ from .gamenet import GAMENet, GAMENetLayer
 from .jamba_ehr import JambaEHR, JambaLayer
 from .logistic_regression import LogisticRegression
 from .gan import GAN
+from .generators.medgan import MedGAN
 from .gnn import GAT, GCN
 from .graph_torchvision_model import Graph_TorchvisionModel
 from .grasp import GRASP, GRASPLayer
