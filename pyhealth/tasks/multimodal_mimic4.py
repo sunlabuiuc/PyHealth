@@ -477,6 +477,7 @@ class ClinicalNotesICDLabsCXRMIMIC4(BaseTask):
     """
     TOKEN_REPRESENTING_MISSING_TEXT = ""
     TOKEN_REPRESENTING_MISSING_FLOAT = 0.0
+    TOKEN_REPRESENTING_MISSING_PATH = None
     PADDING: int = 0
 
     task_name: str = "ClinicalNotesICDLabsCXRMIMIC4"
@@ -498,8 +499,8 @@ class ClinicalNotesICDLabsCXRMIMIC4(BaseTask):
             "icd_codes": ("stagenet", {"padding": PADDING}),
             "labs": ("stagenet_tensor", {}),
             "labs_mask": ("stagenet_tensor", {}),
-            "image_path": "text",  # (image_path, hours_from_nearest_admission)
-            "negbio_findings": "sequence",  # (negbio_findings, hours_from_nearest_admission)
+            "cxrs": "time_image", 
+            "negbio_findings": ("stagenet", {"padding": PADDING}), 
         }
     output_schema: Dict[str, str] = {"mortality": "binary"}
 
@@ -651,7 +652,7 @@ class ClinicalNotesICDLabsCXRMIMIC4(BaseTask):
                     all_cxr_image_paths.append(cxr_image_path)
                     all_cxr_hours_relative_to_nearest_admission.append(image_hours_from_nearest_admission)
             except AttributeError:
-                all_cxr_image_paths.append(self.TOKEN_REPRESENTING_MISSING_TEXT)
+                all_cxr_image_paths.append(self.TOKEN_REPRESENTING_MISSING_PATH)
                 all_cxr_hours_relative_to_nearest_admission.append(self.TOKEN_REPRESENTING_MISSING_FLOAT)
 
         # [Clinical Notes, EHR, Labs]: Process each admission independently (per hadm_id)
@@ -789,8 +790,8 @@ class ClinicalNotesICDLabsCXRMIMIC4(BaseTask):
                 "icd_codes": (all_icd_inter_admission_hours, all_icd_codes),
                 "labs": (all_lab_hours_from_admission, all_lab_values),
                 "labs_mask": (all_lab_hours_from_admission, all_lab_masks),
-                "image_path": "", # (all_cxr_image_paths, all_cxr_hours_relative_to_nearest_admission)
-                "negbio_findings":[""], # (all_cxr_hours_relative_to_nearest_admission, all_negbio_findings)
+                "cxrs": (all_cxr_image_paths, all_cxr_hours_relative_to_nearest_admission),
+                "negbio_findings": (all_cxr_hours_relative_to_nearest_admission, all_negbio_findings),
                 "mortality": mortality_label,
             }
 
