@@ -1,3 +1,5 @@
+import numpy as np
+import pandas as pd
 from typing import Any, Dict, List
 
 import pandas as pd
@@ -10,13 +12,15 @@ class SleepWakeClassification(BaseTask):
     input_schema: Dict[str, str] = {"features": "vector"}
     output_schema: Dict[str, str] = {"label": "binary"}
 
-    def __init__(self, epoch_seconds: int = 30):
+    def __init__(self, epoch_seconds: int = 30, sampling_rate: int = 64):
         """Initializes the sleep-wake classification task.
 
         Args:
             epoch_seconds: Length of each epoch in seconds. Default is 30.
+            sampling_rate: Sampling rate of the wearable data in Hz. Default is 64.
         """
         self.epoch_seconds = epoch_seconds
+        self.sampling_rate = sampling_rate
         super().__init__()
 
     def _map_sleep_label(self, label: str) -> int | None:
@@ -24,7 +28,6 @@ class SleepWakeClassification(BaseTask):
 
         Args:
             label: Original sleep stage label.
-
         Returns:
             1 for wake, 0 for sleep, or None if the label should be skipped.
         """
@@ -35,20 +38,36 @@ class SleepWakeClassification(BaseTask):
 
         if label.lower() == "wake":
             return 1
-
         if label.upper() in {"REM", "N1", "N2", "N3"}:
             return 0
 
         return None
+    
+    def _extract_basic_features(self, epoch_df: pd.DataFrame) -> List[float]:
+        """Extracts basic features (mean values) from the epoch data.
+        
+        Args:
+            epoch_df: DataFrame containing the data for the current epoch.
+        Returns:
+            A list of basic features (mean values) for the epoch.
+        """
+        features = []
+
+        for col in ["BVP", "HR", "TEMP", "EDA"]:
+            if col in epoch_df.columns:
+                values = pd.to_numeric(epoch_df[col], errors="coerce").dropna()
+                features.append(float(values.mean()) if len(values) > 0 else 0.0)
+
+        return features
 
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
-        samples: List[Dict[str, Any]] = []
-
+        samples = []
         events = patient.get_events()
         if len(events) == 0:
             return samples
 
-        # For DREAMT, each patient should typically have one wearable file event
+        epoch_size = self.epoch_seconds * self.sampling_rate
+
         for event in events:
             if not hasattr(event, "file_64hz") or event.file_64hz is None:
                 continue
@@ -58,19 +77,28 @@ class SleepWakeClassification(BaseTask):
             if "Sleep Stage" not in df.columns:
                 continue
 
-            unique_labels = df["Sleep Stage"].dropna().unique().tolist()
+            n_epochs = len(df) // epoch_size
+            for epoch_idx in range(n_epochs):
+                start = epoch_idx * epoch_size
+                end = start + epoch_size
+                epoch_df = df.iloc[start:end].copy()
 
-            for epoch_idx, raw_label in enumerate(unique_labels):
+                if len(epoch_df) == 0:
+                    continue
+
+                raw_label = epoch_df["Sleep Stage"].mode().iloc[0]
                 label = self._map_sleep_label(raw_label)
                 if label is None:
                     continue
+
+                features = self._extract_basic_features(epoch_df)
 
                 samples.append(
                     {
                         "patient_id": patient.patient_id,
                         "record_id": f"{patient.patient_id}-{epoch_idx}",
                         "epoch_index": epoch_idx,
-                        "features": [],
+                        "features": features,
                         "label": label,
                     }
                 )
