@@ -48,10 +48,16 @@ class SampleSignalDataset:
 
 from .base_dataset import BaseDataset
 from .cardiology import CardiologyDataset
-from .chestxray14 import ChestXray14Dataset
+try:
+    from .chestxray14 import ChestXray14Dataset
+except ImportError:
+    pass  # PIL/torchvision unavailable
 from .clinvar import ClinVarDataset
 from .cosmic import COSMICDataset
-from .covid19_cxr import COVID19CXRDataset
+try:
+    from .covid19_cxr import COVID19CXRDataset
+except ImportError:
+    pass  # PIL/torchvision unavailable
 from .dreamt import DREAMTDataset
 from .ehrshot import EHRShotDataset
 from .eicu import eICUDataset
@@ -63,7 +69,10 @@ from .mimicextract import MIMICExtractDataset
 from .omop import OMOPDataset
 from .sample_dataset import SampleBuilder, SampleDataset, create_sample_dataset
 from .shhs import SHHSDataset
-from .sleepedf import SleepEDFDataset
+try:
+    from .sleepedf import SleepEDFDataset
+except ImportError:
+    pass  # mne unavailable
 from .bmd_hs import BMDHSDataset
 from .support2 import Support2Dataset
 from .tcga_prad import TCGAPRADDataset
@@ -76,8 +85,14 @@ from .splitter import (
     split_by_visit,
     split_by_visit_conformal,
 )
-from .tuab import TUABDataset
-from .tuev import TUEVDataset
+try:
+    from .tuab import TUABDataset
+except ImportError:
+    pass  # mne unavailable; TUABDataset not registered
+try:
+    from .tuev import TUEVDataset
+except ImportError:
+    pass  # mne unavailable; TUEVDataset not registered
 from .utils import (
     collate_fn_dict,
     collate_fn_dict_with_padding,
