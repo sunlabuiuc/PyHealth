@@ -6,6 +6,7 @@ import neurokit2 as nk
 from scipy.signal import butter, cheby2, filtfilt
 from scipy.stats import trim_mean
 from scipy.stats.mstats import winsorize
+from scipy.ndimage import gaussian_filter1d
 
 from .base_task import BaseTask
 
@@ -205,6 +206,59 @@ class SleepWakeClassification(BaseTask):
                 )
 
         return features
+    
+    def _apply_gaussian_smoothing(
+        self,
+        values: np.ndarray,
+        sigma: float,
+    ) -> np.ndarray:
+        return gaussian_filter1d(values, sigma=sigma, mode="nearest")
+
+    def _temporal_derivative(self, values: np.ndarray) -> np.ndarray:
+        return np.diff(values, prepend=values[0])
+
+    def _rolling_variance(
+        self,
+        values: np.ndarray,
+        window: int,
+    ) -> np.ndarray:
+        out = np.zeros_like(values)
+        half = window // 2
+
+        for i in range(len(values)):
+            start = max(0, i - half)
+            end = min(len(values), i + half + 1)
+            out[i] = np.var(values[start:end])
+
+        return out
+
+    def _enhance_features_temporally(
+        self,
+        epoch_features: List[List[float]],
+        gaussian_sigma: float = 2.0,
+        variance_window: int = 5,
+    ) -> List[List[float]]:
+        if len(epoch_features) == 0:
+            return []
+
+        feature_matrix = np.asarray(epoch_features, dtype=float)
+        num_epochs, num_features = feature_matrix.shape
+
+        enhanced = feature_matrix.tolist()
+
+        for j in range(num_features):
+            values = feature_matrix[:, j]
+
+            smoothed = self._apply_gaussian_smoothing(values, gaussian_sigma)
+            deriv = self._temporal_derivative(smoothed)
+            var = self._rolling_variance(smoothed, variance_window)
+
+            for i in range(num_epochs):
+                enhanced[i].append(float(smoothed[i]))
+                enhanced[i].append(float(deriv[i]))
+                enhanced[i].append(float(var[i]))
+
+        return enhanced
 
     def _iqr(self, x: np.ndarray) -> float:
         return float(np.percentile(x, 75) - np.percentile(x, 25))
@@ -353,6 +407,12 @@ class SleepWakeClassification(BaseTask):
             )
 
             all_epoch_features.append(feats)
+
+        all_epoch_features = self._enhance_features_temporally(
+            all_epoch_features,
+            gaussian_sigma=2.0,
+            variance_window=5,
+        )
 
         return all_epoch_features
 
