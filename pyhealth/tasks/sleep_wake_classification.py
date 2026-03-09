@@ -133,6 +133,79 @@ class SleepWakeClassification(BaseTask):
 
         return features
 
+    def _lowpass_filter(
+        self,
+        signal: np.ndarray,
+        fs: float,
+        cutoff_hz: float,
+        order: int = 4,
+    ) -> np.ndarray:
+        nyq = 0.5 * fs
+        b, a = butter(order, cutoff_hz / nyq, btype="low")
+        return self._apply_filter(signal, b, a)
+
+    def _detrend_segments(
+        self,
+        signal: np.ndarray,
+        fs: float,
+        segment_seconds: int,
+    ) -> np.ndarray:
+        samples_per_seg = int(fs * segment_seconds)
+        detrended = signal.copy()
+
+        for i in range(0, len(signal), samples_per_seg):
+            seg = signal[i : i + samples_per_seg]
+            if len(seg) < 2:
+                continue
+
+            x = np.arange(len(seg))
+            coeffs = np.polyfit(x, seg, deg=1)
+            trend = np.polyval(coeffs, x)
+            detrended[i : i + len(seg)] = seg - trend
+
+        return detrended
+
+    def _extract_eda_features(
+        self,
+        signal: np.ndarray,
+        fs: float,
+    ) -> List[Dict[str, float]]:
+        detrended = self._detrend_segments(signal, fs, segment_seconds=5)
+        filtered = self._lowpass_filter(detrended, fs, cutoff_hz=1.0)
+
+        eda_signals, _ = nk.eda_process(filtered, sampling_rate=fs)
+        scr = eda_signals["EDA_Phasic"].values
+        epochs = self._split_into_epochs(scr, fs)
+
+        features = []
+        for ep in epochs:
+            try:
+                _, info = nk.eda_peaks(ep, sampling_rate=fs)
+
+                amplitudes = info["SCR_Amplitude"]
+                rise_times = info["SCR_RiseTime"]
+                recovery_times = info["SCR_RecoveryTime"]
+
+                features.append(
+                    {
+                        "scr_amp_mean": float(np.mean(amplitudes)) if len(amplitudes) else 0.0,
+                        "scr_amp_max": float(np.max(amplitudes)) if len(amplitudes) else 0.0,
+                        "scr_rise_mean": float(np.mean(rise_times)) if len(rise_times) else 0.0,
+                        "scr_recovery_mean": float(np.mean(recovery_times)) if len(recovery_times) else 0.0,
+                    }
+                )
+            except Exception:
+                features.append(
+                    {
+                        "scr_amp_mean": np.nan,
+                        "scr_amp_max": np.nan,
+                        "scr_rise_mean": np.nan,
+                        "scr_recovery_mean": np.nan,
+                    }
+                )
+
+        return features
+
     def _iqr(self, x: np.ndarray) -> float:
         return float(np.percentile(x, 75) - np.percentile(x, 25))
 
@@ -198,12 +271,16 @@ class SleepWakeClassification(BaseTask):
 
         if "BVP" not in df.columns:
             return []
+        
+        if "EDA" not in df.columns:
+            return []
 
         acc_x = self._safe_numeric(df["ACC_X"])
         acc_y = self._safe_numeric(df["ACC_Y"])
         acc_z = self._safe_numeric(df["ACC_Z"])
         temp = self._safe_numeric(df["TEMP"])
         bvp = self._safe_numeric(df["BVP"])
+        eda = self._safe_numeric(df["EDA"])
 
         acc_x_feats = self._extract_acc_axis_features(acc_x, fs)
         acc_y_feats = self._extract_acc_axis_features(acc_y, fs)
@@ -211,6 +288,7 @@ class SleepWakeClassification(BaseTask):
         acc_mad_feats = self._extract_acc_mad_features(acc_x, acc_y, acc_z, fs)
         temp_feats = self._extract_temp_features(temp, fs)
         bvp_feats = self._extract_bvp_features(bvp, fs)
+        eda_feats = self._extract_eda_features(eda, fs)
 
         num_epochs = min(
             len(acc_x_feats),
@@ -262,6 +340,15 @@ class SleepWakeClassification(BaseTask):
                     bvp_feats[i]["rmssd"],
                     bvp_feats[i]["sdnn"],
                     bvp_feats[i]["pnn50"],
+                ]
+            )
+
+            feats.extend(
+                [
+                    eda_feats[i]["scr_amp_mean"],
+                    eda_feats[i]["scr_amp_max"],
+                    eda_feats[i]["scr_rise_mean"],
+                    eda_feats[i]["scr_recovery_mean"],
                 ]
             )
 
