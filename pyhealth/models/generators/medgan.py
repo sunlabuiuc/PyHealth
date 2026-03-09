@@ -271,7 +271,8 @@ class MedGAN(BaseModel):
             sampler=sampler,
         )
 
-        os.makedirs(self.save_dir, exist_ok=True)
+        if self.save_dir:
+            os.makedirs(self.save_dir, exist_ok=True)
 
         # ---- Phase 1: Autoencoder pretraining ----
         print(f"Phase 1: Pretraining autoencoder for {self.ae_epochs} epochs...")
@@ -366,12 +367,13 @@ class MedGAN(BaseModel):
                 )
 
             # Save best checkpoint
-            if avg_d < best_d_loss:
+            if self.save_dir and avg_d < best_d_loss:
                 best_d_loss = avg_d
                 self.save_model(os.path.join(self.save_dir, "best.pt"))
 
         # Save final checkpoint
-        self.save_model(os.path.join(self.save_dir, "final.pt"))
+        if self.save_dir:
+            self.save_model(os.path.join(self.save_dir, "final.pt"))
         print("Training complete.")
 
     def synthesize_dataset(
