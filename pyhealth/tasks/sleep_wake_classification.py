@@ -2,7 +2,8 @@ import numpy as np
 import pandas as pd
 from typing import Any, Dict, List
 
-from scipy.signal import butter, filtfilt
+import neurokit2 as nk
+from scipy.signal import butter, cheby2, filtfilt
 from scipy.stats import trim_mean
 from scipy.stats.mstats import winsorize
 
@@ -72,6 +73,65 @@ class SleepWakeClassification(BaseTask):
             order=5,
         )
         return self._apply_filter(signal, b, a)
+    
+    def _cheby2_bandpass(
+        self,
+        low_hz: float,
+        high_hz: float,
+        fs: float,
+        order: int,
+        rs: float = 40.0,
+    ):
+        nyq = 0.5 * fs
+        low = low_hz / nyq
+        high = high_hz / nyq
+        return cheby2(order, rs, [low, high], btype="band")
+
+    def _filter_bvp(self, signal: np.ndarray, fs: float) -> np.ndarray:
+        b, a = self._cheby2_bandpass(
+            low_hz=0.5,
+            high_hz=20.0,
+            fs=fs,
+            order=4,
+            rs=40.0,
+        )
+        return self._apply_filter(signal, b, a)
+
+    def _extract_bvp_features(
+        self,
+        signal: np.ndarray,
+        fs: float,
+    ) -> List[Dict[str, float]]:
+        filtered = self._filter_bvp(signal, fs)
+        epochs = self._split_into_epochs(filtered, fs)
+
+        features = []
+        for ep in epochs:
+            try:
+                _, info = nk.ppg_process(ep, sampling_rate=fs)
+                hrv = nk.hrv_time(
+                    info["PPG_Peaks"],
+                    sampling_rate=fs,
+                    show=False,
+                )
+
+                features.append(
+                    {
+                        "rmssd": float(hrv["HRV_RMSSD"].values[0]),
+                        "sdnn": float(hrv["HRV_SDNN"].values[0]),
+                        "pnn50": float(hrv["HRV_pNN50"].values[0]),
+                    }
+                )
+            except Exception:
+                features.append(
+                    {
+                        "rmssd": np.nan,
+                        "sdnn": np.nan,
+                        "pnn50": np.nan,
+                    }
+                )
+
+        return features
 
     def _iqr(self, x: np.ndarray) -> float:
         return float(np.percentile(x, 75) - np.percentile(x, 25))
@@ -136,16 +196,21 @@ class SleepWakeClassification(BaseTask):
         if "TEMP" not in df.columns:
             return []
 
+        if "BVP" not in df.columns:
+            return []
+
         acc_x = self._safe_numeric(df["ACC_X"])
         acc_y = self._safe_numeric(df["ACC_Y"])
         acc_z = self._safe_numeric(df["ACC_Z"])
         temp = self._safe_numeric(df["TEMP"])
+        bvp = self._safe_numeric(df["BVP"])
 
         acc_x_feats = self._extract_acc_axis_features(acc_x, fs)
         acc_y_feats = self._extract_acc_axis_features(acc_y, fs)
         acc_z_feats = self._extract_acc_axis_features(acc_z, fs)
         acc_mad_feats = self._extract_acc_mad_features(acc_x, acc_y, acc_z, fs)
         temp_feats = self._extract_temp_features(temp, fs)
+        bvp_feats = self._extract_bvp_features(bvp, fs)
 
         num_epochs = min(
             len(acc_x_feats),
@@ -153,6 +218,7 @@ class SleepWakeClassification(BaseTask):
             len(acc_z_feats),
             len(acc_mad_feats),
             len(temp_feats),
+            len(bvp_feats),
         )
 
         all_epoch_features = []
@@ -188,6 +254,14 @@ class SleepWakeClassification(BaseTask):
                     temp_feats[i]["min"],
                     temp_feats[i]["max"],
                     temp_feats[i]["std"],
+                ]
+            )
+
+            feats.extend(
+                [
+                    bvp_feats[i]["rmssd"],
+                    bvp_feats[i]["sdnn"],
+                    bvp_feats[i]["pnn50"],
                 ]
             )
 
