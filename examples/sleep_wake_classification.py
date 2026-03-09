@@ -97,8 +97,21 @@ def main():
     # base + temporal = all features
     X_temporal = X_all
 
-    run_experiment(X_base, y, groups, "Base features only")
-    run_experiment(X_temporal, y, groups, "Base + temporal features")
+    acc_idx = list(range(0, 10))        # ACC_X, ACC_Y, ACC_Z, ACC_MAD
+    temp_idx = list(range(10, 14))      # TEMP
+    bvp_idx = list(range(14, 17))       # BVP
+    eda_idx = list(range(17, 21))       # EDA
+
+    X_acc = X_base[:, acc_idx]
+    X_acc_temp = X_base[:, acc_idx + temp_idx]
+    X_acc_temp_bvp = X_base[:, acc_idx + temp_idx + bvp_idx]
+    X_all_modalities = X_base[:, acc_idx + temp_idx + bvp_idx + eda_idx]
+
+    run_experiment(X_acc, y, groups, "ACC only")
+    run_experiment(X_acc_temp, y, groups, "ACC + TEMP")
+    run_experiment(X_acc_temp_bvp, y, groups, "ACC + TEMP + BVP")
+    run_experiment(X_all_modalities, y, groups, "ALL modalities")
+    run_experiment(X_temporal, y, groups, "ALL modalities + temporal")
 
 
 if __name__ == "__main__":
