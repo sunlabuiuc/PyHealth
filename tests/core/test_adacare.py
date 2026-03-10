@@ -2,7 +2,7 @@ import unittest
 import torch
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
-from pyhealth.models import AdaCare
+from pyhealth.models import AdaCare, MultimodalAdaCare
 
 
 class TestAdaCare(unittest.TestCase):
@@ -157,6 +157,146 @@ class TestAdaCare(unittest.TestCase):
         self.assertEqual(ret["embed"].shape[0], 2)  # batch size
         expected_embed_dim = len(self.model.feature_keys) * self.model.hidden_dim
         self.assertEqual(ret["embed"].shape[1], expected_embed_dim)
+
+
+class TestMultimodalAdaCare(unittest.TestCase):
+    """Test cases for the MultimodalAdaCare model."""
+
+    def setUp(self):
+        """Set up test data and model with mixed feature types."""
+        self.samples = [
+            {
+                "patient_id": "patient-0",
+                "visit_id": "visit-0",
+                "conditions": ["cond-33", "cond-86"],  # sequential
+                "procedures": ["proc-12", "proc-45"],  # sequential
+                "demographics": ["asian", "male"],      # multi-hot
+                "vitals": [120.0, 80.0, 98.6],        # tensor
+                "label": 1,
+            },
+            {
+                "patient_id": "patient-1",
+                "visit_id": "visit-1",
+                "conditions": ["cond-12", "cond-52"],  # sequential
+                "procedures": ["proc-23"],              # sequential
+                "demographics": ["white", "female"],    # multi-hot
+                "vitals": [110.0, 75.0, 98.2],        # tensor
+                "label": 0,
+            },
+        ]
+
+        self.input_schema = {
+            "conditions": "sequence",    # sequential
+            "procedures": "sequence",    # sequential
+            "demographics": "multi_hot", # non-sequential
+            "vitals": "tensor",          # non-sequential
+        }
+        self.output_schema = {"label": "binary"}
+
+        self.dataset = create_sample_dataset(
+            samples=self.samples,
+            input_schema=self.input_schema,
+            output_schema=self.output_schema,
+            dataset_name="test",
+        )
+
+        self.model = MultimodalAdaCare(dataset=self.dataset, hidden_dim=64)
+
+    def test_model_initialization(self):
+        """Test that MultimodalAdaCare initializes correctly."""
+        self.assertIsInstance(self.model, MultimodalAdaCare)
+        self.assertEqual(self.model.embedding_dim, 128)
+        self.assertEqual(self.model.hidden_dim, 64)
+        self.assertEqual(len(self.model.feature_keys), 4)
+
+        self.assertIn("conditions", self.model.sequential_features)
+        self.assertIn("procedures", self.model.sequential_features)
+        self.assertIn("demographics", self.model.non_sequential_features)
+        self.assertIn("vitals", self.model.non_sequential_features)
+
+        self.assertIn("conditions", self.model.adacare)
+        self.assertIn("procedures", self.model.adacare)
+        self.assertNotIn("demographics", self.model.adacare)
+        self.assertNotIn("vitals", self.model.adacare)
+
+    def test_model_forward(self):
+        """Test that MultimodalAdaCare forward pass works correctly."""
+        train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=True)
+        data_batch = next(iter(train_loader))
+
+        with torch.no_grad():
+            ret = self.model(**data_batch)
+
+        self.assertIn("loss", ret)
+        self.assertIn("y_prob", ret)
+        self.assertIn("y_true", ret)
+        self.assertIn("logit", ret)
+        self.assertIn("feature_importance", ret)
+        self.assertIn("conv_feature_importance", ret)
+
+        self.assertEqual(ret["y_prob"].shape[0], 2)
+        self.assertEqual(ret["y_true"].shape[0], 2)
+        self.assertEqual(ret["loss"].dim(), 0)
+
+        # 2 sequential features produce importance outputs
+        self.assertEqual(len(ret["feature_importance"]), 2)
+        self.assertEqual(len(ret["conv_feature_importance"]), 2)
+
+    def test_model_backward(self):
+        """Test that MultimodalAdaCare backward pass works correctly."""
+        train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=True)
+        data_batch = next(iter(train_loader))
+
+        ret = self.model(**data_batch)
+        ret["loss"].backward()
+
+        has_gradient = any(
+            param.requires_grad and param.grad is not None
+            for param in self.model.parameters()
+        )
+        self.assertTrue(
+            has_gradient, "No parameters have gradients after backward pass"
+        )
+
+    def test_output_shapes(self):
+        """Test that output shapes are correct for multimodal inputs."""
+        train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=True)
+        data_batch = next(iter(train_loader))
+
+        with torch.no_grad():
+            ret = self.model(**data_batch)
+
+        self.assertEqual(ret["y_prob"].shape, (2, 1))
+        self.assertEqual(ret["y_true"].shape, (2, 1))
+        self.assertEqual(ret["logit"].shape, (2, 1))
+
+    def test_model_with_embedding(self):
+        """Test that MultimodalAdaCare returns embeddings when requested."""
+        train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=True)
+        data_batch = next(iter(train_loader))
+        data_batch["embed"] = True
+
+        with torch.no_grad():
+            ret = self.model(**data_batch)
+
+        self.assertIn("embed", ret)
+        self.assertEqual(ret["embed"].shape[0], 2)
+
+        expected_embed_dim = (
+            len(self.model.sequential_features) * self.model.hidden_dim
+            + len(self.model.non_sequential_features) * self.model.embedding_dim
+        )
+        self.assertEqual(ret["embed"].shape[1], expected_embed_dim)
+
+    def test_loss_is_finite(self):
+        """Test that the loss is finite."""
+        train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=True)
+        data_batch = next(iter(train_loader))
+
+        with torch.no_grad():
+            ret = self.model(**data_batch)
+
+        self.assertTrue(torch.isfinite(ret["loss"]).all())
 
 
 if __name__ == "__main__":
