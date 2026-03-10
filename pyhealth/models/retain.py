@@ -66,23 +66,27 @@ class RETAINLayer(nn.Module):
             reversed_input[i, :length] = input[i, :length].flip(dims=[0])
         return reversed_input
 
-    def compute_alpha(self, rx, lengths):
+    def compute_alpha(self, rx, lengths, total_length: int):
         """Computes alpha attention."""
         rx = rnn_utils.pack_padded_sequence(
             rx, lengths, batch_first=True, enforce_sorted=False
         )
         g, _ = self.alpha_gru(rx)
-        g, _ = rnn_utils.pad_packed_sequence(g, batch_first=True)
+        g, _ = rnn_utils.pad_packed_sequence(
+            g, batch_first=True, total_length=total_length
+        )
         attn_alpha = torch.softmax(self.alpha_li(g), dim=1)
         return attn_alpha
 
-    def compute_beta(self, rx, lengths):
+    def compute_beta(self, rx, lengths, total_length: int):
         """Computes beta attention."""
         rx = rnn_utils.pack_padded_sequence(
             rx, lengths, batch_first=True, enforce_sorted=False
         )
         h, _ = self.beta_gru(rx)
-        h, _ = rnn_utils.pad_packed_sequence(h, batch_first=True)
+        h, _ = rnn_utils.pad_packed_sequence(
+            h, batch_first=True, total_length=total_length
+        )
         attn_beta = torch.tanh(self.beta_li(h))
         return attn_beta
 
@@ -105,15 +109,17 @@ class RETAINLayer(nn.Module):
         # rnn will only apply dropout between layers
         x = self.dropout_layer(x)
         batch_size = x.size(0)
+        total_length = x.size(1)  # capture before packing so pad_packed restores it
         if mask is None:
             lengths = torch.full(
-                size=(batch_size,), fill_value=x.size(1), dtype=torch.int64
+                size=(batch_size,), fill_value=total_length, dtype=torch.int64
             )
         else:
             lengths = torch.sum(mask.int(), dim=-1).cpu()
+        lengths = lengths.clamp(min=1)  # prevent zero-length crash in GRU
         rx = self.reverse_x(x, lengths)
-        attn_alpha = self.compute_alpha(rx, lengths)
-        attn_beta = self.compute_beta(rx, lengths)
+        attn_alpha = self.compute_alpha(rx, lengths, total_length)
+        attn_beta = self.compute_beta(rx, lengths, total_length)
         c = attn_alpha * attn_beta * x  # (patient, sequence len, feature_size)
         c = torch.sum(c, dim=1)  # (patient, feature_size)
         return c
@@ -211,15 +217,11 @@ class RETAIN(BaseModel):
         # Create RETAIN layers for each feature
         self.retain = nn.ModuleDict()
         for feature_key in self.feature_keys:
-            self.retain[feature_key] = RETAINLayer(
-                feature_size=embedding_dim, **kwargs
-            )
+            self.retain[feature_key] = RETAINLayer(feature_size=embedding_dim, **kwargs)
 
         output_size = self.get_output_size()
         num_features = len(self.feature_keys)
-        self.fc = nn.Linear(
-            num_features * self.embedding_dim, output_size
-        )
+        self.fc = nn.Linear(num_features * self.embedding_dim, output_size)
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation.
@@ -238,30 +240,29 @@ class RETAIN(BaseModel):
         """
         patient_emb = []
         embedded = self.embedding_model(kwargs)
-        
+
         for feature_key in self.feature_keys:
             x = embedded[feature_key]
-            
+
             # Handle different input dimensions
             # Case 1: 4D tensor from NestedSequenceProcessor
             # (batch, visits, events, embedding_dim)
             # Need to sum across events to get (batch, visits, embedding_dim)
             if len(x.shape) == 4:
                 x = torch.sum(x, dim=2)  # Sum across events within visit
-            
+
             # Case 2: 3D tensor from SequenceProcessor or after summing
             # (batch, seq_len, embedding_dim) - already correct format
             elif len(x.shape) == 3:
                 pass  # Already correct format
-            
+
             # Case 3: 2D tensor - shouldn't happen for RETAIN but handle it
             elif len(x.shape) == 2:
                 x = x.unsqueeze(1)  # Add seq dim: (batch, 1, embedding_dim)
-            
+
             else:
                 raise ValueError(
-                    f"Unexpected tensor shape {x.shape} for feature "
-                    f"{feature_key}"
+                    f"Unexpected tensor shape {x.shape} for feature " f"{feature_key}"
                 )
 
             # Create mask: non-padding entries are valid
@@ -423,12 +424,7 @@ class MultimodalRETAIN(BaseModel):
         }
     """
 
-    def __init__(
-        self,
-        dataset: SampleDataset,
-        embedding_dim: int = 128,
-        **kwargs
-    ):
+    def __init__(self, dataset: SampleDataset, embedding_dim: int = 128, **kwargs):
         super(MultimodalRETAIN, self).__init__(dataset=dataset)
         self.embedding_dim = embedding_dim
 
@@ -453,15 +449,16 @@ class MultimodalRETAIN(BaseModel):
                 self.sequential_features.append(feature_key)
                 # Create RETAIN layer for this feature
                 self.retain[feature_key] = RETAINLayer(
-                    feature_size=embedding_dim,
-                    **kwargs
+                    feature_size=embedding_dim, **kwargs
                 )
             else:
                 self.non_sequential_features.append(feature_key)
 
         # Calculate final concatenated dimension
-        final_dim = (len(self.sequential_features) * embedding_dim +
-                     len(self.non_sequential_features) * embedding_dim)
+        final_dim = (
+            len(self.sequential_features) * embedding_dim
+            + len(self.non_sequential_features) * embedding_dim
+        )
         output_size = self.get_output_size()
         self.fc = nn.Linear(final_dim, output_size)
 
@@ -482,14 +479,17 @@ class MultimodalRETAIN(BaseModel):
         Returns:
             bool: True if processor is sequential, False otherwise.
         """
-        return isinstance(processor, (
-            SequenceProcessor,
-            NestedSequenceProcessor,
-            DeepNestedSequenceProcessor,
-            NestedFloatsProcessor,
-            DeepNestedFloatsProcessor,
-            TimeseriesProcessor,
-        ))
+        return isinstance(
+            processor,
+            (
+                SequenceProcessor,
+                NestedSequenceProcessor,
+                DeepNestedSequenceProcessor,
+                NestedFloatsProcessor,
+                DeepNestedFloatsProcessor,
+                TimeseriesProcessor,
+            ),
+        )
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation handling mixed modalities.
@@ -508,7 +508,7 @@ class MultimodalRETAIN(BaseModel):
                     embeddings if requested.
         """
         patient_emb = []
-        embedded = self.embedding_model(kwargs)
+        embedded, emb_masks = self.embedding_model(kwargs, output_mask=True)
 
         # Process sequential features through RETAIN
         for feature_key in self.sequential_features:
@@ -535,11 +535,13 @@ class MultimodalRETAIN(BaseModel):
                     f"Unexpected tensor shape {x.shape} for feature {feature_key}"
                 )
 
-            # Create mask: non-padding entries are valid
-            # Use abs() before sum to catch edge cases where embeddings sum to 0
-            # despite being valid values (e.g., [1.0, -1.0])
-            mask = (torch.abs(x).sum(dim=-1) > 0).float()
-
+            # Use mask from EmbeddingModel (derived from original unembedded tensor)
+            mask = emb_masks.get(feature_key)
+            if mask is not None:
+                # Ensure 2D (batch, seq_len) — reduce any extra dims
+                while mask.dim() > 2:
+                    mask = mask.any(dim=-1)
+                mask = mask.float()
             x = self.retain[feature_key](x, mask)
             patient_emb.append(x)
 
@@ -570,4 +572,3 @@ class MultimodalRETAIN(BaseModel):
         if kwargs.get("embed", False):
             results["embed"] = patient_emb
         return results
-

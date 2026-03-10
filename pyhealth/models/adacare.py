@@ -378,7 +378,7 @@ class AdaCare(BaseModel):
             raise ValueError("input_dim is automatically determined")
 
         assert len(self.label_keys) == 1, "Only one label key is supported"
-        
+
         # Use EmbeddingModel for unified embedding handling
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
         # AdaCare layers for each feature
@@ -434,19 +434,22 @@ class AdaCare(BaseModel):
         embedded, masks = self.embedding_model(kwargs, output_mask=True)
         feature_importance = []
         conv_feature_importance = []
-        
+
         for _, feature_key in enumerate(self.feature_keys):
             embeds = embedded[feature_key]
             mask = masks[feature_key]
             processor = self.dataset.input_processors[feature_key]
-            
+
             if embeds.dim() == 3:
-                if isinstance(processor, NestedFloatsProcessor):
+                if isinstance(processor, (NestedFloatsProcessor, TimeseriesProcessor)):
+                    # Both produce [batch, seq_len, num_features] masks — reduce to [batch, seq_len]
                     mask = torch.any(mask, dim=2)
-                elif isinstance(processor, (SequenceProcessor, TimeseriesProcessor)):
-                    pass
+                elif isinstance(processor, SequenceProcessor):
+                    pass  # mask already [batch, seq_len]
                 else:
-                    raise ValueError(f"Expected NestedFloatsProcessor, SequenceProcessor, or TimeseriesProcessor for 3D input, got {type(processor)}")
+                    raise ValueError(
+                        f"Expected NestedFloatsProcessor, TimeseriesProcessor, or SequenceProcessor for 3D input, got {type(processor)}"
+                    )
             elif embeds.dim() == 4:
                 if isinstance(processor, NestedSequenceProcessor):
                     embeds = torch.sum(embeds, dim=2)
@@ -455,10 +458,14 @@ class AdaCare(BaseModel):
                     embeds = torch.sum(embeds, dim=2)
                     mask = torch.any(mask, dim=(2, 3))
                 else:
-                    raise ValueError(f"Expected NestedSequenceProcessor or DeepNestedFloatsProcessor for 4D input, got {type(processor)}")
+                    raise ValueError(
+                        f"Expected NestedSequenceProcessor or DeepNestedFloatsProcessor for 4D input, got {type(processor)}"
+                    )
             else:
-                raise NotImplementedError(f"Unsupported input dimension {feature_key}: {embeds.dim()} for AdaCare")
-            
+                raise NotImplementedError(
+                    f"Unsupported input dimension {feature_key}: {embeds.dim()} for AdaCare"
+                )
+
             embeds, _, inputatt, convatt = self.adacare[feature_key](embeds, mask)
             feature_importance.append(inputatt)
             conv_feature_importance.append(convatt)
@@ -574,7 +581,7 @@ class MultimodalAdaCare(BaseModel):
         dataset: SampleDataset,
         embedding_dim: int = 128,
         hidden_dim: int = 128,
-        **kwargs
+        **kwargs,
     ):
         super(MultimodalAdaCare, self).__init__(dataset=dataset, **kwargs)
         self.embedding_dim = embedding_dim
@@ -597,35 +604,17 @@ class MultimodalAdaCare(BaseModel):
             processor = dataset.input_processors[feature_key]
             if self._is_sequential_processor(processor):
                 self.sequential_features.append(feature_key)
-                # Validate processor type for AdaCare
-                if not isinstance(
-                    processor,
-                    (
-                        SequenceProcessor,
-                        NestedSequenceProcessor,
-                        NestedFloatsProcessor,
-                        DeepNestedFloatsProcessor,
-                    ),
-                ):
-                    raise ValueError(
-                        f"Sequential feature {feature_key} has processor "
-                        f"{type(processor)} which is not supported by AdaCare. "
-                        f"AdaCare only supports SequenceProcessor, "
-                        f"NestedSequenceProcessor, NestedFloatsProcessor, "
-                        f"DeepNestedFloatsProcessor."
-                    )
-                # Create AdaCare layer for this feature
                 self.adacare[feature_key] = AdaCareLayer(
-                    input_dim=embedding_dim,
-                    hidden_dim=hidden_dim,
-                    **kwargs
+                    input_dim=embedding_dim, hidden_dim=hidden_dim, **kwargs
                 )
             else:
                 self.non_sequential_features.append(feature_key)
 
         # Calculate final concatenated dimension
-        final_dim = (len(self.sequential_features) * hidden_dim +
-                     len(self.non_sequential_features) * embedding_dim)
+        final_dim = (
+            len(self.sequential_features) * hidden_dim
+            + len(self.non_sequential_features) * embedding_dim
+        )
         output_size = self.get_output_size()
         self.fc = nn.Linear(final_dim, output_size)
 
@@ -646,14 +635,17 @@ class MultimodalAdaCare(BaseModel):
         Returns:
             bool: True if processor is sequential, False otherwise.
         """
-        return isinstance(processor, (
-            SequenceProcessor,
-            NestedSequenceProcessor,
-            DeepNestedSequenceProcessor,
-            NestedFloatsProcessor,
-            DeepNestedFloatsProcessor,
-            TimeseriesProcessor,
-        ))
+        return isinstance(
+            processor,
+            (
+                SequenceProcessor,
+                NestedSequenceProcessor,
+                DeepNestedSequenceProcessor,
+                NestedFloatsProcessor,
+                DeepNestedFloatsProcessor,
+                TimeseriesProcessor,
+            ),
+        )
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation handling mixed modalities.
@@ -688,14 +680,15 @@ class MultimodalAdaCare(BaseModel):
 
             # Handle different dimensions
             if embeds.dim() == 3:
-                if isinstance(processor, NestedFloatsProcessor):
+                if isinstance(processor, (NestedFloatsProcessor, TimeseriesProcessor)):
+                    # Both produce [batch, seq_len, num_features] masks — reduce to [batch, seq_len]
                     mask = torch.any(mask, dim=2)
                 elif isinstance(processor, SequenceProcessor):
-                    pass
+                    pass  # mask already [batch, seq_len]
                 else:
                     raise ValueError(
-                        f"Expected NestedFloatsProcessor or SequenceProcessor "
-                        f"for 3D input, got {type(processor)}"
+                        f"Expected NestedFloatsProcessor, TimeseriesProcessor, or "
+                        f"SequenceProcessor for 3D input, got {type(processor)}"
                     )
             elif embeds.dim() == 4:
                 if isinstance(processor, NestedSequenceProcessor):
