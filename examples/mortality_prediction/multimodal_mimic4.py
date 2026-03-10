@@ -12,25 +12,33 @@ from pyhealth.tasks.base_task import BaseTask
 # (see: https://github.com/sunlabuiuc/PyHealth/blob/master/examples/mortality_prediction/multimodal_mimic4_minimal.py)
 
 TASK = "ClinicalNotesICDLabsCXRMIMIC4" # The idea here is that we want additive tasks so we can evaluate the value in adding more modalities
-
-PYHEALTH_REPO_ROOT = '/Users/wpang/Desktop/PyHealth'
-
-EHR_ROOT = os.path.join(PYHEALTH_REPO_ROOT, "local_data/local/data/physionet.org/files/mimiciv/2.2")
-NOTE_ROOT = os.path.join(PYHEALTH_REPO_ROOT, "local_data/local/data/physionet.org/files/mimic-iv-note/2.2")
-CXR_ROOT = os.path.join(PYHEALTH_REPO_ROOT,"local_data/local/data/physionet.org/files/mimic-cxr-jpg/2.0.0")
-CACHE_DIR = os.path.join(PYHEALTH_REPO_ROOT,"local_data/local/data/wp/pyhealth_cache")
-
 DEV_MODE = True
+ENVIRONMENT = "Cluster"
+
+if ENVIRONMENT = "Local":
+    pyhealth_repo_root = '/Users/wpang/Desktop/PyHealth'
+
+    ehr_root = os.path.join(pyhealth_repo_root, "local_data/local/data/physionet.org/files/mimiciv/2.2")
+    note_root = os.path.join(pyhealth_repo_root, "local_data/local/data/physionet.org/files/mimic-iv-note/2.2")
+    cxr_root = os.path.join(pyhealth_repo_root,"local_data/local/data/physionet.org/files/mimic-cxr-jpg/2.0.0")
+    cache_dir = os.path.join(pyhealth_repo_root,"local_data/local/data/wp/pyhealth_cache")
+elif ENVIRONMENT = "Cluster":
+
+    ehr_root = "/projects/illinois/eng/cs/jimeng/physionet.org/files/mimiciv/2.2"
+    note_root = "/projects/illinois/eng/cs/jimeng/physionet.org/files/mimic-note"
+    cxr_root = "/projects/illinois/eng/cs/jimeng/physionet.org/files/mimic-cxr-jpg/2.1.0"
+    cache_dir = "/u/wp14/pyhealth_cache"
+
 
 if __name__ == "__main__":
 
     if TASK == "ClinicalNotesMIMIC4": # A bit janky setup at the moment and open to iteration, but conveys the point for now
         dataset = MIMIC4Dataset(
-                ehr_root=EHR_ROOT,
-                note_root=NOTE_ROOT,
+                ehr_root=ehr_root,
+                note_root=note_root,
                 ehr_tables=["diagnoses_icd", "procedures_icd", "prescriptions", "labevents"],
                 note_tables=["discharge", "radiology"],
-                cache_dir=CACHE_DIR,
+                cache_dir=cache_dir,
                 num_workers=8,
                 dev=DEV_MODE
             )
@@ -45,11 +53,11 @@ if __name__ == "__main__":
     
     elif TASK == 'ClinicalNotesICDLabsMIMIC4':
         dataset = MIMIC4Dataset(
-                ehr_root=EHR_ROOT,
-                note_root=NOTE_ROOT,
+                ehr_root=ehr_root,
+                note_root=note_root,
                 ehr_tables=["diagnoses_icd", "procedures_icd", "prescriptions", "labevents"],
                 note_tables=["discharge", "radiology"],
-                cache_dir=CACHE_DIR,
+                cache_dir=cache_dir,
                 num_workers=8,
                 dev=DEV_MODE
             )
@@ -64,13 +72,13 @@ if __name__ == "__main__":
 
     elif TASK == 'ClinicalNotesICDLabsCXRMIMIC4':
         dataset = MIMIC4Dataset(
-                ehr_root=EHR_ROOT,
-                note_root=NOTE_ROOT,
-                cxr_root=CXR_ROOT,
+                ehr_root=ehr_root,
+                note_root=note_root,
+                cxr_root=cxr_root,
                 ehr_tables=["diagnoses_icd", "procedures_icd", "prescriptions", "labevents"],
                 note_tables=["discharge", "radiology"],
                 cxr_tables=["metadata", "negbio"],
-                cache_dir=CACHE_DIR,
+                cache_dir=cache_dir,
                 num_workers=8,
                 dev=DEV_MODE
             )
