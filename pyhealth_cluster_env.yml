@@ -1,0 +1,64 @@
+name: pyhealth2
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+
+dependencies:
+  # ── Core Python (PyHealth 2.0 requires >=3.12, <3.14) ──
+  - python=3.12
+
+  # ── PyTorch + CUDA ──────────────────────────────────────
+  # Run `nvidia-smi` on the cluster to check your CUDA version.
+  # Cluster has CUDA driver 13.0, so cu126 runtime is compatible.
+  # Pinning both to same minor version avoids mismatch errors.
+  - pytorch=2.7.1
+  - torchvision=0.22.1
+  - pytorch-cuda=12.6
+
+  # ── Scientific stack ────────────────────────────────────
+  - numpy>=2.0
+  - scipy
+  - scikit-learn
+  - pandas
+  - pyarrow>=15.0
+  - dask>=2024.1.0
+
+  # ── Build / utility ─────────────────────────────────────
+  - pip
+  - tqdm
+  - networkx
+  - packaging
+  - pydantic>=2.0
+  - urllib3>=2.0
+
+  # ── Jupyter (for notebook dev on cluster) ───────────────
+  - jupyterlab
+  - ipykernel
+  - ipywidgets
+
+  # ── pip-only packages ───────────────────────────────────
+  - pip:
+      # PyHealth: editable install from the forked repo clone
+      # Run this AFTER creating the env:
+      #   conda activate pyhealth2
+      #   cd ~/PyHealth
+      #   pip install -e .
+      #
+      # Dependencies that pyproject.toml pulls in:
+      - polars>=1.30
+      - litdata>=0.2
+      - narwhals>=1.0
+      - more-itertools>=10.0
+      - einops>=0.8.0
+      - linear-attention-transformer>=0.19.1
+      - pandarallel>=1.6
+      - mne>=1.8
+      - transformers>=4.40
+      - accelerate
+      - peft
+      - rdkit
+      - ogb>=1.3.5
+      - xgboost
+
