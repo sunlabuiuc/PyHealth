@@ -366,10 +366,7 @@ class AdaCare(BaseModel):
         hidden_dim: int = 128,
         **kwargs,
     ):
-        super().__init__(
-            dataset=dataset,
-            **kwargs,
-        )
+        super().__init__(dataset=dataset)
 
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
@@ -583,7 +580,7 @@ class MultimodalAdaCare(BaseModel):
         hidden_dim: int = 128,
         **kwargs,
     ):
-        super(MultimodalAdaCare, self).__init__(dataset=dataset, **kwargs)
+        super(MultimodalAdaCare, self).__init__(dataset=dataset)
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
 
