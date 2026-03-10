@@ -15,14 +15,14 @@ TASK = "ClinicalNotesICDLabsCXRMIMIC4" # The idea here is that we want additive 
 DEV_MODE = True
 ENVIRONMENT = "Cluster"
 
-if ENVIRONMENT = "Local":
+if ENVIRONMENT == "Local":
     pyhealth_repo_root = '/Users/wpang/Desktop/PyHealth'
 
     ehr_root = os.path.join(pyhealth_repo_root, "local_data/local/data/physionet.org/files/mimiciv/2.2")
     note_root = os.path.join(pyhealth_repo_root, "local_data/local/data/physionet.org/files/mimic-iv-note/2.2")
     cxr_root = os.path.join(pyhealth_repo_root,"local_data/local/data/physionet.org/files/mimic-cxr-jpg/2.0.0")
     cache_dir = os.path.join(pyhealth_repo_root,"local_data/local/data/wp/pyhealth_cache")
-elif ENVIRONMENT = "Cluster":
+elif ENVIRONMENT == "Cluster":
 
     ehr_root = "/projects/illinois/eng/cs/jimeng/physionet.org/files/mimiciv/2.2"
     note_root = "/projects/illinois/eng/cs/jimeng/physionet.org/files/mimic-note"
