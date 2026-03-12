@@ -5,6 +5,8 @@ import lightgbm as lgb
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, average_precision_score
 from sklearn.model_selection import GroupShuffleSplit
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
 
 from pyhealth.datasets import DREAMTDataset
 from pyhealth.tasks.sleep_wake_classification import SleepWakeClassification
@@ -67,6 +69,52 @@ def run_experiment(X, y, groups, name):
     print("AUPRC:", average_precision_score(y_test, y_prob))
 
 
+def run_model_comparison(X, y, groups):
+    splitter = GroupShuffleSplit(n_splits=1, test_size=0.4, random_state=42)
+    train_idx, test_idx = next(splitter.split(X, y, groups=groups))
+
+    X_train, X_test = X[train_idx], X[test_idx]
+    y_train, y_test = y[train_idx], y[test_idx]
+    g_train, g_test = groups[train_idx], groups[test_idx]
+
+    print("\n=== Model comparison (ALL modalities + temporal) ===")
+    print("train patients:", sorted(set(g_train)))
+    print("test patients:", sorted(set(g_test)))
+
+    non_all_nan_cols = ~np.isnan(X_train).all(axis=0)
+    X_train = X_train[:, non_all_nan_cols]
+    X_test = X_test[:, non_all_nan_cols]
+
+    imputer = SimpleImputer(strategy="median")
+    X_train = imputer.fit_transform(X_train)
+    X_test = imputer.transform(X_test)
+
+    models = {
+        "LogisticRegression": LogisticRegression(max_iter=1000),
+        "RandomForest": RandomForestClassifier(
+            n_estimators=200,
+            random_state=42,
+            n_jobs=-1
+        ),
+    }
+
+    for name, model in models.items():
+
+        model.fit(X_train, y_train)
+
+        if hasattr(model, "predict_proba"):
+            y_prob = model.predict_proba(X_test)[:, 1]
+        else:
+            y_prob = model.decision_function(X_test)
+
+        y_pred = (y_prob >= 0.3).astype(int)
+
+        print(f"\n{name}")
+        print("Accuracy:", accuracy_score(y_test, y_pred))
+        print("F1:", f1_score(y_test, y_pred))
+        print("AUROC:", roc_auc_score(y_test, y_prob))
+        print("AUPRC:", average_precision_score(y_test, y_prob))
+
 def main():
     root = r"C:\Users\faria\OneDrive - University of Illinois - Urbana\CS-598-DLH\dreamt-replication\data\DREAMT"
 
@@ -112,6 +160,7 @@ def main():
     run_experiment(X_acc_temp_bvp, y, groups, "ACC + TEMP + BVP")
     run_experiment(X_all_modalities, y, groups, "ALL modalities")
     run_experiment(X_temporal, y, groups, "ALL modalities + temporal")
+    run_model_comparison(X_temporal, y, groups)
 
 
 if __name__ == "__main__":
