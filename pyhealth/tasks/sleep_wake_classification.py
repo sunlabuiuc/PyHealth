@@ -15,7 +15,7 @@ from .base_task import BaseTask
 
 class SleepWakeClassification(BaseTask):
     task_name = "SleepWakeClassification"
-    input_schema = {"features": "vector"}
+    input_schema = {"features": "tensor"}
     output_schema = {"label": "binary"}
 
     def __init__(self, epoch_seconds: int = 30, sampling_rate: int = 64):
@@ -39,6 +39,13 @@ class SleepWakeClassification(BaseTask):
     def _convert_series_to_numeric_array(self, series: pd.Series) -> np.ndarray:
         return pd.to_numeric(series, errors="coerce").fillna(0.0).to_numpy()
 
+    def _has_required_sensor_columns(
+        self,
+        record_dataframe: pd.DataFrame,
+    ) -> bool:
+        required_columns = {"ACC_X", "ACC_Y", "ACC_Z", "TEMP", "BVP", "EDA"}
+        return required_columns.issubset(record_dataframe.columns)
+
     def _split_signal_into_epochs(
         self,
         signal: np.ndarray,
@@ -54,6 +61,32 @@ class SleepWakeClassification(BaseTask):
             epochs.append(signal[start:end])
 
         return epochs
+
+    def _build_feature_dictionary_from_epochs(
+        self,
+        epochs: List[np.ndarray],
+        feature_builder: Callable[[np.ndarray], Dict[str, float]],
+    ) -> List[Dict[str, float]]:
+        return [feature_builder(epoch) for epoch in epochs]
+
+    def _build_missing_feature_dictionary(
+        self,
+        feature_names: List[str],
+    ) -> Dict[str, float]:
+        return {feature_name: np.nan for feature_name in feature_names}
+
+    def _append_feature_values(
+        self,
+        feature_vector: List[float],
+        feature_dictionary: Dict[str, float],
+        feature_names: List[str],
+    ) -> None:
+        feature_vector.extend(
+            feature_dictionary[feature_name] for feature_name in feature_names
+        )
+
+    def _compute_interquartile_range(self, x: np.ndarray) -> float:
+        return float(np.percentile(x, 75) - np.percentile(x, 25))
 
     def _design_bandpass_filter_coefficients(
         self,
@@ -85,6 +118,17 @@ class SleepWakeClassification(BaseTask):
             raise ValueError("Signal must be 1D.")
         return filtfilt(b, a, signal)
 
+    def _filter_signal_with_lowpass(
+        self,
+        signal: np.ndarray,
+        sampling_rate_hz: float,
+        cutoff_hz: float,
+        order: int = 4,
+    ) -> np.ndarray:
+        nyq = 0.5 * sampling_rate_hz
+        b, a = butter(order, cutoff_hz / nyq, btype="low")
+        return self._apply_zero_phase_filter(signal, b, a)
+
     def _filter_accelerometer_signal(
         self,
         signal: np.ndarray,
@@ -114,68 +158,6 @@ class SleepWakeClassification(BaseTask):
         )
         return self._apply_zero_phase_filter(signal, b, a)
 
-    def _build_feature_dictionary_from_epochs(
-        self,
-        epochs: List[np.ndarray],
-        feature_builder: Callable[[np.ndarray], Dict[str, float]],
-    ) -> List[Dict[str, float]]:
-        return [feature_builder(epoch) for epoch in epochs]
-
-    def _build_missing_feature_dictionary(
-        self,
-        feature_names: List[str],
-    ) -> Dict[str, float]:
-        return {feature_name: np.nan for feature_name in feature_names}
-
-    def _append_feature_values(
-        self,
-        feature_vector: List[float],
-        feature_dictionary: Dict[str, float],
-        feature_names: List[str],
-    ) -> None:
-        feature_vector.extend(feature_dictionary[feature_name] for feature_name in feature_names)
-
-    def _extract_blood_volume_pulse_epoch_features(
-        self,
-        signal: np.ndarray,
-        sampling_rate_hz: float,
-    ) -> List[Dict[str, float]]:
-        filtered = self._filter_blood_volume_pulse_signal(signal, sampling_rate_hz)
-        epochs = self._split_signal_into_epochs(filtered, sampling_rate_hz)
-
-        def build_blood_volume_pulse_feature_dictionary(epoch: np.ndarray) -> Dict[str, float]:
-            try:
-                _, info = nk.ppg_process(epoch, sampling_rate=sampling_rate_hz)
-                hrv = nk.hrv_time(
-                    info["PPG_Peaks"],
-                    sampling_rate=sampling_rate_hz,
-                    show=False,
-                )
-
-                return {
-                    "rmssd": float(hrv["HRV_RMSSD"].values[0]),
-                    "sdnn": float(hrv["HRV_SDNN"].values[0]),
-                    "pnn50": float(hrv["HRV_pNN50"].values[0]),
-                }
-            except Exception:
-                return self._build_missing_feature_dictionary(["rmssd", "sdnn", "pnn50"])
-
-        return self._build_feature_dictionary_from_epochs(
-            epochs,
-            build_blood_volume_pulse_feature_dictionary,
-        )
-
-    def _filter_signal_with_lowpass(
-        self,
-        signal: np.ndarray,
-        sampling_rate_hz: float,
-        cutoff_hz: float,
-        order: int = 4,
-    ) -> np.ndarray:
-        nyq = 0.5 * sampling_rate_hz
-        b, a = butter(order, cutoff_hz / nyq, btype="low")
-        return self._apply_zero_phase_filter(signal, b, a)
-
     def _detrend_signal_by_segments(
         self,
         signal: np.ndarray,
@@ -196,6 +178,100 @@ class SleepWakeClassification(BaseTask):
             detrended[i : i + len(seg)] = seg - trend
 
         return detrended
+
+    def _extract_accelerometer_axis_epoch_features(
+        self,
+        signal: np.ndarray,
+        sampling_rate_hz: float,
+    ) -> List[Dict[str, float]]:
+        filtered = self._filter_accelerometer_signal(signal, sampling_rate_hz)
+        filtered_abs = np.abs(filtered)
+        epochs = self._split_signal_into_epochs(filtered_abs, sampling_rate_hz)
+
+        return self._build_feature_dictionary_from_epochs(
+            epochs,
+            lambda epoch: {
+                "trimmed_mean": float(trim_mean(epoch, proportiontocut=0.10)),
+                "max": float(np.max(epoch)),
+                "iqr": self._compute_interquartile_range(epoch),
+            },
+        )
+
+    def _extract_accelerometer_magnitude_deviation_epoch_features(
+        self,
+        accelerometer_x_signal: np.ndarray,
+        accelerometer_y_signal: np.ndarray,
+        accelerometer_z_signal: np.ndarray,
+        sampling_rate_hz: float,
+    ) -> List[Dict[str, float]]:
+        magnitude = np.sqrt(
+            accelerometer_x_signal**2
+            + accelerometer_y_signal**2
+            + accelerometer_z_signal**2
+        )
+        epochs = self._split_signal_into_epochs(magnitude, sampling_rate_hz)
+
+        return self._build_feature_dictionary_from_epochs(
+            epochs,
+            lambda epoch: {"mad": float(np.mean(np.abs(epoch - np.mean(epoch))))},
+        )
+
+    def _extract_temperature_epoch_features(
+        self,
+        signal: np.ndarray,
+        sampling_rate_hz: float,
+    ) -> List[Dict[str, float]]:
+        limits = (0.05, 0.05)
+        wins_signal = winsorize(signal, limits=limits)
+        wins_signal = np.clip(wins_signal, 31.0, 40.0)
+        epochs = self._split_signal_into_epochs(
+            np.asarray(wins_signal),
+            sampling_rate_hz,
+        )
+
+        return self._build_feature_dictionary_from_epochs(
+            epochs,
+            lambda epoch: {
+                "mean": float(np.mean(epoch)),
+                "min": float(np.min(epoch)),
+                "max": float(np.max(epoch)),
+                "std": float(np.std(epoch)),
+            },
+        )
+
+    def _extract_blood_volume_pulse_epoch_features(
+        self,
+        signal: np.ndarray,
+        sampling_rate_hz: float,
+    ) -> List[Dict[str, float]]:
+        filtered = self._filter_blood_volume_pulse_signal(signal, sampling_rate_hz)
+        epochs = self._split_signal_into_epochs(filtered, sampling_rate_hz)
+
+        def build_blood_volume_pulse_feature_dictionary(
+            epoch: np.ndarray,
+        ) -> Dict[str, float]:
+            try:
+                _, info = nk.ppg_process(epoch, sampling_rate=sampling_rate_hz)
+                hrv = nk.hrv_time(
+                    info["PPG_Peaks"],
+                    sampling_rate=sampling_rate_hz,
+                    show=False,
+                )
+
+                return {
+                    "rmssd": float(hrv["HRV_RMSSD"].values[0]),
+                    "sdnn": float(hrv["HRV_SDNN"].values[0]),
+                    "pnn50": float(hrv["HRV_pNN50"].values[0]),
+                }
+            except Exception:
+                return self._build_missing_feature_dictionary(
+                    ["rmssd", "sdnn", "pnn50"]
+                )
+
+        return self._build_feature_dictionary_from_epochs(
+            epochs,
+            build_blood_volume_pulse_feature_dictionary,
+        )
 
     def _extract_electrodermal_activity_epoch_features(
         self,
@@ -247,7 +323,7 @@ class SleepWakeClassification(BaseTask):
             epochs,
             build_electrodermal_activity_feature_dictionary,
         )
-    
+
     def _smooth_values_with_gaussian(
         self,
         values: np.ndarray,
@@ -301,84 +377,29 @@ class SleepWakeClassification(BaseTask):
 
         return enhanced
 
-    def _compute_interquartile_range(self, x: np.ndarray) -> float:
-        return float(np.percentile(x, 75) - np.percentile(x, 25))
-
-    def _extract_accelerometer_axis_epoch_features(
-        self,
-        signal: np.ndarray,
-        sampling_rate_hz: float,
-    ) -> List[Dict[str, float]]:
-        filtered = self._filter_accelerometer_signal(signal, sampling_rate_hz)
-        filtered_abs = np.abs(filtered)
-        epochs = self._split_signal_into_epochs(filtered_abs, sampling_rate_hz)
-
-        return self._build_feature_dictionary_from_epochs(
-            epochs,
-            lambda epoch: {
-                "trimmed_mean": float(trim_mean(epoch, proportiontocut=0.10)),
-                "max": float(np.max(epoch)),
-                "iqr": self._compute_interquartile_range(epoch),
-            },
-        )
-
-    def _extract_accelerometer_magnitude_deviation_epoch_features(
-        self,
-        accelerometer_x_signal: np.ndarray,
-        accelerometer_y_signal: np.ndarray,
-        accelerometer_z_signal: np.ndarray,
-        sampling_rate_hz: float,
-    ) -> List[Dict[str, float]]:
-        magnitude = np.sqrt(
-            accelerometer_x_signal**2
-            + accelerometer_y_signal**2
-            + accelerometer_z_signal**2
-        )
-        epochs = self._split_signal_into_epochs(magnitude, sampling_rate_hz)
-
-        return self._build_feature_dictionary_from_epochs(
-            epochs,
-            lambda epoch: {"mad": float(np.mean(np.abs(epoch - np.mean(epoch))))},
-        )
-
-    def _extract_temperature_epoch_features(
-        self,
-        signal: np.ndarray,
-        sampling_rate_hz: float,
-    ) -> List[Dict[str, float]]:
-        limits = (0.05, 0.05)
-        wins_signal = winsorize(signal, limits=limits)
-        wins_signal = np.clip(wins_signal, 31.0, 40.0)
-        epochs = self._split_signal_into_epochs(np.asarray(wins_signal), sampling_rate_hz)
-
-        return self._build_feature_dictionary_from_epochs(
-            epochs,
-            lambda epoch: {
-                "mean": float(np.mean(epoch)),
-                "min": float(np.min(epoch)),
-                "max": float(np.max(epoch)),
-                "std": float(np.std(epoch)),
-            },
-        )
-
-    def _has_required_sensor_columns(
-        self,
-        record_dataframe: pd.DataFrame,
-    ) -> bool:
-        required_columns = {"ACC_X", "ACC_Y", "ACC_Z", "TEMP", "BVP", "EDA"}
-        return required_columns.issubset(record_dataframe.columns)
-
     def _extract_sensor_signals_from_dataframe(
         self,
         record_dataframe: pd.DataFrame,
     ) -> Dict[str, np.ndarray]:
         return {
-            "accelerometer_x": self._convert_series_to_numeric_array(record_dataframe["ACC_X"]),
-            "accelerometer_y": self._convert_series_to_numeric_array(record_dataframe["ACC_Y"]),
-            "accelerometer_z": self._convert_series_to_numeric_array(record_dataframe["ACC_Z"]),
-            "temperature": self._convert_series_to_numeric_array(record_dataframe["TEMP"]),
-            "blood_volume_pulse": self._convert_series_to_numeric_array(record_dataframe["BVP"]),
-            "electrodermal_activity": self._convert_series_to_numeric_array(record_dataframe["EDA"]),
+            "accelerometer_x": self._convert_series_to_numeric_array(
+                record_dataframe["ACC_X"]
+            ),
+            "accelerometer_y": self._convert_series_to_numeric_array(
+                record_dataframe["ACC_Y"]
+            ),
+            "accelerometer_z": self._convert_series_to_numeric_array(
+                record_dataframe["ACC_Z"]
+            ),
+            "temperature": self._convert_series_to_numeric_array(
+                record_dataframe["TEMP"]
+            ),
+            "blood_volume_pulse": self._convert_series_to_numeric_array(
+                record_dataframe["BVP"]
+            ),
+            "electrodermal_activity": self._convert_series_to_numeric_array(
+                record_dataframe["EDA"]
+            ),
         }
 
     def _extract_feature_sets_for_all_modalities(
@@ -433,10 +454,14 @@ class SleepWakeClassification(BaseTask):
         accelerometer_x_features = feature_sets["accelerometer_x"][epoch_index]
         accelerometer_y_features = feature_sets["accelerometer_y"][epoch_index]
         accelerometer_z_features = feature_sets["accelerometer_z"][epoch_index]
-        accelerometer_magnitude_deviation_features = feature_sets["accelerometer_magnitude_deviation"][epoch_index]
+        accelerometer_magnitude_deviation_features = feature_sets[
+            "accelerometer_magnitude_deviation"
+        ][epoch_index]
         temperature_features = feature_sets["temperature"][epoch_index]
         blood_volume_pulse_features = feature_sets["blood_volume_pulse"][epoch_index]
-        electrodermal_activity_features = feature_sets["electrodermal_activity"][epoch_index]
+        electrodermal_activity_features = feature_sets["electrodermal_activity"][
+            epoch_index
+        ]
 
         features = []
         self._append_feature_values(
@@ -582,7 +607,9 @@ class SleepWakeClassification(BaseTask):
             if "Sleep_Stage" not in record_dataframe.columns:
                 continue
 
-            record_epoch_feature_matrix = self._build_record_epoch_feature_matrix(record_dataframe)
+            record_epoch_feature_matrix = self._build_record_epoch_feature_matrix(
+                record_dataframe
+            )
             if len(record_epoch_feature_matrix) == 0:
                 continue
 
