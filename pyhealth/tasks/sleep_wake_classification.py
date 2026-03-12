@@ -3,7 +3,6 @@ from typing import Dict, List
 import neurokit2 as nk
 import numpy as np
 import pandas as pd
-
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import butter, cheby2, filtfilt
 from scipy.stats import trim_mean
@@ -17,8 +16,8 @@ class SleepWakeClassification(BaseTask):
     """Binary sleep-wake classification task for DREAMT wearable recordings.
 
     This task converts each DREAMT wearable recording into fixed-length epochs,
-    extracts physiological features from multiple sensor modalities, 
-    augments them with temporal context, and assigns a binary sleep/wake 
+    extracts physiological features from multiple sensor modalities,
+    augments them with temporal context, and assigns a binary sleep/wake
     label to each epoch.
     """
 
@@ -297,8 +296,7 @@ class SleepWakeClassification(BaseTask):
         epochs = self._split_signal_into_epochs(magnitude, sampling_rate_hz)
 
         return [
-            {"mad": float(np.mean(np.abs(epoch - np.mean(epoch))))}
-            for epoch in epochs
+            {"mad": float(np.mean(np.abs(epoch - np.mean(epoch))))} for epoch in epochs
         ]
 
     def _extract_temperature_epoch_features(
@@ -412,18 +410,20 @@ class SleepWakeClassification(BaseTask):
 
                 epoch_features.append(
                     {
-                        "scr_amp_mean": float(np.mean(amplitudes))
-                        if len(amplitudes)
-                        else 0.0,
-                        "scr_amp_max": float(np.max(amplitudes))
-                        if len(amplitudes)
-                        else 0.0,
-                        "scr_rise_mean": float(np.mean(rise_times))
-                        if len(rise_times)
-                        else 0.0,
-                        "scr_recovery_mean": float(np.mean(recovery_times))
-                        if len(recovery_times)
-                        else 0.0,
+                        "scr_amp_mean": (
+                            float(np.mean(amplitudes)) if len(amplitudes) else 0.0
+                        ),
+                        "scr_amp_max": (
+                            float(np.max(amplitudes)) if len(amplitudes) else 0.0
+                        ),
+                        "scr_rise_mean": (
+                            float(np.mean(rise_times)) if len(rise_times) else 0.0
+                        ),
+                        "scr_recovery_mean": (
+                            float(np.mean(recovery_times))
+                            if len(recovery_times)
+                            else 0.0
+                        ),
                     }
                 )
             except Exception:
@@ -516,24 +516,28 @@ class SleepWakeClassification(BaseTask):
             A dictionary mapping modality names to numeric NumPy arrays.
         """
         return {
-            "accelerometer_x": pd.to_numeric(
-                record_dataframe["ACC_X"], errors="coerce"
-            ).fillna(0.0).to_numpy(),
-            "accelerometer_y": pd.to_numeric(
-                record_dataframe["ACC_Y"], errors="coerce"
-            ).fillna(0.0).to_numpy(),
-            "accelerometer_z": pd.to_numeric(
-                record_dataframe["ACC_Z"], errors="coerce"
-            ).fillna(0.0).to_numpy(),
-            "temperature": pd.to_numeric(
-                record_dataframe["TEMP"], errors="coerce"
-            ).fillna(0.0).to_numpy(),
+            "accelerometer_x": pd.to_numeric(record_dataframe["ACC_X"], errors="coerce")
+            .fillna(0.0)
+            .to_numpy(),
+            "accelerometer_y": pd.to_numeric(record_dataframe["ACC_Y"], errors="coerce")
+            .fillna(0.0)
+            .to_numpy(),
+            "accelerometer_z": pd.to_numeric(record_dataframe["ACC_Z"], errors="coerce")
+            .fillna(0.0)
+            .to_numpy(),
+            "temperature": pd.to_numeric(record_dataframe["TEMP"], errors="coerce")
+            .fillna(0.0)
+            .to_numpy(),
             "blood_volume_pulse": pd.to_numeric(
                 record_dataframe["BVP"], errors="coerce"
-            ).fillna(0.0).to_numpy(),
+            )
+            .fillna(0.0)
+            .to_numpy(),
             "electrodermal_activity": pd.to_numeric(
                 record_dataframe["EDA"], errors="coerce"
-            ).fillna(0.0).to_numpy(),
+            )
+            .fillna(0.0)
+            .to_numpy(),
         }
 
     def _extract_feature_sets_for_all_modalities(
