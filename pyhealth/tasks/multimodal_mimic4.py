@@ -652,8 +652,9 @@ class ClinicalNotesICDLabsCXRMIMIC4(BaseTask):
                     all_cxr_image_paths.append(cxr_image_path)
                     all_cxr_hours_relative_to_nearest_admission.append(image_hours_from_nearest_admission)
             except AttributeError:
-                all_cxr_image_paths.append(self.TOKEN_REPRESENTING_MISSING_PATH)
-                all_cxr_hours_relative_to_nearest_admission.append(self.TOKEN_REPRESENTING_MISSING_FLOAT)
+                # all_cxr_image_paths.append(self.TOKEN_REPRESENTING_MISSING_PATH)
+                # all_cxr_hours_relative_to_nearest_admission.append(self.TOKEN_REPRESENTING_MISSING_FLOAT)
+                pass # I think eventually we want to store this as a missing token or something
 
         # [Clinical Notes, EHR, Labs]: Process each admission independently (per hadm_id)
         for admission in admissions_to_process:
