@@ -1,0 +1,7 @@
+scale,num_patients,loader,dataset_class,status,wall_time_sec,peak_ram_mb,throughput_patients_per_sec,note
+small,100,legacy_in_memory,InMemorySampleDataset,ok,0.00425804202677682,0.18910980224609375,23484.972522851374,
+small,100,streaming,SampleDataset,ok,7.591603999986546,1.4529895782470703,13.17244682417276,
+medium,1000,legacy_in_memory,InMemorySampleDataset,ok,0.015434042026754469,0.8984231948852539,64791.841195360794,
+medium,1000,streaming,SampleDataset,ok,7.6678521250141785,1.4480886459350586,130.41461724826246,
+large,5000,legacy_in_memory,InMemorySampleDataset,ok,0.08102108401362784,4.114830017089844,61712.33156000473,
+large,5000,streaming,SampleDataset,ok,11.755720708024455,5.590873718261719,425.32483751396035,

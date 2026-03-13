@@ -137,3 +137,6 @@ data/physionet.org/
 
 # VSCode settings
 .vscode/
+
+# Benchmark runtime cache
+benchmarks/.runtime_cache/

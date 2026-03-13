@@ -1,4 +1,5 @@
 from typing import List, Dict
+from numbers import Integral
 
 
 def ranking_metrics_fn(qrels: Dict[str, Dict[str, int]],
@@ -31,11 +32,24 @@ def ranking_metrics_fn(qrels: Dict[str, Dict[str, int]],
         >>> ranking_metrics_fn(qrels, results, k_values)
         {'NDCG@1': 0.5, 'MAP@1': 0.25, 'Recall@1': 0.25, 'P@1': 0.5, 'NDCG@2': 0.5, 'MAP@2': 0.375, 'Recall@2': 0.5, 'P@2': 0.5}
     """
+    if not qrels:
+        raise ValueError("qrels must not be empty.")
+    if not results:
+        raise ValueError("results must not be empty.")
+    if not k_values:
+        raise ValueError("k_values must not be empty.")
+    if any(not isinstance(k, Integral) or int(k) <= 0 for k in k_values):
+        raise ValueError("k_values must contain only positive integers.")
+
+    k_values = [int(k) for k in k_values]
+
     try:
         import pytrec_eval
-    except:
-        raise ImportError("pytrec_eval is not installed. Please install it manually by running \
-            'pip install pytrec_eval'.")
+    except ModuleNotFoundError as exc:
+        raise ImportError(
+            "pytrec_eval is not installed. Please install it manually with "
+            "'pip install pytrec_eval'."
+        ) from exc
     ret = {}
 
     for k in k_values:
@@ -52,6 +66,13 @@ def ranking_metrics_fn(qrels: Dict[str, Dict[str, int]],
                                                {map_string, ndcg_string, recall_string,
                                                 precision_string})
     scores = evaluator.evaluate(results)
+    if not scores:
+        raise ValueError(
+            "No ranking scores were produced. Ensure results contain query ids "
+            "present in qrels."
+        )
+
+    num_queries = len(scores)
 
     for query_id in scores.keys():
         for k in k_values:
@@ -61,10 +82,10 @@ def ranking_metrics_fn(qrels: Dict[str, Dict[str, int]],
             ret[f"P@{k}"] += scores[query_id]["P_" + str(k)]
 
     for k in k_values:
-        ret[f"NDCG@{k}"] = round(ret[f"NDCG@{k}"] / len(scores), 5)
-        ret[f"MAP@{k}"] = round(ret[f"MAP@{k}"] / len(scores), 5)
-        ret[f"Recall@{k}"] = round(ret[f"Recall@{k}"] / len(scores), 5)
-        ret[f"P@{k}"] = round(ret[f"P@{k}"] / len(scores), 5)
+        ret[f"NDCG@{k}"] = round(ret[f"NDCG@{k}"] / num_queries, 5)
+        ret[f"MAP@{k}"] = round(ret[f"MAP@{k}"] / num_queries, 5)
+        ret[f"Recall@{k}"] = round(ret[f"Recall@{k}"] / num_queries, 5)
+        ret[f"P@{k}"] = round(ret[f"P@{k}"] / num_queries, 5)
 
     return ret
 
