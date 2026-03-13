@@ -1,3 +1,13 @@
+"""Diego Farias Castro (diegof4@illinois.edu).
+
+Paper: Addressing Wearable Sleep Tracking Inequity: 
+A New Dataset and Novel Methods for a Population with Sleep Disorders
+Paper link: https://proceedings.mlr.press/v248/wang24a.html
+
+Implements a DREAMT sleep-wake classification task using multimodal wearable
+features and temporal context augmentation.
+"""
+
 import logging
 from typing import Dict, List
 
