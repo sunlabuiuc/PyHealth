@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+
 from pyhealth.tasks.sleep_wake_classification import SleepWakeClassification
 
 
@@ -151,7 +152,9 @@ def test_load_wearable_record_dataframe_returns_none_for_missing_file():
     """
     task = SleepWakeClassification()
 
-    assert task._load_wearable_record_dataframe(FakeEvent(file_64hz="missing.csv")) is None
+    assert (
+        task._load_wearable_record_dataframe(FakeEvent(file_64hz="missing.csv")) is None
+    )
     assert task._load_wearable_record_dataframe(FakeEvent(file_64hz=None)) is None
 
 
