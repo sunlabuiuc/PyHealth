@@ -12,7 +12,7 @@ Build, test, and deploy healthcare machine learning models with ease. PyHealth i
 **Key Features**
 
 - **Dramatically simpler**: Build any healthcare AI model in ~7 lines of code
-- **Blazing fast**: Up to 39× faster than pandas
+- **Blazing fast**: Up to 39× faster than pandas for task processing
 - **Memory efficient**: Runs on 16GB laptops 
 - **True multimodal**: Unified API for EHR, medical images, biosignals, clinical text, and genomics
 - **Production-ready**: 25+ pre-built models, 20+ tasks, 12+ datasets with comprehensive evaluation tools
