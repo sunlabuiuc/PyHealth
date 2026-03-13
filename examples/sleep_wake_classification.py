@@ -1,31 +1,73 @@
 from collections import Counter
 
-import numpy as np
 import lightgbm as lgb
-from sklearn.impute import SimpleImputer
-from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, average_precision_score
-from sklearn.model_selection import GroupShuffleSplit
-from sklearn.linear_model import LogisticRegression
+import numpy as np
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import (
+    accuracy_score,
+    average_precision_score,
+    f1_score,
+    roc_auc_score,
+)
 
 from pyhealth.datasets import DREAMTDataset
 from pyhealth.tasks.sleep_wake_classification import SleepWakeClassification
 
+# Configuration
+DREAMT_ROOT = "REPLACE_WITH_DREAMT_ROOT"
+TRAIN_PATIENT_IDS = ["S028", "S062", "S078"]
+EVAL_PATIENT_IDS = ["S081", "S099"]
+EPOCH_SECONDS = 30
+SAMPLING_RATE = 64
+
+
+def split_samples_by_patient_ids(X, y, groups):
+    """Splits samples into train and evaluation sets using patient IDs.
+
+    Args:
+        X: Feature matrix.
+        y: Binary label vector.
+        groups: Patient identifier for each sample.
+
+    Returns:
+        Train and evaluation features, labels, and patient groups.
+    """
+    train_mask = np.isin(groups, TRAIN_PATIENT_IDS)
+    eval_mask = np.isin(groups, EVAL_PATIENT_IDS)
+
+    if not np.any(train_mask):
+        raise ValueError("No samples found for TRAIN_PATIENT_IDS.")
+    if not np.any(eval_mask):
+        raise ValueError("No samples found for EVAL_PATIENT_IDS.")
+
+    return (
+        X[train_mask],
+        X[eval_mask],
+        y[train_mask],
+        y[eval_mask],
+        groups[train_mask],
+        groups[eval_mask],
+    )
+
 
 def run_experiment(X, y, groups, name):
-    splitter = GroupShuffleSplit(n_splits=1, test_size=0.4, random_state=42)
-    train_idx, test_idx = next(splitter.split(X, y, groups=groups))
+    # Split samples into train and evaluation sets
+    X_train, X_test, y_train, y_test, g_train, g_test = split_samples_by_patient_ids(
+        X,
+        y,
+        groups,
+    )
 
-    X_train, X_test = X[train_idx], X[test_idx]
-    y_train, y_test = y[train_idx], y[test_idx]
-    g_train, g_test = groups[train_idx], groups[test_idx]
-
+    # Report dataset statistics
     print(f"\n=== {name} ===")
     print("train patients:", sorted(set(g_train)))
-    print("test patients:", sorted(set(g_test)))
+    print("evaluation patients:", sorted(set(g_test)))
     print("train size:", len(X_train))
-    print("test size:", len(X_test))
+    print("evaluation size:", len(X_test))
 
+    # Remove features that are all NaN in the training set
     non_all_nan_cols = ~np.isnan(X_train).all(axis=0)
     X_train = X_train[:, non_all_nan_cols]
     X_test = X_test[:, non_all_nan_cols]
@@ -36,6 +78,7 @@ def run_experiment(X, y, groups, name):
     X_train = imputer.fit_transform(X_train)
     X_test = imputer.transform(X_test)
 
+    # Train a LightGBM model on the current feature subset.
     train_data = lgb.Dataset(X_train, label=y_train)
     test_data = lgb.Dataset(X_test, label=y_test, reference=train_data)
 
@@ -63,6 +106,7 @@ def run_experiment(X, y, groups, name):
     y_prob = model.predict(X_test)
     y_pred = (y_prob >= 0.3).astype(int)
 
+    # Report standard binary classification metrics.
     print("Accuracy:", accuracy_score(y_test, y_pred))
     print("F1:", f1_score(y_test, y_pred))
     print("AUROC:", roc_auc_score(y_test, y_prob))
@@ -70,16 +114,16 @@ def run_experiment(X, y, groups, name):
 
 
 def run_model_comparison(X, y, groups):
-    splitter = GroupShuffleSplit(n_splits=1, test_size=0.4, random_state=42)
-    train_idx, test_idx = next(splitter.split(X, y, groups=groups))
-
-    X_train, X_test = X[train_idx], X[test_idx]
-    y_train, y_test = y[train_idx], y[test_idx]
-    g_train, g_test = groups[train_idx], groups[test_idx]
+    # Use the same predefined patient split to compare alternative models
+    X_train, X_test, y_train, y_test, g_train, g_test = split_samples_by_patient_ids(
+        X,
+        y,
+        groups,
+    )
 
     print("\n=== Model comparison (ALL modalities + temporal) ===")
     print("train patients:", sorted(set(g_train)))
-    print("test patients:", sorted(set(g_test)))
+    print("evaluation patients:", sorted(set(g_test)))
 
     non_all_nan_cols = ~np.isnan(X_train).all(axis=0)
     X_train = X_train[:, non_all_nan_cols]
@@ -89,17 +133,17 @@ def run_model_comparison(X, y, groups):
     X_train = imputer.fit_transform(X_train)
     X_test = imputer.transform(X_test)
 
+    # Compare logistic regression and random forest on the full feature set.
     models = {
         "LogisticRegression": LogisticRegression(max_iter=1000),
         "RandomForest": RandomForestClassifier(
             n_estimators=200,
             random_state=42,
-            n_jobs=-1
+            n_jobs=-1,
         ),
     }
 
     for name, model in models.items():
-
         model.fit(X_train, y_train)
 
         if hasattr(model, "predict_proba"):
@@ -115,46 +159,57 @@ def run_model_comparison(X, y, groups):
         print("AUROC:", roc_auc_score(y_test, y_prob))
         print("AUPRC:", average_precision_score(y_test, y_prob))
 
+
 def main():
-    root = r"C:\Users\faria\OneDrive - University of Illinois - Urbana\CS-598-DLH\dreamt-replication\data\DREAMT"
+    if DREAMT_ROOT == "REPLACE_WITH_DREAMT_ROOT":
+        raise ValueError(
+            "Please set DREAMT_ROOT in examples/sleep_wake_classification.py "
+            "before running this example.",
+        )
 
-    dataset = DREAMTDataset(root=root)
-    task = SleepWakeClassification()
+    dataset = DREAMTDataset(root=DREAMT_ROOT)
+    task = SleepWakeClassification(
+        epoch_seconds=EPOCH_SECONDS,
+        sampling_rate=SAMPLING_RATE,
+    )
 
-    selected_patient_ids = ["S028", "S062", "S078", "S081", "S099"]
-
+    # Convert the selected DREAMT patients into epoch-level sleep/wake samples.
     all_samples = []
+    selected_patient_ids = TRAIN_PATIENT_IDS + EVAL_PATIENT_IDS
     for patient_id in selected_patient_ids:
         patient = dataset.get_patient(patient_id)
         samples = task(patient)
-        print(patient_id, len(samples))
+        print(f"patient {patient_id}: {len(samples)} epoch samples")
         all_samples.extend(samples)
 
-    print("total samples:", len(all_samples))
+    print("total epoch samples:", len(all_samples))
     print("label counts:", Counter(s["label"] for s in all_samples))
 
+    # Turn the task samples into arrays for training and evaluation.
     X_all = np.array([s["features"] for s in all_samples], dtype=float)
     y = np.array([s["label"] for s in all_samples], dtype=int)
     groups = np.array([s["patient_id"] for s in all_samples])
 
     print("X_all shape:", X_all.shape)
 
-    # base only = first 21 features
+    # Keep only the base per-epoch features without temporal augmentation.
     X_base = X_all[:, :21]
 
-    # base + temporal = all features
+    # Keep the full feature matrix, including temporal context features.
     X_temporal = X_all
 
-    acc_idx = list(range(0, 10))        # ACC_X, ACC_Y, ACC_Z, ACC_MAD
-    temp_idx = list(range(10, 14))      # TEMP
-    bvp_idx = list(range(14, 17))       # BVP
-    eda_idx = list(range(17, 21))       # EDA
+    # Group feature indices by modality for the ablation experiments.
+    acc_idx = list(range(0, 10))
+    temp_idx = list(range(10, 14))
+    bvp_idx = list(range(14, 17))
+    eda_idx = list(range(17, 21))
 
     X_acc = X_base[:, acc_idx]
     X_acc_temp = X_base[:, acc_idx + temp_idx]
     X_acc_temp_bvp = X_base[:, acc_idx + temp_idx + bvp_idx]
     X_all_modalities = X_base[:, acc_idx + temp_idx + bvp_idx + eda_idx]
 
+    # Run experiments using different features
     run_experiment(X_acc, y, groups, "ACC only")
     run_experiment(X_acc_temp, y, groups, "ACC + TEMP")
     run_experiment(X_acc_temp_bvp, y, groups, "ACC + TEMP + BVP")
