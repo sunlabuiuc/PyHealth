@@ -221,6 +221,7 @@ Quick Navigation
    :hidden:
    :caption: Documentation
 
+   api/overview
    api/data
    api/datasets
    api/graph

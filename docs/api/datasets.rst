@@ -10,7 +10,7 @@ New to PyHealth datasets? Start here:
 
 This tutorial covers:
 
-- How to load and work with different healthcare datasets (MIMIC-III, MIMIC-IV, eICU, etc.)
+- How to load and work with any PyHealth dataset (MIMIC-III, MIMIC-IV, eICU, OMOP, and many more)
 - Understanding the ``BaseDataset`` structure and patient representation
 - Parsing raw EHR data into standardized PyHealth format
 - Accessing patient records, visits, and clinical events
@@ -39,11 +39,61 @@ can train on, you call ``dataset.set_task()`` (see :doc:`tasks`), which
 returns a :class:`~pyhealth.datasets.SampleDataset` that *is* indexable and
 DataLoader-ready.
 
+From BaseDataset to SampleDataset
+-----------------------------------
+
+``BaseDataset`` and ``SampleDataset`` serve different roles and are not
+interchangeable:
+
+- **BaseDataset** is a queryable patient registry. It holds the raw
+  patient→visit→event tree loaded from disk. You cannot index into it like a
+  list — it has no integer length and is not DataLoader-ready.
+- **SampleDataset** is a PyTorch-compatible streaming dataset returned by
+  ``dataset.set_task()``. Each element is a fully processed feature
+  dictionary that a model can consume directly.
+
+The conversion happens in one call:
+
+.. code-block:: python
+
+    import torch
+    from pyhealth.datasets import MIMIC3Dataset
+    from pyhealth.tasks import MortalityPredictionMIMIC3
+
+    dataset = MIMIC3Dataset(root="...", tables=["diagnoses_icd"])
+    samples = dataset.set_task(MortalityPredictionMIMIC3())
+    # `samples` is a SampleDataset — pass it straight to a DataLoader
+    loader = torch.utils.data.DataLoader(samples, batch_size=32)
+
+Under the hood, ``set_task()`` runs a ``SampleBuilder`` that fits feature
+processors (tokenisers, label encoders, etc.) across the full dataset, then
+writes compressed, chunked sample files to disk via
+`litdata <https://github.com/Lightning-AI/litdata>`_. A companion
+``schema.pkl`` stores the fitted processors so the dataset can be reloaded in
+future runs without re-fitting.
+
+``SampleDataset`` also exposes two convenience lookups built during fitting:
+
+- ``samples.patient_to_index`` — maps a patient ID to all sample indices for
+  that patient.
+- ``samples.record_to_index`` — maps a visit/record ID to the sample indices
+  for that visit.
+
+For testing or small cohorts you can skip the disk step entirely using
+``InMemorySampleDataset``, which holds all processed samples in RAM and is
+returned by default from ``create_sample_dataset()``.
+
+.. note::
+   Building a custom dataset or bringing your own data?
+   See :doc:`../tutorials` (Tutorial 1) for a step-by-step walkthrough, and
+   the `config.yaml for Custom Datasets`_ section below for the schema format.
+
 Native Datasets vs Custom Datasets
 ------------------------------------
 
-PyHealth includes native support for several standard EHR databases — MIMIC-III,
-MIMIC-IV, eICU, and OMOP. These come with built-in schema definitions so you
+PyHealth includes native support for many standard healthcare databases — including
+MIMIC-III, MIMIC-IV, eICU, OMOP, and many others (see the full list in `Available Datasets`_
+below). All of these come with built-in schema definitions so you
 can load them with just a root path and a list of tables:
 
 .. code-block:: python
