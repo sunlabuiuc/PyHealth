@@ -1,3 +1,4 @@
+import logging
 from typing import Dict, List
 
 import neurokit2 as nk
@@ -24,6 +25,7 @@ class SleepWakeClassification(BaseTask):
     task_name = "SleepWakeClassification"
     input_schema = {"features": "tensor"}
     output_schema = {"label": "binary"}
+    logger = logging.getLogger(__name__)
 
     def __init__(self, epoch_seconds: int = 30, sampling_rate: int = 64):
         """Initializes the sleep-wake classification task.
@@ -364,7 +366,11 @@ class SleepWakeClassification(BaseTask):
                         "pnn50": float(hrv["HRV_pNN50"].values[0]),
                     }
                 )
-            except Exception:
+            except (KeyError, IndexError, TypeError, ValueError) as error:
+                self.logger.warning(
+                    "Skipping BVP epoch due to feature extraction error: %s",
+                    error,
+                )
                 epoch_features.append(
                     {"rmssd": np.nan, "sdnn": np.nan, "pnn50": np.nan}
                 )
@@ -426,7 +432,11 @@ class SleepWakeClassification(BaseTask):
                         ),
                     }
                 )
-            except Exception:
+            except (KeyError, IndexError, TypeError, ValueError) as error:
+                self.logger.warning(
+                    "Skipping EDA epoch due to feature extraction error: %s",
+                    error,
+                )
                 epoch_features.append(
                     {
                         "scr_amp_mean": np.nan,
@@ -717,7 +727,17 @@ class SleepWakeClassification(BaseTask):
 
         try:
             return pd.read_csv(file_path)
-        except Exception:
+        except (
+            FileNotFoundError,
+            OSError,
+            pd.errors.EmptyDataError,
+            pd.errors.ParserError,
+        ) as error:
+            self.logger.warning(
+                "Skipping DREAMT record '%s' due to file loading error: %s",
+                file_path,
+                error,
+            )
             return None
 
     def _extract_binary_label_for_epoch(
