@@ -1,7 +1,13 @@
 from collections import Counter
+from contextlib import redirect_stderr, redirect_stdout
+import io
+import logging
+import warnings
 
 import lightgbm as lgb
 import numpy as np
+
+from sklearn.exceptions import ConvergenceWarning
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
@@ -12,6 +18,7 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 
+
 from pyhealth.datasets import DREAMTDataset
 from pyhealth.tasks.sleep_wake_classification import SleepWakeClassification
 
@@ -21,6 +28,72 @@ TRAIN_PATIENT_IDS = ["S028", "S062", "S078"]
 EVAL_PATIENT_IDS = ["S081", "S099"]
 EPOCH_SECONDS = 30
 SAMPLING_RATE = 64
+
+# Console formatting codes
+RESET = "\033[0m"
+BOLD = "\033[1m"
+CYAN = "\033[36m"
+GREEN = "\033[32m"
+YELLOW = "\033[33m"
+
+
+def format_section(title):
+    """Formats a section title for console output.
+
+    Args:
+        title: Section title to format.
+
+    Returns:
+        A colorized section title string.
+    """
+    return f"\n{BOLD}{CYAN}{title}{RESET}"
+
+
+def format_patient_ids(patient_ids):
+    """Formats patient IDs for readable console output.
+
+    Args:
+        patient_ids: Iterable of patient identifiers.
+
+    Returns:
+        A comma-separated string of patient IDs.
+    """
+    return ", ".join(sorted(str(patient_id) for patient_id in set(patient_ids)))
+
+
+def print_metric(name, value):
+    """Prints a metric with consistent console formatting.
+
+    Args:
+        name: Metric name.
+        value: Metric value.
+    """
+    print(f"  {name:<16}{value:.4f}")
+
+
+def summarize_label_counts(labels):
+    """Builds a readable sleep/wake label summary.
+
+    Args:
+        labels: Iterable of binary labels.
+
+    Returns:
+        A formatted label count string.
+    """
+    counts = Counter(labels)
+    return (
+        f"sleep (0): {counts.get(0, 0)}, "
+        f"wake (1): {counts.get(1, 0)}"
+    )
+
+
+def configure_clean_output():
+    """Suppresses noisy warnings and logs for a cleaner example run."""
+    warnings.filterwarnings("ignore", category=ConvergenceWarning)
+    logging.getLogger("pyhealth").setLevel(logging.ERROR)
+    logging.getLogger("pyhealth.tasks.sleep_wake_classification").setLevel(
+        logging.ERROR
+    )
 
 
 def split_samples_by_patient_ids(X, y, groups):
@@ -61,18 +134,18 @@ def run_experiment(X, y, groups, name):
     )
 
     # Report dataset statistics
-    print(f"\n=== {name} ===")
-    print("train patients:", sorted(set(g_train)))
-    print("evaluation patients:", sorted(set(g_test)))
-    print("train size:", len(X_train))
-    print("evaluation size:", len(X_test))
+    print(format_section(f"Ablation: {name}"))
+    print(f"{BOLD}Train patients:{RESET} {format_patient_ids(g_train)}")
+    print(f"{BOLD}Eval patients:{RESET}  {format_patient_ids(g_test)}")
+    print(f"{BOLD}Train samples:{RESET}  {len(X_train)}")
+    print(f"{BOLD}Eval samples:{RESET}   {len(X_test)}")
 
     # Remove features that are all NaN in the training set
     non_all_nan_cols = ~np.isnan(X_train).all(axis=0)
     X_train = X_train[:, non_all_nan_cols]
     X_test = X_test[:, non_all_nan_cols]
 
-    print("kept features:", X_train.shape[1])
+    print(f"{BOLD}Feature count:{RESET} {X_train.shape[1]}")
 
     imputer = SimpleImputer(strategy="median")
     X_train = imputer.fit_transform(X_train)
@@ -107,10 +180,10 @@ def run_experiment(X, y, groups, name):
     y_pred = (y_prob >= 0.3).astype(int)
 
     # Report standard binary classification metrics.
-    print("Accuracy:", accuracy_score(y_test, y_pred))
-    print("F1:", f1_score(y_test, y_pred))
-    print("AUROC:", roc_auc_score(y_test, y_prob))
-    print("AUPRC:", average_precision_score(y_test, y_prob))
+    print_metric("Accuracy", accuracy_score(y_test, y_pred))
+    print_metric("F1", f1_score(y_test, y_pred))
+    print_metric("AUROC", roc_auc_score(y_test, y_prob))
+    print_metric("AUPRC", average_precision_score(y_test, y_prob))
 
 
 def run_model_comparison(X, y, groups):
@@ -121,9 +194,9 @@ def run_model_comparison(X, y, groups):
         groups,
     )
 
-    print("\n=== Model comparison (ALL modalities + temporal) ===")
-    print("train patients:", sorted(set(g_train)))
-    print("evaluation patients:", sorted(set(g_test)))
+    print(format_section("Model Comparison: ALL modalities + temporal"))
+    print(f"{BOLD}Train patients:{RESET} {format_patient_ids(g_train)}")
+    print(f"{BOLD}Eval patients:{RESET}  {format_patient_ids(g_test)}")
 
     non_all_nan_cols = ~np.isnan(X_train).all(axis=0)
     X_train = X_train[:, non_all_nan_cols]
@@ -153,24 +226,37 @@ def run_model_comparison(X, y, groups):
 
         y_pred = (y_prob >= 0.3).astype(int)
 
-        print(f"\n{name}")
-        print("Accuracy:", accuracy_score(y_test, y_pred))
-        print("F1:", f1_score(y_test, y_pred))
-        print("AUROC:", roc_auc_score(y_test, y_prob))
-        print("AUPRC:", average_precision_score(y_test, y_prob))
+        print(f"\n{YELLOW}{name}{RESET}")
+        print_metric("Accuracy", accuracy_score(y_test, y_pred))
+        print_metric("F1", f1_score(y_test, y_pred))
+        print_metric("AUROC", roc_auc_score(y_test, y_prob))
+        print_metric("AUPRC", average_precision_score(y_test, y_prob))
 
 
 def main():
+    configure_clean_output()
+
     if DREAMT_ROOT == "REPLACE_WITH_DREAMT_ROOT":
         raise ValueError(
             "Please set DREAMT_ROOT in examples/sleep_wake_classification.py "
             "before running this example.",
         )
 
-    dataset = DREAMTDataset(root=DREAMT_ROOT)
+    # Suppress verbose dataset initialization messages and print a cleaner summary.
+    with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+        dataset = DREAMTDataset(root=DREAMT_ROOT)
     task = SleepWakeClassification(
         epoch_seconds=EPOCH_SECONDS,
         sampling_rate=SAMPLING_RATE,
+    )
+
+    print(format_section("DREAMT Sleep-Wake Classification Example"))
+    print(f"{BOLD}Dataset root:{RESET} {DREAMT_ROOT}")
+    print(
+        f"{BOLD}Train patients:{RESET} {', '.join(TRAIN_PATIENT_IDS)}"
+    )
+    print(
+        f"{BOLD}Eval patients:{RESET}  {', '.join(EVAL_PATIENT_IDS)}"
     )
 
     # Convert the selected DREAMT patients into epoch-level sleep/wake samples.
@@ -179,18 +265,21 @@ def main():
     for patient_id in selected_patient_ids:
         patient = dataset.get_patient(patient_id)
         samples = task(patient)
-        print(f"patient {patient_id}: {len(samples)} epoch samples")
+        print(f"  patient {patient_id:<4} -> {len(samples)} epoch samples")
         all_samples.extend(samples)
 
-    print("total epoch samples:", len(all_samples))
-    print("label counts:", Counter(s["label"] for s in all_samples))
+    print(f"{BOLD}Total epoch samples:{RESET} {len(all_samples)}")
+    print(
+        f"{BOLD}Label counts:{RESET}      "
+        f"{summarize_label_counts(sample['label'] for sample in all_samples)}"
+    )
 
     # Turn the task samples into arrays for training and evaluation.
     X_all = np.array([s["features"] for s in all_samples], dtype=float)
     y = np.array([s["label"] for s in all_samples], dtype=int)
     groups = np.array([s["patient_id"] for s in all_samples])
 
-    print("X_all shape:", X_all.shape)
+    print(f"{BOLD}Feature matrix:{RESET}    {X_all.shape[0]} samples x {X_all.shape[1]} features")
 
     # Keep only the base per-epoch features without temporal augmentation.
     X_base = X_all[:, :21]
@@ -209,7 +298,7 @@ def main():
     X_acc_temp_bvp = X_base[:, acc_idx + temp_idx + bvp_idx]
     X_all_modalities = X_base[:, acc_idx + temp_idx + bvp_idx + eda_idx]
 
-    # Run experiments using different features
+    # Run experiments using different feature groups.
     run_experiment(X_acc, y, groups, "ACC only")
     run_experiment(X_acc_temp, y, groups, "ACC + TEMP")
     run_experiment(X_acc_temp_bvp, y, groups, "ACC + TEMP + BVP")
