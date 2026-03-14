@@ -477,7 +477,7 @@ class ClinicalNotesICDLabsCXRMIMIC4(BaseTask):
     """
     TOKEN_REPRESENTING_MISSING_TEXT = ""
     TOKEN_REPRESENTING_MISSING_FLOAT = 0.0
-    TOKEN_REPRESENTING_MISSING_PATH = None
+    TOKEN_REPRESENTING_MISSING_PATH = ""
     PADDING: int = 0
 
     task_name: str = "ClinicalNotesICDLabsCXRMIMIC4"
@@ -499,8 +499,8 @@ class ClinicalNotesICDLabsCXRMIMIC4(BaseTask):
             "icd_codes": ("stagenet", {"padding": PADDING}),
             "labs": ("stagenet_tensor", {}),
             "labs_mask": ("stagenet_tensor", {}),
-            "cxrs": "time_image", 
-            "negbio_findings": ("stagenet", {"padding": PADDING}), 
+            "cxrs": ("time_image", {"padding": TOKEN_REPRESENTING_MISSING_PATH}),
+            "negbio_findings": ("stagenet", {"padding": PADDING}),
         }
     output_schema: Dict[str, str] = {"mortality": "binary"}
 
@@ -652,9 +652,8 @@ class ClinicalNotesICDLabsCXRMIMIC4(BaseTask):
                     all_cxr_image_paths.append(cxr_image_path)
                     all_cxr_hours_relative_to_nearest_admission.append(image_hours_from_nearest_admission)
             except AttributeError:
-                # all_cxr_image_paths.append(self.TOKEN_REPRESENTING_MISSING_PATH)
-                # all_cxr_hours_relative_to_nearest_admission.append(self.TOKEN_REPRESENTING_MISSING_FLOAT)
-                pass # Maybe for Josh: I think eventually we want to store this as a missing token or something
+                all_cxr_image_paths.append(self.TOKEN_REPRESENTING_MISSING_PATH)
+                all_cxr_hours_relative_to_nearest_admission.append(self.TOKEN_REPRESENTING_MISSING_FLOAT)
 
         # [Clinical Notes, EHR, Labs]: Process each admission independently (per hadm_id)
         for admission in admissions_to_process:

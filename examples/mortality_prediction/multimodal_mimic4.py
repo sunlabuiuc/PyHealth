@@ -13,7 +13,7 @@ from pyhealth.tasks.base_task import BaseTask
 
 TASK = "ClinicalNotesICDLabsCXRMIMIC4" # The idea here is that we want additive tasks so we can evaluate the value in adding more modalities
 DEV_MODE = True
-ENVIRONMENT = "Cluster"
+ENVIRONMENT = "Local" # Either 'Local' or 'Cluster'
 
 if ENVIRONMENT == "Local":
     pyhealth_repo_root = '/Users/wpang/Desktop/PyHealth'
