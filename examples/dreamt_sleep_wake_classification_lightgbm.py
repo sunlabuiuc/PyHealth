@@ -36,6 +36,32 @@ GREEN = "\033[32m"
 YELLOW = "\033[33m"
 
 
+def build_synthetic_benchmark_data() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Builds synthetic sleep-wake samples for a runnable ablation example.
+
+    Returns:
+        Synthetic feature matrix, binary labels, and patient IDs.
+    """
+    rng = np.random.default_rng(42)
+    patient_ids = TRAIN_PATIENT_IDS + EVAL_PATIENT_IDS
+    samples_per_patient = 24
+    num_base_features = 21
+    num_temporal_features = num_base_features * 3
+    num_features = num_base_features + num_temporal_features
+
+    groups = np.repeat(patient_ids, samples_per_patient)
+    y = rng.binomial(1, 0.35, size=len(groups))
+
+    X = rng.normal(0.0, 1.0, size=(len(groups), num_features))
+    X[y == 1, :10] += 0.9
+    X[y == 1, 10:14] += 0.4
+    X[y == 1, 14:17] += 0.3
+    X[y == 1, 17:21] += 0.2
+    X[y == 1, 21:] += 0.25
+
+    return X.astype(float), y.astype(int), groups.astype(str)
+
+
 def format_section(title: str) -> str:
     """Formats a section title for console output.
 
@@ -262,48 +288,63 @@ def main() -> None:
     configure_clean_output()
 
     if DREAMT_ROOT == "REPLACE_WITH_DREAMT_ROOT":
-        raise ValueError(
-            "Please set DREAMT_ROOT in "
-            "examples/dreamt_sleep_wake_classification_lightgbm.py "
-            "before running this example.",
+        print(format_section("DREAMT Sleep-Wake Classification Example"))
+        print("DREAMT_ROOT not set. Running the ablation workflow on synthetic data...")
+        print(
+            f"{YELLOW}Warning:{RESET} synthetic samples are randomly generated to "
+            "make the example runnable without DREAMT. The resulting metrics are "
+            "not realistic and should not be interpreted as evidence for the "
+            "task or paper claims\n."
+        )
+        print(f"{BOLD}Train patients:{RESET} {', '.join(TRAIN_PATIENT_IDS)}")
+        print(f"{BOLD}Eval patients:{RESET}  {', '.join(EVAL_PATIENT_IDS)}")
+
+        X_all, y, groups = build_synthetic_benchmark_data()
+        print(f"{BOLD}Total epoch samples:{RESET} {len(X_all)}")
+        print(f"{BOLD}Label counts:{RESET}      {summarize_label_counts(y)}")
+        print(
+            f"{BOLD}Feature matrix:{RESET}    "
+            f"{X_all.shape[0]} samples x {X_all.shape[1]} features"
+        )
+    else:
+        # Suppress verbose dataset initialization messages and print a cleaner summary.
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            dataset = DREAMTDataset(root=DREAMT_ROOT)
+        task = SleepWakeClassification(
+            epoch_seconds=EPOCH_SECONDS,
+            sampling_rate=SAMPLING_RATE,
         )
 
-    # Suppress verbose dataset initialization messages and print a cleaner summary.
-    with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-        dataset = DREAMTDataset(root=DREAMT_ROOT)
-    task = SleepWakeClassification(
-        epoch_seconds=EPOCH_SECONDS,
-        sampling_rate=SAMPLING_RATE,
-    )
+        print(format_section("DREAMT Sleep-Wake Classification Example"))
+        print(f"{BOLD}Dataset root:{RESET} {DREAMT_ROOT}")
+        print(f"{BOLD}Train patients:{RESET} {', '.join(TRAIN_PATIENT_IDS)}")
+        print(f"{BOLD}Eval patients:{RESET}  {', '.join(EVAL_PATIENT_IDS)}")
 
-    print(format_section("DREAMT Sleep-Wake Classification Example"))
-    print(f"{BOLD}Dataset root:{RESET} {DREAMT_ROOT}")
-    print(f"{BOLD}Train patients:{RESET} {', '.join(TRAIN_PATIENT_IDS)}")
-    print(f"{BOLD}Eval patients:{RESET}  {', '.join(EVAL_PATIENT_IDS)}")
+        # Convert the selected DREAMT patients into epoch-level sleep/wake samples.
+        all_samples = []
+        selected_patient_ids = TRAIN_PATIENT_IDS + EVAL_PATIENT_IDS
+        for patient_id in selected_patient_ids:
+            patient = dataset.get_patient(patient_id)
+            samples = task(patient)
+            print(f"  patient {patient_id:<4} -> {len(samples)} epoch samples")
+            all_samples.extend(samples)
 
-    # Convert the selected DREAMT patients into epoch-level sleep/wake samples.
-    all_samples = []
-    selected_patient_ids = TRAIN_PATIENT_IDS + EVAL_PATIENT_IDS
-    for patient_id in selected_patient_ids:
-        patient = dataset.get_patient(patient_id)
-        samples = task(patient)
-        print(f"  patient {patient_id:<4} -> {len(samples)} epoch samples")
-        all_samples.extend(samples)
+        print(f"{BOLD}Total epoch samples:{RESET} {len(all_samples)}")
+        print(
+            f"{BOLD}Label counts:{RESET}      "
+            f"{summarize_label_counts(sample['label'] for sample in all_samples)}"
+        )
 
-    print(f"{BOLD}Total epoch samples:{RESET} {len(all_samples)}")
-    print(
-        f"{BOLD}Label counts:{RESET}      "
-        f"{summarize_label_counts(sample['label'] for sample in all_samples)}"
-    )
+        # Turn the task samples into arrays for training and evaluation.
+        X_all = np.array([s["features"] for s in all_samples], dtype=float)
+        y = np.array([s["label"] for s in all_samples], dtype=int)
+        groups = np.array([s["patient_id"] for s in all_samples])
 
-    # Turn the task samples into arrays for training and evaluation.
-    X_all = np.array([s["features"] for s in all_samples], dtype=float)
-    y = np.array([s["label"] for s in all_samples], dtype=int)
-    groups = np.array([s["patient_id"] for s in all_samples])
-
-    print(
-        f"{BOLD}Feature matrix:{RESET}    {X_all.shape[0]} samples x {X_all.shape[1]} features"
-    )
+    if DREAMT_ROOT != "REPLACE_WITH_DREAMT_ROOT":
+        print(
+            f"{BOLD}Feature matrix:{RESET}    "
+            f"{X_all.shape[0]} samples x {X_all.shape[1]} features"
+        )
 
     # Keep only the base per-epoch features without temporal augmentation.
     X_base = X_all[:, :21]
