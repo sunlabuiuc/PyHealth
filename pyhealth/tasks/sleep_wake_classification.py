@@ -1,6 +1,6 @@
 """Diego Farias Castro (diegof4@illinois.edu).
 
-Paper: Addressing Wearable Sleep Tracking Inequity: 
+Paper: Addressing Wearable Sleep Tracking Inequity:
 A New Dataset and Novel Methods for a Population with Sleep Disorders
 Paper link: https://proceedings.mlr.press/v248/wang24a.html
 
@@ -9,7 +9,8 @@ features and temporal context augmentation.
 """
 
 import logging
-from typing import Dict, List
+from os import PathLike
+from typing import Any, Dict, List, Tuple
 
 import neurokit2 as nk
 import numpy as np
@@ -48,7 +49,10 @@ class SleepWakeClassification(BaseTask):
         self.sampling_rate = sampling_rate
         super().__init__()
 
-    def _convert_sleep_stage_to_binary_label(self, label):
+    def _convert_sleep_stage_to_binary_label(
+        self,
+        label: Any,
+    ) -> int | None:
         """Maps a sleep stage label to the binary sleep-wake target.
 
         Args:
@@ -103,7 +107,7 @@ class SleepWakeClassification(BaseTask):
         sampling_rate_hz: float,
         order: int,
         stopband_attenuation_db: float = 40.0,
-    ):
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """Designs band-pass filter coefficients for a supported family.
 
         Args:
@@ -137,13 +141,18 @@ class SleepWakeClassification(BaseTask):
 
         raise ValueError(f"Unsupported bandpass filter family: {filter_family}")
 
-    def _apply_zero_phase_filter(self, signal: np.ndarray, b, a) -> np.ndarray:
+    def _apply_zero_phase_filter(
+        self,
+        signal: np.ndarray,
+        numerator_coefficients: np.ndarray,
+        denominator_coefficients: np.ndarray,
+    ) -> np.ndarray:
         """Applies zero-phase filtering to a one-dimensional signal.
 
         Args:
             signal: One-dimensional signal array.
-            b: Numerator filter coefficients.
-            a: Denominator filter coefficients.
+            numerator_coefficients: Numerator filter coefficients.
+            denominator_coefficients: Denominator filter coefficients.
 
         Returns:
             The filtered signal.
@@ -153,7 +162,11 @@ class SleepWakeClassification(BaseTask):
         """
         if signal.ndim != 1:
             raise ValueError("Signal must be 1D.")
-        return filtfilt(b, a, signal)
+        return filtfilt(
+            numerator_coefficients,
+            denominator_coefficients,
+            signal,
+        )
 
     def _filter_signal_with_lowpass(
         self,
@@ -722,7 +735,10 @@ class SleepWakeClassification(BaseTask):
 
         return all_epoch_features
 
-    def _load_wearable_record_dataframe(self, event) -> pd.DataFrame | None:
+    def _load_wearable_record_dataframe(
+        self,
+        event: Any,
+    ) -> pd.DataFrame | None:
         """Loads the wearable CSV file associated with a DREAMT event.
 
         Args:
@@ -731,7 +747,7 @@ class SleepWakeClassification(BaseTask):
         Returns:
             A pandas DataFrame if the file can be loaded, otherwise ``None``.
         """
-        file_path = getattr(event, "file_64hz", None)
+        file_path: str | PathLike[str] | None = getattr(event, "file_64hz", None)
         if file_path is None:
             return None
 

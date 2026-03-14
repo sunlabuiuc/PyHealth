@@ -3,6 +3,7 @@ import logging
 import warnings
 from collections import Counter
 from contextlib import redirect_stderr, redirect_stdout
+from typing import Iterable
 
 import lightgbm as lgb
 import numpy as np
@@ -35,7 +36,7 @@ GREEN = "\033[32m"
 YELLOW = "\033[33m"
 
 
-def format_section(title):
+def format_section(title: str) -> str:
     """Formats a section title for console output.
 
     Args:
@@ -47,7 +48,7 @@ def format_section(title):
     return f"\n{BOLD}{CYAN}{title}{RESET}"
 
 
-def format_patient_ids(patient_ids):
+def format_patient_ids(patient_ids: Iterable[str]) -> str:
     """Formats patient IDs for readable console output.
 
     Args:
@@ -59,7 +60,7 @@ def format_patient_ids(patient_ids):
     return ", ".join(sorted(str(patient_id) for patient_id in set(patient_ids)))
 
 
-def print_metric(name, value):
+def print_metric(name: str, value: float) -> None:
     """Prints a metric with consistent console formatting.
 
     Args:
@@ -82,7 +83,7 @@ def summarize_label_counts(labels):
     return f"sleep (0): {counts.get(0, 0)}, " f"wake (1): {counts.get(1, 0)}"
 
 
-def configure_clean_output():
+def configure_clean_output() -> None:
     """Suppresses noisy warnings and logs for a cleaner example run."""
     warnings.filterwarnings("ignore", category=ConvergenceWarning)
     logging.getLogger("pyhealth").setLevel(logging.ERROR)
@@ -91,7 +92,11 @@ def configure_clean_output():
     )
 
 
-def split_samples_by_patient_ids(X, y, groups):
+def split_samples_by_patient_ids(
+    X: np.ndarray,
+    y: np.ndarray,
+    groups: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Splits samples into train and evaluation sets using patient IDs.
 
     Args:
@@ -120,7 +125,20 @@ def split_samples_by_patient_ids(X, y, groups):
     )
 
 
-def run_experiment(X, y, groups, name):
+def run_experiment(
+    X: np.ndarray,
+    y: np.ndarray,
+    groups: np.ndarray,
+    name: str,
+) -> None:
+    """Runs one feature ablation experiment and prints evaluation metrics.
+
+    Args:
+        X: Feature matrix for the selected experiment.
+        y: Binary label vector.
+        groups: Patient identifier for each sample.
+        name: Name of the ablation setting.
+    """
     # Split samples into train and evaluation sets
     X_train, X_test, y_train, y_test, g_train, g_test = split_samples_by_patient_ids(
         X,
@@ -181,7 +199,18 @@ def run_experiment(X, y, groups, name):
     print_metric("AUPRC", average_precision_score(y_test, y_prob))
 
 
-def run_model_comparison(X, y, groups):
+def run_model_comparison(
+    X: np.ndarray,
+    y: np.ndarray,
+    groups: np.ndarray,
+) -> None:
+    """Runs a small model comparison on the full temporal feature set.
+
+    Args:
+        X: Full feature matrix.
+        y: Binary label vector.
+        groups: Patient identifier for each sample.
+    """
     # Use the same predefined patient split to compare alternative models
     X_train, X_test, y_train, y_test, g_train, g_test = split_samples_by_patient_ids(
         X,
@@ -228,12 +257,14 @@ def run_model_comparison(X, y, groups):
         print_metric("AUPRC", average_precision_score(y_test, y_prob))
 
 
-def main():
+def main() -> None:
+    """Runs the DREAMT sleep-wake classification example workflow."""
     configure_clean_output()
 
     if DREAMT_ROOT == "REPLACE_WITH_DREAMT_ROOT":
         raise ValueError(
-            "Please set DREAMT_ROOT in examples/sleep_wake_classification.py "
+            "Please set DREAMT_ROOT in "
+            "examples/dreamt_sleep_wake_classification_lightgbm.py "
             "before running this example.",
         )
 
