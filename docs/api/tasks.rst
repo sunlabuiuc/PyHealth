@@ -67,6 +67,138 @@ After you define a task:
 - Discover how to customize processor behavior with kwargs tuples
 - Understand processor types for different data modalities (text, images, signals, etc.)
 
+Writing a Custom Task
+----------------------
+
+When a built-in task doesn't match your cohort or prediction target, you can
+define your own by subclassing :class:`~pyhealth.tasks.BaseTask`. The class
+needs three things: a name, input and output schemas, and a ``__call__``
+method that processes one patient at a time.
+
+.. code-block:: python
+
+    from pyhealth.tasks import BaseTask
+    from pyhealth.data import Patient
+    from typing import List, Dict, Any
+
+    class MyMortalityTask(BaseTask):
+        task_name: str = "MyMortalityTask"
+
+        input_schema: Dict[str, str] = {
+            "conditions": "sequence",   # maps to SequenceProcessor
+            "procedures": "sequence",
+        }
+        output_schema: Dict[str, str] = {
+            "label": "binary"           # maps to BinaryLabelProcessor
+        }
+
+        def __call__(self, patient: Patient) -> List[Dict[str, Any]]:
+            samples = []
+            for adm in patient.get_events("admissions"):
+                label = 1 if adm.hospital_expire_flag == "1" else 0
+
+                # Fetch historical diagnoses up to this admission
+                conditions = patient.get_events("diagnoses_icd", end=adm.timestamp)
+                cond_codes = [e.icd_code for e in conditions]
+
+                if not cond_codes:
+                    continue
+
+                samples.append({
+                    "conditions": [cond_codes],  # wrapped in a list for the sequence processor
+                    "procedures": [[]],
+                    "label": label,
+                })
+            return samples
+
+The ``__call__`` method receives one ``Patient`` and returns a list of sample
+dictionaries. Each dictionary's keys should match the schemas you declared.
+Returning an empty list is fine — PyHealth simply skips that patient. Note
+that event attribute names are always lowercase (e.g. ``e.icd_code`` rather
+than ``e.ICD_CODE``) because PyHealth lowercases all column names at ingest
+time. Timestamps are accessed through ``event.timestamp`` rather than the
+original column name like ``charttime``, since PyHealth normalises them into
+a single property.
+
+Processor String Keys
+----------------------
+
+The string values in your schemas map to specific processor classes. Here is
+a quick reference:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 35 40
+
+   * - String key
+     - Processor
+     - Typical use
+   * - ``"sequence"``
+     - ``SequenceProcessor``
+     - Diagnosis codes, procedure codes, drug names
+   * - ``"nested_sequence"``
+     - ``NestedSequenceProcessor``
+     - Cumulative visit history (drug recommendation, readmission)
+   * - ``"tensor"``
+     - ``TensorProcessor``
+     - Aggregated numeric values (e.g. last lab value per item)
+   * - ``"timeseries"``
+     - ``TimeseriesProcessor``
+     - Irregular time-series measurements
+   * - ``"multi_hot"``
+     - ``MultiHotProcessor``
+     - Demographics, comorbidity flags
+   * - ``"text"``
+     - ``TextProcessor``
+     - Clinical notes
+   * - ``"binary"``
+     - ``BinaryLabelProcessor``
+     - Binary classification label (0 / 1)
+   * - ``"multiclass"``
+     - ``MultiClassLabelProcessor``
+     - Multi-class label
+   * - ``"multilabel"``
+     - ``MultiLabelProcessor``
+     - Multi-label classification
+   * - ``"regression"``
+     - ``RegressionLabelProcessor``
+     - Continuous regression target
+
+How set_task() Works
+---------------------
+
+Calling ``dataset.set_task(task)`` iterates over every patient in the
+dataset, runs your ``__call__`` method on each one, fits all the processors
+on the collected samples, then serialises everything to disk as LitData
+``.ld`` files. The result is a :class:`~pyhealth.datasets.SampleDataset` that
+supports ``len()`` and index access, ready for a DataLoader.
+
+.. code-block:: python
+
+    sample_ds = dataset.set_task(MyMortalityTask(), num_workers=4)
+    len(sample_ds)   # total ML samples across all patients
+    sample_ds[0]     # a single sample dict with tensor values
+
+If you re-run ``set_task()`` with the same task and processor configuration,
+PyHealth detects the existing cache and skips reprocessing. During
+development it is useful to set ``dev=True`` on the dataset, which limits
+processing to 1 000 patients so iterations are fast.
+
+.. note::
+
+   **A note on multiprocessing.** ``set_task()`` can spawn worker processes
+   when ``num_workers > 1``. On macOS and Linux this requires the standard
+   Python multiprocessing guard around your top-level script:
+
+   .. code-block:: python
+
+       if __name__ == '__main__':
+           sample_ds = dataset.set_task(task, num_workers=4)
+
+   Without this guard, Python may try to re-import and re-run the script in
+   each worker process, leading to infinite recursion. This is a general
+   Python multiprocessing requirement, not specific to PyHealth.
+
 Available Tasks
 ---------------
 
