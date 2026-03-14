@@ -655,6 +655,10 @@ class ClinicalNotesICDLabsCXRMIMIC4(BaseTask):
                 all_cxr_image_paths.append(self.TOKEN_REPRESENTING_MISSING_PATH)
                 all_cxr_hours_relative_to_nearest_admission.append(self.TOKEN_REPRESENTING_MISSING_FLOAT)
 
+        if len(all_cxr_image_paths) == 0: # If patient has no metadata events at all, insert a padding entry
+            all_cxr_image_paths.append(self.TOKEN_REPRESENTING_MISSING_PATH)
+            all_cxr_hours_relative_to_nearest_admission.append(self.TOKEN_REPRESENTING_MISSING_FLOAT)
+
         # [Clinical Notes, EHR, Labs]: Process each admission independently (per hadm_id)
         for admission in admissions_to_process:
             admission_time = admission.timestamp
