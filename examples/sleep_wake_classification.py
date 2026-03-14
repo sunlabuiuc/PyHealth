@@ -1,14 +1,13 @@
-from collections import Counter
-from contextlib import redirect_stderr, redirect_stdout
 import io
 import logging
 import warnings
+from collections import Counter
+from contextlib import redirect_stderr, redirect_stdout
 
 import lightgbm as lgb
 import numpy as np
-
-from sklearn.exceptions import ConvergenceWarning
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.exceptions import ConvergenceWarning
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
@@ -17,7 +16,6 @@ from sklearn.metrics import (
     f1_score,
     roc_auc_score,
 )
-
 
 from pyhealth.datasets import DREAMTDataset
 from pyhealth.tasks.sleep_wake_classification import SleepWakeClassification
@@ -81,10 +79,7 @@ def summarize_label_counts(labels):
         A formatted label count string.
     """
     counts = Counter(labels)
-    return (
-        f"sleep (0): {counts.get(0, 0)}, "
-        f"wake (1): {counts.get(1, 0)}"
-    )
+    return f"sleep (0): {counts.get(0, 0)}, " f"wake (1): {counts.get(1, 0)}"
 
 
 def configure_clean_output():
@@ -252,12 +247,8 @@ def main():
 
     print(format_section("DREAMT Sleep-Wake Classification Example"))
     print(f"{BOLD}Dataset root:{RESET} {DREAMT_ROOT}")
-    print(
-        f"{BOLD}Train patients:{RESET} {', '.join(TRAIN_PATIENT_IDS)}"
-    )
-    print(
-        f"{BOLD}Eval patients:{RESET}  {', '.join(EVAL_PATIENT_IDS)}"
-    )
+    print(f"{BOLD}Train patients:{RESET} {', '.join(TRAIN_PATIENT_IDS)}")
+    print(f"{BOLD}Eval patients:{RESET}  {', '.join(EVAL_PATIENT_IDS)}")
 
     # Convert the selected DREAMT patients into epoch-level sleep/wake samples.
     all_samples = []
@@ -279,7 +270,9 @@ def main():
     y = np.array([s["label"] for s in all_samples], dtype=int)
     groups = np.array([s["patient_id"] for s in all_samples])
 
-    print(f"{BOLD}Feature matrix:{RESET}    {X_all.shape[0]} samples x {X_all.shape[1]} features")
+    print(
+        f"{BOLD}Feature matrix:{RESET}    {X_all.shape[0]} samples x {X_all.shape[1]} features"
+    )
 
     # Keep only the base per-epoch features without temporal augmentation.
     X_base = X_all[:, :21]
