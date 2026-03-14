@@ -251,8 +251,10 @@ class TimeImageProcessor(TemporalFeatureProcessor):
             for sample in samples:
                 if field in sample and sample[field] is not None:
                     image_paths, _ = sample[field]
-                    if len(image_paths) > 0:
-                        path = Path(image_paths[0])
+                    for raw_path in image_paths:
+                        if self.padding is not None and str(raw_path) == self.padding:
+                            continue
+                        path = Path(raw_path)
                         if path.exists():
                             with Image.open(path) as img:
                                 if img.mode == "L":
@@ -262,6 +264,8 @@ class TimeImageProcessor(TemporalFeatureProcessor):
                                 else:
                                     self.n_channels = 3
                             break
+                if self.n_channels is not None:
+                    break
             if self.n_channels is None:
                 self.n_channels = 3
 
