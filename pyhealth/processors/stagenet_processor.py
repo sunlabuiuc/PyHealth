@@ -69,7 +69,7 @@ class StageNetProcessor(TemporalFeatureProcessor, TokenProcessorInterface):
             samples: List of sample dictionaries
             key: The key in samples that contains tuple (time, values)
         """
-        # Examine first non-None sample to determine structure
+        # Examine samples to determine structure
         for sample in samples:
             if field in sample and sample[field] is not None:
                 # Unpack tuple: (time, values)
@@ -77,15 +77,19 @@ class StageNetProcessor(TemporalFeatureProcessor, TokenProcessorInterface):
 
                 # Determine nesting level for codes
                 if isinstance(value_data, list) and len(value_data) > 0:
-                    first_elem = value_data[0]
+                    for elem in value_data:
+                        if isinstance(elem, str):
+                            # Case 1: ["code1", "code2", ...]
+                            self._is_nested = False
+                            break
+                        elif isinstance(elem, list):
+                            if len(elem) > 0 and isinstance(elem[0], str):
+                                # Case 2: [["A", "B"], ["C"], ...]
+                                self._is_nested = True
+                                break
+                            # Empty inner list — keep scanning
 
-                    if isinstance(first_elem, str):
-                        # Case 1: ["code1", "code2", ...]
-                        self._is_nested = False
-                    elif isinstance(first_elem, list):
-                        if len(first_elem) > 0 and isinstance(first_elem[0], str):
-                            # Case 2: [["A", "B"], ["C"], ...]
-                            self._is_nested = True
+            if self._is_nested is not None:
                 break
 
         # Build vocabulary for codes and find max nested length
