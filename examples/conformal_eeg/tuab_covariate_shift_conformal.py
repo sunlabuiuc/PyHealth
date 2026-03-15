@@ -1,15 +1,15 @@
-"""Covariate-Shift Adaptive Conformal Prediction (CovariateLabel) on TUEV EEG Events using ContraWR.
+"""Covariate-Shift Adaptive Conformal Prediction (CovariateLabel) on TUAB Abnormal EEG Detection using ContraWR.
 
 This script:
-1) Loads the TUEV dataset and applies the EEGEventsTUEV task.
-2) Splits into train/val/cal/test using split conformal protocol.
+1) Loads the TUAB dataset and applies the EEGAbnormalTUAB task.
+2) Splits into train/val/cal/test using the TUH-aware split conformal protocol.
 3) Trains a ContraWR model.
 4) Extracts embeddings for calibration and test splits using embed=True.
 5) Calibrates a CovariateLabel prediction-set predictor (KDE-based shift correction).
 6) Evaluates prediction-set coverage/miscoverage and efficiency on the test split.
 
 Example (from repo root):
-  python examples/conformal_eeg/tuev_covariate_shift_conformal.py --root downloads/tuev/v2.0.1/edf
+  python examples/conformal_eeg/tuab_covariate_shift_conformal.py --root downloads/tuab/v3.0.0/edf
 
 Notes:
 - CovariateLabel requires access to test embeddings/features to estimate density ratios.
@@ -26,21 +26,21 @@ import torch
 
 from pyhealth.calib.predictionset.covariate import CovariateLabel
 from pyhealth.calib.utils import extract_embeddings
-from pyhealth.datasets import TUEVDataset, get_dataloader, split_by_sample_conformal_tuh
+from pyhealth.datasets import TUABDataset, get_dataloader, split_by_sample_conformal_tuh
 from pyhealth.models import ContraWR
-from pyhealth.tasks import EEGEventsTUEV
+from pyhealth.tasks import EEGAbnormalTUAB
 from pyhealth.trainer import Trainer, get_metrics_fn
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Covariate-shift adaptive conformal prediction (CovariateLabel) on TUEV EEG events using ContraWR."
+        description="Covariate-shift adaptive conformal prediction (CovariateLabel) on TUAB abnormal EEG detection using ContraWR."
     )
     parser.add_argument(
         "--root",
         type=str,
-        default="downloads/tuev/v2.0.1/edf",
-        help="Path to TUEV edf/ folder.",
+        default="downloads/tuab/v3.0.0/edf",
+        help="Path to TUAB edf/ folder.",
     )
     parser.add_argument("--subset", type=str, default="both", choices=["train", "eval", "both"])
     parser.add_argument("--seed", type=int, default=42)
@@ -81,22 +81,22 @@ def main() -> None:
     root = Path(args.root)
     if not root.exists():
         raise FileNotFoundError(
-            f"TUEV root not found: {root}. "
-            "Pass --root to point to your downloaded TUEV edf/ directory."
+            f"TUAB root not found: {root}. "
+            "Pass --root to point to your downloaded TUAB edf/ directory."
         )
 
     print("=" * 80)
-    print("STEP 1: Load TUEV + build task dataset")
+    print("STEP 1: Load TUAB + build task dataset")
     print("=" * 80)
-    dataset = TUEVDataset(root=str(root), subset=args.subset)
-    sample_dataset = dataset.set_task(EEGEventsTUEV())
+    dataset = TUABDataset(root=str(root), subset=args.subset)
+    sample_dataset = dataset.set_task(EEGAbnormalTUAB())
 
     print(f"Task samples: {len(sample_dataset)}")
     print(f"Input schema: {sample_dataset.input_schema}")
     print(f"Output schema: {sample_dataset.output_schema}")
 
     if len(sample_dataset) == 0:
-        raise RuntimeError("No samples produced. Verify TUEV root/subset/task.")
+        raise RuntimeError("No samples produced. Verify TUAB root/subset/task.")
 
     print("\n" + "=" * 80)
     print("STEP 2: Split train/val/cal/test")
@@ -123,12 +123,12 @@ def main() -> None:
         train_dataloader=train_loader,
         val_dataloader=val_loader,
         epochs=args.epochs,
-        monitor="accuracy" if val_loader is not None else None,
+        monitor="roc_auc" if val_loader is not None else None,
     )
 
     print("\nBase model performance on test set:")
     y_true_base, y_prob_base, _loss_base = trainer.inference(test_loader)
-    base_metrics = get_metrics_fn("multiclass")(y_true_base, y_prob_base, metrics=["accuracy", "f1_weighted"])
+    base_metrics = get_metrics_fn("binary")(y_true_base, y_prob_base, metrics=["accuracy", "roc_auc", "f1"])
     for metric, value in base_metrics.items():
         print(f"  {metric}: {value:.4f}")
 
@@ -158,7 +158,7 @@ def main() -> None:
         test_loader, additional_outputs=["y_predset"]
     )
 
-    cov_metrics = get_metrics_fn("multiclass")(
+    cov_metrics = get_metrics_fn("binary")(
         y_true,
         y_prob,
         metrics=["accuracy", "miscoverage_ps"],
