@@ -139,39 +139,59 @@ class EEGEventsTUEV(BaseTask):
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
         """Processes one patient. Creates one sample per event in the .rec file.
 
-        Expected patient events to include a `signal_file` attribute that points to an .edf file.
-        """
-        pid = patient.patient_id
-        events = patient.get_events()
+        Iterates over both 'train' and 'eval' splits.
+        Each sample includes a 'split' field and a precomputed 'stft' tensor.
 
+        Expected patient events to include a `signal_file` attribute pointing to an .edf file.
+        """
+        from pyhealth.models.tfm_tokenizer import get_stft_torch
+
+        pid = patient.patient_id
         samples: List[Dict[str, Any]] = []
 
-        for event in events:
-            edf_path = event.signal_file
+        for split in ("train", "eval"):
+            events = patient.get_events(split)
 
-            signals, times, rec, raw = self.readEDF(edf_path, self.resample_rate, self.bandpass_filter, self.notch_filter)
-            signals = self.convert_signals(signals, raw)
-            feats, offending_channels, labels = self.BuildEvents(signals, times, rec, self.resample_rate)
+            for event in events:
+                edf_path = event.signal_file
 
-            for idx, (signal, offending_channel, label) in enumerate(
-                zip(feats, offending_channels, labels)
-            ):
-                
-                if self.normalization == '95th_percentile':
-                    signal = signal/(np.quantile(np.abs(signal), q=0.95, axis=-1, method = 'linear',keepdims=True)+1e-8)
-                elif self.normalization == 'div_by_100':
-                    signal = signal/100
-                    
-                signal = torch.FloatTensor(signal)
-                samples.append(
-                    {
-                        "patient_id": pid,
-                        "signal_file": edf_path,
-                        "signal": signal,
-                        "offending_channel": int(offending_channel.squeeze()),
-                        "label": int(label.squeeze())-1,
-                    }
+                try:
+                    signals, times, rec, raw = self.readEDF(
+                        edf_path, self.resample_rate, self.bandpass_filter, self.notch_filter
+                    )
+                    signals = self.convert_signals(signals, raw)
+                except (ValueError, KeyError):
+                    continue
+
+                feats, offending_channels, labels = self.BuildEvents(
+                    signals, times, rec, self.resample_rate
                 )
+
+                for idx, (signal, offending_channel, label) in enumerate(
+                    zip(feats, offending_channels, labels)
+                ):
+                    if self.normalization == '95th_percentile':
+                        signal = signal / (
+                            np.quantile(np.abs(signal), q=0.95, axis=-1, method='linear', keepdims=True) + 1e-8
+                        )
+                    elif self.normalization == 'div_by_100':
+                        signal = signal / 100
+
+                    signal = torch.FloatTensor(signal)
+                    # get_stft_torch expects (B, C, T); unsqueeze/squeeze the batch dim
+                    stft = get_stft_torch(signal.unsqueeze(0)).squeeze(0)
+
+                    samples.append(
+                        {
+                            "patient_id": pid,
+                            "signal_file": edf_path,
+                            "split": split,
+                            "signal": signal,
+                            "stft": stft,
+                            "offending_channel": int(offending_channel.squeeze()),
+                            "label": int(label.squeeze()) - 1,
+                        }
+                    )
 
         return samples
     
@@ -311,46 +331,68 @@ class EEGAbnormalTUAB(BaseTask):
         return channeled_data
 
     def __call__(self, patient: Any) -> List[Dict[str, Any]]:
-        """Processes one patient. Creates one sample per class
+        """Processes one patient. Creates one 10-second window sample per segment.
+
+        Iterates over both 'train' and 'eval' splits. 
+        Each sample includes a 'split' field and a precomputed 'stft' tensor.
         """
+        from pyhealth.models.tfm_tokenizer import get_stft_torch
+
         pid = patient.patient_id
-        events = patient.get_events()
-        
         samples: List[Dict[str, Any]] = []
         fs = self.resample_rate
-        
-        for event in events:
-            edf_path = event.signal_file
-            label = event.label
-            if label == 'normal':
-                label = 0
-            elif label == 'abnormal':
-                label = 1
-            raw_data, ch_name = self.read_and_process_edf(edf_path, self.resample_rate, self.bandpass_filter, self.notch_filter)
-            bipolar_data = self.convert_to_bipolar(raw_data, ch_name)
-            
-            num_samples = int(bipolar_data.shape[1] // (fs * 10))
-            for i in range(num_samples):
-                start = i * fs * 10
-                end = start + fs * 10
-                signal = bipolar_data[:, start:end]
-                if self.normalization == '95th_percentile':
-                    signal = signal/(np.quantile(np.abs(signal), q=0.95, axis=-1, method = 'linear',keepdims=True)+1e-8)
-                elif self.normalization == 'div_by_100':
-                    signal = signal/100
-                    
-                signal = torch.FloatTensor(signal)
-                samples.append(
-                    {
-                        "patient_id": pid,
-                        "signal_file": edf_path,
-                        "signal": signal,
-                        "label": label,
-                        'segment_id': f'{i}',
-                        'start_time': start,
-                        'end_time': end,
-                    }
-                )
+
+        for split in ("train", "eval"):
+            events = patient.get_events(split)
+
+            for event in events:
+                edf_path = event.signal_file
+                label = event.label
+                if label == 'normal':
+                    label = 0
+                elif label == 'abnormal':
+                    label = 1
+
+                try:
+                    raw_data, ch_name = self.read_and_process_edf(
+                        edf_path, self.resample_rate, self.bandpass_filter, self.notch_filter
+                    )
+                except (ValueError, KeyError):
+                    continue
+
+                bipolar_data = self.convert_to_bipolar(raw_data, ch_name)
+
+                num_samples = int(bipolar_data.shape[1] // (fs * 10))
+                for i in range(num_samples):
+                    start = i * fs * 10
+                    end = start + fs * 10
+                    signal = bipolar_data[:, start:end]
+
+                    if self.normalization == '95th_percentile':
+                        signal = signal / (
+                            np.quantile(np.abs(signal), q=0.95, axis=-1, method='linear', keepdims=True) + 1e-8
+                        )
+                    elif self.normalization == 'div_by_100':
+                        signal = signal / 100
+
+                    signal = torch.FloatTensor(signal)
+                    # get_stft_torch expects (B, C, T); unsqueeze/squeeze the batch dim
+                    stft = get_stft_torch(signal.unsqueeze(0)).squeeze(0)
+
+                    samples.append(
+                        {
+                            "patient_id": pid,
+                            "signal_file": edf_path,
+                            "split": split,
+                            "signal": signal,
+                            "stft": stft,
+                            "label": label,
+                            "segment_id": f'{i}',
+                            "start_time": start,
+                            "end_time": end,
+                        }
+                    )
+
         return samples
             
     
