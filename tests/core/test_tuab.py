@@ -444,8 +444,12 @@ class TestEEGAbnormalTUAB(unittest.TestCase):
     def test_task_schema_attributes(self):
         task = EEGAbnormalTUAB()
         self.assertEqual(task.task_name, "EEG_abnormal")
-        self.assertEqual(task.input_schema, {"signal": "tensor"})
+        self.assertEqual(task.input_schema, {"signal": "tensor", "stft": "tensor"})
         self.assertEqual(task.output_schema, {"label": "binary"})
+
+    def test_task_schema_no_stft(self):
+        task = EEGAbnormalTUAB(compute_stft=False)
+        self.assertEqual(task.input_schema, {"signal": "tensor"})
 
 
 if __name__ == "__main__":

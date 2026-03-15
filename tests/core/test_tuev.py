@@ -184,5 +184,16 @@ class TestEEGEventsTUEV(unittest.TestCase):
         self.assertEqual(samples[1]["label"], 5)
 
 
+    def test_task_schema_attributes(self):
+        task = EEGEventsTUEV()
+        self.assertEqual(task.task_name, "EEG_events")
+        self.assertEqual(task.input_schema, {"signal": "tensor", "stft": "tensor"})
+        self.assertEqual(task.output_schema, {"label": "multiclass"})
+
+    def test_task_schema_no_stft(self):
+        task = EEGEventsTUEV(compute_stft=False)
+        self.assertEqual(task.input_schema, {"signal": "tensor"})
+
+
 if __name__ == "__main__":
     unittest.main()
