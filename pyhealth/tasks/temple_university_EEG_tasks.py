@@ -35,14 +35,15 @@ class EEGEventsTUEV(BaseTask):
     """
 
     task_name: str = "EEG_events"
-    input_schema: Dict[str, str] = {"signal": "tensor"}
+    input_schema: Dict[str, str] = {"signal": "tensor", "stft": "tensor"}
     output_schema: Dict[str, str] = {"label": "multiclass"}
 
     def __init__(self,
                  resample_rate: float = 200,
                  bandpass_filter: Tuple[float, float] = (0.1, 75.0),
                  notch_filter: float = 50.0,
-                 normalization: str = None # '95th_percentile', 'div_by_100'
+                 normalization: str = None, # '95th_percentile', 'div_by_100'
+                 compute_stft: bool = True,
                  ) -> None:
         super().__init__()
 
@@ -50,6 +51,10 @@ class EEGEventsTUEV(BaseTask):
         self.bandpass_filter = bandpass_filter
         self.notch_filter = notch_filter
         self.normalization = normalization
+        self.compute_stft = compute_stft
+        # input_schema must reflect whether stft is produced
+        if not compute_stft:
+            self.input_schema = {"signal": "tensor"}
 
     @staticmethod
     def BuildEvents(
@@ -144,8 +149,6 @@ class EEGEventsTUEV(BaseTask):
 
         Expected patient events to include a `signal_file` attribute pointing to an .edf file.
         """
-        from pyhealth.models.tfm_tokenizer import get_stft_torch
-
         pid = patient.patient_id
         samples: List[Dict[str, Any]] = []
 
@@ -178,20 +181,21 @@ class EEGEventsTUEV(BaseTask):
                         signal = signal / 100
 
                     signal = torch.FloatTensor(signal)
-                    # get_stft_torch expects (B, C, T); unsqueeze/squeeze the batch dim
-                    stft = get_stft_torch(signal.unsqueeze(0)).squeeze(0)
 
-                    samples.append(
-                        {
-                            "patient_id": pid,
-                            "signal_file": edf_path,
-                            "split": split,
-                            "signal": signal,
-                            "stft": stft,
-                            "offending_channel": int(offending_channel.squeeze()),
-                            "label": int(label.squeeze()) - 1,
-                        }
-                    )
+                    sample = {
+                        "patient_id": pid,
+                        "signal_file": edf_path,
+                        "split": split,
+                        "signal": signal,
+                        "offending_channel": int(offending_channel.squeeze()),
+                        "label": int(label.squeeze()) - 1,
+                    }
+                    if self.compute_stft:
+                        # get_stft_torch expects (B, C, T); unsqueeze/squeeze the batch dim
+                        from pyhealth.models.tfm_tokenizer import get_stft_torch
+                        sample["stft"] = get_stft_torch(signal.unsqueeze(0)).squeeze(0)
+
+                    samples.append(sample)
 
         return samples
     
@@ -224,20 +228,24 @@ class EEGAbnormalTUAB(BaseTask):
     """
 
     task_name: str = "EEG_abnormal"
-    input_schema: Dict[str, str] = {"signal": "tensor"}
+    input_schema: Dict[str, str] = {"signal": "tensor", "stft": "tensor"}
     output_schema: Dict[str, str] = {"label": "binary"}
 
     def __init__(self,
                  resample_rate: float = 200,
                  bandpass_filter: Tuple[float, float] = (0.1, 75.0),
                  notch_filter: float = 50.0,
-                 normalization: str = None # '95th_percentile', 'div_by_100'
+                 normalization: str = None, # '95th_percentile', 'div_by_100'
+                 compute_stft: bool = True,
                  ) -> None:
         super().__init__()
         self.resample_rate = resample_rate
         self.bandpass_filter = bandpass_filter
         self.notch_filter = notch_filter
         self.normalization = normalization
+        self.compute_stft = compute_stft
+        if not compute_stft:
+            self.input_schema = {"signal": "tensor"}
     @staticmethod
     def read_and_process_edf(fileName: str,
                              resample_rate: float = 200,
@@ -334,10 +342,8 @@ class EEGAbnormalTUAB(BaseTask):
         """Processes one patient. Creates one 10-second window sample per segment.
 
         Iterates over both 'train' and 'eval' splits. 
-        Each sample includes a 'split' field and a precomputed 'stft' tensor.
+        Each sample includes a 'split' field and, when compute_stft=True, a precomputed 'stft' tensor.
         """
-        from pyhealth.models.tfm_tokenizer import get_stft_torch
-
         pid = patient.patient_id
         samples: List[Dict[str, Any]] = []
         fs = self.resample_rate
@@ -376,21 +382,24 @@ class EEGAbnormalTUAB(BaseTask):
                         signal = signal / 100
 
                     signal = torch.FloatTensor(signal)
-                    # get_stft_torch expects (B, C, T); unsqueeze/squeeze the batch dim
-                    stft = get_stft_torch(signal.unsqueeze(0)).squeeze(0)
+
+                    sample = {
+                        "patient_id": pid,
+                        "signal_file": edf_path,
+                        "split": split,
+                        "signal": signal,
+                        "label": label,
+                        "segment_id": f'{i}',
+                        "start_time": start,
+                        "end_time": end,
+                    }
+                    if self.compute_stft:
+                        # get_stft_torch expects (B, C, T); unsqueeze/squeeze the batch dim
+                        from pyhealth.models.tfm_tokenizer import get_stft_torch
+                        sample["stft"] = get_stft_torch(signal.unsqueeze(0)).squeeze(0)
 
                     samples.append(
-                        {
-                            "patient_id": pid,
-                            "signal_file": edf_path,
-                            "split": split,
-                            "signal": signal,
-                            "stft": stft,
-                            "label": label,
-                            "segment_id": f'{i}',
-                            "start_time": start,
-                            "end_time": end,
-                        }
+                        sample
                     )
 
         return samples
