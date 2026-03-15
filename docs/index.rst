@@ -11,11 +11,12 @@ Build, test, and deploy healthcare machine learning models with ease. PyHealth i
 
 **Key Features**
 
-- Modular 5-stage pipeline for healthcare ML
-- Healthcare-first: medical codes and clinical datasets (MIMIC, eICU, OMOP)
-- 33+ pre-built models and production-ready trainer/metrics
-- 10+ supported healthcare tasks and datasets
-- Fast (3x faster than pandas) data processing for quick experimentation
+- **Dramatically simpler**: Build any healthcare AI model in ~7 lines of code
+- **Blazing fast**: Up to 39× faster than pandas for task processing
+- **Memory efficient**: Runs on 16GB laptops 
+- **True multimodal**: Unified API for EHR, medical images, biosignals, clinical text, and genomics
+- **Production-ready**: 25+ pre-built models, 20+ tasks, 12+ datasets with comprehensive evaluation tools
+- **Healthcare-first**: Built-in medical coding standards (ICD, CPT, NDC, ATC) and clinical datasets (MIMIC, eICU, OMOP)
 
 
 .. image:: https://img.shields.io/readthedocs/pyhealth?logo=readthedocs&label=docs&version=latest
@@ -61,7 +62,7 @@ Build, test, and deploy healthcare machine learning models with ease. PyHealth i
 
 ----------
 
- **[News!]** Join us for **PyHealth Casual Chats** – informal sessions where you can ask questions, discuss research ideas, or talk about PyHealth developments! Everyone is welcome. `Join Zoom → <https://illinois.zoom.us/j/83607767000?pwd=xXKdKKs2YBH8d0UMWeUiYNEl0lhDoU.1>`_ | `Add to Calendar → <https://calendar.google.com/calendar/event?action=TEMPLATE&tmeid=NGY5NXM1ZnF1MWQ1cnFpdmxxMzNodTNlM2pfMjAyNTEyMTJUMTgwMDAwWiBqb2hud3UzQGlsbGlub2lzLmVkdQ&tmsrc=johnwu3%40illinois.edu&scp=ALL>`_
+ **[News!]** Join us for **PyHealth Casual Chats** – informal sessions where you can ask questions, discuss research ideas, or talk about PyHealth developments! Everyone is welcome. `Join Zoom → <https://illinois.zoom.us/j/83607767000?pwd=xXKdKKs2YBH8d0UMWeUiYNEl0lhDoU.1>`_ | `Add to Calendar → <https://calendar.app.google/mo9G9RNY5XRLo6hu5>`_
 
  **[News!]** We are continuously implementing good papers and benchmarks into PyHealth, checkout the `[Planned List] <https://docs.google.com/spreadsheets/d/1PNMgDe-llOm1SM5ZyGLkmPysjC4wwaVblPLAHLxejTw/edit#gid=159213380>`_. Welcome to pick one from the list and send us a PR or add more influential and new papers into the plan list.
 
@@ -126,45 +127,53 @@ Quick Navigation
    :widths: 50 50
    :class: borderless
 
-   * - Getting Started
-       
+   * - **Getting Started**
+
        Build your first healthcare AI model in 5 minutes
-       
+
        :doc:`Read Guide → <how_to_get_started>`
-     - Why PyHealth?
-       
-       Discover the advantages of PyHealth for healthcare AI
-       
+
+     - **Why PyHealth?**
+
+       Discover the comprehensive benefits and capabilities
+
        :doc:`Learn More → <why_pyhealth>`
 
-   * - Medical Standards
-       
-       Translate between medical coding systems (ICD, NDC, ATC, CCS)
-       
-       :doc:`Explore → <api/medcode>`
-     - Tutorials
-       
+   * - **Installation**
+
+       Install PyHealth and set up your environment
+
+       :doc:`Install Now → <install>`
+
+     - **Research Initiative**
+
+       Join our year round research program and contribute
+
+       :doc:`View Projects → <research_initiative>`
+
+   * - **Tutorials**
+
        Hands-on notebooks and step-by-step guides
-       
+
        :doc:`Open Tutorials → <tutorials>`
 
-  * - Research Initiative
-      
-      Explore research contributions from our annual summer program
-      
-      :doc:`View Projects → <research_initiative>`
-    - Newsletter
-      
-      Stay updated with the latest PyHealth developments and community news
-      
-      :doc:`Read Newsletter → <newsletter>`
+     - **Medical Standards**
 
-  * - Community
-      
-      Join our Discord server and contribute to PyHealth
-      
-      `Discord → <https://discord.gg/mpb835EHaX>`_ | :doc:`Contribute → <how_to_contribute>`
-    - 
+       Translate between medical coding systems (ICD, NDC, ATC, CCS)
+
+       :doc:`Explore → <api/medcode>`
+
+   * - **Community**
+
+       Join our Discord server and contribute to PyHealth
+
+       `Discord → <https://discord.gg/mpb835EHaX>`_ | :doc:`Contribute → <how_to_contribute>`
+
+     - **Newsletter**
+
+       Stay updated with the latest PyHealth developments
+
+       :doc:`Read Newsletter → <newsletter>`
 
 
 
@@ -212,8 +221,10 @@ Quick Navigation
    :hidden:
    :caption: Documentation
 
+   api/overview
    api/data
    api/datasets
+   api/graph
    api/tasks
    api/models
    api/processors

@@ -9,6 +9,16 @@ class MortalityPredictionMIMIC3(BaseTask):
 
     This task aims to predict whether the patient will decease in the next
     hospital visit based on clinical information from the current visit.
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC3Dataset
+        >>> from pyhealth.tasks import MortalityPredictionMIMIC3
+        >>> dataset = MIMIC3Dataset(
+        ...     root="/path/to/mimic-iii/1.4",
+        ...     tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
+        ... )
+        >>> task = MortalityPredictionMIMIC3()
+        >>> samples = dataset.set_task(task)
     """
 
     task_name: str = "MortalityPredictionMIMIC3"
@@ -78,6 +88,17 @@ class MultimodalMortalityPredictionMIMIC3(BaseTask):
 
     This task aims to predict whether the patient will decease in the next
     hospital visit based on clinical information from the current visit.
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC3Dataset
+        >>> from pyhealth.tasks import MultimodalMortalityPredictionMIMIC3
+        >>> dataset = MIMIC3Dataset(
+        ...     root="/path/to/mimic-iii/1.4",
+        ...     tables=["diagnoses_icd", "procedures_icd", "prescriptions",
+        ...             "noteevents"],
+        ... )
+        >>> task = MultimodalMortalityPredictionMIMIC3()
+        >>> samples = dataset.set_task(task)
     """
 
     task_name: str = "MultimodalMortalityPredictionMIMIC3"
@@ -149,7 +170,18 @@ class MultimodalMortalityPredictionMIMIC3(BaseTask):
 
 
 class MortalityPredictionMIMIC4(BaseTask):
-    """Task for predicting mortality using MIMIC-IV EHR data only."""
+    """Task for predicting mortality using MIMIC-IV EHR data only.
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC4EHRDataset
+        >>> from pyhealth.tasks import MortalityPredictionMIMIC4
+        >>> dataset = MIMIC4EHRDataset(
+        ...     root="/path/to/mimic-iv/2.2",
+        ...     tables=["diagnoses_icd", "procedures_icd", "prescriptions"],
+        ... )
+        >>> task = MortalityPredictionMIMIC4()
+        >>> samples = dataset.set_task(task)
+    """
 
     task_name: str = "MortalityPredictionMIMIC4"
     input_schema: Dict[str, str] = {
@@ -280,6 +312,21 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
     - Lab events: 10-dimensional lab value vectors (time-series)
     - Chest X-rays: Must have an image path available
 
+    Examples:
+        >>> from pyhealth.datasets import MIMIC4Dataset
+        >>> from pyhealth.tasks import MultimodalMortalityPredictionMIMIC4
+        >>> dataset = MIMIC4Dataset(
+        ...     ehr_root="/path/to/mimic-iv/2.2",
+        ...     note_root="/path/to/mimic-iv-note/2.2",
+        ...     cxr_root="/path/to/mimic-cxr/2.0.0",
+        ...     ehr_tables=["diagnoses_icd", "procedures_icd",
+        ...                 "prescriptions", "labevents"],
+        ...     note_tables=["discharge", "radiology"],
+        ...     cxr_tables=["metadata", "negbio"],
+        ... )
+        >>> task = MultimodalMortalityPredictionMIMIC4()
+        >>> samples = dataset.set_task(task)
+
     Patient-Level Aggregation:
         - Mortality is determined iteratively by checking if the NEXT admission
           has the death flag
@@ -373,8 +420,11 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
         return text if text else None
 
     def _process_lab_events(
-        self, patient: Any, admission_time: datetime, admission_dischtime: datetime,
-        reference_time: Optional[datetime] = None
+        self,
+        patient: Any,
+        admission_time: datetime,
+        admission_dischtime: datetime,
+        reference_time: Optional[datetime] = None,
     ) -> Optional[tuple]:
         """Process lab events into 10-dimensional vectors with timestamps.
 
@@ -416,9 +466,7 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
 
         # Parse storetime and filter (matching stagenet implementation)
         labevents_df = labevents_df.with_columns(
-            pl.col("labevents/storetime").str.strptime(
-                pl.Datetime, "%Y-%m-%d %H:%M:%S"
-            )
+            pl.col("labevents/storetime").str.strptime(pl.Datetime, "%Y-%m-%d %H:%M:%S")
         )
         labevents_df = labevents_df.filter(
             pl.col("labevents/storetime") <= admission_dischtime
@@ -459,9 +507,7 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
                 lab_vector.append(category_value)
 
             # Calculate time from reference time (hours)
-            time_from_reference = (
-                lab_ts - reference_time
-            ).total_seconds() / 3600.0
+            time_from_reference = (lab_ts - reference_time).total_seconds() / 3600.0
 
             lab_times.append(time_from_reference)
             lab_values.append(lab_vector)
@@ -599,25 +645,23 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
             # Get clinical codes using hadm_id filtering
             diagnoses_icd = patient.get_events(
                 event_type="diagnoses_icd",
-                filters=[("hadm_id", "==", admission.hadm_id)]
+                filters=[("hadm_id", "==", admission.hadm_id)],
             )
             procedures_icd = patient.get_events(
                 event_type="procedures_icd",
-                filters=[("hadm_id", "==", admission.hadm_id)]
+                filters=[("hadm_id", "==", admission.hadm_id)],
             )
             prescriptions = patient.get_events(
                 event_type="prescriptions",
-                filters=[("hadm_id", "==", admission.hadm_id)]
+                filters=[("hadm_id", "==", admission.hadm_id)],
             )
 
             # Get notes using hadm_id filtering
             discharge_notes = patient.get_events(
-                event_type="discharge",
-                filters=[("hadm_id", "==", admission.hadm_id)]
+                event_type="discharge", filters=[("hadm_id", "==", admission.hadm_id)]
             )
             radiology_notes = patient.get_events(
-                event_type="radiology",
-                filters=[("hadm_id", "==", admission.hadm_id)]
+                event_type="radiology", filters=[("hadm_id", "==", admission.hadm_id)]
             )
 
             # Extract clinical codes per visit (nested structure)
@@ -627,9 +671,7 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
             procedures_list = self._clean_sequence(
                 [event.icd_code for event in procedures_icd]
             )
-            drugs = self._clean_sequence(
-                [event.ndc for event in prescriptions]
-            )
+            drugs = self._clean_sequence([event.ndc for event in prescriptions])
 
             # Append as nested lists (one list per visit) for nested_sequence
             all_conditions.append(conditions)
@@ -656,8 +698,10 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
 
             # Process lab events with reference to first admission time
             labs_data = self._process_lab_events(
-                patient, admission.timestamp, admission_dischtime,
-                reference_time=first_admission_time
+                patient,
+                admission.timestamp,
+                admission_dischtime,
+                reference_time=first_admission_time,
             )
 
             if labs_data is not None:
@@ -685,8 +729,14 @@ class MultimodalMortalityPredictionMIMIC4(BaseTask):
         has_image = bool(image_path)
 
         # Return empty list if any required modality is missing
-        if not (has_conditions and has_procedures and has_drugs
-                and has_notes and has_labs and has_image):
+        if not (
+            has_conditions
+            and has_procedures
+            and has_drugs
+            and has_notes
+            and has_labs
+            and has_image
+        ):
             return []
 
         # Sort lab events by time and create aggregated labs data
@@ -733,8 +783,18 @@ class MortalityPredictionEICU(BaseTask):
 
     Features key-value pairs:
     - using diagnosis table (ICD9CM and ICD10CM) as condition codes
-    - using physicalExam table as procedure codes
+    - using physicalexam table as procedure codes
     - using medication table as drugs codes
+
+    Examples:
+        >>> from pyhealth.datasets import eICUDataset
+        >>> from pyhealth.tasks import MortalityPredictionEICU
+        >>> dataset = eICUDataset(
+        ...     root="/path/to/eicu-crd/2.0",
+        ...     tables=["diagnosis", "medication", "physicalExam"],
+        ... )
+        >>> task = MortalityPredictionEICU()
+        >>> samples = dataset.set_task(task)
     """
 
     task_name: str = "MortalityPredictionEICU"
@@ -757,37 +817,53 @@ class MortalityPredictionEICU(BaseTask):
         """
         samples = []
 
-        # Get visits
-        admissions = patient.get_events(event_type="admissions")
-        if len(admissions) <= 1:
+        # Get patient stays (each row in patient table is an ICU stay)
+        patient_stays = patient.get_events(event_type="patient")
+        if len(patient_stays) <= 1:
             return []
 
-        for i in range(len(admissions) - 1):
-            visit = admissions[i]
-            next_visit = admissions[i + 1]
+        for i in range(len(patient_stays) - 1):
+            stay = patient_stays[i]
+            next_stay = patient_stays[i + 1]
 
             # Check discharge status for mortality label
-            if next_visit.discharge_status not in ["Alive", "Expired"]:
+            # In eICU, hospitaldischargestatus indicates "Alive" or "Expired"
+            discharge_status = getattr(next_stay, "hospitaldischargestatus", None)
+            if discharge_status not in ["Alive", "Expired"]:
                 mortality_label = 0
             else:
-                mortality_label = 0 if next_visit.discharge_status == "Alive" else 1
+                mortality_label = 0 if discharge_status == "Alive" else 1
 
-            # Get clinical codes
+            # Get the patientunitstayid for filtering
+            stay_id = str(getattr(stay, "patientunitstayid", ""))
+
+            # Get clinical codes using patientunitstayid-based filtering
             diagnoses = patient.get_events(
-                event_type="diagnosis", start=visit.timestamp, end=visit.discharge_time
+                event_type="diagnosis",
+                filters=[("patientunitstayid", "==", stay_id)]
             )
             physical_exams = patient.get_events(
-                event_type="physicalExam",
-                start=visit.timestamp,
-                end=visit.discharge_time,
+                event_type="physicalexam",
+                filters=[("patientunitstayid", "==", stay_id)]
             )
             medications = patient.get_events(
-                event_type="medication", start=visit.timestamp, end=visit.discharge_time
+                event_type="medication",
+                filters=[("patientunitstayid", "==", stay_id)]
             )
 
-            conditions = [event.code for event in diagnoses]
-            procedures_list = [event.code for event in physical_exams]
-            drugs = [event.code for event in medications]
+            # Extract codes - use icd9code for diagnoses, physicalexampath for exams, drugname for meds
+            conditions = [
+                getattr(event, "icd9code", "") for event in diagnoses
+                if getattr(event, "icd9code", None)
+            ]
+            procedures_list = [
+                getattr(event, "physicalexampath", "") for event in physical_exams
+                if getattr(event, "physicalexampath", None)
+            ]
+            drugs = [
+                getattr(event, "drugname", "") for event in medications
+                if getattr(event, "drugname", None)
+            ]
 
             # Exclude visits without condition, procedure, or drug code
             if len(conditions) * len(procedures_list) * len(drugs) == 0:
@@ -797,11 +873,11 @@ class MortalityPredictionEICU(BaseTask):
 
             samples.append(
                 {
-                    "visit_id": visit.visit_id,
+                    "visit_id": stay_id,
                     "patient_id": patient.patient_id,
-                    "conditions": [conditions],
-                    "procedures": [procedures_list],
-                    "drugs": [drugs],
+                    "conditions": conditions,
+                    "procedures": procedures_list,
+                    "drugs": drugs,
                     "mortality": mortality_label,
                 }
             )
@@ -816,8 +892,18 @@ class MortalityPredictionEICU2(BaseTask):
     visit based on clinical information from the current visit.
 
     Similar to MortalityPredictionEICU, but with different code mapping:
-    - using admissionDx table and diagnosisString under diagnosis table as condition codes
+    - using admissiondx table and diagnosisstring under diagnosis table as condition codes
     - using treatment table as procedure codes
+
+    Examples:
+        >>> from pyhealth.datasets import eICUDataset
+        >>> from pyhealth.tasks import MortalityPredictionEICU2
+        >>> dataset = eICUDataset(
+        ...     root="/path/to/eicu-crd/2.0",
+        ...     tables=["diagnosis", "treatment", "admissionDx"],
+        ... )
+        >>> task = MortalityPredictionEICU2()
+        >>> samples = dataset.set_task(task)
     """
 
     task_name: str = "MortalityPredictionEICU2"
@@ -836,47 +922,61 @@ class MortalityPredictionEICU2(BaseTask):
         """
         samples = []
 
-        # Get visits
-        admissions = patient.get_events(event_type="admissions")
-        if len(admissions) <= 1:
+        # Get patient stays (each row in patient table is an ICU stay)
+        patient_stays = patient.get_events(event_type="patient")
+        if len(patient_stays) <= 1:
             return []
 
-        for i in range(len(admissions) - 1):
-            visit = admissions[i]
-            next_visit = admissions[i + 1]
+        for i in range(len(patient_stays) - 1):
+            stay = patient_stays[i]
+            next_stay = patient_stays[i + 1]
 
             # Check discharge status for mortality label
-            if next_visit.discharge_status not in ["Alive", "Expired"]:
+            discharge_status = getattr(next_stay, "hospitaldischargestatus", None)
+            if discharge_status not in ["Alive", "Expired"]:
                 mortality_label = 0
             else:
-                mortality_label = 0 if next_visit.discharge_status == "Alive" else 1
+                mortality_label = 0 if discharge_status == "Alive" else 1
 
-            # Get clinical codes
+            # Get the patientunitstayid for filtering
+            stay_id = str(getattr(stay, "patientunitstayid", ""))
+
+            # Get clinical codes using patientunitstayid-based filtering
             admission_dx = patient.get_events(
-                event_type="admissionDx",
-                start=visit.timestamp,
-                end=visit.discharge_time,
+                event_type="admissiondx",
+                filters=[("patientunitstayid", "==", stay_id)]
             )
             diagnosis_events = patient.get_events(
-                event_type="diagnosis", start=visit.timestamp, end=visit.discharge_time
+                event_type="diagnosis",
+                filters=[("patientunitstayid", "==", stay_id)]
             )
             treatments = patient.get_events(
-                event_type="treatment", start=visit.timestamp, end=visit.discharge_time
+                event_type="treatment",
+                filters=[("patientunitstayid", "==", stay_id)]
             )
 
             # Get diagnosis strings from diagnosis events
             diagnosis_strings = list(
                 set(
                     [
-                        getattr(event, "diagnosisString", "")
+                        getattr(event, "diagnosisstring", "")
                         for event in diagnosis_events
-                        if hasattr(event, "diagnosisString") and event.diagnosisString
+                        if getattr(event, "diagnosisstring", None)
                     ]
                 )
             )
 
-            admission_dx_codes = [event.code for event in admission_dx]
-            treatment_codes = [event.code for event in treatments]
+            # Get admission diagnosis codes
+            admission_dx_codes = [
+                getattr(event, "admitdxpath", "") for event in admission_dx
+                if getattr(event, "admitdxpath", None)
+            ]
+            
+            # Get treatment codes
+            treatment_codes = [
+                getattr(event, "treatmentstring", "") for event in treatments
+                if getattr(event, "treatmentstring", None)
+            ]
 
             # Combine admission diagnoses and diagnosis strings
             conditions = admission_dx_codes + diagnosis_strings
@@ -889,7 +989,7 @@ class MortalityPredictionEICU2(BaseTask):
 
             samples.append(
                 {
-                    "visit_id": visit.visit_id,
+                    "visit_id": stay_id,
                     "patient_id": patient.patient_id,
                     "conditions": conditions,
                     "procedures": treatment_codes,

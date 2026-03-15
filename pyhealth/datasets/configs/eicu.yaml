@@ -1,0 +1,199 @@
+version: "2.0"
+tables:
+  patient:
+    file_path: "patient.csv"
+    patient_id: "uniquepid"
+    timestamp: null
+    attributes:
+      - "patientunitstayid"
+      - "patienthealthsystemstayid"
+      - "gender"
+      - "age"
+      - "ethnicity"
+      - "hospitalid"
+      - "wardid"
+      - "apacheadmissiondx"
+      - "admissionheight"
+      - "admissionweight"
+      - "dischargeweight"
+      - "hospitaladmittime24"
+      - "hospitaladmitoffset"
+      - "hospitaladmitsource"
+      - "hospitaldischargeyear"
+      - "hospitaldischargeoffset"
+      - "hospitaldischargestatus"
+      - "hospitaldischargetime24"
+      - "unittype"
+      - "unitadmittime24"
+      - "unitadmitsource"
+      - "unitvisitnumber"
+      - "unitstaytype"
+      - "unitdischargeoffset"
+      - "unitdischargestatus"
+      - "unitdischargetime24"
+      - "unitdischargelocation"
+
+  hospital:
+    file_path: "hospital.csv"
+    patient_id: null
+    timestamp: null
+    attributes:
+      - "hospitalid"
+      - "numbedscategory"
+      - "teachingstatus"
+      - "region"
+
+  diagnosis:
+    file_path: "diagnosis.csv"
+    patient_id: "uniquepid"
+    timestamp: null
+    join:
+      - file_path: "patient.csv"
+        "on": "patientunitstayid"
+        how: "inner"
+        columns:
+          - "uniquepid"
+          - "patienthealthsystemstayid"
+          - "unitvisitnumber"
+          - "hospitaladmitoffset"
+          - "hospitaldischargeoffset"
+          - "unitdischargeoffset"
+          - "hospitaldischargeyear"
+          - "hospitaldischargestatus"
+    attributes:
+      - "patientunitstayid"
+      - "diagnosisoffset"
+      - "diagnosisstring"
+      - "icd9code"
+      - "diagnosispriority"
+
+  medication:
+    file_path: "medication.csv"
+    patient_id: "uniquepid"
+    timestamp: null
+    join:
+      - file_path: "patient.csv"
+        "on": "patientunitstayid"
+        how: "inner"
+        columns:
+          - "uniquepid"
+          - "patienthealthsystemstayid"
+          - "unitvisitnumber"
+          - "hospitaladmitoffset"
+          - "hospitaldischargeoffset"
+          - "unitdischargeoffset"
+          - "hospitaldischargeyear"
+          - "hospitaldischargestatus"
+    attributes:
+      - "patientunitstayid"
+      - "drugstartoffset"
+      - "drugstopoffset"
+      - "drugname"
+      - "drughiclseqno"
+      - "dosage"
+      - "routeadmin"
+      - "frequency"
+      - "loadingdose"
+      - "prn"
+      - "drugordercancelled"
+
+  treatment:
+    file_path: "treatment.csv"
+    patient_id: "uniquepid"
+    timestamp: null
+    join:
+      - file_path: "patient.csv"
+        "on": "patientunitstayid"
+        how: "inner"
+        columns:
+          - "uniquepid"
+          - "patienthealthsystemstayid"
+          - "unitvisitnumber"
+          - "hospitaladmitoffset"
+          - "hospitaldischargeoffset"
+          - "unitdischargeoffset"
+          - "hospitaldischargeyear"
+          - "hospitaldischargestatus"
+    attributes:
+      - "patientunitstayid"
+      - "treatmentoffset"
+      - "treatmentstring"
+      - "activeupondischarge"
+
+  lab:
+    file_path: "lab.csv"
+    patient_id: "uniquepid"
+    timestamp: null
+    join:
+      - file_path: "patient.csv"
+        "on": "patientunitstayid"
+        how: "inner"
+        columns:
+          - "uniquepid"
+          - "patienthealthsystemstayid"
+          - "unitvisitnumber"
+          - "hospitaladmitoffset"
+          - "hospitaldischargeoffset"
+          - "unitdischargeoffset"
+          - "hospitaldischargeyear"
+          - "hospitaldischargestatus"
+    attributes:
+      - "patientunitstayid"
+      - "labresultoffset"
+      - "labname"
+      - "labresult"
+      - "labresulttext"
+      - "labmeasurenamesystem"
+      - "labmeasurenameinterface"
+      - "labtypeid"
+
+  physicalexam:
+    file_path: "physicalExam.csv"
+    patient_id: "uniquepid"
+    timestamp: null
+    join:
+      - file_path: "patient.csv"
+        "on": "patientunitstayid"
+        how: "inner"
+        columns:
+          - "uniquepid"
+          - "patienthealthsystemstayid"
+          - "unitvisitnumber"
+          - "hospitaladmitoffset"
+          - "hospitaldischargeoffset"
+          - "unitdischargeoffset"
+          - "hospitaldischargeyear"
+          - "hospitaldischargestatus"
+    attributes:
+      - "patientunitstayid"
+      - "physicalexamoffset"
+      - "physicalexampath"
+      - "physicalexamtext"
+      - "physicalexamvalue"
+
+  admissiondx:
+    file_path: "admissionDx.csv"
+    patient_id: "uniquepid"
+    timestamp: null
+    join:
+      - file_path: "patient.csv"
+        "on": "patientunitstayid"
+        how: "inner"
+        columns:
+          - "uniquepid"
+          - "patienthealthsystemstayid"
+          - "unitvisitnumber"
+          - "hospitaladmitoffset"
+          - "hospitaldischargeoffset"
+          - "unitdischargeoffset"
+          - "hospitaldischargeyear"
+          - "hospitaldischargestatus"
+    attributes:
+      - "patientunitstayid"
+      - "admitdxenteredoffset"
+      - "admitdxpath"
+      - "admitdxname"
+      - "admitdxtext"
+
+
+

@@ -26,7 +26,7 @@ import torch
 
 from pyhealth.calib.predictionset.covariate import CovariateLabel
 from pyhealth.calib.utils import extract_embeddings
-from pyhealth.datasets import TUEVDataset, get_dataloader, split_by_sample_conformal
+from pyhealth.datasets import TUEVDataset, get_dataloader, split_by_sample_conformal_tuh
 from pyhealth.models import ContraWR
 from pyhealth.tasks import EEGEventsTUEV
 from pyhealth.trainer import Trainer, get_metrics_fn
@@ -42,7 +42,7 @@ def parse_args() -> argparse.Namespace:
         default="downloads/tuev/v2.0.1/edf",
         help="Path to TUEV edf/ folder.",
     )
-    parser.add_argument("--subset", type=str, default="both", choices=["train", "eval", "both"]) 
+    parser.add_argument("--subset", type=str, default="both", choices=["train", "eval", "both"])
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--epochs", type=int, default=3)
@@ -50,10 +50,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--ratios",
         type=float,
-        nargs=4,
-        default=(0.6, 0.1, 0.15, 0.15),
-        metavar=("TRAIN", "VAL", "CAL", "TEST"),
-        help="Split ratios for train/val/cal/test. Must sum to 1.0.",
+        nargs=3,
+        default=(0.6, 0.2, 0.2),
+        metavar=("TRAIN", "VAL", "CAL"),
+        help="Ratios for splitting the TUH train partition into train/val/cal. Must sum to 1.0. Test is fixed as the TUH eval partition.",
     )
     parser.add_argument("--n-fft", type=int, default=128, help="STFT FFT size used by ContraWR.")
     parser.add_argument(
@@ -89,7 +89,7 @@ def main() -> None:
     print("STEP 1: Load TUEV + build task dataset")
     print("=" * 80)
     dataset = TUEVDataset(root=str(root), subset=args.subset)
-    sample_dataset = dataset.set_task(EEGEventsTUEV(), cache_dir="examples/conformal_eeg/cache")
+    sample_dataset = dataset.set_task(EEGEventsTUEV())
 
     print(f"Task samples: {len(sample_dataset)}")
     print(f"Input schema: {sample_dataset.input_schema}")
@@ -101,7 +101,7 @@ def main() -> None:
     print("\n" + "=" * 80)
     print("STEP 2: Split train/val/cal/test")
     print("=" * 80)
-    train_ds, val_ds, cal_ds, test_ds = split_by_sample_conformal(
+    train_ds, val_ds, cal_ds, test_ds = split_by_sample_conformal_tuh(
         dataset=sample_dataset, ratios=list(args.ratios), seed=args.seed
     )
     print(f"Train: {len(train_ds)}")

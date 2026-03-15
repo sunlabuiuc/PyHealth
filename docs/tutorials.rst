@@ -6,9 +6,9 @@ Tutorials
 
 `Tutorial 0: Introduction to pyhealth.data <https://colab.research.google.com/drive/1y9PawgSbyMbSSMw1dpfwtooH7qzOEYdN?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=Nk1itBoLOX8&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=2>`_ 
 
-`Tutorial 1: Introduction to pyhealth.datasets <https://colab.research.google.com/drive/1voSx7wEfzXfEf2sIfW6b-8p1KqMyuWxK?usp=sharing>`_  `[Video (PyHealth 1.6)] <https://www.youtube.com/watch?v=c1InKqFJbsI&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=3>`_ 
+`Tutorial 1: Introduction to pyhealth.datasets <https://colab.research.google.com/drive/1voSx7wEfzXfEf2sIfW6b-8p1KqMyuWxK?usp=sharing>`_  `[Video (PyHealth 1.16)] <https://www.youtube.com/watch?v=c1InKqFJbsI&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=3>`_ 
 
-`Tutorial 2: Introduction to pyhealth.tasks <https://colab.research.google.com/drive/1kKkkBVS_GclHoYTbnOtjyYnSee79hsyT?usp=sharing>`_  `[Video (PyHealth 1.6)] <https://www.youtube.com/watch?v=CxESe1gYWU4&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=4>`_ 
+`Tutorial 2: Introduction to pyhealth.tasks <https://colab.research.google.com/drive/1kKkkBVS_GclHoYTbnOtjyYnSee79hsyT?usp=sharing>`_  `[Video (PyHealth 1.16)] <https://www.youtube.com/watch?v=CxESe1gYWU4&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=4>`_ 
 
 `Tutorial 3: Introduction to pyhealth.models <https://colab.research.google.com/drive/1LcXZlu7ZUuqepf269X3FhXuhHeRvaJX5?usp=sharing>`_  `[Video] <https://www.youtube.com/watch?v=fRc0ncbTgZA&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=6>`_ 
 
@@ -29,12 +29,6 @@ For information on how to access and download the datasets supported by PyHealth
 Additionally, for detailed tutorials on accessing PhysioNet and MIMIC datasets, see the `Getting MIMIC access` section of the `DL4H course instructions <https://docs.google.com/document/d/1NHgXzSPINafSg8Cd_whdfSauFXgh-ZflZIw5lu6k2T0/edit?tab=t.5pba851jxeg6>`_.
 
 
-Tutorials on Building Task Pipelines
-=========================================
-
- The following tutorials will help users build their own task pipelines. `[Video] <https://www.youtube.com/watch?v=GGP3Dhfyisc&list=PLR3CNIF8DDHJUl8RLhyOVpX_kT4bxulEV&index=12>`_
-
-
 `Pipeline 1: Chest Xray Classification <https://colab.research.google.com/drive/18vK23gyI1LjWbTgkq4f99yDZA3A7Pxp9?usp=sharing>`_ 
 
 `Pipeline 2: Medical Coding <https://colab.research.google.com/drive/1ThYP_5ng5xPQwscv5XztefkkoTruhjeK?usp=sharing>`_ 
@@ -46,6 +40,34 @@ Tutorials on Building Task Pipelines
 `Pipeline 5: Readmission Prediction <https://colab.research.google.com/drive/1h0pAymUlPQfkLFryI9QI37-HAW1tRxGZ?usp=sharing>`_ 
 
 .. `Pipeline 5: Phenotype Prediction <https://colab.research.google.com/drive/10CSb4F4llYJvv42yTUiRmvSZdoEsbmFF>`_ 
+Multimodal & Smart Processors
+------------------------------
+
+These examples demonstrate PyHealth's unified multimodal architecture using
+:class:`~pyhealth.processors.TemporalFeatureProcessor` subclasses and
+:class:`~pyhealth.models.UnifiedMultimodalEmbeddingModel`.
+
+.. list-table::
+   :widths: 50 50
+   :header-rows: 1
+
+   * - Notebook / File
+     - Description
+   * - ``smart_processor_clinical_text_tutorial.ipynb``
+     - End-to-end tutorial: HuggingFace tokenizer inside ``TupleTimeTextProcessor``,
+       canonical ``("tuple_time_text", kwargs)`` schema form, EmbeddingModel with 3D inputs,
+       and gradient flow through BERT-tiny in ``MLP``, ``Transformer``, ``RNN``, ``MultimodalRNN``
+   * - ``examples/`` (see ``time_image_processor``\* files)
+     - ``TimeImageProcessor`` for serial chest X-rays with timestamps
+
+**Key APIs:**
+
+- :class:`~pyhealth.processors.TemporalFeatureProcessor` — ABC for all temporal processors
+- :class:`~pyhealth.processors.ModalityType` — ``CODE / TEXT / IMAGE / NUMERIC / AUDIO / SIGNAL``
+- :class:`~pyhealth.processors.TemporalTimeseriesProcessor` — timeseries with preserved timestamps
+- :func:`~pyhealth.datasets.collate_temporal` — universal DataLoader collator for dict-output processors
+- :class:`~pyhealth.models.UnifiedMultimodalEmbeddingModel` — temporally-aligned multimodal sequence embeddings
+
 
 ----------
 

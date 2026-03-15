@@ -1,0 +1,523 @@
+admissiondxid,patientunitstayid,admitdxenteredoffset,admitdxpath,admitdxname,admitdxtext
+8442671,2999209,82,"admission diagnosis|All Diagnosis|Operative|Diagnosis|Cardiovascular|Endarterectomy, carotid","Endarterectomy, carotid","Endarterectomy, carotid"
+8442670,2999209,82,admission diagnosis|Operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+8442669,2999209,82,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|Yes,Yes,Yes
+8442668,2999209,82,admission diagnosis|Elective|Yes,Yes,Yes
+8396023,3003035,1217,admission diagnosis|Non-operative Organ Systems|Organ System|Metabolic/Endocrine,Metabolic/Endocrine,Metabolic/Endocrine
+8396021,3003035,1217,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+8396022,3003035,1217,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Metabolic/Endocrine|Hypoglycemia,Hypoglycemia,Hypoglycemia
+8623270,3069831,612,admission diagnosis|Non-operative Organ Systems|Organ System|Genitourinary,Genitourinary,Genitourinary
+8623271,3069831,612,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Genitourinary|Renal failure, acute","Renal failure, acute","Renal failure, acute"
+8623269,3069831,612,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+8766150,3083539,140,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Respiratory|Respiratory - medical, other","Respiratory - medical, other","Respiratory - medical, other"
+8766149,3083539,140,admission diagnosis|Non-operative Organ Systems|Organ System|Respiratory,Respiratory,Respiratory
+8766148,3083539,140,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+8732238,3090122,229,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Neurology|Neurologic medical, other","Neurologic medical, other","Neurologic medical, other"
+8732237,3090122,229,admission diagnosis|Non-operative Organ Systems|Organ System|Neurologic,Neurologic,Neurologic
+8732236,3090122,229,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+8747502,3096492,1340,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+8747504,3096492,1340,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Respiratory|Respiratory - medical, other","Respiratory - medical, other","Respiratory - medical, other"
+8747503,3096492,1340,admission diagnosis|Non-operative Organ Systems|Organ System|Respiratory,Respiratory,Respiratory
+8743627,3122442,55,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Neurology|CVA, cerebrovascular accident/stroke","CVA, cerebrovascular accident/stroke","CVA, cerebrovascular accident/stroke"
+8743626,3122442,55,admission diagnosis|Non-operative Organ Systems|Organ System|Neurologic,Neurologic,Neurologic
+8743625,3122442,55,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+8816008,3135511,947,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+8816010,3135511,947,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Sepsis, GI","Sepsis, GI","Sepsis, GI"
+8816009,3135511,947,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+8846066,3135611,471,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+8846067,3135611,471,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Sepsis, cutaneous/soft tissue","Sepsis, cutaneous/soft tissue","Sepsis, cutaneous/soft tissue"
+8846065,3135611,471,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+8808527,3143195,11,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+8808528,3143195,11,admission diagnosis|Non-operative Organ Systems|Organ System|Gastrointestinal,Gastrointestinal,Gastrointestinal
+8808529,3143195,11,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Gastrointestinal|Encephalopathy, hepatic","Encephalopathy, hepatic","Encephalopathy, hepatic"
+8779586,3152779,-143,admission diagnosis|Elective|Yes,Yes,Yes
+8779594,3152779,-143,admission diagnosis|Additional APACHE  Information|Internal mammary artery graft?|Yes,Yes,Yes
+8779595,3152779,-143,admission diagnosis|Additional APACHE  Information|Saphenous vein graft?|Yes,Yes,Yes
+8779587,3152779,-143,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|Yes,Yes,Yes
+8779591,3152779,-143,admission diagnosis|Additional APACHE  Information|Pre-op MI during current hospitalization|No,No,No
+8779588,3152779,-143,admission diagnosis|Operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+8779590,3152779,-143,admission diagnosis|Additional APACHE  Information|Pre-op ejection fraction (%)|specified,specified,47
+8779592,3152779,-143,admission diagnosis|Additional APACHE  Information|Pre-op cardiac catheterization during this hospitalization|No,No,No
+8779589,3152779,-143,"admission diagnosis|All Diagnosis|Operative|Diagnosis|Cardiovascular|CABG alone, coronary artery bypass grafting","CABG alone, coronary artery bypass grafting","CABG alone, coronary artery bypass grafting"
+8779593,3152779,-143,admission diagnosis|Additional APACHE  Information|Number of grafts performed|4,4,4
+8815654,3153393,814,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+8815657,3153393,814,admission diagnosis|Additional APACHE  Information|Thrombolytic Therapy received within 24 hours|No,No,No
+8815658,3153393,814,admission diagnosis|Additional APACHE  Information|PTCA done within 24 hours|none,none,none
+8815655,3153393,814,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+8815656,3153393,814,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Cardiac arrest (with or without respiratory arrest; for respiratory arrest see Respiratory System),Cardiac arrest (with or without respiratory arrest; for respiratory arrest see Respiratory System),Cardiac arrest (with or without respiratory arrest; for respiratory arrest see Respiratory System)
+8797800,3153894,465,admission diagnosis|Additional APACHE  Information|Thrombolytic Therapy received within 24 hours|No,No,No
+8797799,3153894,465,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Infarction, acute myocardial (MI)","Infarction, acute myocardial (MI)","Infarction, acute myocardial (MI)"
+8797797,3153894,465,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+8797801,3153894,465,admission diagnosis|Additional APACHE  Information|Acute MI location|lateral,lateral,lateral
+8797798,3153894,465,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+8801855,3157910,-10,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Sepsis, GI","Sepsis, GI","Sepsis, GI"
+8801853,3157910,-10,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+8801854,3157910,-10,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+8815911,3159124,32,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Rhythm disturbance (atrial, supraventricular)","Rhythm disturbance (atrial, supraventricular)","Rhythm disturbance (atrial, supraventricular)"
+8815910,3159124,32,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+8815909,3159124,32,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+8794519,3160468,1100,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+8794520,3160468,1100,admission diagnosis|Non-operative Organ Systems|Organ System|Musculoskeletal/Skin,Musculoskeletal/Skin,Musculoskeletal/Skin
+8794521,3160468,1100,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Musculoskeletal/Skin|Cellulitis and localized soft tissue infections,Cellulitis and localized soft tissue infections,Cellulitis and localized soft tissue infections
+8984309,3193216,5,admission diagnosis|Operative Organ Systems|Organ System|Neurologic,Neurologic,Neurologic
+8984308,3193216,5,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|Yes,Yes,Yes
+8984310,3193216,5,"admission diagnosis|All Diagnosis|Operative|Diagnosis|Neurology|Neoplasm-cranial, surgery for (excluding transphenoidal)","Neoplasm-cranial, surgery for (excluding transphenoidal)","Neoplasm-cranial, surgery for (excluding transphenoidal)"
+8984307,3193216,5,admission diagnosis|Elective|Yes,Yes,Yes
+9110199,3211257,18,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Trauma|Head/abdomen trauma,Head/abdomen trauma,Head/abdomen trauma
+9110198,3211257,18,admission diagnosis|Non-operative Organ Systems|Organ System|Trauma,Trauma,Trauma
+9110197,3211257,18,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+9140404,3244585,103,admission diagnosis|Non-operative Organ Systems|Organ System|Neurologic,Neurologic,Neurologic
+9140403,3244585,103,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+9140405,3244585,103,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Neurology|Seizures (primary-no structural brain disease),Seizures (primary-no structural brain disease),Seizures (primary-no structural brain disease)
+9140756,3246790,13,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Genitourinary|Renal failure, acute","Renal failure, acute","Renal failure, acute"
+9140755,3246790,13,admission diagnosis|Non-operative Organ Systems|Organ System|Genitourinary,Genitourinary,Genitourinary
+9140754,3246790,13,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+9491313,3348292,25,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Gastrointestinal|GI perforation/rupture,GI perforation/rupture,GI perforation/rupture
+9491312,3348292,25,admission diagnosis|Non-operative Organ Systems|Organ System|Gastrointestinal,Gastrointestinal,Gastrointestinal
+9491311,3348292,25,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+9492260,3348293,54,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Sepsis, GI","Sepsis, GI","Sepsis, GI"
+9492259,3348293,54,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+9492258,3348293,54,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+9451920,3352230,1274,admission diagnosis|Additional APACHE  Information|Pre-op cardiac catheterization during this hospitalization|Yes,Yes,Yes
+9451918,3352230,1274,admission diagnosis|Additional APACHE  Information|Saphenous vein graft?|Yes,Yes,Yes
+9451913,3352230,1274,admission diagnosis|Elective|Yes,Yes,Yes
+9451919,3352230,1274,admission diagnosis|Additional APACHE  Information|Number of grafts performed|4,4,4
+9451916,3352230,1274,"admission diagnosis|All Diagnosis|Operative|Diagnosis|Cardiovascular|CABG alone, coronary artery bypass grafting","CABG alone, coronary artery bypass grafting","CABG alone, coronary artery bypass grafting"
+9451922,3352230,1274,admission diagnosis|Additional APACHE  Information|Pre-op ejection fraction (%)|specified,specified,55
+9451914,3352230,1274,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|Yes,Yes,Yes
+9451915,3352230,1274,admission diagnosis|Operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+9451917,3352230,1274,admission diagnosis|Additional APACHE  Information|Internal mammary artery graft?|Yes,Yes,Yes
+9451921,3352230,1274,admission diagnosis|Additional APACHE  Information|Pre-op MI during current hospitalization|Yes,Yes,Yes
+9451743,3352231,5,admission diagnosis|Additional APACHE  Information|Thrombolytic Therapy received within 24 hours|No,No,No
+9451740,3352231,5,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+9451744,3352231,5,admission diagnosis|Additional APACHE  Information|Acute MI location|inferior,inferior,inferior
+9451745,3352231,5,admission diagnosis|Additional APACHE  Information|PTCA done within 24 hours|none,none,none
+9451742,3352231,5,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Infarction, acute myocardial (MI)","Infarction, acute myocardial (MI)","Infarction, acute myocardial (MI)"
+9451741,3352231,5,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+677489,141765,7,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Rhythm disturbance (atrial, supraventricular)","Rhythm disturbance (atrial, supraventricular)","Rhythm disturbance (atrial, supraventricular)"
+677488,141765,7,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+677487,141765,7,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+696648,178858,317,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|Yes,Yes,Yes
+696649,178858,317,admission diagnosis|Operative Organ Systems|Organ System|Gastrointestinal,Gastrointestinal,Gastrointestinal
+696650,178858,317,admission diagnosis|All Diagnosis|Operative|Diagnosis|Gastrointestinal|Herniorrhaphy,Herniorrhaphy,Herniorrhaphy
+696647,178858,317,admission diagnosis|Elective|Yes,Yes,Yes
+744488,210642,3,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+744490,210642,3,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Respiratory|Emphysema/bronchitis,Emphysema/bronchitis,Emphysema/bronchitis
+744489,210642,3,admission diagnosis|Non-operative Organ Systems|Organ System|Respiratory,Respiratory,Respiratory
+472754,217838,17,admission diagnosis|Elective|Yes,Yes,Yes
+472757,217838,17,"admission diagnosis|All Diagnosis|Operative|Diagnosis|Musculoskeletal/Skin|Hip replacement, total (non-traumatic)","Hip replacement, total (non-traumatic)","Hip replacement, total (non-traumatic)"
+472756,217838,17,admission diagnosis|Operative Organ Systems|Organ System|Musculoskeletal/Skin,Musculoskeletal/Skin,Musculoskeletal/Skin
+472755,217838,17,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|Yes,Yes,Yes
+941704,257802,1,admission diagnosis|Operative Organ Systems|Organ System|Neurologic,Neurologic,Neurologic
+941703,257802,1,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|Yes,Yes,Yes
+941702,257802,1,admission diagnosis|Elective|Yes,Yes,Yes
+941705,257802,1,admission diagnosis|All Diagnosis|Operative|Diagnosis|Neurology|Transphenoidal surgery,Transphenoidal surgery,Transphenoidal surgery
+968543,263285,4,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+968545,263285,4,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Metabolic/Endocrine|Diabetic ketoacidosis,Diabetic ketoacidosis,Diabetic ketoacidosis
+968544,263285,4,admission diagnosis|Non-operative Organ Systems|Organ System|Metabolic/Endocrine,Metabolic/Endocrine,Metabolic/Endocrine
+948283,281132,33,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+948285,281132,33,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Respiratory|Pneumonia, bacterial","Pneumonia, bacterial","Pneumonia, bacterial"
+948284,281132,33,admission diagnosis|Non-operative Organ Systems|Organ System|Respiratory,Respiratory,Respiratory
+974302,284517,14,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+974303,284517,14,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+974304,284517,14,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Sepsis, pulmonary","Sepsis, pulmonary","Sepsis, pulmonary"
+1289485,313055,21,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+1289486,313055,21,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Angina, unstable (angina interferes w/quality of life or meds are tolerated poorly)","Angina, unstable (angina interferes w/quality of life or meds are tolerated poorly)","Angina, unstable (angina interferes w/quality of life or meds are tolerated poorly)"
+1289487,313055,21,admission diagnosis|Additional APACHE  Information|Thrombolytic Therapy received within 24 hours|No,No,No
+1289484,313055,21,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+1289488,313055,21,admission diagnosis|Additional APACHE  Information|PTCA done within 24 hours|BAL/stent,BAL/stent,BAL/stent
+1357410,314184,1028,admission diagnosis|Non-operative Organ Systems|Organ System|Respiratory,Respiratory,Respiratory
+1357409,314184,1028,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+1357411,314184,1028,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Respiratory|Respiratory - medical, other","Respiratory - medical, other","Respiratory - medical, other"
+1308697,342377,123,admission diagnosis|Non-operative Organ Systems|Organ System|Gastrointestinal,Gastrointestinal,Gastrointestinal
+1308698,342377,123,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Gastrointestinal|Cancer, esophageal","Cancer, esophageal","Cancer, esophageal"
+1308696,342377,123,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+1348183,356949,78,admission diagnosis|Non-operative Organ Systems|Organ System|Metabolic/Endocrine,Metabolic/Endocrine,Metabolic/Endocrine
+1348182,356949,78,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+1348184,356949,78,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Metabolic/Endocrine|Diabetic ketoacidosis,Diabetic ketoacidosis,Diabetic ketoacidosis
+1328230,361404,6,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+1328231,361404,6,admission diagnosis|Non-operative Organ Systems|Organ System|Respiratory,Respiratory,Respiratory
+1328232,361404,6,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Respiratory|Asthma,Asthma,Asthma
+1299802,367912,5,admission diagnosis|Non-operative Organ Systems|Organ System|Gastrointestinal,Gastrointestinal,Gastrointestinal
+1299803,367912,5,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Gastrointestinal|GI perforation/rupture,GI perforation/rupture,GI perforation/rupture
+1299801,367912,5,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+1362007,368911,42,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+1362008,368911,42,admission diagnosis|Non-operative Organ Systems|Organ System|Neurologic,Neurologic,Neurologic
+1362009,368911,42,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Neurology|Coma/change in level of consciousness (for hepatic see GI, for diabetic see Endocrine, if related to cardiac arrest, see CV)","Coma/change in level of consciousness (for hepatic see GI, for diabetic see Endocrine, if related to cardiac arrest, see CV)","Coma/change in level of consciousness (for hepatic see GI, for diabetic see Endocrine, if related to cardiac arrest, see CV)"
+1341833,369237,20,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Sepsis, renal/UTI (including bladder)","Sepsis, renal/UTI (including bladder)","Sepsis, renal/UTI (including bladder)"
+1341831,369237,20,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+1341832,369237,20,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+1322653,378120,13,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+1322655,378120,13,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Hemorrhage (for gastrointestinal bleeding GI-see GI system) (for trauma see Trauma),Hemorrhage (for gastrointestinal bleeding GI-see GI system) (for trauma see Trauma),Hemorrhage (for gastrointestinal bleeding GI-see GI system) (for trauma see Trauma)
+1322654,378120,13,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+1292855,393769,42,admission diagnosis|Non-operative Organ Systems|Organ System|Neurologic,Neurologic,Neurologic
+1292856,393769,42,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Neurology|Coma/change in level of consciousness (for hepatic see GI, for diabetic see Endocrine, if related to cardiac arrest, see CV)","Coma/change in level of consciousness (for hepatic see GI, for diabetic see Endocrine, if related to cardiac arrest, see CV)","Coma/change in level of consciousness (for hepatic see GI, for diabetic see Endocrine, if related to cardiac arrest, see CV)"
+1292854,393769,42,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+1282970,395323,78,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+1282971,395323,78,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Sepsis, renal/UTI (including bladder)","Sepsis, renal/UTI (including bladder)","Sepsis, renal/UTI (including bladder)"
+1282969,395323,78,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+1294039,403279,33,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Sepsis, renal/UTI (including bladder)","Sepsis, renal/UTI (including bladder)","Sepsis, renal/UTI (including bladder)"
+1294038,403279,33,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+1294037,403279,33,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+1311564,405746,195,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+1311565,405746,195,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Thrombosis, vascular (deep vein)","Thrombosis, vascular (deep vein)","Thrombosis, vascular (deep vein)"
+1311563,405746,195,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+1348371,411036,430,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+1348373,411036,430,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Sepsis, renal/UTI (including bladder)","Sepsis, renal/UTI (including bladder)","Sepsis, renal/UTI (including bladder)"
+1348372,411036,430,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+1326885,420354,28,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+1326886,420354,28,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+1326887,420354,28,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Sepsis, other","Sepsis, other","Sepsis, other"
+1658264,436993,73,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|Yes,Yes,Yes
+1658265,436993,73,admission diagnosis|Operative Organ Systems|Organ System|Musculoskeletal/Skin,Musculoskeletal/Skin,Musculoskeletal/Skin
+1658266,436993,73,"admission diagnosis|All Diagnosis|Operative|Diagnosis|Musculoskeletal/Skin|Hip replacement, total (non-traumatic)","Hip replacement, total (non-traumatic)","Hip replacement, total (non-traumatic)"
+1658263,436993,73,admission diagnosis|Elective|Yes,Yes,Yes
+1648702,439621,18,admission diagnosis|Non-operative Organ Systems|Organ System|Metabolic/Endocrine,Metabolic/Endocrine,Metabolic/Endocrine
+1648703,439621,18,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Metabolic/Endocrine|Diabetic ketoacidosis,Diabetic ketoacidosis,Diabetic ketoacidosis
+1648701,439621,18,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+1633214,475290,19,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+1633215,475290,19,admission diagnosis|Non-operative Organ Systems|Organ System|Metabolic/Endocrine,Metabolic/Endocrine,Metabolic/Endocrine
+1633216,475290,19,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Metabolic/Endocrine|Diabetic ketoacidosis,Diabetic ketoacidosis,Diabetic ketoacidosis
+1651813,482789,75,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Respiratory|Pneumonia, other","Pneumonia, other","Pneumonia, other"
+1651812,482789,75,admission diagnosis|Non-operative Organ Systems|Organ System|Respiratory,Respiratory,Respiratory
+1651811,482789,75,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+1643144,485952,12,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Metabolic/Endocrine|Diabetic ketoacidosis,Diabetic ketoacidosis,Diabetic ketoacidosis
+1643143,485952,12,admission diagnosis|Non-operative Organ Systems|Organ System|Metabolic/Endocrine,Metabolic/Endocrine,Metabolic/Endocrine
+1643142,485952,12,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+1632587,533168,109,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+1632589,533168,109,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Rhythm disturbance (atrial, supraventricular)","Rhythm disturbance (atrial, supraventricular)","Rhythm disturbance (atrial, supraventricular)"
+1632588,533168,109,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+2508251,580972,6,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+2508253,580972,6,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Neurology|Overdose, other toxin, poison or drug","Overdose, other toxin, poison or drug","Overdose, other toxin, poison or drug"
+2508252,580972,6,admission diagnosis|Non-operative Organ Systems|Organ System|Neurologic,Neurologic,Neurologic
+2515754,608375,748,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Sepsis, GI","Sepsis, GI","Sepsis, GI"
+2515753,608375,748,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+2515752,608375,748,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+2332609,639917,41,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+2332611,639917,41,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Neurology|Overdose, street drugs (opiates, cocaine, amphetamine)","Overdose, street drugs (opiates, cocaine, amphetamine)","Overdose, street drugs (opiates, cocaine, amphetamine)"
+2332610,639917,41,admission diagnosis|Non-operative Organ Systems|Organ System|Neurologic,Neurologic,Neurologic
+2349393,654286,14,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|Yes,Yes,Yes
+2349396,654286,14,admission diagnosis|All Diagnosis|Operative|Diagnosis|Trauma|Pelvis/extremity trauma,Pelvis/extremity trauma,Pelvis/extremity trauma
+2349394,654286,14,admission diagnosis|Operative Organ Systems|Organ System|Trauma,Trauma,Trauma
+2349395,654286,14,admission diagnosis|Elective|Yes,Yes,Yes
+2465912,758779,36,admission diagnosis|Elective|Yes,Yes,Yes
+2465913,758779,36,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|Yes,Yes,Yes
+2465914,758779,36,admission diagnosis|Operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+2465915,758779,36,"admission diagnosis|All Diagnosis|Operative|Diagnosis|Cardiovascular|Complications of prev. peripheral vasc. surgery,surgery for (i.e.ligation of bleeder, exploration and evacuation of hematoma, debridement, pseudoaneurysms, clots, fistula, etc.)","Complications of prev. peripheral vasc. surgery,surgery for (i.e.ligation of bleeder, exploration and evacuation of hematoma, debridement, pseudoaneurysms, clots, fistula, etc.)","Complications of prev. peripheral vasc. surgery,surgery for (i.e.ligation of bleeder, exploration and evacuation of hematoma, debridement, pseudoaneurysms, clots, fistula, etc.)"
+2417815,827084,18,"admission diagnosis|All Diagnosis|Operative|Diagnosis|Gastrointestinal|GI obstruction, surgery for (including lysis of adhesions)","GI obstruction, surgery for (including lysis of adhesions)","GI obstruction, surgery for (including lysis of adhesions)"
+2417813,827084,18,admission diagnosis|Elective|No,No,No
+2417812,827084,18,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|Yes,Yes,Yes
+2417816,827084,18,admission diagnosis|Patient transferred from another hospital to the current hospital within 48 hours prior to ICU admission|Patient transferred from another hospital to the current hospital within 48 hours prior to ICU admission,Patient transferred from another hospital to the current hospital within 48 hours prior to ICU admission,Patient transferred from another hospital to the current hospital within 48 hours prior to ICU admission
+2417814,827084,18,admission diagnosis|Operative Organ Systems|Organ System|Gastrointestinal,Gastrointestinal,Gastrointestinal
+2360118,827085,68,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+2360120,827085,68,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Hypovolemia (including dehydration, Do not include shock states)","Hypovolemia (including dehydration, Do not include shock states)","Hypovolemia (including dehydration, Do not include shock states)"
+2360119,827085,68,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+2336147,839120,2148,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+2336149,839120,2148,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Trauma|Head only trauma,Head only trauma,Head only trauma
+2336148,839120,2148,admission diagnosis|Non-operative Organ Systems|Organ System|Trauma,Trauma,Trauma
+2415142,842499,75,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|Yes,Yes,Yes
+2415141,842499,75,admission diagnosis|Elective|Yes,Yes,Yes
+2415144,842499,75,"admission diagnosis|All Diagnosis|Operative|Diagnosis|Gastrointestinal|Cholecystectomy/cholangitis, surgery for (gallbladder removal)","Cholecystectomy/cholangitis, surgery for (gallbladder removal)","Cholecystectomy/cholangitis, surgery for (gallbladder removal)"
+2415143,842499,75,admission diagnosis|Operative Organ Systems|Organ System|Gastrointestinal,Gastrointestinal,Gastrointestinal
+2519240,859032,39,admission diagnosis|Elective|Yes,Yes,Yes
+2519243,859032,39,"admission diagnosis|All Diagnosis|Operative|Diagnosis|Cardiovascular|Graft, removal of infected vascular","Graft, removal of infected vascular","Graft, removal of infected vascular"
+2519242,859032,39,admission diagnosis|Operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+2519241,859032,39,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|Yes,Yes,Yes
+2511919,859033,43,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+2511921,859033,43,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Musculoskeletal/Skin|Cellulitis and localized soft tissue infections,Cellulitis and localized soft tissue infections,Cellulitis and localized soft tissue infections
+2511920,859033,43,admission diagnosis|Non-operative Organ Systems|Organ System|Musculoskeletal/Skin,Musculoskeletal/Skin,Musculoskeletal/Skin
+2448314,869526,15,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Metabolic/Endocrine|Acid-base/electrolyte disturbance,Acid-base/electrolyte disturbance,Acid-base/electrolyte disturbance
+2448312,869526,15,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+2448313,869526,15,admission diagnosis|Non-operative Organ Systems|Organ System|Metabolic/Endocrine,Metabolic/Endocrine,Metabolic/Endocrine
+2432474,876429,30,admission diagnosis|All Diagnosis|Operative|Diagnosis|Cardiovascular|Aortic and Mitral valve replacement,Aortic and Mitral valve replacement,Aortic and Mitral valve replacement
+2432471,876429,30,admission diagnosis|Elective|Yes,Yes,Yes
+2432473,876429,30,admission diagnosis|Operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+2432472,876429,30,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|Yes,Yes,Yes
+2432475,876429,30,admission diagnosis|Additional APACHE  Information|Pre-op ejection fraction (%)|specified,specified,60
+2304751,887140,7,"admission diagnosis|All Diagnosis|Operative|Diagnosis|Cardiovascular|Graft, aorto-femoral bypass","Graft, aorto-femoral bypass","Graft, aorto-femoral bypass"
+2304749,887140,7,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|Yes,Yes,Yes
+2304748,887140,7,admission diagnosis|Elective|Yes,Yes,Yes
+2304750,887140,7,admission diagnosis|Operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+2605455,959746,441,admission diagnosis|Additional APACHE  Information|PTCA done within 24 hours|BAL/stent,BAL/stent,BAL/stent
+2605454,959746,441,admission diagnosis|Additional APACHE  Information|Thrombolytic Therapy received within 24 hours|Yes,Yes,Yes
+2605453,959746,441,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Infarction, acute myocardial (MI)","Infarction, acute myocardial (MI)","Infarction, acute myocardial (MI)"
+2605451,959746,441,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+2605456,959746,441,admission diagnosis|Additional APACHE  Information|Acute MI location|anterolateral,anterolateral,anterolateral
+2605452,959746,441,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+2627330,963136,14,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Sepsis, pulmonary","Sepsis, pulmonary","Sepsis, pulmonary"
+2627329,963136,14,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+2627328,963136,14,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+2599545,964782,4,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Thrombosis, vascular (deep vein)","Thrombosis, vascular (deep vein)","Thrombosis, vascular (deep vein)"
+2599543,964782,4,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+2599544,964782,4,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+2616565,965083,17,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|CHF, congestive heart failure","CHF, congestive heart failure","CHF, congestive heart failure"
+2616564,965083,17,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+2616563,965083,17,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+2618864,970328,282,admission diagnosis|Non-operative Organ Systems|Organ System|Respiratory,Respiratory,Respiratory
+2618863,970328,282,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+2618865,970328,282,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Respiratory|Arrest, respiratory (without cardiac arrest)","Arrest, respiratory (without cardiac arrest)","Arrest, respiratory (without cardiac arrest)"
+2634054,970720,73,admission diagnosis|Non-operative Organ Systems|Organ System|Respiratory,Respiratory,Respiratory
+2634053,970720,73,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+2634055,970720,73,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Respiratory|Effusions, pleural","Effusions, pleural","Effusions, pleural"
+2605666,972877,24,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Metabolic/Endocrine|Diabetic hyperglycemic hyperosmolar nonketotic coma (HHNC),Diabetic hyperglycemic hyperosmolar nonketotic coma (HHNC),Diabetic hyperglycemic hyperosmolar nonketotic coma (HHNC)
+2605665,972877,24,admission diagnosis|Non-operative Organ Systems|Organ System|Metabolic/Endocrine,Metabolic/Endocrine,Metabolic/Endocrine
+2605664,972877,24,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+2606848,976722,61,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+2606850,976722,61,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Rhythm disturbance (ventricular),Rhythm disturbance (ventricular),Rhythm disturbance (ventricular)
+2606849,976722,61,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+2908087,1058166,142,admission diagnosis|Elective|Yes,Yes,Yes
+2908089,1058166,142,admission diagnosis|Operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+2908091,1058166,142,admission diagnosis|Additional APACHE  Information|Pre-op ejection fraction (%)|specified,specified,55
+2908088,1058166,142,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|Yes,Yes,Yes
+2908090,1058166,142,admission diagnosis|All Diagnosis|Operative|Diagnosis|Cardiovascular|Aortic valve replacement (isolated),Aortic valve replacement (isolated),Aortic valve replacement (isolated)
+2908785,1063405,447,admission diagnosis|Additional APACHE  Information|Thrombolytic Therapy received within 24 hours|No,No,No
+2908783,1063405,447,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+2908786,1063405,447,admission diagnosis|Additional APACHE  Information|PTCA done within 24 hours|none,none,none
+2908782,1063405,447,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+2908784,1063405,447,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Cardiac arrest (with or without respiratory arrest; for respiratory arrest see Respiratory System),Cardiac arrest (with or without respiratory arrest; for respiratory arrest see Respiratory System),Cardiac arrest (with or without respiratory arrest; for respiratory arrest see Respiratory System)
+2931109,1073098,67,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Sepsis, pulmonary","Sepsis, pulmonary","Sepsis, pulmonary"
+2931107,1073098,67,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+2931108,1073098,67,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+3087226,1091677,61,admission diagnosis|Non-operative Organ Systems|Organ System|Hematology,Hematology,Hematology
+3087227,1091677,61,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Hematology|Neutropenia,Neutropenia,Neutropenia
+3087225,1091677,61,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+3101927,1101375,96,admission diagnosis|Non-operative Organ Systems|Organ System|Neurologic,Neurologic,Neurologic
+3101926,1101375,96,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+3101928,1101375,96,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Neurology|Hemorrhage/hematoma, intracranial","Hemorrhage/hematoma, intracranial","Hemorrhage/hematoma, intracranial"
+3088702,1131174,550,admission diagnosis|Additional APACHE  Information|PTCA done within 24 hours|none,none,none
+3088701,1131174,550,admission diagnosis|Additional APACHE  Information|Thrombolytic Therapy received within 24 hours|No,No,No
+3088699,1131174,550,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+3088700,1131174,550,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Angina, unstable (angina interferes w/quality of life or meds are tolerated poorly)","Angina, unstable (angina interferes w/quality of life or meds are tolerated poorly)","Angina, unstable (angina interferes w/quality of life or meds are tolerated poorly)"
+3088698,1131174,550,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+3338218,1176674,97,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+3338219,1176674,97,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Chest pain, epigastric","Chest pain, epigastric","Chest pain, epigastric"
+3338217,1176674,97,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+3336106,1176675,3,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|CHF, congestive heart failure","CHF, congestive heart failure","CHF, congestive heart failure"
+3336104,1176675,3,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+3336105,1176675,3,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+3358578,1191262,-6,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+3358579,1191262,-6,admission diagnosis|Non-operative Organ Systems|Organ System|Neurologic,Neurologic,Neurologic
+3358580,1191262,-6,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Neurology|Hematoma, subdural","Hematoma, subdural","Hematoma, subdural"
+3346787,1193511,-24,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|CHF, congestive heart failure","CHF, congestive heart failure","CHF, congestive heart failure"
+3346786,1193511,-24,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+3346785,1193511,-24,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+3733629,1226362,419,admission diagnosis|Non-operative Organ Systems|Organ System|Respiratory,Respiratory,Respiratory
+3733628,1226362,419,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+3733630,1226362,419,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Respiratory|Pneumonia, bacterial","Pneumonia, bacterial","Pneumonia, bacterial"
+3705350,1259416,96,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Gastrointestinal|GI medical, other","GI medical, other","GI medical, other"
+3705349,1259416,96,admission diagnosis|Non-operative Organ Systems|Organ System|Gastrointestinal,Gastrointestinal,Gastrointestinal
+3705348,1259416,96,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+3716041,1290248,408,admission diagnosis|Non-operative Organ Systems|Organ System|Gastrointestinal,Gastrointestinal,Gastrointestinal
+3716042,1290248,408,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Gastrointestinal|Bleeding, GI-location unknown","Bleeding, GI-location unknown","Bleeding, GI-location unknown"
+3716040,1290248,408,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+4453933,1437505,5,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+4453935,1437505,5,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Metabolic/Endocrine|Diabetic ketoacidosis,Diabetic ketoacidosis,Diabetic ketoacidosis
+4453934,1437505,5,admission diagnosis|Non-operative Organ Systems|Organ System|Metabolic/Endocrine,Metabolic/Endocrine,Metabolic/Endocrine
+4421858,1457949,13,admission diagnosis|Non-operative Organ Systems|Organ System|Metabolic/Endocrine,Metabolic/Endocrine,Metabolic/Endocrine
+4421859,1457949,13,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Metabolic/Endocrine|Acid-base/electrolyte disturbance,Acid-base/electrolyte disturbance,Acid-base/electrolyte disturbance
+4421857,1457949,13,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+4431316,1463884,71,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+4431318,1463884,71,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Metabolic/Endocrine|Diabetic ketoacidosis,Diabetic ketoacidosis,Diabetic ketoacidosis
+4431317,1463884,71,admission diagnosis|Non-operative Organ Systems|Organ System|Metabolic/Endocrine,Metabolic/Endocrine,Metabolic/Endocrine
+4404109,1488334,327,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Metabolic/Endocrine|Diabetic ketoacidosis,Diabetic ketoacidosis,Diabetic ketoacidosis
+4404108,1488334,327,admission diagnosis|Non-operative Organ Systems|Organ System|Metabolic/Endocrine,Metabolic/Endocrine,Metabolic/Endocrine
+4404107,1488334,327,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+4393925,1536927,102,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+4393926,1536927,102,admission diagnosis|Non-operative Organ Systems|Organ System|Genitourinary,Genitourinary,Genitourinary
+4393927,1536927,102,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Genitourinary|Pre-eclampsia/eclampsia,Pre-eclampsia/eclampsia,Pre-eclampsia/eclampsia
+4419295,1544756,55,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+4419296,1544756,55,admission diagnosis|Non-operative Organ Systems|Organ System|Gastrointestinal,Gastrointestinal,Gastrointestinal
+4419297,1544756,55,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Gastrointestinal|GI obstruction,GI obstruction,GI obstruction
+4418606,1550318,27,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|Yes,Yes,Yes
+4418607,1550318,27,admission diagnosis|Elective|No,No,No
+4418609,1550318,27,admission diagnosis|All Diagnosis|Operative|Diagnosis|Genitourinary|Cesarean section,Cesarean section,Cesarean section
+4418608,1550318,27,admission diagnosis|Operative Organ Systems|Organ System|Genitourinary,Genitourinary,Genitourinary
+4560255,1563281,48,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|Yes,Yes,Yes
+4560254,1563281,48,admission diagnosis|Elective|Yes,Yes,Yes
+4560257,1563281,48,"admission diagnosis|All Diagnosis|Operative|Diagnosis|Musculoskeletal/Skin|Skin surgery, other","Skin surgery, other","Skin surgery, other"
+4560256,1563281,48,admission diagnosis|Operative Organ Systems|Organ System|Musculoskeletal/Skin,Musculoskeletal/Skin,Musculoskeletal/Skin
+4562807,1588896,313,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|Yes,Yes,Yes
+4562809,1588896,313,"admission diagnosis|All Diagnosis|Operative|Diagnosis|Cardiovascular|Cardiovascular surgery, other","Cardiovascular surgery, other","Cardiovascular surgery, other"
+4562808,1588896,313,admission diagnosis|Operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+4562806,1588896,313,admission diagnosis|Elective|Yes,Yes,Yes
+4941901,1671276,139,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Neurology|Coma/change in level of consciousness (for hepatic see GI, for diabetic see Endocrine, if related to cardiac arrest, see CV)","Coma/change in level of consciousness (for hepatic see GI, for diabetic see Endocrine, if related to cardiac arrest, see CV)","Coma/change in level of consciousness (for hepatic see GI, for diabetic see Endocrine, if related to cardiac arrest, see CV)"
+4941900,1671276,139,admission diagnosis|Non-operative Organ Systems|Organ System|Neurologic,Neurologic,Neurologic
+4941899,1671276,139,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+5374774,1790816,42,admission diagnosis|Additional APACHE  Information|Thrombolytic Therapy received within 24 hours|Yes,Yes,Yes
+5374775,1790816,42,admission diagnosis|Additional APACHE  Information|PTCA done within 24 hours|Stent,Stent,Stent
+5374771,1790816,42,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+5374773,1790816,42,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Angina, unstable (angina interferes w/quality of life or meds are tolerated poorly)","Angina, unstable (angina interferes w/quality of life or meds are tolerated poorly)","Angina, unstable (angina interferes w/quality of life or meds are tolerated poorly)"
+5374772,1790816,42,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+5346064,1795300,72,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+5346065,1795300,72,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Sepsis, unknown","Sepsis, unknown","Sepsis, unknown"
+5346063,1795300,72,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+5419241,1812280,-26,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+5419242,1812280,-26,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Rhythm disturbance (atrial, supraventricular)","Rhythm disturbance (atrial, supraventricular)","Rhythm disturbance (atrial, supraventricular)"
+5419240,1812280,-26,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+5453734,1827129,27,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|Yes,Yes,Yes
+5453735,1827129,27,admission diagnosis|Operative Organ Systems|Organ System|Respiratory,Respiratory,Respiratory
+5453733,1827129,27,admission diagnosis|Elective|Yes,Yes,Yes
+5453736,1827129,27,admission diagnosis|All Diagnosis|Operative|Diagnosis|Respiratory|Thoracotomy for lung cancer,Thoracotomy for lung cancer,Thoracotomy for lung cancer
+5479852,1849124,12,admission diagnosis|Elective|Yes,Yes,Yes
+5479858,1849124,12,admission diagnosis|Additional APACHE  Information|Pre-op cardiac catheterization during this hospitalization|No,No,No
+5479853,1849124,12,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|Yes,Yes,Yes
+5479855,1849124,12,"admission diagnosis|All Diagnosis|Operative|Diagnosis|Cardiovascular|CABG alone, coronary artery bypass grafting","CABG alone, coronary artery bypass grafting","CABG alone, coronary artery bypass grafting"
+5479856,1849124,12,admission diagnosis|Additional APACHE  Information|Pre-op ejection fraction (%)|specified,specified,70
+5479861,1849124,12,admission diagnosis|Additional APACHE  Information|Saphenous vein graft?|Yes,Yes,Yes
+5479860,1849124,12,admission diagnosis|Additional APACHE  Information|Internal mammary artery graft?|Yes,Yes,Yes
+5479857,1849124,12,admission diagnosis|Additional APACHE  Information|Pre-op MI during current hospitalization|No,No,No
+5479859,1849124,12,admission diagnosis|Additional APACHE  Information|Number of grafts performed|4,4,4
+5479854,1849124,12,admission diagnosis|Operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+5386602,1852395,-70,"admission diagnosis|All Diagnosis|Operative|Diagnosis|Musculoskeletal/Skin|Cellulitis and localized soft tissue infections, surgery for","Cellulitis and localized soft tissue infections, surgery for","Cellulitis and localized soft tissue infections, surgery for"
+5386601,1852395,-70,admission diagnosis|Operative Organ Systems|Organ System|Musculoskeletal/Skin,Musculoskeletal/Skin,Musculoskeletal/Skin
+5386600,1852395,-70,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|Yes,Yes,Yes
+5386599,1852395,-70,admission diagnosis|Elective|Yes,Yes,Yes
+5375511,1852625,26,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Sepsis, pulmonary","Sepsis, pulmonary","Sepsis, pulmonary"
+5375509,1852625,26,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+5375510,1852625,26,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+5365287,1856167,0,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Respiratory|Arrest, respiratory (without cardiac arrest)","Arrest, respiratory (without cardiac arrest)","Arrest, respiratory (without cardiac arrest)"
+5365285,1856167,0,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+5365286,1856167,0,admission diagnosis|Non-operative Organ Systems|Organ System|Respiratory,Respiratory,Respiratory
+5365452,1856168,6,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Neurology|Coma/change in level of consciousness (for hepatic see GI, for diabetic see Endocrine, if related to cardiac arrest, see CV)","Coma/change in level of consciousness (for hepatic see GI, for diabetic see Endocrine, if related to cardiac arrest, see CV)","Coma/change in level of consciousness (for hepatic see GI, for diabetic see Endocrine, if related to cardiac arrest, see CV)"
+5365451,1856168,6,admission diagnosis|Non-operative Organ Systems|Organ System|Neurologic,Neurologic,Neurologic
+5365450,1856168,6,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+5872402,2032114,740,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+5872405,2032114,740,admission diagnosis|Additional APACHE  Information|PTCA done within 24 hours|BAL/stent,BAL/stent,BAL/stent
+5872401,2032114,740,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+5872403,2032114,740,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Angina, unstable (angina interferes w/quality of life or meds are tolerated poorly)","Angina, unstable (angina interferes w/quality of life or meds are tolerated poorly)","Angina, unstable (angina interferes w/quality of life or meds are tolerated poorly)"
+5872404,2032114,740,admission diagnosis|Additional APACHE  Information|Thrombolytic Therapy received within 24 hours|No,No,No
+5905394,2075529,39,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+5905395,2075529,39,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|CHF, congestive heart failure","CHF, congestive heart failure","CHF, congestive heart failure"
+5905393,2075529,39,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+5878944,2193648,20,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+5878946,2193648,20,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Respiratory|Pneumonia, bacterial","Pneumonia, bacterial","Pneumonia, bacterial"
+5878945,2193648,20,admission diagnosis|Non-operative Organ Systems|Organ System|Respiratory,Respiratory,Respiratory
+5886555,2193649,9,admission diagnosis|Non-operative Organ Systems|Organ System|Respiratory,Respiratory,Respiratory
+5886556,2193649,9,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Respiratory|Pneumonia, bacterial","Pneumonia, bacterial","Pneumonia, bacterial"
+5886554,2193649,9,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+6244782,2233402,42,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+6244783,2233402,42,admission diagnosis|Non-operative Organ Systems|Organ System|Gastrointestinal,Gastrointestinal,Gastrointestinal
+6244784,2233402,42,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Gastrointestinal|Bleeding, lower GI","Bleeding, lower GI","Bleeding, lower GI"
+6244874,2233403,35,admission diagnosis|Non-operative Organ Systems|Organ System|Gastrointestinal,Gastrointestinal,Gastrointestinal
+6244873,2233403,35,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+6244875,2233403,35,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Gastrointestinal|Bleeding, upper GI","Bleeding, upper GI","Bleeding, upper GI"
+6466972,2303499,9,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+6466971,2303499,9,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+6466973,2303499,9,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Sepsis, pulmonary","Sepsis, pulmonary","Sepsis, pulmonary"
+6403221,2303500,23,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+6403223,2303500,23,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Sepsis, pulmonary","Sepsis, pulmonary","Sepsis, pulmonary"
+6403222,2303500,23,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+6308238,2334053,8,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+6308240,2334053,8,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Respiratory|Emphysema/bronchitis,Emphysema/bronchitis,Emphysema/bronchitis
+6308239,2334053,8,admission diagnosis|Non-operative Organ Systems|Organ System|Respiratory,Respiratory,Respiratory
+6581015,2450383,10,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Respiratory|Pneumonia, bacterial","Pneumonia, bacterial","Pneumonia, bacterial"
+6581014,2450383,10,admission diagnosis|Non-operative Organ Systems|Organ System|Respiratory,Respiratory,Respiratory
+6581013,2450383,10,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+6310142,2462225,59,admission diagnosis|Non-operative Organ Systems|Organ System|Respiratory,Respiratory,Respiratory
+6310141,2462225,59,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+6310143,2462225,59,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Respiratory|Emphysema/bronchitis,Emphysema/bronchitis,Emphysema/bronchitis
+6689225,2469796,21,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+6689224,2469796,21,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+6689226,2469796,21,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Sepsis, pulmonary","Sepsis, pulmonary","Sepsis, pulmonary"
+6301401,2492811,41,admission diagnosis|Non-operative Organ Systems|Organ System|Respiratory,Respiratory,Respiratory
+6301402,2492811,41,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Respiratory|Pneumonia, bacterial","Pneumonia, bacterial","Pneumonia, bacterial"
+6301400,2492811,41,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+6301180,2492812,19,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Respiratory|Pneumonia, bacterial","Pneumonia, bacterial","Pneumonia, bacterial"
+6301179,2492812,19,admission diagnosis|Non-operative Organ Systems|Organ System|Respiratory,Respiratory,Respiratory
+6301178,2492812,19,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+6612877,2512314,69,admission diagnosis|Non-operative Organ Systems|Organ System|Respiratory,Respiratory,Respiratory
+6612876,2512314,69,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+6612878,2512314,69,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Respiratory|Restrictive lung disease (i.e., Sarcoidosis, pulmonary fibrosis)","Restrictive lung disease (i.e., Sarcoidosis, pulmonary fibrosis)","Restrictive lung disease (i.e., Sarcoidosis, pulmonary fibrosis)"
+7147613,2580992,1105,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+7147615,2580992,1105,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Respiratory|Pneumonia, aspiration","Pneumonia, aspiration","Pneumonia, aspiration"
+7147614,2580992,1105,admission diagnosis|Non-operative Organ Systems|Organ System|Respiratory,Respiratory,Respiratory
+7158814,2597776,9,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+7159369,2597776,9,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+7158405,2597776,9,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Sepsis, renal/UTI (including bladder)","Sepsis, renal/UTI (including bladder)","Sepsis, renal/UTI (including bladder)"
+7158338,2597777,1323,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+7158473,2597777,1323,admission diagnosis|Non-operative Organ Systems|Organ System|Respiratory,Respiratory,Respiratory
+7159162,2597777,1323,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Respiratory|Pneumonia, other","Pneumonia, other","Pneumonia, other"
+7157084,2609672,27,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+7159063,2609672,27,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Sepsis, renal/UTI (including bladder)","Sepsis, renal/UTI (including bladder)","Sepsis, renal/UTI (including bladder)"
+7155876,2609672,27,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+7154047,2610399,55,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+7155716,2610399,55,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+7150004,2610399,55,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|CHF, congestive heart failure","CHF, congestive heart failure","CHF, congestive heart failure"
+7158498,2627574,94,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Hypertension, uncontrolled (for cerebrovascular accident-see Neurological System)","Hypertension, uncontrolled (for cerebrovascular accident-see Neurological System)","Hypertension, uncontrolled (for cerebrovascular accident-see Neurological System)"
+7156891,2627574,94,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+7158430,2627574,94,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+7118979,2628859,8,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Respiratory|Pneumonia, aspiration","Pneumonia, aspiration","Pneumonia, aspiration"
+7118977,2628859,8,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+7118978,2628859,8,admission diagnosis|Non-operative Organ Systems|Organ System|Respiratory,Respiratory,Respiratory
+7115454,2630865,130,admission diagnosis|Non-operative Organ Systems|Organ System|Respiratory,Respiratory,Respiratory
+7115455,2630865,130,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Respiratory|Arrest, respiratory (without cardiac arrest)","Arrest, respiratory (without cardiac arrest)","Arrest, respiratory (without cardiac arrest)"
+7115453,2630865,130,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+8028056,2672664,17,admission diagnosis|Elective|Yes,Yes,Yes
+8028059,2672664,17,"admission diagnosis|All Diagnosis|Operative|Diagnosis|Musculoskeletal/Skin|Cellulitis and localized soft tissue infections, surgery for","Cellulitis and localized soft tissue infections, surgery for","Cellulitis and localized soft tissue infections, surgery for"
+8028058,2672664,17,admission diagnosis|Operative Organ Systems|Organ System|Musculoskeletal/Skin,Musculoskeletal/Skin,Musculoskeletal/Skin
+8028057,2672664,17,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|Yes,Yes,Yes
+7910099,2687268,32,admission diagnosis|Additional APACHE  Information|Saphenous vein graft?|Yes,Yes,Yes
+7910096,2687268,32,"admission diagnosis|All Diagnosis|Operative|Diagnosis|Cardiovascular|CABG alone, coronary artery bypass grafting","CABG alone, coronary artery bypass grafting","CABG alone, coronary artery bypass grafting"
+7910095,2687268,32,admission diagnosis|Operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+7910098,2687268,32,admission diagnosis|Additional APACHE  Information|Internal mammary artery graft?|Yes,Yes,Yes
+7910097,2687268,32,admission diagnosis|Additional APACHE  Information|Number of grafts performed|4,4,4
+7910094,2687268,32,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|Yes,Yes,Yes
+7910093,2687268,32,admission diagnosis|Elective|Yes,Yes,Yes
+7617282,2694459,5,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+7617284,2694459,5,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Gastrointestinal|Pancreatitis,Pancreatitis,Pancreatitis
+7617283,2694459,5,admission diagnosis|Non-operative Organ Systems|Organ System|Gastrointestinal,Gastrointestinal,Gastrointestinal
+8011335,2705166,782,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+8011336,2705166,782,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+8011337,2705166,782,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Sepsis, pulmonary","Sepsis, pulmonary","Sepsis, pulmonary"
+7744958,2720598,41,admission diagnosis|Non-operative Organ Systems|Organ System|Neurologic,Neurologic,Neurologic
+7744959,2720598,41,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Neurology|Neoplasm, neurologic","Neoplasm, neurologic","Neoplasm, neurologic"
+7744957,2720598,41,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+7433265,2735662,54,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Sepsis, renal/UTI (including bladder)","Sepsis, renal/UTI (including bladder)","Sepsis, renal/UTI (including bladder)"
+7433264,2735662,54,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+7433263,2735662,54,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+7964613,2738362,138,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+7964618,2738362,138,admission diagnosis|Additional APACHE  Information|Acute MI location|inferior,inferior,inferior
+7964615,2738362,138,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Infarction, acute myocardial (MI)","Infarction, acute myocardial (MI)","Infarction, acute myocardial (MI)"
+7964614,2738362,138,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+7964616,2738362,138,admission diagnosis|Additional APACHE  Information|Thrombolytic Therapy received within 24 hours|No,No,No
+7964617,2738362,138,admission diagnosis|Additional APACHE  Information|PTCA done within 24 hours|BAL/stent,BAL/stent,BAL/stent
+8016802,2740390,66,admission diagnosis|Patient transferred from another hospital to the current hospital within 48 hours prior to ICU admission|Patient transferred from another hospital to the current hospital within 48 hours prior to ICU admission,Patient transferred from another hospital to the current hospital within 48 hours prior to ICU admission,Patient transferred from another hospital to the current hospital within 48 hours prior to ICU admission
+8016798,2740390,66,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+8016799,2740390,66,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+8016801,2740390,66,admission diagnosis|Additional APACHE  Information|Thrombolytic Therapy received within 24 hours|No,No,No
+8016800,2740390,66,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Cardiac arrest (with or without respiratory arrest; for respiratory arrest see Respiratory System),Cardiac arrest (with or without respiratory arrest; for respiratory arrest see Respiratory System),Cardiac arrest (with or without respiratory arrest; for respiratory arrest see Respiratory System)
+7580060,2743241,302,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+7580059,2743241,302,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+7580061,2743241,302,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Sepsis, unknown","Sepsis, unknown","Sepsis, unknown"
+7968635,2747612,18,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Neurology|CVA, cerebrovascular accident/stroke","CVA, cerebrovascular accident/stroke","CVA, cerebrovascular accident/stroke"
+7968633,2747612,18,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+7968634,2747612,18,admission diagnosis|Non-operative Organ Systems|Organ System|Neurologic,Neurologic,Neurologic
+7941672,2787456,28,admission diagnosis|Operative Organ Systems|Organ System|Genitourinary,Genitourinary,Genitourinary
+7941673,2787456,28,admission diagnosis|All Diagnosis|Operative|Diagnosis|Genitourinary|Cesarean section,Cesarean section,Cesarean section
+7941671,2787456,28,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|Yes,Yes,Yes
+7941670,2787456,28,admission diagnosis|Elective|Yes,Yes,Yes
+7992943,2797147,30,admission diagnosis|Non-operative Organ Systems|Organ System|Genitourinary,Genitourinary,Genitourinary
+7992944,2797147,30,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Genitourinary|Renal failure, acute","Renal failure, acute","Renal failure, acute"
+7992942,2797147,30,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+7921100,2833949,104,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|CHF, congestive heart failure","CHF, congestive heart failure","CHF, congestive heart failure"
+7921099,2833949,104,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+7921098,2833949,104,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+7874600,2853320,32,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+7874599,2853320,32,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+7874601,2853320,32,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Sepsis, renal/UTI (including bladder)","Sepsis, renal/UTI (including bladder)","Sepsis, renal/UTI (including bladder)"
+7956220,2853358,19,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+7956221,2853358,19,admission diagnosis|Non-operative Organ Systems|Organ System|Genitourinary,Genitourinary,Genitourinary
+7956222,2853358,19,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Genitourinary|Renal failure, acute","Renal failure, acute","Renal failure, acute"
+7910799,2857777,46,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|Sepsis, renal/UTI (including bladder)","Sepsis, renal/UTI (including bladder)","Sepsis, renal/UTI (including bladder)"
+7910798,2857777,46,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+7910797,2857777,46,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+7947421,2866326,40,admission diagnosis|All Diagnosis|Operative|Diagnosis|Cardiovascular|Thrombectomy (with general anesthesia),Thrombectomy (with general anesthesia),Thrombectomy (with general anesthesia)
+7947420,2866326,40,admission diagnosis|Operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+7947419,2866326,40,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|Yes,Yes,Yes
+7947418,2866326,40,admission diagnosis|Elective|Yes,Yes,Yes
+7636652,2886662,17,admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Metabolic/Endocrine|Diabetic ketoacidosis,Diabetic ketoacidosis,Diabetic ketoacidosis
+7636650,2886662,17,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No
+7636651,2886662,17,admission diagnosis|Non-operative Organ Systems|Organ System|Metabolic/Endocrine,Metabolic/Endocrine,Metabolic/Endocrine
+7876832,2893348,9,"admission diagnosis|All Diagnosis|Non-operative|Diagnosis|Cardiovascular|CHF, congestive heart failure","CHF, congestive heart failure","CHF, congestive heart failure"
+7876831,2893348,9,admission diagnosis|Non-operative Organ Systems|Organ System|Cardiovascular,Cardiovascular,Cardiovascular
+7876830,2893348,9,admission diagnosis|Was the patient admitted from the O.R. or went to the O.R. within 4 hours of admission?|No,No,No

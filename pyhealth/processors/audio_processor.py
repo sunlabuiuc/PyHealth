@@ -134,6 +134,51 @@ class AudioProcessor(FeatureProcessor):
 
         return waveform
 
+    def is_token(self) -> bool:
+        """Audio data is continuous (float-valued), not discrete tokens.
+
+        Returns:
+            False, since audio waveforms and spectrograms are continuous signals.
+        """
+        return False
+
+    def schema(self) -> tuple[str, ...]:
+        """Returns the schema of the processed audio feature.
+
+        The audio processor emits a single tensor (waveform or mel spectrogram).
+
+        Returns:
+            ("value",)
+        """
+        return ("value",)
+
+    def dim(self) -> tuple[int, ...]:
+        """Number of dimensions for the output tensor.
+
+        Returns:
+            (2,) for waveform output (channels, samples), or
+            (3,) for mel spectrogram output (channels, n_mels, time).
+        """
+        if self.n_mels is not None:
+            return (3,)
+        return (2,)
+
+    def spatial(self) -> tuple[bool, ...]:
+        """Whether each dimension of the output tensor is spatial.
+
+        For waveform (channels, samples): channels is not spatial, samples is.
+        For mel spectrogram (channels, n_mels, time): channels is not spatial,
+        n_mels and time are.
+
+        Returns:
+            Tuple of booleans for each axis.
+        """
+        if self.n_mels is not None:
+            # (channels, n_mels, time)
+            return (False, True, True)
+        # (channels, samples)
+        return (False, True)
+
     def __repr__(self) -> str:
         return (
             f"AudioProcessor(sample_rate={self.sample_rate}, "

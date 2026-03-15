@@ -44,12 +44,23 @@ from .stagenet_processor import (
 from .tensor_processor import TensorProcessor
 from .text_processor import TextProcessor
 from .timeseries_processor import TimeseriesProcessor
+from .time_image_processor import TimeImageProcessor
+from .graph_processor import GraphProcessor
 from .audio_processor import AudioProcessor
 from .ignore_processor import IgnoreProcessor
+from .temporal_timeseries_processor import TemporalTimeseriesProcessor
+from .tuple_time_text_processor import TupleTimeTextProcessor
 
 # Expose public API
+from .base_processor import (
+    FeatureProcessor,
+    ModalityType,
+    TemporalFeatureProcessor,
+)
 __all__ = [
     "FeatureProcessor",
+    "ModalityType",
+    "TemporalFeatureProcessor",
     "ImageProcessor",
     "LabelProcessor",
     "MultiHotProcessor",
@@ -61,7 +72,11 @@ __all__ = [
     "StageNetProcessor",
     "StageNetTensorProcessor",
     "TensorProcessor",
+    "TemporalTimeseriesProcessor",
     "TextProcessor",
     "TimeseriesProcessor",
+    "TimeImageProcessor",
+    "GraphProcessor",
     "AudioProcessor",
+    "TupleTimeTextProcessor",
 ]

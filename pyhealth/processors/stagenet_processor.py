@@ -3,11 +3,11 @@ from typing import Any, Dict, List, Optional, Tuple, Iterable
 import torch
 
 from . import register_processor
-from .base_processor import FeatureProcessor, VocabMixin
+from .base_processor import FeatureProcessor, ModalityType, TemporalFeatureProcessor, TokenProcessorInterface
 
 
 @register_processor("stagenet")
-class StageNetProcessor(FeatureProcessor, VocabMixin):
+class StageNetProcessor(TemporalFeatureProcessor, TokenProcessorInterface):
     """
     Feature processor for StageNet CODE inputs with coupled value/time data.
 
@@ -55,9 +55,8 @@ class StageNetProcessor(FeatureProcessor, VocabMixin):
     """
 
     def __init__(self, padding: int = 0):
-        # <unk> will be set to len(vocab) after fit
-        self.code_vocab: Dict[Any, int] = {"<unk>": None, "<pad>": 0}
-        self._next_index = 1
+        self.code_vocab: Dict[Any, int] = {"<pad>": self.PAD, "<unk>": self.UNK}
+        self._next_index = 2
         self._is_nested = None  # Will be determined during fit
         # Max inner sequence length for nested codes
         self._max_nested_len = None
@@ -118,27 +117,31 @@ class StageNetProcessor(FeatureProcessor, VocabMixin):
             observed_max = max(1, max_inner_len)
             self._max_nested_len = observed_max + self._padding
 
-        # Set <unk> token to the next available index
-        # Since <unk> is already in the vocab dict, we use _next_index
-        self.code_vocab["<unk>"] = self._next_index
-
-    def remove(self, vocabularies: set[str]):
+    def remove(self, tokens: set[str]):
         """Remove specified vocabularies from the processor."""
-        vocab = list(set(self.code_vocab.keys()) - vocabularies - {"<pad>", "<unk>"})
-        vocab = ["<pad>"] + vocab + ["<unk>"]
-        self.code_vocab = {v: i for i, v in enumerate(vocab)}
+        keep = set(self.code_vocab.keys()) - tokens | {"<pad>", "<unk>"}
+        order = [k for k, v in sorted(self.code_vocab.items(), key=lambda x: x[1]) if k in keep]
+        
+        self.code_vocab = { k : i for i, k in enumerate(order) }
 
-    def retain(self, vocabularies: set[str]):
+    def retain(self, tokens: set[str]):
         """Retain only the specified vocabularies in the processor."""
-        vocab = list(set(self.code_vocab.keys()) & vocabularies)
-        vocab = ["<pad>"] + vocab + ["<unk>"]
-        self.code_vocab = {v: i for i, v in enumerate(vocab)}
+        keep = set(self.code_vocab.keys()) & tokens | {"<pad>", "<unk>"}
+        order = [k for k, v in sorted(self.code_vocab.items(), key=lambda x: x[1]) if k in keep]
+        
+        self.code_vocab = { k : i for i, k in enumerate(order) }
 
-    def add(self, vocabularies: set[str]):
+    def add(self, tokens: set[str]):
         """Add specified vocabularies to the processor."""
-        vocab = list(set(self.code_vocab.keys()) | vocabularies - {"<pad>", "<unk>"})
-        vocab = ["<pad>"] + vocab + ["<unk>"]
-        self.code_vocab = {v: i for i, v in enumerate(vocab)}
+        i = len(self.code_vocab)
+        for token in tokens:
+            if token not in self.code_vocab:
+                self.code_vocab[token] = i
+                i += 1
+
+    def tokens(self) -> set[str]:
+        """Return the set of tokens in the processor's vocabulary."""
+        return set(self.code_vocab.keys())
 
     def process(
         self, value: Tuple[Optional[List], List]
@@ -192,6 +195,8 @@ class StageNetProcessor(FeatureProcessor, VocabMixin):
 
         Pads all inner sequences to self._max_nested_len (global max).
         """
+        assert self._max_nested_len is not None, "Max nested length must be set during fit()"
+        
         # Handle empty nested codes (no visits/events)
         # Return single padding token with shape (1, max_len)
         if len(nested_codes) == 0:
@@ -216,9 +221,73 @@ class StageNetProcessor(FeatureProcessor, VocabMixin):
 
         return torch.tensor(encoded_sequences, dtype=torch.long)
 
+    def vocab_size(self) -> int:
+        """Return the size of the processor's vocabulary."""
+        return len(self.code_vocab)
+
     def size(self) -> int:
         """Return vocabulary size."""
         return len(self.code_vocab)
+
+    def is_token(self) -> bool:
+        """Code indices are discrete token indices."""
+        return True
+
+    def schema(self) -> tuple[str, ...]:
+        """Output is a tuple of (time_tensor, value_tensor)."""
+        return ("time", "value")
+
+    def dim(self) -> tuple[int, ...]:
+        """Number of dimensions for each output tensor.
+
+        Time tensor is 1D. Value tensor is 1D (flat) or 2D (nested).
+        Must be called after fit().
+
+        Returns:
+            (1, 1) for flat codes or (1, 2) for nested codes.
+        """
+        if self._is_nested is None:
+            raise NotImplementedError(
+                "StageNetProcessor.dim() requires fit() to be called first "
+                "to determine whether codes are flat or nested."
+            )
+        if self._is_nested:
+            return (1, 2)
+        return (1, 1)
+
+    def spatial(self) -> tuple[bool, ...]:
+        """Whether each dimension of the value tensor is spatial."""
+        if self._is_nested is None:
+            raise NotImplementedError(
+                "StageNetProcessor.spatial() requires fit() to be called first."
+            )
+        if self._is_nested:
+            # (visits, codes_per_visit) - visits are sequential/spatial,
+            # codes_per_visit is an unordered set and not spatial
+            return (True, False)
+        # Flat codes: single sequence dimension is spatial
+        return (True,)
+
+    def modality(self) -> ModalityType:
+        """Discrete EHR codes → CODE modality."""
+        return ModalityType.CODE
+
+    def value_dim(self) -> int:
+        """Vocabulary size (used with nn.Embedding in UnifiedMultimodalEmbeddingModel).
+        Must be called after fit()."""
+        return len(self.code_vocab)
+
+    def process_temporal(self, value) -> dict:
+        """Return dict output for UnifiedMultimodalEmbeddingModel.
+
+        Calls the existing process() (backward-compatible tuple) and wraps
+        the result as a dict with 'value' and 'time' keys.
+
+        Returns:
+            {"value": LongTensor (S,), "time": FloatTensor (S,) or None}
+        """
+        time_tensor, value_tensor = self.process(value)
+        return {"value": value_tensor, "time": time_tensor}
 
     def __repr__(self):
         if self._is_nested:
@@ -237,7 +306,7 @@ class StageNetProcessor(FeatureProcessor, VocabMixin):
 
 
 @register_processor("stagenet_tensor")
-class StageNetTensorProcessor(FeatureProcessor):
+class StageNetTensorProcessor(TemporalFeatureProcessor):
     """
     Feature processor for StageNet NUMERIC inputs with coupled value/time data.
 
@@ -369,6 +438,62 @@ class StageNetTensorProcessor(FeatureProcessor):
     def size(self):
         """Return feature dimension."""
         return self._size
+
+    def is_token(self) -> bool:
+        """Numeric values are continuous, not discrete tokens."""
+        return False
+
+    def schema(self) -> tuple[str, ...]:
+        """Output is a tuple of (time_tensor, value_tensor)."""
+        return ("time", "value")
+
+    def dim(self) -> tuple[int, ...]:
+        """Number of dimensions for each output tensor.
+
+        Time tensor is 1D. Value tensor is 1D (flat) or 2D (nested).
+        Must be called after fit().
+
+        Returns:
+            (1, 1) for flat values or (1, 2) for nested values.
+        """
+        if self._is_nested is None:
+            raise NotImplementedError(
+                "StageNetTensorProcessor.dim() requires fit() to be called first "
+                "to determine whether values are flat or nested."
+            )
+        if self._is_nested:
+            return (1, 2)
+        return (1, 1)
+
+    def spatial(self) -> tuple[bool, ...]:
+        """Whether each dimension of the value tensor is spatial."""
+        if self._is_nested is None:
+            raise NotImplementedError(
+                "StageNetTensorProcessor.spatial() requires fit() to be called first."
+            )
+        if self._is_nested:
+            # (time_steps, features) - time is spatial, features are not
+            return (True, False)
+        # Flat: single sequence dimension is spatial
+        return (True,)
+
+    def modality(self) -> ModalityType:
+        """Continuous lab/vital measurements → NUMERIC modality."""
+        return ModalityType.NUMERIC
+
+    def value_dim(self) -> int:
+        """Number of numeric features per time-step (used with nn.Linear).
+        Must be called after fit()."""
+        return self._size if self._size is not None else 1
+
+    def process_temporal(self, value) -> dict:
+        """Return dict output for UnifiedMultimodalEmbeddingModel.
+
+        Returns:
+            {"value": FloatTensor (T, F), "time": FloatTensor (T,) or None}
+        """
+        time_tensor, value_tensor = self.process(value)
+        return {"value": value_tensor, "time": time_tensor}
 
     def __repr__(self):
         return (

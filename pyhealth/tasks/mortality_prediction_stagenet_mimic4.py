@@ -36,6 +36,16 @@ class MortalityPredictionStageNetMIMIC4(BaseTask):
             - labs: Lab results (stagenet_tensor, 10D vectors per timestamp)
         output_schema (Dict[str, str]): The schema for output data:
             - mortality: Binary indicator (1 if any admission had mortality)
+
+    Examples:
+        >>> from pyhealth.datasets import MIMIC4EHRDataset
+        >>> from pyhealth.tasks import MortalityPredictionStageNetMIMIC4
+        >>> dataset = MIMIC4EHRDataset(
+        ...     root="/path/to/mimic-iv/2.2",
+        ...     tables=["diagnoses_icd", "procedures_icd", "labevents"],
+        ... )
+        >>> task = MortalityPredictionStageNetMIMIC4()
+        >>> samples = dataset.set_task(task)
     """
 
     task_name: str = "MortalityPredictionStageNetMIMIC4"

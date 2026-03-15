@@ -1,4 +1,4 @@
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, cast
 
 import torch
 import torch.nn as nn
@@ -6,6 +6,7 @@ import torch.nn as nn
 from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 from pyhealth.models.utils import get_last_visit
+from pyhealth.interpret.api import Interpretable
 
 from .embedding import EmbeddingModel
 
@@ -42,9 +43,9 @@ class StageNetLayer(nn.Module):
         chunk_size: int = 128,
         conv_size: int = 10,
         levels: int = 3,
-        dropconnect: int = 0.3,
-        dropout: int = 0.3,
-        dropres: int = 0.3,
+        dropconnect: float = 0.3,
+        dropout: float = 0.3,
+        dropres: float = 0.3,
     ):
         super(StageNetLayer, self).__init__()
 
@@ -77,6 +78,13 @@ class StageNetLayer(nn.Module):
         )
         # self.nn_output = nn.Linear(int(self.conv_dim), int(output_dim))
 
+        # Non-linearities exposed as modules for easy swapping
+        self.relu = nn.ReLU()
+        self.sigmoid = nn.Sigmoid()
+        self.tanh = nn.Tanh()
+        self.softmax = nn.Softmax(dim=-1)
+        self.softmax_dim1 = nn.Softmax(dim=1)
+
         if self.dropconnect:
             self.nn_dropconnect = nn.Dropout(p=dropconnect)
             self.nn_dropconnect_r = nn.Dropout(p=dropconnect)
@@ -84,35 +92,17 @@ class StageNetLayer(nn.Module):
             self.nn_dropout = nn.Dropout(p=dropout)
             self.nn_dropres = nn.Dropout(p=dropres)
 
-        # Hooks for interpretability (e.g., DeepLIFT) default to None
-        self._activation_hooks = None
-
-    def set_activation_hooks(self, hooks) -> None:
-        """Registers activation hooks for interpretability methods.
-
-        Args:
-            hooks: Object exposing ``apply(name, tensor, **kwargs)``. When
-                provided, activation functions inside the layer will be
-                routed through ``hooks`` instead of raw torch.ops. Passing
-                ``None`` disables the hooks.
-        """
-
-        self._activation_hooks = hooks
-
-    def _apply_activation(self, name: str, tensor: torch.Tensor, **kwargs) -> torch.Tensor:
-        if self._activation_hooks is not None and hasattr(self._activation_hooks, "apply"):
-            return self._activation_hooks.apply(name, tensor, **kwargs)
-        fn = getattr(torch, name)
-        return fn(tensor, **kwargs)
+        # Nonlinearities are plain modules; interpretability wrappers are applied
+        # externally (e.g., DeepLIFT/GIM) by temporarily replacing these modules.
 
     def cumax(self, x, mode="l2r"):
         if mode == "l2r":
-            x = self._apply_activation("softmax", x, dim=-1)
+            x = self.softmax(x)
             x = torch.cumsum(x, dim=-1)
             return x
         elif mode == "r2l":
             x = torch.flip(x, [-1])
-            x = self._apply_activation("softmax", x, dim=-1)
+            x = self.softmax(x)
             x = torch.cumsum(x, dim=-1)
             return torch.flip(x, [-1])
         else:
@@ -138,18 +128,12 @@ class StageNetLayer(nn.Module):
         i_master_gate = i_master_gate.unsqueeze(2)
         x_out = x_out[:, self.levels * 2 :]
         x_out = x_out.reshape(-1, self.levels * 4, self.chunk_size)
-        f_gate = self._apply_activation("sigmoid", x_out[:, : self.levels]).to(
+        f_gate = self.sigmoid(x_out[:, : self.levels]).to(device=device)
+        i_gate = self.sigmoid(x_out[:, self.levels : self.levels * 2]).to(
             device=device
         )
-        i_gate = self._apply_activation(
-            "sigmoid", x_out[:, self.levels : self.levels * 2]
-        ).to(device=device)
-        o_gate = self._apply_activation(
-            "sigmoid", x_out[:, self.levels * 2 : self.levels * 3]
-        )
-        c_in = self._apply_activation("tanh", x_out[:, self.levels * 3 :]).to(
-            device=device
-        )
+        o_gate = self.sigmoid(x_out[:, self.levels * 2 : self.levels * 3])
+        c_in = self.tanh(x_out[:, self.levels * 3 :]).to(device=device)
         c_last = c_last.reshape(-1, self.levels, self.chunk_size).to(device=device)
         overlap = (f_master_gate * i_master_gate).to(device=device)
         c_out = (
@@ -157,7 +141,7 @@ class StageNetLayer(nn.Module):
             + (f_master_gate - overlap) * c_last
             + (i_master_gate - overlap) * c_in
         )
-        h_out = o_gate * self._apply_activation("tanh", c_out)
+        h_out = o_gate * self.tanh(c_out)
         c_out = c_out.reshape(-1, self.hidden_dim)
         h_out = h_out.reshape(-1, self.hidden_dim)
         out = torch.cat([h_out, f_master_gate[..., 0], i_master_gate[..., 0]], 1)
@@ -165,10 +149,10 @@ class StageNetLayer(nn.Module):
 
     def forward(
         self,
-        x: torch.tensor,
-        time: Optional[torch.tensor] = None,
-        mask: Optional[torch.tensor] = None,
-    ) -> Tuple[torch.tensor]:
+        x: torch.Tensor,
+        time: Optional[torch.Tensor] = None,
+        mask: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, ...]:
         """Forward propagation.
 
         Args:
@@ -226,16 +210,16 @@ class StageNetLayer(nn.Module):
             # Re-weighted convolution operation
             local_dis = tmp_dis.permute(1, 0)
             local_dis = torch.cumsum(local_dis, dim=1)
-            local_dis = self._apply_activation("softmax", local_dis, dim=1)
+            local_dis = self.softmax_dim1(local_dis)
             local_h = tmp_h.permute(1, 2, 0)
             local_h = local_h * local_dis.unsqueeze(1)
 
             # Re-calibrate Progression patterns
             local_theme = torch.mean(local_h, dim=-1)
             local_theme = self.nn_scale(local_theme).to(device)
-            local_theme = self._apply_activation("relu", local_theme)
+            local_theme = self.relu(local_theme)
             local_theme = self.nn_rescale(local_theme).to(device)
-            local_theme = self._apply_activation("sigmoid", local_theme)
+            local_theme = self.sigmoid(local_theme)
 
             local_h = self.nn_conv(local_h).squeeze(-1)
             local_h = local_theme * local_h
@@ -256,7 +240,7 @@ class StageNetLayer(nn.Module):
         return last_output, output, torch.stack(distance)
 
 
-class StageNet(BaseModel):
+class StageNet(BaseModel, Interpretable):
     """StageNet model.
 
     Paper: Junyi Gao et al. Stagenet: Stage-aware neural networks for health
@@ -390,37 +374,9 @@ class StageNet(BaseModel):
             len(self.feature_keys) * self.chunk_size * self.levels, output_size
         )
 
-        self._deeplift_hooks = None
-
-    # ------------------------------------------------------------------
-    # Interpretability support (e.g., DeepLIFT)
-    # ------------------------------------------------------------------
-    def set_deeplift_hooks(self, hooks) -> None:
-        """Attach activation hooks for interpretability algorithms.
-
-        Args:
-            hooks: Object exposing ``apply(name, tensor, **kwargs)`` which
-                will be invoked for activation calls within StageNet layers.
-        """
-
-        self._deeplift_hooks = hooks
-        for layer in self.stagenet.values():
-            if hasattr(layer, "set_activation_hooks"):
-                layer.set_activation_hooks(hooks)
-
-    def clear_deeplift_hooks(self) -> None:
-        """Remove previously registered interpretability hooks."""
-
-        self._deeplift_hooks = None
-        for layer in self.stagenet.values():
-            if hasattr(layer, "set_activation_hooks"):
-                layer.set_activation_hooks(None)
-
     def forward_from_embedding(
         self,
-        feature_embeddings: Dict[str, torch.Tensor],
-        time_info: Optional[Dict[str, torch.Tensor]] = None,
-        **kwargs,
+        **kwargs: torch.Tensor | tuple[torch.Tensor, ...],
     ) -> Dict[str, torch.Tensor]:
         """Forward pass starting from feature embeddings.
 
@@ -430,14 +386,17 @@ class StageNet(BaseModel):
         interpolate in embedding space.
 
         Args:
-            feature_embeddings: Dictionary mapping feature keys to their
-                embedded representations. Each tensor should have shape
-                [batch_size, seq_len, embedding_dim].
-            time_info: Optional dictionary mapping feature keys to their
-                time information tensors of shape [batch_size, seq_len].
-                If None, uniform time intervals are assumed.
-            **kwargs: Additional keyword arguments, must include the label
-                key for loss computation.
+            **kwargs: keyword arguments for the model. The keys must contain
+                all the feature keys and the label key. 
+                
+                It is expected to contain to following semantic tensors:
+                    - "value": the embedded feature tensor of shape [batch, seq_len, embedding_dim] or [batch, seq_len, inner_len, embedding_dim] for nested sequences.
+                    - "time" (optional): the time intervals tensor of shape [batch, seq_len]. If not provided, uniform intervals will be assumed.
+                    - "mask" (optional): the mask tensor of shape [batch, seq_len] or [batch, seq_len, inner_len] for nested sequences. 
+                        If not in the processor schema, it can be provided as the last element of the feature tuple. 
+                        If not provided, masks will be generated from the embedded values (non-zero entries are treated as valid).
+
+                The label key should contain the true labels for loss computation.
 
         Returns:
             A dictionary with the following keys:
@@ -451,74 +410,109 @@ class StageNet(BaseModel):
         distance = []
 
         for feature_key in self.feature_keys:
-            # Get embedded feature
-            x = feature_embeddings[feature_key].to(self.device)
-            # x: [batch, seq_len, embedding_dim] or 4D nested
-
-            # Handle nested sequences (4D) by pooling over inner dim
-            # This matches forward() processing for consistency
-            if x.dim() == 4:  # [batch, seq_len, inner_len, embedding_dim]
-                # Sum pool over inner dimension
-                x = x.sum(dim=2)  # [batch, seq_len, embedding_dim]
-
-            # Get time information if available
-            time = None
-            if time_info is not None and feature_key in time_info:
-                if time_info[feature_key] is not None:
-                    time = time_info[feature_key].to(self.device)
-                    # Ensure time is 2D [batch, seq_len]
-                    if time.dim() == 1:
-                        time = time.unsqueeze(0)
-
-            # Create mask from embedded values
-            mask = (x.sum(dim=-1) != 0).int()  # [batch, seq_len]
+            processor = self.dataset.input_processors[feature_key]
+            schema = processor.schema()
+            feature = kwargs[feature_key]
+            
+            if isinstance(feature, torch.Tensor):
+                # Backward compatibility: if feature is a tensor, treat it as values without time and mask
+                feature = (feature,)
+            
+            time = feature[schema.index("time")] if "time" in schema else None
+            value = feature[schema.index("value")] if "value" in schema else None
+            mask = feature[schema.index("mask")] if "mask" in schema else None
+            
+            if len(feature) == len(schema) + 1 and mask is None:
+                # An optional mask can be provided as the last element if not included in the schema
+                mask = feature[-1]
+            
+            if value is None:
+                raise ValueError(f"Feature '{feature_key}' must contain 'value' in the schema.")
+            else:
+                value = value.to(self.device)
+                
+            if time is None:
+                import warnings
+                warnings.warn(
+                    f"Feature '{feature_key}' does not have time "
+                    f"intervals. StageNet's temporal modeling "
+                    f"capabilities will be limited. Consider using "
+                    f"StageNet format with time intervals for "
+                    f"better performance.",
+                    UserWarning,
+                )
+            else:
+                time = time.to(self.device)
+                # Ensure time is 2D [batch, seq_len]
+                if time.dim() == 1:
+                    time = time.unsqueeze(0)
+            
+            if mask is None:
+                import warnings
+                warnings.warn(
+                    f"Feature '{feature_key}' does not have mask "
+                    f"information. Default mask will be created from "
+                    f"embedded values. But it may not be accurate.",
+                )
+                mask = (value.abs().sum(dim=-1) != 0).int()
+            elif not processor.is_token() and value.dim() == mask.dim():
+                # for continuous features, if mask is provided, 
+                # we need to collapse the feature dimension.
+                mask = mask.any(dim=-1).int()
+            else:
+                mask = mask.to(self.device)
+            
+            if value.dim() == 4:
+                # Nested sequences: [batch, seq_len, inner_len, embedding_dim]
+                value = value.sum(dim=2)        # Sum pool over inner dimension
+                mask = mask.any(dim=2).int()    # Update mask for nested sequences
 
             # Pass through StageNet layer with embedded features
             last_output, _, cur_dis = self.stagenet[feature_key](
-                x, time=time, mask=mask
+                value, time=time, mask=mask
             )
 
             patient_emb.append(last_output)
             distance.append(cur_dis)
 
-        # Concatenate all feature embeddings
         patient_emb = torch.cat(patient_emb, dim=1)
-
-        # Register hook if needed for gradient tracking
-        if patient_emb.requires_grad:
-            patient_emb.register_hook(lambda grad: grad)
-
-        # Pass through final classification layer
+        # (patient, label_size)
         logits = self.fc(patient_emb)
-
-        # Obtain y_true, loss, y_prob
-        y_true = kwargs[self.label_key].to(self.device)
-        loss = self.get_loss_function()(logits, y_true)
-
         y_prob = self.prepare_y_prob(logits)
+        
         results = {
-            "loss": loss,
+            "logit": logits, 
             "y_prob": y_prob,
-            "y_true": y_true,
-            "logit": logits,
         }
-
+        
+        # obtain y_true, loss, y_prob
+        if self.label_key in kwargs:
+            y_true = cast(torch.Tensor, kwargs[self.label_key]).to(self.device)
+            loss = self.get_loss_function()(logits, y_true)
+            results["loss"] = loss
+            results["y_true"] = y_true
+        
         # Optionally return embeddings
         if kwargs.get("embed", False):
             results["embed"] = patient_emb
-
         return results
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+    def forward(
+        self, 
+        **kwargs: torch.Tensor | tuple[torch.Tensor, ...]
+    ) -> Dict[str, torch.Tensor]:
         """Forward propagation.
 
-        The label `kwargs[self.label_key]` is a list of labels for each
-        patient.
-
         Args:
-            **kwargs: keyword arguments for the model. The keys must contain
-                all the feature keys and the label key. Feature keys should
-                contain tuples of (time, values) from temporal processors.
+            **kwargs: keyword arguments for the model. 
+            
+                The keys must contain all the feature keys and the label key. 
+                
+                Feature keys should contain tuples of tensors (time, values) from temporal processors. 
+                But the featurs keys can also contain just the values without time 
+                at the cost of degraded performance.
+                
+                The label key should contain the true labels for loss computation.
 
         Returns:
             A dictionary with the following keys:
@@ -527,157 +521,29 @@ class StageNet(BaseModel):
                 y_prob: a tensor of predicted probabilities.
                 y_true: a tensor representing the true labels.
         """
-        patient_emb = []
-        distance = []
-
         for feature_key in self.feature_keys:
-            # Extract (time, values) tuple
             feature = kwargs[feature_key]
 
-            # Get value and time tensors from tuple
-            if isinstance(feature, tuple) and len(feature) == 2:
-                time, x = feature  # Unpack (time, values)
-                # x: [batch, seq_len] or [batch, seq_len, dim]
-                # time: [batch, seq_len] or None
-
-                # Warn if time information is missing
-                if time is None:
-                    import warnings
-
-                    warnings.warn(
-                        f"Feature '{feature_key}' does not have time "
-                        f"intervals. StageNet's temporal modeling "
-                        f"capabilities will be limited. Consider using "
-                        f"StageNet format with time intervals for "
-                        f"better performance.",
-                        UserWarning,
-                    )
+            if isinstance(feature, torch.Tensor):
+                # Backward compatibility: if feature is a tensor, treat it as values without time
+                feature = (feature,)
+                
+            schema = self.dataset.input_processors[feature_key].schema()
+            
+            value = feature[schema.index("value")] if "value" in schema else None
+            
+            if value is None:
+                raise ValueError(f"Feature '{feature_key}' must contain 'value' in the schema.")
             else:
-                # Fallback for backward compatibility
-                import warnings
+                value = value.to(self.device)
+            
+            value = self.embedding_model({feature_key: value})[feature_key]
+            
+            i = schema.index("value")
+            kwargs[feature_key] = feature[:i] + (value,) + feature[i+1:]
+        
+        return self.forward_from_embedding(**kwargs)
+    
+    def get_embedding_model(self) -> nn.Module | None:
+        return self.embedding_model
 
-                warnings.warn(
-                    f"Feature '{feature_key}' is not a temporal tuple. "
-                    f"Using fallback mode without time intervals. "
-                    f"The model may not learn temporal patterns properly. "
-                    f"Please use 'stagenet' or 'stagenet_tensor' "
-                    f"processors in your input schema.",
-                    UserWarning,
-                )
-                x = feature
-                time = None
-
-            # Embed the values using EmbeddingModel
-            # Need to pass as dict for EmbeddingModel
-            embedded = self.embedding_model({feature_key: x})
-            x = embedded[feature_key]  # [batch, seq_len, embedding_dim]
-            # Handle nested sequences (2D codes -> need pooling on inner dim)
-            if x.dim() == 4:  # [batch, seq_len, inner_len, embedding_dim]
-                # Sum pool over inner dimension
-                x = x.sum(dim=2)  # [batch, seq_len, embedding_dim]
-
-            # Create mask from embedded values
-            mask = (x.sum(dim=-1) != 0).int()  # [batch, seq_len]
-
-            # Move time to correct device if present
-            if time is not None:
-                time = time.to(self.device)
-                # Ensure time is 2D [batch, seq_len]
-                if time.dim() == 1:
-                    time = time.unsqueeze(0)
-
-            # Pass through StageNet layer
-            last_output, _, cur_dis = self.stagenet[feature_key](
-                x, time=time, mask=mask
-            )
-
-            patient_emb.append(last_output)
-
-            distance.append(cur_dis)
-
-        patient_emb = torch.cat(patient_emb, dim=1)
-        # (patient, label_size)
-        logits = self.fc(patient_emb)
-
-        # obtain y_true, loss, y_prob
-        y_true = kwargs[self.label_key].to(self.device)
-        loss = self.get_loss_function()(logits, y_true)
-
-        y_prob = self.prepare_y_prob(logits)
-        results = {
-            "loss": loss,
-            "y_prob": y_prob,
-            "y_true": y_true,
-            "logit": logits,
-        }
-        if kwargs.get("embed", False):
-            results["embed"] = patient_emb
-        return results
-
-
-if __name__ == "__main__":
-    from pyhealth.datasets import create_sample_dataset
-
-    samples = [
-        {
-            "patient_id": "patient-0",
-            "visit_id": "visit-0",
-            "codes": (
-                [0.0, 2.0, 1.3],
-                ["505800458", "50580045810", "50580045811"],
-            ),
-            "procedures": (
-                [0.0, 1.5],
-                [["A05B", "A05C", "A06A"], ["A11D", "A11E"]],
-            ),
-            "label": 1,
-        },
-        {
-            "patient_id": "patient-0",
-            "visit_id": "visit-1",
-            "codes": (
-                [0.0, 2.0, 1.3, 1.0, 2.0],
-                [
-                    "55154191800",
-                    "551541928",
-                    "55154192800",
-                    "705182798",
-                    "70518279800",
-                ],
-            ),
-            "procedures": (
-                [0.0],
-                [["A04A", "B035", "C129"]],
-            ),
-            "label": 0,
-        },
-    ]
-
-    # dataset
-    dataset = create_sample_dataset(
-        samples=samples,
-        input_schema={
-            "codes": "stagenet",
-            "procedures": "stagenet",
-        },
-        output_schema={"label": "binary"},
-        dataset_name="test",
-    )
-
-    # data loader
-    from pyhealth.datasets import get_dataloader
-
-    train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
-
-    # model
-    model = StageNet(dataset=dataset)
-
-    # data batch
-    data_batch = next(iter(train_loader))
-
-    # try the model
-    ret = model(**data_batch)
-    print(ret)
-
-    # try loss backward
-    ret["loss"].backward()
