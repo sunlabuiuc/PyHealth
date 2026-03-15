@@ -720,11 +720,48 @@ class LayerwiseRelevancePropagation:
         if x.dim() > 2:
             x = x.view(x.size(0), -1)
 
-        z = F.linear(x, module.weight, module.bias)
+        # Store original size before any padding
+        original_in_size = x.size(1)
+        expected_in_features = module.weight.size(1)
+        expected_out_features = module.weight.size(0)
+        
+        # Handle dimension mismatch for StageNet concatenation
+        x_padded = x
+        if x.size(1) != expected_in_features:
+            if x.size(1) < expected_in_features:
+                # Pad input with zeros
+                padding = torch.zeros(x.size(0), expected_in_features - x.size(1), 
+                                     device=x.device, dtype=x.dtype)
+                x_padded = torch.cat([x, padding], dim=1)
+            else:
+                # Truncate
+                x_padded = x[:, :expected_in_features]
+
+        z = F.linear(x_padded, module.weight, module.bias)
+        
+        # Match relevance_output to z's output dimension
+        if relevance_output.size(1) != z.size(1):
+            if relevance_output.size(1) < z.size(1):
+                # Pad relevance
+                pad_size = z.size(1) - relevance_output.size(1)
+                relevance_pad = torch.zeros(relevance_output.size(0), pad_size,
+                                            device=relevance_output.device,
+                                            dtype=relevance_output.dtype)
+                relevance_output = torch.cat([relevance_output, relevance_pad], dim=1)
+            else:
+                # Truncate relevance
+                relevance_output = relevance_output[:, :z.size(1)]
+        
         z = stabilize_denominator(z, self.epsilon, rule="epsilon")
         s = relevance_output / z
         c = torch.einsum('bo,oi->bi', s, module.weight)
-        return x * c
+        relevance_input = x_padded * c
+        
+        # Truncate result to match original input size
+        if relevance_input.size(1) != original_in_size:
+            relevance_input = relevance_input[:, :original_in_size]
+        
+        return relevance_input
 
     def _lrp_linear_alphabeta(
         self,
@@ -734,7 +771,7 @@ class LayerwiseRelevancePropagation:
     ) -> torch.Tensor:
         """LRP alphabeta-rule for linear layers.
 
-        Formula: R_i = Σ_j [(α·z_ij^+ / z_j^+) - (β·z_ij^- / z_j^-)] · R_j
+        Formula: R_i = Σ_j  [(α·z_ij^+ / z_j^+) - (β·z_ij^- / z_j^-)] · R_j
         """
         x = activation_info["input"]
         if isinstance(x, tuple):
@@ -742,17 +779,48 @@ class LayerwiseRelevancePropagation:
         if x.dim() > 2:
             x = x.view(x.size(0), -1)
 
+        # Store original size before any padding
+        original_in_size = x.size(1)
+        expected_in_features = module.weight.size(1)
+        
+        # Handle dimension mismatch for StageNet concatenation
+        x_padded = x
+        if x.size(1) != expected_in_features:
+            if x.size(1) < expected_in_features:
+                padding = torch.zeros(x.size(0), expected_in_features - x.size(1), 
+                                     device=x.device, dtype=x.dtype)
+                x_padded = torch.cat([x, padding], dim=1)
+            else:
+                x_padded = x[:, :expected_in_features]
+
         W_pos, W_neg = torch.clamp(module.weight, min=0), torch.clamp(module.weight, max=0)
         b_pos = torch.clamp(module.bias, min=0) if module.bias is not None else None
         b_neg = torch.clamp(module.bias, max=0) if module.bias is not None else None
 
-        z_pos = F.linear(x, W_pos, b_pos) + 1e-9
-        z_neg = F.linear(x, W_neg, b_neg) - 1e-9
+        z_pos = F.linear(x_padded, W_pos, b_pos) + 1e-9
+        z_neg = F.linear(x_padded, W_neg, b_neg) - 1e-9
+        
+        # Match relevance_output to z's output dimension
+        if relevance_output.size(1) != z_pos.size(1):
+            if relevance_output.size(1) < z_pos.size(1):
+                pad_size = z_pos.size(1) - relevance_output.size(1)
+                relevance_pad = torch.zeros(relevance_output.size(0), pad_size,
+                                            device=relevance_output.device,
+                                            dtype=relevance_output.dtype)
+                relevance_output = torch.cat([relevance_output, relevance_pad], dim=1)
+            else:
+                relevance_output = relevance_output[:, :z_pos.size(1)]
 
         c_pos = torch.einsum('bo,oi->bi', relevance_output / z_pos, W_pos)
         c_neg = torch.einsum('bo,oi->bi', relevance_output / z_neg, W_neg)
 
-        return x * (self.alpha * c_pos - self.beta * c_neg)
+        relevance_input = x_padded * (self.alpha * c_pos - self.beta * c_neg)
+        
+        # Truncate result to match original input size
+        if relevance_input.size(1) != original_in_size:
+            relevance_input = relevance_input[:, :original_in_size]
+        
+        return relevance_input
 
     def _lrp_relu(
         self, activation_info: dict, relevance_output: torch.Tensor
