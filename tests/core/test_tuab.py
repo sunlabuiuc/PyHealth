@@ -24,7 +24,11 @@ class _DummyPatient:
         self.patient_id = patient_id
         self._events = events
 
-    def get_events(self) -> List[_DummyEvent]:
+    def get_events(self, event_type=None) -> List[_DummyEvent]:
+        # Treat all dummy events as belonging to the train split so each event
+        # is processed exactly once (eval returns empty).
+        if event_type == "eval":
+            return []
         return self._events
 
 
