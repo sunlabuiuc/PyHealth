@@ -54,8 +54,9 @@ class TestTFMTokenizer(unittest.TestCase):
         self.assertEqual(self.model.emb_size, 64)
         self.assertEqual(self.model.code_book_size, 128)
         self.assertTrue(self.model.use_classifier)
-        self.assertEqual(len(self.model.feature_keys), 1)
+        self.assertEqual(len(self.model.feature_keys), 2)
         self.assertIn("signal", self.model.feature_keys)
+        self.assertIn("stft", self.model.feature_keys)
 
     def test_model_forward(self):
         """Test that the TFMTokenizer forward pass works correctly."""
