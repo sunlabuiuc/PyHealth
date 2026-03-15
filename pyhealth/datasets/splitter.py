@@ -329,6 +329,77 @@ def split_by_patient_conformal(
     return train_dataset, val_dataset, cal_dataset, test_dataset
 
 
+def split_by_sample_conformal_tuh(
+    dataset: SampleDataset,
+    ratios: Union[Tuple[float, float, float], List[float]],
+    seed: Optional[int] = None,
+    get_index: Optional[bool] = False,
+):
+    """Splits a TUH EEG dataset (TUEV/TUAB) using its pre-defined train/eval split.
+
+    Args:
+        dataset: a ``SampleDataset`` object produced by ``EEGEventsTUEV`` or ``EEGAbnormalTUAB``
+        ratios: the fraction of the train pool assigned to train / val / cal respectively
+        seed: random seed for shuffling the train pool
+        get_index: if True, return four ``torch.Tensor`` index vectors instead
+            of ``Subset`` objects
+
+    Returns:
+        train_dataset, val_dataset, cal_dataset, test_dataset
+    """
+    assert len(ratios) == 3, (
+        "ratios must have exactly 3 elements (train/val/cal). "
+        "The test set is determined by the dataset's own eval partition."
+    )
+    assert abs(sum(ratios) - 1.0) < 1e-6, "ratios must sum to 1.0"
+
+    # verify every sample has the required "split" field
+    for i in range(len(dataset)):
+        assert "split" in dataset[i], (
+            f"Sample {i} is missing the 'split' field. "
+            "Make sure you used EEGEventsTUEV or EEGAbnormalTUAB to build the dataset."
+        )
+
+    train_pool: List[int] = []
+    test_list: List[int] = []
+    for i in range(len(dataset)):
+        if dataset[i]["split"] == "train":
+            train_pool.append(i)
+        else:
+            test_list.append(i)
+
+    # shuffle only the train pool
+    if seed is not None:
+        np.random.seed(seed)
+    train_arr = np.array(train_pool)
+    np.random.shuffle(train_arr)
+
+    # Slice into train / val / cal.
+    n = len(train_arr)
+    train_end = int(n * ratios[0])
+    val_end = int(n * (ratios[0] + ratios[1]))
+
+    train_index = train_arr[:train_end]
+    val_index = train_arr[train_end:val_end]
+    cal_index = train_arr[val_end:]
+    test_index = np.array(test_list)
+
+    if get_index:
+        return (
+            torch.tensor(train_index),
+            torch.tensor(val_index),
+            torch.tensor(cal_index),
+            torch.tensor(test_index),
+        )
+    else:
+        return (
+            dataset.subset(train_index),  # type: ignore
+            dataset.subset(val_index),    # type: ignore
+            dataset.subset(cal_index),    # type: ignore
+            dataset.subset(test_index),   # type: ignore
+        )
+
+
 def split_by_sample_conformal(
     dataset: SampleDataset,
     ratios: Union[Tuple[float, float, float, float], List[float]],
