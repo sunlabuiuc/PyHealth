@@ -175,13 +175,13 @@ def _run_one_seed(
         train_dataloader=train_loader,
         val_dataloader=val_loader,
         epochs=epochs,
-        monitor="roc_auc" if val_loader is not None else None,
+        monitor="roc_auc_weighted_ovr" if val_loader is not None else None,
     )
 
     # Base model metrics on fixed test set
     y_true_base, y_prob_base, _ = trainer.inference(test_loader)
-    base_metrics = get_metrics_fn("binary")(
-        y_true_base, y_prob_base, metrics=["accuracy", "roc_auc", "f1"]
+    base_metrics = get_metrics_fn("multiclass")(
+        y_true_base, y_prob_base, metrics=["accuracy", "roc_auc_weighted_ovr", "f1_weighted"]
     )
 
     # Extract embeddings — both depend on the current model so must redo each seed
@@ -202,7 +202,7 @@ def _run_one_seed(
     y_true, y_prob, _, extra = Trainer(model=cov_predictor).inference(
         test_loader, additional_outputs=["y_predset"]
     )
-    conf_metrics = get_metrics_fn("binary")(
+    conf_metrics = get_metrics_fn("multiclass")(
         y_true, y_prob,
         metrics=["accuracy", "miscoverage_ps"],
         y_predset=extra["y_predset"],
@@ -220,8 +220,8 @@ def _run_one_seed(
 
     return {
         "accuracy":    float(base_metrics["accuracy"]),
-        "roc_auc":     float(base_metrics["roc_auc"]),
-        "f1":          float(base_metrics["f1"]),
+        "roc_auc_weighted_ovr":     float(base_metrics["roc_auc_weighted_ovr"]),
+        "f1_weighted":          float(base_metrics["f1_weighted"]),
         "coverage":    1.0 - miscoverage,
         "miscoverage": miscoverage,
         "avg_set_size": avg_set_size,
@@ -231,8 +231,8 @@ def _run_one_seed(
 def _print_single_run_results(metrics: dict, alpha: float) -> None:
     print("\nCovariateLabel Results:")
     print(f"  Accuracy:              {metrics['accuracy']:.4f}")
-    print(f"  ROC-AUC:               {metrics['roc_auc']:.4f}")
-    print(f"  F1:                    {metrics['f1']:.4f}")
+    print(f"  ROC-AUC:               {metrics['roc_auc_weighted_ovr']:.4f}")
+    print(f"  F1:                    {metrics['f1_weighted']:.4f}")
     print(f"  Empirical coverage:    {metrics['coverage']:.4f}")
     print(f"  Empirical miscoverage: {metrics['miscoverage']:.4f}")
     print(f"  Average set size:      {metrics['avg_set_size']:.2f}")
@@ -243,8 +243,8 @@ def _print_multi_seed_summary(
     all_metrics: list, run_seeds: list, alpha: float, n_test: int
 ) -> None:
     accs       = np.array([m["accuracy"]     for m in all_metrics])
-    roc_aucs   = np.array([m["roc_auc"]      for m in all_metrics])
-    f1s        = np.array([m["f1"]           for m in all_metrics])
+    roc_aucs   = np.array([m["roc_auc_weighted_ovr"]      for m in all_metrics])
+    f1s        = np.array([m["f1_weighted"]           for m in all_metrics])
     coverages  = np.array([m["coverage"]     for m in all_metrics])
     miscovs    = np.array([m["miscoverage"]  for m in all_metrics])
     set_sizes  = np.array([m["avg_set_size"] for m in all_metrics])
@@ -259,7 +259,7 @@ def _print_multi_seed_summary(
     for i in range(n_runs):
         m = all_metrics[i]
         print(f"  {i+1:<4} {run_seeds[i]:<6} {m['accuracy']:<10.4f} "
-              f"{m['roc_auc']:<10.4f} {m['f1']:<8.4f} {m['coverage']:<10.4f} "
+              f"{m['roc_auc_weighted_ovr']:<10.4f} {m['f1_weighted']:<8.4f} {m['coverage']:<10.4f} "
               f"{m['miscoverage']:<12.4f} {m['avg_set_size']:<12.2f}")
 
     print("\n" + "=" * 80)
@@ -360,7 +360,7 @@ def _main(args: argparse.Namespace) -> None:
 
         if use_multi_seed:
             print(f"  [Run {run_i + 1} result] "
-                  f"acc={metrics['accuracy']:.4f}, roc_auc={metrics['roc_auc']:.4f}, "
+                  f"acc={metrics['accuracy']:.4f}, roc_auc={metrics['roc_auc_weighted_ovr']:.4f}, "
                   f"cov={metrics['coverage']:.4f}, set_size={metrics['avg_set_size']:.2f}")
 
     if not use_multi_seed:

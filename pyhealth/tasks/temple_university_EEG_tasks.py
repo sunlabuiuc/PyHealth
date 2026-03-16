@@ -229,7 +229,7 @@ class EEGAbnormalTUAB(BaseTask):
 
     task_name: str = "EEG_abnormal"
     input_schema: Dict[str, str] = {"signal": "tensor", "stft": "tensor"}
-    output_schema: Dict[str, str] = {"label": "binary"}
+    output_schema: Dict[str, str] = {"label": "multiclass"}
 
     def __init__(self,
                  resample_rate: float = 200,

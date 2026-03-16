@@ -179,13 +179,13 @@ def _run_one_ncp(
         train_dataloader=train_loader,
         val_dataloader=val_loader,
         epochs=epochs,
-        monitor="roc_auc" if val_loader is not None else None,
+        monitor="roc_auc_weighted_ovr" if val_loader is not None else None,
     )
 
     print("\nBase model performance on test set:")
     y_true_base, y_prob_base, _loss_base = trainer.inference(test_loader)
-    base_metrics = get_metrics_fn("binary")(
-        y_true_base, y_prob_base, metrics=["accuracy", "roc_auc", "f1"]
+    base_metrics = get_metrics_fn("multiclass")(
+        y_true_base, y_prob_base, metrics=["accuracy", "roc_auc_weighted_ovr", "f1_weighted"]
     )
     for metric, value in base_metrics.items():
         print(f"  {metric}: {value:.4f}")
@@ -211,7 +211,7 @@ def _run_one_ncp(
     y_true, y_prob, _loss, extra = Trainer(model=ncp_predictor).inference(
         test_loader, additional_outputs=["y_predset"]
     )
-    ncp_metrics = get_metrics_fn("binary")(
+    ncp_metrics = get_metrics_fn("multiclass")(
         y_true, y_prob, metrics=["accuracy", "miscoverage_ps"], y_predset=extra["y_predset"]
     )
     predset = extra["y_predset"]
@@ -230,8 +230,8 @@ def _run_one_ncp(
     if return_metrics:
         return {
             "accuracy":    float(base_metrics["accuracy"]),
-            "roc_auc":     float(base_metrics["roc_auc"]),
-            "f1":          float(base_metrics["f1"]),
+            "roc_auc_weighted_ovr":     float(base_metrics["roc_auc_weighted_ovr"]),
+            "f1_weighted":          float(base_metrics["f1_weighted"]),
             "coverage":    coverage,
             "miscoverage": miscoverage,
             "avg_set_size": avg_set_size,
@@ -239,8 +239,8 @@ def _run_one_ncp(
 
     print("\nNCP (NeighborhoodLabel) Results:")
     print(f"  Accuracy:              {base_metrics['accuracy']:.4f}")
-    print(f"  ROC-AUC:               {base_metrics['roc_auc']:.4f}")
-    print(f"  F1:                    {base_metrics['f1']:.4f}")
+    print(f"  ROC-AUC:               {base_metrics['roc_auc_weighted_ovr']:.4f}")
+    print(f"  F1:                    {base_metrics['f1_weighted']:.4f}")
     print(f"  Empirical miscoverage: {miscoverage:.4f}")
     print(f"  Empirical coverage:    {coverage:.4f}")
     print(f"  Average set size:      {avg_set_size:.2f}")
@@ -384,8 +384,8 @@ def _run(args: argparse.Namespace) -> None:
             return_metrics=True,
         )
         accs.append(metrics["accuracy"])
-        roc_aucs.append(metrics["roc_auc"])
-        f1s.append(metrics["f1"])
+        roc_aucs.append(metrics["roc_auc_weighted_ovr"])
+        f1s.append(metrics["f1_weighted"])
         coverages.append(metrics["coverage"])
         miscoverages.append(metrics["miscoverage"])
         set_sizes.append(metrics["avg_set_size"])
