@@ -52,7 +52,7 @@ class _Tee:
 from pyhealth.calib.predictionset.covariate import CovariateLabel
 from pyhealth.calib.utils import extract_embeddings
 from pyhealth.datasets import TUEVDataset, get_dataloader, split_by_sample_conformal_tuh, split_by_sample_conformal
-from pyhealth.models import ContraWR
+from pyhealth.models import ContraWR, TFMTokenizer
 from pyhealth.tasks import EEGEventsTUEV
 from pyhealth.trainer import Trainer, get_metrics_fn
 
@@ -90,6 +90,10 @@ def parse_args() -> argparse.Namespace:
              "Must sum to 1.0. Test is fixed as the TUH eval partition.",
     )
     parser.add_argument("--n-fft", type=int, default=128, help="STFT FFT size used by ContraWR.")
+    parser.add_argument(
+        "--model", type=str, default="contrawr", choices=["contrawr", "tfm"],
+        help="Backbone model: 'contrawr' (default) or 'tfm' (TFMTokenizer).",
+    )
     parser.add_argument(
         "--device", type=str, default=None,
         help="Device string, e.g. 'cuda:0' or 'cpu'. Defaults to auto-detect.",
@@ -160,8 +164,12 @@ def _run_one_seed(
         if len(val_ds) else None
     )
 
-    print("  Training ContraWR...")
-    model = ContraWR(dataset=sample_dataset, n_fft=args.n_fft).to(device)
+    model_name = "TFMTokenizer" if args.model == "tfm" else "ContraWR"
+    print(f"  Training {model_name}...")
+    if args.model == "tfm":
+        model = TFMTokenizer(dataset=sample_dataset).to(device)
+    else:
+        model = ContraWR(dataset=sample_dataset, n_fft=args.n_fft).to(device)
     trainer = Trainer(model=model, device=device, enable_logging=False)
     trainer.train(
         train_dataloader=train_loader,

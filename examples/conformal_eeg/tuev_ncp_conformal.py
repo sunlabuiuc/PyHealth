@@ -48,7 +48,7 @@ class _Tee:
 from pyhealth.calib.predictionset.cluster import NeighborhoodLabel
 from pyhealth.calib.utils import extract_embeddings
 from pyhealth.datasets import TUEVDataset, get_dataloader, split_by_sample_conformal_tuh, split_by_sample_conformal
-from pyhealth.models import ContraWR
+from pyhealth.models import ContraWR, TFMTokenizer
 from pyhealth.tasks import EEGEventsTUEV
 from pyhealth.trainer import Trainer, get_metrics_fn
 
@@ -108,6 +108,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--n-fft", type=int, default=128, help="STFT FFT size used by ContraWR.")
     parser.add_argument(
+        "--model", type=str, default="contrawr", choices=["contrawr", "tfm"],
+        help="Backbone model: 'contrawr' (default) or 'tfm' (TFMTokenizer).",
+    )
+    parser.add_argument(
         "--device",
         type=str,
         default=None,
@@ -163,9 +167,13 @@ def _run_one_ncp(
     val_loader = get_dataloader(val_ds, batch_size=args.batch_size, shuffle=False) if len(val_ds) else None
 
     print("\n" + "=" * 80)
-    print("STEP 3: Train ContraWR")
+    model_name = "TFMTokenizer" if args.model == "tfm" else "ContraWR"
+    print(f"STEP 3: Train {model_name}")
     print("=" * 80)
-    model = ContraWR(dataset=sample_dataset, n_fft=args.n_fft).to(device)
+    if args.model == "tfm":
+        model = TFMTokenizer(dataset=sample_dataset).to(device)
+    else:
+        model = ContraWR(dataset=sample_dataset, n_fft=args.n_fft).to(device)
     trainer = Trainer(model=model, device=device, enable_logging=False)
     trainer.train(
         train_dataloader=train_loader,

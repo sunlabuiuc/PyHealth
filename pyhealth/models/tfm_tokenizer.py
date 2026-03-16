@@ -828,11 +828,8 @@ class TFMTokenizer(BaseModel):
             y_true = kwargs[label_key].to(self.device)
 
             # Reshape tokens to (B, C, T) for multi-channel classifier
-            # tokens shape: (B, T) -> (B, 1, T)
-            logits = self.classifier(tokens_reshaped,num_ch=C)
+            logits = self.classifier(tokens_reshaped, num_ch=C)
             loss_fn = self.get_loss_function()
-            print(f"logits shape: {logits.shape}")
-            print(f"y_true shape: {y_true.shape}")
             cls_loss = loss_fn(logits, y_true)
             total_loss = recon_loss + vq_loss + cls_loss
             y_prob = self.prepare_y_prob(logits)
@@ -848,6 +845,11 @@ class TFMTokenizer(BaseModel):
             )
         else:
             results["loss"] = recon_loss + vq_loss
+
+        if kwargs.get("embed", False):
+            # Mean-pool over channels (C) and time steps (T) → (B, emb_size)
+            # quant_out_reshaped: (B, C, T, E)
+            results["embed"] = quant_out_reshaped.mean(dim=(1, 2))
 
         return results
 

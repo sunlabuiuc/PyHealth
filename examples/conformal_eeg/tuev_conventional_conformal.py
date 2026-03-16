@@ -1,19 +1,22 @@
-"""Conventional Conformal Prediction (LABEL) on TUEV EEG Events using ContraWR.
+"""Conventional Conformal Prediction (LABEL) on TUEV EEG Events.
+
+Supports both ContraWR (default) and TFMTokenizer via --model contrawr|tfm.
 
 This script:
 1) Loads the TUEV dataset and applies the EEGEventsTUEV task (once, shared across all seeds).
 2) Extracts the fixed test set (TUH eval partition — never changes across seeds).
-3) For each seed: splits the TUH train partition into train/val/cal, trains ContraWR,
+3) For each seed: splits the TUH train partition into train/val/cal, trains the chosen model,
    calibrates a LABEL predictor, and evaluates on the fixed test set.
 4) Reports per-run results and mean ± std summary across all seeds.
 
 Single-seed usage (from repo root):
   python examples/conformal_eeg/tuev_conventional_conformal.py --root downloads/tuev/v2.0.1/edf
+  python examples/conformal_eeg/tuev_conventional_conformal.py --model tfm --root downloads/tuev/v2.0.1/edf
 
 Multi-seed usage (recommended for papers):
   python examples/conformal_eeg/tuev_conventional_conformal.py \\
-      --root downloads/tuev/v2.0.1/edf --n-seeds 5 --seed 42 --alpha 0.1 \\
-      --log-file tuev_conventional_alpha0.1_5seeds.log
+      --root downloads/tuev/v2.0.1/edf --model tfm --n-seeds 5 --seed 42 --alpha 0.1 \\
+      --log-file tuev_conventional_tfm_alpha0.1_5seeds.log
 """
 
 from __future__ import annotations
@@ -28,7 +31,7 @@ import torch
 
 from pyhealth.calib.predictionset import LABEL
 from pyhealth.datasets import TUEVDataset, get_dataloader, split_by_sample_conformal_tuh, split_by_sample_conformal
-from pyhealth.models import ContraWR
+from pyhealth.models import ContraWR, TFMTokenizer
 from pyhealth.tasks import EEGEventsTUEV
 from pyhealth.trainer import Trainer, get_metrics_fn
 
@@ -52,7 +55,7 @@ class _Tee:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Conventional conformal prediction (LABEL) on TUEV EEG events using ContraWR."
+        description="Conventional conformal prediction (LABEL) on TUEV EEG events."
     )
     parser.add_argument(
         "--root",
@@ -83,6 +86,10 @@ def parse_args() -> argparse.Namespace:
              "Must sum to 1.0. Test is fixed as the TUH eval partition.",
     )
     parser.add_argument("--n-fft", type=int, default=128, help="STFT FFT size used by ContraWR.")
+    parser.add_argument(
+        "--model", type=str, default="contrawr", choices=["contrawr", "tfm"],
+        help="Backbone model: 'contrawr' (default) or 'tfm' (TFMTokenizer).",
+    )
     parser.add_argument(
         "--device", type=str, default=None,
         help="Device string, e.g. 'cuda:0' or 'cpu'. Defaults to auto-detect.",
@@ -152,8 +159,12 @@ def _run_one_seed(
         if len(val_ds) else None
     )
 
-    print("  Training ContraWR...")
-    model = ContraWR(dataset=sample_dataset, n_fft=args.n_fft).to(device)
+    model_name = "TFMTokenizer" if args.model == "tfm" else "ContraWR"
+    print(f"  Training {model_name}...")
+    if args.model == "tfm":
+        model = TFMTokenizer(dataset=sample_dataset).to(device)
+    else:
+        model = ContraWR(dataset=sample_dataset, n_fft=args.n_fft).to(device)
     trainer = Trainer(model=model, device=device, enable_logging=False)
     trainer.train(
         train_dataloader=train_loader,
