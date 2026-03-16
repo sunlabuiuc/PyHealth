@@ -63,7 +63,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--root",
         type=str,
-        default="downloads/tuab/v3.0.0/edf",
+        default="/srv/local/data/TUH/tuh_eeg_abnormal/v3.0.0/edf",
         help="Path to TUAB edf/ folder.",
     )
     parser.add_argument("--subset", type=str, default="both", choices=["train", "eval", "both"])
