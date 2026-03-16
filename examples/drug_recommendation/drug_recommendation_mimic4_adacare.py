@@ -85,7 +85,7 @@ if __name__ == "__main__":
     # STEP 5: Train the model
     trainer = Trainer(
         model=model,
-        device="cuda:1",  # or "cpu"
+        device="cuda:0",  # or "cpu"
         metrics=["pr_auc_samples", "f1_samples", "jaccard_samples"],
     )
 
