@@ -999,18 +999,9 @@ class BaseDataset(ABC):
         samples_path.mkdir(parents=True, exist_ok=True)
 
         def _is_valid_litdata_cache(path: Path) -> bool:
-            """Return True only if index.json exists and at least one .bin chunk file
-            is present alongside it. Checking for .bin files is O(1) and avoids
-            reading/parsing index.json which can be large."""
-            return (path / "index.json").exists() and any(path.glob("*.bin"))
-
-        def _invalidate_cache(path: Path, label: str) -> None:
-            """Remove a corrupt or empty litdata cache directory and recreate it."""
-            logger.warning(
-                f"Corrupt or empty {label} cache at {path}; removing and rebuilding."
-            )
-            shutil.rmtree(path, ignore_errors=True)
-            path.mkdir(parents=True, exist_ok=True)
+            """Return True if index.json exists. litdata only writes index.json after
+            all .bin chunks are flushed, so its presence guarantees a complete cache."""
+            return (path / "index.json").exists()
 
         # Fast path: cache already valid, no lock needed (reads are always safe).
         # Slow path: acquire a per-cache-dir file lock so that concurrent processes
@@ -1027,13 +1018,8 @@ class BaseDataset(ABC):
                         f"Found cached processed samples at {samples_path} (built by another process)."
                     )
                 else:
-                    if (samples_path / "index.json").exists():
-                        _invalidate_cache(samples_path, "samples")
-
-                    # Check if index.json exists and is non-empty to verify cache integrity
+                    # Check if task_df cache is valid; rebuild if not
                     if not _is_valid_litdata_cache(task_df_path):
-                        if (task_df_path / "index.json").exists():
-                            _invalidate_cache(task_df_path, "task_df")
                         self._task_transform(
                             task,
                             task_df_path,
