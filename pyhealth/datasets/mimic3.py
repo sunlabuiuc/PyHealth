@@ -15,7 +15,7 @@ class MIMIC3Dataset(BaseDataset):
     A dataset class for handling MIMIC-III data.
 
     This class is responsible for loading and managing the MIMIC-III dataset,
-    which includes tables such as patients, admissions, and icustays.
+    which includes tables such as patients, admissions, diagnoses_icd, etc.
 
     Attributes:
         root (str): The root directory where the dataset is stored.
@@ -53,7 +53,7 @@ class MIMIC3Dataset(BaseDataset):
         if config_path is None:
             logger.info("No config path provided, using default config")
             config_path = Path(__file__).parent / "configs" / "mimic3.yaml"
-        default_tables = ["patients", "admissions", "icustays"]
+        default_tables = ["patients", "admissions"]
         tables = default_tables + tables
         if "prescriptions" in tables:
             warnings.warn(
