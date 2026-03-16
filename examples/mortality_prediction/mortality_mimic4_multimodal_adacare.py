@@ -29,10 +29,10 @@ if __name__ == "__main__":
     print("=" * 60)
     print("STEP 1: Loading MIMIC-IV Dataset")
     print("=" * 60)
-    
+
     base_dataset = MIMIC4Dataset(
         ehr_root="/srv/local/data/physionet.org/files/mimiciv/2.2/",
-        ehr_tables=["diagnoses_icd", "procedures_icd"],
+        ehr_tables=["diagnoses_icd", "procedures_icd", "prescriptions", "labevents"],
         dev=True,  # Use development mode for faster testing
         num_workers=4,
     )
@@ -42,7 +42,7 @@ if __name__ == "__main__":
     print("\n" + "=" * 60)
     print("STEP 2: Setting Mortality Prediction Task")
     print("=" * 60)
-    
+
     # Use the InHospitalMortalityMIMIC4 task
     # This task will create sequential features from diagnoses and procedures
     task = InHospitalMortalityMIMIC4()
@@ -50,11 +50,11 @@ if __name__ == "__main__":
         task,
         num_workers=4,
     )
-    
+
     print(f"\nTotal samples: {len(sample_dataset)}")
     print(f"Input schema: {sample_dataset.input_schema}")
     print(f"Output schema: {sample_dataset.output_schema}")
-    
+
     # Inspect a sample
     if len(sample_dataset) > 0:
         sample = sample_dataset[0]
@@ -72,11 +72,11 @@ if __name__ == "__main__":
     print("\n" + "=" * 60)
     print("STEP 3: Splitting Dataset")
     print("=" * 60)
-    
+
     train_dataset, val_dataset, test_dataset = split_by_patient(
         sample_dataset, [0.8, 0.1, 0.1]
     )
-    
+
     print(f"Train samples: {len(train_dataset)}")
     print(f"Val samples: {len(val_dataset)}")
     print(f"Test samples: {len(test_dataset)}")
@@ -90,7 +90,7 @@ if __name__ == "__main__":
     print("\n" + "=" * 60)
     print("STEP 4: Initializing MultimodalAdaCare Model")
     print("=" * 60)
-    
+
     model = MultimodalAdaCare(
         dataset=sample_dataset,
         embedding_dim=128,
@@ -106,11 +106,13 @@ if __name__ == "__main__":
 
     num_params = sum(p.numel() for p in model.parameters())
     print(f"Model initialized with {num_params:,} parameters")
-    
+
     # Print feature classification
     print(f"\nSequential features (AdaCare processing): {model.sequential_features}")
-    print(f"Non-sequential features (direct embedding): {model.non_sequential_features}")
-    
+    print(
+        f"Non-sequential features (direct embedding): {model.non_sequential_features}"
+    )
+
     # Calculate expected embedding dimensions
     seq_dim = len(model.sequential_features) * model.hidden_dim
     non_seq_dim = len(model.non_sequential_features) * model.embedding_dim
@@ -124,7 +126,7 @@ if __name__ == "__main__":
     print("\n" + "=" * 60)
     print("STEP 5: Training Model")
     print("=" * 60)
-    
+
     trainer = Trainer(
         model=model,
         device="cuda:0",  # Change to "cpu" if no GPU available
@@ -143,7 +145,7 @@ if __name__ == "__main__":
     print("\n" + "=" * 60)
     print("STEP 6: Evaluating on Test Set")
     print("=" * 60)
-    
+
     results = trainer.evaluate(test_loader)
     print("\nTest Results:")
     for metric, value in results.items():
@@ -153,9 +155,9 @@ if __name__ == "__main__":
     print("\n" + "=" * 60)
     print("STEP 7: Sample Predictions and Feature Importance")
     print("=" * 60)
-    
+
     import torch
-    
+
     sample_batch = next(iter(test_loader))
     with torch.no_grad():
         output = model(**sample_batch)
@@ -163,19 +165,23 @@ if __name__ == "__main__":
     print(f"\nBatch size: {output['y_prob'].shape[0]}")
     print(f"First 10 predicted probabilities:")
     for i, (prob, true_label) in enumerate(
-        zip(output['y_prob'][:10], output['y_true'][:10])
+        zip(output["y_prob"][:10], output["y_true"][:10])
     ):
         print(f"  Sample {i+1}: prob={prob.item():.4f}, true={int(true_label.item())}")
 
     # Display feature importance information
     print(f"\nFeature Importance outputs:")
-    print(f"  Number of sequential features with importance: {len(output['feature_importance'])}")
-    print(f"  Number of sequential features with conv importance: {len(output['conv_feature_importance'])}")
-    
-    if len(output['feature_importance']) > 0:
+    print(
+        f"  Number of sequential features with importance: {len(output['feature_importance'])}"
+    )
+    print(
+        f"  Number of sequential features with conv importance: {len(output['conv_feature_importance'])}"
+    )
+
+    if len(output["feature_importance"]) > 0:
         for i, feat_key in enumerate(model.sequential_features):
-            feat_imp = output['feature_importance'][i]
-            conv_imp = output['conv_feature_importance'][i]
+            feat_imp = output["feature_importance"][i]
+            conv_imp = output["conv_feature_importance"][i]
             print(f"\n  Feature '{feat_key}':")
             print(f"    Input feature importance shape: {feat_imp.shape}")
             print(f"    Conv feature importance shape: {conv_imp.shape}")
@@ -194,4 +200,3 @@ if __name__ == "__main__":
     print("  - Input feature importance (original features)")
     print("  - Convolutional feature importance (scale-adaptive features)")
     print("=" * 60)
-

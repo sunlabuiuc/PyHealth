@@ -23,7 +23,7 @@ if __name__ == "__main__":
     # STEP 1: Load MIMIC-IV base dataset
     base_dataset = MIMIC4Dataset(
         ehr_root="/srv/local/data/physionet.org/files/mimiciv/2.2/",
-        cache_dir="/shared/eng/pyhealth_agent/baselines",
+        cache_dir="/shared/eng/pyhealth_agent/baselines",  # Change this to your desired cache directory
         ehr_tables=[
             "patients",
             "admissions",

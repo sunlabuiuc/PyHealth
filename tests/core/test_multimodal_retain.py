@@ -244,6 +244,28 @@ class TestMultimodalRETAIN(unittest.TestCase):
         self.assertIn("loss", ret)
         self.assertIn("y_prob", ret)
 
+    def test_output_shapes(self):
+        """Test that output shapes are correct for multimodal inputs."""
+        train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=True)
+        data_batch = next(iter(train_loader))
+
+        with torch.no_grad():
+            ret = self.model(**data_batch)
+
+        self.assertEqual(ret["y_prob"].shape, (2, 1))
+        self.assertEqual(ret["y_true"].shape, (2, 1))
+        self.assertEqual(ret["logit"].shape, (2, 1))
+
+    def test_loss_is_finite(self):
+        """Test that the loss is finite."""
+        train_loader = get_dataloader(self.dataset, batch_size=2, shuffle=True)
+        data_batch = next(iter(train_loader))
+
+        with torch.no_grad():
+            ret = self.model(**data_batch)
+
+        self.assertTrue(torch.isfinite(ret["loss"]).all())
+
     def test_sequential_processor_classification(self):
         """Test that _is_sequential_processor correctly identifies processor types."""
         from pyhealth.processors import (
