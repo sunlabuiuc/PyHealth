@@ -50,7 +50,7 @@ class _Tee:
 
 from pyhealth.calib.predictionset.cluster import ClusterLabel
 from pyhealth.calib.utils import extract_embeddings
-from pyhealth.datasets import TUEVDataset, get_dataloader, split_by_sample_conformal_tuh
+from pyhealth.datasets import TUEVDataset, get_dataloader, split_by_sample_conformal_tuh, split_by_sample_conformal
 from pyhealth.models import ContraWR
 from pyhealth.tasks import EEGEventsTUEV
 from pyhealth.trainer import Trainer, get_metrics_fn
@@ -317,6 +317,11 @@ def _main(args: argparse.Namespace) -> None:
     _, _, _, test_ds = split_by_sample_conformal_tuh(
         dataset=sample_dataset, ratios=list(args.ratios), seed=args.seed
     )
+    if len(test_ds) == 0 and args.quick_test:
+        print("  [quick-test] TUH eval partition empty in dev mode — using random 20% as test set.")
+        _, _, _, test_ds = split_by_sample_conformal(
+            dataset=sample_dataset, ratios=[0.6, 0.1, 0.1, 0.2], seed=args.seed
+        )
     test_loader = get_dataloader(test_ds, batch_size=args.batch_size, shuffle=False)
     print(f"Test: {len(test_ds)} (fixed)")
 
