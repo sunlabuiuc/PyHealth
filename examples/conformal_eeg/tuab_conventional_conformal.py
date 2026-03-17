@@ -168,7 +168,7 @@ def _run_one_seed(
         train_dataloader=train_loader,
         val_dataloader=val_loader,
         epochs=epochs,
-        monitor="roc_auc_weighted_ovr" if val_loader is not None else None,
+        monitor="accuracy" if val_loader is not None else None,
     )
 
     # Base model metrics on fixed test set
