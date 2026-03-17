@@ -1,22 +1,6 @@
 """
 PyHealth task for multi-label ECG classification using the CardiologyDataset.
 
-Dataset link:
-    https://physionet.org/content/challenge-2020/1.0.2/
-
-Dataset paper: (please cite if you use this dataset)
-    Erick A Perez Alday, Annie Gu, Amit J Shah, et al. "Classification of
-    12-lead ECGs: the PhysioNet/Computing in Cardiology Challenge 2020."
-    Physiological Measurement, 41(12):124003, 2020.
-
-Task paper: (please cite if you use this task)
-    Naoki Nonaka and Jun Seita. "In-depth Benchmarking of Deep Neural Network
-    Architectures for ECG Diagnosis." Proceedings of Machine Learning Research,
-    vol. 149, pp. 1–17, 2021.
-
-Task paper link:
-    https://proceedings.mlr.press/v149/nonaka21a/nonaka21a.pdf
-
 Author:
     John Ma (jm119@illinois.edu)
 """
