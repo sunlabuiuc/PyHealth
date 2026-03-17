@@ -18,7 +18,22 @@ def get_processor(name: str):
 
 
 # Import all processors so they register themselves
-from .image_processor import ImageProcessor
+
+# ImageProcessor and TimeImageProcessor depend on torchvision / PIL which may
+# not be installed in lightweight environments (e.g. Colab default runtime).
+# Guard them so the rest of the package stays importable.
+try:
+    from .image_processor import ImageProcessor
+    _has_image_processor = True
+except (ImportError, RuntimeError):
+    _has_image_processor = False
+
+try:
+    from .time_image_processor import TimeImageProcessor
+    _has_time_image_processor = True
+except (ImportError, RuntimeError):
+    _has_time_image_processor = False
+
 from .label_processor import (
     BinaryLabelProcessor,
     MultiClassLabelProcessor,
@@ -44,7 +59,6 @@ from .stagenet_processor import (
 from .tensor_processor import TensorProcessor
 from .text_processor import TextProcessor
 from .timeseries_processor import TimeseriesProcessor
-from .time_image_processor import TimeImageProcessor
 from .graph_processor import GraphProcessor
 from .audio_processor import AudioProcessor
 from .ignore_processor import IgnoreProcessor
@@ -57,12 +71,11 @@ from .base_processor import (
     ModalityType,
     TemporalFeatureProcessor,
 )
+
 __all__ = [
     "FeatureProcessor",
     "ModalityType",
     "TemporalFeatureProcessor",
-    "ImageProcessor",
-    "LabelProcessor",
     "MultiHotProcessor",
     "NestedFloatsProcessor",
     "NestedSequenceProcessor",
@@ -75,8 +88,12 @@ __all__ = [
     "TemporalTimeseriesProcessor",
     "TextProcessor",
     "TimeseriesProcessor",
-    "TimeImageProcessor",
     "GraphProcessor",
     "AudioProcessor",
     "TupleTimeTextProcessor",
 ]
+
+if _has_image_processor:
+    __all__.append("ImageProcessor")
+if _has_time_image_processor:
+    __all__.append("TimeImageProcessor")
