@@ -75,6 +75,10 @@ def parse_args() -> argparse.Namespace:
         help="Miscoverage rate (e.g., 0.1 => 90% target coverage).",
     )
     parser.add_argument(
+        "--alphas", type=str, default=None,
+        help="Comma-separated miscoverage rates, e.g. '0.2,0.1,0.05,0.01'. Overrides --alpha.",
+    )
+    parser.add_argument(
         "--ratios",
         type=float,
         nargs=3,
@@ -134,14 +138,14 @@ def _run_one_seed(
     device: str,
     epochs: int,
     run_seed: int,
+    alphas: list,
 ) -> dict:
-    """Train ContraWR + calibrate LABEL predictor for one seed.
+    """Train model + calibrate LABEL for one seed across all alphas.
 
-    The test set is passed in pre-built (fixed TUH eval partition).
-    Only train/val/cal (and model weights) vary per seed.
+    Training and base-model inference are done once; calibration loops over alphas (fast).
 
-    Returns a dict with keys:
-        accuracy, roc_auc, f1, coverage, miscoverage, avg_set_size
+    Returns {alpha: metrics_dict} where metrics_dict has keys:
+        accuracy, roc_auc_weighted_ovr, f1_weighted, coverage, miscoverage, avg_set_size
     """
     set_seed(run_seed)
 
@@ -171,45 +175,47 @@ def _run_one_seed(
         monitor="accuracy" if val_loader is not None else None,
     )
 
-    # Base model metrics on fixed test set
+    # Base model metrics — computed once, shared across all alphas
     y_true_base, y_prob_base, _ = trainer.inference(test_loader)
     base_metrics = get_metrics_fn("multiclass")(
         y_true_base, y_prob_base, metrics=["accuracy", "roc_auc_weighted_ovr", "f1_weighted"]
     )
 
-    # Conformal calibration + evaluation
-    print("  Calibrating LABEL predictor...")
-    label_predictor = LABEL(model=model, alpha=float(args.alpha))
-    label_predictor.calibrate(cal_dataset=cal_ds)
+    # Calibration + evaluation — fast; loop over every alpha
+    results = {}
+    for alpha in alphas:
+        print(f"  Calibrating LABEL predictor (alpha={alpha})...")
+        label_predictor = LABEL(model=model, alpha=float(alpha))
+        label_predictor.calibrate(cal_dataset=cal_ds)
 
-    print("  Evaluating LABEL predictor on test set...")
-    y_true, y_prob, _, extra = Trainer(model=label_predictor).inference(
-        test_loader, additional_outputs=["y_predset"]
-    )
-    conf_metrics = get_metrics_fn("multiclass")(
-        y_true, y_prob,
-        metrics=["accuracy", "miscoverage_ps"],
-        y_predset=extra["y_predset"],
-    )
+        y_true, y_prob, _, extra = Trainer(model=label_predictor).inference(
+            test_loader, additional_outputs=["y_predset"]
+        )
+        conf_metrics = get_metrics_fn("multiclass")(
+            y_true, y_prob,
+            metrics=["accuracy", "miscoverage_ps"],
+            y_predset=extra["y_predset"],
+        )
 
-    predset = extra["y_predset"]
-    predset_t = torch.tensor(predset) if isinstance(predset, np.ndarray) else predset
-    avg_set_size = predset_t.float().sum(dim=1).mean().item()
+        predset = extra["y_predset"]
+        predset_t = torch.tensor(predset) if isinstance(predset, np.ndarray) else predset
+        avg_set_size = predset_t.float().sum(dim=1).mean().item()
 
-    miscoverage = conf_metrics["miscoverage_ps"]
-    if isinstance(miscoverage, np.ndarray):
-        miscoverage = float(miscoverage.item() if miscoverage.size == 1 else miscoverage.mean())
-    else:
-        miscoverage = float(miscoverage)
+        miscoverage = conf_metrics["miscoverage_ps"]
+        if isinstance(miscoverage, np.ndarray):
+            miscoverage = float(miscoverage.item() if miscoverage.size == 1 else miscoverage.mean())
+        else:
+            miscoverage = float(miscoverage)
 
-    return {
-        "accuracy":    float(base_metrics["accuracy"]),
-        "roc_auc_weighted_ovr":     float(base_metrics["roc_auc_weighted_ovr"]),
-        "f1_weighted":          float(base_metrics["f1_weighted"]),
-        "coverage":    1.0 - miscoverage,
-        "miscoverage": miscoverage,
-        "avg_set_size": avg_set_size,
-    }
+        results[alpha] = {
+            "accuracy":             float(base_metrics["accuracy"]),
+            "roc_auc_weighted_ovr": float(base_metrics["roc_auc_weighted_ovr"]),
+            "f1_weighted":          float(base_metrics["f1_weighted"]),
+            "coverage":             1.0 - miscoverage,
+            "miscoverage":          miscoverage,
+            "avg_set_size":         avg_set_size,
+        }
+    return results
 
 
 def _print_single_run_results(metrics: dict, alpha: float) -> None:
@@ -321,36 +327,41 @@ def _main(args: argparse.Namespace) -> None:
     else:
         run_seeds = [args.seed + i for i in range(args.n_seeds)]
 
+    alphas = [float(a.strip()) for a in args.alphas.split(",")] if args.alphas else [args.alpha]
+
     use_multi_seed = len(run_seeds) > 1
     print(f"\nRun config: {'multi-seed (' + str(len(run_seeds)) + ' runs)' if use_multi_seed else 'single run'}")
-    print(f"Seeds: {run_seeds}, alpha={args.alpha}, target coverage={1 - args.alpha:.0%}")
+    print(f"Seeds: {run_seeds}, alphas={alphas}")
 
     # -------------------------------------------------------------------------
-    # STEP 3+: Train + conformal (once per seed)
+    # STEP 3+: Train once per seed; calibrate for every alpha (fast)
     # -------------------------------------------------------------------------
-    all_metrics = []
+    all_metrics = {alpha: [] for alpha in alphas}
     for run_i, run_seed in enumerate(run_seeds):
         print("\n" + "=" * 80)
         if use_multi_seed:
             print(f"Run {run_i + 1} / {len(run_seeds)}  (seed={run_seed})")
         else:
-            print(f"STEP 3–4: Train ContraWR + Conformal Calibration  (seed={run_seed})")
+            print(f"STEP 3–4: Train + Conformal Calibration  (seed={run_seed})")
         print("=" * 80)
 
-        metrics = _run_one_seed(
-            args, sample_dataset, test_ds, test_loader, device, epochs, run_seed
+        seed_results = _run_one_seed(
+            args, sample_dataset, test_ds, test_loader, device, epochs, run_seed, alphas
         )
-        all_metrics.append(metrics)
+        for alpha in alphas:
+            all_metrics[alpha].append(seed_results[alpha])
 
         if use_multi_seed:
-            print(f"  [Run {run_i + 1} result] "
-                  f"acc={metrics['accuracy']:.4f}, roc_auc={metrics['roc_auc_weighted_ovr']:.4f}, "
-                  f"cov={metrics['coverage']:.4f}, set_size={metrics['avg_set_size']:.2f}")
+            m = seed_results[alphas[0]]
+            print(f"  [Run {run_i + 1} result (alpha={alphas[0]})] "
+                  f"acc={m['accuracy']:.4f}, roc_auc={m['roc_auc_weighted_ovr']:.4f}, "
+                  f"cov={m['coverage']:.4f}, set_size={m['avg_set_size']:.2f}")
 
-    if not use_multi_seed:
-        _print_single_run_results(all_metrics[0], args.alpha)
-    else:
-        _print_multi_seed_summary(all_metrics, run_seeds, args.alpha, len(test_ds))
+    for alpha in alphas:
+        if not use_multi_seed:
+            _print_single_run_results(all_metrics[alpha][0], alpha)
+        else:
+            _print_multi_seed_summary(all_metrics[alpha], run_seeds, alpha, len(test_ds))
 
 
 def main() -> None:
