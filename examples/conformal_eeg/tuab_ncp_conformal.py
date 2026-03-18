@@ -20,6 +20,7 @@ Example (from repo root):
 from __future__ import annotations
 
 import argparse
+import os
 import random
 import sys
 from pathlib import Path
@@ -47,7 +48,7 @@ class _Tee:
 
 from pyhealth.calib.predictionset.cluster import NeighborhoodLabel
 from pyhealth.calib.utils import extract_embeddings
-from pyhealth.datasets import TUABDataset, get_dataloader, split_by_sample_conformal_tuh, split_by_sample_conformal
+from pyhealth.datasets import TUABDataset, get_dataloader, split_by_patient_conformal_tuh, split_by_sample_conformal
 from pyhealth.models import ContraWR, TFMTokenizer
 from pyhealth.tasks import EEGAbnormalTUAB
 from pyhealth.trainer import Trainer, get_metrics_fn
@@ -132,7 +133,30 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Smoke test: dev=True, max 2000 samples, 2 epochs, ~5-10 min.",
     )
+    parser.add_argument(
+        "--weights-dir",
+        type=str,
+        default="weightfiles/TFM_Tokenizer_multiple_finetuned_on_TUAB",
+        help="Root folder of fine-tuned TFM classifier checkpoints (only with --model tfm).",
+    )
+    parser.add_argument(
+        "--tokenizer-weights",
+        type=str,
+        default="weightfiles/tfm_tokenizer_last.pth",
+        help="Path to the pre-trained TFM tokenizer weights (only with --model tfm).",
+    )
     return parser.parse_args()
+
+
+def _load_tfm_weights(model, args, run_idx: int) -> None:
+    """Load pre-trained tokenizer + fine-tuned classifier for run_idx (0-based)."""
+    base = os.path.basename(args.weights_dir)
+    classifier_path = os.path.join(args.weights_dir, f"{base}_{run_idx + 1}", "best_model.pth")
+    print(f"  Loading TFM weights (run {run_idx + 1}): {classifier_path}")
+    model.load_pretrained_weights(
+        tokenizer_checkpoint_path=args.tokenizer_weights,
+        classifier_checkpoint_path=classifier_path,
+    )
 
 
 def set_seed(seed: int) -> None:
@@ -149,7 +173,7 @@ def _split_train_pool_for_run(sample_dataset, ratios, run_seed):
     The test set (TUH eval partition) is always fixed regardless of seed, so
     only train/val/cal change across runs in multi-seed mode.
     """
-    train_ds, val_ds, cal_ds, _ = split_by_sample_conformal_tuh(
+    train_ds, val_ds, cal_ds, _ = split_by_patient_conformal_tuh(
         sample_dataset, ratios=ratios, seed=run_seed
     )
     return train_ds, val_ds, cal_ds
@@ -165,6 +189,7 @@ def _run_one_ncp(
     device,
     epochs,
     alphas: list,
+    run_idx: int = 0,
 ):
     """Train model + calibrate NCP for one seed across all alphas.
 
@@ -177,19 +202,20 @@ def _run_one_ncp(
     train_loader = get_dataloader(train_ds, batch_size=args.batch_size, shuffle=True)
     val_loader = get_dataloader(val_ds, batch_size=args.batch_size, shuffle=False) if len(val_ds) else None
 
-    model_name = "TFMTokenizer" if args.model == "tfm" else "ContraWR"
-    print(f"  Training {model_name}...")
     if args.model == "tfm":
         model = TFMTokenizer(dataset=sample_dataset).to(device)
+        _load_tfm_weights(model, args, run_idx)
     else:
         model = ContraWR(dataset=sample_dataset, n_fft=args.n_fft).to(device)
+        print("  Training ContraWR...")
+        trainer_tmp = Trainer(model=model, device=device, enable_logging=False)
+        trainer_tmp.train(
+            train_dataloader=train_loader,
+            val_dataloader=val_loader,
+            epochs=epochs,
+            monitor="accuracy" if val_loader is not None else None,
+        )
     trainer = Trainer(model=model, device=device, enable_logging=False)
-    trainer.train(
-        train_dataloader=train_loader,
-        val_dataloader=val_loader,
-        epochs=epochs,
-        monitor="accuracy" if val_loader is not None else None,
-    )
 
     # Base model metrics — computed once, shared across all alphas
     y_true_base, y_prob_base, _ = trainer.inference(test_loader)
@@ -308,7 +334,7 @@ def _run(args: argparse.Namespace) -> None:
     print("\n" + "=" * 80)
     print("STEP 2: Extract fixed test set (TUH eval partition — same for all seeds)")
     print("=" * 80)
-    _, _, _, test_ds = split_by_sample_conformal_tuh(
+    _, _, _, test_ds = split_by_patient_conformal_tuh(
         dataset=sample_dataset, ratios=ratios, seed=args.split_seed
     )
     if len(test_ds) == 0 and args.quick_test:
@@ -349,6 +375,7 @@ def _run(args: argparse.Namespace) -> None:
             device=device,
             epochs=epochs,
             alphas=alphas,
+            run_idx=run_i,
         )
         for alpha in alphas:
             all_metrics[alpha].append(seed_results[alpha])
