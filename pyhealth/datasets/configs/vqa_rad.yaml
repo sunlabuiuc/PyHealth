@@ -1,0 +1,14 @@
+version: "1.0"
+tables:
+  vqa_rad:
+    file_path: "vqa_rad-metadata-pyhealth.csv"
+    patient_id: "patient_id"
+    timestamp: null
+    attributes:
+    - "path"
+    - "question"
+    - "answer"
+    - "split"
+    - "question_id"
+    - "image_id"
+    - "dataset"

@@ -65,6 +65,7 @@ from .sample_dataset import SampleBuilder, SampleDataset, create_sample_dataset
 from .shhs import SHHSDataset
 from .sleepedf import SleepEDFDataset
 from .bmd_hs import BMDHSDataset
+from .path_vqa import PathVQADataset
 from .support2 import Support2Dataset
 from .tcga_prad import TCGAPRADDataset
 from .splitter import (
@@ -77,6 +78,7 @@ from .splitter import (
 )
 from .tuab import TUABDataset
 from .tuev import TUEVDataset
+from .vqa_rad import VQARADDataset
 from .utils import (
     collate_fn_dict,
     collate_fn_dict_with_padding,

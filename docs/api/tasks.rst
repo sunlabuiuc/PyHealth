@@ -94,6 +94,7 @@ Available Tasks
     Temple University EEG Tasks <tasks/pyhealth.tasks.temple_university_EEG_tasks>
     Sleep Staging v2 <tasks/pyhealth.tasks.sleep_staging_v2>
     Benchmark EHRShot <tasks/pyhealth.tasks.benchmark_ehrshot>
+    Generative Medical VQA <tasks/pyhealth.tasks.GenerativeMedicalVQA>
     ChestX-ray14 Binary Classification <tasks/pyhealth.tasks.ChestXray14BinaryClassification>
     ChestX-ray14 Multilabel Classification <tasks/pyhealth.tasks.ChestXray14MultilabelClassification>
     Variant Classification (ClinVar) <tasks/pyhealth.tasks.VariantClassificationClinVar>

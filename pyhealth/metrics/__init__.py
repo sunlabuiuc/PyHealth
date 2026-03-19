@@ -1,5 +1,11 @@
 from .binary import binary_metrics_fn
 from .drug_recommendation import ddi_rate_score
+from .generative import (
+    bertscore_f1_score,
+    exact_match_score,
+    generative_metrics_fn,
+    normalize_text_for_exact_match,
+)
 from .interpretability import (
     ComprehensivenessMetric,
     Evaluator,
@@ -17,6 +23,10 @@ from .regression import regression_metrics_fn
 __all__ = [
     "binary_metrics_fn",
     "ddi_rate_score",
+    "normalize_text_for_exact_match",
+    "exact_match_score",
+    "bertscore_f1_score",
+    "generative_metrics_fn",
     "ComprehensivenessMetric",
     "SufficiencyMetric",
     "RemovalBasedMetric",
