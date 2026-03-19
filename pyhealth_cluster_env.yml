@@ -15,7 +15,7 @@ dependencies:
   # Pinning both to same minor version avoids mismatch errors.
   - pytorch=2.7.1
   - torchvision=0.22.1
-  - pytorch-cuda=12.6
+  - pytorch-cuda=12.4
 
   # ── Scientific stack ────────────────────────────────────
   - numpy>=2.0
