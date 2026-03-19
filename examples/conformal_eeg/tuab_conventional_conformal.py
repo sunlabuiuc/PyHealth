@@ -1,24 +1,48 @@
 """Conventional Conformal Prediction (LABEL) on TUAB Abnormal EEG Detection using ContraWR.
 
 This script:
-1) Loads the TUAB dataset and applies the EEGAbnormalTUAB task.
-2) Splits into train/val/cal/test using the TUH-aware split conformal protocol.
-3) Trains a ContraWR model.
-4) Calibrates a LABEL prediction-set predictor on the calibration split.
-5) Evaluates prediction-set coverage/miscoverage and efficiency on the test split.
+1) Loads the TUAB dataset and applies the EEGAbnormalTUAB task (once, shared across all seeds).
+2) Extracts the fixed test set (TUH eval partition — never changes across seeds).
+3) For each seed: splits the TUH train partition into train/val/cal, trains ContraWR,
+   calibrates a LABEL predictor, and evaluates on the fixed test set.
+4) Reports per-run results and mean ± std summary across all seeds.
 
-Example (from repo root):
+Single-seed usage (from repo root):
   python examples/conformal_eeg/tuab_conventional_conformal.py --root downloads/tuab/v3.0.0/edf
+
+Multi-seed usage (recommended for papers):
+  python examples/conformal_eeg/tuab_conventional_conformal.py \\
+      --root downloads/tuab/v3.0.0/edf --n-seeds 5 --seed 42 --alpha 0.1 \\
+      --log-file tuab_conventional_alpha0.1_5seeds.log
 """
 
 from __future__ import annotations
 
 import argparse
 import random
+import sys
 from pathlib import Path
 
 import numpy as np
 import torch
+
+
+class _Tee:
+    """Writes to both a stream and a file simultaneously."""
+
+    def __init__(self, stream, file):
+        self._stream = stream
+        self._file = file
+
+    def write(self, data):
+        self._stream.write(data)
+        self._file.write(data)
+        self._file.flush()
+
+    def flush(self):
+        self._stream.flush()
+        self._file.flush()
+
 
 from pyhealth.calib.predictionset import LABEL
 from pyhealth.datasets import TUABDataset, get_dataloader, split_by_sample_conformal_tuh
@@ -38,24 +62,54 @@ def parse_args() -> argparse.Namespace:
         help="Path to TUAB edf/ folder.",
     )
     parser.add_argument("--subset", type=str, default="both", choices=["train", "eval", "both"])
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Base seed. With --n-seeds N, runs seeds seed, seed+1, ..., seed+N-1.",
+    )
     parser.add_argument("--batch-size", type=int, default=32)
-    parser.add_argument("--epochs", type=int, default=2)
-    parser.add_argument("--alpha", type=float, default=0.1, help="Miscoverage rate (e.g., 0.1 => 90% target coverage).")
+    parser.add_argument("--epochs", type=int, default=20)
+    parser.add_argument(
+        "--alpha", type=float, default=0.1,
+        help="Miscoverage rate (e.g., 0.1 => 90% target coverage).",
+    )
     parser.add_argument(
         "--ratios",
         type=float,
         nargs=3,
         default=(0.6, 0.2, 0.2),
         metavar=("TRAIN", "VAL", "CAL"),
-        help="Ratios for splitting the TUH train partition into train/val/cal. Must sum to 1.0. Test is fixed as the TUH eval partition.",
+        help="Ratios for splitting the TUH train partition into train/val/cal. "
+             "Must sum to 1.0. Test is fixed as the TUH eval partition.",
     )
     parser.add_argument("--n-fft", type=int, default=128, help="STFT FFT size used by ContraWR.")
     parser.add_argument(
-        "--device",
+        "--device", type=str, default=None,
+        help="Device string, e.g. 'cuda:0' or 'cpu'. Defaults to auto-detect.",
+    )
+    parser.add_argument(
+        "--n-seeds",
+        type=int,
+        default=1,
+        help="Number of seeds to run sequentially for mean±std reporting. "
+             "Seeds are seed, seed+1, ..., seed+n_seeds-1.",
+    )
+    parser.add_argument(
+        "--seeds",
         type=str,
         default=None,
-        help="Device string, e.g. 'cuda:0' or 'cpu'. Defaults to auto-detect.",
+        help="Explicit comma-separated seeds, e.g. '42,43,44,45,46'. "
+             "Overrides --seed and --n-seeds.",
+    )
+    parser.add_argument(
+        "--log-file", type=str, default=None,
+        help="Path to log file. Stdout and stderr are teed to this file.",
+    )
+    parser.add_argument(
+        "--quick-test",
+        action="store_true",
+        help="Smoke test: dev=True, max 2000 samples, 2 epochs.",
     )
     return parser.parse_args()
 
@@ -68,10 +122,142 @@ def set_seed(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
-def main() -> None:
-    args = parse_args()
-    set_seed(args.seed)
+def _run_one_seed(
+    args,
+    sample_dataset,
+    test_ds,
+    test_loader,
+    device: str,
+    epochs: int,
+    run_seed: int,
+) -> dict:
+    """Train ContraWR + calibrate LABEL predictor for one seed.
 
+    The test set is passed in pre-built (fixed TUH eval partition).
+    Only train/val/cal (and model weights) vary per seed.
+
+    Returns a dict with keys:
+        accuracy, roc_auc, f1, coverage, miscoverage, avg_set_size
+    """
+    set_seed(run_seed)
+
+    train_ds, val_ds, cal_ds, _ = split_by_sample_conformal_tuh(
+        dataset=sample_dataset, ratios=list(args.ratios), seed=run_seed
+    )
+    print(f"  Split — Train: {len(train_ds)}, Val: {len(val_ds)}, "
+          f"Cal: {len(cal_ds)}, Test: {len(test_ds)} (fixed)")
+
+    train_loader = get_dataloader(train_ds, batch_size=args.batch_size, shuffle=True)
+    val_loader = (
+        get_dataloader(val_ds, batch_size=args.batch_size, shuffle=False)
+        if len(val_ds) else None
+    )
+
+    print("  Training ContraWR...")
+    model = ContraWR(dataset=sample_dataset, n_fft=args.n_fft).to(device)
+    trainer = Trainer(model=model, device=device, enable_logging=False)
+    trainer.train(
+        train_dataloader=train_loader,
+        val_dataloader=val_loader,
+        epochs=epochs,
+        monitor="roc_auc" if val_loader is not None else None,
+    )
+
+    # Base model metrics on fixed test set
+    y_true_base, y_prob_base, _ = trainer.inference(test_loader)
+    base_metrics = get_metrics_fn("binary")(
+        y_true_base, y_prob_base, metrics=["accuracy", "roc_auc", "f1"]
+    )
+
+    # Conformal calibration + evaluation
+    print("  Calibrating LABEL predictor...")
+    label_predictor = LABEL(model=model, alpha=float(args.alpha))
+    label_predictor.calibrate(cal_dataset=cal_ds)
+
+    print("  Evaluating LABEL predictor on test set...")
+    y_true, y_prob, _, extra = Trainer(model=label_predictor).inference(
+        test_loader, additional_outputs=["y_predset"]
+    )
+    conf_metrics = get_metrics_fn("binary")(
+        y_true, y_prob,
+        metrics=["accuracy", "miscoverage_ps"],
+        y_predset=extra["y_predset"],
+    )
+
+    predset = extra["y_predset"]
+    predset_t = torch.tensor(predset) if isinstance(predset, np.ndarray) else predset
+    avg_set_size = predset_t.float().sum(dim=1).mean().item()
+
+    miscoverage = conf_metrics["miscoverage_ps"]
+    if isinstance(miscoverage, np.ndarray):
+        miscoverage = float(miscoverage.item() if miscoverage.size == 1 else miscoverage.mean())
+    else:
+        miscoverage = float(miscoverage)
+
+    return {
+        "accuracy":    float(base_metrics["accuracy"]),
+        "roc_auc":     float(base_metrics["roc_auc"]),
+        "f1":          float(base_metrics["f1"]),
+        "coverage":    1.0 - miscoverage,
+        "miscoverage": miscoverage,
+        "avg_set_size": avg_set_size,
+    }
+
+
+def _print_single_run_results(metrics: dict, alpha: float) -> None:
+    print("\nLABEL Results:")
+    print(f"  Accuracy:              {metrics['accuracy']:.4f}")
+    print(f"  ROC-AUC:               {metrics['roc_auc']:.4f}")
+    print(f"  F1:                    {metrics['f1']:.4f}")
+    print(f"  Empirical coverage:    {metrics['coverage']:.4f}")
+    print(f"  Empirical miscoverage: {metrics['miscoverage']:.4f}")
+    print(f"  Average set size:      {metrics['avg_set_size']:.2f}")
+    print(f"  Target coverage:       {1 - alpha:.0%} (alpha={alpha})")
+
+
+def _print_multi_seed_summary(
+    all_metrics: list, run_seeds: list, alpha: float, n_test: int
+) -> None:
+    accs       = np.array([m["accuracy"]     for m in all_metrics])
+    roc_aucs   = np.array([m["roc_auc"]      for m in all_metrics])
+    f1s        = np.array([m["f1"]           for m in all_metrics])
+    coverages  = np.array([m["coverage"]     for m in all_metrics])
+    miscovs    = np.array([m["miscoverage"]  for m in all_metrics])
+    set_sizes  = np.array([m["avg_set_size"] for m in all_metrics])
+    n_runs = len(all_metrics)
+
+    print("\n" + "=" * 80)
+    print("Per-run LABEL results (fixed test set = TUH eval partition)")
+    print("=" * 80)
+    print(f"  {'Run':<4} {'Seed':<6} {'Accuracy':<10} {'ROC-AUC':<10} {'F1':<8} "
+          f"{'Coverage':<10} {'Miscoverage':<12} {'Avg set size':<12}")
+    print("  " + "-" * 76)
+    for i in range(n_runs):
+        m = all_metrics[i]
+        print(f"  {i+1:<4} {run_seeds[i]:<6} {m['accuracy']:<10.4f} "
+              f"{m['roc_auc']:<10.4f} {m['f1']:<8.4f} {m['coverage']:<10.4f} "
+              f"{m['miscoverage']:<12.4f} {m['avg_set_size']:<12.2f}")
+
+    print("\n" + "=" * 80)
+    print(f"LABEL summary (mean \u00b1 std over {n_runs} runs, fixed test set)")
+    print("=" * 80)
+    print(f"  Accuracy:              {accs.mean():.4f} \u00b1 {accs.std():.4f}")
+    print(f"  ROC-AUC:               {roc_aucs.mean():.4f} \u00b1 {roc_aucs.std():.4f}")
+    print(f"  F1:                    {f1s.mean():.4f} \u00b1 {f1s.std():.4f}")
+    print(f"  Empirical coverage:    {coverages.mean():.4f} \u00b1 {coverages.std():.4f}")
+    print(f"  Empirical miscoverage: {miscovs.mean():.4f} \u00b1 {miscovs.std():.4f}")
+    print(f"  Average set size:      {set_sizes.mean():.2f} \u00b1 {set_sizes.std():.2f}")
+    print(f"  Target coverage:       {1 - alpha:.0%} (alpha={alpha})")
+    print(f"  Test set size:         {n_test} (fixed across runs)")
+    print(f"  Run seeds:             {run_seeds}")
+    print("\n--- Min / Max (across runs) ---")
+    print(f"  Coverage:    [{coverages.min():.4f}, {coverages.max():.4f}]")
+    print(f"  Set size:    [{set_sizes.min():.2f}, {set_sizes.max():.2f}]")
+    print(f"  Accuracy:    [{accs.min():.4f}, {accs.max():.4f}]")
+    print(f"  ROC-AUC:     [{roc_aucs.min():.4f}, {roc_aucs.max():.4f}]")
+
+
+def _main(args: argparse.Namespace) -> None:
     device = args.device or ("cuda:0" if torch.cuda.is_available() else "cpu")
     root = Path(args.root)
     if not root.exists():
@@ -80,92 +266,97 @@ def main() -> None:
             "Pass --root to point to your downloaded TUAB edf/ directory."
         )
 
+    epochs = 2 if args.quick_test else args.epochs
+    quick_test_max_samples = 2000
+    if args.quick_test:
+        print("*** QUICK TEST MODE (dev=True, 2 epochs, max 2000 samples) ***")
+
+    # -------------------------------------------------------------------------
+    # STEP 1: Load dataset ONCE — shared across all seeds
+    # -------------------------------------------------------------------------
     print("=" * 80)
-    print("STEP 1: Load TUAB + build task dataset")
+    print("STEP 1: Load TUAB + build task dataset (shared across all seeds)")
     print("=" * 80)
-    dataset = TUABDataset(root=str(root), subset=args.subset)
+    dataset = TUABDataset(root=str(root), subset=args.subset, dev=args.quick_test)
     sample_dataset = dataset.set_task(EEGAbnormalTUAB())
-
-    print(f"Task samples: {len(sample_dataset)}")
-    print(f"Input schema: {sample_dataset.input_schema}")
+    if args.quick_test and len(sample_dataset) > quick_test_max_samples:
+        sample_dataset = sample_dataset.subset(range(quick_test_max_samples))
+        print(f"Capped to {quick_test_max_samples} samples for quick-test.")
+    print(f"Task samples:  {len(sample_dataset)}")
+    print(f"Input schema:  {sample_dataset.input_schema}")
     print(f"Output schema: {sample_dataset.output_schema}")
-
     if len(sample_dataset) == 0:
         raise RuntimeError("No samples produced. Verify TUAB root/subset/task.")
 
+    # -------------------------------------------------------------------------
+    # STEP 2: Extract the fixed test set ONCE
+    # -------------------------------------------------------------------------
     print("\n" + "=" * 80)
-    print("STEP 2: Split train/val/cal/test")
+    print("STEP 2: Extract fixed test set (TUH eval partition — same for all seeds)")
     print("=" * 80)
-    train_ds, val_ds, cal_ds, test_ds = split_by_sample_conformal_tuh(
+    _, _, _, test_ds = split_by_sample_conformal_tuh(
         dataset=sample_dataset, ratios=list(args.ratios), seed=args.seed
     )
-    print(f"Train: {len(train_ds)}")
-    print(f"Val:   {len(val_ds)}")
-    print(f"Cal:   {len(cal_ds)}")
-    print(f"Test:  {len(test_ds)}")
-
-    train_loader = get_dataloader(train_ds, batch_size=args.batch_size, shuffle=True)
-    val_loader = get_dataloader(val_ds, batch_size=args.batch_size, shuffle=False) if len(val_ds) else None
     test_loader = get_dataloader(test_ds, batch_size=args.batch_size, shuffle=False)
+    print(f"Test: {len(test_ds)} (fixed)")
 
-    print("\n" + "=" * 80)
-    print("STEP 3: Train ContraWR")
-    print("=" * 80)
-    model = ContraWR(dataset=sample_dataset, n_fft=args.n_fft).to(device)
-    trainer = Trainer(model=model, device=device, enable_logging=False)
-
-    trainer.train(
-        train_dataloader=train_loader,
-        val_dataloader=val_loader,
-        epochs=args.epochs,
-        monitor="roc_auc" if val_loader is not None else None,
-    )
-
-    print("\nBase model performance on test set:")
-    y_true_base, y_prob_base, _loss_base = trainer.inference(test_loader)
-    base_metrics = get_metrics_fn("binary")(y_true_base, y_prob_base, metrics=["accuracy", "roc_auc", "f1"])
-    for metric, value in base_metrics.items():
-        print(f"  {metric}: {value:.4f}")
-
-    print("\n" + "=" * 80)
-    print("STEP 4: Conventional Conformal Prediction (LABEL)")
-    print("=" * 80)
-    print(f"Target miscoverage alpha: {args.alpha} (target coverage {1 - args.alpha:.0%})")
-
-    label_predictor = LABEL(model=model, alpha=float(args.alpha))
-    print("Calibrating LABEL predictor...")
-    label_predictor.calibrate(cal_dataset=cal_ds)
-
-    print("Evaluating LABEL predictor on test set...")
-    y_true, y_prob, _loss, extra = Trainer(model=label_predictor).inference(
-        test_loader, additional_outputs=["y_predset"]
-    )
-
-    label_metrics = get_metrics_fn("binary")(
-        y_true,
-        y_prob,
-        metrics=["accuracy", "miscoverage_ps"],
-        y_predset=extra["y_predset"],
-    )
-
-    predset = extra["y_predset"]
-    if isinstance(predset, np.ndarray):
-        predset_t = torch.tensor(predset)
+    # -------------------------------------------------------------------------
+    # Determine run seeds
+    # -------------------------------------------------------------------------
+    if args.seeds is not None:
+        run_seeds = [int(s.strip()) for s in args.seeds.split(",")]
     else:
-        predset_t = predset
-    avg_set_size = predset_t.float().sum(dim=1).mean().item()
+        run_seeds = [args.seed + i for i in range(args.n_seeds)]
 
-    miscoverage = label_metrics["miscoverage_ps"]
-    if isinstance(miscoverage, np.ndarray):
-        miscoverage = float(miscoverage.item() if miscoverage.size == 1 else miscoverage.mean())
+    use_multi_seed = len(run_seeds) > 1
+    print(f"\nRun config: {'multi-seed (' + str(len(run_seeds)) + ' runs)' if use_multi_seed else 'single run'}")
+    print(f"Seeds: {run_seeds}, alpha={args.alpha}, target coverage={1 - args.alpha:.0%}")
+
+    # -------------------------------------------------------------------------
+    # STEP 3+: Train + conformal (once per seed)
+    # -------------------------------------------------------------------------
+    all_metrics = []
+    for run_i, run_seed in enumerate(run_seeds):
+        print("\n" + "=" * 80)
+        if use_multi_seed:
+            print(f"Run {run_i + 1} / {len(run_seeds)}  (seed={run_seed})")
+        else:
+            print(f"STEP 3–4: Train ContraWR + Conformal Calibration  (seed={run_seed})")
+        print("=" * 80)
+
+        metrics = _run_one_seed(
+            args, sample_dataset, test_ds, test_loader, device, epochs, run_seed
+        )
+        all_metrics.append(metrics)
+
+        if use_multi_seed:
+            print(f"  [Run {run_i + 1} result] "
+                  f"acc={metrics['accuracy']:.4f}, roc_auc={metrics['roc_auc']:.4f}, "
+                  f"cov={metrics['coverage']:.4f}, set_size={metrics['avg_set_size']:.2f}")
+
+    if not use_multi_seed:
+        _print_single_run_results(all_metrics[0], args.alpha)
     else:
-        miscoverage = float(miscoverage)
+        _print_multi_seed_summary(all_metrics, run_seeds, args.alpha, len(test_ds))
 
-    print("\nLABEL Results:")
-    print(f"  Accuracy: {label_metrics['accuracy']:.4f}")
-    print(f"  Empirical miscoverage: {miscoverage:.4f}")
-    print(f"  Empirical coverage: {1 - miscoverage:.4f}")
-    print(f"  Average set size: {avg_set_size:.2f}")
+
+def main() -> None:
+    args = parse_args()
+
+    orig_stdout, orig_stderr = sys.stdout, sys.stderr
+    log_file = None
+    if args.log_file:
+        log_file = open(args.log_file, "w", encoding="utf-8")
+        sys.stdout = _Tee(orig_stdout, log_file)
+        sys.stderr = _Tee(orig_stderr, log_file)
+
+    try:
+        _main(args)
+    finally:
+        if log_file is not None:
+            sys.stdout = orig_stdout
+            sys.stderr = orig_stderr
+            log_file.close()
 
 
 if __name__ == "__main__":

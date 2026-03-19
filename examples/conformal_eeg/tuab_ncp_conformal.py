@@ -174,14 +174,13 @@ def _run_one_ncp(
         monitor="roc_auc" if val_loader is not None else None,
     )
 
-    if not return_metrics:
-        print("\nBase model performance on test set:")
-        y_true_base, y_prob_base, _loss_base = trainer.inference(test_loader)
-        base_metrics = get_metrics_fn("binary")(
-            y_true_base, y_prob_base, metrics=["accuracy", "roc_auc", "f1"]
-        )
-        for metric, value in base_metrics.items():
-            print(f"  {metric}: {value:.4f}")
+    print("\nBase model performance on test set:")
+    y_true_base, y_prob_base, _loss_base = trainer.inference(test_loader)
+    base_metrics = get_metrics_fn("binary")(
+        y_true_base, y_prob_base, metrics=["accuracy", "roc_auc", "f1"]
+    )
+    for metric, value in base_metrics.items():
+        print(f"  {metric}: {value:.4f}")
 
     print("\n" + "=" * 80)
     print("STEP 4: Neighborhood Conformal Prediction (NCP / NeighborhoodLabel)")
@@ -222,20 +221,22 @@ def _run_one_ncp(
 
     if return_metrics:
         return {
-            "accuracy": float(ncp_metrics["accuracy"]),
-            "coverage": coverage,
+            "accuracy":    float(base_metrics["accuracy"]),
+            "roc_auc":     float(base_metrics["roc_auc"]),
+            "f1":          float(base_metrics["f1"]),
+            "coverage":    coverage,
             "miscoverage": miscoverage,
             "avg_set_size": avg_set_size,
         }
 
     print("\nNCP (NeighborhoodLabel) Results:")
-    print(f"  Accuracy: {ncp_metrics['accuracy']:.4f}")
+    print(f"  Accuracy:              {base_metrics['accuracy']:.4f}")
+    print(f"  ROC-AUC:               {base_metrics['roc_auc']:.4f}")
+    print(f"  F1:                    {base_metrics['f1']:.4f}")
     print(f"  Empirical miscoverage: {miscoverage:.4f}")
-    print(f"  Empirical coverage: {coverage:.4f}")
-    print(f"  Average set size: {avg_set_size:.2f}")
+    print(f"  Empirical coverage:    {coverage:.4f}")
+    print(f"  Average set size:      {avg_set_size:.2f}")
     print(f"  k_neighbors: {args.k_neighbors}")
-    print("\n--- Single-run summary (for reporting) ---")
-    print(f"  alpha={args.alpha}, target_coverage={1 - args.alpha:.2f}, empirical_coverage={coverage:.4f}, miscoverage={miscoverage:.4f}, accuracy={ncp_metrics['accuracy']:.4f}, avg_set_size={avg_set_size:.2f}")
 
 
 def main() -> None:
@@ -347,7 +348,7 @@ def _run(args: argparse.Namespace) -> None:
     n_test = len(test_ds)
     print(f"Fixed test set size: {n_test} (TUH eval partition)")
 
-    accs, coverages, miscoverages, set_sizes = [], [], [], []
+    accs, roc_aucs, f1s, coverages, miscoverages, set_sizes = [], [], [], [], [], []
     for run_i, run_seed in enumerate(run_seeds):
         print("\n" + "=" * 80)
         print(f"Run {run_i + 1} / {n_runs} (seed={run_seed})")
@@ -370,38 +371,47 @@ def _run(args: argparse.Namespace) -> None:
             return_metrics=True,
         )
         accs.append(metrics["accuracy"])
+        roc_aucs.append(metrics["roc_auc"])
+        f1s.append(metrics["f1"])
         coverages.append(metrics["coverage"])
         miscoverages.append(metrics["miscoverage"])
         set_sizes.append(metrics["avg_set_size"])
 
-    accs = np.array(accs)
-    coverages = np.array(coverages)
+    accs          = np.array(accs)
+    roc_aucs      = np.array(roc_aucs)
+    f1s           = np.array(f1s)
+    coverages     = np.array(coverages)
     miscoverages_arr = np.array(miscoverages)
-    set_sizes = np.array(set_sizes)
+    set_sizes     = np.array(set_sizes)
 
     print("\n" + "=" * 80)
-    print("Per-run NCP results (fixed test set)")
+    print("Per-run NCP results (fixed test set = TUH eval partition)")
     print("=" * 80)
-    print(f"  {'Run':<4} {'Seed':<6} {'Accuracy':<10} {'Coverage':<10} {'Miscoverage':<12} {'Avg set size':<12}")
-    print("  " + "-" * 54)
+    print(f"  {'Run':<4} {'Seed':<6} {'Accuracy':<10} {'ROC-AUC':<10} {'F1':<8} "
+          f"{'Coverage':<10} {'Miscoverage':<12} {'Avg set size':<12}")
+    print("  " + "-" * 76)
     for i in range(n_runs):
-        print(f"  {i+1:<4} {run_seeds[i]:<6} {accs[i]:<10.4f} {coverages[i]:<10.4f} {miscoverages_arr[i]:<12.4f} {set_sizes[i]:<12.2f}")
+        print(f"  {i+1:<4} {run_seeds[i]:<6} {accs[i]:<10.4f} {roc_aucs[i]:<10.4f} "
+              f"{f1s[i]:<8.4f} {coverages[i]:<10.4f} {miscoverages_arr[i]:<12.4f} {set_sizes[i]:<12.2f}")
 
     print("\n" + "=" * 80)
-    print("NCP summary (mean ± std over {} runs, fixed test set)".format(n_runs))
+    print("NCP summary (mean \u00b1 std over {} runs, fixed test set)".format(n_runs))
     print("=" * 80)
-    print(f"  Accuracy:           {accs.mean():.4f} ± {accs.std():.4f}")
-    print(f"  Empirical coverage: {coverages.mean():.4f} ± {coverages.std():.4f}")
-    print(f"  Empirical miscoverage: {miscoverages_arr.mean():.4f} ± {miscoverages_arr.std():.4f}")
-    print(f"  Average set size:  {set_sizes.mean():.2f} ± {set_sizes.std():.2f}")
-    print(f"  Target coverage:  {1 - args.alpha:.0%} (alpha={args.alpha})")
+    print(f"  Accuracy:              {accs.mean():.4f} \u00b1 {accs.std():.4f}")
+    print(f"  ROC-AUC:               {roc_aucs.mean():.4f} \u00b1 {roc_aucs.std():.4f}")
+    print(f"  F1:                    {f1s.mean():.4f} \u00b1 {f1s.std():.4f}")
+    print(f"  Empirical coverage:    {coverages.mean():.4f} \u00b1 {coverages.std():.4f}")
+    print(f"  Empirical miscoverage: {miscoverages_arr.mean():.4f} \u00b1 {miscoverages_arr.std():.4f}")
+    print(f"  Average set size:      {set_sizes.mean():.2f} \u00b1 {set_sizes.std():.2f}")
+    print(f"  Target coverage:       {1 - args.alpha:.0%} (alpha={args.alpha})")
     print(f"  k_neighbors: {args.k_neighbors}, lambda_L: {args.lambda_L}")
-    print(f"  Test set size: {n_test} (fixed across runs)")
-    print(f"  Run seeds: {run_seeds}")
+    print(f"  Test set size:         {n_test} (fixed across runs)")
+    print(f"  Run seeds:             {run_seeds}")
     print("\n--- Min / Max (across runs) ---")
     print(f"  Coverage:    [{coverages.min():.4f}, {coverages.max():.4f}]")
     print(f"  Set size:    [{set_sizes.min():.2f}, {set_sizes.max():.2f}]")
-    print(f"  Accuracy:   [{accs.min():.4f}, {accs.max():.4f}]")
+    print(f"  Accuracy:    [{accs.min():.4f}, {accs.max():.4f}]")
+    print(f"  ROC-AUC:     [{roc_aucs.min():.4f}, {roc_aucs.max():.4f}]")
 
 
 if __name__ == "__main__":
