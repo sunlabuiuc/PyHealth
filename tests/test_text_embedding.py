@@ -1,7 +1,7 @@
 import torch
 import pytest
 import warnings
-from pyhealth.models.text_embedding import TextEmbedding
+from pyhealth.models.embedding import TextEmbedding
 
 
 def test_text_embedding_initialization():

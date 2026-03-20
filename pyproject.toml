@@ -15,7 +15,7 @@ authors = [
   {name = "Zhen Lin"},
   {name = "Benjamin Danek"},
   {name = "Junyi Gao"},
-  {name = "Paul Landes", email = "landes@mailc.net"},
+  {name = "Paul Landes", email = "plande2@uic.edu"},
   {name = "Jimeng Sun"},
 ]
 description = "A Python library for healthcare AI"
