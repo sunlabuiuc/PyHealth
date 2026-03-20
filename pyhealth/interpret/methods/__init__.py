@@ -11,10 +11,10 @@ from pyhealth.interpret.methods.lime import LimeExplainer
 from pyhealth.interpret.methods.ensemble_crh import CrhEnsemble
 from pyhealth.interpret.methods.ensemble_avg import AvgEnsemble
 from pyhealth.interpret.methods.ensemble_var import VarEnsemble
-from pyhealth.interpret.methods.lrp import LayerwiseRelevancePropagation, UnifiedLRP
+from pyhealth.interpret.methods.lrp import LayerwiseRelevancePropagation
 from pyhealth.interpret.methods.saliency_visualization import (
     SaliencyVisualizer,
-    visualize_attribution
+    visualize_attribution,
 )
 
 __all__ = [
@@ -29,13 +29,9 @@ __all__ = [
     "LayerwiseRelevancePropagation",
     "SaliencyVisualizer",
     "visualize_attribution",
-    # Unified LRP
-    "UnifiedLRP",
     "ShapExplainer",
     "LimeExplainer",
     "CrhEnsemble",
     "AvgEnsemble",
-    "VarEnsemble"
-    "LimeExplainer",
-    "LayerWiseRelevancePropagation",
+    "VarEnsemble",
 ]

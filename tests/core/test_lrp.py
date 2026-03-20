@@ -13,7 +13,6 @@ Note on ResNet support:
 - LRP uses sequential approximation for ResNet architectures
 - Downsample layers (parallel paths) are excluded during hook registration
 - This is a standard approach in the LRP literature
-- See test_lrp_resnet.py for CNN-specific tests
 """
 
 import unittest
@@ -100,7 +99,7 @@ def trained_model(simple_dataset):
 
 
 # @pytest.fixture - Disabled for unittest compatibility
-def test_batch(simple_dataset):
+def _test_batch(simple_dataset):
     """Create a test batch."""
     # Get a raw sample - directly create it to avoid any processing issues
     raw_sample = {
@@ -617,11 +616,13 @@ class TestEmbeddingModels(unittest.TestCase):
                 x = self.fc2(x)
                 return {"logit": x, "y_prob": torch.softmax(x, dim=-1)}
             
-            def forward_from_embedding(self, feature_embeddings, **kwargs):
+            def forward_from_embedding(self, **kwargs):
                 """Forward pass starting from embeddings (required for LRP)."""
                 embeddings = []
                 for key in self.feature_keys:
-                    emb = feature_embeddings[key]
+                    emb = kwargs[key]
+                    if isinstance(emb, tuple):
+                        emb = emb[0]
                     if emb.dim() == 3:
                         emb = emb.mean(dim=1)  # Average pool over sequence
                     embeddings.append(emb)
@@ -690,8 +691,10 @@ class TestEmbeddingModels(unittest.TestCase):
                 x = self.fc2(x)
                 return {"logit": x, "y_prob": torch.softmax(x, dim=-1)}
             
-            def forward_from_embedding(self, feature_embeddings, **kwargs):
-                x = feature_embeddings["diagnosis"]
+            def forward_from_embedding(self, **kwargs):
+                x = kwargs["diagnosis"]
+                if isinstance(x, tuple):
+                    x = x[0]
                 if x.dim() == 3:
                     x = x.mean(dim=1)
                 x = self.fc1(x)
@@ -739,8 +742,11 @@ class TestEmbeddingModels(unittest.TestCase):
                 x = self.fc(x)
                 return {"logit": x}
             
-            def forward_from_embedding(self, feature_embeddings, **kwargs):
-                x = feature_embeddings["diagnosis"].mean(dim=1) if feature_embeddings["diagnosis"].dim() == 3 else feature_embeddings["diagnosis"]
+            def forward_from_embedding(self, **kwargs):
+                x = kwargs["diagnosis"]
+                if isinstance(x, tuple):
+                    x = x[0]
+                x = x.mean(dim=1) if x.dim() == 3 else x
                 return {"logit": self.fc(x)}
         
         model = SimpleEmbeddingModel()
