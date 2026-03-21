@@ -24,6 +24,7 @@ from .drug_recommendation import (
 from .EEG_abnormal import EEG_isAbnormal_fn
 from .EEG_events import EEG_events_fn
 from .in_hospital_mortality_mimic4 import InHospitalMortalityMIMIC4
+from .mpf_clinical_prediction import MPFClinicalPredictionTask
 from .length_of_stay_prediction import (
     LengthOfStayPredictioneICU,
     LengthOfStayPredictionMIMIC3,
