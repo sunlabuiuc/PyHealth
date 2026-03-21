@@ -348,7 +348,7 @@ class Trainer:
 
     def load_ckpt(self, ckpt_path: str) -> None:
         """Saves the model checkpoint."""
-        state_dict = torch.load(ckpt_path, map_location=self.device)
+        state_dict = torch.load(ckpt_path, map_location=self.device, weights_only=True)
         self.model.load_state_dict(state_dict)
         return
 
