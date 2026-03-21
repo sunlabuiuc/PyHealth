@@ -514,21 +514,26 @@ class MultimodalRNN(BaseModel):
         for feature_key in self.sequential_features:
             x = embedded[feature_key]
             m = mask[feature_key]
-            
+
             x_dim_orig = x.dim()
-            # Pool across events if needed
             if x_dim_orig == 4:
-                b, v, e, d = x.shape
-                x = x.view(b, v * e, d)
+                # nested_sequence: (B, num_visits, num_codes, D)
+                # Pool codes within each visit, then run RNN over visits.
+                # Flattening visits*codes would produce length=0 when inner lists are empty.
+                x = x.sum(dim=2)  # (B, num_visits, D)
+                if feature_key in masks:
+                    m = (masks[feature_key].to(self.device).sum(dim=-1) > 0).int()  # (B, V)
+                else:
+                    m = (torch.abs(x).sum(dim=-1) != 0).int()
             elif x_dim_orig == 2:
                 x = x.unsqueeze(1)
-                
-            if x_dim_orig == 4 and m.dim() == 3:
-                m = m.view(b, v * e)
-            elif m.dim() == 3:
-                m = (m.sum(dim=-1) > 0).int()
-            elif m.dim() == 1:
-                m = m.unsqueeze(1)
+                m = None
+            else:
+                # 3D: already (B, T, D)
+                if m is not None and m.dim() == 3:
+                    m = (m.sum(dim=-1) > 0).int()
+                elif m is not None and m.dim() == 1:
+                    m = m.unsqueeze(1)
 
             _, last_hidden = self.rnn[feature_key](x, m)
             patient_emb.append(last_hidden)
