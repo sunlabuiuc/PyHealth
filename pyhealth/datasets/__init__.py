@@ -59,6 +59,14 @@ from .isruc import ISRUCDataset
 from .medical_transcriptions import MedicalTranscriptionsDataset
 from .mimic3 import MIMIC3Dataset
 from .mimic4 import MIMIC4CXRDataset, MIMIC4Dataset, MIMIC4EHRDataset, MIMIC4NoteDataset
+from .mimic4_fhir import (
+    ConceptVocab,
+    FHIRPatient,
+    MIMIC4FHIRDataset,
+    build_fhir_sample_dataset_from_lines,
+    synthetic_ndjson_lines,
+    synthetic_ndjson_lines_two_class,
+)
 from .mimicextract import MIMICExtractDataset
 from .omop import OMOPDataset
 from .sample_dataset import SampleBuilder, SampleDataset, create_sample_dataset

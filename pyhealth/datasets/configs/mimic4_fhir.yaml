@@ -1,0 +1,11 @@
+# MIMIC-IV FHIR NDJSON ingest (see pyhealth.datasets.mimic4_fhir)
+version: "fhir_r4"
+glob_pattern: "**/*.ndjson"
+# Optional: restrict resource types when scanning (future use)
+resource_types:
+  - Patient
+  - Encounter
+  - Condition
+  - Observation
+  - MedicationRequest
+  - Procedure
