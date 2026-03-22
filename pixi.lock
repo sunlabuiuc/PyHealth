@@ -7030,7 +7030,7 @@ packages:
 - pypi: ./
   name: pyhealth
   version: 2.0.0
-  sha256: f07719f9dceb759c35507216c8033d2f915d241418d4fad2ab51b37c0e73260f
+  sha256: 9e328847ef1dbb650cebf8d0b424b842b33ba023934d7655fd6399dc5e5175ac
   requires_dist:
   - torch~=2.7.1
   - torchvision
