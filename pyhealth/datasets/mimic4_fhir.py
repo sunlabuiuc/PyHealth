@@ -3,8 +3,11 @@
 Loads NDJSON lines (one JSON object per line) or Bundle ``entry`` resources,
 groups by Patient id, and builds token timelines for MPF / EHRMambaCEHR.
 
-Use ``MIMIC4_FHIR_ROOT`` or pass ``root`` explicitly. Unit tests use
-:func:`synthetic_ndjson_lines` only.
+Settings such as ``glob_pattern`` live in ``configs/mimic4_fhir.yaml`` and are
+read by :func:`read_fhir_settings_yaml`. For disk data, point
+:class:`MIMIC4FHIRDataset` at your PhysioNet export (``MIMIC4_FHIR_ROOT``); for
+tests, use :func:`synthetic_ndjson_lines` / :func:`synthetic_ndjson_lines_two_class`
+or a temporary ``*.ndjson`` file tree.
 """
 
 from __future__ import annotations
@@ -15,9 +18,11 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Generator, Iterator, List, Optional, Sequence, Tuple
 
 from yaml import safe_load
+
+from .base_dataset import BaseDataset
 
 logger = logging.getLogger(__name__)
 
@@ -322,7 +327,15 @@ def infer_mortality_label(patient: FHIRPatient) -> int:
     return 0
 
 
-def load_yaml_config(path: Optional[str]) -> Dict[str, Any]:
+def read_fhir_settings_yaml(path: Optional[str] = None) -> Dict[str, Any]:
+    """Load FHIR YAML (glob pattern, version); not a CSV ``DatasetConfig`` schema.
+
+    Args:
+        path: Defaults to ``configs/mimic4_fhir.yaml`` beside this module.
+
+    Returns:
+        Parsed mapping.
+    """
     if path is None:
         path = os.path.join(os.path.dirname(__file__), "configs", "mimic4_fhir.yaml")
     with open(path, encoding="utf-8") as f:
@@ -348,24 +361,133 @@ def collect_resources_from_root(root: Path, glob_pattern: str) -> List[Dict[str,
     return all_res
 
 
-@dataclass
-class MIMIC4FHIRDataset:
-    """FHIR NDJSON dataset: scan disk, group by patient, expose :meth:`gather_samples`."""
+class MIMIC4FHIRDataset(BaseDataset):
+    """MIMIC-IV on FHIR (NDJSON / Bundle) for CEHR token timelines.
 
-    root: str
-    config_path: Optional[str] = None
-    glob_pattern: str = "**/*.ndjson"
-    max_patients: Optional[int] = None
-    vocab_path: Optional[str] = None
+    Mirrors the *root + YAML config + task* workflow of
+    :class:`~pyhealth.datasets.MIMIC4Dataset`, but parses FHIR R4 resources instead
+    of MIMIC CSV tables. This class does **not** materialize a Parquet
+    ``global_event_df``; use :meth:`gather_samples` or :meth:`set_task` with
+    :class:`~pyhealth.tasks.mpf_clinical_prediction.MPFClinicalPredictionTask`.
 
-    def __post_init__(self) -> None:
-        self._cfg = load_yaml_config(self.config_path)
-        self.glob_pattern = self._cfg.get("glob_pattern", self.glob_pattern)
-        if self.vocab_path and os.path.isfile(self.vocab_path):
-            self.vocab = ConceptVocab.load(self.vocab_path)
+    Configuration defaults live in ``pyhealth/datasets/configs/mimic4_fhir.yaml``
+    (``glob_pattern``, ``version``).
+
+    Args:
+        root: Directory tree containing NDJSON files.
+        config_path: Optional path to the FHIR YAML settings file.
+        glob_pattern: If set, overrides the YAML ``glob_pattern``.
+        max_patients: Stop after this many patients (sorted by id).
+        vocab_path: Optional path to a saved :class:`ConceptVocab` JSON.
+        cache_dir: Forwarded to :class:`~pyhealth.datasets.BaseDataset`.
+        num_workers: Forwarded to :class:`~pyhealth.datasets.BaseDataset`.
+        dev: If True and ``max_patients`` is None, caps loading at 1000 patients.
+
+    Example:
+        >>> from pyhealth.datasets import MIMIC4FHIRDataset
+        >>> from pyhealth.tasks.mpf_clinical_prediction import (
+        ...     MPFClinicalPredictionTask,
+        ... )
+        >>> ds = MIMIC4FHIRDataset(root="/path/to/ndjson", max_patients=50)
+        >>> task = MPFClinicalPredictionTask(max_len=256)
+        >>> sample_ds = ds.set_task(task)  # doctest: +SKIP
+
+    Raises:
+        FileNotFoundError: If ``root`` is not a directory when loading patients.
+    """
+
+    def __init__(
+        self,
+        root: str,
+        config_path: Optional[str] = None,
+        glob_pattern: Optional[str] = None,
+        max_patients: Optional[int] = None,
+        vocab_path: Optional[str] = None,
+        cache_dir: Optional[str | Path] = None,
+        num_workers: int = 1,
+        dev: bool = False,
+    ) -> None:
+        super().__init__(
+            root=root,
+            tables=["fhir_ndjson"],
+            dataset_name="mimic4_fhir",
+            config_path=None,
+            cache_dir=cache_dir,
+            num_workers=num_workers,
+            dev=dev,
+        )
+        cfg_path = config_path or os.path.join(
+            os.path.dirname(__file__), "configs", "mimic4_fhir.yaml"
+        )
+        self._fhir_settings = read_fhir_settings_yaml(cfg_path)
+        self.glob_pattern = (
+            glob_pattern
+            if glob_pattern is not None
+            else str(self._fhir_settings.get("glob_pattern", "**/*.ndjson"))
+        )
+        self.max_patients = max_patients
+        if self.dev and self.max_patients is None:
+            self.max_patients = 1000
+        if vocab_path and os.path.isfile(vocab_path):
+            self.vocab = ConceptVocab.load(vocab_path)
         else:
             self.vocab = ConceptVocab()
         self._patients: Optional[List[FHIRPatient]] = None
+
+    @property
+    def global_event_df(self) -> Any:
+        raise NotImplementedError(
+            "MIMIC4FHIRDataset does not build global_event_df. "
+            "Use gather_samples(task) or set_task(task) with "
+            "MPFClinicalPredictionTask."
+        )
+
+    @property
+    def unique_patient_ids(self) -> List[str]:  # type: ignore[override]
+        return [p.patient_id for p in self.load_patients()]
+
+    def get_patient(self, patient_id: str) -> Any:
+        raise NotImplementedError(
+            "MIMIC4FHIRDataset does not map to pyhealth.data.Patient; "
+            "use load_patients() and FHIRPatient."
+        )
+
+    def iter_patients(self, df: Optional[Any] = None) -> Iterator[Any]:
+        raise NotImplementedError(
+            "Use load_patients(); FHIR path does not stream Polars Patient rows."
+        )
+
+    def stats(self) -> None:
+        n = len(self.load_patients())
+        print(f"Dataset: {self.dataset_name}")
+        print(f"Dev mode: {self.dev}")
+        print(f"FHIR patients: {n}")
+
+    def set_task(
+        self,
+        task: Any = None,
+        num_workers: Optional[int] = None,  # unused; FHIR path is in-process
+        input_processors: Optional[Any] = None,
+        output_processors: Optional[Any] = None,
+    ) -> Any:
+        """Build a :class:`~pyhealth.datasets.SampleDataset` from FHIR + task."""
+        self._main_guard(self.set_task.__name__)
+        if task is None:
+            raise ValueError(
+                "Pass a task instance, e.g. MPFClinicalPredictionTask(max_len=512)."
+            )
+        from .sample_dataset import create_sample_dataset
+
+        samples = self.gather_samples(task)
+        return create_sample_dataset(
+            samples=samples,
+            input_schema=task.input_schema,
+            output_schema=task.output_schema,
+            dataset_name=self.dataset_name,
+            task_name=task.task_name,
+            input_processors=input_processors,
+            output_processors=output_processors,
+        )
 
     def load_patients(self) -> List[FHIRPatient]:
         if self._patients is not None:
@@ -390,7 +512,7 @@ class MIMIC4FHIRDataset:
         return patients
 
     def gather_samples(self, task: Any) -> List[Dict[str, Any]]:
-        """Apply an MPF clinical task; task receives :class:`FHIRPatient`."""
+        """Run ``task`` on each :class:`FHIRPatient` (sets ``task.vocab``)."""
 
         task.vocab = self.vocab
         task._specials = None

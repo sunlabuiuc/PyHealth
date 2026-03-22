@@ -1,4 +1,6 @@
-# MIMIC-IV FHIR NDJSON ingest (see pyhealth.datasets.mimic4_fhir)
+# MIMIC-IV FHIR NDJSON ingest for :class:`~pyhealth.datasets.MIMIC4FHIRDataset`.
+# This YAML is read by ``read_fhir_settings_yaml`` (FHIR layout), not the CSV
+# ``DatasetConfig`` table schema used by MIMIC-IV relational loaders.
 version: "fhir_r4"
 glob_pattern: "**/*.ndjson"
 # Optional: restrict resource types when scanning (future use)
