@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Optional
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class TemporalConvBlock(nn.Module):
@@ -12,8 +13,13 @@ class TemporalConvBlock(nn.Module):
 
     Input:
         x: [B, T, F, C_in]
+
     Output:
         y: [B, T, F, C_out]
+
+    Notes:
+        - One Conv1d per feature (non-shared temporal filters).
+        - Left padding preserves causality.
     """
 
     def __init__(
@@ -32,7 +38,6 @@ class TemporalConvBlock(nn.Module):
         self.kernel_size = kernel_size
         self.dilation = dilation
 
-        # one Conv1d per feature, matching the paper's non-shared temporal filters
         self.feature_convs = nn.ModuleList(
             [
                 nn.Conv1d(
@@ -51,6 +56,7 @@ class TemporalConvBlock(nn.Module):
         """
         Args:
             x: [B, T, F, C_in]
+
         Returns:
             [B, T, F, C_out]
         """
@@ -61,9 +67,8 @@ class TemporalConvBlock(nn.Module):
         left_pad = self.dilation * (self.kernel_size - 1)
 
         for feat_idx in range(self.num_features):
-            # [B, T, C_in] -> [B, C_in, T]
-            feat_x = x[:, :, feat_idx, :].transpose(1, 2)
-            feat_x = nn.functional.pad(feat_x, (left_pad, 0))
+            feat_x = x[:, :, feat_idx, :].transpose(1, 2)  # [B, C_in, T]
+            feat_x = F.pad(feat_x, (left_pad, 0))
             feat_y = self.feature_convs[feat_idx](feat_x)  # [B, C_out, T]
             feat_y = feat_y.transpose(1, 2)  # [B, T, C_out]
             outputs.append(feat_y.unsqueeze(2))  # [B, T, 1, C_out]
@@ -75,12 +80,13 @@ class TemporalConvBlock(nn.Module):
 
 class PointwiseConvBlock(nn.Module):
     """
-    Pointwise convolution across features/channels at each time step.
+    Pointwise transformation applied at each time step.
 
     Input:
-        temporal_flat: [B, T, P]
+        x: [B, T, D_in]
+
     Output:
-        point_out: [B, T, Z]
+        y: [B, T, D_out]
     """
 
     def __init__(self, input_dim: int, output_dim: int, dropout: float = 0.0) -> None:
@@ -96,7 +102,18 @@ class PointwiseConvBlock(nn.Module):
 
 class TPCLayer(nn.Module):
     """
-    One TPC layer combining temporal and pointwise convolutions.
+    One simplified TPC layer combining:
+
+    - feature-wise causal temporal convolution
+    - pointwise transformation over flattened current representation
+    - static feature injection into the pointwise branch
+    - concatenative skip-style fusion
+
+    Input:
+        x: [B, T, F, C_in]
+
+    Output:
+        fused: [B, T, F, C_in + temporal_channels + pointwise_channels]
     """
 
     def __init__(
@@ -112,8 +129,11 @@ class TPCLayer(nn.Module):
     ) -> None:
         super().__init__()
         self.num_features = num_features
+        self.in_channels = in_channels
         self.temporal_channels = temporal_channels
         self.pointwise_channels = pointwise_channels
+        self.static_dim = static_dim
+        self.output_channels = in_channels + temporal_channels + pointwise_channels
 
         self.temporal = TemporalConvBlock(
             in_channels=in_channels,
@@ -141,41 +161,49 @@ class TPCLayer(nn.Module):
         """
         Args:
             x: [B, T, F, C_in]
-            static: [B, S]
+            static: [B, S] or None
+
         Returns:
-            [B, T, F + Z, temporal_channels + 1]
-            This is a simplified approximation of the paper's concatenation logic.
+            fused: [B, T, F, C_in + temporal_channels + pointwise_channels]
         """
         bsz, seq_len, num_features, in_channels = x.shape
+        assert num_features == self.num_features
+        assert in_channels == self.in_channels
 
         temp_out = self.temporal(x)  # [B, T, F, Y]
 
         flat_x = x.reshape(bsz, seq_len, num_features * in_channels)  # [B, T, F*C_in]
+
         if static is not None:
-            static_rep = static.unsqueeze(1).repeat(1, seq_len, 1)  # [B, T, S]
+            static_rep = static.unsqueeze(1).expand(-1, seq_len, -1)  # [B, T, S]
             point_in = torch.cat([flat_x, static_rep], dim=-1)
         else:
             point_in = flat_x
 
         point_out = self.pointwise(point_in)  # [B, T, Z]
+        point_broadcast = point_out.unsqueeze(2).expand(-1, -1, num_features, -1)
 
-        # Broadcast pointwise features across feature axis, then append as channels
-        point_broadcast = point_out.unsqueeze(2).repeat(1, 1, num_features, 1)  # [B, T, F, Z]
-
-        # Simplified fusion: keep original x as skip, plus temporal, plus pointwise broadcast
-        fused = torch.cat([x, temp_out, point_broadcast], dim=-1)  # [B, T, F, C_in+Y+Z]
+        fused = torch.cat([x, temp_out, point_broadcast], dim=-1)
         fused = self.activation(fused)
         return fused
 
 
 class TPC(nn.Module):
     """
-    Minimal TPC implementation for hourly LoS regression.
+    Simplified Temporal Pointwise Convolutional model for hourly LoS regression.
 
-    This starter version is intentionally simpler than the full paper:
-    - no diagnosis encoder yet
-    - no decay indicators yet
-    - no multitask mortality head yet
+    Current implementation characteristics:
+        - feature-wise causal temporal convolutions with non-shared filters
+        - pointwise branch conditioned on current representation + static features
+        - concatenative skip-style fusion across layers
+        - positive regression output via Softplus
+
+    Input:
+        time_series: [B, T, F]
+        static: [B, S]
+
+    Output:
+        y_hat: [B]
     """
 
     def __init__(
@@ -192,11 +220,16 @@ class TPC(nn.Module):
         super().__init__()
         self.input_dim = input_dim
         self.static_dim = static_dim
+        self.temporal_channels = temporal_channels
+        self.pointwise_channels = pointwise_channels
+        self.num_layers = num_layers
+        self.kernel_size = kernel_size
+        self.fc_dim = fc_dim
+        self.dropout = dropout
 
-        self.input_proj = nn.Linear(1, 1)  # placeholder for channelized input
         layers = []
-
         in_channels = 1
+
         for i in range(num_layers):
             layer = TPCLayer(
                 num_features=input_dim,
@@ -209,11 +242,14 @@ class TPC(nn.Module):
                 dropout=dropout,
             )
             layers.append(layer)
-            in_channels = in_channels + temporal_channels + pointwise_channels
+            in_channels = layer.output_channels
 
         self.layers = nn.ModuleList(layers)
-        self.final_fc1 = nn.Linear((input_dim * in_channels) + static_dim, fc_dim)
+
+        final_input_dim = (input_dim * in_channels) + static_dim
+        self.final_fc1 = nn.Linear(final_input_dim, fc_dim)
         self.final_fc2 = nn.Linear(fc_dim, 1)
+
         self.relu = nn.ReLU()
         self.softplus = nn.Softplus()
 
@@ -225,7 +261,8 @@ class TPC(nn.Module):
         """
         Args:
             time_series: [B, T, F]
-            static: [B, S]
+            static: [B, S] or None
+
         Returns:
             y_hat: [B]
         """
@@ -234,8 +271,8 @@ class TPC(nn.Module):
         for layer in self.layers:
             x = layer(x, static=static)
 
-        # use last time step only
         last_x = x[:, -1, :, :].reshape(x.size(0), -1)  # [B, F*C]
+
         if static is not None:
             last_x = torch.cat([last_x, static], dim=-1)
 
