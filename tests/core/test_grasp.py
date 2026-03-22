@@ -126,7 +126,7 @@ class TestGRASP(unittest.TestCase):
         self.assertIn("embed", ret)
         self.assertEqual(ret["embed"].shape[0], 2)
         expected_embed_dim = (
-            len(self.model.feature_keys) * self.model.hidden_dim
+            len(self.model.dynamic_feature_keys) * self.model.hidden_dim
         )
         self.assertEqual(ret["embed"].shape[1], expected_embed_dim)
 
@@ -173,6 +173,47 @@ class TestGRASP(unittest.TestCase):
         self.assertIn("loss", ret)
         self.assertFalse(torch.isnan(ret["loss"]))
 
+
+    def test_static_key(self):
+        """Test GRASP with static features (e.g., demographics)."""
+        samples_with_static = [
+            {**s, "demographics": [0.0, 2.0, 1.5]} for s in self.samples
+        ]
+        dataset = create_sample_dataset(
+            samples=samples_with_static,
+            input_schema={
+                "conditions": "sequence",
+                "procedures": "sequence",
+            },
+            output_schema={"label": "binary"},
+            dataset_name="test",
+        )
+        model = GRASP(
+            dataset=dataset,
+            static_key="demographics",
+            embedding_dim=16,
+            hidden_dim=16,
+            cluster_num=2,
+        )
+        self.assertEqual(model.static_dim, 3)
+        self.assertEqual(len(model.dynamic_feature_keys), 2)
+        self.assertNotIn("demographics", model.dynamic_feature_keys)
+
+        train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
+        data_batch = next(iter(train_loader))
+        with torch.no_grad():
+            ret = model(**data_batch)
+        self.assertIn("loss", ret)
+        self.assertFalse(torch.isnan(ret["loss"]))
+
+    def test_without_static_key(self):
+        """Test GRASP without static features (default)."""
+        self.assertIsNone(self.model.static_key)
+        self.assertEqual(self.model.static_dim, 0)
+        self.assertEqual(
+            len(self.model.dynamic_feature_keys),
+            len(self.model.feature_keys),
+        )
 
     def test_batch_smaller_than_cluster_num(self):
         """Test GRASP handles batch_size < cluster_num without crashing.

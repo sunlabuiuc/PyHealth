@@ -384,6 +384,9 @@ class GRASP(BaseModel):
     Args:
         dataset (SampleDataset): the dataset to train the model. It is used
             to query certain information such as the set of all tokens.
+        static_key (str): optional key in samples to use as static features,
+            e.g. "demographics". Only numerical static features are supported.
+            Default is None.
         embedding_dim (int): the embedding dimension. Default is 128.
         hidden_dim (int): the hidden dimension. Default is 128.
         **kwargs: other parameters for the GRASPLayer
@@ -442,6 +445,7 @@ class GRASP(BaseModel):
     def __init__(
         self,
         dataset: SampleDataset,
+        static_key: Optional[str] = None,
         embedding_dim: int = 128,
         hidden_dim: int = 128,
         **kwargs
@@ -451,6 +455,7 @@ class GRASP(BaseModel):
         )
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
+        self.static_key = static_key
 
         # validate kwargs for GRASP layer
         if "input_dim" in kwargs:
@@ -462,18 +467,39 @@ class GRASP(BaseModel):
 
         self.embedding_model = EmbeddingModel(dataset, embedding_dim)
 
-        # one GRASPLayer per feature
+        # Determine static feature dimension
+        self.static_dim = 0
+        if self.static_key is not None:
+            first_sample = dataset[0]
+            if self.static_key in first_sample:
+                static_val = first_sample[self.static_key]
+                if isinstance(static_val, torch.Tensor):
+                    self.static_dim = (
+                        static_val.shape[-1] if static_val.dim() > 0 else 1
+                    )
+                elif isinstance(static_val, (list, tuple)):
+                    self.static_dim = len(static_val)
+                else:
+                    self.static_dim = 1
+
+        # Dynamic feature keys (exclude static key)
+        self.dynamic_feature_keys = [
+            k for k in self.feature_keys if k != self.static_key
+        ]
+
+        # one GRASPLayer per dynamic feature
         self.grasp = nn.ModuleDict()
-        for feature_key in self.dataset.input_processors.keys():
+        for feature_key in self.dynamic_feature_keys:
             self.grasp[feature_key] = GRASPLayer(
                 input_dim=embedding_dim,
+                static_dim=self.static_dim,
                 hidden_dim=hidden_dim,
                 **kwargs,
             )
 
         output_size = self.get_output_size()
         self.fc = nn.Linear(
-            len(self.feature_keys) * self.hidden_dim, output_size
+            len(self.dynamic_feature_keys) * self.hidden_dim, output_size
         )
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
@@ -497,10 +523,19 @@ class GRASP(BaseModel):
         """
         patient_emb = []
         embedded = self.embedding_model(kwargs)
-        for feature_key in self.feature_keys:
+
+        # Extract static features if configured
+        static = None
+        if self.static_key is not None and self.static_key in kwargs:
+            static = kwargs[self.static_key]
+            if isinstance(static, (list, tuple)):
+                static = torch.tensor(static, dtype=torch.float)
+            static = static.to(self.device)
+
+        for feature_key in self.dynamic_feature_keys:
             x = embedded[feature_key]
             mask = (torch.abs(x).sum(dim=-1) != 0).int()
-            x = self.grasp[feature_key](x, mask=mask)
+            x = self.grasp[feature_key](x, static=static, mask=mask)
             patient_emb.append(x)
 
         patient_emb = torch.cat(patient_emb, dim=1)
