@@ -169,11 +169,11 @@ class StageNetLayer(nn.Module):
         # rnn will only apply dropout between layers
         batch_size, time_step, feature_dim = x.size()
         device = x.device
-        if time == None:
-            time = torch.ones(batch_size, time_step)
+        if time is None:
+            time = torch.ones(batch_size, time_step, device=device)
         time = time.reshape(batch_size, time_step)
-        c_out = torch.zeros(batch_size, self.hidden_dim)
-        h_out = torch.zeros(batch_size, self.hidden_dim)
+        c_out = torch.zeros(batch_size, self.hidden_dim, device=device)
+        h_out = torch.zeros(batch_size, self.hidden_dim, device=device)
 
         tmp_h = (
             torch.zeros_like(h_out, dtype=torch.float32)

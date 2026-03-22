@@ -115,7 +115,7 @@ class RNNLayer(nn.Module):
         # matching TCNLayer (tcn.py:186).
         lengths = torch.clamp(lengths, min=1)
         x = rnn_utils.pack_padded_sequence(
-            x, lengths, batch_first=True, enforce_sorted=False
+            x.contiguous(), lengths, batch_first=True, enforce_sorted=False
         )
         outputs, _ = self.rnn(x)
         outputs, _ = rnn_utils.pad_packed_sequence(outputs, batch_first=True)
