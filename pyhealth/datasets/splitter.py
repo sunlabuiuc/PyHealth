@@ -124,11 +124,10 @@ def split_by_visit(
         The original dataset can be accessed by `train_dataset.dataset`,
             `val_dataset.dataset`, and `test_dataset.dataset`.
     """
-    if seed is not None:
-        np.random.seed(seed)
+    rng = np.random.default_rng(seed)
     assert sum(ratios) == 1.0, "ratios must sum to 1.0"
     index = np.arange(len(dataset))
-    np.random.shuffle(index)
+    rng.shuffle(index)
     train_index = index[: int(len(dataset) * ratios[0])]
     val_index = index[
         int(len(dataset) * ratios[0]) : int(len(dataset) * (ratios[0] + ratios[1]))
@@ -160,12 +159,11 @@ def split_by_patient(
         The original dataset can be accessed by `train_dataset.dataset`,
             `val_dataset.dataset`, and `test_dataset.dataset`.
     """
-    if seed is not None:
-        np.random.seed(seed)
+    rng = np.random.default_rng(seed)
     assert sum(ratios) == 1.0, "ratios must sum to 1.0"
     patient_indx = list(dataset.patient_to_index.keys())
     num_patients = len(patient_indx)
-    np.random.shuffle(patient_indx)
+    rng.shuffle(patient_indx)
     train_patient_indx = patient_indx[: int(num_patients * ratios[0])]
     val_patient_indx = patient_indx[
         int(num_patients * ratios[0]) : int(num_patients * (ratios[0] + ratios[1]))
@@ -203,11 +201,10 @@ def split_by_sample(
         The original dataset can be accessed by `train_dataset.dataset`,
             `val_dataset.dataset`, and `test_dataset.dataset`.
     """
-    if seed is not None:
-        np.random.seed(seed)
+    rng = np.random.default_rng(seed)
     assert sum(ratios) == 1.0, "ratios must sum to 1.0"
     index = np.arange(len(dataset))
-    np.random.shuffle(index)
+    rng.shuffle(index)
     train_index = index[: int(len(dataset) * ratios[0])]
     val_index = index[
         int(len(dataset) * ratios[0]) : int(len(dataset) * (ratios[0] + ratios[1]))
@@ -248,13 +245,12 @@ def split_by_visit_conformal(
             `val_dataset.dataset`, `cal_dataset.dataset`, and
             `test_dataset.dataset`.
     """
-    if seed is not None:
-        np.random.seed(seed)
+    rng = np.random.default_rng(seed)
     assert len(ratios) == 4, "ratios must have 4 elements for train/val/cal/test"
     assert sum(ratios) == 1.0, "ratios must sum to 1.0"
 
     index = np.arange(len(dataset))
-    np.random.shuffle(index)
+    rng.shuffle(index)
 
     # Calculate split points
     train_end = int(len(dataset) * ratios[0])
@@ -295,14 +291,13 @@ def split_by_patient_conformal(
             `val_dataset.dataset`, `cal_dataset.dataset`, and
             `test_dataset.dataset`.
     """
-    if seed is not None:
-        np.random.seed(seed)
+    rng = np.random.default_rng(seed)
     assert len(ratios) == 4, "ratios must have 4 elements for train/val/cal/test"
     assert sum(ratios) == 1.0, "ratios must sum to 1.0"
 
     patient_indx = list(dataset.patient_to_index.keys())
     num_patients = len(patient_indx)
-    np.random.shuffle(patient_indx)
+    rng.shuffle(patient_indx)
 
     # Calculate split points
     train_end = int(num_patients * ratios[0])
@@ -369,10 +364,9 @@ def split_by_sample_conformal_tuh(
             test_list.append(i)
 
     # shuffle only the train pool
-    if seed is not None:
-        np.random.seed(seed)
+    rng = np.random.default_rng(seed)
     train_arr = np.array(train_pool)
-    np.random.shuffle(train_arr)
+    rng.shuffle(train_arr)
 
     # Slice into train / val / cal.
     n = len(train_arr)
@@ -424,13 +418,12 @@ def split_by_sample_conformal(
             `val_dataset.dataset`, `cal_dataset.dataset`, and
             `test_dataset.dataset`.
     """
-    if seed is not None:
-        np.random.seed(seed)
+    rng = np.random.default_rng(seed)
     assert len(ratios) == 4, "ratios must have 4 elements for train/val/cal/test"
     assert sum(ratios) == 1.0, "ratios must sum to 1.0"
 
     index = np.arange(len(dataset))
-    np.random.shuffle(index)
+    rng.shuffle(index)
 
     # Calculate split points
     train_end = int(len(dataset) * ratios[0])

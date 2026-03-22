@@ -286,8 +286,8 @@ class Trainer:
         patient_ids = []
         if additional_outputs is not None:
             additional_outputs = {k: [] for k in additional_outputs}
+        self.model.eval()
         for data in tqdm(dataloader, desc="Evaluation"):
-            self.model.eval()
             with torch.no_grad():
                 output = self.model(**data)
                 loss = output["loss"]
