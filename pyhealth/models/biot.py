@@ -297,7 +297,7 @@ class BIOT(BaseModel):
         if map_location is None:
             map_location = str(self.device)
 
-        checkpoint = torch.load(checkpoint_path, map_location=map_location)
+        checkpoint = torch.load(checkpoint_path, map_location=map_location, weights_only=True)
 
         if "model_state_dict" in checkpoint:
             state_dict = checkpoint["model_state_dict"]
