@@ -84,6 +84,11 @@ class EventContrastiveModel(BaseModel):
         """
         events = self.split_events(x)
 
+        # random sampling (EBCL-style)
+        if len(events) > 2:
+            import random
+            events = random.sample(events, k=2)
+
         embeddings = []
         for event in events:
             z = self.encode_event(event)
