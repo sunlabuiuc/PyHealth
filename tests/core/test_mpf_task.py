@@ -21,8 +21,13 @@ class TestMPFClinicalPredictionTask(unittest.TestCase):
         s0 = samples[0]
         mor = vocab["<mor>"]
         reg = vocab["<reg>"]
-        self.assertEqual(s0["concept_ids"][0], mor)
-        self.assertEqual(s0["concept_ids"][-1], reg)
+        pad_id = vocab.pad_id
+        ids = s0["concept_ids"]
+        first = next(i for i, x in enumerate(ids) if x != pad_id)
+        last_nz = next(i for i in range(len(ids) - 1, -1, -1) if ids[i] != pad_id)
+        self.assertEqual(ids[first], mor)
+        self.assertEqual(ids[last_nz], reg)
+        self.assertEqual(ids[-1], reg)
 
     def test_no_mpf_uses_cls_reg(self) -> None:
         task = MPFClinicalPredictionTask(max_len=32, use_mpf=False)
@@ -32,8 +37,13 @@ class TestMPFClinicalPredictionTask(unittest.TestCase):
         s0 = samples[0]
         cls_id = vocab["<cls>"]
         reg_id = vocab["<reg>"]
-        self.assertEqual(s0["concept_ids"][0], cls_id)
-        self.assertEqual(s0["concept_ids"][-1], reg_id)
+        pad_id = vocab.pad_id
+        ids = s0["concept_ids"]
+        first = next(i for i, x in enumerate(ids) if x != pad_id)
+        last_nz = next(i for i in range(len(ids) - 1, -1, -1) if ids[i] != pad_id)
+        self.assertEqual(ids[first], cls_id)
+        self.assertEqual(ids[last_nz], reg_id)
+        self.assertEqual(ids[-1], reg_id)
 
     def test_schema_keys(self) -> None:
         task = MPFClinicalPredictionTask(max_len=16, use_mpf=True)

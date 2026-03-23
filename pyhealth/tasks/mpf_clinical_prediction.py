@@ -29,6 +29,18 @@ def _pad_float(seq: List[float], max_len: int, pad: float = 0.0) -> List[float]:
     return seq + [pad] * (max_len - len(seq))
 
 
+def _left_pad_int(seq: List[int], max_len: int, pad: int = 0) -> List[int]:
+    if len(seq) > max_len:
+        return seq[-max_len:]
+    return [pad] * (max_len - len(seq)) + seq
+
+
+def _left_pad_float(seq: List[float], max_len: int, pad: float = 0.0) -> List[float]:
+    if len(seq) > max_len:
+        return seq[-max_len:]
+    return [pad] * (max_len - len(seq)) + seq
+
+
 class MPFClinicalPredictionTask(BaseTask):
     """Binary mortality prediction from FHIR CEHR sequences with optional MPF tokens.
 
@@ -81,6 +93,7 @@ class MPFClinicalPredictionTask(BaseTask):
             ``label`` (0/1), or ``[]`` if the CEHR sequence is empty after parsing.
         """
         vocab = self._ensure_vocab()
+        clinical_cap = max(0, self.max_len - 2)
         (
             concept_ids,
             token_types,
@@ -88,26 +101,30 @@ class MPFClinicalPredictionTask(BaseTask):
             ages,
             visit_orders,
             visit_segments,
-        ) = build_cehr_sequences(patient, vocab, self.max_len)
+        ) = build_cehr_sequences(patient, vocab, clinical_cap)
 
         if not concept_ids:
             return []
 
-        ml = self.max_len
-        concept_ids = _pad_int(concept_ids, ml, vocab.pad_id)
-        token_types = _pad_int(token_types, ml, 0)
-        time_stamps = _pad_float(time_stamps, ml, 0.0)
-        ages = _pad_float(ages, ml, 0.0)
-        visit_orders = _pad_int(visit_orders, ml, 0)
-        visit_segments = _pad_int(visit_segments, ml, 0)
-
         assert self._specials is not None
-        if self.use_mpf:
-            concept_ids[0] = self._specials["<mor>"]
-            concept_ids[-1] = self._specials["<reg>"]
-        else:
-            concept_ids[0] = self._specials["<cls>"]
-            concept_ids[-1] = self._specials["<reg>"]
+        mor_id = self._specials["<mor>"] if self.use_mpf else self._specials["<cls>"]
+        reg_id = self._specials["<reg>"]
+        z0 = 0
+        zf = 0.0
+        concept_ids = [mor_id] + concept_ids + [reg_id]
+        token_types = [z0] + token_types + [z0]
+        time_stamps = [zf] + time_stamps + [zf]
+        ages = [zf] + ages + [zf]
+        visit_orders = [z0] + visit_orders + [z0]
+        visit_segments = [z0] + visit_segments + [z0]
+
+        ml = self.max_len
+        concept_ids = _left_pad_int(concept_ids, ml, vocab.pad_id)
+        token_types = _left_pad_int(token_types, ml, 0)
+        time_stamps = _left_pad_float(time_stamps, ml, 0.0)
+        ages = _left_pad_float(ages, ml, 0.0)
+        visit_orders = _left_pad_int(visit_orders, ml, 0)
+        visit_segments = _left_pad_int(visit_segments, ml, 0)
 
         label = infer_mortality_label(patient)
         return [

@@ -126,6 +126,48 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
         tid = vocab["http://hl7.org/fhir/sid/icd-10-cm|I99"]
         self.assertEqual(concept_ids.count(tid), 1)
 
+    def test_unlinked_condition_emitted_once_with_two_encounters(self) -> None:
+        """No encounter.reference: must not duplicate once per encounter loop."""
+
+        from pyhealth.datasets.mimic4_fhir import FHIRPatient
+
+        patient_r = {
+            "resourceType": "Patient",
+            "id": "p1",
+            "birthDate": "1950-01-01",
+        }
+        enc_a = {
+            "resourceType": "Encounter",
+            "id": "ea",
+            "subject": {"reference": "Patient/p1"},
+            "period": {"start": "2020-06-01T10:00:00Z"},
+            "class": {"code": "AMB"},
+        }
+        enc_b = {
+            "resourceType": "Encounter",
+            "id": "eb",
+            "subject": {"reference": "Patient/p1"},
+            "period": {"start": "2020-07-01T10:00:00Z"},
+            "class": {"code": "IMP"},
+        }
+        cond = {
+            "resourceType": "Condition",
+            "id": "cx",
+            "subject": {"reference": "Patient/p1"},
+            "code": {
+                "coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "Z00"}]
+            },
+            "onsetDateTime": "2020-06-15T12:00:00Z",
+        }
+        pr = FHIRPatient(
+            patient_id="p1",
+            resources=[patient_r, enc_a, enc_b, cond],
+        )
+        vocab = ConceptVocab()
+        concept_ids, *_ = build_cehr_sequences(pr, vocab, max_len=64)
+        z00 = vocab["http://hl7.org/fhir/sid/icd-10-cm|Z00"]
+        self.assertEqual(concept_ids.count(z00), 1)
+
     def test_cehr_sequence_shapes(self) -> None:
         lines = synthetic_ndjson_lines()
         from pyhealth.datasets.mimic4_fhir import FHIRPatient, parse_ndjson_line

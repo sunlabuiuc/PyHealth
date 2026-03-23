@@ -216,6 +216,27 @@ def _event_time(res: Dict[str, Any]) -> Optional[datetime]:
     return None
 
 
+def _visit_idx_for_unlinked_event(
+    t: Optional[datetime], encounters: List[Dict[str, Any]]
+) -> int:
+    """Last encounter index whose start time is <= event time (fallback last visit)."""
+
+    if not encounters:
+        return 0
+    if t is None:
+        return len(encounters) - 1
+    t = _as_naive(t)
+    chosen = 0
+    for i, enc in enumerate(encounters):
+        es = _event_time(enc)
+        if es is None:
+            continue
+        es = _as_naive(es)
+        if es <= t:
+            chosen = i
+    return chosen
+
+
 def build_cehr_sequences(
     patient: FHIRPatient,
     vocab: ConceptVocab,
@@ -230,7 +251,14 @@ def build_cehr_sequences(
     List[int],
     List[int],
 ]:
-    """Flatten patient resources into CEHR-aligned lists (pre-padding)."""
+    """Flatten patient resources into CEHR-aligned lists (pre-padding).
+
+    Args:
+        max_len: Maximum number of **clinical** tokens emitted (after time sort and
+            tail slice). Downstream MPF tasks reserve two slots for ``<mor>``/``<cls>``
+            and ``<reg>``, so pass ``max_len - 2`` there when the final tensor length
+            is fixed.
+    """
 
     birth = patient.birth_date
     if birth is None:
@@ -262,11 +290,33 @@ def build_cehr_sequences(
                     ref_eid = _ref_id(enc_ref)
                     if ref_eid is None or str(eid) != str(ref_eid):
                         continue
+                else:
+                    continue
             t = _event_time(r)
             if t is None:
                 t = enc_start
             events.append((t, r, visit_idx))
         visit_idx += 1
+
+    for r in patient.resources:
+        if r.get("resourceType") == "Patient":
+            continue
+        rt = r.get("resourceType")
+        if rt not in RESOURCE_TYPE_TO_TOKEN_TYPE:
+            continue
+        if rt == "Encounter":
+            continue
+        enc_ref = (r.get("encounter") or {}).get("reference")
+        if enc_ref:
+            continue
+        v_idx = _visit_idx_for_unlinked_event(_event_time(r), encounters)
+        t = _event_time(r)
+        if t is None:
+            if encounters:
+                t = _event_time(encounters[min(v_idx, len(encounters) - 1)])
+            if t is None:
+                continue
+        events.append((t, r, v_idx))
 
     events.sort(key=lambda x: x[0])
 

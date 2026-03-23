@@ -24,7 +24,6 @@ from .drug_recommendation import (
 from .EEG_abnormal import EEG_isAbnormal_fn
 from .EEG_events import EEG_events_fn
 from .in_hospital_mortality_mimic4 import InHospitalMortalityMIMIC4
-from .mpf_clinical_prediction import MPFClinicalPredictionTask
 from .length_of_stay_prediction import (
     LengthOfStayPredictioneICU,
     LengthOfStayPredictionMIMIC3,
@@ -69,3 +68,11 @@ from .variant_classification import (
     VariantClassificationClinVar,
 )
 from .patient_linkage_mimic3 import PatientLinkageMIMIC3Task
+
+
+def __getattr__(name: str):
+    if name == "MPFClinicalPredictionTask":
+        from .mpf_clinical_prediction import MPFClinicalPredictionTask
+
+        return MPFClinicalPredictionTask
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
