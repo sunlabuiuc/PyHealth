@@ -337,6 +337,97 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
         self.assertEqual(vo[i_link], vo[i_free])
         self.assertEqual(vs[i_link], vs[i_free])
 
+    def test_medication_request_uses_medication_codeable_concept(self) -> None:
+        """FHIR R4 MedicationRequest carries Rx in ``medicationCodeableConcept``, not ``code``."""
+
+        from pyhealth.datasets.mimic4_fhir import FHIRPatient
+
+        patient_r = {
+            "resourceType": "Patient",
+            "id": "p1",
+            "birthDate": "1950-01-01",
+        }
+        enc = {
+            "resourceType": "Encounter",
+            "id": "e1",
+            "subject": {"reference": "Patient/p1"},
+            "period": {"start": "2020-06-01T10:00:00Z"},
+            "class": {"code": "IMP"},
+        }
+        mr_a = {
+            "resourceType": "MedicationRequest",
+            "id": "m1",
+            "subject": {"reference": "Patient/p1"},
+            "encounter": {"reference": "Encounter/e1"},
+            "authoredOn": "2020-06-01T11:00:00Z",
+            "medicationCodeableConcept": {
+                "coding": [
+                    {
+                        "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+                        "code": "111",
+                    }
+                ]
+            },
+        }
+        mr_b = {
+            "resourceType": "MedicationRequest",
+            "id": "m2",
+            "subject": {"reference": "Patient/p1"},
+            "encounter": {"reference": "Encounter/e1"},
+            "authoredOn": "2020-06-01T12:00:00Z",
+            "medicationCodeableConcept": {
+                "coding": [
+                    {
+                        "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+                        "code": "222",
+                    }
+                ]
+            },
+        }
+        pr = FHIRPatient(
+            patient_id="p1",
+            resources=[patient_r, enc, mr_a, mr_b],
+        )
+        vocab = ConceptVocab()
+        c, _, _, _, _, _ = build_cehr_sequences(pr, vocab, max_len=64)
+        ka = "http://www.nlm.nih.gov/research/umls/rxnorm|111"
+        kb = "http://www.nlm.nih.gov/research/umls/rxnorm|222"
+        self.assertNotEqual(vocab[ka], vocab[kb])
+        self.assertEqual(c.count(vocab[ka]), 1)
+        self.assertEqual(c.count(vocab[kb]), 1)
+
+    def test_medication_request_medication_reference_token(self) -> None:
+        """When only ``medicationReference`` is present, use a stable ref-based key."""
+
+        from pyhealth.datasets.mimic4_fhir import FHIRPatient
+
+        patient_r = {
+            "resourceType": "Patient",
+            "id": "p1",
+            "birthDate": "1950-01-01",
+        }
+        enc = {
+            "resourceType": "Encounter",
+            "id": "e1",
+            "subject": {"reference": "Patient/p1"},
+            "period": {"start": "2020-06-01T10:00:00Z"},
+            "class": {"code": "IMP"},
+        }
+        mr = {
+            "resourceType": "MedicationRequest",
+            "id": "m1",
+            "subject": {"reference": "Patient/p1"},
+            "encounter": {"reference": "Encounter/e1"},
+            "authoredOn": "2020-06-01T11:00:00Z",
+            "medicationReference": {"reference": "Medication/med-abc"},
+        }
+        pr = FHIRPatient(patient_id="p1", resources=[patient_r, enc, mr])
+        vocab = ConceptVocab()
+        c, _, _, _, _, _ = build_cehr_sequences(pr, vocab, max_len=64)
+        key = "MedicationRequest/reference|med-abc"
+        self.assertIn(vocab[key], c)
+        self.assertEqual(c.count(vocab[key]), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

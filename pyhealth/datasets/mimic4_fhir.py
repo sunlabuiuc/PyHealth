@@ -76,6 +76,29 @@ def _first_coding(obj: Optional[Dict[str, Any]]) -> Optional[str]:
     return _coding_key(codings[0])
 
 
+def _clinical_concept_key(res: Dict[str, Any]) -> Optional[str]:
+    """Resolve a stable vocabulary key; resource-type-specific per FHIR R4."""
+
+    rt = res.get("resourceType")
+    if rt == "MedicationRequest":
+        mcc = res.get("medicationCodeableConcept")
+        if isinstance(mcc, dict):
+            ck = _first_coding(mcc)
+            if ck:
+                return ck
+        mref = res.get("medicationReference")
+        if isinstance(mref, dict):
+            ref = mref.get("reference")
+            if ref:
+                rid = _ref_id(ref)
+                return f"MedicationRequest/reference|{rid or ref}"
+        return None
+    code = res.get("code")
+    if isinstance(code, dict):
+        return _first_coding(code)
+    return None
+
+
 @dataclass
 class ConceptVocab:
     """Maps FHIR coding keys to dense ids. Supports save/load for streaming builds."""
@@ -366,8 +389,7 @@ def build_cehr_sequences(
     for t, res, v_idx in tail:
         t = _as_naive(t)
         rt = res.get("resourceType")
-        code_obj = res.get("code") or {}
-        ck = _first_coding(code_obj)
+        ck = _clinical_concept_key(res)
         if rt == "Observation":
             ck = ck or "obs|unknown"
         if ck is None:
