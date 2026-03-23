@@ -134,8 +134,12 @@ class ConceptVocab:
     @classmethod
     def from_json(cls, data: Dict[str, Any]) -> ConceptVocab:
         v = cls()
-        v.token_to_id = dict(data["token_to_id"])
-        v._next_id = int(data.get("next_id", max(v.token_to_id.values()) + 1))
+        loaded = dict(data.get("token_to_id") or {})
+        if not loaded:
+            v._next_id = int(data.get("next_id", 2))
+            return v
+        v.token_to_id = loaded
+        v._next_id = int(data.get("next_id", max(loaded.values()) + 1))
         return v
 
     def save(self, path: str) -> None:

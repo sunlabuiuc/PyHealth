@@ -16,6 +16,18 @@ from pyhealth.datasets.mimic4_fhir import (
 
 
 class TestMIMIC4FHIRDataset(unittest.TestCase):
+    def test_concept_vocab_from_json_empty_token_to_id(self) -> None:
+        """Corrupted save with empty ``token_to_id`` must not call ``max()`` on []."""
+
+        v = ConceptVocab.from_json({"token_to_id": {}})
+        self.assertIn("<pad>", v.token_to_id)
+        self.assertIn("<unk>", v.token_to_id)
+        self.assertEqual(v._next_id, 2)
+
+    def test_concept_vocab_from_json_empty_respects_next_id(self) -> None:
+        v = ConceptVocab.from_json({"token_to_id": {}, "next_id": 50})
+        self.assertEqual(v._next_id, 50)
+
     def test_group_resources(self) -> None:
         lines = synthetic_ndjson_lines()
         resources = []
