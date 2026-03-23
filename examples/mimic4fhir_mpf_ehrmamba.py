@@ -26,11 +26,23 @@ real FHIR.
     needed for conclusive comparisons. Paste your table from ``--ablation``
     into the PR description.
 
+**Known limitation (full FHIR tree):** :class:`~pyhealth.datasets.MIMIC4FHIRDataset`
+loads **every** resource from **every** file matching ``glob_pattern`` into
+memory before grouping by patient. A complete PhysioNet export is **not** expected
+to fit comfortably on a laptop without a **restricted** ``glob_pattern`` (subset
+of ``*.ndjson.gz`` files) or future streaming ingest. See dataset API docs.
+
+**Approximate minimum specs** (``--quick-test``, CPU, synthetic 2-patient
+fixture; measured once on macOS/arm64 with ``/usr/bin/time -l``): peak RSS
+~**600–700 MiB**, wall **~10–15 s** for two short epochs. Real NDJSON/GZ at scale
+needs proportionally more RAM, disk, and time; GPU helps training, not the
+current all-in-RAM parse.
+
 Usage:
     cd PyHealth && PYTHONPATH=. python examples/mimic4fhir_mpf_ehrmamba.py --quick-test
     PYTHONPATH=. python examples/mimic4fhir_mpf_ehrmamba.py --quick-test --ablation
     export MIMIC4_FHIR_ROOT=/path/to/fhir
-    PYTHONPATH=. python examples/mimic4fhir_mpf_ehrmamba.py --fhir-root "$MIMIC4_FHIR_ROOT"
+    pixi run -e base python examples/mimic4fhir_mpf_ehrmamba.py --fhir-root "$MIMIC4_FHIR_ROOT"
 """
 
 from __future__ import annotations
@@ -52,6 +64,16 @@ _parser.add_argument(
     type=str,
     default=None,
     help="Root directory with NDJSON (default: MIMIC4_FHIR_ROOT env).",
+)
+_parser.add_argument(
+    "--glob-pattern",
+    type=str,
+    default=None,
+    help=(
+        "Override glob for NDJSON/NDJSON.GZ (default: yaml **/*.ndjson.gz). "
+        "Use a narrow pattern (e.g. MimicPatient*.ndjson.gz) to limit RAM—the "
+        "loader reads every matching file fully before grouping patients."
+    ),
 )
 _parser.add_argument(
     "--max-len",
@@ -85,6 +107,18 @@ _parser.add_argument(
     "--ablation",
     action="store_true",
     help="Run a small max_len × MPF × hidden_dim grid on synthetic data; print table.",
+)
+_parser.add_argument(
+    "--epochs",
+    type=int,
+    default=None,
+    help="Training epochs (default: 2 with --quick-test, else 20).",
+)
+_parser.add_argument(
+    "--max-patients",
+    type=int,
+    default=500,
+    help="Max grouped patients after full parse (disk FHIR only); lower to save RAM.",
 )
 _pre_args, _ = _parser.parse_known_args()
 if _pre_args.gpu is not None:
@@ -212,7 +246,10 @@ def main() -> None:
     args = _parser.parse_args()
     fhir_root = args.fhir_root or os.environ.get("MIMIC4_FHIR_ROOT")
     quick = args.quick_test
-    epochs = 2 if quick else EPOCHS
+    if args.epochs is not None:
+        epochs = args.epochs
+    else:
+        epochs = 2 if quick else EPOCHS
 
     if args.ablation:
         if not quick:
@@ -239,7 +276,12 @@ def main() -> None:
             raise SystemExit(
                 "Set MIMIC4_FHIR_ROOT or pass --fhir-root to a directory of NDJSON files."
             )
-        ds = MIMIC4FHIRDataset(root=fhir_root, max_patients=500)
+        ds = MIMIC4FHIRDataset(
+            root=fhir_root,
+            max_patients=args.max_patients,
+            glob_pattern=args.glob_pattern,
+        )
+        print("glob_pattern:", ds.glob_pattern)
         task.vocab = ds.vocab
         task._specials = None
         samples = ds.gather_samples(task)

@@ -423,7 +423,17 @@ def read_fhir_settings_yaml(path: Optional[str] = None) -> Dict[str, Any]:
 
 
 def collect_resources_from_root(root: Path, glob_pattern: str) -> List[Dict[str, Any]]:
-    """Read all NDJSON / NDJSON.GZ / Bundle lines under root matching ``glob_pattern``."""
+    """Read all NDJSON / NDJSON.GZ / Bundle lines under root matching ``glob_pattern``.
+
+    .. note::
+
+        **Memory:** Every matching file is read fully and all resource dicts are
+        kept in one list before patient grouping. A full PhysioNet MIMIC-IV FHIR
+        tree (dozens of multi-GB ``*.ndjson.gz`` files) can require **tens to
+        hundreds of GB RAM** and long wall time. For local development, pass a
+        narrower ``glob_pattern`` (e.g. a small subset of resource types) until
+        a streaming loader exists.
+    """
 
     all_res: List[Dict[str, Any]] = []
     for fp in sorted(root.glob(glob_pattern)):
@@ -473,6 +483,15 @@ class MIMIC4FHIRDataset(BaseDataset):
 
     Raises:
         FileNotFoundError: If ``root`` is not a directory when loading patients.
+
+    Note:
+        **Scalability:** :func:`collect_resources_from_root` loads **all**
+        resources from **every** file matched by ``glob_pattern`` into memory,
+        then groups by patient. This matches rubric-friendly synthetic tests but
+        is not appropriate for an entire credentialled FHIR export without a
+        restricted glob or future streaming/chunked ingest. Plan RAM and I/O
+        accordingly; ``max_patients`` only trims **after** the full resource list
+        is built.
     """
 
     def __init__(
