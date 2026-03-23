@@ -476,29 +476,50 @@ class BaseDataset(ABC):
     def _event_transform(self, output_dir: Path) -> None:
         try:
             df = self.load_data()
-            with DaskCluster(
-                n_workers=self.num_workers,
-                threads_per_worker=1,
-                processes=not in_notebook(),
-                # Use cache_dir for Dask's scratch space to avoid filling up /tmp or home directory
-                local_directory=str(self.create_tmpdir()),
-            ) as cluster:
-                with DaskClient(cluster) as client:
-                    if self.dev:
-                        logger.info("Dev mode enabled: limiting to 1000 patients")
-                        patients = df["patient_id"].unique().head(1000).tolist()
-                        filter = df["patient_id"].isin(patients)
-                        df = df[filter]
+            disable_distributed = os.environ.get(
+                "PYHEALTH_DISABLE_DASK_DISTRIBUTED", "0"
+            ) == "1"
 
-                    logger.info(f"Caching event dataframe to {output_dir}...")
-                    collection = df.sort_values("patient_id").to_parquet(
-                        output_dir,
-                        write_index=False,
-                        compute=False,
-                    )
-                    handle = client.compute(collection)
-                    dask_progress(handle)
-                    handle.result()  # type: ignore
+            if disable_distributed:
+                logger.info(
+                    "PYHEALTH_DISABLE_DASK_DISTRIBUTED=1 detected; using local dask scheduler."
+                )
+                if self.dev:
+                    logger.info("Dev mode enabled: limiting to 1000 patients")
+                    patients = df["patient_id"].unique().head(1000, compute=True).tolist()
+                    patient_filter = df["patient_id"].isin(patients)
+                    df = df[patient_filter]
+
+                logger.info(f"Caching event dataframe to {output_dir}...")
+                df.sort_values("patient_id").to_parquet(
+                    output_dir,
+                    write_index=False,
+                    compute=True,
+                )
+            else:
+                with DaskCluster(
+                    n_workers=self.num_workers,
+                    threads_per_worker=1,
+                    processes=not in_notebook(),
+                    # Use cache_dir for Dask's scratch space to avoid filling up /tmp or home directory
+                    local_directory=str(self.create_tmpdir()),
+                ) as cluster:
+                    with DaskClient(cluster) as client:
+                        if self.dev:
+                            logger.info("Dev mode enabled: limiting to 1000 patients")
+                            patients = df["patient_id"].unique().head(1000).tolist()
+                            filter = df["patient_id"].isin(patients)
+                            df = df[filter]
+
+                        logger.info(f"Caching event dataframe to {output_dir}...")
+                        collection = df.sort_values("patient_id").to_parquet(
+                            output_dir,
+                            write_index=False,
+                            compute=False,
+                        )
+                        handle = client.compute(collection)
+                        dask_progress(handle)
+                        handle.result()  # type: ignore
         except Exception as e:
             if output_dir.exists():
                 logger.error(f"Error during caching, removing incomplete file {output_dir}")
