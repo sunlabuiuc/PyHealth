@@ -216,24 +216,29 @@ def _event_time(res: Dict[str, Any]) -> Optional[datetime]:
     return None
 
 
-def _visit_idx_for_unlinked_event(
-    t: Optional[datetime], encounters: List[Dict[str, Any]]
+def _sequential_visit_idx_for_time(
+    t: Optional[datetime], visit_encounters: List[Tuple[datetime, int]]
 ) -> int:
-    """Last encounter index whose start time is <= event time (fallback last visit)."""
+    """Map event time to the sequential ``visit_idx`` used in the main encounter loop.
 
-    if not encounters:
+    ``visit_encounters`` lists ``(encounter_start, visit_idx)`` only for encounters
+    with a valid ``period.start``, in the same order as :func:`build_cehr_sequences`
+    assigns ``visit_idx`` (sorted ``encounters``, skipping those without start). This
+    must not use raw indices into the full ``encounters`` list, or indices diverge
+    when some encounters lack a start time.
+    """
+
+    if not visit_encounters:
         return 0
     if t is None:
-        return len(encounters) - 1
+        return visit_encounters[-1][1]
     t = _as_naive(t)
-    chosen = 0
-    for i, enc in enumerate(encounters):
-        es = _event_time(enc)
-        if es is None:
-            continue
-        es = _as_naive(es)
+    chosen = visit_encounters[0][1]
+    for es, vidx in visit_encounters:
         if es <= t:
-            chosen = i
+            chosen = vidx
+        else:
+            break
     return chosen
 
 
@@ -271,6 +276,15 @@ def build_cehr_sequences(
     events: List[Tuple[datetime, Dict[str, Any], int]] = []
     encounters = [r for r in patient.resources if r.get("resourceType") == "Encounter"]
     encounters.sort(key=lambda e: _event_time(e) or datetime.min)
+
+    visit_encounters: List[Tuple[datetime, int]] = []
+    _v = 0
+    for enc in encounters:
+        _es = _event_time(enc)
+        if _es is None:
+            continue
+        visit_encounters.append((_as_naive(_es), _v))
+        _v += 1
 
     visit_idx = 0
     for enc in encounters:
@@ -311,11 +325,17 @@ def build_cehr_sequences(
         enc_ref = (r.get("encounter") or {}).get("reference")
         if enc_ref:
             continue
-        v_idx = _visit_idx_for_unlinked_event(_event_time(r), encounters)
-        t = _event_time(r)
+        t_evt = _event_time(r)
+        v_idx = _sequential_visit_idx_for_time(t_evt, visit_encounters)
+        t = t_evt
         if t is None:
-            if encounters:
-                t = _event_time(encounters[min(v_idx, len(encounters) - 1)])
+            if visit_encounters:
+                for es, v in visit_encounters:
+                    if v == v_idx:
+                        t = es
+                        break
+                else:
+                    t = visit_encounters[-1][0]
             if t is None:
                 continue
         events.append((t, r, v_idx))

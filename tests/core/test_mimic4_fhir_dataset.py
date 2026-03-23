@@ -268,6 +268,61 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
         self.assertEqual(len(vs), 4)
         self.assertEqual(vs, [0, 0, 1, 1])
 
+    def test_unlinked_visit_idx_matches_sequential_counter(self) -> None:
+        """Skipped encounters (no ``period.start``) must not shift unlinked ``visit_idx``."""
+
+        from pyhealth.datasets.mimic4_fhir import FHIRPatient
+
+        patient_r = {
+            "resourceType": "Patient",
+            "id": "p1",
+            "birthDate": "1950-01-01",
+        }
+        enc_no_start = {
+            "resourceType": "Encounter",
+            "id": "e_bad",
+            "subject": {"reference": "Patient/p1"},
+            "class": {"code": "AMB"},
+        }
+        enc_ok = {
+            "resourceType": "Encounter",
+            "id": "e_ok",
+            "subject": {"reference": "Patient/p1"},
+            "period": {"start": "2020-03-01T10:00:00Z"},
+            "class": {"code": "IMP"},
+        }
+        cond_linked = {
+            "resourceType": "Condition",
+            "id": "c_link",
+            "subject": {"reference": "Patient/p1"},
+            "encounter": {"reference": "Encounter/e_ok"},
+            "code": {
+                "coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "I10"}]
+            },
+            "onsetDateTime": "2020-03-05T11:00:00Z",
+        }
+        cond_unlinked = {
+            "resourceType": "Condition",
+            "id": "c_free",
+            "subject": {"reference": "Patient/p1"},
+            "code": {
+                "coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "Z00"}]
+            },
+            "onsetDateTime": "2020-03-15T12:00:00Z",
+        }
+        pr = FHIRPatient(
+            patient_id="p1",
+            resources=[patient_r, enc_no_start, enc_ok, cond_linked, cond_unlinked],
+        )
+        vocab = ConceptVocab()
+        c, _, _, _, vo, vs = build_cehr_sequences(pr, vocab, max_len=64)
+        i10 = vocab["http://hl7.org/fhir/sid/icd-10-cm|I10"]
+        z00 = vocab["http://hl7.org/fhir/sid/icd-10-cm|Z00"]
+        i_link = c.index(i10)
+        i_free = c.index(z00)
+        self.assertEqual(vo[i_link], vo[i_free])
+        self.assertEqual(vs[i_link], vs[i_free])
+
 
 if __name__ == "__main__":
     unittest.main()
