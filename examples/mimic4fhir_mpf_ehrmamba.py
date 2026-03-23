@@ -246,6 +246,14 @@ def main() -> None:
         vocab = ds.vocab
         print("fhir_root:", fhir_root, "| samples:", len(samples))
 
+    if not samples:
+        raise SystemExit(
+            "No training samples (0 patients or empty sequences). "
+            "PhysioNet MIMIC-IV FHIR uses *.ndjson.gz (default glob **/*.ndjson.gz). "
+            "If your tree is plain *.ndjson, construct MIMIC4FHIRDataset with "
+            "glob_pattern='**/*.ndjson'."
+        )
+
     sample_ds, train_loader, val_loader, test_loader, vocab_size = _build_loaders(
         samples, task
     )

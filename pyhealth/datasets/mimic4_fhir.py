@@ -1,7 +1,8 @@
 """MIMIC-IV FHIR (NDJSON) ingestion for CEHR-style sequences.
 
-Loads NDJSON lines (one JSON object per line) or Bundle ``entry`` resources,
-groups by Patient id, and builds token timelines for MPF / EHRMambaCEHR.
+Loads newline-delimited JSON (plain ``*.ndjson`` or gzip ``*.ndjson.gz``, as on
+PhysioNet), or Bundle ``entry`` resources, groups by Patient id, and builds
+token timelines for MPF / EHRMambaCEHR.
 
 Settings such as ``glob_pattern`` live in ``configs/mimic4_fhir.yaml`` and are
 read by :func:`read_fhir_settings_yaml`. For disk data, point
@@ -12,6 +13,7 @@ or a temporary ``*.ndjson`` file tree.
 
 from __future__ import annotations
 
+import gzip
 import json
 import logging
 import os
@@ -156,7 +158,11 @@ def parse_ndjson_line(line: str) -> Optional[Dict[str, Any]]:
 
 
 def iter_ndjson_file(path: Path) -> Generator[Dict[str, Any], None, None]:
-    with open(path, encoding="utf-8", errors="replace") as f:
+    if path.suffix == ".gz":
+        opener = gzip.open(path, "rt", encoding="utf-8", errors="replace")
+    else:
+        opener = open(path, encoding="utf-8", errors="replace")
+    with opener as f:
         for line in f:
             obj = parse_ndjson_line(line)
             if obj is not None:
@@ -417,7 +423,7 @@ def read_fhir_settings_yaml(path: Optional[str] = None) -> Dict[str, Any]:
 
 
 def collect_resources_from_root(root: Path, glob_pattern: str) -> List[Dict[str, Any]]:
-    """Read all NDJSON / Bundle lines under root."""
+    """Read all NDJSON / NDJSON.GZ / Bundle lines under root matching ``glob_pattern``."""
 
     all_res: List[Dict[str, Any]] = []
     for fp in sorted(root.glob(glob_pattern)):

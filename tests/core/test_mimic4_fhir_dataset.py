@@ -1,3 +1,4 @@
+import gzip
 import tempfile
 import unittest
 from pathlib import Path
@@ -54,6 +55,19 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
         g = group_resources_by_patient(resources)
         dead = FHIRPatient(patient_id="p-synth-2", resources=g["p-synth-2"])
         self.assertEqual(infer_mortality_label(dead), 1)
+
+    def test_disk_ndjson_gz_physionet_style(self) -> None:
+        """Gzip NDJSON (PhysioNet ``*.ndjson.gz``) matches default glob when set."""
+
+        lines = synthetic_ndjson_lines_two_class()
+        with tempfile.TemporaryDirectory() as tmp:
+            gz_path = Path(tmp) / "fixture.ndjson.gz"
+            with gzip.open(gz_path, "wt", encoding="utf-8") as gz:
+                gz.write("\n".join(lines) + "\n")
+            ds = MIMIC4FHIRDataset(
+                root=tmp, glob_pattern="*.ndjson.gz", max_patients=5
+            )
+            self.assertGreaterEqual(len(ds.unique_patient_ids), 1)
 
     def test_disk_ndjson_temp_dir(self) -> None:
         """Load from a temp directory (cleanup via context manager)."""

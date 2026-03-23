@@ -2,7 +2,9 @@
 # This YAML is read by ``read_fhir_settings_yaml`` (FHIR layout), not the CSV
 # ``DatasetConfig`` table schema used by MIMIC-IV relational loaders.
 version: "fhir_r4"
-glob_pattern: "**/*.ndjson"
+# PhysioNet MIMIC-IV on FHIR ships gzip-compressed files (e.g. MimicPatient.ndjson.gz).
+# For uncompressed trees, pass glob_pattern="**/*.ndjson" to MIMIC4FHIRDataset.
+glob_pattern: "**/*.ndjson.gz"
 # Optional: restrict resource types when scanning (future use)
 resource_types:
   - Patient

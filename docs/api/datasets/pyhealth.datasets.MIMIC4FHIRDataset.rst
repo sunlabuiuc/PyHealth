@@ -7,7 +7,8 @@ for CEHR-style token sequences used with
 :class:`~pyhealth.models.EHRMambaCEHR`.
 
 YAML defaults live in ``pyhealth/datasets/configs/mimic4_fhir.yaml`` (e.g.
-``glob_pattern``). The loader subclasses :class:`~pyhealth.datasets.BaseDataset`
+``glob_pattern`` for ``**/*.ndjson.gz`` on PhysioNet exports, or ``**/*.ndjson``
+if uncompressed). The loader subclasses :class:`~pyhealth.datasets.BaseDataset`
 but does not build a Polars ``global_event_df``; use :meth:`MIMIC4FHIRDataset.gather_samples`
 or :meth:`MIMIC4FHIRDataset.set_task`.
 
