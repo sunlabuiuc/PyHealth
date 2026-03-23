@@ -1,3 +1,6 @@
+import random
+from typing import List, Optional
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -7,105 +10,136 @@ from pyhealth.models import BaseModel
 class EventContrastiveModel(BaseModel):
     """Event-Based Contrastive Learning Model for Medical Time Series.
 
-    This model implements a simplified version of EBCL by:
-    1. Splitting time-series into fixed-size events
-    2. Encoding each event
-    3. Applying multi-event contrastive learning (InfoNCE)
+    This model implements a simplified version of Event-Based Contrastive
+    Learning (EBCL). It splits patient time-series into events, encodes each
+    event, and applies a contrastive learning objective across events.
+
+    Key components:
+        1. Event segmentation (fixed-size windows)
+        2. Event encoder (GRU)
+        3. Projection head (MLP)
+        4. Multi-event contrastive loss (InfoNCE)
 
     Args:
-        dataset: PyHealth dataset (can be None for testing)
-        input_dim: number of input features
-        hidden_dim: encoder hidden size
-        projection_dim: dimension for contrastive space
-        temperature: scaling factor for contrastive loss
+        dataset (Optional): PyHealth dataset object. Can be None for testing.
+        input_dim (int): Number of input features per timestep.
+        hidden_dim (int): Hidden size of the GRU encoder.
+        projection_dim (int): Dimension of contrastive embedding space.
+        temperature (float): Temperature parameter for contrastive loss.
+
+    Example:
+        >>> model = EventContrastiveModel(dataset=None, input_dim=8)
+        >>> x = torch.randn(2, 10, 8)
+        >>> embeddings = model(x)
+        >>> loss = model.compute_loss(embeddings)
+        >>> print(loss.item())
     """
 
     def __init__(
         self,
-        dataset=None,
+        dataset: Optional[object] = None,
         input_dim: int = 8,
         hidden_dim: int = 64,
         projection_dim: int = 32,
         temperature: float = 0.1,
-    ):
+    ) -> None:
         super().__init__(dataset=dataset)
 
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.temperature = temperature
 
-        # Encoder (GRU)
+        # GRU encoder
         self.encoder = nn.GRU(
             input_size=input_dim,
             hidden_size=hidden_dim,
             batch_first=True,
         )
 
-        # Projection head
+        # Projection head for contrastive space
         self.projection_head = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, projection_dim),
         )
 
-    def split_events(self, x, window_size=5):
-        """Split time-series into fixed-size events.
+    def split_events(self, x: torch.Tensor, window_size: int = 5) -> List[torch.Tensor]:
+        """Splits time-series into fixed-size events.
 
         Args:
-            x: tensor (batch, time, features)
+            x (torch.Tensor): Input tensor of shape (batch, time, features).
+            window_size (int): Length of each event window.
 
         Returns:
-            list of event tensors
+            List[torch.Tensor]: List of event tensors, each of shape
+                (batch, window_size, features).
         """
-        events = []
-        T = x.shape[1]
+        events: List[torch.Tensor] = []
+        time_steps = x.shape[1]
 
-        for i in range(0, T - window_size + 1, window_size):
+        for i in range(0, time_steps - window_size + 1, window_size):
             events.append(x[:, i : i + window_size, :])
 
         return events
 
-    def encode_event(self, event):
-        """Encode a single event sequence."""
-        output, _ = self.encoder(event)
-        h = output[:, -1, :]
-        z = self.projection_head(h)
-        z = F.normalize(z, dim=-1)
-        return z
-
-    def forward(self, x):
-        """Forward pass.
+    def encode_event(self, event: torch.Tensor) -> torch.Tensor:
+        """Encodes a single event sequence into an embedding.
 
         Args:
-            x: (batch, time, features)
+            event (torch.Tensor): Event tensor of shape
+                (batch, window_size, features).
 
         Returns:
-            list of embeddings (one per event)
+            torch.Tensor: Normalized embedding of shape (batch, projection_dim).
+        """
+        output, _ = self.encoder(event)
+        hidden = output[:, -1, :]
+        embedding = self.projection_head(hidden)
+        embedding = F.normalize(embedding, dim=-1)
+        return embedding
+
+    def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
+        """Performs forward pass and returns event embeddings.
+
+        Args:
+            x (torch.Tensor): Input tensor of shape (batch, time, features).
+
+        Returns:
+            List[torch.Tensor]: List of embeddings, one per event.
         """
         events = self.split_events(x)
 
-        # random sampling (EBCL-style)
+        # Random event sampling (EBCL-style augmentation)
         if len(events) > 2:
-            import random
             events = random.sample(events, k=2)
 
-        embeddings = []
+        embeddings: List[torch.Tensor] = []
         for event in events:
-            z = self.encode_event(event)
-            embeddings.append(z)
+            embeddings.append(self.encode_event(event))
 
         return embeddings
 
-    def compute_loss(self, embeddings):
-        """Multi-event contrastive loss (InfoNCE-style)."""
+    def compute_loss(self, embeddings: List[torch.Tensor]) -> torch.Tensor:
+        """Computes multi-event contrastive loss (InfoNCE).
+
+        Args:
+            embeddings (List[torch.Tensor]): List of embeddings, each of shape
+                (batch, projection_dim).
+
+        Returns:
+            torch.Tensor: Scalar loss value.
+
+        Raises:
+            ValueError: If fewer than 2 events are provided.
+        """
         if len(embeddings) < 2:
             raise ValueError("Need at least 2 events for contrastive learning")
 
-        # Concatenate all event embeddings
+        # Concatenate embeddings across events
         z = torch.cat(embeddings, dim=0)
 
-        # Similarity matrix
-        sim = torch.matmul(z, z.T) / self.temperature
+        # Compute similarity matrix
+        similarity = torch.matmul(z, z.T) / self.temperature
 
         batch_size = embeddings[0].size(0)
         num_events = len(embeddings)
@@ -114,6 +148,6 @@ class EventContrastiveModel(BaseModel):
         labels = torch.arange(batch_size).repeat(num_events)
         labels = labels.to(z.device)
 
-        loss = F.cross_entropy(sim, labels)
+        loss = F.cross_entropy(similarity, labels)
 
         return loss
