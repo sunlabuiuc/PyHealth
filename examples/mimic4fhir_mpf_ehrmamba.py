@@ -96,7 +96,7 @@ _parser.add_argument(
     "--lr",
     type=float,
     default=1e-3,
-    help="Reserved for optimiser tuning (Trainer default LR unless overridden).",
+    help="Adam learning rate (trainer.train optimizer_params).",
 )
 _parser.add_argument(
     "--quick-test",
@@ -175,6 +175,7 @@ def run_single_train(
     use_mpf: bool,
     hidden_dim: int,
     epochs: int,
+    lr: float = 1e-3,
 ) -> Dict[str, float]:
     """Train/eval one configuration; returns test metrics (floats)."""
 
@@ -194,12 +195,13 @@ def run_single_train(
         val_dataloader=val_l,
         epochs=epochs,
         monitor="roc_auc",
+        optimizer_params={"lr": lr},
     )
     results = trainer.evaluate(test_l)
     return {k: float(v) for k, v in results.items()}
 
 
-def run_ablation_table() -> None:
+def run_ablation_table(*, lr: float = 1e-3) -> None:
     """Task × model grid on synthetic NDJSON (short runs for comparison)."""
 
     # Ablations: context length, MPF vs CLS/REG, plus one hidden_dim pair.
@@ -211,8 +213,8 @@ def run_ablation_table() -> None:
     ]
     lines = synthetic_ndjson_lines_two_class()
     print(
-        "Ablation (synthetic, 1 epoch each): max_len, use_mpf, hidden_dim "
-        "-> test roc_auc, pr_auc"
+        "Ablation (synthetic, 1 epoch each): max_len, use_mpf, hidden_dim, lr="
+        f"{lr} -> test roc_auc, pr_auc"
     )
     rows = []
     t0 = time.perf_counter()
@@ -223,6 +225,7 @@ def run_ablation_table() -> None:
             use_mpf=use_mpf,
             hidden_dim=hidden_dim,
             epochs=1,
+            lr=lr,
         )
         rows.append((max_len, use_mpf, hidden_dim, metrics))
         print(
@@ -254,7 +257,7 @@ def main() -> None:
     if args.ablation:
         if not quick:
             raise SystemExit("--ablation requires --quick-test (synthetic data only).")
-        run_ablation_table()
+        run_ablation_table(lr=args.lr)
         return
 
     print("EHRMambaCEHR – MIMIC-IV FHIR (MPF clinical prediction)")
@@ -315,6 +318,7 @@ def main() -> None:
         val_dataloader=val_loader,
         epochs=epochs,
         monitor="roc_auc",
+        optimizer_params={"lr": args.lr},
     )
     results = trainer.evaluate(test_loader)
     print("Test:", {k: float(v) for k, v in results.items()})
