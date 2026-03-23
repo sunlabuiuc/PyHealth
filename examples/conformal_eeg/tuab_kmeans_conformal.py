@@ -51,7 +51,7 @@ class _Tee:
 
 from pyhealth.calib.predictionset.cluster import ClusterLabel
 from pyhealth.calib.utils import extract_embeddings
-from pyhealth.datasets import TUABDataset, get_dataloader, split_by_patient_conformal_tuh, split_by_sample_conformal
+from pyhealth.datasets import TUABDataset, get_dataloader, split_by_patient_conformal_tuh, split_by_sample_conformal_tuh, split_by_sample_conformal
 from pyhealth.models import ContraWR, TFMTokenizer
 from pyhealth.tasks import EEGAbnormalTUAB
 from pyhealth.trainer import Trainer, get_metrics_fn
@@ -141,7 +141,23 @@ def parse_args() -> argparse.Namespace:
         default="weightfiles/tfm_tokenizer_last.pth",
         help="Path to the pre-trained TFM tokenizer weights (only with --model tfm).",
     )
+    parser.add_argument(
+        "--split-type",
+        type=str,
+        default="patient",
+        choices=["patient", "sample"],
+        help="Split strategy: 'patient' (default, patient-level, no leakage) or "
+             "'sample' (original sample-level, for comparison).",
+    )
     return parser.parse_args()
+
+
+def _do_split(dataset, ratios, seed, split_type):
+    """Dispatch to the correct TUH split function based on split_type."""
+    if split_type == "patient":
+        return split_by_patient_conformal_tuh(dataset=dataset, ratios=list(ratios), seed=seed)
+    else:
+        return split_by_sample_conformal_tuh(dataset=dataset, ratios=list(ratios), seed=seed)
 
 
 def _load_tfm_weights(model, args, run_idx: int) -> None:
@@ -184,8 +200,8 @@ def _run_one_seed(
     """
     set_seed(run_seed)
 
-    train_ds, val_ds, cal_ds, _ = split_by_patient_conformal_tuh(
-        dataset=sample_dataset, ratios=list(args.ratios), seed=run_seed
+    train_ds, val_ds, cal_ds, _ = _do_split(
+        sample_dataset, args.ratios, run_seed, args.split_type
     )
     print(f"  Split — Train: {len(train_ds)}, Val: {len(val_ds)}, "
           f"Cal: {len(cal_ds)}, Test: {len(test_ds)} (fixed)")
@@ -360,8 +376,8 @@ def _main(args: argparse.Namespace) -> None:
     print("\n" + "=" * 80)
     print("STEP 2: Extract fixed test set (TUH eval partition — same for all seeds)")
     print("=" * 80)
-    _, _, _, test_ds = split_by_patient_conformal_tuh(
-        dataset=sample_dataset, ratios=list(args.ratios), seed=args.seed
+    _, _, _, test_ds = _do_split(
+        sample_dataset, args.ratios, args.seed, args.split_type
     )
     if len(test_ds) == 0 and args.quick_test:
         print("  [quick-test] TUH eval partition empty in dev mode — using random 20% as test set.")
