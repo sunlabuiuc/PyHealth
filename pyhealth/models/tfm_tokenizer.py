@@ -929,10 +929,10 @@ class TFMTokenizer(BaseModel):
             map_location = str(self.device)
 
         # Load tokenizer weights
-        self.tokenizer.load_state_dict(torch.load(tokenizer_checkpoint_path, map_location=map_location), strict=strict)
+        self.tokenizer.load_state_dict(torch.load(tokenizer_checkpoint_path, map_location=map_location, weights_only=True), strict=strict)
 
         if classifier_checkpoint_path is not None and not is_masked_training:
-            ckpt = torch.load(classifier_checkpoint_path, map_location=map_location)
+            ckpt = torch.load(classifier_checkpoint_path, map_location=map_location, weights_only=True)
             model_n = self.classifier.classification_head.weight.shape[0]
             ckpt_n = ckpt["classification_head.weight"].shape[0]
             if ckpt_n != model_n:
