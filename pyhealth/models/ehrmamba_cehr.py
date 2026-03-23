@@ -12,7 +12,7 @@ from pyhealth.datasets import SampleDataset
 from .base_model import BaseModel
 from .cehr_embeddings import MambaEmbeddingsForCEHR
 from .ehrmamba import MambaBlock
-from .utils import get_last_visit
+from .utils import get_rightmost_masked_timestep
 
 
 class EHRMambaCEHR(BaseModel):
@@ -102,7 +102,7 @@ class EHRMambaCEHR(BaseModel):
         mask = concept_ids != self.pad_token_id
         for blk in self.blocks:
             x = blk(x)
-        pooled = get_last_visit(x, mask)
+        pooled = get_rightmost_masked_timestep(x, mask)
         logits = self.fc(self.dropout(pooled))
         y_true = kwargs[self.label_key].to(self.device).float()
         if y_true.dim() == 1:

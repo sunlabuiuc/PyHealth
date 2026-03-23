@@ -83,6 +83,49 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
             with self.assertRaises(NotImplementedError):
                 _ = ds.global_event_df
 
+    def test_encounter_reference_requires_exact_id(self) -> None:
+        """``e1`` must not match reference ``Encounter/e10`` (substring bug)."""
+
+        from pyhealth.datasets.mimic4_fhir import FHIRPatient
+
+        patient_r = {
+            "resourceType": "Patient",
+            "id": "p1",
+            "birthDate": "1950-01-01",
+        }
+        enc1 = {
+            "resourceType": "Encounter",
+            "id": "e1",
+            "subject": {"reference": "Patient/p1"},
+            "period": {"start": "2020-06-01T10:00:00Z"},
+            "class": {"code": "AMB"},
+        }
+        enc10 = {
+            "resourceType": "Encounter",
+            "id": "e10",
+            "subject": {"reference": "Patient/p1"},
+            "period": {"start": "2020-07-02T10:00:00Z"},
+            "class": {"code": "IMP"},
+        }
+        cond_e10 = {
+            "resourceType": "Condition",
+            "id": "c99",
+            "subject": {"reference": "Patient/p1"},
+            "encounter": {"reference": "Encounter/e10"},
+            "code": {
+                "coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "I99"}]
+            },
+            "onsetDateTime": "2020-07-02T11:00:00Z",
+        }
+        pr = FHIRPatient(
+            patient_id="p1",
+            resources=[patient_r, enc1, enc10, cond_e10],
+        )
+        vocab = ConceptVocab()
+        concept_ids, *_ = build_cehr_sequences(pr, vocab, max_len=64)
+        tid = vocab["http://hl7.org/fhir/sid/icd-10-cm|I99"]
+        self.assertEqual(concept_ids.count(tid), 1)
+
     def test_cehr_sequence_shapes(self) -> None:
         lines = synthetic_ndjson_lines()
         from pyhealth.datasets.mimic4_fhir import FHIRPatient, parse_ndjson_line

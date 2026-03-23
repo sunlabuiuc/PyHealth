@@ -33,6 +33,21 @@ def _tiny_samples(seq: int = 16) -> tuple:
 
 
 class TestEHRMambaCEHR(unittest.TestCase):
+    def test_readout_pools_rightmost_non_pad(self) -> None:
+        """MPF padding between tokens must not make pooling pick a pad position."""
+
+        from pyhealth.models.utils import (
+            get_last_visit,
+            get_rightmost_masked_timestep,
+        )
+
+        h = torch.tensor([[[1.0, 0.0], [2.0, 0.0], [0.0, 0.0], [99.0, 0.0]]])
+        m = torch.tensor([[True, True, False, True]])
+        out = get_rightmost_masked_timestep(h, m)
+        self.assertTrue(torch.allclose(out[0], torch.tensor([99.0, 0.0])))
+        wrong = get_last_visit(h, m)
+        self.assertFalse(torch.allclose(out[0], wrong[0]))
+
     def test_end_to_end_fhir_pipeline(self) -> None:
         from pyhealth.datasets import (
             build_fhir_sample_dataset_from_lines,

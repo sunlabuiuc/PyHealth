@@ -258,8 +258,10 @@ def build_cehr_sequences(
                 continue
             if rt != "Encounter":
                 enc_ref = (r.get("encounter") or {}).get("reference")
-                if enc_ref and eid and eid not in enc_ref:
-                    continue
+                if enc_ref:
+                    ref_eid = _ref_id(enc_ref)
+                    if ref_eid is None or str(eid) != str(ref_eid):
+                        continue
             t = _event_time(r)
             if t is None:
                 t = enc_start
