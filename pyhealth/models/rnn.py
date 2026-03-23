@@ -111,7 +111,7 @@ class RNNLayer(nn.Module):
         else:
             lengths = torch.sum(mask.int(), dim=-1).cpu()
         x = rnn_utils.pack_padded_sequence(
-            x, lengths, batch_first=True, enforce_sorted=False
+            x.contiguous(), lengths, batch_first=True, enforce_sorted=False
         )
         outputs, _ = self.rnn(x)
         outputs, _ = rnn_utils.pad_packed_sequence(outputs, batch_first=True)
