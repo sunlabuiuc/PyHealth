@@ -83,14 +83,15 @@ class MPFClinicalPredictionTask(BaseTask):
         return self.vocab
 
     def __call__(self, patient: FHIRPatient) -> List[Dict[str, Any]]:
-        """Build one labeled sample dict per patient (empty list if no tokens).
+        """Build one labeled sample dict per patient.
 
         Args:
             patient: Grouped FHIR resources for a single logical patient id.
 
         Returns:
             A one-element list with ``concept_ids``, tensor-ready feature lists, and
-            ``label`` (0/1), or ``[]`` if the CEHR sequence is empty after parsing.
+            ``label`` (0/1). Boundary tokens are always included; when
+            ``max_len == 2`` the sequence is ``<mor>``/``<cls>`` and ``<reg>`` only.
         """
         vocab = self._ensure_vocab()
         clinical_cap = max(0, self.max_len - 2)
@@ -102,9 +103,6 @@ class MPFClinicalPredictionTask(BaseTask):
             visit_orders,
             visit_segments,
         ) = build_cehr_sequences(patient, vocab, clinical_cap)
-
-        if not concept_ids:
-            return []
 
         assert self._specials is not None
         mor_id = self._specials["<mor>"] if self.use_mpf else self._specials["<cls>"]

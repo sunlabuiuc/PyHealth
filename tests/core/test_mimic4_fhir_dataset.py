@@ -182,6 +182,92 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
         self.assertEqual(len(ts), n)
         self.assertGreater(n, 0)
 
+    def test_build_cehr_max_len_zero_no_clinical_tokens(self) -> None:
+        """``max_len=0`` must not use ``events[-0:]`` (full list); emit nothing."""
+
+        from pyhealth.datasets.mimic4_fhir import FHIRPatient
+
+        patient_r = {
+            "resourceType": "Patient",
+            "id": "p1",
+            "birthDate": "1950-01-01",
+        }
+        enc = {
+            "resourceType": "Encounter",
+            "id": "e1",
+            "subject": {"reference": "Patient/p1"},
+            "period": {"start": "2020-06-01T10:00:00Z"},
+            "class": {"code": "AMB"},
+        }
+        cond = {
+            "resourceType": "Condition",
+            "id": "c1",
+            "subject": {"reference": "Patient/p1"},
+            "encounter": {"reference": "Encounter/e1"},
+            "code": {
+                "coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "I10"}]
+            },
+            "onsetDateTime": "2020-06-01T11:00:00Z",
+        }
+        pr = FHIRPatient(patient_id="p1", resources=[patient_r, enc, cond])
+        vocab = ConceptVocab()
+        c, tt, ts, ag, vo, vs = build_cehr_sequences(pr, vocab, max_len=0)
+        self.assertEqual(c, [])
+        self.assertEqual(vs, [])
+
+    def test_visit_segments_alternate_by_visit_index(self) -> None:
+        """CEHR-style segments: all tokens in visit ``k`` share ``k % 2``."""
+
+        from pyhealth.datasets.mimic4_fhir import FHIRPatient
+
+        patient_r = {
+            "resourceType": "Patient",
+            "id": "p1",
+            "birthDate": "1950-01-01",
+        }
+        enc0 = {
+            "resourceType": "Encounter",
+            "id": "e0",
+            "subject": {"reference": "Patient/p1"},
+            "period": {"start": "2020-06-01T10:00:00Z"},
+            "class": {"code": "AMB"},
+        }
+        enc1 = {
+            "resourceType": "Encounter",
+            "id": "e1",
+            "subject": {"reference": "Patient/p1"},
+            "period": {"start": "2020-07-01T10:00:00Z"},
+            "class": {"code": "IMP"},
+        }
+        c0 = {
+            "resourceType": "Condition",
+            "id": "c0",
+            "subject": {"reference": "Patient/p1"},
+            "encounter": {"reference": "Encounter/e0"},
+            "code": {
+                "coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "I10"}]
+            },
+            "onsetDateTime": "2020-06-01T11:00:00Z",
+        }
+        c1 = {
+            "resourceType": "Condition",
+            "id": "c1",
+            "subject": {"reference": "Patient/p1"},
+            "encounter": {"reference": "Encounter/e1"},
+            "code": {
+                "coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "I20"}]
+            },
+            "onsetDateTime": "2020-07-01T11:00:00Z",
+        }
+        pr = FHIRPatient(
+            patient_id="p1",
+            resources=[patient_r, enc0, enc1, c0, c1],
+        )
+        vocab = ConceptVocab()
+        _, _, _, _, _, vs = build_cehr_sequences(pr, vocab, max_len=64)
+        self.assertEqual(len(vs), 4)
+        self.assertEqual(vs, [0, 0, 1, 1])
+
 
 if __name__ == "__main__":
     unittest.main()

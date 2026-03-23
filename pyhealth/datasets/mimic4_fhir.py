@@ -255,8 +255,10 @@ def build_cehr_sequences(
 
     Args:
         max_len: Maximum number of **clinical** tokens emitted (after time sort and
-            tail slice). Downstream MPF tasks reserve two slots for ``<mor>``/``<cls>``
-            and ``<reg>``, so pass ``max_len - 2`` there when the final tensor length
+            tail slice). Use ``0`` to emit no clinical tokens (empty lists; avoids
+            Python's ``events[-0:]`` which would incorrectly take the full timeline).
+            Downstream MPF tasks reserve two slots for ``<mor>``/``<cls>`` and
+            ``<reg>``, so pass ``max_len - 2`` there when the final tensor length
             is fixed.
     """
 
@@ -332,10 +334,10 @@ def build_cehr_sequences(
     visit_orders: List[int] = []
     visit_segments: List[int] = []
 
-    prev_visit = -1
     base_time = _as_naive(base_time)
     birth = _as_naive(birth)
-    for t, res, v_idx in events[-max_len:]:
+    tail = events[-max_len:] if max_len > 0 else []
+    for t, res, v_idx in tail:
         t = _as_naive(t)
         rt = res.get("resourceType")
         code_obj = res.get("code") or {}
@@ -350,8 +352,7 @@ def build_cehr_sequences(
         age_y = 0.0
         if birth and t:
             age_y = (t - birth).days / 365.25
-        seg = 0 if v_idx != prev_visit else 1
-        prev_visit = v_idx
+        seg = v_idx % 2
         concept_ids.append(cid)
         token_types.append(tt)
         time_stamps.append(ts)

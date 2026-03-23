@@ -54,6 +54,24 @@ class TestMPFClinicalPredictionTask(unittest.TestCase):
             self.assertIn(k, samples[0])
         self.assertIn("label", samples[0])
 
+    def test_max_len_two_keeps_boundary_tokens(self) -> None:
+        """``clinical_cap=0`` must yield ``[<mor>, <reg>]`` left-padded, not truncated."""
+
+        task = MPFClinicalPredictionTask(max_len=2, use_mpf=True)
+        _, vocab, samples = build_fhir_sample_dataset_from_lines(
+            synthetic_ndjson_lines_two_class(), task
+        )
+        mor = vocab["<mor>"]
+        reg = vocab["<reg>"]
+        pad_id = vocab.pad_id
+        for s in samples:
+            ids = s["concept_ids"]
+            first = next(i for i, x in enumerate(ids) if x != pad_id)
+            last_nz = next(i for i in range(len(ids) - 1, -1, -1) if ids[i] != pad_id)
+            self.assertEqual(ids[first], mor)
+            self.assertEqual(ids[last_nz], reg)
+            self.assertEqual(ids[-1], reg)
+
 
 if __name__ == "__main__":
     unittest.main()
