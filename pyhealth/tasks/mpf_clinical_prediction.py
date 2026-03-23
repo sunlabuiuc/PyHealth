@@ -32,9 +32,16 @@ def _pad_float(seq: List[float], max_len: int, pad: float = 0.0) -> List[float]:
 class MPFClinicalPredictionTask(BaseTask):
     """Binary mortality prediction from FHIR CEHR sequences with optional MPF tokens.
 
-    Expects :class:`~pyhealth.datasets.mimic4_fhir.FHIRPatient` (not ``pyhealth.data.Patient``).
-    Set ``task.vocab`` to a shared :class:`~pyhealth.datasets.mimic4_fhir.ConceptVocab`
-    before calling (e.g. from :class:`~pyhealth.datasets.mimic4_fhir.MIMIC4FHIRDataset`).
+    The task consumes :class:`~pyhealth.datasets.mimic4_fhir.FHIRPatient` rows produced
+    by :class:`~pyhealth.datasets.MIMIC4FHIRDataset` (not ``pyhealth.data.Patient``).
+    For disk loads, assign ``task.vocab`` from the dataset before
+    :meth:`~pyhealth.datasets.MIMIC4FHIRDataset.gather_samples`; :meth:`set_task`
+    performs that wiring automatically.
+
+    Attributes:
+        max_len: Truncated sequence length (must be >= 2 for boundary tokens).
+        use_mpf: If True, use ``<mor>`` / ``<reg>`` specials; else ``<cls>`` / ``<reg>``.
+        vocab: Shared concept vocabulary (usually the dataset's vocab).
     """
 
     task_name: str = "MPFClinicalPredictionFHIR"
@@ -64,6 +71,15 @@ class MPFClinicalPredictionTask(BaseTask):
         return self.vocab
 
     def __call__(self, patient: FHIRPatient) -> List[Dict[str, Any]]:
+        """Build one labeled sample dict per patient (empty list if no tokens).
+
+        Args:
+            patient: Grouped FHIR resources for a single logical patient id.
+
+        Returns:
+            A one-element list with ``concept_ids``, tensor-ready feature lists, and
+            ``label`` (0/1), or ``[]`` if the CEHR sequence is empty after parsing.
+        """
         vocab = self._ensure_vocab()
         (
             concept_ids,
