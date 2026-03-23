@@ -8,6 +8,10 @@ from pyhealth.tasks.mpf_clinical_prediction import MPFClinicalPredictionTask
 
 
 class TestMPFClinicalPredictionTask(unittest.TestCase):
+    def test_max_len_validation(self) -> None:
+        with self.assertRaises(ValueError):
+            MPFClinicalPredictionTask(max_len=1, use_mpf=True)
+
     def test_mpf_sets_boundary_tokens(self) -> None:
         task = MPFClinicalPredictionTask(max_len=32, use_mpf=True)
         _, vocab, samples = build_fhir_sample_dataset_from_lines(

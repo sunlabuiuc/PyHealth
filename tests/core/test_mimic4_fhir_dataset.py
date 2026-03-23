@@ -1,5 +1,8 @@
+import tempfile
 import unittest
+from pathlib import Path
 
+from pyhealth.datasets import MIMIC4FHIRDataset
 from pyhealth.datasets.mimic4_fhir import (
     ConceptVocab,
     build_cehr_sequences,
@@ -51,6 +54,34 @@ class TestMIMIC4FHIRDataset(unittest.TestCase):
         g = group_resources_by_patient(resources)
         dead = FHIRPatient(patient_id="p-synth-2", resources=g["p-synth-2"])
         self.assertEqual(infer_mortality_label(dead), 1)
+
+    def test_disk_ndjson_temp_dir(self) -> None:
+        """Load from a temp directory (cleanup via context manager)."""
+
+        lines = synthetic_ndjson_lines_two_class()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "fixture.ndjson"
+            path.write_text("\n".join(lines), encoding="utf-8")
+            ds = MIMIC4FHIRDataset(
+                root=tmp, glob_pattern="*.ndjson", max_patients=5
+            )
+            self.assertEqual(len(ds.unique_patient_ids), 2)
+            from pyhealth.tasks.mpf_clinical_prediction import (
+                MPFClinicalPredictionTask,
+            )
+
+            task = MPFClinicalPredictionTask(max_len=48, use_mpf=True)
+            samples = ds.gather_samples(task)
+            self.assertGreaterEqual(len(samples), 1)
+            for s in samples:
+                self.assertIn("concept_ids", s)
+                self.assertIn("label", s)
+
+    def test_global_event_df_not_supported(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ds = MIMIC4FHIRDataset(root=tmp, max_patients=2)
+            with self.assertRaises(NotImplementedError):
+                _ = ds.global_event_df
 
     def test_cehr_sequence_shapes(self) -> None:
         lines = synthetic_ndjson_lines()
