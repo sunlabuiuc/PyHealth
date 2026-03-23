@@ -54,6 +54,7 @@ from .readmission_prediction import (
     ReadmissionPredictionOMOP,
 )
 from .sleep_staging import (
+    SleepStagingDREAMT,
     sleep_staging_isruc_fn,
     sleep_staging_shhs_fn,
     sleep_staging_sleepedf_fn,

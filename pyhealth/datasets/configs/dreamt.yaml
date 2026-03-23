@@ -5,6 +5,7 @@ tables:
     patient_id: "patient_id"
     timestamp: null
     attributes:
+      - "record_id"
       - "age"
       - "gender"
       - "bmi"
@@ -13,5 +14,10 @@ tables:
       - "mean_sao2"
       - "arousal_index"
       - "medical_history"
+      - "sleep_disorders"
+      - "signal_file"
+      - "signal_source"
+      - "sampling_rate_hz"
+      - "signal_format"
       - "file_64hz"
       - "file_100hz"
