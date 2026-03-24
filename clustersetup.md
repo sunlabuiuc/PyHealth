@@ -4,6 +4,7 @@
 
 ```bash
 git clone https://github.com/Multimodal-PyHealth/PyHealth.git
+cd PyHealth
 chmod +x setup.sh
 ./setup.sh
 ```
