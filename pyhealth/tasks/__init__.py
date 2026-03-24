@@ -46,7 +46,9 @@ from .survival_preprocess_support2 import SurvivalPreprocessSupport2
 from .mortality_prediction_stagenet_mimic4 import (
     MortalityPredictionStageNetMIMIC4,
 )
-from .multimodal_mortality_horizon_mimic4 import (
+from .multimodal_mimic4 import (
+    ClinicalNotesMIMIC4,
+    ClinicalNotesICDLabsMIMIC4,
     MultimodalMortalityHorizonMIMIC4,
 )
 from .patient_linkage import patient_linkage_mimic3_fn

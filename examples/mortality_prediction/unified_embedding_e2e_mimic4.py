@@ -1,14 +1,74 @@
 """End-to-end protocol runner for Unified Embedding + MLP/RNN on MIMIC-IV.
 
-This script trains and evaluates a unified-embedding model on a configurable
-MIMIC-IV mortality-horizon task, then writes per-sample predictions to CSV.
+Objective
+---------
+Establish a reproducible E2E (End-to-end) test path for unified multimodal embedding
+with both MLP and RNN heads:
 
-Example:
-    python examples/mortality_prediction/unified_embedding_e2e_mimic4.py \
-      --ehr-root /path/to/mimiciv/2.2 \
-      --model rnn \
-      --observation-window-hours 24 \
-      --prediction-horizon-hours 12
+1. ingest MIMIC-IV data,
+2. construct multimodal task samples (MultimodalMortalityHorizonMIMIC4),
+3. train/infer with UnifiedMultimodalEmbeddingModel,
+4. emit concrete prediction rows.
+
+Task
+----
+pyhealth.tasks.MultimodalMortalityHorizonMIMIC4
+
+- Observation window: configurable (default 24h)
+- Prediction horizon: configurable (default 12h)
+- Label: in-hospital mortality within horizon
+- Inputs:
+    - icd_codes (diagnoses + procedures, StageNet)
+    - labs (10-category lab vectors, StageNet tensor)
+    - optional notes (discharge/radiology, tuple-time-text)
+
+Criteria
+-------------------
+For each model head (MLP and RNN):
+
+1. dataset.set_task(MultimodalMortalityHorizonMIMIC4(...)) returns non-empty samples.
+2. A forward pass on a batch returns y_prob and loss.
+3. Inference returns aligned arrays of patient_id, y_true, y_prob.
+4. Predictions are written to CSV with one row per sample.
+
+Reference Test
+--------------
+tests/core/test_unified_e2e_mimic4.py validates the end-to-end path.
+
+    pytest tests/core/test_unified_e2e_mimic4.py -v
+
+Run on Full MIMIC-IV
+--------------------
+RNN head:
+
+    PYTHONPATH=. PYHEALTH_DISABLE_DASK_DISTRIBUTED=1 \\
+    python examples/mortality_prediction/unified_embedding_e2e_mimic4.py \\
+      --ehr-root /path/to/mimiciv/2.2 \\
+      --model rnn \\
+      --observation-window-hours 24 \\
+      --prediction-horizon-hours 12 \\
+      --epochs 3 \\
+      --batch-size 64 \\
+      --output-dir ./output/unified_e2e
+
+MLP head:
+
+    PYTHONPATH=. PYHEALTH_DISABLE_DASK_DISTRIBUTED=1 \\
+    python examples/mortality_prediction/unified_embedding_e2e_mimic4.py \\
+      --ehr-root /path/to/mimiciv/2.2 \\
+      --model mlp \\
+      --observation-window-hours 24 \\
+      --prediction-horizon-hours 12 \\
+      --epochs 3 \\
+      --batch-size 64 \\
+      --output-dir ./output/unified_e2e
+
+Outputs
+----------------
+- <output-dir>/predictions_rnn.csv
+- <output-dir>/predictions_mlp.csv
+
+Columns: patient_id, y_true, y_prob, y_pred_threshold_0_5
 """
 
 from __future__ import annotations
