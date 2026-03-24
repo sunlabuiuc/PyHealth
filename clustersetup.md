@@ -38,5 +38,5 @@ conda activate pyhealth2
 cd ~/PyHealth
 python examples/mortality_prediction/multimodal_mimic4.py
 ```
-
-
+For a clean install, which reruns the setup proccess by deleting the enviroment packages and conda env and reinstalls them, run:
+```./setup.sh clean```
