@@ -45,6 +45,32 @@ def _query_quantile(scores: np.ndarray, alpha: float) -> float:
     return -np.inf if loc == -1 else scores[loc]
 
 
+def _query_weighted_quantile(
+    scores: np.ndarray, alpha: float, weights: np.ndarray
+) -> float:
+    """Compute weighted quantile of scores (e.g. for NCP or covariate shift).
+
+    Args:
+        scores: Array of conformity scores
+        alpha: Quantile level (between 0 and 1)
+        weights: Weights for each score (same length as scores)
+
+    Returns:
+        The weighted alpha-quantile of scores
+    """
+    sorted_indices = np.argsort(scores)
+    sorted_scores = scores[sorted_indices]
+    sorted_weights = weights[sorted_indices]
+    w_sum = np.sum(sorted_weights)
+    if w_sum <= 0:
+        return -np.inf
+    cum_weights = np.cumsum(sorted_weights) / w_sum
+    idx = np.searchsorted(cum_weights, alpha, side="left")
+    if idx >= len(sorted_scores):
+        idx = len(sorted_scores) - 1
+    return float(sorted_scores[idx])
+
+
 class BaseConformal(SetPredictor):
     """Base Conformal Prediction for multiclass classification.
 

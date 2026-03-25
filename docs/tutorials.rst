@@ -40,6 +40,34 @@ Additionally, for detailed tutorials on accessing PhysioNet and MIMIC datasets, 
 `Pipeline 5: Readmission Prediction <https://colab.research.google.com/drive/1h0pAymUlPQfkLFryI9QI37-HAW1tRxGZ?usp=sharing>`_ 
 
 .. `Pipeline 5: Phenotype Prediction <https://colab.research.google.com/drive/10CSb4F4llYJvv42yTUiRmvSZdoEsbmFF>`_ 
+Multimodal & Smart Processors
+------------------------------
+
+These examples demonstrate PyHealth's unified multimodal architecture using
+:class:`~pyhealth.processors.TemporalFeatureProcessor` subclasses and
+:class:`~pyhealth.models.UnifiedMultimodalEmbeddingModel`.
+
+.. list-table::
+   :widths: 50 50
+   :header-rows: 1
+
+   * - Notebook / File
+     - Description
+   * - ``smart_processor_clinical_text_tutorial.ipynb``
+     - End-to-end tutorial: HuggingFace tokenizer inside ``TupleTimeTextProcessor``,
+       canonical ``("tuple_time_text", kwargs)`` schema form, EmbeddingModel with 3D inputs,
+       and gradient flow through BERT-tiny in ``MLP``, ``Transformer``, ``RNN``, ``MultimodalRNN``
+   * - ``examples/`` (see ``time_image_processor``\* files)
+     - ``TimeImageProcessor`` for serial chest X-rays with timestamps
+
+**Key APIs:**
+
+- :class:`~pyhealth.processors.TemporalFeatureProcessor` — ABC for all temporal processors
+- :class:`~pyhealth.processors.ModalityType` — ``CODE / TEXT / IMAGE / NUMERIC / AUDIO / SIGNAL``
+- :class:`~pyhealth.processors.TemporalTimeseriesProcessor` — timeseries with preserved timestamps
+- :func:`~pyhealth.datasets.collate_temporal` — universal DataLoader collator for dict-output processors
+- :class:`~pyhealth.models.UnifiedMultimodalEmbeddingModel` — temporally-aligned multimodal sequence embeddings
+
 
 ----------
 

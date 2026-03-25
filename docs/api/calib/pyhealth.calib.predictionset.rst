@@ -16,6 +16,8 @@ Available Methods
    pyhealth.calib.predictionset.SCRIB
    pyhealth.calib.predictionset.FavMac
    pyhealth.calib.predictionset.CovariateLabel
+   pyhealth.calib.predictionset.ClusterLabel
+   pyhealth.calib.predictionset.NeighborhoodLabel
 
 LABEL (Least Ambiguous Set-valued Classifier)
 ----------------------------------------------
@@ -45,6 +47,22 @@ CovariateLabel (Covariate Shift Adaptive)
 ------------------------------------------
 
 .. autoclass:: pyhealth.calib.predictionset.CovariateLabel
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+ClusterLabel (K-means Cluster-based Conformal)
+----------------------------------------------
+
+.. autoclass:: pyhealth.calib.predictionset.ClusterLabel
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+NeighborhoodLabel (Neighborhood Conformal Prediction)
+-----------------------------------------------------
+
+.. autoclass:: pyhealth.calib.predictionset.NeighborhoodLabel
    :members:
    :undoc-members:
    :show-inheritance:

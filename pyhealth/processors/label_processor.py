@@ -40,6 +40,20 @@ class BinaryLabelProcessor(FeatureProcessor):
     def size(self):
         return 1
 
+    def is_token(self) -> bool:
+        """Binary labels are continuous float targets for BCE loss."""
+        return False
+
+    def schema(self) -> tuple[str, ...]:
+        return ("value",)
+
+    def dim(self) -> tuple[int, ...]:
+        """Output shape is (1,), so 1 dimension."""
+        return (1,)
+
+    def spatial(self) -> tuple[bool, ...]:
+        return (False,)
+
     def __repr__(self):
         return f"BinaryLabelProcessor(label_vocab_size={len(self.label_vocab)})"
 
@@ -71,6 +85,20 @@ class MultiClassLabelProcessor(FeatureProcessor):
 
     def size(self):
         return len(self.label_vocab)
+
+    def is_token(self) -> bool:
+        """Multi-class labels are discrete token indices."""
+        return True
+
+    def schema(self) -> tuple[str, ...]:
+        return ("value",)
+
+    def dim(self) -> tuple[int, ...]:
+        """Output is a scalar tensor (dim 0)."""
+        return (0,)
+
+    def spatial(self) -> tuple[bool, ...]:
+        return ()
 
     def __repr__(self):
         return f"MultiClassLabelProcessor(label_vocab_size={len(self.label_vocab)})"
@@ -115,6 +143,20 @@ class MultiLabelProcessor(FeatureProcessor):
     def size(self):
         return len(self.label_vocab)
 
+    def is_token(self) -> bool:
+        """Multi-label indicators are continuous float targets for BCE loss."""
+        return False
+
+    def schema(self) -> tuple[str, ...]:
+        return ("value",)
+
+    def dim(self) -> tuple[int, ...]:
+        """Output shape is (num_classes,), so 1 dimension."""
+        return (1,)
+
+    def spatial(self) -> tuple[bool, ...]:
+        return (False,)
+
     def __repr__(self):
         return f"MultiLabelProcessor(label_vocab_size={len(self.label_vocab)})"
 
@@ -130,6 +172,20 @@ class RegressionLabelProcessor(FeatureProcessor):
     
     def size(self):
         return 1
+
+    def is_token(self) -> bool:
+        """Regression labels are continuous, not discrete tokens."""
+        return False
+
+    def schema(self) -> tuple[str, ...]:
+        return ("value",)
+
+    def dim(self) -> tuple[int, ...]:
+        """Output shape is (1,), so 1 dimension."""
+        return (1,)
+
+    def spatial(self) -> tuple[bool, ...]:
+        return (False,)
 
     def __repr__(self):
         return "RegressionLabelProcessor()"

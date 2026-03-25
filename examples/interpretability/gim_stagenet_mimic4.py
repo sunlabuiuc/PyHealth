@@ -31,7 +31,6 @@ input_processors, output_processors = load_processors("../resources/")
 
 sample_dataset = dataset.set_task(
     MortalityPredictionStageNetMIMIC4(),
-    cache_dir="~/.cache/pyhealth/mimic4_stagenet_mortality",
     input_processors=input_processors,
     output_processors=output_processors,
 )

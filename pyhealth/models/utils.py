@@ -34,6 +34,10 @@ def get_last_visit(hidden_states, mask):
     else:
         mask = mask.long()
         last_visit = torch.sum(mask, 1) - 1
+        # Clamp to 0 so that samples with an all-zero mask (no valid
+        # visits) fall back to the first timestep instead of producing
+        # a negative index that would crash torch.gather.
+        last_visit = last_visit.clamp(min=0)
         last_visit = last_visit.unsqueeze(-1)
         last_visit = last_visit.expand(-1, hidden_states.shape[1] * hidden_states.shape[2])
         last_visit = torch.reshape(last_visit, hidden_states.shape)

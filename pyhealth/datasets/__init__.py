@@ -70,10 +70,12 @@ from .bmd_hs import BMDHSDataset
 from .support2 import Support2Dataset
 from .tcga_prad import TCGAPRADDataset
 from .splitter import (
+    sample_balanced,
     split_by_patient,
     split_by_patient_conformal,
     split_by_sample,
     split_by_sample_conformal,
+    split_by_sample_conformal_tuh,
     split_by_visit,
     split_by_visit_conformal,
 )
@@ -86,3 +88,4 @@ from .utils import (
     load_processors,
     save_processors,
 )
+from .collate import collate_temporal

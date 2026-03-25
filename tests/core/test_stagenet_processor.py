@@ -21,7 +21,7 @@ class TestStageNetProcessor(unittest.TestCase):
     """Tests for StageNetProcessor (categorical codes)."""
 
     def test_unknown_token_index(self):
-        """Test that <unk> token is len(vocab) - 1, not -1."""
+        """Test that <unk> token is at index 1."""
         processor = StageNetProcessor()
         samples = [
             {"data": ([0.0, 1.0], [["A", "B"], ["C", "D", "E"]])},
@@ -29,9 +29,8 @@ class TestStageNetProcessor(unittest.TestCase):
         ]
         processor.fit(samples, "data")
 
-        # <unk> should be len(vocab) - 1 (last index)
-        expected_unk_idx = len(processor.code_vocab) - 1
-        self.assertEqual(processor.code_vocab["<unk>"], expected_unk_idx)
+        # <unk> should be at index 1 (following <pad> at 0)
+        self.assertEqual(processor.code_vocab["<unk>"], 1)
 
         # <unk> must be >= 0 for nn.Embedding compatibility
         self.assertGreaterEqual(processor.code_vocab["<unk>"], 0)
@@ -40,9 +39,8 @@ class TestStageNetProcessor(unittest.TestCase):
         self.assertEqual(processor.code_vocab["<pad>"], 0)
 
         # Verify vocab size includes both special tokens
-        # Vocab: <unk>, <pad>, A, B, C, D, E, F = 8 tokens
+        # Vocab: <pad>, <unk>, A, B, C, D, E, F = 8 tokens
         self.assertEqual(len(processor.code_vocab), 8)
-        self.assertEqual(processor.code_vocab["<unk>"], 7)
 
     def test_unknown_token_embedding_compatibility(self):
         """Test that <unk> index works with nn.Embedding."""

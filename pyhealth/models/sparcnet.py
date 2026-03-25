@@ -1,13 +1,17 @@
+#Author: Joshua Chen
+#Paper: Development of Expert-Level Classification of Seizures and Rhythmic and Periodic Patterns During EEG Interpretation
+#Paper Link: https://pubmed.ncbi.nlm.nih.gov/36878708/ 
+#Description: SparcNet implementation for Pyhealth 2.0
 import math
 from collections import OrderedDict
-from typing import Dict, List, Optional, Tuple
+from typing import Dict
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from pyhealth.datasets import BaseSignalDataset
+from pyhealth.datasets import SampleDataset
 from pyhealth.models import BaseModel
 
 
@@ -168,10 +172,6 @@ class SparcNet(BaseModel):
     Args:
         dataset: the dataset to train the model. It is used to query certain
             information such as the set of all tokens.
-        feature_keys:  list of keys in samples to use as features,
-            e.g. ["conditions", "procedures"].
-        label_key: key in samples to use as label (e.g., "drugs").
-        mode: one of "binary", "multiclass", or "multilabel".
         embedding_dim: (not used now) the embedding dimension. Default is 128.
         hidden_dim: (not used now) the hidden dimension. Default is 128.
         block_layer: the number of layers in each dense block. Default is 4.
@@ -179,33 +179,33 @@ class SparcNet(BaseModel):
         bn_size: the bottleneck size of each dense layer. Default is 16.
         conv_bias: whether to use bias in convolutional layers. Default is True.
         batch_norm: whether to use batch normalization. Default is True.
-        **kwargs: other parameters for the Deepr layer.
 
     Examples:
-        >>> from pyhealth.datasets import SampleSignalDataset
+        >>> import numpy as np
+        >>> from pyhealth.datasets import create_sample_dataset
         >>> samples = [
         ...         {
-        ...             "record_id": "SC4001-0",
-        ...             "patient_id": "SC4001",
-        ...             "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/2f06a9232e54254cbcb4b62624294d71/SC4001-0.pkl",
-        ...             "label": "W",
+        ...             "patient_id": "p0",
+        ...             "visit_id": "v0",
+        ...             "signal": np.random.randn(2, 256).astype(np.float32),
+        ...             "label": 0,
         ...         },
         ...         {
-        ...             "record_id": "SC4001-1",
-        ...             "patient_id": "SC4001",
-        ...             "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/2f06a9232e54254cbcb4b62624294d71/SC4001-1.pkl",
-        ...             "label": "R",
+        ...             "patient_id": "p1",
+        ...             "visit_id": "v0",
+        ...             "signal": np.random.randn(2, 256).astype(np.float32),
+        ...             "label": 1,
         ...         }
         ...     ]
-        >>> dataset = SampleSignalDataset(samples=samples, dataset_name="test")
+        >>> dataset = create_sample_dataset(
+        ...     samples=samples,
+        ...     input_schema={"signal": "tensor"},
+        ...     output_schema={"label": "multiclass"},
+        ...     dataset_name="test",
+        ... )
         >>>
         >>> from pyhealth.models import SparcNet
-        >>> model = SparcNet(
-        ...         dataset=dataset,
-        ...         feature_keys=["signal"], # dataloader will load the signal from "epoch_path" and put it in "signal"
-        ...         label_key="label",
-        ...         mode="multiclass",
-        ...     )
+        >>> model = SparcNet(dataset=dataset)
         >>>
         >>> from pyhealth.datasets import get_dataloader
         >>> train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
@@ -226,10 +226,7 @@ class SparcNet(BaseModel):
 
     def __init__(
         self,
-        dataset: BaseSignalDataset,
-        feature_keys: List[str],
-        label_key: str,
-        mode: str,
+        dataset: SampleDataset,
         embedding_dim: int = 128,
         hidden_dim: int = 128,
         block_layers=4,
@@ -238,28 +235,22 @@ class SparcNet(BaseModel):
         drop_rate=0.5,
         conv_bias=True,
         batch_norm=True,
-        **kwargs,
     ):
-
-        super(SparcNet, self).__init__(
-            dataset=dataset,
-            feature_keys=feature_keys,
-            label_key=label_key,
-            mode=mode,
-        )
+        super(SparcNet, self).__init__(dataset=dataset)
 
         """ common """
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
-
-        # TODO: Use more tokens for <gap> for different lengths once the input has such information
-        self.label_tokenizer = self.get_label_tokenizer()
+        assert len(self.label_keys) == 1, (
+            "Only one label key is supported if SparcNet is initialized"
+        )
+        assert len(self.feature_keys) == 1, (
+            "Only one feature key is supported if SparcNet is initialized"
+        )
 
         """ input statistics """
         print(f"\n=== Input data statistics ===")
-        # obtain input signal size
-        signal_info = self.dataset.input_info["signal"]
-        in_channels, length = signal_info["n_channels"], signal_info["length"]
+        in_channels, length = self._determine_input_channels_length()
         # input signal size (batch, n_channels, length)
         print(f"n_channels: {in_channels}")
         print(f"length: {length}")
@@ -290,7 +281,7 @@ class SparcNet(BaseModel):
         n_channels = out_channels
 
         # add dense blocks
-        for n_layer in np.arange(math.floor(np.log2(length // 4))):
+        for n_layer in range(int(math.floor(np.log2(length // 4)))):
             block = DenseBlock(
                 num_layers=block_layers,
                 input_channels=n_channels,
@@ -315,7 +306,7 @@ class SparcNet(BaseModel):
             n_channels = n_channels // 2
 
         """ prediction layer """
-        output_size = self.get_output_size(self.label_tokenizer)
+        output_size = self.get_output_size()
         self.fc = nn.Linear(n_channels, output_size)
 
         # Official init from torch repo.
@@ -328,19 +319,37 @@ class SparcNet(BaseModel):
             elif isinstance(m, nn.Linear):
                 m.bias.data.zero_()
 
+    def _determine_input_channels_length(self):
+        for sample in self.dataset:
+            if self.feature_keys[0] not in sample:
+                continue
+
+            if len(sample[self.feature_keys[0]].shape) == 1:
+                return 1, sample[self.feature_keys[0]].shape[0]
+            if len(sample[self.feature_keys[0]].shape) == 2:
+                return sample[self.feature_keys[0]].shape[0], sample[
+                    self.feature_keys[0]
+                ].shape[1]
+
+            raise ValueError(
+                f"Invalid shape for feature key {self.feature_keys[0]}: {sample[self.feature_keys[0]].shape}"
+            )
+
+        raise ValueError(
+            f"Unable to infer input channels and length from dataset for feature key {self.feature_keys[0]}"
+        )
+
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
         """Forward propagation."""
         # concat the info within one batch (batch, channel, length)
-        x = torch.tensor(
-            np.array(kwargs[self.feature_keys[0]]), device=self.device
-        ).float()
+        x = kwargs[self.feature_keys[0]].to(self.device)
 
         # final layer embedding (batch, embedding)
         emb = self.encoder(x).view(x.shape[0], -1)
         # (patient, label_size)
         logits = self.fc(emb)
         # obtain y_true, loss, y_prob
-        y_true = self.prepare_labels(kwargs[self.label_key], self.label_tokenizer)
+        y_true = kwargs[self.label_keys[0]].to(self.device)
         loss = self.get_loss_function()(logits, y_true)
         y_prob = self.prepare_y_prob(logits)
         results = {
@@ -352,78 +361,3 @@ class SparcNet(BaseModel):
         if kwargs.get("embed", False):
             results["embed"] = emb
         return results
-
-
-if __name__ == "__main__":
-    """
-    For dense layer
-    """
-    # x = torch.randn(128, 5, 1000)
-    # batch, channels, length = x.shape
-    # model = DenseLayer(channels, 5, 2)
-    # y = model(x)
-    # print(y.shape)
-
-    """
-    For dense block
-    """
-    # x = torch.randn(128, 5, 1000)
-    # batch, channels, length = x.shape
-    # model = DenseBlock(3, channels, 5, 2)
-    # y = model(x)
-    # print(y.shape)
-
-    """
-    For transition layer
-    """
-    # x = torch.randn(128, 5, 1000)
-    # batch, channels, length = x.shape
-    # model = TransitionLayer(channels, 18)
-    # y = model(x)
-    # print(y.shape)
-
-    """
-    For sparcenet
-    """
-    from pyhealth.datasets import SampleSignalDataset, get_dataloader
-
-    samples = [
-        {
-            "record_id": "SC4001-0",
-            "patient_id": "SC4001",
-            "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/2f06a9232e54254cbcb4b62624294d71/SC4001-0.pkl",
-            "label": "W",
-        },
-        {
-            "record_id": "SC4001-0",
-            "patient_id": "SC4001",
-            "epoch_path": "/home/chaoqiy2/.cache/pyhealth/datasets/2f06a9232e54254cbcb4b62624294d71/SC4001-1.pkl",
-            "label": "R",
-        },
-    ]
-
-    # dataset
-    dataset = SampleSignalDataset(samples=samples, dataset_name="test")
-
-    # data loader
-    from pyhealth.datasets import get_dataloader
-
-    train_loader = get_dataloader(dataset, batch_size=2, shuffle=True)
-
-    # model
-    model = SparcNet(
-        dataset=dataset,
-        feature_keys=["signal"],
-        label_key="label",
-        mode="multiclass",
-    ).to("cuda:0")
-
-    # data batch
-    data_batch = next(iter(train_loader))
-
-    # try the model
-    ret = model(**data_batch)
-    print(ret)
-
-    # try loss backward
-    ret["loss"].backward()

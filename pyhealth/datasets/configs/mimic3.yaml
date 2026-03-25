@@ -134,6 +134,7 @@ tables:
     timestamp:
       - "charttime"
     attributes:
+      - "row_id"
       - "hadm_id"
       - "text"
       - "category"
