@@ -3,6 +3,7 @@ import torch
 
 from pyhealth.datasets import create_sample_dataset, get_dataloader
 from pyhealth.models import TFMTokenizer, get_tfm_tokenizer_2x2x8, get_tfm_token_classifier_64x4
+from pyhealth.models.tfm_tokenizer import get_stft_torch
 
 
 class TestTFMTokenizer(unittest.TestCase):
@@ -10,24 +11,26 @@ class TestTFMTokenizer(unittest.TestCase):
 
     def setUp(self):
         """Set up test data and model."""
-        # Create dummy EEG-style samples with STFT and signal inputs
+        # get_stft_torch expects (B, C, T); per-sample we unsqueeze/squeeze the batch dim (TUEV/TUAB compatible)
+        def _make_sample(patient_id, label):
+            signal = torch.randn(5, 6100)
+            stft = get_stft_torch(signal.unsqueeze(0)).squeeze(0)
+            return {
+                "patient_id": patient_id,
+                "visit_id": "visit-0",
+                "signal": signal.numpy().tolist(),
+                "stft": stft.numpy().tolist(),
+                "label": label,
+            }
+
         self.samples = [
-            {
-                "patient_id": "patient-0",
-                "visit_id": "visit-0",
-                "signal": torch.randn((5,6100)).numpy().tolist(),  # (n_samples,)
-                "label": 1,
-            },
-            {
-                "patient_id": "patient-1",
-                "visit_id": "visit-0",
-                "signal": torch.randn((5,6100)).numpy().tolist(),
-                "label": 0,
-            },
+            _make_sample("patient-0", 1),
+            _make_sample("patient-1", 0),
         ]
 
         self.input_schema = {
             "signal": "tensor",
+            "stft": "tensor",
         }
         self.output_schema = {"label": "binary"}
 
@@ -51,8 +54,9 @@ class TestTFMTokenizer(unittest.TestCase):
         self.assertEqual(self.model.emb_size, 64)
         self.assertEqual(self.model.code_book_size, 128)
         self.assertTrue(self.model.use_classifier)
-        self.assertEqual(len(self.model.feature_keys), 1)
+        self.assertEqual(len(self.model.feature_keys), 2)
         self.assertIn("signal", self.model.feature_keys)
+        self.assertIn("stft", self.model.feature_keys)
 
     def test_model_forward(self):
         """Test that the TFMTokenizer forward pass works correctly."""
