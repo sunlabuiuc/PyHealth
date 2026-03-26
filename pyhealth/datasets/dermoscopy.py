@@ -107,9 +107,6 @@ class DermoscopyDataset(BaseDataset):
         >>> from pyhealth.datasets import DermoscopyDataset
         >>> dataset = DermoscopyDataset(
         ...     root="/path/to/dermoscopy_data",
-        ...     isic2018_metadata_path="/path/to/isic_bias.csv",
-        ...     ham10000_metadata_path="/path/to/ham10000_metadata.csv",
-        ...     ph2_metadata_path="/path/to/ph2_metadata.csv",
         ... )
         >>> dataset.stats()
         >>> samples = dataset.set_task()
@@ -285,42 +282,6 @@ class DermoscopyDataset(BaseDataset):
         result = pd.DataFrame(self._append_sub_metadata(root, df, dataset))
         logger.info(f"Prepared {dataset}: {len(result)} samples")
         return result
-
-    # def _prepare_ham10000(self, root: str) -> Optional[pd.DataFrame]:
-    #     """Prepare HAM10000 sub-dataset metadata.
-
-    #     Expects the metadata CSV to have columns: "image_id" (base name), "label" (0/1).
-    #     Images are {image_id}.jpg; masks are {image_id}_segmentation.png.
-    #     """
-    #     csv_path = self._metadata_paths.get("ham10000")
-    #     if csv_path is None:
-    #         logger.warning("HAM10000 metadata path not provided, skipping.")
-    #         return None
-
-    #     df = pd.read_csv(csv_path)
-    #     image_dir = os.path.join(root, "ham10000", "images")
-    #     mask_dir = os.path.join(root, "ham10000", "masks")
-
-    #     records = []
-    #     for _, row in df.iterrows():
-    #         image_id = row["image_id"]
-    #         label = int(row["label"])
-    #         image_path = os.path.join(image_dir, f"{image_id}.jpg")
-    #         mask_path = os.path.join(mask_dir, f"{image_id}_segmentation.png")
-    #         patient_id = f"ham_{image_id}"
-    #         records.append(
-    #             {
-    #                 "patient_id": patient_id,
-    #                 "image_path": image_path,
-    #                 "mask_path": mask_path,
-    #                 "label": label,
-    #                 "source_dataset": "ham10000",
-    #             }
-    #         )
-
-    #     result = pd.DataFrame(records)
-    #     logger.info(f"Prepared HAM10000: {len(result)} samples")
-    #     return result
 
     def _prepare_ph2(self, root: str) -> Optional[pd.DataFrame]:
         """Prepare PH2 sub-dataset metadata.
