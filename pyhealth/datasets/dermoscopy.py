@@ -145,10 +145,7 @@ class DermoscopyDataset(BaseDataset):
             logger.info("No config path provided, using default config")
             config_path = Path(__file__).parent / "configs" / "dermoscopy.yaml"
 
-        # Prepare unified metadata CSV if it doesn't exist
-        metadata_csv = os.path.join(root, "dermoscopy-metadata-pyhealth.csv")
-        if not os.path.exists(metadata_csv):
-            self.prepare_metadata(root)
+        self.prepare_metadata(root)
 
         default_tables = ["dermoscopy"]
         super().__init__(
